@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-compaction-tool-result-pruner` 防止超大工具输出填满上下文窗口。默认情况下，压缩触发条件满足后，它会把超出预算的文本替换为长度受限的头部、简短的「middle pruned」标记与长度受限的尾部。调用方也可以把一次修剪限制为某个轮次之前的结果；`dsh-compaction-basic` 在主动修剪时使用这种形式，因此当前轮次的新输出保持完整。完整原始结果仍保留在会话日志中，可供精确回放与检查。修剪不发起模型调用，并可能充分缓解 token 压力，使压缩跳过摘要。字符预算只能近似 token 用量；token meter 负责判定压力是否得到缓解。
+`dsh-compaction-tool-result-pruner` 防止超大工具输出填满上下文窗口。默认情况下，压缩触发条件满足后，它会把超出预算的文本替换为长度受限的头部、简短的「middle pruned」标记与长度受限的尾部。调用方也可以把一次修剪限制为其后已有后续 assistant 响应的结果；`dsh-compaction-basic` 在主动修剪时使用这种形式，因此模型尚未消费的工具输出保持完整。完整原始结果仍保留在会话日志中，可供精确回放与检查。修剪不发起模型调用，并可能充分缓解 token 压力，使压缩跳过摘要。字符预算只能近似 token 用量；token meter 负责判定压力是否得到缓解。
 
 ## 目录
 
@@ -57,7 +57,7 @@ kind: "package-reference"
 
 ### 修剪何时运行
 
-默认情况下，`dsh-compaction-basic` 会在压力或溢出确认后、选择要压缩的内容之前调用修剪。该后端启用 `proactiveToolResultPruning` 时，自动 pre-step 检查会先运行按轮次限制的修剪，只处理已完成的较早轮次；当前轮次的新结果保持原样。修剪本身不发起模型调用。
+默认情况下，`dsh-compaction-basic` 会在压力或溢出确认后、选择要压缩的内容之前调用修剪。该后端启用 `proactiveToolResultPruning` 时，自动 pre-step 检查会先运行已消费历史修剪：只有当前 surface 中某个工具结果之后存在后续 assistant 响应，从而证明后续模型请求已消费该结果时，它才符合条件。没有后续 assistant 响应的结果保持原样。修剪本身不发起模型调用。
 
 -----
 
