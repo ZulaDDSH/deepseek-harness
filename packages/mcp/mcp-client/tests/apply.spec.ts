@@ -119,6 +119,23 @@ describe('mcp-client plugin module exports', () => {
     expect(resolved.serverName).toBe('github-prod_1')
   })
 
+  it('Config schema defaults server instructions on and accepts explicit omission', () => {
+    const enabled = ConfigSchema({
+      transport: 'stdio',
+      serverName: 'srv',
+      command: 'echo',
+    } as never)
+    expect(enabled.includeServerInstructions).toBe(true)
+
+    const omitted = ConfigSchema({
+      transport: 'stdio',
+      serverName: 'srv',
+      command: 'echo',
+      includeServerInstructions: false,
+    } as never)
+    expect(omitted.includeServerInstructions).toBe(false)
+  })
+
   it('Config schema preserves static MCP tool filters', () => {
     const resolved = ConfigSchema({
       transport: 'stdio',
@@ -181,7 +198,7 @@ describe('apply (plugin lifecycle)', () => {
       await apply(ctx, {
         ...stdioConfig,
         includeServerInstructions: false,
-      } as Config)
+      })
       expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
       expect(renderPrompt(await ctx.systemPrompt.assemble())).not.toContain('Large server guidance')
       expect(renderPrompt(await ctx.systemPrompt.assemble())).not.toContain('### MCP server:')
