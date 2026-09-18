@@ -24,7 +24,7 @@ const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
 const install = spawnSync(
   pnpm,
   ['add', '--save-exact', '--ignore-scripts', `memorix@${MEMORIX_VERSION}`],
-  { cwd: profileDir, stdio: 'inherit', shell: false },
+  { cwd: profileDir, stdio: 'inherit', shell: process.platform === 'win32' },
 )
 
 if (install.error) fail(`Failed to start pnpm: ${install.error.message}`)
