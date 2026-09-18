@@ -94,6 +94,18 @@ pnpm run start:desktop
 
 Workspace 开发使用 Electron RunAsNode 运行当前 CLI 与私有 Desktop Host 包，插件管理和恢复使用 `$DSH_HOME/profiles/desktop`，与一次性工作区运行时分离。Host 在开发与打包构建中都使用 runtime 模块解析，不创建官方包的 fallback 链接；开发者安装的包（包括链接）保留原生优先级。需要验证 Electron RunAsNode、内置 pnpm、内置 dsh 资源、插件安装和修复时，应运行未封装安装器的应用目录。
 
+### 可选 Memorix 记忆集成
+
+源代码树 Desktop 开发在首次创建 Desktop profile 后，可以将 Memorix 添加到现有 profile：
+
+```sh
+pnpm run setup:memorix:desktop
+```
+
+运行设置命令前先停止 Desktop，完成后重新启动。该助手固定使用 `memorix@1.3.0`，禁用包脚本，使用 Node 内置 SQLite 后端，并通过现有 DSH MCP 客户端以 `lite` 模式启用 Memorix。相同版本已经安装并启用时，重复运行保持幂等。
+
+专用的 `Memorix Desktop smoke` 工作流会验证 Linux 和 Windows 安装、Electron RunAsNode MCP 启动、工具发现、记忆写入、进程重启以及从全新 MCP 进程恢复记忆。Memorix 仍是体验记忆层，不替代已验证的 GARDEN 证据或任务状态。
+
 ## 打包
 
 <a id="release-versions"></a>

@@ -23,7 +23,9 @@ import { DesktopProjectManager } from './project-manager.ts'
 import { DesktopHostProcess, DesktopHostUncleanExitError } from './host-process.ts'
 import { installDesktopDirectoryPicker } from './directory-picker.ts'
 import { DesktopBackendController } from './backend-controller.ts'
-import { DESKTOP_IPC, SCHEME, assertDesktopSender, type DesktopUpdateState } from './ipc.ts'
+import {
+  DESKTOP_IPC, SCHEME, assertDesktopSender, parseDesktopAttentionRequest, type DesktopUpdateState,
+} from './ipc.ts'
 import { formatDesktopMessage, resolveDesktopLocale } from './locale.ts'
 import { claimDesktopSingleInstance } from './single-instance.ts'
 import { DesktopUpdateCoordinator } from './update-coordinator.ts'
@@ -39,6 +41,7 @@ import { DesktopMandatoryUpdateWindow } from './mandatory-update-window.ts'
 import { DesktopPolicyTestAuth } from './policy-test-auth.ts'
 import { DesktopUpdateDialog, type UpdateDialogOptions } from './update-dialog.ts'
 import { readDesktopRuntime } from './runtime-tree.ts'
+import { DesktopSessionAttention } from './session-attention.ts'
 
 let focusPrimaryWindow = (): void => {}
 let stopForRecovery = async (): Promise<void> => {}
@@ -207,6 +210,15 @@ async function main(): Promise<void> {
   const ordinaryDialogs = new Set<AbortController>()
   const locale = resolveDesktopLocale(app.getLocale())
   const messages = locale.messages
+  const sessionAttention = new DesktopSessionAttention(
+    locale,
+    currentMainWindow,
+    (sessionId) => {
+      const window = currentMainWindow()
+      if (window === undefined || window.isDestroyed()) return
+      window.webContents.send(DESKTOP_IPC.attentionActivate, sessionId)
+    },
+  )
   const updateDialog = new DesktopUpdateDialog(fileURLToPath(new URL('./preload-update-dialog.cjs', import.meta.url)), locale)
   const isMandatory = (): boolean => mandatoryPolicy?.state.blocking === true
   const ordinaryMessageBox = async (options: UpdateDialogOptions): Promise<Electron.MessageBoxReturnValue> => {
@@ -454,6 +466,10 @@ async function main(): Promise<void> {
     assertProductSender(event)
     await openUpdatePrompt()
   })
+  ipcMain.handle(DESKTOP_IPC.attentionNotify, (event, request: unknown) => {
+    assertProductSender(event)
+    sessionAttention.notify(parseDesktopAttentionRequest(request))
+  })
 
   let promptOperation: Promise<void> | undefined
   let policyAuthenticationQueued = false
@@ -570,6 +586,7 @@ async function main(): Promise<void> {
   }
   powerMonitor.on('resume', automaticCheck)
   app.on('will-quit', () => {
+    sessionAttention.dispose()
     updateSchedule.dispose()
     powerMonitor.off('resume', automaticCheck)
     updates.dispose()

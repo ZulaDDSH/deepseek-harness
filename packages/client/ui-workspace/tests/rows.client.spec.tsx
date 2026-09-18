@@ -7,6 +7,7 @@ import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { RowDragProps } from '../src/client/rows/Rows.tsx'
 import { ProjectRowItem, SearchResultItem, SessionNodeItem } from '../src/client/rows/Rows.tsx'
+import { sessionStatuses } from '../src/client/rows/SessionStatus.tsx'
 import type { GroupNode, SearchResultNode, SessionNode } from '../src/client/tree.ts'
 import { zh } from '../src/client/locales.ts'
 
@@ -57,6 +58,25 @@ function fireDrag(row: HTMLElement, kind: 'dragOver' | 'drop', clientY: number):
 }
 
 describe('workspace browser rows', () => {
+  it('shows an unacknowledged failure ahead of pending, running, and completed states', () => {
+    expect(sessionStatuses({
+      failed: true,
+      pendingInteraction: 'question',
+      running: true,
+      runningSubagentCount: 2,
+      completed: true,
+    }, t)).toEqual([{ state: 'error', label: '失败' }])
+  })
+
+  it('rejects an unknown pending interaction discriminator', () => {
+    expect(() => sessionStatuses({
+      pendingInteraction: 'unknown' as never,
+      running: false,
+      runningSubagentCount: 0,
+      completed: false,
+    }, t)).toThrow('unknown pending interaction')
+  })
+
   it('omits only an empty leading status slot in the hierarchy-free flat list', () => {
     const idle: SessionNode = {
       id: sid('flat'), title: 'Flat Session', blank: false, running: false,
@@ -165,11 +185,12 @@ describe('workspace browser rows', () => {
     expect(row.getAttribute('aria-selected')).toBe('true')
     expect(row.hasAttribute('aria-expanded')).toBe(false)
     expect(screen.queryByRole('button', { name: /展开|收起/ })).toBeNull()
+    expect(screen.getByText('进行中').className).toMatch(/statusLabel/)
     fireEvent.click(row)
     expect(onOpen).toHaveBeenCalledWith(node.id)
   })
 
-  it('reveals a clipped session title by scrolling it while the row is hovered', () => {
+  it('keeps a clipped session title stable while the row is hovered', () => {
     const node: SessionNode = {
       id: sid('clipped'), title: 'A Session Title Long Enough To Be Clipped (1)', blank: false,
       running: false, runningSubagentCount: 0, completed: false, hasActiveSchedule: false, updatedAt: 0,
@@ -180,43 +201,13 @@ describe('workspace browser rows', () => {
     )
     const row = screen.getByRole('treeitem')
     const title = screen.getByText(node.title)
-    // jsdom lays out nothing: the title's clipped geometry is stated outright.
-    const geometry = (scrollWidth: number, clientWidth: number): void => {
-      Object.defineProperty(title, 'scrollWidth', { value: scrollWidth, configurable: true })
-      Object.defineProperty(title, 'clientWidth', { value: clientWidth, configurable: true })
-    }
+    Object.defineProperty(title, 'scrollWidth', { value: 320, configurable: true })
+    Object.defineProperty(title, 'clientWidth', { value: 180, configurable: true })
 
-    geometry(320, 180)
-    fireEvent.pointerEnter(row)
-    expect(title.scrollLeft).toBe(140)
-    fireEvent.pointerLeave(row)
-    expect(title.scrollLeft).toBe(0)
-
-    // A title that fits has no scroll range: hovering leaves it at its start.
-    geometry(180, 180)
     fireEvent.pointerEnter(row)
     expect(title.scrollLeft).toBe(0)
-  })
-
-  it('returns a revealed title to its start in one step', () => {
-    const node: SessionNode = {
-      id: sid('instant-return'), title: 'A Session Title Long Enough To Be Clipped (1)', blank: false,
-      running: false, runningSubagentCount: 0, completed: false, hasActiveSchedule: false, updatedAt: 0,
-    }
-    render(
-      <SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
-        onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />,
-    )
-    const row = screen.getByRole('treeitem')
-    const title = screen.getByText(node.title)
-    const scrollTo = vi.fn()
-    Object.defineProperty(title, 'scrollTo', { value: scrollTo, configurable: true })
-
-    fireEvent.pointerEnter(row)
     fireEvent.pointerLeave(row)
-    // Browsers receive the explicit instant behavior that the stylesheet's
-    // smooth scroll-behavior would otherwise override.
-    expect(scrollTo).toHaveBeenCalledWith({ left: 0, behavior: 'instant' })
+    expect(title.scrollLeft).toBe(0)
   })
 
   it('keeps the active-Schedule marker between the title and time in grouped and flat rows', () => {

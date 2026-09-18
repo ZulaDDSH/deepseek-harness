@@ -24,10 +24,12 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: pulls the Session root standard-hook merge.
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type { WorkspaceBrowserInjected, WorkspacePickerInjected } from './contract/slots.ts'
+import { DesktopAttentionSource, type DesktopAttentionBridge } from './desktop-attention.ts'
 import { UiWorkspaceService } from './navigation.ts'
 import { createWorkspaceViewStore } from './stores.ts'
 import { WorkspaceBrowser } from './rows/WorkspaceBrowser.tsx'
 import { WorkspacePicker } from './WorkspacePicker.tsx'
+import { QuickSwitcher, type QuickSwitcherInjected } from './QuickSwitcher.tsx'
 import { en, zh, type WorkspaceKey } from './locales.ts'
 
 export type { UiWorkspace } from './navigation.ts'
@@ -67,7 +69,7 @@ const NS = 'workspace'
  * declaration through `slots.inject()` instead of assuming order.
  */
 export const inject = [
-  'slots', 'sessions', 'workspaces', 'locale', 'remote', 'remote.directoryPicker', 'layout',
+  'slots', 'sessions', 'workspaces', 'locale', 'remote', 'remote.directoryPicker', 'layout', 'uiSession', 'commandUi',
 ]
 
 /**
@@ -79,8 +81,24 @@ export const inject = [
 export function apply(ctx: Context): void {
   const sessions = ctx.get('sessions') as ISessions
   const workspaces = ctx.get('workspaces') as IWorkspaces
+  const commandUi = ctx.get('commandUi') as {
+    quickCommands: QuickSwitcherInjected['quickCommands']
+    runQuick: QuickSwitcherInjected['runQuick']
+  }
   const uiWorkspace = new UiWorkspaceService(
     ctx, ctx.remote.directoryPicker, workspaces, sessions)
+  const carrier = (globalThis as typeof globalThis & {
+    dshDesktop?: { protocolVersion: number; attention?: DesktopAttentionBridge }
+  }).dshDesktop
+  if (carrier?.protocolVersion === 1 && carrier.attention !== undefined) {
+    const desktopAttention = new DesktopAttentionSource(
+      ctx.uiSession.sessionStatus,
+      sessions.list,
+      carrier.attention,
+      (sessionId) => { uiWorkspace.openSession(sessionId) },
+    )
+    ctx.effect(() => () => { desktopAttention.dispose() }, 'ui-workspace: desktop attention')
+  }
   ctx.slots.provideRoot({ hooks: { workspaces: workspaces.list } })
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-workspace: dictionaries')
 
@@ -141,6 +159,20 @@ export function apply(ctx: Context): void {
   })
   // Each registration declares its directory-flow child in the same call;
   // slot injection follows both the owner and declaration HMR lifetimes.
+  const quickInjected = (): QuickSwitcherInjected => ({
+    openSession: (sessionId) => { uiWorkspace.openSession(sessionId) },
+    openWorkspace: workspaceId => uiWorkspace.openWorkspace(workspaceId),
+    quickCommands: (sessionId, query, signal) => commandUi.quickCommands(sessionId, query, signal),
+    runQuick: (sessionId, name) => commandUi.runQuick(sessionId, name),
+  })
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+    name: 'shell.overlay',
+    id: 'workspace-quick-switcher',
+    order: 10,
+    locale: NS,
+    inject: quickInjected,
+  }, QuickSwitcher))
+
   ctx.slots.inject('sidebar.workspaces', () => ctx.slots.register(
     {
       name: 'sidebar.workspaces',

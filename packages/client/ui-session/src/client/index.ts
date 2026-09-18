@@ -62,6 +62,8 @@ export interface SessionStatus {
   readonly pendingInteraction: SessionPendingInteraction | undefined
   /** Whether an observed stop outside the main view still needs acknowledgement. */
   readonly completionUnread: boolean
+  /** Whether a background runtime failure still needs acknowledgement. */
+  readonly failureUnread?: boolean
 }
 
 /** Current UI status indexed by Session identity. */
@@ -282,6 +284,7 @@ export class UiSession extends Service {
   private pendingSnapshot: ReadonlyMap<SessionId, SessionPendingInteractionBase> = new Map()
   private readonly running = new Map<SessionId, boolean>()
   private readonly completionUnread = new Set<SessionId>()
+  private readonly failureUnread = new Set<SessionId>()
   private statusSnapshot: SessionStatusSnapshot = new Map()
   private readonly statusListeners = new Set<() => void>()
   private mainRetainId: SessionId | undefined
@@ -321,6 +324,10 @@ export class UiSession extends Service {
       const disposeRemoteStatus = ctx.remote.$on('api-session/status', (sessionId, running) => {
         this.observeRunning(sessionId, running)
       })
+      const disposeRemoteError = ctx.remote.$on('api-session/error', (sessionId) => {
+        if (!this.isMain(sessionId)) this.failureUnread.add(sessionId)
+        this.publishStatus()
+      })
       this.publishMain()
       this.reconcileStatus()
       return () => {
@@ -328,6 +335,7 @@ export class UiSession extends Service {
         disposeList()
         disposeStatus()
         disposeRemoteStatus()
+        disposeRemoteError()
         this.disposeMainRetain()
         const records = [...this.bindings.values]
         this.bindings.clear()
@@ -483,7 +491,10 @@ export class UiSession extends Service {
     const previous = this.running.get(sessionId)
     const beforeBaseline = this.sessions.list.getSnapshot().phase === 'pending'
     this.running.set(sessionId, running)
-    if (running) this.completionUnread.delete(sessionId)
+    if (running) {
+      this.completionUnread.delete(sessionId)
+      this.failureUnread.delete(sessionId)
+    }
     else if ((previous === true || (previous === undefined && beforeBaseline))
       && !this.isMain(sessionId)) this.completionUnread.add(sessionId)
     this.publishStatus()
@@ -498,13 +509,17 @@ export class UiSession extends Service {
       const previous = this.running.get(id)
       if (previous === undefined) this.running.set(id, row.running)
       else if (previous !== row.running) this.observeRunning(id, row.running)
-      if ((row.retainedBy.mainView ?? 0) > 0) this.completionUnread.delete(id)
+      if ((row.retainedBy.mainView ?? 0) > 0) {
+        this.completionUnread.delete(id)
+        this.failureUnread.delete(id)
+      }
     }
     if (list.phase === 'ready') {
       for (const id of this.running.keys()) {
         if (present.has(id)) continue
         this.running.delete(id)
         this.completionUnread.delete(id)
+        this.failureUnread.delete(id)
       }
     }
     this.publishStatus()
@@ -520,6 +535,7 @@ export class UiSession extends Service {
       ...this.running.keys(),
       ...this.pendingSnapshot.keys(),
       ...this.completionUnread,
+      ...this.failureUnread,
     ])
     const next = new Map<SessionId, SessionStatus>()
     for (const id of ids) {
@@ -527,6 +543,7 @@ export class UiSession extends Service {
         running: this.running.get(id),
         pendingInteraction: this.pendingSnapshot.get(id),
         completionUnread: this.completionUnread.has(id),
+        ...(this.failureUnread.has(id) ? { failureUnread: true } : {}),
       })
     }
     if (sameSessionStatus(this.statusSnapshot, next)) return
@@ -685,7 +702,8 @@ function sameSessionStatus(left: SessionStatusSnapshot, right: SessionStatusSnap
     if (candidate === undefined
       || candidate.running !== status.running
       || candidate.pendingInteraction !== status.pendingInteraction
-      || candidate.completionUnread !== status.completionUnread) return false
+      || candidate.completionUnread !== status.completionUnread
+      || candidate.failureUnread !== status.failureUnread) return false
   }
   return true
 }
