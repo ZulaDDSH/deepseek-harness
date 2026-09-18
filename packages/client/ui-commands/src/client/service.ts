@@ -149,6 +149,10 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
   /**
    * List directly executable command rows for the root quick switcher.
    * Host commands requiring arguments are omitted so no unsent draft is replaced.
+   * @param sessionId - Session whose command directory should be searched.
+   * @param query - current palette query.
+   * @param signal - cancellation for superseded palette searches.
+   * @returns directly executable command rows in search order.
    */
   async quickCommands(sessionId: SessionId, query: string, signal: AbortSignal): Promise<readonly QuickCommand[]> {
     const session: ClientSessionContext = { sessionId }
@@ -180,7 +184,12 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
     return query === '' ? rows : rankByName(rows, query)
   }
 
-  /** Run one quick-switcher command without writing into the composer draft. */
+  /**
+   * Run one quick-switcher command without writing into the composer draft.
+   * @param sessionId - Session whose command should run.
+   * @param name - command name without the leading slash.
+   * @returns true when the command was admitted, false when it became unavailable.
+   */
   runQuick(sessionId: SessionId, name: string): boolean {
     const session: ClientSessionContext = { sessionId }
     const contribution = this.live.contributions.get(name)
