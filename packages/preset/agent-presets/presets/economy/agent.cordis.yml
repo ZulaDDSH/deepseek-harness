@@ -93,6 +93,8 @@
 
 - id: tool-skill
   name: '@deepseek-ai/dsh-tool-skill'
+  config:
+    catalogDescriptionMaxLength: 240
 
 # ── goals ───────────────────────────────────────────────────────────────────
 
