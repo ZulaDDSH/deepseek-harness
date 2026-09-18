@@ -1,6 +1,8 @@
 import { useEffect } from 'react'
 
-/** Accept native drops while a workspace row drag is active. */
+/** Accept native drops while a workspace row drag is active.
+ * @param active - whether the workspace row drag is active.
+ */
 export function useNativeDragAcceptance(active: boolean): void {
   useEffect(() => {
     if (!active) return
