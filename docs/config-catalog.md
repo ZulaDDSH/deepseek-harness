@@ -1722,7 +1722,7 @@ export interface StreamableHttpConfig {
 
 /** Raw-name filter applied to one MCP server's discovered tool catalog. */
 export interface ToolFilterConfig {
-  /** When present, only these raw MCP tool names are eligible for registration. */
+  /** Non-empty raw-name allow list; an omitted or empty list leaves tools unrestricted before deny filtering. */
   allow?: string[]
   /** Raw MCP tool names excluded after the optional allow list is applied. */
   deny?: string[]
