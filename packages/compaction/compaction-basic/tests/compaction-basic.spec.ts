@@ -845,7 +845,7 @@ describe('optional model-free tool-result pruning', () => {
     expect(session.surface.replaceGeneration).toBe(0)
   })
 
-  it('prunes oversized tool results below pressure when proactive pruning is enabled', async () => {
+  it('proactively prunes oversized tool results below pressure when enabled', async () => {
     const ctx = createContext(10_000)
     void new ToolResultPruner(ctx, pruneConfig)
     const compact = new TestCompactionEngine(ctx, {
