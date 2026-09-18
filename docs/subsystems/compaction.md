@@ -256,7 +256,7 @@ pruneContent(blocks: readonly ContentBlock[]): ContentBlock[] | null
 pruneSession(session: Session, options: PruneSessionOptions = {}): PruneResult
 ```
 
-Types: [ContentBlock](llm-streaming.md) · [PruneSessionOptions](compaction.md) · [Session](session.md)
+Types: [ContentBlock](llm-streaming.md) · [Session](session.md)
 
 Source: [`packages/compaction/compaction-tool-result-pruner/src/index.ts`](../../packages/compaction/compaction-tool-result-pruner/src/index.ts)
 
