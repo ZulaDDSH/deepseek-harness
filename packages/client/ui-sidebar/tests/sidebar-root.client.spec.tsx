@@ -96,6 +96,23 @@ function mountShell({ collapsed = false, width = 300 }: { collapsed?: boolean; w
 }
 
 describe('SidebarRoot shell', () => {
+  it('uses the rail toggle as the direct Focus-mode exit', () => {
+    const toggleFocus = vi.fn()
+    const toggleSidebar = vi.fn()
+    render(<SidebarRoot
+      collapsed focusMode toggleFocus={toggleFocus} width={56}
+      useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
+      usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])}
+      useResource={useResource} useWorkspaces={neverHook}
+      startSession={vi.fn()} toggleSidebar={toggleSidebar} t={t}
+      renderSlot={(() => null) as SidebarRootComponentProps['renderSlot']}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Exit focus mode' }))
+    expect(toggleFocus).toHaveBeenCalledOnce()
+    expect(toggleSidebar).not.toHaveBeenCalled()
+  })
+
   it('routes New Session (capsule + wordmark) and the column toggle', () => {
     const b = mountShell()
     expect(screen.getByTestId('custom-brand-mark')).toBeTruthy()
