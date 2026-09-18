@@ -27,7 +27,10 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          if [ -f .github/issue-management/selective-preflight.json ]; then
+          if [ "${{ github.event.repository.fork }}" = "true" ]; then
+            printf 'eligible=false\nexempt=true\nneeds-project=false\nlegacy-automated=true\n' >> "$GITHUB_OUTPUT"
+            echo "Issue policy exempt: fork repositories do not share upstream Project governance."
+          elif [ -f .github/issue-management/selective-preflight.json ]; then
             node .github/issue-management/policy.mjs pr-preflight
           else
             node --input-type=module <<'NODE'
