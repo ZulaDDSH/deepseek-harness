@@ -430,6 +430,7 @@ describe('WorkspaceBrowser', () => {
 
   it('groups attention, live work, and recent completion in Activity view', () => {
     const attentionId = sid('attention')
+    const failedId = sid('failed')
     const runningId = sid('running')
     const delegatedId = sid('delegated')
     const completedId = sid('completed')
@@ -440,13 +441,15 @@ describe('WorkspaceBrowser', () => {
         pendingInteraction: { key: 'question', kind: 'question', sessionId: attentionId } as never,
         completionUnread: false,
       }],
+      [failedId, { running: false, pendingInteraction: undefined, completionUnread: false, failureUnread: true }],
       [runningId, { running: true, pendingInteraction: undefined, completionUnread: false }],
       [delegatedId, { running: false, pendingInteraction: undefined, completionUnread: false }],
       [completedId, { running: false, pendingInteraction: undefined, completionUnread: true }],
       [idleId, { running: false, pendingInteraction: undefined, completionUnread: false }],
     ])
     const sessions = sessionState([
-      summary('attention', 5),
+      summary('attention', 6),
+      summary('failed', 5),
       summary('running', 4),
       summary('delegated', 3),
       summary('child', 2, { origin: 'subagent', parentId: delegatedId, running: true }),
@@ -454,7 +457,8 @@ describe('WorkspaceBrowser', () => {
       summary('idle', 0),
     ], {
       byId: {
-        [attentionId]: summary('attention', 5),
+        [attentionId]: summary('attention', 6),
+        [failedId]: summary('failed', 5),
         [runningId]: summary('running', 4),
         [delegatedId]: summary('delegated', 3),
         [sid('child')]: summary('child', 2, { origin: 'subagent', parentId: delegatedId, running: true }),
@@ -469,6 +473,7 @@ describe('WorkspaceBrowser', () => {
 
     expect(b.store.getSnapshot().groupBy).toBe('activity')
     expect(screen.getByRole('group', { name: '需要处理' }).textContent).toContain('attention')
+    expect(screen.getByRole('group', { name: '需要处理' }).textContent).toContain('failed')
     expect(screen.getByRole('group', { name: '进行中' }).textContent).toContain('running')
     expect(screen.getByRole('group', { name: '进行中' }).textContent).toContain('delegated')
     expect(screen.getByRole('group', { name: '最近完成' }).textContent).toContain('completed')
