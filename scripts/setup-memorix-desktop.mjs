@@ -1,10 +1,10 @@
-import { existsSync, readFileSync, appendFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { hasMemorixEntry, mergeMemorixPatch } from './setup-memorix-desktop-lib.mjs'
 
 const MEMORIX_VERSION = '1.3.0'
-const MEMORY_ENTRY_ID = 'memory-memorix'
 
 function fail(message) {
   process.stderr.write(`${message}\n`)
@@ -17,7 +17,7 @@ const manifestPath = join(profileDir, 'package.json')
 const patchPath = join(profileDir, 'cordis.patch.yml')
 
 if (!existsSync(manifestPath)) {
-  fail(`Desktop profile not found at ${profileDir}. Launch DSH Desktop once, then rerun this setup.`)
+  fail(`Desktop profile not found at ${profileDir}. Launch DSH Desktop once, stop it, then rerun this setup.`)
 }
 
 const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
@@ -36,26 +36,10 @@ if (!existsSync(cliPath)) {
 }
 
 const currentPatch = existsSync(patchPath) ? readFileSync(patchPath, 'utf8') : ''
-if (new RegExp(`(^|\\n)\\s*-?\\s*id:\\s*${MEMORY_ENTRY_ID}(\\s|$)`, 'u').test(currentPatch)) {
-  process.stdout.write('Memorix is already enabled in the Desktop profile.\n')
+if (hasMemorixEntry(currentPatch)) {
+  process.stdout.write(`Memorix ${MEMORIX_VERSION} is installed and already enabled in the Desktop profile.\n`)
   process.exit(0)
 }
 
-const separator = currentPatch.length === 0 || currentPatch.endsWith('\n') ? '' : '\n'
-const patch = `${separator}- insert:
-    - id: ${MEMORY_ENTRY_ID}
-      name: '@deepseek-ai/dsh-mcp-client'
-      config:
-        serverName: memorix
-        transport: stdio
-        command: !!js process.execPath
-        args:
-          - ${JSON.stringify(cliPath)}
-          - serve
-        env:
-          ELECTRON_RUN_AS_NODE: "1"
-        cwd: !!js process.cwd()
-`
-
-appendFileSync(patchPath, patch, 'utf8')
+writeFileSync(patchPath, mergeMemorixPatch(currentPatch, cliPath), 'utf8')
 process.stdout.write(`Installed memorix@${MEMORIX_VERSION} and enabled it for the Desktop profile. Restart DSH Desktop to load memory tools.\n`)
