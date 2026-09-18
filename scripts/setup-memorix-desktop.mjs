@@ -23,7 +23,7 @@ if (!existsSync(manifestPath)) {
 const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
 const install = spawnSync(
   pnpm,
-  ['add', '--save-exact', `memorix@${MEMORIX_VERSION}`],
+  ['add', '--save-exact', '--ignore-scripts', `memorix@${MEMORIX_VERSION}`],
   { cwd: profileDir, stdio: 'inherit', shell: false },
 )
 
