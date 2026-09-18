@@ -20,13 +20,13 @@ concurrency:
 
 jobs:
 
-  # Three enterprise jobs isolate coverage, static analysis, and the
-  # build-backed consumer tail. The consumer job owns the only Linux build so
-  # all three jobs enter runner allocation independently.
+  # Three jobs isolate coverage, static analysis, and the build-backed
+  # consumer tail. Public-repository PRs default to GitHub-hosted runners;
+  # repository variables can still opt into the existing failover pools.
   #
-  # FAILOVER (Linux): each Linux enterprise job resolves its pool through the
+  # FAILOVER (Linux): each Linux job resolves its pool through the
   # DSH_CI_FAILOVER_LINUX repository variable. Unset (normal), the expressions
-  # pick the hosted enterprise pools below. Setting the variable to
+  # pick GitHub-hosted runners below. Setting the variable to
   # 'selfhosted' (repo Settings → Actions → Variables; writer-manageable
   # repository state — not PR-editable, no merge required) retargets all
   # three onto the in-house
@@ -46,6 +46,7 @@ jobs:
           || vars.DSH_CI_FAILOVER_LINUX == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
+          || github.repository != 'deepseek-ai/deepseek-harness' && 'ubuntu-latest'
           || 'dsh-ubuntu-24-04-16core' }}
     name: node 24 / static
     env:
@@ -113,6 +114,7 @@ jobs:
           || vars.DSH_CI_FAILOVER_LINUX == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
+          || github.repository != 'deepseek-ai/deepseek-harness' && 'ubuntu-latest'
           || 'dsh-ubuntu-24-04-16core' }}
     name: node 24 / coverage
     env:
@@ -243,6 +245,7 @@ jobs:
           || vars.DSH_CI_FAILOVER_LINUX == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
+          || github.repository != 'deepseek-ai/deepseek-harness' && 'ubuntu-latest'
           || 'dsh-ubuntu-24-04-16core' }}
     name: node 24 / snapshots and artifacts
     env:
@@ -495,8 +498,8 @@ jobs:
   # monolithic windows-native job is split into smaller jobs so one slow
   # coverage gate does not hold up build/static results, while the total
   # per-job process count stays lower. Observational checks are non-blocking.
-  # Dependabot PRs are excluded from the self-hosted pool and stay queued for
-  # the hosted runner.
+  # Dependabot PRs are excluded from the self-hosted pool and stay on the
+  # GitHub-hosted runner.
   windows-build:
     if: github.event_name == 'pull_request'
     runs-on: >-
@@ -504,6 +507,7 @@ jobs:
           || vars.DSH_CI_FAILOVER_WINDOWS == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "dsh-win-ci", "windows"]')
+          || github.repository != 'deepseek-ai/deepseek-harness' && 'windows-latest'
           || 'dsh-windows-2025-16core' }}
     name: windows node 24 / build
     timeout-minutes: 60
@@ -549,6 +553,7 @@ jobs:
           || vars.DSH_CI_FAILOVER_WINDOWS == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "dsh-win-ci", "windows"]')
+          || github.repository != 'deepseek-ai/deepseek-harness' && 'windows-latest'
           || 'dsh-windows-2025-16core' }}
     name: windows node 24 / coverage
     timeout-minutes: 120
@@ -626,6 +631,7 @@ jobs:
           || vars.DSH_CI_FAILOVER_WINDOWS == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "dsh-win-ci", "windows"]')
+          || github.repository != 'deepseek-ai/deepseek-harness' && 'windows-latest'
           || 'dsh-windows-2025-16core' }}
     name: windows node 24 / native tests
     timeout-minutes: 60
@@ -676,6 +682,7 @@ jobs:
           || vars.DSH_CI_FAILOVER_WINDOWS == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "dsh-win-ci", "windows"]')
+          || github.repository != 'deepseek-ai/deepseek-harness' && 'windows-latest'
           || 'dsh-windows-2025-16core' }}
     name: windows node 24 / observational
     timeout-minutes: 60

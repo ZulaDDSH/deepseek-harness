@@ -144,6 +144,11 @@
   overflow: visible;
 }
 
+.frame[data-focus-mode] .rightbarCol {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .overlayLayer {
   position: absolute;
   inset: 0;

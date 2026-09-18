@@ -47,7 +47,7 @@ function mountShell({ collapsed = false, width = 300 }: { collapsed?: boolean; w
   let current = { collapsed, width }
   const root = () => (
     <SidebarRoot
-      collapsed={current.collapsed} width={current.width}
+      collapsed={current.collapsed} focusMode={false} toggleFocus={vi.fn()} width={current.width}
       useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
       usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])}
       useResource={useResource} useWorkspaces={neverHook}
@@ -96,6 +96,23 @@ function mountShell({ collapsed = false, width = 300 }: { collapsed?: boolean; w
 }
 
 describe('SidebarRoot shell', () => {
+  it('uses the rail toggle as the direct Focus-mode exit', () => {
+    const toggleFocus = vi.fn()
+    const toggleSidebar = vi.fn()
+    render(<SidebarRoot
+      collapsed focusMode toggleFocus={toggleFocus} width={56}
+      useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
+      usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])}
+      useResource={useResource} useWorkspaces={neverHook}
+      startSession={vi.fn()} toggleSidebar={toggleSidebar} t={t}
+      renderSlot={(() => null) as SidebarRootComponentProps['renderSlot']}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Exit focus mode' }))
+    expect(toggleFocus).toHaveBeenCalledOnce()
+    expect(toggleSidebar).not.toHaveBeenCalled()
+  })
+
   it('routes New Session (capsule + wordmark) and the column toggle', () => {
     const b = mountShell()
     expect(screen.getByTestId('custom-brand-mark')).toBeTruthy()
@@ -114,7 +131,7 @@ describe('SidebarRoot shell', () => {
     vi.stubEnv('DSH_CLIENT_GIT_DIRTY', 'true')
     vi.stubEnv('DSH_CLIENT_VERSION', '1.2.3-rc.4')
     const { container } = render(<SidebarRoot
-      collapsed={false} width={300}
+      collapsed={false} focusMode={false} toggleFocus={vi.fn()} width={300}
       useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
       usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])}
       useResource={useResource} useWorkspaces={neverHook}
@@ -134,7 +151,7 @@ describe('SidebarRoot shell', () => {
   ])('omits unavailable build-version suffixes from %j', (environment, expected) => {
     for (const [name, value] of Object.entries(environment)) vi.stubEnv(name, value)
     render(<SidebarRoot
-      collapsed={false} width={300}
+      collapsed={false} focusMode={false} toggleFocus={vi.fn()} width={300}
       useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
       usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])}
       useResource={useResource} useWorkspaces={neverHook}
@@ -149,7 +166,7 @@ describe('SidebarRoot shell', () => {
 
   it('retains the local-build fallback without complete build metadata', () => {
     render(<SidebarRoot
-      collapsed={false} width={300}
+      collapsed={false} focusMode={false} toggleFocus={vi.fn()} width={300}
       useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
       usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])}
       useResource={useResource} useWorkspaces={neverHook}
@@ -196,7 +213,7 @@ describe('SidebarRoot shell', () => {
   it('shows only the badge bubble while the rail badge is hovered inside the toggle', () => {
     vi.useFakeTimers()
     render(<SidebarRoot
-      collapsed width={56}
+      collapsed focusMode={false} toggleFocus={vi.fn()} width={56}
       useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
       usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])}
       useResource={useResource} useWorkspaces={neverHook}
