@@ -143,11 +143,14 @@ export class BasicCompactionEngine extends CompactionEngine {
     }
 
     ctx.on('agent/pre-step', async (
-      { agent, signal },
+      { agent, turn, signal },
       next,
     ): Promise<PreStepDecision> => {
       if (!signal.aborted) {
         try {
+          if (this.config.proactiveToolResultPruning) {
+            this.ctx.get('toolResultPruner')?.pruneSession(agent.session, { beforeTurn: turn })
+          }
           const result = await this.compactIfNeeded(agent, 'pressure', signal)
           if (result !== null) logResult(result, 'step pressure')
         } catch (error: unknown) {
@@ -299,16 +302,11 @@ export class BasicCompactionEngine extends CompactionEngine {
       )
     }
     const spec = resolveCompactSpec(policy, context.contextWindow)
-    const proactivePrune = this.config.proactiveToolResultPruning && prune !== undefined
-    if (proactivePrune) {
-      const pruned = prune.pruneSession(agent.session)
-      if (pruned.pruned.length > 0) measurement = meter.measure(agent.session)
-    }
     if (measurement.totalTokens < spec.thresholdTokens) return null
 
     // Once pressure qualifies, land the model-free pass before choosing a
     // summary range, then remeasure through the singleton replay fold.
-    if (prune !== undefined && !proactivePrune) {
+    if (prune !== undefined) {
       prune.pruneSession(agent.session)
       measurement = meter.measure(agent.session)
     }
