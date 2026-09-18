@@ -60,6 +60,7 @@ Add one entry per server; nothing else is required. After the harness starts, th
 | `url` / `headers` | — | streamable-http: endpoint URL and extra request headers |
 | `toolCallTimeoutMs` | `60,000` | Timeout per `tools/call` or resource request |
 | `maxInstructionBytes` | `32,768` | Maximum UTF-8 bytes of server instructions including attribution; an oversized value rejects the connection |
+| `includeServerInstructions` | `true` | Publish nonblank server instructions into the system prompt; set `false` to omit that repeated prompt text. |
 | `toolFilter.allow` | — | Optional exact raw-name allow list; when present, only listed MCP tools can register. |
 | `toolFilter.deny` | — | Exact raw-name deny list applied after the optional allow list. |
 | `failOnStartupError` | `false` | Reject plugin activation when the initial connection or tool synchronization fails |
@@ -71,6 +72,8 @@ Add one entry per server; nothing else is required. After the harness starts, th
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-mcp-client) is the exhaustive source for every accepted field.
 
 Use a static `toolFilter` when a server publishes many tools but the agent needs only a stable subset. Filtering matches the server's raw MCP names before public-name normalization. A static subset removes the excluded tool descriptions and input schemas from every model request while keeping the remaining request prefix stable for cache reuse.
+
+Set `includeServerInstructions: false` only when the deployment does not need the server-provided guidance. Omitted instructions do not enter the system prompt and do not consume the `maxInstructionBytes` budget; tools and resources remain connected.
 
 After startup, the server's tools appear as `mcp__<serverName>__<tool>` — try a prompt that uses one. If the initial connection fails, the harness still starts but no tools from that server appear, and an error is logged. Setting `failOnStartupError: true` rejects plugin activation; [app-boot's startup policy](../../boot/app-boot/README.md) still permits an optional MCP entry to fail without aborting the harness.
 
@@ -194,11 +197,11 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 #### What the model sees
 
-One server-labeled section contains the nonblank instructions returned by each successful connection. Absent or blank instructions add no prompt text. Braces remain literal. A replacement connection publishes its instructions only after discovery succeeds; disposal or exhausted recovery removes the section.
+When `includeServerInstructions` is enabled, one server-labeled section contains the nonblank instructions returned by each successful connection. Disabled, absent, or blank instructions add no prompt text. Braces remain literal. A replacement connection publishes its instructions only after discovery succeeds; disposal or exhausted recovery removes the section.
 
 #### Token effect
 
-Server instructions contribute text to model requests while their scoped section is active. Resource documents enter history only through explicit resource reads.
+Server instructions contribute text to model requests while their scoped section is active; with `includeServerInstructions: false` their token cost is zero. Resource documents enter history only through explicit resource reads.
 
 #### KV Cache effect
 
@@ -211,6 +214,7 @@ Unchanged instructions retain identical prompt text. Updated or removed instruct
 
 These limits describe what you cannot do with this plugin and when it needs operational attention. They are current package constraints, not a comparison with other MCP clients or a task backlog.
 
+- **Instruction omission is all-or-nothing per server** — `includeServerInstructions: false` removes the complete server instruction section; it does not selectively keep individual paragraphs.
 - **Tool filtering is exact-name only** — `toolFilter` matches raw MCP names with no glob or regex expansion; changing the filter requires a configuration reload and therefore intentionally changes the model-visible tool prefix.
 - **Resources are read on demand** — shipped profiles provide the [shared resource service](../mcp-resources/README.md); resource subscriptions and MCP prompt templates are unsupported.
 - **Startup and discovery timeouts are inherited from the MCP SDK** — the plugin exposes no separate connection or discovery timeout. Negotiation and discovery use the SDK's 60-second request default; discovery also uses its page limit. Plugin unload closes the transport to interrupt pending startup requests before awaiting teardown.
