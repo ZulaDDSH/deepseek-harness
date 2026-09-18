@@ -52,15 +52,22 @@ export interface DesktopUpdatePresentation {
   readonly failure?: DesktopUpdateFailureKind
 }
 
+/** Native-notification category produced by the renderer's Session attention projection. */
 export type DesktopAttentionKind = 'approval' | 'plan-review' | 'question' | 'completed' | 'failed'
 
+/** Bounded renderer request for one native Session notification. */
 export interface DesktopAttentionRequest {
   readonly sessionId: string
   readonly title: string
   readonly kind: DesktopAttentionKind
 }
 
-/** Validate one product-renderer attention request before native presentation. */
+/**
+ * Validate one product-renderer attention request before native presentation.
+ * @param value - untrusted IPC payload from the product renderer.
+ * @returns the bounded semantic attention request.
+ * @throws when identity, title, or kind is invalid.
+ */
 export function parseDesktopAttentionRequest(value: unknown): DesktopAttentionRequest {
   if (typeof value !== 'object' || value === null) throw new Error('dsh desktop: invalid attention request')
   const request = value as Record<string, unknown>
