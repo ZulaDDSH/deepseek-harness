@@ -175,6 +175,22 @@ describe('apply (plugin lifecycle)', () => {
     ctx = await mountRegistry()
   })
 
+  it('can omit nonblank MCP server instructions while keeping tools available', async () => {
+    const spy = vi.spyOn(MockClient.prototype, 'getInstructions').mockReturnValue('Large server guidance')
+    try {
+      await apply(ctx, {
+        ...stdioConfig,
+        includeServerInstructions: false,
+      } as Config)
+      expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
+      expect(renderPrompt(await ctx.systemPrompt.assemble())).not.toContain('Large server guidance')
+      expect(renderPrompt(await ctx.systemPrompt.assemble())).not.toContain('### MCP server:')
+    } finally {
+      spy.mockRestore()
+      await ctx.fiber.dispose()
+    }
+  })
+
   it.each([undefined, '', ' \n\t'])(
     'connects without attributed prompt text when server instructions are absent or blank (%j)', async (instructions) => {
       const spy = vi.spyOn(MockClient.prototype, 'getInstructions').mockReturnValue(instructions)
