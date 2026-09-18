@@ -100,6 +100,24 @@ export interface ConnectionOutcome {
   error?: unknown
 }
 
+/**
+ * Best-effort SIGKILL for a stdio child whose transport never reported
+ * closure. The SDK abandons its close wait after bounded races, and a live
+ * child with open pipes holds the event loop past shutdown, so disposal
+ * reaps the child before reporting unconfirmed closure. Kill failures stay
+ * silent because the caller already reports the unconfirmed closure.
+ *
+ * @param childPid - stdio child pid captured before close, or null when the transport exposes none.
+ */
+function reapUnconfirmedChild(childPid: number | null): void {
+  if (childPid === null) return
+  try {
+    process.kill(childPid, 'SIGKILL')
+  } catch (_killError) {
+    return
+  }
+}
+
 /** Handle for one plugin instance's supervised connection. */
 export interface ConnectionHandle extends ServerContext {
   /**
@@ -292,12 +310,16 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     /** Unattached probes close through their transport; attached clients must also report transport closure. */
     async function closeGeneration(): Promise<boolean> {
       const attached = generation.transport !== undefined
+      const rawPid = (transport as unknown as { readonly pid?: unknown } | undefined)?.pid
+      const childPid = typeof rawPid === 'number' ? rawPid : null
       try {
         await (attached ? generation.close() : transport?.close())
       } catch (_error) {
         if (!attached) return hasClosed()
       }
-      return !attached || hasClosed() || await waitForClose(closed.promise)
+      if (!attached || hasClosed() || await waitForClose(closed.promise)) return true
+      reapUnconfirmedChild(childPid)
+      return await waitForClose(closed.promise)
     }
     async function refreshTools(): Promise<void> {
       if (!isCurrent(generation)) return
