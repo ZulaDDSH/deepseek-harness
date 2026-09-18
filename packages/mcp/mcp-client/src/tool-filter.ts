@@ -18,7 +18,12 @@ export interface ResolvedToolFilter {
   readonly deny: readonly string[]
 }
 
-/** Resolve and validate one static raw-name filter. */
+/**
+ * Resolve and validate one static raw-name filter.
+ * @param config - optional caller-authored raw-name filter.
+ * @param path - configuration path used in diagnostics.
+ * @returns a detached immutable filter for repeated discovery synchronizations.
+ */
 export function resolveToolFilter(
   config: ToolFilterConfig | undefined,
   path: string,
@@ -36,7 +41,12 @@ export function resolveToolFilter(
   })
 }
 
-/** Decide whether one raw MCP tool name survives the resolved filter. */
+/**
+ * Decide whether one raw MCP tool name survives the resolved filter.
+ * @param filter - resolved filter, or undefined for allow-all behavior.
+ * @param rawName - raw MCP tool name supplied by the server.
+ * @returns whether the tool may register.
+ */
 export function toolAllowed(filter: ResolvedToolFilter | undefined, rawName: string): boolean {
   if (filter === undefined) return true
   return (filter.allow === undefined || filter.allow.includes(rawName))
