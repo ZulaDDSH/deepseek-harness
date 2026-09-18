@@ -26,11 +26,14 @@ describe('MCP tool filter resolution', () => {
     expect(toolAllowed(filter, 'other')).toBe(false)
   })
 
-  it('supports a deny-only filter', () => {
+  it('supports a deny-only filter and treats an empty allow list as unrestricted', () => {
     const filter = resolveToolFilter({ deny: ['blocked'] }, 'toolFilter')
+    const schemaDefault = resolveToolFilter({ allow: [], deny: [] }, 'toolFilter')
 
     expect(toolAllowed(filter, 'allowed')).toBe(true)
     expect(toolAllowed(filter, 'blocked')).toBe(false)
+    expect(schemaDefault).toEqual({ deny: [] })
+    expect(toolAllowed(schemaDefault, 'anything')).toBe(true)
   })
 
   it.each([
@@ -38,7 +41,7 @@ describe('MCP tool filter resolution', () => {
     [{ allow: 'read' }, /toolFilter\.allow must be an array/],
     [{ allow: [1] }, /toolFilter\.allow\[0\] must be a non-empty string/],
     [{ allow: [''] }, /toolFilter\.allow\[0\] must be a non-empty string/],
-    [{ allow: ['read', 'read'] }, /toolFilter contains duplicate tool name "read"/],
+    [{ allow: ['read', 'read'] }, /toolFilter\.allow contains duplicate tool name "read"/],
   ])('rejects malformed filters %#', (input, pattern) => {
     expect(() => resolveToolFilter(input as never, 'toolFilter')).toThrow(pattern)
   })
