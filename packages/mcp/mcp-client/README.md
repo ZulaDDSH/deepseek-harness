@@ -61,7 +61,7 @@ Add one entry per server; nothing else is required. After the harness starts, th
 | `toolCallTimeoutMs` | `60,000` | Timeout per `tools/call` or resource request |
 | `maxInstructionBytes` | `32,768` | Maximum UTF-8 bytes of server instructions including attribution; an oversized value rejects the connection |
 | `includeServerInstructions` | `true` | Publish nonblank server instructions into the system prompt; set `false` to omit that repeated prompt text. |
-| `toolFilter.allow` | — | Optional exact raw-name allow list; when present, only listed MCP tools can register. |
+| `toolFilter.allow` | — | Exact raw-name allow list; omitted or empty means unrestricted, while a non-empty list admits only listed MCP tools. |
 | `toolFilter.deny` | — | Exact raw-name deny list applied after the optional allow list. |
 | `failOnStartupError` | `false` | Reject plugin activation when the initial connection or tool synchronization fails |
 | `reconnect.enabled` | `true` | Reconnect automatically after a lost connection |
@@ -71,7 +71,7 @@ Add one entry per server; nothing else is required. After the harness starts, th
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-mcp-client) is the exhaustive source for every accepted field.
 
-Use a static `toolFilter` when a server publishes many tools but the agent needs only a stable subset. Filtering matches the server's raw MCP names before public-name normalization. A static subset removes the excluded tool descriptions and input schemas from every model request while keeping the remaining request prefix stable for cache reuse.
+Use a static `toolFilter` when a server publishes many tools but the agent needs only a stable subset. Filtering matches the server's raw MCP names before public-name normalization. An empty `allow` list is treated as omitted so Schemastery's materialized default preserves the historical allow-all behavior. A static subset removes the excluded tool descriptions and input schemas from every model request while keeping the remaining request prefix stable for cache reuse.
 
 Set `includeServerInstructions: false` only when the deployment does not need the server-provided guidance. Omitted instructions do not enter the system prompt and do not consume the `maxInstructionBytes` budget; tools and resources remain connected.
 
