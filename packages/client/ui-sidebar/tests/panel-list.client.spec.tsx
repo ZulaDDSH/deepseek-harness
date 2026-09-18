@@ -38,7 +38,6 @@ async function bench(collapsed = false) {
   locale.setLocale('en')
   const layout = {
     beginNavigation: vi.fn(() => new AbortController().signal),
-    toggleFocus: vi.fn(),
     toggleSidebar: vi.fn(),
     selectPanel: vi.fn((activePanelId: MainPanelId | null) => { runtime.panelInfo.set({ activePanelId }) }),
     openRightbar: vi.fn(),
