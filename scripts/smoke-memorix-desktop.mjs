@@ -137,6 +137,10 @@ try {
   writeFileSync(join(profile, 'pnpm-workspace.yaml'), 'packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n')
 
   run(process.execPath, ['scripts/setup-memorix-desktop.mjs'], { env: { DSH_HOME: home } })
+  const firstPatch = readFileSync(join(profile, 'cordis.patch.yml'), 'utf8')
+  run(process.execPath, ['scripts/setup-memorix-desktop.mjs'], { env: { DSH_HOME: home } })
+  assert.equal(readFileSync(join(profile, 'cordis.patch.yml'), 'utf8'), firstPatch)
+  assert.equal((firstPatch.match(/id:\\s*memory-memorix/gu) ?? []).length, 1)
 
   const memorixManifest = JSON.parse(readFileSync(join(profile, 'node_modules', 'memorix', 'package.json'), 'utf8'))
   assert.equal(memorixManifest.version, '1.3.0')
