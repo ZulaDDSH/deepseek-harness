@@ -26,7 +26,7 @@ import type {
   CandidateRequest, ClientSessionContext, CommandClaim, PickOutcome, InputTriggerCandidate, InputTriggerPick,
   SubmitAttachment, SubmitEnvelope, SubmitOutcome,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
-import type { CommandContribution, CommandDecoration, CommandUiContract } from './contract.ts'
+import type { CommandContribution, CommandDecoration, CommandUiContract, QuickCommand } from './contract.ts'
 import type { CommandDescriptor } from './directory.ts'
 import { CommandDirectory } from './directory.ts'
 import { PopupSelectController } from './popup.ts'
@@ -147,6 +147,59 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
   }
 
   /**
+   * List directly executable command rows for the root quick switcher.
+   * Host commands requiring arguments are omitted so no unsent draft is replaced.
+   */
+  async quickCommands(sessionId: SessionId, query: string, signal: AbortSignal): Promise<readonly QuickCommand[]> {
+    const session: ClientSessionContext = { sessionId }
+    const rows: QuickCommand[] = []
+    const host = await this.directory.ensureReady(sessionId, signal)
+    const seen = new Set<string>()
+    for (const desc of host) {
+      seen.add(desc.name)
+      if (desc.input !== undefined) continue
+      const decoration = this.live.decorations.get(desc.name)
+      const face = builtinRowFace(desc, this.t) ?? { description: desc.description }
+      rows.push({
+        name: desc.name,
+        ...face,
+        kind: decoration !== undefined && decoration.available(session) && decoration.ui.kind === 'popupSelect'
+          ? 'popup'
+          : 'run',
+      })
+    }
+    for (const contribution of this.live.contributions.values()) {
+      if (!contribution.available(session) || seen.has(contribution.name)) continue
+      rows.push({
+        name: contribution.name,
+        ...(contribution.label === undefined ? {} : { label: contribution.label() }),
+        ...(contribution.description === undefined ? {} : { description: contribution.description() }),
+        kind: contribution.ui.kind === 'popupSelect' ? 'popup' : 'run',
+      })
+    }
+    return query === '' ? rows : rankByName(rows, query)
+  }
+
+  /** Run one quick-switcher command without writing into the composer draft. */
+  runQuick(sessionId: SessionId, name: string): boolean {
+    const session: ClientSessionContext = { sessionId }
+    const contribution = this.live.contributions.get(name)
+    if (contribution !== undefined && contribution.available(session)) {
+      this.invoke(name, contribution.ui, session, { via: 'quick' })
+      return true
+    }
+    const desc = this.directory.resolve(sessionId, name)
+    if (desc === undefined || desc.input !== undefined) return false
+    const decoration = this.live.decorations.get(name)
+    if (decoration !== undefined && decoration.available(session)) {
+      this.invoke(name, decoration.ui, session, { via: 'quick' })
+      return true
+    }
+    this.runDetached(desc, session, `/${name}`)
+    return true
+  }
+
+  /**
    * Close every open popup for a command whose options have become stale.
    * Pending loads and confirmations lose their binding; drafts stay intact.
    * @param name - command name without the leading slash.
@@ -180,7 +233,7 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
     const existing = popups.get(binding)
     if (existing !== undefined) return existing
     const controller = new PopupSelectController<ClientSessionContext>({
-      consume: segment => binding.ctx.bail(binding.ctx, 'slash/input-consume-token', {
+      consume: segment => segment.via === 'quick' || binding.ctx.bail(binding.ctx, 'slash/input-consume-token', {
         guard: segment.via === 'menu'
           ? { kind: 'span', span: segment.span }
           : { kind: 'bare-token', token: segment.token },
@@ -340,7 +393,7 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
     segment: TokenSegment,
   ): void {
     if (ui.kind === 'action') {
-      this.consumeVia(session.sessionId, segment)
+      if (segment.via !== 'quick') this.consumeVia(session.sessionId, segment)
       ui.run(session)
       return
     }
