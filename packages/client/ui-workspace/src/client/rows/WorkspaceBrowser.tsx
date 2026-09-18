@@ -14,10 +14,8 @@ import clsx from 'clsx'
 import {
   IconCloseFill14, IconProjectAddOutline16, IconSearchOutline16, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
-import type { SessionNode } from '../tree.ts'
 import {
   orderByRecency, pinCurrentBlank, reconcileManualOrder, UNGROUPED_KEY, visibleSessionIds,
 } from '../tree.ts'
@@ -190,7 +188,6 @@ export function WorkspaceBrowser({
   const searchInput = useRef<HTMLInputElement | null>(null)
   const [wsPickerOpen, setWsPickerOpen] = useState(false)
   const wsPlusRef = useRef<HTMLButtonElement>(null)
-  const composingRef = useRef(false)
 
   const openSearchResult = (sessionId: SessionId): void => {
     setRevealSessionId(sessionId)
