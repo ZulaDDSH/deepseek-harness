@@ -173,7 +173,10 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
       })
     }
     for (const contribution of this.live.contributions.values()) {
-      if (!contribution.available(session) || seen.has(contribution.name)) continue
+      if (!contribution.available(session)) continue
+      if (seen.has(contribution.name)) {
+        throw new Error(`ui-commands: contribution /${contribution.name} collides with a host command`)
+      }
       rows.push({
         name: contribution.name,
         ...(contribution.label === undefined ? {} : { label: contribution.label() }),
