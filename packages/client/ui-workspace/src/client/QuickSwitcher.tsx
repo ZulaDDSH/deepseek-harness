@@ -10,6 +10,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceKey } from './locales.ts'
 import css from './QuickSwitcher.module.css'
 
+/** One command row the root switcher can execute without editing the composer draft. */
 export interface QuickCommand {
   readonly name: string
   readonly label?: string
@@ -17,6 +18,7 @@ export interface QuickCommand {
   readonly kind: 'run' | 'popup'
 }
 
+/** Root actions injected by the workspace plugin into the quick-switcher surface. */
 export interface QuickSwitcherInjected {
   openSession: (sessionId: SessionId) => void
   openWorkspace: (workspaceId: WorkspaceId) => Promise<void>
@@ -24,6 +26,7 @@ export interface QuickSwitcherInjected {
   runQuick: (sessionId: SessionId, name: string) => boolean
 }
 
+/** Composed root-slot props for {@link QuickSwitcher}. */
 export type QuickSwitcherProps =
   PropsRuntime<'shell.overlay'>
   & InjectFace<QuickSwitcherInjected>
@@ -46,7 +49,11 @@ function iconFor(kind: SwitcherRow['kind']) {
   }
 }
 
-/** Keyboard-first switcher that never writes into the composer draft. */
+/**
+ * Keyboard-first switcher that never writes into the composer draft.
+ * @param props - root standard hooks, navigation actions, command actions, and locale seat.
+ * @returns the dormant shortcut listener or the open quick-switcher modal.
+ */
 export function QuickSwitcher({
   useSessions, useWorkspaces, openSession, openWorkspace, quickCommands, runQuick, t,
 }: QuickSwitcherProps) {
