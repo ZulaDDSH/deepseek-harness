@@ -265,6 +265,18 @@ describe('AppFrame', () => {
     expect(frame.dataset.focusMode).toBeUndefined()
   })
 
+  it('keeps Windows focus mode at zero sidebar width while its fixed exit control owns access', () => {
+    document.documentElement.setAttribute('data-windows-titlebar', '')
+    try {
+      const { frame, instance, sidebarOwner } = mountFrame()
+      act(() => { instance.actions.toggleFocus() })
+      expect(tracks(frame)).toEqual([0, 0])
+      expect(sidebarOwner()).toMatchObject({ collapsed: true, focusMode: true, width: 0 })
+    } finally {
+      document.documentElement.removeAttribute('data-windows-titlebar')
+    }
+  })
+
   it('toggles focus from Ctrl/Cmd+Shift+F', () => {
     const { frame, instance } = mountFrame()
     act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F', ctrlKey: true, shiftKey: true })) })
