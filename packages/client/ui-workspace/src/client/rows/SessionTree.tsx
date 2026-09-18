@@ -12,6 +12,8 @@ import {
 import { ProjectRowItem, SessionNodeItem } from './Rows.tsx'
 import css from './WorkspaceBrowser.module.css'
 
+const COLLAPSED_SESSION_LIMIT = 5
+
 /** Fold one Workspace without charging its provisional New Session against the ordinary-row limit. */
 function collapsedSessionRows(sessions: readonly SessionNode[]): {
   rows: readonly SessionNode[]
@@ -114,8 +116,12 @@ type SessionTreeProps = Pick<
   onSessionRevealed: (sessionId: SessionId) => void
 }
 
-/** The scrolling session tree; unmounting drops the sessions subscription and expand-all state. */
-function SessionTree({
+/**
+ * Render the scrolling Workspace/Session tree and its drag ordering.
+ * @param props - grouped membership, expansion state, navigation actions, and standard hooks.
+ * @returns the grouped tree body.
+ */
+export function SessionTree({
   list, useSessionStatus, startSession, open, forkSession, workspaces, ungroupedSessionIds,
   archivedSessionIds,
   workspaceReady, usePanelInfo,
