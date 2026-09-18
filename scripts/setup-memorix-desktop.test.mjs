@@ -7,7 +7,7 @@ const cli = 'C:\\\\Users\\\\dev\\\\.dsh\\\\profiles\\\\desktop\\\\node_modules\\
 test('replaces the default empty patch list', () => {
   const result = mergeMemorixPatch('# user patch\n[]\n', cli)
   assert.match(result, /memory-memorix/u)
-  assert.match(result, /MEMORIX_SQLITE_DRIVER: \"node\"/u)
+  assert.ok(result.includes('MEMORIX_SQLITE_DRIVER: "node"'))
   assert.match(result, /- --mode\n\s*- lite/u)
   assert.doesNotMatch(result, /^\[\]$/mu)
 })
