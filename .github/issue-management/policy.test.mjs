@@ -904,6 +904,7 @@ test('keeps trusted preflight before token minting and required policy unconditi
   assert.doesNotMatch(source, /pull_request\.head|pull_request_target/)
   assert.ok(steps[1].includes('id: preflight'))
   assert.ok(steps[1].includes('GITHUB_TOKEN: ${{ github.token }}'))
+  assert.ok(steps[1].includes('REPOSITORY_IS_FORK: ${{ github.event.repository.fork }}'))
   assert.ok(steps[1].includes('node .github/issue-management/policy.mjs pr-preflight'))
   assert.ok(steps[1].includes('if [ -f .github/issue-management/selective-preflight.json ]; then'))
   assert.doesNotMatch(steps[1], /secrets\.|PROJECT_TOKEN|if:/)
@@ -922,6 +923,7 @@ test('runs trusted rollout selection with absent and present capability markers'
     .split('\n').map((line) => line.slice(10)).join('\n')
   assert.deepEqual(JSON.parse(readFileSync(new URL('./selective-preflight.json', import.meta.url), 'utf8')), { version: 1 })
   const cases = [
+    { name: 'fork repository', type: 'User', draft: false, marker: true, fork: true, expected: 'eligible=false\nexempt=true\nneeds-project=false\nlegacy-automated=true\n' },
     { name: 'legacy human draft', type: 'User', draft: true, marker: false, expected: 'legacy-automated=false\nneeds-project=true\n' },
     { name: 'legacy human ready', type: 'User', draft: false, marker: false, expected: 'legacy-automated=false\nneeds-project=true\n' },
     { name: 'legacy bot', type: 'Bot', marker: false, expected: 'legacy-automated=true\nneeds-project=false\n' },
@@ -943,7 +945,12 @@ test('runs trusted rollout selection with absent and present capability markers'
       : "throw new Error('preflight unavailable or failed')\n")
     const result = spawnSync('bash', ['--noprofile', '--norc', '-eo', 'pipefail', '-c', script], {
       cwd,
-      env: { PATH: process.env.PATH, GITHUB_EVENT_PATH: eventPath, GITHUB_OUTPUT: outputPath },
+      env: {
+        PATH: process.env.PATH,
+        GITHUB_EVENT_PATH: eventPath,
+        GITHUB_OUTPUT: outputPath,
+        REPOSITORY_IS_FORK: fixture.fork ? 'true' : 'false',
+      },
       encoding: 'utf8',
       timeout: 30_000,
     })
@@ -951,7 +958,8 @@ test('runs trusted rollout selection with absent and present capability markers'
     assert.equal(result.signal, null, fixture.name)
     assert.equal(result.status, fixture.failure ? 1 : 0, fixture.name + ': ' + result.stderr)
     assert.equal(readFileSync(outputPath, 'utf8'), fixture.expected, fixture.name)
-    if (fixture.marker) assert.doesNotMatch(result.stdout, /preserving legacy/)
+    if (fixture.fork) assert.match(result.stdout, /fork repositories do not share upstream Project governance/)
+    else if (fixture.marker) assert.doesNotMatch(result.stdout, /preserving legacy/)
     else assert.match(result.stdout, /preserving legacy policy enforcement/)
   }
 })
