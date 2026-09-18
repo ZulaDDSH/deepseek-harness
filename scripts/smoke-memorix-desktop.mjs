@@ -36,7 +36,7 @@ async function waitForMemorixStart(electron, cliPath) {
   await new Promise((resolve, reject) => {
     const child = spawn(electron, [cliPath, 'serve', '--cwd', project, '--mode', 'micro'], {
       cwd: project,
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', MEMORIX_DATA_DIR: data },
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', MEMORIX_DATA_DIR: data, MEMORIX_SQLITE_DRIVER: 'node' },
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
     })
@@ -96,7 +96,7 @@ try {
   run('git', ['commit', '-m', 'smoke fixture'], { cwd: project })
 
   const cliPath = join(profile, 'node_modules', 'memorix', 'dist', 'cli', 'index.js')
-  const env = { MEMORIX_DATA_DIR: data }
+  const env = { MEMORIX_DATA_DIR: data, MEMORIX_SQLITE_DRIVER: 'node' }
   run(process.execPath, [cliPath, 'memory', 'store', '--type', 'decision', '--entity', 'dsh-desktop-smoke', '--title', 'Desktop smoke memory', token], { cwd: project, env })
   const search = run(process.execPath, [cliPath, 'memory', 'search', token], { cwd: project, env })
   assert.ok((search.stdout + '\n' + search.stderr).includes(token))
