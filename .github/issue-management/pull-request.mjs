@@ -87,7 +87,12 @@ export async function lifecyclePullRequestSnapshot(number) {
 }
 
 const EXEMPT_MESSAGE =
-  'Issue policy exempt：当前 PR 不在强制范围（Draft、Bot/App 或尚无 review request/review）。\n'
+  'Issue policy exempt：当前 PR 不在强制范围（Draft、Bot/App、fork 或尚无 review request/review）。\n'
+
+function ownsPolicyRepository(event) {
+  const fullName = event.repository?.full_name
+  return fullName === undefined || fullName === `${config.organization}/${config.repository}`
+}
 
 /**
  * Determine current policy eligibility and Project access needs without Project credentials.
@@ -95,6 +100,13 @@ const EXEMPT_MESSAGE =
  * @returns {Promise<{eligible: boolean, needsProject: boolean}>} Trusted workflow decisions.
  */
 export async function runPullRequestPreflight(event) {
+  if (!ownsPolicyRepository(event)) {
+    if (process.env.GITHUB_OUTPUT) {
+      fs.appendFileSync(process.env.GITHUB_OUTPUT, 'eligible=false\nexempt=true\nneeds-project=false\n')
+    }
+    process.stdout.write(EXEMPT_MESSAGE)
+    return { eligible: false, needsProject: false }
+  }
   const pull = await pullRequestSnapshot(event.pull_request.number, false)
   const eligible = requiresPullRequestPolicy(pull)
   const needsProject = eligible && pull.references.resolving.length > 0
@@ -114,6 +126,10 @@ export async function runPullRequestPreflight(event) {
  * @returns {Promise<void>} Resolves on success or exemption; rejects policy failures.
  */
 export async function runPullRequestCheck(event) {
+  if (!ownsPolicyRepository(event)) {
+    process.stdout.write(EXEMPT_MESSAGE)
+    return
+  }
   const pull = await pullRequestSnapshot(event.pull_request.number)
   const errors = validatePullRequest(pull)
   if (errors.length > 0) {
