@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-compaction-tool-result-pruner` keeps oversized tool output from filling the context window. By default, once a compaction trigger qualifies, it replaces over-budget text with a bounded head, a short "middle pruned" marker, and a bounded tail. `dsh-compaction-basic` can also opt into proactive pruning before its pressure threshold check. The complete original result remains in the session log for exact replay and inspection. Trimming makes no model call and may relieve enough token pressure to skip summarization. Character budgets only approximate token use; the token meter determines whether pressure was relieved.
+`dsh-compaction-tool-result-pruner` keeps oversized tool output from filling the context window. By default, once a compaction trigger qualifies, it replaces over-budget text with a bounded head, a short "middle pruned" marker, and a bounded tail. Callers may optionally bound a pass to results before one turn; `dsh-compaction-basic` uses that form for proactive pruning so fresh current-turn output stays intact. The complete original result remains in the session log for exact replay and inspection. Trimming makes no model call and may relieve enough token pressure to skip summarization. Character budgets only approximate token use; the token meter determines whether pressure was relieved.
 
 ## Table of Contents
 
@@ -57,7 +57,7 @@ Character counts are Unicode code points, so slicing never splits an emoji pair,
 
 ### When trimming runs
 
-By default, `dsh-compaction-basic` invokes trimming after pressure or overflow is confirmed, before it selects what to condense. When that backend enables `proactiveToolResultPruning`, pressure checks invoke trimming before threshold qualification instead. Trimming itself makes no model call.
+By default, `dsh-compaction-basic` invokes trimming after pressure or overflow is confirmed, before it selects what to condense. When that backend enables `proactiveToolResultPruning`, automatic pre-step checks first invoke a turn-bounded pass that trims only completed earlier turns; fresh current-turn results remain verbatim. Trimming itself makes no model call.
 
 -----
 
@@ -87,7 +87,7 @@ Pruning measures `text` blocks by Unicode code point (non-text blocks cost zero)
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `ToolResultPruner` service, `pruneSession` / `pruneContent` / `measureContent` |
 | [`src/config.ts`](src/config.ts) | `PRUNE_MARKER`, defaults, code-point counting, budget validation |
-| [`src/types.ts`](src/types.ts) | `ToolResultPruneConfig`, `ResolvedConfig`, `PrunedEntry`, `PruneResult` |
+| [`src/types.ts`](src/types.ts) | `ToolResultPruneConfig`, `ResolvedConfig`, `PruneSessionOptions`, `PrunedEntry`, `PruneResult` |
 | — | No runtime invariant companion is published; Session validates each content-only rewrite and its companion owns cross-event enclosure. |
 
 </details>
