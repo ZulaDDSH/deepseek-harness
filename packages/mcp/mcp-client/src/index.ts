@@ -75,6 +75,8 @@ export interface StdioConfig {
   failOnStartupError: boolean
   /** Maximum UTF-8 bytes of attributed server instructions (default 32768). */
   maxInstructionBytes?: number
+  /** Publish nonblank MCP server instructions into the system prompt. Defaults to `true`. */
+  includeServerInstructions?: boolean
   /** Static raw-name filter for the discovered MCP tool catalog. */
   toolFilter?: ToolFilterConfig
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
@@ -101,6 +103,8 @@ export interface StreamableHttpConfig {
   failOnStartupError: boolean
   /** Maximum UTF-8 bytes of attributed server instructions (default 32768). */
   maxInstructionBytes?: number
+  /** Publish nonblank MCP server instructions into the system prompt. Defaults to `true`. */
+  includeServerInstructions?: boolean
   /** Static raw-name filter for the discovered MCP tool catalog. */
   toolFilter?: ToolFilterConfig
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
@@ -139,6 +143,7 @@ export const Config = z.union([
     toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
     failOnStartupError: z.boolean().default(false),
     maxInstructionBytes: z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES),
+    includeServerInstructions: z.boolean().default(true),
     toolFilter: ToolFilter,
     reconnect: Reconnect,
   }),
@@ -150,6 +155,7 @@ export const Config = z.union([
     toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
     failOnStartupError: z.boolean().default(false),
     maxInstructionBytes: z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES),
+    includeServerInstructions: z.boolean().default(true),
     toolFilter: ToolFilter,
     reconnect: Reconnect,
   }),
