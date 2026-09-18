@@ -49,6 +49,7 @@ type LayoutInfo = {
   rightbarFullscreen: boolean
   /** Suppress transitions for a fullscreen exit until another geometry action. */
   rightbarInstant: boolean
+  focusMode: boolean
 }
 
 /**
@@ -57,6 +58,7 @@ type LayoutInfo = {
  */
 type LayoutActions = {
   resetRuntime: (draft: LayoutState, viewportWidth: number) => void
+  toggleFocus: (draft: LayoutState) => void
   selectPanel: (draft: LayoutState, panelId: MainPanelId | null) => void
   retainMainPanels: (draft: LayoutState, panelIds: readonly string[]) => void
   setSidebar: (draft: LayoutState, px: number) => void
@@ -89,6 +91,7 @@ export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutAction
         rightbarTrack: false,
         rightbarFullscreen: false,
         rightbarInstant: false,
+        focusMode: false,
       },
     }),
     persist: 'dsh.layout.view.v1',
@@ -101,6 +104,10 @@ export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutAction
         d.layoutInfo.rightbarTrack = false
         d.layoutInfo.rightbarFullscreen = false
         d.layoutInfo.rightbarInstant = false
+        d.layoutInfo.focusMode = false
+      },
+      toggleFocus: (d) => {
+        d.layoutInfo.focusMode = !d.layoutInfo.focusMode
       },
       selectPanel: (d, panelId: MainPanelId | null) => {
         d.panelInfo.activePanelId = panelId
