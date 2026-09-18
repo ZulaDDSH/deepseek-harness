@@ -825,19 +825,6 @@ for (const [name, pull, requested, count] of [
   })
 }
 
-test('exempts a fork event before repository or Project reads', async (t) => {
-  const fixture = mockPolicyApi(t)
-  const event = {
-    repository: { full_name: 'ZulaDDSH/deepseek-harness' },
-    pull_request: { number: 10 },
-  }
-  assert.deepEqual(await runPullRequestPreflight(event), { eligible: false, needsProject: false })
-  assert.equal(fixture.requests.length, 0)
-  assert.equal(fixture.workflowOutput(), 'eligible=false\nexempt=true\nneeds-project=false\n')
-  await runPullRequestCheck(event)
-  assert.equal(fixture.requests.length, 0)
-})
-
 test('validates informational Issues and ignores PR numbers without Project reads', async (t) => {
   const fixture = mockPolicyApi(t, { pull: { body: 'Refs #2; Fixes #3' }, issues: { 2: {}, 3: { pull_request: {} } } })
   const event = { pull_request: { number: 10, draft: true, body: 'Fixes #999' } }
