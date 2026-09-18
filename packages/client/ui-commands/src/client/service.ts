@@ -506,6 +506,7 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
 
   /** Dispatch a consume-token event to one session (menu-pick / bare-enter execute paths). */
   private consumeVia(id: SessionId, segment: TokenSegment): void {
+    if (segment.via === 'quick') return
     const actx = this.scopeFor(id)
     if (actx === undefined) return
     actx.bail(actx, 'slash/input-consume-token', {

@@ -152,7 +152,7 @@ describe('ui-workspace apply', () => {
 
     const entry = b.slots.entries('shell.overlay').find(item => item.options.id === 'workspace-quick-switcher')
     expect(entry?.component).toBe(QuickSwitcher)
-    const injected = (entry?.inject as () => QuickSwitcherInjected)()
+    const injected = (entry?.inject as unknown as () => QuickSwitcherInjected)()
     const signal = new AbortController().signal
     await injected.quickCommands('session' as never, 'plan', signal)
     expect(quickCommands).toHaveBeenCalledWith('session', 'plan', signal)

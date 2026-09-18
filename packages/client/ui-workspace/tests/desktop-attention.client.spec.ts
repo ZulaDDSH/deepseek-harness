@@ -22,13 +22,13 @@ function list(): SessionListState {
   }
 }
 
-function status(overrides: Partial<SessionStatusSnapshot extends ReadonlyMap<SessionId, infer S> ? S : never> = {}) {
+function status(overrides: Record<string, unknown> = {}): SessionStatusSnapshot {
   return new Map([[id, {
     running: false,
     pendingInteraction: undefined,
     completionUnread: false,
     ...overrides,
-  }]]) as SessionStatusSnapshot
+  }]]) as unknown as SessionStatusSnapshot
 }
 
 const sources: DesktopAttentionSource[] = []

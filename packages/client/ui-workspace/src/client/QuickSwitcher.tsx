@@ -7,7 +7,6 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { WorkspaceKey } from './locales.ts'
 import css from './QuickSwitcher.module.css'
 
 /** One command row the root switcher can execute without editing the composer draft. */
@@ -95,7 +94,7 @@ export function QuickSwitcher({
     setCommands([])
     setCommandBusy(true)
     void quickCommands(currentSessionId, query, abort.signal).then(
-      value => {
+      (value) => {
         if (!abort.signal.aborted) {
           setCommands(value)
           setCommandBusy(false)
@@ -114,9 +113,12 @@ export function QuickSwitcher({
   const normalized = query.trim().toLocaleLowerCase()
   const archived = new Set(workspaces.archivedSessionIds)
   const sessionRows = sessions.ids
-    .map(id => sessions.byId[id])
-    .filter(row => row !== undefined && !archived.has(row.id) && row.origin !== 'subagent')
-    .filter(row => normalized === '' || includes(row.displayTitle, normalized) || includes(row.cwd, normalized))
+    .flatMap((id) => {
+      const row = sessions.byId[id]
+      if (row === undefined || archived.has(row.id) || row.origin === 'subagent') return []
+      if (normalized !== '' && !includes(row.displayTitle, normalized) && !includes(row.cwd, normalized)) return []
+      return [row]
+    })
     .slice(0, 8)
     .map((row): SwitcherRow => ({
       key: `session:${row.id}`,
@@ -141,7 +143,7 @@ export function QuickSwitcher({
     key: `command:${command.name}`,
     kind: 'command',
     title: command.label ?? `/${command.name}`,
-    detail: command.description,
+    ...(command.description === undefined ? {} : { detail: command.description }),
     command,
   }))
   const rows = [...sessionRows, ...workspaceRows, ...commandRows]
@@ -183,7 +185,7 @@ export function QuickSwitcher({
         <Input
           icon={<IconSearchOutline16 />}
           value={query}
-          onChange={event => {
+          onChange={(event) => {
             setQuery(event.currentTarget.value)
             setActive(0)
           }}
