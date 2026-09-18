@@ -251,6 +251,17 @@ describe('ToolResultPruner session transaction', () => {
     })
   })
 
+  it('can restrict a pass to results before one turn', () => {
+    const session = Session.create(SessionId('before-turn'))
+    const first = appendToolStep(session, 1, 'old', [{ type: 'text', text: 'A'.repeat(100) }])
+    const second = appendToolStep(session, 2, 'fresh', [{ type: 'text', text: 'B'.repeat(100) }])
+
+    const result = service().pruneSession(session, { beforeTurn: 2 })
+
+    expect(result.pruned.map(entry => entry.originalSeq)).toEqual([first])
+    expect(session.surface.nodes).toContain(SessionSeq(second))
+  })
+
   it('prunes multiple results, skips short ones, and converges in one pass', () => {
     const session = Session.create(SessionId('multiple'))
     appendToolStep(session, 1, 'a', [{ type: 'text', text: 'A'.repeat(100) }])
