@@ -6,7 +6,7 @@ export function hasMemorixEntry(content) {
 
 function onlyDefaultEmptyList(content) {
   const semantic = content
-    .split(/\\r?\\n/u)
+    .split(/\r?\n/u)
     .map(line => line.replace(/#.*$/u, '').trim())
     .filter(Boolean)
   return semantic.length === 1 && semantic[0] === '[]'
