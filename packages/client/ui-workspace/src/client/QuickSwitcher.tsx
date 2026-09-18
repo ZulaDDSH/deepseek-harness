@@ -1,7 +1,6 @@
 /** Root quick switcher for Sessions, Workspaces, and directly executable commands. */
 import { useEffect, useMemo, useState } from 'react'
 import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
-import type { QuickCommand } from '@deepseek-ai/dsh-client-ui-commands/client'
 import {
   IconFolderOpenOutline16, IconNewChatOutline16, IconPlayOutline16, IconSearchOutline16,
   Input, Modal,
@@ -10,6 +9,13 @@ import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-cli
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceKey } from './locales.ts'
 import css from './QuickSwitcher.module.css'
+
+export interface QuickCommand {
+  readonly name: string
+  readonly label?: string
+  readonly description?: string
+  readonly kind: 'run' | 'popup'
+}
 
 export interface QuickSwitcherInjected {
   openSession: (sessionId: SessionId) => void
