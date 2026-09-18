@@ -104,6 +104,14 @@ export interface CommandDecoration {
   readonly ui: CommandUiSpec
 }
 
+/** One command the root quick switcher can execute without touching the composer draft. */
+export interface QuickCommand {
+  readonly name: string
+  readonly label?: string
+  readonly description?: string
+  readonly kind: 'run' | 'popup'
+}
+
 /** The `ctx.commandUi` service face visible to business packages. */
 export interface CommandUiContract {
   /**
@@ -116,6 +124,13 @@ export interface CommandUiContract {
    * Duplicate names throw at registration.
    */
   decorate(decoration: CommandDecoration): () => void
+  /**
+   * List commands that can run directly from the root quick switcher without
+   * inserting text into the composer. Argument-requiring Host commands are omitted.
+   */
+  quickCommands(sessionId: string, query: string, signal: AbortSignal): Promise<readonly QuickCommand[]>
+  /** Run one quick-switcher command; false means it became unavailable before activation. */
+  runQuick(sessionId: string, name: string): boolean
   /** Close this command's open popups and confirmations without consuming composer drafts. */
   dismiss(name: string): void
   /** Resolve the per-session popup controller for one session scope (wiring/overlay layer). */
