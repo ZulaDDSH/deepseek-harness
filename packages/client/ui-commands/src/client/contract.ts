@@ -6,6 +6,7 @@
 import type { ComponentType } from 'react'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ClientSessionContext } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { IconProps } from '@deepseek-ai/dsh-client-ui-primitives'
 
 /** Copy for an option that must be acknowledged before onSelect can run. */
@@ -128,9 +129,9 @@ export interface CommandUiContract {
    * List commands that can run directly from the root quick switcher without
    * inserting text into the composer. Argument-requiring Host commands are omitted.
    */
-  quickCommands(sessionId: string, query: string, signal: AbortSignal): Promise<readonly QuickCommand[]>
+  quickCommands(sessionId: SessionId, query: string, signal: AbortSignal): Promise<readonly QuickCommand[]>
   /** Run one quick-switcher command; false means it became unavailable before activation. */
-  runQuick(sessionId: string, name: string): boolean
+  runQuick(sessionId: SessionId, name: string): boolean
   /** Close this command's open popups and confirmations without consuming composer drafts. */
   dismiss(name: string): void
   /** Resolve the per-session popup controller for one session scope (wiring/overlay layer). */
