@@ -216,6 +216,19 @@ describe('syncTools', () => {
     expect(ctx.tools.get('mcp__srv__other')).toBeUndefined()
   })
 
+  it('rejects distinct raw names that normalize to the same public name', async () => {
+    const exotic = 'admin.reset'
+    const publicName = publicToolName(defaultOpts.serverName, exotic)
+    const legalCollision = publicName.slice(`mcp__${defaultOpts.serverName}__`.length)
+    const client = createMockClient([
+      { name: exotic, inputSchema: { type: 'object' } },
+      { name: legalCollision, inputSchema: { type: 'object' } },
+    ])
+
+    await expect(syncTools(client as never, ctx, defaultOpts, new Map()))
+      .rejects.toThrow(/filtered tool names collide/)
+  })
+
   it('lets two servers publish the same raw name side by side', async () => {
     const clientA = createMockClient([{ name: 'search', inputSchema: { type: 'object' } }])
     const clientB = createMockClient([{ name: 'search', inputSchema: { type: 'object' } }])
