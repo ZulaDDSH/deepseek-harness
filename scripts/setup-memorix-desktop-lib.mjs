@@ -23,6 +23,8 @@ export function memorixPatch(cliPath) {
         args:
           - ${JSON.stringify(cliPath)}
           - serve
+          - --mode
+          - micro
         env:
           ELECTRON_RUN_AS_NODE: "1"
         cwd: !!js process.cwd()
