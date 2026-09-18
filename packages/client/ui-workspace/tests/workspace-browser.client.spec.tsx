@@ -449,16 +449,15 @@ describe('WorkspaceBrowser', () => {
       summary('attention', 5),
       summary('running', 4),
       summary('delegated', 3),
-      summary('child', 2, { origin: 'subagent' as never }),
+      summary('child', 2, { origin: 'subagent', parentId: delegatedId, running: true }),
       summary('completed', 1),
       summary('idle', 0),
     ], {
-      subagentsByParent: { [delegatedId]: [sid('child')] },
       byId: {
         [attentionId]: summary('attention', 5),
         [runningId]: summary('running', 4),
         [delegatedId]: summary('delegated', 3),
-        [sid('child')]: summary('child', 2, { origin: 'subagent' as never, running: true }),
+        [sid('child')]: summary('child', 2, { origin: 'subagent', parentId: delegatedId, running: true }),
         [completedId]: summary('completed', 1),
         [idleId]: summary('idle', 0),
       },
@@ -469,10 +468,10 @@ describe('WorkspaceBrowser', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: '活动' }))
 
     expect(b.store.getSnapshot().groupBy).toBe('activity')
-    expect(screen.getByRole('group', { name: '需要处理' })).toHaveTextContent('attention')
-    expect(screen.getByRole('group', { name: '进行中' })).toHaveTextContent('running')
-    expect(screen.getByRole('group', { name: '进行中' })).toHaveTextContent('delegated')
-    expect(screen.getByRole('group', { name: '最近完成' })).toHaveTextContent('completed')
+    expect(screen.getByRole('group', { name: '需要处理' }).textContent).toContain('attention')
+    expect(screen.getByRole('group', { name: '进行中' }).textContent).toContain('running')
+    expect(screen.getByRole('group', { name: '进行中' }).textContent).toContain('delegated')
+    expect(screen.getByRole('group', { name: '最近完成' }).textContent).toContain('completed')
     expect(screen.queryByText('idle')).toBeNull()
   })
 
