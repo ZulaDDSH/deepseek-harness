@@ -17,12 +17,21 @@ function bodyFor(kind: DesktopAttentionKind, locale: DesktopLocale): string {
 export class DesktopSessionAttention {
   private readonly notifications = new Map<string, Notification>()
 
+  /**
+   * @param locale - Desktop-owned localized notification copy.
+   * @param window - current primary window resolver.
+   * @param activate - callback that routes notification activation to a Session.
+   */
   constructor(
     private readonly locale: DesktopLocale,
     private readonly window: () => BrowserWindow | undefined,
     private readonly activate: (sessionId: string) => void,
   ) {}
 
+  /**
+   * Replace the live notification for one Session with its newest attention state.
+   * @param request - validated Session attention request.
+   */
   notify(request: DesktopAttentionRequest): void {
     const parent = this.window()
     if (parent === undefined || parent.isDestroyed() || !Notification.isSupported()) return
@@ -61,6 +70,7 @@ export class DesktopSessionAttention {
     catch (error) { console.warn('desktop attention: could not close notification', error) }
   }
 
+  /** Close every owned notification and detach its handlers. */
   dispose(): void {
     for (const sessionId of [...this.notifications.keys()]) this.clear(sessionId)
   }
