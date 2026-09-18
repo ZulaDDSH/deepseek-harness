@@ -1684,6 +1684,8 @@ export interface StdioConfig {
   failOnStartupError: boolean
   /** Maximum UTF-8 bytes of attributed server instructions (default 32768). */
   maxInstructionBytes?: number
+  /** Static raw-name filter for the discovered MCP tool catalog. */
+  toolFilter?: ToolFilterConfig
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
 }
@@ -1710,6 +1712,14 @@ export interface StreamableHttpConfig {
   maxInstructionBytes?: number
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
+}
+
+/** Raw-name filter applied to one MCP server's discovered tool catalog. */
+export interface ToolFilterConfig {
+  /** When present, only these raw MCP tool names are eligible for registration. */
+  allow?: string[]
+  /** Raw MCP tool names excluded after the optional allow list is applied. */
+  deny?: string[]
 }
 
 /** Automatic reconnect policy for one MCP server connection. */
