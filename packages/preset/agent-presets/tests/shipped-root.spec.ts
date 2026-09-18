@@ -155,6 +155,22 @@ describe('the shipped preset root', () => {
     }
   })
 
+  it('pins the economy preset token budgets and PTC presentation', async () => {
+    const entries = await shippedEntries('economy')
+    expect(findEntry(entries, 'agent-instructions')?.config).toMatchObject({ maxBytes: 32768 })
+    expect(findEntry(entries, 'compaction-basic')?.config).toMatchObject({
+      thresholdRatio: 0.6,
+      retainRatio: 0.1,
+      proactiveToolResultPruning: true,
+    })
+    expect(findEntry(entries, 'tool-result-pruner')?.config).toMatchObject({
+      thresholdChars: 4096,
+      headChars: 2048,
+      tailChars: 512,
+    })
+    expect(findEntry(entries, 'tool-presentation')?.config).toMatchObject({ mode: 'ptc' })
+  })
+
   it('disables the ralph tool in every shipped preset that carries it', async () => {
     for (const id of ['cordis', 'economy', 'ptc', 'standard']) {
       expect(findEntry(await shippedEntries(id), 'tool-ralph')?.disabled, id).toBe(true)
