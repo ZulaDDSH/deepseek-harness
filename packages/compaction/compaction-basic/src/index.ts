@@ -143,13 +143,13 @@ export class BasicCompactionEngine extends CompactionEngine {
     }
 
     ctx.on('agent/pre-step', async (
-      { agent, turn, signal },
+      { agent, signal },
       next,
     ): Promise<PreStepDecision> => {
       if (!signal.aborted) {
         try {
           if (this.config.proactiveToolResultPruning) {
-            this.ctx.get('toolResultPruner')?.pruneSession(agent.session, { beforeTurn: turn })
+            this.ctx.get('toolResultPruner')?.pruneSession(agent.session, { previouslyConsumed: true })
           }
           const result = await this.compactIfNeeded(agent, 'pressure', signal)
           if (result !== null) logResult(result, 'step pressure')
