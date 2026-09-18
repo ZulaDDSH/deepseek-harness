@@ -168,6 +168,9 @@ describe('the shipped preset root', () => {
       headChars: 2048,
       tailChars: 512,
     })
+    expect(findEntry(entries, 'tool-skill')?.config).toMatchObject({
+      catalogDescriptionMaxLength: 240,
+    })
     expect(findEntry(entries, 'tool-presentation')?.config).toMatchObject({ mode: 'ptc' })
   })
 
