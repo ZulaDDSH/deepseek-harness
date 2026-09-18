@@ -113,9 +113,12 @@ export function QuickSwitcher({
   const normalized = query.trim().toLocaleLowerCase()
   const archived = new Set(workspaces.archivedSessionIds)
   const sessionRows = sessions.ids
-    .map(id => sessions.byId[id])
-    .filter(row => row !== undefined && !archived.has(row.id) && row.origin !== 'subagent')
-    .filter(row => normalized === '' || includes(row.displayTitle, normalized) || includes(row.cwd, normalized))
+    .flatMap((id) => {
+      const row = sessions.byId[id]
+      if (row === undefined || archived.has(row.id) || row.origin === 'subagent') return []
+      if (normalized !== '' && !includes(row.displayTitle, normalized) && !includes(row.cwd, normalized)) return []
+      return [row]
+    })
     .slice(0, 8)
     .map((row): SwitcherRow => ({
       key: `session:${row.id}`,
@@ -140,7 +143,7 @@ export function QuickSwitcher({
     key: `command:${command.name}`,
     kind: 'command',
     title: command.label ?? `/${command.name}`,
-    detail: command.description,
+    ...(command.description === undefined ? {} : { detail: command.description }),
     command,
   }))
   const rows = [...sessionRows, ...workspaceRows, ...commandRows]

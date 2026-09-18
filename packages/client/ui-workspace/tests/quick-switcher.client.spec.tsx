@@ -119,7 +119,7 @@ describe('QuickSwitcher', () => {
     expect(screen.queryByText('Current task')).toBeNull()
     expect(screen.getByText('Beta Workspace')).toBeTruthy()
     await waitFor(() => {
-      expect(b.quickCommands.mock.calls.some(call => call[1] === 'beta')).toBe(true)
+      expect(b.quickCommands).toHaveBeenCalledWith(sid('current'), 'beta', expect.any(AbortSignal))
     })
   })
 
