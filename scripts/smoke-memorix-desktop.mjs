@@ -32,7 +32,7 @@ function run(command, args, options = {}) {
   return result
 }
 
-async function probeMemorixMcp(electron, cliPath) {
+async function probeMemorixMcp(electron, cliPath, mode) {
   await new Promise((resolve, reject) => {
     const child = spawn(electron, [cliPath, 'serve', '--cwd', project, '--mode', 'lite'], {
       cwd: project,
@@ -114,6 +114,47 @@ async function probeMemorixMcp(electron, cliPath) {
       assert.ok(names.has('memorix_project_context'))
       assert.ok(names.has('memorix_session_start'))
       assert.ok(names.has('memorix_store'))
+      assert.ok(names.has('memorix_search'))
+      if (mode === 'store') {
+        send({
+          jsonrpc: '2.0',
+          id: 'store',
+          method: 'tools/call',
+          params: {
+            name: 'memorix_store',
+            arguments: {
+              entityName: 'dsh-desktop-smoke',
+              type: 'decision',
+              title: 'Desktop MCP persistence smoke',
+              narrative: token,
+              facts: [token],
+              topicKey: 'test/dsh-desktop-mcp-persistence',
+            },
+          },
+        })
+        const stored = await waitFor('store')
+        assert.equal(stored.error, undefined)
+        assert.notEqual(stored.result.isError, true)
+      } else if (mode === 'recall') {
+        send({
+          jsonrpc: '2.0',
+          id: 'search',
+          method: 'tools/call',
+          params: {
+            name: 'memorix_search',
+            arguments: {
+              query: token,
+              quality: 'fast',
+              purpose: 'CI cross-process persistence verification',
+            },
+          },
+        })
+        const searched = await waitFor('search')
+        assert.equal(searched.error, undefined)
+        assert.notEqual(searched.result.isError, true)
+        const text = searched.result.content.map(item => item.text ?? '').join('\n')
+        assert.ok(text.includes(token))
+      }
       child.stdin.end()
       const exitTimer = setTimeout(() => finish(new Error('Memorix MCP did not exit after stdin closed. stderr:\n' + stderr)), 5000)
       child.once('exit', code => {
@@ -159,15 +200,11 @@ try {
   run('git', ['commit', '-m', 'smoke fixture'], { cwd: project })
 
   const cliPath = join(profile, 'node_modules', 'memorix', 'dist', 'cli', 'index.js')
-  const env = { MEMORIX_DATA_DIR: data, MEMORIX_SQLITE_DRIVER: 'node' }
-  run(process.execPath, [cliPath, 'memory', 'store', '--type', 'decision', '--entity', 'dsh-desktop-smoke', '--title', 'Desktop smoke memory', token], { cwd: project, env })
-  const search = run(process.execPath, [cliPath, 'memory', 'search', token], { cwd: project, env })
-  assert.ok((search.stdout + '\n' + search.stderr).includes(token))
-
   const desktopRequire = createRequire(pathToFileURL(join(root, 'apps', 'desktop', 'package.json')))
   const electron = desktopRequire('electron')
   assert.equal(typeof electron, 'string')
-  await probeMemorixMcp(electron, cliPath)
+  await probeMemorixMcp(electron, cliPath, 'store')
+  await probeMemorixMcp(electron, cliPath, 'recall')
 
   process.stdout.write('Memorix Desktop smoke passed.\n')
 } finally {
