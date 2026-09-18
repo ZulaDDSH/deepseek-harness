@@ -1627,7 +1627,11 @@ describe('automatic listener and loader composition', () => {
 
   it('proactively prunes only results already consumed by a later model response', async () => {
     const ctx = createContext(10_000)
-    void new ToolResultPruner(ctx, pruneConfig)
+    void new ToolResultPruner(ctx, {
+      thresholdChars: 100,
+      headChars: 20,
+      tailChars: 10,
+    })
     const compact = new TestCompactionEngine(ctx, {
       thresholdRatio: 0.8,
       retainTokens: 100,
