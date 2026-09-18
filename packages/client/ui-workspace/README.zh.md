@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-用侧边栏浏览 Workspace 及其 Session、重排它们并新建会话；在 Session Intent 主视觉区用选择器为新会话选择 Workspace。打开的 Workspace 默认显示五条非空白 Session，并在首条提示词落地前把当前选中的空白**新会话**作为一条临时额外行。**展开其余**会显示隐藏条目；关闭再打开 Workspace 会恢复该折叠投影。
+用侧边栏浏览 Workspace 及其 Session、重排它们并新建会话；在 Session Intent 主视觉区用选择器为新会话选择 Workspace。按 **Ctrl/Cmd+K** 可打开根级快速切换器，搜索可见 Session、已注册 Workspace，以及当前 Session 可直接执行的命令。切换器不会向 composer 写入文本，因此不会覆盖未发送草稿。打开的 Workspace 默认显示五条非空白 Session，并在首条提示词落地前把当前选中的空白**新会话**作为一条临时额外行。**展开其余**会显示隐藏条目；关闭再打开 Workspace 会恢复该折叠投影。
 
 ### 重排序与视图选项
 
@@ -67,7 +67,7 @@ Session 行渲染运行时的实时 `pendingInteraction` 分类：审批显示**
 <details>
 <summary>实现细节——点击展开</summary>
 
-本包是一条组合：两个目标 slot 都由其他插件声明，因此 `apply` 使用 `slots.inject()` 在各自的声明生命周期内完成注册，并在目标 slot 的声明恢复后重新注册。
+本包是一条组合：浏览器与选择器的目标 slot 都由其他插件声明，因此 `apply` 使用 `slots.inject()` 在各自声明生命周期内完成注册，并在目标 slot 恢复后重新注册。它还向 `shell.overlay` 添加 `workspace-quick-switcher` 项；该界面以结构方式消费 `ctx.commandUi.quickCommands/runQuick`，导航则继续通过现有 `ctx.uiWorkspace` 服务。
 
 ### 目录流子 slot
 

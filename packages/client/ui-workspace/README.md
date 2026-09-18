@@ -25,7 +25,7 @@ This package lets users browse grouped, flat, or activity-centered Session lists
 <a id="use-this-package"></a>
 ## Use this package
 
-Use the sidebar to browse Workspaces and their Sessions, reorder them, and start new ones; use the picker in the Session Intent hero to choose a Workspace for a new session. An open Workspace shows five non-blank Sessions by default and keeps the selected blank **New Session** as one provisional extra row until its first prompt. **Show more** reveals the hidden remainder; closing and reopening the Workspace restores this folded projection.
+Use the sidebar to browse Workspaces and their Sessions, reorder them, and start new ones; use the picker in the Session Intent hero to choose a Workspace for a new session. Press **Ctrl/Cmd+K** to open the root quick switcher for visible Sessions, registered Workspaces, and directly executable commands for the current Session. The switcher never inserts text into the composer, so an unsent draft stays untouched. An open Workspace shows five non-blank Sessions by default and keeps the selected blank **New Session** as one provisional extra row until its first prompt. **Show more** reveals the hidden remainder; closing and reopening the Workspace restores this folded projection.
 
 ### Reordering and view options
 
@@ -49,7 +49,7 @@ A Session title wider than its row stays clipped with an ellipsis so pointer mov
 
 ### Pending interactions
 
-Session rows render the runtime's live `pendingInteraction` classification: approvals report **Waiting for approval**, plan reviews report **Plan awaiting review**, and ordinary questions report **Waiting for answer**. Every pending interaction uses an amber warning dot that takes precedence over the running indicator.
+Session rows render the runtime's live attention classification directly in the row: approvals report **Waiting for approval**, plan reviews report **Plan awaiting review**, ordinary questions report **Waiting for answer**, and unacknowledged runtime failures report **Failed**. Failure takes precedence over pending interaction, which takes precedence over running activity. The Activity view groups these rows under **Needs attention**.
 
 ### Active Schedule markers
 
@@ -67,7 +67,7 @@ The value is intentionally best effort for cold Sessions. An identity-matching u
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The package is one composition: both target slots are declared by other plugins, so `apply` uses `slots.inject()` to register for each declaration lifetime and re-register after a declaring slot is restored.
+The package is one composition: its browser and picker target slots are declared by other plugins, so `apply` uses `slots.inject()` to register for each declaration lifetime and re-register after a declaring slot is restored. It also contributes the additive `workspace-quick-switcher` entry to `shell.overlay`; that surface consumes `ctx.commandUi.quickCommands/runQuick` structurally and routes navigation through the existing `ctx.uiWorkspace` service.
 
 ### The directory-flow hole
 
