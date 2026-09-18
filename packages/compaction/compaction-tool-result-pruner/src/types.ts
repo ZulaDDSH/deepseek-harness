@@ -32,10 +32,10 @@ export interface PrunedEntry {
   readonly charsAfter: number
 }
 
-/** Optional bounds for one pruning pass. */
+/** Optional eligibility policy for one pruning pass. */
 export interface PruneSessionOptions {
-  /** Prune only tool results from turns strictly before this turn. */
-  readonly beforeTurn?: number
+  /** Prune only results followed by a later assistant message on the current surface. */
+  readonly previouslyConsumed?: boolean
 }
 
 /** Aggregate outcome of one stable-surface pruning pass. */
