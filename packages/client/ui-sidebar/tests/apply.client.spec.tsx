@@ -20,7 +20,7 @@ afterEach(async () => {
 })
 
 function SidebarFrame({ renderSlot }: PropsRenderSlots<'sidebar'>) {
-  return renderSlot('sidebar', { collapsed: false, width: 300 })
+  return renderSlot('sidebar', { collapsed: false, focusMode: false, width: 300 })
 }
 
 async function bench(declare = true) {
@@ -31,7 +31,7 @@ async function bench(declare = true) {
   await owner.await()
   if (ctx === undefined) throw new Error('the sidebar fixture owner did not activate')
   await ctx.plugin(SlotRegistry).await()
-  const layout = { toggleSidebar: vi.fn(), selectPanel: vi.fn() }
+  const layout = { toggleFocus: vi.fn(), toggleSidebar: vi.fn(), selectPanel: vi.fn() }
   const uiWorkspace = { startSession: vi.fn() }
   ctx.provide('layout', layout)
   ctx.provide('uiWorkspace', uiWorkspace as never)
