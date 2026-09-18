@@ -198,6 +198,7 @@ describe('apply (plugin lifecycle)', () => {
       await apply(ctx, {
         ...stdioConfig,
         includeServerInstructions: false,
+        maxInstructionBytes: 1,
       })
       expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
       expect(renderPrompt(await ctx.systemPrompt.assemble())).not.toContain('Large server guidance')
