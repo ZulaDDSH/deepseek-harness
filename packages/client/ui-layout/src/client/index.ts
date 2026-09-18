@@ -103,6 +103,8 @@ export interface SidebarOwnerProps {
   collapsed: boolean
   /** True while focus presentation suppresses secondary columns. */
   focusMode: boolean
+  /** Exit or enter focus presentation without changing saved panel widths. */
+  toggleFocus: () => void
   /** Rendered column width in px (SIDEBAR_COLLAPSED when collapsed). */
   width: number
 }

@@ -165,10 +165,10 @@ export function AppFrame({
     : layoutInfo.sidebar === 0 ? SIDEBAR_DEFAULT : layoutInfo.sidebar
   const rightbarPreference = layoutInfo.rightbar ?? viewport * RIGHTBAR_DEFAULT_RATIO
   // Desktop reopen controls occupy the macOS session header or Windows caption row.
+  const windowsTitlebar = document.documentElement.hasAttribute('data-windows-titlebar')
   const collapsedWidth = focusMode
-    ? SIDEBAR_COLLAPSED
-    : document.documentElement.dataset.platform === 'darwin'
-      || document.documentElement.hasAttribute('data-windows-titlebar') ? 0 : SIDEBAR_COLLAPSED
+    ? windowsTitlebar ? 0 : SIDEBAR_COLLAPSED
+    : document.documentElement.dataset.platform === 'darwin' || windowsTitlebar ? 0 : SIDEBAR_COLLAPSED
   // Opening on a narrow frame collapses the left sidebar. Eligibility must
   // include that space before the occupant's first shown report arrives.
   const normal = computeColumns(viewport, !layoutInfo.rightbarShown && narrow ? 0 : sidebarPreference, rightbarPreference, collapsedWidth)
@@ -199,8 +199,9 @@ export function AppFrame({
   const sidebar = useMemo(() => renderSlot('sidebar', {
     collapsed: sidebarCollapsed,
     focusMode,
+    toggleFocus: actions.toggleFocus,
     width: cols.sidebar,
-  }), [renderSlot, sidebarCollapsed, focusMode, cols.sidebar])
+  }), [renderSlot, sidebarCollapsed, focusMode, actions.toggleFocus, cols.sidebar])
   const main = useMemo(() => (
     <MainPanel usePanelInfo={usePanelInfo} renderSlot={renderSlot} />
   ), [usePanelInfo, renderSlot])
