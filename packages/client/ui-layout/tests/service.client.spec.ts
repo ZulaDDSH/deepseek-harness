@@ -35,17 +35,6 @@ describe('LayoutController', () => {
     expect(panels.setRightbar).not.toHaveBeenCalled()
   })
 
-  it('can toggle focus without changing panel widths directly', () => {
-    const panels = fakePanels()
-    const service = new LayoutController(panels, () => true)
-
-    service.toggleFocus()
-
-    expect(panels.toggleFocus).toHaveBeenCalledTimes(1)
-    expect(panels.setSidebar).not.toHaveBeenCalled()
-    expect(panels.setRightbar).not.toHaveBeenCalled()
-  })
-
   it('can toggle the sidebar immediately after construction', () => {
     const panels = fakePanels()
     const service = new LayoutController(panels, () => true)

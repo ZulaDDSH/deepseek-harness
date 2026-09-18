@@ -37,8 +37,6 @@ export interface ILayout {
    * @returns a signal aborted by the next navigation or layout disposal; check it before committing UI state.
    */
   beginNavigation(): AbortSignal
-  /** Toggle focus presentation without changing saved panel widths. */
-  toggleFocus(): void
   /** Toggle the sidebar panel (closed ⟷ contract default width). */
   toggleSidebar(): void
   /**
@@ -85,11 +83,6 @@ export class LayoutController implements ILayout {
   /** Invalidate pending navigations when the layout owner is unloaded. */
   dispose(): void {
     this.navigation.abort()
-  }
-
-  /** Toggle focus presentation. */
-  toggleFocus(): void {
-    this.panels.toggleFocus()
   }
 
   /** Toggle the sidebar panel (closed ⟷ contract default width). */
