@@ -26,14 +26,15 @@ export function ActivityList({
   const statuses = useSessionStatus(s => s)
   const rows = useMemo(() => deriveFlat(list, sessionIds, statuses), [list, sessionIds, statuses])
   const groups = useMemo(() => [
-    { key: 'attention', label: t('activity.attention'), rows: rows.filter(row => row.pendingInteraction !== undefined) },
+    { key: 'attention', label: t('activity.attention'), rows: rows.filter(row => row.failed === true || row.pendingInteraction !== undefined) },
     {
       key: 'running', label: t('activity.running'),
-      rows: rows.filter(row => row.pendingInteraction === undefined && (row.running || row.runningSubagentCount > 0)),
+      rows: rows.filter(row => row.failed !== true
+        && row.pendingInteraction === undefined && (row.running || row.runningSubagentCount > 0)),
     },
     {
       key: 'completed', label: t('activity.completed'),
-      rows: rows.filter(row => row.pendingInteraction === undefined
+      rows: rows.filter(row => row.failed !== true && row.pendingInteraction === undefined
         && !row.running && row.runningSubagentCount === 0 && row.completed),
     },
   ].filter(group => group.rows.length > 0), [rows, t])
