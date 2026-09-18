@@ -17,6 +17,7 @@ import { codePointLength, DEFAULTS, PRUNE_MARKER, resolveConfig } from './config
 import type {
   PrunedEntry,
   PruneResult,
+  PruneSessionOptions,
   ResolvedConfig,
   ToolResultPruneConfig,
 } from './types.ts'
@@ -25,6 +26,7 @@ export { codePointLength, DEFAULTS, PRUNE_MARKER, resolveConfig } from './config
 export type {
   PrunedEntry,
   PruneResult,
+  PruneSessionOptions,
   ResolvedConfig,
   ToolResultPruneConfig,
 } from './types.ts'
@@ -129,17 +131,21 @@ export class ToolResultPruner extends Service {
    * shadowed node through the injected token meter, so pure consumers can
    * subtract it without per-node state.
    * @param session - session whose current surface is rewritten.
+   * @param options - optional turn boundary limiting eligible historical results.
    * @returns landed replacements and aggregate Unicode-code-point savings.
    * @throws when the session rejects a replacement; replacements committed
    * earlier in the pass remain durable.
    */
-  pruneSession(session: Session): PruneResult {
+  pruneSession(session: Session, options: PruneSessionOptions = {}): PruneResult {
     const candidates: SnapshotCandidate[] = []
     for (const seq of [...session.surface.nodes]) {
       // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
       const event = session.eventAt(seq)
       /* v8 ignore next -- surface seqs are validated contiguous log references. */
-      if (event?.type === 'tool/result') candidates.push({ seq, event })
+      if (event?.type === 'tool/result'
+        && (options.beforeTurn === undefined || event.data.turn < options.beforeTurn)) {
+        candidates.push({ seq, event })
+      }
     }
 
     const pruned: PrunedEntry[] = []
