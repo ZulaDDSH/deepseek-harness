@@ -1574,9 +1574,12 @@ describe('default one-shot summarizer', () => {
 
 describe('automatic listener and loader composition', () => {
   function preStep(ctx: Context, owner: Agent, signal = SIGNAL) {
-    const turn = owner.session.snapshotEvents().findLast(event => event.type === 'turn/start')?.data.turn ?? 1
+    const events = owner.session.snapshotEvents()
+    const turn = events.findLast(event => event.type === 'turn/start')?.data.turn ?? 1
+    const previousStep = events.findLast(event =>
+      event.type === 'step/start' && event.data.turn === turn)?.data.step ?? 0
     return agentEvents(ctx, owner).waterfall(
-      'agent/pre-step', { messages: [], turn, step: 1, signal },
+      'agent/pre-step', { messages: [], turn, step: previousStep + 1, signal },
       () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
     )
   }
