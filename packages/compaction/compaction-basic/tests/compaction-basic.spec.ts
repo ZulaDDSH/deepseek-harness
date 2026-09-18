@@ -845,6 +845,24 @@ describe('optional model-free tool-result pruning', () => {
     expect(session.surface.replaceGeneration).toBe(0)
   })
 
+  it('prunes oversized tool results below pressure when proactive pruning is enabled', async () => {
+    const ctx = createContext(10_000)
+    void new ToolResultPruner(ctx, pruneConfig)
+    const compact = new TestCompactionEngine(ctx, {
+      auto: false,
+      thresholdRatio: 0.8,
+      retainTokens: 100,
+      proactiveToolResultPruning: true,
+    } as BasicCompactionConfig)
+    const session = oversizedToolResult()
+    const before = ctx.tokenMeter.measure(session).totalTokens
+
+    expect(await compactIfNeeded(compact, session)).toBeNull()
+    expect(ctx.tokenMeter.measure(session).totalTokens).toBeLessThan(before)
+    expect(compact.calls).toHaveLength(0)
+    expect(session.surface.replaceGeneration).toBe(1)
+  })
+
   it('skips LLM summarization when pruning alone clears pressure', async () => {
     const ctx = createContext(1_000)
     void new ToolResultPruner(ctx, pruneConfig)
