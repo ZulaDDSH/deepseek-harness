@@ -132,32 +132,30 @@ const Reconnect: z<ReconnectConfig> = z.object({
   maxAttempts: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(RECONNECT_DEFAULTS.maxAttempts),
 })
 
+const SharedConfigFields = {
+  serverName: z.string().required().pattern(SERVER_NAME_PATTERN),
+  toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
+  failOnStartupError: z.boolean().default(false),
+  maxInstructionBytes: z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES),
+  includeServerInstructions: z.boolean().default(true),
+  toolFilter: ToolFilter,
+  reconnect: Reconnect,
+}
+
 export const Config = z.union([
   z.object({
     transport: z.const('stdio'),
-    serverName: z.string().required().pattern(SERVER_NAME_PATTERN),
+    ...SharedConfigFields,
     command: z.string().required(),
     args: z.array(String).default([]),
     env: z.dict(String).default({}),
     cwd: z.string().default(''),
-    toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
-    failOnStartupError: z.boolean().default(false),
-    maxInstructionBytes: z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES),
-    includeServerInstructions: z.boolean().default(true),
-    toolFilter: ToolFilter,
-    reconnect: Reconnect,
   }),
   z.object({
     transport: z.const('streamable-http'),
-    serverName: z.string().required().pattern(SERVER_NAME_PATTERN),
+    ...SharedConfigFields,
     url: z.string().required(),
     headers: z.dict(String).default({}),
-    toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
-    failOnStartupError: z.boolean().default(false),
-    maxInstructionBytes: z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES),
-    includeServerInstructions: z.boolean().default(true),
-    toolFilter: ToolFilter,
-    reconnect: Reconnect,
   }),
 ]) as unknown as z<ConfigInput, Config>
 
