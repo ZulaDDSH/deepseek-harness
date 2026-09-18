@@ -205,11 +205,23 @@ export function QuickSwitcher({
           ))}
           {workspaceRows.length > 0 && <div className={css.heading}>{t('quick.workspaces')}</div>}
           {workspaceRows.map(row => (
-            <SwitcherItem key={row.key} row={row} active={rows[selected]?.key === row.key} onChoose={choose} />
+            <SwitcherItem
+              key={row.key}
+              row={row}
+              active={rows[selected]?.key === row.key}
+              onActivate={() => { setActive(rows.findIndex(item => item.key === row.key)) }}
+              onChoose={choose}
+            />
           ))}
           {(commandRows.length > 0 || commandBusy) && <div className={css.heading}>{t('quick.commands')}</div>}
           {commandRows.map(row => (
-            <SwitcherItem key={row.key} row={row} active={rows[selected]?.key === row.key} onChoose={choose} />
+            <SwitcherItem
+              key={row.key}
+              row={row}
+              active={rows[selected]?.key === row.key}
+              onActivate={() => { setActive(rows.findIndex(item => item.key === row.key)) }}
+              onChoose={choose}
+            />
           ))}
           {rows.length === 0 && !commandBusy && <div className={css.empty}>{t('quick.empty')}</div>}
           {rows.length === 0 && commandBusy && <div className={css.empty}>{t('quick.loading')}</div>}
