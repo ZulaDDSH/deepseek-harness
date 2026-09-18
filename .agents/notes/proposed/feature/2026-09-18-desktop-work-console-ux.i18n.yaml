@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/proposed/feature/2026-09-18-desktop-work-console-ux.md
-2026-09-18-desktop-work-console-ux.md: d3b0c2d256cd5dada5a6b91be818b09748ecac62
-2026-09-18-desktop-work-console-ux.zh.md: 7328dfe40a63cd41db10eb8aa8a2d59e81c9e51d
+2026-09-18-desktop-work-console-ux.md: e77702904110e8ededd6f4e9010ea4104cf238f5
+2026-09-18-desktop-work-console-ux.zh.md: d3e5984379ee334995c71605e9b77bc3ffed62f3

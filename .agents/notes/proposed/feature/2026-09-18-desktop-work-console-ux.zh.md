@@ -1,8 +1,8 @@
 # Agent Note: Desktop work console UX
 
-[English](2026-09-18-desktop-work-console-ux.md) | 中文
-
 Status: proposed
+
+[English](2026-09-18-desktop-work-console-ux.md) | 中文
 
 ## Problem
 
