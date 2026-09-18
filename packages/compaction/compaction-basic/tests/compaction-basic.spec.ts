@@ -258,6 +258,25 @@ function oversizedToolResult(
   return session
 }
 
+function appendLaterAssistantSettlement(session: Session): void {
+  session.append('step/start', { turn: 2, step: 1 })
+  session.append('assistant/message', {
+    stream: [],
+    turn: 2,
+    step: 1,
+    message: createMessage({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'observed prior tool result' }],
+      source: {
+        kind: 'model',
+        provider: MODEL,
+        model: MODEL,
+      },
+    }),
+  }, { surfaceOp: 'append' })
+  session.append('step/end', { turn: 2, step: 1 })
+}
+
 class TestCompactionEngine extends BasicCompactionEngine {
   summary: ContentBlock[] = [{ type: 'text', text: 'small checkpoint' }]
   rawOutput: ContentBlock[] | undefined
@@ -1598,7 +1617,7 @@ describe('automatic listener and loader composition', () => {
     expect(compact.calls).toHaveLength(1)
   })
 
-  it('proactively prunes completed-turn results without trimming fresh current-turn output', async () => {
+  it('proactively prunes only results already consumed by a later model response', async () => {
     const ctx = createContext(10_000)
     void new ToolResultPruner(ctx, pruneConfig)
     const compact = new TestCompactionEngine(ctx, {
@@ -1607,17 +1626,18 @@ describe('automatic listener and loader composition', () => {
       proactiveToolResultPruning: true,
     })
 
-    const stale = oversizedToolResult()
-    const staleBefore = ctx.tokenMeter.measure(stale).totalTokens
-    await preStep(ctx, agent(stale, MODEL))
-    expect(ctx.tokenMeter.measure(stale).totalTokens).toBeLessThan(staleBefore)
-    expect(stale.surface.replaceGeneration).toBe(1)
+    const consumed = oversizedToolResult()
+    appendLaterAssistantSettlement(consumed)
+    const consumedBefore = ctx.tokenMeter.measure(consumed).totalTokens
+    await preStep(ctx, agent(consumed, MODEL))
+    expect(ctx.tokenMeter.measure(consumed).totalTokens).toBeLessThan(consumedBefore)
+    expect(consumed.surface.replaceGeneration).toBe(1)
 
-    const fresh = oversizedToolResult(3_000, false, false)
-    const freshBefore = ctx.tokenMeter.measure(fresh).totalTokens
-    await preStep(ctx, agent(fresh, MODEL))
-    expect(ctx.tokenMeter.measure(fresh).totalTokens).toBe(freshBefore)
-    expect(fresh.surface.replaceGeneration).toBe(0)
+    const unseen = oversizedToolResult()
+    const unseenBefore = ctx.tokenMeter.measure(unseen).totalTokens
+    await preStep(ctx, agent(unseen, MODEL))
+    expect(ctx.tokenMeter.measure(unseen).totalTokens).toBe(unseenBefore)
+    expect(unseen.surface.replaceGeneration).toBe(0)
     expect(compact.calls).toHaveLength(0)
   })
 
