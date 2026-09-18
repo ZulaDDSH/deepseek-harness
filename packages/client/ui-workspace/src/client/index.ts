@@ -12,6 +12,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { RemoteHostFacts } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { IWorkspaces, WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
+import type { CommandUiContract } from '@deepseek-ai/dsh-client-ui-commands/client'
 import type { HostObservable, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls the Controller service merges.
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
@@ -29,6 +30,7 @@ import { UiWorkspaceService } from './navigation.ts'
 import { createWorkspaceViewStore } from './stores.ts'
 import { WorkspaceBrowser } from './rows/WorkspaceBrowser.tsx'
 import { WorkspacePicker } from './WorkspacePicker.tsx'
+import { QuickSwitcher, type QuickSwitcherInjected } from './QuickSwitcher.tsx'
 import { en, zh, type WorkspaceKey } from './locales.ts'
 
 export type { UiWorkspace } from './navigation.ts'
@@ -68,7 +70,7 @@ const NS = 'workspace'
  * declaration through `slots.inject()` instead of assuming order.
  */
 export const inject = [
-  'slots', 'sessions', 'workspaces', 'locale', 'remote', 'remote.directoryPicker', 'layout', 'uiSession',
+  'slots', 'sessions', 'workspaces', 'locale', 'remote', 'remote.directoryPicker', 'layout', 'uiSession', 'commandUi',
 ]
 
 /**
@@ -80,6 +82,7 @@ export const inject = [
 export function apply(ctx: Context): void {
   const sessions = ctx.get('sessions') as ISessions
   const workspaces = ctx.get('workspaces') as IWorkspaces
+  const commandUi = ctx.get('commandUi') as CommandUiContract
   const uiWorkspace = new UiWorkspaceService(
     ctx, ctx.remote.directoryPicker, workspaces, sessions)
   const carrier = (globalThis as typeof globalThis & {
@@ -154,6 +157,20 @@ export function apply(ctx: Context): void {
   })
   // Each registration declares its directory-flow child in the same call;
   // slot injection follows both the owner and declaration HMR lifetimes.
+  const quickInjected = (): QuickSwitcherInjected => ({
+    openSession: sessionId => { uiWorkspace.openSession(sessionId) },
+    openWorkspace: workspaceId => uiWorkspace.openWorkspace(workspaceId),
+    quickCommands: (sessionId, query, signal) => commandUi.quickCommands(sessionId, query, signal),
+    runQuick: (sessionId, name) => commandUi.runQuick(sessionId, name),
+  })
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+    name: 'shell.overlay',
+    id: 'workspace-quick-switcher',
+    order: 10,
+    locale: NS,
+    inject: quickInjected,
+  }, QuickSwitcher))
+
   ctx.slots.inject('sidebar.workspaces', () => ctx.slots.register(
     {
       name: 'sidebar.workspaces',
