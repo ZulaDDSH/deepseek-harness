@@ -110,6 +110,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     compactionRetries: compactionRetriesSchema,
     maxOverflowRetries: maxOverflowRetriesSchema,
     modelPolicies: z.array(modelPolicy),
+    proactiveToolResultPruning: z.boolean(),
     auto: z.boolean(),
   })
 
@@ -298,11 +299,16 @@ export class BasicCompactionEngine extends CompactionEngine {
       )
     }
     const spec = resolveCompactSpec(policy, context.contextWindow)
+    const proactivePrune = this.config.proactiveToolResultPruning && prune !== undefined
+    if (proactivePrune) {
+      const pruned = prune.pruneSession(agent.session)
+      if (pruned.pruned.length > 0) measurement = meter.measure(agent.session)
+    }
     if (measurement.totalTokens < spec.thresholdTokens) return null
 
     // Once pressure qualifies, land the model-free pass before choosing a
     // summary range, then remeasure through the singleton replay fold.
-    if (prune !== undefined) {
+    if (prune !== undefined && !proactivePrune) {
       prune.pruneSession(agent.session)
       measurement = meter.measure(agent.session)
     }
