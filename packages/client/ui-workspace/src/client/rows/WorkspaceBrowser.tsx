@@ -26,6 +26,7 @@ import {
   deriveFlat, deriveGroups, deriveSearchResults, orderByRecency, owningGroupKey, owningParentFolder,
   pinCurrentBlank, reconcileManualOrder, UNGROUPED_KEY, visibleSessionIds,
 } from '../tree.ts'
+import { ActivityList } from './ActivityList.tsx'
 import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './Rows.tsx'
 import { FLAT_SESSION_ORDER_KEY, type SessionGroupBy } from '../stores.ts'
 import { WorkspacePickFlow } from '../WorkspacePicker.tsx'
@@ -114,6 +115,7 @@ function ViewOptionsMenu({ groupBy, orderBy, onGroupPick, onOrderPick, t }: {
         { id: 'workspace', label: t('groupBy.workspace') },
         { id: 'workspace-tree', label: t('groupBy.workspaceTree') },
         { id: 'flat', label: t('groupBy.flat') },
+        { id: 'activity', label: t('groupBy.activity') },
         { type: 'separator' as const, id: 'order-by-separator' },
         { type: 'label' as const, id: 'order-by', text: t('orderBy.label') },
         { id: 'manual', label: t('orderBy.manual') },
@@ -121,7 +123,7 @@ function ViewOptionsMenu({ groupBy, orderBy, onGroupPick, onOrderPick, t }: {
       ]}
       selectedIds={[groupBy, orderBy]}
       onSelect={(id) => {
-        if (id === 'workspace' || id === 'workspace-tree' || id === 'flat') onGroupPick(id)
+        if (id === 'workspace' || id === 'workspace-tree' || id === 'flat' || id === 'activity') onGroupPick(id)
         else if (id === 'manual' || id === 'updated') onOrderPick(id)
         setOpen(false)
       }}
@@ -1114,7 +1116,7 @@ export function WorkspaceBrowser({
       <div className={css.sectionHeader}>
         {wide && (
           <span className={clsx(css.sectionLabel, css.wide, searchExpanded && css.sectionLabelHidden)}>
-            {groupBy === 'flat' ? t('section.sessions') : t('section.workspaces')}
+            {groupBy === 'activity' ? t('groupBy.activity') : groupBy === 'flat' ? t('section.sessions') : t('section.workspaces')}
           </span>
         )}
         {wide && (
@@ -1258,8 +1260,22 @@ export function WorkspaceBrowser({
               t={t}
             />
           )
-          : groupBy === 'flat'
+          : groupBy === 'activity'
             ? (
+              <ActivityList
+                list={list}
+                sessionIds={orderedFlatSessionIds}
+                useSessionStatus={useSessionStatus}
+                usePanelInfo={usePanelInfo}
+                open={open}
+                forkSession={forkSession}
+                onSessionRename={onSessionRename}
+                onSessionArchive={onSessionArchive}
+                t={t}
+              />
+            )
+            : groupBy === 'flat'
+              ? (
               <FlatList
                 usePanelInfo={usePanelInfo}
                 list={list}
@@ -1272,8 +1288,8 @@ export function WorkspaceBrowser({
                 onSessionRevealed={acknowledgeSessionReveal}
                 t={t}
               />
-            )
-            : (
+              )
+              : (
               <SessionTree
                 usePanelInfo={usePanelInfo}
                 list={list}
@@ -1306,7 +1322,7 @@ export function WorkspaceBrowser({
                   setDeleteError(null)
                 }}
               />
-            ))}
+              ))}
       </div>
 
       <Modal
