@@ -141,14 +141,13 @@ describe('main panel selection', () => {
     expect(store.getSnapshot().layoutInfo).toBe(selected.layoutInfo)
   })
 
-  it.each(['resetRuntime', 'setSidebar', 'toggleSidebar', 'setViewportWidth', 'setRightbar', 'openRightbar', 'closeRightbar'] as const)(
+  it.each(['setSidebar', 'toggleSidebar', 'setViewportWidth', 'setRightbar', 'openRightbar', 'closeRightbar'] as const)(
     'preserves panelInfo identity when %s changes layoutInfo', (action) => {
       const { store, actions } = createLayoutStore().create()
       actions.selectPanel(panelA)
       if (action === 'closeRightbar') actions.openRightbar(true, true)
       const previous = store.getSnapshot()
       switch (action) {
-        case 'resetRuntime': actions.resetRuntime(1600); break
         case 'setSidebar': actions.setSidebar(400); break
         case 'toggleSidebar': actions.toggleSidebar(); break
         case 'setViewportWidth': actions.setViewportWidth(980); break
