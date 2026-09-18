@@ -193,6 +193,7 @@ vi.mock('../src/policy-test-auth.ts', () => ({ DesktopPolicyTestAuth: class {
 
 vi.mock('electron', () => ({
   app: harness.app,
+  Notification: class { static isSupported() { return false } },
   BrowserWindow: harness.FakeWindow,
   dialog: harness.dialog,
   shell: { openExternal: harness.openExternal },
@@ -1166,6 +1167,16 @@ describe('desktop main startup', () => {
     await shown.promise
     expect(harness.windows).toHaveLength(0)
     expect((harness.dialog.showMessageBox.mock.calls[0]![0] as MessageBoxOptions).detail).toContain('window creation failed')
+  })
+
+  it('accepts Session attention only from the primary application frame and validates payloads', async () => {
+    await readyForUpdate()
+    const valid = { sessionId: 's1', title: 'Background task', kind: 'question' }
+    await expect(Promise.resolve(invoke(DESKTOP_IPC.attentionNotify, 'app', valid))).resolves.toBeUndefined()
+    expect(() => invoke(DESKTOP_IPC.attentionNotify, 'app', { ...valid, kind: 'other' }))
+      .toThrow('invalid attention request')
+    expect(() => invoke(DESKTOP_IPC.attentionNotify, 'shell', valid))
+      .toThrow('unowned renderer')
   })
 
   it('accepts Web fatal reports only from the primary application frame', async () => {
