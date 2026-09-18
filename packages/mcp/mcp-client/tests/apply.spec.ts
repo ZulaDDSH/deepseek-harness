@@ -119,6 +119,16 @@ describe('mcp-client plugin module exports', () => {
     expect(resolved.serverName).toBe('github-prod_1')
   })
 
+  it('Config schema preserves static MCP tool filters', () => {
+    const resolved = ConfigSchema({
+      transport: 'stdio',
+      serverName: 'srv',
+      command: 'echo',
+      toolFilter: { allow: ['remote', 'read'], deny: ['read'] },
+    } as never)
+    expect(resolved.toolFilter).toEqual({ allow: ['remote', 'read'], deny: ['read'] })
+  })
+
   it('Config schema materializes reconnect defaults and merges partial overrides', () => {
     const omitted = ConfigSchema({
       transport: 'stdio',
@@ -189,6 +199,34 @@ describe('apply (plugin lifecycle)', () => {
     expect(mockSetNotificationHandler).toHaveBeenCalled()
     expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
     expect(ctx.tools.get('remote')).toBeUndefined()
+  })
+
+  it('registers only MCP tools admitted by the configured raw-name filter', async () => {
+    mockListTools.mockResolvedValue({
+      tools: [
+        { name: 'remote', inputSchema: { type: 'object' } },
+        { name: 'blocked', inputSchema: { type: 'object' } },
+        { name: 'other', inputSchema: { type: 'object' } },
+      ],
+      nextCursor: undefined,
+    })
+
+    await apply(ctx, {
+      ...stdioConfig,
+      toolFilter: { allow: ['remote', 'blocked'], deny: ['blocked'] },
+    })
+
+    expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
+    expect(ctx.tools.get('mcp__srv__blocked')).toBeUndefined()
+    expect(ctx.tools.get('mcp__srv__other')).toBeUndefined()
+  })
+
+  it('rejects malformed MCP tool filters before connecting', async () => {
+    await expect(apply(ctx, {
+      ...stdioConfig,
+      toolFilter: { allow: ['remote', 'remote'] },
+    })).rejects.toThrow(/duplicate tool name "remote"/)
+    expect(mockConnect).not.toHaveBeenCalled()
   })
 
   it('keeps the Cordis plugin loading until initial discovery publishes its tools', async () => {
