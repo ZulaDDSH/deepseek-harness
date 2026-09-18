@@ -44,7 +44,10 @@ export class BootPage {
     this.updateProgress()
   }
 
-  /** Set carrier-owned startup text before plugin activation begins. */
+  /**
+   * Set carrier-owned startup text before plugin activation begins.
+   * @param text - Localized startup phase presented below the spinner.
+   */
   setHint(text: string): void {
     this.hint.textContent = text
   }
