@@ -32,7 +32,7 @@ function run(command, args, options = {}) {
   return result
 }
 
-async function waitForMemorixStart(electron, cliPath) {
+async function probeMemorixMcp(electron, cliPath) {
   await new Promise((resolve, reject) => {
     const child = spawn(electron, [cliPath, 'serve', '--cwd', project, '--mode', 'lite'], {
       cwd: project,
@@ -40,29 +40,88 @@ async function waitForMemorixStart(electron, cliPath) {
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
     })
+    const messages = new Map()
+    const waiters = new Map()
+    let buffer = ''
     let stderr = ''
     let settled = false
     const finish = (error) => {
       if (settled) return
       settled = true
       clearTimeout(timer)
-      child.stdin.end()
-      child.kill()
+      if (child.exitCode === null) child.kill()
       if (error) reject(error)
       else resolve()
     }
     const timer = setTimeout(() => {
-      finish(new Error('Timed out waiting for Memorix MCP startup. stderr:\n' + stderr))
-    }, 20000)
+      finish(new Error('Timed out probing Memorix MCP. stderr:\n' + stderr))
+    }, 30000)
+    const waitFor = (id) => {
+      const key = String(id)
+      const existing = messages.get(key)
+      if (existing) return Promise.resolve(existing)
+      return new Promise((resolveMessage) => { waiters.set(key, resolveMessage) })
+    }
+    const send = (message) => {
+      child.stdin.write(JSON.stringify(message) + '\n')
+    }
+    child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
-    child.stderr.on('data', chunk => {
-      stderr += chunk
-      if (stderr.includes('MCP Server running on stdio')) finish()
+    child.stdout.on('data', chunk => {
+      buffer += chunk
+      let newline = buffer.indexOf('\n')
+      while (newline >= 0) {
+        const line = buffer.slice(0, newline).replace(/\r$/u, '')
+        buffer = buffer.slice(newline + 1)
+        if (line.trim()) {
+          const message = JSON.parse(line)
+          if (message.id !== undefined) {
+            const key = String(message.id)
+            messages.set(key, message)
+            const waiter = waiters.get(key)
+            if (waiter) {
+              waiters.delete(key)
+              waiter(message)
+            }
+          }
+        }
+        newline = buffer.indexOf('\n')
+      }
     })
+    child.stderr.on('data', chunk => { stderr += chunk })
     child.once('error', finish)
     child.once('exit', code => {
-      if (!settled) finish(new Error('Memorix MCP exited before readiness with code ' + String(code) + '. stderr:\n' + stderr))
+      if (!settled && code !== 0) finish(new Error('Memorix MCP exited with code ' + String(code) + '. stderr:\n' + stderr))
     })
+    void (async () => {
+      send({
+        jsonrpc: '2.0',
+        id: 'initialize',
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'dsh-desktop-smoke', version: '1' },
+        },
+      })
+      const initialized = await waitFor('initialize')
+      assert.equal(initialized.error, undefined)
+      send({ jsonrpc: '2.0', method: 'notifications/initialized' })
+      send({ jsonrpc: '2.0', id: 'tools', method: 'tools/list' })
+      const listed = await waitFor('tools')
+      assert.equal(listed.error, undefined)
+      const names = new Set(listed.result.tools.map(tool => tool.name))
+      assert.ok(names.has('memorix_project_context'))
+      assert.ok(names.has('memorix_session_start'))
+      assert.ok(names.has('memorix_store'))
+      child.stdin.end()
+      const exitTimer = setTimeout(() => finish(new Error('Memorix MCP did not exit after stdin closed. stderr:\n' + stderr)), 5000)
+      child.once('exit', code => {
+        clearTimeout(exitTimer)
+        if (code === 0) finish()
+        else finish(new Error('Memorix MCP exited with code ' + String(code) + '. stderr:\n' + stderr))
+      })
+    })().catch(finish)
   })
 }
 
@@ -104,7 +163,7 @@ try {
   const desktopRequire = createRequire(pathToFileURL(join(root, 'apps', 'desktop', 'package.json')))
   const electron = desktopRequire('electron')
   assert.equal(typeof electron, 'string')
-  await waitForMemorixStart(electron, cliPath)
+  await probeMemorixMcp(electron, cliPath)
 
   process.stdout.write('Memorix Desktop smoke passed.\n')
 } finally {
