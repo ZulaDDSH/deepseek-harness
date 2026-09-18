@@ -27,6 +27,7 @@ export function memorixPatch(cliPath) {
           - micro
         env:
           ELECTRON_RUN_AS_NODE: "1"
+          MEMORIX_SQLITE_DRIVER: "node"
         cwd: !!js process.cwd()
 `
 }
