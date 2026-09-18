@@ -253,7 +253,7 @@ pruneContent(blocks: readonly ContentBlock[]): ContentBlock[] | null
  * @throws when the session rejects a replacement; replacements committed
  * earlier in the pass remain durable.
  */
-pruneSession(session: Session, options?: PruneSessionOptions): PruneResult
+pruneSession(session: Session, options: PruneSessionOptions = {}): PruneResult
 ```
 
 Types: [ContentBlock](llm-streaming.zh.md) · [Session](session.zh.md)
