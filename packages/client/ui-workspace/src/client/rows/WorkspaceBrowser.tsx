@@ -14,20 +14,19 @@ import clsx from 'clsx'
 import {
   Button, IconCloseFill14, IconProjectAddOutline16, IconSearchOutline16, Modal, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type {
-  SessionListState, SessionSearchResultItem,
-} from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
 import type { GroupNode, SessionNode, SessionOrderBy } from '../tree.ts'
 import {
-  deriveFlat, deriveGroups, deriveSearchResults, orderByRecency, owningGroupKey, owningParentFolder,
+  deriveFlat, deriveGroups, orderByRecency, owningGroupKey, owningParentFolder,
   pinCurrentBlank, reconcileManualOrder, UNGROUPED_KEY, visibleSessionIds,
 } from '../tree.ts'
 import { ActivityList } from './ActivityList.tsx'
+import { SearchResults, type RemoteSearchState } from './SearchResults.tsx'
 import { ViewOptionsMenu } from './ViewOptionsMenu.tsx'
-import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './Rows.tsx'
+import { ProjectRowItem, SessionNodeItem } from './Rows.tsx'
 import { FLAT_SESSION_ORDER_KEY, type SessionGroupBy } from '../stores.ts'
 import { WorkspacePickFlow } from '../WorkspacePicker.tsx'
 import css from './WorkspaceBrowser.module.css'
@@ -615,92 +614,6 @@ function FlatList({
             />
           )
         })}
-      </div>
-      <span className={css.fade} />
-    </div>
-  )
-}
-
-interface RemoteSearchState {
-  query: string
-  status: 'idle' | 'loading' | 'ready' | 'error'
-  items: readonly SessionSearchResultItem[]
-  hasMore: boolean
-}
-
-/** Flat search body: local metadata matches plus the current Host result page. */
-function SearchResults({
-  useSessions,
-  useSessionStatus,
-  open,
-  workspaces,
-  archivedSessionIds,
-  query,
-  remote,
-  resultLimit,
-  usePanelInfo,
-  t,
-}: Pick<WorkspaceBrowserProps, 'useSessions' | 'useSessionStatus' | 'open' | 't' | 'usePanelInfo'> & {
-  workspaces: readonly WorkspaceView[]
-  archivedSessionIds: readonly SessionNode['id'][]
-  query: string
-  remote: RemoteSearchState
-  resultLimit: number
-}) {
-  const panelActive = usePanelInfo(info => info.activePanelId !== null)
-  const list = useSessions(s => s)
-  const statuses = useSessionStatus(s => s)
-  const currentRemote = remote.query === query
-    ? remote
-    : { query, status: 'loading' as const, items: [], hasMore: false }
-  const results = useMemo(
-    () => deriveSearchResults(
-      list,
-      workspaces,
-      query,
-      archivedSessionIds,
-      statuses,
-      currentRemote,
-      resultLimit,
-    ),
-    [list, workspaces, query, archivedSessionIds, statuses, currentRemote, resultLimit],
-  )
-  const pending = currentRemote.status === 'loading'
-  const failed = currentRemote.status === 'error'
-  const currentId = panelActive
-    ? undefined
-    : Object.values(list.byId).find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
-
-  return (
-    <div className={clsx(css.treeBody, css.wide)}>
-      <div className={css.list}>
-        <div className={css.searchTree} role="tree" aria-label={t('search.results.aria')}>
-          {results.items.map(result => (
-            <SearchResultItem
-              key={result.id}
-              result={result}
-              currentId={currentId}
-              onOpen={open}
-              t={t}
-            />
-          ))}
-        </div>
-        {pending && (
-          <div className={css.searchStatus} role="status">{t('search.pending')}</div>
-        )}
-        {failed && (
-          <div className={css.searchWarning} role="status">
-            {t('search.unavailable')}
-          </div>
-        )}
-        {!pending && results.items.length === 0 && (
-          <div className={css.empty}>{t('search.noMatches')}</div>
-        )}
-        {results.hasMore && (
-          <div className={css.searchStatus}>
-            {t('search.hasMore', { n: resultLimit })}
-          </div>
-        )}
       </div>
       <span className={css.fade} />
     </div>
