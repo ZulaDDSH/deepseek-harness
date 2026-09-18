@@ -197,7 +197,7 @@ describe('AppFrame', () => {
   })
 
   it('renders owner props for the default sidebar and prospective right panel', () => {
-    const { frame, rightOwner, sidebarOwner, slotCalls } = mountFrame()
+    const { frame, instance, rightOwner, sidebarOwner, slotCalls } = mountFrame()
     expect(tracks(frame)).toEqual([280, 0])
     expect(sidebarOwner()).toMatchObject({ collapsed: false, focusMode: false, width: 280 })
     expect(sidebarOwner().toggleFocus).toBe(instance.actions.toggleFocus)
