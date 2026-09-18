@@ -1,0 +1,3 @@
+name: 节省模式
+description: 使用 PTC 合并多步工具调用，并更早裁剪大型工具输出和压缩历史，以降低长会话的 token 消耗。
+order: 3
