@@ -92,6 +92,7 @@ export function QuickSwitcher({
       return
     }
     const abort = new AbortController()
+    setCommands([])
     setCommandBusy(true)
     void quickCommands(currentSessionId, query, abort.signal).then(
       value => {
@@ -191,10 +192,16 @@ export function QuickSwitcher({
           autoComplete="off"
           autoFocus
         />
-        <div className={css.results}>
+        <div className={css.results} role="listbox" aria-label={t('quick.title')}>
           {sessionRows.length > 0 && <div className={css.heading}>{t('quick.sessions')}</div>}
           {sessionRows.map(row => (
-            <SwitcherItem key={row.key} row={row} active={rows[selected]?.key === row.key} onChoose={choose} />
+            <SwitcherItem
+              key={row.key}
+              row={row}
+              active={rows[selected]?.key === row.key}
+              onActivate={() => { setActive(rows.findIndex(item => item.key === row.key)) }}
+              onChoose={choose}
+            />
           ))}
           {workspaceRows.length > 0 && <div className={css.heading}>{t('quick.workspaces')}</div>}
           {workspaceRows.map(row => (
@@ -213,15 +220,20 @@ export function QuickSwitcher({
   )
 }
 
-function SwitcherItem({ row, active, onChoose }: {
+function SwitcherItem({ row, active, onActivate, onChoose }: {
   row: SwitcherRow
   active: boolean
+  onActivate: () => void
   onChoose: (row: SwitcherRow) => void
 }) {
   return (
     <button
       type="button"
       className={active ? `${css.row} ${css.active}` : css.row}
+      role="option"
+      aria-selected={active}
+      onMouseEnter={onActivate}
+      onFocus={onActivate}
       onClick={() => { onChoose(row) }}
     >
       <span className={css.icon}>{iconFor(row.kind)}</span>
