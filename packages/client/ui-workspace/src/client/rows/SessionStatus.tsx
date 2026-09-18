@@ -19,9 +19,10 @@ function assertNever(value: never): never {
 
 /** Resolve status priority for a session row. */
 export function sessionStatuses(
-  node: Pick<SessionNode, 'pendingInteraction' | 'running' | 'runningSubagentCount' | 'completed'>,
+  node: Pick<SessionNode, 'pendingInteraction' | 'running' | 'runningSubagentCount' | 'completed' | 'failed'>,
   t: RowTranslate,
 ): readonly [SessionStatus, ...SessionStatus[]] {
+  if (node.failed === true) return [{ state: 'error', label: t('status.failed') }]
   const subagents: SessionStatus | undefined = node.runningSubagentCount === 0
     ? undefined
     : {
