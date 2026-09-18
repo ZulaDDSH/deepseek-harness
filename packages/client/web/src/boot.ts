@@ -38,7 +38,10 @@ export class AppWebEntry {
     this.page = new BootPage(container)
   }
 
-  /** Update the framework-free boot hint for a carrier-owned startup phase. */
+  /**
+   * Update the framework-free boot hint for a carrier-owned startup phase.
+   * @param text - Localized startup phase presented before plugin activation.
+   */
   setBootHint(text: string): void {
     this.page.setHint(text)
   }
