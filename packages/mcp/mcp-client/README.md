@@ -60,6 +60,8 @@ Add one entry per server; nothing else is required. After the harness starts, th
 | `url` / `headers` | — | streamable-http: endpoint URL and extra request headers |
 | `toolCallTimeoutMs` | `60,000` | Timeout per `tools/call` or resource request |
 | `maxInstructionBytes` | `32,768` | Maximum UTF-8 bytes of server instructions including attribution; an oversized value rejects the connection |
+| `toolFilter.allow` | — | Optional exact raw-name allow list; when present, only listed MCP tools can register. |
+| `toolFilter.deny` | — | Exact raw-name deny list applied after the optional allow list. |
 | `failOnStartupError` | `false` | Reject plugin activation when the initial connection or tool synchronization fails |
 | `reconnect.enabled` | `true` | Reconnect automatically after a lost connection |
 | `reconnect.initialDelayMs` | `500` | First reconnect delay; doubles per consecutive failed attempt |
@@ -67,6 +69,8 @@ Add one entry per server; nothing else is required. After the harness starts, th
 | `reconnect.maxAttempts` | `10` | Consecutive failed attempts per outage before giving up |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-mcp-client) is the exhaustive source for every accepted field.
+
+Use a static `toolFilter` when a server publishes many tools but the agent needs only a stable subset. Filtering matches the server's raw MCP names before public-name normalization. A static subset removes the excluded tool descriptions and input schemas from every model request while keeping the remaining request prefix stable for cache reuse.
 
 After startup, the server's tools appear as `mcp__<serverName>__<tool>` — try a prompt that uses one. If the initial connection fails, the harness still starts but no tools from that server appear, and an error is logged. Setting `failOnStartupError: true` rejects plugin activation; [app-boot's startup policy](../../boot/app-boot/README.md) still permits an optional MCP entry to fail without aborting the harness.
 
@@ -117,7 +121,8 @@ This section explains the design decisions behind the bridge and points at the c
 | [`src/index.ts`](src/index.ts) | Plugin entry: `Config` schema, `serverName` reservation, activation await |
 | [`src/connection.ts`](src/connection.ts) | Connection supervisor: client generations, reconnect policy, attempt budget, disposal |
 | [`src/server-context.ts`](src/server-context.ts) | Resource-provider registration and literal server instructions |
-| [`src/tools.ts`](src/tools.ts) | Tool bridge: discovery, naming, registration swap, execution, image projection |
+| [`src/tool-filter.ts`](src/tool-filter.ts) | Static raw-name allow/deny resolution for discovered tools |
+| [`src/tools.ts`](src/tools.ts) | Tool bridge: discovery, filtering, naming, registration swap, execution, image projection |
 | [`src/transport.ts`](src/transport.ts) | Transport factory: stdio spawn with scrubbed env, Streamable HTTP |
 | — | No runtime invariant companion is published; MCP generations contribute through the tool registry, but the bridge exposes no independent server-to-tool snapshot after an asynchronous resync. |
 
@@ -161,15 +166,15 @@ Read these pages when the package-level contract is not enough. They move from t
 
 #### What the model sees
 
-After discovery succeeds, SDK-admitted MCP tools appear as native tools named `mcp__<serverName>__<rawName>` (or their deterministic normalized form), with the server description and input schema. A re-sync replaces the generation; disposal or an exhausted reconnect budget removes it. A server without the tools capability connects with an empty tool set.
+After discovery succeeds, SDK-admitted MCP tools that survive the configured raw-name filter appear as native tools named `mcp__<serverName>__<rawName>` (or their deterministic normalized form), with the server description and input schema. A re-sync replaces the generation; disposal or an exhausted reconnect budget removes it. A server without the tools capability connects with an empty tool set.
 
 #### Token effect
 
-The tool descriptions and input schemas enter every request while the tools are registered; re-syncs replace rather than accumulate schemas, and the server-qualified name adds tokens to every tool definition and call. A configured client also enables the [shared resource tools and server-name prompt](../mcp-resources/README.md#model-experience).
+The tool descriptions and input schemas enter every request while the tools are registered; a static `toolFilter` removes excluded schemas entirely. Re-syncs replace rather than accumulate schemas, and the server-qualified name adds tokens to every tool definition and call. A configured client also enables the [shared resource tools and server-name prompt](../mcp-resources/README.md#model-experience).
 
 #### KV Cache effect
 
-The tool-definition prefix stays stable while the discovered set and schemas are unchanged. A re-sync that adds, removes, renames, or changes a tool replaces definitions and may invalidate reuse from the first changed schema token onward; a reconnect that recovers an unchanged list reproduces identical definitions and stays prefix-stable.
+The tool-definition prefix stays stable while the filtered set and schemas are unchanged. A re-sync that adds, removes, renames, or changes a tool replaces definitions and may invalidate reuse from the first changed schema token onward; a reconnect that recovers an unchanged list reproduces identical definitions and stays prefix-stable.
 
 ### Tool-call history and results
 
@@ -206,6 +211,7 @@ Unchanged instructions retain identical prompt text. Updated or removed instruct
 
 These limits describe what you cannot do with this plugin and when it needs operational attention. They are current package constraints, not a comparison with other MCP clients or a task backlog.
 
+- **Tool filtering is exact-name only** — `toolFilter` matches raw MCP names with no glob or regex expansion; changing the filter requires a configuration reload and therefore intentionally changes the model-visible tool prefix.
 - **Resources are read on demand** — shipped profiles provide the [shared resource service](../mcp-resources/README.md); resource subscriptions and MCP prompt templates are unsupported.
 - **Startup and discovery timeouts are inherited from the MCP SDK** — the plugin exposes no separate connection or discovery timeout. Negotiation and discovery use the SDK's 60-second request default; discovery also uses its page limit. Plugin unload closes the transport to interrupt pending startup requests before awaiting teardown.
 - **Reconnect handles failed negotiation and transport close** — a failed initial probe or crashed stdio child uses the configured reconnect budget. Once HTTP is connected, request failures use the SDK transport's recovery rather than respawning the connection.
