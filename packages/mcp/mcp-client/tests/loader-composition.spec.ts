@@ -44,7 +44,10 @@ beforeEach(() => {
   mockClose.mockReset()
   mockListTools.mockReset()
   mockConnect.mockResolvedValue(undefined)
-  mockClose.mockResolvedValue(undefined)
+  mockClose.mockImplementation(function (this: { onclose?: () => void }) {
+    this.onclose?.()
+    return Promise.resolve()
+  })
   mockListTools.mockResolvedValue({
     tools: [
       { name: 'remote', inputSchema: { type: 'object' } },
