@@ -132,30 +132,38 @@ const Reconnect: z<ReconnectConfig> = z.object({
   maxAttempts: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(RECONNECT_DEFAULTS.maxAttempts),
 })
 
-const SharedConfigFields = {
-  serverName: z.string().required().pattern(SERVER_NAME_PATTERN),
-  toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
-  failOnStartupError: z.boolean().default(false),
-  maxInstructionBytes: z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES),
-  includeServerInstructions: z.boolean().default(true),
-  toolFilter: ToolFilter,
-  reconnect: Reconnect,
-}
+const serverNameSchema = z.string().required().pattern(SERVER_NAME_PATTERN)
+const toolCallTimeoutMsSchema = z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS)
+const failOnStartupErrorSchema = z.boolean().default(false)
+const maxInstructionBytesSchema = z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES)
+const includeServerInstructionsSchema = z.boolean().default(true)
 
 export const Config = z.union([
   z.object({
     transport: z.const('stdio'),
-    ...SharedConfigFields,
+    serverName: serverNameSchema,
     command: z.string().required(),
     args: z.array(String).default([]),
     env: z.dict(String).default({}),
     cwd: z.string().default(''),
+    toolCallTimeoutMs: toolCallTimeoutMsSchema,
+    failOnStartupError: failOnStartupErrorSchema,
+    maxInstructionBytes: maxInstructionBytesSchema,
+    includeServerInstructions: includeServerInstructionsSchema,
+    toolFilter: ToolFilter,
+    reconnect: Reconnect,
   }),
   z.object({
     transport: z.const('streamable-http'),
-    ...SharedConfigFields,
+    serverName: serverNameSchema,
     url: z.string().required(),
     headers: z.dict(String).default({}),
+    toolCallTimeoutMs: toolCallTimeoutMsSchema,
+    failOnStartupError: failOnStartupErrorSchema,
+    maxInstructionBytes: maxInstructionBytesSchema,
+    includeServerInstructions: includeServerInstructionsSchema,
+    toolFilter: ToolFilter,
+    reconnect: Reconnect,
   }),
 ]) as unknown as z<ConfigInput, Config>
 
