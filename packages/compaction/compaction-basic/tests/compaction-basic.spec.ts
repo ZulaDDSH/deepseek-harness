@@ -317,6 +317,7 @@ describe('compact configuration and defaults', () => {
       compactionRetries: 1,
       maxOverflowRetries: 1,
       modelPolicies: [],
+      proactiveToolResultPruning: false,
       auto: true,
     })
     expect(Object.isFrozen(resolved)).toBe(true)
@@ -435,6 +436,7 @@ describe('compact configuration and defaults', () => {
       [{ maxTokens: 0 }, /maxTokens/],
       [{ compactionRetries: -1 }, /compactionRetries/],
       [{ maxOverflowRetries: -1 }, /maxOverflowRetries/],
+      [{ proactiveToolResultPruning: 'yes' }, /proactiveToolResultPruning must be a boolean/],
       [{ auto: 'yes' }, /auto must be a boolean/],
       [{ summarizationProvider: 1 }, /summarizationProvider must be a string/],
       [{ summarizationModel: 1 }, /summarizationModel must be a string/],
@@ -853,7 +855,7 @@ describe('optional model-free tool-result pruning', () => {
       thresholdRatio: 0.8,
       retainTokens: 100,
       proactiveToolResultPruning: true,
-    } as BasicCompactionConfig)
+    })
     const session = oversizedToolResult()
     const before = ctx.tokenMeter.measure(session).totalTokens
 
