@@ -874,7 +874,11 @@ describe('optional model-free tool-result pruning', () => {
 
   it('skips LLM summarization when pruning alone clears pressure', async () => {
     const ctx = createContext(1_000)
-    void new ToolResultPruner(ctx, pruneConfig)
+    void new ToolResultPruner(ctx, {
+      thresholdChars: 100,
+      headChars: 20,
+      tailChars: 10,
+    })
     const compact = new TestCompactionEngine(ctx, {
       auto: false,
       thresholdRatio: 0.5,
@@ -1576,8 +1580,9 @@ describe('automatic listener and loader composition', () => {
   function preStep(ctx: Context, owner: Agent, signal = SIGNAL) {
     const events = owner.session.snapshotEvents()
     const turn = events.findLast(event => event.type === 'turn/start')?.data.turn ?? 1
-    const previousStep = events.findLast(event =>
-      event.type === 'step/start' && event.data.turn === turn)?.data.step ?? 0
+    const previousStepEvent = events.findLast(event =>
+      event.type === 'step/start' && event.data.turn === turn)
+    const previousStep = previousStepEvent?.type === 'step/start' ? previousStepEvent.data.step : 0
     return agentEvents(ctx, owner).waterfall(
       'agent/pre-step', { messages: [], turn, step: previousStep + 1, signal },
       () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
