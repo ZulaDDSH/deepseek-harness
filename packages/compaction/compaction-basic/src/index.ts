@@ -110,6 +110,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     compactionRetries: compactionRetriesSchema,
     maxOverflowRetries: maxOverflowRetriesSchema,
     modelPolicies: z.array(modelPolicy),
+    proactiveToolResultPruning: z.boolean(),
     auto: z.boolean(),
   })
 
@@ -147,6 +148,9 @@ export class BasicCompactionEngine extends CompactionEngine {
     ): Promise<PreStepDecision> => {
       if (!signal.aborted) {
         try {
+          if (this.config.proactiveToolResultPruning) {
+            this.ctx.get('toolResultPruner')?.pruneSession(agent.session, { previouslyConsumed: true })
+          }
           const result = await this.compactIfNeeded(agent, 'pressure', signal)
           if (result !== null) logResult(result, 'step pressure')
         } catch (error: unknown) {

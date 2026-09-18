@@ -16,7 +16,7 @@ The [profile availability decision](2026-09-13-mcp-resources-in-profiles.md) sup
 
 Resource results preserve the complete canonical JSON for programmatic callers. Native text includes the configured server name and returned URI metadata. String-valued `blob` fields become binary descriptions instead of inline base64. Existing tool-result logging records the model projection; this package does not create a parallel resource log or a binary attachment store.
 
-Server instructions contribute one scoped literal system-prompt section per configured MCP server. The existing logged system message records the assembled instructions that reach the model. Resource contents remain on demand, so connecting a server does not preload its documents into the prompt.
+Server instructions contribute one scoped literal system-prompt section per configured MCP server by default. A client may set `includeServerInstructions: false` when that server's guidance is unnecessary; the connection, tools, resources, and caller-visible server name remain available while the instruction section is omitted. The existing logged system message records only assembled instructions that actually reach the model. Resource contents remain on demand, so connecting a server does not preload its documents into the prompt.
 
 This decision supersedes only the resource deferral in the [original MCP client note](2026-07-07-mcp-client-plugin.md). That note remains active because its tool naming, canonical-result, environment, and transport rationale still apply. Prompts remain unsupported.
 
@@ -36,4 +36,4 @@ The [resource tests](../../../../packages/mcp/mcp-resources/tests/resources.spec
 
 ## Consequences
 
-Resource-only servers become useful without adding per-server model tools. Caller-visible server names and server instructions add prompt tokens; resource documents add tokens only when read. Shared schemas stay stable during connection failures while a caller-visible client remains configured, but a call still fails when its selected server is unavailable. Binary resources remain programmatic values, and pagination follows the SDK.
+Resource-only servers become useful without adding per-server model tools. Caller-visible server names always add their shared prompt cost; enabled server instructions add prompt tokens, while omitted instructions add none. Resource documents add tokens only when read. Shared schemas stay stable during connection failures while a caller-visible client remains configured, but a call still fails when its selected server is unavailable. Binary resources remain programmatic values, and pagination follows the SDK.

@@ -344,11 +344,16 @@ describe('CI workflow', () => {
       linuxAggregate: aggregate['runs-on'] as string,
       windows: windowsBuild['runs-on'] as string,
     }
-    const evaluate = (expression: string, vars: Record<string, string>, login = 'maintainer'): unknown => {
+    const evaluate = (
+      expression: string,
+      vars: Record<string, string>,
+      login = 'maintainer',
+      fork = false,
+    ): unknown => {
       return evaluateRunsOn(expression, {
         vars,
         fromJSON: JSON.parse,
-        github: { event: { pull_request: { user: { login } } } },
+        github: { event: { repository: { fork }, pull_request: { user: { login } } } },
       })
     }
     for (const [name, selector, variable, pool, hosted] of [
@@ -364,6 +369,11 @@ describe('CI workflow', () => {
       for (const mode of ['', 'hosted', 'unexpected']) {
         expect(evaluate(selector, { [variable]: mode }), `${name} default on ${mode}`).toBe(hosted)
       }
+      const forkHosted = name === 'windows lanes' ? 'windows-2025' : 'ubuntu-24.04'
+      expect(evaluate(selector, { [variable]: 'selfhosted' }, 'maintainer', true), `${name} fork fallback`)
+        .toBe(forkHosted)
+      expect(evaluate(selector, { [variable]: 'blacksmith' }, 'maintainer', true), `${name} fork ignores upstream failover`)
+        .toBe(forkHosted)
     }
 
     // The run-gates aggregate lanes stop at the first blocking gate failure so
