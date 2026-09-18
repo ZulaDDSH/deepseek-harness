@@ -38,6 +38,11 @@ export class AppWebEntry {
     this.page = new BootPage(container)
   }
 
+  /** Update the framework-free boot hint for a carrier-owned startup phase. */
+  setBootHint(text: string): void {
+    this.page.setHint(text)
+  }
+
   /**
    * Load and activate every client entry, then hand the mount point to the
    * UI renderer. Plugin failures remain visible on the boot page.
