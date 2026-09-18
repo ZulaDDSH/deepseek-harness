@@ -33,6 +33,28 @@ Turn the desktop product into an agent work console without replacing the existi
 
 The work reuses the existing session status derivation, slot system, layout store, command package, Electron preload model, and update-attention pattern. It does not introduce a second UI framework or a second desktop state model.
 
+## Staging
+
+The PR is intentionally developed in reviewable slices on one draft branch:
+
+1. Baseline tests and navigation-row clarity.
+2. Layout persistence and focus mode.
+3. Command switcher and activity view.
+4. Desktop notifications.
+5. Desktop boot phases.
+6. File extractions needed by the completed behavior.
+7. Exact-head verification and visual review.
+
+Each slice must leave the prior behavior traceable through tests and must not replace unrelated Electron update, signing, Host-authentication, or recovery code.
+
+## Alternatives considered
+
+**Rewrite the Electron application around a desktop-only UI.** Rejected because the existing client plugin, slot, session-status, and layout systems already expose the required state and behavior. A second UI stack would duplicate routing, accessibility, localization, and state ownership.
+
+**Keep the existing sidebar and add only cosmetic styling.** Rejected because the main problems are information priority and interaction cost, not color or spacing. Status hidden behind hover and color-only indicators would remain.
+
+**Create a separate desktop state model for activity and notifications.** Rejected because the unified Session status projection already owns running, pending-interaction, and completion facts. Desktop behavior should consume that projection rather than maintain another source of truth.
+
 ## Acceptance criteria
 
 - A session that needs approval, an answer, or plan review is identifiable without hover.
@@ -48,16 +70,10 @@ The work reuses the existing session status derivation, slot system, layout stor
 - Changed source files remain focused and are split when a file would otherwise stay substantially above 500 lines without a maintenance reason.
 - Focused tests cover every changed behavior, followed by `pnpm run test:gui`; assembled visible changes also run `DSH_SNAPSHOT=replay pnpm run test:web`. Desktop shell changes run the relevant `apps/desktop` unit tests and local Electron qualification where applicable.
 
-## Staging
+## Risks
 
-The PR is intentionally developed in reviewable slices on one draft branch:
-
-1. Baseline tests and navigation-row clarity.
-2. Layout persistence and focus mode.
-3. Command switcher and activity view.
-4. Desktop notifications.
-5. Desktop boot phases.
-6. File extractions needed by the completed behavior.
-7. Exact-head verification and visual review.
-
-Each slice must leave the prior behavior traceable through tests and must not replace unrelated Electron update, signing, Host-authentication, or recovery code.
+- Persisted layout preferences can restore stale geometry if responsive state is stored with them; startup must reset runtime-only state while retaining explicit width preferences.
+- Focus mode can hide the only visible escape control on platform-specific titlebars; every supported desktop layout must keep a direct exit affordance.
+- Activity and notification projections can become noisy if ordinary refreshes are treated as transitions; notifications must deduplicate stable state.
+- A command switcher can overwrite or steal focus from an unsent composer draft if implemented through the composer; it needs an independent navigation surface.
+- Splitting large files while changing behavior can obscure regressions; extraction should follow proven behavior boundaries.
