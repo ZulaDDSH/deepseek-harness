@@ -1649,6 +1649,22 @@ describe('automatic listener and loader composition', () => {
     expect(compact.calls).toHaveLength(0)
   })
 
+  it('keeps proactive pruning optional when no pruner service is mounted', async () => {
+    const ctx = createContext(10_000)
+    const compact = new TestCompactionEngine(ctx, {
+      thresholdRatio: 0.8,
+      retainTokens: 100,
+      proactiveToolResultPruning: true,
+    })
+    const session = oversizedToolResult()
+    appendLaterAssistantSettlement(session)
+
+    await expect(preStep(ctx, agent(session, MODEL)))
+      .resolves.toEqual({ kind: 'enter', messages: [] })
+    expect(session.surface.replaceGeneration).toBe(0)
+    expect(compact.calls).toHaveLength(0)
+  })
+
   it('skips pre-step pressure when the step signal is already aborted', async () => {
     const ctx = createContext()
     const compact = new TestCompactionEngine(ctx, {
