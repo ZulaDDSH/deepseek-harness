@@ -1,7 +1,7 @@
 /** Desktop attention bridge over the unified Session status projection. */
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
+import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
 export type DesktopAttentionKind = 'approval' | 'plan-review' | 'question' | 'completed' | 'failed'
@@ -18,8 +18,8 @@ export interface DesktopAttentionBridge {
 }
 
 function transitionKind(
-  previous: SessionStatusSnapshot extends ReadonlyMap<SessionId, infer Status> ? Status | undefined : never,
-  next: SessionStatusSnapshot extends ReadonlyMap<SessionId, infer Status> ? Status : never,
+  previous: SessionStatus | undefined,
+  next: SessionStatus,
 ): DesktopAttentionKind | undefined {
   if (next.failureUnread === true && previous?.failureUnread !== true) return 'failed'
   const pending = next.pendingInteraction
