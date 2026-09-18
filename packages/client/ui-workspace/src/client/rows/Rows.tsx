@@ -325,7 +325,7 @@ export function SessionNodeItem({
   const primaryStatus = statuses[0]
   const showStatus = primaryStatus.state !== 'done' || row.completed
   const showStatusLabel = !row.blank
-    && (row.pendingInteraction !== undefined || row.running || row.runningSubagentCount > 0)
+    && (row.failed === true || row.pendingInteraction !== undefined || row.running || row.runningSubagentCount > 0)
   const draggable = drag !== undefined && !row.blank
   const [menuOpen, setMenuOpen] = useState(false)
   const rowRef = useRef<HTMLDivElement>(null)
