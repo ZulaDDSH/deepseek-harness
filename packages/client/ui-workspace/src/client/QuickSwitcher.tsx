@@ -1,5 +1,5 @@
 /** Root quick switcher for Sessions, Workspaces, and directly executable commands. */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { QuickCommand } from '@deepseek-ai/dsh-client-ui-commands/client'
 import {
@@ -51,7 +51,6 @@ export function QuickSwitcher({
   const [commands, setCommands] = useState<readonly QuickCommand[]>([])
   const [commandBusy, setCommandBusy] = useState(false)
   const [active, setActive] = useState(0)
-  const inputRef = useRef<HTMLInputElement>(null)
   const currentSessionId = useMemo(
     () => Object.values(sessions.byId).find(row => (row.retainedBy.mainView ?? 0) > 0)?.id,
     [sessions],
@@ -71,7 +70,6 @@ export function QuickSwitcher({
     if (!open) return
     setQuery('')
     setActive(0)
-    queueMicrotask(() => { inputRef.current?.focus() })
   }, [open])
 
   useEffect(() => {
@@ -169,7 +167,6 @@ export function QuickSwitcher({
         }
       }}>
         <Input
-          ref={inputRef}
           icon={<IconSearchOutline16 />}
           value={query}
           onChange={event => {
@@ -179,6 +176,7 @@ export function QuickSwitcher({
           placeholder={t('quick.placeholder')}
           aria-label={t('quick.placeholder')}
           autoComplete="off"
+          autoFocus
         />
         <div className={css.results}>
           {sessionRows.length > 0 && <div className={css.heading}>{t('quick.sessions')}</div>}
@@ -211,7 +209,6 @@ function SwitcherItem({ row, active, onChoose }: {
     <button
       type="button"
       className={active ? `${css.row} ${css.active}` : css.row}
-      onMouseEnter={() => {}}
       onClick={() => { onChoose(row) }}
     >
       <span className={css.icon}>{iconFor(row.kind)}</span>
