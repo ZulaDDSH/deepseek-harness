@@ -32,6 +32,12 @@ export interface PrunedEntry {
   readonly charsAfter: number
 }
 
+/** Optional bounds for one pruning pass. */
+export interface PruneSessionOptions {
+  /** Prune only tool results from turns strictly before this turn. */
+  readonly beforeTurn?: number
+}
+
 /** Aggregate outcome of one stable-surface pruning pass. */
 export interface PruneResult {
   /** Replacements in the snapshotted surface order. */
