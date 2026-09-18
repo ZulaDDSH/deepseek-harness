@@ -131,19 +131,24 @@ export class ToolResultPruner extends Service {
    * shadowed node through the injected token meter, so pure consumers can
    * subtract it without per-node state.
    * @param session - session whose current surface is rewritten.
-   * @param options - optional turn boundary limiting eligible historical results.
+   * @param options - optional eligibility policy limiting historical results.
    * @returns landed replacements and aggregate Unicode-code-point savings.
    * @throws when the session rejects a replacement; replacements committed
    * earlier in the pass remain durable.
    */
   pruneSession(session: Session, options: PruneSessionOptions = {}): PruneResult {
-    const candidates: SnapshotCandidate[] = []
-    for (const seq of [...session.surface.nodes]) {
+    const snapshot = [...session.surface.nodes].map((seq) => {
       // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
-      const event = session.eventAt(seq)
+      return { seq, event: session.eventAt(seq) }
+    })
+    const lastAssistantIndex = options.previouslyConsumed === true
+      ? snapshot.findLastIndex(({ event }) => event?.type === 'assistant/message')
+      : -1
+    const candidates: SnapshotCandidate[] = []
+    for (const [index, { seq, event }] of snapshot.entries()) {
       /* v8 ignore next -- surface seqs are validated contiguous log references. */
       if (event?.type === 'tool/result'
-        && (options.beforeTurn === undefined || event.data.turn < options.beforeTurn)) {
+        && (options.previouslyConsumed !== true || index < lastAssistantIndex)) {
         candidates.push({ seq, event })
       }
     }
