@@ -58,6 +58,16 @@ function fireDrag(row: HTMLElement, kind: 'dragOver' | 'drop', clientY: number):
 }
 
 describe('workspace browser rows', () => {
+  it('shows an unacknowledged failure ahead of pending, running, and completed states', () => {
+    expect(sessionStatuses({
+      failed: true,
+      pendingInteraction: 'question',
+      running: true,
+      runningSubagentCount: 2,
+      completed: true,
+    }, t)).toEqual([{ state: 'error', label: '失败' }])
+  })
+
   it('rejects an unknown pending interaction discriminator', () => {
     expect(() => sessionStatuses({
       pendingInteraction: 'unknown' as never,
