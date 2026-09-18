@@ -7,6 +7,7 @@ import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { RowDragProps } from '../src/client/rows/Rows.tsx'
 import { ProjectRowItem, SearchResultItem, SessionNodeItem } from '../src/client/rows/Rows.tsx'
+import { sessionStatuses } from '../src/client/rows/SessionStatus.tsx'
 import type { GroupNode, SearchResultNode, SessionNode } from '../src/client/tree.ts'
 import { zh } from '../src/client/locales.ts'
 
@@ -57,6 +58,15 @@ function fireDrag(row: HTMLElement, kind: 'dragOver' | 'drop', clientY: number):
 }
 
 describe('workspace browser rows', () => {
+  it('rejects an unknown pending interaction discriminator', () => {
+    expect(() => sessionStatuses({
+      pendingInteraction: 'unknown' as never,
+      running: false,
+      runningSubagentCount: 0,
+      completed: false,
+    }, t)).toThrow('unknown pending interaction')
+  })
+
   it('omits only an empty leading status slot in the hierarchy-free flat list', () => {
     const idle: SessionNode = {
       id: sid('flat'), title: 'Flat Session', blank: false, running: false,
