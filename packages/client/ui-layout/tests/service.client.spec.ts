@@ -4,6 +4,8 @@ import type { MainPanelId, PanelActions } from '../src/client/service.ts'
 
 function fakePanels(): PanelActions {
   return {
+    resetRuntime: vi.fn(),
+    toggleFocus: vi.fn(),
     selectPanel: vi.fn(),
     retainMainPanels: vi.fn(),
     setSidebar: vi.fn(),
@@ -30,6 +32,17 @@ describe('LayoutController', () => {
     expect(panels.openRightbar).toHaveBeenNthCalledWith(3, false, true)
     expect(panels.closeRightbar).toHaveBeenCalledTimes(1)
     // The drag width stays the frame's own business, never the caller's.
+    expect(panels.setRightbar).not.toHaveBeenCalled()
+  })
+
+  it('can toggle focus without changing panel widths directly', () => {
+    const panels = fakePanels()
+    const service = new LayoutController(panels, () => true)
+
+    service.toggleFocus()
+
+    expect(panels.toggleFocus).toHaveBeenCalledTimes(1)
+    expect(panels.setSidebar).not.toHaveBeenCalled()
     expect(panels.setRightbar).not.toHaveBeenCalled()
   })
 

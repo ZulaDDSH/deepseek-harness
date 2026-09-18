@@ -199,7 +199,7 @@ describe('AppFrame', () => {
   it('renders owner props for the default sidebar and prospective right panel', () => {
     const { frame, rightOwner, sidebarOwner, slotCalls } = mountFrame()
     expect(tracks(frame)).toEqual([280, 0])
-    expect(sidebarOwner()).toEqual({ collapsed: false, width: 280 })
+    expect(sidebarOwner()).toEqual({ collapsed: false, focusMode: false, width: 280 })
     expect(rightOwner()).toEqual({ width: 864, viewportWidth: 1920, canShow: true })
     expect(slotCalls.find(c => c.key === 'main')).toEqual({ key: 'main', props: {}, options: { entryKey: 'conversation' } })
   })
@@ -237,9 +237,40 @@ describe('AppFrame', () => {
     const { frame, instance, sidebarOwner, getByTestId } = mountFrame()
     act(() => { instance.actions.toggleSidebar() })
     expect(tracks(frame)).toEqual([56, 0])
-    expect(sidebarOwner()).toEqual({ collapsed: true, width: 56 })
+    expect(sidebarOwner()).toEqual({ collapsed: true, focusMode: false, width: 56 })
     expect(getByTestId('sidebar-content')).toBeTruthy()
     expect(frame.querySelector('[data-side="sidebar"]')).toBeNull()
+  })
+
+  it('focus mode collapses navigation and suppresses the right track without losing width preferences', () => {
+    const { frame, instance, sidebarOwner, rightOwner } = mountFrame()
+    act(() => {
+      instance.actions.setSidebar(400)
+      instance.actions.openRightbar(true, false)
+      instance.actions.setRightbar(500)
+      instance.actions.toggleFocus()
+    })
+    expect(tracks(frame)).toEqual([56, 0])
+    expect(sidebarOwner()).toEqual({ collapsed: true, focusMode: true, width: 56 })
+    expect(frame.dataset.focusMode).toBe('true')
+    expect(frame.querySelector('[data-side="sidebar"]')).toBeNull()
+    expect(frame.querySelector('[data-side="rightbar"]')).toBeNull()
+    expect(rightOwner().width).toBeGreaterThan(0)
+    expect(instance.getSnapshot().layoutInfo).toMatchObject({ sidebar: 400, rightbar: 500, rightbarShown: true })
+
+    act(() => { instance.actions.toggleFocus() })
+    expect(tracks(frame)).toEqual([400, 500])
+    expect(sidebarOwner()).toEqual({ collapsed: false, focusMode: false, width: 400 })
+    expect(frame.dataset.focusMode).toBeUndefined()
+  })
+
+  it('toggles focus from Ctrl/Cmd+Shift+F', () => {
+    const { frame, instance } = mountFrame()
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F', ctrlKey: true, shiftKey: true })) })
+    expect(frame.dataset.focusMode).toBe('true')
+    expect(instance.getSnapshot().layoutInfo.focusMode).toBe(true)
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', metaKey: true, shiftKey: true })) })
+    expect(instance.getSnapshot().layoutInfo.focusMode).toBe(false)
   })
 
   it('switches only the keyed main outlet when the active panel changes', () => {

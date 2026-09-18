@@ -28,6 +28,7 @@ describe('createLayoutStore', () => {
         rightbarTrack: false,
         rightbarFullscreen: false,
         rightbarInstant: false,
+        focusMode: false,
       },
     })
   })
@@ -40,6 +41,7 @@ describe('createLayoutStore', () => {
     a.actions.setRightbar(500)
     a.actions.openRightbar(true, true)
     a.actions.selectPanel('panel-a' as MainPanelId)
+    a.actions.toggleFocus()
 
     vi.stubGlobal('innerWidth', 1440)
     const b = createLayoutStore().create()
@@ -54,8 +56,19 @@ describe('createLayoutStore', () => {
         rightbarTrack: false,
         rightbarFullscreen: false,
         rightbarInstant: false,
+        focusMode: false,
       },
     })
+  })
+
+  it('toggles focus without changing width preferences', () => {
+    const { store, actions } = createLayoutStore().create()
+    actions.setSidebar(400)
+    actions.setRightbar(500)
+    actions.toggleFocus()
+    expect(store.getSnapshot().layoutInfo).toMatchObject({ sidebar: 400, rightbar: 500, focusMode: true })
+    actions.toggleFocus()
+    expect(store.getSnapshot().layoutInfo).toMatchObject({ sidebar: 400, rightbar: 500, focusMode: false })
   })
 
   it('clamps the sidebar to 264–420px', () => {
