@@ -12,7 +12,6 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { RemoteHostFacts } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { IWorkspaces, WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
-import type { CommandUiContract } from '@deepseek-ai/dsh-client-ui-commands/client'
 import type { HostObservable, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls the Controller service merges.
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
@@ -82,7 +81,10 @@ export const inject = [
 export function apply(ctx: Context): void {
   const sessions = ctx.get('sessions') as ISessions
   const workspaces = ctx.get('workspaces') as IWorkspaces
-  const commandUi = ctx.get('commandUi') as CommandUiContract
+  const commandUi = ctx.get('commandUi') as {
+    quickCommands: QuickSwitcherInjected['quickCommands']
+    runQuick: QuickSwitcherInjected['runQuick']
+  }
   const uiWorkspace = new UiWorkspaceService(
     ctx, ctx.remote.directoryPicker, workspaces, sessions)
   const carrier = (globalThis as typeof globalThis & {
