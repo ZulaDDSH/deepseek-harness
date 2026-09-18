@@ -26,12 +26,15 @@ describe('MCP tool filter resolution', () => {
     expect(toolAllowed(filter, 'other')).toBe(false)
   })
 
-  it('supports a deny-only filter and treats an empty allow list as unrestricted', () => {
-    const filter = resolveToolFilter({ deny: ['blocked'] }, 'toolFilter')
+  it('supports one-sided filters and treats an empty allow list as unrestricted', () => {
+    const denyOnly = resolveToolFilter({ deny: ['blocked'] }, 'toolFilter')
+    const allowOnly = resolveToolFilter({ allow: ['read'] }, 'toolFilter')
     const schemaDefault = resolveToolFilter({ allow: [], deny: [] }, 'toolFilter')
 
-    expect(toolAllowed(filter, 'allowed')).toBe(true)
-    expect(toolAllowed(filter, 'blocked')).toBe(false)
+    expect(toolAllowed(denyOnly, 'allowed')).toBe(true)
+    expect(toolAllowed(denyOnly, 'blocked')).toBe(false)
+    expect(allowOnly).toEqual({ allow: ['read'], deny: [] })
+    expect(toolAllowed(allowOnly, 'read')).toBe(true)
     expect(schemaDefault).toEqual({ deny: [] })
     expect(toolAllowed(schemaDefault, 'anything')).toBe(true)
   })
