@@ -1,5 +1,7 @@
 # Agent Note: Desktop work console UX
 
+[English](2026-09-18-desktop-work-console-ux.md) | 中文
+
 Status: proposed
 
 ## Problem
@@ -7,6 +9,15 @@ Status: proposed
 Electron 外壳已经提供安全的本地应用窗口、原生标题栏、更新处理、恢复流程和经过认证的 Host 代理，但主要工作界面仍像一个信息密集的浏览器树。当前 Workspace 浏览器让用户通过很小的状态点推断 agent 状态，许多行操作只有悬浮后才出现，长 Session 标题会在悬浮时横向滚动，Workspace 文件夹图标也会在悬浮时切换成展开箭头。根布局存储不会保留用户选择的侧栏或右侧面板宽度，也没有统一键盘入口用于切换 Session、Workspace 和命令。桌面端同样不会把审批、问题、完成或失败状态提升为原生注意力提示。
 
 这些问题表明桌面端缺少清晰的工作优先级，而不是缺少另一套 Electron 架构。行为修改应先用聚焦测试记录现状，再替换已验证的问题路径。
+
+当前源码证据：
+
+- `packages/client/ui-workspace/src/client/rows/Rows.tsx` 已派生审批、计划审阅、问题、运行中、子 agent、完成和空闲状态，但普通行主要通过 `StateDot` 呈现主要状态。
+- `packages/client/ui-workspace/src/client/rows/Rows.module.css` 会隐藏行操作和 Workspace 展开箭头，并在悬浮时替换文件夹图标、滚动标题。
+- `packages/client/ui-layout/src/client/stores.ts` 没有 `persist` 键，而 `packages/client/ui-workspace/src/client/stores.ts` 已经持久化浏览器偏好。
+- `packages/client/web/src/boot-page.ts` 只显示通用插件加载文案，虽然桌面启动序列有独立的 Host 和应用阶段。
+- `apps/desktop/src/main.ts` 已负责更新的原生注意力提示，但尚未将 agent 注意力投影到桌面通知。
+- `packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.tsx`、`Rows.tsx` 和 `apps/desktop/src/main.ts` 都承担多个职责，使聚焦的 UX 修改难以审查。
 
 ## Proposal
 
@@ -26,7 +37,17 @@ Electron 外壳已经提供安全的本地应用窗口、原生标题栏、更�
 
 ## Staging
 
-该 PR 在一个 Draft 分支中按可审查的小阶段推进：先建立基线测试和行状态清晰度，再处理布局持久化与专注模式、命令切换器和活动视图、桌面通知、启动阶段、必要的文件拆分，最后执行 exact-head 验证和视觉检查。每一步都必须保留前一步的可追踪行为，且不能顺带改写无关的更新、签名、Host 认证或恢复逻辑。
+该 PR 在一个 Draft 分支中按可审查的小阶段推进：
+
+1. 建立基线测试和行状态清晰度。
+2. 处理布局持久化与专注模式。
+3. 加入命令切换器和活动视图。
+4. 加入桌面通知。
+5. 加入启动阶段。
+6. 执行完成行为所需的文件拆分。
+7. 执行 exact-head 验证和视觉检查。
+
+每一步都必须保留前一步的可追踪行为，且不能顺带改写无关的更新、签名、Host 认证或恢复逻辑。
 
 ## Alternatives considered
 

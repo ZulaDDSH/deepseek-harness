@@ -17,7 +17,7 @@ import { bwrapProfileArgs } from '@deepseek-ai/dsh-sandbox-local/src/profiles.ts
 import { cleanupAcpExampleTest } from './cleanup.ts'
 
 /**
- * The default ACP composition (`cordis.yml`) end to end.
+ * The default ACP composition end to end.
  *
  * Keyless smoke: boot the real profile patch through `dsh --profile acp` as
  * an ACP subprocess and drive initialize + session/new — the real-Loader-path
@@ -35,7 +35,7 @@ import { cleanupAcpExampleTest } from './cleanup.ts'
 
 const AGENT: AgentUnderTest = {
   binScript: fileURLToPath(new URL('../../../../src/bin.ts', import.meta.url)),
-  configPath: fileURLToPath(new URL('../cordis.yml', import.meta.url)),
+  configPath: fileURLToPath(new URL('../../../../../../snapshots/acp/escalation-approved/cordis.yml', import.meta.url)),
   profile: 'acp',
   tsconfigPath: fileURLToPath(new URL('../../../../../../tsconfig.json', import.meta.url)),
 }
@@ -116,7 +116,7 @@ afterEach(async () => {
   await cleanupAcpExampleTest(ownedSpawned, ownedWorkdir)
 })
 
-describe('default sandbox composition keyless smoke (real cordis.yml via the Loader)', () => {
+describe('default sandbox composition keyless smoke (real snapshot composition via the Loader)', () => {
   it('boots the tree — sandbox executor + approval service + bridge — and opens a session', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'sandbox-acp-smoke-'))
     spawned = launchExampleAcpAgent(workdir, 'reject-once')
