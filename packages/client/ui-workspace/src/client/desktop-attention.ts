@@ -4,14 +4,17 @@ import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
+/** Semantic native-notification category derived from Session UI status. */
 export type DesktopAttentionKind = 'approval' | 'plan-review' | 'question' | 'completed' | 'failed'
 
+/** Renderer-to-carrier payload for one Session attention transition. */
 export interface DesktopAttentionRequest {
   readonly sessionId: SessionId
   readonly title: string
   readonly kind: DesktopAttentionKind
 }
 
+/** Optional isolated Desktop carrier used by the root workspace plugin. */
 export interface DesktopAttentionBridge {
   notify(request: DesktopAttentionRequest): Promise<void>
   subscribe(listener: (sessionId: SessionId) => void): () => void
@@ -39,6 +42,12 @@ export class DesktopAttentionSource {
   private readonly disposeStatus: () => void
   private readonly disposeActivation: () => void
 
+  /**
+   * @param statuses - unified Session UI status source.
+   * @param sessions - Session catalog used for display titles and existence checks.
+   * @param bridge - isolated native carrier.
+   * @param openSession - existing workspace navigation action.
+   */
   constructor(
     private readonly statuses: HostObservable<SessionStatusSnapshot>,
     private readonly sessions: HostObservable<SessionListState>,
@@ -67,6 +76,7 @@ export class DesktopAttentionSource {
     this.previous = next
   }
 
+  /** Stop observing status and native activation events. */
   dispose(): void {
     if (!this.live) return
     this.live = false
