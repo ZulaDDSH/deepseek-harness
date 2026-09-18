@@ -61,7 +61,7 @@ kind: "package-reference"
 | `toolCallTimeoutMs` | `60,000` | 每次 `tools/call` 或资源请求的超时 |
 | `maxInstructionBytes` | `32,768` | 包括服务器归属信息在内的服务器指令 UTF-8 字节上限；超出时连接失败 |
 | `includeServerInstructions` | `true` | 将非空服务器指令发布到系统提示词；设为 `false` 可省去这段重复提示词文本。 |
-| `toolFilter.allow` | — | 可选的精确原始名称允许列表；设置后只有列出的 MCP 工具可以注册。 |
+| `toolFilter.allow` | — | 精确原始名称允许列表；省略或空列表表示不限制，非空列表只允许列出的 MCP 工具。 |
 | `toolFilter.deny` | — | 在可选允许列表之后应用的精确原始名称拒绝列表。 |
 | `failOnStartupError` | `false` | 初始连接或工具同步失败时拒绝插件激活 |
 | `reconnect.enabled` | `true` | 连接丢失后自动重新连接 |
@@ -71,7 +71,7 @@ kind: "package-reference"
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-mcp-client)是每个受支持字段的穷尽式真源。
 
-当服务器发布很多工具但 agent 只需要稳定子集时，使用静态 `toolFilter`。过滤会在公开名称规范化之前匹配服务器的原始 MCP 名称。静态子集会从每次模型请求中完全移除被排除工具的描述与输入 schema，同时保持剩余请求前缀稳定，以便缓存复用。
+当服务器发布很多工具但 agent 只需要稳定子集时，使用静态 `toolFilter`。过滤会在公开名称规范化之前匹配服务器的原始 MCP 名称。空 `allow` 列表按省略处理，因此 Schemastery 具体化的默认值仍保持历史上的全部允许行为。静态子集会从每次模型请求中完全移除被排除工具的描述与输入 schema，同时保持剩余请求前缀稳定，以便缓存复用。
 
 只有在部署不需要服务器提供的指导时才设置 `includeServerInstructions: false`。省略的指令不会进入系统提示词，也不会占用 `maxInstructionBytes` 预算；工具与资源连接仍保持可用。
 
