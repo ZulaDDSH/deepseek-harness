@@ -1686,6 +1686,8 @@ export interface StdioConfig {
   failOnStartupError: boolean
   /** Maximum UTF-8 bytes of attributed server instructions (default 32768). */
   maxInstructionBytes?: number
+  /** Publish nonblank MCP server instructions into the system prompt. Defaults to `true`. */
+  includeServerInstructions?: boolean
   /** Static raw-name filter for the discovered MCP tool catalog. */
   toolFilter?: ToolFilterConfig
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
@@ -1712,6 +1714,10 @@ export interface StreamableHttpConfig {
   failOnStartupError: boolean
   /** Maximum UTF-8 bytes of attributed server instructions (default 32768). */
   maxInstructionBytes?: number
+  /** Publish nonblank MCP server instructions into the system prompt. Defaults to `true`. */
+  includeServerInstructions?: boolean
+  /** Static raw-name filter for the discovered MCP tool catalog. */
+  toolFilter?: ToolFilterConfig
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
 }
