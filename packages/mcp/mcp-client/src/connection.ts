@@ -321,7 +321,9 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
         if (!await closeGeneration()) ctx.logger.error(incompleteDisposalMessage)
         return
       }
-      const serverText = generation.getInstructions()?.trimEnd() ?? ''
+      const serverText = config.includeServerInstructions === false
+        ? ''
+        : generation.getInstructions()?.trimEnd() ?? ''
       instructions = serverText ? `### MCP server: ${config.serverName}\n\n${serverText}` : ''
       if (Buffer.byteLength(instructions) > maxInstructionBytes) {
         throw new Error(`${label}: server instructions exceed maxInstructionBytes (${maxInstructionBytes})`)
