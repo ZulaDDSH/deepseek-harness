@@ -33,7 +33,8 @@ export function resolveToolFilter(
   for (const key of Object.keys(config)) {
     if (!keys.has(key)) throw new Error(`${path}.${key} is not a tool filter option`)
   }
-  const allow = resolveNames(config.allow, `${path}.allow`)
+  const configuredAllow = resolveNames(config.allow, `${path}.allow`)
+  const allow = configuredAllow?.length === 0 ? undefined : configuredAllow
   const deny = resolveNames(config.deny, `${path}.deny`)
   return Object.freeze({
     ...(allow === undefined ? {} : { allow }),
