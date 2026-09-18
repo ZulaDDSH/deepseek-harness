@@ -14,11 +14,10 @@ import clsx from 'clsx'
 import {
   Button, IconCloseFill14, IconProjectAddOutline16, IconSearchOutline16, Modal, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
+import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
-import type { SessionNode, SessionOrderBy } from '../tree.ts'
+import type { SessionNode } from '../tree.ts'
 import {
   orderByRecency, pinCurrentBlank, reconcileManualOrder, UNGROUPED_KEY, visibleSessionIds,
 } from '../tree.ts'
@@ -27,7 +26,7 @@ import { FlatList } from './FlatList.tsx'
 import { SearchResults, type RemoteSearchState } from './SearchResults.tsx'
 import { SessionTree } from './SessionTree.tsx'
 import { ViewOptionsMenu } from './ViewOptionsMenu.tsx'
-import { FLAT_SESSION_ORDER_KEY, type SessionGroupBy } from '../stores.ts'
+import { FLAT_SESSION_ORDER_KEY } from '../stores.ts'
 import { WorkspacePickFlow } from '../WorkspacePicker.tsx'
 import css from './WorkspaceBrowser.module.css'
 
@@ -40,8 +39,6 @@ const EXPAND_SLIDE_MS = 300
 const SEARCH_DEBOUNCE_MS = 250
 /** `session.search` wire bound, measured in JavaScript UTF-16 code units. */
 const SEARCH_QUERY_MAX_CODE_UNITS = 500
-/** Session rows visible per Workspace before the local overflow control. */
-const COLLAPSED_SESSION_LIMIT = 5
 
 /** Keep controlled input and RPC payload inside the session.search wire contract. */
 function sanitizeSearchQuery(value: string): string {
