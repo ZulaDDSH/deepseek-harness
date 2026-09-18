@@ -203,10 +203,10 @@ describe('syncTools', () => {
     const filteredOpts = {
       ...defaultOpts,
       toolFilter: {
-        allow: new Set(['greet', 'blocked']),
-        deny: new Set(['blocked']),
+        allow: ['greet', 'blocked'],
+        deny: ['blocked'],
       },
-    } as ToolBridgeOptions
+    }
 
     const disposers = await syncTools(client as never, ctx, filteredOpts, new Map())
 
