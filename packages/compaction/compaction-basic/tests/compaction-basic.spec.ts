@@ -207,7 +207,11 @@ function toolConversation(): Session {
 }
 
 /** One closed routed tool step followed by an open turn for rewrite events. */
-function oversizedToolResult(chars = 3_000, withCompactablePrompt = false): Session {
+function oversizedToolResult(
+  chars = 3_000,
+  withCompactablePrompt = false,
+  closeTurn = true,
+): Session {
   const session = Session.create(SessionId(`oversized-tool-${chars}`))
   const callId = ToolCallId('oversized')
   session.append('turn/start', { turn: 1 })
@@ -247,8 +251,10 @@ function oversizedToolResult(chars = 3_000, withCompactablePrompt = false): Sess
     meta: { presentation: 'preserved' },
   }, { surfaceOp: 'append' })
   session.append('step/end', { turn: 1, step: 1 })
-  session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-  session.append('turn/start', { turn: 2 })
+  if (closeTurn) {
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/start', { turn: 2 })
+  }
   return session
 }
 
@@ -845,24 +851,6 @@ describe('optional model-free tool-result pruning', () => {
     expect(pruneSession).not.toHaveBeenCalled()
     expect(compact.calls).toHaveLength(0)
     expect(session.surface.replaceGeneration).toBe(0)
-  })
-
-  it('proactively prunes oversized tool results below pressure when enabled', async () => {
-    const ctx = createContext(10_000)
-    void new ToolResultPruner(ctx, pruneConfig)
-    const compact = new TestCompactionEngine(ctx, {
-      auto: false,
-      thresholdRatio: 0.8,
-      retainTokens: 100,
-      proactiveToolResultPruning: true,
-    })
-    const session = oversizedToolResult()
-    const before = ctx.tokenMeter.measure(session).totalTokens
-
-    expect(await compactIfNeeded(compact, session)).toBeNull()
-    expect(ctx.tokenMeter.measure(session).totalTokens).toBeLessThan(before)
-    expect(compact.calls).toHaveLength(0)
-    expect(session.surface.replaceGeneration).toBe(1)
   })
 
   it('skips LLM summarization when pruning alone clears pressure', async () => {
@@ -1567,8 +1555,9 @@ describe('default one-shot summarizer', () => {
 
 describe('automatic listener and loader composition', () => {
   function preStep(ctx: Context, owner: Agent, signal = SIGNAL) {
+    const turn = owner.session.snapshotEvents().findLast(event => event.type === 'turn/start')?.data.turn ?? 1
     return agentEvents(ctx, owner).waterfall(
-      'agent/pre-step', { messages: [], turn: 1, step: 1, signal },
+      'agent/pre-step', { messages: [], turn, step: 1, signal },
       () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
     )
   }
@@ -1607,6 +1596,29 @@ describe('automatic listener and loader composition', () => {
     await preStep(ctx, agent(small, MODEL))
     expect(small.snapshotEvents().some(event => event.type === 'compaction/start')).toBe(false)
     expect(compact.calls).toHaveLength(1)
+  })
+
+  it('proactively prunes completed-turn results without trimming fresh current-turn output', async () => {
+    const ctx = createContext(10_000)
+    void new ToolResultPruner(ctx, pruneConfig)
+    const compact = new TestCompactionEngine(ctx, {
+      thresholdRatio: 0.8,
+      retainTokens: 100,
+      proactiveToolResultPruning: true,
+    })
+
+    const stale = oversizedToolResult()
+    const staleBefore = ctx.tokenMeter.measure(stale).totalTokens
+    await preStep(ctx, agent(stale, MODEL))
+    expect(ctx.tokenMeter.measure(stale).totalTokens).toBeLessThan(staleBefore)
+    expect(stale.surface.replaceGeneration).toBe(1)
+
+    const fresh = oversizedToolResult(3_000, false, false)
+    const freshBefore = ctx.tokenMeter.measure(fresh).totalTokens
+    await preStep(ctx, agent(fresh, MODEL))
+    expect(ctx.tokenMeter.measure(fresh).totalTokens).toBe(freshBefore)
+    expect(fresh.surface.replaceGeneration).toBe(0)
+    expect(compact.calls).toHaveLength(0)
   })
 
   it('skips pre-step pressure when the step signal is already aborted', async () => {
