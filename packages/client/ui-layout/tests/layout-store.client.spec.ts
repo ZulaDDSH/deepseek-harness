@@ -4,8 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createLayoutStore } from '../src/client/stores.ts'
 import type { MainPanelId } from '../src/client/service.ts'
 
-beforeEach(() => { vi.stubGlobal('innerWidth', 1920) })
-afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
+beforeEach(() => {
+  localStorage.clear()
+  vi.stubGlobal('innerWidth', 1920)
+})
+afterEach(() => {
+  localStorage.clear()
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
 
 describe('createLayoutStore', () => {
   it('starts with the default sidebar and no right panel preference', () => {
@@ -25,15 +32,30 @@ describe('createLayoutStore', () => {
     })
   })
 
-  it('creates independent instances without browser persistence', () => {
-    const write = vi.spyOn(Storage.prototype, 'setItem')
+  it('restores width preferences while resetting transient presentation state', () => {
     const a = createLayoutStore().create()
-    const b = createLayoutStore().create()
     a.actions.setSidebar(400)
-    a.actions.openRightbar(true, false)
-    expect(b.store.getSnapshot().layoutInfo.sidebar).toBe(280)
-    expect(b.store.getSnapshot().layoutInfo.rightbar).toBeNull()
-    expect(write).not.toHaveBeenCalled()
+    a.actions.setViewportWidth(980)
+    a.actions.toggleSidebar()
+    a.actions.setRightbar(500)
+    a.actions.openRightbar(true, true)
+    a.actions.selectPanel('panel-a' as MainPanelId)
+
+    vi.stubGlobal('innerWidth', 1440)
+    const b = createLayoutStore().create()
+    expect(b.store.getSnapshot()).toEqual({
+      panelInfo: { activePanelId: null },
+      layoutInfo: {
+        sidebar: 400,
+        viewportWidth: 1440,
+        narrowExpanded: false,
+        rightbar: 500,
+        rightbarShown: false,
+        rightbarTrack: false,
+        rightbarFullscreen: false,
+        rightbarInstant: false,
+      },
+    })
   })
 
   it('clamps the sidebar to 264–420px', () => {
@@ -119,13 +141,14 @@ describe('main panel selection', () => {
     expect(store.getSnapshot().layoutInfo).toBe(selected.layoutInfo)
   })
 
-  it.each(['setSidebar', 'toggleSidebar', 'setViewportWidth', 'setRightbar', 'openRightbar', 'closeRightbar'] as const)(
+  it.each(['resetRuntime', 'setSidebar', 'toggleSidebar', 'setViewportWidth', 'setRightbar', 'openRightbar', 'closeRightbar'] as const)(
     'preserves panelInfo identity when %s changes layoutInfo', (action) => {
       const { store, actions } = createLayoutStore().create()
       actions.selectPanel(panelA)
       if (action === 'closeRightbar') actions.openRightbar(true, true)
       const previous = store.getSnapshot()
       switch (action) {
+        case 'resetRuntime': actions.resetRuntime(1600); break
         case 'setSidebar': actions.setSidebar(400); break
         case 'toggleSidebar': actions.toggleSidebar(); break
         case 'setViewportWidth': actions.setViewportWidth(980); break

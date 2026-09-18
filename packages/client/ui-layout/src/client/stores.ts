@@ -56,6 +56,7 @@ type LayoutInfo = {
  * return type); drift fails assignability at the defineStore call.
  */
 type LayoutActions = {
+  resetRuntime: (draft: LayoutState, viewportWidth: number) => void
   selectPanel: (draft: LayoutState, panelId: MainPanelId | null) => void
   retainMainPanels: (draft: LayoutState, panelIds: readonly string[]) => void
   setSidebar: (draft: LayoutState, px: number) => void
@@ -90,7 +91,17 @@ export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutAction
         rightbarInstant: false,
       },
     }),
+    persist: 'dsh.layout.view.v1',
     actions: {
+      resetRuntime: (d, viewportWidth: number) => {
+        d.panelInfo.activePanelId = null
+        d.layoutInfo.viewportWidth = viewportWidth
+        d.layoutInfo.narrowExpanded = false
+        d.layoutInfo.rightbarShown = false
+        d.layoutInfo.rightbarTrack = false
+        d.layoutInfo.rightbarFullscreen = false
+        d.layoutInfo.rightbarInstant = false
+      },
       selectPanel: (d, panelId: MainPanelId | null) => {
         d.panelInfo.activePanelId = panelId
       },
@@ -142,5 +153,13 @@ export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutAction
       },
     },
   })
-  return handle
+  const create = handle.create.bind(handle)
+  return {
+    ...handle,
+    create(scopeKey?: string) {
+      const instance = create(scopeKey)
+      instance.actions.resetRuntime(window.innerWidth)
+      return instance
+    },
+  }
 }
