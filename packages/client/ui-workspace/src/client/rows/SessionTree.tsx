@@ -9,6 +9,7 @@ import type { GroupNode, SessionNode } from '../tree.ts'
 import {
   deriveGroups, owningGroupKey, owningParentFolder, pinCurrentBlank, UNGROUPED_KEY,
 } from '../tree.ts'
+import { useNativeDragAcceptance } from './drag.ts'
 import { ProjectRowItem, SessionNodeItem } from './Rows.tsx'
 import css from './WorkspaceBrowser.module.css'
 
@@ -39,23 +40,6 @@ function toggled(list: readonly string[], key: string): string[] {
  * hover still owns the insertion marker, and releasing outside the list must
  * not be rendered as a rejected drop before dragend commits that last marker.
  */
-function useNativeDragAcceptance(active: boolean): void {
-  useEffect(() => {
-    if (!active) return
-    const acceptDrag = (event: DragEvent): void => {
-      event.preventDefault()
-      if (event.dataTransfer !== null) event.dataTransfer.dropEffect = 'move'
-    }
-    const acceptDrop = (event: DragEvent): void => { event.preventDefault() }
-    document.addEventListener('dragover', acceptDrag)
-    document.addEventListener('drop', acceptDrop)
-    return () => {
-      document.removeEventListener('dragover', acceptDrag)
-      document.removeEventListener('drop', acceptDrop)
-    }
-  }, [active])
-}
-
 /** In-flight root-row drag: source identity plus the current insert marker. */
 interface DragState {
   /** Workspace id, or {@link UNGROUPED_KEY} for the browser-local loose-session account. */

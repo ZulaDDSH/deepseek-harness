@@ -195,36 +195,9 @@ export function QuickSwitcher({
           autoFocus
         />
         <div className={css.results} role="listbox" aria-label={t('quick.title')}>
-          {sessionRows.length > 0 && <div className={css.heading}>{t('quick.sessions')}</div>}
-          {sessionRows.map(row => (
-            <SwitcherItem
-              key={row.key}
-              row={row}
-              active={rows[selected]?.key === row.key}
-              onActivate={() => { setActive(rows.findIndex(item => item.key === row.key)) }}
-              onChoose={choose}
-            />
-          ))}
-          {workspaceRows.length > 0 && <div className={css.heading}>{t('quick.workspaces')}</div>}
-          {workspaceRows.map(row => (
-            <SwitcherItem
-              key={row.key}
-              row={row}
-              active={rows[selected]?.key === row.key}
-              onActivate={() => { setActive(rows.findIndex(item => item.key === row.key)) }}
-              onChoose={choose}
-            />
-          ))}
-          {(commandRows.length > 0 || commandBusy) && <div className={css.heading}>{t('quick.commands')}</div>}
-          {commandRows.map(row => (
-            <SwitcherItem
-              key={row.key}
-              row={row}
-              active={rows[selected]?.key === row.key}
-              onActivate={() => { setActive(rows.findIndex(item => item.key === row.key)) }}
-              onChoose={choose}
-            />
-          ))}
+          {renderGroup(sessionRows, t('quick.sessions'))}
+          {renderGroup(workspaceRows, t('quick.workspaces'))}
+          {(commandRows.length > 0 || commandBusy) && renderGroup(commandRows, t('quick.commands'))}
           {rows.length === 0 && !commandBusy && <div className={css.empty}>{t('quick.empty')}</div>}
           {rows.length === 0 && commandBusy && <div className={css.empty}>{t('quick.loading')}</div>}
         </div>
@@ -232,6 +205,22 @@ export function QuickSwitcher({
       </div>
     </Modal>
   )
+
+  function renderGroup(group: readonly SwitcherRow[], title: string) {
+    if (group.length === 0) return null
+    return <>
+      <div className={css.heading}>{title}</div>
+      {group.map(row => (
+        <SwitcherItem
+          key={row.key}
+          row={row}
+          active={rows[selected]?.key === row.key}
+          onActivate={() => { setActive(rows.findIndex(item => item.key === row.key)) }}
+          onChoose={choose}
+        />
+      ))}
+    </>
+  }
 }
 
 function SwitcherItem({ row, active, onActivate, onChoose }: {

@@ -172,18 +172,12 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
           : 'run',
       })
     }
-    for (const contribution of this.live.contributions.values()) {
-      if (!contribution.available(session)) continue
-      if (seen.has(contribution.name)) {
-        throw new Error(`ui-commands: contribution /${contribution.name} collides with a host command`)
-      }
+    this.forEachAvailableContribution(session, seen, (contribution) => {
       rows.push({
-        name: contribution.name,
-        ...(contribution.label === undefined ? {} : { label: contribution.label() }),
-        ...(contribution.description === undefined ? {} : { description: contribution.description() }),
+        ...this.contributionRowBase(contribution),
         kind: contribution.ui.kind === 'popupSelect' ? 'popup' : 'run',
       })
-    }
+    })
     return query === '' ? rows : rankByName(rows, query)
   }
 
@@ -278,20 +272,37 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
         ...(c.input !== undefined ? { hint: c.input.hint } : {}),
       })
     }
+    this.forEachAvailableContribution(session, seen, (contribution) => {
+      rows.push({
+        ...this.contributionRowBase(contribution),
+        ...(contribution.icon === undefined ? {} : { icon: contribution.icon }),
+      })
+    })
+    const visible = rows.filter(c => req.position === 'leading' || c.hint === undefined)
+    return req.query === '' ? sectionRows(visible, this.t) : rankByName(visible, req.query)
+  }
+
+  private forEachAvailableContribution(
+    session: ClientSessionContext,
+    seen: Set<string>,
+    visit: (contribution: CommandContribution) => void,
+  ): void {
     for (const contribution of this.live.contributions.values()) {
       if (!contribution.available(session)) continue
       if (seen.has(contribution.name)) {
         throw new Error(`ui-commands: contribution /${contribution.name} collides with a host command`)
       }
-      rows.push({
-        name: contribution.name,
-        ...(contribution.label === undefined ? {} : { label: contribution.label() }),
-        ...(contribution.description === undefined ? {} : { description: contribution.description() }),
-        ...(contribution.icon === undefined ? {} : { icon: contribution.icon }),
-      })
+      seen.add(contribution.name)
+      visit(contribution)
     }
-    const visible = rows.filter(c => req.position === 'leading' || c.hint === undefined)
-    return req.query === '' ? sectionRows(visible, this.t) : rankByName(visible, req.query)
+  }
+
+  private contributionRowBase(contribution: CommandContribution): Pick<InputTriggerCandidate, 'name' | 'label' | 'description'> {
+    return {
+      name: contribution.name,
+      ...(contribution.label === undefined ? {} : { label: contribution.label() }),
+      ...(contribution.description === undefined ? {} : { description: contribution.description() }),
+    }
   }
 
   /** Decision table, menu column: contribution/decorated-host → popup or action; host input → claim; host bare → detached execute. */

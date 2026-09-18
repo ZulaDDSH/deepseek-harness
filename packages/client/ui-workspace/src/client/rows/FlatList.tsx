@@ -1,5 +1,5 @@
 /** Flat Session list projection with browser-local drag ordering. */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -8,27 +8,11 @@ import { deriveFlat, pinCurrentBlank, type SessionNode } from '../tree.ts'
 import { FLAT_SESSION_ORDER_KEY } from '../stores.ts'
 import { SessionNodeItem } from './Rows.tsx'
 import css from './WorkspaceBrowser.module.css'
+import { useNativeDragAcceptance } from './drag.ts'
 
 interface DragState {
   sessionId: SessionNode['id']
   over: { id: SessionNode['id']; half: 'before' | 'after' } | null
-}
-
-function useNativeDragAcceptance(active: boolean): void {
-  useEffect(() => {
-    if (!active) return
-    const acceptDrag = (event: DragEvent): void => {
-      event.preventDefault()
-      if (event.dataTransfer !== null) event.dataTransfer.dropEffect = 'move'
-    }
-    const acceptDrop = (event: DragEvent): void => { event.preventDefault() }
-    document.addEventListener('dragover', acceptDrag)
-    document.addEventListener('drop', acceptDrop)
-    return () => {
-      document.removeEventListener('dragover', acceptDrag)
-      document.removeEventListener('drop', acceptDrop)
-    }
-  }, [active])
 }
 
 export interface FlatListProps extends Pick<
