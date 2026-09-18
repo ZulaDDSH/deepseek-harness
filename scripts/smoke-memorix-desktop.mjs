@@ -34,7 +34,7 @@ function run(command, args, options = {}) {
 
 async function waitForMemorixStart(electron, cliPath) {
   await new Promise((resolve, reject) => {
-    const child = spawn(electron, [cliPath, 'serve', '--cwd', project, '--mode', 'micro'], {
+    const child = spawn(electron, [cliPath, 'serve', '--cwd', project, '--mode', 'lite'], {
       cwd: project,
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', MEMORIX_DATA_DIR: data, MEMORIX_SQLITE_DRIVER: 'node' },
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -84,7 +84,7 @@ try {
 
   const patch = readFileSync(join(profile, 'cordis.patch.yml'), 'utf8')
   assert.match(patch, /id:\s*memory-memorix/u)
-  assert.match(patch, /- --mode\s*\n\s*- micro/u)
+  assert.match(patch, /- --mode\s*\n\s*- lite/u)
   assert.doesNotMatch(patch, /^\[\]$/mu)
 
   mkdirSync(project)
