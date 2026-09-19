@@ -49,6 +49,12 @@ export interface SignInCardProps {
   operations: AuthorizationOperations
   /** Localizer for the card's own labels. */
   t: (key: keyof typeof en, params?: Record<string, string>) => string
+  /**
+   * Changes whenever a credential record was written somewhere this card did
+   * not observe — another tab's sign-in, another surface's key — so the card
+   * re-reads the flow it shows. Compared by value, never read.
+   */
+  refresh?: number
   /** Reports that a credential was stored, so the page can refresh its rows. */
   onSignedIn?: () => void
 }
@@ -59,7 +65,7 @@ export interface SignInCardProps {
  * @returns the sign-in card, or nothing when this route offers no flow.
  */
 export function SignInCard(props: SignInCardProps): ReactNode {
-  const { provider, displayName, operations, t, onSignedIn } = props
+  const { provider, displayName, operations, t, refresh, onSignedIn } = props
   const [entry, setEntry] = useState<AuthorizationEntryView | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [phase, setPhase] = useState<SignInPhase>({ status: 'idle' })
@@ -68,12 +74,16 @@ export function SignInCard(props: SignInCardProps): ReactNode {
   const [draft, setDraft] = useState('')
   const abortRef = useRef<AbortController | null>(null)
   const mountedRef = useRef(true)
+  /** Set when Cancel is pressed before the attempt's capability is known. */
+  const cancelRequestedRef = useRef(false)
 
-  // The flow this route owns, if the deployment registered one for it. Reloaded
-  // whenever a credential changes, because a sign-in commits a record rather
-  // than a reference: without this re-read the card keeps showing the state it
-  // read on mount, so neither this card's own success nor another tab's login
-  // would ever turn "Not signed in" into "Signed in".
+  /**
+   * The flow this route owns, if the deployment registered one for it. The
+   * effect below re-runs it on mount, after this card's own successful
+   * sign-in, and on every `refresh` change — the signal the page raises from
+   * `credentials/record-updated`, which is how a login another tab completed
+   * reaches a card that is already mounted.
+   */
   const reloadEntry = useCallback(async (): Promise<void> => {
     const flows = await operations.list()
     if (!mountedRef.current) return
@@ -81,7 +91,7 @@ export function SignInCard(props: SignInCardProps): ReactNode {
     setLoaded(true)
   }, [operations, provider])
 
-  useEffect(() => { void reloadEntry() }, [reloadEntry])
+  useEffect(() => { void reloadEntry() }, [reloadEntry, refresh])
 
   // An unmounting card withdraws the Host attempt and then releases its stream.
   useEffect(() => {
@@ -101,11 +111,16 @@ export function SignInCard(props: SignInCardProps): ReactNode {
     setQuestion(null)
     setAnswerFailure(undefined)
     setDraft('')
+    cancelRequestedRef.current = false
     setPhase({ status: 'running', attempt: '', notices: [] })
     const outcome = await operations.begin(entry.key, method, (item) => {
       if (!mountedRef.current) return
       if (item.type === 'start') {
         setPhase(current => current.status === 'running' ? { ...current, attempt: item.attempt } : current)
+        if (cancelRequestedRef.current) {
+          cancelRequestedRef.current = false
+          void operations.cancel(item.attempt)
+        }
         return
       }
       if (item.type === 'end') {
@@ -143,7 +158,18 @@ export function SignInCard(props: SignInCardProps): ReactNode {
     setPhase(outcome.kind === 'cancelled' ? { status: 'cancelled' } : { status: 'failed', message: outcome.message })
   }, [entry, operations, onSignedIn, reloadEntry])
 
+  /**
+   * Withdraw the Host attempt. A withdrawal pressed before the start item
+   * arrived has no capability to address; an empty one is a bad request the
+   * Host refuses, which would leave the attempt running. That press is
+   * remembered and applied by the start item instead.
+   * @param attempt - the capability the start item named, or an empty string.
+   */
   const cancel = useCallback(async (attempt: string) => {
+    if (attempt.length === 0) {
+      cancelRequestedRef.current = true
+      return
+    }
     // The Host ends the attempt and the stream reports `cancelled`; aborting the
     // stream here instead would leave the flow running on the Host.
     await operations.cancel(attempt)

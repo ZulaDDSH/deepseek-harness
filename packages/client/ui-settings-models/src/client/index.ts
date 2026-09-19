@@ -15,6 +15,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: pulls the ctx.remote merge and the forwarded-event key face
 // (settings/credentials invalidations ride the allowlist) into this program.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { ModelsSection } from './ModelsSection.tsx'
 import type { ModelsSectionInjected } from './ModelsSection.tsx'
 import { DeepSeekOnboardingDialog } from './DeepSeekOnboardingDialog.tsx'
@@ -23,6 +24,7 @@ import { WelcomeNotice } from './WelcomeNotice.tsx'
 import type { WelcomeNoticeInjected } from './WelcomeNotice.tsx'
 import { decodeWelcomeSection, WelcomeNoticeStore } from './welcome-store.ts'
 import { ModelsSettingsStore } from './store.ts'
+import type { CredentialsRevisionState } from './store.ts'
 import { createModelsOperations } from './operations.ts'
 import { createAuthorizationOperations } from './authorization-operations.ts'
 import { createSettingsSchemaOperations } from './schema-operations.ts'
@@ -90,9 +92,10 @@ export function apply(ctx: ClientContext): void {
   // Registration-time text (the nav label thunk) and the inject faces share
   // one bound translate; copy freshness rides the locale revision.
   const t = ctx.locale.bind(NS) as ModelsSectionInjected['t']
+  const credentialsRevision = createSnapshotStore<CredentialsRevisionState>({ revision: 0 })
   const injected = (): ModelsSectionInjected => ({
     controller,
-    hooks: { snapshot: controller.store },
+    hooks: { snapshot: controller.store, credentialsRevision },
     operations,
     ...authorization === undefined ? {} : { authorization },
     schema,
@@ -127,10 +130,10 @@ export function apply(ctx: ClientContext): void {
     const disposers = [
       ctx.remote.$on('settings/document-updated', () => { refreshModels() }),
       ctx.remote.$on('credentials/reference-updated', refreshModels),
-      // A sign-in commits a credential record rather than a reference, so the
-      // record event is what refreshes another tab's Models page after a login
-      // it did not start.
-      ctx.remote.$on('credentials/record-updated', refreshModels),
+      ctx.remote.$on('credentials/record-updated', () => {
+        credentialsRevision.update((state) => { state.revision += 1 })
+        refreshModels()
+      }),
       ctx.remote.$on('llm/adapters-updated', refreshModels),
       ctx.on('connection/reset', refreshModels),
     ]

@@ -62,7 +62,8 @@ interface Attempt {
   /** Delivers one notice to the client that opened this attempt. */
   readonly deliver: (notice: AuthorizationNotice) => void
   /** Ends the stream once the attempt settles. */
-  readonly finish: (outcome: { status: AuthorizationStatus }) => void  /** Fails the stream when the attempt cannot produce an outcome. */
+  readonly finish: (outcome: { status: AuthorizationStatus }) => void
+  /** Fails the stream when the attempt cannot produce an outcome. */
   readonly fail: (error: unknown) => void
   /** Mints the next question id; unique within the attempt. */
   sequence: number
@@ -394,7 +395,8 @@ function parseRequest<T>(method: string, schema: z.ZodType<T>, value: unknown): 
  * order and settling either way once the attempt ends.
  * @template T - the item the consumer receives.
  */
-class NoticeQueue<T> {  private readonly buffered: T[] = []
+class NoticeQueue<T> {
+  private readonly buffered: T[] = []
   private wake: (() => void) | undefined
   private ended = false
   private failure: Error | undefined

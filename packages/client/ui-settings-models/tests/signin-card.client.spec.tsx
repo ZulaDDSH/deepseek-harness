@@ -46,6 +46,8 @@ function surface(options: {
   outcome?: 'authorized' | 'cancelled' | { kind: 'failed'; message: string }
   configured?: boolean
   hold?: boolean
+  /** Hold the start item back until this resolves. */
+  startGate?: Promise<void>
 } = {}): AuthorizationOperations & {
   answered: { attempt: string; prompt: string; value: string }[]
   cancelled: string[]
@@ -55,6 +57,8 @@ function surface(options: {
   setConfigured: (configured: boolean) => void
   /** Push one more notice onto the open attempt's stream, as the Host would. */
   pushNotice: (notice: AuthorizationNotice) => void
+  /** Hold the start item back until this resolves, so Cancel can be pressed first. */
+  readonly startGate?: Promise<void>
   release: () => void
   releaseLate: () => void
 } {
@@ -87,6 +91,9 @@ function surface(options: {
     },
     begin: async (_key, _method, onItem) => {
       secondQuestion = onItem
+      // `startGate` holds the start item back, so a test can act while the
+      // attempt is running but its capability is not yet known.
+      if (options.startGate !== undefined) await options.startGate
       onItem({ type: 'start', attempt: 'cap-1', key: ENTRY.key })
       for (const notice of options.notices ?? []) onItem(notice)
       const scripted = options.hold === true ? heldOutcome : options.outcome ?? 'authorized'
@@ -222,6 +229,26 @@ describe('the sign-in card', () => {
     expect(operations.listed()).toBeGreaterThan(1)
   })
 
+  it('shows a credential another tab stored', async () => {
+    const operations = surface()
+    const { rerender } = render(
+      <SignInCard provider="openai-codex" displayName="OpenAI Codex" operations={operations} t={t} refresh={0} />,
+    )
+    expect(await screen.findByText(en.signedOut)).toBeTruthy()
+    const reads = operations.listed()
+
+    // A second tab logs in; the Host pushes the record update this page listens
+    // for, which arrives here as a changed refresh signal.
+    operations.setConfigured(true)
+    rerender(
+      <SignInCard provider="openai-codex" displayName="OpenAI Codex" operations={operations} t={t} refresh={1} />,
+    )
+
+    expect(await screen.findByText(en.signedIn)).toBeTruthy()
+    expect(screen.queryByText(en.signedOut)).toBeNull()
+    expect(operations.listed()).toBeGreaterThan(reads)
+  })
+
   it('cancels through the Host so the attempt reports cancelled rather than a broken stream', async () => {
     const operations = surface({ hold: true })
     await start(operations)
@@ -231,6 +258,25 @@ describe('the sign-in card', () => {
     // The Host owns the attempt, so withdrawing it is the Host's call. Aborting
     // only the card's stream would leave the attempt running on the Host and
     // surface the withdrawal as a carrier failure.
+    await waitFor(() => { expect(operations.cancelled).toEqual(['cap-1']) })
+    expect(await screen.findByText(en.signInCancelled)).toBeTruthy()
+  })
+
+  it('withdraws an attempt cancelled before its capability arrives', async () => {
+    let openGate = (): void => {}
+    const startGate = new Promise<void>((resolve) => { openGate = resolve })
+    const operations = surface({ hold: true, startGate })
+    await start(operations)
+
+    // The attempt is running but its start item has not arrived, so the card
+    // has no capability yet. Pressing Cancel here must not send an empty one.
+    fireEvent.click(await screen.findByRole('button', { name: en.signInCancel }))
+    expect(operations.cancelled).toEqual([])
+
+    openGate()
+
+    // Once the capability arrives the pending withdrawal is applied to it, so
+    // the flow actually stops.
     await waitFor(() => { expect(operations.cancelled).toEqual(['cap-1']) })
     expect(await screen.findByText(en.signInCancelled)).toBeTruthy()
   })

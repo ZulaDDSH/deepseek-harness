@@ -76,6 +76,11 @@ export interface ProviderEditorProps {
    * mounting no authorization registry offers.
    */
   authorization?: AuthorizationOperations
+  /**
+   * Bumped when a credential record was written elsewhere — another tab's
+   * sign-in — so a mounted sign-in card re-reads the state it shows.
+   */
+  credentialsRevision?: number
   /** Reports that a credential was stored outside the key field, so the card refreshes. */
   onCredentialChanged?: () => void
   /** Section copy. */
@@ -379,6 +384,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
             displayName={props.displayName}
             operations={authorization}
             t={t}
+            {...props.credentialsRevision === undefined ? {} : { refresh: props.credentialsRevision }}
             {...props.onCredentialChanged === undefined ? {} : { onSignedIn: props.onCredentialChanged }}
           />
         )}

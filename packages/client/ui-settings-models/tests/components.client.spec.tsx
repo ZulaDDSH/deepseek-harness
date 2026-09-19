@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import Schema from '@deepseek-ai/schemastery'
 import { bindSnapshotSelector, RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type {
   CredentialInfo, RemoteResult, SettingsNamespaceView,
 } from '@deepseek-ai/dsh-api-remotes/client'
@@ -269,6 +270,7 @@ async function mountFace(scripted: ReturnType<typeof scriptedFace>) {
   const injected: ModelsSectionProps = {
     controller,
     useSnapshot: bindSnapshotSelector(controller.store),
+    useCredentialsRevision: bindSnapshotSelector(createSnapshotStore({ revision: 0 })),
     operations: operationsWith(face),
     schema: settingsSchema,
     t,
@@ -459,6 +461,7 @@ describe('ModelsSection', () => {
     render(<ModelsSection
       controller={controller}
       useSnapshot={bindSnapshotSelector(controller.store)}
+      useCredentialsRevision={bindSnapshotSelector(createSnapshotStore({ revision: 0 }))}
       operations={operationsWith(face)}
       schema={settingsSchema}
       t={t}
@@ -484,6 +487,7 @@ describe('ModelsSection', () => {
     render(<ModelsSection
       controller={controller}
       useSnapshot={bindSnapshotSelector(controller.store)}
+      useCredentialsRevision={bindSnapshotSelector(createSnapshotStore({ revision: 0 }))}
       operations={operationsWith(face)}
       schema={settingsSchema}
       t={t}
@@ -1256,6 +1260,7 @@ describe('ModelsSection', () => {
     render(<ModelsSection
       controller={controller}
       useSnapshot={bindSnapshotSelector(controller.store)}
+      useCredentialsRevision={bindSnapshotSelector(createSnapshotStore({ revision: 0 }))}
       operations={operationsWith(face)}
       schema={settingsSchema}
       t={t}
@@ -1390,6 +1395,7 @@ describe('ModelsSection', () => {
     render(<ModelsSection
       controller={controller}
       useSnapshot={bindSnapshotSelector(controller.store)}
+      useCredentialsRevision={bindSnapshotSelector(createSnapshotStore({ revision: 0 }))}
       operations={operationsWith(face.face)}
       schema={settingsSchema}
       t={t}
@@ -1413,6 +1419,7 @@ describe('ModelsSection', () => {
     render(<ModelsSection
       controller={controller}
       useSnapshot={bindSnapshotSelector(controller.store)}
+      useCredentialsRevision={bindSnapshotSelector(createSnapshotStore({ revision: 0 }))}
       operations={operationsWith(face)}
       schema={settingsSchema}
       t={t}
@@ -1475,6 +1482,7 @@ describe('ModelsSection', () => {
     render(<ModelsSection
       controller={controller}
       useSnapshot={bindSnapshotSelector(controller.store)}
+      useCredentialsRevision={bindSnapshotSelector(createSnapshotStore({ revision: 0 }))}
       operations={operationsWith(face)}
       schema={settingsSchema}
       t={t}

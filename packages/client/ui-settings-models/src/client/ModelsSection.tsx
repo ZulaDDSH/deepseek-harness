@@ -16,11 +16,12 @@ import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { Button, IconPlusOutline16, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 // Type-only: pulls this package's SlotMap merge (the two Models child slots).
 import type {} from './slot-contract.ts'
 import { CustomProviderCard } from './CustomProviderCard.tsx'
 import { deriveKeyRef, protocolChoices, providerUsable } from './store.ts'
-import type { ModelsSettingsStore, ProviderRow } from './store.ts'
+import type { CredentialsRevisionState, ModelsSettingsStore, ProviderRow } from './store.ts'
 import type { ModelsOperations } from './operations.ts'
 import type { SettingsSchemaOperations } from './schema-operations.ts'
 import { ProviderEditor, type ProviderEditorProps } from './ProviderEditor.tsx'
@@ -35,6 +36,13 @@ export interface ModelsSectionInjected {
   hooks: {
     /** Page snapshot bound by the UI renderer as useSnapshot. */
     snapshot: ModelsSettingsStore['store']
+    /**
+     * Credential-record revision bound by the UI renderer as
+     * useCredentialsRevision. A root entry's inject result is memoized for the
+     * life of that entry, so a card learns about a sign-in it did not perform
+     * only through a live source like this one.
+     */
+    credentialsRevision: SnapshotStore<CredentialsRevisionState>
   }
   /** The Host operations the section and its cards invoke. */
   operations: ModelsOperations
@@ -87,7 +95,8 @@ interface EditorTarget extends ProviderIdentity {
 /** Values that vary around the shared provider-editor rendering. */
 interface ProviderEditorRenderProps extends Pick<
   ProviderEditorProps,
-  'namespace' | 'schema' | 'operations' | 'authorization' | 't' | 'readOnly' | 'onCredentialChanged' | 'onClose'
+  'namespace' | 'schema' | 'operations' | 'authorization' | 'credentialsRevision' | 't' | 'readOnly'
+  | 'onCredentialChanged' | 'onClose'
 > {
   target: EditorTarget
 }
@@ -199,22 +208,31 @@ export function providerCopy(template: string, target: ProviderIdentity): string
  * @returns the section, or null while the shell has not injected yet.
  */
 export function ModelsSection(props: ModelsSectionProps): ReactNode {
-  const { controller, useSnapshot, operations, authorization, schema, t, renderSlot } = props
+  const { controller, useSnapshot, useCredentialsRevision, operations, authorization, schema, t, renderSlot } = props
   if (
-    controller === undefined || useSnapshot === undefined || operations === undefined
-    || schema === undefined || t === undefined
+    controller === undefined || useSnapshot === undefined || useCredentialsRevision === undefined
+    || operations === undefined || schema === undefined || t === undefined
   ) return null
   return (
     <Loaded
-      injected={{ controller, useSnapshot, operations, ...authorization === undefined ? {} : { authorization }, schema, t }}
+      injected={{
+        controller,
+        useSnapshot,
+        useCredentialsRevision,
+        operations,
+        ...authorization === undefined ? {} : { authorization },
+        schema,
+        t,
+      }}
       renderSlot={renderSlot}
     />
   )
 }
 
 function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderSlot: ModelsRenderSlot }): ReactNode {
-  const { controller, operations, authorization, schema, t } = injected
+  const { controller, useCredentialsRevision, operations, authorization, schema, t } = injected
   const state = injected.useSnapshot(snapshot => snapshot)
+  const credentialsRevision = useCredentialsRevision(snapshot => snapshot.revision)
   const [editing, setEditing] = useState<EditorTarget | undefined>(undefined)
   const [adding, setAdding] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<EditorTarget | undefined>(undefined)
@@ -349,6 +367,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                   schema,
                   operations,
                   ...authorization === undefined ? {} : { authorization },
+                  credentialsRevision,
                   t,
                   readOnly: !state.writable,
                   onCredentialChanged: () => { void controller.load() },
@@ -447,6 +466,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                   schema,
                   operations,
                   ...authorization === undefined ? {} : { authorization },
+                  credentialsRevision,
                   t,
                   readOnly: !state.writable,
                   onCredentialChanged: () => { void controller.load() },
