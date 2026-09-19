@@ -4,15 +4,17 @@
  * what a card renders — a list of flows, a notice to show, a refusal message —
  * so the Remote namespace and its failure codes stay in the apply world.
  *
- * An attempt is one long-running call plus the notices it pushes while it runs.
- * The card starts the call and renders whatever notices arrive for the attempt
- * id it was given; a question is answered by a second call, because the wire
- * has no reply path inside the first.
+ * An attempt is one stream plus the answers the card sends back. The stream
+ * delivers only this card's attempt: its first item names the capability the
+ * card addresses, and every later item is a notice the flow produced. Nothing
+ * here is broadcast, so a notice carrying an authorization URL or a code
+ * reaches the surface that started the attempt and no other.
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-import type { AuthorizationEntryView } from '@deepseek-ai/dsh-api-settings-controller/types'
-import type { AuthorizationNoticeEvent } from '@deepseek-ai/dsh-authorization/types'
+import type {
+  AuthorizationEntryView, AuthorizationNotice,
+} from '@deepseek-ai/dsh-api-settings-controller/types'
 
 /** What one attempt did. */
 export type AuthorizationOutcome =
@@ -23,6 +25,19 @@ export type AuthorizationOutcome =
   /** The flow failed, with the Host's own diagnostic. */
   | { readonly kind: 'failed'; readonly message: string }
 
+/** What one answer call did. */
+export type AnswerOutcome =
+  /** The Host accepted the answer and the flow continued. */
+  | { readonly kind: 'accepted' }
+  /** The Host refused it, with its own diagnostic; the question is still open. */
+  | { readonly kind: 'refused'; readonly message: string }
+
+/** One item the attempt stream delivers. */
+export type AttemptStreamItem =
+  | { readonly type: 'start'; readonly attempt: string; readonly key: string }
+  | AuthorizationNotice
+  | { readonly type: 'end'; readonly status: 'authorized' | 'cancelled' }
+
 /** The authorization operations a Models card invokes. */
 export interface AuthorizationOperations {
   /**
@@ -31,27 +46,27 @@ export interface AuthorizationOperations {
    */
   list(): Promise<readonly AuthorizationEntryView[]>
   /**
-   * Run one attempt to completion. Notices and questions arrive through
-   * {@link AuthorizationOperations.onNotice} while this is pending.
+   * Run one attempt, delivering its notices through `onItem` as they arrive.
    * @param key - the credential record to authorize.
    * @param method - which of the flow's methods to run.
+   * @param onItem - called for the start item and every notice of this attempt.
    * @param signal - aborts the attempt when the card unmounts or the human cancels.
    * @returns how the attempt ended.
    */
-  begin(key: string, method: string | undefined, signal: AbortSignal): Promise<AuthorizationOutcome>
+  begin(
+    key: string,
+    method: string | undefined,
+    onItem: (item: AttemptStreamItem) => void,
+    signal: AbortSignal,
+  ): Promise<AuthorizationOutcome>
   /**
    * Answer a question the running attempt asked.
-   * @param attempt - the attempt id from the notice.
-   * @param prompt - the question id from the notice.
+   * @param attempt - the capability the attempt's start item named.
+   * @param prompt - the question id carried by the question notice.
    * @param value - the typed answer, or a `select` option's id.
+   * @returns whether the Host accepted it, or its refusal.
    */
-  answer(attempt: string, prompt: string, value: string): Promise<void>
-  /**
-   * Watch one attempt's notices.
-   * @param listener - called for every notice the Host forwards.
-   * @returns the disposer that stops watching.
-   */
-  onNotice(listener: (notice: AuthorizationNoticeEvent) => void): () => void
+  answer(attempt: string, prompt: string, value: string): Promise<AnswerOutcome>
 }
 
 /**
@@ -66,14 +81,23 @@ export function createAuthorizationOperations(ctx: ClientContext): Authorization
       const response = await ctx.remote.authorization.list()
       return response.ok ? response.value : []
     },
-    begin: async (key, method, signal) => {
-      const response = await ctx.remote.authorization.begin(key, method, signal)
-      if (!response.ok) return { kind: 'failed', message: response.error.message }
-      return response.value.status === 'authorized' ? { kind: 'authorized' } : { kind: 'cancelled' }
+    begin: async (key, method, onItem, signal) => {
+      // A stream call hands back the iterable itself; a refusal (an unknown
+      // flow) rejects the iteration rather than returning a RemoteResult.
+      let status: 'authorized' | 'cancelled' = 'cancelled'
+      try {
+        for await (const item of ctx.remote.authorization.begin(key, method, signal)) {
+          if (item.type === 'end') status = item.status
+          onItem(item)
+        }
+      } catch (error: unknown) {
+        return { kind: 'failed', message: error instanceof Error ? error.message : String(error) }
+      }
+      return status === 'authorized' ? { kind: 'authorized' } : { kind: 'cancelled' }
     },
     answer: async (attempt, prompt, value) => {
-      await ctx.remote.authorization.answer(attempt, prompt, value)
+      const response = await ctx.remote.authorization.answer(attempt, prompt, value)
+      return response.ok ? { kind: 'accepted' } : { kind: 'refused', message: response.error.message }
     },
-    onNotice: listener => ctx.remote.$on('authorization/notice', (notice) => { listener(notice) }),
   }
 }

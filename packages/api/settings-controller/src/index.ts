@@ -31,7 +31,6 @@ import type { AgentPresetDirectoryOpenValue, SettingsDocumentOpenValue } from '.
 export { CredentialsController } from './credentials.ts'
 export { AuthorizationController } from './authorization.ts'
 export type * from './types.ts'
-export { AUTHORIZATION_NOTICE_EVENT } from './authorization.ts'
 
 const settingsNamespaceRequestSchema = z.object({ ns: z.string().min(1) })
 

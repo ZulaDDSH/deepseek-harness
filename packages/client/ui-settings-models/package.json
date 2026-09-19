@@ -46,6 +46,8 @@
   "devDependencies": {
     "@deepseek-ai/dsh-remote-mock": "workspace:^",
     "@deepseek-ai/dsh-api-remotes": "workspace:^",
+    "@deepseek-ai/dsh-api-settings-controller": "workspace:^",
+    "@deepseek-ai/dsh-authorization": "workspace:^",
     "@deepseek-ai/dsh-client-locale": "workspace:^",
     "@deepseek-ai/dsh-client-store": "workspace:^",
     "@deepseek-ai/dsh-client-test-runtime": "workspace:^",

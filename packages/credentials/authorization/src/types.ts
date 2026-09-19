@@ -91,18 +91,14 @@ export interface AuthorizationEntry {
 }
 
 /**
- * What one attempt has to say to the surface running it. The wire has no reply
- * path inside a call, so a notice and the question it may carry travel the same
- * one-way way; a surface that must answer does so through the answering call
- * this id addresses.
+ * One authorization attempt as a surface watching the seam sees it.
  *
- * `attempt` is Host-minted, so a page watching several keys tells its own
- * attempt's traffic from another tab's, and a surface that never saw a question
+ * A notice carries an authorization URL, a device code, or a question, so it is
+ * never published on a Host-wide channel: the surface that started the attempt
+ * receives its own notices directly, and a surface that never saw a question
  * cannot answer one it was not shown.
  */
 export interface AuthorizationNoticeEvent {
-  /** Identifies the attempt this notice belongs to. */
-  attempt: string
   /** The credential record being authorized. */
   key: CredentialKey
   /** What is happening, or what the human must do next. */
@@ -140,18 +136,5 @@ declare module '@deepseek-ai/cordis' {
      * @mode emit
      */
     'authorization/settled'(key: CredentialKey, settlement: AuthorizationSettlement): void
-
-    /**
-     * One running attempt's report to the surface that started it: progress, a
-     * page to open, a code to enter, or a question to answer. Scoped by
-     * `attempt` rather than by Agent, because an authorization is started from
-     * a configuration page and no Agent owns it.
-     *
-     * The wire has no reply path inside a call, so a question rides this same
-     * one-way event and is answered through the call its `prompt` id addresses.
-     * @param notice - the attempt it belongs to and what it has to say.
-     * @mode emit
-     */
-    'authorization/notice'(notice: AuthorizationNoticeEvent): void
   }
 }

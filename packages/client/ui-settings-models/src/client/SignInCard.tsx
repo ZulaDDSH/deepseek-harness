@@ -1,33 +1,32 @@
 /**
  * The "Sign in with ChatGPT" card: one provider route's authorization flow.
  *
- * The Host owns the conversation with the human and pushes every notice for
+ * The Host owns the conversation with the human and streams every notice for
  * this attempt as it happens; this card renders whatever arrives and returns
- * typed answers through the answering call. It holds no protocol knowledge —
- * an OAuth browser hand-off, a device code, and a pasted key all render through
- * the same two shapes, because the Host reports them in one vocabulary.
+ * typed answers. It holds no protocol knowledge — an OAuth browser hand-off, a
+ * device code, and a pasted key all render through the same two shapes, because
+ * the Host reports them in one vocabulary.
  *
- * A question is answered by a second call rather than a reply on the first,
- * which is why an attempt is tracked by the id the Host minted: the card matches
- * arriving notices against the attempt it started, so a second tab's sign-in
- * never writes into this card.
+ * The attempt's notices arrive on this card's own stream, so the card needs no
+ * correlation: a second tab's sign-in can neither appear here nor be answered
+ * from here. An answer is applied only after the Host accepts it, so a refusal
+ * leaves the question on screen rather than dropping it silently.
  *
  * @module dsh-client-ui-settings-models/client/SignInCard
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { AuthorizationEntryView } from '@deepseek-ai/dsh-api-settings-controller/types'
-import type { AuthorizationNoticeEvent } from '@deepseek-ai/dsh-authorization/types'
+import type { AuthorizationEntryView, AuthorizationNotice } from '@deepseek-ai/dsh-api-settings-controller/types'
 import type { AuthorizationOperations } from './authorization-operations.ts'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
 
-/** One question the card is waiting on, with the attempt that asked it. */
+/** One question the card is waiting on, with the capability that asked it. */
 interface OpenQuestion {
   readonly attempt: string
   readonly prompt: string
-  readonly kind: NonNullable<AuthorizationNoticeEvent['kind']>
+  readonly kind: NonNullable<AuthorizationNotice['kind']>
   readonly message: string
   readonly placeholder?: string
   readonly options?: readonly { readonly id: string; readonly label: string }[]
@@ -36,7 +35,7 @@ interface OpenQuestion {
 /** How the card is doing right now. */
 type SignInPhase =
   | { readonly status: 'idle' }
-  | { readonly status: 'running'; readonly attempt: string; readonly notices: readonly AuthorizationNoticeEvent[] }
+  | { readonly status: 'running'; readonly notices: readonly AuthorizationNotice[] }
   | { readonly status: 'failed'; readonly message: string }
   | { readonly status: 'cancelled' }
 
@@ -65,13 +64,10 @@ export function SignInCard(props: SignInCardProps): ReactNode {
   const [loaded, setLoaded] = useState(false)
   const [phase, setPhase] = useState<SignInPhase>({ status: 'idle' })
   const [question, setQuestion] = useState<OpenQuestion | null>(null)
+  const [answerFailure, setAnswerFailure] = useState<string | undefined>(undefined)
   const [draft, setDraft] = useState('')
-  const attemptRef = useRef<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
-  // The notice listener is registered once, so it reads the live phase through
-  // a ref rather than closing over a stale render's value.
-  const phaseRef = useRef<SignInPhase>({ status: 'idle' })
-  phaseRef.current = phase
+  const mountedRef = useRef(true)
 
   // The flow this route owns, if the deployment registered one for it.
   useEffect(() => {
@@ -84,51 +80,54 @@ export function SignInCard(props: SignInCardProps): ReactNode {
     return () => { active = false }
   }, [operations, provider])
 
-  // Notices arrive while `begin` is pending. The attempt id is minted by the
-  // Host and first seen here, so this is where the card learns which attempt is
-  // its own; everything else — another tab's sign-in — is ignored.
-  useEffect(() => operations.onNotice((notice) => {
-    if (attemptRef.current === null) {
-      if (phaseRef.current.status !== 'running') return
-      attemptRef.current = notice.attempt
-    }
-    if (notice.attempt !== attemptRef.current) return
-    if (notice.prompt === undefined) {
-      setPhase(current => current.status === 'running'
-        ? { ...current, notices: [...current.notices, notice] }
-        : current)
-      return
-    }
-    setQuestion({
-      attempt: notice.attempt,
-      prompt: notice.prompt,
-      kind: notice.kind ?? 'text',
-      message: notice.message,
-      ...notice.placeholder === undefined ? {} : { placeholder: notice.placeholder },
-      ...notice.options === undefined ? {} : { options: notice.options },
-    })
-  }), [operations])
-
   // An unmounting card withdraws its attempt rather than leaving it parked.
-  useEffect(() => () => { abortRef.current?.abort() }, [])
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      abortRef.current?.abort()
+    }
+  }, [])
 
   const start = useCallback(async (method: string) => {
     // Captured so the async body narrows once: the card only offers this while
     // a flow is known, and a sign-in cannot outlive the entry it started from.
     if (entry === null) return
-    const key = entry.key
     const controller = new AbortController()
     abortRef.current = controller
-    // Cleared so the first notice of this attempt adopts the card, rather than
-    // a previous attempt's id being matched against it.
-    attemptRef.current = null
     setQuestion(null)
+    setAnswerFailure(undefined)
     setDraft('')
-    setPhase({ status: 'running', attempt: '', notices: [] })
-    const outcome = await operations.begin(key, method, controller.signal)
-    attemptRef.current = null
+    setPhase({ status: 'running', notices: [] })
+    const outcome = await operations.begin(entry.key, method, (item) => {
+      if (!mountedRef.current) return
+      if (item.type === 'start') return
+      if (item.type === 'end') {
+        // The attempt is over, so nothing it asked is still answerable. This is
+        // the only place a question is retired without an answer, which is what
+        // keeps a refused answer on screen while the attempt is still running.
+        setQuestion(null)
+        return
+      }
+      if (item.prompt === undefined) {
+        setPhase(current => current.status === 'running'
+          ? { ...current, notices: [...current.notices, item] }
+          : current)
+        return
+      }
+      setQuestion({
+        attempt: item.attempt,
+        prompt: item.prompt,
+        kind: item.kind ?? 'text',
+        message: item.message,
+        ...item.placeholder === undefined ? {} : { placeholder: item.placeholder },
+        ...item.options === undefined ? {} : { options: item.options },
+      })
+    }, controller.signal)
     abortRef.current = null
+    if (!mountedRef.current) return
     setQuestion(null)
+    setAnswerFailure(undefined)
     if (outcome.kind === 'authorized') {
       setPhase({ status: 'idle' })
       onSignedIn?.()
@@ -137,19 +136,25 @@ export function SignInCard(props: SignInCardProps): ReactNode {
     setPhase(outcome.kind === 'cancelled' ? { status: 'cancelled' } : { status: 'failed', message: outcome.message })
   }, [entry, operations, onSignedIn])
 
-  const answer = useCallback((value: string) => {
+  const answer = useCallback(async (value: string) => {
     if (question === null) return
-    void operations.answer(question.attempt, question.prompt, value)
+    const outcome = await operations.answer(question.attempt, question.prompt, value)
+    if (!mountedRef.current) return
+    if (outcome.kind === 'refused') {
+      // The Host rejected the answer, so the question is still open: keep it on
+      // screen with the reason rather than clearing it and stranding the flow.
+      setAnswerFailure(outcome.message)
+      return
+    }
+    setAnswerFailure(undefined)
     setQuestion(null)
     setDraft('')
   }, [operations, question])
 
   if (!loaded) return null
-  if (entry === null) {
-    // A route with no registered flow authenticates through its API key, which
-    // the surrounding editor already offers.
-    return null
-  }
+  // A route with no registered flow authenticates through its API key, which
+  // the surrounding editor already offers.
+  if (entry === null) return null
 
   const running = phase.status === 'running'
   const notices = phase.status === 'running' ? phase.notices : []
@@ -164,8 +169,8 @@ export function SignInCard(props: SignInCardProps): ReactNode {
       </div>
       <p className={styles['signInHint']}>{t('signInDescription')}</p>
 
-      {notices.map(notice => (
-        <div key={`${notice.attempt}:${notice.message}:${notice.code ?? ''}`} className={styles['signInNotice']}>
+      {notices.map((notice, index) => (
+        <div key={`${String(index)}:${notice.message}:${notice.code ?? ''}`} className={styles['signInNotice']}>
           <span>{notice.message}</span>
           {notice.code === undefined ? null : <code className={styles['signInCode']}>{notice.code}</code>}
           {notice.url === undefined ? null : (
@@ -186,7 +191,7 @@ export function SignInCard(props: SignInCardProps): ReactNode {
                   key={option.id}
                   type="button"
                   className={styles['secondaryButton']}
-                  onClick={() => { answer(option.id) }}
+                  onClick={() => { void answer(option.id) }}
                 >
                   {option.label}
                 </button>
@@ -201,18 +206,21 @@ export function SignInCard(props: SignInCardProps): ReactNode {
                 value={draft}
                 placeholder={question.placeholder ?? ''}
                 onChange={(event) => { setDraft(event.target.value) }}
-                onKeyDown={(event) => { if (event.key === 'Enter' && draft.length > 0) answer(draft) }}
+                onKeyDown={(event) => { if (event.key === 'Enter' && draft.length > 0) void answer(draft) }}
               />
               <button
                 type="button"
                 className={styles['primaryButton']}
                 disabled={draft.length === 0}
-                onClick={() => { answer(draft) }}
+                onClick={() => { void answer(draft) }}
               >
                 {t('signInSubmit')}
               </button>
             </div>
           )}
+          {answerFailure === undefined
+            ? null
+            : <p className={styles['signInError']}>{t('signInAnswerFailed', { message: answerFailure })}</p>}
         </div>
       )}
 

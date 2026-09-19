@@ -87,7 +87,7 @@ interface EditorTarget extends ProviderIdentity {
 /** Values that vary around the shared provider-editor rendering. */
 interface ProviderEditorRenderProps extends Pick<
   ProviderEditorProps,
-  'namespace' | 'schema' | 'operations' | 'authorization' | 't' | 'readOnly' | 'onClose'
+  'namespace' | 'schema' | 'operations' | 'authorization' | 't' | 'readOnly' | 'onCredentialChanged' | 'onClose'
 > {
   target: EditorTarget
 }
@@ -351,6 +351,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                   ...authorization === undefined ? {} : { authorization },
                   t,
                   readOnly: !state.writable,
+                  onCredentialChanged: () => { void controller.load() },
                   onClose: (changed) => { closeSetup(changed, target) },
                 })}
                 {renderSlot(
@@ -448,6 +449,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                   ...authorization === undefined ? {} : { authorization },
                   t,
                   readOnly: !state.writable,
+                  onCredentialChanged: () => { void controller.load() },
                   onClose: (changed) => { closeEditor(changed, target) },
                 })
                 : null}

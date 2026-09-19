@@ -31,7 +31,9 @@ kind: "package-reference"
 
 `settings.openSettingsDocument()` 准备提供方持有的文档，并用原生文本编辑器意图将其打开。`settings.canOpenAgentPresetDirectory()` 在 preset 页面显示时报告原生打开能力。`settings.openAgentPresetDirectory(id)` 只解析用户创作的 preset，并打开其目录，或在原生打开不可用时返回目录路径；两个打开方法都不接受浏览器提供的文件系统目标。
 
-`authorization.list()` 返回已挂载注册表提供的每个 flow，各自附带其键上是否已存有凭据，使界面无需第二次调用即可标注已登录的提供方。`authorization.begin(key, method, signal)` 启动一次尝试，并在人所需的时间内持续挂起；它把每条 notice 作为转发的 `authorization/notice` 事件发布，并寻址到 Host 铸造的 attempt id。要求回答的 notice 会随通知一并携带该问题；`authorization.answer(attempt, prompt, value)` 回答它，`authorization.cancel(attempt)` 撤销该尝试。尝试最终结算为 `authorized` 或 `cancelled`，失败以 `authorization/failed` 传递，未知键或尝试为 `authorization/not-found`。
+`authorization.list()` 返回已挂载注册表提供的每个 flow，各自附带其键上是否已存有凭据，使界面无需第二次调用即可标注已登录的提供方。`authorization.begin(key, method, signal)` 是一条流：首项给出该尝试不可猜测的 capability，其后每一项都是 flow 的 notice，最后一项说明尝试如何结束。`authorization.answer(attempt, prompt, value)` 回答问题，`authorization.cancel(attempt)` 撤销尝试，二者都以该 capability 寻址。
+
+notice 可能携带授权网址、设备码或问题，因此它只在开启该尝试的那条流上投递，绝不发布到 Host 级通道：第二个客户端收不到第一个客户端的任何 notice，也无法回答或撤销并非由它发起的尝试。尝试结算为 `authorized` 或 `cancelled`；真正的 flow 失败以 `authorization/failed` 拒绝该流，未知键、capability 或问题为 `authorization/not-found`。
 
 -----
 
@@ -60,8 +62,9 @@ kind: "package-reference"
 <a id="known-limitations-and-deferred-work"></a>
 
 - 批量上限固定为 64 个引用，不是可按部署配置的字段。
-- **授权尝试不可持久** —— attempt id 存活于 Host 进程内，因此登录途中刷新页面会放弃该尝试，人需要重新开始。
+- **授权尝试不可持久** —— attempt capability 存活于 Host 进程内，因此登录途中刷新页面会放弃该尝试，人需要重新开始。
 - **问题由第二次调用回答，而非回复** —— Remote wire 在单次调用内没有反向通道，因此丢失问题通知的界面无法回答它从未见过的问题。
+- **尝试属于开启它的那个客户端** —— capability 只在该客户端的流上投递，因此其他方既无法观察也无法操作该尝试。第二个浏览器标签页无法接管已在进行的登录。
 
 <a id="dev-note"></a>
 ### 开发备注

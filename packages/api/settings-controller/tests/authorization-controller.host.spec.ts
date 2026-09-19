@@ -4,17 +4,22 @@
  * This is a real composition: the actual `dsh-authorization` registry, the
  * actual memory credential provider, and a flow registered the way an LLM
  * adapter registers one. The controller's own job is the wire half — attempt
- * addressing, prompt correlation, and refusal mapping — so these exercise that
- * through the public methods a browser calls.
+ * addressing, notice delivery, prompt correlation, and refusal mapping — so
+ * these exercise that through the public surface a browser calls.
+ *
+ * A notice can carry an authorization URL, a device code, or a prompt, so the
+ * isolation suite here is a security contract rather than a convenience: one
+ * attempt's notices reach one caller, and no other caller can address it.
  */
 
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AuthorizationService from '@deepseek-ai/dsh-authorization'
-import type { AuthorizationNoticeEvent, AuthorizationSession } from '@deepseek-ai/dsh-authorization'
+import type { AuthorizationSession } from '@deepseek-ai/dsh-authorization'
 import { credentialKey } from '@deepseek-ai/dsh-credentials'
 import { remoteErrorOf, remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
 import AuthorizationController from '../src/authorization.ts'
+import type { AuthorizationNotice, AuthorizationStart } from '../src/types.ts'
 import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
 
 const CODEX = credentialKey('llm-pi-ai', 'openai-codex')
@@ -29,19 +34,16 @@ type FlowScript = (session: AuthorizationSession) => Promise<void> | void
  * the flow does *before* committing and the helper always commits afterwards —
  * which is what a real login does: talk to the human, then store the grant.
  * @param script - what the registered flow does before it commits; omitted commits immediately.
- * @returns the controller plus the notices every listener saw.
+ * @returns the controller over the booted context.
  */
 async function boot(script?: FlowScript): Promise<{
   ctx: Context
   controller: AuthorizationController
-  notices: AuthorizationNoticeEvent[]
 }> {
   const ctx = new Context()
   await ctx.plugin(MemoryCredentials, {})
   await ctx.plugin(AuthorizationService)
   await ctx.plugin(AuthorizationController)
-  const notices: AuthorizationNoticeEvent[] = []
-  ctx.on('authorization/notice', (notice) => { notices.push(notice) })
   ctx.authorization.registerFlow({
     key: CODEX,
     label: 'OpenAI (ChatGPT Plus/Pro)',
@@ -54,7 +56,40 @@ async function boot(script?: FlowScript): Promise<{
       }))
     },
   })
-  return { ctx, controller: ctx.authorizationController, notices }
+  return { ctx, controller: ctx.authorizationController }
+}
+
+/** Consume one attempt's stream to completion, recording everything it delivered. */
+async function drain(
+  stream: AsyncIterable<AuthorizationStart | AuthorizationNotice | { type: 'end' }>,
+): Promise<{
+  start: AuthorizationStart | undefined
+  notices: AuthorizationNotice[]
+  ended: boolean
+  failure: unknown
+}> {
+  const notices: AuthorizationNotice[] = []
+  let start: AuthorizationStart | undefined
+  let ended = false
+  try {
+    for await (const item of stream) {
+      if (item.type === 'start') start = item
+      else if (item.type === 'notice') notices.push(item)
+      else ended = true
+    }
+  } catch (error: unknown) {
+    return { start, notices, ended, failure: error }
+  }
+  return { start, notices, ended, failure: undefined }
+}
+
+/** Wait for the flow to reach its first parked question. */
+async function until(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (predicate()) return
+    await new Promise(resolve => setTimeout(resolve, 0))
+  }
+  throw new Error('condition never became true')
 }
 
 describe('the authorization Remote namespace a configuration surface calls', () => {
@@ -65,6 +100,14 @@ describe('the authorization Remote namespace a configuration surface calls', () 
     expect(controller.typertRemote.namespace).toBe('authorization')
     expect(remoteMethods(controller).map(entry => entry.method).sort())
       .toEqual(['answer', 'begin', 'cancel', 'list'])
+  })
+
+  it('delivers the attempt as a stream rather than a unary result', async () => {
+    const { controller } = await boot()
+
+    // The transport is the security property: a stream writes to the one
+    // client that opened it, while an emit-style event would broadcast.
+    expect(remoteMethods(controller).find(entry => entry.method === 'begin')?.mode).toBe('stream')
   })
 
   it('lists each flow with its methods and whether a credential is already stored', async () => {
@@ -89,50 +132,74 @@ describe('the authorization Remote namespace a configuration surface calls', () 
   it('runs the flow and reports authorized once it commits', async () => {
     const { ctx, controller } = await boot()
 
-    await expect(controller.begin('llm-pi-ai/openai-codex', undefined, new AbortController().signal))
-      .resolves.toEqual({ status: 'authorized' })
+    const { start, ended } = await drain(controller.begin('llm-pi-ai/openai-codex', undefined, new AbortController().signal))
+    expect(start).toMatchObject({ type: 'start', key: 'llm-pi-ai/openai-codex' })
+    expect(ended).toBe(true)
     await expect(ctx.credentials.describeRecord(CODEX)).resolves.toMatchObject({ configured: true })
   })
 
-  it('publishes the flow notices addressed to this attempt', async () => {
-    const { controller, notices } = await boot(async (session) => {
+  it('mints an unguessable capability rather than an enumerable id', async () => {
+    const seen: string[] = []
+    const { controller } = await boot()
+    for (let run = 0; run < 3; run += 1) {
+      const { start } = await drain(controller.begin('llm-pi-ai/openai-codex', undefined, new AbortController().signal))
+      seen.push(start?.attempt ?? '')
+    }
+
+    // Long, random, and distinct per attempt: a sequential or key-derived id
+    // would let one client address another client's attempt.
+    expect(new Set(seen).size).toBe(3)
+    for (const capability of seen) {
+      expect(capability.length).toBeGreaterThanOrEqual(32)
+      expect(capability).not.toContain('openai-codex')
+    }
+  })
+
+  it('delivers the flow notices on this attempt stream', async () => {
+    const { controller } = await boot(async (session) => {
       session.notify({ message: 'Open this page', url: 'https://auth.example/start' })
       session.notify({ message: 'Enter the code', url: 'https://device.example', code: 'WXYZ' })
     })
 
-    await controller.begin('llm-pi-ai/openai-codex', undefined, new AbortController().signal)
+    const { start, notices } = await drain(controller.begin('llm-pi-ai/openai-codex', undefined, new AbortController().signal))
 
-    expect(notices.map(({ attempt, key, ...rest }) => ({ attempt: attempt.length > 0, key, ...rest }))).toEqual([
-      { attempt: true, key: 'llm-pi-ai/openai-codex', message: 'Open this page', url: 'https://auth.example/start' },
-      { attempt: true, key: 'llm-pi-ai/openai-codex', message: 'Enter the code', url: 'https://device.example', code: 'WXYZ' },
+    expect(notices.map(notice => ({ ...notice, attempt: 'pinned' }))).toEqual([
+      { type: 'notice', attempt: 'pinned', message: 'Open this page', url: 'https://auth.example/start' },
+      { type: 'notice', attempt: 'pinned', message: 'Enter the code', url: 'https://device.example', code: 'WXYZ' },
     ])
+    // Each notice addresses the attempt that produced it, so an answer names a
+    // capability rather than relying on the caller having tracked it.
+    expect(notices.every(notice => notice.attempt === start?.attempt)).toBe(true)
   })
 
   it('parks a question until answer settles it, then finishes the flow', async () => {
     let asked: string | undefined
-    const { controller, notices } = await boot(async (session) => {
+    const { controller } = await boot(async (session) => {
       asked = await session.prompt({ kind: 'text', message: 'Paste the code', placeholder: 'code' })
     })
 
-    const running = controller.begin('llm-pi-ai/openai-codex', undefined, new AbortController().signal)
-    // The prompt reaches the surface before the flow can proceed.
-    await Promise.resolve()
-    const question = notices.find(notice => notice.prompt !== undefined)
-    expect(question).toMatchObject({
-      key: 'llm-pi-ai/openai-codex',
-      kind: 'text',
-      message: 'Paste the code',
-      placeholder: 'code',
-    })
+    const controllerAbort = new AbortController()
+    const collected: AuthorizationNotice[] = []
+    let capability = ''
+    const running = (async () => {
+      for await (const item of controller.begin('llm-pi-ai/openai-codex', undefined, controllerAbort.signal)) {
+        if (item.type === 'start') capability = item.attempt
+        else if (item.type === 'notice') collected.push(item)
+      }
+    })()
 
-    controller.answer(question?.attempt ?? '', question?.prompt ?? '', 'the-code')
-    await expect(running).resolves.toEqual({ status: 'authorized' })
+    await until(() => collected.some(notice => notice.prompt !== undefined))
+    const question = collected.find(notice => notice.prompt !== undefined)
+    expect(question).toMatchObject({ kind: 'text', message: 'Paste the code', placeholder: 'code' })
+
+    controller.answer(capability, question?.prompt ?? '', 'the-code')
+    await running
     expect(asked).toBe('the-code')
   })
 
   it('carries a select question options and answers with the chosen id', async () => {
     let chosen: string | undefined
-    const { controller, notices } = await boot(async (session) => {
+    const { controller } = await boot(async (session) => {
       chosen = await session.prompt({
         kind: 'select',
         message: 'Which account?',
@@ -140,29 +207,45 @@ describe('the authorization Remote namespace a configuration surface calls', () 
       })
     })
 
-    const running = controller.begin('llm-pi-ai/openai-codex', undefined, new AbortController().signal)
-    await Promise.resolve()
-    const question = notices.find(notice => notice.prompt !== undefined)
+    const collected: AuthorizationNotice[] = []
+    let capability = ''
+    const running = (async () => {
+      for await (const item of controller.begin('llm-pi-ai/openai-codex', undefined, new AbortController().signal)) {
+        if (item.type === 'start') capability = item.attempt
+        else if (item.type === 'notice') collected.push(item)
+      }
+    })()
+
+    await until(() => collected.some(notice => notice.prompt !== undefined))
+    const question = collected.find(notice => notice.prompt !== undefined)
     expect(question?.options).toEqual([{ id: 'work', label: 'Work' }])
 
-    controller.answer(question?.attempt ?? '', question?.prompt ?? '', 'work')
+    controller.answer(capability, question?.prompt ?? '', 'work')
     await running
     expect(chosen).toBe('work')
   })
 
   it('refuses an answer to a question that is not awaiting one', async () => {
-    const { controller, notices } = await boot(async (session) => {
+    const { controller } = await boot(async (session) => {
       await session.prompt({ kind: 'text', message: 'Paste the code' })
     })
 
-    const running = controller.begin('llm-pi-ai/openai-codex', undefined, new AbortController().signal)
-    await Promise.resolve()
-    const question = notices.find(notice => notice.prompt !== undefined)
-    controller.answer(question?.attempt ?? '', question?.prompt ?? '', 'first')
+    const collected: AuthorizationNotice[] = []
+    let capability = ''
+    const running = (async () => {
+      for await (const item of controller.begin('llm-pi-ai/openai-codex', undefined, new AbortController().signal)) {
+        if (item.type === 'start') capability = item.attempt
+        else if (item.type === 'notice') collected.push(item)
+      }
+    })()
+
+    await until(() => collected.some(notice => notice.prompt !== undefined))
+    const prompt = collected.find(notice => notice.prompt !== undefined)?.prompt ?? ''
+    controller.answer(capability, prompt, 'first')
 
     const failure = (() => {
       try {
-        controller.answer(question?.attempt ?? '', question?.prompt ?? '', 'second')
+        controller.answer(capability, prompt, 'second')
         return undefined
       } catch (error: unknown) {
         return error
@@ -172,11 +255,11 @@ describe('the authorization Remote namespace a configuration surface calls', () 
     await running
   })
 
-  it('reports an attempt id that is not running rather than hanging', async () => {
+  it('reports a capability that is not running rather than hanging', async () => {
     const { controller } = await boot()
     const failure = (() => {
       try {
-        controller.answer('auth-999', '0', 'x')
+        controller.answer('guessed-capability', '0', 'x')
         return undefined
       } catch (error: unknown) {
         return error
@@ -191,38 +274,158 @@ describe('the authorization Remote namespace a configuration surface calls', () 
     })
     const withdraw = new AbortController()
 
-    const running = controller.begin('llm-pi-ai/openai-codex', undefined, withdraw.signal)
-    await Promise.resolve()
+    const running = drain(controller.begin('llm-pi-ai/openai-codex', undefined, withdraw.signal))
+    await until(() => !withdraw.signal.aborted)
     withdraw.abort()
 
-    await expect(running).resolves.toEqual({ status: 'cancelled' })
+    const { failure } = await running
+    expect(failure).toBeUndefined()
   })
 
-  it('reports a flow failure as authorization/failed naming the key', async () => {
+  it('lets the attempt withdraw itself once its question signal is already aborted', async () => {
+    // A flow that passes an already-aborted signal has retired its own
+    // question; the listener would never fire, so the flow must not hang.
+    const aborted = new AbortController()
+    aborted.abort()
+    let reached = false
+    const { controller } = await boot(async (session) => {
+      try {
+        await session.prompt({ kind: 'text', message: 'Paste the code', signal: aborted.signal })
+      } catch {
+        reached = true
+        throw new Error('the question was withdrawn')
+      }
+    })
+
+    const { failure } = await drain(controller.begin('llm-pi-ai/openai-codex', undefined, new AbortController().signal))
+
+    expect(reached).toBe(true)
+    expect(failure).toBeDefined()
+  })
+
+  it('reports a flow failure as a rejected stream', async () => {
     const { controller } = await boot(() => Promise.reject(new Error('the grant was refused')))
 
-    const failure = await controller.begin('llm-pi-ai/openai-codex', undefined, new AbortController().signal)
-      .catch((error: unknown) => error)
-    expect(remoteErrorOf(failure)).toMatchObject({
-      code: 'authorization/failed',
-      message: 'the grant was refused',
-      details: { key: 'llm-pi-ai/openai-codex' },
-    })
+    const { failure } = await drain(controller.begin('llm-pi-ai/openai-codex', undefined, new AbortController().signal))
+
+    expect(failure).toBeInstanceOf(Error)
+    expect((failure as Error).message).toContain('the grant was refused')
   })
 
   it('refuses a key no flow claims, naming what is missing', async () => {
     const { controller } = await boot()
 
-    const failure = await controller.begin('llm-pi-ai/not-a-provider', undefined, new AbortController().signal)
-      .catch((error: unknown) => error)
+    const failure = await (async () => {
+      try {
+        for await (const _item of controller.begin('llm-pi-ai/not-a-provider', undefined, new AbortController().signal)) {
+          // A refusal happens before the first item is produced.
+        }
+        return undefined
+      } catch (error: unknown) {
+        return error
+      }
+    })()
     expect(remoteErrorOf(failure)).toMatchObject({ code: 'authorization/not-found' })
   })
 
   it('refuses a key outside the credential-record grammar as bad-request', async () => {
     const { controller } = await boot()
 
-    const failure = await controller.begin('NOT A KEY', undefined, new AbortController().signal)
-      .catch((error: unknown) => error)
+    const failure = await (async () => {
+      try {
+        for await (const _item of controller.begin('NOT A KEY', undefined, new AbortController().signal)) {
+          // A refusal happens before the first item is produced.
+        }
+        return undefined
+      } catch (error: unknown) {
+        return error
+      }
+    })()
     expect(remoteErrorOf(failure)?.code).toBe('gateway/bad-request')
+  })
+})
+
+describe('one attempt stays private to the caller that started it', () => {
+  it('never delivers one caller attempt notices to another caller', async () => {
+    const { controller } = await boot(async (session) => {
+      session.notify({ message: 'Open this page', url: 'https://auth.example/start', code: 'FIRST-SECRET' })
+    })
+    const second = await boot(async (session) => {
+      session.notify({ message: 'Open this page', url: 'https://auth.example/start', code: 'SECOND-SECRET' })
+    })
+
+    // Two surfaces, each driving its own controller, as two browser tabs would.
+    const first = await drain(controller.begin('llm-pi-ai/openai-codex', undefined, new AbortController().signal))
+    const other = await drain(second.controller.begin('llm-pi-ai/openai-codex', undefined, new AbortController().signal))
+
+    const firstCodes = first.notices.map(notice => notice.code)
+    const otherCodes = other.notices.map(notice => notice.code)
+    expect(firstCodes).toContain('FIRST-SECRET')
+    expect(firstCodes).not.toContain('SECOND-SECRET')
+    expect(otherCodes).toContain('SECOND-SECRET')
+    expect(otherCodes).not.toContain('FIRST-SECRET')
+  })
+
+  it('refuses an answer addressed by another caller capability', async () => {
+    const { controller } = await boot(async (session) => {
+      await session.prompt({ kind: 'text', message: 'Paste the code' })
+    })
+
+    let mine = ''
+    const collected: AuthorizationNotice[] = []
+    const running = (async () => {
+      for await (const item of controller.begin('llm-pi-ai/openai-codex', undefined, new AbortController().signal)) {
+        if (item.type === 'start') mine = item.attempt
+        else if (item.type === 'notice') collected.push(item)
+      }
+    })()
+    await until(() => collected.some(notice => notice.prompt !== undefined))
+    const prompt = collected.find(notice => notice.prompt !== undefined)?.prompt ?? ''
+
+    // A capability this caller never received cannot answer the question.
+    const failure = (() => {
+      try {
+        controller.answer('another-callers-capability', prompt, 'stolen')
+        return undefined
+      } catch (error: unknown) {
+        return error
+      }
+    })()
+    expect(remoteErrorOf(failure)?.code).toBe('authorization/not-found')
+
+    // The real question is still open, so its owner can answer it.
+    controller.answer(mine, prompt, 'mine')
+    await running
+  })
+
+  it('refuses a cancel addressed by another caller capability', async () => {
+    const { controller } = await boot(async (session) => {
+      await session.prompt({ kind: 'text', message: 'Paste the code' })
+    })
+
+    let mine = ''
+    const collected: AuthorizationNotice[] = []
+    const running = (async () => {
+      for await (const item of controller.begin('llm-pi-ai/openai-codex', undefined, new AbortController().signal)) {
+        if (item.type === 'start') mine = item.attempt
+        else if (item.type === 'notice') collected.push(item)
+      }
+    })()
+    await until(() => collected.some(notice => notice.prompt !== undefined))
+    const prompt = collected.find(notice => notice.prompt !== undefined)?.prompt ?? ''
+
+    const failure = (() => {
+      try {
+        controller.cancel('another-callers-capability')
+        return undefined
+      } catch (error: unknown) {
+        return error
+      }
+    })()
+    expect(remoteErrorOf(failure)?.code).toBe('authorization/not-found')
+
+    // The attempt survived the foreign cancel and its owner can still finish it.
+    controller.answer(mine, prompt, 'mine')
+    await running
   })
 })

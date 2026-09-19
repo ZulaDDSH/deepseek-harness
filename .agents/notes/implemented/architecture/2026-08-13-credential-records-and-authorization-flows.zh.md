@@ -35,11 +35,13 @@ harness 的凭据平面只能表达一种机密：藏在某个环境变量名之
 
 ### 界面，以及塑造它的 wire 约束
 
-Remote 方法只接受 JSON 参数并返回一个值；它不能接受回调，而一次进行中的调用也没有回到自身的回复通路。真正能携带答复的 host→浏览器 方向是转发的 `waterfall` 事件，而该机制是 Agent 作用域的——它要求事件直接携带接收它的 Agent Context，并在投递前校验这一对。一次授权尝试没有 Agent：它由配置页面发起。因此这段对话被拆分到两条不需要 Agent 作用域、却确实存在的方向之上。
+Remote 方法只接受 JSON 参数并返回一个值；它不能接受回调，而一次进行中的调用也没有回到自身的回复通路。真正能携带答复的 host→浏览器 方向是转发的 `waterfall` 事件，而该机制是 Agent 作用域的——它要求事件直接携带接收它的 Agent Context，并在投递前校验这一对。一次授权尝试没有 Agent：它由配置页面发起。
 
-`dsh-api-settings-controller` 中的 `AuthorizationController` 拥有这次拆分。`begin` 是一次长时间挂起的调用，其挂起时长由人决定；它把每条 notice 作为可转发的 `authorization/notice` 事件发布，并寻址到 Host 铸造的 attempt id；人的答复则以同 id 寻址的普通 `answer` 调用回来。`authorization/notice` 与即将运行的 flow 一同声明并携带问题本身，因此丢失了 notice 的界面无法回答它从未展示过的问题。被撤销的尝试结算为 `cancelled`，失败的以拒绝形式传递，两者都与"问题被拒答"区分开来，后者是一种结果。
+`dsh-api-settings-controller` 中的 `AuthorizationController` 通过两条不需要 Agent 作用域、却确实存在的方向拥有这段对话，载体是一条流而非转发事件。`begin` 是一个 `mode: 'stream'` 方法：首项给出该尝试不可猜测的 capability，其后每一项都是 notice，最后一项说明尝试如何结束。人的答复则以该 capability 寻址的普通 `answer` 调用回来。
 
-两个后果源于这一形状而非某个超时。尝试无法跨页面刷新恢复——attempt id 随 Host 侧条目一同消亡，这也是上文记录的限制依然成立的原因。而在浏览侧，`ui-settings-models` 以可选方式读取 `remote.authorization`：未挂载注册表的部署保留其 API-key 字段且不提供登录，界面因此从不假定该 seam 存在。
+**为何不用转发的 `emit` 事件。** notice 可能携带授权网址、设备码或问题，而 `broadcastRemoteEvent` 会把 `emit` 模式的帧投递给**每一个**已连接客户端——`waterfall` 路径由其 Agent id 限定作用域，而 `emit` 没有对应机制。以那种方式发布 notice，会把一个浏览器标签页的 OAuth 网址与设备码交给所有其他打开的标签页，并让任何标签页都能回答或撤销并非由它发起的尝试。流结果写入发起调用方自己打开的 socket，因此载体本身就是作用域机制；capability 由 `randomBytes` 铸造而非由键或计数器派生，因此既无法猜测也无法枚举。被撤销的尝试结算为 `cancelled`，失败的以拒绝流的形式传递，两者都与"问题被拒答"区分开来，后者是一种结果。
+
+两个后果源于这一形状而非某个超时。尝试无法跨页面刷新恢复——capability 随 Host 侧条目一同消亡，这也是上文记录的限制依然成立的原因。而在浏览侧，`ui-settings-models` 以可选方式读取 `remote.authorization`：未挂载注册表的部署保留其 API-key 字段且不提供登录，界面因此从不假定该 seam 存在。
 
 目录比 pi-ai 的更窄，理由与界面存在的理由相同。pi-ai 的 `openai-codex` 目录转录自 models.dev，后者列出的是平台所服务的模型，而非某一个套餐可用的子集；后端会为 ChatGPT 订阅拒绝 `gpt-5.3-codex-spark`、`gpt-5.4` 与 `gpt-5.4-mini`。`catalogModels` 恰好为该路由扣留这三个 id，于是默认路由只提供能应答的模型；在 `models` 列表中显式指名其中一个的配置仍会得到它，因为用户写下的配置不会被悄悄丢弃。
 
@@ -77,4 +79,8 @@ seam 自己的套件钉住它拥有的生命周期：单飞的拒绝与释放、
 
 `models-settings` 与 `onboarding-usable-provider` 两条 web e2e golden 恰好收回了被扣留时失去的那一行 `openai-codex` 选项——这是本决策记录的唯一装配后应用差异，因为 Models 页还没有可录制的登录控件。
 
-wire 半边由 `authorization-controller.host.spec.ts` 在真实注册表、真实凭据存储以及一个按 adapter 方式注册的 flow 之上钉住：命名空间及其方法集、与已存凭据状态合并后的条目列表、寻址到该 attempt 的 notice 发布、问题一直挂起直到其 `answer` 调用结算该问题并让 flow 以人输入的答复结束、`select` 问题携带其选项、对同一问题的第二次答复被拒绝而非重复结算、被撤销的尝试结算为 `cancelled`、flow 失败映射为 `authorization/failed`，以及未注册的键与不符合记录文法的键都以指名方式拒绝。Codex 目录门控在 `catalog.spec.ts` 中钉住：被扣留的 id 不在列表中、配置显式指名时该 id 仍被提供，以及经公共 API 共享该 id 的其他提供方不受影响。
+wire 半边由 `authorization-controller.host.spec.ts` 在真实注册表、真实凭据存储以及一个按 adapter 方式注册的 flow 之上钉住：命名空间及其方法集、`begin` 承载 stream 模式、与已存凭据状态合并后的条目列表、notice 在该尝试自己的流上投递并盖上其 capability、capability 足够长且随机且每次尝试各不相同、问题一直挂起直到其 `answer` 调用结算该问题并让 flow 以人输入的答复结束、`select` 问题携带其选项、对同一问题的第二次答复被拒绝而非重复结算、自身 signal 已中止的问题结算该 flow 而非挂起、被撤销的尝试结算为 `cancelled`、flow 失败拒绝该流，以及未注册的键与不符合记录文法的键都以指名方式拒绝。
+
+隔离在该文件中自成一个套件，因为 notice 会携带授权网址与设备码：两个调用方各自驱动自己的尝试，各自只收到自己的 notice；以调用方从未收到的 capability 寻址的 answer 或 cancel 被作为 `authorization/not-found` 拒绝，而真实尝试仍然开放且可由其所有者回答。这三个用例在本改动所取代的广播实现下全部失败。`signin-card.client.spec.tsx` 钉住界面：notice 的页面与验证码被渲染、被拒的回答连同 Host 原因留在屏幕上、被接受的回答清掉问题、完成的登录上报以便页面刷新、被撤销的尝试不上报任何内容。
+
+Codex 目录门控在 `catalog.spec.ts` 中钉住：被扣留的 id 不在列表中、配置显式指名时该 id 仍被提供，以及经公共 API 共享该 id 的其他提供方不受影响。

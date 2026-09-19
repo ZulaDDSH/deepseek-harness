@@ -31,7 +31,9 @@ Mount this package as a Loader entry in a profile that serves browser configurat
 
 `settings.openSettingsDocument()` prepares the provider-owned document and opens it with the native text-editor intent. `settings.canOpenAgentPresetDirectory()` reports native-opening availability when the preset page becomes visible. `settings.openAgentPresetDirectory(id)` resolves only a user-authored preset and either opens its directory or returns the path when native opening is unavailable; neither open method accepts a browser-supplied filesystem target.
 
-`authorization.list()` answers every flow the mounted registry offers, each joined with whether a credential is already stored for its key, so a surface can label a signed-in provider without a second call. `authorization.begin(key, method, signal)` starts one attempt and stays pending for as long as the human takes, publishing each notice as the forwarded `authorization/notice` event addressed to a Host-minted attempt id. A notice asking a question carries that question with it; `authorization.answer(attempt, prompt, value)` answers it, and `authorization.cancel(attempt)` withdraws the attempt. The attempt settles as `authorized` or `cancelled`, a failure travels as `authorization/failed`, and an unknown key or attempt is `authorization/not-found`.
+`authorization.list()` answers every flow the mounted registry offers, each joined with whether a credential is already stored for its key, so a surface can label a signed-in provider without a second call. `authorization.begin(key, method, signal)` is a stream: its first item names an unguessable per-attempt capability, every later item is a notice from the flow, and the last names how the attempt ended. `authorization.answer(attempt, prompt, value)` answers a question and `authorization.cancel(attempt)` withdraws the attempt, both addressed by that capability.
+
+A notice can carry an authorization URL, a device code, or a question, so it is delivered only on the stream that opened the attempt and never published on a Host-wide channel: a second client receives none of the first client's notices and cannot answer or cancel an attempt it did not start. The attempt settles as `authorized` or `cancelled`; a genuine flow failure rejects the stream with `authorization/failed`, and an unknown key, capability, or question is `authorization/not-found`.
 
 -----
 
@@ -60,8 +62,9 @@ No direct effect; reading or writing these configuration values does not alter m
 <a id="known-limitations-and-deferred-work"></a>
 
 - The batch bound is fixed at 64 references and is not a deployment-configurable field.
-- **An authorization attempt is not durable** — the attempt id lives in the Host process, so a page reload mid-sign-in abandons the attempt and the human starts over.
+- **An authorization attempt is not durable** — the attempt capability lives in the Host process, so a page reload mid-sign-in abandons the attempt and the human starts over.
 - **A question is answered by a second call, not a reply** — the Remote wire has no reverse channel inside a call, so a surface that loses a question notice cannot answer a prompt it was never shown.
+- **An attempt belongs to the client that opened it** — the capability is delivered only on that client's stream, so nothing else can observe or act on the attempt. A second browser tab cannot adopt a sign-in already in progress.
 
 <a id="dev-note"></a>
 ### Dev Note

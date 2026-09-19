@@ -127,6 +127,10 @@ export function apply(ctx: ClientContext): void {
     const disposers = [
       ctx.remote.$on('settings/document-updated', () => { refreshModels() }),
       ctx.remote.$on('credentials/reference-updated', refreshModels),
+      // A sign-in commits a credential record rather than a reference, so the
+      // record event is what refreshes another tab's Models page after a login
+      // it did not start.
+      ctx.remote.$on('credentials/record-updated', refreshModels),
       ctx.remote.$on('llm/adapters-updated', refreshModels),
       ctx.on('connection/reset', refreshModels),
     ]
