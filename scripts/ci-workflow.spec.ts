@@ -1035,8 +1035,10 @@ describe('Issue lifecycle workflow', () => {
     const steps = lifecycleJob.steps.filter(isRecord)
     const tokenStep = steps.find(s => s.name === 'Create project token')
     const handleStep = steps.find(s => s.name === 'Handle repository event')
-    expect(tokenStep?.if).toBeUndefined()
-    expect(handleStep?.if).toBeUndefined()
+    const preflightStep = steps.find(s => s.id === 'preflight')
+    expect(preflightStep?.if).toBeUndefined()
+    expect(tokenStep?.if).toBe("${{ steps.preflight.outputs.eligible == 'true' }}")
+    expect(handleStep?.if).toBe("${{ steps.preflight.outputs.eligible == 'true' }}")
 
     // issue-policy owns PR validation; it is read-only and a real gate.
     const policyPullRequest = workflowEvent(policy, 'pull_request')
