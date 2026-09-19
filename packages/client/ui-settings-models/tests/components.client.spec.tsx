@@ -20,6 +20,7 @@ import {
 import { apiKeyFailure } from '../src/client/apiKey.ts'
 import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
 import { deriveKeyRef, ModelsSettingsStore } from '../src/client/store.ts'
+import type { AuthorizationOperations } from '../src/client/authorization-operations.ts'
 import { createModelsOperations } from '../src/client/operations.ts'
 import type { ModelsOperations } from '../src/client/operations.ts'
 import type { ProviderRow } from '../src/client/store.ts'
@@ -260,6 +261,17 @@ function cardSeatCalls(
     ])
 }
 
+/**
+ * Authorization operations with no registered flow, as a deployment without a
+ * sign-in offers: the card stays out of the editor.
+ */
+const noSignIn: AuthorizationOperations = {
+  list: () => Promise.resolve([]),
+  begin: () => Promise.resolve({ kind: 'cancelled' }),
+  answer: () => Promise.resolve({ kind: 'accepted' }),
+  cancel: () => Promise.resolve(),
+}
+
 async function mountFace(scripted: ReturnType<typeof scriptedFace>) {
   const { face, update, mutate, set, unset } = scripted
   const ctx = ctxWith(face)
@@ -272,6 +284,7 @@ async function mountFace(scripted: ReturnType<typeof scriptedFace>) {
     useSnapshot: bindSnapshotSelector(controller.store),
     useCredentialsRevision: bindSnapshotSelector(createSnapshotStore({ revision: 0 })),
     operations: operationsWith(face),
+    authorization: noSignIn,
     schema: settingsSchema,
     t,
     renderSlot: renderSlot as unknown as ModelsSectionProps['renderSlot'],
@@ -463,6 +476,7 @@ describe('ModelsSection', () => {
       useSnapshot={bindSnapshotSelector(controller.store)}
       useCredentialsRevision={bindSnapshotSelector(createSnapshotStore({ revision: 0 }))}
       operations={operationsWith(face)}
+      authorization={noSignIn}
       schema={settingsSchema}
       t={t}
       renderSlot={() => null}
@@ -489,6 +503,7 @@ describe('ModelsSection', () => {
       useSnapshot={bindSnapshotSelector(controller.store)}
       useCredentialsRevision={bindSnapshotSelector(createSnapshotStore({ revision: 0 }))}
       operations={operationsWith(face)}
+      authorization={noSignIn}
       schema={settingsSchema}
       t={t}
       renderSlot={() => null}
@@ -571,6 +586,7 @@ describe('ModelsSection', () => {
       schema={settingsSchema}
       settingsPath={[]}
       operations={operationsWith(face)}
+      authorization={noSignIn}
       t={t}
       readOnly={false}
       credentialOnly
@@ -688,6 +704,7 @@ describe('ModelsSection', () => {
       schema={settingsSchema}
       settingsPath={[]}
       operations={operationsWith(face)}
+      authorization={noSignIn}
       t={t}
       readOnly={false}
       onClose={vi.fn()}
@@ -870,6 +887,7 @@ describe('ModelsSection', () => {
       schema={settingsSchema}
       settingsPath={[]}
       operations={operationsWith(face)}
+      authorization={noSignIn}
       t={t}
       readOnly={false}
       onClose={() => {}}
@@ -1100,6 +1118,7 @@ describe('ModelsSection', () => {
       schema={settingsSchema}
       settingsPath={[]}
       operations={operationsWith(face)}
+      authorization={noSignIn}
       t={t}
       readOnly={false}
       onClose={() => {}}
@@ -1262,6 +1281,7 @@ describe('ModelsSection', () => {
       useSnapshot={bindSnapshotSelector(controller.store)}
       useCredentialsRevision={bindSnapshotSelector(createSnapshotStore({ revision: 0 }))}
       operations={operationsWith(face)}
+      authorization={noSignIn}
       schema={settingsSchema}
       t={t}
       renderSlot={() => null}
@@ -1397,6 +1417,7 @@ describe('ModelsSection', () => {
       useSnapshot={bindSnapshotSelector(controller.store)}
       useCredentialsRevision={bindSnapshotSelector(createSnapshotStore({ revision: 0 }))}
       operations={operationsWith(face.face)}
+      authorization={noSignIn}
       schema={settingsSchema}
       t={t}
       renderSlot={() => null}
@@ -1421,6 +1442,7 @@ describe('ModelsSection', () => {
       useSnapshot={bindSnapshotSelector(controller.store)}
       useCredentialsRevision={bindSnapshotSelector(createSnapshotStore({ revision: 0 }))}
       operations={operationsWith(face)}
+      authorization={noSignIn}
       schema={settingsSchema}
       t={t}
       renderSlot={() => null}
@@ -1484,6 +1506,7 @@ describe('ModelsSection', () => {
       useSnapshot={bindSnapshotSelector(controller.store)}
       useCredentialsRevision={bindSnapshotSelector(createSnapshotStore({ revision: 0 }))}
       operations={operationsWith(face)}
+      authorization={noSignIn}
       schema={settingsSchema}
       t={t}
       renderSlot={() => null}

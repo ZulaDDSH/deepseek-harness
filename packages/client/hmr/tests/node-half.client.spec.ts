@@ -89,13 +89,13 @@ function fakeHttpServer(routes: WebRoute[]): WebServer {
   return fake as WebServer
 }
 
-async function mount(clientModuleHost: FakeHost, webServer: WebServer) {
+async function mount(clientModuleHost: FakeHost, webServer: WebServer, config: Config = {}) {
   const ctx = new Context()
   ctx.provide('clientModules', clientModuleHost)
   ctx.provide('webServer', webServer)
   const fiber = ctx.plugin(
     { inject: [...inject], Config, apply },
-    { pollIntervalMs: POLL_MS },
+    { pollIntervalMs: POLL_MS, ...config },
   )
   await fiber.await()
   return fiber
@@ -228,8 +228,32 @@ describe('hmr node half', () => {
     await vi.waitFor(() => { expect(clientModuleHost.rebuiltCalls).toEqual(['pkg-a', 'pkg-a']) }, { timeout: 3_000 })
     await fiber.dispose()
   })
-})
 
+  it('keeps an open SSE channel from going idle between rebuilds', async () => {
+    const bundle = join(dir, 'keep-alive.js')
+    writeFileSync(bundle, 'a')
+    const routes: WebRoute[] = []
+    const fiber = await mount(fakeClientModuleHost(new Map([['a', bundle]])), fakeHttpServer(routes), { keepAliveMs: POLL_MS })
+
+    const lines: string[] = []
+    const response = Object.assign(new EventEmitter(), {
+      writeHead: vi.fn(), write: (line: string) => { lines.push(line) },
+      destroy: vi.fn(), end: vi.fn(),
+    })
+    await routes[0]!.handler({ method: 'GET' } as IncomingMessage, response as unknown as ServerResponse)
+    expect(lines).toHaveLength(2)
+
+    // The opening comment proves the channel is up; only a later one keeps an
+    // intermediary's idle-body timeout from closing it.
+    await vi.waitFor(() => { expect(lines).toContain(': keep-alive\n\n') }, { timeout: 3_000 })
+
+    response.emit('close')
+    const afterClose = lines.length
+    await new Promise(resolve => setTimeout(resolve, POLL_MS * 3))
+    expect(lines).toHaveLength(afterClose)
+    await fiber.dispose()
+  })
+})
 
 it('broadcasts the desired graph without waiting for Host activation or cleanup', async () => {
   const ctx = new Context()

@@ -15,7 +15,8 @@ import type { ReactNode, RefObject } from 'react'
 import clsx from 'clsx'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-import { FileTypeIcon, IconRefreshOutline16, Menu, Tooltip, classifyFileType } from '@deepseek-ai/dsh-client-ui-primitives'
+import { DiffBlock, FileTypeIcon, IconRefreshOutline16, Menu, Tooltip, classifyFileType } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { DiffBlockLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 import { pathPartsOf } from '@deepseek-ai/dsh-util-workspace-path'
 import type { TextInjected } from './face.ts'
 import { failureLine } from './failure-line.ts'
@@ -88,13 +89,30 @@ export type TextPreviewProps =
   & PropsLocale<'sidebarDocumentPreview'>
 
 /**
+ * Localized chrome for the file-change diff.
+ * @param t - the preview's locale seat.
+ * @returns labels for {@link DiffBlock}.
+ */
+function diffLabels(t: TextPreviewProps['t']): DiffBlockLabels {
+  return {
+    copy: t('diff.copy'),
+    copied: t('diff.copied'),
+    collapseAria: t('diff.collapseAria'),
+    expandAria: count => t('diff.expandAria', { count }),
+    collapse: t('diff.collapse'),
+    expand: count => t('diff.expandRest', { count }),
+    files: count => t(count === 1 ? 'diff.files.one' : 'diff.files.other', { count }),
+  }
+}
+
+/**
  * The text type's body, registered under `sidebar.right.pane.tab` as `text`.
  * @param props - composed slot props.
  * @returns the content read so far with its controls, or a progress line.
  */
 export function TextPreview({
   useTabInfo, useResource, useStore, actions, loadPage, reloadPages,
-  loadAll, reloadAll, prepareRenderer, useDocumentPreviews, renderSlot, t,
+  loadAll, reloadAll, prepareRenderer, showDiff, useDocumentPreviews, renderSlot, t,
 }: TextPreviewProps): ReactNode {
   const { tab } = useTabInfo()
   const { navigation, signal } = tab
@@ -249,6 +267,13 @@ export function TextPreview({
     else if (mode === 'bytes-complete') reloadAll(tab.id, file, signal, meta.value?.version)
     else rendererReload()
   }
+  // A comparison needs the text the reader is looking at: only the paged text
+  // view holds that, and only once a page has arrived.
+  const diffable = mode === 'text-pages' && content?.kind === 'text' && !current?.loading
+  const viewDiff = (): void => {
+    if (!canRead || content?.kind !== 'text') return
+    showDiff(tab.id, file, signal, content.text, meta.value?.version)
+  }
   return (
     <div className={css.preview} data-textpreview-state="text" data-textpreview-url={tab.contentId} data-document-preview={selected.id}>
       {meta.failure !== undefined && hasContent
@@ -272,6 +297,16 @@ export function TextPreview({
         : changed && (
           <p className={css.changed} data-textpreview-changed>
             <span>{t('changed')}</span>
+            {diffable && (
+              <button
+                type="button"
+                className={css.action}
+                data-textpreview-view-diff
+                onClick={viewDiff}
+              >
+                {t('diff.show')}
+              </button>
+            )}
             <button
               type="button"
               className={css.action}
@@ -348,12 +383,33 @@ export function TextPreview({
         {mode !== 'renderer' && !hasContent && current?.failure === undefined && (
           <LoadingIndicator className={clsx(css.statusLine, css.bodyLoading)} label={t('loading')} />
         )}
-        {content !== undefined && renderSlot('sidebar.right.tab.document', {
-          resourceAddress: tab.contentId, content, wrap: state.wrap, scrollportRef: bindScrollport,
-        }, {
-          entryKey: selected.id, hookContext: useTabInfo,
-          fallback: <p className={css.statusLine}>{t('rendererUnavailable', { name: selected.title() })}</p>,
-        })}
+        {state.diff !== undefined
+          ? (
+            <div className={css.diff} data-textpreview-diff>
+              <div className={css.diffToolbar}>
+                <span className={css.diffTitle}>{t('changed')}</span>
+                <button
+                  type="button"
+                  className={css.action}
+                  data-textpreview-show-file
+                  onClick={() => { actions.diffCleared(tab.id) }}
+                >
+                  {t('diff.hide')}
+                </button>
+              </div>
+              <DiffBlock
+                diffs={[{ path: displayPath, oldText: state.diff.before, newText: state.diff.after }]}
+                labels={diffLabels(t)}
+                maxLines={Number.MAX_SAFE_INTEGER}
+              />
+            </div>
+          )
+          : content !== undefined && renderSlot('sidebar.right.tab.document', {
+            resourceAddress: tab.contentId, content, wrap: state.wrap, scrollportRef: bindScrollport,
+          }, {
+            entryKey: selected.id, hookContext: useTabInfo,
+            fallback: <p className={css.statusLine}>{t('rendererUnavailable', { name: selected.title() })}</p>,
+          })}
         {current?.failure !== undefined && (hasContent
           ? (
             <p className={css.statusLine} data-textpreview-failed={current.failure.code}>

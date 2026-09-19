@@ -441,6 +441,14 @@ Requires: `clientModules` · `webServer`
 export interface Config {
   /** Bundle stat-poll interval in milliseconds (default 500, the build-side watcher's polling default). */
   pollIntervalMs?: number
+  /**
+   * Idle interval in milliseconds between SSE keep-alive comments (default
+   * 30000). The channel carries no traffic between rebuilds, and an
+   * intermediary that times out an idle response body closes it — the Desktop
+   * window forwards the stream through a fetch whose body timeout is 300
+   * seconds — after which the browser's EventSource reconnects.
+   */
+  keepAliveMs?: number
 }
 ```
 

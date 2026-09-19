@@ -13,6 +13,7 @@ import { CustomProviderCard } from '../src/client/CustomProviderCard.tsx'
 import { formatCapacity, parseCapacity } from '../src/client/DeepSeekModelsEditor.tsx'
 import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
 import { ModelsSettingsStore, deriveKeyRef, protocolChoices } from '../src/client/store.ts'
+import type { AuthorizationOperations } from '../src/client/authorization-operations.ts'
 import { createModelsOperations } from '../src/client/operations.ts'
 import type { ModelsOperations } from '../src/client/operations.ts'
 import { en } from '../src/client/locales.ts'
@@ -204,6 +205,17 @@ function credentialsRevision(revision: number) {
   return createSnapshotStore({ revision })
 }
 
+/**
+ * Authorization operations with no registered flow, as a deployment without a
+ * sign-in offers: the card stays out of the editor.
+ */
+const noSignIn: AuthorizationOperations = {
+  list: () => Promise.resolve([]),
+  begin: () => Promise.resolve({ kind: 'cancelled' }),
+  answer: () => Promise.resolve({ kind: 'accepted' }),
+  cancel: () => Promise.resolve(),
+}
+
 async function mountSection(options: Parameters<typeof scriptedFace>[0] = {}) {
   const scripted = scriptedFace(options)
   const controller = new ModelsSettingsStore(
@@ -214,6 +226,7 @@ async function mountSection(options: Parameters<typeof scriptedFace>[0] = {}) {
     useSnapshot: bindSnapshotSelector(controller.store),
     useCredentialsRevision: bindSnapshotSelector(credentialsRevision(0)),
     operations: operationsWith(scripted.face),
+    authorization: noSignIn,
     schema: settingsSchema,
     t,
     renderSlot: () => null,

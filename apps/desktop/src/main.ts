@@ -115,6 +115,10 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
     minWidth: 880,
     minHeight: 600,
     show,
+    // A frame must have one background before the first paint: without it a
+    // window shown before the document finishes paints blank, and every
+    // recovery re-navigation flashes that blank again.
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#1b1b1c' : '#f9fafb',
     ...(process.platform === 'win32' && primary ? {
       titleBarStyle: 'hidden' as const,
       titleBarOverlay: { height: WINDOWS_TITLEBAR_HEIGHT, color: nativeTheme.shouldUseDarkColors ? '#1b1b1c' : '#f9fafb',
@@ -137,7 +141,31 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
       contextIsolation: true,
       sandbox: true,
       webSecurity: true,
+      // The in-app Browser tab uses an isolated Chromium guest on desktop.
+      // Web fallback remains an iframe for non-Electron surfaces.
+      webviewTag: true,
     },
+  })
+  window.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+    if (typeof params.src !== 'string') {
+      event.preventDefault()
+      return
+    }
+    let target: URL
+    try {
+      target = new URL(params.src)
+    } catch {
+      event.preventDefault()
+      return
+    }
+    if (!['http:', 'https:'].includes(target.protocol)) {
+      event.preventDefault()
+      return
+    }
+    delete webPreferences.preload
+    webPreferences.nodeIntegration = false
+    webPreferences.contextIsolation = true
+    webPreferences.sandbox = true
   })
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (['http:', 'https:'].includes(new URL(url).protocol)) void shell.openExternal(url)
@@ -656,8 +684,13 @@ async function main(): Promise<void> {
   }
 
   const createMainWindow = (): BrowserWindow => {
-    const window = createWindow(appPreload, true, true)
+    // Hidden until the first frame is painted: showing earlier renders an
+    // unpainted window, which the user sees as a blank shell.
+    const window = createWindow(appPreload, false, true)
     mainWindow = window
+    window.once('ready-to-show', () => {
+      if (!quitting && !window.isDestroyed()) window.show()
+    })
     window.on('focus', automaticCheck)
     window.on('closed', () => { if (mainWindow === window) mainWindow = undefined })
     window.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
@@ -674,6 +707,10 @@ async function main(): Promise<void> {
         reportFatal(new Error(`Desktop renderer exited: ${details.reason}`))
       }
     })
+    // The renderer can stall without exiting, which the user sees as a frozen
+    // blank window; record both edges so an intermittent stall is diagnosable.
+    window.webContents.on('unresponsive', () => { console.warn('dsh desktop: renderer became unresponsive') })
+    window.webContents.on('responsive', () => { console.warn('dsh desktop: renderer responsive again') })
     return window
   }
   focusPrimaryWindow = () => {

@@ -69,6 +69,9 @@
     - id: ui-open-in-app
       name: '@deepseek-ai/dsh-client-ui-open-in-app'
 
+    - id: ui-provider-quota
+      name: '@deepseek-ai/dsh-client-ui-provider-quota'
+
     - id: workspace
       name: '@deepseek-ai/dsh-workspace'
 
@@ -113,6 +116,9 @@
     # reports an actionable error when its settings-domain provider is absent.
     - id: settings-controller
       name: '@deepseek-ai/dsh-api-settings-controller'
+
+    - id: quota-controller
+      name: '@deepseek-ai/dsh-api-quota-controller'
 
     # Workspace commands and reconnect-safe projection over Typert Remote.
     - id: workspace-controller

@@ -47,10 +47,10 @@ export interface ModelsSectionInjected {
   /** The Host operations the section and its cards invoke. */
   operations: ModelsOperations
   /**
-   * The Host authorization calls, when this deployment mounts a registry. An
-   * engine that mounts none leaves every card with its API-key field alone.
+   * The Host authorization calls: one card per route that ships a sign-in, so
+   * a route with no flow keeps its API-key field alone.
    */
-  authorization?: AuthorizationOperations
+  authorization: AuthorizationOperations
   /** Settings schema and immutable path callbacks. */
   schema: SettingsSchemaOperations
   /** Section copy. */
@@ -211,7 +211,7 @@ export function ModelsSection(props: ModelsSectionProps): ReactNode {
   const { controller, useSnapshot, useCredentialsRevision, operations, authorization, schema, t, renderSlot } = props
   if (
     controller === undefined || useSnapshot === undefined || useCredentialsRevision === undefined
-    || operations === undefined || schema === undefined || t === undefined
+    || operations === undefined || authorization === undefined || schema === undefined || t === undefined
   ) return null
   return (
     <Loaded
@@ -220,7 +220,7 @@ export function ModelsSection(props: ModelsSectionProps): ReactNode {
         useSnapshot,
         useCredentialsRevision,
         operations,
-        ...authorization === undefined ? {} : { authorization },
+        authorization,
         schema,
         t,
       }}
@@ -366,7 +366,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                   namespace,
                   schema,
                   operations,
-                  ...authorization === undefined ? {} : { authorization },
+                  authorization,
                   credentialsRevision,
                   t,
                   readOnly: !state.writable,
@@ -465,7 +465,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                   namespace,
                   schema,
                   operations,
-                  ...authorization === undefined ? {} : { authorization },
+                  authorization,
                   credentialsRevision,
                   t,
                   readOnly: !state.writable,
@@ -508,8 +508,11 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                 schema={schema}
                 settingsPath={addTarget.settingsPath}
                 operations={operations}
+                authorization={authorization}
+                credentialsRevision={credentialsRevision}
                 t={t}
                 readOnly={!state.writable}
+                onCredentialChanged={() => { void controller.load() }}
                 onClose={(changed) => { closeEditor(changed, addTarget) }}
               />
               {addRow === undefined
