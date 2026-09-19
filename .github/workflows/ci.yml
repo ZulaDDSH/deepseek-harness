@@ -740,9 +740,12 @@ jobs:
     # required Linux workers and runs on the vm-backup pool. Under the
     # 'blacksmith' value the verdict shares Blacksmith's pool with its workers
     # through the same selector, so a Blacksmith outage strands both together —
-    # the accepted consequence of the explicit opt-in switch.
+    # the accepted consequence of the explicit opt-in switch. Forks retarget
+    # to standard hosted runners because the in-house pool is unavailable
+    # outside the upstream repository.
     runs-on: >-
-      ${{ vars.DSH_CI_FAILOVER_LINUX == 'blacksmith' && 'blacksmith-4vcpu-ubuntu-2404'
+      ${{ github.event.repository.fork && 'ubuntu-24.04'
+          || vars.DSH_CI_FAILOVER_LINUX == 'blacksmith' && 'blacksmith-4vcpu-ubuntu-2404'
           || vars.DSH_CI_FAILOVER_LINUX == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
