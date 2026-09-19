@@ -32,6 +32,12 @@ export interface PrunedEntry {
   readonly charsAfter: number
 }
 
+/** Optional eligibility policy for one pruning pass. */
+export interface PruneSessionOptions {
+  /** Prune only results followed by a later assistant message on the current surface. */
+  readonly previouslyConsumed?: boolean
+}
+
 /** Aggregate outcome of one stable-surface pruning pass. */
 export interface PruneResult {
   /** Replacements in the snapshotted surface order. */

@@ -251,6 +251,18 @@ describe('ToolResultPruner session transaction', () => {
     })
   })
 
+  it('can restrict a pass to results already consumed by a later model response', () => {
+    const session = Session.create(SessionId('previously-consumed'))
+    const first = appendToolStep(session, 1, 'old', [{ type: 'text', text: 'A'.repeat(100) }])
+    const second = appendToolStep(session, 2, 'fresh', [{ type: 'text', text: 'B'.repeat(100) }])
+    session.append('turn/start', { turn: 3 })
+
+    const result = service().pruneSession(session, { previouslyConsumed: true })
+
+    expect(result.pruned.map(entry => entry.originalSeq)).toEqual([first])
+    expect(session.surface.nodes).toContain(SessionSeq(second))
+  })
+
   it('prunes multiple results, skips short ones, and converges in one pass', () => {
     const session = Session.create(SessionId('multiple'))
     appendToolStep(session, 1, 'a', [{ type: 'text', text: 'A'.repeat(100) }])

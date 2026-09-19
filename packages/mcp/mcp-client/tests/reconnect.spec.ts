@@ -288,6 +288,7 @@ describe('reconnect supervisor', () => {
 
       const applying = apply(ctx, stdioConfig({ initialDelayMs: 2, maxDelayMs: 8, maxAttempts: 2 }))
       await vi.advanceTimersByTimeAsync(5_000)
+      await vi.advanceTimersByTimeAsync(5_000)
       await applying
 
       expect(instances).toHaveLength(1)
@@ -358,6 +359,7 @@ describe('reconnect supervisor', () => {
       const disposing = handle.dispose()
       await vi.advanceTimersByTimeAsync(5_000)
       gate.resolve()
+      await vi.advanceTimersByTimeAsync(5_000)
       await vi.advanceTimersByTimeAsync(5_000)
       await disposing
 

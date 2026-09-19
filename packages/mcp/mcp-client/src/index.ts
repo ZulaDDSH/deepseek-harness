@@ -20,12 +20,15 @@ import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { DEFAULT_MAX_INSTRUCTION_BYTES, RECONNECT_DEFAULTS, resolveReconnectPolicy, startConnection } from './connection.ts'
 import type { ReconnectConfig } from './connection.ts'
 import { registerServerContext } from './server-context.ts'
+import { resolveToolFilter } from './tool-filter.ts'
+import type { ToolFilterConfig } from './tool-filter.ts'
 // Side-effect type import: declaration-merges `ctx.tools` onto Context.
 import type {} from '@deepseek-ai/dsh-tools'
 
 export { createMcpToolDefinition } from './tools.ts'
 export type { McpResult, McpToolDefinitionOptions } from './tools.ts'
 export type { ReconnectConfig, ResolvedReconnectPolicy } from './connection.ts'
+export type { ToolFilterConfig, ResolvedToolFilter } from './tool-filter.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'mcp-client'
@@ -72,6 +75,10 @@ export interface StdioConfig {
   failOnStartupError: boolean
   /** Maximum UTF-8 bytes of attributed server instructions (default 32768). */
   maxInstructionBytes?: number
+  /** Publish nonblank MCP server instructions into the system prompt. Defaults to `true`. */
+  includeServerInstructions?: boolean
+  /** Static raw-name filter for the discovered MCP tool catalog. */
+  toolFilter?: ToolFilterConfig
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
 }
@@ -96,6 +103,10 @@ export interface StreamableHttpConfig {
   failOnStartupError: boolean
   /** Maximum UTF-8 bytes of attributed server instructions (default 32768). */
   maxInstructionBytes?: number
+  /** Publish nonblank MCP server instructions into the system prompt. Defaults to `true`. */
+  includeServerInstructions?: boolean
+  /** Static raw-name filter for the discovered MCP tool catalog. */
+  toolFilter?: ToolFilterConfig
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
 }
@@ -109,6 +120,11 @@ type StreamableHttpConfigInput = Omit<StreamableHttpConfig, 'headers' | 'toolCal
   & Partial<Pick<StreamableHttpConfig, 'headers' | 'toolCallTimeoutMs' | 'failOnStartupError'>>
 type ConfigInput = StdioConfigInput | StreamableHttpConfigInput
 
+const ToolFilter: z<ToolFilterConfig> = z.object({
+  allow: z.array(String),
+  deny: z.array(String),
+})
+
 const Reconnect: z<ReconnectConfig> = z.object({
   enabled: z.boolean().default(RECONNECT_DEFAULTS.enabled),
   initialDelayMs: z.number().min(1).max(MAX_TIMER_DELAY_MS).default(RECONNECT_DEFAULTS.initialDelayMs),
@@ -116,27 +132,37 @@ const Reconnect: z<ReconnectConfig> = z.object({
   maxAttempts: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(RECONNECT_DEFAULTS.maxAttempts),
 })
 
+const serverNameSchema = z.string().required().pattern(SERVER_NAME_PATTERN)
+const toolCallTimeoutMsSchema = z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS)
+const failOnStartupErrorSchema = z.boolean().default(false)
+const maxInstructionBytesSchema = z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES)
+const includeServerInstructionsSchema = z.boolean().default(true)
+
 export const Config = z.union([
   z.object({
     transport: z.const('stdio'),
-    serverName: z.string().required().pattern(SERVER_NAME_PATTERN),
+    serverName: serverNameSchema,
     command: z.string().required(),
     args: z.array(String).default([]),
     env: z.dict(String).default({}),
     cwd: z.string().default(''),
-    toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
-    failOnStartupError: z.boolean().default(false),
-    maxInstructionBytes: z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES),
+    toolCallTimeoutMs: toolCallTimeoutMsSchema,
+    failOnStartupError: failOnStartupErrorSchema,
+    maxInstructionBytes: maxInstructionBytesSchema,
+    includeServerInstructions: includeServerInstructionsSchema,
+    toolFilter: ToolFilter,
     reconnect: Reconnect,
   }),
   z.object({
     transport: z.const('streamable-http'),
-    serverName: z.string().required().pattern(SERVER_NAME_PATTERN),
+    serverName: serverNameSchema,
     url: z.string().required(),
     headers: z.dict(String).default({}),
-    toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
-    failOnStartupError: z.boolean().default(false),
-    maxInstructionBytes: z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES),
+    toolCallTimeoutMs: toolCallTimeoutMsSchema,
+    failOnStartupError: failOnStartupErrorSchema,
+    maxInstructionBytes: maxInstructionBytesSchema,
+    includeServerInstructions: includeServerInstructionsSchema,
+    toolFilter: ToolFilter,
     reconnect: Reconnect,
   }),
 ]) as unknown as z<ConfigInput, Config>
@@ -156,6 +182,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // construction that bypassed Schemastery) rejects THIS instance before any
   // effect registers.
   const reconnect = resolveReconnectPolicy(config.reconnect, `mcp-client(${config.serverName}): reconnect`)
+  resolveToolFilter(config.toolFilter, `mcp-client(${config.serverName}): toolFilter`)
 
   // Reserve the namespace next: a duplicate `serverName` fails THIS instance
   // at load with an actionable error and leaves the earlier instance intact.
