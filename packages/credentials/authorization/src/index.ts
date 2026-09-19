@@ -36,7 +36,7 @@ import type {
 } from './types.ts'
 
 export type {
-  AuthorizationEntry, AuthorizationMethod, AuthorizationNotice, AuthorizationNoticeEvent, AuthorizationOutcome,
+  AuthorizationEntry, AuthorizationMethod, AuthorizationNotice, AuthorizationOutcome,
   AuthorizationPrompt, AuthorizationPromptOption, AuthorizationSettlement, AuthorizationStatus,
 } from './types.ts'
 

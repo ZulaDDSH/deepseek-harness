@@ -90,41 +90,6 @@ export interface AuthorizationEntry {
   inFlight: boolean
 }
 
-/**
- * One authorization attempt as a surface watching the seam sees it.
- *
- * A notice carries an authorization URL, a device code, or a question, so it is
- * never published on a Host-wide channel: the surface that started the attempt
- * receives its own notices directly, and a surface that never saw a question
- * cannot answer one it was not shown.
- */
-export interface AuthorizationNoticeEvent {
-  /** The credential record being authorized. */
-  key: CredentialKey
-  /** What is happening, or what the human must do next. */
-  message: string
-  /** A page the human must open to continue. */
-  url?: string
-  /** A short code the human must enter on that page. */
-  code?: string
-  /** Identifies the question this notice asks, when the flow needs an answer. */
-  prompt?: string
-  /** How that question should be presented. */
-  kind?: AuthorizationPrompt['kind']
-  /** Placeholder for a typed answer, when the flow named one. */
-  placeholder?: string
-  /** Choices for a `select` question. */
-  options?: readonly AuthorizationPromptOption[]
-}
-
-/** One attempt reaching a terminal state, so a surface stops offering to answer it. */
-export interface AuthorizationSettledEvent {
-  /** The attempt that ended. */
-  attempt: string
-  /** The credential record it was authorizing. */
-  key: CredentialKey
-}
-
 declare module '@deepseek-ai/cordis' {
   interface Events {
     /**
