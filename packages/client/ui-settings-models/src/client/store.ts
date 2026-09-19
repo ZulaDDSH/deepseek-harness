@@ -147,6 +147,11 @@ function apiKeyEnvOf(
   return typeof ref === 'string' && ref.length > 0 ? ref : undefined
 }
 
+/** How many credential-record writes this page has observed. */
+export interface CredentialsRevisionState {
+  revision: number
+}
+
 /** The models settings page controller (one per settings surface). */
 export class ModelsSettingsStore {
   /** The snapshot the section renders from (uSES-safe store). */

@@ -6,6 +6,8 @@ export interface MockServer {
   paths: string[]
   requests: unknown[]
   headers: IncomingMessage['headers'][]
+  /** Header names as the client wrote them, before Node lowercases them. */
+  rawHeaderNames: string[][]
   readonly closedResponses: number
   responseClosed: Promise<void>
 }
@@ -36,6 +38,7 @@ export async function mockServer(script: {
   const paths: string[] = []
   const requests: unknown[] = []
   const headers: IncomingMessage['headers'][] = []
+  const rawHeaderNames: string[][] = []
   let closedResponses = 0
   const responseClosed = Promise.withResolvers<undefined>()
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
@@ -49,6 +52,7 @@ export async function mockServer(script: {
       paths.push(request.url ?? '')
       requests.push(body.length === 0 ? undefined : JSON.parse(body))
       headers.push(request.headers)
+      rawHeaderNames.push(request.rawHeaders.filter((_value, index) => index % 2 === 0))
       const behavior = script.shift() ?? { status: 500, body: 'script exhausted' }
       if (behavior.status !== undefined && behavior.status !== 200) {
         response.writeHead(behavior.status, { 'content-type': 'application/json', ...behavior.headers })
@@ -81,6 +85,7 @@ export async function mockServer(script: {
     paths,
     requests,
     headers,
+    rawHeaderNames,
     responseClosed: responseClosed.promise,
     get closedResponses() { return closedResponses },
   }

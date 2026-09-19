@@ -123,6 +123,67 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.headers[0]?.['user-agent']).toBe(userAgent())
   })
 
+  it('withholds the OpenCode session header from a lookalike host', async () => {
+    const lookalike = await mockServer([{ events: textEvents }])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        'opencode-go': {
+          apiKeyEnv: 'PI_TEST_KEY',
+          baseURL: lookalike.url.replace(/^http:\/\/(127\.0\.0\.1|localhost)/, 'http://opencode.ai.evil.test'),
+        },
+      },
+    })
+
+    await assemble(ctx, {
+      provider: 'opencode-go',
+      model: 'deepseek-v4.1-flash',
+      messages: [],
+      sessionId: 'session-leak' as never,
+    })
+
+    expect(lookalike.headers[0]?.['x-opencode-session']).toBeUndefined()
+  })
+
+  it('keeps an explicitly configured OpenCode session header whatever its case', async () => {
+    const opencode = await mockServer([{ events: textEvents }])
+    const ctx = await harness(opencode.url, {
+      headers: { 'X-OpenCode-Session': 'configured-session' },
+    })
+
+    await assemble(ctx, { model: 'deepseek-v4-flash', messages: [], sessionId: 'stream-session' as never })
+
+    const sent = (opencode.rawHeaderNames[0] ?? [])
+      .filter(name => name.toLowerCase() === 'x-opencode-session')
+    expect(sent).toEqual(['X-OpenCode-Session'])
+    expect(opencode.headers[0]?.['x-opencode-session']).toBe('configured-session')
+  })
+
+  it('sends the OpenCode session header only on OpenCode routes', async () => {
+    const deepseek = await mockServer([{ events: textEvents }])
+    const opencode = await mockServer([{ events: textEvents }])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        deepseek: { apiKeyEnv: 'PI_TEST_KEY', baseURL: deepseek.url },
+        'opencode-go': { apiKeyEnv: 'PI_TEST_KEY', baseURL: opencode.url },
+      },
+    })
+
+    await assemble(ctx, { model: 'deepseek-v4-flash', messages: [], sessionId: 'session-plain' as never })
+    expect(deepseek.headers[0]?.['x-opencode-session']).toBeUndefined()
+
+    await assemble(ctx, {
+      provider: 'opencode-go',
+      model: 'deepseek-v4.1-flash',
+      messages: [],
+      sessionId: 'session-go' as never,
+    })
+    expect(opencode.headers[0]?.['x-opencode-session']).toBe('session-go')
+  })
+
   it('forwards common stream options and profile reasoning', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url, {

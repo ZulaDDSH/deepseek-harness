@@ -8,7 +8,7 @@ kind: "package-reference"
 
 ## 概述
 
-`@deepseek-ai/dsh-api-settings-controller` 为浏览器配置界面提供生成的 `ctx.remote.settings` 与 `ctx.remote.credentials` namespace。它返回脱敏的 settings 与凭据元数据，支持 settings 与凭据写入而不返回机密值，并在 Host 桌面打开由提供方持有的 settings 或 Agent preset 位置。提供方缺失时，namespace 仍会注册，并返回可操作的配置错误。
+`@deepseek-ai/dsh-api-settings-controller` 为浏览器配置界面提供生成的 `ctx.remote.settings`、`ctx.remote.credentials` 与 `ctx.remote.authorization` namespace。它返回脱敏的 settings 与凭据元数据，支持 settings 与凭据写入而不返回机密值，运行由人引导的登录，并在 Host 桌面打开由提供方持有的 settings 或 Agent preset 位置。提供方缺失时，namespace 仍会注册，并返回可操作的配置错误。
 
 ## 目录
 
@@ -23,13 +23,17 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-请把本包作为 Loader entry 挂载到提供浏览器配置的 profile 中。本 entry 不依赖提供方是否存在而注册两个 namespace，因此缺少提供方会在调用时产生具名配置错误。它生成的 descriptor 进入严格 Typert 注册表，而 settings 与凭据 Definition 仍是普通 Cordis 服务，自身不承担任何 wire 义务。
+请把本包作为 Loader entry 挂载到提供浏览器配置的 profile 中。本 entry 不依赖提供方是否存在而注册三个 namespace，因此缺少提供方会在调用时产生具名配置错误。它生成的 descriptor 进入严格 Typert 注册表，而 settings、凭据与授权 Definition 仍是普通 Cordis 服务，自身不承担任何 wire 义务。
 
 `describe(refs)` 以请求的名字为键返回一份 map，因此设置页描述其各行携带的全部引用时，这些行会一起落定。单次调用最多接受 64 个名字，无效名字或空写入值报告为 `bad-request`，并逐字段复制每个答案——提供方返回超出 `CredentialInfo` 声明的内容也无法扩大跨越 wire 的字段。有效的 `set(ref, value)` 与 `unset(ref)` 调用把提供方拒绝报告为 `credential-rejected`，携带提供方的消息，details 中只有该引用。机密值只在这个方向跨越 wire：这里没有任何方法会返回它。
 
 `settings.describe()` 返回部署信息，以及在 `redactSecrets: true` 下读取的所有 namespace。`settings.update`、`settings.replace` 与 `settings.mutate` 暴露 settings 服务的三种写入操作，并返回该 namespace 的新脱敏视图；陈旧写入使用 `settings-conflict`，其他提供方拒绝使用 `settings-rejected`。
 
 `settings.openSettingsDocument()` 准备提供方持有的文档，并用原生文本编辑器意图将其打开。`settings.canOpenAgentPresetDirectory()` 在 preset 页面显示时报告原生打开能力。`settings.openAgentPresetDirectory(id)` 只解析用户创作的 preset，并打开其目录，或在原生打开不可用时返回目录路径；两个打开方法都不接受浏览器提供的文件系统目标。
+
+`authorization.list()` 返回已挂载注册表提供的每个 flow，各自附带其键上是否已存有凭据，使界面无需第二次调用即可标注已登录的提供方。`authorization.begin(key, method, signal)` 是一条流：首项给出该尝试不可猜测的 capability，其后每一项都是 flow 的 notice，最后一项说明尝试如何结束。`authorization.answer(attempt, prompt, value)` 回答问题，`authorization.cancel(attempt)` 撤销尝试，二者都以该 capability 寻址。
+
+notice 可能携带授权网址、设备码或问题，因此它只在开启该尝试的那条流上投递，绝不发布到 Host 级通道：第二个客户端收不到第一个客户端的任何 notice，也无法回答或撤销并非由它发起的尝试。尝试结算为 `authorized` 或 `cancelled`；真正的 flow 失败以 `authorization/failed` 拒绝该流，并携带该键与 flow 自身的 reason 码，未知键、capability 或问题为 `authorization/not-found`。流的首项在 flow 尚未发出任何内容之前就会投递，因此调用方始终持有回答或撤销所需的 capability。
 
 -----
 
@@ -58,6 +62,9 @@ kind: "package-reference"
 <a id="known-limitations-and-deferred-work"></a>
 
 - 批量上限固定为 64 个引用，不是可按部署配置的字段。
+- **授权尝试不可持久** —— attempt capability 存活于 Host 进程内，因此登录途中刷新页面会放弃该尝试，人需要重新开始。
+- **问题由第二次调用回答，而非回复** —— Remote wire 在单次调用内没有反向通道，因此丢失问题通知的界面无法回答它从未见过的问题。
+- **尝试属于开启它的那个客户端** —— capability 只在该客户端的流上投递，因此其他方既无法观察也无法操作该尝试。第二个浏览器标签页无法接管已在进行的登录。
 
 <a id="dev-note"></a>
 ### 开发备注

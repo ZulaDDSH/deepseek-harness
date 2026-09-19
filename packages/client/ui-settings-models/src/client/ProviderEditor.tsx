@@ -33,6 +33,8 @@ import {
 import { apiKeyFailure } from './apiKey.ts'
 import { EditorFooter } from './EditorFooter.tsx'
 import { ModelListEditor } from './ModelListEditor.tsx'
+import { SignInCard } from './SignInCard.tsx'
+import type { AuthorizationOperations } from './authorization-operations.ts'
 import { deriveKeyRef, protocolChoices } from './store.ts'
 import type { ModelsOperations } from './operations.ts'
 import type { SettingsSchemaOperations } from './schema-operations.ts'
@@ -68,6 +70,19 @@ export interface ProviderEditorProps {
   settingsPath: readonly string[]
   /** The Host operations this card writes and interrogates through. */
   operations: ModelsOperations
+  /**
+   * The Host authorization calls, when this surface can run a sign-in. Absent
+   * leaves the card with the API-key field alone, which is what a deployment
+   * mounting no authorization registry offers.
+   */
+  authorization?: AuthorizationOperations
+  /**
+   * Bumped when a credential record was written elsewhere — another tab's
+   * sign-in — so a mounted sign-in card re-reads the state it shows.
+   */
+  credentialsRevision?: number
+  /** Reports that a credential was stored outside the key field, so the card refreshes. */
+  onCredentialChanged?: () => void
   /** Section copy. */
   t: (key: keyof typeof en) => string
   /** Disable writes (read-only settings provider). */
@@ -155,7 +170,7 @@ function refFor(
  * @returns the editor card.
  */
 export function ProviderEditor(props: ProviderEditorProps): ReactNode {
-  const { namespace, schema, settingsPath, operations, t } = props
+  const { namespace, schema, settingsPath, operations, t, authorization } = props
   const [draft, setDraft] = useState<Record<string, unknown>>(() => draftAt(schema, namespace, settingsPath))
   const [keyDraft, setKeyDraft] = useState('')
   const [keyState, setKeyState] = useState<CredentialInfo | undefined>(undefined)
@@ -360,6 +375,19 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
     }
     return (
       <>
+        {/* A provider that ships a sign-in offers it above the key field: the
+            two are alternatives, and an account grant is the one this route
+            actually authenticates with. */}
+        {authorization === undefined || props.credentialOnly === true ? null : (
+          <SignInCard
+            provider={props.provider}
+            displayName={props.displayName}
+            operations={authorization}
+            t={t}
+            {...props.credentialsRevision === undefined ? {} : { refresh: props.credentialsRevision }}
+            {...props.onCredentialChanged === undefined ? {} : { onSignedIn: props.onCredentialChanged }}
+          />
+        )}
         <div className={styles['field']}>
           <span className={styles['fieldLabel']}>{t('keyInput')}</span>
           <input

@@ -3,7 +3,9 @@
  * catalog supplies defaults keyed by model id, and a profile's own model
  * entries override them field by field, so a route naming a catalog provider
  * stays configuration-free while a route pi-ai has never heard of is fully
- * describable from `settings.yaml`.
+ * describable from `settings.yaml`. A model the pinned pi-ai release does not
+ * ship yet is merged from {@link ./catalog-supplement.ts}, so a catalog route
+ * serves a provider's newest model without a dependency upgrade.
  *
  * Strict resolution rejects unserviceable models before settings writes.
  * Deferred resolution retains their diagnostics so stored catalog drift does
@@ -28,6 +30,7 @@ import type {
   Provider,
   ThinkingLevelMap,
 } from '@earendil-works/pi-ai'
+import { catalogSupplements } from './catalog-supplement.ts'
 
 /**
  * Pricing for a model the installed catalog does not describe. The harness
@@ -193,14 +196,57 @@ export function catalogProviderIds(): readonly string[] {
 }
 
 /**
- * The installed catalog models for one route, indexed by model id.
+ * Catalog ids the Codex backend refuses to serve a ChatGPT subscription, so a
+ * route offering one fails the request instead of answering it.
+ *
+ * pi-ai's `openai-codex` catalog is transcribed from models.dev, which lists
+ * every model the *platform* serves rather than the subset one plan may use.
+ * The backend is the authority and answers `The '<id>' model is not supported
+ * when using Codex with a ChatGPT account.` for these, so a route defaulting to
+ * one of them fails on its first request with a provider error the user cannot
+ * act on. This set is observed from that refusal, not inferred: it is pinned to
+ * the ids measured against a subscription account and is expected to shrink as
+ * OpenAI widens plan access — delete an id once the backend serves it.
+ */
+const CHATGPT_UNSUPPORTED_CODEX_MODELS: ReadonlySet<string> = new Set([
+  'gpt-5.3-codex-spark',
+  'gpt-5.4',
+  'gpt-5.4-mini',
+])
+
+/**
+ * The catalog models a route may serve, by id.
+ *
+ * The installed catalog describes a provider's whole platform, which is wider
+ * than what every account may use: Codex is the case where the backend, not
+ * the catalog, decides. Withholding those ids here means a default route
+ * offers only models that answer, while a profile that names one explicitly in
+ * its `models` list still fails loud at the request it asked for rather than
+ * being silently dropped from the route.
+ * @param provider - provider route key.
+ * @returns the servable catalog ids for that route.
+ */
+function unsupportedIds(provider: string): ReadonlySet<string> {
+  return provider === 'openai-codex' ? CHATGPT_UNSUPPORTED_CODEX_MODELS : new Set()
+}
+
+/**
+ * The installed catalog models for one route, indexed by model id, plus the
+ * models {@link catalogSupplements} carries for ids the installed catalog does
+ * not describe. The installed entry wins a collision, so a pi-ai upgrade that
+ * ships a supplemented model retires its entry without a code change.
  * @param provider - provider route key.
  * @returns catalog models by id; empty for a route pi-ai does not ship.
  */
 export function catalogModels(provider: string): Map<string, Model<Api>> {
   if (!catalogProviders().has(provider)) return new Map()
   const models = getBuiltinModels(provider as BuiltinProvider) as Model<Api>[]
-  return new Map(models.map(model => [model.id, model]))
+  const merged = new Map(models.map(model => [model.id, model]))
+  for (const model of catalogSupplements(provider)) {
+    if (!merged.has(model.id)) merged.set(model.id, model)
+  }
+  for (const id of unsupportedIds(provider)) merged.delete(id)
+  return merged
 }
 
 /**

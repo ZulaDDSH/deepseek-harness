@@ -4,6 +4,7 @@ import { within, cleanup, fireEvent, render, screen, waitFor } from '@testing-li
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import Schema from '@deepseek-ai/schemastery'
 import { bindSnapshotSelector, RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { ModelsSection, providerCopy } from '../src/client/ModelsSection.tsx'
@@ -198,6 +199,11 @@ function firstMutate(mutate: ReturnType<typeof vi.fn>): MutateCall {
   return { ns, ops, ...expectedRevision === undefined ? {} : { expectedRevision } }
 }
 
+/** The credential-record revision source a direct mount supplies in place of the plugin's own. */
+function credentialsRevision(revision: number) {
+  return createSnapshotStore({ revision })
+}
+
 async function mountSection(options: Parameters<typeof scriptedFace>[0] = {}) {
   const scripted = scriptedFace(options)
   const controller = new ModelsSettingsStore(
@@ -206,6 +212,7 @@ async function mountSection(options: Parameters<typeof scriptedFace>[0] = {}) {
   const injected: ModelsSectionProps = {
     controller,
     useSnapshot: bindSnapshotSelector(controller.store),
+    useCredentialsRevision: bindSnapshotSelector(credentialsRevision(0)),
     operations: operationsWith(scripted.face),
     schema: settingsSchema,
     t,
