@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-compaction-tool-result-pruner` keeps oversized tool output from filling the context window. By default, once a compaction trigger qualifies, it replaces over-budget text with a bounded head, a short "middle pruned" marker, and a bounded tail. Callers may optionally restrict a pass to results followed by a later assistant response; `dsh-compaction-basic` uses that form for proactive pruning so unseen tool output stays intact. The complete original result remains in the session log for exact replay and inspection. Trimming makes no model call and may relieve enough token pressure to skip summarization. Character budgets only approximate token use; the token meter determines whether pressure was relieved.
+`dsh-compaction-tool-result-pruner` keeps oversized tool output from filling the context window. By default, once a compaction trigger qualifies, it replaces over-budget text with a bounded head, a "middle pruned" marker, and a bounded tail. Callers can restrict a pass to results followed by a later assistant response; `dsh-compaction-basic` uses that form for proactive pruning so unseen tool output stays intact. The complete original remains in the session log for exact replay and inspection. Trimming makes no model call and may relieve enough pressure to skip summarization. Character budgets only approximate token use; the token meter determines whether pressure was relieved.
 
 ## Table of Contents
 
