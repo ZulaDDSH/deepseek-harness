@@ -1669,6 +1669,74 @@ describe('automatic listener and loader composition', () => {
     expect(compact.calls).toHaveLength(0)
   })
 
+  it('leaves a locked session untouched during proactive pruning', async () => {
+    const ctx = createContext(10_000)
+    void new ToolResultPruner(ctx, {
+      thresholdChars: 100,
+      headChars: 20,
+      tailChars: 10,
+    })
+    const compact = new TestCompactionEngine(ctx, {
+      thresholdRatio: 0.8,
+      retainTokens: 100,
+      proactiveToolResultPruning: true,
+    })
+    const session = oversizedToolResult()
+    appendLaterAssistantSettlement(session)
+    // An unmatched opening marker owns the durable compaction lock: another
+    // compaction is mid-transaction on this surface. The proactive pass must
+    // not rewrite the surface underneath it.
+    session.append('compaction/start', {
+      compactionId: CompactionId('held-by-another-compaction'),
+      turn: 2,
+    })
+    const before = ctx.tokenMeter.measure(session).totalTokens
+    const generation = session.surface.replaceGeneration
+
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
+    await expect(preStep(ctx, agent(session, MODEL)))
+      .resolves.toEqual({ kind: 'enter', messages: [] })
+
+    expect(ctx.tokenMeter.measure(session).totalTokens).toBe(before)
+    expect(session.surface.replaceGeneration).toBe(generation)
+    expect(warnings.some(line => line.includes('already in progress'))).toBe(true)
+    expect(compact.calls).toHaveLength(0)
+  })
+
+  it('prunes again once the held compaction lock clears', async () => {
+    const ctx = createContext(10_000)
+    void new ToolResultPruner(ctx, {
+      thresholdChars: 100,
+      headChars: 20,
+      tailChars: 10,
+    })
+    new TestCompactionEngine(ctx, {
+      thresholdRatio: 0.8,
+      retainTokens: 100,
+      proactiveToolResultPruning: true,
+    })
+    const session = oversizedToolResult()
+    appendLaterAssistantSettlement(session)
+    session.append('compaction/start', {
+      compactionId: CompactionId('held-then-closed'),
+      turn: 2,
+    })
+    const locked = ctx.tokenMeter.measure(session).totalTokens
+    await preStep(ctx, agent(session, MODEL))
+    expect(ctx.tokenMeter.measure(session).totalTokens).toBe(locked)
+
+    // A later seed boundary proves the marker's owner belongs to an earlier
+    // lifecycle, which releases the lock and restores proactive pruning.
+    session.append('compaction/end', {
+      compactionId: CompactionId('held-then-closed'),
+      turn: 2,
+    })
+    await preStep(ctx, agent(session, MODEL))
+    expect(ctx.tokenMeter.measure(session).totalTokens).toBeLessThan(locked)
+    expect(session.surface.replaceGeneration).toBeGreaterThan(0)
+  })
+
   it('skips pre-step pressure when the step signal is already aborted', async () => {
     const ctx = createContext()
     const compact = new TestCompactionEngine(ctx, {
