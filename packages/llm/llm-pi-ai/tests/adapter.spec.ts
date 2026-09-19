@@ -123,6 +123,30 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.headers[0]?.['user-agent']).toBe(userAgent())
   })
 
+  it('sends the OpenCode session header only on OpenCode routes', async () => {
+    const deepseek = await mockServer([{ events: textEvents }])
+    const opencode = await mockServer([{ events: textEvents }])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        deepseek: { apiKeyEnv: 'PI_TEST_KEY', baseURL: deepseek.url },
+        'opencode-go': { apiKeyEnv: 'PI_TEST_KEY', baseURL: opencode.url },
+      },
+    })
+
+    await assemble(ctx, { model: 'deepseek-v4-flash', messages: [], sessionId: 'session-plain' as never })
+    expect(deepseek.headers[0]?.['x-opencode-session']).toBeUndefined()
+
+    await assemble(ctx, {
+      provider: 'opencode-go',
+      model: 'deepseek-v4.1-flash',
+      messages: [],
+      sessionId: 'session-go' as never,
+    })
+    expect(opencode.headers[0]?.['x-opencode-session']).toBe('session-go')
+  })
+
   it('forwards common stream options and profile reasoning', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url, {
