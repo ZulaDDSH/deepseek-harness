@@ -1,9 +1,10 @@
 /**
- * Disposal escalation for the mcp-client connection supervisor: when the
- * transport-owned close signal never arrives, disposal reaps a live stdio
- * child instead of abandoning it with open pipes, and still settles so
- * shutdown can complete. Isolated file so the MCP SDK mocks cannot pollute
- * other test suites.
+ * Disposal for the mcp-client connection supervisor: when the transport-owned
+ * close signal never arrives, disposal reports the unconfirmed closure and
+ * still settles so shutdown can complete. Signalling the child belongs to the
+ * transport that spawned it; a pid cached before close can name an unrelated
+ * process once the child has exited, so the supervisor never signals one.
+ * Isolated file so the MCP SDK mocks cannot pollute other test suites.
  */
 import { spawn, type ChildProcess } from 'node:child_process'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
@@ -134,33 +135,27 @@ describe('connection disposal escalation', () => {
     }
   })
 
-  it('reaps a live stdio child when transport closure is never reported', async () => {
+  it('reports unconfirmed closure without signalling the child by pid', async () => {
     const ctx = await mountRegistry()
     const errors = captureErrors(ctx)
     const child = liveChild()
     if (child.pid === undefined) throw new Error('expected the fixture child to report a pid')
-    const pid = child.pid
+    const killSpy = vi.spyOn(process, 'kill')
     try {
       mockClose.mockImplementation(() => Promise.resolve())
-      mockCreateTransport.mockReturnValue({ pid, close: async () => {} })
+      mockCreateTransport.mockReturnValue({ pid: child.pid, close: async () => {} })
       const handle = startConnection(ctx, stdioConfig(), resolveReconnectPolicy({ enabled: false }, 'disposal'))
       try {
         await expect(handle.ready).resolves.toEqual({})
         await handle.dispose()
-        await vi.waitFor(() => {
-          expect(child.exitCode !== null || child.signalCode !== null).toBe(true)
-        }, { timeout: 15_000, interval: 250 })
-        if (process.platform === 'win32') {
-          expect(child.exitCode).not.toBeNull()
-        } else {
-          expect(child.signalCode).toBe('SIGKILL')
-        }
+        expect(killSpy.mock.calls.filter(([, signal]) => signal === 'SIGKILL')).toEqual([])
         expect(errors.some(line => line.includes('transport closure could not be confirmed'))).toBe(true)
         expect(handle.instructions()).toBe('')
       } finally {
         await handle.dispose()
       }
     } finally {
+      killSpy.mockRestore()
       if (child.exitCode === null && child.signalCode === null) {
         child.kill('SIGKILL')
         await sleep(200)
@@ -186,19 +181,62 @@ describe('connection disposal escalation', () => {
     }
   }, 60_000)
 
-  it('ignores a stale pid when closure is never reported', async () => {
+  it('never signals a transport-supplied pid when closure is never reported', async () => {
     const ctx = await mountRegistry()
     const errors = captureErrors(ctx)
-    mockClose.mockImplementation(() => Promise.resolve())
-    mockCreateTransport.mockReturnValue({ pid: 2147483647, close: async () => {} })
-    const handle = startConnection(ctx, stdioConfig(), resolveReconnectPolicy({ enabled: false }, 'disposal'))
+    const killSpy = vi.spyOn(process, 'kill')
+    const bystander = liveChild()
+    if (bystander.pid === undefined) throw new Error('expected the fixture child to report a pid')
     try {
-      await expect(handle.ready).resolves.toEqual({})
-      await handle.dispose()
-      expect(errors.some(line => line.includes('transport closure could not be confirmed'))).toBe(true)
-      expect(handle.instructions()).toBe('')
+      mockClose.mockImplementation(() => Promise.resolve())
+      mockCreateTransport.mockReturnValue({ pid: bystander.pid, close: async () => {} })
+      const handle = startConnection(ctx, stdioConfig(), resolveReconnectPolicy({ enabled: false }, 'disposal'))
+      try {
+        await expect(handle.ready).resolves.toEqual({})
+        await handle.dispose()
+        expect(killSpy.mock.calls.filter(([, signal]) => signal === 'SIGKILL')).toEqual([])
+        expect(bystander.exitCode).toBeNull()
+        expect(bystander.signalCode).toBeNull()
+        expect(errors.some(line => line.includes('transport closure could not be confirmed'))).toBe(true)
+        expect(handle.instructions()).toBe('')
+      } finally {
+        await handle.dispose()
+      }
     } finally {
-      await handle.dispose()
+      killSpy.mockRestore()
+      if (bystander.exitCode === null && bystander.signalCode === null) {
+        bystander.kill('SIGKILL')
+        await sleep(200)
+      }
+      await ctx.fiber.dispose()
+    }
+  }, 60_000)
+
+  it('leaves a signalable bystander untouched even when the transport reports its pid', async () => {
+    const ctx = await mountRegistry()
+    const errors = captureErrors(ctx)
+    const bystander = liveChild()
+    if (bystander.pid === undefined) throw new Error('expected the fixture child to report a pid')
+    try {
+      mockClose.mockImplementation(() => Promise.resolve())
+      // A transport that exits "cleanly" yet never surfaces closure is the shape
+      // that made the removed reaper fire: the pid it exposed was already free.
+      mockCreateTransport.mockReturnValue({ pid: 2147483647, close: async () => {} })
+      const handle = startConnection(ctx, stdioConfig(), resolveReconnectPolicy({ enabled: false }, 'disposal'))
+      try {
+        await expect(handle.ready).resolves.toEqual({})
+        await handle.dispose()
+        expect(bystander.exitCode).toBeNull()
+        expect(bystander.signalCode).toBeNull()
+        expect(errors.some(line => line.includes('transport closure could not be confirmed'))).toBe(true)
+      } finally {
+        await handle.dispose()
+      }
+    } finally {
+      if (bystander.exitCode === null && bystander.signalCode === null) {
+        bystander.kill('SIGKILL')
+        await sleep(200)
+      }
       await ctx.fiber.dispose()
     }
   }, 60_000)

@@ -12,6 +12,12 @@
  * restarting forever. Exhaustion unregisters the server's tools and stops;
  * disposal (including HMR) is the only way back from that state.
  *
+ * Signalling the child belongs to the transport that spawned it. A stdio
+ * child can exit while a descendant keeps its pipes open, so the transport's
+ * `close` event may never arrive even though the process is gone; a numeric
+ * pid captured before close is therefore not a safe kill target, because the
+ * OS may have reissued it. Unconfirmed closure is reported, never reaped.
+ *
  * @module
  */
 
@@ -98,24 +104,6 @@ export function resolveReconnectPolicy(config: ReconnectConfig | undefined, path
 export interface ConnectionOutcome {
   /** If the initial connection or tool sync failed, the error; otherwise absent. */
   error?: unknown
-}
-
-/**
- * Best-effort SIGKILL for a stdio child whose transport never reported
- * closure. The SDK abandons its close wait after bounded races, and a live
- * child with open pipes holds the event loop past shutdown, so disposal
- * reaps the child before reporting unconfirmed closure. Kill failures stay
- * silent because the caller already reports the unconfirmed closure.
- *
- * @param childPid - stdio child pid captured before close, or null when the transport exposes none.
- */
-function reapUnconfirmedChild(childPid: number | null): void {
-  if (childPid === null) return
-  try {
-    process.kill(childPid, 'SIGKILL')
-  } catch (_killError) {
-    return
-  }
 }
 
 /** Handle for one plugin instance's supervised connection. */
@@ -307,19 +295,21 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
       // established generation can transition down directly from this signal.
       if (attemptSettled) generationDown(generation)
     }
-    /** Unattached probes close through their transport; attached clients must also report transport closure. */
+    /**
+     * Unattached probes close through their transport; attached clients must
+     * also report transport closure. Signalling the child is the transport's
+     * own responsibility: its `close` already escalates SIGTERM then SIGKILL,
+     * and a pid captured here can name an unrelated process by the time a
+     * delayed signal would fire, so unconfirmed closure is reported instead.
+     */
     async function closeGeneration(): Promise<boolean> {
       const attached = generation.transport !== undefined
-      const rawPid = (transport as unknown as { readonly pid?: unknown } | undefined)?.pid
-      const childPid = typeof rawPid === 'number' ? rawPid : null
       try {
         await (attached ? generation.close() : transport?.close())
       } catch (_error) {
         if (!attached) return hasClosed()
       }
-      if (!attached || hasClosed() || await waitForClose(closed.promise)) return true
-      reapUnconfirmedChild(childPid)
-      return await waitForClose(closed.promise)
+      return !attached || hasClosed() || await waitForClose(closed.promise)
     }
     async function refreshTools(): Promise<void> {
       if (!isCurrent(generation)) return
