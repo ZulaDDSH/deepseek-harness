@@ -41,6 +41,13 @@ async function bench(isLoopback = true, mock = RemoteMock.create().load(remoteDe
       ...services,
     },
     settings: mock.remote.settings,
+    // No route ships a sign-in in these specs; the card reads an empty flow list.
+    authorization: {
+      list: vi.fn(() => Promise.resolve({ ok: true, value: [] })),
+      begin: vi.fn(),
+      answer: vi.fn(),
+      cancel: vi.fn(),
+    },
   })
   // The fixed Host facts the settings provider reads its persistence from.
   remote.$host = { home: undefined, isLoopback }
@@ -68,7 +75,7 @@ describe('ui-settings-models apply', () => {
 
   it('declares the services it uses', () => {
     expect(inject).toEqual([
-      'slots', 'locale', 'remote', 'remote.credentials', 'remote.llm', 'remote.settings',
+      'slots', 'locale', 'remote', 'remote.authorization', 'remote.credentials', 'remote.llm', 'remote.settings',
       'settingsScope', 'settingsSchema',
     ])
   })
