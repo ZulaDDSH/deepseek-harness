@@ -34,6 +34,10 @@ if (installedVersion === MEMORIX_VERSION && existsSync(cliPath) && hasMemorixEnt
   process.exit(0)
 }
 
+if (installedVersion !== undefined && installedVersion !== MEMORIX_VERSION) {
+  process.stdout.write(`Replacing Desktop profile Memorix ${installedVersion} with the pinned ${MEMORIX_VERSION}.\n`)
+}
+
 const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
 const install = spawnSync(
   pnpm,
