@@ -101,7 +101,7 @@ For source-tree Desktop development, the repository can add Memorix to the exist
 pnpm run setup:memorix:desktop
 ```
 
-Stop Desktop before running the setup command, then restart it. The helper pins `memorix@1.3.0`, keeps package scripts disabled, uses Node's built-in SQLite backend, and enables Memorix through the existing DSH MCP client in `lite` mode. Re-running the command is idempotent when the same version is already installed and enabled.
+Stop Desktop before running the setup command, then restart it. A branch change requires stopping Desktop, rebuilding, and relaunching first: a running Host executes the built runtime tree rather than the sources now on disk, so switching branches underneath it produces a fatal startup or Host failure. The helper pins `memorix@1.3.0`, keeps package scripts disabled, uses Node's built-in SQLite backend, and enables Memorix through the existing DSH MCP client in `lite` mode. Re-running the command is idempotent when the same version is already installed and enabled.
 
 The dedicated `Memorix Desktop smoke` workflow validates Linux and Windows installation, Electron RunAsNode MCP startup, tool discovery, memory writes, process restart, and recall from a fresh MCP process. Memorix remains an experience-memory layer; it does not replace verified GARDEN evidence or task state.
 

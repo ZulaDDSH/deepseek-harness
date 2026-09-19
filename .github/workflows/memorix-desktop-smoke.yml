@@ -7,6 +7,10 @@ on:
       - 'package.json'
       - 'scripts/setup-memorix-desktop*'
       - 'scripts/smoke-memorix-desktop.mjs'
+      # The smoke covers MCP config and child-environment behavior that these own.
+      - 'packages/mcp/mcp-client/**'
+      - 'packages/subprocess/subprocess/**'
+      - 'apps/desktop/src/**'
   workflow_dispatch:
 
 permissions:
