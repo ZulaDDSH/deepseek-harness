@@ -3,7 +3,9 @@
  * catalog supplies defaults keyed by model id, and a profile's own model
  * entries override them field by field, so a route naming a catalog provider
  * stays configuration-free while a route pi-ai has never heard of is fully
- * describable from `settings.yaml`.
+ * describable from `settings.yaml`. A model the pinned pi-ai release does not
+ * ship yet is merged from {@link ./catalog-supplement.ts}, so a catalog route
+ * serves a provider's newest model without a dependency upgrade.
  *
  * Strict resolution rejects unserviceable models before settings writes.
  * Deferred resolution retains their diagnostics so stored catalog drift does
@@ -28,6 +30,7 @@ import type {
   Provider,
   ThinkingLevelMap,
 } from '@earendil-works/pi-ai'
+import { catalogSupplements } from './catalog-supplement.ts'
 
 /**
  * Pricing for a model the installed catalog does not describe. The harness
@@ -228,7 +231,10 @@ function unsupportedIds(provider: string): ReadonlySet<string> {
 }
 
 /**
- * The installed catalog models for one route, indexed by model id.
+ * The installed catalog models for one route, indexed by model id, plus the
+ * models {@link catalogSupplements} carries for ids the installed catalog does
+ * not describe. The installed entry wins a collision, so a pi-ai upgrade that
+ * ships a supplemented model retires its entry without a code change.
  * @param provider - provider route key.
  * @returns catalog models by id; empty for a route pi-ai does not ship.
  */
@@ -236,6 +242,9 @@ export function catalogModels(provider: string): Map<string, Model<Api>> {
   if (!catalogProviders().has(provider)) return new Map()
   const models = getBuiltinModels(provider as BuiltinProvider) as Model<Api>[]
   const merged = new Map(models.map(model => [model.id, model]))
+  for (const model of catalogSupplements(provider)) {
+    if (!merged.has(model.id)) merged.set(model.id, model)
+  }
   for (const id of unsupportedIds(provider)) merged.delete(id)
   return merged
 }
