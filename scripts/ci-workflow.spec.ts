@@ -233,6 +233,23 @@ describe('CI workflow', () => {
     // windows-coverage uses the lower 4-partition profile.
     expect(windowsCoverage.name).toBe('windows node 24 / coverage')
     expect(windowsCoverage.env).toMatchObject({ DSH_COVERAGE_PARTITIONS: '4' })
+
+    // Both coverage lanes size their worker budget for the runner they land on:
+    // a 4-core fork runner takes 4, the 16-core hosted and failover runners
+    // keep 6.
+    for (const [laneName, lane] of [['node-24-coverage', node24Coverage], ['windows-coverage', windowsCoverage]] as const) {
+      const laneEnv = lane.env as Record<string, unknown>
+      const budget = String(laneEnv.DSH_COVERAGE_MAX_WORKERS)
+      expect(budget, `${laneName} coverage workers must select a fork budget`)
+        .toContain('github.event.repository.fork')
+      for (const [fork, expected] of [[true, '4'], [false, '6']] as const) {
+        expect(evaluateRunsOn(budget, {
+          vars: {},
+          fromJSON: JSON.parse,
+          github: { event: { repository: { fork }, pull_request: { user: { login: 'maintainer' } } } },
+        }), `${laneName} coverage workers fork=${String(fork)}`).toBe(expected)
+      }
+    }
     const coverageSteps = windowsCoverage.steps as unknown[]
     const coverageCommands = coverageSteps.filter((step): step is Record<string, unknown> & { run: string } => (
       isRecord(step) && typeof step.run === 'string'
@@ -412,26 +429,51 @@ describe('CI workflow', () => {
     expect(windowsObservational.env).toBeDefined()
     expect(windowsObservational.env).not.toMatchObject({ DSH_GATE_FAIL_FAST: '1' })
 
-    // A fork owns its own repository variables, so a failover value set there
-    // must not reach the upstream-pool-only steps: a fork has no self-hosted VM
-    // and no Blacksmith pool, and the self-hosted budgets are sized for the
-    // 16-core standby hardware rather than a standard hosted runner.
-    for (const [jobName, job] of [['node-24-consumers', node24Consumers]] as const) {
-      const steps = job.steps as unknown[]
-      const hostedAware = steps.filter((step): step is Record<string, unknown> & { if: string } => (
-        isRecord(step)
-          && typeof step.if === 'string'
-          && step.if.includes('DSH_CI_FAILOVER_LINUX')
+    // Failover-aware work splits two ways, and the guard has to match the
+    // branch. Hosted-compatible steps (caches, Playwright install) must RUN on
+    // a fork, which always lands on a hosted runner, so they lead with the
+    // fork term and never require `fork == false`. Steps that exist only for
+    // the upstream pools must stay gated; a fork reaches neither.
+    const hostedCompatible = (
+      name: string,
+      steps: unknown[],
+      expectedStep: string,
+    ): void => {
+      const step = steps.find((candidate): candidate is Record<string, unknown> & { if: string } => (
+        isRecord(candidate) && candidate.name === expectedStep && typeof candidate.if === 'string'
       ))
-      expect(hostedAware.length, `${jobName} must declare failover-aware steps`).toBeGreaterThan(0)
-      for (const step of hostedAware) {
-        expect(step.if, `${jobName} step "${String(step.name ?? step.uses)}" must gate on a non-fork repository`)
-          .toMatch(/github\.event\.repository\.fork\s*==\s*false/)
-      }
+      expect(step, `${name} must declare the "${expectedStep}" step`).toBeDefined()
+      expect(step!.if, `${name} "${expectedStep}" must run on a fork`)
+        .toContain('github.event.repository.fork ||')
+      expect(step!.if, `${name} "${expectedStep}" must not require a non-fork repository`)
+        .not.toContain('repository.fork == false')
     }
+    hostedCompatible('node-24-consumers', node24Consumers.steps as unknown[], 'Install Playwright Chromium and hosted dependencies')
+
+    const consumersSteps = node24Consumers.steps as unknown[]
+    const pooledOnly = consumersSteps.filter((step): step is Record<string, unknown> & { if: string } => (
+      isRecord(step)
+        && typeof step.if === 'string'
+        && (step.if.includes("== 'blacksmith'") || step.if.includes("== 'selfhosted'"))
+    ))
+    expect(pooledOnly.length, 'the consumers lane must declare pool-only steps').toBeGreaterThan(0)
+    for (const step of pooledOnly) {
+      expect(step.if, `node-24-consumers step "${String(step.name ?? step.uses)}" must stay non-fork only`)
+        .toContain('github.event.repository.fork == false')
+    }
+
+    // A 4-core fork runner takes the reduced budgets; the upstream values stay
+    // for the 16-core hosted runners and the 64-core failover VM.
     const consumersEnv = node24Consumers.env as Record<string, unknown>
-    expect(String(consumersEnv.DSH_SNAPSHOT_MAX_CONCURRENCY), 'snapshot concurrency must gate on a non-fork repository')
-      .toMatch(/github\.event\.repository\.fork\s*==\s*false/)
+    for (const key of ['DSH_GATE_CONCURRENCY', 'DSH_OXLINT_THREADS', 'DSH_PUBLINT_CONCURRENCY', 'DSH_WEB_SNAPSHOT_WORKERS', 'DSH_SNAPSHOT_MAX_CONCURRENCY'] as const) {
+      expect(String(consumersEnv[key]), `${key} must select a fork budget`)
+        .toContain('github.event.repository.fork')
+      expect(evaluateRunsOn(String(consumersEnv[key]), {
+        vars: {},
+        fromJSON: JSON.parse,
+        github: { event: { repository: { fork: true }, pull_request: { user: { login: 'maintainer' } } } },
+      }), `${key} fork budget`).toBe('4')
+    }
   })
 
   it('gates standalone keyless blacksmith jobs and benchmark tiers on the failover variables', () => {
