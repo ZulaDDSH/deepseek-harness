@@ -33,7 +33,7 @@ kind: "package-reference"
 
 `authorization.list()` 返回已挂载注册表提供的每个 flow，各自附带其键上是否已存有凭据，使界面无需第二次调用即可标注已登录的提供方。`authorization.begin(key, method, signal)` 是一条流：首项给出该尝试不可猜测的 capability，其后每一项都是 flow 的 notice，最后一项说明尝试如何结束。`authorization.answer(attempt, prompt, value)` 回答问题，`authorization.cancel(attempt)` 撤销尝试，二者都以该 capability 寻址。
 
-notice 可能携带授权网址、设备码或问题，因此它只在开启该尝试的那条流上投递，绝不发布到 Host 级通道：第二个客户端收不到第一个客户端的任何 notice，也无法回答或撤销并非由它发起的尝试。尝试结算为 `authorized` 或 `cancelled`；真正的 flow 失败以 `authorization/failed` 拒绝该流，未知键、capability 或问题为 `authorization/not-found`。
+notice 可能携带授权网址、设备码或问题，因此它只在开启该尝试的那条流上投递，绝不发布到 Host 级通道：第二个客户端收不到第一个客户端的任何 notice，也无法回答或撤销并非由它发起的尝试。尝试结算为 `authorized` 或 `cancelled`；真正的 flow 失败以 `authorization/failed` 拒绝该流，并携带该键与 flow 自身的 reason 码，未知键、capability 或问题为 `authorization/not-found`。流的首项在 flow 尚未发出任何内容之前就会投递，因此调用方始终持有回答或撤销所需的 capability。
 
 -----
 

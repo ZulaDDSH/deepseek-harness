@@ -67,6 +67,14 @@ export interface AuthorizationOperations {
    * @returns whether the Host accepted it, or its refusal.
    */
   answer(attempt: string, prompt: string, value: string): Promise<AnswerOutcome>
+  /**
+   * Withdraw a running attempt, so the Host stops the flow and the stream ends
+   * as `cancelled`. Addressed by capability rather than by aborting the
+   * stream: the attempt outlives one carrier, and a withdrawn carrier is a
+   * breakage the card must not report as a cancellation.
+   * @param attempt - the capability the attempt's start item named.
+   */
+  cancel(attempt: string): Promise<void>
 }
 
 /**
@@ -98,6 +106,12 @@ export function createAuthorizationOperations(ctx: ClientContext): Authorization
     answer: async (attempt, prompt, value) => {
       const response = await ctx.remote.authorization.answer(attempt, prompt, value)
       return response.ok ? { kind: 'accepted' } : { kind: 'refused', message: response.error.message }
+    },
+    cancel: async (attempt) => {
+      // A withdrawal for an attempt that already ended is not a failure: the
+      // human got what they asked for either way, and the stream reports how
+      // the attempt actually settled.
+      await ctx.remote.authorization.cancel(attempt)
     },
   }
 }

@@ -73,6 +73,36 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/**
+ * The flow failure a caller reads. The stream reports a broken attempt by
+ * rejecting, and the rejection crosses the wire as a Remote failure: leaving it
+ * as the raw thrown value would arrive as an unclassified `gateway/internal`,
+ * hiding the difference between a refused grant and a broken carrier. A
+ * `HarnessError` already carries the domain's own reason code, so it is kept;
+ * anything else is typed by its constructor name.
+ * @param key - the credential record the failed attempt was authorizing.
+ * @param error - what the flow threw.
+ * @returns the typed failure the caller receives.
+ */
+function flowFailure(key: CredentialKey, error: unknown): RemoteError<'authorization/failed'> {
+  const reason = reasonOf(error)
+  return new RemoteError(
+    'authorization/failed',
+    `authorization flow for "${key}" failed: ${messageOf(error)}`,
+    { key, ...reason === undefined ? {} : { reason } },
+    { cause: error },
+  )
+}
+
+/** The failure's own code, or its class name when it carries none. */
+function reasonOf(error: unknown): string | undefined {
+  const code = (error as { code?: unknown } | null | undefined)?.code
+  if (typeof code === 'string' && code.length > 0) return code
+  const name = (error as { name?: unknown } | null | undefined)?.name
+  if (typeof name === 'string' && name.length > 0 && name !== 'Error') return name
+  return undefined
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Host owner of the `authorization` Remote namespace. */
@@ -177,8 +207,11 @@ export class AuthorizationController extends TypertRemoteService {
     signal.addEventListener('abort', withdraw, { once: true })
     if (signal.aborted) withdraw()
 
-    // The start item carries the capability before any notice can need it.
-    let started = false
+    // The start item carries the capability before any notice can need it. It
+    // is yielded before the queue is drained rather than on the first item: a
+    // flow that waits for the human before saying anything — a browser
+    // hand-off — would otherwise leave the caller with no capability to answer
+    // or cancel by, hanging the attempt until the flow gave up on its own.
     const running = authorization.begin({
       key: recordKey,
       ...request.method === undefined ? {} : { method: request.method },
@@ -186,14 +219,11 @@ export class AuthorizationController extends TypertRemoteService {
       interaction: this.interaction(attempt),
     }).then(
       (outcome) => { attempt.finish({ status: outcome.status }) },
-      (error: unknown) => { attempt.fail(error) },
+      (error: unknown) => { attempt.fail(flowFailure(recordKey, error)) },
     )
     try {
+      yield { type: 'start', attempt: capability, key: recordKey }
       for await (const item of queue.iterate()) {
-        if (!started) {
-          started = true
-          yield { type: 'start', attempt: capability, key: recordKey }
-        }
         yield item
       }
     } finally {

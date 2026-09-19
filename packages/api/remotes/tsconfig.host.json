@@ -24,9 +24,6 @@
       "path": "../../credentials/credentials"
     },
     {
-      "path": "../../credentials/authorization"
-    },
-    {
       "path": "../../interaction/commands"
     },
     {

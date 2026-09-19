@@ -40,39 +40,79 @@ const ENTRY = {
  */
 function surface(options: {
   notices?: readonly AuthorizationNotice[]
+  /** Notices pushed after the first answer lands, for the sequential-prompt case. */
+  laterNotices?: readonly AuthorizationNotice[]
   answer?: () => Promise<{ kind: 'accepted' } | { kind: 'refused'; message: string }>
   outcome?: 'authorized' | 'cancelled' | { kind: 'failed'; message: string }
   configured?: boolean
   hold?: boolean
 } = {}): AuthorizationOperations & {
   answered: { attempt: string; prompt: string; value: string }[]
+  cancelled: string[]
+  /** How many times the card re-read the flow list. */
+  listed: () => number
+  /** Make the credential look stored, as a login from anywhere would. */
+  setConfigured: (configured: boolean) => void
+  /** Push one more notice onto the open attempt's stream, as the Host would. */
+  pushNotice: (notice: AuthorizationNotice) => void
   release: () => void
+  releaseLate: () => void
 } {
   const answered: { attempt: string; prompt: string; value: string }[] = []
+  const cancelled: string[] = []
+  let listCalls = 0
+  let configured = options.configured ?? false
   let release = (): void => {}
+  let releaseLate = (): void => {}
   const held = new Promise<void>((resolve) => { release = resolve })
+  const late = new Promise<void>((resolve) => { releaseLate = resolve })
+  // A notice the pair below pushes from the attempt's own stream, after the
+  // first answer has been sent but before the Host has replied to it.
+  let secondQuestion: ((item: AuthorizationNotice) => void) | undefined
+  // A held attempt ends how its own flow ended: the scripted `outcome` when one
+  // was given, otherwise cancelled — which is what the Host reports once its
+  // `cancel` call withdrew the attempt.
+  const heldOutcome = options.outcome ?? 'cancelled'
   return {
     answered,
+    cancelled,
+    listed: () => listCalls,
+    setConfigured: (next) => { configured = next },
+    pushNotice: (notice) => { secondQuestion?.(notice) },
     release: () => { release() },
-    list: () => Promise.resolve([{ ...ENTRY, configured: options.configured ?? false }]),
+    releaseLate: () => { releaseLate() },
+    list: () => {
+      listCalls += 1
+      return Promise.resolve([{ ...ENTRY, configured }])
+    },
     begin: async (_key, _method, onItem) => {
+      secondQuestion = onItem
       onItem({ type: 'start', attempt: 'cap-1', key: ENTRY.key })
       for (const notice of options.notices ?? []) onItem(notice)
+      const scripted = options.hold === true ? heldOutcome : options.outcome ?? 'authorized'
       if (options.hold === true) await held
-      const outcome = options.outcome ?? 'authorized'
-      if (outcome === 'authorized') {
+      if (options.laterNotices !== undefined) {
+        await late
+        for (const notice of options.laterNotices) onItem(notice)
+      }
+      if (scripted === 'authorized') {
+        configured = true
         onItem({ type: 'end', status: 'authorized' })
         return { kind: 'authorized' }
       }
-      if (outcome === 'cancelled') {
+      if (scripted === 'cancelled') {
         onItem({ type: 'end', status: 'cancelled' })
         return { kind: 'cancelled' }
       }
-      return outcome
+      return scripted
     },
     answer: async (attempt, prompt, value) => {
       answered.push({ attempt, prompt, value })
       return options.answer === undefined ? { kind: 'accepted' } : options.answer()
+    },
+    cancel: async (attempt) => {
+      cancelled.push(attempt)
+      release()
     },
   }
 }
@@ -168,6 +208,59 @@ describe('the sign-in card', () => {
     await start(surface(), onSignedIn)
 
     await waitFor(() => { expect(onSignedIn).toHaveBeenCalledTimes(1) })
+  })
+
+  it('shows the stored credential once its own sign-in completes', async () => {
+    const operations = surface()
+    await start(operations)
+    expect(await screen.findByText(en.signedOut)).toBeTruthy()
+
+    // The credential now exists on the Host, so the card's own label must say
+    // so rather than keep the state it read before the flow ran.
+    expect(await screen.findByText(en.signedIn)).toBeTruthy()
+    expect(screen.queryByText(en.signedOut)).toBeNull()
+    expect(operations.listed()).toBeGreaterThan(1)
+  })
+
+  it('cancels through the Host so the attempt reports cancelled rather than a broken stream', async () => {
+    const operations = surface({ hold: true })
+    await start(operations)
+
+    fireEvent.click(await screen.findByRole('button', { name: en.signInCancel }))
+
+    // The Host owns the attempt, so withdrawing it is the Host's call. Aborting
+    // only the card's stream would leave the attempt running on the Host and
+    // surface the withdrawal as a carrier failure.
+    await waitFor(() => { expect(operations.cancelled).toEqual(['cap-1']) })
+    expect(await screen.findByText(en.signInCancelled)).toBeTruthy()
+  })
+
+  it('keeps a question that streams while a previous answer is still in flight', async () => {
+    // The flow asks its next question while the Host's answer call for the
+    // previous one is still outstanding, which a two-step OAuth flow does. The
+    // card must not retire the question that is now on screen.
+    const operations = surface({
+      hold: true,
+      notices: [{ type: 'notice', attempt: 'cap-1', prompt: '0', kind: 'text', message: 'First code' }],
+      answer: async () => {
+        // The flow moves on while the Host's answer call is still outstanding.
+        operations.pushNotice({
+          type: 'notice', attempt: 'cap-1', prompt: '1', kind: 'text', message: 'Second code',
+        })
+        await new Promise(resolve => setTimeout(resolve, 0))
+        return { kind: 'accepted' }
+      },
+    })
+    await start(operations)
+
+    const input = await screen.findByLabelText('First code')
+    fireEvent.change(input, { target: { value: 'first' } })
+    fireEvent.click(screen.getByRole('button', { name: en.signInSubmit }))
+
+    // The answered question retires; the one the flow is asking now survives.
+    await waitFor(() => { expect(screen.queryByLabelText('First code')).toBeNull() })
+    expect(screen.getByLabelText('Second code')).toBeTruthy()
+    operations.release()
   })
 
   it('does not report a withdrawn attempt as a completed sign-in', async () => {

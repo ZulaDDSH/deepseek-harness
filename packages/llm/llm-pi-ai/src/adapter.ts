@@ -220,9 +220,22 @@ function requestHeaders(headers: Readonly<Record<string, string>> | undefined): 
 /** The conversation header OpenCode's gateways route and cache by; pi-ai emits no equivalent. */
 const OPENCODE_SESSION_HEADER = 'x-opencode-session'
 
-/** Whether a model is served by an OpenCode gateway that requires the session header. */
+/** Hosts served by an OpenCode gateway, matched against the endpoint's parsed hostname. */
+const OPENCODE_HOSTS = new Set(['opencode.ai', 'www.opencode.ai'])
+
+/**
+ * Whether a model is served by an OpenCode gateway that requires the session
+ * header. The parsed hostname decides it for a route that named a custom
+ * `baseURL`: a substring test would also match `opencode.ai.example.com`, and
+ * the session id must never reach a host that is merely named after OpenCode.
+ */
 function isOpencodeRoute(model: Model<Api>): boolean {
-  return model.provider === 'opencode' || model.provider === 'opencode-go' || model.baseUrl.includes('opencode.ai')
+  if (model.provider === 'opencode' || model.provider === 'opencode-go') return true
+  try {
+    return OPENCODE_HOSTS.has(new URL(model.baseUrl).hostname.toLowerCase())
+  } catch (_unparseableBaseUrl) {
+    return false
+  }
 }
 
 /**
@@ -232,18 +245,23 @@ function isOpencodeRoute(model: Model<Api>): boolean {
  * installed providers never send it, so the conversation identity is mapped
  * here from `GenerateOptions.sessionId`. The value is model-hidden transport
  * metadata: it never enters the request body, prompt, or session log.
+ *
+ * A deployment that configured the header itself keeps its own value: the
+ * profile owns the transport it speaks, and the session id is only a fallback
+ * for the routes that need one and were given none.
  * @param headers - the request headers built from the profile and attribution.
  * @param model - the resolved pi-ai model, used to recognize the route.
  * @param sessionId - the durable conversation identity, when the request has one.
- * @returns the same header record, with the session header set on OpenCode routes.
+ * @returns a header record with the session header set on OpenCode routes.
  */
 function withOpencodeSession(
   headers: Record<string, string>,
   model: Model<Api>,
   sessionId: string | undefined,
 ): Record<string, string> {
-  if (sessionId !== undefined && isOpencodeRoute(model)) headers[OPENCODE_SESSION_HEADER] = sessionId
-  return headers
+  const configured = Object.keys(headers).some(name => name.toLowerCase() === OPENCODE_SESSION_HEADER)
+  if (sessionId === undefined || configured || !isOpencodeRoute(model)) return headers
+  return { ...headers, [OPENCODE_SESSION_HEADER]: sessionId }
 }
 
 /**

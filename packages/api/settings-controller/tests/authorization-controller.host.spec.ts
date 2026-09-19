@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import AuthorizationService from '@deepseek-ai/dsh-authorization'
+import AuthorizationService, { AuthorizationError } from '@deepseek-ai/dsh-authorization'
 import type { AuthorizationSession } from '@deepseek-ai/dsh-authorization'
 import { credentialKey } from '@deepseek-ai/dsh-credentials'
 import { remoteErrorOf, remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
@@ -268,6 +268,43 @@ describe('the authorization Remote namespace a configuration surface calls', () 
     expect(remoteErrorOf(failure)).toMatchObject({ code: 'authorization/not-found' })
   })
 
+  it('delivers the start item before the flow notifies anything', async () => {
+    // A browser hand-off has nothing to say until the human has been to the
+    // provider, so a start item that waited for the first notice would leave
+    // the caller holding no capability to answer or cancel by.
+    const { controller } = await boot(async (session) => {
+      await new Promise<void>((resolve) => {
+        if (session.signal.aborted) resolve()
+        else session.signal.addEventListener('abort', () => { resolve() }, { once: true })
+      })
+    })
+
+    const first = await controller.begin('llm-pi-ai/openai-codex', undefined, new AbortController().signal)
+      [Symbol.asyncIterator]().next()
+
+    expect(first.value).toMatchObject({ type: 'start', key: 'llm-pi-ai/openai-codex' })
+  })
+
+  it('answers a question asked before any notice preceded it', async () => {
+    // The capability the start item carries is the only address an answer has,
+    // so it must arrive even when the flow's first act is to ask.
+    let asked: string | undefined
+    const { controller } = await boot(async (session) => {
+      asked = await session.prompt({ kind: 'text', message: 'Paste the code' })
+    })
+
+    const iterator = controller.begin('llm-pi-ai/openai-codex', undefined, new AbortController().signal)
+      [Symbol.asyncIterator]()
+    const start = await iterator.next()
+    const capability = (start.value as { attempt: string }).attempt
+    const question = await iterator.next()
+    expect(question.value).toMatchObject({ type: 'notice', prompt: '0' })
+
+    controller.answer(capability, '0', 'the-code')
+    await drain({ [Symbol.asyncIterator]: () => iterator })
+    expect(asked).toBe('the-code')
+  })
+
   it('settles a withdrawn attempt as cancelled rather than failing it', async () => {
     const { controller } = await boot(async (session) => {
       await session.prompt({ kind: 'text', message: 'Paste the code' })
@@ -309,6 +346,21 @@ describe('the authorization Remote namespace a configuration surface calls', () 
     const { failure } = await drain(controller.begin('llm-pi-ai/openai-codex', undefined, new AbortController().signal))
 
     expect(failure).toBeInstanceOf(Error)
+    expect((failure as Error).message).toContain('the grant was refused')
+  })
+
+  it('keeps a genuine flow failure a typed authorization/failed across the stream', async () => {
+    const { controller } = await boot(() => Promise.reject(new AuthorizationError('the grant was refused', 'REFUSED')))
+
+    const { failure } = await drain(controller.begin('llm-pi-ai/openai-codex', undefined, new AbortController().signal))
+
+    // A flow error is the domain's own failure, so a surface reads the same
+    // code and key it would from any other authorization refusal rather than
+    // an unclassified gateway error.
+    expect(remoteErrorOf(failure)).toMatchObject({
+      code: 'authorization/failed',
+      details: { key: 'llm-pi-ai/openai-codex', reason: 'REFUSED' },
+    })
     expect((failure as Error).message).toContain('the grant was refused')
   })
 

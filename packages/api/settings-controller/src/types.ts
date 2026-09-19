@@ -34,7 +34,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
      * The flow itself failed — a refused grant, a network error, a provider
      * rejection. Distinct from a cancellation, which is an outcome.
      */
-    'authorization/failed': { readonly key: string }
+    'authorization/failed': { readonly key: string; readonly reason?: string }
   }
 }
 

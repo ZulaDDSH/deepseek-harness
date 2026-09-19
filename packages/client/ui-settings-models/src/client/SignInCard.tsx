@@ -35,7 +35,7 @@ interface OpenQuestion {
 /** How the card is doing right now. */
 type SignInPhase =
   | { readonly status: 'idle' }
-  | { readonly status: 'running'; readonly notices: readonly AuthorizationNotice[] }
+  | { readonly status: 'running'; readonly attempt: string; readonly notices: readonly AuthorizationNotice[] }
   | { readonly status: 'failed'; readonly message: string }
   | { readonly status: 'cancelled' }
 
@@ -69,18 +69,21 @@ export function SignInCard(props: SignInCardProps): ReactNode {
   const abortRef = useRef<AbortController | null>(null)
   const mountedRef = useRef(true)
 
-  // The flow this route owns, if the deployment registered one for it.
-  useEffect(() => {
-    let active = true
-    void operations.list().then((flows) => {
-      if (!active) return
-      setEntry(flows.find(flow => flow.key.endsWith(`/${provider}`)) ?? null)
-      setLoaded(true)
-    })
-    return () => { active = false }
+  // The flow this route owns, if the deployment registered one for it. Reloaded
+  // whenever a credential changes, because a sign-in commits a record rather
+  // than a reference: without this re-read the card keeps showing the state it
+  // read on mount, so neither this card's own success nor another tab's login
+  // would ever turn "Not signed in" into "Signed in".
+  const reloadEntry = useCallback(async (): Promise<void> => {
+    const flows = await operations.list()
+    if (!mountedRef.current) return
+    setEntry(flows.find(flow => flow.key.endsWith(`/${provider}`)) ?? null)
+    setLoaded(true)
   }, [operations, provider])
 
-  // An unmounting card withdraws its attempt rather than leaving it parked.
+  useEffect(() => { void reloadEntry() }, [reloadEntry])
+
+  // An unmounting card withdraws the Host attempt and then releases its stream.
   useEffect(() => {
     mountedRef.current = true
     return () => {
@@ -98,10 +101,13 @@ export function SignInCard(props: SignInCardProps): ReactNode {
     setQuestion(null)
     setAnswerFailure(undefined)
     setDraft('')
-    setPhase({ status: 'running', notices: [] })
+    setPhase({ status: 'running', attempt: '', notices: [] })
     const outcome = await operations.begin(entry.key, method, (item) => {
       if (!mountedRef.current) return
-      if (item.type === 'start') return
+      if (item.type === 'start') {
+        setPhase(current => current.status === 'running' ? { ...current, attempt: item.attempt } : current)
+        return
+      }
       if (item.type === 'end') {
         // The attempt is over, so nothing it asked is still answerable. This is
         // the only place a question is retired without an answer, which is what
@@ -130,15 +136,23 @@ export function SignInCard(props: SignInCardProps): ReactNode {
     setAnswerFailure(undefined)
     if (outcome.kind === 'authorized') {
       setPhase({ status: 'idle' })
+      await reloadEntry()
       onSignedIn?.()
       return
     }
     setPhase(outcome.kind === 'cancelled' ? { status: 'cancelled' } : { status: 'failed', message: outcome.message })
-  }, [entry, operations, onSignedIn])
+  }, [entry, operations, onSignedIn, reloadEntry])
+
+  const cancel = useCallback(async (attempt: string) => {
+    // The Host ends the attempt and the stream reports `cancelled`; aborting the
+    // stream here instead would leave the flow running on the Host.
+    await operations.cancel(attempt)
+  }, [operations])
 
   const answer = useCallback(async (value: string) => {
     if (question === null) return
-    const outcome = await operations.answer(question.attempt, question.prompt, value)
+    const answered = question
+    const outcome = await operations.answer(answered.attempt, answered.prompt, value)
     if (!mountedRef.current) return
     if (outcome.kind === 'refused') {
       // The Host rejected the answer, so the question is still open: keep it on
@@ -147,7 +161,12 @@ export function SignInCard(props: SignInCardProps): ReactNode {
       return
     }
     setAnswerFailure(undefined)
-    setQuestion(null)
+    // Cleared only while the answered question is still the one on screen: the
+    // flow may have asked the next question while this call was in flight, and
+    // that one belongs to the human now.
+    setQuestion(current => current?.attempt === answered.attempt && current.prompt === answered.prompt
+      ? null
+      : current)
     setDraft('')
   }, [operations, question])
 
@@ -234,7 +253,7 @@ export function SignInCard(props: SignInCardProps): ReactNode {
           <button
             type="button"
             className={styles['secondaryButton']}
-            onClick={() => { abortRef.current?.abort() }}
+            onClick={() => { void cancel(phase.attempt) }}
           >
             {t('signInCancel')}
           </button>
