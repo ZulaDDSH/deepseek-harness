@@ -19,7 +19,8 @@ jobs:
   expected-filenames:
     name: no golden filenames
     runs-on: >-
-      ${{ vars.DSH_CI_FAILOVER_LINUX == 'blacksmith' && 'blacksmith-4vcpu-ubuntu-2404'
+      ${{ github.event.repository.fork == false && vars.DSH_CI_FAILOVER_LINUX == 'blacksmith'
+          && 'blacksmith-4vcpu-ubuntu-2404'
           || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6

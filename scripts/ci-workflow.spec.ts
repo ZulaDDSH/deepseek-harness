@@ -384,6 +384,22 @@ describe('CI workflow', () => {
       expect(job.env, `${jobName} must enable fail-fast`).toMatchObject({ DSH_GATE_FAIL_FAST: '1' })
     }
 
+    // node-compat resolves its pool through DSH_CI_FAILOVER_LINUX too, so it
+    // needs the same fork override every other failover selector carries: a
+    // fork cannot reach the upstream self-hosted or Blacksmith pools, and
+    // leaving the selector without the guard sends fork PRs to labels that do
+    // not exist there.
+    expect(typeof nodeCompat['runs-on']).toBe('string')
+    const compatSelector = nodeCompat['runs-on'] as string
+    expect(compatSelector, 'node-compat runs-on must use the Linux failover switch')
+      .toContain('DSH_CI_FAILOVER_LINUX')
+    expect(compatSelector, 'node-compat runs-on must not use the Windows failover switch')
+      .not.toContain('DSH_CI_FAILOVER_WINDOWS')
+    expect(evaluate(compatSelector, { DSH_CI_FAILOVER_LINUX: 'blacksmith' }, 'maintainer', true),
+      'node-compat fork ignores upstream failover').toBe('ubuntu-latest')
+    expect(evaluate(compatSelector, { DSH_CI_FAILOVER_LINUX: 'selfhosted' }, 'maintainer', true),
+      'node-compat fork fallback').toBe('ubuntu-latest')
+
     // The native Windows lanes with run-gates aggregates fail fast for the
     // same reason: a failing gate aborts the sibling gate instead of waiting
     // out the multi-minute instrumented coverage run.
@@ -395,6 +411,27 @@ describe('CI workflow', () => {
     // possible, so the first failure must not truncate the rest.
     expect(windowsObservational.env).toBeDefined()
     expect(windowsObservational.env).not.toMatchObject({ DSH_GATE_FAIL_FAST: '1' })
+
+    // A fork owns its own repository variables, so a failover value set there
+    // must not reach the upstream-pool-only steps: a fork has no self-hosted VM
+    // and no Blacksmith pool, and the self-hosted budgets are sized for the
+    // 16-core standby hardware rather than a standard hosted runner.
+    for (const [jobName, job] of [['node-24-consumers', node24Consumers]] as const) {
+      const steps = job.steps as unknown[]
+      const hostedAware = steps.filter((step): step is Record<string, unknown> & { if: string } => (
+        isRecord(step)
+          && typeof step.if === 'string'
+          && step.if.includes('DSH_CI_FAILOVER_LINUX')
+      ))
+      expect(hostedAware.length, `${jobName} must declare failover-aware steps`).toBeGreaterThan(0)
+      for (const step of hostedAware) {
+        expect(step.if, `${jobName} step "${String(step.name ?? step.uses)}" must gate on a non-fork repository`)
+          .toMatch(/github\.event\.repository\.fork\s*==\s*false/)
+      }
+    }
+    const consumersEnv = node24Consumers.env as Record<string, unknown>
+    expect(String(consumersEnv.DSH_SNAPSHOT_MAX_CONCURRENCY), 'snapshot concurrency must gate on a non-fork repository')
+      .toMatch(/github\.event\.repository\.fork\s*==\s*false/)
   })
 
   it('gates standalone keyless blacksmith jobs and benchmark tiers on the failover variables', () => {
@@ -404,6 +441,15 @@ describe('CI workflow', () => {
     expect(expectedFilenames['runs-on']).toContain("== 'blacksmith'")
     expect(expectedFilenames['runs-on']).toContain('blacksmith-4vcpu-ubuntu-2404')
     expect(expectedFilenames['runs-on']).toContain("'ubuntu-latest'")
+    // A fork reaches neither the upstream self-hosted pool nor Blacksmith, and
+    // it owns its own repository variables, so the failover value must not
+    // capture the selector there.
+    for (const mode of ['blacksmith', 'selfhosted'] as const) {
+      expect(evaluateRunsOn(expectedFilenames['runs-on'] as string, {
+        vars: { DSH_CI_FAILOVER_LINUX: mode },
+        github: { event: { repository: { fork: true }, pull_request: { user: { login: 'maintainer' } } } },
+      }), `expected-filenames fork ignores ${mode}`).toBe('ubuntu-latest')
+    }
     expect(sandbox['runs-on']).toContain("matrix.runner == 'bwrap'")
     expect(sandbox['runs-on']).toContain('DSH_CI_FAILOVER_LINUX')
     expect(sandbox['runs-on']).toContain('blacksmith-4vcpu-ubuntu-2404')

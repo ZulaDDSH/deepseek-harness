@@ -12,8 +12,9 @@
 import { writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 
-const markerPath = process.argv[2]
-if (markerPath === undefined) throw new Error('reap-fixture-server needs a marker path argument')
+const markerArg = process.argv[2]
+if (markerArg === undefined) throw new Error('reap-fixture-server needs a marker path argument')
+const markerPath: string = markerArg
 
 // A URL keeps the dynamic import valid on Windows, where a bare drive path is
 // not an accepted ESM specifier.

@@ -94,7 +94,7 @@ jobs:
       # compression and upload on the paid latency-critical path. Skipped
       # under failover — see the coverage lane's identical rationale.
       - uses: actions/cache/restore@v4
-        if: vars.DSH_CI_FAILOVER_LINUX != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]'
+        if: github.event.repository.fork == false && (vars.DSH_CI_FAILOVER_LINUX != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]')
         with:
           path: ${{ steps.pnpm-store.outputs.path }}
           key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
@@ -171,7 +171,7 @@ jobs:
       # Self-hosted runners reuse the shared persistent pnpm store.
       # Hosted runners restore the remote cache into their ephemeral store.
       - uses: actions/cache/restore@v4
-        if: vars.DSH_CI_FAILOVER_LINUX != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]'
+        if: github.event.repository.fork == false && (vars.DSH_CI_FAILOVER_LINUX != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]')
         with:
           path: ${{ steps.pnpm-store.outputs.path }}
           key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
@@ -260,8 +260,10 @@ jobs:
       # independent Node compatibility smoke, and a failing reader (e.g.
       # publint) stops the remaining artifact consumers.
       DSH_GATE_FAIL_FAST: '1'
-      # Failover halves snapshot concurrency for the shared 64-core VM.
-      DSH_SNAPSHOT_MAX_CONCURRENCY: ${{ vars.DSH_CI_FAILOVER_LINUX == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]' && '12' || '32' }}
+      # Failover halves snapshot concurrency for the shared 64-core VM. A fork
+      # runs on a standard hosted runner, so it keeps the hosted budget even if
+      # its own repository variable carries a failover value.
+      DSH_SNAPSHOT_MAX_CONCURRENCY: ${{ github.event.repository.fork == false && vars.DSH_CI_FAILOVER_LINUX == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]' && '12' || '32' }}
     steps:
       # Runner cleanup owns tool caches and fixtures, including cancelled runs.
       - name: Use runner-owned temporary storage
@@ -301,7 +303,7 @@ jobs:
       # entry until it evicts, after which the store is cold. Self-hosted runners
       # reuse the shared persistent store instead of restoring the remote archive.
       - uses: actions/cache/restore@v4
-        if: vars.DSH_CI_FAILOVER_LINUX != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]'
+        if: github.event.repository.fork == false && (vars.DSH_CI_FAILOVER_LINUX != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]')
         with:
           path: ${{ steps.pnpm-store.outputs.path }}
           key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
@@ -310,7 +312,7 @@ jobs:
 
       # Self-hosted runners retain their own browser cache between jobs.
       - uses: actions/cache/restore@v4
-        if: vars.DSH_CI_FAILOVER_LINUX != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]'
+        if: github.event.repository.fork == false && (vars.DSH_CI_FAILOVER_LINUX != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]')
         with:
           path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
           key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
@@ -332,7 +334,7 @@ jobs:
 
       # Blacksmith's Ubuntu HTTP archive endpoints can be unreachable while HTTPS works.
       - name: Use HTTPS for Ubuntu archives on Blacksmith
-        if: vars.DSH_CI_FAILOVER_LINUX == 'blacksmith'
+        if: github.event.repository.fork == false && vars.DSH_CI_FAILOVER_LINUX == 'blacksmith'
         run: |
           sudo python3 - <<'PY'
           from pathlib import Path
@@ -350,7 +352,7 @@ jobs:
           PY
 
       - name: Install Playwright Chromium and hosted dependencies
-        if: vars.DSH_CI_FAILOVER_LINUX != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]'
+        if: github.event.repository.fork == false && (vars.DSH_CI_FAILOVER_LINUX != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]')
         # Ephemeral runner images can carry Ubuntu mirrors whose HTTP endpoints are unreachable.
         run: |
           sudo find /etc/apt -maxdepth 2 -type f \( -name '*.list' -o -name '*.sources' \) -exec sed -i -E 's@http://([a-z]{2}\.)?archive\.ubuntu\.com/ubuntu@https://archive.ubuntu.com/ubuntu@g; s@http://security\.ubuntu\.com/ubuntu@https://security.ubuntu.com/ubuntu@g' {} +
@@ -359,7 +361,7 @@ jobs:
       # The persistent VM image owns Playwright's Linux system packages; do
       # not mutate the shared host with apt on every failover run.
       - name: Install Playwright Chromium on the failover VM
-        if: vars.DSH_CI_FAILOVER_LINUX == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]'
+        if: github.event.repository.fork == false && vars.DSH_CI_FAILOVER_LINUX == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]'
         run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install chromium
 
       - name: Run compatibility, snapshot, and artifact gates
@@ -372,7 +374,8 @@ jobs:
     # to the persistent shared VM; the blacksmith branch targets ephemeral
     # runners and carries none of those predicates.
     runs-on: >-
-      ${{ vars.DSH_CI_FAILOVER_LINUX == 'blacksmith' && 'blacksmith-4vcpu-ubuntu-2404'
+      ${{ github.event.repository.fork && 'ubuntu-latest'
+          || vars.DSH_CI_FAILOVER_LINUX == 'blacksmith' && 'blacksmith-4vcpu-ubuntu-2404'
           || vars.DSH_CI_FAILOVER_LINUX == 'selfhosted'
           && github.event.pull_request.head.repo.full_name == github.repository
           && github.event.pull_request.head.repo.fork == false
