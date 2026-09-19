@@ -193,6 +193,41 @@ export function catalogProviderIds(): readonly string[] {
 }
 
 /**
+ * Catalog ids the Codex backend refuses to serve a ChatGPT subscription, so a
+ * route offering one fails the request instead of answering it.
+ *
+ * pi-ai's `openai-codex` catalog is transcribed from models.dev, which lists
+ * every model the *platform* serves rather than the subset one plan may use.
+ * The backend is the authority and answers `The '<id>' model is not supported
+ * when using Codex with a ChatGPT account.` for these, so a route defaulting to
+ * one of them fails on its first request with a provider error the user cannot
+ * act on. This set is observed from that refusal, not inferred: it is pinned to
+ * the ids measured against a subscription account and is expected to shrink as
+ * OpenAI widens plan access — delete an id once the backend serves it.
+ */
+const CHATGPT_UNSUPPORTED_CODEX_MODELS: ReadonlySet<string> = new Set([
+  'gpt-5.3-codex-spark',
+  'gpt-5.4',
+  'gpt-5.4-mini',
+])
+
+/**
+ * The catalog models a route may serve, by id.
+ *
+ * The installed catalog describes a provider's whole platform, which is wider
+ * than what every account may use: Codex is the case where the backend, not
+ * the catalog, decides. Withholding those ids here means a default route
+ * offers only models that answer, while a profile that names one explicitly in
+ * its `models` list still fails loud at the request it asked for rather than
+ * being silently dropped from the route.
+ * @param provider - provider route key.
+ * @returns the servable catalog ids for that route.
+ */
+function unsupportedIds(provider: string): ReadonlySet<string> {
+  return provider === 'openai-codex' ? CHATGPT_UNSUPPORTED_CODEX_MODELS : new Set()
+}
+
+/**
  * The installed catalog models for one route, indexed by model id.
  * @param provider - provider route key.
  * @returns catalog models by id; empty for a route pi-ai does not ship.
@@ -200,7 +235,9 @@ export function catalogProviderIds(): readonly string[] {
 export function catalogModels(provider: string): Map<string, Model<Api>> {
   if (!catalogProviders().has(provider)) return new Map()
   const models = getBuiltinModels(provider as BuiltinProvider) as Model<Api>[]
-  return new Map(models.map(model => [model.id, model]))
+  const merged = new Map(models.map(model => [model.id, model]))
+  for (const id of unsupportedIds(provider)) merged.delete(id)
+  return merged
 }
 
 /**

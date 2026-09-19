@@ -1126,6 +1126,36 @@ describe('compat switches', () => {
   })
 })
 
+describe('Codex subscription model gate', () => {
+  it('withholds catalog ids the ChatGPT backend refuses to serve', async () => {
+    const ctx = await harness({ providers: { 'openai-codex': {} } })
+
+    const ids = (await ctx.llm.listModels('openai-codex')).map(model => model.id)
+    // The backend answers "not supported when using Codex with a ChatGPT
+    // account" for these, so a default route must not offer them.
+    expect(ids).not.toContain('gpt-5.4')
+    expect(ids).not.toContain('gpt-5.4-mini')
+    expect(ids).not.toContain('gpt-5.3-codex-spark')
+    expect(ids).toContain('gpt-5.6-luna')
+  })
+
+  it('leaves other providers that share a withheld id untouched', async () => {
+    const ctx = await harness({ providers: { openai: { apiKeyEnv: KEY_ENV } } })
+
+    // `openai` serves the same ids over the public API, where the plan gate
+    // does not apply, so the withholding is scoped to the Codex route.
+    expect((await ctx.llm.listModels('openai')).map(model => model.id)).toContain('gpt-5.4')
+  })
+
+  it('still serves a withheld id a profile names explicitly', async () => {
+    const ctx = await harness({ providers: { 'openai-codex': { models: [{ id: 'gpt-5.4' }] } } })
+
+    // A profile that lists the model asks for it by name; dropping it silently
+    // would hide the configuration the user wrote.
+    expect((await ctx.llm.listModels('openai-codex')).map(model => model.id)).toEqual(['gpt-5.4'])
+  })
+})
+
 describe('resolution snapshots', () => {
   it('finishes an in-flight request under the configuration it started with', async () => {
     const server = await mockServer([{ events: textEvents }])

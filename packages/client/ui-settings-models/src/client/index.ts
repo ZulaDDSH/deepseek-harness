@@ -24,6 +24,7 @@ import type { WelcomeNoticeInjected } from './WelcomeNotice.tsx'
 import { decodeWelcomeSection, WelcomeNoticeStore } from './welcome-store.ts'
 import { ModelsSettingsStore } from './store.ts'
 import { createModelsOperations } from './operations.ts'
+import { createAuthorizationOperations } from './authorization-operations.ts'
 import { createSettingsSchemaOperations } from './schema-operations.ts'
 import { en, zh, type ModelsKey } from './locales.ts'
 import { WELCOME_NOTICE_SETTINGS_NAMESPACE } from '../onboarding-copy.ts'
@@ -79,6 +80,12 @@ export function apply(ctx: ClientContext): void {
   // Bound once here, where the Remote namespaces are declared in this plugin's
   // own `inject`; the cards receive callbacks and never a context.
   const operations = createModelsOperations(ctx)
+  // The `authorization` namespace is mounted only where the composition mounts
+  // an authorization registry, so the page reads it optionally: a deployment
+  // without one keeps the API-key fields and offers no sign-in.
+  const authorization = ctx.get('remote.authorization') === undefined
+    ? undefined
+    : createAuthorizationOperations(ctx)
   const controller = new ModelsSettingsStore(ctx, schema, ctx.settingsScope.describe())
   // Registration-time text (the nav label thunk) and the inject faces share
   // one bound translate; copy freshness rides the locale revision.
@@ -87,6 +94,7 @@ export function apply(ctx: ClientContext): void {
     controller,
     hooks: { snapshot: controller.store },
     operations,
+    ...authorization === undefined ? {} : { authorization },
     schema,
     t,
   })

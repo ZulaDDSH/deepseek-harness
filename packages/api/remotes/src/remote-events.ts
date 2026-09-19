@@ -23,6 +23,13 @@ export const API_REMOTE_FORWARDED_EVENTS = [
   { event: 'api-session/error', mode: 'emit' },
   { event: 'api-session/removed', mode: 'emit' },
   { event: 'api-session/status', mode: 'emit' },
+  // An authorization attempt has no Agent scope — a settings page starts it —
+  // and its questions are answered by a second Remote call rather than a
+  // waterfall reply, so a notice rides one-way. `authorization/settled` is the
+  // seam's own terminal report, forwarded so a page watching a key it did not
+  // start learns the attempt is over.
+  { event: 'authorization/notice', mode: 'emit' },
+  { event: 'authorization/settled', mode: 'emit' },
   { event: 'commands/change', mode: 'emit' },
   { event: 'credentials/reference-updated', mode: 'emit' },
   { event: 'goal/activation-changed', mode: 'emit' },

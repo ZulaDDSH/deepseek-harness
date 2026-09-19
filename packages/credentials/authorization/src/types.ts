@@ -89,3 +89,69 @@ export interface AuthorizationEntry {
   /** Whether an attempt for this key is running right now. */
   inFlight: boolean
 }
+
+/**
+ * What one attempt has to say to the surface running it. The wire has no reply
+ * path inside a call, so a notice and the question it may carry travel the same
+ * one-way way; a surface that must answer does so through the answering call
+ * this id addresses.
+ *
+ * `attempt` is Host-minted, so a page watching several keys tells its own
+ * attempt's traffic from another tab's, and a surface that never saw a question
+ * cannot answer one it was not shown.
+ */
+export interface AuthorizationNoticeEvent {
+  /** Identifies the attempt this notice belongs to. */
+  attempt: string
+  /** The credential record being authorized. */
+  key: CredentialKey
+  /** What is happening, or what the human must do next. */
+  message: string
+  /** A page the human must open to continue. */
+  url?: string
+  /** A short code the human must enter on that page. */
+  code?: string
+  /** Identifies the question this notice asks, when the flow needs an answer. */
+  prompt?: string
+  /** How that question should be presented. */
+  kind?: AuthorizationPrompt['kind']
+  /** Placeholder for a typed answer, when the flow named one. */
+  placeholder?: string
+  /** Choices for a `select` question. */
+  options?: readonly AuthorizationPromptOption[]
+}
+
+/** One attempt reaching a terminal state, so a surface stops offering to answer it. */
+export interface AuthorizationSettledEvent {
+  /** The attempt that ended. */
+  attempt: string
+  /** The credential record it was authorizing. */
+  key: CredentialKey
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * One authorization attempt has finished and released its key. Fires for
+     * every terminal outcome, failures included, so a surface watching a key it
+     * did not start (a second browser tab) learns the attempt is over.
+     * @param key - the credential record the finished attempt was authorizing.
+     * @param settlement - how it ended, including the `failed` case its caller sees as a thrown error.
+     * @mode emit
+     */
+    'authorization/settled'(key: CredentialKey, settlement: AuthorizationSettlement): void
+
+    /**
+     * One running attempt's report to the surface that started it: progress, a
+     * page to open, a code to enter, or a question to answer. Scoped by
+     * `attempt` rather than by Agent, because an authorization is started from
+     * a configuration page and no Agent owns it.
+     *
+     * The wire has no reply path inside a call, so a question rides this same
+     * one-way event and is answered through the call its `prompt` id addresses.
+     * @param notice - the attempt it belongs to and what it has to say.
+     * @mode emit
+     */
+    'authorization/notice'(notice: AuthorizationNoticeEvent): void
+  }
+}

@@ -25,6 +25,16 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
      * reference, never the value.
      */
     'credential/rejected': { readonly ref: string }
+    /**
+     * No flow claims that credential record, so nothing can obtain it. The
+     * common cause is a composition that mounts no adapter owning the key.
+     */
+    'authorization/not-found': { readonly key?: string }
+    /**
+     * The flow itself failed — a refused grant, a network error, a provider
+     * rejection. Distinct from a cancellation, which is an outcome.
+     */
+    'authorization/failed': { readonly key: string }
   }
 }
 
@@ -37,3 +47,17 @@ export interface SettingsDocumentOpenValue {
 export type AgentPresetDirectoryOpenValue =
   | { readonly opened: true }
   | { readonly opened: false; readonly path: string }
+
+/** One registered authorization flow as the settings page lists it. */
+export interface AuthorizationEntryView {
+  /** The credential record this flow writes. */
+  readonly key: string
+  /** User-facing name of what is being authorized. */
+  readonly label: string
+  /** The methods this flow offers, most preferred first. */
+  readonly methods: readonly { readonly id: string; readonly label: string }[]
+  /** Whether an attempt for this key is running right now. */
+  readonly inFlight: boolean
+  /** Whether a credential is already stored for this key. */
+  readonly configured: boolean
+}
