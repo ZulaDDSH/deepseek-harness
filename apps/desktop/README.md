@@ -93,6 +93,18 @@ pnpm run start:desktop
 
 Workspace development runs the current CLI and private Desktop Host packages under Electron RunAsNode. Plugin management and recovery use `$DSH_HOME/profiles/desktop`, separate from the disposable workspace runtime. The Host uses runtime module resolution in both development and packaged builds without creating official-package fallback links; developer-installed packages, including links, retain native priority. Use an unpacked application to exercise Electron RunAsNode, bundled pnpm, bundled dsh resources, plugin installation and repair paths.
 
+### Optional Memorix memory integration
+
+For source-tree Desktop development, the repository can add Memorix to the existing Desktop profile after that profile has been created once:
+
+```sh
+pnpm run setup:memorix:desktop
+```
+
+Stop Desktop before running the setup command, then restart it. A branch change requires stopping Desktop, rebuilding, and relaunching first: a running Host executes the built runtime tree rather than the sources now on disk, so switching branches underneath it produces a fatal startup or Host failure. The helper pins `memorix@1.3.0`, keeps package scripts disabled, uses Node's built-in SQLite backend, and enables Memorix through the existing DSH MCP client in `lite` mode. Re-running the command is idempotent when the same version is already installed and enabled.
+
+The dedicated `Memorix Desktop smoke` workflow validates Linux and Windows installation, Electron RunAsNode MCP startup, tool discovery, memory writes, process restart, and recall from a fresh MCP process. Memorix remains an experience-memory layer; it does not replace verified GARDEN evidence or task state.
+
 ## Package
 
 <a id="release-versions"></a>

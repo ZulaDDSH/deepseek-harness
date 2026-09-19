@@ -1,0 +1,51 @@
+name: Memorix Desktop smoke
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/memorix-desktop-smoke.yml'
+      - 'package.json'
+      - 'scripts/setup-memorix-desktop*'
+      - 'scripts/smoke-memorix-desktop.mjs'
+      # The smoke covers MCP config and child-environment behavior that these own.
+      - 'packages/mcp/mcp-client/**'
+      - 'packages/subprocess/subprocess/**'
+      - 'apps/desktop/src/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  memorix-desktop:
+    name: ${{ matrix.os }} / Memorix Desktop
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run setup regression tests
+        run: pnpm run test:memorix:desktop-setup
+
+      - name: Run installed Memorix Desktop smoke
+        run: node scripts/smoke-memorix-desktop.mjs
