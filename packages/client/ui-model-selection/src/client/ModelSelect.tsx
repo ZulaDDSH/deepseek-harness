@@ -42,6 +42,14 @@ interface EffortChoice {
   label: string
 }
 
+function StarIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M8 1.4 9.95 5.35l4.36.63-3.16 3.08.75 4.35L8 11.36l-3.9 2.05.75-4.35-3.16-3.08 4.36-.63L8 1.4Z" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 /** Unplaced portal card: hidden but laid out at a fixed origin so offsetWidth/offsetHeight are real (Menu primitive's measure pass). */
 const MEASURE_STYLE: CSSProperties = { visibility: 'hidden', left: 0, top: 0 }
 
@@ -52,7 +60,7 @@ const MEASURE_STYLE: CSSProperties = { visibility: 'hidden', left: 0, top: 0 }
  * @returns the trigger and, while open, the two-level menu.
  */
 export function ModelSelect(
-  { locked, available, directory, load, select, t }:
+  { locked, available, directory, load, select, favorites, toggleFavorite, t }:
   ModelSelectInjected & { locked: boolean } & PropsLocale<'model'>,
 ) {
   const state = useSyncExternalStore(
@@ -61,6 +69,12 @@ export function ModelSelect(
   )
   const [open, setOpen] = useState(false)
   const [pane, setPane] = useState<Pane>('root')
+  const [search, setSearch] = useState('')
+  const favoriteIds = useSyncExternalStore(
+    fn => favorites.subscribe(fn),
+    () => favorites.getSnapshot(),
+  )
+  const favoriteSet = useMemo(() => new Set(favoriteIds), [favoriteIds])
   // The in-menu error strip serves catalog loads (its Retry re-runs the
   // load); a rejected SELECTION announces through the transient toast
   // instead, so the strip renders only while the latest failure-capable
@@ -71,6 +85,7 @@ export function ModelSelect(
   const rootRef = useRef<HTMLDivElement | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
+  const searchRef = useRef<HTMLInputElement | null>(null)
   const [menuPos, setMenuPos] = useState<CSSProperties | null>(null)
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([])
   const id = useId()
@@ -79,6 +94,7 @@ export function ModelSelect(
     group.models.map(model => ({
       group,
       model,
+      key: `${group.id}/${model.id}`,
       selection: {
         provider: group.id,
         model: model.id,
@@ -87,6 +103,24 @@ export function ModelSelect(
           : { reasoningEffort: model.reasoning.defaultEffort },
       } satisfies ModelSelection,
     }))), [state.groups])
+  const visibleGroups = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase()
+    const matches = (choice: typeof choices[number]): boolean => query === ''
+      || choice.model.name.toLocaleLowerCase().includes(query)
+      || choice.model.id.toLocaleLowerCase().includes(query)
+      || choice.group.name.toLocaleLowerCase().includes(query)
+    const favorites = choices.filter(choice => favoriteSet.has(choice.key) && matches(choice))
+    const groups = state.groups.map(group => ({
+      key: group.id,
+      name: group.name,
+      models: choices.filter(choice => choice.group.id === group.id
+        && !favoriteSet.has(choice.key) && matches(choice)),
+    })).filter(group => group.models.length > 0)
+    return favorites.length === 0
+      ? groups
+      : [{ key: 'favorites', name: t('favorites.title'), models: favorites }, ...groups]
+  }, [choices, favoriteSet, search, state.groups, t])
+  const visibleChoices = visibleGroups.flatMap(group => group.models)
   const selectedIndex = state.current === null
     ? -1
     : choices.findIndex(c => c.selection.provider === state.current?.provider && c.selection.model === state.current.model)
@@ -140,12 +174,12 @@ export function ModelSelect(
     paneFocus.current = null
     if (!open || intent === null) return
     if (intent === 'drill') {
-      // The checked row is the value in use; a pane without one opens on its
-      // first row.
+      if (pane === 'model') {
+        searchRef.current?.focus()
+        return
+      }
       const checked = menuRef.current?.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]:not([disabled])')
       const target = checked ?? itemRefs.current.find(item => item !== null && !item.disabled)
-      // Rows a selection in flight disabled cannot take the keyboard; the
-      // trigger does, so the card's keys still reach the menu.
       ;(target ?? triggerRef.current)?.focus()
       return
     }
@@ -190,6 +224,7 @@ export function ModelSelect(
   if (!available) return null
 
   const show = (): void => {
+    setSearch('')
     setPane('root')
     setOpen(true)
     reload()
@@ -289,6 +324,10 @@ export function ModelSelect(
         ? t('error.sessionInUse')
         : t('error.action', { message: `${error.code}: ${error.message}` }),
     })
+  }
+
+  const toggle = (key: string): void => {
+    toggleFavorite(key)
   }
 
   const choose = (selection: ModelSelection): void => {
@@ -393,6 +432,15 @@ export function ModelSelect(
 
           {pane === 'model' && (
             <>
+              <input
+                ref={searchRef}
+                className={css.search}
+                type="search"
+                placeholder={t('search.placeholder')}
+                aria-label={t('search.aria')}
+                value={search}
+                onChange={(event) => { setSearch(event.currentTarget.value) }}
+              />
               {state.status === 'loading' && (
                 <div className={css.status}>{t('status.loading')}</div>
               )}
@@ -409,32 +457,49 @@ export function ModelSelect(
                 </div>
               ))}
               <div className={clsx(css.groups, 'scrollable')}>
-                {state.groups.map((group) => {
-                  const headingId = `${id}-${group.id}`
+                {visibleGroups.map((group) => {
+                  const headingId = `${id}-${group.key}`
                   return (
-                    <section role="group" aria-labelledby={headingId} className={css.group} key={group.id}>
+                    <section role="group" aria-labelledby={headingId} className={css.group} key={group.key}>
                       <div className={css.groupTitle} id={headingId}>{group.name}</div>
-                      {group.models.map((model) => {
-                        const selected = state.current?.provider === group.id && state.current.model === model.id
+                      {group.models.map((choice) => {
+                        const selected = state.current?.provider === choice.group.id && state.current.model === choice.model.id
+                        const favorite = favoriteSet.has(choice.key)
                         return (
-                          <button
-                            ref={itemRef()}
-                            type="button"
-                            role="menuitemradio"
-                            aria-checked={selected}
-                            className={clsx(css.option, selected && css.selected)}
-                            key={model.id}
-                            title={model.name}
-                            disabled={busy}
-                            onClick={() => { choose({ provider: group.id, model: model.id }) }}
-                          >
-                            <span className={css.optionCopy}>
-                              <span className={css.modelName}>{model.name}</span>
-                            </span>
-                            <span className={css.check}>
-                              {selected ? <IconCheckOutline16 /> : null}
-                            </span>
-                          </button>
+                          <div className={css.optionRow} key={choice.key}>
+                            <button
+                              ref={itemRef()}
+                              type="button"
+                              role="menuitemradio"
+                              aria-checked={selected}
+                              className={clsx(css.option, selected && css.selected)}
+                              title={choice.model.name}
+                              disabled={busy}
+                              onClick={() => { choose(choice.selection) }}
+                            >
+                              <span className={css.optionCopy}>
+                                <span className={css.modelName}>{choice.model.name}</span>
+                              </span>
+                              <span className={css.check}>
+                                {selected ? <IconCheckOutline16 /> : null}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              className={css.favorite}
+                              aria-label={favorite
+                                ? t('favorite.remove', { model: choice.model.name })
+                                : t('favorite.add', { model: choice.model.name })}
+                              aria-pressed={favorite}
+                              title={favorite
+                                ? t('favorite.remove', { model: choice.model.name })
+                                : t('favorite.add', { model: choice.model.name })}
+                              disabled={busy}
+                              onClick={() => { toggle(choice.key) }}
+                            >
+                              <StarIcon filled={favorite} />
+                            </button>
+                          </div>
                         )
                       })}
                     </section>
@@ -443,6 +508,9 @@ export function ModelSelect(
               </div>
               {state.status === 'ready' && choices.length === 0 && (
                 <div className={css.empty}>{t('empty.models')}</div>
+              )}
+              {state.status === 'ready' && choices.length > 0 && visibleChoices.length === 0 && (
+                <div className={css.empty}>{t('empty.search')}</div>
               )}
             </>
           )}

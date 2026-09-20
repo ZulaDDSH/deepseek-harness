@@ -1,0 +1,3 @@
+name: Lean mode
+description: Read, inspect, and write files with a capped context window.
+order: 3

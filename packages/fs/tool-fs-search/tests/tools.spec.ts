@@ -249,6 +249,11 @@ describe('registration', () => {
     expect(glob?.description).toContain('sampled across top-level entries')
   })
 
+  it('registers only the configured search tools', async () => {
+    const { ctx } = await setup({ config: { enabledTools: ['glob'] } })
+    expect(ctx.tools.schemas().map(s => s.name)).toEqual(['glob'])
+  })
+
   it('stays pending until ctx.subprocess exists (inject)', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)

@@ -370,6 +370,15 @@ describe('compact configuration and defaults', () => {
       retainTokens: 200,
     })
 
+    const capped = resolveTargetPolicy(resolveConfig({ maxContextWindow: 200_000 }), {
+      provider: 'capped-provider', model: 'capped-model',
+    })
+    expect(resolveCompactSpec(capped, 1_000_000)).toMatchObject({
+      contextWindow: 200_000,
+      thresholdTokens: 160_000,
+      retainTokens: 32_000,
+    })
+
     const ratioOverride = resolveTargetPolicy(resolveConfig({
       retainTokens: 200,
       modelPolicies: [{
@@ -433,6 +442,7 @@ describe('compact configuration and defaults', () => {
   it('validates common values and pressure-policy invariants', () => {
     const bad = [
       [{ maxTokens: 0 }, /maxTokens/],
+      [{ maxContextWindow: 0 }, /maxContextWindow/],
       [{ compactionRetries: -1 }, /compactionRetries/],
       [{ maxOverflowRetries: -1 }, /maxOverflowRetries/],
       [{ auto: 'yes' }, /auto must be a boolean/],

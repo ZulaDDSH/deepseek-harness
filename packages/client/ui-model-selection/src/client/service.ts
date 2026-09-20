@@ -17,6 +17,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { SessionBinding } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { WeakMapWithValues } from '@deepseek-ai/dsh-util-values'
+import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { ModelCatalogDirectory } from './catalog.ts'
 import { ModelDirectory } from './directory.ts'
 
@@ -38,6 +39,9 @@ export class ModelDirectoryResolver extends Service {
 
   private readonly live: LiveState = { directories: new WeakMapWithValues() }
   private readonly catalog: ModelCatalogDirectory
+  readonly favorites: SnapshotStore<string[]> = createSnapshotStore([], {
+    persist: { name: 'dsh.model-selection.favorites.v1' },
+  })
 
   /** Localized composer-block copy; this plugin owns the string it raises. */
   private readonly blockReason: () => string

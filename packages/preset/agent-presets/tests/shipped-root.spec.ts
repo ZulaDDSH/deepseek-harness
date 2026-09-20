@@ -89,7 +89,7 @@ describe('the shipped preset root', () => {
     const ctx = await roster({ includeUserRoot: false })
 
     const listed = await ctx.agentPresets.list()
-    expect(listed.map(preset => preset.id).sort()).toEqual(['cordis', 'minimal', 'ptc', 'standard'])
+    expect(listed.map(preset => preset.id).sort()).toEqual(['cordis', 'lean', 'minimal', 'ptc', 'standard'])
     expect(listed.every(preset => preset.trust === 'system')).toBe(true)
     // Not `broken === undefined`: health asks whether each row's package is
     // installed above the base, and the shipped rows name packages the
@@ -158,5 +158,14 @@ describe('the shipped preset root', () => {
       expect(findEntry(await shippedEntries(id), 'tool-ralph')?.disabled, id).toBe(true)
     }
     expect(findEntry(await shippedEntries('minimal'), 'tool-ralph')).toBeUndefined()
+  })
+
+  it('keeps the lean preset to file tools and capped compaction', async () => {
+    const entries = await shippedEntries('lean')
+    expect(findEntry(entries, 'tool-fs')?.config).toMatchObject({ enabledTools: ['read', 'write'] })
+    expect(findEntry(entries, 'tool-fs-search')?.config).toMatchObject({ enabledTools: ['glob', 'grep'] })
+    expect(findEntry(entries, 'compaction-basic')?.config).toMatchObject({ maxContextWindow: 200000 })
+    expect(findEntry(entries, 'persistent-bash')).toBeUndefined()
+    expect(findEntry(entries, 'tool-subagent')).toBeUndefined()
   })
 })

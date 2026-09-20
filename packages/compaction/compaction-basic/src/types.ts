@@ -40,6 +40,8 @@ export interface BasicCompactionConfig extends CompactionPolicyConfig {
   modelPolicies?: ModelCompactPolicyConfig[]
   /** Enable automatic step-boundary pressure and overflow-recovery listeners. Defaults to `true`. */
   auto?: boolean
+  /** Caps the capacity used for scoped pressure compaction. */
+  maxContextWindow?: number
 }
 
 /** Exactly one validated retention form. */
@@ -61,11 +63,13 @@ interface ResolvedPolicyFields {
 export type ResolvedConfig = ResolvedPolicyFields & ResolvedRetention & {
   readonly modelPolicies: readonly Readonly<ModelCompactPolicyConfig>[]
   readonly auto: boolean
+  readonly maxContextWindow?: number
 }
 
 /** Fully merged policy for one routed conversation target, before capacity scaling. */
 export type ResolvedTargetPolicy = ResolvedPolicyFields & ResolvedRetention & {
   readonly target: Pick<LlmCallConfig, 'provider' | 'model'>
+  readonly maxContextWindow?: number
 }
 
 /** One routed model's concrete pressure and retention budget. */
