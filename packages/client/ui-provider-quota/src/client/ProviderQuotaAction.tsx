@@ -4,6 +4,7 @@ import { IconDataOutline16, IconRefreshOutline14, Tooltip } from '@deepseek-ai/d
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { PropsLocale, PropsRuntime, InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 import type { QuotaResult, QuotaWindow, QuotaWindowId } from '@deepseek-ai/dsh-api-quota-controller/types'
+import type { TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
 import { NS, type ProviderQuotaKey } from './locales.ts'
 import css from './ProviderQuotaAction.module.css'
 
@@ -36,6 +37,12 @@ function windowTone(used: number | null): 'ok' | 'warn' | 'error' {
 function resetLabel(resetAt: number | null): string | undefined {
   if (resetAt === null || !Number.isFinite(resetAt)) return undefined
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(resetAt)
+}
+
+function sessionTokenLabel(usage: TokenUsageProjection | undefined): string | undefined {
+  if (usage === undefined) return undefined
+  const total = usage.uncachedInputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens
+  return new Intl.NumberFormat().format(total)
 }
 
 /** One usage window: its label, a bar, the metric, and when it resets. */
@@ -94,6 +101,7 @@ function ProviderSection({ result, t }: {
 export function ProviderQuotaAction(props: ProviderQuotaActionProps): React.JSX.Element {
   const providers = props.useProviders(value => value)
   const state = props.useState(value => value)
+  const sessionTokens = sessionTokenLabel(props.useProjection('tokenUsage'))
   const [open, setOpen] = useState(false)
   const toggle = (): void => {
     const next = !open
@@ -113,6 +121,7 @@ export function ProviderQuotaAction(props: ProviderQuotaActionProps): React.JSX.
           <strong>{props.t('title')}</strong>
           <button type="button" className={css.refresh} aria-label={props.t('refresh')} onClick={() => { void props.refresh() }}><IconRefreshOutline14 size={14} /></button>
         </header>
+        {sessionTokens !== undefined && <p className={css.sessionTotal}>{props.t('sessionTotal', { tokens: sessionTokens })}</p>}
         {providers === null || state.status === 'loading' ? <p>{props.t('loading')}</p>
           : state.status === 'error' ? <p>{props.t('error', { message: state.message ?? props.t('unavailable') })}</p>
             : providers.length === 0 ? <p>{props.t('empty')}</p>

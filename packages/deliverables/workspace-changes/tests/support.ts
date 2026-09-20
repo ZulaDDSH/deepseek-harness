@@ -3,7 +3,10 @@ import { execFileSync } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Context } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
+import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
+import SessionStore from '@deepseek-ai/dsh-session'
+import { GitRunner } from '../src/git.ts'
 import { ToolCallId, createAssistantMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-tools'
@@ -23,6 +26,14 @@ export async function scratchDir(prefix: string, cleanups: Array<() => Promise<u
   const dir = await mkdtemp(join(tmpdir(), prefix))
   cleanups.push(() => rm(dir, { recursive: true, force: true }))
   return dir
+}
+
+/** Start an isolated Git runner for a test repository. */
+export async function runner(limits = { timeoutMs: 30_000, outputMaxBytes: 1024 * 1024 }, executable = 'git') {
+  const ctx = new Context()
+  await ctx.plugin(SessionStore)
+  await ctx.plugin(LocalSubprocessRuntime)
+  return { ctx, git: new GitRunner(ctx.subprocess, await ctx.subprocess.resolveExecutable(executable).catch(() => executable), limits) }
 }
 
 /** Open a turn with its first step. */

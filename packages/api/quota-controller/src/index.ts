@@ -19,6 +19,7 @@ export interface QuotaControllerInternals {
   readonly providers?: readonly QuotaProvider[]
 }
 
+/** requires credential-backed provider quota Remote service. */
 export class QuotaController extends TypertRemoteService {
   private readonly providers: ReadonlyMap<string, QuotaProvider>
   private readonly fetchImpl: typeof fetch
@@ -31,6 +32,7 @@ export class QuotaController extends TypertRemoteService {
   }
 
   @Remote
+  /** requires @returns configured providers with available credentials. */
   async listProviders(): Promise<readonly QuotaProviderView[]> {
     const configured = await Promise.all([...this.providers.values()].map(async (provider) => {
       const value = await this.resolveCredential(provider)
@@ -40,6 +42,7 @@ export class QuotaController extends TypertRemoteService {
   }
 
   @Remote
+  /** requires @param providerId - provider identifier. @returns the provider quota result. */
   fetch(providerId: string): Promise<QuotaResult> {
     const existing = this.pending.get(providerId)
     if (existing !== undefined) return existing

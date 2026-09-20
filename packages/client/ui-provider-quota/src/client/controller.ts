@@ -51,7 +51,7 @@ export class ProviderQuotaController {
     const failures = responses.filter(response => !response.ok)
     if (failures.length === responses.length && failures.length > 0) {
       const firstFailure = failures[0]
-      this.state.set({ status: 'error', results: [], message: firstFailure !== undefined && !firstFailure.ok ? firstFailure.error.message : 'Request failed' })
+      this.state.set({ status: 'error', results: [], message: firstFailure.error.message })
       return
     }
     this.state.set({ status: 'ready', results: responses.flatMap(response => response.ok ? [response.value] : []) })

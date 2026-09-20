@@ -8,11 +8,16 @@ function provideRenderer(ctx: Context, mount: (container: HTMLElement) => () => 
   return ctx.plugin({ apply: (scope: Context) => { scope.reflect.provide('uiRenderer', { mount }) } })
 }
 
+function provideSession(ctx: Context) {
+  return ctx.plugin({ apply: (scope: Context) => { scope.provide('uiSession', {}) } })
+}
+
 describe('mountClient', () => {
   it('mounts into the container and unmounts when the tree is disposed', async () => {
     const ctx = new Context()
     const unmount = vi.fn()
     const mount = vi.fn((_container: HTMLElement) => unmount)
+    provideSession(ctx)
     provideRenderer(ctx, mount)
     const container = document.createElement('div')
 
@@ -33,6 +38,7 @@ describe('mountClient', () => {
     await mountClient(ctx, container)
     expect(first.mount).not.toHaveBeenCalled()
 
+    provideSession(ctx)
     const renderer = provideRenderer(ctx, first.mount)
     await vi.waitFor(() => { expect(first.mount).toHaveBeenCalledExactlyOnceWith(container) })
 

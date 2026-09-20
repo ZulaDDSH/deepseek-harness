@@ -407,18 +407,30 @@ describe('web e2e: shipped right Sidebar', () => {
       }
 
       await expect.poll(async () => await tabTitles(column)).toEqual(['Start'])
-      await expect.poll(async () => await column.locator('[data-sidebar-right-guide-entry]').count()).toBe(3)
-      await column.locator('[data-sidebar-right-guide-entry="files"]').click()
-
+      await expect.poll(async () => await column.locator('[data-sidebar-right-guide-entry]').count()).toBe(4)
       // A manual guide is closable beside Files and suppresses another add
       // control in its pane until it is closed.
       const addTab = column.locator('[data-dockkit-add-tab]')
       const filesTab = column.locator('[data-dockkit-tab]').filter({ hasText: 'Files' })
+      await column.locator('[data-sidebar-right-guide-entry="files"]').click()
       await expect.poll(async () => await tabTitles(column)).toEqual(['Files'])
       await column.locator('[data-files-state="tree"]').waitFor({ state: 'visible' })
       expect(await filesTab.locator('[data-dockkit-tab-close]').count()).toBe(1)
       await expect.poll(async () => await addTab.count()).toBe(1)
       expect(await centreY('[data-dockkit-add-tab]')).toBe(textLine)
+      // The Workspace review page reads the Workspace's Git status; this
+      // scaffold's working directory is a fresh temporary directory, so the
+      // page reports the not-a-repository state.
+      await addTab.click()
+      await column.locator('[data-sidebar-right-guide-entry="workspace-changes"]').click()
+      await expect.poll(async () => await tabTitles(column)).toEqual(['Files', 'Changes'])
+      const workspaceChanges = column.locator('[data-source-changes]')
+      await workspaceChanges.waitFor({ state: 'visible' })
+      await expect.poll(async () => await workspaceChanges.innerText())
+        .toContain('This workspace is not a Git repository')
+      await column.locator('[data-dockkit-tab]').filter({ hasText: 'Changes' })
+        .locator('[data-dockkit-tab-close]').click()
+      await expect.poll(async () => await tabTitles(column)).toEqual(['Files'])
       await addTab.click()
       await expect.poll(async () => await tabTitles(column)).toEqual(['Files', 'Start'])
       await expect.poll(async () => await column.locator('[data-sidebar-right-guide]').count()).toBe(1)

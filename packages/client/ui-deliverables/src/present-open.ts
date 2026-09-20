@@ -8,7 +8,8 @@ import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-session-query'
 import type { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
-import { CHANGES_DIFF_PATH, CHANGES_OPEN_PATH, CHANGED_FILES_PATH, type ChangesSummary } from './changes.ts'
+import type { WorkspaceId } from '@deepseek-ai/dsh-workspace'
+import { CHANGES_DIFF_PATH, CHANGES_OPEN_PATH, CHANGED_FILES_PATH, WORKSPACE_DIFF_PATH, WORKSPACE_STATUS_PATH, type ChangesSummary, type WorkspaceStatusValue } from './changes.ts'
 import { isPresentedData, isPresentedFile, PRESENT_OPEN_PATH, PRESENT_HOST_PATH, type PresentedHost } from './presented.ts'
 
 /**
@@ -23,6 +24,7 @@ export function registerPresentOpen(ctx: Context): void {
     fetch: () => Promise.resolve(Response.json(ctx.sessionController.workspaceDesktop() satisfies PresentedHost,
       { headers: { 'cache-control': 'no-store' } })),
   })
+
   ctx.connection.fetch.register({
     path: CHANGED_FILES_PATH, methods: ['GET'], requestBody: 'buffered',
     fetch: request => Promise.resolve(handleChangesSummary(ctx, request)),
@@ -35,6 +37,7 @@ export function registerPresentOpen(ctx: Context): void {
   })
   const routes = [
     [PRESENT_OPEN_PATH, 'POST', handlePresentOpen], [CHANGES_OPEN_PATH, 'POST', handleChangesOpen], [CHANGES_DIFF_PATH, 'GET', handleChangesDiff],
+    [WORKSPACE_STATUS_PATH, 'GET', handleWorkspaceStatus], [WORKSPACE_DIFF_PATH, 'GET', handleWorkspaceDiff],
   ] as const
   for (const [path, method, handler] of routes) {
     ctx.connection.fetch.register({
@@ -121,7 +124,37 @@ async function handlePresentOpen(ctx: Context, request: Request): Promise<Respon
   }
 }
 
-/** The summary one `workspace/changes` event announced, without the Host working directory; 404 once the Host no longer serves it. */
+/** Read current git status for one registered Workspace. */
+async function handleWorkspaceStatus(ctx: Context, request: Request): Promise<Response> {
+  const workspaceId = new URL(request.url).searchParams.get('workspaceId')
+  if (!workspaceId) return new Response('Invalid workspace status coordinates.', { status: 400 })
+  try {
+    const status = await ctx.workspaceChanges.status(workspaceId as WorkspaceId, request.signal)
+    if (status === undefined) return new Response('Workspace status unavailable.', { status: 404 })
+    const { cwd: _cwd, root: _root, ...value } = status
+    return Response.json({ workspaceId: workspaceId as WorkspaceId, ...value } satisfies WorkspaceStatusValue, { headers: { 'cache-control': 'no-store' } })
+  } catch (error: unknown) {
+    request.signal.throwIfAborted()
+    return new Response('Workspace status unavailable.', { status: failureStatus(error) })
+  }
+}
+
+/** Read current git comparison for one status-file index. */
+async function handleWorkspaceDiff(ctx: Context, request: Request): Promise<Response> {
+  const query = new URL(request.url).searchParams
+  const workspaceId = query.get('workspaceId')
+  const index = coordinate(query.get('index'))
+  if (!workspaceId || index === undefined) return new Response('Invalid workspace diff coordinates.', { status: 400 })
+  try {
+    const diff = await ctx.workspaceChanges.workspaceDiff(workspaceId as WorkspaceId, index, request.signal)
+    if (diff === undefined) return new Response('Workspace comparison unavailable.', { status: 404 })
+    return Response.json(diff, { headers: { 'cache-control': 'no-store' } })
+  } catch (error: unknown) {
+    request.signal.throwIfAborted()
+    return new Response('Workspace comparison unavailable.', { status: failureStatus(error) })
+  }
+}
+/** The summary one workspace/changes event announced, without the Host working directory; 404 once the Host no longer serves it. */
 function handleChangesSummary(ctx: Context, request: Request): Response {
   const query = new URL(request.url).searchParams
   const id = query.get('sessionId')

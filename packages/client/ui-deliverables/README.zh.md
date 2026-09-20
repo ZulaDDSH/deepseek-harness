@@ -27,6 +27,12 @@ kind: "package-reference"
 
 与 `ui-conversation` 和 Host 侧的 [workspace-changes](../../deliverables/workspace-changes/README.zh.md) 插件一起挂载本插件；已完成轮次随即以改动文件卡片收尾，位于收尾消息正文与其动作页脚之间。没有可提供的摘要时——本轮没有改动任何文件、该插件被组合出去，或该轮之后 Host 重启过——卡片不出现，只保留交付卡片与正文链接；工作区不在 git 仓库内时摘要只列文件工具的编辑。
 
+### Source Control 面板
+
+侧栏的“更改”入口通过 Host 读取已注册工作区的当前状态。它列出带 Git 状态标记和行数的已跟踪修改、添加、删除、重命名与未跟踪文件，并显示所选文件相对 HEAD 的当前对比。
+
+面板按需刷新，不追加 Session 事件。它不会扫描浏览器任意路径；Host 会先根据工作区身份解析目录，再运行 Git。
+
 <a id="explicit-deliveries"></a>
 ### 显式交付
 

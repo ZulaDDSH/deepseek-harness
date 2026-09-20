@@ -15,12 +15,16 @@ import type {} from '@deepseek-ai/dsh-agent'
 import type { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-subprocess'
 import type {} from '@deepseek-ai/dsh-tools'
-import { GitRunner } from './git.ts'
+import type {} from '@deepseek-ai/dsh-workspace'
+import { GitRunner, resolveRepositoryRoot } from './git.ts'
 import { TurnRecorder } from './recorder.ts'
+import { readWorkspaceDiff, readWorkspaceStatus } from './status.ts'
+import { canonicalPath } from './paths.ts'
 import type { WorkspaceChanges } from './types.ts'
 
 export type {
-  WorkspaceChangedFile, WorkspaceChanges, WorkspaceChangesSummary, WorkspaceDiffHunk, WorkspaceFileDiff,
+  WorkspaceChangedFile, WorkspaceChanges, WorkspaceChangesSummary, WorkspaceDiffHunk,
+  WorkspaceFileDiff, WorkspaceStatus, WorkspaceStatusFile,
 } from './types.ts'
 
 /** Stable Loader identity. */
@@ -111,9 +115,32 @@ export function apply(ctx: Context, config: Config): void {
     lifetime.abort()
     await Promise.all([...recorders.keys()].map(forget))
   })
+  // The registry is an optional service whose provider may still be initializing
+  // while this plugin applies, so read it per request instead of capturing it.
   const service: WorkspaceChanges = {
     summary: (sessionId, seq) => byId.get(sessionId)?.summary(seq),
     diff: (sessionId, seq, index, signal) => byId.get(sessionId)?.diff(seq, index, signal) ?? Promise.resolve(undefined),
+    status: async (workspaceId, signal) => {
+      const registered = ctx.get('workspaceRegistry')?.get(workspaceId)
+      if (registered === undefined) return undefined
+      const git = await gitRunner()
+      if (git === null) return undefined
+      const root = await resolveRepositoryRoot(git, registered.path, signal)
+      return root === null
+        ? undefined
+        : readWorkspaceStatus(git, root, await canonicalPath(registered.path), config.maxFiles, signal)
+    },
+    workspaceDiff: async (workspaceId, index, signal) => {
+      const registered = ctx.get('workspaceRegistry')?.get(workspaceId)
+      if (registered === undefined) return undefined
+      const git = await gitRunner()
+      if (git === null) return undefined
+      const root = await resolveRepositoryRoot(git, registered.path, signal)
+      if (root === null) return undefined
+      const status = await readWorkspaceStatus(git, root, await canonicalPath(registered.path), config.maxFiles, signal)
+      const file = status.files[index]
+      return file === undefined ? undefined : readWorkspaceDiff(git, root, file, config.maxFileBytes, config.diffTimeoutMs, signal)
+    },
   }
   ctx.provide('workspaceChanges', service)
   let runner: Promise<GitRunner | null> | undefined

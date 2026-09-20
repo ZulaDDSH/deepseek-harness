@@ -92,6 +92,8 @@ The bridge builds each event's stdin payload from a base of `session_id`, string
 
 ### Matcher subjects and serial execution
 
+DSH's built-in `bash`, `write`, and `edit` names also match the reference `Bash`, `Write`, and `Edit` spellings.
+
 The matcher subject is the tool name (`PreToolUse` / `PostToolUse`), the session source (`SessionStart`), or the constant `agent_type` `general-purpose` (`SubagentStart` / `SubagentStop` — the subagent seam carries no per-kind label); `UserPromptSubmit` and `Stop` ignore matchers. Matched hooks run serially in config order, which keeps each hook's `hook/invoked` / `hook/result` pair adjacent in the log, and the most-restrictive fold is order-independent (`deny > ask > allow`).
 
 ### Detached runs and disposal

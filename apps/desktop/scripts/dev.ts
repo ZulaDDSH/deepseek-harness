@@ -72,11 +72,15 @@ async function launchElectron(): Promise<void> {
   }
   console.log(`desktop development: DSH_HOME=${home}`)
   console.log(`desktop development: inspectors main=${String(mainPort)}, renderer=${String(rendererPort)}, host=${String(hostPort)}`)
+  // Electron 44 runs Node's own command-line parser before Chromium's, so a
+  // `--`-prefixed switch placed ahead of the application path is rejected as an
+  // unknown Node option. Everything Chromium owns therefore follows APP_ROOT:
+  // `--inspect` is the exception, since Node claims it wherever it appears.
   await run(electron, [
     `--inspect=127.0.0.1:${String(mainPort)}`,
+    APP_ROOT,
     `--remote-debugging-port=${String(rendererPort)}`,
     `--user-data-dir=${userData}`,
-    APP_ROOT,
   ], APP_ROOT, environment)
 }
 
@@ -89,6 +93,9 @@ async function main(): Promise<void> {
   for (const path of [
     join(APP_ROOT, 'lib', 'main.js'),
     join(REPOSITORY_ROOT, 'apps', 'desktop-host', 'lib', 'index.js'),
+    // The shell serves this directory as the `dsh-app://app/` document root;
+    // without it the window loads a 404 page instead of the application.
+    join(REPOSITORY_ROOT, 'apps', 'web', 'dist', 'index.html'),
   ]) {
     if (!existsSync(path)) throw new Error(`desktop development: missing built artifact ${path}`)
   }

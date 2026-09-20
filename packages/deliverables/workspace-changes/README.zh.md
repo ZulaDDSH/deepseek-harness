@@ -9,7 +9,9 @@ kind: "package-reference"
 
 ## 概述
 
-本插件汇总每个顶层轮次改动了哪些文件、每个文件的行数，并提供每个所列文件在轮次开始与结束时的内容对比。比较轮次开始和结束时的 git 工作树快照；文件工具编辑的每个文件在首次编辑之前和轮次结束时各复制一份整文件，以此覆盖 git 覆盖不到的文件。没有仓库或没有 git 时，只列文件工具的编辑。Session 日志只收到一条写明轮号的 `workspace/changes` 事件；摘要和对比留在 Host 上，直到 Session 释放。Web 的改动文件卡片渲染它们。
+本插件列出改动文件，提供有上限的内容对比，并为已注册 Workspace 提供实时 Git 状态和对比。轮次摘要使用 Git 快照，并为 Git 覆盖不到的文件工具编辑保存整文件内容。Host 在 Session 存活期间保留结果，并追加一条 `workspace/changes` 事件。没有 Git 时只列文件工具编辑；Web 改动文件卡片渲染摘要。
+
+Host 还会为已注册的 Workspace 提供实时状态和当前对比。状态使用 Git porcelain 记录与相对 HEAD 的行数；未知 Workspace 或不在 Git 仓库内的目录不会返回状态或对比。这些读取不会追加 Session 事件。
 
 ## 目录
 

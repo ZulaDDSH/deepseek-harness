@@ -20,6 +20,8 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
     imageLimits: null
     /** Durable model selection already used by a request and still pending for a later request. */
     modelSelection: ModelSelectionProjectionState
+    /** Durable MCP connector selection for one Session. */
+    mcpSelection: McpSelectionProjectionState
   }
   interface SessionProjectionMap {
     /** Persisted facts used to summarize a Session without activating it. */
@@ -28,6 +30,8 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
     imageLimits: ImageAttachmentLimits
     /** Durable model selection already used and selected for the next request. */
     modelSelection: ModelSelectionProjection
+    /** Client view of durable MCP connector selection. */
+    mcpSelection: McpSelectionProjection
   }
 }
 
@@ -38,6 +42,8 @@ declare module '@deepseek-ai/dsh-session/types' {
      * assembly. Log-only: it never enters derived model history.
      */
     'model/selection': ModelSelection
+    /** Complete connector selection requested for subsequent MCP tool calls. */
+    'mcp/selection': McpSelection
   }
 }
 
@@ -103,6 +109,24 @@ export interface ModelSelectionProjection {
   readonly lastUsed: ModelSelection | null
   /** Selection the next request should use, falling back to {@link lastUsed}. */
   readonly next: ModelSelection | null
+}
+
+/** Durable MCP connector selection for one Session. */
+export interface McpSelection {
+  /** Stable connector namespaces selected for this Session. */
+  readonly connectorIds: readonly string[]
+}
+
+/** Host fold state for durable MCP connector selection. */
+export interface McpSelectionProjectionState {
+  /** Latest selected connector namespaces, or null for legacy unrestricted Sessions. */
+  readonly current: McpSelection | null
+}
+
+/** Client view of durable MCP connector selection. */
+export interface McpSelectionProjection {
+  /** Selected connector namespaces, or null when the Session has no selection. */
+  readonly current: McpSelection | null
 }
 
 /** One adapter-owned reasoning effort for an exact model route. */
@@ -284,6 +308,22 @@ export interface SessionSelectModelRequest extends ModelSelection {
 /** Accepted model selection after Host resolution. */
 export interface SessionSelectModelValue {
   readonly selected: ModelSelection
+}
+
+/** MCP connector namespaces available to one Session. */
+export interface McpConnectorCatalog {
+  readonly connectorIds: readonly string[]
+}
+
+/** Session-local MCP connector selection request. */
+export interface SessionSelectMcpRequest {
+  readonly sessionId: SessionId
+  readonly connectorIds: readonly string[]
+}
+
+/** Accepted Session-local MCP connector selection. */
+export interface SessionSelectMcpValue {
+  readonly selected: McpSelection
 }
 
 /** Session rename request. */

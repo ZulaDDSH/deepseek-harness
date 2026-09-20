@@ -41,6 +41,7 @@ export class ClientCordisInspectRegistry {
   private readonly active = new Map<CordisInspectRequestId, AbortController>()
   private publishQueued = false
   private syncChain = Promise.resolve()
+  private disposed = false
 
   /** @param host - folded manifest and query result transport. */
   constructor(private readonly host: ClientCordisInspectHost) {}
@@ -51,6 +52,7 @@ export class ClientCordisInspectRegistry {
    * @returns idempotent disposer.
    */
   register(registration: ClientCordisInspectProviderRegistration): () => void {
+    if (this.disposed) return () => {}
     const { manifest } = registration
     if (manifest.id.trim() === '') throw new Error('Client Cordis inspect provider id must not be empty')
     if (this.providers.has(manifest.id)) throw new Error(`Client Cordis inspect provider "${manifest.id}" is already registered`)
@@ -72,16 +74,27 @@ export class ClientCordisInspectRegistry {
     }
   }
 
+  /** requires disposal before the owning Client entry is replaced. */
+  dispose(): void {
+    this.disposed = true
+    this.providers.clear()
+    for (const controller of this.active.values()) controller.abort()
+    this.active.clear()
+  }
+
   /** Publish the current complete manifest, including after reconnect. */
   publish(): void {
     if (this.publishQueued) return
     this.publishQueued = true
     queueMicrotask(() => {
       this.publishQueued = false
+      if (this.disposed) return
       const manifests = [...this.providers.values()].map(provider => provider.manifest)
       this.syncChain = this.syncChain.then(async () => {
+        if (this.disposed) return
         await this.host.sync(manifests)
       }).catch((error: unknown) => {
+        if (this.disposed) return
         console.error('[cordis-client-runner] syncing inspect providers failed:', error)
       })
     })

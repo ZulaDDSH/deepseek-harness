@@ -169,8 +169,9 @@ export function apply(ctx: Context, config: Config = Config({})): void {
     const active = resolveActiveView(viewTabs(), preferred)
     if (active !== undefined) uiConversation.binding(sessionId).activate(active.id)
   }
-  const restoreView = (sessionId: SessionId): void => {
-    activateView(sessionId, readConversationViewPreference(sessionId))
+  const restoreView = (binding: SessionBinding): void => {
+    if (sessions.binding(binding.sessionId) !== binding) return
+    activateView(binding.sessionId, readConversationViewPreference(binding.sessionId))
   }
   const conversationViews = createSnapshotStore<readonly ViewTab[]>(viewTabs())
   const bindings = new Set<SessionBinding>()
@@ -190,7 +191,7 @@ export function apply(ctx: Context, config: Config = Config({})): void {
         return candidate !== undefined && tab.id === candidate.id && tab.label === candidate.label
       })
     if (!unchanged) conversationViews.set(next)
-    for (const binding of bindings) restoreView(binding.sessionId)
+    for (const binding of bindings) restoreView(binding)
   }
   ctx.effect(() => {
     const disposeViews = slots.subscribe('conversation.view', refreshViews)
@@ -224,7 +225,7 @@ export function apply(ctx: Context, config: Config = Config({})): void {
       trackBinding(binding)
       const shell = inputHub.shellFor(binding)
       const conversation = uiConversation.binding(binding)
-      restoreView(binding.sessionId)
+      restoreView(binding)
       return {
         hooks: {
           conversation: conversation.snapshot,

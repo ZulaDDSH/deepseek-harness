@@ -22,6 +22,7 @@ import { SessionFileReferences } from './file-references.ts'
 import { ApiSessionList } from './list.ts'
 import { buildModelCatalog } from './catalog.ts'
 import { installModelSelectionProjection } from './model-selection-projection.ts'
+import { installMcpSelectionProjection } from './mcp-selection-projection.ts'
 import { SessionSkillCatalog } from './skill-catalog.ts'
 import { SessionMediaReferences } from './media-references.ts'
 import type {
@@ -49,6 +50,9 @@ import type {
   SessionRenameValue,
   SessionSearchRequest,
   SessionSearchValue,
+  McpConnectorCatalog,
+  SessionSelectMcpRequest,
+  SessionSelectMcpValue,
   SessionSelectModelRequest,
   SessionSelectModelValue,
   SessionUpdateQueueRequest,
@@ -120,6 +124,7 @@ export class SessionController extends TypertRemoteService {
   constructor(ctx: Context, config: Config, internals: SessionControllerInternals = {}) {
     super(ctx, 'sessionController', { namespace: 'session' })
     installModelSelectionProjection(ctx)
+    installMcpSelectionProjection(ctx)
     this.agents = new ApiSessionAgentController(ctx)
     this.commands = new SessionCommandController(ctx, this.agents, process.cwd())
     ctx.effect(() => ctx.fileUploads.registerAgentResolver(async (sessionId) => {
@@ -254,6 +259,18 @@ export class SessionController extends TypertRemoteService {
   @Remote('selectModel')
   selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue> {
     return this.commands.selectModel(request)
+  }
+
+  /** requires @returns connector namespaces exposed by globally connected MCP tools. */
+  @Remote('listMcpConnectors')
+  listMcpConnectors(): McpConnectorCatalog {
+    return { connectorIds: this.agents.listMcpConnectorIds() }
+  }
+
+  /** requires @param request - Session identity and selected connector namespaces. @returns the normalized Session selection. */
+  @Remote('selectMcp')
+  selectMcp(request: SessionSelectMcpRequest): Promise<SessionSelectMcpValue> {
+    return this.commands.selectMcp(request)
   }
 
   /**

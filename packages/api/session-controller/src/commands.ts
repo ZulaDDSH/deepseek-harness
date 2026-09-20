@@ -45,6 +45,8 @@ import type {
   SessionPromptValue,
   SessionRenameRequest,
   SessionRenameValue,
+  SessionSelectMcpRequest,
+  SessionSelectMcpValue,
   SessionSelectModelRequest,
   SessionSelectModelValue,
   SessionUpdateQueueRequest,
@@ -130,6 +132,18 @@ export class SessionCommandController {
    * @param request - Session identity and requested model selection.
    * @returns the normalized selection installed for the Session.
    */
+  /** Validate and install one Session-local MCP connector selection. */
+  async selectMcp(request: SessionSelectMcpRequest): Promise<SessionSelectMcpValue> {
+    const agent = await this.resolveAgent(request.sessionId)
+    try {
+      this.agents.selectMcpFor(agent, { connectorIds: request.connectorIds })
+      return { selected: { connectorIds: [...new Set(request.connectorIds)].sort() } }
+    } catch (error) {
+      if (error instanceof RemoteError) throw error
+      throw new RemoteError('gateway/bad-request', error instanceof Error ? error.message : String(error), {})
+    }
+  }
+
   async selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue> {
     const agent = await this.resolveAgent(request.sessionId)
     return this.agents.serializeImageAdmission(agent, async () => {

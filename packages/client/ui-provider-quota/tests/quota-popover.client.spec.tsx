@@ -19,6 +19,7 @@ function renderPopover(results: readonly QuotaResult[]) {
   const props = {
     useProviders: (select: (value: unknown) => unknown) => select([{ id: 'opencode-go', name: 'OpenCode Go' }]),
     useState: (select: (value: unknown) => unknown) => select({ status: 'ready' as const, results }),
+    useProjection: () => undefined,
     refresh: vi.fn(async () => {}),
     t: translate,
   } as unknown as ProviderQuotaActionProps
@@ -56,6 +57,18 @@ describe('ProviderQuotaAction popover', () => {
     expect(view.getByText('$0.00')).toBeDefined()
   })
 
+  it('shows the durable current-session token total alongside account quotas', () => {
+    const props = {
+      useProviders: (select: (value: unknown) => unknown) => select([{ id: 'deepseek', name: 'DeepSeek' }]),
+      useState: (select: (value: unknown) => unknown) => select({ status: 'ready' as const, results: [] }),
+      useProjection: () => ({ uncachedInputTokens: 100, outputTokens: 25, cacheReadTokens: 50, cacheWriteTokens: 5 }),
+      refresh: vi.fn(async () => {}),
+      t: translate,
+    } as unknown as ProviderQuotaActionProps
+    const view = render(<ProviderQuotaAction {...props} />)
+    fireEvent.click(view.getByRole('button', { name: en.title }))
+    expect(view.getByText('This session: 180 tokens')).toBeDefined()
+  })
   it('shows a non-ok window status verbatim instead of the percentage', () => {
     const view = renderPopover([{
       providerId: 'opencode-go', providerName: 'OpenCode Go', configured: true, ok: true,

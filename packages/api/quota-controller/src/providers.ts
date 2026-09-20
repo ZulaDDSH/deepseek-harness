@@ -32,11 +32,12 @@ function failure(provider: QuotaProvider, error: unknown): QuotaResult {
 
 function parseOpenCodeWindows(payload: unknown): Partial<Record<'5h' | 'weekly' | 'monthly', QuotaWindow>> {
   if (payload === null || typeof payload !== 'object' || !('usage' in payload)) return {}
-  const usage = payload.usage as Record<string, unknown>
+  const usage = payload.usage
   if (usage === null || typeof usage !== 'object') return {}
+  const usageRecord = usage as Record<string, unknown>
   const result: Partial<Record<'5h' | 'weekly' | 'monthly', QuotaWindow>> = {}
   for (const [id, source] of [['5h', 'rolling'], ['weekly', 'weekly'], ['monthly', 'monthly']] as const) {
-    const entry = usage[source]
+    const entry = usageRecord[source]
     if (entry === null || typeof entry !== 'object') continue
     const record = entry as Record<string, unknown>
     const percent = record.percent
