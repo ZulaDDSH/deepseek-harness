@@ -15,11 +15,14 @@ jobs:
     env:
       DSH_TELEMETRY_DISABLED: '1'
       DSH_GATE_FAIL_FAST: '1'
-      DSH_ARCHIVE_BASE_REF: 4978ac93684fcd7a68e6b878d4b0bdc7d23763e0
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
+      - name: Resolve archive baseline
+        shell: bash
+        run: echo "DSH_ARCHIVE_BASE_REF=$(git merge-base origin/master HEAD)" >> "$GITHUB_ENV"
 
       - uses: pnpm/action-setup@v6
 
