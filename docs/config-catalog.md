@@ -1522,6 +1522,52 @@ Depends on: `Api` (`@earendil-works/pi-ai`) · `CacheRetention` (`@earendil-work
 
 Source: [`packages/llm/llm-pi-ai/src/config.ts:221`](../packages/llm/llm-pi-ai/src/config.ts)
 
+<a id="deepseek-aidsh-llm-jev-router"></a>
+
+## `@deepseek-ai/dsh-llm-jev-router`
+
+```ts config-catalog
+/** Jev router settings. */
+export interface Config {
+  /** Enable automatic routing. */
+  enabled: boolean
+  /** Credential/environment reference. */
+  apiKeyEnv: string
+  /** TypeSafe evaluation endpoint. */
+  endpoint: string
+  /** Jev model alias. */
+  model: string
+  /** Request timeout in milliseconds. */
+  timeoutMs: number
+  /** Minimum accepted decision confidence. */
+  minConfidence: number
+  /** Maximum state characters sent to Jev. */
+  stateMaxChars: number
+  /** Route id or `keep` for the base route. */
+  fallback: string
+  /** Preserve the base route when Jev fails. */
+  failOpen: boolean
+  /** Allow-listed destination routes. */
+  routes: JevRoute[]
+}
+
+/** Allow-listed DSH destination selected by Jev. */
+export interface JevRoute {
+  /** Jev choice identifier. */
+  id: string
+  /** Registered DSH provider route. */
+  provider: string
+  /** Provider-owned model identifier. */
+  model: string
+  /** Choice criteria sent to Jev. */
+  description: string
+  /** Optional provider reasoning effort. */
+  reasoningEffort?: string
+}
+```
+
+Source: [`packages/llm/llm-jev-router/src/index.ts:22`](../packages/llm/llm-jev-router/src/index.ts)
+
 <a id="deepseek-aidsh-llm-replay"></a>
 
 ## `@deepseek-ai/dsh-llm-replay`

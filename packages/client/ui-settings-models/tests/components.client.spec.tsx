@@ -630,6 +630,45 @@ describe('ModelsSection', () => {
     expect(onClose).toHaveBeenCalledWith(true)
   })
 
+  it('renders the TypeSafe Jev key field in the Models settings card', async () => {
+    const { face, mutate } = scriptedFace()
+    const { ProviderEditor } = await import('../src/client/ProviderEditor.tsx')
+    const jevConfig = Schema.object({
+      enabled: Schema.boolean().default(false),
+      apiKeyEnv: Schema.string().role('credential-ref').default('TYPESAFE_API_KEY'),
+      endpoint: Schema.string().default('https://api.typesafe.ai/v1/systemone'),
+      model: Schema.string().default('jev-latest'),
+    })
+    const namespace: SettingsNamespaceView = {
+      ns: 'jev-router',
+      schema: JSON.parse(JSON.stringify(jevConfig.toJSON())) as JsonValue,
+      value: { enabled: false, apiKeyEnv: 'TYPESAFE_API_KEY', endpoint: 'https://api.typesafe.ai/v1/systemone', model: 'jev-latest' },
+      base: { enabled: false, apiKeyEnv: 'TYPESAFE_API_KEY', endpoint: 'https://api.typesafe.ai/v1/systemone', model: 'jev-latest' },
+      user: {},
+      applies: 'live',
+      secrets: [],
+      revision: 0,
+    }
+    render(<ProviderEditor
+      provider="jev-router"
+      displayName="TypeSafe / Jev"
+      namespace={namespace}
+      schema={settingsSchema}
+      settingsPath={[]}
+      operations={operationsWith(face)}
+      t={t}
+      readOnly={false}
+      onClose={vi.fn()}
+    />)
+
+    expect(screen.getByLabelText(en.keyInput)).toBeTruthy()
+    expect(screen.queryByText(en.customized)).toBeNull()
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.keyInput), { target: { value: 'jev-test-key' } })
+    fireEvent.click(screen.getByText(en.apply))
+    await waitFor(() => { expect(face.credentials.set).toHaveBeenCalledWith('TYPESAFE_API_KEY', 'jev-test-key') })
+    expect(mutate).not.toHaveBeenCalled()
+  })
+
   it('applies customized deepseek fields as path ops', async () => {
     const { mutate } = await mountDeepSeekCard({
       mutate: vi.fn(() => Promise.resolve(remoteOk(wireNamespaces()[0]))),
