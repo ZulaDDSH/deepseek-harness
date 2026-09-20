@@ -1,0 +1,7 @@
+{
+  "files": {
+    "scripts/ci-workflow.spec.ts": {
+      "reason": "Existing workflow contract suite is intentionally retained as one cross-workflow specification."
+    }
+  }
+}
