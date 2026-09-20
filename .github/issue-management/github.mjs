@@ -6,6 +6,14 @@ import config from './config.json' with { type: 'json' }
 
 const API_VERSION = '2026-03-10'
 
+export function repositoryTarget() {
+  const value = process.env.DSH_ISSUE_REPOSITORY
+  if (value === undefined) return { organization: config.organization, repository: config.repository }
+  const match = /^([^/]+)\/([^/]+)$/.exec(value)
+  if (!match) throw new Error('DSH_ISSUE_REPOSITORY must be in owner/name form')
+  return { organization: match[1], repository: match[2] }
+}
+
 function token() {
   const value = process.env.GH_TOKEN || process.env.GITHUB_TOKEN
   if (!value) throw new Error('GH_TOKEN 或 GITHUB_TOKEN 未设置')
@@ -69,7 +77,8 @@ export async function graphql(query, variables) {
  * @returns {Promise<object|null>} Issue snapshot, or null when the number identifies a pull request.
  */
 export async function issueSnapshot(number, status = undefined) {
-  const issue = await api(`/repos/${config.organization}/${config.repository}/issues/${number}`)
+  const target = repositoryTarget()
+  const issue = await api(`/repos/${target.organization}/${target.repository}/issues/${number}`)
   if (issue.pull_request) return null
   const context = await projectContext(number)
   return {
@@ -92,6 +101,7 @@ export async function issueSnapshot(number, status = undefined) {
  * @returns {Promise<object>} Project, Issue, fields, optional item, and status actor; never writes.
  */
 export async function projectContext(number, includeStatusActor = false, includeStartDate = false) {
+  const target = repositoryTarget()
   const data = await graphql(
     `query(
       $organization: String!
@@ -159,8 +169,8 @@ export async function projectContext(number, includeStatusActor = false, include
       }
     }`,
     {
-      organization: config.organization,
-      repository: config.repository,
+      organization: target.organization,
+      repository: target.repository,
       number,
       project: config.projectNumber,
       includeStatusActor,
