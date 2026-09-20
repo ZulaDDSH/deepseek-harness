@@ -6,7 +6,7 @@ on:
       - chore/consolidate-dependency-updates
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   proof:
@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          persist-credentials: false
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v6
 
@@ -33,16 +33,6 @@ jobs:
       - name: Regenerate module graph
         run: pnpm run gen-module-graph
 
-      - name: Upload generated state
-        uses: actions/upload-artifact@v7
-        with:
-          name: consolidated-dependency-generated-state
-          path: |
-            pnpm-lock.yaml
-            docs/module-graph.md
-            docs/module-graph.zh.md
-            docs/module-graph.i18n.yaml
-
       - name: Verify immutable install
         run: pnpm install --frozen-lockfile --ignore-scripts
 
@@ -51,3 +41,14 @@ jobs:
 
       - name: Run static gate
         run: pnpm run check:ci:static
+
+      - name: Commit generated state and remove proof workflow
+        shell: bash
+        run: |
+          git config user.name "Nomads_Reach"
+          git config user.email "144523850+NomadsReach@users.noreply.github.com"
+          git add pnpm-lock.yaml docs/module-graph.md docs/module-graph.zh.md docs/module-graph.i18n.yaml
+          git rm .github/workflows/consolidate-deps-proof.yml
+          git diff --cached --check
+          git commit -m "chore(deps): finalize consolidated dependency state"
+          git push origin HEAD:chore/consolidate-dependency-updates
