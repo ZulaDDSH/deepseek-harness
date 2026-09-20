@@ -30,6 +30,7 @@ import { z } from 'zod'
 import type {
   AuthorizationEnd, AuthorizationEntryView, AuthorizationNotice, AuthorizationStart,
 } from './types.ts'
+import { settingsRequest } from './request.ts'
 
 const keySchema = z.string().min(1)
 const beginRequestSchema = z.object({
@@ -165,7 +166,7 @@ export class AuthorizationController extends TypertRemoteService {
     method: string | undefined,
     signal: AbortSignal,
   ): AsyncIterable<AuthorizationStart | AuthorizationNotice | AuthorizationEnd> {
-    const request = parseRequest('authorization.begin', beginRequestSchema, {
+    const request = settingsRequest.parse('authorization.begin', beginRequestSchema, {
       key,
       ...method === undefined ? {} : { method },
     })
@@ -246,7 +247,7 @@ export class AuthorizationController extends TypertRemoteService {
    */
   @Remote
   answer(attempt: string, prompt: string, value: string): void {
-    const request = parseRequest('authorization.answer', answerRequestSchema, { attempt, prompt, value })
+    const request = settingsRequest.parse('authorization.answer', answerRequestSchema, { attempt, prompt, value })
     const running = this.requireAttempt(request.attempt)
     const pending = running.prompts.get(request.prompt)
     if (pending === undefined) {
@@ -269,7 +270,7 @@ export class AuthorizationController extends TypertRemoteService {
    */
   @Remote
   cancel(attempt: string): void {
-    const request = parseRequest(
+    const request = settingsRequest.parse(
       'authorization.cancel', z.object({ attempt: capabilitySchema }), { attempt })
     this.requireAttempt(request.attempt).controller.abort()
   }
@@ -379,15 +380,6 @@ export class AuthorizationController extends TypertRemoteService {
  */
 function mintCapability(): string {
   return randomBytes(32).toString('base64url')
-}
-
-/** Parse the domain constraints that are more specific than generated TypeScript codecs. */
-function parseRequest<T>(method: string, schema: z.ZodType<T>, value: unknown): T {
-  const parsed = schema.safeParse(value)
-  if (!parsed.success) {
-    throw new RemoteError('gateway/bad-request', `invalid payload for ${method}`, { issues: parsed.error.issues })
-  }
-  return parsed.data
 }
 
 /**
