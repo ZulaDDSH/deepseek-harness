@@ -3,7 +3,6 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { DefaultTheme, PageData, SiteConfig } from 'vitepress'
-import type { ViteDevServer } from 'vite'
 import { withMermaid } from 'vitepress-plugin-mermaid'
 import { codeGroupFallbackHead, isolateCodeGroupRadios } from './code-groups.ts'
 import { landingLink, localeCollections, orderedPages, routeLink, sectionSpec, type DocsLocale, type DocsPage, type DocsSidebar } from '../docs.ts'
@@ -104,10 +103,13 @@ function moduleNav(locale: DocsLocale): DefaultTheme.NavItem[] {
   ]
 }
 
-function watchCanonicalDocs(server: ViteDevServer): void {
+function watchCanonicalDocs(watcher: {
+  add(paths: string[]): unknown
+  on(event: 'change', listener: (changed: string) => void): unknown
+}): void {
   const sources = docsSourceFiles()
-  server.watcher.add(sources)
-  server.watcher.on('change', (changed) => {
+  watcher.add(sources)
+  watcher.on('change', (changed) => {
     if (!sources.includes(changed)) return
     projectDocs()
   })
@@ -118,8 +120,10 @@ function watchCanonicalDocs(server: ViteDevServer): void {
  * matching what `buildEnd` emits into the static build. Pages project from
  * their canonical sources per request, so an edit shows without a rebuild.
  */
-function serveRawMarkdown(server: ViteDevServer): void {
-  server.middlewares.use(rawMarkdownMiddleware(base, () => llmsTxt({ base, ...siteIdentity })))
+function serveRawMarkdown(middlewares: {
+  use(handler: ReturnType<typeof rawMarkdownMiddleware>): unknown
+}): void {
+  middlewares.use(rawMarkdownMiddleware(base, () => llmsTxt({ base, ...siteIdentity })))
 }
 
 function escapeVueInterpolation(html: string): string {
@@ -345,8 +349,8 @@ export default withMermaid({
       {
         name: 'deepseek-harness-doc-projector',
         configureServer(server) {
-          watchCanonicalDocs(server)
-          serveRawMarkdown(server)
+          watchCanonicalDocs(server.watcher)
+          serveRawMarkdown(server.middlewares)
         },
       },
     ],
