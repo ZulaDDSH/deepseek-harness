@@ -1,0 +1,53 @@
+name: Consolidated dependency proof
+
+on:
+  push:
+    branches:
+      - chore/consolidate-dependency-updates
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DSH_TELEMETRY_DISABLED: '1'
+      DSH_GATE_FAIL_FAST: '1'
+      DSH_ARCHIVE_BASE_REF: 4978ac93684fcd7a68e6b878d4b0bdc7d23763e0
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Regenerate dependency state
+        run: pnpm install --no-frozen-lockfile --ignore-scripts
+
+      - name: Regenerate module graph
+        run: pnpm run gen-module-graph
+
+      - name: Upload generated state
+        uses: actions/upload-artifact@v7
+        with:
+          name: consolidated-dependency-generated-state
+          path: |
+            pnpm-lock.yaml
+            docs/module-graph.md
+            docs/module-graph.zh.md
+            docs/module-graph.i18n.yaml
+
+      - name: Verify immutable install
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Check diff whitespace
+        run: git diff --check
+
+      - name: Run static gate
+        run: pnpm run check:ci:static
