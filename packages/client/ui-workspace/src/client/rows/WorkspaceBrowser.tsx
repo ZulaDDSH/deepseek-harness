@@ -627,6 +627,7 @@ function SessionTree({
                 ? () => { onSessionRevealed(node.id) }
                 : undefined}
               drag={dragProps}
+              appearance={group.workspaceId === undefined ? undefined : appearanceByWorkspace[group.workspaceId]}
               t={t}
             />
           )

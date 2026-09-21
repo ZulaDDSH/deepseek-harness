@@ -145,6 +145,13 @@
   color: var(--dsw-alias-state-business-primary);
 }
 
+/* Session-leading mark: the owning Workspace's icon choice ahead of the title.
+   The 16px cell comes from .slot; this only owns the title gap, so a row with
+   no mark keeps its unmodified title rhythm. */
+.sessionGlyph {
+  margin-right: 4px;
+}
+
 
 /* Project leading slot: folder by default, expand arrow on row hover. */
 .projectRow .chevron { display: none; }

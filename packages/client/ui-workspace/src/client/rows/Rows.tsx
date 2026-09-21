@@ -427,7 +427,7 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
  * @returns the session row.
  */
 export function SessionNodeItem({
-  node, currentId, now, onOpen, onRename, onFork, onArchive, onReveal, drag, flat = false, t,
+  node, currentId, now, onOpen, onRename, onFork, onArchive, onReveal, drag, flat = false, appearance, t,
 }: {
   node: SessionNode
   currentId: string | undefined
@@ -445,6 +445,12 @@ export function SessionNodeItem({
   drag?: RowDragProps | undefined
   /** The row is rendered without a parent Workspace header. */
   flat?: boolean | undefined
+  /**
+   * The owning Workspace's appearance. Its icon leads the session title so a
+   * session stays identified with the Workspace it belongs to, and its color
+   * rides on that same glyph rather than recoloring the title.
+   */
+  appearance?: WorkspaceAppearance | undefined
   t: RowTranslate
 }) {
   const row = node
@@ -454,6 +460,12 @@ export function SessionNodeItem({
   const primaryStatus = statuses[0]
   const showStatus = primaryStatus.state !== 'done' || row.completed
   const draggable = drag !== undefined && !row.blank
+  // The folder choice is the default look and gets no session-level mark; any
+  // other choice leads the title so the row reads as part of that Workspace.
+  const iconChoice = appearance?.icon
+  const sessionGlyph = iconChoice === undefined || iconChoice === 'folder'
+    ? undefined
+    : <WorkspaceIconGlyph choice={iconChoice} />
   const [menuOpen, setMenuOpen] = useState(false)
   const rowRef = useRef<HTMLDivElement>(null)
   const titleRef = useRef<HTMLSpanElement>(null)
@@ -516,6 +528,11 @@ export function SessionNodeItem({
       {(!flat || showStatus) && (
         <span className={css.slot}>
           {showStatus && <SessionStatusDots statuses={statuses} />}
+        </span>
+      )}
+      {sessionGlyph !== undefined && (
+        <span className={clsx(css.slot, css.sessionGlyph)} style={appearanceStyle(appearance)}>
+          {sessionGlyph}
         </span>
       )}
       <span ref={titleRef} className={css.title}>{title}</span>

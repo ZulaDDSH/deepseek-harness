@@ -161,6 +161,39 @@ describe('workspace browser rows', () => {
     expect(getComputedStyle(screen.getByText('Project')).color).toBe('rgb(122, 90, 248)')
   })
 
+  it('leads the session title with the owning Workspace icon choice', () => {
+    const node: SessionNode = {
+      id: sid('session'), title: 'Session', blank: false, running: false,
+      runningSubagentCount: 0, completed: false, hasActiveSchedule: false, updatedAt: 0,
+    }
+    const { container } = render(
+      <SessionNodeItem
+        node={node} currentId={undefined} now={0} appearance={{ icon: 'rocket', color: 'purple' }}
+        onOpen={vi.fn()} onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t}
+      />,
+    )
+    // The mark is part of the title cluster, so it renders before the title text
+    // and carries the Workspace color.
+    const glyph = container.querySelector('[class*="sessionGlyph"]') as HTMLElement
+    expect(glyph).toBeTruthy()
+    expect(glyph.style.color).toBe('rgb(122, 90, 248)')
+    expect(screen.getByText('Session').closest('[class*="sessionGlyph"]')).toBeNull()
+  })
+
+  it('adds no session mark for the default folder choice', () => {
+    const node: SessionNode = {
+      id: sid('session'), title: 'Session', blank: false, running: false,
+      runningSubagentCount: 0, completed: false, hasActiveSchedule: false, updatedAt: 0,
+    }
+    const { container } = render(
+      <SessionNodeItem
+        node={node} currentId={undefined} now={0} appearance={{ icon: 'folder', color: 'purple' }}
+        onOpen={vi.fn()} onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t}
+      />,
+    )
+    expect(container.querySelector('[class*="sessionGlyph"]')).toBeNull()
+  })
+
   it('renders a chosen icon in place of the folder glyph', () => {
     const group: GroupNode = {
       key: 'project', workspaceId: wid('project'), cwd: '/projects/project', createdAt: 0, label: 'Project',
