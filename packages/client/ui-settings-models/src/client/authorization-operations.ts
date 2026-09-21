@@ -90,7 +90,8 @@ export interface AuthorizationOperations {
  * @returns the callbacks the cards are injected with.
  */
 export function createAuthorizationOperations(ctx: ClientContext): AuthorizationOperations {
-  const authorization: ClientContext['remote']['authorization'] = ctx.get('remote.authorization')
+  const authorization = ctx.get('remote.authorization')
+  if (authorization === undefined) throw new Error('authorization Remote namespace is unavailable')
   return {
     list: async () => {
       const response = await authorization.list()
