@@ -16,6 +16,12 @@ import type {
   AuthorizationEntryView, AuthorizationNotice,
 } from '@deepseek-ai/dsh-api-settings-controller/types'
 
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    'remote.authorization': ClientContext['remote']['authorization']
+  }
+}
+
 /** What one attempt did. */
 export type AuthorizationOutcome =
   /** The flow committed a credential. */

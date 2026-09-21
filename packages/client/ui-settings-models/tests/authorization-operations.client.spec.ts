@@ -22,9 +22,8 @@ async function setup(items: AttemptStreamItem[] = []) {
   root.provide('remote.authorization', namespace)
   root.accessor('remote', {
     get() {
-      const consumer = this
       return Object.defineProperty({}, 'authorization', {
-        get: () => Reflect.get(consumer, 'remote.authorization'),
+        get: () => this.get('remote.authorization'),
       })
     },
   })
@@ -59,7 +58,7 @@ describe('optional authorization callbacks', () => {
     ]
     const { operations, namespace } = await setup(items)
     const signal = new AbortController().signal
-    const onItem = vi.fn()
+    const onItem = vi.fn<(item: AttemptStreamItem) => void>()
     await expect(operations.begin('provider/key', 'oauth', onItem, signal)).resolves.toEqual({ kind: status })
     expect(namespace.begin).toHaveBeenCalledWith('provider/key', 'oauth', signal)
     expect(onItem.mock.calls.map(([item]) => item)).toEqual(items)
@@ -74,7 +73,7 @@ describe('optional authorization callbacks', () => {
   it.each([new Error('grant refused'), 'carrier closed'])('retains stream failure diagnostics: %s', async (failure) => {
     const { operations, namespace } = await setup()
     namespace.begin.mockImplementation(() => (
-      (async function* (): AsyncGenerator<AttemptStreamItem> { throw failure })()
+      (async function* (): AsyncGenerator<AttemptStreamItem, void, unknown> { throw failure })()
     ))
     await expect(operations.begin('provider/key', undefined, vi.fn(), new AbortController().signal))
       .resolves.toEqual({ kind: 'failed', message: failure instanceof Error ? failure.message : failure })
