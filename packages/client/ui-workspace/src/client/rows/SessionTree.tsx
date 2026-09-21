@@ -93,6 +93,8 @@ type SessionTreeProps = Pick<
   /** Open the browser-owned delete-confirmation dialog for a real Workspace group. */
   onDeleteRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
   onAppearanceRequest: (workspaceId: WorkspaceId) => void
+  /** Apply an appearance change straight from a row menu, without the dialog. */
+  onAppearanceChange: (workspaceId: WorkspaceId, change: WorkspaceAppearance) => void
   /** Open the browser-owned session rename dialog. */
   onSessionRename: (sessionId: SessionNode['id'], currentTitle: string) => void
   /** Archive a session (row menu action; the row disappears on the state echo). */
@@ -112,7 +114,7 @@ export function SessionTree({
   list, useSessionStatus, startSession, open, forkSession, workspaces, ungroupedSessionIds, appearanceByWorkspace,
   archivedSessionIds,
   workspaceReady, usePanelInfo,
-  onRenameRequest, onDeleteRequest, onAppearanceRequest, onSessionRename, onSessionArchive,
+  onRenameRequest, onDeleteRequest, onAppearanceRequest, onAppearanceChange, onSessionRename, onSessionArchive,
   insertWorkspaceBefore,
   nestWorkspaces, groupExpansion, setGroupExpanded,
   setSessionOrder, home, t,
@@ -372,6 +374,12 @@ export function SessionTree({
               },
               appearance: () => {
                 if (group.workspaceId !== undefined) onAppearanceRequest(group.workspaceId)
+              },
+              appearanceColor: (color) => {
+                if (group.workspaceId !== undefined) onAppearanceChange(group.workspaceId, { color })
+              },
+              appearanceIcon: (icon) => {
+                if (group.workspaceId !== undefined) onAppearanceChange(group.workspaceId, { icon })
               },
             }}
         />

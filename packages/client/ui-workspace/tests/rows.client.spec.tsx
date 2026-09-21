@@ -233,16 +233,58 @@ describe('workspace browser rows', () => {
     expect(container).toBeTruthy()
   })
 
-  it('offers Customize appearance through the row menu and reports the choice', () => {
-    const onAppearance = vi.fn()
-    const group: GroupNode = {
-      key: 'project', workspaceId: wid('project'), cwd: '/projects/project', createdAt: 0, label: 'Project',
-      sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
-    }
+  /** A real Workspace row, the only kind that carries appearance actions. */
+  const workspaceGroup = (): GroupNode => ({
+    key: 'project', workspaceId: wid('project'), cwd: '/projects/project', createdAt: 0, label: 'Project',
+    sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
+  })
+
+  /** The actions object every real Workspace row carries. */
+  const workspaceActions = (): NonNullable<Parameters<typeof ProjectRowItem>[0]['actions']> => ({
+    rename: vi.fn(), delete: vi.fn(), appearance: vi.fn(),
+    appearanceColor: vi.fn(), appearanceIcon: vi.fn(),
+  })
+
+  it('applies a color straight from the row menu Color submenu', () => {
+    const onAppearanceColor = vi.fn()
     render(
       <ProjectRowItem
-        group={group}
-        actions={{ rename: vi.fn(), delete: vi.fn(), appearance: onAppearance }}
+        group={workspaceGroup()}
+        actions={{ ...workspaceActions(), appearanceColor: onAppearanceColor }}
+        onToggle={vi.fn()}
+        onCreate={vi.fn()}
+        t={t}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '工作区“Project”的操作' }))
+    fireEvent.click(screen.getByText('颜色'))
+    fireEvent.click(screen.getByText('紫色'))
+    expect(onAppearanceColor).toHaveBeenCalledWith('purple')
+  })
+
+  it('applies an icon straight from the row menu Icon submenu', () => {
+    const onAppearanceIcon = vi.fn()
+    render(
+      <ProjectRowItem
+        group={workspaceGroup()}
+        actions={{ ...workspaceActions(), appearanceIcon: onAppearanceIcon }}
+        onToggle={vi.fn()}
+        onCreate={vi.fn()}
+        t={t}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '工作区“Project”的操作' }))
+    fireEvent.click(screen.getByText('图标'))
+    fireEvent.click(screen.getByText('火箭'))
+    expect(onAppearanceIcon).toHaveBeenCalledWith('rocket')
+  })
+
+  it('still offers the appearance dialog from the row menu', () => {
+    const onAppearance = vi.fn()
+    render(
+      <ProjectRowItem
+        group={workspaceGroup()}
+        actions={{ ...workspaceActions(), appearance: onAppearance }}
         onToggle={vi.fn()}
         onCreate={vi.fn()}
         t={t}
@@ -251,6 +293,106 @@ describe('workspace browser rows', () => {
     fireEvent.click(screen.getByRole('button', { name: '工作区“Project”的操作' }))
     fireEvent.click(screen.getByText('自定义外观'))
     expect(onAppearance).toHaveBeenCalledOnce()
+  })
+
+  it('offers the same appearance choices from a right-click on the row', () => {
+    const onAppearanceColor = vi.fn()
+    render(
+      <ProjectRowItem
+        group={workspaceGroup()}
+        actions={{ ...workspaceActions(), appearanceColor: onAppearanceColor }}
+        onToggle={vi.fn()}
+        onCreate={vi.fn()}
+        t={t}
+      />,
+    )
+    fireEvent.contextMenu(screen.getByText('Project'), { clientX: 40, clientY: 60 })
+    fireEvent.click(screen.getByText('颜色'))
+    fireEvent.click(screen.getByText('蓝色'))
+    expect(onAppearanceColor).toHaveBeenCalledWith('blue')
+  })
+
+  it('reports a cleared color from the Default row', () => {
+    const onAppearanceColor = vi.fn()
+    render(
+      <ProjectRowItem
+        group={workspaceGroup()}
+        actions={{ ...workspaceActions(), appearanceColor: onAppearanceColor }}
+        onToggle={vi.fn()}
+        onCreate={vi.fn()}
+        t={t}
+      />,
+    )
+    fireEvent.contextMenu(screen.getByText('Project'), { clientX: 0, clientY: 0 })
+    fireEvent.click(screen.getByText('颜色'))
+    fireEvent.click(screen.getAllByText('默认')[0]!)
+    expect(onAppearanceColor).toHaveBeenCalledWith(undefined)
+  })
+
+  it('closes the context menu when the pointer leaves, without choosing', () => {
+    const onAppearanceColor = vi.fn()
+    render(
+      <ProjectRowItem
+        group={workspaceGroup()}
+        actions={{ ...workspaceActions(), appearanceColor: onAppearanceColor }}
+        onToggle={vi.fn()}
+        onCreate={vi.fn()}
+        t={t}
+      />,
+    )
+    fireEvent.contextMenu(screen.getByText('Project'), { clientX: 12, clientY: 34 })
+    expect(screen.getByRole('menu')).toBeTruthy()
+    fireEvent.pointerDown(document.body)
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(onAppearanceColor).not.toHaveBeenCalled()
+  })
+
+  it('opens the session row verbs from a right-click on the session', () => {
+    const onRename = vi.fn()
+    const node: SessionNode = {
+      id: sid('session'), title: 'Session', blank: false, running: false,
+      runningSubagentCount: 0, completed: false, hasActiveSchedule: false, updatedAt: 0,
+    }
+    render(
+      <SessionNodeItem
+        node={node}
+        currentId={undefined} now={0}
+        onOpen={vi.fn()} onRename={onRename} onFork={vi.fn()} onArchive={vi.fn()} t={t}
+      />,
+    )
+    fireEvent.contextMenu(screen.getByText('Session'), { clientX: 30, clientY: 70 })
+    fireEvent.click(screen.getByRole('menuitem', { name: '重命名' }))
+    expect(onRename).toHaveBeenCalledWith(node.id, 'Session')
+  })
+
+  it('keeps the browser menu on a blank session row, which has no verbs', () => {
+    const node: SessionNode = {
+      id: sid('blank'), title: '', blank: true, running: false,
+      runningSubagentCount: 0, completed: false, hasActiveSchedule: false, updatedAt: 0,
+    }
+    render(
+      <SessionNodeItem
+        node={node}
+        currentId={undefined} now={0}
+        onOpen={vi.fn()} onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t}
+      />,
+    )
+    const row = screen.getByText('新会话')
+    // Not cancelled, so the browser keeps offering its own menu here.
+    expect(fireEvent.contextMenu(row, { clientX: 5, clientY: 5 })).toBe(true)
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('keeps the browser menu on the ungrouped bucket, which has no actions', () => {
+    const group: GroupNode = {
+      key: 'ungrouped', workspaceId: undefined, cwd: undefined, createdAt: undefined, label: 'Ungrouped',
+      sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
+    }
+    render(<ProjectRowItem group={group} onToggle={vi.fn()} onCreate={vi.fn()} t={t} />)
+    const row = screen.getByText('未分组')
+    // Not cancelled, so the browser keeps offering its own menu here.
+    expect(fireEvent.contextMenu(row, { clientX: 5, clientY: 5 })).toBe(true)
+    expect(screen.queryByRole('menu')).toBeNull()
   })
 
   it('renders and opens a selected running Session row', () => {
@@ -438,7 +580,7 @@ describe('workspace browser rows', () => {
     }
     render(<ProjectRowItem
       group={group} onToggle={onToggle} onCreate={vi.fn()}
-      actions={{ rename: onRename, delete: onDelete, appearance: onAppearance }} t={t}
+      actions={{ ...workspaceActions(), rename: onRename, delete: onDelete, appearance: onAppearance }} t={t}
     />)
     fireEvent.click(screen.getByRole('button', { name: '工作区“Project”的操作' }))
     // Opening the menu neither toggles the group nor renames yet.

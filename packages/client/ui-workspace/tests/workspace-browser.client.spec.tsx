@@ -132,9 +132,8 @@ it('filters Workspaces by a chosen color and clears the filter', () => {
   })
   const openFilter = () => fireEvent.click(screen.getByRole('button', { name: '筛选工作区' }))
   fireEvent.click(screen.getByRole('button', { name: '工作区“Alpha”的操作' }))
-  fireEvent.click(screen.getByText('自定义外观'))
-  fireEvent.click(screen.getByRole('button', { name: '红色' }))
-  fireEvent.click(screen.getAllByRole('button', { name: '关闭' }).find(b => b !== null)!)
+  fireEvent.click(screen.getByText('颜色'))
+  fireEvent.click(screen.getByText('红色'))
   openFilter()
   fireEvent.click(screen.getByRole('menuitem', { name: '红色' }))
   expect(screen.getByText('Alpha')).toBeTruthy()
@@ -152,9 +151,8 @@ it('paints a chosen color onto the row and persists it across a remount', () => 
     useWorkspaces: hook(workspaceState([workspace('alpha', [], 'Alpha')])),
   })
   fireEvent.click(screen.getByRole('button', { name: '工作区“Alpha”的操作' }))
-  fireEvent.click(screen.getByText('自定义外观'))
-  fireEvent.click(screen.getByRole('button', { name: '紫色' }))
-  fireEvent.click(screen.getAllByRole('button', { name: '关闭' }).find(b => b !== null)!)
+  fireEvent.click(screen.getByText('颜色'))
+  fireEvent.click(screen.getByText('紫色'))
   const painted = () => screen.getByText('Alpha').closest('[role="treeitem"]') as HTMLElement
   expect(painted().style.color).toBe('rgb(122, 90, 248)')
   expect(getComputedStyle(screen.getByText('Alpha')).color).toBe('rgb(122, 90, 248)')

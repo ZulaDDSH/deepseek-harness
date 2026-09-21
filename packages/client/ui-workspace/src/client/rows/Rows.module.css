@@ -148,6 +148,22 @@
 /* Session-leading mark: the owning Workspace's icon choice ahead of the title.
    The 16px cell comes from .slot; this only owns the title gap, so a row with
    no mark keeps its unmodified title rhythm. */
+/* Color choice row: the palette entry shown in the menu's 16px icon slot. */
+.colorSwatch {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  corner-shape: round;
+}
+
+/* Context-menu placeholder: an empty box inside the row that the portaled list
+   is anchored to. The pointer supplies the position through getAnchorRect, so
+   this only has to exist as the Menu's anchor child. */
+.contextAnchor {
+  display: none;
+}
+
 .sessionGlyph {
   margin-right: 4px;
 }

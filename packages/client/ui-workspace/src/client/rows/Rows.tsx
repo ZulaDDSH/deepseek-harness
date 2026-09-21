@@ -6,7 +6,7 @@
  * visual-only except workspace Rename/Delete and session Rename/Fork/Archive; the
  * session and workspace hover cards are suppressed while a menu is open.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
   HoverCard, IconArchiveOutline20, IconBranchOutline16,
@@ -14,10 +14,11 @@ import {
   IconPlusOutline16, IconTrashOutline16, IconTriangleRightFill14, Menu, relativeTime,
   StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
 import { abbreviateHomePath } from '@deepseek-ai/dsh-util-workspace-path'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
-import { WORKSPACE_APPEARANCE_COLORS } from '../appearance.ts'
-import type { WorkspaceAppearance, WorkspaceIcon } from '../appearance.ts'
+import { WORKSPACE_APPEARANCE_COLORS, WORKSPACE_COLORS, WORKSPACE_ICONS } from '../appearance.ts'
+import type { WorkspaceAppearance, WorkspaceColor, WorkspaceIcon } from '../appearance.ts'
 import type { GroupNode, SearchResultNode, SessionNode } from '../tree.ts'
 import { WORKSPACE_ICON_GLYPHS } from './WorkspaceIcons.ts'
 import { ActiveScheduleIndicator, SessionStatusDots, sessionStatuses } from './SessionStatus.tsx'
@@ -25,6 +26,55 @@ import css from './Rows.module.css'
 
 /** The standard locale seat, prop-passed from the browser root. */
 type RowTranslate = WorkspaceBrowserProps['t']
+/**
+ * Read a color out of a menu row id. The rows are built from WORKSPACE_COLORS,
+ * so a known suffix is a real choice; `clear` and anything unrecognized yield
+ * undefined, which clears the color rather than storing a value outside the union.
+ * @param id - the selected row id, `appearance.color.<choice>`.
+ * @returns the chosen color, or undefined to clear it.
+ */
+function workspaceColorOf(id: string): WorkspaceColor | undefined {
+  const choice = id.slice('appearance.color.'.length)
+  return choice === 'clear' ? undefined : WORKSPACE_COLORS.find(color => color === choice)
+}
+
+/**
+ * Read an icon out of a menu row id, on the same terms as the color rows.
+ * @param id - the selected row id, `appearance.icon.<choice>`.
+ * @returns the chosen icon, or undefined to clear it.
+ */
+function workspaceIconOf(id: string): WorkspaceIcon | undefined {
+  const choice = id.slice('appearance.icon.'.length)
+  return choice === 'clear' ? undefined : WORKSPACE_ICONS.find(icon => icon === choice)
+}
+
+/**
+ * The Color and Icon submenus every appearance entry point renders, so the row
+ * ellipsis and the right-click menu cannot offer different choices.
+ * @param t - the row's locale seat.
+ * @returns the two submenu row lists, in menu order.
+ */
+function appearanceSubmenus(t: RowTranslate): { colors: readonly MenuItem[]; icons: readonly MenuItem[] } {
+  return {
+    colors: [
+      { id: 'appearance.color.clear', label: t('appearance.default') },
+      ...WORKSPACE_COLORS.map(color => ({
+        id: `appearance.color.${color}`,
+        label: t(`appearance.color.${color}`),
+        icon: <span className={css.colorSwatch} style={{ background: WORKSPACE_APPEARANCE_COLORS[color] }} />,
+      })),
+    ],
+    icons: [
+      { id: 'appearance.icon.clear', label: t('appearance.default') },
+      ...WORKSPACE_ICONS.map(icon => ({
+        id: `appearance.icon.${icon}`,
+        label: t(`appearance.icon.${icon}`),
+        icon: <WorkspaceIconGlyph choice={icon} />,
+      })),
+    ],
+  }
+}
+
 /**
  * Inline style painting a Workspace's chosen color onto its leading slot. The
  * row label inherits this color, so one declaration colors both the glyph and
@@ -135,7 +185,15 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
   onToggle: () => void
   onCreate: () => void
   /** Real-Workspace actions; absent for the ungrouped bucket (no menu shown). */
-  actions?: { rename: () => void; delete: () => void; appearance: () => void } | undefined
+  actions?: {
+    rename: () => void
+    delete: () => void
+    appearance: () => void
+    /** Apply a color straight from an inline menu row; undefined clears it. */
+    appearanceColor: (color: WorkspaceColor | undefined) => void
+    /** Apply an icon straight from an inline menu row; undefined clears it. */
+    appearanceIcon: (icon: WorkspaceIcon | undefined) => void
+  } | undefined
   appearance?: WorkspaceAppearance | undefined
   /** Present only for real Workspace rows in the grouped view. */
   drag?: WorkspaceRowDragProps | undefined
@@ -148,7 +206,13 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
   const label = row.workspaceId === undefined ? t('group.ungrouped') : row.label
   const active = containsCurrentDescendant || (group.expanded && group.containsCurrent)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
+  // A Workspace chooses its look inline. The dialog still exists for the
+  // two-field case, but a menu row avoids the round trip entirely.
+  const submenus = useMemo(() => appearanceSubmenus(t), [t])
   const workspaceMenuItems = [
+    { id: 'appearance.color', label: t('appearance.color'), icon: <IconEditOutline16 />, submenu: submenus.colors },
+    { id: 'appearance.icon', label: t('appearance.icon'), icon: <IconEditOutline16 />, submenu: submenus.icons },
     { id: 'appearance', label: t('appearance.customize'), icon: <IconEditOutline16 /> },
     { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
     { id: 'delete', label: t('delete.workspace'), icon: <IconTrashOutline16 />, danger: true },
@@ -160,6 +224,15 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
       role="treeitem"
       aria-expanded={row.expanded}
       onClick={onToggle}
+      onContextMenu={actions === undefined
+        ? undefined
+        : (e) => {
+          // The browser menu would cover the row the choice applies to.
+          e.preventDefault()
+          e.stopPropagation()
+          setMenuOpen(false)
+          setContextMenu({ x: e.clientX, y: e.clientY })
+        }}
       draggable={drag !== undefined}
       onDragStart={drag === undefined
         ? undefined
@@ -191,8 +264,10 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
               setMenuOpen(false)
               // Unknown ids leave before the dispatch: a future menu row must
               // not inherit the destructive branch as an else fallback.
-              /* v8 ignore next -- Menu can emit only the rename and delete rows supplied above. */
+              /* v8 ignore next -- Menu can emit only the rows supplied above. */
               if (id === 'appearance') actions.appearance()
+              else if (id.startsWith('appearance.color.')) actions.appearanceColor(workspaceColorOf(id))
+              else if (id.startsWith('appearance.icon.')) actions.appearanceIcon(workspaceIconOf(id))
               else if (id === 'rename') actions.rename()
               else if (id === 'delete') actions.delete()
             }}
@@ -219,6 +294,23 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
           <IconPlusOutline16 />
         </button>
       </span>
+      {contextMenu !== null && actions !== undefined && (
+        <Menu
+          open
+          onClose={() => { setContextMenu(null) }}
+          items={workspaceMenuItems}
+          onSelect={(id) => {
+            setContextMenu(null)
+            if (id.startsWith('appearance.color.')) actions.appearanceColor(workspaceColorOf(id))
+            else if (id.startsWith('appearance.icon.')) actions.appearanceIcon(workspaceIconOf(id))
+            else if (id === 'rename') actions.rename()
+            else if (id === 'delete') actions.delete()
+          }}
+          portal
+          getAnchorRect={() => DOMRect.fromRect({ x: contextMenu.x, y: contextMenu.y })}
+          anchor={<span className={css.contextAnchor} />}
+        />
+      )}
     </div>
   )
   // The ungrouped bucket has no backing Workspace: no card to show.
@@ -232,7 +324,7 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
         createdAt={row.createdAt}
         t={t}
       />}
-      disabled={menuOpen}
+      disabled={menuOpen || contextMenu !== null}
       copyText={row.cwd}
       copyLabel={t('copy')}
       copiedLabel={t('hover.copied')}
@@ -364,6 +456,7 @@ export function SessionNodeItem({
     ? undefined
     : <WorkspaceIconGlyph choice={iconChoice} />
   const [menuOpen, setMenuOpen] = useState(false)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
   const rowRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (onReveal === undefined) return
@@ -391,6 +484,16 @@ export function SessionNodeItem({
       role="treeitem"
       aria-selected={selected}
       onClick={() => { onOpen(node.id) }}
+      onContextMenu={row.blank
+        ? undefined
+        : (e) => {
+          // A provisional New Session row has no content for the row verbs to
+          // act on, so it keeps the browser menu like it keeps its verbs.
+          e.preventDefault()
+          e.stopPropagation()
+          setMenuOpen(false)
+          setContextMenu({ x: e.clientX, y: e.clientY })
+        }}
       draggable={draggable}
       onDragStart={drag === undefined || row.blank
         ? undefined
@@ -464,13 +567,29 @@ export function SessionNodeItem({
           />
         </span>
       )}
+      {contextMenu !== null && !row.blank && (
+        <Menu
+          open
+          onClose={() => { setContextMenu(null) }}
+          items={sessionMenuItems}
+          onSelect={(id) => {
+            setContextMenu(null)
+            if (id === 'rename') onRename(node.id, row.title)
+            if (id === 'fork') onFork(node.id)
+            if (id === 'archive') onArchive(node.id)
+          }}
+          portal
+          getAnchorRect={() => DOMRect.fromRect({ x: contextMenu.x, y: contextMenu.y })}
+          anchor={<span className={css.contextAnchor} />}
+        />
+      )}
     </div>
   )
   return (
     <HoverCard
       anchor={ownRow}
       content={<SessionHoverContent node={node} now={now} t={t} />}
-      disabled={menuOpen || drag?.active === true}
+      disabled={menuOpen || contextMenu !== null || drag?.active === true}
       copyText={row.blank ? undefined : row.title}
       copyLabel={t('copy')}
       copiedLabel={t('hover.copied')}

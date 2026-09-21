@@ -588,6 +588,7 @@ export function WorkspaceBrowser({
                   onRenameRequest={onWorkspaceRename}
                   onDeleteRequest={onWorkspaceDelete}
                   onAppearanceRequest={setAppearanceTarget}
+                  onAppearanceChange={updateAppearance}
                 />
               ))}
       </div>
