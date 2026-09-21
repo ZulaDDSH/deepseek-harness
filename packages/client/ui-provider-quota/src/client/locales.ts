@@ -2,6 +2,7 @@
 
 export const NS = 'provider-quota'
 
+/** Simplified Chinese provider quota dictionary. */
 export const zh = {
   title: '用量',
   refresh: '刷新用量',
@@ -18,6 +19,7 @@ export const zh = {
   reset: '{time} 重置',
 } as const
 
+/** English provider quota dictionary. */
 export const en: Record<keyof typeof zh, string> = {
   title: 'Usage',
   refresh: 'Refresh usage',
@@ -34,4 +36,5 @@ export const en: Record<keyof typeof zh, string> = {
   reset: 'Resets {time}',
 }
 
+/** Translation keys owned by the provider quota surface. */
 export type ProviderQuotaKey = keyof typeof zh
