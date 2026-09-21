@@ -1,6 +1,7 @@
 name: Temporary lockfile refresh
 
 on:
+  pull_request:
   push:
     branches:
       - chore/consolidate-dependency-updates
