@@ -83,7 +83,7 @@ export interface CardActions {
   /** Stage a clear, so saving lets the field re-inherit the composition layer. */
   resetField: (field: string) => void
   /** Write every staged edit, then re-seed from what the Host accepted. */
-  save: () => Promise<void>
+  save: () => void
   /** Drop every staged edit. */
   discard: () => void
 }
@@ -235,7 +235,7 @@ export class CardForm<T> {
       resetField: (field) => {
         this.stage(field, { text: this.spec(field).format(this.baseValue(field)), clear: true })
       },
-      save: () => this.save(),
+      save: () => { void this.save() },
       discard: () => {
         if (this.staged.size === 0 && !this.failed) return
         this.staged.clear()
