@@ -105,10 +105,12 @@ export function ModelSelect(
     }))), [state.groups])
   const visibleGroups = useMemo(() => {
     const query = search.trim().toLocaleLowerCase()
+    // The box filters models, so it matches the model's own name and id only:
+    // matching the group name would keep every row of a group whose name
+    // happens to contain the query.
     const matches = (choice: typeof choices[number]): boolean => query === ''
       || choice.model.name.toLocaleLowerCase().includes(query)
       || choice.model.id.toLocaleLowerCase().includes(query)
-      || choice.group.name.toLocaleLowerCase().includes(query)
     const favorites = choices.filter(choice => favoriteSet.has(choice.key) && matches(choice))
     const groups = state.groups.map(group => ({
       key: group.id,
@@ -174,10 +176,10 @@ export function ModelSelect(
     paneFocus.current = null
     if (!open || intent === null) return
     if (intent === 'drill') {
-      if (pane === 'model') {
-        searchRef.current?.focus()
-        return
-      }
+      // Both drilled panes land on the row the pane marks as current, or on the
+      // first enabled row when no row carries the value (a model the catalog no
+      // longer lists). The model pane's search box is not a row, so focusing it
+      // would leave the walk starting from the wrong place.
       const checked = menuRef.current?.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]:not([disabled])')
       const target = checked ?? itemRefs.current.find(item => item !== null && !item.disabled)
       ;(target ?? triggerRef.current)?.focus()

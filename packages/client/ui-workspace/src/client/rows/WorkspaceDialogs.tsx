@@ -45,7 +45,9 @@ export function useWorkspaceDialogs(options: {
     setRenameError(null)
   }
   const confirmRename = (): void => {
-    if (renameBlocked || renameTarget === null) return
+    // renameBlocked already includes renameTarget === null; re-checking it here
+    // would be a branch the types prove unreachable.
+    if (renameBlocked) return
     setRenaming(true)
     setRenameError(null)
     renameWorkspace(renameTarget.workspaceId, renameTrimmed).then(() => {
@@ -69,7 +71,8 @@ export function useWorkspaceDialogs(options: {
     setSessionRenameError(null)
   }
   const confirmSessionRename = (): void => {
-    if (sessionRenameBlocked || sessionRenameTarget === null) return
+    // Same as confirmRename: sessionRenameBlocked already covers the null target.
+    if (sessionRenameBlocked) return
     setSessionRenaming(true)
     setSessionRenameError(null)
     renameSession(sessionRenameTarget.sessionId, sessionRenameTrimmed).then(() => {

@@ -23,12 +23,15 @@ function list(): SessionListState {
 }
 
 function status(overrides: Record<string, unknown> = {}): SessionStatusSnapshot {
-  return new Map([[id, {
+  // The overrides deliberately carry partial or foreign status facts, so the
+  // literal is assembled before the map is declared as the snapshot type.
+  const entry = {
     running: false,
     pendingInteraction: undefined,
     completionUnread: false,
     ...overrides,
-  }]]) as unknown as SessionStatusSnapshot
+  }
+  return new Map([[id, entry]])
 }
 
 const sources: DesktopAttentionSource[] = []

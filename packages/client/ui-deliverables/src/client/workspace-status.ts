@@ -30,7 +30,10 @@ export class WorkspaceStatusStore extends HostReadStore<WorkspaceStatusState> {
   /** Forget one cached status before reading it again. */
   refresh(workspaceId: WorkspaceId): Promise<void> {
     const url = workspaceStatusUrl(workspaceId)
-    this.state.update(state => Object.fromEntries(Object.entries(state).filter(([key]) => key !== url)))
+    // Clearing the key to undefined is what loadUrl reads as "no cached answer":
+    // leaving a standing state here would skip the read. The mutator edits the
+    // draft in place — a returned replacement is ignored by the store.
+    this.state.update((state) => { state[url] = undefined })
     return this.load(workspaceId)
   }
 }

@@ -29,6 +29,12 @@ function SidebarFrame({ renderSlot }: FrameProps) {
 async function bench() {
   const runtime = await SlotTestRuntime.create()
   runtime.ctx.provide('layout', { selectPanel: vi.fn() })
+  // The quick switcher consumes the command service structurally; its namespace
+  // only has to be present for ui-workspace's inject to settle.
+  runtime.ctx.provide('commandUi', {
+    quickCommands: vi.fn(async () => []),
+    runQuick: vi.fn(() => true),
+  } as never)
   runtime.releaseWorkspaceSource()
   const directoryPicker = {}
   const { remote } = runtime
