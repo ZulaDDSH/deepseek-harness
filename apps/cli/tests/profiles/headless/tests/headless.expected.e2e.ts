@@ -94,7 +94,7 @@ async function deepseekDefaultsServer(options: { waitForTitleRequest?: boolean; 
       requests.push(JSON.parse(body) as JsonObject)
       paths.push(request.url ?? '')
       response.writeHead(200, { 'content-type': 'text/event-stream' })
-      let keepAlives = 3
+      let keepAlives = options.protocol === 'messages' ? 10 : 3
       const write = (): void => {
         // One-shot teardown may cancel background title work after the main response.
         if (keepAlives-- > 0
