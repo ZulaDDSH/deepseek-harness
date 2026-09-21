@@ -3,6 +3,7 @@ import { useMemo } from 'react'
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
+import type { WorkspaceAppearance } from '../appearance.ts'
 import { deriveFlat, type SessionNode } from '../tree.ts'
 import { SessionNodeItem } from './Rows.tsx'
 import css from './WorkspaceBrowser.module.css'
@@ -12,6 +13,8 @@ export interface ActivityListProps extends Pick<
   'useSessionStatus' | 'open' | 'forkSession' | 'usePanelInfo' | 't'
 > {
   list: SessionListState
+  appearanceBySession: Readonly<Record<string, WorkspaceAppearance>>
+  onSessionAppearanceChange: (sessionId: SessionId, change: WorkspaceAppearance) => void
   sessionIds: readonly SessionId[]
   onSessionRename: (sessionId: SessionNode['id'], currentTitle: string) => void
   onSessionArchive: (sessionId: SessionNode['id']) => void
@@ -19,7 +22,7 @@ export interface ActivityListProps extends Pick<
 
 /** Render Sessions grouped by user attention, live work, and recent completion. */
 export function ActivityList({
-  list, sessionIds, useSessionStatus, open, forkSession, onSessionRename, onSessionArchive,
+  list, sessionIds, appearanceBySession, onSessionAppearanceChange, useSessionStatus, open, forkSession, onSessionRename, onSessionArchive,
   usePanelInfo, t,
 }: ActivityListProps) {
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
@@ -61,6 +64,11 @@ export function ActivityList({
                   onRename={onSessionRename}
                   onFork={forkSession}
                   onArchive={onSessionArchive}
+                  appearance={appearanceBySession[node.id]}
+                  appearanceActions={{
+                    color: (color) => { onSessionAppearanceChange(node.id, { color }) },
+                    icon: (icon) => { onSessionAppearanceChange(node.id, { icon }) },
+                  }}
                   flat
                   t={t}
                 />

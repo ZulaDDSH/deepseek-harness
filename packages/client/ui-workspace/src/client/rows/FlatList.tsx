@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
+import type { WorkspaceAppearance } from '../appearance.ts'
 import { deriveFlat, pinCurrentBlank, type SessionNode } from '../tree.ts'
 import { FLAT_SESSION_ORDER_KEY } from '../stores.ts'
 import { SessionNodeItem } from './Rows.tsx'
@@ -20,6 +21,8 @@ export interface FlatListProps extends Pick<
   'useSessionStatus' | 'open' | 'forkSession' | 'usePanelInfo' | 't'
 > {
   list: SessionListState
+  appearanceBySession: Readonly<Record<string, WorkspaceAppearance>>
+  onSessionAppearanceChange: (sessionId: SessionId, change: WorkspaceAppearance) => void
   sessionIds: readonly SessionId[]
   setSessionOrder: (accountKey: string, order: readonly string[]) => void
   onSessionRename: (sessionId: SessionNode['id'], currentTitle: string) => void
@@ -34,7 +37,7 @@ export interface FlatListProps extends Pick<
  * @returns the flat Session list.
  */
 export function FlatList({
-  list, sessionIds, useSessionStatus, open, forkSession, onSessionRename, onSessionArchive,
+  list, sessionIds, appearanceBySession, onSessionAppearanceChange, useSessionStatus, open, forkSession, onSessionRename, onSessionArchive,
   usePanelInfo, setSessionOrder, revealSessionId, onSessionRevealed, t,
 }: FlatListProps) {
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
@@ -85,6 +88,11 @@ export function FlatList({
               onRename={onSessionRename}
               onFork={forkSession}
               onArchive={onSessionArchive}
+              appearance={appearanceBySession[node.id]}
+              appearanceActions={{
+                color: (color) => { onSessionAppearanceChange(node.id, { color }) },
+                icon: (icon) => { onSessionAppearanceChange(node.id, { icon }) },
+              }}
               onReveal={node.id === revealSessionId
                 ? () => { onSessionRevealed(node.id) }
                 : undefined}

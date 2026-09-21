@@ -96,6 +96,8 @@ type SessionTreeProps = Pick<
   onAppearanceRequest: (workspaceId: WorkspaceId) => void
   /** Apply an appearance change straight from a row menu, without the dialog. */
   onAppearanceChange: (workspaceId: WorkspaceId, change: WorkspaceAppearance) => void
+  appearanceBySession: Readonly<Record<string, WorkspaceAppearance>>
+  onSessionAppearanceChange: (sessionId: SessionId, change: WorkspaceAppearance) => void
   /** Open the browser-owned session rename dialog. */
   onSessionRename: (sessionId: SessionNode['id'], currentTitle: string) => void
   /** Archive a session (row menu action; the row disappears on the state echo). */
@@ -128,6 +130,7 @@ export function SessionTree({
   archivedSessionIds,
   workspaceReady, usePanelInfo,
   onRenameRequest, onDeleteRequest, onAppearanceRequest, onAppearanceChange, onSessionRename, onSessionArchive,
+  appearanceBySession, onSessionAppearanceChange,
   insertWorkspaceBefore,
   nestWorkspaces, groupExpansion, setGroupExpanded,
   setSessionOrder, home, t,
@@ -447,6 +450,13 @@ export function SessionTree({
               onRename={onSessionRename}
               onFork={forkSession}
               onArchive={onSessionArchive}
+              appearance={group.workspaceId === undefined
+                ? appearanceBySession[node.id]
+                : { ...appearanceByWorkspace[group.workspaceId], ...appearanceBySession[node.id] }}
+              appearanceActions={{
+                color: (color) => { onSessionAppearanceChange(node.id, { color }) },
+                icon: (icon) => { onSessionAppearanceChange(node.id, { icon }) },
+              }}
               onReveal={node.id === revealSessionId && group.key === revealGroup
                 ? () => { onSessionRevealed(node.id) }
                 : undefined}

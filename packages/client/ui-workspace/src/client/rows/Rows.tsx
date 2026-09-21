@@ -160,10 +160,11 @@ function sectionMenuItems(
  * @returns the section header element.
  */
 export function SectionHeaderItem({
-  section, dragActive = false, marker = null, onToggle, onDragOver, onDrop, onFileChat,
+  section, appearance, dragActive = false, marker = null, onToggle, onDragOver, onDrop, onFileChat,
   externalChatSessionId = null, drag, actions, t,
 }: {
   section: SectionNode
+  appearance?: WorkspaceAppearance | undefined
   dragActive?: boolean | undefined
   marker?: 'before' | 'after' | 'inside' | null | undefined
   onToggle: () => void
@@ -175,18 +176,25 @@ export function SectionHeaderItem({
   actions: {
     rename: () => void
     delete: () => void
+    appearanceColor: (color: WorkspaceColor | undefined) => void
+    appearanceIcon: (icon: WorkspaceIcon | undefined) => void
   }
   t: RowTranslate
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
+  const submenus = useMemo(() => appearanceSubmenus(t), [t])
   const items = [
+    { id: 'appearance.color', label: t('appearance.color'), icon: <IconEditOutline16 />, submenu: submenus.colors },
+    { id: 'appearance.icon', label: t('appearance.icon'), icon: <IconEditOutline16 />, submenu: submenus.icons },
     { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
     { id: 'delete', label: t('section.delete'), icon: <IconTrashOutline16 />, danger: true },
   ]
   const select = (id: string): void => {
-    if (id === 'rename') actions.rename()
-    if (id === 'delete') actions.delete()
+    if (id.startsWith('appearance.color.')) actions.appearanceColor(workspaceColorOf(id))
+    else if (id.startsWith('appearance.icon.')) actions.appearanceIcon(workspaceIconOf(id))
+    else if (id === 'rename') actions.rename()
+    else if (id === 'delete') actions.delete()
   }
   return (
     <div
@@ -195,6 +203,7 @@ export function SectionHeaderItem({
         marker === 'before' && css.dropBefore, marker === 'after' && css.dropAfter,
         marker === 'inside' && css.dropInside,
       )}
+      style={appearanceStyle(appearance)}
       role="treeitem"
       aria-expanded={section.expanded}
       aria-label={t('section.actions.aria', { name: section.name })}
@@ -240,6 +249,11 @@ export function SectionHeaderItem({
         onDrop?.(rowHalf(event))
       }}
     >
+      <span className={clsx(css.slot, css.sectionGlyph)}>
+        {appearance?.icon === undefined || appearance.icon === 'folder'
+          ? section.expanded ? <IconFolderOpen16 /> : <IconFolderClose16 />
+          : <WorkspaceIconGlyph choice={appearance.icon} />}
+      </span>
       <span className={clsx(css.slot, css.chevron)}>
         <IconTriangleRightFill14 className={clsx(css.arrow, section.expanded && css.arrowOpen)} />
       </span>
@@ -300,9 +314,15 @@ export function SectionHeaderItem({
  */
 function sessionMenuItemsFor(
   sectionActions: SessionSectionActions | undefined,
+  appearanceActions: SessionAppearanceActions | undefined,
   t: RowTranslate,
 ): MenuItem[] {
+  const submenus = appearanceSubmenus(t)
   const items: MenuItem[] = [
+    ...(appearanceActions === undefined ? [] : [
+      { id: 'appearance.color', label: t('appearance.color'), icon: <IconEditOutline16 />, submenu: submenus.colors },
+      { id: 'appearance.icon', label: t('appearance.icon'), icon: <IconEditOutline16 />, submenu: submenus.icons },
+    ]),
     { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
     { id: 'fork', label: t('menu.fork'), icon: <IconBranchOutline16 /> },
     // 20-native glyph in the menu's 16px icon slot (Menu.module.css .itemIcon).
@@ -336,6 +356,11 @@ export interface SessionSectionActions {
   currentSectionId: string | undefined
   /** Assign the Chat to a section, or to no section. */
   move: (sessionId: SessionNode['id'], sectionId: string | undefined) => void
+}
+
+export interface SessionAppearanceActions {
+  color: (color: WorkspaceColor | undefined) => void
+  icon: (icon: WorkspaceIcon | undefined) => void
 }
 
 /** Localized compact relative time ("刚刚"/"5分钟" in zh, "now"/"5min" in en). */
@@ -658,7 +683,7 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
  */
 export function SessionNodeItem({
   node, currentId, now, onOpen, onRename, onFork, onArchive, onReveal, drag, flat = false, appearance,
-  sectionActions, t,
+  appearanceActions, sectionActions, t,
 }: {
   node: SessionNode
   currentId: string | undefined
@@ -682,6 +707,7 @@ export function SessionNodeItem({
    * rides on that same glyph rather than recoloring the title.
    */
   appearance?: WorkspaceAppearance | undefined
+  appearanceActions?: SessionAppearanceActions | undefined
   /**
    * Section assignment for this row. Absent wherever sections do not render,
    * which leaves the row's menus exactly as they were.
@@ -715,7 +741,7 @@ export function SessionNodeItem({
   // Archive hides the row through the registry-global archive set and never
   // touches the session log, so it is not styled as destructive and needs no
   // confirmation dialog.
-  const sessionMenuItems = sessionMenuItemsFor(sectionActions, t)
+  const sessionMenuItems = sessionMenuItemsFor(sectionActions, appearanceActions, t)
   /**
    * Apply one menu selection. Row verbs and section moves share this, so the
    * hover menu and the context menu cannot diverge.
@@ -725,6 +751,8 @@ export function SessionNodeItem({
     if (id === 'rename') { onRename(node.id, row.title); return }
     if (id === 'fork') { onFork(node.id); return }
     if (id === 'archive') { onArchive(node.id); return }
+    if (id.startsWith('appearance.color.')) { appearanceActions?.color(workspaceColorOf(id)); return }
+    if (id.startsWith('appearance.icon.')) { appearanceActions?.icon(workspaceIconOf(id)); return }
     if (id === 'section.remove') { sectionActions?.move(node.id, undefined); return }
     const choice = sectionChoiceOf(id)
     if (choice === undefined) return
@@ -739,6 +767,7 @@ export function SessionNodeItem({
         flat && !showStatus && css.flatSessionRowWithoutStatus,
         drag?.marker === 'before' && css.dropBefore, drag?.marker === 'after' && css.dropAfter,
       )}
+      style={appearanceStyle(appearance)}
       role="treeitem"
       aria-selected={selected}
       onClick={() => { onOpen(node.id) }}

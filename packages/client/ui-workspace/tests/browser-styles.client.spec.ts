@@ -148,7 +148,7 @@ describe('WorkspaceBrowser.module.css list', () => {
     expect(cap).toBeDefined()
     expect(cap).toMatch(/^\d+px$/)
     // The pane must not grow beyond its content in the stacked seat.
-    expect(declarations('.sectionsPane')?.get('flex')).toBe('0 1 auto')
+    expect(declarations('.sectionsPane')?.get('flex')).toBe('0 0 auto')
     // The Workspace pane takes exactly the leftover space.
     expect(declarations('.workspacePane')?.get('flex')).toBe('1 1 auto')
     expect(declarations('.workspacePane')?.get('min-height')).toBe('0')

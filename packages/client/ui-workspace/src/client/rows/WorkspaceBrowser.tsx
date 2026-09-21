@@ -49,24 +49,44 @@ const EXPAND_SLIDE_MS = 300
 /** Pause between the latest keystroke and a Host content-search request. */
 const SEARCH_DEBOUNCE_MS = 250
 const WORKSPACE_APPEARANCE_STORAGE_KEY = 'dsh.workspace.appearance.v1'
+const APPEARANCE_STORAGE_KEY = 'dsh.workspace.appearance.v2'
 
-function readWorkspaceAppearances(): Record<string, WorkspaceAppearance> {
-  if (typeof localStorage === 'undefined') return {}
+type AppearanceMaps = {
+  workspaces: Record<string, WorkspaceAppearance>
+  sections: Record<string, WorkspaceAppearance>
+  sessions: Record<string, WorkspaceAppearance>
+}
+
+function readAppearanceMap(value: unknown): Record<string, WorkspaceAppearance> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return {}
+  return Object.fromEntries(Object.entries(value).flatMap(([id, appearance]) => {
+    if (appearance === null || typeof appearance !== 'object' || Array.isArray(appearance)) return []
+    const { color, icon } = appearance as Record<string, unknown>
+    return isWorkspaceColor(color) || isWorkspaceIcon(icon)
+      ? [[id, {
+        ...(isWorkspaceColor(color) ? { color } : {}),
+        ...(isWorkspaceIcon(icon) ? { icon } : {}),
+      }]]
+      : []
+  }))
+}
+
+function readAppearances(): AppearanceMaps {
+  const empty: AppearanceMaps = { workspaces: {}, sections: {}, sessions: {} }
+  if (typeof localStorage === 'undefined') return empty
   try {
-    const value: unknown = JSON.parse(localStorage.getItem(WORKSPACE_APPEARANCE_STORAGE_KEY) ?? '{}')
-    if (value === null || typeof value !== 'object' || Array.isArray(value)) return {}
-    return Object.fromEntries(Object.entries(value).flatMap(([workspaceId, appearance]) => {
-      if (appearance === null || typeof appearance !== 'object' || Array.isArray(appearance)) return []
-      const { color, icon } = appearance as Record<string, unknown>
-      return isWorkspaceColor(color) || isWorkspaceIcon(icon)
-        ? [[workspaceId, {
-          ...(isWorkspaceColor(color) ? { color } : {}),
-          ...(isWorkspaceIcon(icon) ? { icon } : {}),
-        }]]
-        : []
-    }))
+    const current: unknown = JSON.parse(localStorage.getItem(APPEARANCE_STORAGE_KEY) ?? 'null')
+    if (current !== null && typeof current === 'object' && !Array.isArray(current)) {
+      const source = current as Record<string, unknown>
+      return {
+        workspaces: readAppearanceMap(source.workspaces),
+        sections: readAppearanceMap(source.sections),
+        sessions: readAppearanceMap(source.sessions),
+      }
+    }
+    return { ...empty, workspaces: readAppearanceMap(JSON.parse(localStorage.getItem(WORKSPACE_APPEARANCE_STORAGE_KEY) ?? '{}')) }
   } catch {
-    return {}
+    return empty
   }
 }
 
@@ -177,11 +197,11 @@ export function WorkspaceBrowser({
     : undefined
   const [filterColor, setFilterColor] = useState<WorkspaceColor | undefined>(undefined)
   const [filterIcon, setFilterIcon] = useState<WorkspaceIcon | undefined>(undefined)
-  const [appearanceByWorkspace, setAppearanceByWorkspace] = useState<Record<string, WorkspaceAppearance>>(readWorkspaceAppearances)
+  const [appearances, setAppearances] = useState<AppearanceMaps>(readAppearances)
   const [appearanceTarget, setAppearanceTarget] = useState<WorkspaceId | null>(null)
   useEffect(() => {
-    localStorage.setItem(WORKSPACE_APPEARANCE_STORAGE_KEY, JSON.stringify(appearanceByWorkspace))
-  }, [appearanceByWorkspace])
+    localStorage.setItem(APPEARANCE_STORAGE_KEY, JSON.stringify(appearances))
+  }, [appearances])
   const ungroupedMemberIds = useMemo(() => {
     const accounted = new Set(workspaces.flatMap(workspace => workspace.sessionIds))
     return list.ids.filter(id => list.byId[id] !== undefined && !accounted.has(id))
@@ -204,10 +224,10 @@ export function WorkspaceBrowser({
     }
   }), [currentBlank, list.byId, orderBy, sessionOrderByAccount, workspaces])
   const visibleWorkspaces = useMemo(() => orderedWorkspaces.filter((workspace) => {
-    const appearance = appearanceByWorkspace[workspace.workspaceId]
+    const appearance = appearances.workspaces[workspace.workspaceId]
     return (filterColor === undefined || appearance?.color === filterColor)
       && (filterIcon === undefined || appearance?.icon === filterIcon)
-  }), [appearanceByWorkspace, filterColor, filterIcon, orderedWorkspaces])
+  }), [appearances.workspaces, filterColor, filterIcon, orderedWorkspaces])
   const orderedUngroupedSessionIds = useMemo(() => {
     const baseOrder = orderBy === 'updated'
       ? orderByRecency(ungroupedMemberIds, list.byId)
@@ -404,8 +424,21 @@ export function WorkspaceBrowser({
     if (list.phase !== 'ready') return
     actions.retainSectionSessions(sessionAccountKeys)
   }, [actions.retainSectionSessions, list.phase, sessionAccountKeys])
-  const updateAppearance = (workspaceId: WorkspaceId, change: WorkspaceAppearance): void => {
-    setAppearanceByWorkspace(current => ({ ...current, [workspaceId]: { ...current[workspaceId], ...change } }))
+  const updateAppearance = (
+    kind: keyof AppearanceMaps,
+    id: string,
+    change: WorkspaceAppearance,
+  ): void => {
+    setAppearances((current) => {
+      const next = { ...current[kind] }
+      const merged = { ...next[id], ...change }
+      if (merged.color === undefined && merged.icon === undefined) {
+        const { [id]: _removed, ...kept } = next
+        return { ...current, [kind]: kept }
+      }
+      next[id] = merged
+      return { ...current, [kind]: next }
+    })
   }
 
   return (
@@ -593,6 +626,8 @@ export function WorkspaceBrowser({
                 <ActivityList
                   list={list}
                   sessionIds={orderedFlatSessionIds}
+                  appearanceBySession={appearances.sessions}
+                  onSessionAppearanceChange={(sessionId, change) => { updateAppearance('sessions', sessionId, change) }}
                   useSessionStatus={useSessionStatus}
                   usePanelInfo={usePanelInfo}
                   open={open}
@@ -608,6 +643,8 @@ export function WorkspaceBrowser({
                     usePanelInfo={usePanelInfo}
                     list={list}
                     sessionIds={orderedFlatSessionIds}
+                    appearanceBySession={appearances.sessions}
+                    onSessionAppearanceChange={(sessionId, change) => { updateAppearance('sessions', sessionId, change) }}
                     useSessionStatus={useSessionStatus}
                     open={open} forkSession={forkSession}
                     onSessionRename={onSessionRename} onSessionArchive={onSessionArchive}
@@ -626,7 +663,8 @@ export function WorkspaceBrowser({
                     onSessionArchive={onSessionArchive}
                     forkSession={forkSession}
                     workspaces={visibleWorkspaces}
-                    appearanceByWorkspace={appearanceByWorkspace}
+                    appearanceByWorkspace={appearances.workspaces}
+                    appearanceBySession={appearances.sessions}
                     ungroupedSessionIds={orderedUngroupedSessionIds}
                     workspaceReady={workspaceReady}
                     nestWorkspaces={groupBy === 'workspace-tree'}
@@ -644,7 +682,8 @@ export function WorkspaceBrowser({
                     onRenameRequest={onWorkspaceRename}
                     onDeleteRequest={onWorkspaceDelete}
                     onAppearanceRequest={setAppearanceTarget}
-                    onAppearanceChange={updateAppearance}
+                    onAppearanceChange={(workspaceId, change) => { updateAppearance('workspaces', workspaceId, change) }}
+                    onSessionAppearanceChange={(sessionId, change) => { updateAppearance('sessions', sessionId, change) }}
                     sectionDropTargets={sectionsOn}
                     assignSession={actions.assignSession}
                     sections={chatSections.sections}
@@ -664,6 +703,8 @@ export function WorkspaceBrowser({
             list={list}
             visibleSessionIds={flatMemberIds}
             sections={chatSections}
+            appearanceBySection={appearances.sections}
+            appearanceBySession={appearances.sessions}
             currentBlank={currentBlank}
             open={open}
             forkSession={forkSession}
@@ -679,6 +720,8 @@ export function WorkspaceBrowser({
             moveSection={actions.moveSection}
             onSectionRename={onSectionRename}
             onSectionDelete={onSectionDelete}
+            onSectionAppearanceChange={(sectionId, change) => { updateAppearance('sections', sectionId, change) }}
+            onSessionAppearanceChange={(sessionId, change) => { updateAppearance('sessions', sessionId, change) }}
             t={t}
           />
         )}
@@ -700,7 +743,7 @@ export function WorkspaceBrowser({
                 type="button"
                 aria-label={t(`appearance.color.${value}`)}
                 style={{ width: 28, height: 28, borderRadius: 14, border: '2px solid transparent', background: WORKSPACE_APPEARANCE_COLORS[value], cursor: 'pointer' }}
-                onClick={() => { if (appearanceTarget !== null) updateAppearance(appearanceTarget, { color: value }) }}
+                onClick={() => { if (appearanceTarget !== null) updateAppearance('workspaces', appearanceTarget, { color: value }) }}
               />
             ))}
           </div>
@@ -714,7 +757,7 @@ export function WorkspaceBrowser({
                   type="button"
                   aria-label={t(`appearance.icon.${value}`)}
                   style={{ width: 32, height: 28, border: '1px solid var(--dsw-alias-border-l3)', background: 'transparent', cursor: 'pointer' }}
-                  onClick={() => { if (appearanceTarget !== null) updateAppearance(appearanceTarget, { icon: value }) }}
+                  onClick={() => { if (appearanceTarget !== null) updateAppearance('workspaces', appearanceTarget, { icon: value }) }}
                 >
                   <Glyph size={16} />
                 </button>

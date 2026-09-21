@@ -5,15 +5,17 @@ import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/clie
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
+import type { WorkspaceBrowserProps } from '../src/client/contract/slots.ts'
 import type { RowDragProps } from '../src/client/rows/Rows.tsx'
-import { ProjectRowItem, SearchResultItem, SessionNodeItem } from '../src/client/rows/Rows.tsx'
+import { ProjectRowItem, SearchResultItem, SectionHeaderItem, SessionNodeItem } from '../src/client/rows/Rows.tsx'
 import { sessionStatuses } from '../src/client/rows/SessionStatus.tsx'
 import type { GroupNode, SearchResultNode, SessionNode } from '../src/client/tree.ts'
+import type { SectionNode } from '../src/client/sections.ts'
 import { zh } from '../src/client/locales.ts'
 
 afterEach(cleanup)
 
-const t = makeTranslate(zh, commonZh) as never
+const t: WorkspaceBrowserProps['t'] = makeTranslate(zh, commonZh)
 
 const sid = (id: string) => id as SessionId
 const wid = (id: string) => id as WorkspaceId
@@ -327,6 +329,43 @@ describe('workspace browser rows', () => {
     fireEvent.click(screen.getByText('颜色'))
     fireEvent.click(screen.getAllByText('默认')[0]!)
     expect(onAppearanceColor).toHaveBeenCalledWith(undefined)
+  })
+
+  it('applies appearance choices from a Section row menu', () => {
+    const onColor = vi.fn()
+    const onIcon = vi.fn()
+    const section: SectionNode = { id: 'section', name: 'Work', sessionIds: [], sessionCount: 0, expanded: true }
+    render(<SectionHeaderItem section={section} onToggle={vi.fn()} actions={{
+      rename: vi.fn(), delete: vi.fn(), appearanceColor: onColor, appearanceIcon: onIcon,
+    }} t={t} />)
+    fireEvent.click(screen.getByRole('button', { name: t('section.actions.aria', { name: 'Work' }) }))
+    fireEvent.click(screen.getByText(t('appearance.color')))
+    fireEvent.click(screen.getByText(t('appearance.color.red')))
+    expect(onColor).toHaveBeenCalledWith('red')
+    fireEvent.click(screen.getByRole('button', { name: t('section.actions.aria', { name: 'Work' }) }))
+    fireEvent.click(screen.getByText(t('appearance.icon')))
+    fireEvent.click(screen.getByText(t('appearance.icon.rocket')))
+    expect(onIcon).toHaveBeenCalledWith('rocket')
+  })
+
+  it('applies appearance choices from an individual Session row menu', () => {
+    const onColor = vi.fn()
+    const onIcon = vi.fn()
+    const node: SessionNode = {
+      id: sid('session'), title: 'Session', blank: false, running: false,
+      runningSubagentCount: 0, completed: false, hasActiveSchedule: false, updatedAt: 0,
+    }
+    render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
+      onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()}
+      appearanceActions={{ color: onColor, icon: onIcon }} t={t} />)
+    fireEvent.click(screen.getByRole('button', { name: t('actions.session.aria', { name: 'Session' }) }))
+    fireEvent.click(screen.getByText(t('appearance.color')))
+    fireEvent.click(screen.getByText(t('appearance.color.blue')))
+    expect(onColor).toHaveBeenCalledWith('blue')
+    fireEvent.click(screen.getByRole('button', { name: t('actions.session.aria', { name: 'Session' }) }))
+    fireEvent.click(screen.getByText(t('appearance.icon')))
+    fireEvent.click(screen.getByText(t('appearance.icon.terminal')))
+    expect(onIcon).toHaveBeenCalledWith('terminal')
   })
 
   it('closes the context menu when the pointer leaves, without choosing', () => {

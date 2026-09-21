@@ -319,7 +319,9 @@
    outside its box and sit on top of the lower one, so a drop aimed at a
    section header lands on a workspace row instead. */
 .listAreaStacked {
+  flex: 1 1 auto;
   min-height: 0;
+  width: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -345,7 +347,7 @@
    row instead of floating above a gap. A long list scrolls rather than
    squeezing the Workspace pane away. */
 .sectionsPane {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   min-height: 0;
   /* The cap is on the scroll area's own height, not a percentage of the
      region: a percentage makes the pane claim that share even when it holds

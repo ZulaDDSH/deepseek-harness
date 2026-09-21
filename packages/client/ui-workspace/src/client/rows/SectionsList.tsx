@@ -17,6 +17,7 @@ import clsx from 'clsx'
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
+import type { WorkspaceAppearance } from '../appearance.ts'
 import { deriveFlat, pinCurrentBlank, type SessionNode } from '../tree.ts'
 import { deriveSections, type SectionNode } from '../sections.ts'
 import type { ChatSectionsState } from '../stores.ts'
@@ -50,6 +51,8 @@ export interface SectionsListProps extends Pick<
   visibleSessionIds: readonly SessionId[]
   /** Persisted section layer. */
   sections: ChatSectionsState
+  appearanceBySection: Readonly<Record<string, WorkspaceAppearance>>
+  appearanceBySession: Readonly<Record<string, WorkspaceAppearance>>
   /** Selected provisional New Session, pinned first wherever it renders. */
   currentBlank: SessionId | undefined
   onSessionRename: (sessionId: SessionNode['id'], currentTitle: string) => void
@@ -63,6 +66,8 @@ export interface SectionsListProps extends Pick<
   moveSection: (sectionId: string, beforeSectionId?: string) => void
   onSectionRename: (sectionId: string, currentName: string) => void
   onSectionDelete: (sectionId: string, name: string) => void
+  onSectionAppearanceChange: (sectionId: string, change: WorkspaceAppearance) => void
+  onSessionAppearanceChange: (sessionId: SessionId, change: WorkspaceAppearance) => void
   externalChatSessionId: SessionId | null
   onChatDragEnd: () => void
 }
@@ -73,9 +78,10 @@ export interface SectionsListProps extends Pick<
  * @returns the sections tree body.
  */
 export function SectionsList({
-  list, visibleSessionIds, sections, currentBlank, useSessionStatus, open, forkSession,
+  list, visibleSessionIds, sections, appearanceBySection, appearanceBySession, currentBlank, useSessionStatus, open, forkSession,
   usePanelInfo, onSessionRename, onSessionArchive, assignSession, setSectionOrder,
-  toggleSection, moveSection, onSectionRename, onSectionDelete, t,
+  toggleSection, moveSection, onSectionRename, onSectionDelete, onSectionAppearanceChange,
+  onSessionAppearanceChange, t,
   externalChatSessionId, onChatDragEnd,
 }: SectionsListProps) {
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
@@ -186,6 +192,11 @@ export function SectionsList({
         onRename={onSessionRename}
         onFork={forkSession}
         onArchive={onSessionArchive}
+        appearance={appearanceBySession[node.id]}
+        appearanceActions={{
+          color: (color) => { onSessionAppearanceChange(node.id, { color }) },
+          icon: (icon) => { onSessionAppearanceChange(node.id, { icon }) },
+        }}
         flat
         sectionActions={sectionActions(sectionId)}
         drag={{
@@ -264,6 +275,7 @@ export function SectionsList({
       >
         <SectionHeaderItem
           section={section}
+          appearance={appearanceBySection[section.id]}
           dragActive={chatDrag !== null || sectionDrag !== null || externalChatSessionId !== null}
           marker={marker}
           onToggle={() => { toggleSection(section.id) }}
@@ -306,6 +318,8 @@ export function SectionsList({
           actions={{
             rename: () => { onSectionRename(section.id, section.name) },
             delete: () => { onSectionDelete(section.id, section.name) },
+            appearanceColor: (color) => { onSectionAppearanceChange(section.id, { color }) },
+            appearanceIcon: (icon) => { onSectionAppearanceChange(section.id, { icon }) },
           }}
           t={t}
         />
