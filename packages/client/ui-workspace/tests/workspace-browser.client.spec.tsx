@@ -157,11 +157,11 @@ it('paints a chosen color onto the row and persists it across a remount', () => 
   fireEvent.click(screen.getAllByRole('button', { name: '关闭' }).find(b => b !== null)!)
   const painted = () => screen.getByText('Alpha').closest('[role="treeitem"]') as HTMLElement
   expect(painted().style.color).toBe('rgb(122, 90, 248)')
-  expect(getComputedStyle(screen.getByText('Alpha')!).color).toBe('rgb(122, 90, 248)')
+  expect(getComputedStyle(screen.getByText('Alpha')).color).toBe('rgb(122, 90, 248)')
   b.view.unmount()
   mount({ useSessions: b.props.useSessions, useWorkspaces: b.props.useWorkspaces })
   expect(painted().style.color).toBe('rgb(122, 90, 248)')
-  expect(getComputedStyle(screen.getByText('Alpha')!).color).toBe('rgb(122, 90, 248)')
+  expect(getComputedStyle(screen.getByText('Alpha')).color).toBe('rgb(122, 90, 248)')
 })
 
 describe('WorkspaceBrowser', () => {
