@@ -1,0 +1,29 @@
+name: Temporary lockfile refresh
+
+on:
+  push:
+    branches:
+      - chore/consolidate-dependency-updates
+
+permissions:
+  contents: read
+
+jobs:
+  lockfile:
+    runs-on: ubuntu-latest
+    env:
+      PRIMARY_NODE_VERSION: 24
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+      - name: Regenerate lockfile
+        run: pnpm install --lockfile-only --no-frozen-lockfile
+      - name: Verify lockfile
+        run: pnpm install --frozen-lockfile --lockfile-only
+      - uses: actions/upload-artifact@v7
+        with:
+          name: regenerated-pnpm-lock
+          path: pnpm-lock.yaml
