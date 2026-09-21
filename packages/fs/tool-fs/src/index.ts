@@ -26,6 +26,7 @@ export type ToolName = 'read' | 'write' | 'edit' | 'read_image'
 
 const TOOL_NAMES = ['read', 'write', 'edit', 'read_image'] as const satisfies readonly ToolName[]
 
+/** Runtime configuration for filesystem read and mutation tools. */
 export interface Config {
   /** Default and maximum number of lines returned by one `read` call. */
   readLimit?: number
