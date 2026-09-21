@@ -116,10 +116,11 @@ jobs:
           || 'ubuntu-latest' }}
     name: node 24 / coverage
     env:
-      # Partitioning replaces the instrumented share; this budget gives the
-      # exempt-heavy gate two workers on both hosted and failover runners.
-      DSH_COVERAGE_MAX_WORKERS: '6'
-      DSH_COVERAGE_PARTITIONS: '4'
+      # The 16-core alternatives retain the measured 6-worker / 4-partition
+      # profile; standard ubuntu-latest is 4-core and uses 2 partitions plus
+      # one exempt-heavy worker.
+      DSH_COVERAGE_MAX_WORKERS: ${{ (vars.DSH_CI_FAILOVER_LINUX == 'blacksmith' || (vars.DSH_CI_FAILOVER_LINUX == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]')) && '6' || '2' }}
+      DSH_COVERAGE_PARTITIONS: ${{ (vars.DSH_CI_FAILOVER_LINUX == 'blacksmith' || (vars.DSH_CI_FAILOVER_LINUX == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]')) && '4' || '2' }}
       DSH_GATE_CONCURRENCY: '3'
       # Managed-scope teardown cases run past the default per-test budget when
       # this lane's partitions, workers, and sibling gates share one host: the
@@ -246,17 +247,18 @@ jobs:
           || 'ubuntu-latest' }}
     name: node 24 / snapshots and artifacts
     env:
-      DSH_GATE_CONCURRENCY: '10'
+      DSH_GATE_CONCURRENCY: ${{ (vars.DSH_CI_FAILOVER_LINUX == 'blacksmith' || (vars.DSH_CI_FAILOVER_LINUX == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]')) && '10' || '2' }}
       DSH_NODE_COMPAT_SKIP_TYPECHECK: '1'
-      DSH_OXLINT_THREADS: '8'
-      DSH_PUBLINT_CONCURRENCY: '8'
-      DSH_WEB_SNAPSHOT_WORKERS: '6'
+      DSH_OXLINT_THREADS: ${{ (vars.DSH_CI_FAILOVER_LINUX == 'blacksmith' || (vars.DSH_CI_FAILOVER_LINUX == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]')) && '8' || '4' }}
+      DSH_PUBLINT_CONCURRENCY: ${{ (vars.DSH_CI_FAILOVER_LINUX == 'blacksmith' || (vars.DSH_CI_FAILOVER_LINUX == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]')) && '8' || '4' }}
+      DSH_WEB_SNAPSHOT_WORKERS: ${{ (vars.DSH_CI_FAILOVER_LINUX == 'blacksmith' || (vars.DSH_CI_FAILOVER_LINUX == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]')) && '6' || '2' }}
       # A failing gate aborts its running siblings: a failing build stops the
       # independent Node compatibility smoke, and a failing reader (e.g.
       # publint) stops the remaining artifact consumers.
       DSH_GATE_FAIL_FAST: '1'
-      # Failover halves snapshot concurrency for the shared 64-core VM.
-      DSH_SNAPSHOT_MAX_CONCURRENCY: ${{ vars.DSH_CI_FAILOVER_LINUX == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]' && '12' || '32' }}
+      # Preserve the measured 16-core / shared-VM profiles while matching the
+      # standard hosted runner's four available CPUs.
+      DSH_SNAPSHOT_MAX_CONCURRENCY: ${{ vars.DSH_CI_FAILOVER_LINUX == 'blacksmith' && '32' || vars.DSH_CI_FAILOVER_LINUX == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]' && '12' || '4' }}
     steps:
       # Runner cleanup owns tool caches and fixtures, including cancelled runs.
       - name: Use runner-owned temporary storage
@@ -553,8 +555,8 @@ jobs:
     name: windows node 24 / coverage
     timeout-minutes: 120
     env:
-      DSH_COVERAGE_MAX_WORKERS: '6'
-      DSH_COVERAGE_PARTITIONS: '4'
+      DSH_COVERAGE_MAX_WORKERS: ${{ (vars.DSH_CI_FAILOVER_WINDOWS == 'blacksmith' || (vars.DSH_CI_FAILOVER_WINDOWS == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]')) && '6' || '2' }}
+      DSH_COVERAGE_PARTITIONS: ${{ (vars.DSH_CI_FAILOVER_WINDOWS == 'blacksmith' || (vars.DSH_CI_FAILOVER_WINDOWS == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]')) && '4' || '2' }}
       DSH_COVERAGE_TEST_TIMEOUT_MS: '90000'
       DSH_GATE_CONCURRENCY: '3'
       # A gate failure aborts the sibling gate instead of waiting out its

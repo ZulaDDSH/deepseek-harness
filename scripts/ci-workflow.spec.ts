@@ -129,6 +129,38 @@ describe('CI workflow', () => {
     },
   )
 
+  it('scales heavy PR worker budgets to the selected runner capacity', () => {
+    const workflow = loadWorkflow('.github/workflows/ci.yml')
+    const linuxCoverage = workflowJob(workflow, 'node-24-coverage')
+    const windowsCoverage = workflowJob(workflow, 'windows-coverage')
+    const consumers = workflowJob(workflow, 'node-24-consumers')
+    if (!isRecord(linuxCoverage.env) || !isRecord(windowsCoverage.env) || !isRecord(consumers.env)) {
+      throw new TypeError('Heavy PR jobs must define worker budgets')
+    }
+
+    for (const [mode, login, highCapacity] of [
+      ['', 'maintainer', false],
+      ['blacksmith', 'maintainer', true],
+      ['selfhosted', 'maintainer', true],
+      ['selfhosted', 'dependabot[bot]', false],
+    ] as const) {
+      const context = {
+        vars: { DSH_CI_FAILOVER_LINUX: mode, DSH_CI_FAILOVER_WINDOWS: mode },
+        github: { event: { pull_request: { user: { login } } } },
+      }
+      expect(evaluateRunsOn(linuxCoverage.env.DSH_COVERAGE_MAX_WORKERS, context)).toBe(highCapacity ? '6' : '2')
+      expect(evaluateRunsOn(linuxCoverage.env.DSH_COVERAGE_PARTITIONS, context)).toBe(highCapacity ? '4' : '2')
+      expect(evaluateRunsOn(windowsCoverage.env.DSH_COVERAGE_MAX_WORKERS, context)).toBe(highCapacity ? '6' : '2')
+      expect(evaluateRunsOn(windowsCoverage.env.DSH_COVERAGE_PARTITIONS, context)).toBe(highCapacity ? '4' : '2')
+      expect(evaluateRunsOn(consumers.env.DSH_GATE_CONCURRENCY, context)).toBe(highCapacity ? '10' : '2')
+      expect(evaluateRunsOn(consumers.env.DSH_OXLINT_THREADS, context)).toBe(highCapacity ? '8' : '4')
+      expect(evaluateRunsOn(consumers.env.DSH_PUBLINT_CONCURRENCY, context)).toBe(highCapacity ? '8' : '4')
+      expect(evaluateRunsOn(consumers.env.DSH_WEB_SNAPSHOT_WORKERS, context)).toBe(highCapacity ? '6' : '2')
+      const snapshotExpected = mode === 'blacksmith' ? '32' : highCapacity ? '12' : '4'
+      expect(evaluateRunsOn(consumers.env.DSH_SNAPSHOT_MAX_CONCURRENCY, context)).toBe(snapshotExpected)
+    }
+  })
+
   it('isolates the python SDK exe pnpm setup destination per job', () => {
     const workflow: unknown = yaml.load(readFileSync(resolve(root, '.github/workflows/build-exe-for-python-sdk.yml'), 'utf8'))
     if (!isRecord(workflow) || !isRecord(workflow.jobs)) throw new TypeError('build-exe-for-python-sdk.yml must define jobs')
