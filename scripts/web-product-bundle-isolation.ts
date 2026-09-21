@@ -3,6 +3,8 @@
 import { basename, resolve } from 'node:path'
 import { BundleInputIsolation, physicalBundleInput } from './bundle-input-isolation.ts'
 
+const ROLLDOWN_RUNTIME_MODULE_ID = '\0rolldown/runtime.js'
+
 /** The emitted chunk fields used to follow the product's actual output graph. */
 export interface WebOutputChunk {
   type: 'chunk'
@@ -161,7 +163,7 @@ export class WebProductBundleIsolation {
       for (const input of inputs) this.inputs.assertInput(input)
     }
     const checkModule = (id: string): void => {
-      if (visitedModules.has(id)) return
+      if (id === ROLLDOWN_RUNTIME_MODULE_ID || visitedModules.has(id)) return
       visitedModules.add(id)
       this.inputs.assertInput(id)
       const info = moduleInfo(id)
