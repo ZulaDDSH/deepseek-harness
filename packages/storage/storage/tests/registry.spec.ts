@@ -83,7 +83,7 @@ expect.extend({
 })
 
 declare module 'vitest' {
-  interface Assertion<T> {
-    toThrowMatchingObject(expected: object): T
+  interface Matchers<R, T> {
+    toThrowMatchingObject(expected: object): R
   }
 }
