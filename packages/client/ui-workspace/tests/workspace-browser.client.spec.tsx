@@ -35,6 +35,8 @@ beforeEach(() => {
 const t: WorkspaceBrowserProps['t'] = makeTranslate(zh, commonZh)
 
 const sid = (id: string) => id as SessionId
+/** Section identities are opaque and stable; the counter keeps them distinct per mount. */
+let nextSectionId = 1
 const wid = (id: string) => id as WorkspaceId
 const summary = (id: string, updatedAt: number, overrides: Partial<SessionSummary> = {}): SessionSummary => ({
   id: sid(id), displayTitle: id, running: false, blank: false, updatedAt, ...overrides,
@@ -108,6 +110,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     archiveSession: vi.fn(async () => {}),
     insertWorkspaceBefore: vi.fn(async () => {}),
     createWorkspace: vi.fn(async () => workspace('created', [])),
+    newSectionId: () => `section-${String(nextSectionId++)}`,
     useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => true, subscribe: () => () => {} }),
     useHostInfo: selector => selector({ home: undefined, isLoopback: true }),
     renderSlot: ((_name: string, owner: { open: boolean }) => (owner.open ? <div data-testid="directory-flow" /> : null)) as never,
@@ -409,8 +412,37 @@ describe('WorkspaceBrowser', () => {
     ])
   })
 
-  it('drops the obsolete timestamp ledger from persisted viewing state', async () => {
+  it('loads a view state written before Chat Sections existed with every chat ungrouped', async () => {
     localStorage.clear()
+    localStorage.setItem('dsh.workspace.view.v5', JSON.stringify({
+      groupBy: 'workspace',
+      orderBy: 'manual',
+      groupExpansion: { alpha: true },
+      sessionOrderByAccount: { alpha: ['alpha-s'] },
+    }))
+    const b = mount({
+      useSessions: hook(sessionState([summary('alpha-s', 1)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['alpha-s'])])),
+    })
+    // The unchanged fields survive; the section layer arrives empty, so the
+    // ordinary Workspace projection still renders.
+    expect(b.store.getSnapshot().chatSections).toEqual({
+      sections: [], collapse: {}, members: {}, sectionOrder: {},
+    })
+    expect(b.store.getSnapshot().groupExpansion).toEqual({ alpha: true })
+    expect(screen.getByText('alpha-s')).toBeTruthy()
+    expect(screen.queryByRole('tree', { name: '分组' })).toBeNull()
+    await waitFor(() => {
+      const persisted = JSON.parse(localStorage.getItem('dsh.workspace.view.v5') ?? '{}') as {
+        chatSections?: unknown
+      }
+      expect(persisted.chatSections).toEqual({
+        sections: [], collapse: {}, members: {}, sectionOrder: {},
+      })
+    })
+  })
+
+  it('drops the obsolete timestamp ledger from persisted viewing state', async () => {    localStorage.clear()
     localStorage.setItem('dsh.workspace.view.v5', JSON.stringify({
       groupBy: 'workspace',
       orderBy: 'manual',
@@ -440,7 +472,7 @@ describe('WorkspaceBrowser', () => {
     expect(screen.getByText('分组方式')).toBeTruthy() // the menu heading label
     expect(screen.getByRole('separator')).toBeTruthy()
     expect(screen.getAllByRole('menuitem').map(item => item.textContent)).toEqual([
-      '按工作区', '按工作区树', '单列表', '活动', '手动排序', '最近更新',
+      '按工作区', '按工作区树', '单列表', '活动', '分组', '手动排序', '最近更新',
     ])
     expect(screen.getByRole('menuitem', { name: '按工作区' }).querySelector('svg')).toBeTruthy()
     expect(screen.getByRole('menuitem', { name: '手动排序' }).querySelector('svg')).toBeTruthy()

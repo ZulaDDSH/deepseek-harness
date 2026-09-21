@@ -56,6 +56,16 @@ export type BakedActions<T, A extends ActionsDecl<T>> = {
 export interface StoreSpec<T, A extends ActionsDecl<T>> {
   init: () => T
   persist?: string
+  /**
+   * Bring a rehydrated value written by an earlier build to the current
+   * schema. The store persists a whole value and rehydrates by replacement, so
+   * a field added after the key first shipped is absent from older payloads;
+   * without this step every read of that field sees `undefined`. Runs once per
+   * instance, on the parsed value, before the instance accepts it.
+   * @param persisted - the parsed localStorage value, in an earlier schema.
+   * @returns the value in the current schema.
+   */
+  migrate?: (persisted: T) => T
   actions: A
 }
 

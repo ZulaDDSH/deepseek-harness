@@ -586,3 +586,73 @@
 .activityRows > * + * {
   margin-top: 2px;
 }
+
+/* One Chat Section: header row plus its member rows. The block is the drop
+   body for its own header, so a Chat released anywhere inside the section
+   joins it — the pointer path for a collapsed or still-empty section. */
+.sectionGroup {
+  position: relative;
+  border-radius: 8px;
+}
+
+.sectionGroup + .sectionGroup,
+.sectionGroup + .ungroupedBlock,
+.ungroupedBlock + .sectionGroup {
+  margin-top: 4px;
+}
+
+.sectionGroup > * + * {
+  margin-top: 2px;
+}
+
+/* Join affordance: the pointer is over this section with a Chat in hand, so
+   the whole block reads as one target rather than a stack of rows. */
+.sectionJoinActive {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.sectionGroup.dropInside,
+.sectionRow.dropInside {
+  box-shadow: inset 0 0 0 1px var(--dsw-alias-state-business-primary);
+}
+
+/* Collapsed sections keep a one-line hint: the header stays the drop target,
+   and the hint names what a drop there does. */
+.sectionHint {
+  height: 22px;
+  padding: 0 8px 0 calc(28px + var(--dsh-workspace-indent, 0px));
+  font-size: 11px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.sectionCount {
+  flex: none;
+  margin-right: 6px;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* The trailing member count yields to the hover actions, which occupy the
+   same cell: a row never widens when its actions appear. */
+.sectionRow:hover .sectionCount,
+.sectionRow.menuOpen .sectionCount {
+  display: none;
+}
+
+/* The Chats outside every section, under their own heading. */
+.ungroupedBlock {
+  display: flex;
+  flex-direction: column;
+}
+
+.ungroupedBlock > * + * {
+  margin-top: 2px;
+}
+
+/* A section header is a disclosure row, not a Workspace: it keeps the row
+   rhythm but carries no folder glyph, colour, or workspace hover card. */
+.sectionRow {
+  cursor: pointer;
+}

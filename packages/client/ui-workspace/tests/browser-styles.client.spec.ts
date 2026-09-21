@@ -121,4 +121,19 @@ describe('WorkspaceBrowser.module.css list', () => {
     expect(declarations('.rail .iconButton')?.get('width')).toBe('36px')
     expect(declarations('.rail .search')?.get('width')).toBe('36px')
   })
+
+  it('gives Chat Section blocks the same rhythm as Workspace groups', () => {
+    // Sections sit in the same list as Workspace groups, so the 2px row gap
+    // and 4px block gap must match or the two projections look like different
+    // lists when a section is created.
+    expect(declarations('.sectionGroup > * + *')?.get('margin-top')).toBe('2px')
+    expect(declarations('.sectionGroup + .sectionGroup')?.get('margin-top')).toBe('4px')
+    expect(declarations('.ungroupedBlock > * + *')?.get('margin-top')).toBe('2px')
+    // The join fill reuses the row hover alias rather than a literal colour.
+    expect(declarations('.sectionJoinActive')?.get('background'))
+      .toBe('var(--dsw-alias-interactive-bg-hover)')
+    // The join outline rides the same accent every other drop marker uses.
+    expect(declarations('.sectionGroup.dropInside')?.get('box-shadow'))
+      .toContain('var(--dsw-alias-state-business-primary)')
+  })
 })

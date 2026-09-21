@@ -32,6 +32,7 @@ export function ViewOptionsMenu({ groupBy, orderBy, onGroupPick, onOrderPick, t 
         { id: 'workspace-tree', label: t('groupBy.workspaceTree') },
         { id: 'flat', label: t('groupBy.flat') },
         { id: 'activity', label: t('groupBy.activity') },
+        { id: 'sections', label: t('groupBy.sections') },
         { type: 'separator' as const, id: 'order-by-separator' },
         { type: 'label' as const, id: 'order-by', text: t('orderBy.label') },
         { id: 'manual', label: t('orderBy.manual') },
@@ -39,7 +40,8 @@ export function ViewOptionsMenu({ groupBy, orderBy, onGroupPick, onOrderPick, t 
       ]}
       selectedIds={[groupBy, orderBy]}
       onSelect={(id) => {
-        if (id === 'workspace' || id === 'workspace-tree' || id === 'flat' || id === 'activity') onGroupPick(id)
+        if (id === 'workspace' || id === 'workspace-tree' || id === 'flat'
+          || id === 'activity' || id === 'sections') onGroupPick(id)
         else if (id === 'manual' || id === 'updated') onOrderPick(id)
         setOpen(false)
       }}

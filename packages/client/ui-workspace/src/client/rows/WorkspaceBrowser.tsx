@@ -12,7 +12,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
-  Button, IconCloseFill14, IconProjectAddOutline16, IconSearchOutline16, Menu, Modal, Tooltip,
+  Button, IconCloseFill14, IconPlusOutline16, IconProjectAddOutline16, IconSearchOutline16,
+  Menu, Modal, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -32,6 +33,8 @@ import { ViewOptionsMenu } from './ViewOptionsMenu.tsx'
 import { useWorkspaceDialogs } from './WorkspaceDialogs.tsx'
 import { sanitizeSearchQuery, SEARCH_QUERY_MAX_CODE_UNITS } from './search-query.ts'
 import { FLAT_SESSION_ORDER_KEY } from '../stores.ts'
+import { SectionsList } from './SectionsList.tsx'
+import { useSectionDialogs } from './SectionDialogs.tsx'
 import { WorkspacePickFlow } from '../WorkspacePicker.tsx'
 import { WORKSPACE_ICON_GLYPHS } from './WorkspaceIcons.ts'
 import css from './WorkspaceBrowser.module.css'
@@ -139,6 +142,7 @@ export function WorkspaceBrowser({
   insertWorkspaceBefore,
   archiveSession,
   createWorkspace,
+  newSectionId,
   searchSessions,
   searchResultLimit,
   useDirectoryFlow,
@@ -157,6 +161,7 @@ export function WorkspaceBrowser({
   const orderBy = useStore(s => s.orderBy)
   const groupExpansion = useStore(s => s.groupExpansion)
   const sessionOrderByAccount = useStore(s => s.sessionOrderByAccount)
+  const chatSections = useStore(s => s.chatSections)
   const workspaceReady = workspacePhase === 'ready' && workspaceStreamState !== 'loading'
   const mainSessionId = Object.values(list.byId)
     .find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
@@ -370,6 +375,35 @@ export function WorkspaceBrowser({
     archiveSession,
     t,
   })
+  const {
+    dialogs: sectionDialogs,
+    onCreateRequest,
+    onRenameRequest: onSectionRename,
+    onDeleteRequest: onSectionDelete,
+  } = useSectionDialogs({
+    sections: chatSections.sections,
+    createSection: actions.createSection,
+    renameSection: actions.renameSection,
+    deleteSection: actions.deleteSection,
+    newSectionId,
+    expandSection: (sectionId) => { actions.setSectionCollapsed(sectionId, false) },
+    t,
+  })
+  // Creating a section is the operator asking to organize Chats, so the region
+  // moves to the Sections mode where the new header lives. Switching back with
+  // View options is an ordinary mode change.
+  const onSectionCreate = (): void => {
+    actions.setGroupBy('sections')
+    onCreateRequest()
+  }
+  // Section membership survives a Session leaving the visible list only while
+  // the Chat still exists; a departed Session's assignment and saved slot are
+  // dropped so the persisted layer cannot grow without bound.
+  const sessionAccountKeys = list.ids
+  useEffect(() => {
+    if (list.phase !== 'ready') return
+    actions.retainSectionSessions(sessionAccountKeys)
+  }, [actions.retainSectionSessions, list.phase, sessionAccountKeys])
   const updateAppearance = (workspaceId: WorkspaceId, change: WorkspaceAppearance): void => {
     setAppearanceByWorkspace(current => ({ ...current, [workspaceId]: { ...current[workspaceId], ...change } }))
   }
@@ -379,10 +413,16 @@ export function WorkspaceBrowser({
       <div className={css.sectionHeader}>
         {wide && (
           <span className={clsx(css.sectionLabel, css.wide, searchExpanded && css.sectionLabelHidden)}>
-            {groupBy === 'activity' ? t('groupBy.activity') : groupBy === 'flat' ? t('section.sessions') : t('section.workspaces')}
+            {groupBy === 'activity' ? t('groupBy.activity')
+              : groupBy === 'flat' ? t('section.sessions')
+                : groupBy === 'sections' ? t('section.chats')
+                  : t('section.workspaces')}
           </span>
         )}
-        {wide && groupBy !== 'flat' && (
+        {/* The Workspace appearance filter addresses Workspace rows, which the
+            flat projection renders without a group header and the Sections
+            projection does not render at all. */}
+        {wide && groupBy !== 'flat' && groupBy !== 'sections' && (
           <WorkspaceFilterMenu
             color={filterColor}
             icon={filterIcon}
@@ -449,18 +489,10 @@ export function WorkspaceBrowser({
           </div>
         )}
         <div className={clsx(css.headerActions, wide && searchExpanded && css.headerActionsHidden)}>
-          {wide && (
-            <ViewOptionsMenu
-              groupBy={groupBy}
-              orderBy={orderBy}
-              onGroupPick={(mode) => { actions.setGroupBy(mode) }}
-              onOrderPick={(mode) => { actions.setOrderBy(mode, activeSessionOrders) }}
-              t={t}
-            />
-          )}
           {/* Adding is the button's one action, so a composition with no
               picking affordance has nothing to offer here: the region hides the
-              button rather than leaving a dead one in the header. */}
+              button rather than leaving a dead one in the header. It leads the
+              cluster, so the folder-plus glyph keeps its established position. */}
           {directoryFlowAvailable && (
             <Tooltip label={t('workspace.add')} side="bottom" delayMs={500}>
               <button
@@ -475,6 +507,29 @@ export function WorkspaceBrowser({
                 <IconProjectAddOutline16 size={wide ? 16 : 18} />
               </button>
             </Tooltip>
+          )}
+          {/* Section creation trails the cluster and uses a plain plus, so it
+              cannot be mistaken for the folder-plus Add workspace action. */}
+          {wide && (
+            <Tooltip label={t('section.new')} side="bottom" delayMs={500}>
+              <button
+                type="button"
+                className={css.iconButton}
+                aria-label={t('section.new')}
+                onClick={onSectionCreate}
+              >
+                <IconPlusOutline16 size={16} />
+              </button>
+            </Tooltip>
+          )}
+          {wide && (
+            <ViewOptionsMenu
+              groupBy={groupBy}
+              orderBy={orderBy}
+              onGroupPick={(mode) => { actions.setGroupBy(mode) }}
+              onOrderPick={(mode) => { actions.setOrderBy(mode, activeSessionOrders) }}
+              t={t}
+            />
           )}
         </div>
         {/* Add flow + its error dialog (same package — direct composition). */}
@@ -532,65 +587,94 @@ export function WorkspaceBrowser({
               t={t}
             />
           )
-          : groupBy === 'activity'
+          // Sections is an ordinary Group by mode: selecting Workspace, the
+          // tree, flat, or activity renders that projection even while
+          // sections exist, which is how the operator switches between them.
+          // Creating a section selects this mode (see the header action), and
+          // nothing else takes the region over on its own.
+          : groupBy === 'sections'
             ? (
-              <ActivityList
-                list={list}
-                sessionIds={orderedFlatSessionIds}
-                useSessionStatus={useSessionStatus}
+              <SectionsList
                 usePanelInfo={usePanelInfo}
+                useSessionStatus={useSessionStatus}
+                list={list}
+                visibleSessionIds={flatMemberIds}
+                sections={chatSections}
+                currentBlank={currentBlank}
                 open={open}
                 forkSession={forkSession}
                 onSessionRename={onSessionRename}
                 onSessionArchive={onSessionArchive}
+                assignSession={actions.assignSession}
+                setSectionOrder={actions.setSectionOrder}
+                toggleSection={(sectionId) => {
+                  actions.setSectionCollapsed(sectionId, chatSections.collapse[sectionId] !== true)
+                }}
+                moveSection={actions.moveSection}
+                onSectionRename={onSectionRename}
+                onSectionDelete={onSectionDelete}
                 t={t}
               />
             )
-            : groupBy === 'flat'
+            : groupBy === 'activity'
               ? (
-                <FlatList
-                  usePanelInfo={usePanelInfo}
+                <ActivityList
                   list={list}
                   sessionIds={orderedFlatSessionIds}
                   useSessionStatus={useSessionStatus}
-                  open={open} forkSession={forkSession}
-                  onSessionRename={onSessionRename} onSessionArchive={onSessionArchive}
-                  setSessionOrder={saveSessionOrder}
-                  revealSessionId={revealSessionId}
-                  onSessionRevealed={acknowledgeSessionReveal}
+                  usePanelInfo={usePanelInfo}
+                  open={open}
+                  forkSession={forkSession}
+                  onSessionRename={onSessionRename}
+                  onSessionArchive={onSessionArchive}
                   t={t}
                 />
               )
-              : (
-                <SessionTree
-                  usePanelInfo={usePanelInfo}
-                  list={list}
-                  useSessionStatus={useSessionStatus}
-                  onSessionRename={onSessionRename}
-                  onSessionArchive={onSessionArchive}
-                  forkSession={forkSession}
-                  workspaces={visibleWorkspaces}
-                  appearanceByWorkspace={appearanceByWorkspace}
-                  ungroupedSessionIds={orderedUngroupedSessionIds}
-                  workspaceReady={workspaceReady}
-                  nestWorkspaces={groupBy === 'workspace-tree'}
-                  groupExpansion={groupExpansion}
-                  setGroupExpanded={actions.setGroupExpanded}
-                  setSessionOrder={saveSessionOrder}
-                  archivedSessionIds={archivedSessionIds}
-                  startSession={startSession}
-                  open={open}
-                  insertWorkspaceBefore={insertWorkspaceBefore}
-                  revealSessionId={revealSessionId}
-                  onSessionRevealed={acknowledgeSessionReveal}
-                  home={home}
-                  t={t}
-                  onRenameRequest={onWorkspaceRename}
-                  onDeleteRequest={onWorkspaceDelete}
-                  onAppearanceRequest={setAppearanceTarget}
-                  onAppearanceChange={updateAppearance}
-                />
-              ))}
+              : groupBy === 'flat'
+                ? (
+                  <FlatList
+                    usePanelInfo={usePanelInfo}
+                    list={list}
+                    sessionIds={orderedFlatSessionIds}
+                    useSessionStatus={useSessionStatus}
+                    open={open} forkSession={forkSession}
+                    onSessionRename={onSessionRename} onSessionArchive={onSessionArchive}
+                    setSessionOrder={saveSessionOrder}
+                    revealSessionId={revealSessionId}
+                    onSessionRevealed={acknowledgeSessionReveal}
+                    t={t}
+                  />
+                )
+                : (
+                  <SessionTree
+                    usePanelInfo={usePanelInfo}
+                    list={list}
+                    useSessionStatus={useSessionStatus}
+                    onSessionRename={onSessionRename}
+                    onSessionArchive={onSessionArchive}
+                    forkSession={forkSession}
+                    workspaces={visibleWorkspaces}
+                    appearanceByWorkspace={appearanceByWorkspace}
+                    ungroupedSessionIds={orderedUngroupedSessionIds}
+                    workspaceReady={workspaceReady}
+                    nestWorkspaces={groupBy === 'workspace-tree'}
+                    groupExpansion={groupExpansion}
+                    setGroupExpanded={actions.setGroupExpanded}
+                    setSessionOrder={saveSessionOrder}
+                    archivedSessionIds={archivedSessionIds}
+                    startSession={startSession}
+                    open={open}
+                    insertWorkspaceBefore={insertWorkspaceBefore}
+                    revealSessionId={revealSessionId}
+                    onSessionRevealed={acknowledgeSessionReveal}
+                    home={home}
+                    t={t}
+                    onRenameRequest={onWorkspaceRename}
+                    onDeleteRequest={onWorkspaceDelete}
+                    onAppearanceRequest={setAppearanceTarget}
+                    onAppearanceChange={updateAppearance}
+                  />
+                ))}
       </div>
 
       <Modal
@@ -633,6 +717,7 @@ export function WorkspaceBrowser({
         </div>
       </Modal>
       {dialogs}
+      {sectionDialogs}
     </div>
   )
 }
