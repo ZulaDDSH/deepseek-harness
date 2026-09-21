@@ -74,6 +74,7 @@ export type ToolName = 'glob' | 'grep'
 
 const TOOL_NAMES = ['glob', 'grep'] as const satisfies readonly ToolName[]
 
+/** Runtime configuration for filesystem search tools. */
 export interface Config {
   /** Whether an over-cap `glob` page is sampled across top-level entries instead of taking the modification-time head. */
   sampleOverCapGlobResults: boolean
