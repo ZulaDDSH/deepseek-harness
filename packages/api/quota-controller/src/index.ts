@@ -68,6 +68,13 @@ export class QuotaController extends TypertRemoteService {
       const value = await this.credentials().resolve(ref)
       if (value !== undefined) return value
     }
+    const key = provider.credentialKey
+    if (key !== undefined) {
+      const record = await this.credentials().readRecord(key)
+      if (record?.kind === 'api-key' && record.key !== undefined && record.key.length > 0) {
+        return { value: record.key, source: `record:${key}` }
+      }
+    }
     return undefined
   }
 
