@@ -45,7 +45,7 @@ function sessionTokenLabel(usage: TokenUsageProjection | undefined): string | un
   return new Intl.NumberFormat().format(total)
 }
 
-/** One usage window: its label, a bar, the metric, and when it resets. */
+/** One usage window: its label, the metric in its severity color, and when it resets. */
 function WindowRow({ id, window, t }: {
   window: QuotaWindow
   id: QuotaWindowId
@@ -66,11 +66,6 @@ function WindowRow({ id, window, t }: {
           ? <span className={`${css.windowValue} ${css.error}`}>{window.status}</span>
           : metric !== null && <span className={`${css.windowValue} ${css[tone]}`}>{metric}</span>}
       </div>
-      {percent !== null && (
-        <div className={css.track} aria-hidden>
-          <div className={`${css.fill} ${css[tone]}`} style={{ width: `${Math.min(100, Math.max(0, percent))}%` }} />
-        </div>
-      )}
       {reset !== undefined && <span className={css.reset}>{t('reset', { time: reset })}</span>}
     </div>
   )
