@@ -194,6 +194,41 @@ describe('syncTools', () => {
     expect(ctx.tools.get('add')).toBeUndefined()
   })
 
+  it('registers only the configured MCP tool subset', async () => {
+    const client = createMockClient([
+      { name: 'greet', inputSchema: { type: 'object' } },
+      { name: 'blocked', inputSchema: { type: 'object' } },
+      { name: 'other', inputSchema: { type: 'object' } },
+    ])
+    const filteredOpts = {
+      ...defaultOpts,
+      toolFilter: {
+        allow: ['greet', 'blocked'],
+        deny: ['blocked'],
+      },
+    }
+
+    const disposers = await syncTools(client as never, ctx, filteredOpts, new Map())
+
+    expect(disposers.size).toBe(1)
+    expect(ctx.tools.get('mcp__srv__greet')).toBeDefined()
+    expect(ctx.tools.get('mcp__srv__blocked')).toBeUndefined()
+    expect(ctx.tools.get('mcp__srv__other')).toBeUndefined()
+  })
+
+  it('rejects distinct raw names that normalize to the same public name', async () => {
+    const exotic = 'admin.reset'
+    const publicName = publicToolName(defaultOpts.serverName, exotic)
+    const legalCollision = publicName.slice(`mcp__${defaultOpts.serverName}__`.length)
+    const client = createMockClient([
+      { name: exotic, inputSchema: { type: 'object' } },
+      { name: legalCollision, inputSchema: { type: 'object' } },
+    ])
+
+    await expect(syncTools(client as never, ctx, defaultOpts, new Map()))
+      .rejects.toThrow(/filtered tool names collide/)
+  })
+
   it('lets two servers publish the same raw name side by side', async () => {
     const clientA = createMockClient([{ name: 'search', inputSchema: { type: 'object' } }])
     const clientB = createMockClient([{ name: 'search', inputSchema: { type: 'object' } }])

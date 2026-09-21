@@ -111,6 +111,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     compactionRetries: compactionRetriesSchema,
     maxOverflowRetries: maxOverflowRetriesSchema,
     modelPolicies: z.array(modelPolicy),
+    proactiveToolResultPruning: z.boolean(),
     auto: z.boolean(),
     maxContextWindow: maxContextWindowSchema,
   })
@@ -149,6 +150,17 @@ export class BasicCompactionEngine extends CompactionEngine {
     ): Promise<PreStepDecision> => {
       if (!signal.aborted) {
         try {
+          if (this.config.proactiveToolResultPruning) {
+            // The proactive pass rewrites the durable surface, so it needs the
+            // same compaction lock every other rewriting pass takes. Without
+            // this check it would prune history out from under an in-flight
+            // compaction whose unmatched opening marker owns that surface.
+            const pruner = this.ctx.get('toolResultPruner')
+            if (pruner !== undefined) {
+              assertNoActiveCompaction(agent.session, 'proactive tool-result pruning')
+              pruner.pruneSession(agent.session, { previouslyConsumed: true })
+            }
+          }
           const result = await this.compactIfNeeded(agent, 'pressure', signal)
           if (result !== null) logResult(result, 'step pressure')
         } catch (error: unknown) {

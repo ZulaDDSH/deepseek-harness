@@ -496,6 +496,8 @@ export interface Config {
 export interface BasicCompactionConfig extends CompactionPolicyConfig {
   /** Exact provider/model overrides; duplicate targets fail plugin load. */
   modelPolicies?: ModelCompactPolicyConfig[]
+  /** Prune oversized tool results before pressure reaches the compaction threshold. Defaults to `false`. */
+  proactiveToolResultPruning?: boolean
   /** Enable automatic step-boundary pressure and overflow-recovery listeners. Defaults to `true`. */
   auto?: boolean
 }
@@ -1530,6 +1532,52 @@ Depends on: `Api` (`@earendil-works/pi-ai`) · `CacheRetention` (`@earendil-work
 
 来源：[`packages/llm/llm-pi-ai/src/config.ts:221`](../packages/llm/llm-pi-ai/src/config.ts)
 
+<a id="deepseek-aidsh-llm-jev-router"></a>
+
+## `@deepseek-ai/dsh-llm-jev-router`
+
+```ts config-catalog
+/** Jev router settings. */
+export interface Config {
+  /** Enable automatic routing. */
+  enabled: boolean
+  /** Credential/environment reference. */
+  apiKeyEnv: string
+  /** TypeSafe evaluation endpoint. */
+  endpoint: string
+  /** Jev model alias. */
+  model: string
+  /** Request timeout in milliseconds. */
+  timeoutMs: number
+  /** Minimum accepted decision confidence. */
+  minConfidence: number
+  /** Maximum state characters sent to Jev. */
+  stateMaxChars: number
+  /** Route id or `keep` for the base route. */
+  fallback: string
+  /** Preserve the base route when Jev fails. */
+  failOpen: boolean
+  /** Allow-listed destination routes. */
+  routes: JevRoute[]
+}
+
+/** Allow-listed DSH destination selected by Jev. */
+export interface JevRoute {
+  /** Jev choice identifier. */
+  id: string
+  /** Registered DSH provider route. */
+  provider: string
+  /** Provider-owned model identifier. */
+  model: string
+  /** Choice criteria sent to Jev. */
+  description: string
+  /** Optional provider reasoning effort. */
+  reasoningEffort?: string
+}
+```
+
+来源：[`packages/llm/llm-jev-router/src/index.ts:22`](../packages/llm/llm-jev-router/src/index.ts)
+
 <a id="deepseek-aidsh-llm-replay"></a>
 
 ## `@deepseek-ai/dsh-llm-replay`
@@ -1698,6 +1746,10 @@ export interface StdioConfig {
   failOnStartupError: boolean
   /** Maximum UTF-8 bytes of attributed server instructions (default 32768). */
   maxInstructionBytes?: number
+  /** Publish nonblank MCP server instructions into the system prompt. Defaults to `true`. */
+  includeServerInstructions?: boolean
+  /** Static raw-name filter for the discovered MCP tool catalog. */
+  toolFilter?: ToolFilterConfig
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
 }
@@ -1722,8 +1774,20 @@ export interface StreamableHttpConfig {
   failOnStartupError: boolean
   /** Maximum UTF-8 bytes of attributed server instructions (default 32768). */
   maxInstructionBytes?: number
+  /** Publish nonblank MCP server instructions into the system prompt. Defaults to `true`. */
+  includeServerInstructions?: boolean
+  /** Static raw-name filter for the discovered MCP tool catalog. */
+  toolFilter?: ToolFilterConfig
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
+}
+
+/** Raw-name filter applied to one MCP server's discovered tool catalog. */
+export interface ToolFilterConfig {
+  /** Non-empty raw-name allow list; an omitted or empty list leaves tools unrestricted before deny filtering. */
+  allow?: string[]
+  /** Raw MCP tool names excluded after the optional allow list is applied. */
+  deny?: string[]
 }
 
 /** Automatic reconnect policy for one MCP server connection. */
@@ -1739,7 +1803,7 @@ export interface ReconnectConfig {
 }
 ```
 
-来源：[`packages/mcp/mcp-client/src/index.ts:104`](../packages/mcp/mcp-client/src/index.ts)
+来源：[`packages/mcp/mcp-client/src/index.ts:115`](../packages/mcp/mcp-client/src/index.ts)
 
 <a id="deepseek-aidsh-message-feedback"></a>
 

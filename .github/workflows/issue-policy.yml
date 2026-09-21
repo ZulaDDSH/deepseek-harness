@@ -27,11 +27,12 @@ jobs:
         id: preflight
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY_IS_FORK: ${{ github.event.repository.fork }}
         shell: bash
         run: |
-          if [ "${GITHUB_REPOSITORY:-deepseek-ai/deepseek-harness}" != "deepseek-ai/deepseek-harness" ]; then
-            printf 'legacy-automated=true\nneeds-project=false\n' >> "$GITHUB_OUTPUT"
-            echo "Issue policy is owned by the upstream repository; fork PR is exempt."
+          if [ "$REPOSITORY_IS_FORK" = "true" ]; then
+            printf 'eligible=false\nexempt=true\nneeds-project=false\nlegacy-automated=true\n' >> "$GITHUB_OUTPUT"
+            echo "Issue policy exempt: fork repositories do not share upstream Project governance."
           elif [ -f .github/issue-management/selective-preflight.json ]; then
             node .github/issue-management/policy.mjs pr-preflight
           else

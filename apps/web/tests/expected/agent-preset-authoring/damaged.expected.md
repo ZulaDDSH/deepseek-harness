@@ -48,6 +48,16 @@
         - img
         - text: 复制
     - listitem:
+      - 'button "设为默认: 节省模式"':
+        - text: 节省模式 内置 使用 PTC 合并多步工具调用，并更早裁剪大型工具输出和压缩历史，以降低长会话的 token 消耗。
+        - code: economy
+      - 'button "查看: 节省模式"':
+        - img
+        - text: 查看
+      - 'button "复制: 节省模式"':
+        - img
+        - text: 复制
+    - listitem:
       - 'button "设为默认: 极简模式"':
         - text: 极简模式 内置 仅提供持久 shell 的单工具编码 Agent。
         - code: minimal

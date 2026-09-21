@@ -38,6 +38,7 @@ const POLICY_CONFIG_KEYS = [
 const BASIC_COMPACT_CONFIG_KEYS: ReadonlySet<string> = new Set([
   ...POLICY_CONFIG_KEYS,
   'modelPolicies',
+  'proactiveToolResultPruning',
   'auto',
   'maxContextWindow',
 ])
@@ -68,6 +69,10 @@ export class TargetPressureConfigError extends Error {
 export function resolveConfig(config: BasicCompactionConfig = {}): ResolvedConfig {
   validateKeys(config, BASIC_COMPACT_CONFIG_KEYS, 'BasicCompactionConfig')
   validatePolicy(config, 'BasicCompactionConfig')
+  if (config.proactiveToolResultPruning !== undefined
+    && typeof config.proactiveToolResultPruning !== 'boolean') {
+    throw new Error('BasicCompactionConfig: proactiveToolResultPruning must be a boolean')
+  }
   if (config.auto !== undefined && typeof config.auto !== 'boolean') {
     throw new Error('BasicCompactionConfig: auto must be a boolean')
   }
@@ -96,6 +101,7 @@ export function resolveConfig(config: BasicCompactionConfig = {}): ResolvedConfi
     compactionRetries: config.compactionRetries ?? 1,
     maxOverflowRetries: config.maxOverflowRetries ?? 1,
     modelPolicies,
+    proactiveToolResultPruning: config.proactiveToolResultPruning ?? false,
     auto: config.auto ?? true,
     ...config.maxContextWindow === undefined ? {} : { maxContextWindow: config.maxContextWindow },
   })
