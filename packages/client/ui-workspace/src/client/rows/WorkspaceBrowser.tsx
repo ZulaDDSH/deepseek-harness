@@ -33,10 +33,12 @@ import { ViewOptionsMenu } from './ViewOptionsMenu.tsx'
 import { useWorkspaceDialogs } from './WorkspaceDialogs.tsx'
 import { sanitizeSearchQuery, SEARCH_QUERY_MAX_CODE_UNITS } from './search-query.ts'
 import { FLAT_SESSION_ORDER_KEY } from '../stores.ts'
+import { sectionsActive } from '../sections.ts'
 import { SectionsList } from './SectionsList.tsx'
 import { useSectionDialogs } from './SectionDialogs.tsx'
 import { WorkspacePickFlow } from '../WorkspacePicker.tsx'
 import { WORKSPACE_ICON_GLYPHS } from './WorkspaceIcons.ts'
+import { useNativeDragAcceptance } from './drag.ts'
 import css from './WorkspaceBrowser.module.css'
 
 /**
@@ -162,6 +164,11 @@ export function WorkspaceBrowser({
   const groupExpansion = useStore(s => s.groupExpansion)
   const sessionOrderByAccount = useStore(s => s.sessionOrderByAccount)
   const chatSections = useStore(s => s.chatSections)
+  const [externalChatSessionId, setExternalChatSessionId] = useState<SessionId | null>(null)
+  // Sections render in their own pane below the Workspace pane, so this only
+  // decides whether that pane exists — never which Workspace projection shows.
+  const sectionsOn = sectionsActive(chatSections)
+  useNativeDragAcceptance(externalChatSessionId !== null)
   const workspaceReady = workspacePhase === 'ready' && workspaceStreamState !== 'loading'
   const mainSessionId = Object.values(list.byId)
     .find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
@@ -377,7 +384,7 @@ export function WorkspaceBrowser({
   })
   const {
     dialogs: sectionDialogs,
-    onCreateRequest,
+    onCreateRequest: onSectionCreate,
     onRenameRequest: onSectionRename,
     onDeleteRequest: onSectionDelete,
   } = useSectionDialogs({
@@ -389,13 +396,6 @@ export function WorkspaceBrowser({
     expandSection: (sectionId) => { actions.setSectionCollapsed(sectionId, false) },
     t,
   })
-  // Creating a section is the operator asking to organize Chats, so the region
-  // moves to the Sections mode where the new header lives. Switching back with
-  // View options is an ordinary mode change.
-  const onSectionCreate = (): void => {
-    actions.setGroupBy('sections')
-    onCreateRequest()
-  }
   // Section membership survives a Session leaving the visible list only while
   // the Chat still exists; a departed Session's assignment and saved slot are
   // dropped so the persisted layer cannot grow without bound.
@@ -415,14 +415,12 @@ export function WorkspaceBrowser({
           <span className={clsx(css.sectionLabel, css.wide, searchExpanded && css.sectionLabelHidden)}>
             {groupBy === 'activity' ? t('groupBy.activity')
               : groupBy === 'flat' ? t('section.sessions')
-                : groupBy === 'sections' ? t('section.chats')
-                  : t('section.workspaces')}
+                : t('section.workspaces')}
           </span>
         )}
-        {/* The Workspace appearance filter addresses Workspace rows, which the
-            flat projection renders without a group header and the Sections
-            projection does not render at all. */}
-        {wide && groupBy !== 'flat' && groupBy !== 'sections' && (
+        {/* The color/icon filter stays on screen in every mode: it narrows
+            workspace groups, and the Workspace pane is always present. */}
+        {wide && (
           <WorkspaceFilterMenu
             color={filterColor}
             icon={filterIcon}
@@ -489,10 +487,9 @@ export function WorkspaceBrowser({
           </div>
         )}
         <div className={clsx(css.headerActions, wide && searchExpanded && css.headerActionsHidden)}>
-          {/* Adding is the button's one action, so a composition with no
-              picking affordance has nothing to offer here: the region hides the
-              button rather than leaving a dead one in the header. It leads the
-              cluster, so the folder-plus glyph keeps its established position. */}
+          {/* Established order: Add workspace, View options, then the section
+              action last. Add workspace leads with its folder-plus glyph, and
+              New section uses a plain plus so the two cannot be confused. */}
           {directoryFlowAvailable && (
             <Tooltip label={t('workspace.add')} side="bottom" delayMs={500}>
               <button
@@ -508,8 +505,15 @@ export function WorkspaceBrowser({
               </button>
             </Tooltip>
           )}
-          {/* Section creation trails the cluster and uses a plain plus, so it
-              cannot be mistaken for the folder-plus Add workspace action. */}
+          {wide && (
+            <ViewOptionsMenu
+              groupBy={groupBy}
+              orderBy={orderBy}
+              onGroupPick={(mode) => { actions.setGroupBy(mode) }}
+              onOrderPick={(mode) => { actions.setOrderBy(mode, activeSessionOrders) }}
+              t={t}
+            />
+          )}
           {wide && (
             <Tooltip label={t('section.new')} side="bottom" delayMs={500}>
               <button
@@ -521,15 +525,6 @@ export function WorkspaceBrowser({
                 <IconPlusOutline16 size={16} />
               </button>
             </Tooltip>
-          )}
-          {wide && (
-            <ViewOptionsMenu
-              groupBy={groupBy}
-              orderBy={orderBy}
-              onGroupPick={(mode) => { actions.setGroupBy(mode) }}
-              onOrderPick={(mode) => { actions.setOrderBy(mode, activeSessionOrders) }}
-              t={t}
-            />
           )}
         </div>
         {/* Add flow + its error dialog (same package — direct composition). */}
@@ -570,49 +565,26 @@ export function WorkspaceBrowser({
       </div>}
 
       {/* Always-mounted seat keeps the region's flex slot while the list
-          itself is wide-only. */}
-      <div className={css.listArea}>
-        {wide && (normalizedQuery !== ''
-          ? (
-            <SearchResults
-              usePanelInfo={usePanelInfo}
-              useSessions={useSessions}
-              useSessionStatus={useSessionStatus}
-              open={openSearchResult}
-              workspaces={workspaces}
-              archivedSessionIds={archivedSessionIds}
-              query={normalizedQuery}
-              remote={remoteSearch}
-              resultLimit={searchResultLimit}
-              t={t}
-            />
-          )
-          // Sections is an ordinary Group by mode: selecting Workspace, the
-          // tree, flat, or activity renders that projection even while
-          // sections exist, which is how the operator switches between them.
-          // Creating a section selects this mode (see the header action), and
-          // nothing else takes the region over on its own.
-          : groupBy === 'sections'
+          itself is wide-only. When sections exist this seat stacks two
+          independently scrolling panes: Workspaces above the divider, Chat
+          Sections below it. */}
+      <div className={clsx(css.listArea, wide && sectionsOn && css.listAreaStacked)}>
+        {wide && sectionsOn && (
+          <div className={css.paneHeading}>{t('section.workspaces')}</div>
+        )}
+        <div className={clsx(wide && sectionsOn && css.workspacePane)}>
+          {wide && (normalizedQuery !== ''
             ? (
-              <SectionsList
+              <SearchResults
                 usePanelInfo={usePanelInfo}
+                useSessions={useSessions}
                 useSessionStatus={useSessionStatus}
-                list={list}
-                visibleSessionIds={flatMemberIds}
-                sections={chatSections}
-                currentBlank={currentBlank}
-                open={open}
-                forkSession={forkSession}
-                onSessionRename={onSessionRename}
-                onSessionArchive={onSessionArchive}
-                assignSession={actions.assignSession}
-                setSectionOrder={actions.setSectionOrder}
-                toggleSection={(sectionId) => {
-                  actions.setSectionCollapsed(sectionId, chatSections.collapse[sectionId] !== true)
-                }}
-                moveSection={actions.moveSection}
-                onSectionRename={onSectionRename}
-                onSectionDelete={onSectionDelete}
+                open={openSearchResult}
+                workspaces={workspaces}
+                archivedSessionIds={archivedSessionIds}
+                query={normalizedQuery}
+                remote={remoteSearch}
+                resultLimit={searchResultLimit}
                 t={t}
               />
             )
@@ -673,8 +645,43 @@ export function WorkspaceBrowser({
                     onDeleteRequest={onWorkspaceDelete}
                     onAppearanceRequest={setAppearanceTarget}
                     onAppearanceChange={updateAppearance}
+                    sectionDropTargets={sectionsOn}
+                    assignSession={actions.assignSession}
+                    sections={chatSections.sections}
+                    onChatDragStart={setExternalChatSessionId}
+                    onChatDragEnd={() => { setExternalChatSessionId(null) }}
                   />
                 ))}
+        </div>
+
+        {/* The Sections pane: a saved visual filter over the Workspace pane
+            above. Chats stay in their workspace folders; filing one only adds
+            it here, so nothing is ever lost from the list above. */}
+        {wide && sectionsOn && (
+          <SectionsList
+            usePanelInfo={usePanelInfo}
+            useSessionStatus={useSessionStatus}
+            list={list}
+            visibleSessionIds={flatMemberIds}
+            sections={chatSections}
+            currentBlank={currentBlank}
+            open={open}
+            forkSession={forkSession}
+            onSessionRename={onSessionRename}
+            onSessionArchive={onSessionArchive}
+            assignSession={actions.assignSession}
+            externalChatSessionId={externalChatSessionId}
+            onChatDragEnd={() => { setExternalChatSessionId(null) }}
+            setSectionOrder={actions.setSectionOrder}
+            toggleSection={(sectionId) => {
+              actions.setSectionCollapsed(sectionId, chatSections.collapse[sectionId] !== true)
+            }}
+            moveSection={actions.moveSection}
+            onSectionRename={onSectionRename}
+            onSectionDelete={onSectionDelete}
+            t={t}
+          />
+        )}
       </div>
 
       <Modal

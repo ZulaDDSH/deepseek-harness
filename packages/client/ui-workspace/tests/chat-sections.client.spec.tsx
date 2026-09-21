@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 /**
- * Chat Sections through the assembled Workspace browser: creating, renaming,
- * and deleting sections, collapsing them, moving chats by drag and by menu,
- * and the ungrouped area that keeps chats reachable. The pure projection and
- * the persisted schema are covered by sections.client.spec.ts.
+ * Chat Sections as the lower sidebar pane. Sections are a saved visual filter
+ * over the Workspace pane: filing a Chat into a section never removes it from
+ * its workspace folder, and the Workspaces list above keeps working exactly as
+ * it did. The pane's own operations (create, rename, delete, collapse, reorder,
+ * drag) and the persisted schema are covered here; the pure derivation lives in
+ * sections.client.spec.ts.
  */
 import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -112,11 +114,39 @@ function createSection(name: string): void {
   fireEvent.click(within(dialog).getByRole('button', { name: '创建' }))
 }
 
-/** The treeitem rows rendered for chats (section headers carry aria-expanded). */
-const chatRows = (): HTMLElement[] => screen.getAllByRole('treeitem')
-  .filter(row => row.getAttribute('aria-selected') !== null)
+/** The Sections pane's tree. */
+const sectionsPane = (): HTMLElement => screen.getByRole('tree', { name: '分组' })
+/** A section's header row inside the pane. */
+const header = (name: string): HTMLElement =>
+  within(sectionsPane()).getByRole('treeitem', { name: `分组“${name}”的操作` })
+/** The Chat rows filed under one section. */
+const membersOf = (name: string): HTMLElement[] =>
+  within(within(sectionsPane()).getByRole('group', { name })).getAllByRole('treeitem')
+  // The section group also contains its own header row.
+    .filter(row => row.getAttribute('aria-selected') !== null)
 const titlesOf = (rows: readonly HTMLElement[]): (string | undefined)[] =>
   rows.map(row => row.querySelector('[class*="title"]')?.textContent)
+/** The Workspace pane's tree (the upper pane). */
+const workspaceTree = (): HTMLElement => screen.getByRole('tree', { name: '会话' })
+/**
+ * Expand the single workspace group so its Chat rows render. Rows inside a
+ * folded group are not in the DOM, and filing a Chat needs the row.
+ */
+function expandWorkspace(name = 'alpha'): void {
+  fireEvent.click(screen.getByText(name))
+}
+/**
+ * File a Chat into a section through its row menu, expanding the workspace
+ * group first when its rows are still folded.
+ */
+function fileInto(chatTitle: string, sectionName: string): void {
+  const operator = (): HTMLElement | null =>
+    screen.queryByRole('button', { name: `会话“${chatTitle}”的操作` })
+  if (operator() === null) expandWorkspace()
+  fireEvent.click(operator() as HTMLElement)
+  fireEvent.click(screen.getByRole('menuitem', { name: '移动到分组' }))
+  fireEvent.click(screen.getByRole('menuitem', { name: sectionName }))
+}
 
 /** Stub a row rect so drop-half detection has geometry to read. */
 function stubRect(row: HTMLElement, top = 100): void {
@@ -129,62 +159,61 @@ function stubRect(row: HTMLElement, top = 100): void {
 const chats = () => sessionState([summary('chat-a', 3), summary('chat-b', 2), summary('chat-c', 1)])
 const oneWorkspace = () => workspaceState([workspace('alpha', ['chat-a', 'chat-b', 'chat-c'])])
 
-describe('Chat Sections in the browsing region', () => {
-  it('keeps the unchanged Workspace projection until a section exists', () => {
+describe('Chat Sections pane', () => {
+  it('adds no pane and changes nothing until a section exists', () => {
     const b = mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
-    expect(screen.getByRole('tree', { name: '会话' })).toBeTruthy()
+    expect(workspaceTree()).toBeTruthy()
     expect(screen.queryByRole('tree', { name: '分组' })).toBeNull()
-    expect(screen.queryByText('未分组会话')).toBeNull()
     expect(b.store.getSnapshot().chatSections.sections).toEqual([])
   })
 
-  it('creates a section, moves a chat in by menu, and keeps unassigned chats reachable', () => {
+  it('renders the pane below the Workspace list without removing it', () => {
     const b = mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
     createSection('Work')
-    expect(b.store.getSnapshot().chatSections.sections).toEqual([{ id: 'section-1', name: 'Work' }])
-    // The section column replaces the Workspace projection and lists every
-    // chat as ungrouped until one is assigned.
-    expect(screen.getByRole('tree', { name: '分组' })).toBeTruthy()
-    expect(screen.getByRole('group', { name: '未分组会话' })).toBeTruthy()
-    expect(titlesOf(chatRows())).toEqual(['chat-a', 'chat-b', 'chat-c'])
+    expect(b.store.getSnapshot().chatSections.sections).toHaveLength(1)
+    // Both panes are present: the Workspace list does not go away.
+    expect(workspaceTree()).toBeTruthy()
+    expect(sectionsPane()).toBeTruthy()
+    // The pane leads with its own heading.
+    expect(screen.getByText('分组')).toBeTruthy()
+    // A brand-new section holds nothing yet.
+    expect(membersOf('Work')).toEqual([])
+  })
 
-    fireEvent.click(screen.getByRole('button', { name: '会话“chat-b”的操作' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '移动到分组' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Work' }))
+  it('files a chat into a section while leaving it in its workspace folder', () => {
+    const b = mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
+    createSection('Work')
+    fileInto('chat-b', 'Work')
+
     expect(b.store.getSnapshot().chatSections.members).toEqual({ 'chat-b': 'section-1' })
-
-    // The moved chat renders under its section; the rest stay ungrouped.
-    // The section group also contains its header row, which is not a chat.
-    const work = screen.getByRole('group', { name: 'Work' })
-    expect(titlesOf(within(work).getAllByRole('treeitem').filter(row => row.getAttribute('aria-selected') !== null)))
-      .toEqual(['chat-b'])
-    const ungrouped = screen.getByRole('group', { name: '未分组会话' })
-    expect(titlesOf(within(ungrouped).getAllByRole('treeitem'))).toEqual(['chat-a', 'chat-c'])
+    // Present in the Sections pane...
+    expect(titlesOf(membersOf('Work'))).toEqual(['chat-b'])
+    // ...and still present in its workspace folder above, because the folder
+    // remains the single home for the Session.
+    const inWorkspace = within(workspaceTree()).getAllByRole('treeitem')
+      .filter(row => row.getAttribute('aria-selected') !== null)
+    expect(titlesOf(inWorkspace)).toContain('chat-b')
   })
 
   it('collapses and expands a section without losing its members', () => {
     const b = mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
     createSection('Work')
-    fireEvent.click(screen.getByRole('button', { name: '会话“chat-a”的操作' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '移动到分组' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Work' }))
+    fileInto('chat-a', 'Work')
 
-    fireEvent.click(screen.getByText('Work'))
+    fireEvent.click(header('Work'))
     expect(b.store.getSnapshot().chatSections.collapse).toEqual({ 'section-1': true })
-    expect(screen.queryByText('chat-a')).toBeNull()
+    expect(membersOf('Work')).toEqual([])
     expect(screen.getByText('拖到此处加入分组')).toBeTruthy()
 
-    fireEvent.click(screen.getByText('Work'))
+    fireEvent.click(header('Work'))
     expect(b.store.getSnapshot().chatSections.collapse).toEqual({ 'section-1': false })
-    expect(screen.getByText('chat-a')).toBeTruthy()
+    expect(titlesOf(membersOf('Work'))).toEqual(['chat-a'])
   })
 
   it('renames a section and keeps assignments bound to its stable id', () => {
     const b = mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
     createSection('Work')
-    fireEvent.click(screen.getByRole('button', { name: '会话“chat-a”的操作' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '移动到分组' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Work' }))
+    fileInto('chat-a', 'Work')
 
     fireEvent.click(screen.getByRole('button', { name: '分组“Work”的操作' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '重命名' }))
@@ -196,16 +225,13 @@ describe('Chat Sections in the browsing region', () => {
       { id: 'section-1', name: 'Server Debugging' },
     ])
     expect(b.store.getSnapshot().chatSections.members).toEqual({ 'chat-a': 'section-1' })
-    expect(screen.getByText('Server Debugging')).toBeTruthy()
-    expect(screen.getByText('chat-a')).toBeTruthy()
+    expect(titlesOf(membersOf('Server Debugging'))).toEqual(['chat-a'])
   })
 
   it('deletes a section without deleting its chats', () => {
     const b = mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
     createSection('Work')
-    fireEvent.click(screen.getByRole('button', { name: '会话“chat-a”的操作' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '移动到分组' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Work' }))
+    fileInto('chat-a', 'Work')
 
     fireEvent.click(screen.getByRole('button', { name: '分组“Work”的操作' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '删除分组' }))
@@ -215,75 +241,61 @@ describe('Chat Sections in the browsing region', () => {
 
     expect(b.store.getSnapshot().chatSections.sections).toEqual([])
     expect(b.store.getSnapshot().chatSections.members).toEqual({})
-    // The mode stays on Sections — deleting the last one does not silently move
-    // the operator elsewhere — and every chat is back in the ungrouped area, so
-    // nothing is lost. Switching away is an ordinary View options pick.
-    expect(b.store.getSnapshot().groupBy).toBe('sections')
-    const leftover = screen.getByRole('group', { name: '未分组会话' })
-    expect(titlesOf(within(leftover).getAllByRole('treeitem'))).toEqual(['chat-a', 'chat-b', 'chat-c'])
-    fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '按工作区' }))
-    expect(b.store.getSnapshot().groupBy).toBe('workspace')
-    fireEvent.click(screen.getByText('alpha'))
-    expect(screen.getByText('chat-a')).toBeTruthy()
+    // With no section left the pane disappears and the Workspace list is the
+    // whole region again, with every chat intact in its folder.
+    expect(screen.queryByRole('tree', { name: '分组' })).toBeNull()
+    expect(titlesOf(within(workspaceTree()).getAllByRole('treeitem'))).toContain('chat-a')
   })
 
-  it('moves a chat back to the ungrouped area from its row menu', () => {
+  it('unfiles a chat from the row menu inside the pane', () => {
     const b = mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
     createSection('Work')
-    fireEvent.click(screen.getByRole('button', { name: '会话“chat-a”的操作' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '移动到分组' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Work' }))
+    fileInto('chat-a', 'Work')
 
-    fireEvent.click(screen.getByRole('button', { name: '会话“chat-a”的操作' }))
+    fireEvent.click(within(sectionsPane()).getByRole('button', { name: '会话“chat-a”的操作' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '从分组中移出' }))
     expect(b.store.getSnapshot().chatSections.members).toEqual({})
-    const ungrouped = screen.getByRole('group', { name: '未分组会话' })
-    expect(titlesOf(within(ungrouped).getAllByRole('treeitem'))).toEqual(['chat-a', 'chat-b', 'chat-c'])
+    expect(membersOf('Work')).toEqual([])
   })
 
   it('disables the menu row for the section a chat already belongs to', () => {
     mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
     createSection('Work')
     createSection('Personal')
-    fireEvent.click(screen.getByRole('button', { name: '会话“chat-a”的操作' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '移动到分组' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Work' }))
+    fileInto('chat-a', 'Work')
 
-    fireEvent.click(screen.getByRole('button', { name: '会话“chat-a”的操作' }))
+    // The pane's own row menu offers the current section as a no-op choice
+    // (disabled) and every other section as a live one.
+    fireEvent.click(within(sectionsPane()).getByRole('button', { name: '会话“chat-a”的操作' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '移动到分组' }))
     expect(screen.getByRole('menuitem', { name: 'Work' }).hasAttribute('disabled')).toBe(true)
     expect(screen.getByRole('menuitem', { name: 'Personal' }).hasAttribute('disabled')).toBe(false)
   })
 
-  it('assigns a chat to a section by dropping it on the header', () => {
+  it('files a chat by dropping it on a section header', () => {
     const b = mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
     createSection('Work')
-    const source = screen.getByText('chat-c').closest('[role="treeitem"]') as HTMLElement
-    const header = screen.getByText('Work').closest('[role="treeitem"]') as HTMLElement
-    stubRect(header)
+    expandWorkspace()
+    const source = within(workspaceTree()).getByText('chat-c').closest('[role="treeitem"]') as HTMLElement
+    const target = header('Work')
+    stubRect(target)
     fireEvent.dragStart(source, { dataTransfer: dragData() })
-    fireDrag(header, 'drop', 120)
+    fireDrag(target, 'dragOver', 120)
+    fireDrag(target, 'drop', 120)
     expect(b.store.getSnapshot().chatSections.members).toEqual({ 'chat-c': 'section-1' })
+    // A cross-pane drag must not also select manual ordering in the tree.
+    expect(b.store.getSnapshot().orderBy).toBe('updated')
   })
 
   it('moves a chat between sections and reorders it inside the target', () => {
     const b = mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
     createSection('Work')
     createSection('Personal')
-    // chat-a and chat-b into Work, chat-c into Personal, all by menu.
-    for (const id of ['chat-a', 'chat-b']) {
-      fireEvent.click(screen.getByRole('button', { name: `会话“${id}”的操作` }))
-      fireEvent.click(screen.getByRole('menuitem', { name: '移动到分组' }))
-      fireEvent.click(screen.getByRole('menuitem', { name: 'Work' }))
-    }
-    fireEvent.click(screen.getByRole('button', { name: '会话“chat-c”的操作' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '移动到分组' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Personal' }))
+    for (const id of ['chat-a', 'chat-b']) fileInto(id, 'Work')
+    fileInto('chat-c', 'Personal')
 
-    // Drag chat-a on top of chat-c inside Personal.
-    const source = screen.getByText('chat-a').closest('[role="treeitem"]') as HTMLElement
-    const target = screen.getByText('chat-c').closest('[role="treeitem"]') as HTMLElement
+    const source = within(sectionsPane()).getByText('chat-a').closest('[role="treeitem"]') as HTMLElement
+    const target = within(sectionsPane()).getByText('chat-c').closest('[role="treeitem"]') as HTMLElement
     stubRect(target, 200)
     fireEvent.dragStart(source, { dataTransfer: dragData() })
     fireDrag(target, 'drop', 202)
@@ -297,14 +309,10 @@ describe('Chat Sections in the browsing region', () => {
   it('reorders chats within one section', () => {
     const b = mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
     createSection('Work')
-    for (const id of ['chat-a', 'chat-b']) {
-      fireEvent.click(screen.getByRole('button', { name: `会话“${id}”的操作` }))
-      fireEvent.click(screen.getByRole('menuitem', { name: '移动到分组' }))
-      fireEvent.click(screen.getByRole('menuitem', { name: 'Work' }))
-    }
-    // Head insertion put chat-b first; drag chat-a below chat-b instead.
-    const source = screen.getByText('chat-a').closest('[role="treeitem"]') as HTMLElement
-    const target = screen.getByText('chat-b').closest('[role="treeitem"]') as HTMLElement
+    for (const id of ['chat-a', 'chat-b']) fileInto(id, 'Work')
+
+    const source = within(sectionsPane()).getByText('chat-a').closest('[role="treeitem"]') as HTMLElement
+    const target = within(sectionsPane()).getByText('chat-b').closest('[role="treeitem"]') as HTMLElement
     stubRect(target, 300)
     fireEvent.dragStart(source, { dataTransfer: dragData() })
     fireDrag(target, 'drop', 330)
@@ -312,25 +320,12 @@ describe('Chat Sections in the browsing region', () => {
     expect(b.store.getSnapshot().chatSections.sectionOrder['section-1']).toEqual(['chat-b', 'chat-a'])
   })
 
-  it('returns a chat to the ungrouped area by dropping it there', () => {
-    const b = mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
-    createSection('Work')
-    fireEvent.click(screen.getByRole('button', { name: '会话“chat-a”的操作' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '移动到分组' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Work' }))
-
-    const source = screen.getByText('chat-a').closest('[role="treeitem"]') as HTMLElement
-    fireEvent.dragStart(source, { dataTransfer: dragData() })
-    fireDrag(screen.getByRole('tree', { name: '分组' }), 'drop')
-    expect(b.store.getSnapshot().chatSections.members).toEqual({})
-  })
-
   it('reorders sections by dragging one header onto another', () => {
     const b = mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
     createSection('Work')
     createSection('Personal')
-    const personal = screen.getByText('Personal').closest('[role="treeitem"]') as HTMLElement
-    const work = screen.getByText('Work').closest('[role="treeitem"]') as HTMLElement
+    const personal = header('Personal')
+    const work = header('Work')
     stubRect(work, 100)
     fireEvent.dragStart(personal, { dataTransfer: dragData() })
     fireDrag(work, 'drop', 98)
@@ -339,99 +334,111 @@ describe('Chat Sections in the browsing region', () => {
   })
 
   it('never lets a provisional New Session start a drag', () => {
+    // The blank row is the selected provisional Session, so it renders pinned
+    // at the head of its workspace group.
     const list = sessionState([summary('blank', 4, { blank: true }), summary('chat-a', 3)], sid('blank'))
     const b = mount({
       useSessions: hook(list),
       useWorkspaces: hook(workspaceState([workspace('alpha', ['blank', 'chat-a'])])),
     })
     createSection('Work')
-    const blank = screen.getByText('新会话').closest('[role="treeitem"]') as HTMLElement
+    const blank = within(workspaceTree()).getByText('新会话').closest('[role="treeitem"]') as HTMLElement
     expect(blank.draggable).toBe(false)
     fireEvent.dragStart(blank, { dataTransfer: dragData() })
     expect(b.store.getSnapshot().chatSections.members).toEqual({})
   })
 
-  it('keeps every other Group by mode reachable while sections exist', () => {
+  it('leaves the Workspace pane, its mode, and its filter untouched', () => {
     const b = mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
-    // Sections is an ordinary mode: creating one selects it, and the other
-    // projections stay selectable, which is what keeps Workspaces, the flat
-    // list, and Activity usable after the operator starts organizing chats.
+    // The file action the pane adds must not become the only route: the
+    // Workspace list keeps its own mode selection and its filter control.
+    expect(screen.getByRole('button', { name: '筛选工作区' })).toBeTruthy()
     createSection('Work')
-    expect(b.store.getSnapshot().groupBy).toBe('sections')
+    expect(screen.getByRole('button', { name: '筛选工作区' })).toBeTruthy()
+    expect(b.store.getSnapshot().groupBy).toBe('workspace')
+
     const pick = (name: string): void => {
       fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
       fireEvent.click(screen.getByRole('menuitem', { name }))
     }
-    pick('按工作区')
-    expect(b.store.getSnapshot().groupBy).toBe('workspace')
-    expect(screen.getByRole('tree', { name: '会话' })).toBeTruthy()
-    expect(screen.queryByRole('tree', { name: '分组' })).toBeNull()
-
     pick('单列表')
     expect(b.store.getSnapshot().groupBy).toBe('flat')
-    expect(screen.getByText('会话')).toBeTruthy()
-
+    expect(workspaceTree()).toBeTruthy()
     pick('活动')
     expect(b.store.getSnapshot().groupBy).toBe('activity')
-    expect(screen.getByRole('tree', { name: '活动' })).toBeTruthy()
-
-    pick('分组')
-    expect(b.store.getSnapshot().groupBy).toBe('sections')
-    expect(screen.getByRole('tree', { name: '分组' })).toBeTruthy()
+    // The pane stays mounted through every Workspace-mode switch.
+    expect(sectionsPane()).toBeTruthy()
+    pick('按工作区')
+    expect(b.store.getSnapshot().groupBy).toBe('workspace')
+    expect(sectionsPane()).toBeTruthy()
   })
 
-  it('leaves Add workspace in its leading header position in every mode', () => {
-    // The header action cluster is a small, visually-read control row: Add
-    // workspace has always led it with the folder-plus glyph, so the section
-    // action must not take that slot or reuse that glyph. A regression here is
-    // invisible to state assertions and only shows up as a missing button.
+  it('keeps the header action order and the filter in place in both panes', () => {
     const b = mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
     const cluster = (): HTMLElement => screen.getByRole('button', { name: '添加工作区' })
       .closest('[class*="headerActions"]') as HTMLElement
     const actionNames = (): string[] => Array.from(
       cluster().querySelectorAll<HTMLButtonElement>('button[aria-label]'),
     ).map(button => button.getAttribute('aria-label') ?? '')
-    expect(actionNames()).toEqual(['添加工作区', '新建分组', '视图选项'])
+    expect(actionNames()).toEqual(['添加工作区', '视图选项', '新建分组'])
+    expect(screen.getByRole('button', { name: '筛选工作区' })).toBeTruthy()
 
     createSection('Work')
-    expect(b.store.getSnapshot().groupBy).toBe('sections')
-    expect(actionNames()).toEqual(['添加工作区', '新建分组', '视图选项'])
-
-    fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '单列表' }))
-    expect(actionNames()).toEqual(['添加工作区', '新建分组', '视图选项'])
+    expect(b.store.getSnapshot().chatSections.sections).toHaveLength(1)
+    expect(actionNames()).toEqual(['添加工作区', '视图选项', '新建分组'])
+    expect(screen.getByRole('button', { name: '筛选工作区' })).toBeTruthy()
   })
 
-  it('labels the header for the selected mode', () => {
-    mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
-    const pick = (name: string): void => {
-      fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
-      fireEvent.click(screen.getByRole('menuitem', { name }))
-    }
-    // The label names what the list is currently showing, so the operator can
-    // tell the WorkSpace view from the Sections view at a glance.
-    expect(screen.getByText('工作区')).toBeTruthy()
-    pick('分组')
-    expect(screen.getByText('分组')).toBeTruthy()
-    expect(screen.queryByText('工作区')).toBeNull()
-    pick('按工作区')
-    expect(screen.getByText('工作区')).toBeTruthy()
+  it('files a chat into a COLLAPSED section from a workspace row', () => {
+    // The collapsed section is the case the operator hits most: an empty
+    // section starts expanded, is collapsed once it has content, and its header
+    // plus the hint below it are the only visible targets.
+    const b = mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
+    createSection('Work')
+    expandWorkspace()
+    // Collapse it first, before anything is filed.
+    fireEvent.click(header('Work'))
+    expect(b.store.getSnapshot().chatSections.collapse).toEqual({ 'section-1': true })
+
+    const source = within(workspaceTree()).getByText('chat-c').closest('[role="treeitem"]') as HTMLElement
+    const target = header('Work')
+    stubRect(target, 100)
+    fireEvent.dragStart(source, { dataTransfer: dragData() })
+    fireDrag(target, 'dragOver', 120)
+    fireDrag(target, 'drop', 120)
+
+    expect(b.store.getSnapshot().chatSections.members).toEqual({ 'chat-c': 'section-1' })
+    // The section stays collapsed and now reports its member count.
+    expect(b.store.getSnapshot().chatSections.collapse).toEqual({ 'section-1': true })
+    expect(screen.getByText('1 个会话')).toBeTruthy()
+  })
+
+  it('files a chat by dropping on the hint area of a collapsed section', () => {
+    const b = mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
+    createSection('Work')
+    expandWorkspace()
+    fireEvent.click(header('Work'))
+
+    const source = within(workspaceTree()).getByText('chat-c').closest('[role="treeitem"]') as HTMLElement
+    const hint = within(sectionsPane()).getByText('拖到此处加入分组')
+    fireEvent.dragStart(source, { dataTransfer: dragData() })
+    fireDrag(hint, 'dragOver', 120)
+    fireDrag(hint, 'drop', 120)
+
+    expect(b.store.getSnapshot().chatSections.members).toEqual({ 'chat-c': 'section-1' })
   })
 
   it('restores sections, collapse, and assignments across a remount', () => {
     const b = mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
     createSection('Work')
-    fireEvent.click(screen.getByRole('button', { name: '会话“chat-a”的操作' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '移动到分组' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Work' }))
-    fireEvent.click(screen.getByText('Work'))
+    fileInto('chat-a', 'Work')
+    fireEvent.click(header('Work'))
     b.view.unmount()
 
     mount({ useSessions: b.props.useSessions, useWorkspaces: b.props.useWorkspaces })
-    // The collapsed section survives with its header, its count, and its
-    // member hidden.
-    expect(screen.getByText('Work')).toBeTruthy()
-    expect(screen.queryByText('chat-a')).toBeNull()
+    expect(header('Work')).toBeTruthy()
+    // The collapsed section survives with its member hidden and its count kept.
+    expect(membersOf('Work')).toEqual([])
     expect(screen.getByText('1 个会话')).toBeTruthy()
   })
 })

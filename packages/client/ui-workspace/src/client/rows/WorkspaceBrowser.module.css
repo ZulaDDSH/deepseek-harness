@@ -101,12 +101,17 @@
   padding-left: 0;
 }
 
+/* Header action cluster: Add workspace, New section, and View options, at
+   28px each with a 4px gap. The cap must cover every member — `overflow:
+   hidden` clips the remainder, so an undersized cap hides a control without
+   removing it from the DOM. Kept as a max-width so the search-expand
+   transition still animates to zero. */
 .headerActions {
   flex: none;
   display: flex;
   align-items: center;
   gap: 4px;
-  max-width: 60px;
+  max-width: 92px;
   opacity: 1;
   overflow: hidden;
   visibility: visible;
@@ -302,6 +307,91 @@
   margin-left: 0;
   margin-right: 0;
   padding-left: 0;
+}
+
+/* Stacked seat: the Workspaces pane above, the Chat Sections pane below.
+   The seat is a flex column with a bounded height, so the Workspace pane takes
+   exactly the leftover space (never more) and the Sections pane is sized from
+   its own content up to its cap.
+
+   `overflow: hidden` overrides the single-pane seat's `visible`. With two
+   stacked panes the upper pane's scrolled content would otherwise paint
+   outside its box and sit on top of the lower one, so a drop aimed at a
+   section header lands on a workspace row instead. */
+.listAreaStacked {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* The Workspaces pane. Each pane scrolls on its own, so filing a Chat never
+   moves the Workspace list's scroll position.
+
+   `overflow: hidden` is load-bearing, not cosmetic: the pane's scrolling list
+   is taller than the box the flex column gives it, and without clipping here
+   the rows paint over the Sections pane below. `elementFromPoint` then
+   resolves a drop aimed at a section header to a workspace row, so the drop
+   is silently lost even though the panes measure correctly. */
+.workspacePane {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  flex-direction: column;
+}
+
+/* Sized to its content and capped, so the divider follows the last section
+   row instead of floating above a gap. A long list scrolls rather than
+   squeezing the Workspace pane away. */
+.sectionsPane {
+  flex: 0 1 auto;
+  min-height: 0;
+  /* The cap is on the scroll area's own height, not a percentage of the
+     region: a percentage makes the pane claim that share even when it holds
+     one row, which is the gap this replaced. */
+  max-height: 320px;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 0.5px solid var(--dsw-alias-border-l3);
+}
+
+/* The pane's scrolling region. It reserves the themed scrollbar exactly as the
+   Workspace list does, so the bar is visible and its appearance does not shift
+   the pane's rows. */
+.sectionsScroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin-right: var(--dsh-session-list-scrollbar-offset);
+  padding-right: calc(
+    var(--dsh-session-list-edge-inset)
+    - var(--dsh-session-list-scrollbar-width)
+    - var(--dsh-session-list-scrollbar-offset)
+  );
+  scrollbar-gutter: stable;
+  padding-bottom: 8px;
+}
+
+/* A pane's own heading, on the Activity view's section-heading rhythm. */
+.paneHeading {
+  flex: none;
+  padding: 0 8px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* Empty Sections pane: a quiet prompt rather than a full empty-state card. */
+.paneEmpty {
+  padding: 2px 8px 8px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
 }
 
 /* Relative for the bottom fade overlay. */

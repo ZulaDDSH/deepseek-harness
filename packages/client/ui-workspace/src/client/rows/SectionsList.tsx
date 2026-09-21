@@ -1,15 +1,16 @@
 /**
- * The Chat Sections projection of the browsing region: one collapsible
- * section per operator-created grouping, followed by the Chats that belong to
- * no section. Rendered only while the section layer is active, so a browser
- * with no sections keeps the unchanged Workspace tree / flat / activity
- * projections.
+ * The Chat Sections pane: one collapsible section per operator-created
+ * grouping, holding the Chats the operator filed into it.
  *
- * Every Chat and section row is a drop target: a Chat dropped on a section
- * header (or a sibling inside it) joins that section and takes the drop
- * position, a Chat dropped in the ungrouped area leaves its section, and a
- * section header dropped on another header reorders sections. The row menus
- * offer the same moves, so the layer stays usable without drag-and-drop.
+ * Sections are a visual filter over the Workspace pane, not a second
+ * membership list: every Chat keeps living in its workspace folder above, and
+ * a Chat with no section simply does not appear here. Nothing is ever removed
+ * from the Workspace pane by filing it.
+ *
+ * A Chat dropped on a section header (or on a sibling inside it) joins that
+ * section at the drop position, and a section header dropped on another
+ * reorders sections. Unfiling happens through the row menu's Remove from
+ * section, or by dragging the row back up to its workspace folder.
  */
 import { useMemo, useRef, useState, type CSSProperties } from 'react'
 import clsx from 'clsx'
@@ -31,7 +32,6 @@ interface ChatDragState {
   over:
     | { kind: 'chat'; id: SessionNode['id']; half: 'before' | 'after'; sectionId: string | undefined }
     | { kind: 'section'; id: string; half: 'before' | 'after' }
-    | { kind: 'ungrouped' }
     | null
 }
 
@@ -63,6 +63,8 @@ export interface SectionsListProps extends Pick<
   moveSection: (sectionId: string, beforeSectionId?: string) => void
   onSectionRename: (sectionId: string, currentName: string) => void
   onSectionDelete: (sectionId: string, name: string) => void
+  externalChatSessionId: SessionId | null
+  onChatDragEnd: () => void
 }
 
 /**
@@ -74,6 +76,7 @@ export function SectionsList({
   list, visibleSessionIds, sections, currentBlank, useSessionStatus, open, forkSession,
   usePanelInfo, onSessionRename, onSessionArchive, assignSession, setSectionOrder,
   toggleSection, moveSection, onSectionRename, onSectionDelete, t,
+  externalChatSessionId, onChatDragEnd,
 }: SectionsListProps) {
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
   const statuses = useSessionStatus(s => s)
@@ -90,9 +93,19 @@ export function SectionsList({
     : Object.values(list.byId).find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
   const [chatDrag, setChatDrag] = useState<ChatDragState | null>(null)
   const [sectionDrag, setSectionDrag] = useState<SectionDragState | null>(null)
+  // A drag started on a workspace row above is a filing gesture for this pane:
+  // its own `chatDrag` only covers reorders begun inside the pane, so the
+  // cross-pane case is tracked separately and commits on the header.
   const chatDropCommitted = useRef(false)
   const sectionDropCommitted = useRef(false)
-  useNativeDragAcceptance(chatDrag !== null || sectionDrag !== null)
+  useNativeDragAcceptance(chatDrag !== null || sectionDrag !== null || externalChatSessionId !== null)
+
+  /** File an externally dragged Chat into a section, then clear the gesture. */
+  const commitExternalDrop = (sectionId: string): void => {
+    if (externalChatSessionId === null) return
+    assignSession(externalChatSessionId, sectionId)
+    onChatDragEnd()
+  }
 
   const sectionActions = (currentSectionId: string | undefined): SessionSectionActions => ({
     sections: sections.sections,
@@ -117,12 +130,6 @@ export function SectionsList({
       // Dropped on a section header or its body: join that section at the
       // head of its list, which is the one move a reorder cannot express.
       assignSession(activeDrag.sessionId, over.id)
-      return
-    }
-    if (over.kind === 'ungrouped') {
-      // Back to the ungrouped list: the Chat leaves its section and keeps its
-      // ordinary account order.
-      assignSession(activeDrag.sessionId, undefined)
       return
     }
     const targetSectionId = over.sectionId
@@ -225,45 +232,54 @@ export function SectionsList({
         style={{ '--dsh-workspace-indent': '0px' } as CSSProperties}
         // The body is the header's drop extension: a Chat released anywhere in
         // the section joins it, which is the pointer path for a collapsed or
-        // empty section. The header keeps its own before/after boundaries, and
-        // that handler stops propagation, so only the member area reaches here.
-        onDragOver={chatDrag === null || sectionDrag !== null
-          ? undefined
-          : (e) => {
+        // still-empty section — the section an operator most often drops into.
+        onDragOver={(e) => {
+          if (externalChatSessionId !== null) {
             e.preventDefault()
             e.dataTransfer.dropEffect = 'move'
-            setChatDrag(active => (active === null ? active : {
-              ...active, over: { kind: 'section', id: section.id, half: 'after' },
-            }))
-          }}
-        onDrop={chatDrag === null || sectionDrag !== null
-          ? undefined
-          : (e) => {
+            return
+          }
+          if (sectionDrag !== null || chatDrag === null) return
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'move'
+          setChatDrag(active => (active === null ? active : {
+            ...active, over: { kind: 'section', id: section.id, half: 'after' },
+          }))
+        }}
+        onDrop={(e) => {
+          if (externalChatSessionId !== null) {
             e.preventDefault()
             e.stopPropagation()
-            setChatDrag((active) => {
-              if (active !== null) commitChatDrop(active, { kind: 'section', id: section.id, half: 'after' })
-              return null
-            })
-          }}
+            commitExternalDrop(section.id)
+            return
+          }
+          if (sectionDrag !== null || chatDrag === null) return
+          e.preventDefault()
+          e.stopPropagation()
+          setChatDrag((active) => {
+            if (active !== null) commitChatDrop(active, { kind: 'section', id: section.id, half: 'after' })
+            return null
+          })
+        }}
       >
         <SectionHeaderItem
           section={section}
-          dragActive={chatDrag !== null || sectionDrag !== null}
+          dragActive={chatDrag !== null || sectionDrag !== null || externalChatSessionId !== null}
           marker={marker}
           onToggle={() => { toggleSection(section.id) }}
-          onDragOver={(half) => {
-            if (sectionDrag !== null) {
-              setSectionDrag(active => (active === null ? active : { ...active, over: { id: section.id, half } }))
-              return
-            }
-            if (chatDrag !== null) {
-              setChatDrag(active => (active === null ? active : {
-                ...active, over: { kind: 'section', id: section.id, half },
-              }))
-            }
+          externalChatSessionId={externalChatSessionId}
+          onFileChat={() => { commitExternalDrop(section.id) }}
+          onDragOver={() => {
+            // The cross-pane gesture files the Chat; the header owns this
+            // commit, so the drag never reaches the tree's own reorder path.
+            if (externalChatSessionId !== null) return
+            if (chatDrag !== null) return
           }}
           onDrop={(half) => {
+            if (externalChatSessionId !== null) {
+              commitExternalDrop(section.id)
+              return
+            }
             if (sectionDrag !== null) {
               commitSectionDrop(sectionDrag, { id: section.id, half })
               return
@@ -305,39 +321,13 @@ export function SectionsList({
   }
 
   return (
-    <div className={clsx(css.treeBody, css.wide)}>
-      <div
-        className={css.list}
-        role="tree"
-        aria-label={t('section.chats')}
-        onDragOver={chatDrag === null || sectionDrag !== null
-          ? undefined
-          : (e) => {
-            e.preventDefault()
-            e.dataTransfer.dropEffect = 'move'
-            setChatDrag(active => (active === null ? active : { ...active, over: { kind: 'ungrouped' } }))
-          }}
-        onDrop={chatDrag === null || sectionDrag !== null
-          ? undefined
-          : (e) => {
-            e.preventDefault()
-            setChatDrag((active) => {
-              if (active !== null) commitChatDrop(active, { kind: 'ungrouped' })
-              return null
-            })
-          }}
-      >
+    <div className={css.sectionsPane}>
+      <div className={css.paneHeading}>{t('section.chats')}</div>
+      <div className={css.sectionsScroll} role="tree" aria-label={t('section.chats')}>
         {projection.sections.map(sectionBlock)}
-        {projection.ungroupedSessionIds.length > 0 && (
-          <div className={css.ungroupedBlock} role="group" aria-label={t('section.ungrouped')}>
-            <div className={css.activityHeading}>{t('section.ungrouped')}</div>
-            {projection.ungroupedSessionIds.map((id) => {
-              const node = nodes.get(id)
-              return node === undefined ? null : chatRow(node, undefined)
-            })}
-          </div>
+        {projection.sections.length === 0 && (
+          <div className={css.paneEmpty}>{t('section.empty')}</div>
         )}
-        {projection.sections.length === 0 && <div className={css.empty}>{t('section.new')}</div>}
       </div>
       <span className={css.fade} />
     </div>

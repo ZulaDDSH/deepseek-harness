@@ -1,9 +1,8 @@
-// Web e2e scenario: Chat Sections in the assembled application under a real
-// browser. The package-level jsdom specs drive the same operations through
-// synthetic events; what they cannot show is the assembled experience — real
-// HTML5 drag-and-drop across the sidebar's scroll container, the portaled row
-// menus, and the browser-local layer surviving a document reload. This
-// scenario drives those three and asserts the sidebar the operator sees.
+// Web e2e scenario: the Chat Sections pane in the assembled application under
+// a real browser. Sections are a saved visual filter over the Workspace pane:
+// this drives the two-pane layout, the cross-pane drag that files a Chat, the
+// browser-local layer surviving a reload, and the Workspace pane keeping its
+// own mode and filter control throughout.
 //
 // Seed sessions come from a recorded fixture, so the sidebar has real chats to
 // organize. Zero model calls: organizing chats is browser-local and needs no
@@ -20,19 +19,16 @@ const SEED = fileURLToPath(new URL('../../../snapshots/web/seeded-history/sessio
 const FIRST_ID = 'chat-sections-first'
 const SECOND_ID = 'chat-sections-second'
 
-/** The section column, distinguished from the Workspace tree by its aria-label. */
-const sectionTree = (page: Page) => page.getByRole('tree', { name: 'Sections' })
-/** The section's header row, which carries its action verbs. */
+/** The Sections pane's tree (the lower pane). */
+const sectionsPane = (page: Page) => page.getByRole('tree', { name: 'Sections' })
+/** The Workspace pane's tree (the upper pane). */
+const workspaceTree = (page: Page) => page.getByRole('tree', { name: 'Sessions' })
+/** A section's header row, which carries its action verbs. */
 const sectionHeader = (page: Page, name: string) =>
-  sectionTree(page).getByRole('treeitem', { name: `Section actions for ${name}` })
-const ungrouped = (page: Page) => page.getByRole('group', { name: 'Ungrouped chats' })
-/**
- * The chat rows inside one section, scoped to the section tree and identified
- * by their aria-selected seat — a section's group also contains the header
- * row, and a Workspace group can carry the section's name.
- */
-const sectionMembers = (page: Page, name: string) =>
-  sectionTree(page).getByRole('group', { name }).locator('[role="treeitem"][aria-selected]')
+  sectionsPane(page).getByRole('treeitem', { name: `Section actions for ${name}` })
+/** The chats filed under one section. */
+const filedChats = (page: Page, name: string) =>
+  sectionsPane(page).getByRole('group', { name }).locator('[role="treeitem"][aria-selected]')
 
 /** Create a section through the header control and its dialog. */
 async function createSection(page: Page, name: string): Promise<void> {
@@ -43,7 +39,7 @@ async function createSection(page: Page, name: string): Promise<void> {
   await sectionHeader(page, name).waitFor()
 }
 
-describe('web e2e: Chat Sections', () => {
+describe('web e2e: Chat Sections pane', () => {
   let scaffold: WebScaffold
   let browser: Browser
   let page: Page
@@ -66,94 +62,65 @@ describe('web e2e: Chat Sections', () => {
     await scaffold?.close()
   })
 
-  it('organizes chats into sections, keeps ungrouped chats, and survives a reload', async () => {
+  it('stacks Sections below Workspaces and files a chat by dragging across panes', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-chat-sections'))
 
-    // Before any section exists the sidebar keeps its ordinary projection.
-    await expect.poll(() => page.getByRole('tree', { name: 'Sessions' }).count()).toBe(1)
-    expect(await sectionTree(page).count()).toBe(0)
+    // Before any section exists there is one pane, and the Workspace list owns
+    // the whole region.
+    await expect.poll(() => workspaceTree(page).count()).toBe(1)
+    expect(await sectionsPane(page).count()).toBe(0)
 
-    // Creating a section selects the Sections mode and leaves every seeded chat
-    // in the ungrouped area.
+    // Creating a section adds the pane BELOW the existing list; the Workspace
+    // list stays exactly where it was.
     await createSection(page, 'Work')
-    await ungrouped(page).waitFor()
-    const beforeMove = await ungrouped(page).getByRole('treeitem').count()
-    expect(beforeMove).toBe(2)
+    await expect.poll(() => sectionsPane(page).count()).toBe(1)
+    expect(await workspaceTree(page).count()).toBe(1)
 
-    // With sections present, the other Group by modes stay reachable — that is
-    // what keeps Workspaces, search, and Activity usable after organizing.
-    const pickView = async (name: string): Promise<void> => {
-      await page.getByRole('button', { name: 'View options' }).click()
-      await page.getByRole('menuitem', { name, exact: true }).click()
-    }
-    await pickView('WorkSpace')
-    await expect.poll(() => page.getByRole('tree', { name: 'Sessions' }).count()).toBe(1)
-    expect(await sectionTree(page).count()).toBe(0)
-    await pickView('Sections')
-    await expect.poll(() => sectionHeader(page, 'Work').count()).toBe(1)
+    // The Workspace pane keeps its mode control AND its color/icon filter.
+    expect(await page.getByRole('button', { name: 'View options' }).count()).toBe(1)
+    expect(await page.getByRole('button', { name: 'Filter workspaces' }).count()).toBe(1)
 
-    // Drag one chat onto the section header: the section joins it.
-    const chatRow = ungrouped(page).getByRole('treeitem').first()
-    await chatRow.dragTo(sectionHeader(page, 'Work'))
-    await expect.poll(() => sectionMembers(page, 'Work').count()).toBe(1)
-    expect(await ungrouped(page).getByRole('treeitem').count()).toBe(1)
+    // Drag a workspace row onto the section header: the cross-pane filing.
+    // Seeded chats live inside their workspace group, so open it first.
+    const group = workspaceTree(page).getByRole('treeitem', { hasText: 'Ungrouped' }).first()
+    await group.click()
+    const source = workspaceTree(page).getByRole('treeitem')
+      .filter({ hasNotText: 'Ungrouped' }).first()
+    await source.dragTo(sectionHeader(page, 'Work'))
+    await expect.poll(() => filedChats(page, 'Work').count()).toBe(1)
 
-    // Collapsing hides the member and keeps the section's chat count.
+    // Collapse hides the filed chat but keeps the section and its count.
     await sectionHeader(page, 'Work').click()
     await expect.poll(() => sectionHeader(page, 'Work').getAttribute('aria-expanded')).toBe('false')
-    expect(await sectionMembers(page, 'Work').count()).toBe(0)
+    expect(await filedChats(page, 'Work').count()).toBe(0)
     await sectionHeader(page, 'Work').click()
     await expect.poll(() => sectionHeader(page, 'Work').getAttribute('aria-expanded')).toBe('true')
-    await expect.poll(() => sectionMembers(page, 'Work').count()).toBe(1)
+    await expect.poll(() => filedChats(page, 'Work').count()).toBe(1)
 
-    // A reload restores the layer: sections, membership, and order are all
-    // browser-local, so nothing here depends on the Host.
+    // The pane and its contents are browser-local: a reload restores both, with
+    // the Workspace list still above it.
     await page.reload({ waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    await expect.poll(() => sectionsPane(page).count()).toBe(1)
+    await expect.poll(() => workspaceTree(page).count()).toBe(1)
     await expect.poll(() => sectionHeader(page, 'Work').count()).toBe(1)
-    await expect.poll(() => sectionMembers(page, 'Work').count()).toBe(1)
+    await expect.poll(() => filedChats(page, 'Work').count()).toBe(1)
 
-    // The row menu offers the same move drag-and-drop does: send it back.
-    const restored = sectionMembers(page, 'Work').first()
-    await restored.hover()
-    await restored.getByRole('button', { name: /Session actions for/ }).click()
-    await page.getByRole('menuitem', { name: 'Remove from section' }).click()
-    await expect.poll(() => ungrouped(page).getByRole('treeitem').count()).toBe(beforeMove)
-
-    // The menu also moves a chat in, so a move needs no drag gesture.
-    await ungrouped(page).getByRole('treeitem').first().hover()
-    await ungrouped(page).getByRole('button', { name: /Session actions for/ }).first().click()
-    await page.getByRole('menuitem', { name: 'Move to section' }).click()
-    await page.getByRole('menuitem', { name: 'Work' }).click()
-    await expect.poll(() => sectionMembers(page, 'Work').count()).toBe(1)
-
-    // Renaming rebinds nothing: the section keeps its chats under a new name.
+    // Deleting the section removes the pane and returns the region to the
+    // Workspace list alone, with every chat untouched.
     await sectionHeader(page, 'Work').hover()
-    await sectionHeader(page, 'Work').getByRole('button', { name: /Section actions for Work/ }).click()
-    await page.getByRole('menuitem', { name: 'Rename' }).click()
-    const rename = page.getByRole('dialog', { name: 'Rename section' })
-    await rename.getByRole('textbox').fill('Server Debugging')
-    await rename.getByRole('button', { name: 'Rename' }).click()
-    await expect.poll(() => sectionHeader(page, 'Server Debugging').count()).toBe(1)
-    await expect.poll(() => sectionMembers(page, 'Server Debugging').count()).toBe(1)
-
-    // Deleting the section leaves every chat in the ungrouped area rather than
-    // deleting them, and does not move the operator to another mode.
-    const beforeDelete = await ungrouped(page).getByRole('treeitem').count()
-    await sectionHeader(page, 'Server Debugging').hover()
-    await sectionHeader(page, 'Server Debugging').getByRole('button', { name: /Section actions for/ }).click()
+    await sectionHeader(page, 'Work').getByRole('button', { name: /Section actions for/ }).click()
     await page.getByRole('menuitem', { name: 'Delete section' }).click()
     const confirm = page.getByRole('dialog', { name: 'Delete section' })
     await confirm.getByText(/Its chats are not deleted/).waitFor()
     await confirm.getByRole('button', { name: 'Delete section' }).click()
-    await expect.poll(() => sectionHeader(page, 'Server Debugging').count()).toBe(0)
-    // The freed chat rejoins the ungrouped list, one row more than before.
-    await expect.poll(() => ungrouped(page).getByRole('treeitem').count()).toBe(beforeDelete + 1)
+    await expect.poll(() => sectionsPane(page).count()).toBe(0)
+    await expect.poll(() => workspaceTree(page).count()).toBe(1)
+    // The Workspace controls are still in place.
+    expect(await page.getByRole('button', { name: 'View options' }).count()).toBe(1)
+    expect(await page.getByRole('button', { name: 'Filter workspaces' }).count()).toBe(1)
+    await expect.poll(() => workspaceTree(page).getByRole('treeitem').count()).toBeGreaterThan(0)
 
-    // And the ordinary Workspace view is still one menu pick away.
-    await pickView('WorkSpace')
-    await expect.poll(() => page.getByRole('tree', { name: 'Sessions' }).count()).toBe(1)
-    await expect.poll(() => page.getByRole('treeitem').count()).toBeGreaterThan(0)
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
   }, 180_000)

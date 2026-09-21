@@ -12,11 +12,11 @@ export const FLAT_SESSION_ORDER_KEY = '__flat_session_order__'
 
 /**
  * Session-list grouping mode: sibling Workspace sections, a Workspace tree,
- * one flat list, attention-grouped activity, or the operator's own Chat
- * Sections. Selecting Workspace, flat, or activity while Sections exist is a
- * normal mode switch — Sections never take over the region on their own.
+ * one flat list, or attention-grouped activity. Chat Sections are not a mode:
+ * they render in their own pane below the Workspace pane, so this selection
+ * keeps governing the Workspace pane while sections exist.
  */
-export type SessionGroupBy = 'workspace' | 'workspace-tree' | 'flat' | 'activity' | 'sections'
+export type SessionGroupBy = 'workspace' | 'workspace-tree' | 'flat' | 'activity'
 /** Session order: saved manual positions or current recency. */
 export type SessionOrderBy = 'manual' | 'updated'
 
@@ -47,7 +47,8 @@ export interface ChatSectionsState {
   sectionOrder: Record<string, string[]>
 }
 
-/** An empty Chat Sections layer: every existing Session starts ungrouped. */
+/** Constraint: every existing Session starts ungrouped.
+ * @returns a new empty Chat Sections state. */
 export function emptyChatSections(): ChatSectionsState {
   return { sections: [], collapse: {}, members: {}, sectionOrder: {} }
 }

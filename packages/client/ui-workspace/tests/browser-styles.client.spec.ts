@@ -122,6 +122,52 @@ describe('WorkspaceBrowser.module.css list', () => {
     expect(declarations('.rail .search')?.get('width')).toBe('36px')
   })
 
+  it('sizes the header action cap to fit every control it holds', () => {
+    // `overflow: hidden` clips the cluster's tail, so an undersized cap hides a
+    // control while leaving it in the DOM — invisible to a DOM-only assertion,
+    // and to the operator only as a missing button. The cap must cover every
+    // member: Add workspace, New section, and View options at 28px each.
+    const cap = declarations('.headerActions')?.get('max-width')
+    expect(cap).toBeDefined()
+    expect(declarations('.headerActions')?.get('overflow')).toBe('hidden')
+    const controls = 3
+    const button = 28
+    const gap = 4
+    const needed = controls * button + (controls - 1) * gap
+    expect(Number.parseFloat(cap!.replace('px', ''))).toBeGreaterThanOrEqual(needed)
+    // Collapsing still animates the same property to zero.
+    expect(declarations('.headerActionsHidden')?.get('max-width')).toBe('0')
+  })
+
+  it('sizes the Sections pane from its content, not from a share of the region', () => {
+    // A percentage max-height makes the pane claim that share even while it
+    // holds one row, which leaves the Workspace pane short and a dead gap
+    // above the divider. The cap must be an absolute height so the divider
+    // follows the last row.
+    const cap = declarations('.sectionsPane')?.get('max-height')
+    expect(cap).toBeDefined()
+    expect(cap).toMatch(/^\d+px$/)
+    // The pane must not grow beyond its content in the stacked seat.
+    expect(declarations('.sectionsPane')?.get('flex')).toBe('0 1 auto')
+    // The Workspace pane takes exactly the leftover space.
+    expect(declarations('.workspacePane')?.get('flex')).toBe('1 1 auto')
+    expect(declarations('.workspacePane')?.get('min-height')).toBe('0')
+    // Overflow is confined to the pane's scroll area.
+    expect(declarations('.sectionsScroll')?.get('overflow-y')).toBe('auto')
+    expect(declarations('.sectionsScroll')?.get('min-height')).toBe('0')
+  })
+
+  it('reserves the themed scrollbar inside the Sections pane like the main list', () => {
+    // The two panes sit in one column, so their scrollbars must occupy the
+    // same track width and offset or the divider reads as misaligned.
+    const pane = declarations('.sectionsScroll')
+    const list = declarations('.list')
+    expect(pane?.get('margin-right')).toBe('var(--dsh-session-list-scrollbar-offset)')
+    expect(pane?.get('margin-right')).toBe(list?.get('margin-right'))
+    expect(pane?.get('padding-right')).toBe(list?.get('padding-right'))
+    expect(pane?.get('scrollbar-gutter')).toBe('stable')
+  })
+
   it('gives Chat Section blocks the same rhythm as Workspace groups', () => {
     // Sections sit in the same list as Workspace groups, so the 2px row gap
     // and 4px block gap must match or the two projections look like different

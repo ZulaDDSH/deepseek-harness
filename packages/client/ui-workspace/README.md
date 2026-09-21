@@ -1,5 +1,5 @@
 ---
-description: "Shared Workspace browser and picker plugin for the dsh web client: workspace, flat, and activity Session views, add/rename/reorder, search, fork, archive, and the directory-flow picking hole."
+description: "Shared Workspace browser and picker plugin for the dsh web client: workspace, flat, and activity Session views, Chat Sections grouping, add/rename/reorder, search, fork, archive, and the directory-flow picking hole."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-This package lets users browse grouped, flat, or activity-centered Session lists, choose a Workspace for a new Session, and manage Workspaces and Sessions through add, rename, reorder, search, fork, archive, and Workspace deletion. Pending interactions and live work carry visible status text beside their status dots, active scheduled tasks use alarm markers, and subagent-origin Sessions remain hidden. Canonically distinct folder paths remain separate Workspaces. Adding a Workspace requires a composed directory picker; without one, the add action is unavailable.
+This package lets users browse grouped, flat, or activity-centered Session lists, group Sessions into their own Chat Sections, choose a Workspace for a new Session, and manage Workspaces and Sessions through add, rename, reorder, search, fork, archive, and Workspace deletion. Pending interactions and live work carry visible status text beside their status dots, active scheduled tasks use alarm markers, and subagent-origin Sessions remain hidden. Canonically distinct folder paths remain separate Workspaces. Adding a Workspace requires a composed directory picker; without one, the add action is unavailable.
 
 ## Table of Contents
 
@@ -30,6 +30,20 @@ Use the sidebar to browse Workspaces and their Sessions, reorder them, and start
 ### Reordering and view options
 
 **Last updated** orders ordinary Sessions by their latest user prompt or steer time, newest first, in both grouped and flat views. **Manual** freezes the current displayed order and holds positions when activity changes; newly discovered ordinary Sessions append to the end, newest first when several arrive together. Returning to Last updated discards every manual position, and entering Manual again freezes the then-current recency order. The browser defaults to Last updated and remembers the selected mode across reloads. Dragging an ordinary Session applies the move locally and selects Manual. The selected blank **New Session** is always pinned first and cannot be dragged; after its first prompt it becomes an ordinary draggable row, retaining its first position in Manual or following its current timestamp in Last updated. In a collapsed group, drag boundaries follow rendered rows and place the source before intervening hidden rows, so a drag cannot hide its source. Session display orders for real Workspaces, Ungrouped, and the flat list are browser-local; Workspace group drag order remains Host-durable.
+
+### Chat Sections
+
+**New section** in the browsing header adds a **Sections** pane below the Workspace pane. Sections list the Chats you filed into them; a Chat with no section simply does not appear there.
+
+Sections are a saved visual filter over the Workspace list, not a second membership. Every Chat keeps living in its workspace folder above, and filing one never removes it from that folder — the same Chat can be seen in both panes. The two panes scroll independently, so filing a Chat does not move the Workspace list. The Sections pane exists only while at least one section does; with none, the Workspace list is the whole region.
+
+A section header collapses and expands on click and carries **Rename** and **Delete section**; deleting a section never deletes its Chats. Section order follows creation and changes by dragging one header onto another.
+
+File a Chat by dragging its row from the Workspace pane onto a section header, or with the row menu's **Move to Section → [name]**. Unfile with **Remove from section**, or by dragging the row back. The menu is the complete alternative to drag-and-drop, and both paths write the same state. A Chat belongs to at most one section; the provisional **New Session** row cannot be dragged and stays unfiled until its first prompt.
+
+The Workspace pane keeps its **View options** control (Group by: WorkSpace / Workspace Tree / In one list / Activity, and Order by) and its color/icon filter in every case — neither changes because sections exist.
+
+Sections organize Chats only. They carry no instructions, files, environment, shared context, agent configuration, repositories, or memory — those remain Workspace capabilities, and a Section changes nothing about a Session's Workspace, working directory, log, or archived state. The section layer is browser-local: it is not synchronized to the Host, so it does not follow a Session to another browser or machine.
 
 ### Workspace hierarchy
 
@@ -77,6 +91,18 @@ Each registration declares a **directory-flow child hole** (`single` kind: `conv
 
 Once the Workspace list baseline is ready, browser-persisted expansion and manual Session-order records retain only current Workspace ids plus Ungrouped and the flat-list account. `WorkspaceView.sessionIds` supplies real-Workspace membership, not Session display order. View actions require the current account orders explicitly. Flat-list membership and ordering use Session ids; row rendering adds status indicators once. Entering Manual snapshots every active account from the current display; reconciliation retains saved members that still belong to the account, removes departed members, and appends newly known members by recency. A new membership entry without a Session summary is omitted until that summary arrives, while an already saved slot survives a temporarily missing summary. During Workspace reconnection, Manual records an observed blank Session at the front of its saved flat and known group orders without removing other saved members; full membership reconciliation waits for the Workspace baseline. This reconciliation remains mounted while the sidebar is a rail or search replaces its body. Last updated derives directly from each current list snapshot without reading or writing saved positions; equal timestamps use Session ids as a stable tie-break. The shared sidebar projection hides rows whose durable Session summary has `origin: 'subagent'`, and each visible ordinary row inherits the blue activity indicator while any descendant reached through uninterrupted subagent-origin lineage is running. The same pure derivation reads the Schedule key from list projection values for grouped, flat, and search nodes; the package uses only the type-only `@deepseek-ai/dsh-schedule/client` dependency and does not import the Schedule runtime or `ui-schedule`.
 
+### Chat Sections state
+
+The section layer is one field of the same persisted view value: sections with their display order, explicit collapse per section, Session-to-section assignments, and a saved Session order per section. Assignments reference generated section ids, never names, so renaming a section rebinds nothing. One Session appears in at most one section; `assignSession` removes it from its previous section before inserting it at the head of the target (or dropping it from the map entirely for the ungrouped case), and `deleteSection` removes a section's record, collapse flag, saved order, and assignments while leaving every Session untouched.
+
+`deriveSections` projects the layer against the caller's visible Session ids and the current Session summaries, reusing `reconcileManualOrder` so a newly discovered Chat joins its section without discarding saved positions. A dangling assignment — a removed session id, or a section a stale payload names — degrades to the ungrouped list rather than dropping the Chat.
+
+Sections is not a `SessionGroupBy` value. The pane renders below the Workspace pane whenever `sectionsActive` is true — any section exists, including an empty one, or any Session carries an assignment — so the selected grouping mode keeps governing the upper pane and is never displaced. Deleting the last section hides the pane and leaves the mode untouched.
+
+The two panes are independent components with their own local reorder state, but filing a Chat is one gesture that starts on a workspace row and ends on a section header. `WorkspaceBrowser` owns the in-flight Session id and passes it to both panes; the section pane observes it and owns the assignment commit, while the workspace tree keeps sole ownership of its own reordering. A cross-pane drop therefore files a Chat without also selecting manual order in the tree.
+
+The field was added to a persist key that already shipped, so the store declares a `migrate` step: a value written before this field existed rehydrates through the empty layer, which is what leaves every pre-existing Session ungrouped on the first run of a build that has the feature.
+
 ### Hover cards
 
 Workspace and Session hover cards copy the value their row clips: activating a Workspace card writes its full directory path, while activating a non-blank Session card writes its full display title. A provisional blank New Session card remains read-only because its localized label is a placeholder rather than session content.
@@ -117,6 +143,7 @@ These limits define the search depth, the archive surface, and the picking carri
 - **No Session deletion, and unarchive lives in Settings** — sessions can be archived but never deleted; the archived-sessions Settings page ([ui-settings-unarchive-sessions](../ui-settings-unarchive-sessions/README.md)) owns viewing and restoring them, and Workspace registration deletion does not delete Sessions.
 - **Pending user interaction is not aggregated into collapsed groups** — a waiting row inside a collapsed group lights no group-header indicator and becomes visible only after that group is expanded.
 - **Native folder selection depends on the local Host carrier** — under the `-native` composition, in-process or remote browser deployments cannot open a local operating-system dialog; remote-capable picking is the `-browse` composition's in-app flow.
+- **Chat Sections are browser-local and single-level** — the layer lives in this browser's persisted view state rather than the Host, so it does not follow a Session to another browser, machine, or profile, and it has no nested sections or section-level ordering modes beyond the saved per-section order.
 
 <a id="dev-note"></a>
 ### Dev Note

@@ -160,7 +160,8 @@ function sectionMenuItems(
  * @returns the section header element.
  */
 export function SectionHeaderItem({
-  section, dragActive = false, marker = null, onToggle, onDragOver, onDrop, drag, actions, t,
+  section, dragActive = false, marker = null, onToggle, onDragOver, onDrop, onFileChat,
+  externalChatSessionId = null, drag, actions, t,
 }: {
   section: SectionNode
   dragActive?: boolean | undefined
@@ -168,6 +169,8 @@ export function SectionHeaderItem({
   onToggle: () => void
   onDragOver?: ((half: 'before' | 'after') => void) | undefined
   onDrop?: ((half: 'before' | 'after') => void) | undefined
+  onFileChat?: (() => void) | undefined
+  externalChatSessionId?: string | null | undefined
   drag?: WorkspaceRowDragProps | undefined
   actions: {
     rename: () => void
@@ -211,23 +214,31 @@ export function SectionHeaderItem({
           drag.start()
         }}
       onDragEnd={drag?.end}
-      onDragOver={dragActive
-        ? (e) => {
-          e.preventDefault()
-          // The enclosing section body is also a Chat drop target; the
-          // header's own before/after boundaries win over joining.
-          e.stopPropagation()
-          e.dataTransfer.dropEffect = 'move'
-          onDragOver?.(rowHalf(e))
+      onDragOver={(event) => {
+        if (onFileChat !== undefined && externalChatSessionId !== null) {
+          event.preventDefault()
+          event.stopPropagation()
+          event.dataTransfer.dropEffect = 'move'
+          return
         }
-        : undefined}
-      onDrop={dragActive
-        ? (e) => {
-          e.preventDefault()
-          e.stopPropagation()
-          onDrop?.(rowHalf(e))
+        if (!dragActive) return
+        event.preventDefault()
+        event.stopPropagation()
+        event.dataTransfer.dropEffect = 'move'
+        onDragOver?.(rowHalf(event))
+      }}
+      onDrop={(event) => {
+        if (onFileChat !== undefined && externalChatSessionId !== null) {
+          event.preventDefault()
+          event.stopPropagation()
+          onFileChat()
+          return
         }
-        : undefined}
+        if (!dragActive) return
+        event.preventDefault()
+        event.stopPropagation()
+        onDrop?.(rowHalf(event))
+      }}
     >
       <span className={clsx(css.slot, css.chevron)}>
         <IconTriangleRightFill14 className={clsx(css.arrow, section.expanded && css.arrowOpen)} />

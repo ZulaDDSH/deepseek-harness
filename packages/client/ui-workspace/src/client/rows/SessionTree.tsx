@@ -12,6 +12,7 @@ import {
 } from '../tree.ts'
 import { useNativeDragAcceptance } from './drag.ts'
 import { ProjectRowItem, SessionNodeItem } from './Rows.tsx'
+import type { ChatSection } from '../stores.ts'
 import css from './WorkspaceBrowser.module.css'
 
 const COLLAPSED_SESSION_LIMIT = 5
@@ -103,6 +104,18 @@ type SessionTreeProps = Pick<
   revealSessionId?: SessionId | undefined
   /** Acknowledge that the chosen Session row has been revealed. */
   onSessionRevealed: (sessionId: SessionId) => void
+  /**
+   * Whether the Sections pane is present below this tree, which turns the
+   * workspace rows into drop targets for filing a Chat into a section. Absent
+   * or false leaves every row exactly as it was.
+   */
+  sectionDropTargets?: boolean | undefined
+  /** The sections a dragged Chat can be filed into. */
+  sections: readonly ChatSection[]
+  /** File a Chat into a section (or no section) from a workspace row drop or menu. */
+  assignSession: (sessionId: SessionId, sectionId: string | undefined) => void
+  onChatDragStart: (sessionId: SessionId) => void
+  onChatDragEnd: () => void
 }
 
 /**
@@ -118,7 +131,8 @@ export function SessionTree({
   insertWorkspaceBefore,
   nestWorkspaces, groupExpansion, setGroupExpanded,
   setSessionOrder, home, t,
-  revealSessionId, onSessionRevealed,
+  revealSessionId, onSessionRevealed, sectionDropTargets = false, sections, assignSession,
+  onChatDragStart, onChatDragEnd,
 }: SessionTreeProps) {
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
   const statuses = useSessionStatus(s => s)
@@ -399,6 +413,9 @@ export function SessionTree({
             start: () => {
               sessionDropCommitted.current = false
               setDrag({ accountKey: group.key, sessionId: node.id, over: null })
+              // Publish so the Sections pane can accept this same gesture as a
+              // filing drop; it owns that commit, this tree owns reordering.
+              if (sectionDropTargets) onChatDragStart(node.id)
             },
             active: sameGroupDrag,
             marker: sameGroupDrag && drag.over?.id === node.id ? drag.over.half : null,
@@ -417,6 +434,7 @@ export function SessionTree({
               if (drag?.over !== null && drag?.over !== undefined) commitSessionDrag(drag, drag.over)
               else setDrag(null)
               sessionDropCommitted.current = false
+              if (sectionDropTargets) onChatDragEnd()
             },
           }
           return (
@@ -433,6 +451,13 @@ export function SessionTree({
                 ? () => { onSessionRevealed(node.id) }
                 : undefined}
               drag={dragProps}
+              sectionActions={sectionDropTargets
+                ? {
+                  sections,
+                  currentSectionId: undefined,
+                  move: (id, sectionId) => { assignSession(id, sectionId) },
+                }
+                : undefined}
               t={t}
             />
           )
