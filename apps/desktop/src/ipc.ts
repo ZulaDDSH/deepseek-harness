@@ -10,6 +10,8 @@ export const DESKTOP_IPC = {
   updatesStatus: 'dsh-desktop:updates-status',
   updatesOpen: 'dsh-desktop:updates-open',
   updatesPresentation: 'dsh-desktop:updates-presentation',
+  attentionNotify: 'dsh-desktop:attention-notify',
+  attentionActivate: 'dsh-desktop:attention-activate',
   nativeThemeSet: 'dsh-desktop:native-theme-set',
   windowsAppearance: 'dsh-desktop:windows-appearance',
   windowsMenu: 'dsh-desktop:windows-menu',
@@ -50,6 +52,34 @@ export interface DesktopUpdatePresentation {
   readonly failure?: DesktopUpdateFailureKind
 }
 
+/** Native-notification category produced by the renderer's Session attention projection. */
+export type DesktopAttentionKind = 'approval' | 'plan-review' | 'question' | 'completed' | 'failed'
+
+/** Bounded renderer request for one native Session notification. */
+export interface DesktopAttentionRequest {
+  readonly sessionId: string
+  readonly title: string
+  readonly kind: DesktopAttentionKind
+}
+
+/**
+ * Validate one product-renderer attention request before native presentation.
+ * @param value - untrusted IPC payload from the product renderer.
+ * @returns the bounded semantic attention request.
+ * @throws when identity, title, or kind is invalid.
+ */
+export function parseDesktopAttentionRequest(value: unknown): DesktopAttentionRequest {
+  if (typeof value !== 'object' || value === null) throw new Error('dsh desktop: invalid attention request')
+  const request = value as Record<string, unknown>
+  const kinds: readonly DesktopAttentionKind[] = ['approval', 'plan-review', 'question', 'completed', 'failed']
+  if (typeof request.sessionId !== 'string' || request.sessionId.length === 0 || request.sessionId.length > 512
+    || typeof request.title !== 'string' || request.title.length > 256
+    || typeof request.kind !== 'string' || !kinds.includes(request.kind as DesktopAttentionKind)) {
+    throw new Error('dsh desktop: invalid attention request')
+  }
+  return { sessionId: request.sessionId, title: request.title, kind: request.kind as DesktopAttentionKind }
+}
+
 /** Product documents cannot supply update versions, package URLs, or installation authorization. */
 export interface DshDesktopProductApi {
   readonly protocolVersion: 1
@@ -57,6 +87,10 @@ export interface DshDesktopProductApi {
     status(): Promise<DesktopUpdatePresentation>
     open(): Promise<void>
     subscribe(listener: (state: DesktopUpdatePresentation) => void): () => void
+  }
+  readonly attention: {
+    notify(request: DesktopAttentionRequest): Promise<void>
+    subscribe(listener: (sessionId: string) => void): () => void
   }
 }
 

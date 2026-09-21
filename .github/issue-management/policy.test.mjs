@@ -956,6 +956,36 @@ test('runs trusted rollout selection with absent and present capability markers'
   }
 })
 
+test('fork workflow preflight exits before trusted policy lookup', { skip: process.platform === 'win32' ? 'The policy workflow executes under hosted Ubuntu bash' : false }, (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'dsh-policy-fork-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const source = readFileSync(new URL('../workflows/issue-policy.yml', import.meta.url), 'utf8')
+  const script = source.split('        run: |\n')[1].split('      - name: Create Project read token')[0]
+    .split('\n').map((line) => line.slice(10)).join('\n')
+  const policyDirectory = join(directory, '.github', 'issue-management')
+  mkdirSync(policyDirectory, { recursive: true })
+  const eventPath = join(directory, 'event.json')
+  const outputPath = join(directory, 'output')
+  writeFileSync(eventPath, JSON.stringify({ pull_request: { user: { type: 'User' } } }))
+  writeFileSync(outputPath, '')
+  writeFileSync(join(policyDirectory, 'selective-preflight.json'), '{"version":1}\n')
+  writeFileSync(join(policyDirectory, 'policy.mjs'), "throw new Error('fork must not run upstream policy')\n")
+  const result = spawnSync('bash', ['--noprofile', '--norc', '-eo', 'pipefail', '-c', script], {
+    cwd: directory,
+    env: {
+      PATH: process.env.PATH,
+      GITHUB_EVENT_PATH: eventPath,
+      GITHUB_OUTPUT: outputPath,
+      GITHUB_REPOSITORY: 'ZulaDDSH/deepseek-harness',
+    },
+    encoding: 'utf8',
+    timeout: 30_000,
+  })
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(readFileSync(outputPath, 'utf8'), 'legacy-automated=true\nneeds-project=false\n')
+  assert.match(result.stdout, /fork PR is exempt/)
+})
+
 test('allocates lifecycle runners only for relevant reviews and PR body edits', () => {
   const source = readFileSync(new URL('../workflows/issue-lifecycle.yml', import.meta.url), 'utf8')
   const issues = source.split('  issues:')[1].split('  pull_request:')[0]

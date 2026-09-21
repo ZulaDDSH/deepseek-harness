@@ -45,6 +45,14 @@ export class BootPage {
   }
 
   /**
+   * Set carrier-owned startup text before plugin activation begins.
+   * @param text - Localized startup phase presented below the spinner.
+   */
+  setHint(text: string): void {
+    this.hint.textContent = text
+  }
+
+  /**
    * Set the number of loader entries represented by the progress arc.
    * @param total - Complete boot roster size.
    */

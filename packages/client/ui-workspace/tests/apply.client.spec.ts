@@ -5,8 +5,10 @@ import { RemoteError, TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type { WorkspaceBrowserInjected, WorkspacePickerInjected } from '@deepseek-ai/dsh-client-ui-workspace/client'
+import type { QuickSwitcherInjected } from '../src/client/QuickSwitcher.tsx'
 import { WorkspaceBrowser } from '../src/client/rows/WorkspaceBrowser.tsx'
 import { WorkspacePicker } from '../src/client/WorkspacePicker.tsx'
+import { QuickSwitcher } from '../src/client/QuickSwitcher.tsx'
 import { apply as hostApply } from '../src/index.ts'
 import type { SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
 
@@ -21,6 +23,13 @@ async function bench() {
   const rename = vi.fn(async () => ({}))
   const selectPanel = vi.fn()
   ctx.provide('layout', { selectPanel, beginNavigation: () => new AbortController().signal })
+  ctx.provide('uiSession', {
+    sessionStatus: { getSnapshot: () => new Map(), subscribe: () => () => {} },
+  } as never)
+  ctx.provide('commandUi', {
+    quickCommands: vi.fn(async () => []),
+    runQuick: vi.fn(() => true),
+  } as never)
   const search = vi.fn(async () => ({
     ok: true as const,
     value: { items: [{ sessionId: 'session' as never, snippet: 'match' }], hasMore: false },
@@ -93,11 +102,14 @@ async function bench() {
   }
 }
 
-type HoleName = 'sidebar.workspaces' | 'conversation.hero.workspace' | 'conversation.empty.workspace'
+type HoleName = 'sidebar.workspaces' | 'conversation.hero.workspace' | 'conversation.empty.workspace' | 'shell.overlay'
 
 /** Declare any subset of the holes with a single root registration ('root' is a single slot). */
 function declare(slots: SlotRegistry, ...names: HoleName[]): () => void {
-  const children = Object.fromEntries(names.map(name => [name, { kind: 'single', scope: 'root' }]))
+  const children = Object.fromEntries(names.map(name => [
+    name,
+    { kind: name === 'shell.overlay' ? 'list' : 'single', scope: 'root' },
+  ]))
   return slots.register({ name: 'root', children } as never, () => null)
 }
 
@@ -109,6 +121,7 @@ describe('ui-workspace apply', () => {
   it('declares the services it drives', () => {
     expect(inject).toEqual([
       'slots', 'sessions', 'workspaces', 'locale', 'remote', 'remote.directoryPicker', 'layout',
+      'uiSession', 'commandUi',
     ])
   })
 
@@ -128,6 +141,23 @@ describe('ui-workspace apply', () => {
     await Promise.resolve()
     expect(after.slots.entries('conversation.hero.workspace')[0]!.component).toBe(WorkspacePicker)
     // expect(after.slots.entries('conversation.empty.workspace')[0]!.component).toBe(WorkspacePicker)
+  })
+
+  it('registers the root quick switcher and routes its actions through existing services', async () => {
+    const b = await bench()
+    declare(b.slots, 'shell.overlay')
+    const quickCommands = vi.spyOn(b.ctx.get('commandUi') as never, 'quickCommands')
+    const runQuick = vi.spyOn(b.ctx.get('commandUi') as never, 'runQuick')
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+
+    const entry = b.slots.entries('shell.overlay').find(item => item.options.id === 'workspace-quick-switcher')
+    expect(entry?.component).toBe(QuickSwitcher)
+    const injected = (entry?.inject as unknown as () => QuickSwitcherInjected)()
+    const signal = new AbortController().signal
+    await injected.quickCommands('session' as never, 'plan', signal)
+    expect(quickCommands).toHaveBeenCalledWith('session', 'plan', signal)
+    injected.runQuick('session' as never, 'plan')
+    expect(runQuick).toHaveBeenCalledWith('session', 'plan')
   })
 
   it('routes browser actions and picker creation to the services', async () => {

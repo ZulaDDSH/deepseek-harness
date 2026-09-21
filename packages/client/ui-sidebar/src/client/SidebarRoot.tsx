@@ -87,6 +87,8 @@ function PanelRow({ id, label, wide, usePanelInfo, selectPanel, renderSlot }: Pa
  */
 export function SidebarRoot({
   collapsed,
+  focusMode,
+  toggleFocus,
   width,
   startSession,
   toggleSidebar,
@@ -168,13 +170,14 @@ export function SidebarRoot({
   // Rail resting state is the whale mark; hovering swaps in the panel icon
   // (the expand affordance, figma sidebar-hover flow). Expanded it is a plain
   // panel icon.
+  const toggleLabel = focusMode ? t('focus.exit') : collapsed ? t('toggle.open') : t('toggle.collapse')
   const toggle = (
-    <Tooltip label={collapsed ? t('toggle.open') : t('toggle.collapse')} delayMs={500}>
+    <Tooltip label={toggleLabel} delayMs={500}>
       <button
         type="button"
         className={clsx(css.iconButton, css.toggle)}
-        aria-label={collapsed ? t('toggle.open') : t('toggle.collapse')}
-        onClick={() => { toggleSidebar() }}
+        aria-label={toggleLabel}
+        onClick={() => { if (focusMode) toggleFocus(); else toggleSidebar() }}
       >
         {!wide && !windowsTitlebar && (
           <span className={css.railMark} aria-hidden="true">
