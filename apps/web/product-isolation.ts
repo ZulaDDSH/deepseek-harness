@@ -86,7 +86,7 @@ export function productWebBundleIsolation(repository: string, webRoot: string): 
             },
             generateBundle: {
               order: 'post',
-              handler(_options, bundle) { inputs.workerBundle(bundle, [...this.getModuleIds()]) },
+              handler(_options, bundle) { inputs.workerBundle(bundle, this.getWatchFiles()) },
             },
           }],
         },
