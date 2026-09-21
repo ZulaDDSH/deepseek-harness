@@ -93,17 +93,17 @@ pnpm run start:desktop
 
 Workspace development runs the current CLI and private Desktop Host packages under Electron RunAsNode. Plugin management and recovery use `$DSH_HOME/profiles/desktop`, separate from the disposable workspace runtime. The Host uses runtime module resolution in both development and packaged builds without creating official-package fallback links; developer-installed packages, including links, retain native priority. Use an unpacked application to exercise Electron RunAsNode, bundled pnpm, bundled dsh resources, plugin installation and repair paths.
 
-### Optional Memorix memory integration
+### Optional shared knowledge integration
 
-For source-tree Desktop development, the repository can add Memorix to the existing Desktop profile after that profile has been created once:
+For source-tree Desktop development, the repository can point the Desktop profile at a shared GARDEN knowledge service:
 
 ```sh
-pnpm run setup:memorix:desktop
+node scripts/setup-knowledge-desktop.mjs --url http://192.168.1.50:18080/mcp --token-env GARDEN_KNOWLEDGE_TOKEN
 ```
 
-Stop Desktop before running the setup command, then restart it. A branch change requires stopping Desktop, rebuilding, and relaunching first: a running Host executes the built runtime tree rather than the sources now on disk, so switching branches underneath it produces a fatal startup or Host failure. The helper pins `memorix@1.3.0`, keeps package scripts disabled, uses Node's built-in SQLite backend, and enables Memorix through the existing DSH MCP client in `lite` mode. Re-running the command is idempotent when the same version is already installed and enabled.
+Stop Desktop before running the setup command, then restart it. The helper appends one `@deepseek-ai/dsh-mcp-client` entry using Streamable HTTP and is idempotent when the entry is already present. The credential is read from the named environment variable, so no token is written into the profile patch; export the variable before launching Desktop. The default endpoint is `http://127.0.0.1:18080/mcp` for a service on the same machine; a LAN address such as `http://192.168.1.50:18080/mcp` lets several machines share one knowledge server.
 
-The dedicated `Memorix Desktop smoke` workflow validates Linux and Windows installation, Electron RunAsNode MCP startup, tool discovery, memory writes, process restart, and recall from a fresh MCP process. Memorix remains an experience-memory layer; it does not replace verified GARDEN evidence or task state.
+The knowledge service owns durable shared knowledge, retrieval, source attribution, and knowledge lifecycle. It is not the session, task, or provider authority: DSH owns sessions, agents, providers, tool exposure, and permissions. The global `@deepseek-ai/dsh-knowledge-policy` entry states how every agent uses shared knowledge and restricts verification, promotion, supersession, and staleness marking to an authorized supervisor.
 
 ## Package
 

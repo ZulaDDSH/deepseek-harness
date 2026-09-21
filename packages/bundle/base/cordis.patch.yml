@@ -500,6 +500,12 @@
       config:
         personaPrefix: ''
 
+    # One shared-knowledge rule for every agent, independent of provider or
+    # preset. Knowledge content is retrieved on demand through the configured
+    # knowledge MCP entry; this contributes policy text only.
+    - id: knowledge-policy
+      name: '@deepseek-ai/dsh-knowledge-policy'
+
     # Agents created at startup. The base stays empty; raw overlays may create
     # agents, while Web creates sessions on client request.
     - id: agent-loop
