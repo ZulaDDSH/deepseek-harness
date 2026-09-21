@@ -665,6 +665,28 @@ describe('client bundle activation', () => {
     expect((await routeRequest(route, third)).status).toBe(200)
   })
 
+  it('retains one prior immutable entry generation across rebuild recomposition', async () => {
+    const packageName = '@fixture/entry-rebuild-race'
+    const clientPath = writePackage(packageName)
+    mkdirSync(dirname(clientPath), { recursive: true })
+    writeFileSync(clientPath, 'module.exports = { generation: 1 }\n')
+    const { service, route } = constructWithRoute([packageName])
+    const first = service.graph().entries[0]!.url
+
+    writeFileSync(clientPath, 'module.exports = { generation: 2 }\n')
+    service.rebuilt(packageName)
+    const second = service.graph().entries[0]!.url
+    expect((await routeRequest(route, first)).status).toBe(200)
+    expect((await routeRequest(route, second)).status).toBe(200)
+
+    writeFileSync(clientPath, 'module.exports = { generation: 3 }\n')
+    service.rebuilt(packageName)
+    const third = service.graph().entries[0]!.url
+    expect((await routeRequest(route, first)).status).toBe(404)
+    expect((await routeRequest(route, second)).status).toBe(200)
+    expect((await routeRequest(route, third)).status).toBe(200)
+  })
+
   it('assigns opaque startup revisions instead of deriving them from artifact content', () => {
     const firstName = '@fixture/startup-revision-first'
     const secondName = '@fixture/startup-revision-second'
