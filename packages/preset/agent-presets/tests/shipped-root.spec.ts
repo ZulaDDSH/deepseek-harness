@@ -170,10 +170,12 @@ describe('the shipped preset root', () => {
     }
   })
 
-  it('keeps the lean preset to file tools and capped compaction', async () => {
+  it('gives the lean preset filesystem and platform shell tools with capped compaction', async () => {
     const entries = await shippedEntries('lean')
     expect(findEntry(entries, 'tool-fs')?.config).toMatchObject({ enabledTools: ['read', 'write'] })
     expect(findEntry(entries, 'tool-fs-search')?.config).toMatchObject({ enabledTools: ['glob', 'grep'] })
+    expect(findEntry(entries, 'tool-bash')?.disabled).toEqual({ __jsExpr: "process.platform === 'win32'" })
+    expect(findEntry(entries, 'tool-pwsh')?.disabled).toEqual({ __jsExpr: "process.platform !== 'win32'" })
     expect(findEntry(entries, 'compaction-basic')?.config).toMatchObject({ maxContextWindow: 200000 })
     expect(findEntry(entries, 'persistent-bash')).toBeUndefined()
     expect(findEntry(entries, 'tool-subagent')).toBeUndefined()

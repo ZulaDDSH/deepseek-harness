@@ -1,6 +1,6 @@
-# The `lean` agent preset: a small file-oriented coding agent.
+# The `lean` agent preset: a small coding agent with filesystem and shell tools.
 #
-# The model sees only read, glob, grep, and write. The complete persona is the
+# The model sees read, glob, grep, write, and the platform shell tool. The complete persona is the
 # system prompt, runtime context is suppressed, and compaction uses a 200k cap.
 #
 # The persona is `complete`, so workspace instruction baselines cannot reach the
@@ -34,6 +34,14 @@
   config:
     enabledTools: [glob, grep]
     sampleOverCapGlobResults: false
+
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  disabled: !!js process.platform === 'win32'
+
+- id: tool-pwsh
+  name: '@deepseek-ai/dsh-tool-pwsh'
+  disabled: !!js process.platform !== 'win32'
 
 - id: compaction
   name: cordis:group
