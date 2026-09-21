@@ -1161,6 +1161,25 @@ export interface Config {
 
 来源：[`packages/jobs/jobs-local/src/index.ts:31`](../packages/jobs/jobs-local/src/index.ts)
 
+<a id="deepseek-aidsh-knowledge-policy"></a>
+
+## `@deepseek-ai/dsh-knowledge-policy`
+
+需要：`systemPrompt`
+
+```ts config-catalog
+/** Configuration for the shared-knowledge policy section. */
+export interface Config {
+  /**
+   * Policy text replacing the default. Deployments that must state their own
+   * knowledge rules supply the complete replacement rather than a fragment.
+   */
+  section?: string
+}
+```
+
+来源：[`packages/knowledge/knowledge-policy/src/index.ts:37`](../packages/knowledge/knowledge-policy/src/index.ts)
+
 <a id="deepseek-aidsh-llm-deepseek"></a>
 
 ## `@deepseek-ai/dsh-llm-deepseek`
@@ -1768,6 +1787,12 @@ export interface StreamableHttpConfig {
   url: string
   /** Additional headers attached to MCP requests. */
   headers: Record<string, string>
+  /**
+   * Header name to environment variable name; the variable supplies the header
+   * value so a committed configuration names the variable instead of holding a
+   * credential. A literal `headers` entry for the same name overrides it.
+   */
+  headerEnv?: Record<string, string>
   /** Timeout per tool call or resource request in milliseconds. */
   toolCallTimeoutMs: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
@@ -3991,6 +4016,7 @@ export interface Config {
 - `@deepseek-ai/dsh-home-paths`（[`packages/util/home-paths/src/index.ts`](../packages/util/home-paths/src/index.ts)）
 - `@deepseek-ai/dsh-hook-protocol`（[`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts)）
 - `@deepseek-ai/dsh-http-proxy`（[`packages/util/http-proxy/src/index.ts`](../packages/util/http-proxy/src/index.ts)）
+- `@deepseek-ai/dsh-knowledge-source-git`（[`packages/knowledge/knowledge-source-git/src/index.ts`](../packages/knowledge/knowledge-source-git/src/index.ts)）
 - `@deepseek-ai/dsh-launch-environment`（[`packages/util/launch-environment/src/index.ts`](../packages/util/launch-environment/src/index.ts)）
 - `@deepseek-ai/dsh-lazy-require`（[`packages/util/lazy-require/src/index.ts`](../packages/util/lazy-require/src/index.ts)）
 - `@deepseek-ai/dsh-llm-mock-server`（[`packages/test-support/llm-mock-server/src/index.ts`](../packages/test-support/llm-mock-server/src/index.ts)）

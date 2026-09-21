@@ -1,0 +1,27 @@
+feat(knowledge): add the shared GARDEN knowledge foundation
+
+Give every DSH agent one shared knowledge path instead of per-agent memory
+integrations, and keep DSH the authority over sessions, agents, providers,
+tool exposure, and permissions.
+
+The knowledge service is reached through one ordinary mcp-client entry using
+streamable-http, so a loopback host, a LAN host, and every client pointing at
+it need no distinct code path. StreamableHttpConfig gains headerEnv, which
+names the environment variable holding a credential; the resolved value never
+enters the resolved config, a log line, or a diagnostic.
+
+The authority split reuses ctx.tools.restrict(). A restriction removes a
+global tool from a scope's view, and the executor resolves that view before
+dispatch, so a denied call fails before any remote execution.
+
+A KNOWLEDGE_POLICY prompt section states the retrieval rule, that current
+source, runtime evidence, and tests outrank retrieved memory, and that only an
+authorized supervisor may verify, promote, supersede, or mark knowledge stale.
+It injects policy text only, never knowledge content.
+
+knowledge-source-git resolves a repository and ref into a checkout and reports
+the commit it pinned to, supplying the revision a knowledge service cannot
+recover from a file path alone.
+
+The Memorix integration is replaced: it was Desktop-only, stdio-only, and
+per-profile, so it could not serve one shared layer or another machine.
