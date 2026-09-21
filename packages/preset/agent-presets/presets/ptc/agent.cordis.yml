@@ -35,10 +35,14 @@
     prefix: >-
       You are a coding agent powered by the {{model}} model.
 
+# The preset's end-of-turn answer style is part of its contract, so it is
+# restated rather than left to the plugin default. PTC changes how the agent
+# composes tool sequences, not how it reports a result.
 - id: agent-instructions
   name: '@deepseek-ai/dsh-agent-instructions'
   config:
     maxBytes: 65536
+    endOfTurnRule: true
 
 # ── shell ───────────────────────────────────────────────────────────────────
 

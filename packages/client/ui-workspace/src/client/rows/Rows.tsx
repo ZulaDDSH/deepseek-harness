@@ -22,6 +22,15 @@ import css from './Rows.module.css'
 
 /** The standard locale seat, prop-passed from the browser root. */
 type RowTranslate = WorkspaceBrowserProps['t']
+type WorkspaceColor = 'red' | 'orange' | 'green' | 'blue' | 'purple'
+type WorkspaceIcon = 'folder' | 'code' | 'rocket' | 'spark' | 'book'
+export interface WorkspaceAppearance { color?: WorkspaceColor; icon?: WorkspaceIcon }
+export const WORKSPACE_APPEARANCE_COLORS: Readonly<Record<WorkspaceColor, string>> = {
+  red: '#F04438', orange: '#F79009', green: '#12B76A', blue: '#2E90FA', purple: '#7A5AF8',
+}
+export const WORKSPACE_APPEARANCE_GLYPHS: Readonly<Record<WorkspaceIcon, string>> = {
+  folder: 'F', code: 'C', rocket: 'R', spark: '*', book: 'D',
+}
 
 /** Row display title: blank rows show the localized New Session label. */
 function displayTitle(node: SessionNode, t: RowTranslate): string {
@@ -135,13 +144,14 @@ function rowHalf(e: { clientY: number; currentTarget: HTMLElement }): 'before' |
  * @param props.t - the browser root's locale seat.
  * @returns the row element.
  */
-export function ProjectRowItem({ group, containsCurrentDescendant = false, onToggle, onCreate, actions, drag, home, t }: {
+export function ProjectRowItem({ group, containsCurrentDescendant = false, onToggle, onCreate, actions, appearance, drag, home, t }: {
   group: GroupNode
   containsCurrentDescendant?: boolean
   onToggle: () => void
   onCreate: () => void
   /** Real-Workspace actions; absent for the ungrouped bucket (no menu shown). */
-  actions?: { rename: () => void; delete: () => void } | undefined
+  actions?: { rename: () => void; delete: () => void; appearance: () => void } | undefined
+  appearance?: WorkspaceAppearance | undefined
   /** Present only for real Workspace rows in the grouped view. */
   drag?: WorkspaceRowDragProps | undefined
   /** Host account home; POSIX home-rooted hover paths display as `~`. */
@@ -154,6 +164,7 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
   const active = containsCurrentDescendant || (group.expanded && group.containsCurrent)
   const [menuOpen, setMenuOpen] = useState(false)
   const workspaceMenuItems = [
+    { id: 'appearance', label: t('appearance.customize'), icon: <IconEditOutline16 /> },
     { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
     { id: 'delete', label: t('delete.workspace'), icon: <IconTrashOutline16 />, danger: true },
   ]
@@ -173,8 +184,15 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
         }}
       onDragEnd={drag?.end}
     >
-      <span className={clsx(css.slot, css.folder, active && css.folderActive)}>
-        {row.expanded ? <IconFolderOpen16 /> : <IconFolderClose16 />}
+      <span
+        className={clsx(css.slot, css.folder, active && css.folderActive)}
+        style={appearance?.color === undefined
+          ? undefined
+          : { color: WORKSPACE_APPEARANCE_COLORS[appearance.color] }}
+      >
+        {appearance?.icon !== undefined && appearance.icon !== 'folder'
+          ? <span className={css.workspaceGlyph} aria-hidden="true">{WORKSPACE_APPEARANCE_GLYPHS[appearance.icon]}</span>
+          : row.expanded ? <IconFolderOpen16 /> : <IconFolderClose16 />}
       </span>
       <span className={clsx(css.slot, css.chevron)}>
         <IconTriangleRightFill14 className={clsx(css.arrow, row.expanded && css.arrowOpen)} />
@@ -193,9 +211,9 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
               // Unknown ids leave before the dispatch: a future menu row must
               // not inherit the destructive branch as an else fallback.
               /* v8 ignore next -- Menu can emit only the rename and delete rows supplied above. */
-              if (id !== 'rename' && id !== 'delete') return
-              if (id === 'rename') actions.rename()
-              else actions.delete()
+              if (id === 'appearance') actions.appearance()
+              else if (id === 'rename') actions.rename()
+              else if (id === 'delete') actions.delete()
             }}
             portal
             closeOnPointerLeave

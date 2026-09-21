@@ -28,10 +28,14 @@
     prefix: >-
       You are a coding agent powered by the {{model}} model.
 
+# `endOfTurnRule` is the plugin's own default and is restated here so this
+# preset's answer style is visible in its composition rather than implied:
+# the fixed rule leads the baseline, ahead of the workspace instruction chain.
 - id: agent-instructions
   name: '@deepseek-ai/dsh-agent-instructions'
   config:
     maxBytes: 65536
+    endOfTurnRule: true
 
 # ── shell ───────────────────────────────────────────────────────────────────
 

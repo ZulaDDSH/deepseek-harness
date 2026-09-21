@@ -2,6 +2,11 @@
 #
 # The model sees only read, glob, grep, and write. The complete persona is the
 # system prompt, runtime context is suppressed, and compaction uses a 200k cap.
+#
+# The persona is `complete`, so workspace instruction baselines cannot reach the
+# model through the prompt registry. The end-of-turn response rule is the one
+# instruction that still arrives, because it is independent of what else the
+# model can see: it constrains how an answer is written, not which work is done.
 
 - id: persona
   name: '@deepseek-ai/dsh-persona'
@@ -9,6 +14,15 @@
     prefix: You are a focused software engineer assistant.
     complete: true
     includeRuntimeContext: false
+
+# `maxBytes` bounds the complete baseline, and the end-of-turn rule is its
+# leading block. The budget is far larger than the rule, so the rule survives
+# intact and still leaves room for a workspace instruction chain.
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  config:
+    maxBytes: 65536
+    endOfTurnRule: true
 
 - id: tool-fs
   name: '@deepseek-ai/dsh-tool-fs'

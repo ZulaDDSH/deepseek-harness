@@ -130,7 +130,7 @@ describe('textFace', () => {
 
     const benchTwo = bench()
     benchTwo.face.showDiff(TAB_1, FILE, benchTwo.controller.signal, 'a')
-    await benchTwo.settleAll(bytesFailure() as RemoteResult<DocumentFileBytes>)
+    await benchTwo.settleAll(bytesFailure())
     expect(benchTwo.tab()?.diff).toBeUndefined()
     expect(benchTwo.tab()?.failure).toBeDefined()
   })

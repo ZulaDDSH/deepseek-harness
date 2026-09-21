@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ClientArtifactBaseline, ClientModuleRegistry, WebBootGraph } from '@deepseek-ai/dsh-client-modules'
 import type { WebRoute, WebServer } from '@deepseek-ai/dsh-host-webserver'
 import { apply, Config, EVENTS_ENDPOINT, inject } from '../src/index.ts'
+import type { Config as HmrConfig } from '../src/index.ts'
 
 const POLL_MS = 20
 
@@ -89,13 +90,13 @@ function fakeHttpServer(routes: WebRoute[]): WebServer {
   return fake as WebServer
 }
 
-async function mount(clientModuleHost: FakeHost, webServer: WebServer, config: Config = {}) {
+async function mount(clientModuleHost: FakeHost, webServer: WebServer, config: HmrConfig = {}) {
   const ctx = new Context()
   ctx.provide('clientModules', clientModuleHost)
   ctx.provide('webServer', webServer)
   const fiber = ctx.plugin(
     { inject: [...inject], Config, apply },
-    { pollIntervalMs: POLL_MS, ...config },
+    Object.assign({ pollIntervalMs: POLL_MS }, config),
   )
   await fiber.await()
   return fiber

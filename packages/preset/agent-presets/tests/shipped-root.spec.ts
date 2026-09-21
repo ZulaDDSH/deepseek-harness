@@ -160,6 +160,16 @@ describe('the shipped preset root', () => {
     expect(findEntry(await shippedEntries('minimal'), 'tool-ralph')).toBeUndefined()
   })
 
+  it('carries the end-of-turn response rule in every shipped preset', async () => {
+    for (const id of ['cordis', 'lean', 'minimal', 'ptc', 'standard']) {
+      const entries = await shippedEntries(id)
+      const row = findEntry(entries, 'agent-instructions')
+      expect(row, `${id} preset must mount agent-instructions`).toBeDefined()
+      expect(row?.disabled, id).not.toBe(true)
+      expect(row?.config, id).toMatchObject({ maxBytes: 65536, endOfTurnRule: true })
+    }
+  })
+
   it('keeps the lean preset to file tools and capped compaction', async () => {
     const entries = await shippedEntries('lean')
     expect(findEntry(entries, 'tool-fs')?.config).toMatchObject({ enabledTools: ['read', 'write'] })

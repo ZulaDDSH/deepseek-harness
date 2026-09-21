@@ -387,3 +387,5 @@
     scroll-behavior: auto;
   }
 }
+
+.workspaceGlyph { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; font-size: 12px; font-weight: 600; }

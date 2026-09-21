@@ -26,7 +26,8 @@ import {
   deriveFlat, deriveGroups, deriveSearchResults, orderByRecency, owningGroupKey, owningParentFolder,
   pinCurrentBlank, reconcileManualOrder, UNGROUPED_KEY, visibleSessionIds,
 } from '../tree.ts'
-import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './Rows.tsx'
+import { ProjectRowItem, SearchResultItem, SessionNodeItem, WORKSPACE_APPEARANCE_COLORS, WORKSPACE_APPEARANCE_GLYPHS } from './Rows.tsx'
+import type { WorkspaceAppearance } from './Rows.tsx'
 import { FLAT_SESSION_ORDER_KEY, type SessionGroupBy } from '../stores.ts'
 import { WorkspacePickFlow } from '../WorkspacePicker.tsx'
 import css from './WorkspaceBrowser.module.css'
@@ -42,6 +43,17 @@ const SEARCH_DEBOUNCE_MS = 250
 const SEARCH_QUERY_MAX_CODE_UNITS = 500
 /** Session rows visible per Workspace before the local overflow control. */
 const COLLAPSED_SESSION_LIMIT = 5
+const WORKSPACE_APPEARANCE_STORAGE_KEY = 'dsh.workspace.appearance.v1'
+
+function readWorkspaceAppearances(): Record<string, WorkspaceAppearance> {
+  if (typeof localStorage === 'undefined') return {}
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(WORKSPACE_APPEARANCE_STORAGE_KEY) ?? '{}')
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, WorkspaceAppearance>
+      : {}
+  } catch { return {} }
+}
 
 /** Fold one Workspace without charging its provisional New Session against the ordinary-row limit. */
 function collapsedSessionRows(sessions: readonly SessionNode[]): {
@@ -146,6 +158,61 @@ function ViewOptionsMenu({ groupBy, orderBy, onGroupPick, onOrderPick, t }: {
   )
 }
 
+
+const WORKSPACE_FILTER_COLORS = Object.entries(WORKSPACE_APPEARANCE_COLORS)
+  .map(([id, value]) => ({ id, value })) as readonly { id: WorkspaceFilterColor; value: string }[]
+const WORKSPACE_FILTER_ICONS = Object.keys(WORKSPACE_APPEARANCE_GLYPHS) as WorkspaceFilterIcon[]
+type WorkspaceFilterColor = keyof typeof WORKSPACE_APPEARANCE_COLORS
+type WorkspaceFilterIcon = keyof typeof WORKSPACE_APPEARANCE_GLYPHS
+
+function WorkspaceFilterMenu({
+  color, icon, onColor, onIcon, t,
+}: {
+  color: WorkspaceFilterColor | undefined
+  icon: WorkspaceFilterIcon | undefined
+  onColor: (value: WorkspaceFilterColor | undefined) => void
+  onIcon: (value: WorkspaceFilterIcon | undefined) => void
+  t: WorkspaceBrowserProps['t']
+}) {
+  const [open, setOpen] = useState(false)
+  const items = [
+    { type: 'label' as const, id: 'filter-colors', text: t('filter.color') },
+    { id: 'color-all', label: t('filter.all'), icon: <span aria-hidden="true">o</span> },
+    ...WORKSPACE_FILTER_COLORS.map(option => ({
+      id: `color-${option.id}`, label: t(`appearance.color.${option.id}`),
+      icon: <span aria-hidden="true" style={{ color: option.value }}>o</span>,
+    })),
+    { type: 'separator' as const, id: 'filter-icons-separator' },
+    { type: 'label' as const, id: 'filter-icons', text: t('filter.icon') },
+    { id: 'icon-all', label: t('filter.all'), icon: <span aria-hidden="true">all</span> },
+    ...WORKSPACE_FILTER_ICONS.map(option => ({
+      id: `icon-${option}`, label: t(`appearance.icon.${option}`),
+      icon: <span aria-hidden="true">{WORKSPACE_APPEARANCE_GLYPHS[option]}</span>,
+    })),
+  ]
+  return (
+    <Menu
+      open={open} onClose={() => { setOpen(false) }} items={items}
+      selectedIds={[...(color === undefined ? [] : [`color-${color}`]), ...(icon === undefined ? [] : [`icon-${icon}`])]}
+      onSelect={(id) => {
+        if (id === 'color-all') onColor(undefined)
+        else if (id.startsWith('color-')) onColor(id.slice(6) as WorkspaceFilterColor)
+        else if (id === 'icon-all') onIcon(undefined)
+        else if (id.startsWith('icon-')) onIcon(id.slice(5) as WorkspaceFilterIcon)
+        setOpen(false)
+      }}
+      align="end" dense portal
+      anchor={(
+        <Tooltip label={t('filter.label')} side="bottom" delayMs={500}>
+          <button type="button" className={css.iconButton} aria-label={t('filter.label')} aria-expanded={open} onClick={() => { setOpen(value => !value) }}>
+            <span aria-hidden="true">#</span>
+          </button>
+        </Tooltip>
+      )}
+    />
+  )
+}
+
 /** In-flight root-row drag: source identity plus the current insert marker. */
 interface DragState {
   /** Workspace id, or {@link UNGROUPED_KEY} for the browser-local loose-session account. */
@@ -178,6 +245,7 @@ type SessionTreeProps = Pick<
   home?: string | undefined
   /** Workspaces in Host group order with browser-projected Session order. */
   workspaces: readonly WorkspaceView[]
+  appearanceByWorkspace: Readonly<Record<string, WorkspaceAppearance>>
   /** Browser-projected order for Sessions outside every Workspace. */
   ungroupedSessionIds: readonly SessionId[]
   /** Whether the current Workspace stream has a complete Host baseline. */
@@ -196,6 +264,7 @@ type SessionTreeProps = Pick<
   onRenameRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
   /** Open the browser-owned delete-confirmation dialog for a real Workspace group. */
   onDeleteRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
+  onAppearanceRequest: (workspaceId: WorkspaceId) => void
   /** Open the browser-owned session rename dialog. */
   onSessionRename: (sessionId: SessionNode['id'], currentTitle: string) => void
   /** Archive a session (row menu action; the row disappears on the state echo). */
@@ -208,10 +277,10 @@ type SessionTreeProps = Pick<
 
 /** The scrolling session tree; unmounting drops the sessions subscription and expand-all state. */
 function SessionTree({
-  list, useSessionStatus, startSession, open, forkSession, workspaces, ungroupedSessionIds,
+  list, useSessionStatus, startSession, open, forkSession, workspaces, ungroupedSessionIds, appearanceByWorkspace,
   archivedSessionIds,
   workspaceReady, usePanelInfo,
-  onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive,
+  onRenameRequest, onDeleteRequest, onAppearanceRequest, onSessionRename, onSessionArchive,
   insertWorkspaceBefore,
   nestWorkspaces, groupExpansion, setGroupExpanded,
   setSessionOrder, home, t,
@@ -446,6 +515,7 @@ function SessionTree({
       >
         <ProjectRowItem
           group={group}
+          appearance={group.workspaceId === undefined ? undefined : appearanceByWorkspace[group.workspaceId]}
           containsCurrentDescendant={currentAncestors.has(group.key)}
           home={home}
           t={t}
@@ -468,6 +538,9 @@ function SessionTree({
               rename: () => {
               /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
                 if (group.workspaceId !== undefined) onRenameRequest(group.workspaceId, group.label)
+              },
+              appearance: () => {
+                if (group.workspaceId !== undefined) onAppearanceRequest(group.workspaceId)
               },
               delete: () => {
               /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
@@ -806,6 +879,13 @@ export function WorkspaceBrowser({
   const currentBlank = mainSessionId !== undefined && list.byId[mainSessionId]?.blank === true
     ? mainSessionId
     : undefined
+  const [filterColor, setFilterColor] = useState<WorkspaceFilterColor | undefined>(undefined)
+  const [filterIcon, setFilterIcon] = useState<WorkspaceFilterIcon | undefined>(undefined)
+  const [appearanceByWorkspace, setAppearanceByWorkspace] = useState<Record<string, WorkspaceAppearance>>(readWorkspaceAppearances)
+  const [appearanceTarget, setAppearanceTarget] = useState<WorkspaceId | null>(null)
+  useEffect(() => {
+    localStorage.setItem(WORKSPACE_APPEARANCE_STORAGE_KEY, JSON.stringify(appearanceByWorkspace))
+  }, [appearanceByWorkspace])
   const ungroupedMemberIds = useMemo(() => {
     const accounted = new Set(workspaces.flatMap(workspace => workspace.sessionIds))
     return list.ids.filter(id => list.byId[id] !== undefined && !accounted.has(id))
@@ -827,6 +907,12 @@ export function WorkspaceBrowser({
       ),
     }
   }), [currentBlank, list.byId, orderBy, sessionOrderByAccount, workspaces])
+  const visibleWorkspaces = useMemo(() => orderedWorkspaces.filter((workspace) => {
+    const appearance = appearanceByWorkspace[workspace.workspaceId]
+    const color = appearance?.color
+    const icon = appearance?.icon
+    return (filterColor === undefined || color === filterColor) && (filterIcon === undefined || icon === filterIcon)
+  }), [appearanceByWorkspace, filterColor, filterIcon, orderedWorkspaces])
   const orderedUngroupedSessionIds = useMemo(() => {
     const baseOrder = orderBy === 'updated'
       ? orderByRecency(ungroupedMemberIds, list.byId)
@@ -1109,6 +1195,9 @@ export function WorkspaceBrowser({
     })
   }
 
+  const updateAppearance = (workspaceId: WorkspaceId, change: WorkspaceAppearance): void => {
+    setAppearanceByWorkspace(current => ({ ...current, [workspaceId]: { ...current[workspaceId], ...change } }))
+  }
   return (
     <div className={clsx(css.root, !wide && css.rail)}>
       <div className={css.sectionHeader}>
@@ -1175,6 +1264,15 @@ export function WorkspaceBrowser({
           </div>
         )}
         <div className={clsx(css.headerActions, wide && searchExpanded && css.headerActionsHidden)}>
+          {wide && groupBy !== 'flat' && (
+            <WorkspaceFilterMenu
+              color={filterColor}
+              icon={filterIcon}
+              onColor={setFilterColor}
+              onIcon={setFilterIcon}
+              t={t}
+            />
+          )}
           {wide && (
             <ViewOptionsMenu
               groupBy={groupBy}
@@ -1281,8 +1379,9 @@ export function WorkspaceBrowser({
                 onSessionRename={onSessionRename}
                 onSessionArchive={onSessionArchive}
                 forkSession={forkSession}
-                workspaces={orderedWorkspaces}
+                workspaces={visibleWorkspaces}
                 ungroupedSessionIds={orderedUngroupedSessionIds}
+                appearanceByWorkspace={appearanceByWorkspace}
                 workspaceReady={workspaceReady}
                 nestWorkspaces={groupBy === 'workspace-tree'}
                 groupExpansion={groupExpansion}
@@ -1294,6 +1393,7 @@ export function WorkspaceBrowser({
                 insertWorkspaceBefore={insertWorkspaceBefore}
                 revealSessionId={revealSessionId}
                 onSessionRevealed={acknowledgeSessionReveal}
+                onAppearanceRequest={setAppearanceTarget}
                 home={home}
                 t={t}
                 onRenameRequest={(workspaceId, currentTitle) => {
@@ -1310,6 +1410,27 @@ export function WorkspaceBrowser({
       </div>
 
       <Modal
+        open={appearanceTarget !== null}
+        onClose={() => { setAppearanceTarget(null) }}
+        closeLabel={t('cancel')}
+        title={t('appearance.title')}
+        footer={<Button variant="outline" onClick={() => { setAppearanceTarget(null) }}>{t('cancel')}</Button>}
+      >
+        <div style={{ display: 'grid', gap: 12 }}>
+          <strong>{t('filter.color')}</strong>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {WORKSPACE_FILTER_COLORS.map(option => (
+              <button key={option.id} type="button" aria-label={t(`appearance.color.${option.id}`)} style={{ width: 28, height: 28, borderRadius: 14, border: '2px solid transparent', background: option.value, cursor: 'pointer' }} onClick={() => { if (appearanceTarget !== null) updateAppearance(appearanceTarget, { color: option.id }) }} />
+            ))}
+          </div>
+          <strong>{t('filter.icon')}</strong>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {WORKSPACE_FILTER_ICONS.map(option => (
+              <button key={option} type="button" aria-label={t(`appearance.icon.${option}`)} style={{ width: 32, height: 28, border: '1px solid var(--dsw-alias-border-l3)', background: 'transparent', cursor: 'pointer' }} onClick={() => { if (appearanceTarget !== null) updateAppearance(appearanceTarget, { icon: option }) }}>{WORKSPACE_APPEARANCE_GLYPHS[option]}</button>
+            ))}
+          </div>
+        </div>
+      </Modal>      <Modal
         open={renameTarget !== null}
         onClose={closeRename}
         closeLabel={t('close')}
