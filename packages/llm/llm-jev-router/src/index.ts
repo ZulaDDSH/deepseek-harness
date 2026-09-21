@@ -86,17 +86,14 @@ export const Config: z<Config> = z.object({
   routes: z.array(routeSchema).default([]),
 })
 
-interface JevChoiceAnswer {
+interface JevAnswer {
   readonly choice?: unknown
   readonly confidence?: unknown
-}
-
-interface JevNoulAnswer {
   readonly noul?: unknown
 }
 
 interface JevResponse {
-  readonly answers?: Record<string, JevChoiceAnswer | JevNoulAnswer>
+  readonly answers?: Record<string, JevAnswer>
 }
 
 /** Parsed route decision returned by Jev. */
