@@ -187,7 +187,6 @@ export default defineConfig({
         },
       },
       {
-        extends: false,
         plugins: [pathsPlugin(), standardDecoratorPlugin()],
         test: {
           name: 'process-bound',
