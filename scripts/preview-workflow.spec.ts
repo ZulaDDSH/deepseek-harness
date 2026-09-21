@@ -17,12 +17,12 @@ const workflow = yaml.load(readFileSync(resolve(import.meta.dirname, '../.github
 const preview = workflow.jobs.preview
 
 describe('PR preview workflow', () => {
-  it('keeps every PR author on the selected GitHub-hosted runner', () => {
+  it('keeps human-authored PR builds on the selected GitHub-hosted runner', () => {
     expect(Object.keys(workflow.jobs)).toEqual(['preview'])
     expect(preview.if).toBe("github.event.pull_request.user.type != 'Bot'")
     expect(preview['runs-on']).toBe('ubuntu-24.04')
     expect(workflow.on).toEqual({ pull_request: { types: ['opened', 'synchronize', 'reopened'] } })
-    expect(workflow.permissions).toEqual({ contents: 'read', 'pull-requests': 'write' })
+    expect(workflow.permissions).toEqual({ contents: 'read' })
     expect(preview.steps.find(step => step.uses === 'actions/checkout@v7')?.with).toEqual({ 'persist-credentials': false })
   })
 
@@ -40,26 +40,27 @@ describe('PR preview workflow', () => {
     })
   })
 
-  it('retains per-PR deployment, protected image verification, and idempotent URL comments', () => {
+  it('validates and retains a per-PR artifact without deployment credentials or comments', () => {
     expect(workflow.concurrency).toEqual({
       group: 'build-preview-cloudflare-${{ github.event.pull_request.number }}',
       'cancel-in-progress': true,
     })
-    expect(workflow.env.CF_PROJECT).toBe('dsh-build-preview')
-    const shape = preview.steps.find(step => step.name === 'Shape the upload')!
-    expect(shape.run).toContain("find apps/web/dist -name '*.map' -delete")
-    expect(shape.run).toContain('cp apps/web/dist/preview.html apps/web/dist/index.html')
-    const deploy = preview.steps.find(step => step.name === 'Upload to Cloudflare Pages')!
-    expect(deploy.run).toContain('npx --yes wrangler@4 pages deploy apps/web/dist')
-    expect(deploy.run).toContain('--branch "pr-${{ github.event.pull_request.number }}"')
-    const verify = preview.steps.find(step => step.name === 'Verify the protected deployment serves the image')!
-    expect(verify.run).toContain('/preview/vfs-image.tar.gz')
-    expect(verify.run).toContain('"$code" != "200"')
-    expect(verify.run).toContain('content-encoding:')
-    expect(verify.run).toContain('"$magic" != "1f8b"')
-    expect(verify.env?.CF_ACCESS_CLIENT_SECRET).toBe('${{ secrets.CF_ACCESS_CLIENT_SECRET }}')
-    const comment = preview.steps.find(step => step.name === 'Comment the preview URL')!
-    expect(comment.run).toContain('<!-- dsh-preview-url -->')
-    expect(comment.run).toContain('gh pr comment "$PR" --body-file -')
+    const prepare = preview.steps.find(step => step.name === 'Prepare preview artifact')!
+    expect(prepare.run).toContain("find apps/web/dist -name '*.map' -delete")
+    expect(prepare.run).toContain('cp apps/web/dist/preview.html apps/web/dist/index.html')
+    expect(prepare.run).toContain('test -s apps/web/dist/index.html')
+    expect(prepare.run).toContain('gzip -t apps/web/dist/preview/vfs-image.tar.gz')
+    const upload = preview.steps.find(step => step.name === 'Upload preview artifact')!
+    expect(upload).toMatchObject({
+      uses: 'actions/upload-artifact@v7',
+      with: {
+        name: 'pr-${{ github.event.pull_request.number }}-preview',
+        path: 'apps/web/dist',
+        'if-no-files-found': 'error',
+        'retention-days': 7,
+      },
+    })
+    expect(preview.steps.indexOf(prepare)).toBeLessThan(preview.steps.indexOf(upload))
+    expect(JSON.stringify(workflow)).not.toMatch(/secrets\.|CLOUDFLARE|CF_ACCESS|CF_PROJECT|wrangler|gh pr comment/)
   })
 })
