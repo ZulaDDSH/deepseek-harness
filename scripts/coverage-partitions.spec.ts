@@ -9,6 +9,7 @@ import {
   COVERAGE_PARTITIONS_ENV,
   COVERAGE_TEST_TIMEOUT_ENV,
   CoveragePartitionCoordinator,
+  DEFAULT_COVERAGE_PARTITIONS,
   assignWeightedPartitions,
   collectPartitionDurations,
   coverageTestTimeoutArgs,
@@ -88,8 +89,8 @@ function successfulCommandRecorder(commands: CoverageCommand[]) {
 
 describe('coverage partition count', () => {
   it.each([
-    [undefined, undefined],
-    ['', undefined],
+    [undefined, DEFAULT_COVERAGE_PARTITIONS],
+    ['', DEFAULT_COVERAGE_PARTITIONS],
     ['2', 2],
     ['3', 3],
   ])('parses %j as %j', (raw, expected) => {

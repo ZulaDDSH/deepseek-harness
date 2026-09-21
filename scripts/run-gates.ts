@@ -593,50 +593,35 @@ function lintGate(options: { needs?: string[] } = {}): Gate {
 // under v8 instrumentation while contributing nothing the thresholds need
 // (membership rules in scripts/coverage-exempt.ts).
 //
-// DSH_COVERAGE_MAX_WORKERS is the ordinary lane's worker budget, so the two
-// parallel gates split it instead of each claiming it whole. When
-// DSH_COVERAGE_PARTITIONS is set, its single-worker processes replace the
-// instrumented share while this budget still sizes the exempt gate. The exempt
-// gate's wall clock is dominated by its longest single file, so it takes the
-// small share. A budget of 1 gives each gate 1 worker; lanes that need a strict
-// total of one (the serial reference jobs) also set DSH_GATE_CONCURRENCY=1,
-// which keeps the gates from overlapping at all.
+// DSH_COVERAGE_MAX_WORKERS sizes the coverage-exempt gate. The instrumented
+// lane ignores it: that gate always runs partitioned, so its concurrency is the
+// partition count and a worker flag here could only fight the coordinator.
+// The exempt gate's wall clock is dominated by its longest single file, so it
+// takes the small share. A budget of 1 gives it 1 worker; lanes that need a
+// strict total of one (the serial reference jobs) also set
+// DSH_GATE_CONCURRENCY=1, which keeps the gates from overlapping at all.
 // DSH_COVERAGE_TEST_TIMEOUT_MS raises Vitest's per-test, expect.poll, and hook
 // defaults together for instrumented lanes whose scheduling overhead exceeds
 // those defaults. Explicit fixture timeouts remain authoritative.
-function coverageWorkerArgs(): { instrumented: string[]; exempt: string[] } {
+function coverageWorkerArgs(): string[] {
   const [flag] = positiveIntArg('DSH_COVERAGE_MAX_WORKERS', '--maxWorkers')
-  if (flag === undefined) return { instrumented: [], exempt: [] }
+  if (flag === undefined) return []
   const total = Number.parseInt(flag.split('=')[1] ?? '', 10)
-  const exempt = Math.max(1, Math.floor(total / 3))
-  const instrumented = Math.max(1, total - exempt)
-  return {
-    instrumented: [`--maxWorkers=${String(instrumented)}`],
-    exempt: [`--maxWorkers=${String(exempt)}`],
-  }
+  return [`--maxWorkers=${String(Math.max(1, Math.floor(total / 3)))}`]
 }
 
 function coverageGates(): Gate[] {
   const workers = coverageWorkerArgs()
   const timeouts = coverageTestTimeoutArgs(process.env[COVERAGE_TEST_TIMEOUT_ENV])
   const partitions = parseCoveragePartitionCount(process.env[COVERAGE_PARTITIONS_ENV])
-  const instrumented = partitions === undefined
-    ? pnpmExec('coverage', [
-      'vitest',
-      'run',
-      '--coverage',
-      ...workers.instrumented,
-      ...timeouts,
-    ], {
-      label: 'test:coverage',
-      env: { [COVERAGE_EXEMPT_ENV]: '1' },
-    })
-    : pnpmScript('coverage', 'test:coverage:partitioned', {
-      label: 'test:coverage',
-      displayCommand: `${COVERAGE_PARTITIONS_ENV}=${partitions} pnpm run test:coverage:partitioned`,
-      env: { [COVERAGE_EXEMPT_ENV]: '1' },
-      streamOutput: true,
-    })
+  // Partitioning splits one coverage run across concurrent processes, which is
+  // what makes the aggregate affordable on a contended host.
+  const instrumented = pnpmScript('coverage', 'test:coverage:partitioned', {
+    label: 'test:coverage',
+    displayCommand: `${COVERAGE_PARTITIONS_ENV}=${partitions} pnpm run test:coverage:partitioned`,
+    env: { [COVERAGE_EXEMPT_ENV]: '1' },
+    streamOutput: true,
+  })
   return [
     pnpmScript('native-system', 'build:native-system'),
     { ...instrumented, needs: ['native-system'] },
@@ -644,7 +629,7 @@ function coverageGates(): Gate[] {
       'vitest',
       'run',
       ...coverageExemptHeavySuites.map(suite => suite.filter),
-      ...workers.exempt,
+      ...workers,
       ...timeouts,
     ], {
       label: 'test:coverage-exempt-heavy',
