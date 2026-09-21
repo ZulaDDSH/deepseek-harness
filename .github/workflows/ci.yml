@@ -621,6 +621,25 @@ jobs:
           path: .coverage-times.json
           key: coverage-times-${{ github.run_id }}
 
+  lockfile-refresh:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    name: temporary lockfile refresh
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+      - name: Regenerate lockfile
+        run: pnpm install --lockfile-only --no-frozen-lockfile
+      - name: Verify lockfile
+        run: pnpm install --frozen-lockfile --lockfile-only
+      - uses: actions/upload-artifact@v7
+        with:
+          name: regenerated-pnpm-lock
+          path: pnpm-lock.yaml
+
   windows-native-tests:
     if: github.event_name == 'pull_request'
     runs-on: >-
