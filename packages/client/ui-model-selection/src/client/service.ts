@@ -39,6 +39,7 @@ export class ModelDirectoryResolver extends Service {
 
   private readonly live: LiveState = { directories: new WeakMapWithValues() }
   private readonly catalog: ModelCatalogDirectory
+  /** Persisted favorite model route keys shared by model-selection surfaces. */
   readonly favorites: SnapshotStore<string[]> = createSnapshotStore([], {
     persist: { name: 'dsh.model-selection.favorites.v1' },
   })
