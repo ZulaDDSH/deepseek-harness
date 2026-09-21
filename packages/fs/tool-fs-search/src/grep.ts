@@ -203,7 +203,7 @@ function matchNoun(count: number): string {
  * @param matches - the flat matches to render.
  * @returns the grouped body text.
  */
-export function formatGrepMatches(matches: GrepMatch[]): string {
+export function formatGrepMatches(matches: readonly GrepMatch[]): string {
   const byFile = new Map<string, GrepMatch[]>()
   for (const match of matches) {
     const group = byFile.get(match.path)

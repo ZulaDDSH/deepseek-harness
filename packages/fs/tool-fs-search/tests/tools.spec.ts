@@ -1034,6 +1034,9 @@ describe('grep results', () => {
       matchLine(`file-${index}.ts`, index + 1, `match ${index}`)).join('\n') + '\n')
     const result = await call(ctx, 'grep', { pattern: 'match' }, { agent: agent('/w') })
     if (result.isError) throw new Error('expected grep success')
+    if (result.value === null || typeof result.value !== 'object' || Array.isArray(result.value) || !('matches' in result.value)) {
+      throw new Error('expected grep matches')
+    }
     expect(result.value.matches).toHaveLength(120)
     expect(text(result)).toContain('Jev kept 2 of 120 grep matches')
     expect(jev?.calls).toHaveLength(1)
