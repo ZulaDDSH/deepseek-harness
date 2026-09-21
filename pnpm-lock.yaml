@@ -28110,9 +28110,7 @@ snapshots:
     transitivePeerDependencies:
       - msw
 
-  vscode-jsonrpc@5.0.1: {}
 
-  vscode-jsonrpc@9.0.1: {}
 
   es-module-lexer@2.3.2: {}
 
