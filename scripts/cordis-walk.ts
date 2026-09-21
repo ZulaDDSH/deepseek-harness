@@ -72,7 +72,7 @@ export function contextKeyMap(body: ts.ModuleBlock, sf: ts.SourceFile): Map<stri
     if (!ts.isInterfaceDeclaration(stmt) || stmt.name.text !== 'Context') continue
     for (const member of stmt.members) {
       if (!ts.isPropertySignature(member) || !member.type) continue
-      keyToType.set(member.name.getText(sf), member.type.getText(sf))
+      keyToType.set(ts.isStringLiteral(member.name) || ts.isIdentifier(member.name) ? member.name.text : member.name.getText(sf), member.type.getText(sf))
     }
   }
   return keyToType
