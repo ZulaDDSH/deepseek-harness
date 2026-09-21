@@ -369,7 +369,10 @@ export class ApiSessionAgentController {
     return this.ctx.sessionProjections.stateOf(session, 'agentPreset') ?? undefined
   }
 
-  /** Return MCP connector namespaces exposed by the current global tool registry. */
+  /**
+   * Return MCP connector namespaces exposed by the current global tool registry.
+   * @returns sorted connector namespace identifiers.
+   */
   listMcpConnectorIds(): readonly string[] {
     const ids = new Set<string>()
     for (const schema of this.ctx.get('tools')?.schemas() ?? []) {
@@ -380,12 +383,20 @@ export class ApiSessionAgentController {
     return [...ids].sort()
   }
 
-  /** Read the durable MCP selection for one Session. */
+  /**
+   * Read the durable MCP selection for one Session.
+   * @param session - Session whose projected selection should be read.
+   * @returns the current selection, or null when unrestricted.
+   */
   mcpSelectionFor(session: Session): McpSelection | null {
     return this.ctx.sessionProjections.stateOf(session, 'mcpSelection')?.current ?? null
   }
 
-  /** Install or update the Agent-scoped MCP restriction. */
+  /**
+   * Install or update the Agent-scoped MCP restriction.
+   * @param agent - live Agent whose tool registry is restricted.
+   * @param selection - selected connector namespaces, or null for unrestricted access.
+   */
   installMcpSelection(agent: Agent, selection: McpSelection | null): void {
     const runtime = this.mcpSelections.get(agent) ?? { selected: null, disposeRestriction: undefined, disposeGuard: undefined }
     runtime.selected = selection === null ? null : new Set(selection.connectorIds)
@@ -413,7 +424,11 @@ export class ApiSessionAgentController {
     this.mcpSelections.set(agent, runtime)
   }
 
-  /** Persist and apply one MCP connector selection for a live Agent. */
+  /**
+   * Persist and apply one MCP connector selection for a live Agent.
+   * @param agent - live Agent that owns the Session selection.
+   * @param selection - requested connector namespaces.
+   */
   selectMcpFor(agent: Agent, selection: McpSelection): void {
     const allowed = new Set(this.listMcpConnectorIds())
     const invalid = selection.connectorIds.filter(id => !allowed.has(id))

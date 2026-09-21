@@ -66,7 +66,11 @@ export function isChangedFile(value: unknown): value is WorkspaceChangedFile {
 }
 
 
-/** Validate one current repository status file. */
+/**
+ * Validate one current repository status file.
+ * @param value - decoded JSON candidate.
+ * @returns whether the value is a valid status-file record.
+ */
 export function isWorkspaceStatusFile(value: unknown): value is WorkspaceStatusFile {
   if (!isRecord(value)) return false
   const { path, display, index, worktree, oldPath, added, deleted, binary } = value
@@ -77,7 +81,11 @@ export function isWorkspaceStatusFile(value: unknown): value is WorkspaceStatusF
     && (binary === undefined || binary === true)
 }
 
-/** Validate current repository status returned by the Host. */
+/**
+ * Validate current repository status returned by the Host.
+ * @param value - decoded JSON candidate.
+ * @returns whether the value is a valid Workspace status response.
+ */
 export function isWorkspaceStatus(value: unknown): value is WorkspaceStatusValue {
   if (!isRecord(value)) return false
   const { workspaceId, branch, files, total, added, deleted } = value
@@ -131,12 +139,21 @@ export function isChangesEvent(value: unknown): value is { turn: number } {
   return isRecord(value) && Number.isSafeInteger(value.turn) && (value.turn as number) >= 1
 }
 
-/** Build the authenticated status URL for one registered Workspace. */
+/**
+ * Build the authenticated status URL for one registered Workspace.
+ * @param workspaceId - registered Workspace identity.
+ * @returns same-origin status URL.
+ */
 export function workspaceStatusUrl(workspaceId: WorkspaceId): string {
   return `${WORKSPACE_STATUS_PATH}?${new URLSearchParams({ workspaceId })}`
 }
 
-/** Build the authenticated current-diff URL for one status-file index. */
+/**
+ * Build the authenticated current-diff URL for one status-file index.
+ * @param workspaceId - registered Workspace identity.
+ * @param index - status-file index in the current status response.
+ * @returns same-origin current-diff URL.
+ */
 export function workspaceDiffUrl(workspaceId: WorkspaceId, index: number): string {
   return `${WORKSPACE_DIFF_PATH}?${new URLSearchParams({ workspaceId, index: String(index) })}`
 }

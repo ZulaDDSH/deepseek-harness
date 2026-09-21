@@ -261,13 +261,20 @@ export class SessionController extends TypertRemoteService {
     return this.commands.selectModel(request)
   }
 
-  /** requires @returns connector namespaces exposed by globally connected MCP tools. */
+  /**
+   * List connector namespaces exposed by globally connected MCP tools.
+   * @returns connector namespaces available for Session selection.
+   */
   @Remote('listMcpConnectors')
   listMcpConnectors(): McpConnectorCatalog {
     return { connectorIds: this.agents.listMcpConnectorIds() }
   }
 
-  /** requires @param request - Session identity and selected connector namespaces. @returns the normalized Session selection. */
+  /**
+   * Select MCP connector namespaces for one Session.
+   * @param request - Session identity and selected connector namespaces.
+   * @returns the normalized Session selection.
+   */
   @Remote('selectMcp')
   selectMcp(request: SessionSelectMcpRequest): Promise<SessionSelectMcpValue> {
     return this.commands.selectMcp(request)

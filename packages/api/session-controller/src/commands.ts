@@ -128,11 +128,10 @@ export class SessionCommandController {
   }
 
   /**
-   * Validate and install one Session-local model selection.
-   * @param request - Session identity and requested model selection.
-   * @returns the normalized selection installed for the Session.
+   * Validate and install one Session-local MCP connector selection.
+   * @param request - Session identity and requested connector namespaces.
+   * @returns the normalized connector selection installed for the Session.
    */
-  /** Validate and install one Session-local MCP connector selection. */
   async selectMcp(request: SessionSelectMcpRequest): Promise<SessionSelectMcpValue> {
     const agent = await this.resolveAgent(request.sessionId)
     try {
@@ -144,6 +143,11 @@ export class SessionCommandController {
     }
   }
 
+  /**
+   * Validate and install one Session-local model selection.
+   * @param request - Session identity and requested model selection.
+   * @returns the normalized selection installed for the Session.
+   */
   async selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue> {
     const agent = await this.resolveAgent(request.sessionId)
     return this.agents.serializeImageAdmission(agent, async () => {

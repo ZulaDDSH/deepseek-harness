@@ -22,12 +22,18 @@ export class WorkspaceStatusStore extends HostReadStore<WorkspaceStatusState> {
     })
   }
 
-  /** Read one Workspace status unless a cached answer already exists. */
+  /**
+   * Read one Workspace status unless a cached answer already exists.
+   * @param workspaceId - registered Workspace identity.
+   */
   load(workspaceId: WorkspaceId): Promise<void> {
     return this.loadUrl(workspaceStatusUrl(workspaceId))
   }
 
-  /** Forget one cached status before reading it again. */
+  /**
+   * Forget one cached status before reading it again.
+   * @param workspaceId - registered Workspace identity.
+   */
   refresh(workspaceId: WorkspaceId): Promise<void> {
     const url = workspaceStatusUrl(workspaceId)
     // Clearing the key to undefined is what loadUrl reads as "no cached answer":

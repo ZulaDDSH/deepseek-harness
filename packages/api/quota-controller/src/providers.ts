@@ -1,15 +1,27 @@
 /** Extensible Host-side provider registry for credential-backed quota APIs. */
 
-import { credentialKey, credentialRef } from '@deepseek-ai/dsh-credentials'
+import { credentialKey } from '@deepseek-ai/dsh-credentials'
 import type { CredentialKey, CredentialRef, ResolvedCredential } from '@deepseek-ai/dsh-credentials'
 import type { QuotaResult, QuotaWindow } from './types.ts'
 
+/** Host adapter capable of resolving and reading one provider's quota state. */
 export interface QuotaProvider {
+  /** Stable provider identifier exposed across the Remote boundary. */
   readonly id: string
+  /** Human-readable provider name. */
   readonly name: string
+  /** Primary environment-style credential reference. */
   readonly credentialRef: CredentialRef
+  /** Ordered fallback references accepted for the provider. */
   readonly credentialRefs?: readonly CredentialRef[]
+  /** Optional stored credential record owned by another provider plugin. */
   readonly credentialKey?: CredentialKey
+  /**
+   * Read the provider quota using one resolved credential.
+   * @param credential - resolved credential value and source.
+   * @param fetchImpl - fetch implementation used for the provider request.
+   * @returns normalized provider quota state.
+   */
   fetch(credential: ResolvedCredential, fetchImpl?: typeof fetch): Promise<QuotaResult>
 }
 
@@ -65,7 +77,7 @@ function createDeepSeek(): QuotaProvider {
   return {
     id: 'deepseek',
     name: 'DeepSeek',
-    credentialRef: credentialRef('DEEPSEEK_API_KEY'),
+    credentialRef: 'DEEPSEEK_API_KEY' as CredentialRef,
     credentialKey: credentialKey('llm-pi-ai', 'deepseek'),
     async fetch(credential, fetchImpl = fetch) {
       try {
@@ -95,8 +107,8 @@ function createOpenCodeGo(): QuotaProvider {
   return {
     id: 'opencode-go',
     name: 'OpenCode Go',
-    credentialRef: credentialRef('OPENCODE_API_KEY'),
-    credentialRefs: [credentialRef('OPENCODE_API_KEY'), credentialRef('OPENCODE_GO_API_KEY')],
+    credentialRef: 'OPENCODE_API_KEY' as CredentialRef,
+    credentialRefs: ['OPENCODE_API_KEY' as CredentialRef, 'OPENCODE_GO_API_KEY' as CredentialRef],
     credentialKey: credentialKey('llm-pi-ai', 'opencode-go'),
     async fetch(credential, fetchImpl = fetch) {
       try {
@@ -115,7 +127,11 @@ function createOpenCodeGo(): QuotaProvider {
   }
 }
 
-/** Create the built-in registry, optionally extending it with deployment providers. */
+/**
+ * Create the built-in registry, optionally extending it with deployment providers.
+ * @param extra - deployment-specific providers appended to the built-ins.
+ * @returns providers keyed by stable provider id.
+ */
 export function createQuotaProviderRegistry(extra: readonly QuotaProvider[] = []): ReadonlyMap<string, QuotaProvider> {
   const providers = [createDeepSeek(), createOpenCodeGo(), ...extra]
   return new Map(providers.map(provider => [provider.id, provider]))

@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`@deepseek-ai/dsh-llm-jev-router` optionally asks TypeSafe Jev to choose an allow-listed DSH provider/model for each agent step. It is disabled by default, keeps existing provider selection unchanged when disabled or unavailable, and stores the API key through DSH credentials rather than settings text.
+Use this package when an Agent step should ask TypeSafe Jev to choose from an explicit allowlist of DSH provider/model routes. It is disabled by default, preserves the existing route when disabled or when fail-open handling admits a Jev failure, and stores its API key through DSH credentials rather than settings text. Jev remains a separate decision request and does not become a normal DSH model provider.
 
 ## Table of Contents
 
@@ -50,18 +50,35 @@ The Models page writes the key through the credentials service and never places 
 <a id="model-experience"></a>
 ## Model Experience
 
-Jev receives bounded state for the admitted user messages, returns a typed Choice with confidence, and the selected route is applied in the agent request waterfall. Retries reuse the decision for the same agent turn and step. Jev is a decision layer, not an LLM provider, so it does not appear in the normal model catalog.
+### Jev routing request
 
------
+#### What the model sees
 
-<a id="known-limitations-and-deferred-work"></a>
+The independent Jev request receives bounded state derived from admitted user messages plus the configured route choices and their descriptions. The selected DSH provider/model receives its normal request; the Jev response itself is not appended to that model's prompt.
+
+#### Token effect
+
+When routing is enabled and admitted, the package creates a separate TypeSafe Jev request using the bounded `stateMaxChars` state and route-choice payload. It adds no prompt tokens to the selected DSH provider request beyond whatever route that provider already receives.
+
+#### KV Cache effect
+
+The Jev request has an independent cache lifecycle from the selected DSH provider request. Changing Jev state, routes, endpoint, or model can change that decision request, but this package does not rewrite the selected provider's reusable prompt prefix.
+
 ## Known Limitations and Deferred Work
 
-The route descriptions and provider/model identifiers are configuration-owned; they must match routes available in the active DSH composition. The plugin is fail-open by default and does not automatically add providers or models to the allowlist.
+<a id="known-limitations-and-deferred-work"></a>
 
------
+- Route descriptions and provider/model identifiers are configuration-owned and must match routes available in the active DSH composition; the plugin does not discover or add missing routes automatically.
+- Fail-open behavior preserves the base route when Jev fails, so deployments that require routing to succeed must explicitly set `failOpen: false`.
 
 <a id="dev-note"></a>
-## Dev Note
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
 
 The HTTP API uses `https://api.typesafe.ai/v1/systemone` with model `jev-latest`. Keep credentials in the DSH credential service or launch environment, never in source, YAML, logs, or pull requests.
+
+</details>
+
+**Runtime invariant:** No invariant companion is published because focused router validation and request-path tests own this package's runtime checks.

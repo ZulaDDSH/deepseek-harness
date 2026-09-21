@@ -22,8 +22,11 @@ export const DEFAULT_MODEL = 'jev-latest'
 export const DEFAULT_API_KEY_ENV = 'TYPESAFE_API_KEY'
 /** User-settings namespace owned by the plugin. */
 export const JEV_ROUTER_SETTINGS_NAMESPACE = 'jev-router'
+/** Minimum grep match count before Jev relevance ranking is considered. */
 export const GREP_RELEVANCE_MIN_MATCHES = 100
+/** Number of highest-scoring grep matches retained after Jev ranking. */
 export const GREP_RELEVANCE_KEEP_MATCHES = 32
+/** Maximum grep candidates sent to Jev for one relevance-ranking request. */
 export const GREP_RELEVANCE_MAX_CANDIDATES = 250
 
 /** Allow-listed DSH destination selected by Jev. */
@@ -102,9 +105,13 @@ export interface JevDecision {
   readonly confidence: number
 }
 
+/** One grep candidate supplied to Jev relevance ranking. */
 export interface JevGrepMatch {
+  /** Repository-relative file path. */
   readonly path: string
+  /** One-based line number of the match. */
   readonly lineNumber: number
+  /** Matched source line. */
   readonly line: string
 }
 
@@ -313,6 +320,13 @@ export function createJevClient(
   }
 }
 
+/**
+ * Select the highest-scoring grep candidates while preserving source order.
+ * @param matches - candidate grep matches.
+ * @param scores - Jev relevance scores aligned with matches.
+ * @param keep - maximum number of matches to retain.
+ * @returns selected matches in their original order.
+ */
 export function selectRelevantGrepMatches(
   matches: readonly JevGrepMatch[],
   scores: readonly number[],
