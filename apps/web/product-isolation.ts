@@ -30,6 +30,31 @@ function requireNonWritingAnalysis(write: boolean): void {
 export function productWebBundleIsolation(repository: string, webRoot: string): Plugin[] {
   const inputs = new WebProductBundleIsolation(repository, webRoot)
   let dependencyAnalysis = false
+  const instrumentCssInputs = (plugins: readonly Plugin[]): void => {
+    const cssPlugins = plugins.filter(plugin => plugin.name === 'vite:css')
+    const css = cssPlugins[0]
+    if (cssPlugins.length !== 1 || css?.transform === undefined) {
+      throw new Error('Web product isolation: Vite CSS input instrumentation is unavailable')
+    }
+    const transform = typeof css.transform === 'function' ? css.transform : css.transform.handler
+    css.transform = {
+      ...typeof css.transform === 'function' ? {} : css.transform,
+      handler(code, id, options) {
+        inputs.cssTransform(id)
+        const context = new Proxy(this, {
+          get(target, property) {
+            if (property === 'addWatchFile') return (file: string): void => {
+              inputs.cssDependency(id, file)
+              target.addWatchFile(file)
+            }
+            const value: unknown = Reflect.get(target, property, target)
+            return typeof value === 'function' ? value.bind(target) : value
+          },
+        })
+        return transform.call(context, code, id, options)
+      },
+    }
+  }
   return [{
     name: 'dsh-product-web-chunk-inputs',
     apply: 'build',
@@ -56,6 +81,9 @@ export function productWebBundleIsolation(repository: string, webRoot: string): 
         worker: {
           plugins: () => [...workerPlugins?.() ?? [], {
             name: 'dsh-worker-build-inputs',
+            configResolved(config) {
+              if (!dependencyAnalysis) instrumentCssInputs(config.plugins)
+            },
             generateBundle: {
               order: 'post',
               handler(_options, bundle) { inputs.workerBundle(bundle, [...this.getModuleIds()]) },
@@ -70,29 +98,7 @@ export function productWebBundleIsolation(repository: string, webRoot: string): 
         requireNonWritingAnalysis(config.build.write)
         return
       }
-      const cssPlugins = config.plugins.filter(plugin => plugin.name === 'vite:css')
-      const css = cssPlugins[0]
-      if (cssPlugins.length !== 1 || css?.transform === undefined) {
-        throw new Error('Web product isolation: Vite CSS input instrumentation is unavailable')
-      }
-      const transform = typeof css.transform === 'function' ? css.transform : css.transform.handler
-      css.transform = {
-        ...typeof css.transform === 'function' ? {} : css.transform,
-        handler(code, id, options) {
-          inputs.cssTransform(id)
-          const context = new Proxy(this, {
-            get(target, property) {
-              if (property === 'addWatchFile') return (file: string): void => {
-                inputs.cssDependency(id, file)
-                target.addWatchFile(file)
-              }
-              const value: unknown = Reflect.get(target, property, target)
-              return typeof value === 'function' ? value.bind(target) : value
-            },
-          })
-          return transform.call(context, code, id, options)
-        },
-      }
+      instrumentCssInputs(config.plugins)
     },
     buildStart() { inputs.reset() },
     generateBundle: {

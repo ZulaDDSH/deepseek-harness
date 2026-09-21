@@ -197,6 +197,14 @@ describe('default Web bundle input isolation', () => {
     await expect(test.run()).rejects.toThrow(/Web product isolation: experimental input/)
   })
 
+  it('checks worker stylesheet transform inputs', async () => {
+    const test = fixture()
+    test.write('apps/web/src/main.js', 'new Worker(new URL("./worker.js", import.meta.url), { type: "module" })')
+    test.write('apps/web/src/worker.js', 'import "./worker.css"')
+    test.write('apps/web/src/worker.css', '@import "../../../packages/experimental/prototype/style.css";')
+    await expect(test.run()).rejects.toThrow(/Web product isolation: experimental input/)
+  })
+
   it('allows an experimental worker loaded only by preview', async () => {
     const test = fixture()
     test.write('apps/web/src/preview.js', 'new Worker(new URL("./worker.js", import.meta.url), { type: "module" })')

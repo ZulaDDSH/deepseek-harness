@@ -101,10 +101,16 @@ export class WebProductBundleIsolation {
   /** Each Vite worker subbuild has one entry and owns its complete watched input set. */
   workerBundle(bundle: WebOutputBundle, watchedFiles: readonly string[]): void {
     const inputs = new Set(watchedFiles)
+    for (const id of watchedFiles) {
+      for (const file of this.cssInputs.get(id) ?? []) inputs.add(file)
+    }
     const entries: string[] = []
     for (const item of Object.values(bundle)) {
       if (item.type === 'chunk') {
-        for (const id of Object.keys(item.modules)) inputs.add(id)
+        for (const id of Object.keys(item.modules)) {
+          inputs.add(id)
+          for (const file of this.cssInputs.get(id) ?? []) inputs.add(file)
+        }
         if (item.facadeModuleId !== null) entries.push(physicalBundleInput(item.facadeModuleId) ?? item.facadeModuleId)
       }
     }
