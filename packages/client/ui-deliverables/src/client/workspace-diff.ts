@@ -22,7 +22,11 @@ export class WorkspaceDiffStore extends HostReadStore<WorkspaceDiffState> {
     })
   }
 
-  /** Read one current comparison unless a cached answer already exists. */
+  /**
+   * Read one current comparison unless a cached answer already exists.
+   * @param workspaceId - registered Workspace identity.
+   * @param index - status-file index to compare.
+   */
   load(workspaceId: WorkspaceId, index: number): Promise<void> {
     return this.loadUrl(workspaceDiffUrl(workspaceId, index))
   }
