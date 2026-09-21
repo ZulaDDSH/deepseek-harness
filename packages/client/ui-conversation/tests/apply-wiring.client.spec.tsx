@@ -73,6 +73,15 @@ describe('target-neutral Conversation apply wiring', () => {
     await b.runtime.dispose()
   })
 
+  it('keeps feature activation behind the Conversation service', async () => {
+    const b = await bench({ declareConversation: false })
+    await b.feature.dispose()
+    const feature = b.runtime.ctx.plugin({ inject: [...inject], apply })
+    await feature.await()
+    expect(b.runtime.ctx.get('conversation')).toBeDefined()
+    await b.runtime.dispose()
+  })
+
   it('owns shell slots and shares only the Conversation store', async () => {
     const b = await bench()
     const session = entry(b.runtime, 'conversation.session')

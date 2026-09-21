@@ -127,7 +127,7 @@ function concreteConversation(ctx: Context): ConversationController {
  * Mount the Conversation core and target-neutral presentation.
  * @param ctx - Client root context.
  */
-export function apply(ctx: Context, config: Config = Config({})): void {
+export async function apply(ctx: Context, config: Config = Config({})): Promise<void> {
   const sessions = ctx.sessions
   const slots = ctx.slots
   // Schemastery's field default is materialized before Cordis calls apply.
@@ -424,11 +424,12 @@ export function apply(ctx: Context, config: Config = Config({})): void {
     yield registerComposerBar()
   })
 
-  ctx.plugin(ConversationController, {
+  const conversationFiber = ctx.plugin(ConversationController, {
     input: inputHub,
     blocks: composerBlocks,
     maxConcurrentFileUploads,
   })
   ctx.plugin(todoDockEntry)
   ctx.plugin(queueDockEntry)
+  await conversationFiber
 }
