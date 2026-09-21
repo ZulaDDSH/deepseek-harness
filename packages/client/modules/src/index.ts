@@ -682,6 +682,7 @@ export class ClientModuleRegistry extends Service {
     record.entry = graphRow(id, rev, record.meta)
     record.bundle = bundle
     this.composed = this.compose()
+    this.notifyGraphChanged()
     for (const notify of this.rebuildListeners) {
       // Containment: rebuilt() runs inside the HMR watch callback — a
       // throwing subscriber must not kill the poll or skip later subscribers.
@@ -691,7 +692,6 @@ export class ClientModuleRegistry extends Service {
         this.ctx.logger.error(error)
       }
     }
-    this.notifyGraphChanged()
     return rev
   }
 

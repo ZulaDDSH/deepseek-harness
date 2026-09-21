@@ -687,6 +687,22 @@ describe('client bundle activation', () => {
     expect((await routeRequest(route, third)).status).toBe(200)
   })
 
+  it('publishes the latest graph before the matching rebuilt frame', () => {
+    const packageName = '@fixture/rebuild-frame-order'
+    const clientPath = writePackage(packageName)
+    mkdirSync(dirname(clientPath), { recursive: true })
+    writeFileSync(clientPath, 'module.exports = { generation: 1 }\n')
+    const { service } = constructWithRoute([packageName])
+    const events: string[] = []
+    service.onGraphChanged(() => { events.push('graph') })
+    service.onRebuilt(() => { events.push('rebuilt') })
+
+    writeFileSync(clientPath, 'module.exports = { generation: 2 }\n')
+    service.rebuilt(packageName)
+
+    expect(events).toEqual(['graph', 'rebuilt'])
+  })
+
   it('assigns opaque startup revisions instead of deriving them from artifact content', () => {
     const firstName = '@fixture/startup-revision-first'
     const secondName = '@fixture/startup-revision-second'
