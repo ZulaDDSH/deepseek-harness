@@ -139,18 +139,11 @@ describe('WorkspaceBrowser.module.css list', () => {
     expect(declarations('.headerActionsHidden')?.get('max-width')).toBe('0')
   })
 
-  it('sizes the Sections pane from its content, not from a share of the region', () => {
-    // A percentage max-height makes the pane claim that share even while it
-    // holds one row, which leaves the Workspace pane short and a dead gap
-    // above the divider. The cap must be an absolute height so the divider
-    // follows the last row.
-    const cap = declarations('.sectionsPane')?.get('max-height')
-    expect(cap).toBeDefined()
-    expect(cap).toMatch(/^\d+px$/)
+  it('splits the Sections pane evenly with the Workspace pane', () => {
     // The pane must not grow beyond its content in the stacked seat.
-    expect(declarations('.sectionsPane')?.get('flex')).toBe('0 0 auto')
+    expect(declarations('.sectionsPane')?.get('flex')).toBe('1 1 0')
     // The Workspace pane takes exactly the leftover space.
-    expect(declarations('.workspacePane')?.get('flex')).toBe('1 1 auto')
+    expect(declarations('.workspacePane')?.get('flex')).toBe('1 1 0')
     expect(declarations('.workspacePane')?.get('min-height')).toBe('0')
     // Overflow is confined to the pane's scroll area.
     expect(declarations('.sectionsScroll')?.get('overflow-y')).toBe('auto')

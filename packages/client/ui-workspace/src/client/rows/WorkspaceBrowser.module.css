@@ -336,23 +336,16 @@
    resolves a drop aimed at a section header to a workspace row, so the drop
    is silently lost even though the panes measure correctly. */
 .workspacePane {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-height: 0;
   display: flex;
   overflow: hidden;
   flex-direction: column;
 }
 
-/* Sized to its content and capped, so the divider follows the last section
-   row instead of floating above a gap. A long list scrolls rather than
-   squeezing the Workspace pane away. */
 .sectionsPane {
-  flex: 0 0 auto;
+  flex: 1 1 0;
   min-height: 0;
-  /* The cap is on the scroll area's own height, not a percentage of the
-     region: a percentage makes the pane claim that share even when it holds
-     one row, which is the gap this replaced. */
-  max-height: 320px;
   display: flex;
   flex-direction: column;
   position: relative;
