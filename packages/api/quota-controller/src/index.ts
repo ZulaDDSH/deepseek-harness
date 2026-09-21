@@ -14,8 +14,11 @@ declare module '@deepseek-ai/cordis' {
   interface Context { quotaController: QuotaController }
 }
 
+/** Injectable Host dependencies used by quota controller tests and deployments. */
 export interface QuotaControllerInternals {
+  /** Fetch implementation used for provider quota requests. */
   readonly fetch?: typeof fetch
+  /** Additional or replacement provider definitions available to the controller. */
   readonly providers?: readonly QuotaProvider[]
 }
 
@@ -31,8 +34,11 @@ export class QuotaController extends TypertRemoteService {
     this.fetchImpl = internals.fetch ?? fetch
   }
 
+  /**
+   * List providers whose credentials can currently be resolved.
+   * @returns configured providers with available credentials.
+   */
   @Remote
-  /** requires @returns configured providers with available credentials. */
   async listProviders(): Promise<readonly QuotaProviderView[]> {
     const configured = await Promise.all([...this.providers.values()].map(async (provider) => {
       const value = await this.resolveCredential(provider)
@@ -41,8 +47,12 @@ export class QuotaController extends TypertRemoteService {
     return configured.filter((provider): provider is QuotaProviderView => provider !== undefined)
   }
 
+  /**
+   * Fetch quota state for one provider, coalescing concurrent requests.
+   * @param providerId - provider identifier.
+   * @returns the provider quota result.
+   */
   @Remote
-  /** requires @param providerId - provider identifier. @returns the provider quota result. */
   fetch(providerId: string): Promise<QuotaResult> {
     const existing = this.pending.get(providerId)
     if (existing !== undefined) return existing
