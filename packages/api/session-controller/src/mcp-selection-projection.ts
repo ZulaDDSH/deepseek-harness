@@ -27,7 +27,10 @@ const mcpSelectionProjection = {
   stateVersion: 1,
 } satisfies ProjectionDefinition<'mcpSelection', McpSelectionProjectionState>
 
-/** Register the MCP selection projection for Session Controller consumers. */
+/**
+ * Register the MCP selection projection for Session Controller consumers.
+ * @param ctx - application context that owns the Session projection registry.
+ */
 export function installMcpSelectionProjection(ctx: Context): void {
   ctx.sessionProjections.register(mcpSelectionProjection)
 }
