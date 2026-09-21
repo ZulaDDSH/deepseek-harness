@@ -97,10 +97,14 @@ export interface ModelSelection {
 
 /** Host fold state for durable model selection. */
 export interface ModelSelectionProjectionState {
-  /** Selection consumed by the latest recorded model request. */
+  /** Selection the latest recorded model request used. */
   readonly lastUsed: ModelSelection | null
-  /** Later user selection not yet consumed by a matching model request. */
-  readonly pending: ModelSelection | null
+  /**
+   * Model the user selected for this Session, kept until they select another.
+   * A request that runs something else — a router deciding the route, a
+   * fallback — records `lastUsed` without displacing this.
+   */
+  readonly selected: ModelSelection | null
 }
 
 /** Client view of the durable model-selection fold. */

@@ -74,7 +74,6 @@ type InstalledMcpSelection = {
 
 type InstalledSelection = ModelSelectionRef & {
   current: AgentModelSelection
-  consume(provider: string, model: string, reasoningEffort: string | undefined): boolean
 }
 
 /**
@@ -295,9 +294,9 @@ export class ApiSessionAgentController {
     if (projectionState === undefined) {
       throw new Error('api-session: required modelSelection projection is not registered')
     }
-    let picked = projectionState.pending === null
+    let picked = projectionState.selected === null
       ? undefined
-      : agentModelSelection(projectionState.pending)
+      : agentModelSelection(projectionState.selected)
     const defaultModel = this.ctx.agentDefaultModel
     const selection: InstalledSelection = {
       get current(): AgentModelSelection {
@@ -319,13 +318,6 @@ export class ApiSessionAgentController {
       set current(next: AgentModelSelection) {
         picked = next
       },
-      consume(provider: string, model: string, reasoningEffort: string | undefined): boolean {
-        if (picked?.provider !== provider
-          || picked.model !== model
-          || picked.reasoningEffort !== reasoningEffort) return false
-        picked = undefined
-        return true
-      },
       assembled: undefined,
     }
     installModelSelection(agent.ctx, selection)
@@ -334,30 +326,15 @@ export class ApiSessionAgentController {
   }
 
   /**
-   * Commit and cache one validated selection for the next prompt assembly.
+   * Commit and cache one validated model selection for this Session.
+   * The selection stays in force for every later request until another one
+   * replaces it, so a request that ran something else cannot displace it.
    * @param agent - live Agent that owns the selection.
    * @param selection - validated selection to record and apply.
    */
-  selectForNextRequest(agent: Agent, selection: AgentModelSelection): void {
+  selectModel(agent: Agent, selection: AgentModelSelection): void {
     agent.session.append('model/selection', selection)
     this.selectionFor(agent).current = selection
-  }
-
-  /**
-   * Let a matching durable request header retire the execution cache.
-   * @param agent - live Agent whose request was recorded.
-   * @param provider - provider route used by the request.
-   * @param model - provider-owned model used by the request.
-   * @param reasoningEffort - adapter-owned effort used by the request.
-   * @returns whether the pending selection was consumed.
-   */
-  consumeSelection(
-    agent: Agent,
-    provider: string,
-    model: string,
-    reasoningEffort: string | undefined,
-  ): boolean {
-    return this.selections.get(agent)?.consume(provider, model, reasoningEffort) ?? false
   }
 
   /**
