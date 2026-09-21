@@ -124,6 +124,46 @@ function rerender(b: ReturnType<typeof mount>, overrides: Partial<WorkspaceBrows
   b.view.rerender(<WorkspaceBrowser {...b.props} />)
 }
 
+it('filters Workspaces by a chosen color and clears the filter', () => {
+  localStorage.clear()
+  const b = mount({
+    useSessions: hook(sessionState([summary('s1', 10)])),
+    useWorkspaces: hook(workspaceState([workspace('alpha', ['s1'], 'Alpha'), workspace('beta', [], 'Beta')])),
+  })
+  const openFilter = () => fireEvent.click(screen.getByRole('button', { name: '筛选工作区' }))
+  fireEvent.click(screen.getByRole('button', { name: '工作区“Alpha”的操作' }))
+  fireEvent.click(screen.getByText('自定义外观'))
+  fireEvent.click(screen.getByRole('button', { name: '红色' }))
+  fireEvent.click(screen.getAllByRole('button', { name: '关闭' }).find(b => b !== null)!)
+  openFilter()
+  fireEvent.click(screen.getByRole('menuitem', { name: '红色' }))
+  expect(screen.getByText('Alpha')).toBeTruthy()
+  expect(screen.queryByText('Beta')).toBeNull()
+  openFilter()
+  fireEvent.click(screen.getAllByRole('menuitem').find(i => i.textContent.startsWith('全部'))!)
+  expect(screen.getByText('Beta')).toBeTruthy()
+  b.view.unmount()
+})
+
+it('paints a chosen color onto the row and persists it across a remount', () => {
+  localStorage.clear()
+  const b = mount({
+    useSessions: hook(sessionState([])),
+    useWorkspaces: hook(workspaceState([workspace('alpha', [], 'Alpha')])),
+  })
+  fireEvent.click(screen.getByRole('button', { name: '工作区“Alpha”的操作' }))
+  fireEvent.click(screen.getByText('自定义外观'))
+  fireEvent.click(screen.getByRole('button', { name: '紫色' }))
+  fireEvent.click(screen.getAllByRole('button', { name: '关闭' }).find(b => b !== null)!)
+  const painted = () => screen.getByText('Alpha').closest('[role="treeitem"]') as HTMLElement
+  expect(painted().style.color).toBe('rgb(122, 90, 248)')
+  expect(getComputedStyle(screen.getByText('Alpha')!).color).toBe('rgb(122, 90, 248)')
+  b.view.unmount()
+  mount({ useSessions: b.props.useSessions, useWorkspaces: b.props.useWorkspaces })
+  expect(painted().style.color).toBe('rgb(122, 90, 248)')
+  expect(getComputedStyle(screen.getByText('Alpha')!).color).toBe('rgb(122, 90, 248)')
+})
+
 describe('WorkspaceBrowser', () => {
   it.each(['workspace', 'flat', 'ungrouped'] as const)('keeps %s recency independent of arrival order and saved manual positions', (mode) => {
     localStorage.clear()

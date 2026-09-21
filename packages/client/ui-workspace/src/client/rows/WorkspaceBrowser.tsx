@@ -12,22 +12,24 @@
 import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
-  Button, IconCloseFill14, IconPersonalizationOutline16,
+  Button, IconCloseFill14, IconCloseOutline16, IconFilterOutline16, IconPersonalizationOutline16,
   IconProjectAddOutline16, IconSearchOutline16, Menu, Modal, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   SessionListState, SessionSearchResultItem,
 } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
 import type { GroupNode, SessionNode, SessionOrderBy } from '../tree.ts'
 import {
   deriveFlat, deriveGroups, deriveSearchResults, orderByRecency, owningGroupKey, owningParentFolder,
   pinCurrentBlank, reconcileManualOrder, UNGROUPED_KEY, visibleSessionIds,
 } from '../tree.ts'
-import { ProjectRowItem, SearchResultItem, SessionNodeItem, WORKSPACE_APPEARANCE_COLORS, WORKSPACE_APPEARANCE_GLYPHS } from './Rows.tsx'
-import type { WorkspaceAppearance } from './Rows.tsx'
+import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './Rows.tsx'
+import type { WorkspaceAppearance, WorkspaceColor, WorkspaceIcon } from '../appearance.ts'
+import { isWorkspaceColor, isWorkspaceIcon, WORKSPACE_APPEARANCE_COLORS, WORKSPACE_COLORS, WORKSPACE_ICONS } from '../appearance.ts'
+import { WORKSPACE_ICON_GLYPHS } from './WorkspaceIcons.ts'
 import { FLAT_SESSION_ORDER_KEY, type SessionGroupBy } from '../stores.ts'
 import { WorkspacePickFlow } from '../WorkspacePicker.tsx'
 import css from './WorkspaceBrowser.module.css'
@@ -45,16 +47,34 @@ const SEARCH_QUERY_MAX_CODE_UNITS = 500
 const COLLAPSED_SESSION_LIMIT = 5
 const WORKSPACE_APPEARANCE_STORAGE_KEY = 'dsh.workspace.appearance.v1'
 
+/**
+ * Read the stored per-Workspace appearance choices. Storage is a durable
+ * boundary, so each entry is validated against the vocabulary and holds only
+ * real choices: an unrecognized color, icon, or key is dropped rather than
+ * reaching a lookup that would render a blank slot.
+ * @returns stored appearances keyed by Workspace id, empty when absent or unreadable.
+ */
 function readWorkspaceAppearances(): Record<string, WorkspaceAppearance> {
   if (typeof localStorage === 'undefined') return {}
   try {
     const value: unknown = JSON.parse(localStorage.getItem(WORKSPACE_APPEARANCE_STORAGE_KEY) ?? '{}')
-    return value !== null && typeof value === 'object' && !Array.isArray(value)
-      ? value as Record<string, WorkspaceAppearance>
-      : {}
-  } catch { return {} }
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return {}
+    const appearances: Record<string, WorkspaceAppearance> = {}
+    for (const [workspaceId, stored] of Object.entries(value as Record<string, unknown>)) {
+      if (stored === null || typeof stored !== 'object') continue
+      const { color, icon } = stored as { color?: unknown; icon?: unknown }
+      const entry: WorkspaceAppearance = {}
+      if (isWorkspaceColor(color)) entry.color = color
+      if (isWorkspaceIcon(icon)) entry.icon = icon
+      if (entry.color !== undefined || entry.icon !== undefined) appearances[workspaceId] = entry
+    }
+    return appearances
+  } catch {
+    // An unreadable or malformed payload costs only the stored choices; the
+    // browser still opens on the default look.
+    return {}
+  }
 }
-
 /** Fold one Workspace without charging its provisional New Session against the ordinary-row limit. */
 function collapsedSessionRows(sessions: readonly SessionNode[]): {
   rows: readonly SessionNode[]
@@ -159,53 +179,61 @@ function ViewOptionsMenu({ groupBy, orderBy, onGroupPick, onOrderPick, t }: {
 }
 
 
-const WORKSPACE_FILTER_COLORS = Object.entries(WORKSPACE_APPEARANCE_COLORS)
-  .map(([id, value]) => ({ id, value })) as readonly { id: WorkspaceFilterColor; value: string }[]
-const WORKSPACE_FILTER_ICONS = Object.keys(WORKSPACE_APPEARANCE_GLYPHS) as WorkspaceFilterIcon[]
-type WorkspaceFilterColor = keyof typeof WORKSPACE_APPEARANCE_COLORS
-type WorkspaceFilterIcon = keyof typeof WORKSPACE_APPEARANCE_GLYPHS
-
 function WorkspaceFilterMenu({
   color, icon, onColor, onIcon, t,
 }: {
-  color: WorkspaceFilterColor | undefined
-  icon: WorkspaceFilterIcon | undefined
-  onColor: (value: WorkspaceFilterColor | undefined) => void
-  onIcon: (value: WorkspaceFilterIcon | undefined) => void
+  color: WorkspaceColor | undefined
+  icon: WorkspaceIcon | undefined
+  onColor: (value: WorkspaceColor | undefined) => void
+  onIcon: (value: WorkspaceIcon | undefined) => void
   t: WorkspaceBrowserProps['t']
 }) {
   const [open, setOpen] = useState(false)
   const items = [
     { type: 'label' as const, id: 'filter-colors', text: t('filter.color') },
-    { id: 'color-all', label: t('filter.all'), icon: <span aria-hidden="true">o</span> },
-    ...WORKSPACE_FILTER_COLORS.map(option => ({
-      id: `color-${option.id}`, label: t(`appearance.color.${option.id}`),
-      icon: <span aria-hidden="true" style={{ color: option.value }}>o</span>,
+    { id: 'color-all', label: `${t('filter.all')} · ${t('filter.color')}`, icon: <IconCloseOutline16 /> },
+    ...WORKSPACE_COLORS.map(choice => ({
+      id: `color-${choice}`,
+      label: t(`appearance.color.${choice}`),
+      icon: <span className={css.colorSwatch} style={{ background: WORKSPACE_APPEARANCE_COLORS[choice] }} aria-hidden="true" />,
     })),
     { type: 'separator' as const, id: 'filter-icons-separator' },
     { type: 'label' as const, id: 'filter-icons', text: t('filter.icon') },
-    { id: 'icon-all', label: t('filter.all'), icon: <span aria-hidden="true">all</span> },
-    ...WORKSPACE_FILTER_ICONS.map(option => ({
-      id: `icon-${option}`, label: t(`appearance.icon.${option}`),
-      icon: <span aria-hidden="true">{WORKSPACE_APPEARANCE_GLYPHS[option]}</span>,
-    })),
+    { id: 'icon-all', label: `${t('filter.all')} · ${t('filter.icon')}`, icon: <IconCloseOutline16 /> },
+    ...WORKSPACE_ICONS.map((choice) => {
+      const Glyph = WORKSPACE_ICON_GLYPHS[choice]
+      return { id: `icon-${choice}`, label: t(`appearance.icon.${choice}`), icon: <Glyph size={16} /> }
+    }),
   ]
   return (
     <Menu
-      open={open} onClose={() => { setOpen(false) }} items={items}
-      selectedIds={[...(color === undefined ? [] : [`color-${color}`]), ...(icon === undefined ? [] : [`icon-${icon}`])]}
+      open={open}
+      onClose={() => { setOpen(false) }}
+      items={items}
+      selectedIds={[
+        ...(color === undefined ? [] : [`color-${color}`]),
+        ...(icon === undefined ? [] : [`icon-${icon}`]),
+      ]}
       onSelect={(id) => {
         if (id === 'color-all') onColor(undefined)
-        else if (id.startsWith('color-')) onColor(id.slice(6) as WorkspaceFilterColor)
+        else if (id.startsWith('color-')) onColor(id.slice(6) as WorkspaceColor)
         else if (id === 'icon-all') onIcon(undefined)
-        else if (id.startsWith('icon-')) onIcon(id.slice(5) as WorkspaceFilterIcon)
+        else if (id.startsWith('icon-')) onIcon(id.slice(5) as WorkspaceIcon)
         setOpen(false)
       }}
-      align="end" dense portal
+      align="end"
+      dense
+      portal
       anchor={(
         <Tooltip label={t('filter.label')} side="bottom" delayMs={500}>
-          <button type="button" className={css.iconButton} aria-label={t('filter.label')} aria-expanded={open} onClick={() => { setOpen(value => !value) }}>
-            <span aria-hidden="true">#</span>
+          <button
+            type="button"
+            className={clsx(css.iconButton, (color !== undefined || icon !== undefined) && css.iconButtonActive)}
+            aria-label={t('filter.label')}
+            aria-expanded={open}
+            onClick={() => { setOpen(value => !value) }}
+          >
+            <IconFilterOutline16 />
           </button>
         </Tooltip>
       )}
@@ -879,8 +907,8 @@ export function WorkspaceBrowser({
   const currentBlank = mainSessionId !== undefined && list.byId[mainSessionId]?.blank === true
     ? mainSessionId
     : undefined
-  const [filterColor, setFilterColor] = useState<WorkspaceFilterColor | undefined>(undefined)
-  const [filterIcon, setFilterIcon] = useState<WorkspaceFilterIcon | undefined>(undefined)
+  const [filterColor, setFilterColor] = useState<WorkspaceColor | undefined>(undefined)
+  const [filterIcon, setFilterIcon] = useState<WorkspaceIcon | undefined>(undefined)
   const [appearanceByWorkspace, setAppearanceByWorkspace] = useState<Record<string, WorkspaceAppearance>>(readWorkspaceAppearances)
   const [appearanceTarget, setAppearanceTarget] = useState<WorkspaceId | null>(null)
   useEffect(() => {
@@ -1195,8 +1223,28 @@ export function WorkspaceBrowser({
     })
   }
 
+  /** Clearing payloads: an explicit undefined removes that half through the same merge. */
+  const clearColor: WorkspaceAppearance = { color: undefined }
+  const clearIcon: WorkspaceAppearance = { icon: undefined }
+  /** The open editor's current choice; empty for a Workspace with no appearance yet. */
+  const appearanceDraft: WorkspaceAppearance = appearanceTarget === null
+    ? {}
+    : appearanceByWorkspace[appearanceTarget] ?? {}
+  /**
+   * Merge one editor choice into a Workspace's appearance. Clearing a half drops
+   * the key instead of storing undefined: an all-default entry is pruned so the
+   * stored record holds only real choices.
+   * @param workspaceId - the Workspace being edited.
+   * @param change - the color and/or icon to apply; undefined clears that half.
+   */
   const updateAppearance = (workspaceId: WorkspaceId, change: WorkspaceAppearance): void => {
-    setAppearanceByWorkspace(current => ({ ...current, [workspaceId]: { ...current[workspaceId], ...change } }))
+    setAppearanceByWorkspace((current) => {
+      const merged = { ...current[workspaceId], ...change }
+      const pruned: WorkspaceAppearance = {}
+      if (merged.color !== undefined) pruned.color = merged.color
+      if (merged.icon !== undefined) pruned.icon = merged.icon
+      return { ...current, [workspaceId]: pruned }
+    })
   }
   return (
     <div className={clsx(css.root, !wide && css.rail)}>
@@ -1412,25 +1460,70 @@ export function WorkspaceBrowser({
       <Modal
         open={appearanceTarget !== null}
         onClose={() => { setAppearanceTarget(null) }}
-        closeLabel={t('cancel')}
+        closeLabel={t('close')}
         title={t('appearance.title')}
-        footer={<Button variant="outline" onClick={() => { setAppearanceTarget(null) }}>{t('cancel')}</Button>}
+        footer={<Button variant="outline" onClick={() => { setAppearanceTarget(null) }}>{t('close')}</Button>}
       >
-        <div style={{ display: 'grid', gap: 12 }}>
-          <strong>{t('filter.color')}</strong>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {WORKSPACE_FILTER_COLORS.map(option => (
-              <button key={option.id} type="button" aria-label={t(`appearance.color.${option.id}`)} style={{ width: 28, height: 28, borderRadius: 14, border: '2px solid transparent', background: option.value, cursor: 'pointer' }} onClick={() => { if (appearanceTarget !== null) updateAppearance(appearanceTarget, { color: option.id }) }} />
+        <div className={css.appearanceForm}>
+          <span className={css.appearanceLabel}>{t('appearance.color')}</span>
+          <div className={css.appearanceChoices} role="group" aria-label={t('appearance.color')}>
+            <button
+              type="button"
+              className={clsx(
+                css.appearanceChoice,
+                css.appearanceDefault,
+                appearanceDraft.color === undefined && css.appearanceChoiceSelected,
+              )}
+              aria-label={t('appearance.default')}
+              aria-pressed={appearanceDraft.color === undefined}
+              onClick={() => { if (appearanceTarget !== null) updateAppearance(appearanceTarget, clearColor) }}
+            >
+              <IconCloseOutline16 />
+            </button>
+            {WORKSPACE_COLORS.map(choice => (
+              <button
+                key={choice}
+                type="button"
+                className={clsx(css.appearanceChoice, appearanceDraft.color === choice && css.appearanceChoiceSelected)}
+                aria-label={t(`appearance.color.${choice}`)}
+                aria-pressed={appearanceDraft.color === choice}
+                onClick={() => { if (appearanceTarget !== null) updateAppearance(appearanceTarget, { color: choice }) }}
+              >
+                <span className={css.colorSwatch} style={{ background: WORKSPACE_APPEARANCE_COLORS[choice] }} aria-hidden="true" />
+              </button>
             ))}
           </div>
-          <strong>{t('filter.icon')}</strong>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {WORKSPACE_FILTER_ICONS.map(option => (
-              <button key={option} type="button" aria-label={t(`appearance.icon.${option}`)} style={{ width: 32, height: 28, border: '1px solid var(--dsw-alias-border-l3)', background: 'transparent', cursor: 'pointer' }} onClick={() => { if (appearanceTarget !== null) updateAppearance(appearanceTarget, { icon: option }) }}>{WORKSPACE_APPEARANCE_GLYPHS[option]}</button>
-            ))}
+          <span className={css.appearanceLabel}>{t('appearance.icon')}</span>
+          <div className={css.appearanceChoices} role="group" aria-label={t('appearance.icon')}>
+            <button
+              type="button"
+              className={clsx(css.appearanceChoice, appearanceDraft.icon === undefined && css.appearanceChoiceSelected)}
+              aria-label={t('appearance.default')}
+              aria-pressed={appearanceDraft.icon === undefined}
+              onClick={() => { if (appearanceTarget !== null) updateAppearance(appearanceTarget, clearIcon) }}
+            >
+              <IconCloseOutline16 />
+            </button>
+            {WORKSPACE_ICONS.map((choice) => {
+              const Glyph = WORKSPACE_ICON_GLYPHS[choice]
+              return (
+                <button
+                  key={choice}
+                  type="button"
+                  className={clsx(css.appearanceChoice, appearanceDraft.icon === choice && css.appearanceChoiceSelected)}
+                  aria-label={t(`appearance.icon.${choice}`)}
+                  aria-pressed={appearanceDraft.icon === choice}
+                  onClick={() => { if (appearanceTarget !== null) updateAppearance(appearanceTarget, { icon: choice }) }}
+                >
+                  <Glyph size={16} />
+                </button>
+              )
+            })}
           </div>
         </div>
-      </Modal>      <Modal
+      </Modal>
+
+      <Modal
         open={renameTarget !== null}
         onClose={closeRename}
         closeLabel={t('close')}

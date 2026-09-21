@@ -17,21 +17,30 @@ import {
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import { abbreviateHomePath } from '@deepseek-ai/dsh-util-workspace-path'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
+import { WORKSPACE_APPEARANCE_COLORS } from '../appearance.ts'
+import type { WorkspaceAppearance, WorkspaceIcon } from '../appearance.ts'
 import type { GroupNode, SearchResultNode, SessionNode } from '../tree.ts'
+import { WORKSPACE_ICON_GLYPHS } from './WorkspaceIcons.ts'
 import css from './Rows.module.css'
 
 /** The standard locale seat, prop-passed from the browser root. */
 type RowTranslate = WorkspaceBrowserProps['t']
-type WorkspaceColor = 'red' | 'orange' | 'green' | 'blue' | 'purple'
-type WorkspaceIcon = 'folder' | 'code' | 'rocket' | 'spark' | 'book'
-export interface WorkspaceAppearance { color?: WorkspaceColor; icon?: WorkspaceIcon }
-export const WORKSPACE_APPEARANCE_COLORS: Readonly<Record<WorkspaceColor, string>> = {
-  red: '#F04438', orange: '#F79009', green: '#12B76A', blue: '#2E90FA', purple: '#7A5AF8',
-}
-export const WORKSPACE_APPEARANCE_GLYPHS: Readonly<Record<WorkspaceIcon, string>> = {
-  folder: 'F', code: 'C', rocket: 'R', spark: '*', book: 'D',
+/**
+ * Inline style painting a Workspace's chosen color onto its leading slot. The
+ * row label inherits this color, so one declaration colors both the glyph and
+ * the title; the default look leaves the slot to the stylesheet's alias.
+ * @param appearance - the Workspace's chosen appearance, when it has one.
+ * @returns the style to spread on the row, or undefined for the default look.
+ */
+function appearanceStyle(appearance: WorkspaceAppearance | undefined): { color: string } | undefined {
+  return appearance?.color === undefined ? undefined : { color: WORKSPACE_APPEARANCE_COLORS[appearance.color] }
 }
 
+/** One Workspace icon choice rendered from the shared icon library. */
+function WorkspaceIconGlyph({ choice }: { choice: WorkspaceIcon }) {
+  const Glyph = WORKSPACE_ICON_GLYPHS[choice]
+  return <Glyph size={16} />
+}
 /** Row display title: blank rows show the localized New Session label. */
 function displayTitle(node: SessionNode, t: RowTranslate): string {
   return node.blank ? t('session.new') : node.title
@@ -171,6 +180,7 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
   const ownRow = (
     <div
       className={clsx(css.projectRow, menuOpen && css.menuOpen)}
+      style={appearanceStyle(appearance)}
       role="treeitem"
       aria-expanded={row.expanded}
       onClick={onToggle}
@@ -184,15 +194,10 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
         }}
       onDragEnd={drag?.end}
     >
-      <span
-        className={clsx(css.slot, css.folder, active && css.folderActive)}
-        style={appearance?.color === undefined
-          ? undefined
-          : { color: WORKSPACE_APPEARANCE_COLORS[appearance.color] }}
-      >
-        {appearance?.icon !== undefined && appearance.icon !== 'folder'
-          ? <span className={css.workspaceGlyph} aria-hidden="true">{WORKSPACE_APPEARANCE_GLYPHS[appearance.icon]}</span>
-          : row.expanded ? <IconFolderOpen16 /> : <IconFolderClose16 />}
+      <span className={clsx(css.slot, css.folder, active && (appearance?.color === undefined && css.folderActive))}>
+        {appearance?.icon === undefined || appearance.icon === 'folder'
+          ? row.expanded ? <IconFolderOpen16 /> : <IconFolderClose16 />
+          : <WorkspaceIconGlyph choice={appearance.icon} />}
       </span>
       <span className={clsx(css.slot, css.chevron)}>
         <IconTriangleRightFill14 className={clsx(css.arrow, row.expanded && css.arrowOpen)} />

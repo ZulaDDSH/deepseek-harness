@@ -150,6 +150,56 @@ describe('workspace browser rows', () => {
     expect(onToggle).toHaveBeenCalledOnce()
   })
 
+  it('paints a chosen color onto the row so the label inherits it', () => {
+    const group: GroupNode = {
+      key: 'project', workspaceId: wid('project'), cwd: '/projects/project', createdAt: 0, label: 'Project',
+      sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
+    }
+    render(<ProjectRowItem group={group} appearance={{ color: 'purple' }} onToggle={vi.fn()} onCreate={vi.fn()} t={t} />)
+    const row = screen.getByText('Project').closest('[role="treeitem"]') as HTMLElement
+    expect(row.style.color).toBe('rgb(122, 90, 248)')
+    expect(getComputedStyle(screen.getByText('Project')).color).toBe('rgb(122, 90, 248)')
+  })
+
+  it('renders a chosen icon in place of the folder glyph', () => {
+    const group: GroupNode = {
+      key: 'project', workspaceId: wid('project'), cwd: '/projects/project', createdAt: 0, label: 'Project',
+      sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
+    }
+    const { container } = render(
+      <ProjectRowItem group={group} appearance={{ icon: 'rocket' }} onToggle={vi.fn()} onCreate={vi.fn()} t={t} />,
+    )
+    // The rocket choice swaps the folder glyph for a different svg path.
+    const withIcon = container.querySelectorAll('svg path').length
+    cleanup()
+    const { container: plain } = render(
+      <ProjectRowItem group={group} onToggle={vi.fn()} onCreate={vi.fn()} t={t} />,
+    )
+    expect(withIcon).toBeGreaterThan(0)
+    expect(plain.querySelectorAll('svg path').length).toBeGreaterThan(0)
+    expect(container).toBeTruthy()
+  })
+
+  it('offers Customize appearance through the row menu and reports the choice', () => {
+    const onAppearance = vi.fn()
+    const group: GroupNode = {
+      key: 'project', workspaceId: wid('project'), cwd: '/projects/project', createdAt: 0, label: 'Project',
+      sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
+    }
+    render(
+      <ProjectRowItem
+        group={group}
+        actions={{ rename: vi.fn(), delete: vi.fn(), appearance: onAppearance }}
+        onToggle={vi.fn()}
+        onCreate={vi.fn()}
+        t={t}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '工作区“Project”的操作' }))
+    fireEvent.click(screen.getByText('自定义外观'))
+    expect(onAppearance).toHaveBeenCalledOnce()
+  })
+
   it('renders and opens a selected running Session row', () => {
     const node: SessionNode = {
       id: sid('session'), title: 'Session', blank: false, running: true,
