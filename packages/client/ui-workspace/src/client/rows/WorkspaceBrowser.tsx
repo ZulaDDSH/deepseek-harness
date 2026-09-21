@@ -12,10 +12,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
-  IconCloseFill14, IconProjectAddOutline16, IconSearchOutline16, Tooltip,
+  Button, IconCloseFill14, IconProjectAddOutline16, IconSearchOutline16, Menu, Modal, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
+import {
+  isWorkspaceColor, isWorkspaceIcon, WORKSPACE_APPEARANCE_COLORS, WORKSPACE_COLORS, WORKSPACE_ICONS,
+} from '../appearance.ts'
+import type { WorkspaceAppearance, WorkspaceColor, WorkspaceIcon } from '../appearance.ts'
 import {
   orderByRecency, pinCurrentBlank, reconcileManualOrder, UNGROUPED_KEY, visibleSessionIds,
 } from '../tree.ts'
@@ -28,6 +33,7 @@ import { useWorkspaceDialogs } from './WorkspaceDialogs.tsx'
 import { sanitizeSearchQuery, SEARCH_QUERY_MAX_CODE_UNITS } from './search-query.ts'
 import { FLAT_SESSION_ORDER_KEY } from '../stores.ts'
 import { WorkspacePickFlow } from '../WorkspacePicker.tsx'
+import { WORKSPACE_ICON_GLYPHS } from './WorkspaceIcons.ts'
 import css from './WorkspaceBrowser.module.css'
 
 /**
@@ -37,6 +43,79 @@ import css from './WorkspaceBrowser.module.css'
 const EXPAND_SLIDE_MS = 300
 /** Pause between the latest keystroke and a Host content-search request. */
 const SEARCH_DEBOUNCE_MS = 250
+const WORKSPACE_APPEARANCE_STORAGE_KEY = 'dsh.workspace.appearance.v1'
+
+function readWorkspaceAppearances(): Record<string, WorkspaceAppearance> {
+  if (typeof localStorage === 'undefined') return {}
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(WORKSPACE_APPEARANCE_STORAGE_KEY) ?? '{}')
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return {}
+    return Object.fromEntries(Object.entries(value).flatMap(([workspaceId, appearance]) => {
+      if (appearance === null || typeof appearance !== 'object' || Array.isArray(appearance)) return []
+      const { color, icon } = appearance as Record<string, unknown>
+      return isWorkspaceColor(color) || isWorkspaceIcon(icon)
+        ? [[workspaceId, {
+          ...(isWorkspaceColor(color) ? { color } : {}),
+          ...(isWorkspaceIcon(icon) ? { icon } : {}),
+        }]]
+        : []
+    }))
+  } catch {
+    return {}
+  }
+}
+
+function WorkspaceFilterMenu({
+  color, icon, onColor, onIcon, t,
+}: {
+  color: WorkspaceColor | undefined
+  icon: WorkspaceIcon | undefined
+  onColor: (value: WorkspaceColor | undefined) => void
+  onIcon: (value: WorkspaceIcon | undefined) => void
+  t: WorkspaceBrowserProps['t']
+}) {
+  const [open, setOpen] = useState(false)
+  const items = [
+    { type: 'label' as const, id: 'filter-colors', text: t('filter.color') },
+    { id: 'color-all', label: t('filter.all') },
+    ...WORKSPACE_COLORS.map(value => ({ id: `color-${value}`, label: t(`appearance.color.${value}`) })),
+    { type: 'separator' as const, id: 'filter-icons-separator' },
+    { type: 'label' as const, id: 'filter-icons', text: t('filter.icon') },
+    { id: 'icon-all', label: t('filter.all') },
+    ...WORKSPACE_ICONS.map(value => ({ id: `icon-${value}`, label: t(`appearance.icon.${value}`) })),
+  ]
+  return (
+    <Menu
+      open={open}
+      onClose={() => { setOpen(false) }}
+      items={items}
+      selectedIds={[...(color === undefined ? [] : [`color-${color}`]), ...(icon === undefined ? [] : [`icon-${icon}`])]}
+      onSelect={(id) => {
+        if (id === 'color-all') onColor(undefined)
+        else if (id.startsWith('color-')) onColor(id.slice(6) as WorkspaceColor)
+        else if (id === 'icon-all') onIcon(undefined)
+        else if (id.startsWith('icon-')) onIcon(id.slice(5) as WorkspaceIcon)
+        setOpen(false)
+      }}
+      align="end"
+      dense
+      portal
+      anchor={(
+        <Tooltip label={t('filter.label')} side="bottom" delayMs={500}>
+          <button
+            type="button"
+            className={css.iconButton}
+            aria-label={t('filter.label')}
+            aria-expanded={open}
+            onClick={() => { setOpen(value => !value) }}
+          >
+            <span aria-hidden="true">#</span>
+          </button>
+        </Tooltip>
+      )}
+    />
+  )
+}
 /**
  * Render the browsing region.
  * @param props - composed slot props (shell owner share + store + injected actions).
@@ -84,6 +163,13 @@ export function WorkspaceBrowser({
   const currentBlank = mainSessionId !== undefined && list.byId[mainSessionId]?.blank === true
     ? mainSessionId
     : undefined
+  const [filterColor, setFilterColor] = useState<WorkspaceColor | undefined>(undefined)
+  const [filterIcon, setFilterIcon] = useState<WorkspaceIcon | undefined>(undefined)
+  const [appearanceByWorkspace, setAppearanceByWorkspace] = useState<Record<string, WorkspaceAppearance>>(readWorkspaceAppearances)
+  const [appearanceTarget, setAppearanceTarget] = useState<WorkspaceId | null>(null)
+  useEffect(() => {
+    localStorage.setItem(WORKSPACE_APPEARANCE_STORAGE_KEY, JSON.stringify(appearanceByWorkspace))
+  }, [appearanceByWorkspace])
   const ungroupedMemberIds = useMemo(() => {
     const accounted = new Set(workspaces.flatMap(workspace => workspace.sessionIds))
     return list.ids.filter(id => list.byId[id] !== undefined && !accounted.has(id))
@@ -105,6 +191,11 @@ export function WorkspaceBrowser({
       ),
     }
   }), [currentBlank, list.byId, orderBy, sessionOrderByAccount, workspaces])
+  const visibleWorkspaces = useMemo(() => orderedWorkspaces.filter((workspace) => {
+    const appearance = appearanceByWorkspace[workspace.workspaceId]
+    return (filterColor === undefined || appearance?.color === filterColor)
+      && (filterIcon === undefined || appearance?.icon === filterIcon)
+  }), [appearanceByWorkspace, filterColor, filterIcon, orderedWorkspaces])
   const orderedUngroupedSessionIds = useMemo(() => {
     const baseOrder = orderBy === 'updated'
       ? orderByRecency(ungroupedMemberIds, list.byId)
@@ -279,6 +370,9 @@ export function WorkspaceBrowser({
     archiveSession,
     t,
   })
+  const updateAppearance = (workspaceId: WorkspaceId, change: WorkspaceAppearance): void => {
+    setAppearanceByWorkspace(current => ({ ...current, [workspaceId]: { ...current[workspaceId], ...change } }))
+  }
 
   return (
     <div className={clsx(css.root, !wide && css.rail)}>
@@ -287,6 +381,15 @@ export function WorkspaceBrowser({
           <span className={clsx(css.sectionLabel, css.wide, searchExpanded && css.sectionLabelHidden)}>
             {groupBy === 'activity' ? t('groupBy.activity') : groupBy === 'flat' ? t('section.sessions') : t('section.workspaces')}
           </span>
+        )}
+        {wide && groupBy !== 'flat' && (
+          <WorkspaceFilterMenu
+            color={filterColor}
+            icon={filterIcon}
+            onColor={setFilterColor}
+            onIcon={setFilterIcon}
+            t={t}
+          />
         )}
         {wide && (
           <div className={clsx(css.searchSlot, searchExpanded && css.searchSlotExpanded)}>
@@ -466,7 +569,8 @@ export function WorkspaceBrowser({
                   onSessionRename={onSessionRename}
                   onSessionArchive={onSessionArchive}
                   forkSession={forkSession}
-                  workspaces={orderedWorkspaces}
+                  workspaces={visibleWorkspaces}
+                  appearanceByWorkspace={appearanceByWorkspace}
                   ungroupedSessionIds={orderedUngroupedSessionIds}
                   workspaceReady={workspaceReady}
                   nestWorkspaces={groupBy === 'workspace-tree'}
@@ -483,10 +587,50 @@ export function WorkspaceBrowser({
                   t={t}
                   onRenameRequest={onWorkspaceRename}
                   onDeleteRequest={onWorkspaceDelete}
+                  onAppearanceRequest={setAppearanceTarget}
                 />
               ))}
       </div>
 
+      <Modal
+        open={appearanceTarget !== null}
+        onClose={() => { setAppearanceTarget(null) }}
+        closeLabel={t('close')}
+        title={t('appearance.title')}
+        footer={<Button variant="outline" onClick={() => { setAppearanceTarget(null) }}>{t('cancel')}</Button>}
+      >
+        <div style={{ display: 'grid', gap: 12 }}>
+          <strong>{t('filter.color')}</strong>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {WORKSPACE_COLORS.map(value => (
+              <button
+                key={value}
+                type="button"
+                aria-label={t(`appearance.color.${value}`)}
+                style={{ width: 28, height: 28, borderRadius: 14, border: '2px solid transparent', background: WORKSPACE_APPEARANCE_COLORS[value], cursor: 'pointer' }}
+                onClick={() => { if (appearanceTarget !== null) updateAppearance(appearanceTarget, { color: value }) }}
+              />
+            ))}
+          </div>
+          <strong>{t('filter.icon')}</strong>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {WORKSPACE_ICONS.map((value) => {
+              const Glyph = WORKSPACE_ICON_GLYPHS[value]
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  aria-label={t(`appearance.icon.${value}`)}
+                  style={{ width: 32, height: 28, border: '1px solid var(--dsw-alias-border-l3)', background: 'transparent', cursor: 'pointer' }}
+                  onClick={() => { if (appearanceTarget !== null) updateAppearance(appearanceTarget, { icon: value }) }}
+                >
+                  <Glyph size={16} />
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </Modal>
       {dialogs}
     </div>
   )

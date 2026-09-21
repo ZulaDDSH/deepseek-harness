@@ -5,6 +5,7 @@ import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/c
 import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
+import type { WorkspaceAppearance } from '../appearance.ts'
 import type { GroupNode, SessionNode } from '../tree.ts'
 import {
   deriveGroups, owningGroupKey, owningParentFolder, pinCurrentBlank, UNGROUPED_KEY,
@@ -72,6 +73,7 @@ type SessionTreeProps = Pick<
   home?: string | undefined
   /** Workspaces in Host group order with browser-projected Session order. */
   workspaces: readonly WorkspaceView[]
+  appearanceByWorkspace: Readonly<Record<string, WorkspaceAppearance>>
   /** Browser-projected order for Sessions outside every Workspace. */
   ungroupedSessionIds: readonly SessionId[]
   /** Whether the current Workspace stream has a complete Host baseline. */
@@ -90,6 +92,7 @@ type SessionTreeProps = Pick<
   onRenameRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
   /** Open the browser-owned delete-confirmation dialog for a real Workspace group. */
   onDeleteRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
+  onAppearanceRequest: (workspaceId: WorkspaceId) => void
   /** Open the browser-owned session rename dialog. */
   onSessionRename: (sessionId: SessionNode['id'], currentTitle: string) => void
   /** Archive a session (row menu action; the row disappears on the state echo). */
@@ -106,10 +109,10 @@ type SessionTreeProps = Pick<
  * @returns the grouped tree body.
  */
 export function SessionTree({
-  list, useSessionStatus, startSession, open, forkSession, workspaces, ungroupedSessionIds,
+  list, useSessionStatus, startSession, open, forkSession, workspaces, ungroupedSessionIds, appearanceByWorkspace,
   archivedSessionIds,
   workspaceReady, usePanelInfo,
-  onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive,
+  onRenameRequest, onDeleteRequest, onAppearanceRequest, onSessionRename, onSessionArchive,
   insertWorkspaceBefore,
   nestWorkspaces, groupExpansion, setGroupExpanded,
   setSessionOrder, home, t,
@@ -339,6 +342,7 @@ export function SessionTree({
       >
         <ProjectRowItem
           group={group}
+          appearance={group.workspaceId === undefined ? undefined : appearanceByWorkspace[group.workspaceId]}
           containsCurrentDescendant={currentAncestors.has(group.key)}
           home={home}
           t={t}
@@ -365,6 +369,9 @@ export function SessionTree({
               delete: () => {
               /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
                 if (group.workspaceId !== undefined) onDeleteRequest(group.workspaceId, group.label)
+              },
+              appearance: () => {
+                if (group.workspaceId !== undefined) onAppearanceRequest(group.workspaceId)
               },
             }}
         />
