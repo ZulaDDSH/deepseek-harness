@@ -32,8 +32,7 @@ export type WebOutputBundle = Record<string, WebOutputChunk | WebOutputAsset>
 export interface WebModuleInfo {
   importedIds: readonly string[]
   dynamicallyImportedIds: readonly string[]
-  isExternal: boolean
-  isIncluded: boolean | null
+  code: string | null
 }
 
 interface AssetReference {
@@ -129,8 +128,10 @@ export class WebProductBundleIsolation {
     const outputs = new Map(Object.entries(bundle))
     const aliases = new Map<string, string>()
     const cssOwners = new Map<string, Set<string>>()
+    const includedModules = new Set<string>()
     for (const [file, chunk] of this.chunks) {
       aliases.set(chunk.preliminaryFileName ?? file, file)
+      for (const id of Object.keys(chunk.modules)) includedModules.add(id)
       for (const css of chunk.viteMetadata?.importedCss ?? []) {
         const owners = cssOwners.get(css) ?? new Set<string>()
         for (const id of Object.keys(chunk.modules)) owners.add(id)
@@ -138,7 +139,9 @@ export class WebProductBundleIsolation {
       }
     }
     for (const item of Object.values(bundle)) {
-      if (item.type === 'asset') {
+      if (item.type === 'chunk') {
+        for (const id of Object.keys(item.modules)) includedModules.add(id)
+      } else {
         for (const name of item.names) aliases.set(name, item.fileName)
       }
     }
@@ -163,7 +166,7 @@ export class WebProductBundleIsolation {
       this.inputs.assertInput(id)
       const info = moduleInfo(id)
       if (info === null) throw new Error(`Web product isolation: module ${id} has no Rollup module record`)
-      if (info.isExternal) throw new Error(`Web product isolation: external module ${id} has no bundled input proof`)
+      if (info.code === null) throw new Error(`Web product isolation: external module ${id} has no bundled input proof`)
       if (/\.(?:css|less|sass|scss|styl|stylus|pcss|postcss|sss)(?:$|\?)/i.test(id) && !this.cssInputs.has(id)) {
         throw new Error(`Web product isolation: stylesheet ${id} has no recorded transform inputs`)
       }
@@ -172,7 +175,7 @@ export class WebProductBundleIsolation {
       for (const child of [...info.importedIds, ...info.dynamicallyImportedIds]) {
         const childInfo = moduleInfo(child)
         if (childInfo === null) throw new Error(`Web product isolation: module ${child} has no Rollup module record`)
-        if (childInfo.isIncluded || childInfo.isExternal) checkModule(child)
+        if (childInfo.code === null || includedModules.has(child)) checkModule(child)
       }
     }
     for (const name of queue) {
