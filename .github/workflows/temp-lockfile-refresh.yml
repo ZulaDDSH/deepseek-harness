@@ -22,6 +22,8 @@ jobs:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
       - name: Regenerate lockfile
         run: pnpm install --lockfile-only --no-frozen-lockfile
+      - name: Require clean lockfile
+        run: git diff --exit-code -- pnpm-lock.yaml
       - name: Verify lockfile
         run: pnpm install --frozen-lockfile --lockfile-only
       - uses: actions/upload-artifact@v7
