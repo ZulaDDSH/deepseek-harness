@@ -32,7 +32,10 @@
       - text: openai
       - button "编辑 openai": 编辑
       - button "删除 openai": 删除
-      - text: openai API 密钥
+      - text: openai 登录 openai 未登录
+      - paragraph: 请在浏览器中完成登录，此窗口会自动更新。
+      - button "登录"
+      - text: API 密钥
       - textbox "API 密钥":
         - /placeholder: 输入 API 密钥，或留空使用环境认证
       - group:
