@@ -429,7 +429,7 @@ export async function apply(ctx: Context, config: Config = Config({})): Promise<
     blocks: composerBlocks,
     maxConcurrentFileUploads,
   })
+  await conversationFiber
   ctx.plugin(todoDockEntry)
   ctx.plugin(queueDockEntry)
-  await conversationFiber
 }
