@@ -9,18 +9,18 @@
 import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
-  HoverCard, IconAlarmClockOutline16, IconArchiveOutline20, IconBranchOutline16,
+  HoverCard, IconArchiveOutline20, IconBranchOutline16,
   IconEditOutline16, IconEllipsisOutline16, IconFolderClose16, IconFolderOpen16,
   IconPlusOutline16, IconTrashOutline16, IconTriangleRightFill14, Menu, relativeTime,
   StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import { abbreviateHomePath } from '@deepseek-ai/dsh-util-workspace-path'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
 import { WORKSPACE_APPEARANCE_COLORS } from '../appearance.ts'
 import type { WorkspaceAppearance, WorkspaceIcon } from '../appearance.ts'
 import type { GroupNode, SearchResultNode, SessionNode } from '../tree.ts'
 import { WORKSPACE_ICON_GLYPHS } from './WorkspaceIcons.ts'
+import { ActiveScheduleIndicator, SessionStatusDots, sessionStatuses } from './SessionStatus.tsx'
 import css from './Rows.module.css'
 
 /** The standard locale seat, prop-passed from the browser root. */
@@ -44,30 +44,6 @@ function WorkspaceIconGlyph({ choice }: { choice: WorkspaceIcon }) {
 /** Row display title: blank rows show the localized New Session label. */
 function displayTitle(node: SessionNode, t: RowTranslate): string {
   return node.blank ? t('session.new') : node.title
-}
-
-/**
- * Reveal a title wider than its one-line cell while its row is hovered: the
- * title clips its own text, so the far edge (a fork's incremented title, for
- * example) is reachable by scrolling the element to its end. Leaving returns it
- * to the start in one step, because the resting ellipsis and the narrowed cell
- * would otherwise meet the text while it travelled back. A title that fits has
- * no scroll range to move, and the stylesheet decides whether either move
- * glides or jumps.
- * @param title - the row's clipping title element.
- * @param revealed - whether the pointer is on the row.
- */
-function revealClippedTitle(title: HTMLSpanElement | null, revealed: boolean): void {
-  /* v8 ignore next -- defensive: the title span renders unconditionally. */
-  if (title === null) return
-  if (revealed) {
-    title.scrollLeft = title.scrollWidth - title.clientWidth
-    return
-  }
-  // jsdom implements no scrollTo; the lane's direct assignment is instant there
-  // anyway, so both paths land on the same resting position.
-  if (typeof title.scrollTo === 'function') title.scrollTo({ left: 0, behavior: 'instant' })
-  else title.scrollLeft = 0
 }
 
 /** Localized compact relative time ("刚刚"/"5分钟" in zh, "now"/"5min" in en). */
@@ -264,87 +240,6 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
   )
 }
 
-/* v8 ignore next 3 -- closed-union backstop; only reached if the status is forged */
-function assertNever(value: never): never {
-  throw new Error(`unknown pending interaction: ${String(value)}`)
-}
-
-interface SessionStatus {
-  state: StateDotState
-  label: string
-}
-
-/**
- * Session status presentation; pending interaction is primary and live activity
- * outranks completion reminders.
- */
-function sessionStatuses(
-  node: Pick<SessionNode, 'pendingInteraction' | 'running' | 'runningSubagentCount' | 'completed'>,
-  t: RowTranslate,
-): readonly [SessionStatus, ...SessionStatus[]] {
-  const subagents: SessionStatus | undefined = node.runningSubagentCount === 0
-    ? undefined
-    : {
-      state: 'ongoing',
-      label: t(
-        node.runningSubagentCount === 1
-          ? 'status.subagentsRunning.one'
-          : 'status.subagentsRunning.other',
-        { n: node.runningSubagentCount },
-      ),
-    }
-  let pending: SessionStatus | undefined
-  switch (node.pendingInteraction) {
-    case 'approval':
-      pending = { state: 'warning', label: t('status.waitingApproval') }
-      break
-    case 'plan-review':
-      pending = { state: 'warning', label: t('status.planReview') }
-      break
-    case 'question':
-      pending = { state: 'warning', label: t('status.waitingAnswer') }
-      break
-    case undefined: break
-    /* v8 ignore next -- closed PendingInteractionStatus union */
-    default: return assertNever(node.pendingInteraction)
-  }
-  if (pending !== undefined) return subagents === undefined ? [pending] : [pending, subagents]
-  if (node.running) {
-    const primary: SessionStatus = { state: 'ongoing', label: t('status.running') }
-    return subagents === undefined ? [primary] : [primary, subagents]
-  }
-  if (subagents !== undefined) return [subagents]
-  if (node.completed) return [{ state: 'done', label: t('status.completed') }]
-  return [{ state: 'done', label: t('status.idle') }]
-}
-
-/** Primary status dot plus every status's screen-reader label, shared by the search and session rows. */
-function SessionStatusDots({ statuses }: { statuses: readonly [SessionStatus, ...SessionStatus[]] }) {
-  return (
-    <>
-      <StateDot state={statuses[0].state} />
-      {statuses.map(status => (
-        <span className={css.visuallyHidden} key={status.label}>{status.label}</span>
-      ))}
-    </>
-  )
-}
-
-/** Non-interactive active-Schedule marker; the enclosing row remains the only action. */
-function ActiveScheduleIndicator({ t, search = false }: { t: RowTranslate; search?: boolean }) {
-  const label = t('schedule.active')
-  return (
-    <span
-      className={clsx(css.scheduleIndicator, search && css.searchScheduleIndicator)}
-      role="img"
-      aria-label={label}
-      title={label}
-    >
-      <IconAlarmClockOutline16 />
-    </span>
-  )
-}
-
 /** Hover-card body: full title, relative time, and every relevant live status. */
 function SessionHoverContent({ node, now, t }: { node: SessionNode; now: number; t: RowTranslate }) {
   const statuses = sessionStatuses(node, t)
@@ -459,6 +354,8 @@ export function SessionNodeItem({
   const statuses = sessionStatuses(node, t)
   const primaryStatus = statuses[0]
   const showStatus = primaryStatus.state !== 'done' || row.completed
+  const showStatusLabel = !row.blank
+    && (row.failed === true || row.pendingInteraction !== undefined || row.running || row.runningSubagentCount > 0)
   const draggable = drag !== undefined && !row.blank
   // The folder choice is the default look and gets no session-level mark; any
   // other choice leads the title so the row reads as part of that Workspace.
@@ -468,7 +365,6 @@ export function SessionNodeItem({
     : <WorkspaceIconGlyph choice={iconChoice} />
   const [menuOpen, setMenuOpen] = useState(false)
   const rowRef = useRef<HTMLDivElement>(null)
-  const titleRef = useRef<HTMLSpanElement>(null)
   useEffect(() => {
     if (onReveal === undefined) return
     rowRef.current?.scrollIntoView({ block: 'nearest' })
@@ -495,8 +391,6 @@ export function SessionNodeItem({
       role="treeitem"
       aria-selected={selected}
       onClick={() => { onOpen(node.id) }}
-      onPointerEnter={() => { revealClippedTitle(titleRef.current, true) }}
-      onPointerLeave={() => { revealClippedTitle(titleRef.current, false) }}
       draggable={draggable}
       onDragStart={drag === undefined || row.blank
         ? undefined
@@ -527,7 +421,7 @@ export function SessionNodeItem({
           and is cleared by opening the session. */}
       {(!flat || showStatus) && (
         <span className={css.slot}>
-          {showStatus && <SessionStatusDots statuses={statuses} />}
+          {showStatus && <SessionStatusDots statuses={statuses} visiblePrimary={showStatusLabel} />}
         </span>
       )}
       {sessionGlyph !== undefined && (
@@ -535,8 +429,9 @@ export function SessionNodeItem({
           {sessionGlyph}
         </span>
       )}
-      <span ref={titleRef} className={css.title}>{title}</span>
+      <span className={css.title}>{title}</span>
       {row.hasActiveSchedule && <ActiveScheduleIndicator t={t} />}
+      {showStatusLabel && <span className={css.statusLabel}>{primaryStatus.label}</span>}
       {/* A blank New Session row is a provisional placeholder: nothing has
           happened in it yet, so a "now" timestamp and the row verbs
           (rename/fork/archive) would all act on content that does not
