@@ -5,6 +5,7 @@ import {
   DEFAULT_ENDPOINT,
   DEFAULT_MODEL,
   selectedRoute,
+  selectRelevantGrepMatches,
   stateForMessages,
   type Config,
 } from '../src/index.ts'
@@ -53,6 +54,42 @@ describe('Jev router', () => {
     await expect(client.decide([message('rename a variable')], config, new AbortController().signal))
       .resolves.toEqual({ route: 'lean', confidence: 0.93 })
     expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('scores grep candidates with parallel Noul questions', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(init?.body as string) as {
+        questions: Record<string, { type: string; instructions: { search_pattern: string } }>
+      }
+      expect(body.questions.match_0?.type).toBe('noul')
+      expect(body.questions.match_0?.instructions.search_pattern).toBe('router')
+      return new Response(JSON.stringify({
+        answers: {
+          match_0: { type: 'noul', noul: 0.91 },
+          match_1: { type: 'noul', noul: 0.14 },
+        },
+      }), { status: 200 })
+    })
+    const client = createJevClient(async () => 'test-key', fetchImpl)
+    await expect(client.scoreGrep(
+      '{"messages":[{"role":"user","content":"fix router"}]}',
+      'router',
+      [
+        { path: 'a.ts', lineNumber: 1, line: 'router code' },
+        { path: 'b.ts', lineNumber: 2, line: 'unrelated code' },
+      ],
+      config,
+      new AbortController().signal,
+    )).resolves.toEqual([0.91, 0.14])
+  })
+
+  it('keeps the highest Jev relevance scores while preserving grep order', () => {
+    const matches = [
+      { path: 'a.ts', lineNumber: 1, line: 'a' },
+      { path: 'b.ts', lineNumber: 2, line: 'b' },
+      { path: 'c.ts', lineNumber: 3, line: 'c' },
+    ]
+    expect(selectRelevantGrepMatches(matches, [0.8, 0.1, 0.9], 2)).toEqual([matches[0], matches[2]])
   })
 
   it('rejects an HTTP failure without selecting a route', async () => {

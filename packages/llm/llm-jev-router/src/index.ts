@@ -1,4 +1,4 @@
-import type { Context } from '@deepseek-ai/cordis'
+import { Service, type Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import {
@@ -22,6 +22,9 @@ export const DEFAULT_MODEL = 'jev-latest'
 export const DEFAULT_API_KEY_ENV = 'TYPESAFE_API_KEY'
 /** User-settings namespace owned by the plugin. */
 export const JEV_ROUTER_SETTINGS_NAMESPACE = 'jev-router'
+export const GREP_RELEVANCE_MIN_MATCHES = 100
+export const GREP_RELEVANCE_KEEP_MATCHES = 32
+export const GREP_RELEVANCE_MAX_CANDIDATES = 250
 
 /** Allow-listed DSH destination selected by Jev. */
 export interface JevRoute {
@@ -88,8 +91,12 @@ interface JevChoiceAnswer {
   readonly confidence?: unknown
 }
 
+interface JevNoulAnswer {
+  readonly noul?: unknown
+}
+
 interface JevResponse {
-  readonly answers?: Record<string, JevChoiceAnswer>
+  readonly answers?: Record<string, JevChoiceAnswer | JevNoulAnswer>
 }
 
 /** Parsed route decision returned by Jev. */
@@ -98,10 +105,24 @@ export interface JevDecision {
   readonly confidence: number
 }
 
+export interface JevGrepMatch {
+  readonly path: string
+  readonly lineNumber: number
+  readonly line: string
+}
+
 /** Injectable Jev decision client. */
 export interface JevClient {
   /** Evaluate one admitted step. */
   decide(messages: readonly UserMessage[], config: Config, signal: AbortSignal): Promise<JevDecision>
+  /** Score grep candidates for relevance to the current task. */
+  scoreGrep(
+    state: string,
+    pattern: string,
+    matches: readonly JevGrepMatch[],
+    config: Config,
+    signal: AbortSignal,
+  ): Promise<number[]>
 }
 
 interface CachedRoute {
@@ -219,41 +240,129 @@ export function createJevClient(
   resolveApiKey: (config: Config) => Promise<string | undefined>,
   fetchImpl: typeof fetch = fetch,
 ): JevClient {
+  const request = async (
+    state: string,
+    questions: Record<string, unknown>,
+    config: Config,
+    signal: AbortSignal,
+  ): Promise<unknown> => {
+    const rawKey = await resolveApiKey(config)
+    if (rawKey === undefined) throw new Error(`no credential resolved from ${config.apiKeyEnv}`)
+    const apiKey = assertUsableApiKey(rawKey, 'jev-router', config.apiKeyEnv)
+    const fused = abortableSignal(signal, config.timeoutMs)
+    try {
+      const response = await fetchImpl(config.endpoint, {
+        method: 'POST',
+        redirect: 'error',
+        headers: {
+          authorization: `Bearer ${apiKey}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ model: config.model, state, questions }),
+        signal: fused.signal,
+      })
+      if (!response.ok) throw new Error(`Jev returned HTTP ${response.status}`)
+      return await response.json()
+    } finally {
+      fused.dispose()
+    }
+  }
+
   return {
     async decide(messages, config, signal): Promise<JevDecision> {
-      const rawKey = await resolveApiKey(config)
-      if (rawKey === undefined) throw new Error(`no credential resolved from ${config.apiKeyEnv}`)
-      const apiKey = assertUsableApiKey(rawKey, 'jev-router', config.apiKeyEnv)
       const criteria = Object.fromEntries(config.routes.map(route => [route.id, route.description]))
-      const body = {
-        model: config.model,
-        state: stateForMessages(messages, config.stateMaxChars),
-        questions: {
+      return parseDecision(await request(
+        stateForMessages(messages, config.stateMaxChars),
+        {
           route: {
             type: 'choice',
             instructions: 'Choose the least costly configured model that can complete this task reliably.',
             criteria,
           },
         },
-      }
-      const fused = abortableSignal(signal, config.timeoutMs)
-      try {
-        const response = await fetchImpl(config.endpoint, {
-          method: 'POST',
-          redirect: 'error',
-          headers: {
-            authorization: `Bearer ${apiKey}`,
-            'content-type': 'application/json',
-          },
-          body: JSON.stringify(body),
-          signal: fused.signal,
-        })
-        if (!response.ok) throw new Error(`Jev returned HTTP ${response.status}`)
-        return parseDecision(await response.json())
-      } finally {
-        fused.dispose()
-      }
+        config,
+        signal,
+      ))
     },
+
+    async scoreGrep(state, pattern, matches, config, signal): Promise<number[]> {
+      const questions = Object.fromEntries(matches.map((match, index) => [
+        `match_${index}`,
+        {
+          type: 'noul',
+          instructions: {
+            question: 'Is this grep match materially relevant to completing the current task?',
+            search_pattern: pattern,
+            candidate: match,
+          },
+          criteria: {
+            true: 'The match directly helps locate, understand, verify, or change code relevant to the task.',
+            false: 'The match is incidental, unrelated, duplicate noise, or does not help complete the task.',
+          },
+        },
+      ]))
+      const value = await request(state, questions, config, signal)
+      if (value === null || typeof value !== 'object') throw new Error('Jev returned a non-object response')
+      const answers = (value as JevResponse).answers
+      if (answers === undefined) throw new Error('Jev response did not contain answers')
+      return matches.map((_match, index) => {
+        const noul = answers[`match_${index}`]?.noul
+        if (typeof noul !== 'number' || !Number.isFinite(noul) || noul < 0 || noul > 1) {
+          throw new Error(`Jev response contained an invalid Noul for match_${index}`)
+        }
+        return noul
+      })
+    },
+  }
+}
+
+export function selectRelevantGrepMatches(
+  matches: readonly JevGrepMatch[],
+  scores: readonly number[],
+  keep: number = GREP_RELEVANCE_KEEP_MATCHES,
+): JevGrepMatch[] {
+  if (matches.length !== scores.length) throw new Error('Jev grep scores must match candidate count')
+  if (!Number.isInteger(keep) || keep < 1) throw new Error('Jev grep keep count must be a positive integer')
+  if (matches.length <= keep) return [...matches]
+  const selected = new Set(scores
+    .map((score, index) => ({ score, index }))
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .slice(0, keep)
+    .map(item => item.index))
+  return matches.filter((_match, index) => selected.has(index))
+}
+
+class JevRouterRuntime extends Service {
+  constructor(
+    ctx: Context,
+    private readonly config: () => Config,
+    private readonly client: JevClient,
+    private readonly states: WeakMap<Agent, string>,
+  ) {
+    super(ctx, 'jevRouter')
+  }
+
+  async filterGrepMatches(input: {
+    agent: Agent
+    pattern: string
+    matches: readonly JevGrepMatch[]
+    signal: AbortSignal
+  }): Promise<readonly JevGrepMatch[]> {
+    const config = this.config()
+    if (!config.enabled || input.signal.aborted || input.matches.length < GREP_RELEVANCE_MIN_MATCHES) {
+      return input.matches
+    }
+    const state = this.states.get(input.agent)
+    if (state === undefined) return input.matches
+    const candidates = input.matches.slice(0, GREP_RELEVANCE_MAX_CANDIDATES)
+    try {
+      const scores = await this.client.scoreGrep(state, input.pattern, candidates, config, input.signal)
+      return selectRelevantGrepMatches(candidates, scores)
+    } catch (error) {
+      this.ctx.logger.warn('jev-router: grep relevance scoring failed; preserving normal grep output')
+      this.ctx.logger.warn(error)
+      return input.matches
+    }
   }
 }
 
@@ -293,11 +402,13 @@ export function apply(ctx: Context, initial: Config): void {
   validateConfig(initial)
   let current: () => Config = () => initial
   const decisions = new WeakMap<Agent, Map<string, CachedRoute>>()
+  const states = new WeakMap<Agent, string>()
   const client = createJevClient(async (config) => {
     const credentials = ctx.get('credentials')
     if (credentials !== undefined) return (await credentials.resolve(credentialRef(config.apiKeyEnv)))?.value
     return launchEnvironmentOf(ctx).get(config.apiKeyEnv)?.value
   })
+  new JevRouterRuntime(ctx, () => current(), client, states)
   ctx.llm.registerConfigurableProviders([{
     provider: 'jev-router',
     displayName: 'TypeSafe / Jev',
@@ -316,7 +427,10 @@ export function apply(ctx: Context, initial: Config): void {
   ctx.on('agent/pre-step', async (payload, next): Promise<PreStepDecision> => {
     const admitted = await next()
     const config = current()
-    if (admitted.kind === 'reject' || !config.enabled || config.routes.length === 0 || payload.signal.aborted) return admitted
+    if (admitted.kind === 'reject' || payload.signal.aborted) return admitted
+    if (!config.enabled) return admitted
+    states.set(payload.agent, stateForMessages(admitted.messages, config.stateMaxChars))
+    if (config.routes.length === 0) return admitted
     try {
       const decision = await client.decide(admitted.messages, config, payload.signal)
       const route = selectedRoute(decision, config)
