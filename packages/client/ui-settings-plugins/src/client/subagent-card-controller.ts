@@ -65,8 +65,8 @@ export function subagentCardFace(
       const state = subagentCardShell(limitState, modelState)
       if (!state.available || !state.writable || !state.dirty || state.invalid || state.saving) return
       void (async () => {
-        if (limitState.available && limitState.dirty) await limits.save()
-        if (modelState.available && modelState.dirty) await models.save()
+        if (limitState.available && limitState.dirty) await limits.settleSave()
+        if (modelState.available && modelState.dirty) await models.settleSave()
       })()
     },
     discard: () => {
