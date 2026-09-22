@@ -580,7 +580,11 @@ describe('headless stream-json snapshots', () => {
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('keeps provider comments alive and sends DeepSeek defaults through the one-shot app', async () => {
-    const server = await deepseekDefaultsServer({ protocol: 'messages' })
+    // The case asserts both the agent request and the background title request,
+    // and title work is cancelled by one-shot teardown. Hold the response open
+    // until that second request lands, or a loaded runner records only the
+    // agent request and the length assertion below fails on scheduling alone.
+    const server = await deepseekDefaultsServer({ protocol: 'messages', waitForTitleRequest: true })
     try {
       const result = await runLoaderSmoke({
         label: 'DeepSeek adapter defaults headless stream-json snapshot',

@@ -19,6 +19,7 @@ import { createMcpHandler, McpServer, type CallToolResult } from '@modelcontextp
 import { toNodeHandler, type NodeIncomingMessageLike } from '@modelcontextprotocol/node'
 import { z } from 'zod'
 import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
+import McpResources from '@deepseek-ai/dsh-mcp-resources'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { ToolCallId, LlmAdapter, LlmRuntime } from '@deepseek-ai/dsh-llm'
@@ -30,6 +31,7 @@ import type { Config } from '@deepseek-ai/dsh-mcp-client'
 const testToolSignal = new AbortController().signal
 
 const fixtureServerPath = fileURLToPath(new URL('./fixture-server.ts', import.meta.url))
+const resourcesServerPath = fileURLToPath(new URL('./fixtures/resources-server.ts', import.meta.url))
 
 // Resolve package-local .bin for pnpm-hoisted MCP server binaries.
 const packageDir = fileURLToPath(new URL('..', import.meta.url))
@@ -452,6 +454,83 @@ describe('server-filesystem — real filesystem operations', () => {
     expect(result.isError).toBe(false)
     expect(textOf(result.content[0])).toContain('listed.txt')
   })
+})
+
+// ---- Headless resource completion ----
+
+/** Live libuv handles owned by this process. */
+function activeHandles(): unknown[] {
+  return (process as unknown as { _getActiveHandles(): unknown[] })._getActiveHandles()
+}
+
+/** Whether a handle keeps the event loop alive: sockets, child processes, and timers with an active ref. */
+function isLiveHandle(handle: unknown): boolean {
+  const name = (handle as { constructor?: { name?: string } }).constructor?.name
+  if (name !== 'Socket' && name !== 'ChildProcess' && name !== 'Timeout') return false
+  try {
+    return (handle as { hasRef?: () => boolean }).hasRef?.() !== false
+  } catch {
+    return true
+  }
+}
+
+describe('resources server — headless completion exits cleanly', () => {
+  it('serves the headless resource flow, then releases every connection handle on dispose', async () => {
+    const before = new Set(activeHandles())
+    const ctx = new Context()
+    try {
+      await ctx.plugin(SystemPrompt)
+      await ctx.plugin(ToolRuntime)
+      await ctx.plugin(McpResources)
+      await apply(ctx, {
+        transport: 'stdio',
+        serverName: 'catalog',
+        command: process.execPath,
+        args: [resourcesServerPath],
+        env: {},
+        cwd: packageDir,
+        toolCallTimeoutMs: 15_000,
+        failOnStartupError: true,
+        reconnect: { enabled: false },
+      })
+
+      const list = await ctx.tools.execute({
+        signal: testToolSignal, callId: nextCallId(),
+        name: 'list_mcp_resources', arguments: { server: 'catalog' },
+      })
+      expect(list.isError).toBe(false)
+      expect(JSON.stringify(list.value)).toContain('memo://text')
+      const templates = await ctx.tools.execute({
+        signal: testToolSignal, callId: nextCallId(),
+        name: 'list_mcp_resource_templates', arguments: { server: 'catalog' },
+      })
+      expect(templates.isError).toBe(false)
+      expect(JSON.stringify(templates.value)).toContain('memo://greeting/{name}')
+      for (const [uri, text] of [
+        ['memo://text', 'MCP resource text with {{braces}} intact.'],
+        ['memo://greeting/reader', 'Hello, reader.'],
+      ] as const) {
+        const read = await ctx.tools.execute({
+          signal: testToolSignal, callId: nextCallId(),
+          name: 'read_mcp_resource', arguments: { server: 'catalog', uri },
+        })
+        expect(read.isError).toBe(false)
+        expect(JSON.stringify(read.value)).toContain(text)
+      }
+      const binary = await ctx.tools.execute({
+        signal: testToolSignal, callId: nextCallId(),
+        name: 'read_mcp_resource', arguments: { server: 'catalog', uri: 'memo://binary' },
+      })
+      expect(binary.isError).toBe(false)
+      expect(JSON.stringify(binary.value)).toContain('bWNwLXJlc291cmNlLWJpbmFyeQ==')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+    await vi.waitFor(() => {
+      const leaked = activeHandles().filter(handle => !before.has(handle) && isLiveHandle(handle))
+      expect(leaked).toEqual([])
+    }, { timeout: 15_000, interval: 250 })
+  }, 60_000)
 })
 
 // ---- Streamable HTTP transport ----

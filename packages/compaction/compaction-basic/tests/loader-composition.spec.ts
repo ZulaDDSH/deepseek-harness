@@ -71,6 +71,7 @@ describe('real Loader composition', () => {
       '  config:',
       '    thresholdRatio: 0.5',
       '    retainRatio: 0.125',
+      '    proactiveToolResultPruning: true',
       '    auto: false',
     ])
 
@@ -83,6 +84,7 @@ describe('real Loader composition', () => {
     expect((loaded.compaction as unknown as BasicCompactionEngine).config).toMatchObject({
       thresholdRatio: 0.5,
       retainRatio: 0.125,
+      proactiveToolResultPruning: true,
       auto: false,
     })
   })

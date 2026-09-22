@@ -72,6 +72,7 @@ kind: "package-reference"
 | `compactionRetries` | `1` | 压力仍高于阈值时，在首次压缩后进行的额外尝试次数。 |
 | `maxOverflowRetries` | `1` | 已确认上下文窗口溢出后的最大重试次数；`0` 只禁用恢复。 |
 | `modelPolicies` | `[]` | 针对个别模型路由的精确 `{ provider, model, ...partialPolicy }` 覆盖。 |
+| `proactiveToolResultPruning` | `false` | 在压力阈值检查前，仅当后续 assistant 响应证明模型已消费某个超大结果时才修剪它。 |
 | `auto` | `true` | 启用自动压缩与溢出恢复；设为 `false` 则仅手动执行。 |
 
 配置错误会快速失败：未知设置、重复的按模型覆盖、两种保留形式同时出现，或比例保留量不低于阈值，都会在加载时拒绝插件。任何绝对 `retainTokens` 预算——顶层或按模型——不低于其阈值时，都会在该模型首次使用时失败，因为该比较需要模型的上下文大小。
@@ -86,7 +87,7 @@ kind: "package-reference"
 
 ### 修剪超大工具输出
 
-在本包之前挂载 `dsh-compaction-tool-result-pruner`，即可在压缩过程中修剪超大工具结果。修剪不发起模型调用，并可能完全省去摘要：当修剪后的对话在阈值之内时，压缩会跳过摘要。修剪只在压缩触发条件满足后运行——低于压力的对话绝不会被触碰。
+在本包之前挂载 `dsh-compaction-tool-result-pruner`，即可修剪超大工具结果。修剪不发起模型调用，并可能完全省去摘要：当修剪后的对话在阈值之内时，压缩会跳过摘要。默认的缓存优先行为会等到压力满足后再修剪。设置 `proactiveToolResultPruning: true` 后，只有当当前 surface 中某个结果之后已出现后续 assistant 响应，从而证明后续模型请求已消费该结果时，自动 pre-step 压力路径才会在阈值检查前修剪它。没有后续 assistant 响应的结果保持原样，包括尚未进入下一次请求的结束轮次结果。主动修剪能更早降低重复输入，但会改写较早历史，因此从第一个被修改的结果开始失去提供方前缀缓存复用。
 
 -----
 
@@ -109,7 +110,7 @@ kind: "package-reference"
 
 ### 自动触发与溢出恢复
 
-当 `auto: true` 时，串行 `agent/pre-step` listener 会在请求派生前检查压力：它通过 `ctx.tokenMeter` 为最新持久路由请求 envelope 定价，当压力越过路由模型的阈值时，先剪枝，再在保留已定价近期尾部的同时摘要最旧的平衡范围。每个选定范围都从第一个不是 `system/message` 的 surface 节点开始，因此位于 surface 节点 0 的系统提示词永不会被遮蔽；由历史内提示词更新追加的后续 `system/message` 是普通历史，范围可以遮蔽它，agent loop（智能体循环）的投影随后会在二者文本不同时用当前提示词替换节点 0（[决策规则](../../core/agent-loop/README.zh.md#understand-the-implementation)）。`agent/request-error` listener 响应提供方确认的 `CONTEXT_WINDOW_EXCEEDED`：它绕过常规阈值与保留策略，尝试一次最大平衡头部缩减，并且只在表层替换 generation 前进后才授权重试。取消全程保持最终决定权。
+当 `auto: true` 时，串行 `agent/pre-step` listener 会在请求派生前检查压力：启用主动工具结果修剪时，它会先改写当前 surface 中位于后续 assistant 响应之前且符合条件的超大结果，然后通过 `ctx.tokenMeter` 为最新持久路由请求 envelope 定价；否则修剪会等到压力越过路由模型阈值后才运行。如果压力仍满足条件，则在保留已定价近期尾部的同时摘要最旧的平衡范围。每个选定范围都从第一个不是 `system/message` 的 surface 节点开始，因此位于 surface 节点 0 的系统提示词永不会被遮蔽；由历史内提示词更新追加的后续 `system/message` 是普通历史，范围可以遮蔽它，agent loop（智能体循环）的投影随后会在二者文本不同时用当前提示词替换节点 0（[决策规则](../../core/agent-loop/README.zh.md#understand-the-implementation)）。`agent/request-error` listener 响应提供方确认的 `CONTEXT_WINDOW_EXCEEDED`：它绕过常规阈值与保留策略，尝试一次最大平衡头部缩减，并且只在表层替换 generation 前进后才授权重试。取消全程保持最终决定权。
 
 压力策略从拥有持久路由的适配器解析容量。适配器无法为有效动态路由返回容量时，手动压力路径会抛出目标特定配置错误；自动 listener 会对该精确目标警告一次，并携带完整历史继续。
 

@@ -207,7 +207,11 @@ function toolConversation(): Session {
 }
 
 /** One closed routed tool step followed by an open turn for rewrite events. */
-function oversizedToolResult(chars = 3_000, withCompactablePrompt = false): Session {
+function oversizedToolResult(
+  chars = 3_000,
+  withCompactablePrompt = false,
+  closeTurn = true,
+): Session {
   const session = Session.create(SessionId(`oversized-tool-${chars}`))
   const callId = ToolCallId('oversized')
   session.append('turn/start', { turn: 1 })
@@ -247,9 +251,30 @@ function oversizedToolResult(chars = 3_000, withCompactablePrompt = false): Sess
     meta: { presentation: 'preserved' },
   }, { surfaceOp: 'append' })
   session.append('step/end', { turn: 1, step: 1 })
-  session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-  session.append('turn/start', { turn: 2 })
+  if (closeTurn) {
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/start', { turn: 2 })
+  }
   return session
+}
+
+function appendLaterAssistantSettlement(session: Session): void {
+  session.append('step/start', { turn: 2, step: 1 })
+  session.append('assistant/message', {
+    stream: [],
+    turn: 2,
+    step: 1,
+    message: createMessage({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'observed prior tool result' }],
+      source: {
+        kind: 'model',
+        provider: MODEL,
+        model: MODEL,
+      },
+    }),
+  }, { surfaceOp: 'append' })
+  session.append('step/end', { turn: 2, step: 1 })
 }
 
 class TestCompactionEngine extends BasicCompactionEngine {
@@ -317,6 +342,7 @@ describe('compact configuration and defaults', () => {
       compactionRetries: 1,
       maxOverflowRetries: 1,
       modelPolicies: [],
+      proactiveToolResultPruning: false,
       auto: true,
     })
     expect(Object.isFrozen(resolved)).toBe(true)
@@ -435,6 +461,7 @@ describe('compact configuration and defaults', () => {
       [{ maxTokens: 0 }, /maxTokens/],
       [{ compactionRetries: -1 }, /compactionRetries/],
       [{ maxOverflowRetries: -1 }, /maxOverflowRetries/],
+      [{ proactiveToolResultPruning: 'yes' }, /proactiveToolResultPruning must be a boolean/],
       [{ auto: 'yes' }, /auto must be a boolean/],
       [{ summarizationProvider: 1 }, /summarizationProvider must be a string/],
       [{ summarizationModel: 1 }, /summarizationModel must be a string/],
@@ -847,7 +874,11 @@ describe('optional model-free tool-result pruning', () => {
 
   it('skips LLM summarization when pruning alone clears pressure', async () => {
     const ctx = createContext(1_000)
-    void new ToolResultPruner(ctx, pruneConfig)
+    void new ToolResultPruner(ctx, {
+      thresholdChars: 100,
+      headChars: 20,
+      tailChars: 10,
+    })
     const compact = new TestCompactionEngine(ctx, {
       auto: false,
       thresholdRatio: 0.5,
@@ -1547,8 +1578,13 @@ describe('default one-shot summarizer', () => {
 
 describe('automatic listener and loader composition', () => {
   function preStep(ctx: Context, owner: Agent, signal = SIGNAL) {
+    const events = owner.session.snapshotEvents()
+    const turn = events.findLast(event => event.type === 'turn/start')?.data.turn ?? 1
+    const previousStepEvent = events.findLast(event =>
+      event.type === 'step/start' && event.data.turn === turn)
+    const previousStep = previousStepEvent?.type === 'step/start' ? previousStepEvent.data.step : 0
     return agentEvents(ctx, owner).waterfall(
-      'agent/pre-step', { messages: [], turn: 1, step: 1, signal },
+      'agent/pre-step', { messages: [], turn, step: previousStep + 1, signal },
       () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
     )
   }
@@ -1587,6 +1623,118 @@ describe('automatic listener and loader composition', () => {
     await preStep(ctx, agent(small, MODEL))
     expect(small.snapshotEvents().some(event => event.type === 'compaction/start')).toBe(false)
     expect(compact.calls).toHaveLength(1)
+  })
+
+  it('proactively prunes only results already consumed by a later model response', async () => {
+    const ctx = createContext(10_000)
+    void new ToolResultPruner(ctx, {
+      thresholdChars: 100,
+      headChars: 20,
+      tailChars: 10,
+    })
+    const compact = new TestCompactionEngine(ctx, {
+      thresholdRatio: 0.8,
+      retainTokens: 100,
+      proactiveToolResultPruning: true,
+    })
+
+    const consumed = oversizedToolResult()
+    appendLaterAssistantSettlement(consumed)
+    const consumedBefore = ctx.tokenMeter.measure(consumed).totalTokens
+    await preStep(ctx, agent(consumed, MODEL))
+    expect(ctx.tokenMeter.measure(consumed).totalTokens).toBeLessThan(consumedBefore)
+    expect(consumed.surface.replaceGeneration).toBe(1)
+
+    const unseen = oversizedToolResult()
+    const unseenBefore = ctx.tokenMeter.measure(unseen).totalTokens
+    await preStep(ctx, agent(unseen, MODEL))
+    expect(ctx.tokenMeter.measure(unseen).totalTokens).toBe(unseenBefore)
+    expect(unseen.surface.replaceGeneration).toBe(0)
+    expect(compact.calls).toHaveLength(0)
+  })
+
+  it('keeps proactive pruning optional when no pruner service is mounted', async () => {
+    const ctx = createContext(10_000)
+    const compact = new TestCompactionEngine(ctx, {
+      thresholdRatio: 0.8,
+      retainTokens: 100,
+      proactiveToolResultPruning: true,
+    })
+    const session = oversizedToolResult()
+    appendLaterAssistantSettlement(session)
+
+    await expect(preStep(ctx, agent(session, MODEL)))
+      .resolves.toEqual({ kind: 'enter', messages: [] })
+    expect(session.surface.replaceGeneration).toBe(0)
+    expect(compact.calls).toHaveLength(0)
+  })
+
+  it('leaves a locked session untouched during proactive pruning', async () => {
+    const ctx = createContext(10_000)
+    void new ToolResultPruner(ctx, {
+      thresholdChars: 100,
+      headChars: 20,
+      tailChars: 10,
+    })
+    const compact = new TestCompactionEngine(ctx, {
+      thresholdRatio: 0.8,
+      retainTokens: 100,
+      proactiveToolResultPruning: true,
+    })
+    const session = oversizedToolResult()
+    appendLaterAssistantSettlement(session)
+    // An unmatched opening marker owns the durable compaction lock: another
+    // compaction is mid-transaction on this surface. The proactive pass must
+    // not rewrite the surface underneath it.
+    session.append('compaction/start', {
+      compactionId: CompactionId('held-by-another-compaction'),
+      turn: 2,
+    })
+    const before = ctx.tokenMeter.measure(session).totalTokens
+    const generation = session.surface.replaceGeneration
+
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
+    await expect(preStep(ctx, agent(session, MODEL)))
+      .resolves.toEqual({ kind: 'enter', messages: [] })
+
+    expect(ctx.tokenMeter.measure(session).totalTokens).toBe(before)
+    expect(session.surface.replaceGeneration).toBe(generation)
+    expect(warnings.some(line => line.includes('already in progress'))).toBe(true)
+    expect(compact.calls).toHaveLength(0)
+  })
+
+  it('prunes again once the held compaction lock clears', async () => {
+    const ctx = createContext(10_000)
+    void new ToolResultPruner(ctx, {
+      thresholdChars: 100,
+      headChars: 20,
+      tailChars: 10,
+    })
+    new TestCompactionEngine(ctx, {
+      thresholdRatio: 0.8,
+      retainTokens: 100,
+      proactiveToolResultPruning: true,
+    })
+    const session = oversizedToolResult()
+    appendLaterAssistantSettlement(session)
+    session.append('compaction/start', {
+      compactionId: CompactionId('held-then-closed'),
+      turn: 2,
+    })
+    const locked = ctx.tokenMeter.measure(session).totalTokens
+    await preStep(ctx, agent(session, MODEL))
+    expect(ctx.tokenMeter.measure(session).totalTokens).toBe(locked)
+
+    // A later seed boundary proves the marker's owner belongs to an earlier
+    // lifecycle, which releases the lock and restores proactive pruning.
+    session.append('compaction/end', {
+      compactionId: CompactionId('held-then-closed'),
+      turn: 2,
+    })
+    await preStep(ctx, agent(session, MODEL))
+    expect(ctx.tokenMeter.measure(session).totalTokens).toBeLessThan(locked)
+    expect(session.surface.replaceGeneration).toBeGreaterThan(0)
   })
 
   it('skips pre-step pressure when the step signal is already aborted', async () => {

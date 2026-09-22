@@ -12,6 +12,12 @@
  * restarting forever. Exhaustion unregisters the server's tools and stops;
  * disposal (including HMR) is the only way back from that state.
  *
+ * Signalling the child belongs to the transport that spawned it. A stdio
+ * child can exit while a descendant keeps its pipes open, so the transport's
+ * `close` event may never arrive even though the process is gone; a numeric
+ * pid captured before close is therefore not a safe kill target, because the
+ * OS may have reissued it. Unconfirmed closure is reported, never reaped.
+ *
  * @module
  */
 
@@ -23,6 +29,7 @@ import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { createTransport } from './transport.ts'
 import { syncTools } from './tools.ts'
 import type { ToolBridgeOptions, ToolDisposers } from './tools.ts'
+import { resolveToolFilter } from './tool-filter.ts'
 import type { Config } from './index.ts'
 
 /** Automatic reconnect policy for one MCP server connection. */
@@ -127,10 +134,15 @@ export interface ConnectionHandle extends ServerContext {
 export function startConnection(ctx: Context, config: Config, policy: ResolvedReconnectPolicy): ConnectionHandle {
   const label = `mcp-client(${config.serverName})`
   const incompleteDisposalMessage = `${label}: transport closure could not be confirmed during disposal — server shutdown may be incomplete`
+  const toolFilter = resolveToolFilter(
+    config.toolFilter,
+    `mcp-client(${config.serverName}): toolFilter`,
+  )
   const opts: ToolBridgeOptions = {
     registrationFailure: 'contain',
     serverName: config.serverName,
     toolCallTimeoutMs: config.toolCallTimeoutMs,
+    toolFilter,
   }
   // The initial sync uses 'throw' when failOnStartupError is configured, so
   // a registration conflict propagates to the startup-await path. Re-syncs
@@ -283,7 +295,13 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
       // established generation can transition down directly from this signal.
       if (attemptSettled) generationDown(generation)
     }
-    /** Unattached probes close through their transport; attached clients must also report transport closure. */
+    /**
+     * Unattached probes close through their transport; attached clients must
+     * also report transport closure. Signalling the child is the transport's
+     * own responsibility: its `close` already escalates SIGTERM then SIGKILL,
+     * and a pid captured here can name an unrelated process by the time a
+     * delayed signal would fire, so unconfirmed closure is reported instead.
+     */
     async function closeGeneration(): Promise<boolean> {
       const attached = generation.transport !== undefined
       try {
@@ -315,7 +333,9 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
         if (!await closeGeneration()) ctx.logger.error(incompleteDisposalMessage)
         return
       }
-      const serverText = generation.getInstructions()?.trimEnd() ?? ''
+      const serverText = config.includeServerInstructions === false
+        ? ''
+        : generation.getInstructions()?.trimEnd() ?? ''
       instructions = serverText ? `### MCP server: ${config.serverName}\n\n${serverText}` : ''
       if (Buffer.byteLength(instructions) > maxInstructionBytes) {
         throw new Error(`${label}: server instructions exceed maxInstructionBytes (${maxInstructionBytes})`)
