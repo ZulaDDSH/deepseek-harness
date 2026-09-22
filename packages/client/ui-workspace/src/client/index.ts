@@ -24,6 +24,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: pulls the Session root standard-hook merge.
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type { WorkspaceBrowserInjected, WorkspacePickerInjected } from './contract/slots.ts'
+import { DesktopAttentionSource, type DesktopAttentionBridge } from './desktop-attention.ts'
 import { UiWorkspaceService } from './navigation.ts'
 import { createWorkspaceViewStore } from './stores.ts'
 import { WorkspaceBrowser } from './rows/WorkspaceBrowser.tsx'
@@ -67,7 +68,7 @@ const NS = 'workspace'
  * declaration through `slots.inject()` instead of assuming order.
  */
 export const inject = [
-  'slots', 'sessions', 'workspaces', 'locale', 'remote', 'remote.directoryPicker', 'layout',
+  'slots', 'sessions', 'workspaces', 'locale', 'remote', 'remote.directoryPicker', 'layout', 'uiSession',
 ]
 
 /**
@@ -81,6 +82,18 @@ export function apply(ctx: Context): void {
   const workspaces = ctx.get('workspaces') as IWorkspaces
   const uiWorkspace = new UiWorkspaceService(
     ctx, ctx.remote.directoryPicker, workspaces, sessions)
+  const carrier = (globalThis as typeof globalThis & {
+    dshDesktop?: { protocolVersion: number; attention?: DesktopAttentionBridge }
+  }).dshDesktop
+  if (carrier?.protocolVersion === 1 && carrier.attention !== undefined) {
+    const desktopAttention = new DesktopAttentionSource(
+      ctx.uiSession.sessionStatus,
+      sessions.list,
+      carrier.attention,
+      (sessionId) => { uiWorkspace.openSession(sessionId) },
+    )
+    ctx.effect(() => () => { desktopAttention.dispose() }, 'ui-workspace: desktop attention')
+  }
   ctx.slots.provideRoot({ hooks: { workspaces: workspaces.list } })
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-workspace: dictionaries')
 

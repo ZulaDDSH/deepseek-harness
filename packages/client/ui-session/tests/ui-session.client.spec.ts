@@ -31,6 +31,7 @@ interface SessionsBench {
   setMainView(id: SessionId, count: number): void
   setRetainInfo(id: SessionId, count: number): void
   emitStatus(id: SessionId, running: boolean): void
+  emitError(id: SessionId, message?: string): void
   release(id: SessionId): Promise<void>
 }
 
@@ -40,12 +41,12 @@ const roots: Context[] = []
 
 function createSessionsBench(ctx: Context): SessionsBench {
   roots.push(ctx)
-  let statusListener: ((id: SessionId, running: boolean) => void) | undefined
+  const remoteListeners = new Map<string, (...args: never[]) => void>()
   ctx.provide('remote', {
-    $on: (_event: string, listener: (id: SessionId, running: boolean) => void) => {
-      statusListener = listener
+    $on: (event: string, listener: (...args: never[]) => void) => {
+      remoteListeners.set(event, listener)
       return () => {
-        if (statusListener === listener) statusListener = undefined
+        if (remoteListeners.get(event) === listener) remoteListeners.delete(event)
       }
     },
   } as never)
@@ -172,8 +173,14 @@ function createSessionsBench(ctx: Context): SessionsBench {
       })
     },
     emitStatus(id, running) {
-      if (statusListener === undefined) throw new Error('api-session/status is not subscribed')
-      statusListener(id, running)
+      const listener = remoteListeners.get('api-session/status') as ((id: SessionId, running: boolean) => void) | undefined
+      if (listener === undefined) throw new Error('api-session/status is not subscribed')
+      listener(id, running)
+    },
+    emitError(id, message = 'failed') {
+      const listener = remoteListeners.get('api-session/error') as ((id: SessionId, message: string) => void) | undefined
+      if (listener === undefined) throw new Error('api-session/error is not subscribed')
+      listener(id, message)
     },
     async release(id) {
       bindings.delete(id)
@@ -564,6 +571,28 @@ describe('UiSession status', () => {
     expect(service.sessionStatus.getSnapshot().get(id)?.completionUnread).toBe(false)
     expect(changed).toHaveBeenCalled()
     off()
+  })
+
+  it('records background failures until the Session is opened or runs again', () => {
+    const ctx = new Context()
+    const bench = createSessionsBench(ctx)
+    const id = sessionId('failed')
+    bench.binding(id)
+    const service = createUiSession(ctx, bench)
+
+    bench.emitError(id)
+    expect(service.sessionStatus.getSnapshot().get(id)?.failureUnread).toBe(true)
+
+    // Retaining the Session in the main view is the acknowledgement.
+    bench.setMainView(id, 1)
+    expect(service.sessionStatus.getSnapshot().get(id)?.failureUnread).toBeUndefined()
+
+    bench.setMainView(id, 0)
+    bench.emitError(id)
+    expect(service.sessionStatus.getSnapshot().get(id)?.failureUnread).toBe(true)
+    // A later run clears the stale failure without waiting for a visit.
+    bench.emitStatus(id, true)
+    expect(service.sessionStatus.getSnapshot().get(id)?.failureUnread).toBeUndefined()
   })
 
   it('records an idle event before the initial catalog baseline and retires absent status later', () => {

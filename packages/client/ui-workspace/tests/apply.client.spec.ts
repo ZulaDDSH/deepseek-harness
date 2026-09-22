@@ -21,6 +21,11 @@ async function bench() {
   const rename = vi.fn(async () => ({}))
   const selectPanel = vi.fn()
   ctx.provide('layout', { selectPanel, beginNavigation: () => new AbortController().signal })
+  // The Desktop attention bridge reads the unified Session status source; the
+  // carrier stays absent off Desktop, so this only has to settle the inject.
+  ctx.provide('uiSession', {
+    sessionStatus: { getSnapshot: () => new Map(), subscribe: () => () => {} },
+  } as never)
   const search = vi.fn(async () => ({
     ok: true as const,
     value: { items: [{ sessionId: 'session' as never, snippet: 'match' }], hasMore: false },
@@ -108,7 +113,7 @@ describe('ui-workspace apply', () => {
 
   it('declares the services it drives', () => {
     expect(inject).toEqual([
-      'slots', 'sessions', 'workspaces', 'locale', 'remote', 'remote.directoryPicker', 'layout',
+      'slots', 'sessions', 'workspaces', 'locale', 'remote', 'remote.directoryPicker', 'layout', 'uiSession',
     ])
   })
 

@@ -1,5 +1,5 @@
 /**
- * Workspace browser tree row components (figma Cell set 14:3080): pure presentational —
+ * Workspace browser tree row components (figma Cell set 14:3080): pure presentational â€”
  * all data and callbacks arrive via props. Hover swaps (folder->chevron,
  * time->ellipsis, action buttons) are CSS-only, and a session row's clipped
  * title is scrolled programmatically while the row is hovered. Row ... menus are
@@ -9,15 +9,14 @@
 import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
-  HoverCard, IconAlarmClockOutline16, IconArchiveOutline20, IconBranchOutline16,
+  HoverCard, IconArchiveOutline20, IconBranchOutline16,
   IconEditOutline16, IconEllipsisOutline16, IconFolderClose16, IconFolderOpen16,
   IconPlusOutline16, IconTrashOutline16, IconTriangleRightFill14, Menu, relativeTime,
-  StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import { abbreviateHomePath } from '@deepseek-ai/dsh-util-workspace-path'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
 import type { GroupNode, SearchResultNode, SessionNode } from '../tree.ts'
+import { ActiveScheduleIndicator, SessionStatusDots, SessionStatusLine, sessionStatuses, showsStatusLabel } from './SessionStatus.tsx'
 import css from './Rows.module.css'
 
 /** The standard locale seat, prop-passed from the browser root. */
@@ -52,7 +51,7 @@ function revealClippedTitle(title: HTMLSpanElement | null, revealed: boolean): v
   else title.scrollLeft = 0
 }
 
-/** Localized compact relative time ("刚刚"/"5分钟" in zh, "now"/"5min" in en). */
+/** Localized compact relative time ("åˆšåˆš"/"5åˆ†é’Ÿ" in zh, "now"/"5min" in en). */
 function timeLabel(updatedAt: number, now: number, t: RowTranslate): string {
   const { unit, n } = relativeTime(updatedAt, now)
   return unit === 'now' ? t('time.now') : t(`time.${unit}`, { n })
@@ -241,87 +240,6 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
   )
 }
 
-/* v8 ignore next 3 -- closed-union backstop; only reached if the status is forged */
-function assertNever(value: never): never {
-  throw new Error(`unknown pending interaction: ${String(value)}`)
-}
-
-interface SessionStatus {
-  state: StateDotState
-  label: string
-}
-
-/**
- * Session status presentation; pending interaction is primary and live activity
- * outranks completion reminders.
- */
-function sessionStatuses(
-  node: Pick<SessionNode, 'pendingInteraction' | 'running' | 'runningSubagentCount' | 'completed'>,
-  t: RowTranslate,
-): readonly [SessionStatus, ...SessionStatus[]] {
-  const subagents: SessionStatus | undefined = node.runningSubagentCount === 0
-    ? undefined
-    : {
-      state: 'ongoing',
-      label: t(
-        node.runningSubagentCount === 1
-          ? 'status.subagentsRunning.one'
-          : 'status.subagentsRunning.other',
-        { n: node.runningSubagentCount },
-      ),
-    }
-  let pending: SessionStatus | undefined
-  switch (node.pendingInteraction) {
-    case 'approval':
-      pending = { state: 'warning', label: t('status.waitingApproval') }
-      break
-    case 'plan-review':
-      pending = { state: 'warning', label: t('status.planReview') }
-      break
-    case 'question':
-      pending = { state: 'warning', label: t('status.waitingAnswer') }
-      break
-    case undefined: break
-    /* v8 ignore next -- closed PendingInteractionStatus union */
-    default: return assertNever(node.pendingInteraction)
-  }
-  if (pending !== undefined) return subagents === undefined ? [pending] : [pending, subagents]
-  if (node.running) {
-    const primary: SessionStatus = { state: 'ongoing', label: t('status.running') }
-    return subagents === undefined ? [primary] : [primary, subagents]
-  }
-  if (subagents !== undefined) return [subagents]
-  if (node.completed) return [{ state: 'done', label: t('status.completed') }]
-  return [{ state: 'done', label: t('status.idle') }]
-}
-
-/** Primary status dot plus every status's screen-reader label, shared by the search and session rows. */
-function SessionStatusDots({ statuses }: { statuses: readonly [SessionStatus, ...SessionStatus[]] }) {
-  return (
-    <>
-      <StateDot state={statuses[0].state} />
-      {statuses.map(status => (
-        <span className={css.visuallyHidden} key={status.label}>{status.label}</span>
-      ))}
-    </>
-  )
-}
-
-/** Non-interactive active-Schedule marker; the enclosing row remains the only action. */
-function ActiveScheduleIndicator({ t, search = false }: { t: RowTranslate; search?: boolean }) {
-  const label = t('schedule.active')
-  return (
-    <span
-      className={clsx(css.scheduleIndicator, search && css.searchScheduleIndicator)}
-      role="img"
-      aria-label={label}
-      title={label}
-    >
-      <IconAlarmClockOutline16 />
-    </span>
-  )
-}
-
 /** Hover-card body: full title, relative time, and every relevant live status. */
 function SessionHoverContent({ node, now, t }: { node: SessionNode; now: number; t: RowTranslate }) {
   const statuses = sessionStatuses(node, t)
@@ -332,10 +250,7 @@ function SessionHoverContent({ node, now, t }: { node: SessionNode; now: number;
           before the first prompt. */}
       {!node.blank && <div className={css.hoverTime}>{hoverTimeLabel(node.updatedAt, now, t)}</div>}
       {statuses.map(status => (
-        <div className={css.hoverStatus} key={status.label}>
-          <StateDot state={status.state} />
-          <span>{status.label}</span>
-        </div>
+        <SessionStatusLine key={status.label} status={status} />
       ))}
     </div>
   )
@@ -430,6 +345,7 @@ export function SessionNodeItem({
   const statuses = sessionStatuses(node, t)
   const primaryStatus = statuses[0]
   const showStatus = primaryStatus.state !== 'done' || row.completed
+  const showStatusLabel = showsStatusLabel(row)
   const draggable = drag !== undefined && !row.blank
   const [menuOpen, setMenuOpen] = useState(false)
   const rowRef = useRef<HTMLDivElement>(null)
@@ -492,15 +408,16 @@ export function SessionNodeItem({
           and is cleared by opening the session. */}
       {(!flat || showStatus) && (
         <span className={css.slot}>
-          {showStatus && <SessionStatusDots statuses={statuses} />}
+          {showStatus && <SessionStatusDots statuses={statuses} visiblePrimary={showStatusLabel} />}
         </span>
       )}
       <span ref={titleRef} className={css.title}>{title}</span>
+      {showStatusLabel && <span className={css.statusLabel}>{primaryStatus.label}</span>}
       {row.hasActiveSchedule && <ActiveScheduleIndicator t={t} />}
       {/* A blank New Session row is a provisional placeholder: nothing has
           happened in it yet, so a "now" timestamp and the row verbs
           (rename/fork/archive) would all act on content that does not
-          exist — both trailing cells stay off until the first prompt. */}
+          exist â€” both trailing cells stay off until the first prompt. */}
       {!row.blank && <span className={css.time}>{timeLabel(row.updatedAt, now, t)}</span>}
       {!row.blank && (
         <span className={css.rowActions}>

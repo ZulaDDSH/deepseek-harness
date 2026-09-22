@@ -49,7 +49,7 @@ A Session title wider than its row is clipped with an ellipsis at rest. Hovering
 
 ### Pending interactions
 
-Session rows render the runtime's live `pendingInteraction` classification: approvals report **Waiting for approval**, plan reviews report **Plan awaiting review**, and ordinary questions report **Waiting for answer**. Every pending interaction uses an amber warning dot that takes precedence over the running indicator.
+Session rows render the runtime's live attention classification directly in the row: approvals report **Waiting for approval**, plan reviews report **Plan awaiting review**, ordinary questions report **Waiting for answer**, and unacknowledged runtime failures report **Failed**. Failure takes precedence over pending interaction, which takes precedence over running activity.
 
 ### Active Schedule markers
 

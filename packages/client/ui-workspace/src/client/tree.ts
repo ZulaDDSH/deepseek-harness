@@ -326,6 +326,7 @@ function sessionNode(
     running: status?.running ?? s.running,
     runningSubagentCount: descendants.get(s.id)?.runningCount ?? 0,
     completed: status?.completionUnread === true,
+    ...(status?.failureUnread === true ? { failed: true } : {}),
     hasActiveSchedule: hasActiveSchedule(s),
     updatedAt: s.updatedAt,
     ...(pendingInteraction === undefined ? {} : { pendingInteraction }),
@@ -502,6 +503,7 @@ export function deriveSearchResults(
           ? {}
           : { pendingInteraction }),
         completed: status?.completionUnread === true,
+        ...(status?.failureUnread === true ? { failed: true } : {}),
         hasActiveSchedule: hasActiveSchedule(summary),
         ...match === undefined ? {} : { snippet: match.snippet },
       }

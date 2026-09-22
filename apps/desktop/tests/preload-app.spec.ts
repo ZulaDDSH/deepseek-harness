@@ -13,7 +13,7 @@ vi.mock('../src/preload-windows.ts', () => ({ syncWindowsAppearance: vi.fn() }))
 
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); vi.resetModules() })
 
-it('limits product documents to update status and a native confirmation action', async () => {
+it('limits product documents to update and Session-attention actions', async () => {
   vi.stubGlobal('location', new URL('dsh-app://app/index.html'))
   await import('../src/preload-app.ts')
   const api = electron.contextBridge.exposeInMainWorld.mock.calls.find(([name]) => name === 'dshDesktop')?.[1] as DshDesktopProductApi
@@ -23,9 +23,23 @@ it('limits product documents to update status and a native confirmation action',
   expect(api).not.toHaveProperty('plugins')
   expect(api).not.toHaveProperty('backend')
   expect(api.updates).not.toHaveProperty('install')
+  await api.attention.notify({ sessionId: 's1', title: 'Task', kind: 'question' })
+  expect(electron.ipcRenderer.invoke).toHaveBeenCalledWith(
+    DESKTOP_IPC.attentionNotify,
+    { sessionId: 's1', title: 'Task', kind: 'question' },
+  )
+  const activate = vi.fn()
+  const stopAttention = api.attention.subscribe(activate)
+  const activationHandler = electron.ipcRenderer.on.mock.calls
+    .find(([channel]) => channel === DESKTOP_IPC.attentionActivate)?.[1] as (event: unknown, sessionId: string) => void
+  activationHandler({}, 's1')
+  expect(activate).toHaveBeenCalledWith('s1')
+  stopAttention()
+  expect(electron.ipcRenderer.off).toHaveBeenCalledWith(DESKTOP_IPC.attentionActivate, activationHandler)
   const listener = vi.fn()
   const dispose = api.updates.subscribe(listener)
-  const handler = electron.ipcRenderer.on.mock.calls[0]?.[1] as (event: unknown, state: unknown) => void
+  const handler = electron.ipcRenderer.on.mock.calls
+    .find(([channel]) => channel === DESKTOP_IPC.updatesPresentation)?.[1] as (event: unknown, state: unknown) => void
   handler({}, { visible: false })
   expect(listener).toHaveBeenCalledWith({ visible: false })
   dispose()
