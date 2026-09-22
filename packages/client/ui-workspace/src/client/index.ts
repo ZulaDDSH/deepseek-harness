@@ -1,11 +1,12 @@
 /**
- * Workspace plugin, browser half. Two registrations: WorkspaceBrowser fills
+ * Workspace plugin, browser half. Three registrations: WorkspaceBrowser fills
  * the sidebar shell's `sidebar.workspaces` hole (the whole browsing region),
- * and WorkspacePicker fills the conversation hero's picker hole
- * (`conversation.hero.workspace` — both hero forms). Both read real Host
- * Workspaces through the global useWorkspaces hook, and each declares its
- * own `single` directory-flow child hole for the composed picker package's
- * client half (see the contract module doc). Export discipline:
+ * WorkspacePicker fills the conversation hero's picker hole
+ * (`conversation.hero.workspace` — both hero forms), and QuickSwitcher adds the
+ * root Ctrl/Cmd+K switcher to the shell's overlay list. The browsing region and
+ * the picker read real Host Workspaces through the global useWorkspaces hook,
+ * and each declares its own `single` directory-flow child hole for the composed
+ * picker package's client half (see the contract module doc). Export discipline:
  * packages/client/AGENTS.md.
  */
 import type { Context } from '@deepseek-ai/cordis'
@@ -28,6 +29,7 @@ import { UiWorkspaceService } from './navigation.ts'
 import { createWorkspaceViewStore } from './stores.ts'
 import { WorkspaceBrowser } from './rows/WorkspaceBrowser.tsx'
 import { WorkspacePicker } from './WorkspacePicker.tsx'
+import { QuickSwitcher, type QuickSwitcherInjected } from './QuickSwitcher.tsx'
 import { en, zh, type WorkspaceKey } from './locales.ts'
 
 export type { UiWorkspace } from './navigation.ts'
@@ -68,6 +70,7 @@ const NS = 'workspace'
  */
 export const inject = [
   'slots', 'sessions', 'workspaces', 'locale', 'remote', 'remote.directoryPicker', 'layout',
+  'uiSession', 'commandUi',
 ]
 
 /**
@@ -79,6 +82,10 @@ export const inject = [
 export function apply(ctx: Context): void {
   const sessions = ctx.get('sessions') as ISessions
   const workspaces = ctx.get('workspaces') as IWorkspaces
+  const commandUi = ctx.get('commandUi') as {
+    quickCommands: QuickSwitcherInjected['quickCommands']
+    runQuick: QuickSwitcherInjected['runQuick']
+  }
   const uiWorkspace = new UiWorkspaceService(
     ctx, ctx.remote.directoryPicker, workspaces, sessions)
   ctx.slots.provideRoot({ hooks: { workspaces: workspaces.list } })
@@ -139,6 +146,21 @@ export function apply(ctx: Context): void {
     createWorkspace: input => workspaces.create(input),
     hooks: { directoryFlow: pickerFlowSource },
   })
+  const quickInjected = (): QuickSwitcherInjected => ({
+    openSession: (sessionId) => { uiWorkspace.openSession(sessionId) },
+    openWorkspace: workspaceId => uiWorkspace.openWorkspace(workspaceId),
+    quickCommands: (sessionId, query, signal) => commandUi.quickCommands(sessionId, query, signal),
+    runQuick: (sessionId, name) => commandUi.runQuick(sessionId, name),
+  })
+  // The switcher is additive chrome over the shell, so it registers into the
+  // overlay list rather than displacing any existing entry.
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+    name: 'shell.overlay',
+    id: 'workspace-quick-switcher',
+    order: 10,
+    locale: NS,
+    inject: quickInjected,
+  }, QuickSwitcher))
   // Each registration declares its directory-flow child in the same call;
   // slot injection follows both the owner and declaration HMR lifetimes.
   ctx.slots.inject('sidebar.workspaces', () => ctx.slots.register(
