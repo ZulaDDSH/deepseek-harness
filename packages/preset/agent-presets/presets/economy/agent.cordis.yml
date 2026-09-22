@@ -1,21 +1,28 @@
-# The `standard` agent preset: the full coding agent, mounted once per process.
+# The `economy` agent preset: PTC mode with lower retained-context budgets.
 #
-# This file is an AGENT-PLANE composition. The roster mounts it ONCE under a
-# standing scope; every session naming it joins by scope parentage, so the
-# tools and prompt sections registered here cover each joined agent while a
-# session's own state stays keyed per Session/Agent inside the plugins. The
-# host composition (`base.cordis.yml` + `web.cordis.yml`) keeps everything a
-# preset must not own: the registries themselves, the sandbox and approval
-# stack, persistence, and the model route.
+# Most of `standard` is here unchanged. The deliberate exception is the
+# general-purpose `workflow` tool: PTC mode uses `run_code` as its model-authored
+# composition surface. The `tool-presentation` row turns the remaining registry
+# into a generated SDK, so a sequence that would be five round trips becomes one.
+#
+# The registry itself stays on the host plane — the agent loop's scheduler and
+# the API proxy's presenters are its consumers — so what this preset owns is
+# the PRESENTATION of that registry for this agent alone. Native sessions run
+# beside this one in the same process, each seeing its own catalog.
+#
+# This file is an AGENT-PLANE composition. It is mounted under one agent's
+# scope context, so every tool and prompt section it registers belongs to that
+# session alone. The host composition (`base.cordis.yml` + `web.cordis.yml`)
+# keeps everything a preset must not own: the registries themselves, the
+# sandbox and approval stack, persistence, and the model route.
 #
 # A service row here MUST sit inside a group carrying an `isolate` realm.
-# Without one it publishes into the root realm, where it is process-global —
-# another preset publishing the same name collides, and a host reader would
-# resolve one preset's instance for every session; `dsh-agent-presets` rejects
-# that at mount. `true` means an entry-local realm: this standing mount's own
-# private instance, apart from every other preset's. (A shared label does NOT
-# pool instances — `provide()` throws on the second registration under the
-# same realm symbol; labels join REALMS, and are not what this file needs.)
+# Without one it publishes into the root realm, where it is process-global
+# rather than per-session and the second session mounting this preset collides
+# with the first; `dsh-agent-presets` rejects that at mount. `true` means an
+# entry-local realm — one private instance per mounted session, which is the
+# default this deployment wants. A shared label would instead pool one instance
+# across every session naming it.
 
 # ── identity ────────────────────────────────────────────────────────────────
 
@@ -28,14 +35,10 @@
     prefix: >-
       You are a coding agent powered by the {{model}} model.
 
-# `endOfTurnRule` is the plugin's own default and is restated here so this
-# preset's answer style is visible in its composition rather than implied:
-# the fixed rule leads the baseline, ahead of the workspace instruction chain.
 - id: agent-instructions
   name: '@deepseek-ai/dsh-agent-instructions'
   config:
-    maxBytes: 65536
-    endOfTurnRule: true
+    maxBytes: 32768
 
 # ── shell ───────────────────────────────────────────────────────────────────
 
@@ -90,6 +93,8 @@
 
 - id: tool-skill
   name: '@deepseek-ai/dsh-tool-skill'
+  config:
+    catalogDescriptionMaxLength: 240
 
 # ── goals ───────────────────────────────────────────────────────────────────
 
@@ -148,6 +153,10 @@
   config:
     - id: compaction-basic
       name: '@deepseek-ai/dsh-compaction-basic'
+      config:
+        thresholdRatio: 0.6
+        retainRatio: 0.1
+        proactiveToolResultPruning: true
 
     - id: command-compact
       name: '@deepseek-ai/dsh-command-compact'
@@ -155,9 +164,9 @@
     - id: tool-result-pruner
       name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
       config:
-        thresholdChars: 8192
-        headChars: 4096
-        tailChars: 1024
+        thresholdChars: 4096
+        headChars: 2048
+        tailChars: 512
 
 # ── delegation and workflows ────────────────────────────────────────────────
 
@@ -225,18 +234,22 @@
 
     - id: workflow-ptc
       name: '@deepseek-ai/dsh-workflow-ptc'
+      # No consumer here: `tool-workflow` is off in PTC mode and `tool-ralph`
+      # below is off by default. Restore this row together with `tool-ralph`.
+      disabled: true
       config:
         provider: spawn
 
     - id: tool-workflow
       name: '@deepseek-ai/dsh-tool-workflow'
+      # Do not publish a second model-authored orchestration surface beside
+      # `run_code` in PTC mode.
+      disabled: true
 
-    # Off by default with the base row it mirrors: the tool description
-    # restricts `ralph` to runs the human explicitly asked for, and completion
-    # is a worker self-report, not an independent evaluation. Preset files take
-    # no patches, so a session that wants it duplicates this preset under a new
-    # id and drops `disabled`; the shipped root shadows a copy that reuses this
-    # id.
+    # Off by default with the base row it mirrors. Preset files take no patches,
+    # so a session that wants it duplicates this preset under a new id and drops
+    # `disabled` from this row and from the engine above; the shipped root
+    # shadows a copy that reuses this id.
     - id: tool-ralph
       name: '@deepseek-ai/dsh-tool-ralph'
       disabled: true
@@ -261,6 +274,16 @@
   config:
     fetch: true
     searchTimeoutMs: 60000
+
+# ── presentation ────────────────────────────────────────────────────────────
+
+# PTC mode for this agent alone. The row waits for the host's `ptcRuntime`
+# rather than assuming it: a deployment that composes no TypeScript runtime
+# fails this preset at mount, naming this id, instead of at the first request.
+- id: tool-presentation
+  name: '@deepseek-ai/dsh-agent-tool-presentation'
+  config:
+    mode: ptc
 
 - id: present
   name: '@deepseek-ai/dsh-tool-present'

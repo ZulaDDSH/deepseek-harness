@@ -37,10 +37,14 @@
 
       Use installed bundles for new plugin code. Package installation may require explicit user approval for build scripts. Preserve returned failures and pending states; only report success after observing the requested capability.
 
+# Creator mode adds harness-authoring guidance; it keeps the same end-of-turn
+# answer style, restated here so the composition states it rather than relying
+# on the plugin default.
 - id: agent-instructions
   name: '@deepseek-ai/dsh-agent-instructions'
   config:
     maxBytes: 65536
+    endOfTurnRule: true
 
 # ── shell ───────────────────────────────────────────────────────────────────
 

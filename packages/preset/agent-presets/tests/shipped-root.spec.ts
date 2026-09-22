@@ -89,7 +89,7 @@ describe('the shipped preset root', () => {
     const ctx = await roster({ includeUserRoot: false })
 
     const listed = await ctx.agentPresets.list()
-    expect(listed.map(preset => preset.id).sort()).toEqual(['cordis', 'minimal', 'ptc', 'standard'])
+    expect(listed.map(preset => preset.id).sort()).toEqual(['cordis', 'economy', 'lean', 'minimal', 'ptc', 'standard'])
     expect(listed.every(preset => preset.trust === 'system')).toBe(true)
     // Not `broken === undefined`: health asks whether each row's package is
     // installed above the base, and the shipped rows name packages the
@@ -129,7 +129,7 @@ describe('the shipped preset root', () => {
   })
 
   it('enables web_fetch in each tool-bearing Web app preset', async () => {
-    for (const id of ['cordis', 'ptc', 'standard']) {
+    for (const id of ['cordis', 'economy', 'ptc', 'standard']) {
       const entries = await shippedEntries(id)
       const toolWeb: unknown = entries.find((entry: unknown) =>
         typeof entry === 'object' && entry !== null && 'id' in entry && entry.id === 'tool-web')
@@ -141,10 +141,12 @@ describe('the shipped preset root', () => {
     }
   })
 
-  it('omits the general workflow tool and its unused engine only from PTC', async () => {
-    const ptc = await shippedEntries('ptc')
-    expect(findEntry(ptc, 'tool-workflow')?.disabled).toBe(true)
-    expect(findEntry(ptc, 'workflow-ptc')?.disabled).toBe(true)
+  it('omits the general workflow tool and its unused engine from PTC-based presets', async () => {
+    for (const id of ['ptc', 'economy']) {
+      const entries = await shippedEntries(id)
+      expect(findEntry(entries, 'tool-workflow')?.disabled, id).toBe(true)
+      expect(findEntry(entries, 'workflow-ptc')?.disabled, id).toBe(true)
+    }
 
     for (const id of ['standard', 'cordis']) {
       const entries = await shippedEntries(id)
@@ -153,10 +155,50 @@ describe('the shipped preset root', () => {
     }
   })
 
+  it('pins the economy preset token budgets and PTC presentation', async () => {
+    const entries = await shippedEntries('economy')
+    expect(findEntry(entries, 'agent-instructions')?.config).toMatchObject({ maxBytes: 32768 })
+    expect(findEntry(entries, 'compaction-basic')?.config).toMatchObject({
+      thresholdRatio: 0.6,
+      retainRatio: 0.1,
+      proactiveToolResultPruning: true,
+    })
+    expect(findEntry(entries, 'tool-result-pruner')?.config).toMatchObject({
+      thresholdChars: 4096,
+      headChars: 2048,
+      tailChars: 512,
+    })
+    expect(findEntry(entries, 'tool-skill')?.config).toMatchObject({
+      catalogDescriptionMaxLength: 240,
+    })
+    expect(findEntry(entries, 'tool-presentation')?.config).toMatchObject({ mode: 'ptc' })
+  })
+
   it('disables the ralph tool in every shipped preset that carries it', async () => {
-    for (const id of ['cordis', 'ptc', 'standard']) {
+    for (const id of ['cordis', 'economy', 'ptc', 'standard']) {
       expect(findEntry(await shippedEntries(id), 'tool-ralph')?.disabled, id).toBe(true)
     }
     expect(findEntry(await shippedEntries('minimal'), 'tool-ralph')).toBeUndefined()
+  })
+
+  it('carries the end-of-turn response rule in every shipped preset', async () => {
+    for (const id of ['cordis', 'lean', 'minimal', 'ptc', 'standard']) {
+      const entries = await shippedEntries(id)
+      const row = findEntry(entries, 'agent-instructions')
+      expect(row, `${id} preset must mount agent-instructions`).toBeDefined()
+      expect(row?.disabled, id).not.toBe(true)
+      expect(row?.config, id).toMatchObject({ maxBytes: 65536, endOfTurnRule: true })
+    }
+  })
+
+  it('gives the lean preset filesystem and platform shell tools with capped compaction', async () => {
+    const entries = await shippedEntries('lean')
+    expect(findEntry(entries, 'tool-fs')?.config).toMatchObject({ enabledTools: ['read', 'write'] })
+    expect(findEntry(entries, 'tool-fs-search')?.config).toMatchObject({ enabledTools: ['glob', 'grep'] })
+    expect(findEntry(entries, 'tool-bash')?.disabled).toEqual({ __jsExpr: "process.platform === 'win32'" })
+    expect(findEntry(entries, 'tool-pwsh')?.disabled).toEqual({ __jsExpr: "process.platform !== 'win32'" })
+    expect(findEntry(entries, 'compaction-basic')?.config).toMatchObject({ maxContextWindow: 200000 })
+    expect(findEntry(entries, 'persistent-bash')).toBeUndefined()
+    expect(findEntry(entries, 'tool-subagent')).toBeUndefined()
   })
 })

@@ -5,6 +5,9 @@
 # context snapshots are suppressed for this preset, and the model receives only
 # the persistent shell (`bash` on POSIX, `pwsh` on win32). Context compaction is
 # absent.
+#
+# The end-of-turn response rule still arrives as workspace-instruction context,
+# because it shapes how an answer is written rather than what this preset can do.
 
 - id: persona
   name: '@deepseek-ai/dsh-persona'
@@ -12,6 +15,14 @@
     prefix: You are a helpful software engineer assistant.
     complete: true
     includeRuntimeContext: false
+
+# The baseline's leading block is the end-of-turn rule; the budget also leaves
+# room for a workspace instruction chain in this preset.
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  config:
+    maxBytes: 65536
+    endOfTurnRule: true
 
 # The PTY registry is an agent-owned service, so it lives in an entry-local
 # realm. The backend still consumes the host sandbox policy and subprocess
