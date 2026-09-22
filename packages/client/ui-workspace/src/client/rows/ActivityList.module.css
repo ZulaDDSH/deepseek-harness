@@ -1,0 +1,72 @@
+/* Activity list: the same row vocabulary and scroll geometry as the Workspace
+   list, split into attention buckets with a section-heading rhythm. Matching
+   `.list` here to the browser list keeps the rows from moving when the operator
+   switches grouping. */
+
+/* Relative for the bottom fade overlay. */
+.treeBody {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* List: the only scrolling region, with the browser list's own edge offset,
+   stable themed scrollbar, and bottom clearance under the fade overlay. */
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin-left: -4px;
+  margin-right: var(--dsh-session-list-scrollbar-offset);
+  padding-left: 4px;
+  padding-right: calc(
+    var(--dsh-session-list-edge-inset)
+    - var(--dsh-session-list-scrollbar-width)
+    - var(--dsh-session-list-scrollbar-offset)
+  );
+  padding-bottom: 16px;
+  scrollbar-gutter: stable;
+}
+
+/* One attention bucket: heading plus a compact session run. */
+.activitySection + .activitySection {
+  margin-top: 12px;
+}
+
+.activityHeading {
+  padding: 0 8px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.activityRows > * + * {
+  margin-top: 2px;
+}
+
+.empty {
+  padding: 16px 12px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+}
+
+/* Bottom fade: compact overlay pinned to the visible bottom,
+   transparent -> sidebar fill so it tracks the theme. */
+.fade {
+  position: absolute;
+  left: 0;
+  right: var(--dsh-session-list-edge-inset);
+  bottom: 0;
+  height: 24px;
+  background: linear-gradient(to bottom, transparent, var(--dsw-specific-sidebar-fill));
+  pointer-events: none;
+}
+
+/* macOS desktop: the sidebar is translucent over window vibrancy, so the
+   opaque fill gradient would paint a solid smear instead of a fade. */
+:global([data-platform='darwin']) .fade {
+  display: none;
+}

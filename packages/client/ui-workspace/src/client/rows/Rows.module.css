@@ -145,11 +145,15 @@
   color: var(--dsw-alias-state-business-primary);
 }
 
+/* Context-menu placeholder: an empty box inside the row that the portaled list
+   is anchored to. The pointer supplies the position through getAnchorRect, so
+   this only has to exist as the Menu's anchor child. */
+.contextAnchor {
+  display: none;
+}
 
-/* Project leading slot: folder by default, expand arrow on row hover. */
-.projectRow .chevron { display: none; }
-.projectRow:hover .chevron { display: inline-flex; }
-.projectRow:hover .folder { display: none; }
+/* Keep the workspace identity and disclosure seats stable while the pointer moves. */
+.projectRow .chevron { display: inline-flex; }
 
 /* Expand arrow (filled triangle): points right closed, rotates to point down open. */
 .arrow {
@@ -189,23 +193,20 @@
   outline: none;
 }
 
-/* Hovering a session row reveals a title wider than its cell: Rows.tsx scrolls
-   it to its end while the pointer rests on the row — smoothly, through the
-   scroll-behavior here — and returns it to the start in one step when the
-   pointer leaves. The unclipped state drops the ellipsis, which would otherwise
-   cover the characters the reveal reached. */
 .sessionRow .title {
   flex: 1;
-  scroll-behavior: smooth;
 }
 
-/* Guarded because a touch tap latches `:hover` on the row after the title has
-   already returned: an unguarded rule would strand that row without its
-   ellipsis. */
-@media (hover: hover) {
-  .sessionRow:hover .title {
-    text-overflow: clip;
-  }
+.statusLabel {
+  flex: none;
+  max-width: 104px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
 }
 
 .meta {
@@ -248,21 +249,21 @@
    bare 16px glyphs, gap 12, tertiary grey. */
 .rowActions {
   flex: none;
-  display: none;
+  display: inline-flex;
   align-items: center;
   gap: 12px;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 120ms var(--ds-ease-in-out), visibility 0s linear 120ms;
 }
 
 .projectRow:hover .rowActions,
 .sessionRow:hover .rowActions,
 .projectRow.menuOpen .rowActions,
 .sessionRow.menuOpen .rowActions {
-  display: inline-flex;
-}
-
-.sessionRow:hover .time,
-.sessionRow.menuOpen .time {
-  display: none;
+  visibility: visible;
+  opacity: 1;
+  transition-delay: 0s;
 }
 
 /* An open row menu pins the hover affordances (figma: the row keeps its
@@ -382,8 +383,4 @@
     transition: none;
   }
 
-  /* The title reveal jumps to the far edge instead of gliding there. */
-  .sessionRow .title {
-    scroll-behavior: auto;
-  }
 }

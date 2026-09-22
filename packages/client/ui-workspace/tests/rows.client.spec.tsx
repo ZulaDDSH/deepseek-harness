@@ -57,6 +57,30 @@ function fireDrag(row: HTMLElement, kind: 'dragOver' | 'drop', clientY: number):
 }
 
 describe('workspace browser rows', () => {
+  it('prints the status text beside a live or actionable status dot', () => {
+    const node: SessionNode = {
+      id: sid('running'), title: 'Running', blank: false, running: true,
+      runningSubagentCount: 0, completed: false, hasActiveSchedule: false, updatedAt: 0,
+    }
+    const view = render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
+      onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
+    expect(screen.getByText('进行中').className).toMatch(/statusLabel/)
+
+    // The dot alone already says a finished session is done, so the list stays
+    // quiet: only the screen-reader label remains, with no visible status text.
+    view.rerender(<SessionNodeItem node={{ ...node, running: false, completed: true }} currentId={undefined}
+      now={0} onOpen={vi.fn()} onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
+    expect(screen.getByText('已完成').className).not.toMatch(/statusLabel/)
+    view.rerender(<SessionNodeItem node={{ ...node, running: false }} currentId={undefined}
+      now={0} onOpen={vi.fn()} onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
+    expect(screen.queryByText('空闲')).toBeNull()
+
+    // A provisional row has no state to describe yet and stays bare.
+    view.rerender(<SessionNodeItem node={{ ...node, blank: true, title: '', running: false }} currentId={undefined}
+      now={0} onOpen={vi.fn()} onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
+    expect(screen.queryByText('进行中')).toBeNull()
+  })
+
   it('omits only an empty leading status slot in the hierarchy-free flat list', () => {
     const idle: SessionNode = {
       id: sid('flat'), title: 'Flat Session', blank: false, running: false,
@@ -90,7 +114,8 @@ describe('workspace browser rows', () => {
     expect(screen.getByText('Workspace context')).toBeTruthy()
     expect(screen.getByText('matching message excerpt')).toBeTruthy()
     expect(row.querySelector('[data-state="ongoing"]')).toBeTruthy()
-    expect(screen.getByText('进行中')).toBeTruthy()
+    // The visible status text plus the dot's screen-reader label.
+    expect(screen.getAllByText('进行中')).toHaveLength(2)
     expect(row.hasAttribute('draggable')).toBe(false)
     fireEvent.click(row)
     expect(onOpen).toHaveBeenCalledWith(result.id)
@@ -130,7 +155,8 @@ describe('workspace browser rows', () => {
     const row = screen.getByRole('treeitem')
     expect(row.querySelector('[data-state="warning"]')).toBeTruthy()
     expect(row.querySelector('[data-state="ongoing"]')).toBeNull()
-    expect(screen.getByText(label)).toBeTruthy()
+    // The visible status text plus the dot's screen-reader label.
+    expect(screen.getAllByText(label)).toHaveLength(2)
   })
 
   it('renders an active Workspace and keeps its create action separate from toggling', () => {
@@ -169,7 +195,7 @@ describe('workspace browser rows', () => {
     expect(onOpen).toHaveBeenCalledWith(node.id)
   })
 
-  it('reveals a clipped session title by scrolling it while the row is hovered', () => {
+  it('keeps a clipped session title stable while the row is hovered', () => {
     const node: SessionNode = {
       id: sid('clipped'), title: 'A Session Title Long Enough To Be Clipped (1)', blank: false,
       running: false, runningSubagentCount: 0, completed: false, hasActiveSchedule: false, updatedAt: 0,
@@ -180,43 +206,16 @@ describe('workspace browser rows', () => {
     )
     const row = screen.getByRole('treeitem')
     const title = screen.getByText(node.title)
-    // jsdom lays out nothing: the title's clipped geometry is stated outright.
-    const geometry = (scrollWidth: number, clientWidth: number): void => {
-      Object.defineProperty(title, 'scrollWidth', { value: scrollWidth, configurable: true })
-      Object.defineProperty(title, 'clientWidth', { value: clientWidth, configurable: true })
-    }
+    Object.defineProperty(title, 'scrollWidth', { value: 320, configurable: true })
+    Object.defineProperty(title, 'clientWidth', { value: 180, configurable: true })
 
-    geometry(320, 180)
-    fireEvent.pointerEnter(row)
-    expect(title.scrollLeft).toBe(140)
-    fireEvent.pointerLeave(row)
-    expect(title.scrollLeft).toBe(0)
-
-    // A title that fits has no scroll range: hovering leaves it at its start.
-    geometry(180, 180)
+    // The row no longer scrolls a clipped title under the pointer: movement
+    // inside a row would move its own content, so the stable rest position is
+    // the whole contract, and the hover card carries the full text.
     fireEvent.pointerEnter(row)
     expect(title.scrollLeft).toBe(0)
-  })
-
-  it('returns a revealed title to its start in one step', () => {
-    const node: SessionNode = {
-      id: sid('instant-return'), title: 'A Session Title Long Enough To Be Clipped (1)', blank: false,
-      running: false, runningSubagentCount: 0, completed: false, hasActiveSchedule: false, updatedAt: 0,
-    }
-    render(
-      <SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
-        onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />,
-    )
-    const row = screen.getByRole('treeitem')
-    const title = screen.getByText(node.title)
-    const scrollTo = vi.fn()
-    Object.defineProperty(title, 'scrollTo', { value: scrollTo, configurable: true })
-
-    fireEvent.pointerEnter(row)
     fireEvent.pointerLeave(row)
-    // Browsers receive the explicit instant behavior that the stylesheet's
-    // smooth scroll-behavior would otherwise override.
-    expect(scrollTo).toHaveBeenCalledWith({ left: 0, behavior: 'instant' })
+    expect(title.scrollLeft).toBe(0)
   })
 
   it('keeps the active-Schedule marker between the title and time in grouped and flat rows', () => {
@@ -533,6 +532,60 @@ describe('workspace browser rows', () => {
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
+
+  it('offers the same workspace verbs from a right-click on the row', () => {
+    const onRename = vi.fn()
+    const onToggle = vi.fn()
+    const group: GroupNode = {
+      key: 'project', workspaceId: wid('project'), cwd: '/projects/project', createdAt: 0, label: 'Project',
+      sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
+    }
+    render(<ProjectRowItem group={group} onToggle={onToggle} onCreate={vi.fn()}
+      actions={{ rename: onRename, delete: vi.fn() }} t={t} />)
+    // The browser menu would cover the row the choice applies to, so the row
+    // cancels it and opens its own list at the pointer.
+    expect(fireEvent.contextMenu(screen.getByText('Project'), { clientX: 40, clientY: 60 })).toBe(false)
+    expect(onToggle).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('menuitem', { name: '重命名' }))
+    expect(onRename).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the browser menu on the ungrouped bucket, which has no verbs', () => {
+    const group: GroupNode = {
+      key: '', workspaceId: undefined, cwd: undefined, createdAt: undefined, label: 'Ungrouped',
+      sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
+    }
+    render(<ProjectRowItem group={group} onToggle={vi.fn()} onCreate={vi.fn()} t={t} />)
+    // Not cancelled, so the browser keeps offering its own menu here.
+    expect(fireEvent.contextMenu(screen.getByText('未分组'), { clientX: 5, clientY: 5 })).toBe(true)
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('opens the session row verbs from a right-click on the session', () => {
+    const onRename = vi.fn()
+    const node: SessionNode = {
+      id: sid('session'), title: 'Session', blank: false, running: false,
+      runningSubagentCount: 0, completed: false, hasActiveSchedule: false, updatedAt: 0,
+    }
+    render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
+      onRename={onRename} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
+    fireEvent.contextMenu(screen.getByText('Session'), { clientX: 30, clientY: 70 })
+    fireEvent.click(screen.getByRole('menuitem', { name: '重命名' }))
+    expect(onRename).toHaveBeenCalledWith(node.id, 'Session')
+  })
+
+  it('keeps the browser menu on a blank session row, which has no verbs', () => {
+    const node: SessionNode = {
+      id: sid('blank'), title: '', blank: true, running: false,
+      runningSubagentCount: 0, completed: false, hasActiveSchedule: false, updatedAt: 0,
+    }
+    render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
+      onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
+    const row = screen.getByText('新会话')
+    // Not cancelled, so the browser keeps offering its own menu here.
+    expect(fireEvent.contextMenu(row, { clientX: 5, clientY: 5 })).toBe(true)
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
 
   it('shows the hover card after the dwell and suppresses it while the row menu is open', () => {
     vi.useFakeTimers()

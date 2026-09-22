@@ -101,6 +101,11 @@
   padding-left: 0;
 }
 
+/* Header action cluster: Add workspace, New section, and View options, at
+   28px each with a 4px gap. The cap must cover every member — `overflow:
+   hidden` clips the remainder, so an undersized cap hides a control without
+   removing it from the DOM. Kept as a max-width so the search-expand
+   transition still animates to zero. */
 .headerActions {
   flex: none;
   display: flex;
@@ -303,6 +308,7 @@
   margin-right: 0;
   padding-left: 0;
 }
+
 
 /* Relative for the bottom fade overlay. */
 .treeBody {

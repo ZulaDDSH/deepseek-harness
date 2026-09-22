@@ -402,7 +402,7 @@ describe('WorkspaceBrowser', () => {
     expect(screen.getByText('分组方式')).toBeTruthy() // the menu heading label
     expect(screen.getByRole('separator')).toBeTruthy()
     expect(screen.getAllByRole('menuitem').map(item => item.textContent)).toEqual([
-      '按工作区', '按工作区树', '单列表', '手动排序', '最近更新',
+      '按工作区', '按工作区树', '单列表', '活动', '手动排序', '最近更新',
     ])
     expect(screen.getByRole('menuitem', { name: '按工作区' }).querySelector('svg')).toBeTruthy()
     expect(screen.getByRole('menuitem', { name: '手动排序' }).querySelector('svg')).toBeTruthy()
@@ -426,6 +426,64 @@ describe('WorkspaceBrowser', () => {
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('menu')).toBeNull()
     expect(b.store.getSnapshot().groupBy).toBe('workspace')
+  })
+
+  it('groups attention, live work, and recent completion in Activity view', () => {
+    const attentionId = sid('attention')
+    const runningId = sid('running')
+    const delegatedId = sid('delegated')
+    const completedId = sid('completed')
+    const idleId = sid('idle')
+    const statuses: SessionStatusSnapshot = new Map([
+      [attentionId, {
+        running: false,
+        pendingInteraction: { key: 'question', kind: 'question', sessionId: attentionId } as never,
+        completionUnread: false,
+      }],
+      [runningId, { running: true, pendingInteraction: undefined, completionUnread: false }],
+      [delegatedId, { running: false, pendingInteraction: undefined, completionUnread: false }],
+      [completedId, { running: false, pendingInteraction: undefined, completionUnread: true }],
+      [idleId, { running: false, pendingInteraction: undefined, completionUnread: false }],
+    ])
+    const sessions = sessionState([
+      summary('attention', 5),
+      summary('running', 4),
+      summary('delegated', 3),
+      summary('child', 2, { origin: 'subagent', parentId: delegatedId, running: true }),
+      summary('completed', 1),
+      summary('idle', 0),
+    ], {
+      byId: {
+        [attentionId]: summary('attention', 5),
+        [runningId]: summary('running', 4),
+        [delegatedId]: summary('delegated', 3),
+        [sid('child')]: summary('child', 2, { origin: 'subagent', parentId: delegatedId, running: true }),
+        [completedId]: summary('completed', 1),
+        [idleId]: summary('idle', 0),
+      },
+    })
+    const b = mount({ useSessions: hook(sessions), useSessionStatus: hook(statuses) })
+
+    fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '活动' }))
+
+    expect(b.store.getSnapshot().groupBy).toBe('activity')
+    // Attention leads, live work — including a Session whose running subagent
+    // is hidden from the list — follows, and only unread completions close it.
+    expect(screen.getByRole('group', { name: '需要处理' }).textContent).toContain('attention')
+    expect(screen.getByRole('group', { name: '进行中' }).textContent).toContain('running')
+    expect(screen.getByRole('group', { name: '进行中' }).textContent).toContain('delegated')
+    expect(screen.getByRole('group', { name: '最近完成' }).textContent).toContain('completed')
+    expect(screen.queryByText('idle')).toBeNull()
+  })
+
+  it('shows the empty Activity state while a global panel owns the main view', () => {
+    const b = mount({
+      usePanelInfo: selector => selector({ activePanelId: 'settings' as MainPanelId }),
+    })
+    act(() => { b.store.actions.setGroupBy('activity') })
+    expect(screen.getByText('暂无活动')).toBeTruthy()
+    expect(screen.queryByRole('group')).toBeNull()
   })
 
   it('keeps Workspaces as siblings by default and restores the selected tree grouping', () => {

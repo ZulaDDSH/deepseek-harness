@@ -1,5 +1,5 @@
 ---
-description: "Shared Workspace browser and picker plugin for the dsh web client: grouped or flat session rows, add/rename/reorder, search, fork, archive, and the directory-flow picking hole."
+description: "Shared Workspace browser and picker plugin for the dsh web client: workspace, flat, and activity Session views, add/rename/reorder, search, fork, archive, and the directory-flow picking hole."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-This package lets users browse grouped or flat Session lists, choose a Workspace for a new Session, and manage Workspaces and Sessions through add, rename, reorder, search, fork, archive, and Workspace deletion. Pending interactions appear as warning dots, active scheduled tasks as alarm markers, and subagent-origin Sessions remain hidden. Canonically distinct folder paths remain separate Workspaces. Adding a Workspace requires a composed directory picker; without one, the add action is unavailable.
+This package lets users browse grouped, flat, or activity-centered Session lists, choose a Workspace for a new Session, and manage Workspaces and Sessions through add, rename, reorder, search, fork, archive, and Workspace deletion. Pending interactions and live work carry visible status text beside their status dots, active scheduled tasks use alarm markers, and subagent-origin Sessions remain hidden. Canonically distinct folder paths remain separate Workspaces. Adding a Workspace requires a composed directory picker; without one, the add action is unavailable.
 
 ## Table of Contents
 
@@ -33,7 +33,7 @@ Use the sidebar to browse Workspaces and their Sessions, reorder them, and start
 
 ### Workspace hierarchy
 
-Choose **Add workspace** and select a directory to register it and open a Session. **View options → Group by** defaults to **WorkSpace**, which lists Workspaces as sibling sections. Select **Workspace Tree** to nest each Workspace under its nearest registered ancestor, including Workspaces added later. Each Workspace keeps its own Sessions and row actions. Child Workspaces appear before the parent's own Sessions. Ancestors start expanded unless a saved collapsed state exists. A saved collapse also hides the current Session; ancestor folder icons stay highlighted when a descendant Workspace contains it. Row fills and hit targets span the same width at every level; only the contents indent. Workspace dragging reorders siblings; dropping on a descendant targets the nearest compatible ancestor, so an expanded parent can be moved past without collapsing it. Search-result navigation expands every ancestor. Grouping and expansion are saved in the current browser; switching modes preserves each Workspace's expansion preference, and the single-list view stays flat.
+Choose **Add workspace** and select a directory to register it and open a Session. **View options → Group by** defaults to **WorkSpace**, which lists Workspaces as sibling sections. Select **Workspace Tree** to nest each Workspace under its nearest registered ancestor, including Workspaces added later. Each Workspace keeps its own Sessions and row actions. Child Workspaces appear before the parent's own Sessions. Ancestors start expanded unless a saved collapsed state exists. A saved collapse also hides the current Session; ancestor folder icons stay highlighted when a descendant Workspace contains it. Row fills and hit targets span the same width at every level; only the contents indent. Workspace dragging reorders siblings; dropping on a descendant targets the nearest compatible ancestor, so an expanded parent can be moved past without collapsing it. Search-result navigation expands every ancestor. Grouping and expansion are saved in the current browser; switching modes preserves each Workspace's expansion preference, and the single-list view stays flat. **Activity** uses the same visible Session projection but groups only work that needs attention, is running directly or through descendants, or has an unread completion reminder. Idle Sessions stay out of Activity.
 
 Hierarchy uses registered canonical paths only. It does not scan for projects or resolve symlink aliases. Nesting does not change Session working directories, logs, or Workspace membership. Deleting a parent Workspace leaves its child Workspaces registered and places them under their next registered ancestor, or at the root.
 
@@ -45,11 +45,11 @@ Collapsed search is one header action beside the view and add actions: activatin
 
 The Session row's Rename action opens a dialog prefilled with the row's display title; confirming an unchanged title is deliberately allowed — it pins the current automatic title against regeneration. Rename uses a temporary `workspaceOperation` reference, while fork-title assignment uses a temporary `controllerOperation` reference inside Session Controller; both await the reference's initial history opening. Archive commits without a confirmation dialog and the row disappears from every grouping surface when the archive-set echo lands. Fork forks at the source's last completed turn, increments the inherited persisted title on the client, and then opens the child. Workspace Delete opens a confirmation that states the retention boundary; success removes the group while its Sessions remain under Ungrouped.
 
-A Session title wider than its row is clipped with an ellipsis at rest. Hovering the row scrolls the title to its far edge — the incremented title of a fork, for example — and reveals it without the ellipsis; leaving the row returns the title to its start.
+A Session title wider than its row stays clipped with an ellipsis so pointer movement does not move row content. The existing hover card exposes the complete title and copy action.
 
 ### Pending interactions
 
-Session rows render the runtime's live `pendingInteraction` classification: approvals report **Waiting for approval**, plan reviews report **Plan awaiting review**, and ordinary questions report **Waiting for answer**. Every pending interaction uses an amber warning dot that takes precedence over the running indicator.
+Session rows render the runtime's live attention classification directly in the row: approvals report **Waiting for approval**, plan reviews report **Plan awaiting review**, and ordinary questions report **Waiting for answer**. Every pending interaction uses an amber warning dot that takes precedence over the running indicator, and its text sits beside the dot so the state is readable without interpreting a color. The Activity view groups these rows under **Needs attention**.
 
 ### Active Schedule markers
 
@@ -68,6 +68,10 @@ The value is intentionally best effort for cold Sessions. An identity-matching u
 <summary>Implementation internals — click to expand</summary>
 
 The package is one composition: both target slots are declared by other plugins, so `apply` uses `slots.inject()` to register for each declaration lifetime and re-register after a declaring slot is restored.
+
+### Browsing-region modules
+
+`rows/WorkspaceBrowser.tsx` is the region's composition root: it reads the persisted view store and Workspace projection, derives the ordered membership each body renders, and mounts the body the selected grouping mode names. Each body owns only its own projection and drag ordering — `rows/SessionTree.tsx` the grouped tree, `rows/FlatList.tsx` the hierarchy-free list, `rows/ActivityList.tsx` the activity buckets, and `rows/SearchResults.tsx` the merged local and Host search page. `rows/Rows.tsx` holds the row components and `rows/SessionStatus.tsx` the status derivation; the shared right-click menu lives in `rows/context-menu.tsx`, the search and reveal state machines in `rows/search-state.ts`, the query bound in `rows/search-query.ts`, the dialog controllers in `rows/WorkspaceDialogs.tsx`, and the header's grouping and ordering menu in `rows/ViewOptionsMenu.tsx`.
 
 ### The directory-flow hole
 
