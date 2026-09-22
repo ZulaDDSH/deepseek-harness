@@ -319,13 +319,13 @@ describe('workspace browser rows', () => {
     render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
       onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()}
       appearanceActions={{ color: onColor, icon: onIcon }} t={t} />)
-    fireEvent.click(screen.getByRole('button', { name: t('actions.session.aria', { name: 'Session' }) }))
-    fireEvent.click(screen.getByText(t('appearance.color')))
-    fireEvent.click(screen.getByText(t('appearance.color.blue')))
+    fireEvent.click(screen.getByRole('button', { name: '会话“Session”的操作' }))
+    fireEvent.click(screen.getByText('颜色'))
+    fireEvent.click(screen.getByText('蓝色'))
     expect(onColor).toHaveBeenCalledWith('blue')
-    fireEvent.click(screen.getByRole('button', { name: t('actions.session.aria', { name: 'Session' }) }))
-    fireEvent.click(screen.getByText(t('appearance.icon')))
-    fireEvent.click(screen.getByText(t('appearance.icon.terminal')))
+    fireEvent.click(screen.getByRole('button', { name: '会话“Session”的操作' }))
+    fireEvent.click(screen.getByText('图标'))
+    fireEvent.click(screen.getByText('终端'))
     expect(onIcon).toHaveBeenCalledWith('terminal')
   })
 
@@ -585,7 +585,7 @@ describe('workspace browser rows', () => {
     }
     render(<ProjectRowItem
       group={group} onToggle={onToggle} onCreate={vi.fn()}
-      actions={{ rename: onRename, delete: onDelete }} t={t}
+      actions={{ ...workspaceActions(), rename: onRename, delete: onDelete }} t={t}
     />)
     fireEvent.click(screen.getByRole('button', { name: '工作区“Project”的操作' }))
     // Opening the menu neither toggles the group nor renames yet.
