@@ -74,7 +74,8 @@ describe('workspace status refresh against a cached comparison', () => {
       useWorkspaceDiff: hookOf(diffs.state),
       loadStatus: (target: WorkspaceId) => statuses.load(target),
       refreshStatus: (target: WorkspaceId) => statuses.refresh(target),
-      loadDiff: (target: WorkspaceId, position: number) => diffs.load(target, position),
+      statusGenerationOf: (target: WorkspaceId) => statuses.generationOf(target),
+      loadDiff: (target: WorkspaceId, path: string, at: number, position: number) => diffs.load(target, path, at, position),
       t: makeTranslate(en),
     } as unknown as WorkspaceChangesTabProps
 

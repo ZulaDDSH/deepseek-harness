@@ -104,7 +104,8 @@ export function apply(ctx: ClientContext): void {
       hooks: { workspaceStatus: workspaceStatus.state, workspaceDiff: workspaceDiff.state },
       loadStatus: workspaceId => workspaceStatus.load(workspaceId),
       refreshStatus: workspaceId => workspaceStatus.refresh(workspaceId),
-      loadDiff: (workspaceId, index) => workspaceDiff.load(workspaceId, index),
+      statusGenerationOf: workspaceId => workspaceStatus.generationOf(workspaceId),
+      loadDiff: (workspaceId, filePath, generation, index) => workspaceDiff.load(workspaceId, filePath, generation, index),
     }),
   }, SourceChangesPage))
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
@@ -133,7 +134,8 @@ export function apply(ctx: ClientContext): void {
         hooks: { workspaceStatus: workspaceStatus.state, workspaceDiff: workspaceDiff.state },
         loadStatus: workspaceId => workspaceStatus.load(workspaceId),
         refreshStatus: workspaceId => workspaceStatus.refresh(workspaceId),
-        loadDiff: (workspaceId, index) => workspaceDiff.load(workspaceId, index),
+        statusGenerationOf: workspaceId => workspaceStatus.generationOf(workspaceId),
+        loadDiff: (workspaceId, filePath, generation, index) => workspaceDiff.load(workspaceId, filePath, generation, index),
       }),
     },
     WorkspaceChangesTab,

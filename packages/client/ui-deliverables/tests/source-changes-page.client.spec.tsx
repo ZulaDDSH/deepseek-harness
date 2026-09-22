@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import { workspaceDiffUrl, workspaceStatusUrl, type WorkspaceDiff, type WorkspaceStatusValue } from '../src/changes.ts'
+import { workspaceStatusUrl, type WorkspaceDiff, type WorkspaceStatusValue } from '../src/changes.ts'
 import { SourceChangesPage, type SourceChangesPageProps } from '../src/client/SourceChangesPage.tsx'
 import { WorkspaceDiffStore } from '../src/client/workspace-diff.ts'
 import { WorkspaceStatusStore } from '../src/client/workspace-status.ts'
@@ -38,7 +38,7 @@ describe('SourceChangesPage', () => {
     const statuses = new WorkspaceStatusStore()
     const diffs = new WorkspaceDiffStore()
     statuses.state.set({ [workspaceStatusUrl(workspaceId)]: status })
-    diffs.state.set({ [workspaceDiffUrl(workspaceId, 0)]: diff })
+    diffs.state.set({ [WorkspaceDiffStore.keyOf(workspaceId, 'src/app.ts', 0, 0)]: diff })
     const refreshStatus = vi.fn<WorkspaceStatusStore['refresh']>(() => Promise.resolve())
     const loadStatus = vi.fn<WorkspaceStatusStore['load']>(() => Promise.resolve())
     const loadDiff = vi.fn<WorkspaceDiffStore['load']>(() => Promise.resolve())
@@ -50,6 +50,7 @@ describe('SourceChangesPage', () => {
       useWorkspaceStatus: hookOf(statuses.state),
       useWorkspaceDiff: hookOf(diffs.state),
       loadStatus, refreshStatus, loadDiff,
+      statusGenerationOf: (target: WorkspaceId) => statuses.generationOf(target),
       t: makeTranslate(en),
     } as unknown as SourceChangesPageProps
 

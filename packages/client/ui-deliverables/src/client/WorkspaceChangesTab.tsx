@@ -11,9 +11,9 @@ import { Button, IconRefreshOutline16 } from '@deepseek-ai/dsh-client-ui-primiti
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace'
-import { workspaceDiffUrl, workspaceStatusUrl } from '../changes.ts'
+import { workspaceStatusUrl } from '../changes.ts'
 import { TextDiff } from './ReviewTab.tsx'
-import type { WorkspaceDiffStore, WorkspaceDiffState } from './workspace-diff.ts'
+import { WorkspaceDiffStore, type WorkspaceDiffState } from './workspace-diff.ts'
 import type { WorkspaceStatusStore } from './workspace-status.ts'
 import { NS } from './locales.ts'
 import css from './WorkspaceChangesTab.module.css'
@@ -26,6 +26,7 @@ export interface WorkspaceChangesInjected {
   }
   loadStatus: WorkspaceStatusStore['load']
   refreshStatus: WorkspaceStatusStore['refresh']
+  statusGenerationOf: WorkspaceStatusStore['generationOf']
   loadDiff: WorkspaceDiffStore['load']
 }
 
@@ -42,7 +43,7 @@ export type WorkspaceChangesTabProps =
  */
 export function WorkspaceChangesTab({
   sessionId, useSessions, useWorkspaces, useWorkspaceStatus, useWorkspaceDiff,
-  loadStatus, refreshStatus, loadDiff, t,
+  statusGenerationOf, loadStatus, refreshStatus, loadDiff, t,
 }: WorkspaceChangesTabProps): ReactNode {
   const workspaces = useWorkspaces(state => state.items)
   const cwd = useSessions(state => state.byId[sessionId]?.cwd)
@@ -67,13 +68,18 @@ export function WorkspaceChangesTab({
     if (selectedIndex >= files.length) setSelectedIndex(0)
   }, [files.length, selectedIndex])
   const file = files[selectedIndex]
-  const diffUrl = selectedId === undefined || file === undefined
+  // A position addresses a file only within the status list it came from, so
+  // the comparison is keyed by that list's generation beside the file's path.
+  const generation = selectedId === undefined ? 0 : statusGenerationOf(selectedId)
+  const diffKey = selectedId === undefined || file === undefined
     ? undefined
-    : workspaceDiffUrl(selectedId, selectedIndex)
-  const diffState = useWorkspaceDiff(value => diffUrl === undefined ? undefined : value[diffUrl])
+    : WorkspaceDiffStore.keyOf(selectedId, file.path, generation, selectedIndex)
+  const diffState = useWorkspaceDiff(value => diffKey === undefined ? undefined : value[diffKey])
   useEffect(() => {
-    if (selectedId !== undefined && file !== undefined && diffState === undefined) void loadDiff(selectedId, selectedIndex)
-  }, [selectedId, file, diffState, selectedIndex, loadDiff])
+    if (selectedId !== undefined && file !== undefined && diffState === undefined) {
+      void loadDiff(selectedId, file.path, generation, selectedIndex)
+    }
+  }, [selectedId, file, diffState, generation, selectedIndex, loadDiff])
 
   return <div className={css.page} data-source-changes>
     <header className={css.header}>
@@ -117,7 +123,9 @@ export function WorkspaceChangesTab({
       <div className={css.diff}>
         {file === undefined && <p className={css.status}>{t('source.selectFile')}</p>}
         {file !== undefined && <SourceDiff state={diffState}
-          retry={() => { if (selectedId !== undefined) void loadDiff(selectedId, selectedIndex) }} t={t} />}
+          retry={() => {
+            if (selectedId !== undefined) void loadDiff(selectedId, file.path, generation, selectedIndex)
+          }} t={t} />}
       </div>
     </>}
   </div>
