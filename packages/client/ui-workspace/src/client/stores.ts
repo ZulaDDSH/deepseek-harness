@@ -229,6 +229,7 @@ export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState
         const sections = d.chatSections.sections
         const from = sections.findIndex(section => section.id === sectionId)
         if (from === -1) return
+        if (beforeSectionId === sectionId) return
         const [moved] = sections.splice(from, 1)
         /* v8 ignore next -- the index came from this array, so splice always yields the element. */
         if (moved === undefined) return

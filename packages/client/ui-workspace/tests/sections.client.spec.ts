@@ -152,6 +152,9 @@ describe('Chat Sections operations', () => {
     // A missing source is inert.
     instance.actions.moveSection('missing', 'b')
     expect(instance.getSnapshot().chatSections.sections.map(s => s.id)).toEqual(['b', 'c', 'a'])
+    // Anchoring a section on itself is inert rather than a one-step shift.
+    instance.actions.moveSection('b', 'b')
+    expect(instance.getSnapshot().chatSections.sections.map(s => s.id)).toEqual(['b', 'c', 'a'])
   })
 
   it('forgets assignments and saved slots for chats that no longer exist', () => {
