@@ -6,9 +6,10 @@
 
 import { describe, expect, it, beforeEach, afterEach } from 'vitest'
 import { execFile } from 'node:child_process'
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import { cloneSource, listSourceFiles, resolveGitSource } from '../src/index.ts'
 
@@ -17,20 +18,30 @@ const run = promisify(execFile)
 let workdir: string
 let repo: string
 
-/** Run one Git command in the disposable repository. */
-async function git(args: string[]): Promise<string> {
-  const { stdout } = await run('git', args, { cwd: repo })
+/** Run one Git command in a disposable repository. */
+async function gitIn(directory: string, args: string[]): Promise<string> {
+  const { stdout } = await run('git', args, { cwd: directory })
   return stdout.trim()
 }
 
-/** Commit one file into the disposable repository. */
-async function commitFile(path: string, content: string, message: string): Promise<string> {
-  const full = join(repo, path)
+/** Commit one file into a disposable repository. */
+async function commitIn(directory: string, path: string, content: string, message: string): Promise<string> {
+  const full = join(directory, path)
   await mkdir(join(full, '..'), { recursive: true })
   await writeFile(full, content, 'utf8')
-  await git(['add', path])
-  await git(['-c', 'user.email=test@example.com', '-c', 'user.name=Test', 'commit', '-m', message])
-  return await git(['rev-parse', 'HEAD'])
+  await gitIn(directory, ['add', path])
+  await gitIn(directory, ['-c', 'user.email=test@example.com', '-c', 'user.name=Test', 'commit', '-m', message])
+  return await gitIn(directory, ['rev-parse', 'HEAD'])
+}
+
+/** Run one Git command in the primary disposable repository. */
+async function git(args: string[]): Promise<string> {
+  return await gitIn(repo, args)
+}
+
+/** Commit one file into the primary disposable repository. */
+async function commitFile(path: string, content: string, message: string): Promise<string> {
+  return await commitIn(repo, path, content, message)
 }
 
 beforeEach(async () => {
@@ -83,6 +94,45 @@ describe('git knowledge source', () => {
     await git(['tag', 'v1.0.0'])
     const resolved = await resolveGitSource({ repo, ref: 'v1.0.0', paths: ['decisions/**'] })
     expect(resolved.commit).toBe(commit)
+  })
+
+  it('advances a managed clone to the fetched remote revision', async () => {
+    const upstream = join(workdir, 'upstream')
+    await mkdir(upstream, { recursive: true })
+    await gitIn(upstream, ['init', '-b', 'master'])
+    const first = await commitIn(upstream, 'knowledge/runbook.md', '# Runbook v1', 'runbook v1')
+
+    const source = {
+      repo: pathToFileURL(upstream).href,
+      ref: 'master',
+      paths: ['knowledge/**'],
+      checkoutDir: join(workdir, 'checkout'),
+    }
+    const before = await resolveGitSource(source)
+    expect(before.commit).toBe(first)
+
+    // The upstream advances. A fetch moves origin/master; the clone's own
+    // master branch stays where the clone left it.
+    const second = await commitIn(upstream, 'knowledge/runbook.md', '# Runbook v2', 'runbook v2')
+    const after = await resolveGitSource(source)
+
+    expect(after.commit).toBe(second)
+    expect(after.commit).not.toBe(before.commit)
+    expect(await listSourceFiles(after, ['knowledge/**'])).toEqual(['knowledge/runbook.md'])
+  })
+
+  it('refuses to move a local checkout that has uncommitted tracked changes', async () => {
+    const first = await commitFile('knowledge/runbook.md', '# Runbook v1', 'runbook v1')
+    await commitFile('knowledge/runbook.md', '# Runbook v2', 'runbook v2')
+    await git(['checkout', '--detach', first])
+    await writeFile(join(repo, 'knowledge/runbook.md'), '# local edit', 'utf8')
+
+    await expect(resolveGitSource({ repo, ref: 'master', paths: ['knowledge/**'] }))
+      .rejects.toThrow(/uncommitted tracked changes/)
+
+    // The rejected resolve left the operator's edit in place.
+    expect(await readFile(join(repo, 'knowledge/runbook.md'), 'utf8')).toBe('# local edit')
+    expect(await git(['rev-parse', 'HEAD'])).toBe(first)
   })
 
   it('rejects a source that is not a Git work tree', async () => {

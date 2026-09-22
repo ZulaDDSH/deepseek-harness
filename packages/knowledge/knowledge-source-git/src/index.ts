@@ -11,6 +11,7 @@
  */
 
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
@@ -112,19 +113,67 @@ export function cloneSource(repo: string): string {
 }
 
 /**
+ * Resolve one configured ref to the commit this resolver checks out.
+ *
+ * A fetched remote-tracking revision outranks a same-named local branch: `fetch`
+ * moves `refs/remotes/origin/<ref>` without moving the local branch, so checking
+ * out the local name would pin the commit the clone held before the fetch and
+ * report a source that never advances.
+ *
+ * @param root - checkout to resolve the ref in.
+ * @param ref - configured branch, tag, or commit.
+ * @returns the resolved full commit SHA.
+ * @throws {Error} when no candidate revision resolves.
+ */
+async function resolveRefCommit(root: string, ref: string): Promise<string> {
+  for (const candidate of [`refs/remotes/origin/${ref}`, `refs/tags/${ref}`, `refs/heads/${ref}`, ref]) {
+    const result = await git(['rev-parse', '--verify', '--quiet', `${candidate}^{commit}`], root)
+    if (result.code === 0 && result.stdout.trim() !== '') return result.stdout.trim()
+  }
+  throw new Error(`knowledge source ref ${JSON.stringify(ref)} does not resolve in ${root}`)
+}
+
+/**
+ * Refuse to move a local checkout that carries uncommitted tracked changes.
+ *
+ * The checkout belongs to the operator, so a resolve that moves it must not
+ * discard edits this package did not make. Untracked files are ignored because
+ * no checkout replaces them.
+ *
+ * @param root - local work tree about to be moved.
+ * @throws {Error} when tracked files differ from `HEAD`.
+ */
+async function assertCleanWorkTree(root: string): Promise<void> {
+  const status = await gitOrThrow(['status', '--porcelain', '--untracked-files=no'], root)
+  if (status !== '') {
+    throw new Error(
+      `knowledge source "${root}" has uncommitted tracked changes; `
+      + 'commit or stash them, or configure a separate checkout, before resolving this ref',
+    )
+  }
+}
+
+/**
  * Resolve one Git knowledge source into a checkout pinned to a commit.
  *
  * A remote repository is cloned when absent and fetched when present, so a
  * repeated sync advances the checkout instead of re-downloading it. A local
  * checkout is used in place and fetched from its own remote when it has one.
  *
+ * The resolved commit is checked out detached, so neither kind of checkout
+ * leaves a branch checked out that a later resolve would silently reuse. A
+ * local checkout that would move is refused while it carries uncommitted
+ * tracked changes, and a checkout already standing at the resolved commit is
+ * left exactly as it is.
+ *
  * @param source - configured repository, ref, and paths.
  * @returns the checkout root and the commit it now resolves to.
  */
 export async function resolveGitSource(source: GitKnowledgeSource): Promise<ResolvedGitSource> {
   const remote = cloneSource(source.repo)
+  const local = isLocalPath(source.repo)
   let root: string
-  if (isLocalPath(source.repo)) {
+  if (local) {
     root = source.repo
     if (!await isWorkTree(root)) {
       throw new Error(`knowledge source "${source.repo}" is not a Git work tree`)
@@ -133,16 +182,19 @@ export async function resolveGitSource(source: GitKnowledgeSource): Promise<Reso
     await git(['fetch', '--all', '--tags'], root)
   } else {
     root = source.checkoutDir ?? join(process.cwd(), '.dsh-knowledge', source.repo.replace(/[^A-Za-z0-9._-]/gu, '_'))
-    if (await isWorkTree(root)) {
+    if (existsSync(root) && await isWorkTree(root)) {
       await gitOrThrow(['fetch', '--all', '--tags'], root)
     } else {
       await mkdir(root, { recursive: true })
-      await gitOrThrow(['clone', '--no-checkout', remote, root])
+      await gitOrThrow(['clone', remote, root])
     }
   }
 
-  await gitOrThrow(['checkout', '--force', source.ref], root)
-  const commit = await gitOrThrow(['rev-parse', 'HEAD'], root)
+  const commit = await resolveRefCommit(root, source.ref)
+  if (commit !== await gitOrThrow(['rev-parse', 'HEAD'], root)) {
+    if (local) await assertCleanWorkTree(root)
+    await gitOrThrow(['checkout', '--detach', commit], root)
+  }
   return { root, commit, repo: source.repo, ref: source.ref }
 }
 

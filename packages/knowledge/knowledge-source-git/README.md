@@ -7,7 +7,7 @@ kind: "package-reference"
 
 ## Summary
 
-This package resolves a Git repository and ref into a local checkout a knowledge service can ingest, and reports the exact commit the checkout now points at. A public GitHub repository is cloned with ordinary Git semantics; a local checkout is fetched and checked out in place. The resolved commit is the source record a knowledge entry keeps, because a knowledge service that only ingests files records a path and a source type, never the revision a document came from. This package is a resolver, not a running service.
+This package resolves a Git repository and ref into a local checkout a knowledge service can ingest, and reports the exact commit the checkout now points at. A public GitHub repository is cloned with ordinary Git semantics; a local checkout is fetched and moved in place only while it carries no uncommitted tracked changes. The resolved commit is the source record a knowledge entry keeps, because a knowledge service that only ingests files records a path and a source type, never the revision a document came from. This package is a resolver, not a running service.
 
 ## Table of Contents
 
@@ -54,7 +54,9 @@ A private repository is never given credentials by this package: cloning and fet
 
 ### What you get
 
-`resolveGitSource` clones a new remote repository, or fetches an existing one, checks out the configured ref, and returns the checkout root plus the resulting commit SHA. Calling it again after the upstream repository advances re-fetches and returns the new commit, so a knowledge sync process comparing the returned commit against a stored one can detect that the source changed. `listSourceFiles` reports exactly the tracked files the configured pathspecs select, using Git's own pathspec matching so `**` behaves as Git defines it.
+`resolveGitSource` clones a new remote repository, or fetches an existing one, resolves the configured ref to a commit, and returns the checkout root plus that commit SHA. The fetched remote-tracking revision is what a branch ref resolves to, so a repeated call after the upstream repository advances returns the new commit rather than the commit the local branch was left at; a knowledge sync process comparing the returned commit against a stored one can therefore detect that the source changed. `listSourceFiles` reports exactly the tracked files the configured pathspecs select, using Git's own pathspec matching so `**` behaves as Git defines it.
+
+A checkout already standing at the resolved commit is left untouched, so a local checkout keeps its branch and its uncommitted work whenever the ref has not moved. When the ref would move a local checkout that carries uncommitted tracked changes, `resolveGitSource` rejects instead of checking out over them; point the source at a separate clone, or commit and stash the work, to sync that repository.
 
 -----
 
@@ -104,6 +106,7 @@ These limits describe what this package does not do. They are current package co
 - **No knowledge-service ingestion call** — this package stops at producing a checkout and a file list; sending that list to a knowledge service's index tool is a separate integration step.
 - **Shallow clone is not used** — every clone is a full clone, which is simple and correct but slower than a shallow clone for a large repository with long history.
 - **Local checkout must already be a Git work tree** — a plain directory of files with no `.git` is rejected rather than initialized.
+- **A moved local checkout must be clean** — resolving a ref that would move a local checkout with uncommitted tracked changes is rejected; syncing that repository needs a clean tree or a separate clone, because this package never discards the operator's edits.
 - **No submodule handling** — a repository with submodules resolves its top-level tree only.
 
 <a id="dev-note"></a>
