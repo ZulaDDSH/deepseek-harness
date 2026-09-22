@@ -9,6 +9,14 @@ import { pnpmInvocation } from './pnpm-invocation.ts'
 /** Environment variable selecting the number of instrumented coverage processes. */
 export const COVERAGE_PARTITIONS_ENV = 'DSH_COVERAGE_PARTITIONS'
 
+/**
+ * Partition count used when {@link COVERAGE_PARTITIONS_ENV} is unset, so the
+ * local entry point runs without a variable to remember. It matches the count
+ * CI exports, and a deployment that needs a different split still sets the
+ * variable rather than editing this.
+ */
+export const DEFAULT_COVERAGE_PARTITIONS = 4
+
 /** Internal marker that suppresses reports and thresholds inside a partition process. */
 export const COVERAGE_PARTITION_MODE_ENV = 'DSH_COVERAGE_PARTITION_MODE'
 
@@ -74,9 +82,14 @@ export interface CoveragePartitionCoordinatorOptions {
   projectOf?: ReadonlyMap<string, string>
 }
 
-/** Parse an optional coverage partition count. */
-export function parseCoveragePartitionCount(raw: string | undefined): number | undefined {
-  if (raw === undefined || raw === '') return undefined
+/**
+ * Parse a coverage partition count.
+ * @param raw - the configured value; unset or empty selects {@link DEFAULT_COVERAGE_PARTITIONS}.
+ * @returns the resolved partition count.
+ * @throws {Error} when a supplied value is not an integer greater than 1.
+ */
+export function parseCoveragePartitionCount(raw: string | undefined): number {
+  if (raw === undefined || raw === '') return DEFAULT_COVERAGE_PARTITIONS
   const parsed = Number.parseInt(raw, 10)
   if (!Number.isSafeInteger(parsed) || parsed < 2 || String(parsed) !== raw) {
     throw new Error(`${COVERAGE_PARTITIONS_ENV} must be an integer greater than 1, got ${JSON.stringify(raw)}.`)

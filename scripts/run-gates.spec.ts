@@ -393,17 +393,24 @@ describe('gate graph validation', () => {
     expect(completeBuiltBin?.after).not.toContain('docs-site-build')
   })
 
-  it('applies one configured test, polling, and hook timeout to both coverage gates', () => {
+  it('applies the configured test, polling, and hook timeout to the exempt gate and the partitioned coordinator', () => {
     const gates = withEnv('DSH_COVERAGE_TEST_TIMEOUT_MS', '15000', () =>
       withPnpmEntrypoint(() => gatesForMode('ci-windows-complete')))
 
-    for (const id of ['coverage', 'coverage-exempt-heavy']) {
-      expect(gates.find(subject => subject.id === id)?.args).toEqual(expect.arrayContaining([
-        '--testTimeout=15000',
-        '--expect.poll.timeout=15000',
-        '--hookTimeout=15000',
-      ]))
-    }
+    expect(gates.find(subject => subject.id === 'coverage-exempt-heavy')?.args).toEqual(expect.arrayContaining([
+      '--testTimeout=15000',
+      '--expect.poll.timeout=15000',
+      '--hookTimeout=15000',
+    ]))
+
+    // The instrumented lane always runs partitioned, so the coordinator turns
+    // the same environment value into each partition's Vitest flags instead of
+    // the gate passing them once for the whole run.
+    const instrumented = gates.find(subject => subject.id === 'coverage')
+    expect(instrumented?.args).toEqual(expect.arrayContaining(['run', 'test:coverage:partitioned']))
+    expect(instrumented?.args).not.toEqual(expect.arrayContaining([
+      expect.stringMatching(/^--(?:testTimeout|expect\.poll\.timeout|hookTimeout)=/),
+    ]))
   })
 
   it('keeps Vitest timeout defaults when the coverage override is absent', () => {
