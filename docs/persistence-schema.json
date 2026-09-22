@@ -6080,6 +6080,80 @@
       }
     },
     {
+      "key": "event:mcp/selection",
+      "kind": "event",
+      "event": "mcp/selection",
+      "surface": false,
+      "digest": "1ccb7116650e66089c8d2958f212e08a2311cdd8db1978f9d8fe05509032ecac",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "data",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "ignorable",
+                "type": 4,
+                "optional": true
+              },
+              {
+                "name": "seq",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "time",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "type",
+                "type": 6,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "connectorIds",
+                "type": 2,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "array",
+            "element": 3
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
+            "kind": "literal",
+            "value": true
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          },
+          {
+            "kind": "literal",
+            "value": "mcp/selection"
+          }
+        ]
+      }
+    },
+    {
       "key": "event:model/selection",
       "kind": "event",
       "event": "model/selection",
@@ -18892,6 +18966,80 @@
         ]
       },
       "names": [],
+      "sources": []
+    },
+    {
+      "digest": "1ccb7116650e66089c8d2958f212e08a2311cdd8db1978f9d8fe05509032ecac",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "data",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "ignorable",
+                "type": 4,
+                "optional": true
+              },
+              {
+                "name": "seq",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "time",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "type",
+                "type": 6,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "connectorIds",
+                "type": 2,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "array",
+            "element": 3
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
+            "kind": "literal",
+            "value": true
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          },
+          {
+            "kind": "literal",
+            "value": "mcp/selection"
+          }
+        ]
+      },
+      "names": [
+        "event:mcp/selection"
+      ],
       "sources": []
     },
     {
@@ -32113,7 +32261,7 @@
         "packages/workflow/workflow/src/types.ts#WorkflowRunId"
       ],
       "sources": [
-        "packages/api/session-controller/src/types.ts:376",
+        "packages/api/session-controller/src/types.ts:420",
         "packages/attachment/attachment/src/brand.ts:6",
         "packages/compaction/compaction/src/brand.ts:4",
         "packages/core/session/src/types.ts:19",
@@ -35076,9 +35224,9 @@
         ]
       },
       "names": [
-        "SessionEventEnvelope[39].sourceEventSeqs",
-        "SessionEventEnvelope[52].sourceEventSeqs",
-        "SessionEventEnvelope[55].sourceEventSeqs",
+        "SessionEventEnvelope[40].sourceEventSeqs",
+        "SessionEventEnvelope[53].sourceEventSeqs",
+        "SessionEventEnvelope[56].sourceEventSeqs",
         "event:assistant/attempt.data.stream[0][0].dt",
         "event:assistant/attempt.data.stream[0][1].dt",
         "event:assistant/attempt.data.stream[0][2].dt",
@@ -38047,7 +38195,7 @@
         "event:agent/inbox/spliced.data.inserted[0].source[11]"
       ],
       "sources": [
-        "packages/api/session-controller/src/types.ts:381"
+        "packages/api/session-controller/src/types.ts:425"
       ]
     },
     {
@@ -41102,7 +41250,7 @@
         "packages/context/agent-instructions/src/render.ts#AgentInstructionChange"
       ],
       "sources": [
-        "packages/context/agent-instructions/src/render.ts:47"
+        "packages/context/agent-instructions/src/render.ts:48"
       ]
     },
     {
@@ -44224,6 +44372,7 @@
         "event:assistant/attempt.data.stream[0][0].texts",
         "event:assistant/attempt.data.stream[0][1].texts",
         "event:assistant/attempt.data.stream[0][2].args",
+        "event:mcp/selection.data.connectorIds",
         "event:request/header.data.header.config.stop",
         "event:subagent/descriptor.data[1].toolFilter.allow",
         "event:subagent/descriptor.data[1].toolFilter.deny",
@@ -44559,9 +44708,9 @@
         ]
       },
       "names": [
-        "SessionEventEnvelope[39]",
-        "SessionEventEnvelope[52]",
-        "SessionEventEnvelope[55]"
+        "SessionEventEnvelope[40]",
+        "SessionEventEnvelope[53]",
+        "SessionEventEnvelope[56]"
       ],
       "sources": []
     },
@@ -44885,6 +45034,20 @@
       "sources": [
         "packages/webhook/webhook/src/types.ts:74"
       ]
+    },
+    {
+      "digest": "9f3bc8cde7db1974d897382b1cb60bf7b7dddbfe2184872a9f9ea1a04934d7b5",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "literal",
+            "value": "mcp/selection"
+          }
+        ]
+      },
+      "names": [],
+      "sources": []
     },
     {
       "digest": "9fe0e77a7816b7fdb4b953ec0e2f0cd7bbd22c5de5c3567e612d1b20eb0992e6",
@@ -56358,6 +56521,39 @@
       "sources": []
     },
     {
+      "digest": "d6918af4e3b51f680461748f71aca49480989149a3a651ede176532670b3c303",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "connectorIds",
+                "type": 1,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "array",
+            "element": 2
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          }
+        ]
+      },
+      "names": [
+        "packages/api/session-controller/src/types.ts#McpSelection"
+      ],
+      "sources": [
+        "packages/api/session-controller/src/types.ts:119"
+      ]
+    },
+    {
       "digest": "d6e654b88b584fcdf290a56802b1730bc7b9847ae86baa4265ab7769eb48990c",
       "schema": {
         "root": 0,
@@ -58587,8 +58783,8 @@
         "SessionEventEnvelope[36]",
         "SessionEventEnvelope[37]",
         "SessionEventEnvelope[38]",
+        "SessionEventEnvelope[39]",
         "SessionEventEnvelope[3]",
-        "SessionEventEnvelope[40]",
         "SessionEventEnvelope[41]",
         "SessionEventEnvelope[42]",
         "SessionEventEnvelope[43]",
@@ -58601,10 +58797,11 @@
         "SessionEventEnvelope[4]",
         "SessionEventEnvelope[50]",
         "SessionEventEnvelope[51]",
-        "SessionEventEnvelope[53]",
+        "SessionEventEnvelope[52]",
         "SessionEventEnvelope[54]",
-        "SessionEventEnvelope[56]",
+        "SessionEventEnvelope[55]",
         "SessionEventEnvelope[57]",
+        "SessionEventEnvelope[58]",
         "SessionEventEnvelope[5]",
         "SessionEventEnvelope[7]",
         "SessionEventEnvelope[8]",
@@ -59743,7 +59940,7 @@
         "packages/api/session-controller/src/types.ts#ModelSelection"
       ],
       "sources": [
-        "packages/api/session-controller/src/types.ts:86"
+        "packages/api/session-controller/src/types.ts:92"
       ]
     },
     {
@@ -60698,7 +60895,7 @@
       ],
       "sources": [
         "packages/core/session/src/types.ts:276",
-        "packages/deliverables/workspace-changes/src/types.ts:106"
+        "packages/deliverables/workspace-changes/src/types.ts:161"
       ]
     },
     {

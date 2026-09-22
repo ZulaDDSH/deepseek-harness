@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-agent-instructions` 向 agent（智能体）提供来自用户全局文件和项目级文件的工作区指引；这些文件均与 `AGENTS.md` 兼容，并以固定的回合结束回复规则作为前缀，该规则决定每次回答的写法。它为第一次请求加载适用的指令链。它不会持续监视外部编辑：成功的文件系统操作会发现新适用的嵌套文件，并让后续变更或移除可见；恢复会话也会对账基线。`dsh-base` 默认启用此行为，profile 可以禁用。字节预算限制注入的上下文：较宽泛的文件先被省略，最具体的文件最后被截断；即使不存在任何指令文件，该规则本身仍会渲染。
+`dsh-agent-instructions` 向 agent（智能体）提供来自用户全局文件和项目级文件的工作区指引；这些文件均与 `AGENTS.md` 兼容，并以固定的回合结束回复规则作为前缀。它为第一次请求加载适用的指令链。它不会持续监视外部编辑：成功的文件系统操作会发现新适用的嵌套文件，并让后续变更或移除可见；恢复会话也会对账基线。`dsh-base` 默认启用此行为，profile 可以禁用。字节预算限制注入的上下文：较宽泛的文件先被省略，最具体的文件最后被截断；即使不存在任何指令文件，该规则本身仍会渲染。
 
 ## 目录
 
@@ -133,7 +133,7 @@ export interface Config {
 
 #### 模型看到的内容
 
-第一次请求的派生历史中包含一条持久 user 角色消息，其中先包含固定的回合结束回复规则，再按从宽泛到具体的顺序包含有界用户全局指令与项目指令链。可见基线兼容时，恢复会复用该消息；即使工作区中没有任何指令文件，该规则也会让基线存在。
+第一次请求的派生历史中包含一条持久 user 角色消息，其中先包含固定的回合结束回复规则（即 [`src/end-of-turn.ts`](src/end-of-turn.ts) 中的 `END_OF_TURN_RULE` 常量），再按从宽泛到具体的顺序包含有界用户全局指令与项目指令链。可见基线兼容时，恢复会复用该消息；即使工作区中没有任何指令文件，该规则也会让基线存在。
 
 ##### 基线指令模板
 
@@ -143,21 +143,7 @@ export interface Config {
 
 When responding to the user at the end of a turn, keep the response short, direct, and focused on the result.
 
-Default format:
-
-```text
-TLDR
-- what was found or changed
-- whether it worked
-- any blocker
-- next step, only if needed
-```
-
-Rules:
-
-* lead with the result
-* do not restate the user's request
-…
+<the default TLDR format block and the numbered response rules follow here>
 
 The following workspace instructions may be relevant to your work. Use them as guidance when applicable. More specific instructions take precedence over broader ones. They do not override system, developer, or direct user instructions.
 

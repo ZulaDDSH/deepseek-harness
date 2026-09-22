@@ -205,6 +205,82 @@ export interface Config {
 
 Source: [`packages/api/gateway/src/index.ts:119`](../packages/api/gateway/src/index.ts)
 
+<a id="deepseek-aidsh-api-quota-controller"></a>
+
+## `@deepseek-ai/dsh-api-quota-controller`
+
+```ts config-catalog
+/** Injectable Host dependencies used by quota controller tests and deployments. */
+export interface QuotaControllerInternals {
+  /** Fetch implementation used for provider quota requests. */
+  readonly fetch?: typeof fetch
+  /** Additional or replacement provider definitions available to the controller. */
+  readonly providers?: readonly QuotaProvider[]
+}
+
+/** Host adapter capable of resolving and reading one provider's quota state. */
+export interface QuotaProvider {
+  /** Stable provider identifier exposed across the Remote boundary. */
+  readonly id: string
+  /** Human-readable provider name. */
+  readonly name: string
+  /** Primary environment-style credential reference. */
+  readonly credentialRef: CredentialRef
+  /** Ordered fallback references accepted for the provider. */
+  readonly credentialRefs?: readonly CredentialRef[]
+  /** Optional stored credential record owned by another provider plugin. */
+  readonly credentialKey?: CredentialKey
+  /**
+   * Read the provider quota using one resolved credential.
+   * @param credential - resolved credential value and source.
+   * @param fetchImpl - fetch implementation used for the provider request.
+   * @returns normalized provider quota state.
+   */
+  fetch(credential: ResolvedCredential, fetchImpl?: typeof fetch): Promise<QuotaResult>
+}
+
+/** Normalized result of one provider quota request. */
+export interface QuotaResult {
+  /** Stable provider identifier. */
+  readonly providerId: string
+  /** Human-readable provider name. */
+  readonly providerName: string
+  /** Whether a usable provider credential was available. */
+  readonly configured: boolean
+  /** Whether the provider request completed successfully. */
+  readonly ok: boolean
+  /** Provider or transport failure text when the request failed. */
+  readonly error?: string
+  /** Available quota windows keyed by normalized window id. */
+  readonly windows?: Partial<Record<QuotaWindowId, QuotaWindow>>
+}
+
+/** Client-safe provider quota views and usage windows. */
+
+export type QuotaWindowId = '5h' | 'weekly' | 'monthly' | 'credits'
+
+/** One provider-defined quota window normalized for client presentation. */
+export interface QuotaWindow {
+  /** Percentage consumed when the provider exposes a bounded allowance. */
+  readonly usedPercent: number | null
+  /** Unix epoch milliseconds when the allowance resets, when known. */
+  readonly resetAt: number | null
+  /** Provider-formatted value for unbounded balances such as credits. */
+  readonly valueLabel?: string
+  /**
+   * The provider's own status token for this window (OpenCode Go reports
+   * `ok`, and a non-`ok` token when the window cannot serve). Passed through
+   * verbatim: it is wire data with an open vocabulary, shown as the provider
+   * spelled it rather than mapped to invented copy.
+   */
+  readonly status?: string
+}
+```
+
+Depends on: [`CredentialKey`](subsystems/credentials.md) · [`CredentialRef`](subsystems/credentials.md) · [`ResolvedCredential`](subsystems/credentials.md)
+
+Source: [`packages/api/quota-controller/src/index.ts:27`](../packages/api/quota-controller/src/index.ts)
+
 <a id="deepseek-aidsh-api-session-controller"></a>
 
 ## `@deepseek-ai/dsh-api-session-controller`
@@ -219,7 +295,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/api/session-controller/src/index.ts:71`](../packages/api/session-controller/src/index.ts)
+Source: [`packages/api/session-controller/src/index.ts:75`](../packages/api/session-controller/src/index.ts)
 
 <a id="deepseek-aidsh-api-settings-controller"></a>
 
@@ -498,6 +574,8 @@ export interface BasicCompactionConfig extends CompactionPolicyConfig {
   proactiveToolResultPruning?: boolean
   /** Enable automatic step-boundary pressure and overflow-recovery listeners. Defaults to `true`. */
   auto?: boolean
+  /** Caps the capacity used for scoped pressure compaction. */
+  maxContextWindow?: number
 }
 
 /** Policy fields shared by the default policy and exact model overrides. */
@@ -1039,7 +1117,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/hooks/hooks-codex/src/index.ts:43`](../packages/hooks/hooks-codex/src/index.ts)
+Source: [`packages/hooks/hooks-codex/src/index.ts:44`](../packages/hooks/hooks-codex/src/index.ts)
 
 <a id="deepseek-aidsh-host-directory-picker-browse"></a>
 
@@ -1273,6 +1351,54 @@ export interface DeepSeekCatalogModel {
 Depends on: [`ModelModality`](../packages/llm/llm/src/index.ts) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · [`SystemPromptUpdate`](../packages/llm/llm/src/index.ts)
 
 Source: [`packages/llm/llm-deepseek/src/config.ts:25`](../packages/llm/llm-deepseek/src/config.ts)
+
+<a id="deepseek-aidsh-llm-jev-router"></a>
+
+## `@deepseek-ai/dsh-llm-jev-router`
+
+Requires: `llm`
+
+```ts config-catalog
+/** Jev router settings. */
+export interface Config {
+  /** Enable automatic routing. */
+  enabled: boolean
+  /** Credential/environment reference. */
+  apiKeyEnv: string
+  /** TypeSafe evaluation endpoint. */
+  endpoint: string
+  /** Jev model alias. */
+  model: string
+  /** Request timeout in milliseconds. */
+  timeoutMs: number
+  /** Minimum accepted decision confidence. */
+  minConfidence: number
+  /** Maximum state characters sent to Jev. */
+  stateMaxChars: number
+  /** Route id or `keep` for the base route. */
+  fallback: string
+  /** Preserve the base route when Jev fails. */
+  failOpen: boolean
+  /** Allow-listed destination routes. */
+  routes: JevRoute[]
+}
+
+/** Allow-listed DSH destination selected by Jev. */
+export interface JevRoute {
+  /** Jev choice identifier. */
+  id: string
+  /** Registered DSH provider route. */
+  provider: string
+  /** Provider-owned model identifier. */
+  model: string
+  /** Choice criteria sent to Jev. */
+  description: string
+  /** Optional provider reasoning effort. */
+  reasoningEffort?: string
+}
+```
+
+Source: [`packages/llm/llm-jev-router/src/index.ts:47`](../packages/llm/llm-jev-router/src/index.ts)
 
 <a id="deepseek-aidsh-llm-pi-ai"></a>
 
@@ -1549,52 +1675,6 @@ Depends on: `Api` (`@earendil-works/pi-ai`) · `CacheRetention` (`@earendil-work
 
 Source: [`packages/llm/llm-pi-ai/src/config.ts:221`](../packages/llm/llm-pi-ai/src/config.ts)
 
-<a id="deepseek-aidsh-llm-jev-router"></a>
-
-## `@deepseek-ai/dsh-llm-jev-router`
-
-```ts config-catalog
-/** Jev router settings. */
-export interface Config {
-  /** Enable automatic routing. */
-  enabled: boolean
-  /** Credential/environment reference. */
-  apiKeyEnv: string
-  /** TypeSafe evaluation endpoint. */
-  endpoint: string
-  /** Jev model alias. */
-  model: string
-  /** Request timeout in milliseconds. */
-  timeoutMs: number
-  /** Minimum accepted decision confidence. */
-  minConfidence: number
-  /** Maximum state characters sent to Jev. */
-  stateMaxChars: number
-  /** Route id or `keep` for the base route. */
-  fallback: string
-  /** Preserve the base route when Jev fails. */
-  failOpen: boolean
-  /** Allow-listed destination routes. */
-  routes: JevRoute[]
-}
-
-/** Allow-listed DSH destination selected by Jev. */
-export interface JevRoute {
-  /** Jev choice identifier. */
-  id: string
-  /** Registered DSH provider route. */
-  provider: string
-  /** Provider-owned model identifier. */
-  model: string
-  /** Choice criteria sent to Jev. */
-  description: string
-  /** Optional provider reasoning effort. */
-  reasoningEffort?: string
-}
-```
-
-Source: [`packages/llm/llm-jev-router/src/index.ts:22`](../packages/llm/llm-jev-router/src/index.ts)
-
 <a id="deepseek-aidsh-llm-replay"></a>
 
 ## `@deepseek-ai/dsh-llm-replay`
@@ -1826,7 +1906,7 @@ export interface ReconnectConfig {
 }
 ```
 
-Source: [`packages/mcp/mcp-client/src/index.ts:115`](../packages/mcp/mcp-client/src/index.ts)
+Source: [`packages/mcp/mcp-client/src/index.ts:121`](../packages/mcp/mcp-client/src/index.ts)
 
 <a id="deepseek-aidsh-message-feedback"></a>
 
@@ -3016,7 +3096,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:248`](../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:249`](../packages/core/system-prompt/src/index.ts)
 
 <a id="deepseek-aidsh-terminal-bash"></a>
 
@@ -3160,7 +3240,7 @@ Source: [`packages/shell/tool-bash-persistent/src/index.ts:435`](../packages/she
 Requires: `tools` · `fs` · `systemPrompt`
 
 ```ts config-catalog
-/** Plugin config (all optional — `Config` supplies the defaults). */
+/** Runtime configuration for filesystem read and mutation tools. */
 export interface Config {
   /** Default and maximum number of lines returned by one `read` call. */
   readLimit?: number
@@ -3170,10 +3250,15 @@ export interface Config {
   readMaxBytes?: number
   /** Files at or above this size stream instead of loading whole into memory. */
   readStreamMinSize?: number
+  /** Selects which filesystem tools this composition registers. */
+  enabledTools?: ToolName[]
 }
+
+/** Plugin config (all optional — `Config` supplies the defaults). */
+export type ToolName = 'read' | 'write' | 'edit' | 'read_image'
 ```
 
-Source: [`packages/fs/tool-fs/src/index.ts:25`](../packages/fs/tool-fs/src/index.ts)
+Source: [`packages/fs/tool-fs/src/index.ts:30`](../packages/fs/tool-fs/src/index.ts)
 
 <a id="deepseek-aidsh-tool-fs-search"></a>
 
@@ -3182,7 +3267,7 @@ Source: [`packages/fs/tool-fs/src/index.ts:25`](../packages/fs/tool-fs/src/index
 Requires: `tools` · `systemPrompt` · `subprocess`
 
 ```ts config-catalog
-/** Plugin config; over-cap glob sampling is an explicit deployment choice and the remaining fields have defaults. */
+/** Runtime configuration for filesystem search tools. */
 export interface Config {
   /** Whether an over-cap `glob` page is sampled across top-level entries instead of taking the modification-time head. */
   sampleOverCapGlobResults: boolean
@@ -3205,10 +3290,15 @@ export interface Config {
    * `@deepseek-ai/dsh-tool-call-timeout-policy` through `exec.signal`.
    */
   timeoutMs?: number
+  /** Selects which search tools this composition registers. */
+  enabledTools?: ToolName[]
 }
+
+/** Plugin config; over-cap glob sampling is an explicit deployment choice and the remaining fields have defaults. */
+export type ToolName = 'glob' | 'grep'
 ```
 
-Source: [`packages/fs/tool-fs-search/src/index.ts:73`](../packages/fs/tool-fs-search/src/index.ts)
+Source: [`packages/fs/tool-fs-search/src/index.ts:78`](../packages/fs/tool-fs-search/src/index.ts)
 
 <a id="deepseek-aidsh-tool-goal"></a>
 
@@ -3864,10 +3954,22 @@ export interface Config {
   maxFileBytes: number
   /** Milliseconds a line comparison may run before it degrades to whole-file replacement. */
   diffTimeoutMs: number
+  /**
+   * Durable root holding each Session's records, captured copies, and snapshot
+   * objects. Records outlive their Session, so this directory is what a later
+   * Host process serves earlier turns from.
+   */
+  root: string
+  /** Sessions whose records are kept, newest first; older ones are pruned. */
+  retentionSessions: number
+  /** Bytes kept across the root; the oldest records beyond it are pruned. */
+  retentionBytes: number
+  /** Days a Session's records are kept; an older directory is pruned. */
+  retentionDays: number
 }
 ```
 
-Source: [`packages/deliverables/workspace-changes/src/index.ts:33`](../packages/deliverables/workspace-changes/src/index.ts)
+Source: [`packages/deliverables/workspace-changes/src/index.ts:39`](../packages/deliverables/workspace-changes/src/index.ts)
 
 ## Loadable plugins with no config
 
@@ -3904,6 +4006,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-permission-presets` ([`packages/client/ui-permission-presets/src/index.ts`](../packages/client/ui-permission-presets/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-plan` ([`packages/client/ui-plan/src/index.ts`](../packages/client/ui-plan/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-plugin-manager` ([`packages/client/ui-plugin-manager/src/index.ts`](../packages/client/ui-plugin-manager/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-provider-quota` ([`packages/client/ui-provider-quota/src/index.ts`](../packages/client/ui-provider-quota/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-reference` ([`packages/client/ui-reference/src/index.ts`](../packages/client/ui-reference/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-renderer` ([`packages/client/ui-renderer/src/index.ts`](../packages/client/ui-renderer/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-schedule` ([`packages/client/ui-schedule/src/index.ts`](../packages/client/ui-schedule/src/index.ts))

@@ -15,9 +15,9 @@ function translate(key: string, params?: Record<string, string>): string {
     : template.replace(/\{(\w+)\}/g, (_match, name: string) => params[name] ?? `{${name}}`)
 }
 
-function renderPopover(results: readonly QuotaResult[]) {
+function renderPopover(results: readonly QuotaResult[], providers = [{ id: 'opencode-go', name: 'OpenCode Go' }]) {
   const props = {
-    useProviders: (select: (value: unknown) => unknown) => select([{ id: 'opencode-go', name: 'OpenCode Go' }]),
+    useProviders: (select: (value: unknown) => unknown) => select(providers),
     useState: (select: (value: unknown) => unknown) => select({ status: 'ready' as const, results }),
     useProjection: () => undefined,
     refresh: vi.fn(async () => {}),
@@ -77,5 +77,15 @@ describe('ProviderQuotaAction popover', () => {
 
     expect(view.getByText('rate-limited')).toBeDefined()
     expect(view.queryByText(/used$/)).toBeNull()
+  })
+
+  it('shows a connected provider when account usage is unavailable', () => {
+    const view = renderPopover([{
+      providerId: 'anthropic', providerName: 'Anthropic', configured: true, ok: false,
+      error: 'Usage reporting is not available for this provider',
+    }], [{ id: 'anthropic', name: 'Anthropic' }])
+
+    expect(view.getByText('Anthropic')).toBeDefined()
+    expect(view.getByText('Usage reporting is not available for this provider')).toBeDefined()
   })
 })

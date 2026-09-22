@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-agent-instructions` gives agents workspace guidance from user-global and project-level `AGENTS.md`-compatible files, prefixed by the fixed end-of-turn response rule that shapes how every answer is written. It loads the applicable chain for the first request. It does not watch external edits continuously: successful filesystem operations discover newly relevant nested files and make later changes or removals visible, while session resume reconciles the baseline. `dsh-base` enables this behavior by default, while profiles can disable it. A byte budget bounds the injected context: broader files are omitted before the most specific file is truncated, and the rule alone still renders when no instruction file exists.
+`dsh-agent-instructions` gives agents workspace guidance from user-global and project-level `AGENTS.md`-compatible files, prefixed by the fixed end-of-turn response rule. It loads the applicable chain for the first request. It does not watch external edits continuously: successful filesystem operations discover newly relevant nested files and make later changes or removals visible, while session resume reconciles the baseline. `dsh-base` enables this behavior by default, while profiles can disable it. A byte budget bounds the injected context: broader files are omitted before the most specific file is truncated, and the rule alone still renders when no instruction file exists.
 
 ## Table of Contents
 
@@ -133,7 +133,7 @@ Read these pages when the package-level contract is not enough. They move from t
 
 #### What the model sees
 
-At the first request, derived history contains one durable user-role message with the fixed end-of-turn response rule followed by the bounded user-global and project instruction chain in broad-to-specific order. Resume reuses that message when its visible baseline is compatible, and the rule makes the baseline exist even in a workspace with no instruction file at all.
+At the first request, derived history contains one durable user-role message with the fixed end-of-turn response rule (the `END_OF_TURN_RULE` constant in [`src/end-of-turn.ts`](src/end-of-turn.ts)) followed by the bounded user-global and project instruction chain in broad-to-specific order. Resume reuses that message when its visible baseline is compatible, and the rule makes the baseline exist even in a workspace with no instruction file at all.
 
 ##### Baseline instruction template
 
@@ -143,21 +143,7 @@ At the first request, derived history contains one durable user-role message wit
 
 When responding to the user at the end of a turn, keep the response short, direct, and focused on the result.
 
-Default format:
-
-```text
-TLDR
-- what was found or changed
-- whether it worked
-- any blocker
-- next step, only if needed
-```
-
-Rules:
-
-* lead with the result
-* do not restate the user's request
-…
+<the default TLDR format block and the numbered response rules follow here>
 
 The following workspace instructions may be relevant to your work. Use them as guidance when applicable. More specific instructions take precedence over broader ones. They do not override system, developer, or direct user instructions.
 

@@ -86,6 +86,8 @@ describe('workspaceChanges service registry access', () => {
     await ctx.plugin(LocalSubprocessRuntime)
     await ctx.plugin(WorkspaceChanges, {
       timeoutMs: 30_000, outputMaxBytes: 1024 * 1024, maxFiles: 20, maxFileBytes: 1024 * 1024, diffTimeoutMs: 1000,
+      root: await scratchDir('dsh-status-store-', cleanups),
+      retentionSessions: 200, retentionBytes: 512 * 1024 * 1024, retentionDays: 30,
     })
     // The shipped composition can activate this plugin while the registry's own
     // asynchronous initialization is still running, so the registry is only

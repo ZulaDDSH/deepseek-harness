@@ -6,6 +6,15 @@ import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typer
 import { createQuotaProviderRegistry, type QuotaProvider } from './providers.ts'
 import type { QuotaProviderView, QuotaResult } from './types.ts'
 
+interface ConnectedProvider {
+  readonly id: string
+  readonly name: string
+}
+
+interface LlmProviderDirectory {
+  listProviders(): readonly ConnectedProvider[]
+}
+
 export type * from './types.ts'
 export { createQuotaProviderRegistry } from './providers.ts'
 export type { QuotaProvider } from './providers.ts'
@@ -44,7 +53,14 @@ export class QuotaController extends TypertRemoteService {
       const value = await this.resolveCredential(provider)
       return value === undefined ? undefined : { id: provider.id, name: provider.name }
     }))
-    return configured.filter((provider): provider is QuotaProviderView => provider !== undefined)
+    const listed = new Map<string, QuotaProviderView>()
+    for (const provider of configured) {
+      if (provider !== undefined) listed.set(provider.id, provider)
+    }
+    for (const provider of this.connectedProviders()) {
+      listed.set(provider.id, listed.get(provider.id) ?? provider)
+    }
+    return [...listed.values()]
   }
 
   /**
@@ -57,8 +73,15 @@ export class QuotaController extends TypertRemoteService {
     const existing = this.pending.get(providerId)
     if (existing !== undefined) return existing
     const provider = this.providers.get(providerId)
+    const connected = this.connectedProviders().find(candidate => candidate.id === providerId)
     const operation = provider === undefined
-      ? Promise.resolve({ providerId, providerName: providerId, configured: false, ok: false, error: 'Unsupported provider' })
+      ? Promise.resolve({
+        providerId,
+        providerName: connected?.name ?? providerId,
+        configured: false,
+        ok: false,
+        error: connected === undefined ? 'Unsupported provider' : 'Usage reporting is not available for this provider',
+      })
       : this.fetchProvider(provider)
     this.pending.set(providerId, operation)
     void operation.finally(() => {
@@ -92,6 +115,11 @@ export class QuotaController extends TypertRemoteService {
     const credentials = this.ctx.get('credentials')
     if (credentials === undefined) throw new RemoteError('gateway/internal', 'credentials service is absent', {})
     return credentials
+  }
+
+  private connectedProviders(): readonly ConnectedProvider[] {
+    const llm = this.ctx.get('llm', false) as LlmProviderDirectory | undefined
+    return llm?.listProviders() ?? []
   }
 }
 

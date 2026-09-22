@@ -27,7 +27,7 @@ export function registerPresentOpen(ctx: Context): void {
 
   ctx.connection.fetch.register({
     path: CHANGED_FILES_PATH, methods: ['GET'], requestBody: 'buffered',
-    fetch: request => Promise.resolve(handleChangesSummary(ctx, request)),
+    fetch: request => handleChangesSummary(ctx, request),
   })
   const lifetime = new AbortController()
   const pending = new Set<Promise<Response>>()
@@ -154,13 +154,12 @@ async function handleWorkspaceDiff(ctx: Context, request: Request): Promise<Resp
     return new Response('Workspace comparison unavailable.', { status: failureStatus(error) })
   }
 }
-/** The summary one workspace/changes event announced, without the Host working directory; 404 once the Host no longer serves it. */
-function handleChangesSummary(ctx: Context, request: Request): Response {
+async function handleChangesSummary(ctx: Context, request: Request): Promise<Response> {
   const query = new URL(request.url).searchParams
   const id = query.get('sessionId')
   const seq = coordinate(query.get('seq'))
   if (!id || seq === undefined) return new Response('Invalid change summary coordinates.', { status: 400 })
-  const summary = ctx.workspaceChanges.summary(id as SessionId, seq)
+  const summary = await ctx.workspaceChanges.summary(id as SessionId, seq)
   if (summary === undefined) return new Response('Change summary unavailable.', { status: 404 })
   const { turn, files, total, added, deleted } = summary
   return Response.json({ turn, files, total, added, deleted } satisfies ChangesSummary, { headers: { 'cache-control': 'no-store' } })
@@ -198,7 +197,7 @@ async function handleChangesOpen(ctx: Context, request: Request): Promise<Respon
   try {
     request.signal.throwIfAborted()
     if (!ctx.sessionController.workspaceDesktop().available) return new Response('Host desktop unavailable.', { status: 409 })
-    const changes = ctx.workspaceChanges.summary(id, seq)
+    const changes = await ctx.workspaceChanges.summary(id, seq)
     if (changes === undefined) return new Response('Change summary unavailable.', { status: 404 })
     const workspaceRoot = changes.cwd
     const file = changes.files[index]

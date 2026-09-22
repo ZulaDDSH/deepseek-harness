@@ -1,4 +1,5 @@
 /** Git command bounds, snapshot recovery, and diff failure reporting. */
+import { existsSync } from 'node:fs'
 import { chmod, mkdir, readdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -175,8 +176,8 @@ describe('TurnRecorder', () => {
     let release!: (runner: GitRunner | null) => void
     const gate = new Promise<GitRunner | null>((resolve) => { release = resolve })
     const tempRoot = await scratchDir('dsh-git-store-', cleanups)
-    const env = { git: gate, tempRoot, maxFiles: 10, maxFileBytes: 1024, diffTimeoutMs: 100, warn: (m: string) => { warnings.push(m) } }
-    const disposed = new TurnRecorder(session, cwd, env)
+    const env = { git: gate, maxFiles: 10, maxFileBytes: 1024, diffTimeoutMs: 100, warn: (m: string) => { warnings.push(m) } }
+    const disposed = new TurnRecorder(session, cwd, env, join(tempRoot, 'disposed'))
     disposed.start(1)
     await new Promise(resolve => setTimeout(resolve, 5))
     const disposal = disposed.dispose()
@@ -188,50 +189,56 @@ describe('TurnRecorder', () => {
     expect(disposed.summary(1)).toBeUndefined()
 
     const { git: missing } = await runner(undefined, '/nonexistent/git-binary')
-    const failing = new TurnRecorder(session, cwd, { ...env, git: Promise.resolve(missing) })
+    const failing = new TurnRecorder(session, cwd, { ...env, git: Promise.resolve(missing) }, join(tempRoot, 'failing'))
     failing.start(1)
     await failing.settled()
     expect(warnings).toHaveLength(1)
     expect(warnings[0]).toContain('workspace-changes:')
   })
 
-  it('removes its snapshot objects on disposal and never creates them outside a repository', async () => {
-    const tempRoot = await scratchDir('dsh-git-store-', cleanups)
+  it('keeps its durable directory and creates no snapshot objects outside a repository', async () => {
+    const store = await scratchDir('dsh-git-store-', cleanups)
     const { ctx, git: runnerGit } = await runner()
     const env = {
-      git: Promise.resolve(runnerGit), tempRoot, maxFiles: 10, maxFileBytes: 1024, diffTimeoutMs: 100,
+      git: Promise.resolve(runnerGit), maxFiles: 10, maxFileBytes: 1024, diffTimeoutMs: 100,
       warn: (m: string) => { throw new Error(m) },
     }
-    const plain = new TurnRecorder(ctx.sessions.create(SessionId('plain'), { meta: { cwd: tempRoot } }), tempRoot, env)
+    const plainDir = join(store, 'plain')
+    const plain = new TurnRecorder(ctx.sessions.create(SessionId('plain'), { meta: { cwd: store } }), store, env, plainDir)
     plain.start(1)
     await plain.settled()
     await plain.dispose()
+    // A working directory outside any repository takes no snapshot, so nothing is written.
+    expect(existsSync(plainDir)).toBe(false)
+
     const cwd = await scratchDir('dsh-recorder-repo-', cleanups)
     git(cwd, 'init', '-q', '-b', 'main')
-    const repo = new TurnRecorder(ctx.sessions.create(SessionId('repo'), { meta: { cwd } }), cwd, env)
+    const repoDir = join(store, 'repo')
+    const repo = new TurnRecorder(ctx.sessions.create(SessionId('repo'), { meta: { cwd } }), cwd, env, repoDir)
     repo.start(1)
     await repo.settled()
-    const [objects, ...others] = (await readdir(tempRoot)).filter(entry => entry.startsWith('dsh-workspace-changes-'))
-    expect(others).toEqual([])
-    expect(objects).toBeDefined()
+    // Snapshot objects live in the Session's own durable directory...
+    const objects = await readdir(join(repoDir, 'objects'))
+    expect(objects.length).toBeGreaterThan(0)
     await repo.dispose()
-    expect(await readdir(tempRoot)).toEqual([])
+    // ...which disposal keeps, so a later Host process still serves the turn.
+    expect(await readdir(join(repoDir, 'objects'))).toEqual(objects)
   })
 
-  it('keeps its own directory out of the snapshots when the temporary root lies inside the work tree', async () => {
+  it('keeps its own directory out of the snapshots when it lies inside the work tree', async () => {
     const cwd = await scratchDir('dsh-recorder-tmp-in-tree-', cleanups)
     git(cwd, 'init', '-q', '-b', 'main')
     await writeFile(join(cwd, 'tracked.txt'), 'one\n')
     git(cwd, 'add', '-A'); git(cwd, 'commit', '-q', '-m', 'init')
-    const tempRoot = join(cwd, 'tmp')
-    await mkdir(tempRoot)
+    const directory = join(cwd, 'tmp', 'recorder')
+    await mkdir(join(cwd, 'tmp'))
     const { ctx, git: runnerGit } = await runner()
     const session = ctx.sessions.create(SessionId('tmp-in-tree'), { meta: { cwd } })
     const env = {
-      git: Promise.resolve(runnerGit), tempRoot, maxFiles: 10, maxFileBytes: 1024, diffTimeoutMs: 100,
+      git: Promise.resolve(runnerGit), maxFiles: 10, maxFileBytes: 1024, diffTimeoutMs: 100,
       warn: (m: string) => { throw new Error(m) },
     }
-    const recorder = new TurnRecorder(session, cwd, env)
+    const recorder = new TurnRecorder(session, cwd, env, directory)
     startTurn(session, 1)
     recorder.start(1)
     await recorder.settled()

@@ -124,9 +124,11 @@ interface WorkspaceChanges {
    * The summary announced by one `workspace/changes` event.
    * @param sessionId - the Session that appended the event.
    * @param seq - the event's sequence number.
-   * @returns the summary, or undefined once its Session was disposed or when this Host never recorded it.
+   * @returns the summary, or undefined when this Host never recorded it or its
+   * records were pruned. A Session this process no longer holds is served from
+   * the durable records the previous process wrote.
    */
-  summary(sessionId: SessionId, seq: number): WorkspaceChangesSummary | undefined
+  summary(sessionId: SessionId, seq: number): Promise<WorkspaceChangesSummary | undefined>
   /**
    * Compare one current repository-status file against HEAD.
    * @param workspaceId - registered workspace identity.
