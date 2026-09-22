@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-compaction-tool-result-pruner` keeps oversized tool output from filling the context window. Once a compaction trigger qualifies, it replaces over-budget text with a bounded head, a short "middle pruned" marker, and a bounded tail; below-pressure conversations remain unchanged. The complete original result remains in the session log for exact replay and inspection. Trimming makes no model call and may relieve enough token pressure to skip summarization. Character budgets only approximate token use; the token meter determines whether pressure was relieved.
+`dsh-compaction-tool-result-pruner` keeps oversized tool output from filling the context window. By default, once a compaction trigger qualifies, it replaces over-budget text with a bounded head, a "middle pruned" marker, and a bounded tail. Callers can restrict a pass to results followed by a later assistant response; `dsh-compaction-basic` uses that form for proactive pruning so unseen tool output stays intact. The complete original remains in the session log for exact replay and inspection. Trimming makes no model call and may relieve enough pressure to skip summarization. Character budgets only approximate token use; the token meter determines whether pressure was relieved.
 
 ## Table of Contents
 
@@ -57,7 +57,7 @@ Character counts are Unicode code points, so slicing never splits an emoji pair,
 
 ### When trimming runs
 
-Trimming only runs when a compaction trigger qualifies: `dsh-compaction-basic` invokes it after pressure or overflow is confirmed, before it selects what to condense. Below pressure nothing is trimmed, and trimming itself makes no model call.
+By default, `dsh-compaction-basic` invokes trimming after pressure or overflow is confirmed, before it selects what to condense. When that backend enables `proactiveToolResultPruning`, automatic pre-step checks first invoke a consumed-history pass: a tool result is eligible only when a later assistant response follows it on the current surface, proving a later model request already consumed it. Results with no later assistant response remain verbatim. Trimming itself makes no model call.
 
 -----
 
@@ -87,7 +87,7 @@ Pruning measures `text` blocks by Unicode code point (non-text blocks cost zero)
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `ToolResultPruner` service, `pruneSession` / `pruneContent` / `measureContent` |
 | [`src/config.ts`](src/config.ts) | `PRUNE_MARKER`, defaults, code-point counting, budget validation |
-| [`src/types.ts`](src/types.ts) | `ToolResultPruneConfig`, `ResolvedConfig`, `PrunedEntry`, `PruneResult` |
+| [`src/types.ts`](src/types.ts) | `ToolResultPruneConfig`, `ResolvedConfig`, `PruneSessionOptions`, `PrunedEntry`, `PruneResult` |
 | — | No runtime invariant companion is published; Session validates each content-only rewrite and its companion owns cross-event enclosure. |
 
 </details>
@@ -114,7 +114,7 @@ Read these pages when the package-level contract is not enough; they move from t
 
 #### What the model sees
 
-Once a compaction trigger qualifies, future requests see the retained head, `\n\n[... tool result middle pruned ...]\n\n`, and retained tail in place of the removed text. Rich blocks keep their order. The model does not see a second copy of the original.
+After the pruner runs, future requests see the retained head, `\n\n[... tool result middle pruned ...]\n\n`, and retained tail in place of the removed text. Rich blocks keep their order. The model does not see a second copy of the original.
 
 #### Token effect
 

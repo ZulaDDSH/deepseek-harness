@@ -38,7 +38,9 @@ const POLICY_CONFIG_KEYS = [
 const BASIC_COMPACT_CONFIG_KEYS: ReadonlySet<string> = new Set([
   ...POLICY_CONFIG_KEYS,
   'modelPolicies',
+  'proactiveToolResultPruning',
   'auto',
+  'maxContextWindow',
 ])
 
 /** Complete exact-target override key set. */
@@ -67,8 +69,15 @@ export class TargetPressureConfigError extends Error {
 export function resolveConfig(config: BasicCompactionConfig = {}): ResolvedConfig {
   validateKeys(config, BASIC_COMPACT_CONFIG_KEYS, 'BasicCompactionConfig')
   validatePolicy(config, 'BasicCompactionConfig')
+  if (config.proactiveToolResultPruning !== undefined
+    && typeof config.proactiveToolResultPruning !== 'boolean') {
+    throw new Error('BasicCompactionConfig: proactiveToolResultPruning must be a boolean')
+  }
   if (config.auto !== undefined && typeof config.auto !== 'boolean') {
     throw new Error('BasicCompactionConfig: auto must be a boolean')
+  }
+  if (config.maxContextWindow !== undefined) {
+    assertPositiveInteger('BasicCompactionConfig.maxContextWindow', config.maxContextWindow)
   }
 
   const thresholdRatio = config.thresholdRatio ?? DEFAULT_THRESHOLD_RATIO
@@ -92,7 +101,9 @@ export function resolveConfig(config: BasicCompactionConfig = {}): ResolvedConfi
     compactionRetries: config.compactionRetries ?? 1,
     maxOverflowRetries: config.maxOverflowRetries ?? 1,
     modelPolicies,
+    proactiveToolResultPruning: config.proactiveToolResultPruning ?? false,
     auto: config.auto ?? true,
+    ...config.maxContextWindow === undefined ? {} : { maxContextWindow: config.maxContextWindow },
   })
 }
 
@@ -121,6 +132,7 @@ export function resolveTargetPolicy(
     maxTokens: override?.maxTokens ?? config.maxTokens,
     compactionRetries: override?.compactionRetries ?? config.compactionRetries,
     maxOverflowRetries: override?.maxOverflowRetries ?? config.maxOverflowRetries,
+    ...config.maxContextWindow === undefined ? {} : { maxContextWindow: config.maxContextWindow },
   })
 }
 
@@ -141,9 +153,10 @@ export function resolveCompactSpec(
       `BasicCompactionConfig: contextWindow (${contextWindow}) must be a positive integer`,
     )
   }
-  const thresholdTokens = Math.floor(contextWindow * policy.thresholdRatio)
+  const effectiveContextWindow = Math.min(contextWindow, policy.maxContextWindow ?? contextWindow)
+  const thresholdTokens = Math.floor(effectiveContextWindow * policy.thresholdRatio)
   const retainTokens = policy.retainTokens === undefined
-    ? Math.floor(contextWindow * policy.retainRatio)
+    ? Math.floor(effectiveContextWindow * policy.retainRatio)
     : policy.retainTokens
   if (retainTokens >= thresholdTokens) {
     throw new TargetPressureConfigError(
@@ -154,7 +167,7 @@ export function resolveCompactSpec(
   }
   return deepFreeze({
     target: { ...policy.target },
-    contextWindow,
+    contextWindow: effectiveContextWindow,
     thresholdRatio: policy.thresholdRatio,
     thresholdTokens,
     retainTokens,

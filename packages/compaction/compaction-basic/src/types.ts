@@ -38,8 +38,12 @@ export interface ModelCompactPolicyConfig extends CompactionPolicyConfig {
 export interface BasicCompactionConfig extends CompactionPolicyConfig {
   /** Exact provider/model overrides; duplicate targets fail plugin load. */
   modelPolicies?: ModelCompactPolicyConfig[]
+  /** Prune oversized tool results before pressure reaches the compaction threshold. Defaults to `false`. */
+  proactiveToolResultPruning?: boolean
   /** Enable automatic step-boundary pressure and overflow-recovery listeners. Defaults to `true`. */
   auto?: boolean
+  /** Caps the capacity used for scoped pressure compaction. */
+  maxContextWindow?: number
 }
 
 /** Exactly one validated retention form. */
@@ -60,12 +64,15 @@ interface ResolvedPolicyFields {
 /** Validated immutable config whose target-specific defaults remain unresolved. */
 export type ResolvedConfig = ResolvedPolicyFields & ResolvedRetention & {
   readonly modelPolicies: readonly Readonly<ModelCompactPolicyConfig>[]
+  readonly proactiveToolResultPruning: boolean
   readonly auto: boolean
+  readonly maxContextWindow?: number
 }
 
 /** Fully merged policy for one routed conversation target, before capacity scaling. */
 export type ResolvedTargetPolicy = ResolvedPolicyFields & ResolvedRetention & {
   readonly target: Pick<LlmCallConfig, 'provider' | 'model'>
+  readonly maxContextWindow?: number
 }
 
 /** One routed model's concrete pressure and retention budget. */
