@@ -7,7 +7,7 @@
  * rail entry path, each requesting expansion through the owner share. Adding
  * is the header button's one action, so it raises the directory flow with no
  * menu in between; the flow and its error dialog live in WorkspacePicker
- * (same package — direct composition, no slot between them).
+ * (same package â€” direct composition, no slot between them).
  */
 import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
@@ -21,6 +21,10 @@ import type {
 import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
+import {
+  isWorkspaceColor, isWorkspaceIcon, WORKSPACE_APPEARANCE_COLORS, WORKSPACE_COLORS, WORKSPACE_ICONS,
+} from '../appearance.ts'
+import type { WorkspaceAppearance, WorkspaceColor, WorkspaceIcon } from '../appearance.ts'
 import type { GroupNode, SessionNode, SessionOrderBy } from '../tree.ts'
 import {
   deriveFlat, deriveGroups, deriveSearchResults, orderByRecency, owningGroupKey, owningParentFolder,
@@ -29,10 +33,11 @@ import {
 import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './Rows.tsx'
 import { FLAT_SESSION_ORDER_KEY, type SessionGroupBy } from '../stores.ts'
 import { WorkspacePickFlow } from '../WorkspacePicker.tsx'
+import { WorkspaceFilterMenu, WorkspaceIconGlyph } from './WorkspaceAppearance.tsx'
 import css from './WorkspaceBrowser.module.css'
 
 /**
- * Column slide length (--ds-transition-duration-slow): rail-search focus waits it out —
+ * Column slide length (--ds-transition-duration-slow): rail-search focus waits it out â€”
  * focus() forces a synchronous layout and would jank the slide.
  */
 const EXPAND_SLIDE_MS = 300
@@ -42,6 +47,65 @@ const SEARCH_DEBOUNCE_MS = 250
 const SEARCH_QUERY_MAX_CODE_UNITS = 500
 /** Session rows visible per Workspace before the local overflow control. */
 const COLLAPSED_SESSION_LIMIT = 5
+/** Pre-merge appearance key, read once so an existing choice survives the upgrade. */
+const WORKSPACE_APPEARANCE_STORAGE_KEY = 'dsh.workspace.appearance.v1'
+/** Appearance key: Workspace, Session, and Section choices under one value. */
+const APPEARANCE_STORAGE_KEY = 'dsh.workspace.appearance.v2'
+
+type AppearanceMaps = {
+  workspaces: Record<string, WorkspaceAppearance>
+  sections: Record<string, WorkspaceAppearance>
+  sessions: Record<string, WorkspaceAppearance>
+}
+
+/**
+ * Decode one id-to-appearance map, dropping any entry whose halves are both
+ * unrecognized so an older or hand-edited value cannot paint an unknown choice.
+ * @param value - the decoded map, when the stored value carried one.
+ * @returns the valid entries, keyed by the id they were stored under.
+ */
+function readAppearanceMap(value: unknown): Record<string, WorkspaceAppearance> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return {}
+  return Object.fromEntries(Object.entries(value).flatMap(([id, appearance]) => {
+    if (appearance === null || typeof appearance !== 'object' || Array.isArray(appearance)) return []
+    const { color, icon } = appearance as Record<string, unknown>
+    return isWorkspaceColor(color) || isWorkspaceIcon(icon)
+      ? [[id, {
+        ...(isWorkspaceColor(color) ? { color } : {}),
+        ...(isWorkspaceIcon(icon) ? { icon } : {}),
+      }]]
+      : []
+  }))
+}
+
+/**
+ * Read the persisted appearance choices, falling back to the single-map key
+ * this storage slot used before Sessions and Sections carried choices too.
+ * @returns the three maps, empty where nothing valid was stored.
+ */
+function readAppearances(): AppearanceMaps {
+  const empty: AppearanceMaps = { workspaces: {}, sections: {}, sessions: {} }
+  if (typeof localStorage === 'undefined') return empty
+  try {
+    const current: unknown = JSON.parse(localStorage.getItem(APPEARANCE_STORAGE_KEY) ?? 'null')
+    if (current !== null && typeof current === 'object' && !Array.isArray(current)) {
+      const source = current as Record<string, unknown>
+      return {
+        workspaces: readAppearanceMap(source.workspaces),
+        sections: readAppearanceMap(source.sections),
+        sessions: readAppearanceMap(source.sessions),
+      }
+    }
+    return {
+      ...empty,
+      workspaces: readAppearanceMap(JSON.parse(localStorage.getItem(WORKSPACE_APPEARANCE_STORAGE_KEY) ?? '{}')),
+    }
+  } catch {
+    return empty
+  }
+}
+
+/** Narrow the Workspace list by one color and one icon choice; either half clears on its own. */
 
 /** Fold one Workspace without charging its provisional New Session against the ordinary-row limit. */
 function collapsedSessionRows(sessions: readonly SessionNode[]): {
@@ -200,6 +264,16 @@ type SessionTreeProps = Pick<
   onSessionRename: (sessionId: SessionNode['id'], currentTitle: string) => void
   /** Archive a session (row menu action; the row disappears on the state echo). */
   onSessionArchive: (sessionId: SessionNode['id']) => void
+  /** Appearance choice per Workspace id, keyed as the row's group id. */
+  appearanceByWorkspace: Readonly<Record<string, WorkspaceAppearance>>
+  /** Appearance choice per Session id. */
+  appearanceBySession: Readonly<Record<string, WorkspaceAppearance>>
+  /** Open the browser-owned appearance editor for a real Workspace. */
+  onAppearanceRequest: (workspaceId: WorkspaceId) => void
+  /** Apply a Workspace appearance choice from an inline menu row. */
+  onAppearanceChange: (workspaceId: WorkspaceId, change: WorkspaceAppearance) => void
+  /** Apply a Session appearance choice from that row's menu. */
+  onSessionAppearanceChange: (sessionId: SessionId, change: WorkspaceAppearance) => void
   /** One Session chosen from search that must be exposed and scrolled into view. */
   revealSessionId?: SessionId | undefined
   /** Acknowledge that the chosen Session row has been revealed. */
@@ -215,6 +289,8 @@ function SessionTree({
   insertWorkspaceBefore,
   nestWorkspaces, groupExpansion, setGroupExpanded,
   setSessionOrder, home, t,
+  appearanceByWorkspace, appearanceBySession,
+  onAppearanceRequest, onAppearanceChange, onSessionAppearanceChange,
   revealSessionId, onSessionRevealed,
 }: SessionTreeProps) {
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
@@ -462,6 +538,9 @@ function SessionTree({
             }
           }}
           drag={workspaceDragProps}
+          appearance={group.workspaceId === undefined
+            ? undefined
+            : appearanceByWorkspace[group.workspaceId]}
           actions={group.workspaceId === undefined
             ? undefined
             : {
@@ -472,6 +551,18 @@ function SessionTree({
               delete: () => {
               /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
                 if (group.workspaceId !== undefined) onDeleteRequest(group.workspaceId, group.label)
+              },
+              appearance: () => {
+              /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
+                if (group.workspaceId !== undefined) onAppearanceRequest(group.workspaceId)
+              },
+              appearanceColor: (color) => {
+              /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
+                if (group.workspaceId !== undefined) onAppearanceChange(group.workspaceId, { color })
+              },
+              appearanceIcon: (icon) => {
+              /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
+                if (group.workspaceId !== undefined) onAppearanceChange(group.workspaceId, { icon })
               },
             }}
         />
@@ -526,6 +617,11 @@ function SessionTree({
                 ? () => { onSessionRevealed(node.id) }
                 : undefined}
               drag={dragProps}
+              appearance={appearanceByWorkspace[group.key] ?? appearanceBySession[node.id]}
+              appearanceActions={{
+                color: (color) => { onSessionAppearanceChange(node.id, { color }) },
+                icon: (icon) => { onSessionAppearanceChange(node.id, { icon }) },
+              }}
               t={t}
             />
           )
@@ -568,6 +664,7 @@ function SessionTree({
 function FlatList({
   list, sessionIds, useSessionStatus, open, forkSession, onSessionRename, onSessionArchive,
   usePanelInfo, setSessionOrder,
+  appearanceBySession, onSessionAppearanceChange,
   revealSessionId, onSessionRevealed, t,
 }: Pick<
   SessionTreeProps,
@@ -584,6 +681,10 @@ function FlatList({
 > & {
   list: SessionListState
   sessionIds: readonly SessionId[]
+  /** Appearance choice per Session id, shared with the grouped projection. */
+  appearanceBySession: Readonly<Record<string, WorkspaceAppearance>>
+  /** Apply a Session appearance choice from that row's menu. */
+  onSessionAppearanceChange: (sessionId: SessionId, change: WorkspaceAppearance) => void
 }) {
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
   const statuses = useSessionStatus(s => s)
@@ -639,6 +740,11 @@ function FlatList({
                 ? () => { onSessionRevealed(node.id) }
                 : undefined}
               flat
+              appearance={appearanceBySession[node.id]}
+              appearanceActions={{
+                color: (color) => { onSessionAppearanceChange(node.id, { color }) },
+                icon: (icon) => { onSessionAppearanceChange(node.id, { icon }) },
+              }}
               drag={{
                 start: () => {
                   dropCommitted.current = false
@@ -806,6 +912,13 @@ export function WorkspaceBrowser({
   const currentBlank = mainSessionId !== undefined && list.byId[mainSessionId]?.blank === true
     ? mainSessionId
     : undefined
+  const [filterColor, setFilterColor] = useState<WorkspaceColor | undefined>(undefined)
+  const [filterIcon, setFilterIcon] = useState<WorkspaceIcon | undefined>(undefined)
+  const [appearances, setAppearances] = useState<AppearanceMaps>(readAppearances)
+  const [appearanceTarget, setAppearanceTarget] = useState<WorkspaceId | null>(null)
+  useEffect(() => {
+    localStorage.setItem(APPEARANCE_STORAGE_KEY, JSON.stringify(appearances))
+  }, [appearances])
   const ungroupedMemberIds = useMemo(() => {
     const accounted = new Set(workspaces.flatMap(workspace => workspace.sessionIds))
     return list.ids.filter(id => list.byId[id] !== undefined && !accounted.has(id))
@@ -827,6 +940,11 @@ export function WorkspaceBrowser({
       ),
     }
   }), [currentBlank, list.byId, orderBy, sessionOrderByAccount, workspaces])
+  const visibleWorkspaces = useMemo(() => orderedWorkspaces.filter((workspace) => {
+    const appearance = appearances.workspaces[workspace.workspaceId]
+    return (filterColor === undefined || appearance?.color === filterColor)
+      && (filterIcon === undefined || appearance?.icon === filterIcon)
+  }), [appearances.workspaces, filterColor, filterIcon, orderedWorkspaces])
   const orderedUngroupedSessionIds = useMemo(() => {
     const baseOrder = orderBy === 'updated'
       ? orderByRecency(ungroupedMemberIds, list.byId)
@@ -898,6 +1016,29 @@ export function WorkspaceBrowser({
   const saveSessionOrder = (accountKey: string, order: readonly string[]): void => {
     actions.setSessionOrder(accountKey, order, activeSessionOrders)
   }
+  /**
+   * Merge one appearance change into the map it belongs to, dropping the entry
+   * once both halves are cleared so the persisted value cannot grow.
+   * @param kind - which id space the change applies to.
+   * @param id - the Workspace, Session, or Section id being repainted.
+   * @param change - the halves to set; an explicit undefined clears one.
+   */
+  const updateAppearance = (
+    kind: keyof AppearanceMaps,
+    id: string,
+    change: WorkspaceAppearance,
+  ): void => {
+    setAppearances((current) => {
+      const next = { ...current[kind] }
+      const merged = { ...next[id], ...change }
+      if (merged.color === undefined && merged.icon === undefined) {
+        const { [id]: _removed, ...kept } = next
+        return { ...current, [kind]: kept }
+      }
+      next[id] = merged
+      return { ...current, [kind]: next }
+    })
+  }
   // The query outlives the tree and the input (both wide-only) so collapsing
   // does not silently drop an in-progress filter.
   const [query, setQuery] = useState('')
@@ -912,7 +1053,7 @@ export function WorkspaceBrowser({
   })
   const searchRoot = useRef<HTMLDivElement | null>(null)
   const searchInput = useRef<HTMLInputElement | null>(null)
-  // Section-header ＋ opens the picker menu (same popover in wide and rail
+  // Section-header ï¼‹ opens the picker menu (same popover in wide and rail
   // states; the menu anchors on this button).
   const [wsPickerOpen, setWsPickerOpen] = useState(false)
   const wsPlusRef = useRef<HTMLButtonElement>(null)
@@ -952,7 +1093,7 @@ export function WorkspaceBrowser({
   // Outside-click dismissal stays off while the rail gesture is in flight
   // (searchOnExpand): the rail click flips the shell wide and mounts this
   // listener during its own dispatch, then keeps bubbling to document with
-  // the now-unmounted rail button as its target — outside searchRoot, so the
+  // the now-unmounted rail button as its target â€” outside searchRoot, so the
   // listener would dismiss the search that click just opened.
   useEffect(() => {
     if (!wide || !searchExpanded || searchOnExpand) return
@@ -1032,7 +1173,7 @@ export function WorkspaceBrowser({
   }
 
   // Session rename dialog (same browser-owned pattern as workspace rename;
-  // sessions have no client-side name-conflict rule — the host normalizes).
+  // sessions have no client-side name-conflict rule â€” the host normalizes).
   // Unlike workspace rename, an unchanged title is NOT blocked: confirming
   // the current automatic title is the gesture that pins it.
   const [sessionRenameTarget, setSessionRenameTarget] = useState<{ sessionId: SessionNode['id']; currentTitle: string } | null>(null)
@@ -1116,6 +1257,17 @@ export function WorkspaceBrowser({
           <span className={clsx(css.sectionLabel, css.wide, searchExpanded && css.sectionLabelHidden)}>
             {groupBy === 'flat' ? t('section.sessions') : t('section.workspaces')}
           </span>
+        )}
+        {/* The color/icon filter narrows Workspace groups, so it stays beside
+            the header in every grouping mode. */}
+        {wide && (
+          <WorkspaceFilterMenu
+            color={filterColor}
+            icon={filterIcon}
+            onColor={setFilterColor}
+            onIcon={setFilterIcon}
+            t={t}
+          />
         )}
         {wide && (
           <div className={clsx(css.searchSlot, searchExpanded && css.searchSlotExpanded)}>
@@ -1203,7 +1355,7 @@ export function WorkspaceBrowser({
             </Tooltip>
           )}
         </div>
-        {/* Add flow + its error dialog (same package — direct composition). */}
+        {/* Add flow + its error dialog (same package â€” direct composition). */}
         <WorkspacePickFlow
           t={t}
           open={wsPickerOpen}
@@ -1264,6 +1416,8 @@ export function WorkspaceBrowser({
                 usePanelInfo={usePanelInfo}
                 list={list}
                 sessionIds={orderedFlatSessionIds}
+                appearanceBySession={appearances.sessions}
+                onSessionAppearanceChange={(sessionId, change) => { updateAppearance('sessions', sessionId, change) }}
                 useSessionStatus={useSessionStatus}
                 open={open} forkSession={forkSession}
                 onSessionRename={onSessionRename} onSessionArchive={onSessionArchive}
@@ -1281,7 +1435,9 @@ export function WorkspaceBrowser({
                 onSessionRename={onSessionRename}
                 onSessionArchive={onSessionArchive}
                 forkSession={forkSession}
-                workspaces={orderedWorkspaces}
+                workspaces={visibleWorkspaces}
+                appearanceByWorkspace={appearances.workspaces}
+                appearanceBySession={appearances.sessions}
                 ungroupedSessionIds={orderedUngroupedSessionIds}
                 workspaceReady={workspaceReady}
                 nestWorkspaces={groupBy === 'workspace-tree'}
@@ -1305,6 +1461,9 @@ export function WorkspaceBrowser({
                   setDeleteTarget({ workspaceId, title })
                   setDeleteError(null)
                 }}
+                onAppearanceRequest={setAppearanceTarget}
+                onAppearanceChange={(workspaceId, change) => { updateAppearance('workspaces', workspaceId, change) }}
+                onSessionAppearanceChange={(sessionId, change) => { updateAppearance('sessions', sessionId, change) }}
               />
             ))}
       </div>
@@ -1399,6 +1558,61 @@ export function WorkspaceBrowser({
       >
         {deleting && <div className={css.deleteStatus} role="status">{t('delete.pending')}</div>}
         {deleteError !== null && <div className={css.renameError} role="alert">{deleteError}</div>}
+      </Modal>
+
+      <Modal
+        open={appearanceTarget !== null}
+        onClose={() => { setAppearanceTarget(null) }}
+        closeLabel={t('close')}
+        title={t('appearance.title')}
+        footer={<Button variant="outline" onClick={() => { setAppearanceTarget(null) }}>{t('cancel')}</Button>}
+      >
+        <div className={css.appearanceForm}>
+          <span className={css.appearanceLabel}>{t('appearance.color')}</span>
+          <div className={css.appearanceChoices}>
+            {WORKSPACE_COLORS.map(value => (
+              <button
+                key={value}
+                type="button"
+                className={css.appearanceChoice}
+                aria-label={t(`appearance.color.${value}`)}
+                aria-pressed={appearanceTarget === null
+                  ? undefined
+                  : appearances.workspaces[appearanceTarget]?.color === value}
+                style={{ color: WORKSPACE_APPEARANCE_COLORS[value] }}
+                onClick={() => {
+                  if (appearanceTarget !== null) updateAppearance('workspaces', appearanceTarget, { color: value })
+                }}
+              >
+                <span className={css.colorSwatch} style={{ background: WORKSPACE_APPEARANCE_COLORS[value] }} />
+              </button>
+            ))}
+          </div>
+          <span className={css.appearanceLabel}>{t('appearance.icon')}</span>
+          <div className={css.appearanceChoices}>
+            {WORKSPACE_ICONS.map(value => (
+              <button
+                key={value}
+                type="button"
+                className={clsx(
+                  css.appearanceChoice,
+                  appearanceTarget !== null
+                  && appearances.workspaces[appearanceTarget]?.icon === value
+                  && css.appearanceChoiceSelected,
+                )}
+                aria-label={t(`appearance.icon.${value}`)}
+                aria-pressed={appearanceTarget === null
+                  ? undefined
+                  : appearances.workspaces[appearanceTarget]?.icon === value}
+                onClick={() => {
+                  if (appearanceTarget !== null) updateAppearance('workspaces', appearanceTarget, { icon: value })
+                }}
+              >
+                <WorkspaceIconGlyph choice={value} />
+              </button>
+            ))}
+          </div>
+        </div>
       </Modal>
     </div>
   )

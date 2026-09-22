@@ -125,6 +125,83 @@ function rerender(b: ReturnType<typeof mount>, overrides: Partial<WorkspaceBrows
 }
 
 describe('WorkspaceBrowser', () => {
+  it('filters Workspaces by a chosen color and clears the filter', () => {
+    localStorage.clear()
+    const b = mount({
+      useSessions: hook(sessionState([summary('s1', 10)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['s1'], 'Alpha'), workspace('beta', [], 'Beta')])),
+    })
+    const openFilter = () => fireEvent.click(screen.getByRole('button', { name: '筛选工作区' }))
+    fireEvent.click(screen.getByRole('button', { name: '工作区“Alpha”的操作' }))
+    fireEvent.click(screen.getByText('颜色'))
+    fireEvent.click(screen.getByText('红色'))
+    openFilter()
+    fireEvent.click(screen.getByRole('menuitem', { name: '红色' }))
+    expect(screen.getByText('Alpha')).toBeTruthy()
+    expect(screen.queryByText('Beta')).toBeNull()
+    openFilter()
+    fireEvent.click(screen.getAllByRole('menuitem').find(i => i.textContent.startsWith('全部'))!)
+    expect(screen.getByText('Beta')).toBeTruthy()
+    b.view.unmount()
+  })
+
+  it('paints a chosen color onto the row and persists it across a remount', () => {
+    localStorage.clear()
+    const b = mount({
+      useSessions: hook(sessionState([])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', [], 'Alpha')])),
+    })
+    fireEvent.click(screen.getByRole('button', { name: '工作区“Alpha”的操作' }))
+    fireEvent.click(screen.getByText('颜色'))
+    fireEvent.click(screen.getByText('紫色'))
+    const painted = () => screen.getByText('Alpha').closest('[role="treeitem"]') as HTMLElement
+    expect(painted().style.color).toBe('rgb(122, 90, 248)')
+    expect(getComputedStyle(screen.getByText('Alpha')).color).toBe('rgb(122, 90, 248)')
+    b.view.unmount()
+    mount({ useSessions: b.props.useSessions, useWorkspaces: b.props.useWorkspaces })
+    expect(painted().style.color).toBe('rgb(122, 90, 248)')
+    expect(getComputedStyle(screen.getByText('Alpha')).color).toBe('rgb(122, 90, 248)')
+  })
+
+  it('reads a single-map appearance value left by the pre-merge key', () => {
+    localStorage.clear()
+    localStorage.setItem('dsh.workspace.appearance.v1', JSON.stringify({ alpha: { color: 'green' } }))
+    mount({
+      useSessions: hook(sessionState([])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', [], 'Alpha')])),
+    })
+    const painted = screen.getByText('Alpha').closest('[role="treeitem"]') as HTMLElement
+    expect(painted.style.color).toBe('rgb(18, 183, 106)')
+  })
+
+  it('paints a Session row from its own appearance choice', () => {
+    localStorage.clear()
+    mount({
+      useSessions: hook(sessionState([summary('s1', 10)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['s1'], 'Alpha')])),
+    })
+    fireEvent.click(screen.getByText('Alpha'))
+    fireEvent.click(screen.getByRole('button', { name: '会话“s1”的操作' }))
+    fireEvent.click(screen.getByText('颜色'))
+    fireEvent.click(screen.getByText('蓝色'))
+    const row = screen.getByText('s1').closest('[role="treeitem"]') as HTMLElement
+    expect(row.style.color).toBe('rgb(46, 144, 250)')
+  })
+
+  it('changes a Workspace appearance from the browser dialog', () => {
+    localStorage.clear()
+    mount({
+      useSessions: hook(sessionState([])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', [], 'Alpha')])),
+    })
+    fireEvent.click(screen.getByRole('button', { name: '工作区“Alpha”的操作' }))
+    fireEvent.click(screen.getByText('自定义外观'))
+    expect(screen.getByText('工作区外观')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '橙色' }))
+    const row = screen.getByText('Alpha').closest('[role="treeitem"]') as HTMLElement
+    expect(row.style.color).toBe('rgb(247, 144, 9)')
+  })
+
   it.each(['workspace', 'flat', 'ungrouped'] as const)('keeps %s recency independent of arrival order and saved manual positions', (mode) => {
     localStorage.clear()
     const preferences = createWorkspaceViewStore().create()

@@ -1020,3 +1020,76 @@ export const IconPluginPinwheelOutline16 = ({ size = 16, className }: IconProps)
     <path d="M10.7476 7.89535C10.8708 11.7113 9.66109 14.847 8.0456 14.8991C6.83496 14.9382 5.74 13.2346 5.21536 10.7723" stroke="currentColor" strokeWidth="1.2" />
   </svg>
 )
+
+/** folder_outline_16 (workspace appearance choice). */
+export const IconFolderOutline16 = ({ size = 16, className }: IconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M2.6 2.6h3.1l1.3 1.9h6.4a1.1 1.1 0 0 1 1.1 1.1v6.8a1.1 1.1 0 0 1-1.1 1.1H2.6a1.1 1.1 0 0 1-1.1-1.1V3.7a1.1 1.1 0 0 1 1.1-1.1Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+  </svg>
+)
+
+/** code_outline_16 (workspace appearance choice). */
+export const IconWorkspaceCodeOutline16 = ({ size = 16, className }: IconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M5.4 4.6 1.9 8l3.5 3.4M10.6 4.6 14.1 8l-3.5 3.4M9.3 2.9 6.7 13.1" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
+
+/** terminal_outline_16 (workspace appearance choice). */
+export const IconTerminalOutline16 = ({ size = 16, className }: IconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="1.65" y="2.65" width="12.7" height="10.7" rx="1.4" stroke="currentColor" strokeWidth="1.3" />
+    <path d="M4.4 6.1 6.3 8l-1.9 1.9M8.3 10.2h3.3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
+
+/** branch_outline_16 (workspace appearance choice). */
+export const IconWorkspaceBranchOutline16 = ({ size = 16, className }: IconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="4.2" cy="3.4" r="1.8" stroke="currentColor" strokeWidth="1.3" />
+    <circle cx="4.2" cy="12.6" r="1.8" stroke="currentColor" strokeWidth="1.3" />
+    <circle cx="11.8" cy="6.2" r="1.8" stroke="currentColor" strokeWidth="1.3" />
+    <path d="M4.2 5.2v5.6M11.8 8v.6a2.6 2.6 0 0 1-2.6 2.6H5.9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
+
+/** rocket_outline_16 (workspace appearance choice). */
+export const IconRocketOutline16 = ({ size = 16, className }: IconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M8 1.4c2.6 1.5 4 4 4 6.9 0 1.2-.3 2.2-.8 3.1H4.8A6.8 6.8 0 0 1 4 8.3c0-2.9 1.4-5.4 4-6.9Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+    <circle cx="8" cy="6.6" r="1.4" stroke="currentColor" strokeWidth="1.3" />
+    <path d="M6.2 12.1 5.1 14.3M9.8 12.1l1.1 2.2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+  </svg>
+)
+
+/** sparkle_outline_16 (workspace appearance choice). */
+export const IconWorkspaceSparkOutline16 = ({ size = 16, className }: IconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M6.1 3.1Q6.6 7.8 11.3 8.3Q6.6 8.8 6.1 13.5Q5.6 8.8 0.9 8.3Q5.6 7.8 6.1 3.1Z" fill="currentColor" />
+    <path d="M11.9 1Q12.2 3.7 14.9 4Q12.2 4.3 11.9 7Q11.6 4.3 8.9 4Q11.6 3.7 11.9 1Z" fill="currentColor" />
+  </svg>
+)
+
+/** experiment_outline_16 (workspace appearance choice). */
+export const IconExperimentOutline16 = ({ size = 16, className }: IconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M6.3 1.9h3.4M7 1.9v4.3L3.2 12a1.3 1.3 0 0 0 1.1 2h7.4a1.3 1.3 0 0 0 1.1-2L9 6.2V1.9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M5 10.4h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+  </svg>
+)
+
+/** database_outline_16_alt (workspace appearance choice). */
+export const IconWorkspaceDatabaseOutline16 = ({ size = 16, className }: IconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <ellipse cx="8" cy="3.6" rx="5.1" ry="2.1" stroke="currentColor" strokeWidth="1.3" />
+    <path d="M2.9 3.6v8.8c0 1.2 2.3 2.1 5.1 2.1s5.1-.9 5.1-2.1V3.6" stroke="currentColor" strokeWidth="1.3" />
+    <path d="M2.9 8c0 1.2 2.3 2.1 5.1 2.1s5.1-.9 5.1-2.1" stroke="currentColor" strokeWidth="1.3" />
+  </svg>
+)
+
+/** filter_outline_16 (the Workspace list's filter control). */
+export const IconFilterOutline16 = ({ size = 16, className }: IconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M1.9 3.2h12.2L9.4 8.3v4.5l-2.8 1.4V8.3L1.9 3.2Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+  </svg>
+)

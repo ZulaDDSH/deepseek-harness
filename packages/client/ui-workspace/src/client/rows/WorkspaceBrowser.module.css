@@ -101,12 +101,17 @@
   padding-left: 0;
 }
 
+/* Header action cluster: Add workspace, View options, and the filter control,
+   at 28px each with a 4px gap. The cap must cover every member — `overflow:
+   hidden` clips the remainder, so an undersized cap hides a control without
+   removing it from the DOM. Kept as a max-width so the search-expand
+   transition still animates to zero. */
 .headerActions {
   flex: none;
   display: flex;
   align-items: center;
   gap: 4px;
-  max-width: 60px;
+  max-width: 92px;
   opacity: 1;
   overflow: hidden;
   visibility: visible;
@@ -514,4 +519,55 @@
   .headerActions {
     transition: none;
   }
+}
+
+/* Color swatch inside a filter-menu row and an appearance choice. */
+.colorSwatch {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  corner-shape: round;
+}
+
+.appearanceForm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.appearanceLabel {
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.appearanceChoices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.appearanceChoice {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.appearanceChoice:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.appearanceChoiceSelected {
+  border-color: var(--dsw-alias-state-business-primary);
+  color: var(--dsw-alias-state-business-primary);
 }

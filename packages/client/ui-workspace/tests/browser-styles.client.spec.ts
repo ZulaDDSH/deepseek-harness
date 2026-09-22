@@ -108,18 +108,34 @@ describe('WorkspaceBrowser.module.css list', () => {
       .toBe('var(--dsw-alias-interactive-bg-hover)')
   })
 
-  it('reveals a clipped session title by scrolling it on row hover', () => {
-    // Smooth versus reduced motion is pinned as a computed style in
-    // apps/web/tests/sidebar-title-hover-scroll.e2e.ts: this helper merges
-    // same-selector rules across media queries, so the reduce override would
-    // mask the smooth declaration here.
+  it('keeps session rows stable while hover changes only action emphasis', () => {
     expect(rowDeclarations('.sessionRow .title')?.get('flex')).toBe('1')
-    expect(rowDeclarations('.sessionRow:hover .title')?.get('text-overflow')).toBe('clip')
+    expect(rowDeclarations('.sessionRow:hover .title')).toBeUndefined()
+    expect(rowDeclarations('.projectRow .chevron')?.get('display')).toBe('inline-flex')
+    expect(rowDeclarations('.rowActions')?.get('display')).toBe('inline-flex')
+    expect(rowDeclarations('.rowActions')?.get('visibility')).toBe('hidden')
   })
 
   it('pins both rail controls to the shared left anchor during the column slide', () => {
     expect(declarations('.rail .sectionHeader')?.get('justify-content')).toBe('flex-start')
     expect(declarations('.rail .iconButton')?.get('width')).toBe('36px')
     expect(declarations('.rail .search')?.get('width')).toBe('36px')
+  })
+
+  it('sizes the header action cap to fit every control it holds', () => {
+    // `overflow: hidden` clips the cluster's tail, so an undersized cap hides a
+    // control while leaving it in the DOM — invisible to a DOM-only assertion,
+    // and to the operator only as a missing button. The cap must cover every
+    // member: Add workspace, View options, and the appearance filter at 28px.
+    const cap = declarations('.headerActions')?.get('max-width')
+    expect(cap).toBeDefined()
+    expect(declarations('.headerActions')?.get('overflow')).toBe('hidden')
+    const controls = 3
+    const button = 28
+    const gap = 4
+    const needed = controls * button + (controls - 1) * gap
+    expect(Number.parseFloat(cap!.replace('px', ''))).toBeGreaterThanOrEqual(needed)
+    // Collapsing still animates the same property to zero.
+    expect(declarations('.headerActionsHidden')?.get('max-width')).toBe('0')
   })
 })
