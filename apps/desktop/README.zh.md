@@ -94,6 +94,18 @@ pnpm run start:desktop
 
 Workspace 开发使用 Electron RunAsNode 运行当前 CLI 与私有 Desktop Host 包，插件管理和恢复使用 `$DSH_HOME/profiles/desktop`，与一次性工作区运行时分离。Host 在开发与打包构建中都使用 runtime 模块解析，不创建官方包的 fallback 链接；开发者安装的包（包括链接）保留原生优先级。需要验证 Electron RunAsNode、内置 pnpm、内置 dsh 资源、插件安装和修复时，应运行未封装安装器的应用目录。
 
+### 可选的共享知识集成
+
+源码树 Desktop 开发可以把 Desktop profile 指向共享的 GARDEN 知识服务：
+
+```sh
+node scripts/setup-knowledge-desktop.mjs --url http://192.168.1.50:18080/mcp --token-env GARDEN_KNOWLEDGE_TOKEN
+```
+
+运行该命令前先停止 Desktop，运行后重新启动。该辅助脚本会追加一个使用 Streamable HTTP 的 `@deepseek-ai/dsh-mcp-client` 条目，并在条目已存在时保持幂等。凭据从指定的环境变量读取，因此不会把令牌写入 profile patch；启动 Desktop 前需要导出该变量。默认端点为同机服务的 `http://127.0.0.1:18080/mcp`；使用 `http://192.168.1.50:18080/mcp` 这样的局域网地址可以让多台机器共享同一个知识服务。
+
+知识服务拥有持久共享知识、检索、来源归属和知识生命周期。它不是会话、任务或 provider 的权威：会话、agent、provider、工具暴露和权限由 DSH 拥有。该辅助脚本只负责接入端点；知识服务必须已在运行，并且能从启动 Desktop 的机器访问。
+
 ## 打包
 
 <a id="release-versions"></a>

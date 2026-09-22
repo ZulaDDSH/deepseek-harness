@@ -93,6 +93,18 @@ pnpm run start:desktop
 
 Workspace development runs the current CLI and private Desktop Host packages under Electron RunAsNode. Plugin management and recovery use `$DSH_HOME/profiles/desktop`, separate from the disposable workspace runtime. The Host uses runtime module resolution in both development and packaged builds without creating official-package fallback links; developer-installed packages, including links, retain native priority. Use an unpacked application to exercise Electron RunAsNode, bundled pnpm, bundled dsh resources, plugin installation and repair paths.
 
+### Optional shared knowledge integration
+
+For source-tree Desktop development, the repository can point the Desktop profile at a shared GARDEN knowledge service:
+
+```sh
+node scripts/setup-knowledge-desktop.mjs --url http://192.168.1.50:18080/mcp --token-env GARDEN_KNOWLEDGE_TOKEN
+```
+
+Stop Desktop before running the setup command, then restart it. The helper appends one `@deepseek-ai/dsh-mcp-client` entry using Streamable HTTP and is idempotent when the entry is already present. The credential is read from the named environment variable, so no token is written into the profile patch; export the variable before launching Desktop. The default endpoint is `http://127.0.0.1:18080/mcp` for a service on the same machine; a LAN address such as `http://192.168.1.50:18080/mcp` lets several machines share one knowledge server.
+
+The knowledge service owns durable shared knowledge, retrieval, source attribution, and knowledge lifecycle. It is not the session, task, or provider authority: DSH owns sessions, agents, providers, tool exposure, and permissions. This helper only wires the endpoint; the knowledge service must already be running and reachable from the machine that launches Desktop.
+
 ## Package
 
 <a id="release-versions"></a>

@@ -1712,6 +1712,9 @@ importers:
       '@deepseek-ai/dsh-jobs-local':
         specifier: workspace:^
         version: link:../../jobs/jobs-local
+      '@deepseek-ai/dsh-knowledge-policy':
+        specifier: workspace:^
+        version: link:../../knowledge/knowledge-policy
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
@@ -8148,24 +8151,6 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: workspace:^
         version: link:../../core/tools
-
-  packages/knowledge/knowledge-policy:
-    devDependencies:
-      '@deepseek-ai/cordis':
-        specifier: workspace:^
-        version: link:../../../vendor/cordis
-      '@deepseek-ai/dsh-system-prompt':
-        specifier: workspace:^
-        version: link:../../core/system-prompt
-
-  packages/knowledge/knowledge-source-git:
-    devDependencies:
-      '@deepseek-ai/cordis':
-        specifier: workspace:^
-        version: link:../../../vendor/cordis
-      '@deepseek-ai/dsh-subprocess':
-        specifier: workspace:^
-        version: link:../../subprocess/subprocess
 
   packages/llm/deepseek-llm-api-extensions:
     devDependencies:

@@ -182,6 +182,8 @@ flowchart LR
   cfg --> plugin_dsh_base_tools
   plugin_dsh_base_system_prompt["system-prompt<br/>@deepseek-ai/dsh-system-prompt"]
   cfg --> plugin_dsh_base_system_prompt
+  plugin_dsh_base_knowledge_policy["knowledge-policy<br/>@deepseek-ai/dsh-knowledge-policy"]
+  cfg --> plugin_dsh_base_knowledge_policy
   plugin_dsh_base_agent_loop["agent-loop<br/>@deepseek-ai/dsh-agent-loop"]
   cfg --> plugin_dsh_base_agent_loop
   plugin_dsh_base_fs_sandbox["fs-sandbox<br/>@deepseek-ai/dsh-fs-sandbox"]
@@ -279,6 +281,7 @@ flowchart LR
 | `mcp-resources` | `@deepseek-ai/dsh-mcp-resources` |
 | `tools` | `@deepseek-ai/dsh-tools` |
 | `system-prompt` | `@deepseek-ai/dsh-system-prompt` |
+| `knowledge-policy` | `@deepseek-ai/dsh-knowledge-policy` |
 | `agent-loop` | `@deepseek-ai/dsh-agent-loop` |
 | `fs-sandbox` | `@deepseek-ai/dsh-fs-sandbox` |
 | `llm-deepseek` | `@deepseek-ai/dsh-llm-deepseek` |
