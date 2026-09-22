@@ -111,15 +111,32 @@ type WorkspaceFileDiff =
 ## `WorkspaceChanges` — the Host service serving summaries and comparisons
 
 ```ts type-equiv
-/** Serves the summaries and file comparisons the recorder keeps for live Sessions. */
+/** Serves live turn comparisons and current repository status for Sessions. */
 interface WorkspaceChanges {
+  /**
+   * Read the current git working-tree status for a registered Workspace.
+   * @param workspaceId - registered workspace identity.
+   * @param signal - cancels git and filesystem work.
+   * @returns the repository status, or undefined when git is unavailable or the directory is not a repository.
+   */
+  status(workspaceId: WorkspaceId, signal: AbortSignal): Promise<WorkspaceStatus | undefined>
   /**
    * The summary announced by one `workspace/changes` event.
    * @param sessionId - the Session that appended the event.
    * @param seq - the event's sequence number.
-   * @returns the summary, or undefined once its Session was disposed or when this Host never recorded it.
+   * @returns the summary, or undefined when this Host never recorded it or its
+   * records were pruned. A Session this process no longer holds is served from
+   * the durable records the previous process wrote.
    */
-  summary(sessionId: SessionId, seq: number): WorkspaceChangesSummary | undefined
+  summary(sessionId: SessionId, seq: number): Promise<WorkspaceChangesSummary | undefined>
+  /**
+   * Compare one current repository-status file against HEAD.
+   * @param workspaceId - registered workspace identity.
+   * @param index - index in the current status response.
+   * @param signal - cancels git and filesystem work.
+   * @returns a current comparison, or undefined for an unknown workspace or file.
+   */
+  workspaceDiff(workspaceId: WorkspaceId, index: number, signal: AbortSignal): Promise<WorkspaceFileDiff | undefined>
   /**
    * Compare one listed file's contents at turn start and turn end.
    * @param sessionId - the Session that appended the event.

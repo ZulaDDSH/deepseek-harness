@@ -310,7 +310,7 @@ function SplitColumns({ hunks }: { hunks: readonly WorkspaceDiffHunk[] }): React
 }
 
 /** The hunks of a text comparison with their line numbers, unified or side by side. */
-function TextDiff({ diff, split, wrap, t }: { diff: Extract<ChangesDiff, { kind: 'text' }>; split: boolean; wrap: boolean } & PropsLocale<typeof NS>): ReactNode {
+export function TextDiff({ diff, split, wrap, t }: { diff: Extract<ChangesDiff, { kind: 'text' }>; split: boolean; wrap: boolean } & PropsLocale<typeof NS>): ReactNode {
   const note = noteOf(diff)
   const { hunks, truncated } = useMemo(() => renderedHunks(diff.hunks), [diff.hunks])
   return (
