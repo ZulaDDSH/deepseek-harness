@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
 import { join, sep } from 'node:path'
 import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
@@ -182,9 +182,26 @@ class FakeSpill extends SpillStore {
   }
 }
 
+class FakeJevRouter extends Service {
+  calls: Array<{ pattern: string; matches: readonly { path: string; lineNumber: number; line: string }[] }> = []
+
+  constructor(ctx: Context) {
+    super(ctx, 'jevRouter')
+  }
+
+  filterGrepMatches(input: {
+    pattern: string
+    matches: readonly { path: string; lineNumber: number; line: string }[]
+  }): Promise<readonly { path: string; lineNumber: number; line: string }[]> {
+    this.calls.push({ pattern: input.pattern, matches: input.matches })
+    return Promise.resolve(input.matches.slice(0, 2))
+  }
+}
+
 interface SetupOptions {
   config?: Partial<ToolFsSearch.Config>
   spill?: boolean
+  jev?: boolean
 }
 
 const DEFAULT_CONFIG = { sampleOverCapGlobResults: true } satisfies ToolFsSearch.Config
@@ -198,9 +215,11 @@ async function setup(options: SetupOptions = {}) {
   await ctx.plugin(FakeSubprocess)
   const subprocess = ctx.subprocess as FakeSubprocess
   if (options.spill === true) await ctx.plugin(FakeSpill)
+  if (options.jev === true) await ctx.plugin(FakeJevRouter)
   const fiber = await ctx.plugin(ToolFsSearch, { ...DEFAULT_CONFIG, ...options.config })
   const spill = options.spill === true ? ctx.get('spillStore') as FakeSpill : undefined
-  return { ctx, subprocess, spill, fiber, warnings }
+  const jev = options.jev === true ? ctx.get('jevRouter') as FakeJevRouter : undefined
+  return { ctx, subprocess, spill, jev, fiber, warnings }
 }
 
 /** A stand-in agent whose session header carries the given cwd (and a stable id). */
@@ -1002,6 +1021,23 @@ describe('grep results', () => {
       content: 'Found 3 matches\n\na.ts\nLine 1: one\nLine 2: two\n\nb.ts\nLine 3: three',
     })
     expect(result.additionalContexts?.[0]?.content).toEqual([{ type: 'text', text: 'grep context' }])
+  })
+
+  it('lets Jev shrink large grep context while preserving the complete spill', async () => {
+    const { ctx, subprocess, spill, jev } = await setup({ config: { grepMaxMatches: 120 }, spill: true, jev: true })
+    subprocess.handler = () => runResult(Array.from({ length: 120 }, (_value, index) =>
+      matchLine(`file-${index}.ts`, index + 1, `match ${index}`)).join('\n') + '\n')
+    const result = await call(ctx, 'grep', { pattern: 'match' }, { agent: agent('/w') })
+    if (result.isError) throw new Error('expected grep success')
+    if (result.value === null || typeof result.value !== 'object' || Array.isArray(result.value) || !('matches' in result.value)) {
+      throw new Error('expected grep matches')
+    }
+    expect(result.value.matches).toHaveLength(120)
+    expect(text(result)).toContain('Jev kept 2 of 120 grep matches')
+    expect(jev?.calls).toHaveLength(1)
+    expect(jev?.calls[0]?.matches).toHaveLength(120)
+    expect(spill?.saves[0]?.content).toContain('Found 120 matches')
+    expect(spill?.saves[0]?.content).toContain('file-119.ts')
   })
 
   it('preserves a downstream canonical value replacement instead of spilling the old matches', async () => {
