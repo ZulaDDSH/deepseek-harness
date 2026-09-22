@@ -39,15 +39,21 @@ function evaluate(expression: string, context: Record<string, unknown>): unknown
 }
 
 function route(options: { mode?: string; author?: string; repository?: string; fork?: boolean; actor?: string } = {}): unknown {
+  const fork = options.fork ?? false
   return evaluate(job['runs-on'], {
     vars: { DSH_CI_FAILOVER_LINUX: options.mode ?? 'selfhosted' },
     github: {
       repository: 'deepseek-harness/deepseek-harness',
       actor: options.actor ?? 'maintainer',
-      event: { pull_request: {
-        user: { login: options.author ?? 'maintainer' },
-        head: { repo: { full_name: options.repository ?? 'deepseek-harness/deepseek-harness', fork: options.fork ?? false } },
-      } },
+      event: {
+        // The selector reads the repository-level fork flag, the signal that
+        // says "this run is on a fork and cannot reach an upstream pool".
+        repository: { fork },
+        pull_request: {
+          user: { login: options.author ?? 'maintainer' },
+          head: { repo: { full_name: options.repository ?? 'deepseek-harness/deepseek-harness', fork } },
+        },
+      },
     },
     matrix: { runner: 'ubuntu-latest' },
   })

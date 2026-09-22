@@ -233,6 +233,23 @@ describe('CI workflow', () => {
     // windows-coverage uses the lower 4-partition profile.
     expect(windowsCoverage.name).toBe('windows node 24 / coverage')
     expect(windowsCoverage.env).toMatchObject({ DSH_COVERAGE_PARTITIONS: '4' })
+
+    // Both coverage lanes size their worker budget for the runner they land on:
+    // a 4-core fork runner takes 4, the 16-core hosted and failover runners
+    // keep 6.
+    for (const [laneName, lane] of [['node-24-coverage', node24Coverage], ['windows-coverage', windowsCoverage]] as const) {
+      const laneEnv = lane.env as Record<string, unknown>
+      const budget = String(laneEnv.DSH_COVERAGE_MAX_WORKERS)
+      expect(budget, `${laneName} coverage workers must select a fork budget`)
+        .toContain('github.event.repository.fork')
+      for (const [fork, expected] of [[true, '4'], [false, '6']] as const) {
+        expect(evaluateRunsOn(budget, {
+          vars: {},
+          fromJSON: JSON.parse,
+          github: { event: { repository: { fork }, pull_request: { user: { login: 'maintainer' } } } },
+        }), `${laneName} coverage workers fork=${String(fork)}`).toBe(expected)
+      }
+    }
     const coverageSteps = windowsCoverage.steps as unknown[]
     const coverageCommands = coverageSteps.filter((step): step is Record<string, unknown> & { run: string } => (
       isRecord(step) && typeof step.run === 'string'
@@ -344,11 +361,16 @@ describe('CI workflow', () => {
       linuxAggregate: aggregate['runs-on'] as string,
       windows: windowsBuild['runs-on'] as string,
     }
-    const evaluate = (expression: string, vars: Record<string, string>, login = 'maintainer'): unknown => {
+    const evaluate = (
+      expression: string,
+      vars: Record<string, string>,
+      login = 'maintainer',
+      fork = false,
+    ): unknown => {
       return evaluateRunsOn(expression, {
         vars,
         fromJSON: JSON.parse,
-        github: { event: { pull_request: { user: { login } } } },
+        github: { event: { repository: { fork }, pull_request: { user: { login } } } },
       })
     }
     for (const [name, selector, variable, pool, hosted] of [
@@ -364,6 +386,11 @@ describe('CI workflow', () => {
       for (const mode of ['', 'hosted', 'unexpected']) {
         expect(evaluate(selector, { [variable]: mode }), `${name} default on ${mode}`).toBe(hosted)
       }
+      const forkHosted = name === 'windows lanes' ? 'windows-2025' : 'ubuntu-24.04'
+      expect(evaluate(selector, { [variable]: 'selfhosted' }, 'maintainer', true), `${name} fork fallback`)
+        .toBe(forkHosted)
+      expect(evaluate(selector, { [variable]: 'blacksmith' }, 'maintainer', true), `${name} fork ignores upstream failover`)
+        .toBe(forkHosted)
     }
 
     // The run-gates aggregate lanes stop at the first blocking gate failure so
@@ -373,6 +400,22 @@ describe('CI workflow', () => {
     for (const [jobName, job] of [['node-24', node24], ['node-24-coverage', node24Coverage], ['node-24-consumers', node24Consumers], ['node-compat', nodeCompat]] as const) {
       expect(job.env, `${jobName} must enable fail-fast`).toMatchObject({ DSH_GATE_FAIL_FAST: '1' })
     }
+
+    // node-compat resolves its pool through DSH_CI_FAILOVER_LINUX too, so it
+    // needs the same fork override every other failover selector carries: a
+    // fork cannot reach the upstream self-hosted or Blacksmith pools, and
+    // leaving the selector without the guard sends fork PRs to labels that do
+    // not exist there.
+    expect(typeof nodeCompat['runs-on']).toBe('string')
+    const compatSelector = nodeCompat['runs-on'] as string
+    expect(compatSelector, 'node-compat runs-on must use the Linux failover switch')
+      .toContain('DSH_CI_FAILOVER_LINUX')
+    expect(compatSelector, 'node-compat runs-on must not use the Windows failover switch')
+      .not.toContain('DSH_CI_FAILOVER_WINDOWS')
+    expect(evaluate(compatSelector, { DSH_CI_FAILOVER_LINUX: 'blacksmith' }, 'maintainer', true),
+      'node-compat fork ignores upstream failover').toBe('ubuntu-latest')
+    expect(evaluate(compatSelector, { DSH_CI_FAILOVER_LINUX: 'selfhosted' }, 'maintainer', true),
+      'node-compat fork fallback').toBe('ubuntu-latest')
 
     // The native Windows lanes with run-gates aggregates fail fast for the
     // same reason: a failing gate aborts the sibling gate instead of waiting
@@ -385,6 +428,52 @@ describe('CI workflow', () => {
     // possible, so the first failure must not truncate the rest.
     expect(windowsObservational.env).toBeDefined()
     expect(windowsObservational.env).not.toMatchObject({ DSH_GATE_FAIL_FAST: '1' })
+
+    // Failover-aware work splits two ways, and the guard has to match the
+    // branch. Hosted-compatible steps (caches, Playwright install) must RUN on
+    // a fork, which always lands on a hosted runner, so they lead with the
+    // fork term and never require `fork == false`. Steps that exist only for
+    // the upstream pools must stay gated; a fork reaches neither.
+    const hostedCompatible = (
+      name: string,
+      steps: unknown[],
+      expectedStep: string,
+    ): void => {
+      const step = steps.find((candidate): candidate is Record<string, unknown> & { if: string } => (
+        isRecord(candidate) && candidate.name === expectedStep && typeof candidate.if === 'string'
+      ))
+      expect(step, `${name} must declare the "${expectedStep}" step`).toBeDefined()
+      expect(step!.if, `${name} "${expectedStep}" must run on a fork`)
+        .toContain('github.event.repository.fork ||')
+      expect(step!.if, `${name} "${expectedStep}" must not require a non-fork repository`)
+        .not.toContain('repository.fork == false')
+    }
+    hostedCompatible('node-24-consumers', node24Consumers.steps as unknown[], 'Install Playwright Chromium and hosted dependencies')
+
+    const consumersSteps = node24Consumers.steps as unknown[]
+    const pooledOnly = consumersSteps.filter((step): step is Record<string, unknown> & { if: string } => (
+      isRecord(step)
+        && typeof step.if === 'string'
+        && (step.if.includes("== 'blacksmith'") || step.if.includes("== 'selfhosted'"))
+    ))
+    expect(pooledOnly.length, 'the consumers lane must declare pool-only steps').toBeGreaterThan(0)
+    for (const step of pooledOnly) {
+      expect(step.if, `node-24-consumers step "${String(step.name ?? step.uses)}" must stay non-fork only`)
+        .toContain('github.event.repository.fork == false')
+    }
+
+    // A 4-core fork runner takes the reduced budgets; the upstream values stay
+    // for the 16-core hosted runners and the 64-core failover VM.
+    const consumersEnv = node24Consumers.env as Record<string, unknown>
+    for (const key of ['DSH_GATE_CONCURRENCY', 'DSH_OXLINT_THREADS', 'DSH_PUBLINT_CONCURRENCY', 'DSH_WEB_SNAPSHOT_WORKERS', 'DSH_SNAPSHOT_MAX_CONCURRENCY'] as const) {
+      expect(String(consumersEnv[key]), `${key} must select a fork budget`)
+        .toContain('github.event.repository.fork')
+      expect(evaluateRunsOn(String(consumersEnv[key]), {
+        vars: {},
+        fromJSON: JSON.parse,
+        github: { event: { repository: { fork: true }, pull_request: { user: { login: 'maintainer' } } } },
+      }), `${key} fork budget`).toBe('4')
+    }
   })
 
   it('gates standalone keyless blacksmith jobs and benchmark tiers on the failover variables', () => {
@@ -394,6 +483,15 @@ describe('CI workflow', () => {
     expect(expectedFilenames['runs-on']).toContain("== 'blacksmith'")
     expect(expectedFilenames['runs-on']).toContain('blacksmith-4vcpu-ubuntu-2404')
     expect(expectedFilenames['runs-on']).toContain("'ubuntu-latest'")
+    // A fork reaches neither the upstream self-hosted pool nor Blacksmith, and
+    // it owns its own repository variables, so the failover value must not
+    // capture the selector there.
+    for (const mode of ['blacksmith', 'selfhosted'] as const) {
+      expect(evaluateRunsOn(expectedFilenames['runs-on'] as string, {
+        vars: { DSH_CI_FAILOVER_LINUX: mode },
+        github: { event: { repository: { fork: true }, pull_request: { user: { login: 'maintainer' } } } },
+      }), `expected-filenames fork ignores ${mode}`).toBe('ubuntu-latest')
+    }
     expect(sandbox['runs-on']).toContain("matrix.runner == 'bwrap'")
     expect(sandbox['runs-on']).toContain('DSH_CI_FAILOVER_LINUX')
     expect(sandbox['runs-on']).toContain('blacksmith-4vcpu-ubuntu-2404')
@@ -935,7 +1033,8 @@ describe('Weighted approval workflow', () => {
       'cancel-in-progress': false,
     })
     expect(job).toMatchObject({
-      if: "(github.event_name != 'pull_request_target' || github.event.pull_request.state == 'open') && "
+      if: "github.repository == 'deepseek-harness/deepseek-harness' && "
+        + "(github.event_name != 'pull_request_target' || github.event.pull_request.state == 'open') && "
         + "(github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') && "
         + "(github.event_name != 'issue_comment' || (github.event.issue.pull_request && github.event.issue.state == 'open' &&\n"
         + "  (contains(github.event.comment.body, '/delegate') || contains(github.event.changes.body.from, '/delegate'))))",
@@ -979,7 +1078,7 @@ describe('Weighted approval workflow', () => {
       run: 'node .github/review-ownership/check-approval.mjs',
     })
     expect(recordJob).toMatchObject({
-      if: "github.event.pull_request.state == 'open'",
+      if: "github.repository == 'deepseek-harness/deepseek-harness' && github.event.pull_request.state == 'open'",
       name: 'record weighted approval review event',
       'runs-on': 'ubuntu-latest',
       'timeout-minutes': 2,
@@ -1025,8 +1124,10 @@ describe('Issue lifecycle workflow', () => {
     const steps = lifecycleJob.steps.filter(isRecord)
     const tokenStep = steps.find(s => s.name === 'Create project token')
     const handleStep = steps.find(s => s.name === 'Handle repository event')
-    expect(tokenStep?.if).toBeUndefined()
-    expect(handleStep?.if).toBeUndefined()
+    const preflightStep = steps.find(s => s.id === 'preflight')
+    expect(preflightStep?.if).toBeUndefined()
+    expect(tokenStep?.if).toBe("${{ steps.preflight.outputs.eligible == 'true' }}")
+    expect(handleStep?.if).toBe("${{ steps.preflight.outputs.eligible == 'true' }}")
 
     // issue-policy owns PR validation; it is read-only and a real gate.
     const policyPullRequest = workflowEvent(policy, 'pull_request')

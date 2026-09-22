@@ -904,6 +904,7 @@ test('keeps trusted preflight before token minting and required policy unconditi
   assert.doesNotMatch(source, /pull_request\.head|pull_request_target/)
   assert.ok(steps[1].includes('id: preflight'))
   assert.ok(steps[1].includes('GITHUB_TOKEN: ${{ github.token }}'))
+  assert.ok(steps[1].includes('REPOSITORY_IS_FORK: ${{ github.event.repository.fork }}'))
   assert.ok(steps[1].includes('node .github/issue-management/policy.mjs pr-preflight'))
   assert.ok(steps[1].includes('if [ -f .github/issue-management/selective-preflight.json ]; then'))
   assert.doesNotMatch(steps[1], /secrets\.|PROJECT_TOKEN|if:/)
@@ -922,6 +923,7 @@ test('runs trusted rollout selection with absent and present capability markers'
     .split('\n').map((line) => line.slice(10)).join('\n')
   assert.deepEqual(JSON.parse(readFileSync(new URL('./selective-preflight.json', import.meta.url), 'utf8')), { version: 1 })
   const cases = [
+    { name: 'fork repository', type: 'User', draft: false, marker: true, fork: true, expected: 'eligible=false\nexempt=true\nneeds-project=false\nlegacy-automated=true\n' },
     { name: 'legacy human draft', type: 'User', draft: true, marker: false, expected: 'legacy-automated=false\nneeds-project=true\n' },
     { name: 'legacy human ready', type: 'User', draft: false, marker: false, expected: 'legacy-automated=false\nneeds-project=true\n' },
     { name: 'legacy bot', type: 'Bot', marker: false, expected: 'legacy-automated=true\nneeds-project=false\n' },
@@ -943,7 +945,12 @@ test('runs trusted rollout selection with absent and present capability markers'
       : "throw new Error('preflight unavailable or failed')\n")
     const result = spawnSync('bash', ['--noprofile', '--norc', '-eo', 'pipefail', '-c', script], {
       cwd,
-      env: { PATH: process.env.PATH, GITHUB_EVENT_PATH: eventPath, GITHUB_OUTPUT: outputPath },
+      env: {
+        PATH: process.env.PATH,
+        GITHUB_EVENT_PATH: eventPath,
+        GITHUB_OUTPUT: outputPath,
+        REPOSITORY_IS_FORK: fixture.fork ? 'true' : 'false',
+      },
       encoding: 'utf8',
       timeout: 30_000,
     })
@@ -951,9 +958,51 @@ test('runs trusted rollout selection with absent and present capability markers'
     assert.equal(result.signal, null, fixture.name)
     assert.equal(result.status, fixture.failure ? 1 : 0, fixture.name + ': ' + result.stderr)
     assert.equal(readFileSync(outputPath, 'utf8'), fixture.expected, fixture.name)
-    if (fixture.marker) assert.doesNotMatch(result.stdout, /preserving legacy/)
+    if (fixture.fork) assert.match(result.stdout, /fork repositories do not share upstream Project governance/)
+    else if (fixture.marker) assert.doesNotMatch(result.stdout, /preserving legacy/)
     else assert.match(result.stdout, /preserving legacy policy enforcement/)
   }
+})
+
+test('fork workflow preflight exits before trusted policy lookup', { skip: process.platform === 'win32' ? 'The policy workflow executes under hosted Ubuntu bash' : false }, (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'dsh-policy-fork-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const source = readFileSync(new URL('../workflows/issue-policy.yml', import.meta.url), 'utf8')
+  const script = source.split('        run: |\n')[1].split('      - name: Create Project read token')[0]
+    .split('\n').map((line) => line.slice(10)).join('\n')
+  // The preflight reads the fork flag from one environment variable. Deriving the
+  // fixture from that declaration keeps the test exercising the environment the
+  // workflow actually consumes instead of drifting into a state it never sees.
+  const declaration = /^\s+(REPOSITORY_IS_FORK): \$\{\{ ([^}]+) \}\}$/m.exec(source)
+  assert.ok(declaration, 'the issue-policy preflight must declare the fork flag it reads')
+  assert.equal(declaration[2], 'github.event.repository.fork')
+  const policyDirectory = join(directory, '.github', 'issue-management')
+  mkdirSync(policyDirectory, { recursive: true })
+  const eventPath = join(directory, 'event.json')
+  const outputPath = join(directory, 'output')
+  writeFileSync(eventPath, JSON.stringify({ pull_request: { user: { type: 'User' } } }))
+  writeFileSync(outputPath, '')
+  // A fork still carries the capability marker, so a preflight that consults
+  // trusted policy code would reach this throwing stand-in and fail.
+  writeFileSync(join(policyDirectory, 'selective-preflight.json'), '{"version":1}\n')
+  writeFileSync(join(policyDirectory, 'policy.mjs'), "throw new Error('fork must not run upstream policy')\n")
+  const result = spawnSync('bash', ['--noprofile', '--norc', '-eo', 'pipefail', '-c', script], {
+    cwd: directory,
+    env: {
+      PATH: process.env.PATH,
+      GITHUB_EVENT_PATH: eventPath,
+      GITHUB_OUTPUT: outputPath,
+      [declaration[1]]: 'true',
+    },
+    encoding: 'utf8',
+    timeout: 30_000,
+  })
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(
+    readFileSync(outputPath, 'utf8'),
+    'eligible=false\nexempt=true\nneeds-project=false\nlegacy-automated=true\n',
+  )
+  assert.match(result.stdout, /fork repositories do not share upstream Project governance/)
 })
 
 test('allocates lifecycle runners only for relevant reviews and PR body edits', () => {
@@ -970,6 +1019,19 @@ test('allocates lifecycle runners only for relevant reviews and PR body edits', 
   assert.ok(beforeSteps.includes("(github.event_name != 'pull_request' || github.event.action != 'edited' || github.event.changes.body != null)"))
   assert.ok(source.includes('ref: ${{ github.event.repository.default_branch }}'))
   assert.ok(source.includes('persist-credentials: false'))
+  const steps = job.split('      - name: ').slice(1)
+  assert.equal(steps.length, 4)
+  assert.ok(steps[1].includes('id: preflight'))
+  assert.ok(steps[1].includes('REPOSITORY_IS_FORK: ${{ github.event.repository.fork }}'))
+  assert.ok(steps[1].includes("if [ \"$REPOSITORY_IS_FORK\" = \"true\" ]; then"))
+  assert.ok(steps[1].includes('eligible=false'))
+  assert.ok(steps[1].includes('Issue lifecycle exempt: fork repositories do not share upstream Project governance.'))
+  assert.doesNotMatch(steps[1], /secrets\.|PROJECT_TOKEN|GITHUB_TOKEN/)
+  assert.ok(steps[2].includes("if: ${{ steps.preflight.outputs.eligible == 'true' }}"))
+  assert.ok(steps[2].includes('actions/create-github-app-token@'))
+  assert.ok(steps[3].includes("if: ${{ steps.preflight.outputs.eligible == 'true' }}"))
+  assert.ok(steps[3].includes('GH_TOKEN: ${{ steps.app-token.outputs.token }}'))
+  assert.ok(steps[3].includes('run: node .github/issue-management/policy.mjs lifecycle'))
 })
 
 test('keeps REST headers, null responses, and transport errors unchanged', async (t) => {
