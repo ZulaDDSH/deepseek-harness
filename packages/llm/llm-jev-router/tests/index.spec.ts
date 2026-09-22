@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import {
+  apply,
   applyRoute,
   createJevClient,
   DEFAULT_ENDPOINT,
@@ -101,6 +104,47 @@ describe('Jev router', () => {
     expect(selectedRoute({ route: 'lean', confidence: 0.79 }, Object.assign({}, config, { fallback: 'powerful' }))?.id).toBe('powerful')
     expect(selectedRoute({ route: 'missing', confidence: 1 }, config)).toBeUndefined()
     expect(selectedRoute({ route: 'lean', confidence: 0.8 }, config)?.id).toBe('lean')
+  })
+
+  it('leaves a stored model selection in place instead of the Jev suggestion', async () => {
+    const ctx = new Context()
+    const agent = {} as Agent
+    const picked = { provider: 'claude-code', model: 'claude-opus' }
+
+    ctx.provide('llm', { registerConfigurableProviders: () => ({ replace: () => {} }) } as never)
+    ctx.provide('credentials', { resolve: async () => ({ value: 'test-key' }) } as never)
+    ctx.provide('settings', { installSection: () => {} } as never)
+    ctx.provide('sessionProjections', {
+      stateOf: () => ({ lastUsed: picked, pending: picked }),
+    } as never)
+
+    const realFetch = globalThis.fetch
+    globalThis.fetch = async () => new Response(
+      JSON.stringify({ answers: { route: { choice: 'lean', confidence: 0.95 } } }),
+      { status: 200 },
+    )
+    try {
+      apply(ctx, config)
+      ctx.on('agent/request', async (_payload: unknown, next: () => Promise<LlmCallConfig>) => {
+        const resolved = await next()
+        return { ...resolved, provider: picked.provider, model: picked.model }
+      })
+
+      const payload = { agent, turn: 1, step: 1, signal: new AbortController().signal }
+      await ctx.waterfall('agent/pre-step', { ...payload, messages: [message('hello')] }, async () => ({
+        kind: 'accept' as const,
+        messages: [message('hello')],
+      }))
+      const result = await ctx.waterfall(
+        'agent/request',
+        payload,
+        async (): Promise<LlmCallConfig> => ({ provider: 'deepseek', model: 'deepseek-chat' }),
+      )
+
+      expect(`${result.provider}/${result.model}`).toBe('claude-code/claude-opus')
+    } finally {
+      globalThis.fetch = realFetch
+    }
   })
 
   it('replaces the base route and clears inherited reasoning when target has none', () => {

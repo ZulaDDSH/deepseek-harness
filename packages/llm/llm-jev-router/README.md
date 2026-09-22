@@ -70,6 +70,7 @@ The Jev request has an independent cache lifecycle from the selected DSH provide
 
 - Route descriptions and provider/model identifiers are configuration-owned and must match routes available in the active DSH composition; the plugin does not discover or add missing routes automatically.
 - Fail-open behavior preserves the base route when Jev fails, so deployments that require routing to succeed must explicitly set `failOpen: false`.
+- A model selection already stored on the session is authoritative: when the resolved route came from that selection, the Jev suggestion is discarded rather than applied. Compositions without the `sessionProjections` service have no stored selection to honor and route the assembled default.
 
 <a id="dev-note"></a>
 ### Dev Note

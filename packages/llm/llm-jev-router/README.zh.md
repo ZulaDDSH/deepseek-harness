@@ -70,6 +70,7 @@ Jev 请求与所选 DSH provider 请求拥有独立的缓存生命周期。修�
 
 - 路由描述与 provider/model 标识由配置负责，并且必须匹配当前 DSH composition 中可用的路由；插件不会自动发现或添加缺失路由。
 - Fail-open 行为在 Jev 失败时保留基础路由，因此要求路由必须成功的部署需要显式设置 `failOpen: false`。
+- 会话上已存储的模型选择具有权威性：当解析出的路由来自该选择时，Jev 的建议会被丢弃而不是被应用。没有 `sessionProjections` 服务的 composition 不存在可遵循的已存储选择，会直接路由组装出的默认路由。
 
 <a id="dev-note"></a>
 ### 开发备注

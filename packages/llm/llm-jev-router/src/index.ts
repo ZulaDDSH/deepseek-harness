@@ -393,7 +393,8 @@ export function selectedRoute(decision: JevDecision, config: Config): JevRoute |
   return config.routes.find(candidate => candidate.id === config.fallback)
 }
 
-/** Apply a selected route without mutating the frozen base config.
+/**
+ * Apply a selected route without mutating the frozen base config.
  * @param config base DSH call configuration.
  * @param route selected destination.
  * @returns the replacement call configuration.
@@ -406,6 +407,44 @@ export function applyRoute(config: LlmCallConfig, route: JevRoute): LlmCallConfi
     model: route.model,
     ...route.reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(route.reasoningEffort) },
   }
+}
+
+/** Durable model selection retained by the Session Controller projection. */
+interface StoredSelection {
+  /** Provider of the stored selection. */
+  provider: string
+  /** Model of the stored selection. */
+  model: string
+}
+
+/** Read side of the optional `modelSelection` projection. */
+interface StoredSelectionReader {
+  /** @param session - Session whose projection state is read.
+   * @param key - projection key.
+   * @returns the retained projection state, or `undefined` when unregistered.
+   */
+  stateOf(session: Agent['session'], key: 'modelSelection'):
+  { pending: StoredSelection | null; lastUsed: StoredSelection | null } | undefined
+}
+
+/**
+ * Report whether the session carries a stored model selection that the resolved
+ * base route came from. The `modelSelection` projection retains the choice a
+ * caller committed to the session; Jev routes the assembled default route and
+ * stands down for that choice, so a stored selection is never silently replaced
+ * by a Jev suggestion. The projection service is optional: compositions without
+ * it, such as the headless bundle, keep Jev routing the assembled route.
+ * @param ctx - plugin context used to read the optional projection service.
+ * @param agent - live Agent whose session projection is inspected.
+ * @param base - resolved base call configuration.
+ * @returns `true` when a stored selection matches the resolved base route.
+ */
+export function hasStoredSelection(ctx: Context, agent: Agent, base: LlmCallConfig): boolean {
+  const projections = ctx.get('sessionProjections') as StoredSelectionReader | undefined
+  const state = projections?.stateOf(agent.session, 'modelSelection')
+  const stored = state?.pending ?? state?.lastUsed ?? null
+  if (stored === null) return false
+  return stored.provider === base.provider && stored.model === base.model
 }
 
 /** Install Jev routing into the agent waterfalls. */
@@ -465,6 +504,7 @@ export function apply(ctx: Context, initial: Config): void {
     const base = await next()
     const route = decisions.get(payload.agent)?.get(stepKey(payload.turn, payload.step))
     if (route === undefined || payload.signal.aborted) return base
+    if (hasStoredSelection(ctx, payload.agent, base)) return base
     return applyRoute(base, route.route)
   }, { prepend: true })
 }
