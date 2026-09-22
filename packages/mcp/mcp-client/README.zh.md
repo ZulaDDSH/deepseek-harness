@@ -60,6 +60,9 @@ kind: "package-reference"
 | `url` / `headers` | — | streamable-http：端点 URL 与额外请求标头 |
 | `toolCallTimeoutMs` | `60,000` | 每次 `tools/call` 或资源请求的超时 |
 | `maxInstructionBytes` | `32,768` | 包括服务器归属信息在内的服务器指令 UTF-8 字节上限；超出时连接失败 |
+| `includeServerInstructions` | `true` | 将非空服务器指令发布到系统提示词；设为 `false` 可省去这段重复提示词文本。 |
+| `toolFilter.allow` | — | 精确原始名称允许列表；省略或空列表表示不限制，非空列表只允许列出的 MCP 工具。 |
+| `toolFilter.deny` | — | 在可选允许列表之后应用的精确原始名称拒绝列表。 |
 | `failOnStartupError` | `false` | 初始连接或工具同步失败时拒绝插件激活 |
 | `reconnect.enabled` | `true` | 连接丢失后自动重新连接 |
 | `reconnect.initialDelayMs` | `500` | 首次重连延迟；每次连续失败尝试翻倍 |
@@ -67,6 +70,10 @@ kind: "package-reference"
 | `reconnect.maxAttempts` | `10` | 每次中断内连续失败尝试次数上限，超出后放弃 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-mcp-client)是每个受支持字段的穷尽式真源。
+
+当服务器发布很多工具但 agent 只需要稳定子集时，使用静态 `toolFilter`。过滤会在公开名称规范化之前匹配服务器的原始 MCP 名称。空 `allow` 列表按省略处理，因此 Schemastery 具体化的默认值仍保持历史上的全部允许行为。静态子集会从每次模型请求中完全移除被排除工具的描述与输入 schema，同时保持剩余请求前缀稳定，以便缓存复用。
+
+只有在部署不需要服务器提供的指导时才设置 `includeServerInstructions: false`。省略的指令不会进入系统提示词，也不会占用 `maxInstructionBytes` 预算；工具与资源连接仍保持可用。
 
 启动后，服务器的工具会以 `mcp__<serverName>__<tool>` 形式出现——试着用一条提示词调用其中一个。如果初始连接失败，harness 仍会启动，但该服务器的工具不会出现，并会记录一条错误。设置 `failOnStartupError: true` 会拒绝插件激活；[app-boot 的启动策略](../../boot/app-boot/README.zh.md)仍允许可选 MCP 配置项失败，而不中止 harness。
 
@@ -117,7 +124,8 @@ kind: "package-reference"
 | [`src/index.ts`](src/index.ts) | 插件入口：`Config` schema、`serverName` 预留、激活等待 |
 | [`src/connection.ts`](src/connection.ts) | 连接监督器：客户端世代、重连策略、尝试预算、dispose（资源释放） |
 | [`src/server-context.ts`](src/server-context.ts) | 资源提供方注册与字面服务器指令 |
-| [`src/tools.ts`](src/tools.ts) | 工具桥接：发现、命名、注册交换、执行、图片投影 |
+| [`src/tool-filter.ts`](src/tool-filter.ts) | 已发现工具的静态原始名称允许／拒绝解析 |
+| [`src/tools.ts`](src/tools.ts) | 工具桥接：发现、过滤、命名、注册交换、执行、图片投影 |
 | [`src/transport.ts`](src/transport.ts) | 传输工厂：带清洗环境的 stdio spawn、Streamable HTTP |
 | — | 不发布运行时不变式伴生入口；MCP 世代会通过工具注册表发挥作用，但桥接在异步重新同步后不提供独立的服务器工具映射快照。 |
 
@@ -161,7 +169,7 @@ SDK 通过旧版通知或现代协议订阅接收工具列表变化。监督器�
 
 #### 模型看到什么
 
-发现成功后，SDK 接受的 MCP 工具以原生工具名称 `mcp__<serverName>__<rawName>`（或其确定性规范化形式）出现，携带服务器描述和输入 schema。重新同步会替换注册代；释放或重连预算耗尽会移除工具。未声明 tools 能力的服务器以空工具集连接。
+发现成功后，通过已配置原始名称过滤器的 SDK 接受 MCP 工具会以原生工具名称 `mcp__<serverName>__<rawName>`（或其确定性规范化形式）出现，携带服务器描述和输入 schema。重新同步会替换注册代；释放或重连预算耗尽会移除工具。未声明 tools 能力的服务器以空工具集连接。
 
 #### Token 影响
 
@@ -206,6 +214,8 @@ SDK 通过旧版通知或现代协议订阅接收工具列表变化。监督器�
 
 这些限制说明你无法用本插件做什么、以及何时需要运维注意。它们是当前包约束，不是与其他 MCP 客户端的对比，也不是任务积压。
 
+- **每台服务器的指令省略是全有或全无**——`includeServerInstructions: false` 会移除完整服务器指令段落，不能选择性保留其中某些段落。
+- **工具过滤仅支持精确名称**——`toolFilter` 匹配原始 MCP 名称，不支持 glob 或正则扩展；更改过滤器需要重新加载配置，因此会有意改变模型可见工具前缀。
 - **资源按需读取**——随附 profile 提供[共享资源服务](../mcp-resources/README.zh.md)；资源订阅与 MCP 提示词模板不受支持。
 - **启动与发现超时继承自 MCP SDK**——插件不暴露单独的连接或发现超时。协商与发现使用 SDK 默认的 60 秒请求超时；发现也使用 SDK 的页数上限。插件卸载先关闭传输以中断待处理的启动请求，再等待清理。
 - **重连处理协商失败与传输关闭**——初始探测失败或 stdio 子进程崩溃都会使用配置的重连预算。HTTP 建立连接后，请求失败使用 SDK 传输的恢复机制，而非重新创建连接。
