@@ -117,6 +117,24 @@ export interface PiAiAuthInjection {
   authContext: AuthContext
 }
 
+/**
+ * Add a declared mode's service tier to one provider request body.
+ *
+ * pi-ai models the tier as `options.serviceTier`, but both Responses
+ * implementations rebuild their options inside `streamSimple` from a fixed
+ * field list, so that option never survives the entry point this adapter
+ * dispatches through. `onPayload` is preserved on every protocol and is pi-ai's
+ * own hook for request fields it does not model, so the tier is written there.
+ * pi-ai's service-tier cost multiplier is keyed off the option instead, which
+ * costs nothing here: `TokenUsage` carries no price and no consumer reads one.
+ * @param body - the request body pi-ai assembled.
+ * @param serviceTier - the tier the selected mode declared.
+ * @returns the body with the wire's `service_tier` set.
+ */
+function withServiceTier(body: unknown, serviceTier: string): Record<string, unknown> {
+  return { ...body as Record<string, unknown>, service_tier: serviceTier }
+}
+
 /** Copy profile stream knobs into pi-ai's common option vocabulary. */
 function profileOptions(
   profile: ResolvedPiAiProviderProfile,
@@ -431,16 +449,26 @@ export class PiAiAdapter extends LlmAdapter {
           },
         }, onReplayDegrade)
       const sessionId = options.sessionId === undefined ? undefined : String(options.sessionId)
-      const events = snapshot.models.streamSimple(model, context, {
+      // A mode entry is an ordinary catalog id whose request facts the catalog
+      // recorded: the provider still receives the model the mode extends, and
+      // only the tier is added. A model with no mode entry sends neither.
+      const mode = profile.modeRequests.get(model.id)
+      const streamOptions: SimpleStreamOptions = {
         ...profileOptions(profile, reasoning, apiKey),
         ...options.temperature === undefined ? {} : { temperature: options.temperature },
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
         ...sessionId === undefined ? {} : { sessionId },
+        ...mode === undefined ? {} : { onPayload: (body: unknown) => withServiceTier(body, mode.serviceTier) },
         signal: watchdog.signal,
         // Profile headers are deployment-owned; attribution names are
         // Harness-owned and therefore win collisions.
         headers: withOpencodeSession(requestHeaders(profile.headers), model, sessionId),
-      })
+      }
+      const events = snapshot.models.streamSimple(
+        mode === undefined ? model : { ...model, id: mode.model },
+        context,
+        streamOptions,
+      )
       const iterator = toStreamChunks(events, model.contextWindow, options.signal, model.id)[Symbol.asyncIterator]()
       let exhausted = false
       try {

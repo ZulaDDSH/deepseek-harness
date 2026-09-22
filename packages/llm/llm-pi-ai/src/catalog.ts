@@ -616,6 +616,22 @@ function assertOfferedCompatFields(
   }
 }
 
+/**
+ * One named request mode a model offers as an additional catalog entry.
+ *
+ * A mode is a second way to call the same model, not a different model: it
+ * resolves to `<id>-<mode>` under the model's own protocol and capacities, and
+ * differs only by the request option it adds. This is how Codex's fast mode
+ * reaches the picker — `fast: { serviceTier: fast }` on `gpt-5.6-luna` serves
+ * `GPT-5.6 Luna` and `GPT-5.6 Luna Fast` as two selectable rows.
+ */
+export interface PiAiModeProfile {
+  /** Display name; defaults to the model's own name plus the capitalized mode key. */
+  name?: string
+  /** Wire service tier every request through this mode carries. */
+  serviceTier: string
+}
+
 /** One configured model entry: an id plus the catalog fields it overrides. */
 export interface PiAiModelProfile {
   /** Model id sent to the provider and accepted by {@link GenerateOptions.model}. */
@@ -653,6 +669,12 @@ export interface PiAiModelProfile {
   reasoningEfforts?: false | PiAiReasoningEfforts
   /** pi-ai wire-compatibility switches for this model, winning over the route's per field; one its protocol does not declare is refused. */
   compat?: PiAiCompatProfile
+  /**
+   * Request modes offered beside this model, keyed by the id suffix each one
+   * adds. A mode's entry inherits this model's capacities, modalities, and
+   * reasoning, so declaring one never restates the model it extends.
+   */
+  modes?: Readonly<Record<string, PiAiModeProfile>>
 }
 
 /**
@@ -860,6 +882,40 @@ export interface RouteCatalog {
    * picked, so only an explicit configuration lands here.
    */
   configuredMaxTokens: ReadonlyMap<string, number>
+  /**
+   * What each mode entry changes on its requests, by the mode entry's own model
+   * id.
+   *
+   * Kept beside the models rather than on them because pi-ai's `Model.id` is
+   * both the harness's key and the provider's model name. A mode entry needs
+   * its own key for the picker and the session log while the provider still
+   * receives the model it extends, so the two ids part company here.
+   */
+  modeRequests: ReadonlyMap<string, PiAiModeRequest>
+}
+
+/** The request facts one mode entry adds to the model it extends. */
+export interface PiAiModeRequest {
+  /** Provider-side model id the mode's requests carry. */
+  model: string
+  /** Service tier those requests carry. */
+  serviceTier: string
+}
+
+/**
+ * Wire protocols whose requests define a service tier, and on which a mode's
+ * `serviceTier` therefore means something.
+ *
+ * Both Responses protocols carry the field as `service_tier`. The adapter
+ * writes it through `onPayload`, because `streamSimple` drops pi-ai's own
+ * `serviceTier` option; widening this set still means verifying that the
+ * protocol accepts the field, not assuming every protocol does.
+ */
+const SERVICE_TIER_APIS: ReadonlySet<string> = new Set(['openai-codex-responses', 'openai-responses'])
+
+/** The display-name suffix a mode contributes, matching the id suffix it adds. */
+function modeName(base: string, mode: string): string {
+  return `${base} ${mode.charAt(0).toUpperCase()}${mode.slice(1)}`
 }
 
 /**
@@ -975,17 +1031,55 @@ export function resolveRouteModels(
       ...resolveModelCompat(provider, entry, request.compat, base, api),
     }
   }
+  /**
+   * Materialize the extra entries one model's declared modes add. Each inherits
+   * the resolved model wholesale — protocol, capacities, modalities, reasoning,
+   * compat — and differs only by id, name, and the tier its requests carry.
+   * @param entry - the configured entry the modes were declared on.
+   * @param model - that entry's resolved model, the mode entries' template.
+   * @returns one resolved mode entry per declared mode, in declaration order.
+   */
+  const expandModes = (
+    entry: PiAiModelProfile,
+    model: Model<Api>,
+  ): readonly { model: Model<Api>; request: PiAiModeRequest }[] => {
+    const modes = Object.entries(entry.modes ?? {})
+    if (modes.length === 0) return []
+    const expanded = modes.map(([mode, profile]) => {
+      if (mode.length === 0) invalid(provider, `model "${entry.id}" has a mode with an empty name`)
+      if (profile.serviceTier.length === 0) {
+        invalid(provider, `model "${entry.id}" mode "${mode}" has an empty serviceTier`)
+      }
+      const id = `${entry.id}-${mode}`
+      if (seen.has(id)) invalid(provider, `lists model "${id}" more than once`)
+      if (!SERVICE_TIER_APIS.has(model.api)) {
+        invalid(provider, `model "${entry.id}" mode "${mode}" sets a serviceTier, but protocol "${model.api}" has`
+          + ` no service-tier request option; a mode is servable only on ${[...SERVICE_TIER_APIS].join(', ')}`)
+      }
+      return {
+        model: { ...model, id, name: profile.name ?? modeName(model.name, mode) },
+        // The provider keeps receiving the model the mode extends; only the
+        // harness-side id and the request's tier differ.
+        request: { model: model.id, serviceTier: profile.serviceTier },
+      }
+    })
+    // Registered only once every mode validated, so a refused mode leaves no
+    // id behind to collide with a later entry.
+    for (const mode of expanded) seen.add(mode.model.id)
+    return expanded
+  }
   const models: Model<Api>[] = []
+  const modeRequests = new Map<string, PiAiModeRequest>()
   for (const entry of entries) {
-    let model: Model<Api>
     try {
-      model = resolveEntry(entry)
+      const model = resolveEntry(entry)
+      const modes = expandModes(entry, model)
+      models.push(model, ...modes.map(mode => mode.model))
+      for (const mode of modes) modeRequests.set(mode.model.id, mode.request)
     } catch (error) {
       if (validation === 'strict' || !(error instanceof PiAiCatalogError)) throw error
       modelErrors.set(entry.id, error.message)
-      continue
     }
-    models.push(model)
   }
   // A later duplicate invalidates the id, including an earlier resolved entry.
   const serviceableModels = models.filter(model => !modelErrors.has(model.id))
@@ -999,5 +1093,5 @@ export function resolveRouteModels(
     invalid(provider, `sets compat "${field}", but no model on the route speaks a protocol that takes it;`
       + ` it exists on ${takers.join(', ')}`)
   }
-  return { models: serviceableModels, configuredMaxTokens, modelErrors }
+  return { models: serviceableModels, configuredMaxTokens, modeRequests, modelErrors }
 }

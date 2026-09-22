@@ -96,6 +96,12 @@ A provider pi-ai ships a login for can be signed into through the harness author
 
 A profile's `models` list replaces the route's installed catalog rather than extending it; each entry defaults its unset fields from the installed model of the same id, so narrowing a route to two models, correcting one capacity, or adding a model newer than the installed catalog are one-line edits. `modelOverrides` reshapes individual installed-catalog models without that cost — correct one model, keep the other thirty-seven — and is refused when set beside a `models` list, on a hand-declared route, or naming a model the catalog does not describe, because a silently unchanged model would be a typo someone hunts for later.
 
+### Offer a model's request modes
+
+A model entry may declare `modes`, each of which is a second way to call the same model rather than a different model: `fast: { serviceTier: fast }` on `gpt-5.6-luna` serves `GPT-5.6 Luna` and `GPT-5.6 Luna Fast` as two selectable rows. A mode entry takes the id `<id>-<mode>` and the name `<name> <Mode>`, inherits the resolved model's protocol, capacities, modalities, reasoning, and compatibility switches, and is refused on a protocol that carries no service-tier request option. Selecting it changes only the request: the provider still receives the model the mode extends, and the tier travels as the wire's `service_tier`. A mode's `name` overrides the derived display name.
+
+The tier reaches the request through pi-ai's `onPayload` hook rather than its `serviceTier` option, because both Responses implementations rebuild their options inside `streamSimple` from a fixed field list; the hook survives on every protocol. pi-ai keys its service-tier cost multiplier off the option, so the multiplier does not apply — `TokenUsage` carries no price and no consumer reads one.
+
 ### Run with reasoning and wire compatibility
 
 `reasoningEfforts` declares a model's selectable thinking levels: each key is a level selectors offer, its value the spelling dispatch sends on the wire, so `max: ultra` renames a level for a gateway with its own vocabulary. Omitting the field keeps the installed catalog entry's capability; `false` declares a non-reasoning model. `compat` switches reshape the request for endpoints pi-ai cannot recognize — which role carries the system prompt, which field caps output, how a thinking level travels — configurable per route and per model. A model neither the entry nor the installed catalog sizes takes the route's `defaultContextWindow` and `defaultMaxTokens` fallbacks.

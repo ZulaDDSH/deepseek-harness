@@ -1156,6 +1156,88 @@ describe('Codex subscription model gate', () => {
   })
 })
 
+describe('declared model modes', () => {
+  it('serves a mode beside its model under a derived id and name', async () => {
+    const ctx = await harness({
+      providers: {
+        'openai-codex': { modelOverrides: { 'gpt-5.6-luna': { modes: { fast: { serviceTier: 'fast' } } } } },
+      },
+    })
+
+    const ids = (await ctx.llm.listModels('openai-codex')).map(model => model.id)
+    expect(ids).toContain('gpt-5.6-luna')
+    expect(ids).toContain('gpt-5.6-luna-fast')
+
+    const mode = await ctx.llm.resolveModelInfo('openai-codex', 'gpt-5.6-luna-fast')
+    const base = await ctx.llm.resolveModelInfo('openai-codex', 'gpt-5.6-luna')
+    expect(mode.name).toBe('GPT-5.6 Luna Fast')
+    // A mode is the same model called differently, so everything but its id and
+    // name comes from the entry it extends.
+    expect(mode.context).toEqual(base.context)
+    expect(mode.inputModalities).toEqual(base.inputModalities)
+    expect(mode.reasoning).toEqual(base.reasoning)
+  })
+
+  it('takes a declared mode name over the derived one', () => {
+    const resolved = resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-responses',
+        baseURL: 'https://acme.test',
+        models: [{ id: 'acme-large', name: 'Acme Large', modes: { fast: { name: 'Acme Large Turbo', serviceTier: 'priority' } } }],
+      },
+    })
+
+    expect(resolved.get('acme-gateway')?.piProvider?.getModels()).toMatchObject([
+      { id: 'acme-large', name: 'Acme Large' },
+      { id: 'acme-large-fast', name: 'Acme Large Turbo' },
+    ])
+    // The provider keeps receiving the model the mode extends.
+    expect(resolved.get('acme-gateway')?.modeRequests.get('acme-large-fast'))
+      .toEqual({ model: 'acme-large', serviceTier: 'priority' })
+  })
+
+  it('refuses a mode whose protocol carries no service tier', () => {
+    const declare = (modes: Record<string, { serviceTier: string }>): unknown => resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-completions',
+        baseURL: 'https://acme.test',
+        models: [{ id: 'acme-large', modes }],
+      },
+    })
+
+    // Chat Completions has no service-tier request field, so the mode would
+    // look applied while sending nothing.
+    expect(() => declare({ fast: { serviceTier: 'fast' } }))
+      .toThrow(/mode "fast" sets a serviceTier, but protocol "openai-completions" has no service-tier request option/)
+  })
+
+  it('refuses an empty service tier or mode name', () => {
+    const declare = (modes: Record<string, { serviceTier: string }>): unknown => resolveProfiles({
+      'openai-codex': { modelOverrides: { 'gpt-5.6-luna': { modes } } },
+    })
+
+    expect(() => declare({ fast: { serviceTier: '' } })).toThrow(/mode "fast" has an empty serviceTier/)
+    expect(() => declare({ '': { serviceTier: 'fast' } })).toThrow(/has a mode with an empty name/)
+  })
+
+  it('refuses a mode id that another entry already claims', () => {
+    const declare = (models: LlmPiAi.PiAiModelProfile[]): unknown => resolveProfiles({
+      'acme-gateway': { api: 'openai-responses', baseURL: 'https://acme.test', models },
+    })
+
+    // Either declaration order is refused: the mode first, then the plain
+    // entry, and the plain entry first, then the mode that would claim its id.
+    expect(() => declare([
+      { id: 'acme-large', modes: { fast: { serviceTier: 'priority' } } },
+      { id: 'acme-large-fast' },
+    ])).toThrow(/lists model "acme-large-fast" more than once/)
+    expect(() => declare([
+      { id: 'acme-large-fast' },
+      { id: 'acme-large', modes: { fast: { serviceTier: 'priority' } } },
+    ])).toThrow(/lists model "acme-large-fast" more than once/)
+  })
+})
+
 describe('resolution snapshots', () => {
   it('finishes an in-flight request under the configuration it started with', async () => {
     const server = await mockServer([{ events: textEvents }])

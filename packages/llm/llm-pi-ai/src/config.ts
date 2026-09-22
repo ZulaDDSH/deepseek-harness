@@ -35,6 +35,7 @@ import {
 import type {
   PiAiCompatProfile,
   PiAiModality,
+  PiAiModeRequest,
   PiAiModelOverride,
   PiAiModelProfile,
   PiAiReasoningEfforts,
@@ -215,6 +216,12 @@ export interface ResolvedPiAiProviderProfile
    * own, so a catalog capability must not appear here.
    */
   configuredMaxTokens: ReadonlyMap<string, number>
+  /**
+   * What each declared mode entry changes on its requests, by that entry's
+   * model id. pi-ai carries no separate provider-side model name, so the
+   * adapter reads the model a mode extends from here when it streams one.
+   */
+  modeRequests: ReadonlyMap<string, PiAiModeRequest>
 }
 
 /** Plugin configuration: the provider routes this instance owns. */
@@ -295,6 +302,12 @@ const reasoningEfforts = z.dict(
   z.union(THINKING_LEVELS),
 ) as unknown as z<PiAiReasoningEfforts>
 
+/** One declared request mode: the extra display name and the tier it sends. */
+const modeProfile = z.object({
+  name: z.string(),
+  serviceTier: z.string().required(),
+})
+
 /** The fields a `models` entry and a `modelOverrides` value share; only the id's home differs. */
 const modelFields = {
   name: z.string(),
@@ -309,6 +322,8 @@ const modelFields = {
   // installed catalog's capability", while `false` disables reasoning.
   reasoningEfforts: z.union([z.const(false), reasoningEfforts]),
   compat: compatProfile,
+  // An absent dict materializes as `{}`, which resolution reads as "no modes".
+  modes: z.dict(modeProfile),
 }
 
 const modelProfile: z<PiAiModelProfile> = z.object({
@@ -497,6 +512,7 @@ export function resolveProfiles(
       ...rest.headers === undefined ? {} : { headers: { ...rest.headers } },
       ...rest.thinkingBudgets === undefined ? {} : { thinkingBudgets: { ...rest.thinkingBudgets } },
       configuredMaxTokens: catalog?.configuredMaxTokens ?? new Map(),
+      modeRequests: catalog?.modeRequests ?? new Map(),
       modelErrors: catalog?.modelErrors ?? new Map(),
       ...piProvider === undefined ? {} : { piProvider },
       ...catalogError === undefined ? {} : { catalogError },

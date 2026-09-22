@@ -1387,6 +1387,12 @@ export interface PiAiModelProfile {
   reasoningEfforts?: false | PiAiReasoningEfforts
   /** pi-ai wire-compatibility switches for this model, winning over the route's per field; one its protocol does not declare is refused. */
   compat?: PiAiCompatProfile
+  /**
+   * Request modes offered beside this model, keyed by the id suffix each one
+   * adds. A mode's entry inherits this model's capacities, modalities, and
+   * reasoning, so declaring one never restates the model it extends.
+   */
+  modes?: Readonly<Record<string, PiAiModeProfile>>
 }
 
 /**
@@ -1503,6 +1509,22 @@ export type PiAiModality = Model<Api>['input'][number]
  */
 export type PiAiReasoningEfforts = Partial<Record<ModelThinkingLevel, string | null>>
 
+/**
+ * One named request mode a model offers as an additional catalog entry.
+ *
+ * A mode is a second way to call the same model, not a different model: it
+ * resolves to `<id>-<mode>` under the model's own protocol and capacities, and
+ * differs only by the request option it adds. This is how Codex's fast mode
+ * reaches the picker — `fast: { serviceTier: fast }` on `gpt-5.6-luna` serves
+ * `GPT-5.6 Luna` and `GPT-5.6 Luna Fast` as two selectable rows.
+ */
+export interface PiAiModeProfile {
+  /** Display name; defaults to the model's own name plus the capitalized mode key. */
+  name?: string
+  /** Wire service tier every request through this mode carries. */
+  serviceTier: string
+}
+
 /** One reasoning-dispatch wire format a profile may name. */
 export type PiAiThinkingFormat = NonNullable<OpenAICompletionsCompat['thinkingFormat']>
 
@@ -1512,7 +1534,7 @@ export type PiAiThinkingTokenBudgetField = NonNullable<OpenAICompletionsCompat['
 
 Depends on: `Api` (`@earendil-works/pi-ai`) · `CacheRetention` (`@earendil-works/pi-ai`) · `Model` (`@earendil-works/pi-ai`) · `ModelThinkingLevel` (`@earendil-works/pi-ai`) · `OpenAICompletionsCompat` (`@earendil-works/pi-ai`) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`)
 
-Source: [`packages/llm/llm-pi-ai/src/config.ts:221`](../packages/llm/llm-pi-ai/src/config.ts)
+Source: [`packages/llm/llm-pi-ai/src/config.ts:228`](../packages/llm/llm-pi-ai/src/config.ts)
 
 <a id="deepseek-aidsh-llm-replay"></a>
 

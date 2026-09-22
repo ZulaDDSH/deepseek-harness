@@ -1102,3 +1102,25 @@ describe('abort wiring', () => {
     expect(server.requests).toHaveLength(1)
   })
 })
+
+describe('declared model modes', () => {
+  it('sends the declared tier on the mode entry and nothing on its base model', async () => {
+    const server = await mockServer([{ events: textEvents }, { events: textEvents }])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    ctx.llm.registerAdapter(['openai'], adapterOf({
+      openai: {
+        apiKeyEnv: 'PI_TEST_KEY',
+        baseURL: server.url,
+        modelOverrides: { 'gpt-5.4': { modes: { fast: { serviceTier: 'priority' } } } },
+      },
+    }))
+
+    await assemble(ctx, { provider: 'openai', model: 'gpt-5.4-fast', messages: [] })
+    await assemble(ctx, { provider: 'openai', model: 'gpt-5.4', messages: [] })
+
+    expect(server.requests[0]).toMatchObject({ model: 'gpt-5.4', service_tier: 'priority' })
+    expect(server.requests[1]).toMatchObject({ model: 'gpt-5.4' })
+    expect(server.requests[1]).not.toHaveProperty('service_tier')
+  })
+})
