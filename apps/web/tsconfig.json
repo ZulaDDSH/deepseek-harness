@@ -117,6 +117,7 @@
     "tests/sidebar-terminal.e2e.ts",
     "tests/startup-auto-selection.e2e.ts",
     "tests/changed-files-turn.e2e.ts",
+    "tests/zz-drag.e2e.ts",
     "tests/produced-file-mentions.e2e.ts",
     "tests/goal-bar.e2e.ts",
     "tests/goal-command-presentation.e2e.ts",
