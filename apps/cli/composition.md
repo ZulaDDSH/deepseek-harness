@@ -18,6 +18,8 @@ flowchart LR
   cfg --> plugin_dsh_base_hmr
   plugin_dsh_base_llm["llm<br/>@deepseek-ai/dsh-llm"]
   cfg --> plugin_dsh_base_llm
+  plugin_dsh_base_llm_jev_router["llm-jev-router<br/>@deepseek-ai/dsh-llm-jev-router"]
+  cfg --> plugin_dsh_base_llm_jev_router
   plugin_dsh_base_deepseek_llm_api_extensions["deepseek-llm-api-extensions<br/>@deepseek-ai/dsh-deepseek-llm-api-extensions"]
   cfg --> plugin_dsh_base_deepseek_llm_api_extensions
   plugin_dsh_base_session["session<br/>@deepseek-ai/dsh-session"]
@@ -197,6 +199,7 @@ flowchart LR
 | `timer` | `@deepseek-ai/cordis-plugin-timer` |
 | `hmr` | `@deepseek-ai/dsh-hmr` |
 | `llm` | `@deepseek-ai/dsh-llm` |
+| `llm-jev-router` | `@deepseek-ai/dsh-llm-jev-router` |
 | `deepseek-llm-api-extensions` | `@deepseek-ai/dsh-deepseek-llm-api-extensions` |
 | `session` | `@deepseek-ai/dsh-session` |
 | `session-log-deepseek` | `@deepseek-ai/dsh-session-log-deepseek` |

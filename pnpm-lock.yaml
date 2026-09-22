@@ -1718,6 +1718,9 @@ importers:
       '@deepseek-ai/dsh-llm-deepseek':
         specifier: workspace:^
         version: link:../../llm/llm-deepseek
+      '@deepseek-ai/dsh-llm-jev-router':
+        specifier: workspace:^
+        version: link:../../llm/llm-jev-router
       '@deepseek-ai/dsh-llm-pi-ai':
         specifier: workspace:^
         version: link:../../llm/llm-pi-ai
@@ -8282,31 +8285,6 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: workspace:^
         version: link:../../core/tools
-
-  packages/llm/llm-jev-router:
-    dependencies:
-      '@deepseek-ai/schemastery':
-        specifier: link:../../../vendor/schemastery
-        version: link:../../../vendor/schemastery
-    devDependencies:
-      '@deepseek-ai/cordis':
-        specifier: workspace:^
-        version: link:../../../vendor/cordis
-      '@deepseek-ai/dsh-agent':
-        specifier: workspace:^
-        version: link:../../core/agent
-      '@deepseek-ai/dsh-credentials':
-        specifier: workspace:^
-        version: link:../../credentials/credentials
-      '@deepseek-ai/dsh-launch-environment':
-        specifier: workspace:^
-        version: link:../../util/launch-environment
-      '@deepseek-ai/dsh-llm':
-        specifier: workspace:^
-        version: link:../llm
-      '@deepseek-ai/dsh-settings':
-        specifier: workspace:^
-        version: link:../../settings/settings
 
   packages/llm/llm-pi-ai:
     dependencies:
