@@ -276,7 +276,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'workspace-changes',
     title: 'Host per-turn changed-file summaries',
     mode: 'core',
-    note: 'Serves the summary each workspace/changes event announced and each listed file\'s turn-start and turn-end comparison, by Session and event sequence, until that Session is disposed; the log carries only the turn.',
+    note: 'Serves the summary each workspace/changes event announced and each listed file\'s turn-start and turn-end comparison, by Session and event sequence, from durable per-Session records that outlive the Session and are bounded by retention; the log carries only the turn.',
   },
   {
     key: 'terminalController',

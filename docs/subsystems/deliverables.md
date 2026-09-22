@@ -2,7 +2,7 @@
 
 English | [中文](deliverables.zh.md)
 
-What a turn hands to the user, owned by the [deliverables package group](../../packages/deliverables/README.md): the files the model declared through the `present` tool, recorded in a log-only Session event, and the files the turn changed, summarized from git working-tree snapshots taken at turn start and turn end plus whole-file captures around each file-tool edit for the paths git does not cover, announced by a log-only event and served by a Host service while the Session lives together with each listed file's turn-start and turn-end comparison. Only clients read them; the Web [deliverables plugin](../../packages/client/ui-deliverables/README.md) renders both at the end of the turn. Tool behavior, snapshot mechanics, and configuration are on the package READMEs for [`tool-present`](../../packages/deliverables/tool-present/README.md) and [`workspace-changes`](../../packages/deliverables/workspace-changes/README.md).
+What a turn hands to the user, owned by the [deliverables package group](../../packages/deliverables/README.md): the files the model declared through the `present` tool, recorded in a log-only Session event, and the files the turn changed, summarized from git working-tree snapshots taken at turn start and turn end plus whole-file captures around each file-tool edit for the paths git does not cover, announced by a log-only event and served by a Host service from durable records that outlive the Session together with each listed file's turn-start and turn-end comparison. Only clients read them; the Web [deliverables plugin](../../packages/client/ui-deliverables/README.md) renders both at the end of the turn. Tool behavior, snapshot mechanics, and configuration are on the package READMEs for [`tool-present`](../../packages/deliverables/tool-present/README.md) and [`workspace-changes`](../../packages/deliverables/workspace-changes/README.md).
 
 Sources: [`packages/deliverables/tool-present/src/types.ts`](../../packages/deliverables/tool-present/src/types.ts), [`packages/deliverables/workspace-changes/src/types.ts`](../../packages/deliverables/workspace-changes/src/types.ts)
 
@@ -45,7 +45,7 @@ interface WorkspaceChangedFile {
 ## `WorkspaceChangesSummary` — one turn's change summary
 
 ```ts type-equiv
-/** Files changed during one top-level turn, kept on the Host until its Session is disposed. */
+/** Files changed during one top-level turn, recorded in the durable directory of the Session that produced them. */
 interface WorkspaceChangesSummary {
   /** The turn whose file changes this summary describes. */
   turn: number
@@ -111,7 +111,7 @@ type WorkspaceFileDiff =
 ## `WorkspaceChanges` — the Host service serving summaries and comparisons
 
 ```ts type-equiv
-/** Serves live turn comparisons and current repository status for Sessions. */
+/** Serves turn comparisons from durable records and current repository status for Sessions. */
 interface WorkspaceChanges {
   /**
    * Read the current git working-tree status for a registered Workspace.
@@ -143,7 +143,10 @@ interface WorkspaceChanges {
    * @param seq - the event's sequence number.
    * @param index - the file's index in the summary's `files`.
    * @param signal - cancels the reads.
-   * @returns the comparison, or undefined once its Session was disposed, when this Host never recorded it, or when no file has that index.
+   * @returns the comparison, or undefined when no record holds it, when
+   * retention removed it, or when no file has that index. A Session this
+   * process no longer holds is served from the durable records an earlier
+   * process wrote.
    * @throws when a snapshot read fails for a live Session.
    */
   diff(sessionId: SessionId, seq: number, index: number, signal: AbortSignal): Promise<WorkspaceFileDiff | undefined>
@@ -152,7 +155,7 @@ interface WorkspaceChanges {
 
 ## Durable events and the served summary
 
-`tool-present` declaration-merges `deliverables/presented: { turn; callId; files: PresentedFile[] }` into `SessionEventMap`, appended once per successful final `present` result. `workspace-changes` merges `workspace/changes: { turn }`, appended when a top-level turn stops; the summary that event announced is not in the log but is returned by `workspaceChanges.summary(sessionId, seq)` for the event's sequence until the Session is disposed, so a conversation reopened after a Host restart has no changed-files card for its earlier turns. `workspaceChanges.diff(sessionId, seq, index, signal)` compares one listed file on the same terms. A later event for the same turn replaces the earlier one, so a client keeps only the latest. The generated [persistence catalog](../persistence-catalog.md#deliverablespresented--log-only) records both declaration sites. Neither event reaches the model.
+`tool-present` declaration-merges `deliverables/presented: { turn; callId; files: PresentedFile[] }` into `SessionEventMap`, appended once per successful final `present` result. `workspace-changes` merges `workspace/changes: { turn }`, appended when a top-level turn stops; the summary that event announced is not in the log but is written to the Session's durable directory and returned by `workspaceChanges.summary(sessionId, seq)` for the event's sequence, so a conversation reopened after a Host restart keeps its changed-files card for earlier turns until retention removes the record. `workspaceChanges.diff(sessionId, seq, index, signal)` compares one listed file on the same terms. A later event for the same turn replaces the earlier one, so a client keeps only the latest. The generated [persistence catalog](../persistence-catalog.md#deliverablespresented--log-only) records both declaration sites. Neither event reaches the model.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 

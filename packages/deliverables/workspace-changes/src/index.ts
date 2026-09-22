@@ -4,8 +4,9 @@
  * around each file-tool edit for paths git does not cover, and serves each
  * listed file's before-and-after comparison on demand. Each summary is
  * announced by a `workspace/changes` Session event that carries only the turn
- * number; summaries and comparisons are served through the `workspaceChanges`
- * service until the Session is disposed. Outside a git repository, or without
+ * number; summaries and comparisons are written to a durable per-Session
+ * directory and served through the `workspaceChanges` service, including for a
+ * Session a later Host process holds. Outside a git repository, or without
  * git, the summary lists file-tool edits only.
  */
 import { homedir } from 'node:os'

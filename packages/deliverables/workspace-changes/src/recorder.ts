@@ -96,9 +96,10 @@ const OVERSIZED = Symbol('oversized')
  * Serializes one Session's recording work: the turn-start snapshot, the
  * whole-file capture before each file-tool mutation, the turn-end snapshot
  * with its diff, and the appended `workspace/changes` event whose summary and
- * comparisons this recorder keeps. Snapshot objects and captured copies live in
- * a temporary directory owned by the recorder; disposal removes it together
- * with the summaries. Tool execution waits for pending work so a snapshot or
+ * comparisons this recorder keeps. Snapshot objects, captured copies, and the
+ * records that name them live in the Session's durable directory; disposal
+ * forgets the in-memory summaries and leaves that directory to the retention
+ * policy. Tool execution waits for pending work so a snapshot or
  * capture never races a mutation. A working directory outside any repository,
  * or a Host without git, gets no snapshot; its summary lists the files the file
  * tools changed.
@@ -111,8 +112,11 @@ export class TurnRecorder {
   private paths: Paths | undefined
   /** The located repository, reused across turns once found; null keeps retrying each turn. */
   private repository: Repository | null = null
-  /** Temporary directory holding this Session's snapshot objects, scratch indexes, and captured copies. */
-  private scratch: Promise<string> | undefined
+  /**
+   * The Session's durable directory, resolved on first use; it holds the
+   * snapshot objects, scratch indexes, captured copies, and records.
+   */
+  private directoryReady: Promise<string> | undefined
   /** Records by the sequence of the event that announced them. */
   private readonly records = new Map<number, TurnRecord>()
   private readonly lifetime = new AbortController()
@@ -163,7 +167,7 @@ export class TurnRecorder {
       if (paths === undefined) return
       const absolute = await canonicalPath(resolve(paths.cwd, path))
       if (state.captures.has(absolute)) return
-      const capture = await captureFile(absolute, join(await this.scratchDir(), 'captures'), this.env.maxFileBytes)
+      const capture = await captureFile(absolute, join(await this.ensureDirectory(), 'captures'), this.env.maxFileBytes)
       if (capture !== undefined) state.captures.set(absolute, capture)
     })
   }
@@ -268,9 +272,9 @@ export class TurnRecorder {
    * copies, and snapshot objects all live here, so a Session reopened in a later
    * Host process serves its earlier turns from the same content.
    */
-  private scratchDir(): Promise<string> {
-    this.scratch ??= mkdir(this.directory, { recursive: true }).then(() => this.directory)
-    return this.scratch
+  private ensureDirectory(): Promise<string> {
+    this.directoryReady ??= mkdir(this.directory, { recursive: true }).then(() => this.directory)
+    return this.directoryReady
   }
 
   /** The repository enclosing the working directory, located once; null keeps retrying each turn. */
@@ -278,7 +282,7 @@ export class TurnRecorder {
     if (this.repository !== null) return this.repository
     const git = await this.env.git
     if (git === null) return null
-    const workspace = await locateGitWorkspace(git, cwd, () => this.scratchDir(), signal)
+    const workspace = await locateGitWorkspace(git, cwd, () => this.ensureDirectory(), signal)
     if (workspace === null) return null
     this.repository = { git, workspace }
     return this.repository
@@ -328,7 +332,7 @@ export class TurnRecorder {
         : !isTemporaryPath(absolute, paths.temporaryRoots)
       if (!uncovered) continue
       const before = state.captures.get(absolute) as Capture
-      const after = await captureFile(absolute, join(await this.scratchDir(), 'captures'), this.env.maxFileBytes)
+      const after = await captureFile(absolute, join(await this.ensureDirectory(), 'captures'), this.env.maxFileBytes)
       if (after === undefined || sameCapture(before, after)) continue
       listed.set(absolute, await this.compared(paths, root, absolute, before, after))
     }

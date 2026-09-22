@@ -59,7 +59,7 @@ export interface WorkspaceStatus {
   deleted: number
 }
 
-/** Files changed during one top-level turn, kept on the Host until its Session is disposed. */
+/** Files changed during one top-level turn, recorded in the durable directory of the Session that produced them. */
 export interface WorkspaceChangesSummary {
   /** The turn whose file changes this summary describes. */
   turn: number
@@ -113,7 +113,7 @@ export type WorkspaceFileDiff =
   /** A side larger than the plugin's `maxFileBytes`; no lines are served. */
   | { kind: 'oversized'; path: string; display: string }
 
-/** Serves live turn comparisons and current repository status for Sessions. */
+/** Serves turn comparisons from durable records and current repository status for Sessions. */
 export interface WorkspaceChanges {
   /**
    * Read the current git working-tree status for a registered Workspace.
@@ -145,7 +145,10 @@ export interface WorkspaceChanges {
    * @param seq - the event's sequence number.
    * @param index - the file's index in the summary's `files`.
    * @param signal - cancels the reads.
-   * @returns the comparison, or undefined once its Session was disposed, when this Host never recorded it, or when no file has that index.
+   * @returns the comparison, or undefined when no record holds it, when
+   * retention removed it, or when no file has that index. A Session this
+   * process no longer holds is served from the durable records an earlier
+   * process wrote.
    * @throws when a snapshot read fails for a live Session.
    */
   diff(sessionId: SessionId, seq: number, index: number, signal: AbortSignal): Promise<WorkspaceFileDiff | undefined>
@@ -154,9 +157,9 @@ export interface WorkspaceChanges {
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /**
-     * A completed top-level turn's changed files were summarized; the summary itself stays on the
-     * Host and is served by `workspaceChanges.summary` for the event's sequence while the Session
-     * lives. The latest event for one turn replaces earlier ones.
+     * A completed top-level turn's changed files were summarized; the summary itself is written to
+     * the Session's durable records and is served by `workspaceChanges.summary` for the event's
+     * sequence. The latest event for one turn replaces earlier ones.
      */
     'workspace/changes': { turn: number }
   }
@@ -164,7 +167,7 @@ declare module '@deepseek-ai/dsh-session/types' {
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    /** Per-turn changed-file summaries and comparisons of live Sessions. */
+    /** Per-turn changed-file summaries and comparisons, served from durable records. */
     workspaceChanges: WorkspaceChanges
   }
 }

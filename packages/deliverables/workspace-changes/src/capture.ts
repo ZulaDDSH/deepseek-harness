@@ -1,7 +1,7 @@
 /**
  * Whole-file captures around file-tool edits: the content of a path before
  * the turn's first mutation of it and at turn end, stored content-addressed
- * under the Session's temporary directory so both sides of a comparison
+ * under the Session's durable directory so both sides of a comparison
  * survive later edits without depending on git.
  */
 import { createHash } from 'node:crypto'
