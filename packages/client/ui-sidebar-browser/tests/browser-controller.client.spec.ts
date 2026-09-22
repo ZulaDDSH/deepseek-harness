@@ -120,6 +120,20 @@ describe('BrowserController', () => {
     expect(store.getSnapshot().byTab[TAB]?.entries.at(-1)?.url).toBe('https://chat.example/c/abc')
   })
 
+  it('refuses a carrier observation on the application origin', () => {
+    const store = createBrowserStore().create('browser-controller-application-origin-test')
+    const face = createBrowserControllers(store.actions)
+    const tabLifetime = lifetime()
+    face.mount(TAB, tabLifetime.signal, APP)
+
+    face.loadUrl(TAB, `${APP}/`)
+    face.reportNavigated(TAB, `${APP}/deep/link`)
+
+    // An embedded document on the application origin is not a Browser target, so
+    // a guest that reports one must not become the address a remount restores.
+    expect(store.getSnapshot().byTab[TAB]?.observed).toBeUndefined()
+  })
+
   it('loads loopback under sandbox and reloads it across sandbox changes', () => {
     const store = createBrowserStore().create('browser-controller-loopback-test')
     const face = createBrowserControllers(store.actions)

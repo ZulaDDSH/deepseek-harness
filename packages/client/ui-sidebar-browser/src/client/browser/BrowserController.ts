@@ -29,7 +29,7 @@ export class BrowserController {
    * @param options - tab identity, persistence writer, URL origin, and lifetime.
    */
   constructor(private readonly options: BrowserControllerOptions) {
-    this.navigation = new BrowserNavigation(options.initial)
+    this.navigation = new BrowserNavigation(options.initial, options.applicationOrigin)
     this.frame = new IframeImpl(
       () => { this.reload() },
       (revision) => { this.frameLoaded(revision) },

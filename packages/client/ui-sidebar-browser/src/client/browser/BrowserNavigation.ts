@@ -46,8 +46,12 @@ export class BrowserNavigation {
 
   /**
    * @param initial - persisted state restored for this tab, or a fresh empty state.
+   * @param applicationOrigin - current DSH document origin, refused as an observed address.
    */
-  constructor(initial: BrowserTabState = BrowserNavigation.empty()) {
+  constructor(
+    initial: BrowserTabState = BrowserNavigation.empty(),
+    private readonly applicationOrigin?: string,
+  ) {
     this.value = initial
   }
 
@@ -151,7 +155,8 @@ export class BrowserNavigation {
    * Record an address the carrier navigated to on its own.
    *
    * An observation that matches the current application-known entry spends any
-   * earlier observation; one outside the HTTP(S) allowlist is ignored.
+   * earlier observation; one outside the HTTP(S) allowlist, or one on the
+   * application's own origin, is ignored.
    * @param url - absolute address the carrier reported.
    * @returns whether the recorded state changed.
    */
@@ -165,9 +170,22 @@ export class BrowserNavigation {
       return true
     }
     const target = browserTargetOf(url)
-    if (target === undefined || target.url === this.value.observed) return false
+    if (target === undefined || this.isApplicationOrigin(url) || target.url === this.value.observed) return false
     this.value = { ...this.value, observed: target.url }
     return true
+  }
+
+  /** @returns whether an address belongs to the application document the Browser panel is embedded in. */
+  private isApplicationOrigin(url: string): boolean {
+    if (this.applicationOrigin === undefined || this.applicationOrigin === '' || this.applicationOrigin === 'null') {
+      return false
+    }
+    try {
+      return new URL(url).origin === new URL(this.applicationOrigin).origin
+    } catch {
+      // An address Electron cannot parse cannot be attributed to the application origin.
+      return false
+    }
   }
 
   /**
