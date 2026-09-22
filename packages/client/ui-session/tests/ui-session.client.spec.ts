@@ -1,6 +1,5 @@
 import { Context } from '@deepseek-ai/cordis'
 import type {
-  AgentContext,
   ISessions,
   SessionBinding,
   SessionListState,
@@ -124,7 +123,7 @@ function createSessionsBench(ctx: Context): SessionsBench {
         sessionId: id,
         session,
         eventSource: new MutableSessionEventSource(),
-        ctx: scopeCtx as AgentContext,
+        ctx: scopeCtx,
       }
       bindings.set(id, binding)
       scopes.set(id, scopeCtx)

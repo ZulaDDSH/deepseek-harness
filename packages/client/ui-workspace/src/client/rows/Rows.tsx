@@ -1,5 +1,5 @@
 /**
- * Workspace browser tree row components (figma Cell set 14:3080): pure presentational â€”
+ * Workspace browser tree row components (figma Cell set 14:3080): pure presentational —
  * all data and callbacks arrive via props. Hover swaps (folder->chevron,
  * time->ellipsis, action buttons) are CSS-only, and a session row's clipped
  * title is scrolled programmatically while the row is hovered. Row ... menus are
@@ -51,7 +51,7 @@ function revealClippedTitle(title: HTMLSpanElement | null, revealed: boolean): v
   else title.scrollLeft = 0
 }
 
-/** Localized compact relative time ("åˆšåˆš"/"5åˆ†é’Ÿ" in zh, "now"/"5min" in en). */
+/** Localized compact relative time ("刚刚"/"5分钟" in zh, "now"/"5min" in en). */
 function timeLabel(updatedAt: number, now: number, t: RowTranslate): string {
   const { unit, n } = relativeTime(updatedAt, now)
   return unit === 'now' ? t('time.now') : t(`time.${unit}`, { n })
@@ -417,7 +417,7 @@ export function SessionNodeItem({
       {/* A blank New Session row is a provisional placeholder: nothing has
           happened in it yet, so a "now" timestamp and the row verbs
           (rename/fork/archive) would all act on content that does not
-          exist â€” both trailing cells stay off until the first prompt. */}
+          exist — both trailing cells stay off until the first prompt. */}
       {!row.blank && <span className={css.time}>{timeLabel(row.updatedAt, now, t)}</span>}
       {!row.blank && (
         <span className={css.rowActions}>
