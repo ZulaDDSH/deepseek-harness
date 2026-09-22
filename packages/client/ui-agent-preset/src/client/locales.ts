@@ -8,6 +8,7 @@ export type AgentPresetSettingsKey =
   | 'presetPtcName' | 'presetPtcDescription'
   | 'presetMinimalName' | 'presetMinimalDescription'
   | 'presetLeanName' | 'presetLeanDescription'
+  | 'presetEconomyName' | 'presetEconomyDescription'
   | 'presetCordisName' | 'presetCordisDescription'
   | 'duplicate' | 'duplicateUnavailable' | 'delete' | 'presetId' | 'presetIdPlaceholder' | 'copyOf'
   | 'displayName' | 'displayNamePlaceholder'
@@ -46,6 +47,9 @@ export const en: Record<AgentPresetSettingsKey, string> = {
   presetLeanName: 'Lean mode',
   presetLeanDescription:
     'Focused file agent with read, inspect, write tools and a 200k context cap.',
+  presetEconomyName: 'Economy mode',
+  presetEconomyDescription:
+    'PTC mode that combines multi-step tool calls and prunes large tool output and history earlier, lowering token use in long sessions.',
   presetCordisName: 'Creator mode',
   presetCordisDescription:
     'Built for creating custom agent presets, with all Standard mode capabilities plus runtime inspection, persistent plugin management, and preset-authoring guidance.',
@@ -114,6 +118,8 @@ export const zh: Record<AgentPresetSettingsKey, string> = {
   presetMinimalDescription: '仅提供持久 shell 的单工具编码 Agent。',
   presetLeanName: '精简模式',
   presetLeanDescription: '专注文件工作的 Agent，仅提供读取、检索、写入工具，并将上下文限制为 20 万 tokens。',
+  presetEconomyName: '节省模式',
+  presetEconomyDescription: '使用 PTC 合并多步工具调用，并更早裁剪大型工具输出和压缩历史，以降低长会话的 token 消耗。',
   presetCordisName: '创造模式',
   presetCordisDescription: '用于创建自定义 Agent preset：具备标准模式的全部能力，并提供运行时检查、持久化插件管理和 preset 创作指导。',
   duplicate: '复制',

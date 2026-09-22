@@ -3,7 +3,7 @@
     - text: Standard mode Full coding agent with file editing, shell, file and web search, skills, planning, goals, subagents, and workflows.
     - img
   - menuitem "PTC mode Full coding agent without the workflow tool; other tools are exposed through the PTC mode SDK so the model can combine multi-step operations in one TypeScript program."
-  - menuitem "节省模式 使用 PTC 合并多步工具调用，并更早裁剪大型工具输出和压缩历史，以降低长会话的 token 消耗。"
+  - menuitem "Economy mode PTC mode that combines multi-step tool calls and prunes large tool output and history earlier, lowering token use in long sessions."
   - menuitem "Minimal mode Single-tool coding agent with a persistent shell."
   - menuitem "Creator mode Built for creating custom agent presets, with all Standard mode capabilities plus runtime inspection, persistent plugin management, and preset-authoring guidance."
   - menuitem "Refusing mode Resolves, then refuses to start."

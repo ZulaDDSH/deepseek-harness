@@ -48,13 +48,13 @@
         - img
         - text: 复制
     - listitem:
-      - 'button "设为默认: 节省模式"':
-        - text: 节省模式 内置 使用 PTC 合并多步工具调用，并更早裁剪大型工具输出和压缩历史，以降低长会话的 token 消耗。
+      - 'button "设为默认: Economy mode"':
+        - text: Economy mode 内置 PTC mode that combines multi-step tool calls and prunes large tool output and history earlier, lowering token use in long sessions.
         - code: economy
-      - 'button "查看: 节省模式"':
+      - 'button "查看: Economy mode"':
         - img
         - text: 查看
-      - 'button "复制: 节省模式"':
+      - 'button "复制: Economy mode"':
         - img
         - text: 复制
     - listitem:
