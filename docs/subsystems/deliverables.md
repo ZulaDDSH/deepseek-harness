@@ -108,6 +108,52 @@ type WorkspaceFileDiff =
   | { kind: 'oversized'; path: string; display: string }
 ```
 
+## `WorkspaceStatusFile` — one git-status row
+
+```ts type-equiv
+/** One path currently reported by git status for a Session workspace. */
+interface WorkspaceStatusFile {
+  /** Path relative to the repository root. */
+  path: string
+  /** Relative display path from the Session working directory. */
+  display: string
+  /** The index status character from porcelain v1. */
+  index: string
+  /** The work-tree status character from porcelain v1. */
+  worktree: string
+  /** The previous path when git reports a rename or copy. */
+  oldPath?: string
+  /** Lines added relative to HEAD; zero for a binary file. */
+  added: number
+  /** Lines deleted relative to HEAD. */
+  deleted: number
+  /** Present when git reports binary content. */
+  binary?: true
+}
+```
+
+## `WorkspaceStatus` — repository status for a Session workspace
+
+```ts type-equiv
+/** Repository status for the Session workspace. */
+interface WorkspaceStatus {
+  /** Canonical Session working directory. */
+  cwd: string
+  /** Canonical repository root. */
+  root: string
+  /** Current branch, or undefined for a detached HEAD or unborn repository. */
+  branch?: string
+  /** Files carried by this response. */
+  files: WorkspaceStatusFile[]
+  /** Complete changed-file count before the configured response cap. */
+  total: number
+  /** Lines added across every changed file. */
+  added: number
+  /** Lines deleted across every changed file. */
+  deleted: number
+}
+```
+
 ## `WorkspaceChanges` — the Host service serving summaries and comparisons
 
 ```ts type-equiv
