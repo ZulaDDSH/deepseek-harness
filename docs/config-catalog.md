@@ -199,6 +199,82 @@ export interface Config {
 
 Source: [`packages/api/gateway/src/index.ts:119`](../packages/api/gateway/src/index.ts)
 
+<a id="deepseek-aidsh-api-quota-controller"></a>
+
+## `@deepseek-ai/dsh-api-quota-controller`
+
+```ts config-catalog
+/** Injectable Host dependencies used by quota controller tests and deployments. */
+export interface QuotaControllerInternals {
+  /** Fetch implementation used for provider quota requests. */
+  readonly fetch?: typeof fetch
+  /** Additional or replacement provider definitions available to the controller. */
+  readonly providers?: readonly QuotaProvider[]
+}
+
+/** Host adapter capable of resolving and reading one provider's quota state. */
+export interface QuotaProvider {
+  /** Stable provider identifier exposed across the Remote boundary. */
+  readonly id: string
+  /** Human-readable provider name. */
+  readonly name: string
+  /** Primary environment-style credential reference. */
+  readonly credentialRef: CredentialRef
+  /** Ordered fallback references accepted for the provider. */
+  readonly credentialRefs?: readonly CredentialRef[]
+  /** Optional stored credential record owned by another provider plugin. */
+  readonly credentialKey?: CredentialKey
+  /**
+   * Read the provider quota using one resolved credential.
+   * @param credential - resolved credential value and source.
+   * @param fetchImpl - fetch implementation used for the provider request.
+   * @returns normalized provider quota state.
+   */
+  fetch(credential: ResolvedCredential, fetchImpl?: typeof fetch): Promise<QuotaResult>
+}
+
+/** Normalized result of one provider quota request. */
+export interface QuotaResult {
+  /** Stable provider identifier. */
+  readonly providerId: string
+  /** Human-readable provider name. */
+  readonly providerName: string
+  /** Whether a usable provider credential was available. */
+  readonly configured: boolean
+  /** Whether the provider request completed successfully. */
+  readonly ok: boolean
+  /** Provider or transport failure text when the request failed. */
+  readonly error?: string
+  /** Available quota windows keyed by normalized window id. */
+  readonly windows?: Partial<Record<QuotaWindowId, QuotaWindow>>
+}
+
+/** Client-safe provider quota views and usage windows. */
+
+export type QuotaWindowId = '5h' | 'weekly' | 'monthly' | 'credits'
+
+/** One provider-defined quota window normalized for client presentation. */
+export interface QuotaWindow {
+  /** Percentage consumed when the provider exposes a bounded allowance. */
+  readonly usedPercent: number | null
+  /** Unix epoch milliseconds when the allowance resets, when known. */
+  readonly resetAt: number | null
+  /** Provider-formatted value for unbounded balances such as credits. */
+  readonly valueLabel?: string
+  /**
+   * The provider's own status token for this window (OpenCode Go reports
+   * `ok`, and a non-`ok` token when the window cannot serve). Passed through
+   * verbatim: it is wire data with an open vocabulary, shown as the provider
+   * spelled it rather than mapped to invented copy.
+   */
+  readonly status?: string
+}
+```
+
+Depends on: [`CredentialKey`](subsystems/credentials.md) · [`CredentialRef`](subsystems/credentials.md) · [`ResolvedCredential`](subsystems/credentials.md)
+
+Source: [`packages/api/quota-controller/src/index.ts:27`](../packages/api/quota-controller/src/index.ts)
+
 <a id="deepseek-aidsh-api-session-controller"></a>
 
 ## `@deepseek-ai/dsh-api-session-controller`
@@ -3801,6 +3877,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-permission-presets` ([`packages/client/ui-permission-presets/src/index.ts`](../packages/client/ui-permission-presets/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-plan` ([`packages/client/ui-plan/src/index.ts`](../packages/client/ui-plan/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-plugin-manager` ([`packages/client/ui-plugin-manager/src/index.ts`](../packages/client/ui-plugin-manager/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-provider-quota` ([`packages/client/ui-provider-quota/src/index.ts`](../packages/client/ui-provider-quota/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-reference` ([`packages/client/ui-reference/src/index.ts`](../packages/client/ui-reference/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-renderer` ([`packages/client/ui-renderer/src/index.ts`](../packages/client/ui-renderer/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-schedule` ([`packages/client/ui-schedule/src/index.ts`](../packages/client/ui-schedule/src/index.ts))

@@ -77,6 +77,9 @@
       "@deepseek-ai/dsh-api-session-controller/remote-events": ["./packages/api/session-controller/src/remote-events.ts"],
       "@deepseek-ai/dsh-api-settings-controller": ["./packages/api/settings-controller/src/index.ts"],
       "@deepseek-ai/dsh-api-settings-controller/types": ["./packages/api/settings-controller/src/types.ts"],
+      "@deepseek-ai/dsh-api-quota-controller": ["./packages/api/quota-controller/src/index.ts"],
+      "@deepseek-ai/dsh-api-quota-controller/client": ["./packages/api/quota-controller/src/client/index.ts"],
+      "@deepseek-ai/dsh-api-quota-controller/types": ["./packages/api/quota-controller/src/types.ts"],
       "@deepseek-ai/dsh-api-workspace-controller": ["./packages/api/workspace-controller/src/index.ts"],
       "@deepseek-ai/dsh-api-workspace-controller/client": ["./packages/api/workspace-controller/src/client/index.ts"],
       "@deepseek-ai/dsh-api-workspace-controller/types": ["./packages/api/workspace-controller/src/types.ts"],
@@ -263,6 +266,8 @@
       "@deepseek-ai/dsh-client-ui-directory-picker-browse": ["./packages/client/ui-directory-picker-browse/src"],
       "@deepseek-ai/dsh-client-ui-directory-picker-native": ["./packages/client/ui-directory-picker-native/src"],
       "@deepseek-ai/dsh-client-ui-open-in-app": ["./packages/client/ui-open-in-app/src"],
+      "@deepseek-ai/dsh-client-ui-provider-quota": ["./packages/client/ui-provider-quota/src"],
+      "@deepseek-ai/dsh-client-ui-provider-quota/client": ["./packages/client/ui-provider-quota/src/client"],
       // sdk/ folders are role-named without their npm-side sdk/jsonrpc prefixes,
       // so their names do not match their directories and the generated aliases
       // below cannot map them; these three stay hand-written.
