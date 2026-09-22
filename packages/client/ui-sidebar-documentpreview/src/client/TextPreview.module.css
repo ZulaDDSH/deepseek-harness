@@ -76,6 +76,30 @@
   border-bottom: 0.5px solid var(--dsw-alias-border-l1);
 }
 
+.diff {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+}
+
+.diffToolbar {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: var(--dsw-alias-bg-layer-2);
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+}
+
+.diffTitle {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
 .body {
   /* Lines are positioned against the scroller, so a line's offset is its scroll target. */
   position: relative;

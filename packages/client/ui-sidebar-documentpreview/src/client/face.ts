@@ -76,6 +76,15 @@ export interface TextInjected {
    * @param reload - discard the previous content revision.
    */
   readonly prepareRenderer: (tabId: TabId, signal: AbortSignal, rendererId: string, observedVersion?: string, reload?: boolean) => void
+  /**
+   * Read the file's current text and compare it with text the reader was shown.
+   * @param tabId - the tab being drawn.
+   * @param file - the session and workspace path the tab's address names.
+   * @param signal - the tab record's lifetime.
+   * @param before - text shown when the comparison was requested.
+   * @param observedVersion - metadata version observed at read start.
+   */
+  readonly showDiff: (tabId: TabId, file: SessionFile, signal: AbortSignal, before: string, observedVersion?: string) => void
 }
 
 /**
@@ -199,6 +208,20 @@ export function textFace(
         actions.loading(tabId, 'renderer', observedVersion, rendererId)
       },
       reloadAll: (tabId, file, signal, observedVersion) => { restart(tabId, file, signal, observedVersion, 'bytes-complete') },
+      showDiff: (tabId, file, signal, before, observedVersion) => {
+        if (signal.aborted) return
+        const reads = readsOf(tabId, signal)
+        const { generation } = reads
+        actions.loading(tabId, 'text-pages', observedVersion)
+        void readAll(file, signal).then((result) => {
+          if (signal.aborted || reads.generation !== generation) return
+          if (!result.ok) {
+            actions.failed(tabId, result.error)
+            return
+          }
+          actions.diffed(tabId, before, new TextDecoder().decode(result.value.data))
+        })
+      },
     }
   }
 }
