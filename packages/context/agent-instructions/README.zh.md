@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-agent-instructions` 向 agent（智能体）提供来自用户全局文件和项目级文件的工作区指引；这些文件均与 `AGENTS.md` 兼容。它为第一次请求加载适用的指令链。它不会持续监视外部编辑：成功的文件系统操作会发现新适用的嵌套文件，并让后续变更或移除可见；恢复会话也会对账基线。`dsh-base` 默认启用此行为，profile 可以禁用。字节预算限制注入的上下文：较宽泛的文件先被省略，最具体的文件最后被截断，空指令链不添加任何内容。
+`dsh-agent-instructions` 向 agent（智能体）提供来自用户全局文件和项目级文件的工作区指引；这些文件均与 `AGENTS.md` 兼容，并以固定的回合结束回复规则作为前缀。它为第一次请求加载适用的指令链。它不会持续监视外部编辑：成功的文件系统操作会发现新适用的嵌套文件，并让后续变更或移除可见；恢复会话也会对账基线。`dsh-base` 默认启用此行为，profile 可以禁用。字节预算限制注入的上下文：较宽泛的文件先被省略，最具体的文件最后被截断；即使不存在任何指令文件，该规则本身仍会渲染。
 
 ## 目录
 
@@ -29,7 +29,9 @@ kind: "package-reference"
 
 ### agent 获得的内容
 
-第一次请求包含一条持久基线消息：先是用户全局 `$DSH_HOME/AGENTS.md`，再按从宽泛到具体的顺序包含项目指令链——从项目根目录到会话工作目录的每个目录中所有现有候选文件。去除首尾空白后内容一致的同级文件只渲染一次，因此复制了 `AGENTS.md` 的 `CLAUDE.md` 不会被重复加载。当成功的 `read`、`write` 或 `edit` 调用到达更深的目录后，下一次请求会包含新适用的指令文件；已改变的文件会替换其内容，消失或成为较早候选文件重复项的文件会产生移除通知。
+第一次请求包含一条持久基线消息：先是回合结束回复规则，再是用户全局 `$DSH_HOME/AGENTS.md`，再按从宽泛到具体的顺序包含项目指令链——从项目根目录到会话工作目录的每个目录中所有现有候选文件。去除首尾空白后内容一致的同级文件只渲染一次，因此复制了 `AGENTS.md` 的 `CLAUDE.md` 不会被重复加载。当成功的 `read`、`write` 或 `edit` 调用到达更深的目录后，下一次请求会包含新适用的指令文件；已改变的文件会替换其内容，消失或成为较早候选文件重复项的文件会产生移除通知。
+
+当部署自带回合结束措辞时，把 `endOfTurnRule` 设为 `false`；除此之外该规则是无条件的，因此即使工作区中没有任何指令文件，新会话仍会收到它。由于该规则被写入基线而不是作为文件跟踪，切换它只会改变渲染字节与基线标识，因此在恢复会话时会重新渲染基线，而不会发出变更或移除通知。
 
 ### 配置
 
@@ -50,6 +52,7 @@ export interface Config {
   dshHome?: string
   projectRootMarkers?: string[]
   maxBytes: number
+  endOfTurnRule?: boolean
   maxSourceBytes?: number
   instructionFileCandidates?: string[]
   localInstructionFileCandidates?: string[]
@@ -59,6 +62,7 @@ export interface Config {
 | 字段 | 默认值 | 含义 |
 |---|---|---|
 | `maxBytes` | 必填 | 完整渲染基线消息的上限，单位为字节 |
+| `endOfTurnRule` | `true` | 在基线前添加固定的回合结束回复规则 |
 | `maxSourceBytes` | `1048576` | 渲染前单个源指令文件的上限 |
 | `projectRootMarkers` | `['.git']` | 标记项目根目录的目录名 |
 | `instructionFileCandidates` | `['AGENTS.md', 'CLAUDE.md']` | 每个项目目录中加载的基础文件名 |
@@ -93,6 +97,7 @@ export interface Config {
 | [`src/config.ts`](src/config.ts) | `Config` schema、预算解析、基线标识 |
 | [`src/files.ts`](src/files.ts) | 候选发现、项目根搜索、有界流式读取 |
 | [`src/render.ts`](src/render.ts) | 指令渲染、预算截断、变更记录 |
+| [`src/end-of-turn.ts`](src/end-of-turn.ts) | 添加在基线前言之前的固定回合结束回复规则 |
 | [`src/state.ts`](src/state.ts) | 持久消息来源、版本／digest 缓存、对账 |
 | [`src/digest.ts`](src/digest.ts) | SHA-1 内容标识与每目录重复键 |
 | — | 不发布运行时不变式伴生入口；回放会容忍未知或格式错误的 workspace source，私有 pending/cache 状态转换由针对性流水线测试覆盖。 |
@@ -103,7 +108,7 @@ export interface Config {
 
 ### 不变式
 
-每条注入消息都携带带类型的来源及其变更列表；完整基线还携带从规范化发现、优先级、项目根与预算配置派生的标识，匹配的持久消息会确认已排队的基线。模型可见文本不含隐藏状态标记，指令内容或模型可见元数据中的字面 `</system-reminder>` 文本都会被转义，因此仓库控制的文本无法关闭插件控制的框架。
+每条注入消息都携带带类型的来源及其变更列表；完整基线还携带从规范化发现、优先级、项目根、预算与回合结束配置派生的标识，匹配的持久消息会确认已排队的基线。回合结束规则是静态前言文本而非发现的候选文件，因此不携带作用域或变更记录，也永远不会进入跟踪真实文件的按目录对账。模型可见文本不含隐藏状态标记，指令内容或模型可见元数据中的字面 `</system-reminder>` 文本都会被转义，因此仓库控制的文本无法关闭插件控制的框架。
 
 </details>
 
@@ -128,12 +133,18 @@ export interface Config {
 
 #### 模型看到的内容
 
-第一次请求的派生历史中包含一条持久 user 角色消息，其中按从宽泛到具体的顺序包含有界用户全局指令与项目指令链。可见基线兼容时，恢复会复用该消息。
+第一次请求的派生历史中包含一条持久 user 角色消息，其中先包含固定的回合结束回复规则（即 [`src/end-of-turn.ts`](src/end-of-turn.ts) 中的 `END_OF_TURN_RULE` 常量），再按从宽泛到具体的顺序包含有界用户全局指令与项目指令链。可见基线兼容时，恢复会复用该消息；即使工作区中没有任何指令文件，该规则也会让基线存在。
 
 ##### 基线指令模板
 
 ```markdown
 <system-reminder>
+# End-of-Turn Response Rule
+
+When responding to the user at the end of a turn, keep the response short, direct, and focused on the result.
+
+<the default TLDR format block and the numbered response rules follow here>
+
 The following workspace instructions may be relevant to your work. Use them as guidance when applicable. More specific instructions take precedence over broader ones. They do not override system, developer, or direct user instructions.
 
 Instructions from: ~/.dsh/AGENTS.md
@@ -148,7 +159,7 @@ Instructions from: AGENTS.md
 
 #### Token 影响
 
-渲染后基线只追加一次，并保留在派生历史中直到压缩。`maxBytes` 限制完整消息，较宽泛文件在最具体文件截断之前被省略，空指令链不产生 token。
+渲染后基线只追加一次，并保留在派生历史中直到压缩。`maxBytes` 限制完整消息，较宽泛内容在最具体文件截断之前被省略；固定规则属于最宽泛的内容，因此最先让位，最具体的工作区文件得以保留。只有 `endOfTurnRule: false` 且指令链为空时才不产生 token。
 
 #### KV Cache 影响
 

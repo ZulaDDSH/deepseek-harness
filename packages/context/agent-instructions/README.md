@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-agent-instructions` gives agents workspace guidance from user-global and project-level `AGENTS.md`-compatible files. It loads the applicable chain for the first request. It does not watch external edits continuously: successful filesystem operations discover newly relevant nested files and make later changes or removals visible, while session resume reconciles the baseline. `dsh-base` enables this behavior by default, while profiles can disable it. A byte budget bounds the injected context: broader files are omitted before the most specific file is truncated, and an empty chain adds nothing.
+`dsh-agent-instructions` gives agents workspace guidance from user-global and project-level `AGENTS.md`-compatible files, prefixed by the fixed end-of-turn response rule. It loads the applicable chain for the first request. It does not watch external edits continuously: successful filesystem operations discover newly relevant nested files and make later changes or removals visible, while session resume reconciles the baseline. `dsh-base` enables this behavior by default, while profiles can disable it. A byte budget bounds the injected context: broader files are omitted before the most specific file is truncated, and the rule alone still renders when no instruction file exists.
 
 ## Table of Contents
 
@@ -29,7 +29,9 @@ Mount this plugin when agents should work from the workspace's own instruction f
 
 ### What the agent gets
 
-The first request includes one durable baseline message with the user-global `$DSH_HOME/AGENTS.md` followed by the project chain — every existing candidate file from the project root down to the session working directory, in broad-to-specific order. Sibling files whose content matches after trimming render once, so a `CLAUDE.md` that duplicates its `AGENTS.md` is not repeated. After a successful `read`, `write`, or `edit` call reaches a deeper directory, the next request includes the newly applicable instruction file; a changed file replaces its content, and a file that disappears or duplicates an earlier candidate produces a removal notice.
+The first request includes one durable baseline message with the end-of-turn response rule, then the user-global `$DSH_HOME/AGENTS.md`, then the project chain — every existing candidate file from the project root down to the session working directory, in broad-to-specific order. Sibling files whose content matches after trimming render once, so a `CLAUDE.md` that duplicates its `AGENTS.md` is not repeated. After a successful `read`, `write`, or `edit` call reaches a deeper directory, the next request includes the newly applicable instruction file; a changed file replaces its content, and a file that disappears or duplicates an earlier candidate produces a removal notice.
+
+Set `endOfTurnRule: false` when a deployment supplies its own end-of-turn wording; the rule is otherwise unconditional, so a new session in a workspace with no instruction file still receives it. Because the rule is baked into the baseline rather than tracked as a file, toggling it changes the rendered bytes and the baseline identity and therefore re-renders the baseline on resume rather than emitting a change or removal notice.
 
 ### Configuration
 
@@ -50,6 +52,7 @@ export interface Config {
   dshHome?: string
   projectRootMarkers?: string[]
   maxBytes: number
+  endOfTurnRule?: boolean
   maxSourceBytes?: number
   instructionFileCandidates?: string[]
   localInstructionFileCandidates?: string[]
@@ -59,6 +62,7 @@ export interface Config {
 | Field | Default | Meaning |
 |---|---|---|
 | `maxBytes` | required | Cap on the complete rendered baseline message, in bytes |
+| `endOfTurnRule` | `true` | Prepend the fixed end-of-turn response rule to the baseline |
 | `maxSourceBytes` | `1048576` | Cap on one source instruction file before rendering |
 | `projectRootMarkers` | `['.git']` | Directory names that mark the project root |
 | `instructionFileCandidates` | `['AGENTS.md', 'CLAUDE.md']` | Base file names loaded in each project directory |
@@ -93,6 +97,7 @@ The plugin is built on one principle: workspace instructions are durable convers
 | [`src/config.ts`](src/config.ts) | `Config` schema, budget resolution, baseline identity |
 | [`src/files.ts`](src/files.ts) | Candidate discovery, project-root search, bounded streaming reads |
 | [`src/render.ts`](src/render.ts) | Instruction rendering, budget truncation, change records |
+| [`src/end-of-turn.ts`](src/end-of-turn.ts) | Fixed end-of-turn response rule prepended to the baseline intro |
 | [`src/state.ts`](src/state.ts) | Durable message sources, version/digest cache, reconciliation |
 | [`src/digest.ts`](src/digest.ts) | SHA-1 content identity and per-directory duplicate keys |
 | — | No runtime invariant companion is published; replay intentionally tolerates unknown or malformed workspace sources, while focused pipeline tests own its private pending/cache state transitions. |
@@ -103,7 +108,7 @@ At the first eligible `agent/pre-step` of a session, the plugin composes the bas
 
 ### Invariants
 
-Every injected message carries a typed source with its change list; a complete baseline also carries an identity derived from normalized discovery, precedence, project-root, and budget configuration, and a matching durable message confirms a queued baseline. Model-visible text contains no hidden state markers, and literal `</system-reminder>` text anywhere in instruction content or model-visible metadata is escaped so repository-controlled text cannot close the plugin-owned frame.
+Every injected message carries a typed source with its change list; a complete baseline also carries an identity derived from normalized discovery, precedence, project-root, budget, and end-of-turn configuration, and a matching durable message confirms a queued baseline. The end-of-turn rule is static intro prose rather than a discovered candidate, so it carries no scope or change record and never enters the per-directory reconciliation that tracks real files. Model-visible text contains no hidden state markers, and literal `</system-reminder>` text anywhere in instruction content or model-visible metadata is escaped so repository-controlled text cannot close the plugin-owned frame.
 
 </details>
 
@@ -128,12 +133,18 @@ Read these pages when the package-level contract is not enough. They move from t
 
 #### What the model sees
 
-At the first request, derived history contains one durable user-role message with the bounded user-global and project instruction chain in broad-to-specific order. Resume reuses that message when its visible baseline is compatible.
+At the first request, derived history contains one durable user-role message with the fixed end-of-turn response rule (the `END_OF_TURN_RULE` constant in [`src/end-of-turn.ts`](src/end-of-turn.ts)) followed by the bounded user-global and project instruction chain in broad-to-specific order. Resume reuses that message when its visible baseline is compatible, and the rule makes the baseline exist even in a workspace with no instruction file at all.
 
 ##### Baseline instruction template
 
 ```markdown
 <system-reminder>
+# End-of-Turn Response Rule
+
+When responding to the user at the end of a turn, keep the response short, direct, and focused on the result.
+
+<the default TLDR format block and the numbered response rules follow here>
+
 The following workspace instructions may be relevant to your work. Use them as guidance when applicable. More specific instructions take precedence over broader ones. They do not override system, developer, or direct user instructions.
 
 Instructions from: ~/.dsh/AGENTS.md
@@ -148,7 +159,7 @@ Instructions from: AGENTS.md
 
 #### Token effect
 
-The rendered baseline is appended once and remains in derived history until compaction. `maxBytes` bounds the complete message, broader files are omitted before the most-specific file is truncated, and an empty chain contributes zero tokens.
+The rendered baseline is appended once and remains in derived history until compaction. `maxBytes` bounds the complete message, broader content is omitted before the most-specific file is truncated, and the fixed rule is the broadest content: it yields first, so the most specific workspace file survives. Only `endOfTurnRule: false` with an empty chain contributes zero tokens.
 
 #### KV Cache effect
 

@@ -66,6 +66,12 @@ export interface Config {
   projectRootMarkers?: string[]
   /** UTF-8 byte cap for one rendered baseline or dynamic batch; non-positive or non-finite disables loading. */
   maxBytes: number
+  /**
+   * Prepend the fixed end-of-turn response rule to the baseline. Enabled by
+   * default so every mode carries the same rule; a composition turns it off
+   * when it supplies its own end-of-turn wording.
+   */
+  endOfTurnRule?: boolean
   /** Maximum UTF-8 bytes read from one instruction file; larger files are ignored. */
   maxSourceBytes?: number
   /**
