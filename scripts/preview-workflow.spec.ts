@@ -11,7 +11,7 @@ const workflow = yaml.load(readFileSync(resolve(import.meta.dirname, '../.github
   jobs: Record<'preview', {
     if: string
     'runs-on': string
-    steps: Array<{ name?: string; uses?: string; run?: string; with?: Record<string, unknown>; env?: Record<string, string> }>
+    steps: Array<{ name?: string; uses?: string; if?: string; run?: string; with?: Record<string, unknown>; env?: Record<string, string> }>
   }>
 }
 const preview = workflow.jobs.preview
@@ -49,16 +49,29 @@ describe('PR preview workflow', () => {
     const shape = preview.steps.find(step => step.name === 'Shape the upload')!
     expect(shape.run).toContain("find apps/web/dist -name '*.map' -delete")
     expect(shape.run).toContain('cp apps/web/dist/preview.html apps/web/dist/index.html')
+    const credentials = preview.steps.find(step => step.name === 'Check Cloudflare preview credentials')!
+    expect(credentials.env).toEqual({
+      CLOUDFLARE_API_TOKEN: '${{ secrets.CLOUDFLARE_API_TOKEN }}',
+      CLOUDFLARE_ACCOUNT_ID: '${{ secrets.CLOUDFLARE_ACCOUNT_ID }}',
+      CF_ACCESS_CLIENT_ID: '${{ secrets.CF_ACCESS_CLIENT_ID }}',
+      CF_ACCESS_CLIENT_SECRET: '${{ secrets.CF_ACCESS_CLIENT_SECRET }}',
+    })
+    expect(credentials.run).toContain("echo 'Skipping Cloudflare preview deployment: required credentials are unavailable.'")
+    expect(credentials.run).toContain("echo 'CF_PREVIEW_DEPLOY=false' >> \"$GITHUB_ENV\"")
+    expect(credentials.run).toContain("echo 'CF_PREVIEW_DEPLOY=true' >> \"$GITHUB_ENV\"")
     const deploy = preview.steps.find(step => step.name === 'Upload to Cloudflare Pages')!
+    expect(deploy.if).toBe("env.CF_PREVIEW_DEPLOY == 'true'")
     expect(deploy.run).toContain('npx --yes wrangler@4 pages deploy apps/web/dist')
     expect(deploy.run).toContain('--branch "pr-${{ github.event.pull_request.number }}"')
     const verify = preview.steps.find(step => step.name === 'Verify the protected deployment serves the image')!
+    expect(verify.if).toBe("env.CF_PREVIEW_DEPLOY == 'true'")
     expect(verify.run).toContain('/preview/vfs-image.tar.gz')
     expect(verify.run).toContain('"$code" != "200"')
     expect(verify.run).toContain('content-encoding:')
     expect(verify.run).toContain('"$magic" != "1f8b"')
     expect(verify.env?.CF_ACCESS_CLIENT_SECRET).toBe('${{ secrets.CF_ACCESS_CLIENT_SECRET }}')
     const comment = preview.steps.find(step => step.name === 'Comment the preview URL')!
+    expect(comment.if).toBe("env.CF_PREVIEW_DEPLOY == 'true'")
     expect(comment.run).toContain('<!-- dsh-preview-url -->')
     expect(comment.run).toContain('gh pr comment "$PR" --body-file -')
   })
