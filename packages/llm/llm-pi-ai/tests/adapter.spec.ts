@@ -1103,6 +1103,18 @@ describe('abort wiring', () => {
   })
 })
 
+describe('malformed provider endpoints', () => {
+  it('returns the pi-ai error without treating an invalid endpoint as OpenCode', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: { deepseek: { apiKeyEnv: 'PI_TEST_KEY', baseURL: 'not a url' } },
+    })
+    const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [], sessionId: 'probe' as never })
+    expect(result.finish).toEqual({ kind: 'error', failure: { code: 'PI_AI_ERROR', message: 'Invalid URL' } })
+  })
+})
+
 describe('declared model modes', () => {
   it('sends the declared tier on the mode entry and nothing on its base model', async () => {
     const server = await mockServer([{ events: textEvents }, { events: textEvents }])
