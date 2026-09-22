@@ -430,7 +430,7 @@ describe('gate graph validation', () => {
       .toThrow('DSH_COVERAGE_TEST_TIMEOUT_MS must be a positive integer')
   })
 
-  it('selects partitioned coverage only when explicitly configured', () => {
+  it('reports the configured partition count the coordinator runs', () => {
     const coverage = withEnv('DSH_COVERAGE_PARTITIONS', '3', () =>
       withPnpmEntrypoint(() => gatesForMode('ci-windows-complete').find(subject => subject.id === 'coverage')))
 
