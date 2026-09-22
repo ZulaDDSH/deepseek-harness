@@ -1,4 +1,3 @@
-import { WINDOWS_TITLEBAR_HEIGHT } from './windows-layout.ts'
 /** Electron shell: desktop project ownership, custom protocol, windows, and lifecycle. */
 
 import { readFile, writeFile } from 'node:fs/promises'
@@ -14,7 +13,6 @@ import {
   nativeTheme,
   protocol,
   session,
-  shell,
   type IpcMainInvokeEvent,
   type MenuItemConstructorOptions,
 } from 'electron'
@@ -39,6 +37,8 @@ import { DesktopMandatoryUpdateWindow } from './mandatory-update-window.ts'
 import { DesktopPolicyTestAuth } from './policy-test-auth.ts'
 import { DesktopUpdateDialog, type UpdateDialogOptions } from './update-dialog.ts'
 import { readDesktopRuntime } from './runtime-tree.ts'
+import { desktopWindowOptions } from './window-options.ts'
+import { applyWindowNavigationPolicy } from './browser-guest-policy.ts'
 
 let focusPrimaryWindow = (): void => {}
 let stopForRecovery = async (): Promise<void> => {}
@@ -109,40 +109,8 @@ function developmentHostInspectPort(enabled: boolean): number | undefined {
 }
 
 function createWindow(preload: string, show = false, primary = false): BrowserWindow {
-  const window = new BrowserWindow({
-    width: 1280,
-    height: 840,
-    minWidth: 880,
-    minHeight: 600,
-    show,
-    ...(process.platform === 'win32' && primary ? {
-      titleBarStyle: 'hidden' as const,
-      titleBarOverlay: { height: WINDOWS_TITLEBAR_HEIGHT, color: nativeTheme.shouldUseDarkColors ? '#1b1b1c' : '#f9fafb',
-        symbolColor: nativeTheme.shouldUseDarkColors ? '#f9fafb' : '#0f1115' },
-    } : {}),
-    // hiddenInset places traffic lights inside the sidebar; sidebar vibrancy
-    // needs a transparent window background to show through the page.
-    ...(process.platform === 'darwin' ? {
-      titleBarStyle: 'hiddenInset' as const,
-      trafficLightPosition: { x: 16, y: 18 },
-      vibrancy: 'sidebar' as const,
-      // 'active' keeps the vibrancy material stable when the window blurs;
-      // 'followWindow' washes the sidebar out behind an unfocused window.
-      visualEffectState: 'active' as const,
-      backgroundColor: '#00000000',
-    } : {}),
-    webPreferences: {
-      preload,
-      nodeIntegration: false,
-      contextIsolation: true,
-      sandbox: true,
-      webSecurity: true,
-    },
-  })
-  window.webContents.setWindowOpenHandler(({ url }) => {
-    if (['http:', 'https:'].includes(new URL(url).protocol)) void shell.openExternal(url)
-    return { action: 'deny' }
-  })
+  const window = new BrowserWindow(desktopWindowOptions(preload, show, primary))
+  applyWindowNavigationPolicy(window)
   window.webContents.on('context-menu', (_event, { isEditable, selectionText, editFlags }) => {
     const items: MenuItemConstructorOptions[] = []
     if (isEditable) {
@@ -168,15 +136,6 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
           ? { label: messages[item.role as keyof typeof messages] } : {}),
         accelerator: '',
       }))).popup({ window })
-    }
-  })
-  window.webContents.on('will-navigate', (event, url) => {
-    const destination = new URL(url)
-    const current = new URL(window.webContents.getURL())
-    if (destination.protocol !== `${SCHEME}:`
-      && !(destination.protocol === 'http:' && destination.origin === current.origin)) {
-      event.preventDefault()
-      if (['http:', 'https:'].includes(destination.protocol)) void shell.openExternal(url)
     }
   })
   return window

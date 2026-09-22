@@ -100,6 +100,26 @@ describe('BrowserController', () => {
     expect(face.keyedHooks.browserFrame(TAB)).toBe(replacement)
   })
 
+  it('persists a carrier-observed address and restores it on reload', () => {
+    const store = createBrowserStore().create('browser-controller-observed-test')
+    const face = createBrowserControllers(store.actions)
+    const tabLifetime = lifetime()
+    face.mount(TAB, tabLifetime.signal, APP)
+    const frame = face.keyedHooks.browserFrame(TAB)!
+
+    face.loadUrl(TAB, 'https://chat.example/')
+    face.reportNavigated(TAB, 'https://chat.example/c/abc')
+    expect(store.getSnapshot().byTab[TAB]?.observed).toBe('https://chat.example/c/abc')
+
+    const before = store.getSnapshot().byTab[TAB]!.request!.revision
+    face.reload(TAB)
+    expect(frame.getSnapshot().document?.src).toBe('https://chat.example/c/abc')
+    expect(store.getSnapshot().byTab[TAB]?.request?.revision).toBe(before + 1)
+    // The consumed observation is spent and its entry now carries the live address.
+    expect(store.getSnapshot().byTab[TAB]?.observed).toBeUndefined()
+    expect(store.getSnapshot().byTab[TAB]?.entries.at(-1)?.url).toBe('https://chat.example/c/abc')
+  })
+
   it('loads loopback under sandbox and reloads it across sandbox changes', () => {
     const store = createBrowserStore().create('browser-controller-loopback-test')
     const face = createBrowserControllers(store.actions)

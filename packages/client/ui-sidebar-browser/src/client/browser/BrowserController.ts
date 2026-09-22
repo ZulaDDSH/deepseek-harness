@@ -49,8 +49,10 @@ export class BrowserController {
       this.publish()
       return
     }
-    const current = BrowserNavigation.current(this.navigation.snapshot)
-    if (current?.url === parsed.target.url) {
+    // Compare against the address actually shown (an observed live page when
+    // the carrier left the entry the tab opened), so retyping the visible
+    // address reloads and retyping the entry's own address navigates home.
+    if (BrowserNavigation.effectiveUrl(this.navigation.snapshot) === parsed.target.url) {
       this.reload()
       return
     }
@@ -76,6 +78,16 @@ export class BrowserController {
     if (this.disposed) return
     const request = this.navigation.reload()
     if (request !== undefined) this.start(request)
+  }
+
+  /**
+   * Record an address the carrier navigated to on its own, so a later remount
+   * or reload restores the live page rather than the entry the tab opened.
+   * @param url - absolute address the carrier reported.
+   */
+  reportNavigated(url: string): void {
+    if (this.disposed) return
+    if (this.navigation.observe(url)) this.publish()
   }
 
   private start(request: NonNullable<BrowserTabState['request']>): void {
@@ -127,6 +139,8 @@ export interface BrowserInjected {
   reportLoaded(tabId: TabId, revision: number): void
   /** @param tabId - tab occurrence. @param revision - rendered document revision that emitted `error`. */
   reportLoadFailed(tabId: TabId, revision: number): void
+  /** @param tabId - tab occurrence. @param url - absolute address the carrier navigated to on its own. */
+  reportNavigated(tabId: TabId, url: string): void
 }
 
 /**
@@ -162,5 +176,6 @@ export function createBrowserControllers(
     toggleSandbox: (tabId) => { controller(tabId)?.frame.toggleSandbox() },
     reportLoaded: (tabId, revision) => { controller(tabId)?.frame.reportLoaded(revision) },
     reportLoadFailed: (tabId, revision) => { controller(tabId)?.frame.reportLoadFailed(revision) },
+    reportNavigated: (tabId, url) => { controller(tabId)?.reportNavigated(url) },
   }
 }

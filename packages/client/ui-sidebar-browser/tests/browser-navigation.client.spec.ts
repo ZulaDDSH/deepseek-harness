@@ -51,8 +51,28 @@ describe('BrowserNavigation', () => {
     expect(navigation.snapshot.navigation).toEqual({ status: 'loading', revision: reload.revision })
   })
 
-  it('leaves address failures outside navigation', () => {
+  it('records a carrier-observed address and consumes it on reload', () => {
     const navigation = new BrowserNavigation()
+    navigation.navigate(httpsTarget(1))
+
+    expect(navigation.observe('https://example.test/1')).toBe(false)
+    expect(navigation.snapshot.observed).toBeUndefined()
+
+    expect(navigation.observe('https://spa.test/deep')).toBe(true)
+    expect(navigation.snapshot.observed).toBe('https://spa.test/deep')
+    expect(BrowserNavigation.effectiveUrl(navigation.snapshot)).toBe('https://spa.test/deep')
+    expect(navigation.observe('https://spa.test/deep')).toBe(false)
+    expect(navigation.observe('javascript:alert(1)')).toBe(false)
+    expect(navigation.snapshot.observed).toBe('https://spa.test/deep')
+
+    const reload = navigation.reload()!
+    expect(reload.target.url).toBe('https://spa.test/deep')
+    expect(navigation.snapshot.observed).toBeUndefined()
+    expect(BrowserNavigation.current(navigation.snapshot)?.url).toBe('https://spa.test/deep')
+    expect(navigation.snapshot.entries).toHaveLength(1)
+  })
+
+  it('leaves address failures outside navigation', () => {    const navigation = new BrowserNavigation()
     navigation.frameLoaded(1)
     navigation.navigate(httpsTarget(1))
     const revision = navigation.snapshot.request!.revision

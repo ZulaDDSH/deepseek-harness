@@ -228,4 +228,17 @@ describe('BrowserBody', () => {
     expect(mounted.store.getSnapshot().byTab[TAB]?.entries.at(-1)?.url).toBe('https://latest.example/path')
   })
 
+  it('restores a carrier-observed address on remount instead of the opened one', async () => {
+    const mounted = mountBrowser({ url: 'https://chat.example/' })
+    await waitFor(() => { expect(mounted.view.container.querySelector('iframe')?.getAttribute('src')).toBe('https://chat.example/') })
+
+    act(() => { mounted.injected.reportNavigated(TAB, 'https://chat.example/c/abc') })
+    await waitFor(() => { expect(mounted.view.getByRole('textbox')).toHaveProperty('value', 'https://chat.example/c/abc') })
+
+    mounted.view.unmount()
+    const remounted = mounted.remount()
+    await waitFor(() => { expect(remounted.container.querySelector('iframe')?.getAttribute('src')).toBe('https://chat.example/c/abc') })
+    expect(remounted.getByRole('textbox')).toHaveProperty('value', 'https://chat.example/c/abc')
+  })
+
 })
