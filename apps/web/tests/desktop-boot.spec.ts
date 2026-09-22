@@ -3,10 +3,11 @@ import { afterEach, expect, it, vi } from 'vitest'
 
 const boot = vi.hoisted(() => ({
   run: vi.fn(),
+  setBootHint: vi.fn(),
   applyIndexInjections: vi.fn(async () => {}),
 }))
 vi.mock('@deepseek-ai/dsh-client-web', () => ({
-  AppWebEntry: class { run = boot.run },
+  AppWebEntry: class { run = boot.run; setBootHint = boot.setBootHint },
   applyIndexInjections: boot.applyIndexInjections,
 }))
 

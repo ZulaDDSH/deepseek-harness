@@ -40,6 +40,7 @@ kind: "package-reference"
 | 字段 | 默认值 | 含义 |
 |---|---|---|
 | `pollIntervalMs` | `500` | bundle stat 轮询间隔，单位为毫秒 |
+| `keepAliveMs` | `30000` | `/plugins/events` 上 SSE keep-alive 注释之间的空闲间隔 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-client-hmr)是所有受支持字段及其 JSDoc 的完整真源。
 
