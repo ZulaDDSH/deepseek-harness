@@ -150,6 +150,37 @@ describe('createSnapshotStore', () => {
     expect(revived.getSnapshot().a.n).toBe(42)
   })
 
+  it('migrates a rehydrated value written by an earlier build', () => {
+    const backing = new Map<string, string>([['spec-migrated', JSON.stringify({ a: { n: 3 } })]])
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => backing.get(k) ?? null,
+      setItem: (k: string, v: string) => { backing.set(k, v) },
+      removeItem: (k: string) => { backing.delete(k) },
+    })
+    const store = createSnapshotStore(
+      { a: { n: 0 }, added: 'default' },
+      {
+        persist: { name: 'spec-migrated' },
+        migrate: persisted => ({ ...persisted, added: 'migrated' }),
+      },
+    )
+    expect(store.getSnapshot()).toEqual({ a: { n: 3 }, added: 'migrated' })
+    // The migrated value is what the next write persists.
+    store.update((d) => { d.a.n = 4 })
+    expect(JSON.parse(backing.get('spec-migrated') ?? '{}')).toEqual({ a: { n: 4 }, added: 'migrated' })
+  })
+
+  it('leaves rehydration unmigrated when no migration is declared', () => {
+    const backing = new Map<string, string>([['spec-unmigrated', JSON.stringify({ a: { n: 7 } })]])
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => backing.get(k) ?? null,
+      setItem: (k: string, v: string) => { backing.set(k, v) },
+      removeItem: (k: string) => { backing.delete(k) },
+    })
+    const store = createSnapshotStore({ a: { n: 0 } }, { persist: { name: 'spec-unmigrated' } })
+    expect(store.getSnapshot().a.n).toBe(7)
+  })
+
   it('reports rehydration failures without preventing store creation', () => {
     const failure = new Error('storage read failed')
     vi.stubGlobal('localStorage', {

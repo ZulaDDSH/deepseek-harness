@@ -12,7 +12,7 @@
 import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
-  Button, IconCloseFill14, IconPersonalizationOutline16,
+  Button, IconCloseFill14, IconPersonalizationOutline16, IconPlusOutline16,
   IconProjectAddOutline16, IconSearchOutline16, Menu, Modal, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
@@ -31,7 +31,10 @@ import {
   pinCurrentBlank, reconcileManualOrder, UNGROUPED_KEY, visibleSessionIds,
 } from '../tree.ts'
 import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './Rows.tsx'
-import { FLAT_SESSION_ORDER_KEY, type SessionGroupBy } from '../stores.ts'
+import { FLAT_SESSION_ORDER_KEY, type ChatSection, type SessionGroupBy } from '../stores.ts'
+import { sectionsActive } from '../sections.ts'
+import { SectionsList } from './SectionsList.tsx'
+import { useSectionDialogs } from './SectionDialogs.tsx'
 import { WorkspacePickFlow } from '../WorkspacePicker.tsx'
 import { WorkspaceFilterMenu, WorkspaceIconGlyph } from './WorkspaceAppearance.tsx'
 import css from './WorkspaceBrowser.module.css'
@@ -274,6 +277,20 @@ type SessionTreeProps = Pick<
   onAppearanceChange: (workspaceId: WorkspaceId, change: WorkspaceAppearance) => void
   /** Apply a Session appearance choice from that row's menu. */
   onSessionAppearanceChange: (sessionId: SessionId, change: WorkspaceAppearance) => void
+  /**
+   * Whether the Sections pane is present below this tree, which turns the
+   * workspace rows into drop targets for filing a Chat into a section. Absent
+   * or false leaves every row exactly as it was.
+   */
+  sectionDropTargets?: boolean | undefined
+  /** The sections a dragged Chat can be filed into. */
+  sections: readonly ChatSection[]
+  /** File a Chat into a section (or no section) from a workspace row drop or menu. */
+  assignSession: (sessionId: SessionId, sectionId: string | undefined) => void
+  /** Publish a Chat drag that the Sections pane may accept as a filing gesture. */
+  onChatDragStart: (sessionId: SessionId) => void
+  /** Clear the published Chat drag. */
+  onChatDragEnd: () => void
   /** One Session chosen from search that must be exposed and scrolled into view. */
   revealSessionId?: SessionId | undefined
   /** Acknowledge that the chosen Session row has been revealed. */
@@ -291,7 +308,8 @@ function SessionTree({
   setSessionOrder, home, t,
   appearanceByWorkspace, appearanceBySession,
   onAppearanceRequest, onAppearanceChange, onSessionAppearanceChange,
-  revealSessionId, onSessionRevealed,
+  revealSessionId, onSessionRevealed, sectionDropTargets = false, sections, assignSession,
+  onChatDragStart, onChatDragEnd,
 }: SessionTreeProps) {
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
   const statuses = useSessionStatus(s => s)
@@ -583,6 +601,9 @@ function SessionTree({
             start: () => {
               sessionDropCommitted.current = false
               setDrag({ accountKey: group.key, sessionId: node.id, over: null })
+              // Publish so the Sections pane can accept this same gesture as a
+              // filing drop; it owns that commit, this tree owns reordering.
+              if (sectionDropTargets) onChatDragStart(node.id)
             },
             active: sameGroupDrag,
             marker: sameGroupDrag && drag.over?.id === node.id ? drag.over.half : null,
@@ -601,6 +622,7 @@ function SessionTree({
               if (drag?.over !== null && drag?.over !== undefined) commitSessionDrag(drag, drag.over)
               else setDrag(null)
               sessionDropCommitted.current = false
+              if (sectionDropTargets) onChatDragEnd()
             },
           }
           return (
@@ -622,6 +644,13 @@ function SessionTree({
                 color: (color) => { onSessionAppearanceChange(node.id, { color }) },
                 icon: (icon) => { onSessionAppearanceChange(node.id, { icon }) },
               }}
+              sectionActions={sectionDropTargets
+                ? {
+                  sections,
+                  currentSectionId: undefined,
+                  move: (id, sectionId) => { assignSession(id, sectionId) },
+                }
+                : undefined}
               t={t}
             />
           )
@@ -885,6 +914,7 @@ export function WorkspaceBrowser({
   insertWorkspaceBefore,
   archiveSession,
   createWorkspace,
+  newSectionId,
   searchSessions,
   searchResultLimit,
   useDirectoryFlow,
@@ -906,6 +936,12 @@ export function WorkspaceBrowser({
   const orderBy = useStore(s => s.orderBy)
   const groupExpansion = useStore(s => s.groupExpansion)
   const sessionOrderByAccount = useStore(s => s.sessionOrderByAccount)
+  const chatSections = useStore(s => s.chatSections)
+  const [externalChatSessionId, setExternalChatSessionId] = useState<SessionId | null>(null)
+  // Sections render in their own pane below the Workspace pane, so this only
+  // decides whether that pane exists — never which Workspace projection shows.
+  const sectionsOn = sectionsActive(chatSections)
+  useNativeDragAcceptance(externalChatSessionId !== null)
   const workspaceReady = workspacePhase === 'ready' && workspaceStreamState !== 'loading'
   const mainSessionId = Object.values(list.byId)
     .find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
@@ -1016,6 +1052,28 @@ export function WorkspaceBrowser({
   const saveSessionOrder = (accountKey: string, order: readonly string[]): void => {
     actions.setSessionOrder(accountKey, order, activeSessionOrders)
   }
+  const {
+    dialogs: sectionDialogs,
+    onCreateRequest: onSectionCreate,
+    onRenameRequest: onSectionRename,
+    onDeleteRequest: onSectionDelete,
+  } = useSectionDialogs({
+    sections: chatSections.sections,
+    createSection: actions.createSection,
+    renameSection: actions.renameSection,
+    deleteSection: actions.deleteSection,
+    newSectionId,
+    expandSection: (sectionId) => { actions.setSectionCollapsed(sectionId, false) },
+    t,
+  })
+  // Section membership survives a Session leaving the visible list only while
+  // the Chat still exists; a departed Session's assignment and saved slot are
+  // dropped so the persisted layer cannot grow without bound.
+  const sessionAccountKeys = list.ids
+  useEffect(() => {
+    if (list.phase !== 'ready') return
+    actions.retainSectionSessions(sessionAccountKeys)
+  }, [actions.retainSectionSessions, list.phase, sessionAccountKeys])
   /**
    * Merge one appearance change into the map it belongs to, dropping the entry
    * once both halves are cleared so the persisted value cannot grow.
@@ -1354,6 +1412,20 @@ export function WorkspaceBrowser({
               </button>
             </Tooltip>
           )}
+          {/* New section uses a plain plus so it cannot be confused with the
+              folder-plus Add workspace control beside it. */}
+          {wide && (
+            <Tooltip label={t('section.new')} side="bottom" delayMs={500}>
+              <button
+                type="button"
+                className={css.iconButton}
+                aria-label={t('section.new')}
+                onClick={onSectionCreate}
+              >
+                <IconPlusOutline16 size={16} />
+              </button>
+            </Tooltip>
+          )}
         </div>
         {/* Add flow + its error dialog (same package â€” direct composition). */}
         <WorkspacePickFlow
@@ -1393,79 +1465,124 @@ export function WorkspaceBrowser({
       </div>}
 
       {/* Always-mounted seat keeps the region's flex slot while the list
-          itself is wide-only. */}
-      <div className={css.listArea}>
-        {wide && (normalizedQuery !== ''
-          ? (
-            <SearchResults
-              usePanelInfo={usePanelInfo}
-              useSessions={useSessions}
-              useSessionStatus={useSessionStatus}
-              open={openSearchResult}
-              workspaces={workspaces}
-              archivedSessionIds={archivedSessionIds}
-              query={normalizedQuery}
-              remote={remoteSearch}
-              resultLimit={searchResultLimit}
-              t={t}
-            />
-          )
-          : groupBy === 'flat'
+          itself is wide-only. When sections exist this seat stacks two
+          independently scrolling panes: Workspaces above the divider, Chat
+          Sections below it. */}
+      <div className={clsx(css.listArea, wide && sectionsOn && css.listAreaStacked)}>
+        {wide && sectionsOn && (
+          <div className={css.paneHeading}>{t('section.workspaces')}</div>
+        )}
+        <div className={clsx(wide && sectionsOn && css.workspacePane)}>
+          {wide && (normalizedQuery !== ''
             ? (
-              <FlatList
+              <SearchResults
                 usePanelInfo={usePanelInfo}
-                list={list}
-                sessionIds={orderedFlatSessionIds}
-                appearanceBySession={appearances.sessions}
-                onSessionAppearanceChange={(sessionId, change) => { updateAppearance('sessions', sessionId, change) }}
+                useSessions={useSessions}
                 useSessionStatus={useSessionStatus}
-                open={open} forkSession={forkSession}
-                onSessionRename={onSessionRename} onSessionArchive={onSessionArchive}
-                setSessionOrder={saveSessionOrder}
-                revealSessionId={revealSessionId}
-                onSessionRevealed={acknowledgeSessionReveal}
+                open={openSearchResult}
+                workspaces={workspaces}
+                archivedSessionIds={archivedSessionIds}
+                query={normalizedQuery}
+                remote={remoteSearch}
+                resultLimit={searchResultLimit}
                 t={t}
               />
             )
-            : (
-              <SessionTree
-                usePanelInfo={usePanelInfo}
-                list={list}
-                useSessionStatus={useSessionStatus}
-                onSessionRename={onSessionRename}
-                onSessionArchive={onSessionArchive}
-                forkSession={forkSession}
-                workspaces={visibleWorkspaces}
-                appearanceByWorkspace={appearances.workspaces}
-                appearanceBySession={appearances.sessions}
-                ungroupedSessionIds={orderedUngroupedSessionIds}
-                workspaceReady={workspaceReady}
-                nestWorkspaces={groupBy === 'workspace-tree'}
-                groupExpansion={groupExpansion}
-                setGroupExpanded={actions.setGroupExpanded}
-                setSessionOrder={saveSessionOrder}
-                archivedSessionIds={archivedSessionIds}
-                startSession={startSession}
-                open={open}
-                insertWorkspaceBefore={insertWorkspaceBefore}
-                revealSessionId={revealSessionId}
-                onSessionRevealed={acknowledgeSessionReveal}
-                home={home}
-                t={t}
-                onRenameRequest={(workspaceId, currentTitle) => {
-                  setRenameTarget({ workspaceId, currentTitle })
-                  setRenameDraft(currentTitle)
-                  setRenameError(null)
-                }}
-                onDeleteRequest={(workspaceId, title) => {
-                  setDeleteTarget({ workspaceId, title })
-                  setDeleteError(null)
-                }}
-                onAppearanceRequest={setAppearanceTarget}
-                onAppearanceChange={(workspaceId, change) => { updateAppearance('workspaces', workspaceId, change) }}
-                onSessionAppearanceChange={(sessionId, change) => { updateAppearance('sessions', sessionId, change) }}
-              />
-            ))}
+            : groupBy === 'flat'
+              ? (
+                <FlatList
+                  usePanelInfo={usePanelInfo}
+                  list={list}
+                  sessionIds={orderedFlatSessionIds}
+                  appearanceBySession={appearances.sessions}
+                  onSessionAppearanceChange={(sessionId, change) => { updateAppearance('sessions', sessionId, change) }}
+                  useSessionStatus={useSessionStatus}
+                  open={open} forkSession={forkSession}
+                  onSessionRename={onSessionRename} onSessionArchive={onSessionArchive}
+                  setSessionOrder={saveSessionOrder}
+                  revealSessionId={revealSessionId}
+                  onSessionRevealed={acknowledgeSessionReveal}
+                  t={t}
+                />
+              )
+              : (
+                <SessionTree
+                  usePanelInfo={usePanelInfo}
+                  list={list}
+                  useSessionStatus={useSessionStatus}
+                  onSessionRename={onSessionRename}
+                  onSessionArchive={onSessionArchive}
+                  forkSession={forkSession}
+                  workspaces={visibleWorkspaces}
+                  appearanceByWorkspace={appearances.workspaces}
+                  appearanceBySession={appearances.sessions}
+                  ungroupedSessionIds={orderedUngroupedSessionIds}
+                  workspaceReady={workspaceReady}
+                  nestWorkspaces={groupBy === 'workspace-tree'}
+                  groupExpansion={groupExpansion}
+                  setGroupExpanded={actions.setGroupExpanded}
+                  setSessionOrder={saveSessionOrder}
+                  archivedSessionIds={archivedSessionIds}
+                  startSession={startSession}
+                  open={open}
+                  insertWorkspaceBefore={insertWorkspaceBefore}
+                  revealSessionId={revealSessionId}
+                  onSessionRevealed={acknowledgeSessionReveal}
+                  home={home}
+                  t={t}
+                  onRenameRequest={(workspaceId, currentTitle) => {
+                    setRenameTarget({ workspaceId, currentTitle })
+                    setRenameDraft(currentTitle)
+                    setRenameError(null)
+                  }}
+                  onDeleteRequest={(workspaceId, title) => {
+                    setDeleteTarget({ workspaceId, title })
+                    setDeleteError(null)
+                  }}
+                  onAppearanceRequest={setAppearanceTarget}
+                  onAppearanceChange={(workspaceId, change) => { updateAppearance('workspaces', workspaceId, change) }}
+                  onSessionAppearanceChange={(sessionId, change) => { updateAppearance('sessions', sessionId, change) }}
+                  sectionDropTargets={sectionsOn}
+                  assignSession={actions.assignSession}
+                  sections={chatSections.sections}
+                  onChatDragStart={setExternalChatSessionId}
+                  onChatDragEnd={() => { setExternalChatSessionId(null) }}
+                />
+              ))}
+        </div>
+
+        {/* The Sections pane: a saved visual filter over the Workspace pane
+            above. Chats stay in their workspace folders; filing one only adds
+            it here, so nothing is ever lost from the list above. */}
+        {wide && sectionsOn && (
+          <SectionsList
+            usePanelInfo={usePanelInfo}
+            useSessionStatus={useSessionStatus}
+            list={list}
+            visibleSessionIds={flatMemberIds}
+            sections={chatSections}
+            appearanceBySection={appearances.sections}
+            appearanceBySession={appearances.sessions}
+            currentBlank={currentBlank}
+            open={open}
+            forkSession={forkSession}
+            onSessionRename={onSessionRename}
+            onSessionArchive={onSessionArchive}
+            assignSession={actions.assignSession}
+            externalChatSessionId={externalChatSessionId}
+            onChatDragEnd={() => { setExternalChatSessionId(null) }}
+            setSectionOrder={actions.setSectionOrder}
+            toggleSection={(sectionId) => {
+              actions.setSectionCollapsed(sectionId, chatSections.collapse[sectionId] !== true)
+            }}
+            moveSection={actions.moveSection}
+            onSectionRename={onSectionRename}
+            onSectionDelete={onSectionDelete}
+            onSectionAppearanceChange={(sectionId, change) => { updateAppearance('sections', sectionId, change) }}
+            onSessionAppearanceChange={(sessionId, change) => { updateAppearance('sessions', sessionId, change) }}
+            t={t}
+          />
+        )}
       </div>
 
       <Modal
@@ -1614,6 +1731,7 @@ export function WorkspaceBrowser({
           </div>
         </div>
       </Modal>
+      {sectionDialogs}
     </div>
   )
 }

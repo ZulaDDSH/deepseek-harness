@@ -45,6 +45,14 @@ Choose **Add workspace** and select a directory to register it and open a Sessio
 
 Hierarchy uses registered canonical paths only. It does not scan for projects or resolve symlink aliases. Nesting does not change Session working directories, logs, or Workspace membership. Deleting a parent Workspace leaves its child Workspaces registered and places them under their next registered ancestor, or at the root.
 
+### Chat Sections
+
+**New section** in the header creates a named Section, which renders as a lower pane below the Workspace list. A Section is a saved visual filter over the Workspace list, not a second membership: filing a Chat adds it to the pane and removes nothing from its workspace folder, so the same Chat is visible in both places. The pane appears once any Section exists — including an empty one — and the Workspace list keeps its full set of controls and every `Group by` mode while it is present. A Section carries no Workspace instruction, environment, file, or shared-context meaning, and a Session belongs to at most one Section.
+
+File a Chat from its row menu's **Move to Section → [name]**, or drag it onto a Section header or anywhere inside that Section's block. Dropping onto a sibling Chat inserts at that position, and dragging one Section header onto another reorders Sections. **Remove from section** returns a Chat to the ungrouped list. Section headers open a menu for rename, delete, and the color and icon choices the appearance controls share. Deleting a Section removes only the grouping: its Chats keep their logs and Workspace membership and reappear ungrouped.
+
+Sections, their collapse state, their member assignments, and their saved orders are browser-local and persist across reloads. They do not follow a Session to another browser, machine, or profile, and they change nothing about a Session's Workspace, working directory, log, archived state, or search participation.
+
 ### Search
 
 Collapsed search is one header action beside the view and add actions: activating it expands the field across the header. A non-blank query replaces either browsing mode with one flat result list — case-insensitive title and Workspace substring matches appear immediately, while a 250 ms debounced Host request adds ranked current-conversation content matches and snippets. Each new query aborts the preceding request; a failed content search leaves metadata matches visible with a warning. The list is capped at 20. Choosing a result clears and collapses search, opens the Session, and scrolls its row into view in the configured browsing mode; grouped browsing also expands its Workspace and the full Session list when required.

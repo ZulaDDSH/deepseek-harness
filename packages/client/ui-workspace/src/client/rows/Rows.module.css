@@ -285,6 +285,37 @@
   position: relative;
 }
 
+/* A Chat Section header is a disclosure row, not a Workspace: it keeps the row
+   rhythm but carries no Workspace hover card. */
+.sectionRow {
+  cursor: pointer;
+}
+
+/* Its leading slot shows the section's own icon choice in place of a folder. */
+.sectionGlyph {
+  margin-right: 4px;
+}
+
+/* Trailing member count; it yields to the hover actions, which occupy the same
+   cell, so the header never widens when its verbs appear. */
+.sectionCount {
+  flex: none;
+  margin-right: 6px;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.sectionRow:hover .sectionCount,
+.sectionRow.menuOpen .sectionCount {
+  display: none;
+}
+
+/* The join outline rides the same accent every other drop marker uses. */
+.sectionRow.dropInside {
+  box-shadow: inset 0 0 0 1px var(--dsw-alias-state-business-primary);
+}
+
 .sessionRow.dropBefore::before,
 .sessionRow.dropAfter::after {
   content: '';

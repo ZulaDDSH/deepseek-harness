@@ -15,9 +15,12 @@ import {
   StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
 import { abbreviateHomePath } from '@deepseek-ai/dsh-util-workspace-path'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
 import type { WorkspaceAppearance, WorkspaceColor, WorkspaceIcon } from '../appearance.ts'
+import type { SectionNode } from '../sections.ts'
+import type { ChatSection } from '../stores.ts'
 import type { GroupNode, SearchResultNode, SessionNode } from '../tree.ts'
 import {
   appearanceStyle, appearanceSubmenus, workspaceColorOf, workspaceIconOf, WorkspaceIconGlyph,
@@ -27,8 +30,222 @@ import css from './Rows.module.css'
 
 export type { SessionAppearanceActions } from './WorkspaceAppearance.tsx'
 
+/**
+ * One Chat row's section state plus the operation its menus apply. A context
+ * menu outlives the render that opened it, so every verb reads only this value.
+ */
+export interface SessionSectionActions {
+  /** Every existing section in display order. */
+  sections: readonly ChatSection[]
+  /** The Chat's owning section, or undefined while it is ungrouped. */
+  currentSectionId: string | undefined
+  /** Assign the Chat to a section, or to no section. */
+  move: (sessionId: SessionNode['id'], sectionId: string | undefined) => void
+}
+
 /** The standard locale seat, prop-passed from the browser root. */
 type RowTranslate = WorkspaceBrowserProps['t']
+
+/** Menu row id for one section choice. */
+function sectionMenuItemId(sectionId: string): string {
+  return `section.move.${sectionId}`
+}
+
+/** Menu row id for the ungrouped choice: removes the Chat from its section. */
+const SECTION_UNGROUPED_ITEM = 'section.move.none'
+
+/**
+ * Resolve a section choice from a menu row id.
+ * @param id - the selected menu row id.
+ * @returns the target section id, null for the ungrouped choice, or undefined
+ * for every other row (so no unrelated verb is read as a move).
+ */
+function sectionChoiceOf(id: string): string | null | undefined {
+  if (id === SECTION_UNGROUPED_ITEM) return null
+  if (!id.startsWith('section.move.')) return undefined
+  return id.slice('section.move.'.length)
+}
+
+/**
+ * The Move-to-Section submenu every Chat row offers, so a move stays available
+ * when drag-and-drop is not. The owning section is listed but disabled, which
+ * keeps the choice list stable while the current assignment stays visible; the
+ * ungrouped row removes the Chat from its section without deleting it.
+ * @param sections - every existing section in display order.
+ * @param currentSectionId - the Chat's owning section, if any.
+ * @param t - the row's locale seat.
+ * @returns the submenu rows; their ids carry the choice back through onSelect.
+ */
+function sectionMenuItems(
+  sections: readonly ChatSection[],
+  currentSectionId: string | undefined,
+  t: RowTranslate,
+): MenuItem[] {
+  return [
+    ...sections.map(section => ({
+      id: sectionMenuItemId(section.id),
+      label: section.name,
+      disabled: section.id === currentSectionId,
+    })),
+    { id: SECTION_UNGROUPED_ITEM, label: t('section.ungrouped'), disabled: currentSectionId === undefined },
+  ]
+}
+
+/**
+ * One Chat Section header row: disclosure chevron, title, member count, and the
+ * section verbs (rename, delete, appearance). The header is the drop target that
+ * assigns a dragged Chat to this section, so it reports its own hover state
+ * through the drag wiring its list owner supplies.
+ * @param props.section - derived section node.
+ * @param props.appearance - the section's chosen color and icon, when it has one.
+ * @param props.dragActive - a compatible Chat or section drag is in flight.
+ * @param props.marker - current drop marker: assign into, insert above, or none.
+ * @param props.onToggle - collapse or expand the section.
+ * @param props.onDragOver - report a hovered drop boundary.
+ * @param props.onDrop - commit the drop on this header.
+ * @param props.onFileChat - file an externally dragged Chat into this section.
+ * @param props.externalChatSessionId - the Chat dragged in from the Workspace pane.
+ * @param props.drag - optional section-row drag wiring (reorder).
+ * @param props.actions - section verbs.
+ * @param props.t - the browser root's locale seat.
+ * @returns the section header element.
+ */
+export function SectionHeaderItem({
+  section, appearance, dragActive = false, marker = null, onToggle, onDragOver, onDrop, onFileChat,
+  externalChatSessionId = null, drag, actions, t,
+}: {
+  section: SectionNode
+  appearance?: WorkspaceAppearance | undefined
+  dragActive?: boolean | undefined
+  marker?: 'before' | 'after' | 'inside' | null | undefined
+  onToggle: () => void
+  onDragOver?: ((half: 'before' | 'after') => void) | undefined
+  onDrop?: ((half: 'before' | 'after') => void) | undefined
+  onFileChat?: (() => void) | undefined
+  externalChatSessionId?: string | null | undefined
+  drag?: WorkspaceRowDragProps | undefined
+  actions: {
+    rename: () => void
+    delete: () => void
+    appearanceColor: (color: WorkspaceColor | undefined) => void
+    appearanceIcon: (icon: WorkspaceIcon | undefined) => void
+  }
+  t: RowTranslate
+}) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
+  const submenus = useMemo(() => appearanceSubmenus(t), [t])
+  const items = [
+    { id: 'appearance.color', label: t('appearance.color'), icon: <IconEditOutline16 />, submenu: submenus.colors },
+    { id: 'appearance.icon', label: t('appearance.icon'), icon: <IconEditOutline16 />, submenu: submenus.icons },
+    { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
+    { id: 'delete', label: t('section.delete'), icon: <IconTrashOutline16 />, danger: true },
+  ]
+  const select = (id: string): void => {
+    if (id.startsWith('appearance.color.')) actions.appearanceColor(workspaceColorOf(id))
+    else if (id.startsWith('appearance.icon.')) actions.appearanceIcon(workspaceIconOf(id))
+    else if (id === 'rename') actions.rename()
+    else if (id === 'delete') actions.delete()
+  }
+  return (
+    <div
+      className={clsx(
+        css.projectRow, css.sectionRow, menuOpen && css.menuOpen,
+        marker === 'before' && css.dropBefore, marker === 'after' && css.dropAfter,
+        marker === 'inside' && css.dropInside,
+      )}
+      style={appearanceStyle(appearance)}
+      role="treeitem"
+      aria-expanded={section.expanded}
+      aria-label={t('section.actions.aria', { name: section.name })}
+      onClick={onToggle}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        setMenuOpen(false)
+        setContextMenu({ x: e.clientX, y: e.clientY })
+      }}
+      draggable={drag !== undefined}
+      onDragStart={drag === undefined
+        ? undefined
+        : (e) => {
+          e.dataTransfer.effectAllowed = 'move'
+          e.dataTransfer.setData('text/plain', section.id)
+          drag.start()
+        }}
+      onDragEnd={drag?.end}
+      onDragOver={(event) => {
+        if (onFileChat !== undefined && externalChatSessionId !== null) {
+          event.preventDefault()
+          event.stopPropagation()
+          event.dataTransfer.dropEffect = 'move'
+          return
+        }
+        if (!dragActive) return
+        event.preventDefault()
+        event.stopPropagation()
+        event.dataTransfer.dropEffect = 'move'
+        onDragOver?.(rowHalf(event))
+      }}
+      onDrop={(event) => {
+        if (onFileChat !== undefined && externalChatSessionId !== null) {
+          event.preventDefault()
+          event.stopPropagation()
+          onFileChat()
+          return
+        }
+        if (!dragActive) return
+        event.preventDefault()
+        event.stopPropagation()
+        onDrop?.(rowHalf(event))
+      }}
+    >
+      <span className={clsx(css.slot, css.sectionGlyph)}>
+        {appearance?.icon === undefined || appearance.icon === 'folder'
+          ? section.expanded ? <IconFolderOpen16 /> : <IconFolderClose16 />
+          : <WorkspaceIconGlyph choice={appearance.icon} />}
+      </span>
+      <span className={clsx(css.slot, css.chevron)}>
+        <IconTriangleRightFill14 className={clsx(css.arrow, section.expanded && css.arrowOpen)} />
+      </span>
+      <span className={css.projectText}>
+        <span className={css.title}>{section.name}</span>
+      </span>
+      <span className={css.sectionCount}>{t('section.count.other', { n: section.sessionCount })}</span>
+      <span className={css.rowActions}>
+        <Menu
+          open={menuOpen}
+          onClose={() => { setMenuOpen(false) }}
+          items={items}
+          onSelect={(id) => { setMenuOpen(false); select(id) }}
+          portal
+          closeOnPointerLeave
+          anchor={(
+            <button
+              type="button"
+              className={css.iconButton}
+              aria-label={t('section.actions.aria', { name: section.name })}
+              onClick={(e) => { e.stopPropagation(); setMenuOpen(v => !v) }}
+            >
+              <IconEllipsisOutline16 />
+            </button>
+          )}
+        />
+      </span>
+      {contextMenu !== null && (
+        <Menu
+          open
+          onClose={() => { setContextMenu(null) }}
+          items={items}
+          onSelect={(id) => { setContextMenu(null); select(id) }}
+          portal
+          getAnchorRect={() => DOMRect.fromRect({ x: contextMenu.x, y: contextMenu.y })}
+          anchor={<span className={css.contextAnchor} />}
+        />
+      )}
+    </div>
+  )
+}
 
 /** Row display title: blank rows show the localized New Session label. */
 function displayTitle(node: SessionNode, t: RowTranslate): string {
@@ -434,12 +651,13 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
  * @param props.flat - omit the empty status slot in the hierarchy-free flat list.
  * @param props.appearance - the owning Workspace's appearance, which colors and marks this row.
  * @param props.appearanceActions - this session's own appearance verbs, absent where the row offers none.
+ * @param props.sectionActions - section assignment verbs, present only where sections render.
  * @param props.t - the browser root's locale seat.
  * @returns the session row.
  */
 export function SessionNodeItem({
   node, currentId, now, onOpen, onRename, onFork, onArchive, onReveal, drag, flat = false, appearance,
-  appearanceActions, t,
+  appearanceActions, sectionActions, t,
 }: {
   node: SessionNode
   currentId: string | undefined
@@ -464,6 +682,11 @@ export function SessionNodeItem({
    */
   appearance?: WorkspaceAppearance | undefined
   appearanceActions?: SessionAppearanceActions | undefined
+  /**
+   * Section assignment for this row. Absent wherever sections do not render,
+   * which leaves the row's menus exactly as they were.
+   */
+  sectionActions?: SessionSectionActions | undefined
   t: RowTranslate
 }) {
   const row = node
@@ -491,7 +714,7 @@ export function SessionNodeItem({
   // touches the session log, so it is not styled as destructive and needs no
   // confirmation dialog.
   const submenus = appearanceSubmenus(t)
-  const sessionMenuItems = [
+  const sessionMenuItems: MenuItem[] = [
     ...(appearanceActions === undefined ? [] : [
       { id: 'appearance.color', label: t('appearance.color'), icon: <IconEditOutline16 />, submenu: submenus.colors },
       { id: 'appearance.icon', label: t('appearance.icon'), icon: <IconEditOutline16 />, submenu: submenus.icons },
@@ -501,6 +724,20 @@ export function SessionNodeItem({
     // 20-native glyph in the menu's 16px icon slot (Menu.module.css .itemIcon).
     { id: 'archive', label: t('menu.archiveSession'), icon: <IconArchiveOutline20 size={16} /> },
   ]
+  if (sectionActions !== undefined) {
+    const { sections, currentSectionId } = sectionActions
+    sessionMenuItems.push({
+      id: 'section.move',
+      label: t('section.moveTo'),
+      icon: <IconFolderClose16 />,
+      submenu: sectionMenuItems(sections, currentSectionId, t),
+    })
+    if (currentSectionId !== undefined) {
+      sessionMenuItems.push({
+        id: 'section.remove', label: t('section.removeFrom'), icon: <IconFolderOpen16 />,
+      })
+    }
+  }
   /**
    * Apply one row-menu selection. The hover menu and the context menu both
    * route here, so the two cannot offer different verbs.
@@ -511,7 +748,11 @@ export function SessionNodeItem({
     if (id === 'fork') { onFork(node.id); return }
     if (id === 'archive') { onArchive(node.id); return }
     if (id.startsWith('appearance.color.')) { appearanceActions?.color(workspaceColorOf(id)); return }
-    if (id.startsWith('appearance.icon.')) { appearanceActions?.icon(workspaceIconOf(id)) }
+    if (id.startsWith('appearance.icon.')) { appearanceActions?.icon(workspaceIconOf(id)); return }
+    if (id === 'section.remove') { sectionActions?.move(node.id, undefined); return }
+    const choice = sectionChoiceOf(id)
+    if (choice === undefined) return
+    sectionActions?.move(node.id, choice ?? undefined)
   }
   // Figma session cell: pad 8, status slot 16, then a 4px title gap.
   const ownRow = (

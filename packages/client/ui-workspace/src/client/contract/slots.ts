@@ -136,6 +136,12 @@ export type WorkspaceBrowserInjected = {
   archiveSession: (sessionId: SessionId) => Promise<void>
   /** Adopt a picked host directory as a real Workspace before targeting a Session. */
   createWorkspace: (input: { path: string }) => Promise<WorkspaceView>
+  /**
+   * Mint the stable identity for a new Chat Section. Sections are a
+   * browser-local organizational layer with no Host counterpart, so identity
+   * is generated on the Client and persisted with the rest of the view state.
+   */
+  newSectionId: () => string
 }
 
 /** Full browser props: shell owner share + viewing store + injected actions + the locale seat. */

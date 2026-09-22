@@ -13,6 +13,7 @@ import type { RemoteHostFacts } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { IWorkspaces, WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { HostObservable, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 // Type-only: pulls the Controller service merges.
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
@@ -133,6 +134,9 @@ export function apply(ctx: Context): void {
     },
     archiveSession: async (sessionId) => { await uiWorkspace.archiveSession(sessionId) },
     createWorkspace: input => workspaces.create(input),
+    // Chat Sections have no Host counterpart: the identity an assignment
+    // references is minted here and persisted with the browser view state.
+    newSectionId: () => randomUUID(),
     hooks: { directoryFlow: browserFlowSource, hostInfo },
   })
   const pickerInjected = (): WorkspacePickerInjected => ({
