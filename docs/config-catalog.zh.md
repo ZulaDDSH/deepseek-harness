@@ -3763,6 +3763,18 @@ export interface Config {
   maxFileBytes: number
   /** Milliseconds a line comparison may run before it degrades to whole-file replacement. */
   diffTimeoutMs: number
+  /**
+   * Durable root holding each Session's records, captured copies, and snapshot
+   * objects. Records outlive their Session, so this directory is what a later
+   * Host process serves earlier turns from.
+   */
+  root: string
+  /** Sessions whose records are kept, newest first; older ones are pruned. */
+  retentionSessions: number
+  /** Bytes kept across the root; the oldest records beyond it are pruned. */
+  retentionBytes: number
+  /** Days a Session's records are kept; an older directory is pruned. */
+  retentionDays: number
 }
 ```
 

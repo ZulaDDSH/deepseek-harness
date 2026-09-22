@@ -296,9 +296,17 @@
       name: '@deepseek-ai/dsh-client-ui-deliverables'
 
     # Records each top-level turn's changed files from git working-tree
-    # snapshots; the changed-files card above renders its events.
+    # snapshots; the changed-files card above renders its events. Records,
+    # captured copies, and snapshot objects outlive their Session under
+    # `$DSH_HOME/workspace-changes`, so a conversation reopened after a restart
+    # keeps its cards and comparisons; the retention bounds cap that directory.
     - id: workspace-changes
       name: '@deepseek-ai/dsh-workspace-changes'
+      config:
+        root: !!js dshHomePath('workspace-changes')
+        retentionSessions: 200
+        retentionBytes: 536870912
+        retentionDays: 30
 
 
     - id: ui-workspace
