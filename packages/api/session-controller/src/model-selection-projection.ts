@@ -18,7 +18,7 @@ const modelSelectionSchema = z.object({
 
 const modelSelectionProjectionStateSchema = z.object({
   lastUsed: modelSelectionSchema.nullable(),
-  pending: modelSelectionSchema.nullable(),
+  selected: modelSelectionSchema.nullable(),
 }) as unknown as z.ZodType<ModelSelectionProjectionState>
 
 const modelSelectionProjectionSchema = z.object({
@@ -28,6 +28,8 @@ const modelSelectionProjectionSchema = z.object({
 
 /**
  * Advance durable model-selection state by one Session event.
+ * A request records only what ran: a router or fallback that used another
+ * route must not rebind the model the user chose for this Session.
  * @param state - selection state before the event.
  * @param event - next committed Session event.
  * @returns the original or advanced selection state.
@@ -37,9 +39,9 @@ function applyModelSelectionProjection(
   event: SessionEvent,
 ): ModelSelectionProjectionState {
   if (event.type === 'model/selection') {
-    return sameSelection(state.pending, event.data)
+    return sameSelection(state.selected, event.data)
       ? state
-      : { lastUsed: state.lastUsed, pending: event.data }
+      : { lastUsed: state.lastUsed, selected: event.data }
   }
   if (event.type !== 'request/header') return state
   const lastUsed: ModelSelection = {
@@ -49,22 +51,19 @@ function applyModelSelectionProjection(
       ? {}
       : { reasoningEffort: String(event.data.header.config.reasoningEffort) }),
   }
-  const pending = sameSelection(state.pending, lastUsed) ? null : state.pending
-  return sameSelection(state.lastUsed, lastUsed) && pending === state.pending
-    ? state
-    : { lastUsed, pending }
+  return sameSelection(state.lastUsed, lastUsed) ? state : { lastUsed, selected: state.selected }
 }
 
 const modelSelectionProjection = {
   key: 'modelSelection',
   stateSchema: modelSelectionProjectionStateSchema,
-  init: () => ({ lastUsed: null, pending: null }),
+  init: () => ({ lastUsed: null, selected: null }),
   apply: applyModelSelectionProjection,
   wire: {
     viewSchema: modelSelectionProjectionSchema,
-    view: state => ({ lastUsed: state.lastUsed, next: state.pending ?? state.lastUsed }),
+    view: state => ({ lastUsed: state.lastUsed, next: state.selected ?? state.lastUsed }),
   },
-  stateVersion: 2,
+  stateVersion: 3,
 } satisfies ProjectionDefinition<'modelSelection', ModelSelectionProjectionState>
 
 function sameSelection(left: ModelSelection | null, right: ModelSelection | null): boolean {

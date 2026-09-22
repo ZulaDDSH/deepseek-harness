@@ -69,6 +69,11 @@ function modelSwitchNotice(previous: ModelSelection, selected: ModelSelection) {
  * notice. Failure before header persistence repeats the notice on the next
  * request.
  *
+ * The request listener is prepended, so the selection applies after every
+ * downstream `agent/request` resolver has returned. A router that decides the
+ * route itself would otherwise overwrite the user's choice on the way out of
+ * `next()`, leaving the session labeled with a model it never called.
+ *
  * @param agentCtx - The selected Agent's scoped context.
  * @param selection - Mutable selection owned by the calling entry point.
  * @returns Disposer for all scoped waterfall listeners.
@@ -104,6 +109,7 @@ export function installModelSelection(agentCtx: Context, selection: ModelSelecti
           : { reasoningEffort: selected.reasoningEffort },
       }
     },
+    { prepend: true },
   )
   const disposeNotice = agentCtx.on(
     'agent/pre-step',

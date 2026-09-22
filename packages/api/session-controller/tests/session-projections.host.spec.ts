@@ -194,7 +194,7 @@ describe('session.history projections block', () => {
     expect(snapshot.header).not.toHaveProperty('seedLength')
   })
 
-  it('tracks pending and used model selections across repeated request headers', async () => {
+  it('keeps the selected model durable while request headers record what ran', async () => {
     const { ctx, session } = await harness(true)
     remote(ctx)
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -218,6 +218,14 @@ describe('session.history projections block', () => {
     })
     expect(ctx.sessionProjections.snapshot(session).values.modelSelection).toEqual({
       lastUsed: selected,
+      next: selected,
+    })
+
+    session.append('request/header', {
+      header: { config: { provider: 'router', model: 'routed' } }, reason: 'initial',
+    })
+    expect(ctx.sessionProjections.snapshot(session).values.modelSelection).toEqual({
+      lastUsed: { provider: 'router', model: 'routed' },
       next: selected,
     })
   })

@@ -148,7 +148,7 @@ export class SessionCommandController {
             ? {}
             : { reasoningEffort: resolved.reasoningEffort }),
         }
-        this.agents.selectForNextRequest(agent, selected)
+        this.agents.selectModel(agent, selected)
         try {
           await this.ctx.agentDefaultModel.saveSelection(selected)
         } catch (error) {
