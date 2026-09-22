@@ -1,7 +1,8 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { PROFILE_TEMPLATES } from '@deepseek-ai/dsh-app-boot'
 import { verifyRuntimeClosure } from './verify-runtime-closure.ts'
 
 const roots: string[] = []
@@ -167,5 +168,18 @@ describe('verifyRuntimeClosure', () => {
 
     expect(result.workspacePackageCount).toBe(1)
     expect(result.failures).toEqual(['runtime -> @scope/root -> @scope/required'])
+  })
+})
+
+describe('runtime deploy manifest of this repository', () => {
+  it('declares every bundle a shipped profile layers', () => {
+    const manifest = JSON.parse(
+      readFileSync(new URL('../python/sdk-runtime/package.json', import.meta.url), 'utf8'),
+    ) as { dependencies?: Record<string, string> }
+    const declared = manifest.dependencies ?? {}
+    const required = [...new Set(
+      Object.values(PROFILE_TEMPLATES).flatMap(template => template.bundles),
+    )].sort()
+    expect(required.filter(name => !(name in declared))).toEqual([])
   })
 })
