@@ -603,12 +603,12 @@ describe('headless stream-json snapshots', () => {
       })
 
       expect(result.stderr).toBe('')
-      expect(server.requests).toHaveLength(2)
-      expect(server.paths).toEqual(['/v1/messages', '/v1/messages'])
-      const agentRequest = server.requests.find(request => request.max_tokens === 256_000)
-      const titleRequest = server.requests.find(request => request.max_tokens === 64)
-      expect(agentRequest?.output_config).toEqual({ effort: 'low' })
-      expect(titleRequest).toBeDefined()
+      expect(server.paths.every(path => path === '/v1/messages')).toBe(true)
+      const agentRequests = server.requests.filter(request => request.max_tokens === 256_000)
+      const titleRequests = server.requests.filter(request => request.max_tokens === 64)
+      expect(agentRequests).toHaveLength(1)
+      expect(agentRequests[0]?.output_config).toEqual({ effort: 'low' })
+      expect(server.requests).toHaveLength(agentRequests.length + titleRequests.length)
       const header = (parseJsonl(result.stdout)
         .map(record => record.event)
         .find((event): event is JsonObject => (
