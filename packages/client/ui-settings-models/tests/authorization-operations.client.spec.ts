@@ -58,9 +58,10 @@ describe('authorization operations', () => {
         throw new Error('provider failed')
       },
     }))
+    const nonErrorFailure: unknown = 'provider failed as text'
     const valueFailure = createAuthorizationOperations(remote({
       begin: async function* () {
-        throw 'provider failed as text'
+        throw nonErrorFailure
       },
     }))
 
