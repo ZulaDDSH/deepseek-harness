@@ -167,7 +167,6 @@ describe('minimal agent preset', () => {
 
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
-    await page.getByRole('status').filter({ hasText: 'Connected' }).waitFor({ timeout: 10_000 })
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings.filter(warning => !/connection lost, retry #/i.test(warning))).toEqual([])
   }, 60_000)

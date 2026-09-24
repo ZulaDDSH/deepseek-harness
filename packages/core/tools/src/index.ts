@@ -456,7 +456,6 @@ export interface ToolRuntimeScheduler {
   finish(exec: ToolRunContext, result: ToolExecutionResult): ToolExecutionResult
 }
 
-// Source and built loaders can mount one runtime in separate module graphs; the registry preserves one key.
 const toolRuntimeSchedulerSymbol = Symbol.for('@deepseek-ai/dsh-tools.scheduler')
 /**
  * Scheduler entry point omitted from the generated named service API.
