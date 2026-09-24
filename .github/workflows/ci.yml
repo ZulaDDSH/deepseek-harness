@@ -25,6 +25,7 @@ jobs:
     outputs:
       coverage-packages: ${{ steps.scope.outputs.coverage-packages }}
       run-consumers: ${{ steps.scope.outputs.run-consumers }}
+      run-dependency-tests: ${{ steps.scope.outputs.run-dependency-tests }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -50,9 +51,14 @@ jobs:
           const isProductFile = path => productFiles.test(path)
             && !path.endsWith('/package.json')
             && !path.endsWith('/pyproject.toml')
+          const hasDependencyChanges = changed.some(path => path === 'pnpm-lock.yaml'
+            || path === 'pnpm-workspace.yaml'
+            || path === 'package.json'
+            || /^.+\/package\.json$/.test(path))
           const outputs = [
             `coverage-packages=${JSON.stringify(packages)}`,
             `run-consumers=${changed.some(isProductFile)}`,
+            `run-dependency-tests=${hasDependencyChanges && packages.length === 0}`,
           ]
           appendFileSync(process.env.GITHUB_OUTPUT, outputs.join('\n') + '\n')
           console.log(outputs.join('\n'))
@@ -122,7 +128,7 @@ jobs:
 
   node-24-coverage:
     needs: [change-scope]
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && needs.change-scope.outputs.coverage-packages != '[]'
     runs-on: ubuntu-latest
     name: node 24 / coverage
     env:
@@ -198,11 +204,28 @@ jobs:
           exit "$sandbox_status"
 
       - name: Run exhaustive coverage
-        if: needs.change-scope.outputs.coverage-packages != '[]'
         run: pnpm run check:ci:coverage
-      - name: No package source or test changes
-        if: needs.change-scope.outputs.coverage-packages == '[]'
-        run: echo 'Changed-package coverage is not applicable to this pull request.'
+
+  node-24-dependency-tests:
+    needs: [change-scope]
+    if: github.event_name == 'pull_request' && needs.change-scope.outputs.run-dependency-tests == 'true'
+    runs-on: ubuntu-latest
+    name: node 24 / dependency unit tests
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          cache: pnpm
+      - name: Install dependencies (immutable)
+        run: pnpm install --frozen-lockfile
+      - name: Run keyless unit tests
+        run: pnpm run test
 
   node-24-bench:
     continue-on-error: true
@@ -531,11 +554,11 @@ jobs:
   all-checks-passed:
     name: all checks passed
     runs-on: ubuntu-latest
-    needs: [change-scope, node-24, node-24-artifacts, node-24-coverage, node-24-consumers, node-compat, python-sdk, python-runtime, windows-build, windows-native-tests]
+    needs: [change-scope, node-24, node-24-artifacts, node-24-coverage, node-24-dependency-tests, node-24-consumers, node-compat, python-sdk, python-runtime, windows-build, windows-native-tests]
     if: ${{ !cancelled() && github.event_name == 'pull_request' }}
     steps:
       - name: Fail if any needed job did not succeed
-        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || (contains(needs.*.result, 'skipped') && !(needs.node-24-consumers.result == 'skipped' && needs.change-scope.outputs.run-consumers != 'true'))
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || (needs.node-24-coverage.result == 'skipped' && needs.change-scope.outputs.coverage-packages != '[]') || (needs.node-24-dependency-tests.result == 'skipped' && needs.change-scope.outputs.run-dependency-tests == 'true') || (needs.node-24-consumers.result == 'skipped' && needs.change-scope.outputs.run-consumers == 'true')
         run: |
           echo "::error::Needed job results: ${{ join(needs.*.result, ', ') }}"
           exit 1
