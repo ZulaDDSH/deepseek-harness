@@ -418,6 +418,8 @@ jobs:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
+      - name: Prepare bubblewrap for sandboxed smokes
+        run: bash scripts/prepare-ci-bubblewrap.sh
       - name: Run typecheck, lint, build, and package checks
         run: pnpm run check:ci:artifacts
 

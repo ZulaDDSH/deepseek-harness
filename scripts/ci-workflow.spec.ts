@@ -63,6 +63,17 @@ describe('CI workflow', () => {
     expect(steps[preparation]).not.toHaveProperty('continue-on-error', true)
   })
 
+  it('prepares confinement before built package smokes', () => {
+    const job = workflowJob(loadWorkflow('.github/workflows/ci.yml'), 'node-24-artifacts')
+    if (!Array.isArray(job.steps)) throw new TypeError('Node artifact job must define steps')
+    const steps = job.steps.filter(isRecord)
+    const preparation = steps.findIndex(step => step.run === 'bash scripts/prepare-ci-bubblewrap.sh')
+    const smoke = steps.findIndex(step => step.run === 'pnpm run check:ci:artifacts')
+    expect(preparation).toBeGreaterThanOrEqual(0)
+    expect(smoke).toBeGreaterThan(preparation)
+    expect(steps[preparation]).not.toHaveProperty('continue-on-error', true)
+  })
+
   it.each(['ci.yml', 'ci-master.yml', 'release.yml', 'release-vendor.yml'])(
     '%s cancels superseded validation runs without crossing workflow or ref boundaries', (name) => {
       const workflow = loadWorkflow('.github/workflows/' + name)
