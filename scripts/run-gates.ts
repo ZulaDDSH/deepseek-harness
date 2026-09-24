@@ -651,7 +651,8 @@ function coverageFileIncludes(raw: string | undefined): string[] {
     || value.split('/').includes('..'))) {
     throw new Error('run-gates: DSH_COVERAGE_FILES must contain package runtime source paths.')
   }
-  return files.flatMap(file => [
+  const sourceFiles = files as string[]
+  return sourceFiles.flatMap(file => [
     '--coverage.include',
     file,
   ])
