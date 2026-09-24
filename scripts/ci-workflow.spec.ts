@@ -25,7 +25,7 @@ describe('CI workflow', () => {
     expect(coverage.needs).toContain('change-scope')
     expect(consumers['continue-on-error']).not.toBe(true)
     expect(consumers.if).toContain("needs.change-scope.outputs.run-consumers == 'true'")
-    const verdict = aggregate.steps[0]
+    const verdict: unknown = aggregate.steps[0]
     if (!isRecord(verdict) || typeof verdict.if !== 'string' || typeof verdict.run !== 'string') {
       throw new TypeError('CI aggregate verdict step must define string if and run fields')
     }
