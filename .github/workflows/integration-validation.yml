@@ -1,0 +1,39 @@
+name: Integration validation
+
+on:
+  push:
+    branches:
+      - sync/upstream-integration-2026-09-24
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Focused integration proofs
+        run: >-
+          pnpm exec vitest run
+          packages/api/settings-controller/tests/authorization-controller.host.spec.ts
+          packages/client/ui-settings-models/tests/authorization-operations.client.spec.ts
+          packages/llm/llm-pi-ai/tests/adapter.spec.ts
+          packages/llm/llm-pi-ai/tests/catalog.spec.ts
+          --reporter=dot
+      - name: Static CI gate
+        run: pnpm run check:ci:static
