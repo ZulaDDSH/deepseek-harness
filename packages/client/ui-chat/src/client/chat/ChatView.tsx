@@ -598,12 +598,14 @@ export function ChatView({
     }
     const onScroll = (): void => {
       scrollSamplePendingRef.current = true
-      if (atBottomRef.current) {
-        const floor = Math.max(0, el.scrollHeight - el.clientHeight)
-        if (!readerMovedScroll(el.scrollTop, floor, observedTopRef.current)) {
-          sample()
-          return
-        }
+      const floor = Math.max(0, el.scrollHeight - el.clientHeight)
+      if (floor - el.scrollTop <= FOLLOW_THRESHOLD + 1) {
+        sample()
+        return
+      }
+      if (atBottomRef.current && !readerMovedScroll(el.scrollTop, floor, observedTopRef.current)) {
+        sample()
+        return
       }
       sampleTimer ??= window.setTimeout(sample, SCROLL_SAMPLE_INTERVAL_MS)
     }
