@@ -82,7 +82,9 @@ export function apply(ctx: ClientContext): void {
   // Bound once here, where the Remote namespaces are declared in this plugin's
   // own `inject`; the cards receive callbacks and never a context.
   const operations = createModelsOperations(ctx)
-  const authorizationRemote = ctx.get('remote.authorization')
+  const authorizationRemote = ctx.get('remote.authorization') as
+    | NonNullable<ClientContext['remote']['authorization']>
+    | undefined
   const authorization = authorizationRemote === undefined
     ? undefined
     : createAuthorizationOperations(authorizationRemote)
