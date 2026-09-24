@@ -710,7 +710,7 @@ describe('web e2e: long Chat scroll contract', () => {
           { timeout: 15_000 },
         ).toBeGreaterThan(chunksAtRepin + 5)
         await nextPaint(world.page)
-        expect(Math.abs((await scrollGeometry(world.page)).distanceFromBottom)).toBeLessThanOrEqual(1)
+        await expectBottom(world.page)
       } finally {
         if (!released) await writeFile(releasePath, 'release\n').catch(() => {})
       }

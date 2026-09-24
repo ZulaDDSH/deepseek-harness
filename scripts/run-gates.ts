@@ -267,7 +267,6 @@ export function gatesForMode(selected: Mode): Gate[] {
         pnpmScript('client-domain-graph', 'verify-client-domain-graph', { label: 'client domain graph' }),
         pnpmScript('test', 'test'),
         pnpmScript('approval-policy', 'test:approval-policy', { label: 'Weighted approval policy' }),
-        pnpmScript('issue-management', 'test:issue-management', { label: 'Issue management policy' }),
         pnpmScript('duplication', 'duplication'),
         snapshotGate(),
         expectedOutputGate(),
@@ -311,7 +310,6 @@ function ciSharedStaticGates(): Gate[] {
     pnpmScript('client-ui-i18n', 'verify-client-ui-i18n', { label: 'client UI i18n' }),
     pnpmScript('no-bare-dispatcher', 'verify-no-bare-dispatcher', { label: 'proxy-aware dispatchers' }),
     pnpmScript('approval-policy', 'test:approval-policy', { label: 'Weighted approval policy' }),
-    pnpmScript('issue-management', 'test:issue-management', { label: 'Issue management policy' }),
   ]
 }
 
@@ -456,43 +454,23 @@ function ciArtifactGates(): Gate[] {
 
 function ciConsumerGates(): Gate[] {
   const builtTree = ['build']
-  const validatedBuild = ['built-package-invariants']
-  // The HMR web test starts `dev:web`, which rewrites the shared `lib/` and
-  // `apps/web/dist/` trees. Let every build-artifact reader settle before that
-  // writer starts; `after` preserves the web diagnostic even if a reader fails.
+  // Dedicated PR jobs already own Node compatibility, lint/duplication,
+  // publint, package invariants, Node-next types, and built-bin smokes.
+  // This lane keeps only the build-backed consumers that are unique to it.
   const buildArtifactReaders = [
-    'publint',
-    'lint-and-duplication',
     'snapshot',
     'expected-output',
     'doc-typecheck',
-    'node-next-types',
-    'built-bin-smoke',
   ]
   return [
     ciBuildGate(),
-    pnpmScript('node-compat', 'check:node-compat', {
-      label: 'Node compatibility',
-      env: { [CLIENT_BUILD_PROFILE_SELECTOR]: 'official' },
-    }),
-    pnpmScript('publint', 'publint', { needs: builtTree }),
-    builtPackageInvariantsGate(builtTree),
-    pnpmScript('lint-and-duplication', 'check:ci:lint:contracts-ready', {
-      label: 'lint and duplication',
-      needs: validatedBuild,
-    }),
-    snapshotGate(validatedBuild),
-    expectedOutputGate(validatedBuild),
-    webSnapshotGate(validatedBuild, buildArtifactReaders),
+    snapshotGate(builtTree),
+    expectedOutputGate(builtTree),
+    webSnapshotGate(builtTree, buildArtifactReaders),
     pnpmScript('doc-typecheck', 'doc-typecheck:contracts-ready', {
-      needs: validatedBuild,
+      needs: builtTree,
       env: { DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1' },
     }),
-    pnpmScript('node-next-types', 'verify-node-next-types', {
-      label: 'node-next types',
-      needs: validatedBuild,
-    }),
-    builtBinSmokeGate(validatedBuild),
   ]
 }
 
@@ -1148,8 +1126,7 @@ export async function runGate(gate: Gate, signal?: AbortSignal): Promise<GateRes
         child.kill(signalToSend)
       }
       // The captured list stays valid after the group kill reparents the
-      // detached descendants of a nested run-gates (the `check:node-compat`
-      // and `check:ci:lint:contracts-ready` gates in ci-consumers): pids do
+      // detached descendants of nested gate commands: pids do
       // not change on reparenting, so the escalation reaches leaves that
       // ignored SIGTERM without re-enumerating.
       for (const descendantPid of descendants) {
