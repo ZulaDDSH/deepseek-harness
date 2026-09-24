@@ -424,7 +424,7 @@ describe('gate graph validation', () => {
   })
 
   it('selects partitioned coverage only when explicitly configured', () => {
-    const coverage = withEnv('DSH_COVERAGE_PACKAGES', '[]', () =>
+    const coverage = withEnv('DSH_COVERAGE_FILES', '[]', () =>
       withEnv('DSH_COVERAGE_PARTITIONS', '3', () =>
         withPnpmEntrypoint(() => gatesForMode('ci-windows-complete').find(subject => subject.id === 'coverage'))))
 
@@ -436,23 +436,23 @@ describe('gate graph validation', () => {
     })
   })
 
-  it('limits 100 percent coverage to changed package source when a scope is supplied', () => {
-    const coverage = withEnv('DSH_COVERAGE_PACKAGES', '["llm/llm-pi-ai","core/session"]', () =>
+  it('limits 100 percent coverage to changed runtime source files when a scope is supplied', () => {
+    const coverage = withEnv('DSH_COVERAGE_FILES', '["packages/llm/llm-pi-ai/src/index.ts","packages/core/session/src/session.ts"]', () =>
       withEnv('DSH_COVERAGE_PARTITIONS', '3', () =>
         withPnpmEntrypoint(() => gatesForMode('ci-coverage').find(subject => subject.id === 'coverage'))))
 
     expect(coverage?.args).toEqual(expect.arrayContaining([
       '--',
       '--coverage.include',
-      'packages/llm/llm-pi-ai/src/**/*.{ts,tsx}',
-      'packages/core/session/src/**/*.{ts,tsx}',
+      'packages/llm/llm-pi-ai/src/index.ts',
+      'packages/core/session/src/session.ts',
     ]))
   })
 
-  it('rejects invalid changed coverage package paths', () => {
-    expect(() => withEnv('DSH_COVERAGE_PACKAGES', '["../../outside"]', () =>
+  it('rejects invalid changed coverage source paths', () => {
+    expect(() => withEnv('DSH_COVERAGE_FILES', '["packages/core/session/src/../../outside.ts"]', () =>
       withPnpmEntrypoint(() => gatesForMode('ci-coverage'))))
-      .toThrow('DSH_COVERAGE_PACKAGES must contain group/package paths')
+      .toThrow('DSH_COVERAGE_FILES must contain package runtime source paths')
   })
 
   it('rejects an invalid coverage partition count before starting a gate', () => {

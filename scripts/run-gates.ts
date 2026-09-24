@@ -600,7 +600,7 @@ function coverageWorkerArgs(): { instrumented: string[]; exempt: string[] } {
 function coverageGates(): Gate[] {
   const workers = coverageWorkerArgs()
   const timeouts = coverageTestTimeoutArgs(process.env[COVERAGE_TEST_TIMEOUT_ENV])
-  const coverageIncludes = coveragePackageIncludes(process.env.DSH_COVERAGE_PACKAGES)
+  const coverageIncludes = coverageFileIncludes(process.env.DSH_COVERAGE_FILES)
   const partitions = parseCoveragePartitionCount(process.env[COVERAGE_PARTITIONS_ENV])
   const instrumented = partitions === undefined
     ? pnpmExec('coverage', [
@@ -637,21 +637,23 @@ function coverageGates(): Gate[] {
   ]
 }
 
-function coveragePackageIncludes(raw: string | undefined): string[] {
+function coverageFileIncludes(raw: string | undefined): string[] {
   if (raw === undefined || raw === '') return []
-  let packages: unknown
+  let files: unknown
   try {
-    packages = JSON.parse(raw)
+    files = JSON.parse(raw)
   } catch {
-    throw new Error('run-gates: DSH_COVERAGE_PACKAGES must be a JSON array of package paths.')
+    throw new Error('run-gates: DSH_COVERAGE_FILES must be a JSON array of source paths.')
   }
-  if (!Array.isArray(packages) || packages.some(value =>
-    typeof value !== 'string' || !/^[a-z0-9-]+\/[a-z0-9-]+$/.test(value))) {
-    throw new Error('run-gates: DSH_COVERAGE_PACKAGES must contain group/package paths.')
+  if (!Array.isArray(files) || files.some(value =>
+    typeof value !== 'string'
+    || !/^packages\/[a-z0-9-]+\/[a-z0-9-]+\/src\/[A-Za-z0-9_./-]+\.(?:ts|tsx)$/.test(value)
+    || value.split('/').includes('..'))) {
+    throw new Error('run-gates: DSH_COVERAGE_FILES must contain package runtime source paths.')
   }
-  return packages.flatMap(packagePath => [
+  return files.flatMap(file => [
     '--coverage.include',
-    `packages/${packagePath}/src/**/*.{ts,tsx}`,
+    file,
   ])
 }
 

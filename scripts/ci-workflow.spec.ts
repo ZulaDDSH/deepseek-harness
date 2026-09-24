@@ -8,7 +8,7 @@ const runnerPrivatePnpmDestination = /^\$\{\{ runner\.temp \}\}\/setup-pnpm-\$\{
 const nativeWindowsPnpmDestination = '${{ runner.temp }}/setup-pnpm-js-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}'
 
 describe('CI workflow', () => {
-  it('requires unit, artifact, and changed-package coverage gates', () => {
+  it('requires unit, artifact, and changed-file coverage gates', () => {
     const workflow = loadWorkflow('.github/workflows/ci.yml')
     const artifacts = workflowJob(workflow, 'node-24-artifacts')
     const coverage = workflowJob(workflow, 'node-24-coverage')
@@ -25,7 +25,7 @@ describe('CI workflow', () => {
     expect(coverage.steps).toContainEqual(expect.objectContaining({ run: 'pnpm run check:ci:coverage' }))
     expect(coverage['continue-on-error']).not.toBe(true)
     expect(coverage.needs).toContain('change-scope')
-    expect(coverage.if).toContain("needs.change-scope.outputs.coverage-packages != '[]'")
+    expect(coverage.if).toContain("needs.change-scope.outputs.coverage-files != '[]'")
     expect(dependencyTests.if).toContain("needs.change-scope.outputs.run-dependency-tests == 'true'")
     expect(dependencyTests.steps).toContainEqual(expect.objectContaining({ run: 'pnpm install --frozen-lockfile' }))
     expect(dependencyTests.steps).toContainEqual(expect.objectContaining({ run: 'bash scripts/prepare-ci-bubblewrap.sh' }))
@@ -40,8 +40,9 @@ describe('CI workflow', () => {
     expect(verdict.if).toContain("contains(needs.*.result, 'failure')")
     expect(verdict.run).toContain('exit 1')
     expect(JSON.stringify(scope.steps)).toContain("!path.endsWith('/package.json')")
+    expect(JSON.stringify(scope.steps)).toContain('coverageFiles = changed.filter')
     expect(JSON.stringify(scope.steps)).toContain('run-dependency-tests=${hasDependencyChanges && packages.length === 0}')
-    expect(verdict.if).toContain("needs.node-24-coverage.result == 'skipped' && needs.change-scope.outputs.coverage-packages != '[]'")
+    expect(verdict.if).toContain("needs.node-24-coverage.result == 'skipped' && needs.change-scope.outputs.coverage-files != '[]'")
     expect(verdict.if).toContain("needs.node-24-dependency-tests.result == 'skipped' && needs.change-scope.outputs.run-dependency-tests == 'true'")
     expect(verdict.if).toContain("needs.node-24-consumers.result == 'skipped' && needs.change-scope.outputs.run-consumers == 'true'")
     expect(JSON.stringify(workflow)).not.toMatch(/DSH_ISSUE_APP_PRIVATE_KEY|DEEPSEEK_API_KEY|CLOUDFLARE_API_TOKEN/)
