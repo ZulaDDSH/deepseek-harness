@@ -435,6 +435,25 @@ describe('gate graph validation', () => {
     })
   })
 
+  it('limits 100 percent coverage to changed package source when a scope is supplied', () => {
+    const coverage = withEnv('DSH_COVERAGE_PACKAGES', '["llm/llm-pi-ai","core/session"]', () =>
+      withEnv('DSH_COVERAGE_PARTITIONS', '3', () =>
+        withPnpmEntrypoint(() => gatesForMode('ci-coverage').find(subject => subject.id === 'coverage'))))
+
+    expect(coverage?.args).toEqual(expect.arrayContaining([
+      '--',
+      '--coverage.include',
+      'packages/llm/llm-pi-ai/src/**/*.{ts,tsx}',
+      'packages/core/session/src/**/*.{ts,tsx}',
+    ]))
+  })
+
+  it('rejects invalid changed coverage package paths', () => {
+    expect(() => withEnv('DSH_COVERAGE_PACKAGES', '["../../outside"]', () =>
+      withPnpmEntrypoint(() => gatesForMode('ci-coverage'))))
+      .toThrow('DSH_COVERAGE_PACKAGES must contain group/package paths')
+  })
+
   it('rejects an invalid coverage partition count before starting a gate', () => {
     expect(() => withEnv('DSH_COVERAGE_PARTITIONS', '1', () =>
       withPnpmEntrypoint(() => gatesForMode('ci-windows-complete'))))

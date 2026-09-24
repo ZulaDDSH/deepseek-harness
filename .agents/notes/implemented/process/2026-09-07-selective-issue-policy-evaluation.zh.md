@@ -2,6 +2,8 @@
 
 Status: implemented
 
+历史说明：本文记录上游实现；此 fork 当前采用的工作流见 [开发指南](../../../../docs/development.zh.md)。
+
 [English](2026-09-07-selective-issue-policy-evaluation.md) | 中文
 
 ## 问题
@@ -12,13 +14,13 @@ Status: implemented
 
 ## 决策
 
-[Issue policy](../../../../.github/workflows/issue-policy.yml)保留必需 job 与受信任的默认分支实现。强制范围判定先于引用读取与 Project App token 创建：草稿 PR、Bot/App 作者，以及既无评审请求也无已提交评审的人类 PR 均不需要策略校验。
+`.github/workflows/issue-policy.yml`保留必需 job 与受信任的默认分支实现。强制范围判定先于引用读取与 Project App token 创建：草稿 PR、Bot/App 作者，以及既无评审请求也无已提交评审的人类 PR 均不需要策略校验。
 
 工作流在调用命令前检查受信任检出中的选择性预检能力标记。缺少标记的检出对人类 PR 执行完整旧版校验，并保留旧版 Bot/App 豁免。这支持 PR 工作流 YAML 与缺少预检功能的默认分支代码配合执行；执行错误不会触发回退。
 
 强制范围内的 PR 通过仓库 REST 读取解析引用。信息型引用无需 Project 访问即可证明 Issue 身份。只有解决型引用指向的实际 Issue 需要读取 Project Priority；PR 编号既不能满足 Issue 引用要求，也不会引发 Project 查询。[所属参考文档](../../../../.github/issue-management/README.zh.md)定义元数据校验与失败行为。
 
-原 Issue lifecycle 工作流订阅与状态相关的 PR 事件，并过滤仅标题编辑。它不订阅 PR 推送、PR 标签变更或 Issue 指派变更。job 条件在 runner 分配前排除 approved/commented 评审。请求修改的评审保留其状态命令。
+`.github/workflows/issue-lifecycle.yml`订阅与状态相关的 PR 事件，并过滤仅标题编辑。它不订阅 PR 推送、PR 标签变更或 Issue 指派变更。job 条件在 runner 分配前排除 approved/commented 评审。请求修改的评审保留其状态命令。
 
 本调度决策部分取代[事件驱动评审状态](2026-08-10-event-directed-pr-review-status.zh.md)中无操作 job 的调度方式，但不取代交接语义或人工状态归属保护。[Project 局部规划字段](2026-09-02-project-local-issue-planning-fields.zh.md)仍拥有对每个被引用 Issue（包括信息型引用）仅在 PR 打开时、仅对空值初始化 Start Date 的规则。校验读取豁免不豁免该生命周期 mutation。
 
@@ -40,4 +42,4 @@ Status: implemented
 
 ## 验证
 
-[策略测试](../../../../.github/issue-management/policy.test.mjs)验证早期豁免、仅使用 REST 的信息型引用、实际 Issue 过滤、解决型 Priority 读取及失败，以及生命周期命令选择。[工作流测试](../../../../scripts/ci-workflow.spec.ts)验证 Project token 条件和保留的必需策略 job。独立的生命周期自动化现已从本 fork 移除。本地 fixture 不能证明实际 webhook 交付或计费结果。
+[策略测试](../../../../.github/issue-management/policy.test.mjs)验证早期豁免、仅使用 REST 的信息型引用、实际 Issue 过滤、解决型 Priority 读取及失败，以及生命周期命令选择。[工作流测试](../../../../scripts/ci-workflow.spec.ts)验证 Project token 条件、保留的必需 job、精简后的订阅及 runner 级生命周期过滤。本地 fixture 不能证明实际 webhook 交付或计费结果。

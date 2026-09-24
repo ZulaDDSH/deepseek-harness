@@ -2,9 +2,9 @@
 
 Status: implemented
 
-English | [中文](2026-06-19-real-api-e2e-ci.zh.md)
+Historical note: this records upstream behavior; current fork workflows are documented in [the development guide](../../../../docs/development.md).
 
-> Fork note: the dedicated secret-bearing real-API workflow described below has been removed from this fork. The remainder of this note is retained as historical context.
+English | [中文](2026-06-19-real-api-e2e-ci.zh.md)
 
 ## Problem
 
@@ -14,7 +14,7 @@ The default gate ([.github/workflows/ci.yml](../../../../.github/workflows/ci.ym
 
 ## Decision
 
-Historically, a dedicated real-API workflow separate from ci.yml ran only `pnpm run test:e2e` against the external API using a repo secret, on trusted events, with a preflight that converts a missing secret into a loud failure instead of a false green. The keyless workflow remains separate so forkable quality gates and secret-consuming real-API gates keep different trigger and credential policies.
+A dedicated workflow, `.github/workflows/e2e.yml`, separate from ci.yml, runs only `pnpm run test:e2e` against the external API using a repo secret, on trusted events, with a preflight that converts a missing secret into a loud failure instead of a false green. The keyless workflow remains separate so forkable quality gates and secret-consuming real-API gates keep different trigger and credential policies.
 
 ### A separate workflow, not a job in ci.yml
 

@@ -2,6 +2,8 @@
 
 Status: implemented
 
+Historical note: this records upstream behavior; current fork workflows are documented in [the development guide](../../../../docs/development.md).
+
 English | [中文](2026-09-06-preview-hosted-runner-sizing.zh.md)
 
 ## Problem
@@ -10,7 +12,7 @@ PR previews build the full workspace and browser-worker VFS image. A lower per-m
 
 ## Decision
 
-Historically, the PR preview workflow used standard GitHub-hosted `ubuntu-24.04`; that Cloudflare preview workflow has since been removed from this fork. Build, cache, deployment, protected-image verification, and comment semantics remain unchanged. The [sizing reference](../../../../.github/preview-sizing/README.md) owns comparison requirements. The separate CI [failover runbook](2026-07-26-ci-failover-runbook.md) retains its independent runner-switch decision; previews do not use those switches.
+The `.github/workflows/build-preview-cloudflare.yml` uses standard GitHub-hosted `ubuntu-24.04`. Build, cache, deployment, protected-image verification, and comment semantics remain unchanged. The [sizing reference](../../../../.github/preview-sizing/README.md) owns comparison requirements. The separate CI [failover runbook](2026-07-26-ci-failover-runbook.md) retains its independent runner-switch decision; previews do not use those switches.
 
 ### Measurements
 
@@ -43,4 +45,4 @@ The experiment does not deploy or access Cloudflare credentials. Measurement upl
 
 Previews trade approximately 78 seconds of sampled build-job latency for lower compute cost. Production Cloudflare latency, image rollout variance, future build growth, and broader success rates remain observable limitations. No hourly or monthly savings are extrapolated from this single experiment. The temporary benchmark workflow and its safety test are absent from the final tree; the experiment commits and linked run preserve the method and evidence.
 
-The former focused preview-workflow regression pinned hosted routing, PR triggers and permissions, immutable full builds, restore-only caching, publication shaping, protected-image checks, and idempotent comments. That test was removed together with the retired preview workflow. A physical self-hosted routing mutation fails its routing assertion; restoration passes all three tests. No model-visible runtime behavior changes, so no Session snapshot changes are required.
+The executed `scripts/preview-workflow.spec.ts` pins hosted routing, PR triggers and permissions, immutable full builds, restore-only caching, publication shaping, protected-image checks, and idempotent comments. A physical self-hosted routing mutation fails its routing assertion; restoration passes all three tests. No model-visible runtime behavior changes, so no Session snapshot changes are required.

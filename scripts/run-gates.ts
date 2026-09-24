@@ -439,8 +439,11 @@ function ciStaticGates(options: { ownsBuild: boolean }): Gate[] {
 }
 
 function ciArtifactGates(): Gate[] {
+  const typecheck = pnpmScript('typecheck', 'typecheck')
   return [
-    ciBuildGate(),
+    typecheck,
+    lintGate({ needs: ['typecheck'] }),
+    ciBuildGate('build', { needs: ['typecheck', 'lint'] }),
     pnpmScript('publint', 'publint', { needs: ['build'] }),
     pnpmScript('node-next-types', 'verify-node-next-types', {
       label: 'node-next types',
@@ -619,12 +622,14 @@ function coverageWorkerArgs(): { instrumented: string[]; exempt: string[] } {
 function coverageGates(): Gate[] {
   const workers = coverageWorkerArgs()
   const timeouts = coverageTestTimeoutArgs(process.env[COVERAGE_TEST_TIMEOUT_ENV])
+  const coverageIncludes = coveragePackageIncludes(process.env.DSH_COVERAGE_PACKAGES)
   const partitions = parseCoveragePartitionCount(process.env[COVERAGE_PARTITIONS_ENV])
   const instrumented = partitions === undefined
     ? pnpmExec('coverage', [
       'vitest',
       'run',
       '--coverage',
+      ...coverageIncludes,
       ...workers.instrumented,
       ...timeouts,
     ], {
@@ -633,8 +638,9 @@ function coverageGates(): Gate[] {
     })
     : pnpmScript('coverage', 'test:coverage:partitioned', {
       label: 'test:coverage',
-      displayCommand: `${COVERAGE_PARTITIONS_ENV}=${partitions} pnpm run test:coverage:partitioned`,
+      displayCommand: `${COVERAGE_PARTITIONS_ENV}=${partitions} pnpm run test:coverage:partitioned${coverageIncludes.length ? ` -- ${coverageIncludes.join(' ')}` : ''}`,
       env: { [COVERAGE_EXEMPT_ENV]: '1' },
+      args: [...pnpmInvocation(['run', 'test:coverage:partitioned']).args, ...(coverageIncludes.length ? ['--', ...coverageIncludes] : [])],
       streamOutput: true,
     })
   return [
@@ -651,6 +657,24 @@ function coverageGates(): Gate[] {
       needs: ['native-system'],
     }),
   ]
+}
+
+function coveragePackageIncludes(raw: string | undefined): string[] {
+  if (raw === undefined || raw === '') return []
+  let packages: unknown
+  try {
+    packages = JSON.parse(raw)
+  } catch {
+    throw new Error('run-gates: DSH_COVERAGE_PACKAGES must be a JSON array of package paths.')
+  }
+  if (!Array.isArray(packages) || packages.some(value =>
+    typeof value !== 'string' || !/^[a-z0-9-]+\/[a-z0-9-]+$/.test(value))) {
+    throw new Error('run-gates: DSH_COVERAGE_PACKAGES must contain group/package paths.')
+  }
+  return packages.flatMap(packagePath => [
+    '--coverage.include',
+    `packages/${packagePath}/src/**/*.{ts,tsx}`,
+  ])
 }
 
 // Recorded-session adapters boot process scenarios in `lib` mode. Callers wait

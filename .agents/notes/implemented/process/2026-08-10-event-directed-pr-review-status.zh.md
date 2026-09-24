@@ -2,6 +2,8 @@
 
 Status: implemented
 
+历史说明：本文记录上游实现；此 fork 当前采用的工作流见 [开发指南](../../../../docs/development.zh.md)。
+
 [English](2026-08-10-event-directed-pr-review-status.md) | 中文
 
 ## 问题
@@ -18,11 +20,11 @@ Issue 生命周期工作流把评审 webhook 视为命令。`pull_request.review
 
 状态投影仅解析同一仓库内严格匹配的 `Fixes`、`Closes` 或 `Resolves` 引用。它不会更改终态、将没有 Project 状态的 Issue 添加到 Project、依赖 PR 元数据是否有效、查询 `reviewDecision`、重建评审轮次、从 Issue 反向查找 PR，或运行定时协调器。独立的日期初始化由[Project 局部 Issue 规划字段](2026-09-02-project-local-issue-planning-fields.zh.md)负责，并处理每个同仓库 Issue 引用。
 
-原 Issue 生命周期工作流仍不订阅 `pull_request.ready_for_review`；两条事件命令均不依赖该动作。[Issue 策略](../../../../.github/workflows/issue-policy.yml)保留 `ready_for_review`，因为人工提交的 PR 进入评审时，该工作流负责执行必需检查门禁。
+`.github/workflows/issue-lifecycle.yml`仍不订阅 `pull_request.ready_for_review`；两条事件命令均不依赖该动作。`.github/workflows/issue-policy.yml`保留 `ready_for_review`，因为人工提交的 PR 进入评审时，该工作流负责执行必需检查门禁。
 
 ## 验证
 
-[Issue 管理测试](../../../../.github/issue-management/policy.test.mjs)锁定事件到命令的映射、请求修改命令后重复请求评审所触发的状态转换、请求修改后的状态回退、终态保护，以及保留人工覆盖状态。[工作流测试](../../../../scripts/ci-workflow.spec.ts)保留独立的 `ready_for_review` 策略触发器。上文描述的专用生命周期工作流现已从本 fork 移除。
+[Issue 管理测试](../../../../.github/issue-management/policy.test.mjs)锁定事件到命令的映射、请求修改命令后重复请求评审所触发的状态转换、请求修改后的状态回退、终态保护，以及保留人工覆盖状态。[工作流测试](../../../../scripts/ci-workflow.spec.ts)锁定订阅事件、在 runner 分配前排除 approved/commented 评审的 job 级条件，以及独立的 `ready_for_review` 策略触发器。
 
 ## 考虑过的替代方案
 

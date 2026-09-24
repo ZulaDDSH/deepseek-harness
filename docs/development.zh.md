@@ -132,9 +132,9 @@ vendor manifest 守卫检查 `vendor/*/src` 下的改动是否连同对应的 `v
 
 ### CI 门禁
 
-keyless [CI 工作流](../.github/workflows/ci.yml) 将独立门禁分组到若干宽粒度 lane，并在受支持的 Node 版本上运行一组较小的兼容性检查。产物消费方在各自 lane 内等待一次 build。必需 benchmark 在标准 GitHub 托管 Linux 上独立运行；[benchmark 运行器决策](../.agents/notes/implemented/testing/2026-09-06-standard-hosted-benchmark-runner.zh.md)拥有路由及 job 超时。单独的真实 API 工作流按其配置的 worker 上限运行 `pnpm run test:e2e`。当前门禁和 job 清单以 [scripts/run-gates.ts](../scripts/run-gates.ts) 和工作流文件为准。
+每个拉取请求都会执行 frozen-lockfile 安装、静态依赖、包和策略校验、类型检查、lint、构建与包产物验证、Python SDK/runtime 验证、Node 22.19/24.9/26 兼容性检查，以及原生 Windows 构建和测试。包源码或测试有变更时会运行单元测试套件；每文件 100% 覆盖率阈值保持不变，并限定为 `src/` 或 `tests/` 有变更的包。产品代码变更会运行记录会话和 Web 快照；仅修改依赖清单或锁文件时跳过变更包覆盖率和宽范围的消费方套件。这些门禁使用 GitHub 托管的 Ubuntu 和 Windows runner，不需要 API、App、Cloudflare 或发布凭据。
 
-不带凭据的 dsh 依赖布局检查与 dsh/vendor 打包演练仅在 `DSH_CI_FAILOVER_LINUX=selfhosted`，且事件为受信任的 master 推送或同仓库、非 fork、非 Dependabot 拉取请求时使用现有 Linux 自托管池。其余情况（包括手动触发）均使用 `ubuntu-24.04`；手动发布仍使用托管运行器。持久化存储隔离与回退限制见[发布演练运行器决策](../.agents/notes/implemented/process/2026-09-06-release-rehearsal-selfhosted.zh.md)。
+master 推送后，可复用的 Python runtime 检查会增加 Linux ARM64 与 macOS ARM64/x64。Node-addon 工作流仅在其路径发生变化时运行原生 OS/架构矩阵。Sandbox 隔离验证会在受支持的 Linux 与 macOS 内核上运行。性能基准为手动且不阻塞；包打包仍在 PR 上验证，npm/PyPI 发布和 Pages 部署则是独立的手动发布操作。门禁定义见 [scripts/run-gates.ts](../scripts/run-gates.ts) 和[工作流目录](../.github/workflows)。
 
 ### 日常命令
 
