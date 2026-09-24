@@ -1,3 +1,5 @@
+> Fork note: the dedicated secret-bearing real-API workflow described below has been removed from this fork. The remainder of this note is retained as historical context.
+
 # Agent Note: Real-API e2e in CI against the external DeepSeek API
 
 Status: implemented
@@ -12,7 +14,7 @@ The default gate ([.github/workflows/ci.yml](../../../../.github/workflows/ci.ym
 
 ## Decision
 
-A dedicated workflow, [.github/workflows/e2e.yml](../../../../.github/workflows/e2e.yml), separate from ci.yml, runs only `pnpm run test:e2e` against the external API using a repo secret, on trusted events, with a preflight that converts a missing secret into a loud failure instead of a false green. The keyless workflow remains separate so forkable quality gates and secret-consuming real-API gates keep different trigger and credential policies.
+Historically, a dedicated real-API workflow separate from ci.yml ran only `pnpm run test:e2e` against the external API using a repo secret, on trusted events, with a preflight that converts a missing secret into a loud failure instead of a false green. The keyless workflow remains separate so forkable quality gates and secret-consuming real-API gates keep different trigger and credential policies.
 
 ### A separate workflow, not a job in ci.yml
 
