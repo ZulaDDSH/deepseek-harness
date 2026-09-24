@@ -28,6 +28,7 @@ describe('CI workflow', () => {
     expect(coverage.if).toContain("needs.change-scope.outputs.coverage-packages != '[]'")
     expect(dependencyTests.if).toContain("needs.change-scope.outputs.run-dependency-tests == 'true'")
     expect(dependencyTests.steps).toContainEqual(expect.objectContaining({ run: 'pnpm install --frozen-lockfile' }))
+    expect(dependencyTests.steps).toContainEqual(expect.objectContaining({ run: 'bash scripts/prepare-ci-bubblewrap.sh' }))
     expect(dependencyTests.steps).toContainEqual(expect.objectContaining({ run: 'pnpm run test' }))
     expect(dependencyTests['continue-on-error']).not.toBe(true)
     expect(consumers['continue-on-error']).not.toBe(true)

@@ -212,9 +212,13 @@ jobs:
     runs-on: ubuntu-latest
     name: node 24 / dependency unit tests
     steps:
+      - name: Use runner-owned temporary storage
+        run: echo "TMPDIR=${{ runner.temp }}" >> "$GITHUB_ENV"
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+      - name: Redirect Node compile cache to runner temp
+        run: echo "NODE_COMPILE_CACHE=${{ runner.temp }}/node-compile-cache" >> "$GITHUB_ENV"
       - uses: pnpm/action-setup@v4
         with:
           dest: ${{ runner.temp }}/setup-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
@@ -224,6 +228,8 @@ jobs:
           cache: pnpm
       - name: Install dependencies (immutable)
         run: pnpm install --frozen-lockfile
+      - name: Prepare bubblewrap
+        run: bash scripts/prepare-ci-bubblewrap.sh
       - name: Run keyless unit tests
         run: pnpm run test
 
