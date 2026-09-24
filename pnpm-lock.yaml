@@ -1153,6 +1153,9 @@ importers:
       '@deepseek-ai/dsh-agent-preset-registry':
         specifier: workspace:*
         version: link:../../preset/agent-preset-registry
+      '@deepseek-ai/dsh-authorization':
+        specifier: workspace:*
+        version: link:../../credentials/authorization
       '@deepseek-ai/dsh-api-account-controller':
         specifier: workspace:*
         version: link:../account-controller
@@ -4812,6 +4815,9 @@ importers:
       '@deepseek-ai/dsh-api-remotes':
         specifier: workspace:*
         version: link:../../api/remotes
+      '@deepseek-ai/dsh-api-settings-controller':
+        specifier: workspace:*
+        version: link:../../api/settings-controller
       '@deepseek-ai/dsh-client-locale':
         specifier: workspace:*
         version: link:../locale
