@@ -35,5 +35,20 @@ jobs:
           packages/llm/llm-pi-ai/tests/adapter.spec.ts
           packages/llm/llm-pi-ai/tests/catalog.spec.ts
           --reporter=dot
+      - name: Generate derived artifacts
+        run: |
+          pnpm run gen-cordis-catalog
+          pnpm run gen-client-catalog
+          pnpm run gen-config-catalog
+          pnpm run gen-module-graph
+          pnpm run gen-doc-graphs
+          git diff --name-only -z | tar --null -T - -czf generated-files.tar.gz
       - name: Static CI gate
         run: pnpm run check:ci:static
+      - name: Preserve generated files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstream-integration-generated
+          path: generated-files.tar.gz
+          if-no-files-found: error
