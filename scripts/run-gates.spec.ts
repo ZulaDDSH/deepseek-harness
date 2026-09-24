@@ -424,8 +424,9 @@ describe('gate graph validation', () => {
   })
 
   it('selects partitioned coverage only when explicitly configured', () => {
-    const coverage = withEnv('DSH_COVERAGE_PARTITIONS', '3', () =>
-      withPnpmEntrypoint(() => gatesForMode('ci-windows-complete').find(subject => subject.id === 'coverage')))
+    const coverage = withEnv('DSH_COVERAGE_PACKAGES', '[]', () =>
+      withEnv('DSH_COVERAGE_PARTITIONS', '3', () =>
+        withPnpmEntrypoint(() => gatesForMode('ci-windows-complete').find(subject => subject.id === 'coverage'))))
 
     expect(coverage).toMatchObject({
       displayCommand: 'DSH_COVERAGE_PARTITIONS=3 pnpm run test:coverage:partitioned',
