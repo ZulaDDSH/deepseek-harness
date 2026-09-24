@@ -1,10 +1,10 @@
-> Fork 说明：下文描述的独立、携带 secret 的真实 API 工作流现已从本 fork 移除。其余内容保留为历史背景。
-
 # Agent Note: 在 CI 中对外部 DeepSeek API 运行真实 API e2e 测试
 
 Status: implemented
 
 [English](2026-06-19-real-api-e2e-ci.md) | 中文
+
+> Fork 说明：下文描述的独立、携带 secret 的真实 API 工作流现已从本 fork 移除。其余内容保留为历史背景。
 
 ## 问题
 
