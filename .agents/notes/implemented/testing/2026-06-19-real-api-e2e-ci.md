@@ -1,10 +1,10 @@
-> Fork note: the dedicated secret-bearing real-API workflow described below has been removed from this fork. The remainder of this note is retained as historical context.
-
 # Agent Note: Real-API e2e in CI against the external DeepSeek API
 
 Status: implemented
 
 English | [中文](2026-06-19-real-api-e2e-ci.zh.md)
+
+> Fork note: the dedicated secret-bearing real-API workflow described below has been removed from this fork. The remainder of this note is retained as historical context.
 
 ## Problem
 
