@@ -25,6 +25,7 @@ const SUPPLEMENT: Readonly<Record<string, readonly Model<'openai-completions'>[]
   ],
 }
 
+/** Return checked-in models missing from the installed provider catalog. */
 export function catalogSupplements(provider: string): readonly Model<'openai-completions'>[] {
   return SUPPLEMENT[provider] ?? []
 }
