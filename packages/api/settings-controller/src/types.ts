@@ -36,6 +36,7 @@ export interface SettingsDocumentOpenValue {
 }
 
 
+/** Browser-safe summary of one registered authorization flow. */
 export interface AuthorizationEntryView {
   readonly key: string
   readonly label: string
@@ -44,12 +45,14 @@ export interface AuthorizationEntryView {
   readonly configured: boolean
 }
 
+/** First stream item naming the capability for one authorization attempt. */
 export interface AuthorizationStart {
   readonly type: 'start'
   readonly attempt: string
   readonly key: string
 }
 
+/** Browser-safe progress or prompt emitted by one authorization attempt. */
 export interface AuthorizationNotice {
   readonly type: 'notice'
   readonly attempt: string
@@ -62,6 +65,7 @@ export interface AuthorizationNotice {
   readonly options?: readonly { readonly id: string; readonly label: string }[]
 }
 
+/** Terminal stream item for a completed or cancelled authorization attempt. */
 export interface AuthorizationEnd {
   readonly type: 'end'
   readonly status: 'authorized' | 'cancelled'
