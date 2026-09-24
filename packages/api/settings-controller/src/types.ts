@@ -25,10 +25,44 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
      * reference, never the value.
      */
     'credential/rejected': { readonly ref: string }
+    'authorization/not-found': { readonly key?: string }
+    'authorization/failed': { readonly key: string; readonly reason?: string }
   }
 }
 
 /** Confirmation that the settings document was handed to the native editor. */
 export interface SettingsDocumentOpenValue {
   readonly opened: true
+}
+
+
+export interface AuthorizationEntryView {
+  readonly key: string
+  readonly label: string
+  readonly methods: readonly { readonly id: string; readonly label: string }[]
+  readonly inFlight: boolean
+  readonly configured: boolean
+}
+
+export interface AuthorizationStart {
+  readonly type: 'start'
+  readonly attempt: string
+  readonly key: string
+}
+
+export interface AuthorizationNotice {
+  readonly type: 'notice'
+  readonly attempt: string
+  readonly message: string
+  readonly url?: string
+  readonly code?: string
+  readonly prompt?: string
+  readonly kind?: 'text' | 'secret' | 'select'
+  readonly placeholder?: string
+  readonly options?: readonly { readonly id: string; readonly label: string }[]
+}
+
+export interface AuthorizationEnd {
+  readonly type: 'end'
+  readonly status: 'authorized' | 'cancelled'
 }
