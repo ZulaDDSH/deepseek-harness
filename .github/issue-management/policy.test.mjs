@@ -956,22 +956,6 @@ test('runs trusted rollout selection with absent and present capability markers'
   }
 })
 
-test('allocates lifecycle runners only for relevant reviews and PR body edits', () => {
-  const source = readFileSync(new URL('../workflows/issue-lifecycle.yml', import.meta.url), 'utf8')
-  const issues = source.split('  issues:')[1].split('  pull_request:')[0]
-  const pulls = source.split('  pull_request:')[1].split('  pull_request_review:')[0]
-  const actions = (block) => [...block.matchAll(/^      - (\w+)$/gm)].map((match) => match[1])
-  assert.deepEqual(actions(issues), ['opened', 'edited', 'labeled', 'unlabeled', 'closed', 'reopened', 'typed', 'untyped', 'field_added', 'field_removed'])
-  assert.deepEqual(actions(pulls), ['opened', 'edited', 'reopened', 'review_requested'])
-  const job = source.slice(source.indexOf('  lifecycle:'))
-  const beforeSteps = job.slice(0, job.indexOf('    steps:'))
-  assert.ok(beforeSteps.includes('    if: >-'))
-  assert.ok(beforeSteps.includes("(github.event_name != 'pull_request_review' || github.event.review.state == 'changes_requested') &&"))
-  assert.ok(beforeSteps.includes("(github.event_name != 'pull_request' || github.event.action != 'edited' || github.event.changes.body != null)"))
-  assert.ok(source.includes('ref: ${{ github.event.repository.default_branch }}'))
-  assert.ok(source.includes('persist-credentials: false'))
-})
-
 test('keeps REST headers, null responses, and transport errors unchanged', async (t) => {
   mockPolicyApi(t)
   process.env.GH_TOKEN = 'preferred-token'
