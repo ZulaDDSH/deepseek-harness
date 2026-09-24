@@ -211,6 +211,22 @@ function requestHeaders(headers: Readonly<Record<string, string>> | undefined): 
   }
 }
 
+const OPENCODE_SESSION_HEADER = 'x-opencode-session'
+
+function isOpencodeRoute(model: Model<Api>): boolean {
+  return model.provider === 'opencode' || model.provider === 'opencode-go' || new URL(model.baseUrl).hostname === 'opencode.ai'
+}
+
+function requestHeadersForModel(
+  headers: Readonly<Record<string, string>> | undefined,
+  model: Model<Api>,
+  sessionId: string | undefined,
+): Record<string, string> {
+  const resolved = requestHeaders(headers)
+  if (sessionId !== undefined && isOpencodeRoute(model)) resolved[OPENCODE_SESSION_HEADER] = sessionId
+  return resolved
+}
+
 /**
  * pi-ai-backed multi-provider adapter. Each operation reads the current
  * profiles, so a configuration change reaches the next request without a
@@ -377,15 +393,14 @@ export class PiAiAdapter extends LlmAdapter {
             maxBytes: profile.requestImageMaxBytes,
           },
         }, onReplayDegrade)
+      const sessionId = options.sessionId === undefined ? undefined : String(options.sessionId)
       const events = snapshot.models.streamSimple(model, context, {
         ...profileOptions(profile, reasoning, apiKey),
         ...options.temperature === undefined ? {} : { temperature: options.temperature },
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
-        ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
+        ...sessionId === undefined ? {} : { sessionId },
         signal: watchdog.signal,
-        // Profile headers are deployment-owned; attribution names are
-        // Harness-owned and therefore win collisions.
-        headers: requestHeaders(profile.headers),
+        headers: requestHeadersForModel(profile.headers, model, sessionId),
       })
       const iterator = toStreamChunks(events, model.contextWindow, options.signal, model.id)[Symbol.asyncIterator]()
       let exhausted = false
