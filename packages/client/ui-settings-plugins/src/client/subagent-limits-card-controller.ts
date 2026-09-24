@@ -17,10 +17,11 @@ export interface SubagentLimitsCardState extends CardShell {
 }
 
 /** Actions and observable state bound by the slot renderer. */
-export interface SubagentLimitsCardFace extends CardActions {
+export interface SubagentLimitsCardFace extends Omit<CardActions, 'save'> {
   hooks: {
     subagentLimitsCard: SnapshotStore<SubagentLimitsCardState>
   }
+  save: () => Promise<void>
 }
 
 function limitField(field: keyof SubagentLimitsSettings, minimum: number): CardFieldSpec {
@@ -56,6 +57,11 @@ export class SubagentLimitsCardController {
    * @returns The limits snapshot and staged write actions.
    */
   inject(): SubagentLimitsCardFace {
-    return { hooks: { subagentLimitsCard: this.store }, ...this.form.actions() }
+    const actions = this.form.actions()
+    return {
+      hooks: { subagentLimitsCard: this.store },
+      ...actions,
+      save: () => this.form.save(),
+    }
   }
 }
