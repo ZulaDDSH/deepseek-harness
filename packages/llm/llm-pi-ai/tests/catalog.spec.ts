@@ -1251,3 +1251,21 @@ describe('configurable-provider directory', () => {
     })
   })
 })
+
+describe('catalog supplement', () => {
+  it('serves the supplemented model without displacing installed ids', async () => {
+    const ctx = await harness({ providers: { 'opencode-go': { apiKeyEnv: KEY_ENV } } })
+    const listed = await ctx.llm.listModels('opencode-go')
+    const ids = listed.map(model => model.id)
+    expect(ids).toContain('deepseek-v4.1-flash')
+    expect(ids).toContain('deepseek-v4-flash')
+    expect(listed.find(model => model.id === 'deepseek-v4.1-flash'))
+      .toMatchObject({ name: 'DeepSeek V4.1 Flash', inputModalities: ['text', 'image'] })
+  })
+
+  it('materializes the supplemented model with the route protocol and endpoint', () => {
+    const models = resolveProfiles({ 'opencode-go': { apiKeyEnv: KEY_ENV } }).get('opencode-go')?.piProvider?.getModels() ?? []
+    expect(models.find(model => model.id === 'deepseek-v4.1-flash'))
+      .toMatchObject({ api: 'openai-completions', baseUrl: 'https://opencode.ai/zen/go/v1', contextWindow: 1_000_000 })
+  })
+})
