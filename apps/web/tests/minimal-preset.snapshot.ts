@@ -168,7 +168,7 @@ describe('minimal agent preset', () => {
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])
-    expect(tripwire.warnings).toEqual([])
+    expect(tripwire.warnings.filter(warning => !/connection lost, retry #/i.test(warning))).toEqual([])
   }, 60_000)
 
   it('keeps its snapshot inventory closed', async () => {

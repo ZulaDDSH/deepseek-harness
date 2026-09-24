@@ -21,6 +21,8 @@ export interface SubagentLimitsCardFace extends CardActions {
   hooks: {
     subagentLimitsCard: SnapshotStore<SubagentLimitsCardState>
   }
+  /** Internal settlement used only by the shared card to sequence namespace writes. */
+  saveSettled: () => Promise<void>
 }
 
 function limitField(field: keyof SubagentLimitsSettings, minimum: number): CardFieldSpec {
@@ -56,6 +58,10 @@ export class SubagentLimitsCardController {
    * @returns The limits snapshot and staged write actions.
    */
   inject(): SubagentLimitsCardFace {
-    return { hooks: { subagentLimitsCard: this.store }, ...this.form.actions() }
+    return {
+      hooks: { subagentLimitsCard: this.store },
+      ...this.form.actions(),
+      saveSettled: () => this.form.save(),
+    }
   }
 }

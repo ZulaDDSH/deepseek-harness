@@ -2,6 +2,8 @@
 
 Status: implemented
 
+Historical note: this records upstream behavior; current fork workflows are documented in [the development guide](../../../../docs/development.md).
+
 English | [中文](2026-08-10-event-directed-pr-review-status.zh.md)
 
 ## Problem
@@ -18,7 +20,7 @@ Ordinary subscribed pull-request events remain forward-only implementation signa
 
 The status projection resolves only exact same-repository `Fixes`, `Closes`, or `Resolves` references. It does not alter terminal statuses, add an Issue with no Project status, depend on PR metadata validity, query `reviewDecision`, reconstruct review rounds, look up pull requests from Issues, or run a scheduled reconciler. [Project-local Issue planning fields](2026-09-02-project-local-issue-planning-fields.md) own the separate date initialization for every same-repository Issue reference.
 
-[Issue lifecycle](../../../../.github/workflows/issue-lifecycle.yml) remains unsubscribed from `pull_request.ready_for_review`; neither event command depends on that action. [Issue policy](../../../../.github/workflows/issue-policy.yml) retains `ready_for_review` because it owns required-check enforcement when a human pull request enters review.
+`.github/workflows/issue-lifecycle.yml` remains unsubscribed from `pull_request.ready_for_review`; neither event command depends on that action. `.github/workflows/issue-policy.yml` retains `ready_for_review` because it owns required-check enforcement when a human pull request enters review.
 
 ## Verification
 

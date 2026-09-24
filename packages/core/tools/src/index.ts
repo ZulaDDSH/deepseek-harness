@@ -456,11 +456,12 @@ export interface ToolRuntimeScheduler {
   finish(exec: ToolRunContext, result: ToolExecutionResult): ToolExecutionResult
 }
 
+const toolRuntimeSchedulerSymbol = Symbol.for('@deepseek-ai/dsh-tools.scheduler')
 /**
  * Scheduler entry point omitted from the generated named service API.
  * @internal
  */
-export const TOOL_RUNTIME_SCHEDULER: unique symbol = Symbol('@deepseek-ai/dsh-tools.scheduler')
+export const TOOL_RUNTIME_SCHEDULER: unique symbol = toolRuntimeSchedulerSymbol as unknown as typeof TOOL_RUNTIME_SCHEDULER
 
 /** Canonical error code for cancellation after a tool body was invoked. */
 export const TOOL_ABORTED = 'ABORTED'

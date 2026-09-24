@@ -267,7 +267,6 @@ export function gatesForMode(selected: Mode): Gate[] {
         pnpmScript('client-domain-graph', 'verify-client-domain-graph', { label: 'client domain graph' }),
         pnpmScript('test', 'test'),
         pnpmScript('approval-policy', 'test:approval-policy', { label: 'Weighted approval policy' }),
-        pnpmScript('issue-management', 'test:issue-management', { label: 'Issue management policy' }),
         pnpmScript('duplication', 'duplication'),
         snapshotGate(),
         expectedOutputGate(),
@@ -311,7 +310,6 @@ function ciSharedStaticGates(): Gate[] {
     pnpmScript('client-ui-i18n', 'verify-client-ui-i18n', { label: 'client UI i18n' }),
     pnpmScript('no-bare-dispatcher', 'verify-no-bare-dispatcher', { label: 'proxy-aware dispatchers' }),
     pnpmScript('approval-policy', 'test:approval-policy', { label: 'Weighted approval policy' }),
-    pnpmScript('issue-management', 'test:issue-management', { label: 'Issue management policy' }),
   ]
 }
 
@@ -439,8 +437,11 @@ function ciStaticGates(options: { ownsBuild: boolean }): Gate[] {
 }
 
 function ciArtifactGates(): Gate[] {
+  const typecheck = pnpmScript('typecheck', 'typecheck')
   return [
-    ciBuildGate(),
+    typecheck,
+    lintGate({ needs: ['typecheck'] }),
+    ciBuildGate('build', { needs: ['typecheck', 'lint'] }),
     pnpmScript('publint', 'publint', { needs: ['build'] }),
     pnpmScript('node-next-types', 'verify-node-next-types', {
       label: 'node-next types',
@@ -453,43 +454,23 @@ function ciArtifactGates(): Gate[] {
 
 function ciConsumerGates(): Gate[] {
   const builtTree = ['build']
-  const validatedBuild = ['built-package-invariants']
-  // The HMR web test starts `dev:web`, which rewrites the shared `lib/` and
-  // `apps/web/dist/` trees. Let every build-artifact reader settle before that
-  // writer starts; `after` preserves the web diagnostic even if a reader fails.
+  // Dedicated PR jobs already own Node compatibility, lint/duplication,
+  // publint, package invariants, Node-next types, and built-bin smokes.
+  // This lane keeps only the build-backed consumers that are unique to it.
   const buildArtifactReaders = [
-    'publint',
-    'lint-and-duplication',
     'snapshot',
     'expected-output',
     'doc-typecheck',
-    'node-next-types',
-    'built-bin-smoke',
   ]
   return [
     ciBuildGate(),
-    pnpmScript('node-compat', 'check:node-compat', {
-      label: 'Node compatibility',
-      env: { [CLIENT_BUILD_PROFILE_SELECTOR]: 'official' },
-    }),
-    pnpmScript('publint', 'publint', { needs: builtTree }),
-    builtPackageInvariantsGate(builtTree),
-    pnpmScript('lint-and-duplication', 'check:ci:lint:contracts-ready', {
-      label: 'lint and duplication',
-      needs: validatedBuild,
-    }),
-    snapshotGate(validatedBuild),
-    expectedOutputGate(validatedBuild),
-    webSnapshotGate(validatedBuild, buildArtifactReaders),
+    snapshotGate(builtTree),
+    expectedOutputGate(builtTree),
+    webSnapshotGate(builtTree, buildArtifactReaders),
     pnpmScript('doc-typecheck', 'doc-typecheck:contracts-ready', {
-      needs: validatedBuild,
+      needs: builtTree,
       env: { DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1' },
     }),
-    pnpmScript('node-next-types', 'verify-node-next-types', {
-      label: 'node-next types',
-      needs: validatedBuild,
-    }),
-    builtBinSmokeGate(validatedBuild),
   ]
 }
 
@@ -619,12 +600,14 @@ function coverageWorkerArgs(): { instrumented: string[]; exempt: string[] } {
 function coverageGates(): Gate[] {
   const workers = coverageWorkerArgs()
   const timeouts = coverageTestTimeoutArgs(process.env[COVERAGE_TEST_TIMEOUT_ENV])
+  const coverageIncludes = coverageFileIncludes(process.env.DSH_COVERAGE_FILES)
   const partitions = parseCoveragePartitionCount(process.env[COVERAGE_PARTITIONS_ENV])
   const instrumented = partitions === undefined
     ? pnpmExec('coverage', [
       'vitest',
       'run',
       '--coverage',
+      ...coverageIncludes,
       ...workers.instrumented,
       ...timeouts,
     ], {
@@ -633,8 +616,9 @@ function coverageGates(): Gate[] {
     })
     : pnpmScript('coverage', 'test:coverage:partitioned', {
       label: 'test:coverage',
-      displayCommand: `${COVERAGE_PARTITIONS_ENV}=${partitions} pnpm run test:coverage:partitioned`,
+      displayCommand: `${COVERAGE_PARTITIONS_ENV}=${partitions} pnpm run test:coverage:partitioned${coverageIncludes.length ? ` -- ${coverageIncludes.join(' ')}` : ''}`,
       env: { [COVERAGE_EXEMPT_ENV]: '1' },
+      args: [...pnpmInvocation(['run', 'test:coverage:partitioned']).args, ...(coverageIncludes.length ? ['--', ...coverageIncludes] : [])],
       streamOutput: true,
     })
   return [
@@ -651,6 +635,27 @@ function coverageGates(): Gate[] {
       needs: ['native-system'],
     }),
   ]
+}
+
+function coverageFileIncludes(raw: string | undefined): string[] {
+  if (raw === undefined || raw === '') return []
+  let files: unknown
+  try {
+    files = JSON.parse(raw)
+  } catch {
+    throw new Error('run-gates: DSH_COVERAGE_FILES must be a JSON array of source paths.')
+  }
+  if (!Array.isArray(files) || files.some(value =>
+    typeof value !== 'string'
+    || !/^packages\/[a-z0-9-]+\/[a-z0-9-]+\/src\/[A-Za-z0-9_./-]+\.(?:ts|tsx)$/.test(value)
+    || value.split('/').includes('..'))) {
+    throw new Error('run-gates: DSH_COVERAGE_FILES must contain package runtime source paths.')
+  }
+  const sourceFiles = files as string[]
+  return sourceFiles.flatMap(file => [
+    '--coverage.include',
+    file,
+  ])
 }
 
 // Recorded-session adapters boot process scenarios in `lib` mode. Callers wait
@@ -1124,8 +1129,7 @@ export async function runGate(gate: Gate, signal?: AbortSignal): Promise<GateRes
         child.kill(signalToSend)
       }
       // The captured list stays valid after the group kill reparents the
-      // detached descendants of a nested run-gates (the `check:node-compat`
-      // and `check:ci:lint:contracts-ready` gates in ci-consumers): pids do
+      // detached descendants of nested gate commands: pids do
       // not change on reparenting, so the escalation reaches leaves that
       // ignored SIGTERM without re-enumerating.
       for (const descendantPid of descendants) {

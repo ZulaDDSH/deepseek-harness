@@ -82,12 +82,12 @@ export function apply(ctx: ClientContext): void {
   // Bound once here, where the Remote namespaces are declared in this plugin's
   // own `inject`; the cards receive callbacks and never a context.
   const operations = createModelsOperations(ctx)
-  // The `authorization` namespace is mounted only where the composition mounts
-  // an authorization registry, so the page reads it optionally: a deployment
-  // without one keeps the API-key fields and offers no sign-in.
-  const authorization = ctx.get('remote.authorization') === undefined
+  const authorizationRemote = ctx.get('remote.authorization') as
+    | NonNullable<ClientContext['remote']['authorization']>
+    | undefined
+  const authorization = authorizationRemote === undefined
     ? undefined
-    : createAuthorizationOperations(ctx)
+    : createAuthorizationOperations(authorizationRemote)
   const controller = new ModelsSettingsStore(ctx, schema, ctx.settingsScope.describe())
   // Registration-time text (the nav label thunk) and the inject faces share
   // one bound translate; copy freshness rides the locale revision.

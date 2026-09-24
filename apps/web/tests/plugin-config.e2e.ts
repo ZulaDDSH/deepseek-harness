@@ -177,13 +177,15 @@ describe('web e2e: plugin configuration pages', () => {
     const save = panel.getByRole('button', { name: '保存', exact: true })
     await save.click()
 
-    await expect.poll(async () => (await settingsDocument()).includes('subagent-model-selection:'), { timeout: 10_000 })
-      .toBe(true)
-    expect(await settingsDocument()).toContain('maxDepth: 2')
-    expect(await settingsDocument()).toContain('enabled: true')
-    expect(await settingsDocument()).toContain('allowedModels:')
-    expect(await settingsDocument()).toContain('provider:')
-    expect(await settingsDocument()).toContain('model:')
+    await expect.poll(async () => {
+      const document = await settingsDocument()
+      return document.includes('subagent-model-selection:')
+        && document.includes('maxDepth: 2')
+        && document.includes('enabled: true')
+        && document.includes('allowedModels:')
+        && document.includes('provider:')
+        && document.includes('model:')
+    }, { timeout: 10_000 }).toBe(true)
     // The page stays open once the save landed; a settled form offers no save to repeat.
     await expect.poll(() => toggle.getAttribute('aria-checked'), { timeout: 5_000 }).toBe('true')
     await expect.poll(() => save.isDisabled(), { timeout: 5_000 }).toBe(true)
