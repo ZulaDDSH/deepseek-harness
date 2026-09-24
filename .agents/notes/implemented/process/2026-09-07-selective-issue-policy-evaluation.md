@@ -18,7 +18,7 @@ The workflow checks the trusted checkout for a selective-preflight capability ma
 
 Eligible PRs resolve references through repository REST reads. Informational references prove Issue identity without Project access. Only actual Issues named by resolving references require Project Priority reads; a PR number cannot satisfy the Issue requirement or cause a Project query. [The owner reference](../../../../.github/issue-management/README.md) defines metadata validation and failure behavior.
 
-[Issue lifecycle](../../../../.github/workflows/issue-lifecycle.yml) subscribes to status-relevant PR events and filters title-only edits. It does not subscribe to PR pushes or label changes, or Issue assignment changes. Its job condition rejects approved/commented reviews before runner allocation. Changes-requested reviews retain their status command.
+The former Issue lifecycle workflow subscribed to status-relevant PR events and filters title-only edits. It does not subscribe to PR pushes or label changes, or Issue assignment changes. Its job condition rejects approved/commented reviews before runner allocation. Changes-requested reviews retain their status command.
 
 This scheduling decision partially supersedes the no-op-job scheduling in [event-directed review status](2026-08-10-event-directed-pr-review-status.md), not its handoff semantics or human-ownership protection. [Project-local planning fields](2026-09-02-project-local-issue-planning-fields.md) still own opened-only, empty-only Start Date initialization for every referenced Issue, including informational references. The validation read exemption does not exempt that lifecycle mutation.
 
@@ -40,4 +40,4 @@ Omitted lifecycle events cannot repair stale Project state. Event replay and con
 
 ## Verification
 
-[Policy tests](../../../../.github/issue-management/policy.test.mjs) verify early exemptions, REST-only informational references, actual-Issue filtering, resolving Priority reads and failures, and the lifecycle command selection. [Workflow tests](../../../../scripts/ci-workflow.spec.ts) verify Project-token conditions, the retained required job, pruned subscriptions, and runner-level lifecycle filtering. Local fixtures do not establish live webhook delivery or billing outcomes.
+[Policy tests](../../../../.github/issue-management/policy.test.mjs) verify early exemptions, REST-only informational references, actual-Issue filtering, resolving Priority reads and failures, and the lifecycle command selection. [Workflow tests](../../../../scripts/ci-workflow.spec.ts) verify Project-token conditions and the retained required policy job. The separate lifecycle automation has since been removed from this fork. Local fixtures do not establish live webhook delivery or billing outcomes.
