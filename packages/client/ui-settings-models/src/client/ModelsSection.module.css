@@ -722,3 +722,110 @@ select.input {
   line-height: 20px;
   text-align: center;
 }
+
+
+.signInCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: 10px;
+}
+
+.signInHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.signInTitle {
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.signInStateOn,
+.signInStateOff {
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.signInStateOn {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.signInStateOff {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.signInHint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.signInNotice {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.signInCode {
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.signInLink {
+  color: var(--dsw-alias-label-primary);
+  text-decoration: underline;
+}
+
+.signInQuestion {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.signInQuestionLabel {
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.signInAnswerRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.signInOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.signInError {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.signInActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
