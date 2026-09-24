@@ -25,10 +25,12 @@ describe('CI workflow', () => {
     expect(coverage.needs).toContain('change-scope')
     expect(consumers['continue-on-error']).not.toBe(true)
     expect(consumers.if).toContain("needs.change-scope.outputs.run-consumers == 'true'")
-    expect(aggregate.steps[0]).toMatchObject({
-      if: expect.stringContaining("contains(needs.*.result, 'failure')"),
-      run: expect.stringContaining('exit 1'),
-    })
+    const verdict = aggregate.steps[0]
+    if (!isRecord(verdict) || typeof verdict.if !== 'string' || typeof verdict.run !== 'string') {
+      throw new TypeError('CI aggregate verdict step must define string if and run fields')
+    }
+    expect(verdict.if).toContain("contains(needs.*.result, 'failure')")
+    expect(verdict.run).toContain('exit 1')
     expect(JSON.stringify(scope.steps)).toContain("!path.endsWith('/package.json')")
     expect(JSON.stringify(workflow)).not.toMatch(/DSH_ISSUE_APP_PRIVATE_KEY|DEEPSEEK_API_KEY|CLOUDFLARE_API_TOKEN/)
   })
