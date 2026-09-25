@@ -730,7 +730,7 @@ select.input {
   gap: 10px;
   padding: 12px 14px;
   border: 0.5px solid var(--dsw-alias-border-l3);
-  border-radius: 10px;
+  border-radius: var(--dsw-radius-sm);
 }
 
 .signInHeader {
@@ -780,7 +780,7 @@ select.input {
 
 .signInCode {
   padding: 1px 6px;
-  border-radius: 5px;
+  border-radius: var(--dsw-radius-xs);
   background: var(--dsw-alias-interactive-bg-hover);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
