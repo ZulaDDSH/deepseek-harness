@@ -1,5 +1,5 @@
 /** Fetch-once cache for current git comparisons of registered Workspace files. */
-import type { WorkspaceId } from '@deepseek-ai/dsh-workspace'
+import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import { isChangesDiff, workspaceDiffUrl, type WorkspaceDiff } from '../changes.ts'
 import { HostReadStore } from './host-read-store.ts'
 

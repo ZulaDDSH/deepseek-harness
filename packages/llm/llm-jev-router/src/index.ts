@@ -10,7 +10,7 @@ import {
 } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
-import type {} from '@deepseek-ai/dsh-settings'
+import type {} from '@deepseek-ai/cordis-plugin-loader'
 
 export const name = 'llm-jev-router'
 export const inject = ['llm']
@@ -20,8 +20,6 @@ export const DEFAULT_ENDPOINT = 'https://api.typesafe.ai/v1/systemone'
 export const DEFAULT_MODEL = 'jev-latest'
 /** Default credential/environment reference. */
 export const DEFAULT_API_KEY_ENV = 'TYPESAFE_API_KEY'
-/** User-settings namespace owned by the plugin. */
-export const JEV_ROUTER_SETTINGS_NAMESPACE = 'jev-router'
 /** Minimum grep match count before Jev relevance ranking is considered. */
 export const GREP_RELEVANCE_MIN_MATCHES = 100
 /** Number of highest-scoring grep matches retained after Jev ranking. */
@@ -75,7 +73,7 @@ const routeSchema: z<JevRoute> = z.object({
   reasoningEffort: z.string().min(1),
 })
 
-/** Runtime schema for the `jev-router` settings section. */
+/** Runtime schema for the plugin config. */
 export const Config: z<Config> = z.object({
   enabled: z.boolean().default(false),
   apiKeyEnv: z.string().role('credential-ref').default(DEFAULT_API_KEY_ENV),
@@ -162,7 +160,6 @@ function contentText(block: ContentBlock): string {
     case 'text': return block.text
     case 'reasoning': return `[reasoning: ${block.text}]`
     case 'tool-call': return `[tool-call: ${block.name}]`
-    case 'tool-result': return `[tool-result: ${block.toolCallId}]`
     case 'image': return '[image attachment]'
     case 'file': return '[file attachment]'
     default: return '[content block]'
@@ -343,7 +340,23 @@ export function selectRelevantGrepMatches(
   return matches.filter((_match, index) => selected.has(index))
 }
 
-class JevRouterRuntime extends Service {
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    jevRouter: JevRouter
+  }
+}
+
+/**
+ * Grep relevance ranking backed by the Jev client. Every failure path returns
+ * the input matches unchanged, so a consumer never loses grep output to Jev.
+ */
+export class JevRouter extends Service {
+  /**
+   * @param ctx - owning plugin context.
+   * @param config - reads the active router settings.
+   * @param client - Jev request client.
+   * @param states - task state recorded per Agent by the pre-step listener.
+   */
   constructor(
     ctx: Context,
     private readonly config: () => Config,
@@ -353,6 +366,14 @@ class JevRouterRuntime extends Service {
     super(ctx, 'jevRouter')
   }
 
+  /**
+   * Keep the grep matches Jev ranks most relevant to the Agent's current task.
+   * Returns `input.matches` unchanged when routing is disabled, the signal is
+   * aborted, fewer than {@link GREP_RELEVANCE_MIN_MATCHES} matches arrive, the
+   * Agent has no recorded state, or scoring fails.
+   * @param input - requesting Agent, grep pattern, candidate matches, and abort signal.
+   * @returns at most {@link GREP_RELEVANCE_KEEP_MATCHES} matches in input order, or the input matches.
+   */
   async filterGrepMatches(input: {
     agent: Agent
     pattern: string
@@ -411,7 +432,7 @@ export function applyRoute(config: LlmCallConfig, route: JevRoute): LlmCallConfi
 /** Install Jev routing into the agent waterfalls. */
 export function apply(ctx: Context, initial: Config): void {
   validateConfig(initial)
-  let current: () => Config = () => initial
+  const current = (): Config => initial
   const decisions = new WeakMap<Agent, Map<string, CachedRoute>>()
   const states = new WeakMap<Agent, string>()
   const client = createJevClient(async (config) => {
@@ -419,21 +440,13 @@ export function apply(ctx: Context, initial: Config): void {
     if (credentials !== undefined) return (await credentials.resolve(credentialRef(config.apiKeyEnv)))?.value
     return launchEnvironmentOf(ctx).get(config.apiKeyEnv)?.value
   })
-  new JevRouterRuntime(ctx, () => current(), client, states)
+  new JevRouter(ctx, current, client, states)
   ctx.llm.registerConfigurableProviders([{
     provider: 'jev-router',
     displayName: 'TypeSafe / Jev',
-    settingsNs: JEV_ROUTER_SETTINGS_NAMESPACE,
+    settingsNs: ctx.fiber.entry?.options.id ?? name,
     settingsPath: [],
   }])
-
-  ctx.inject(['settings'], (settingsCtx) => {
-    settingsCtx.settings.installSection(ctx, JEV_ROUTER_SETTINGS_NAMESPACE, Config, initial, {
-      validate: validateConfig,
-      setSource: (source) => { current = source },
-      onChange: () => {},
-    })
-  })
 
   ctx.on('agent/pre-step', async (payload, next): Promise<PreStepDecision> => {
     const admitted = await next()

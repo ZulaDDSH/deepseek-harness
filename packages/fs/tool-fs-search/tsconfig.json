@@ -22,6 +22,9 @@
       "path": "../../llm/llm"
     },
     {
+      "path": "../../llm/llm-jev-router"
+    },
+    {
       "path": "../../core/session"
     },
     {

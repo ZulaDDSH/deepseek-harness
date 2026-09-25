@@ -64,6 +64,22 @@ kind: "package-reference"
 
 Jev 请求与所选 DSH provider 请求拥有独立的缓存生命周期。修改 Jev 状态、路由、endpoint 或模型会改变该决策请求，但本包不会重写所选 provider 可复用的提示词前缀。
 
+### Grep 相关性排序
+
+`jevRouter` 服务公开 `filterGrepMatches`，`tool-fs-search` 会对顶层 grep 结果调用它。每个候选项是一个 `JevGrepMatch`（`path`、从 1 开始的 `lineNumber`、匹配的 `line`）。路由启用且至少收到 100 条匹配时，最多 250 个候选项会根据 Agent 的有界 Jev 状态评分，并按原始顺序保留最相关的 32 条。路由关闭、signal 已中止、缺少 Agent 状态或评分失败时，匹配结果原样返回。
+
+#### 模型看到的内容
+
+模型照常收到 grep 工具结果；排序成功时，结果缩减为保留的匹配。Jev 评分请求及其分数不会进入模型提示词。
+
+#### Token 影响
+
+排序可以把较大的 grep 结果缩减到 32 条匹配，从而减少模型读取的工具结果 token。评分请求是独立的 TypeSafe Jev 调用，不会增加 DSH 提示词 token。
+
+#### KV Cache 影响
+
+保留的匹配会成为 grep 工具结果的一部分，因此它们进入的会话前缀仍然只追加。评分请求拥有独立的缓存生命周期。
+
 ## 已知限制与延期工作
 
 <a id="known-limitations-and-deferred-work"></a>

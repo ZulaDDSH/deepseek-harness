@@ -1,6 +1,6 @@
 /** Per-turn workspace change summaries, the Session event announcing them, and the Host service serving them with their comparisons. */
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { WorkspaceId } from '@deepseek-ai/dsh-workspace'
+import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 
 /** One file changed during a turn, with line counts from git or from the whole-file captures around its file-tool edits. */
 export interface WorkspaceChangedFile {

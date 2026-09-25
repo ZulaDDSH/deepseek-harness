@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /** Source Control Host read stores: caching, refresh, missing responses, and current comparisons. */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { WorkspaceId } from '@deepseek-ai/dsh-workspace'
+import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import { workspaceDiffUrl, workspaceStatusUrl, type WorkspaceDiff, type WorkspaceStatusValue } from '../src/changes.ts'
 import { WorkspaceDiffStore } from '../src/client/workspace-diff.ts'
 import { WorkspaceStatusStore } from '../src/client/workspace-status.ts'

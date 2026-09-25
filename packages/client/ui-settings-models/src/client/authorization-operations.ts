@@ -78,15 +78,16 @@ export interface AuthorizationOperations {
 }
 
 /**
- * Bind the page's authorization calls to the plugin's own Remote namespace.
- * @param ctx - the page plugin's context, which declares `remote.authorization`
- *   in its own `inject`.
+ * Bind the page's authorization calls to its optional Remote namespace.
+ * @param remote - the namespace resolved by the plugin's optional service lookup.
  * @returns the callbacks the cards are injected with.
  */
-export function createAuthorizationOperations(ctx: ClientContext): AuthorizationOperations {
+export function createAuthorizationOperations(
+  remote: NonNullable<ClientContext['remote']['authorization']>,
+): AuthorizationOperations {
   return {
     list: async () => {
-      const response = await ctx.remote.authorization.list()
+      const response = await remote.list()
       return response.ok ? response.value : []
     },
     begin: async (key, method, onItem, signal) => {
@@ -94,7 +95,7 @@ export function createAuthorizationOperations(ctx: ClientContext): Authorization
       // flow) rejects the iteration rather than returning a RemoteResult.
       let status: 'authorized' | 'cancelled' = 'cancelled'
       try {
-        for await (const item of ctx.remote.authorization.begin(key, method, signal)) {
+        for await (const item of remote.begin(key, method, signal)) {
           if (item.type === 'end') status = item.status
           onItem(item)
         }
@@ -104,14 +105,14 @@ export function createAuthorizationOperations(ctx: ClientContext): Authorization
       return status === 'authorized' ? { kind: 'authorized' } : { kind: 'cancelled' }
     },
     answer: async (attempt, prompt, value) => {
-      const response = await ctx.remote.authorization.answer(attempt, prompt, value)
+      const response = await remote.answer(attempt, prompt, value)
       return response.ok ? { kind: 'accepted' } : { kind: 'refused', message: response.error.message }
     },
     cancel: async (attempt) => {
       // A withdrawal for an attempt that already ended is not a failure: the
       // human got what they asked for either way, and the stream reports how
       // the attempt actually settled.
-      await ctx.remote.authorization.cancel(attempt)
+      await remote.cancel(attempt)
     },
   }
 }

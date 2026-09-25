@@ -8,11 +8,14 @@
 
 /** Simplified Chinese dictionary and key-set source of truth. */
 export const zh = {
-  loading: '正在读取…',
+  loading: '文档渲染中...',
   loadMore: '加载更多',
   changed: '文件已更新，当前显示为旧内容',
   reloadNow: '重新载入',
   reload: '重新读取文件',
+  autoRefresh: '自动刷新',
+  'autoRefresh.enable': '开启自动刷新',
+  'autoRefresh.disable': '关闭自动刷新',
   'wrap.enable': '自动换行',
   'wrap.disable': '取消换行',
   'wrap.aria': '自动换行',
@@ -34,8 +37,6 @@ export const zh = {
   'diff.collapseAria': '收起差异',
   'diff.expandAria': '展开其余 {count} 行差异',
   'diff.expandRest': '… 其余 {count} 行',
-  'diff.files.one': '{count} 个文件',
-  'diff.files.other': '{count} 个文件',
   retry: '重试',
 } satisfies Record<string, string>
 
@@ -44,11 +45,14 @@ export type SidebarDocumentPreviewKey = keyof typeof zh
 
 /** English dictionary, checked against the Chinese key set. */
 export const en = {
-  loading: 'Reading…',
+  loading: 'Rendering document...',
   loadMore: 'Load more',
   changed: 'The file has changed, showing the previous content.',
   reloadNow: 'Reload',
   reload: 'Read the file again',
+  autoRefresh: 'Auto refresh',
+  'autoRefresh.enable': 'Enable auto refresh',
+  'autoRefresh.disable': 'Disable auto refresh',
   'wrap.enable': 'Turn on line wrap',
   'wrap.disable': 'Turn off line wrap',
   'wrap.aria': 'Line wrap',
@@ -70,7 +74,5 @@ export const en = {
   'diff.collapseAria': 'Collapse diff',
   'diff.expandAria': 'Expand {count} more diff lines',
   'diff.expandRest': '… {count} more lines',
-  'diff.files.one': '{count} file',
-  'diff.files.other': '{count} files',
   retry: 'Retry',
 } satisfies Record<SidebarDocumentPreviewKey, string>

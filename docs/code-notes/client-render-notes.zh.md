@@ -18,6 +18,14 @@
 
 `packages/client/ui-settings-models/src/client/index.ts:apply` 正是以此方式发布凭据记录修订号——一个由 `credentials/record-updated` 订阅递增的 `createSnapshotStore({ revision })`，由 `ModelsSection` 以 `useCredentialsRevision` 消费。另一个浏览器标签页完成的登录提交的是凭据记录而非设置引用，因此缺少这条通道时，已挂载的卡片会一直渲染它在首次渲染时读到的登录前状态。
 
+## 应用挂载跟随 Session 作用域所有者
+
+`packages/client/web/src/mount.ts:mountClient` 同时依赖 `uiRenderer` 与 `uiSession`。客户端对账期间替换 Session 所有者时，会先释放应用挂载，因此 React 不会在其作用域适配器缺失时渲染 `session-maybe`。替换装好适配器后，挂载会重新创建。
+
+`packages/client/ui-conversation/src/client/apply.ts:apply` 在恢复所选视图前，还会校验每个保留的视图绑定是否仍是活动的 Controller generation。这可防止拆除期间的语言或插槽通知为已退役的 Session 调用 `uiConversation.binding()`。
+
+`packages/extensions/cordis-client-runner/src/client/inspect-registry.ts:ClientCordisInspectRegistry` 会在其所属 Client 条目被替换时丢弃排队中的清单同步，因此已退役的 Remote namespace 无法报告预期内的拆除失败。
+
 ## 相关
 
 - [Web 客户端架构](../subsystems/web-client.zh.md) —— 这些说明所依赖的渲染机制、三条实时数据通道与 store 规范。

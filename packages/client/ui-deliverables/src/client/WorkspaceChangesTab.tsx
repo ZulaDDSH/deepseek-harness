@@ -7,12 +7,12 @@
  * directory and falls back to the first registered one.
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Button, IconRefreshOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { WorkspaceId } from '@deepseek-ai/dsh-workspace'
+import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import { workspaceDiffUrl, workspaceStatusUrl } from '../changes.ts'
-import { TextDiff } from './ReviewTab.tsx'
+import { FileDiff } from './FileDiff.tsx'
 import type { WorkspaceDiffStore, WorkspaceDiffState } from './workspace-diff.ts'
 import type { WorkspaceStatusStore } from './workspace-status.ts'
 import { NS } from './locales.ts'
@@ -86,7 +86,7 @@ export function WorkspaceChangesTab({
       </div>
       {selectedId !== undefined && <Button size="sm" aria-label={t('source.refresh')} title={t('source.refresh')}
         onClick={() => { void refreshStatus(selectedId) }}>
-        <IconRefreshOutline16 />
+        <IconRefreshOutlineRegular />
       </Button>}
     </header>
     {typeof statusState === 'object' && statusState.branch !== undefined
@@ -138,5 +138,5 @@ function SourceDiff({ state, retry, t }: { state: WorkspaceDiffState | undefined
   if (state === 'error') return <div className={css.status}><span>{t('diff.error')}</span><Button size="sm" onClick={retry}>{t('presented.retry')}</Button></div>
   if (state.kind === 'binary') return <p className={css.status}>{t('diff.binary')}</p>
   if (state.kind === 'oversized') return <p className={css.status}>{t('diff.oversized')}</p>
-  return <TextDiff diff={state} split={false} wrap={false} t={t} />
+  return <FileDiff state={state} split={false} wrap={false} retry={retry} t={t} />
 }

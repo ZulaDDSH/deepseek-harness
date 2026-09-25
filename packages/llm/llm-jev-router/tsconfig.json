@@ -9,11 +9,11 @@
   ],
   "references": [
     { "path": "../../../vendor/cordis" },
+    { "path": "../../../vendor/loader" },
     { "path": "../../../vendor/schemastery" },
     { "path": "../../core/agent" },
     { "path": "../../credentials/credentials" },
     { "path": "../../llm/llm" },
-    { "path": "../../settings/settings" },
     { "path": "../../util/launch-environment" }
   ]
 }

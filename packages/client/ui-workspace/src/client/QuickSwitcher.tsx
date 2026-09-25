@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import {
-  IconFolderOpenOutline16, IconNewChatOutline16, IconPlayOutline16, IconSearchOutline16,
+  IconFolderOpenOutlineRegular, IconNewChatOutlineRegular, IconPlayOutlineRegular, IconSearchOutlineRegular,
   Input, Modal,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -42,9 +42,9 @@ function includes(text: string | undefined, query: string): boolean {
 
 function iconFor(kind: SwitcherRow['kind']) {
   switch (kind) {
-    case 'session': return <IconNewChatOutline16 />
-    case 'workspace': return <IconFolderOpenOutline16 />
-    case 'command': return <IconPlayOutline16 />
+    case 'session': return <IconNewChatOutlineRegular />
+    case 'workspace': return <IconFolderOpenOutlineRegular />
+    case 'command': return <IconPlayOutlineRegular />
   }
 }
 
@@ -183,7 +183,7 @@ export function QuickSwitcher({
         }
       }}>
         <Input
-          icon={<IconSearchOutline16 />}
+          icon={<IconSearchOutlineRegular />}
           value={query}
           onChange={(event) => {
             setQuery(event.currentTarget.value)

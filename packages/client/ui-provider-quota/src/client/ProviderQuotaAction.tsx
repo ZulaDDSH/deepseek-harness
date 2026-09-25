@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import { IconDataOutline16, IconRefreshOutline14, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconDataOutlineRegular, IconRefreshOutlineMedium, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { PropsLocale, PropsRuntime, InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 import type { QuotaResult, QuotaWindow, QuotaWindowId } from '@deepseek-ai/dsh-api-quota-controller/types'
@@ -107,14 +107,14 @@ export function ProviderQuotaAction(props: ProviderQuotaActionProps): React.JSX.
     <span className={css.root}>
       <Tooltip label={props.t('title')}>
         <button type="button" className={css.trigger} aria-label={props.t('title')} aria-expanded={open} onClick={toggle}>
-          <IconDataOutline16 size={16} />
+          <IconDataOutlineRegular size={16} />
           {state.status === 'loading' && <span className={css.dot} aria-hidden />}
         </button>
       </Tooltip>
       {open && <div className={css.popover} role="dialog" aria-label={props.t('title')}>
         <header className={css.header}>
           <strong>{props.t('title')}</strong>
-          <button type="button" className={css.refresh} aria-label={props.t('refresh')} onClick={() => { void props.refresh() }}><IconRefreshOutline14 size={14} /></button>
+          <button type="button" className={css.refresh} aria-label={props.t('refresh')} onClick={() => { void props.refresh() }}><IconRefreshOutlineMedium size={14} /></button>
         </header>
         {sessionTokens !== undefined && <p className={css.sessionTotal}>{props.t('sessionTotal', { tokens: sessionTokens })}</p>}
         {providers === null || state.status === 'loading' ? <p>{props.t('loading')}</p>

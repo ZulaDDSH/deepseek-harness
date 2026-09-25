@@ -35,7 +35,7 @@ describe('probe', () => {
     await page.evaluate(() => {
       const log = (tag: string) => (e: Event) => {
         const t = e.target as HTMLElement
-        console.log(`DRAGEVT ${tag} on ${t.getAttribute('aria-label') ?? t.className?.toString().slice(0, 30)}`)
+        console.log(`DRAGEVT ${tag} on ${t.getAttribute('aria-label') ?? t.className.slice(0, 30)}`)
       }
       document.addEventListener('dragstart', log('dragstart'), true)
       document.addEventListener('dragover', log('dragover'), true)
@@ -113,7 +113,7 @@ describe('probe', () => {
         const item = el.closest('[role="treeitem"]')
         return {
           tag: el.tagName,
-          cls: el.className?.toString().slice(0, 40),
+          cls: el.className.slice(0, 40),
           tree: tree?.getAttribute('aria-label') ?? 'no-tree',
           itemLabel: item?.getAttribute('aria-label') ?? item?.textContent?.slice(0, 30) ?? 'no-item',
         }

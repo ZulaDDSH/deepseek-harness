@@ -64,6 +64,22 @@ When routing is enabled and admitted, the package creates a separate TypeSafe Je
 
 The Jev request has an independent cache lifecycle from the selected DSH provider request. Changing Jev state, routes, endpoint, or model can change that decision request, but this package does not rewrite the selected provider's reusable prompt prefix.
 
+### Grep relevance ranking
+
+The `jevRouter` service exposes `filterGrepMatches`, which `tool-fs-search` calls for top-level grep results. Each candidate is a `JevGrepMatch` (`path`, one-based `lineNumber`, matched `line`). When routing is enabled and at least 100 matches arrive, up to 250 candidates are scored against the Agent's bounded Jev state and the 32 most relevant are kept in their original order. Disabled routing, an aborted signal, a missing Agent state, or a scoring failure returns the matches unchanged.
+
+#### What the model sees
+
+The model receives the grep tool result as usual, reduced to the kept matches when ranking succeeds. The Jev scoring request and its scores never enter the model's prompt.
+
+#### Token effect
+
+Ranking can shrink a large grep result to 32 matches, which lowers the tool-result tokens the model reads. The scoring request is a separate TypeSafe Jev call and adds no DSH prompt tokens.
+
+#### KV Cache effect
+
+The kept matches become part of the grep tool result, so the transcript prefix they enter is still append-only. The scoring request has its own cache lifecycle.
+
 ## Known Limitations and Deferred Work
 
 <a id="known-limitations-and-deferred-work"></a>

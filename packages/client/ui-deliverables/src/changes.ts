@@ -1,6 +1,6 @@
 /** Validate workspace-change records that cross the Host routes and address their summary, comparison, and native-open actions. */
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { WorkspaceId } from '@deepseek-ai/dsh-workspace'
+import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type { WorkspaceChangedFile, WorkspaceChangesSummary, WorkspaceDiffHunk, WorkspaceFileDiff, WorkspaceStatusFile } from '@deepseek-ai/dsh-workspace-changes/types'
 
 /** Authenticated GET route serving one announced change summary while its Session lives. */
@@ -17,6 +17,24 @@ export const WORKSPACE_STATUS_PATH = '/api/workspace.status'
 
 /** Authenticated GET route serving one current git comparison for a registered Workspace. */
 export const WORKSPACE_DIFF_PATH = '/api/workspace.diff'
+
+/**
+ * Browser-relative form of {@link CHANGED_FILES_PATH}; see
+ * .agents/notes/implemented/architecture/2026-09-14-web-document-relative-app-routes.md.
+ */
+export const CHANGED_FILES_ROUTE = CHANGED_FILES_PATH.slice(1)
+
+/** Browser-relative form of {@link CHANGES_DIFF_PATH}. */
+export const CHANGES_DIFF_ROUTE = CHANGES_DIFF_PATH.slice(1)
+
+/** Browser-relative form of {@link CHANGES_OPEN_PATH}. */
+export const CHANGES_OPEN_ROUTE = CHANGES_OPEN_PATH.slice(1)
+
+/** Browser-relative form of {@link WORKSPACE_STATUS_PATH}. */
+export const WORKSPACE_STATUS_ROUTE = WORKSPACE_STATUS_PATH.slice(1)
+
+/** Browser-relative form of {@link WORKSPACE_DIFF_PATH}. */
+export const WORKSPACE_DIFF_ROUTE = WORKSPACE_DIFF_PATH.slice(1)
 
 /** Resource-address prefix of a turn's review tab in the right Sidebar. */
 export const CHANGES_REVIEW_ADDRESS = 'dsh-resource://changes-review/session/'
@@ -65,7 +83,6 @@ export function isChangedFile(value: unknown): value is WorkspaceChangedFile {
     && (binary === undefined || binary === true) && (oversized === undefined || oversized === true)
 }
 
-
 /**
  * Validate one current repository status file.
  * @param value - decoded JSON candidate.
@@ -94,6 +111,7 @@ export function isWorkspaceStatus(value: unknown): value is WorkspaceStatusValue
     && Number.isSafeInteger(total) && Number.isSafeInteger(added) && Number.isSafeInteger(deleted)
     && Array.isArray(files) && files.every(isWorkspaceStatusFile)
 }
+
 /**
  * Validate a summary read from the summary route.
  * @param value - decoded JSON.
@@ -142,30 +160,30 @@ export function isChangesEvent(value: unknown): value is { turn: number } {
 /**
  * Build the authenticated status URL for one registered Workspace.
  * @param workspaceId - registered Workspace identity.
- * @returns same-origin status URL.
+ * @returns document-relative status route.
  */
 export function workspaceStatusUrl(workspaceId: WorkspaceId): string {
-  return `${WORKSPACE_STATUS_PATH}?${new URLSearchParams({ workspaceId })}`
+  return `${WORKSPACE_STATUS_ROUTE}?${new URLSearchParams({ workspaceId })}`
 }
 
 /**
  * Build the authenticated current-diff URL for one status-file index.
  * @param workspaceId - registered Workspace identity.
  * @param index - status-file index in the current status response.
- * @returns same-origin current-diff URL.
+ * @returns document-relative current-diff route.
  */
 export function workspaceDiffUrl(workspaceId: WorkspaceId, index: number): string {
-  return `${WORKSPACE_DIFF_PATH}?${new URLSearchParams({ workspaceId, index: String(index) })}`
+  return `${WORKSPACE_DIFF_ROUTE}?${new URLSearchParams({ workspaceId, index: String(index) })}`
 }
 
 /**
  * Build authenticated coordinates for the summary one `workspace/changes` event announced.
  * @param sessionId - owning Session.
  * @param seq - event sequence.
- * @returns same-origin summary URL.
+ * @returns document-relative summary route.
  */
 export function changesSummaryUrl(sessionId: SessionId, seq: number): string {
-  return `${CHANGED_FILES_PATH}?${new URLSearchParams({ sessionId, seq: String(seq) })}`
+  return `${CHANGED_FILES_ROUTE}?${new URLSearchParams({ sessionId, seq: String(seq) })}`
 }
 
 /**
@@ -173,10 +191,10 @@ export function changesSummaryUrl(sessionId: SessionId, seq: number): string {
  * @param sessionId - owning Session.
  * @param seq - workspace/changes event sequence.
  * @param index - original index in the summary's files array.
- * @returns same-origin comparison URL.
+ * @returns document-relative comparison route.
  */
 export function changesDiffUrl(sessionId: SessionId, seq: number, index: number): string {
-  return `${CHANGES_DIFF_PATH}?${new URLSearchParams({ sessionId, seq: String(seq), index: String(index) })}`
+  return `${CHANGES_DIFF_ROUTE}?${new URLSearchParams({ sessionId, seq: String(seq), index: String(index) })}`
 }
 
 /**
@@ -184,10 +202,10 @@ export function changesDiffUrl(sessionId: SessionId, seq: number, index: number)
  * @param sessionId - owning Session.
  * @param seq - workspace/changes event sequence.
  * @param index - original index in the summary's files array.
- * @returns same-origin action URL.
+ * @returns document-relative action route.
  */
 export function changedFileUrl(sessionId: SessionId, seq: number, index: number): string {
-  return `${CHANGES_OPEN_PATH}?${new URLSearchParams({ sessionId, seq: String(seq), index: String(index) })}`
+  return `${CHANGES_OPEN_ROUTE}?${new URLSearchParams({ sessionId, seq: String(seq), index: String(index) })}`
 }
 
 /**

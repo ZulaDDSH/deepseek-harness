@@ -7,9 +7,9 @@
     { "path": "../../api/gateway/tsconfig.client.json" },
     { "path": "../../api/quota-controller/tsconfig.client.json" },
     { "path": "../../api/remotes/tsconfig.client.json" },
-    { "path": "../locale" },
+    { "path": "../locale/tsconfig.client.json" },
     { "path": "../store" },
-    { "path": "../ui-conversation" },
+    { "path": "../ui-conversation/tsconfig.client.json" },
     { "path": "../ui-primitives" },
     { "path": "../ui-renderer" },
     { "path": "../ui-slots" }

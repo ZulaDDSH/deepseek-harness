@@ -69,12 +69,12 @@ export const name = 'tool-fs-search'
 /** Services required by the search tool suite (`spillStore` is optional, read via `ctx.get()`). */
 export const inject = ['tools', 'systemPrompt', 'subprocess']
 
-/** Plugin config; over-cap glob sampling is an explicit deployment choice and the remaining fields have defaults. */
+/** Name of a search tool this package can register. */
 export type ToolName = 'glob' | 'grep'
 
 const TOOL_NAMES = ['glob', 'grep'] as const satisfies readonly ToolName[]
 
-/** Runtime configuration for filesystem search tools. */
+/** Plugin config; over-cap glob sampling is an explicit deployment choice and the remaining fields have defaults. */
 export interface Config {
   /** Whether an over-cap `glob` page is sampled across top-level entries instead of taking the modification-time head. */
   sampleOverCapGlobResults: boolean

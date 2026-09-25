@@ -46,8 +46,8 @@ import type { Stabilizer } from './fixtures.ts'
 export type { UseSession } from '@deepseek-ai/dsh-client-ui-session/client'
 export { domSnapshotSerializer, registerDomSnapshotSerializer } from './snapshot.ts'
 export { FixtureSession, TestSessions } from './sessions.ts'
-export { stubSettingsScope } from './settings-scope.ts'
-export type { StubSettingsScope } from './settings-scope.ts'
+export { stubConfigForm } from './config-form.ts'
+export type { StubConfigForm } from './config-form.ts'
 export { TestWorkspaces } from './workspaces.ts'
 export { RemoteError, TestRemote } from './remote.ts'
 export {
@@ -197,7 +197,7 @@ export class TestRoot {
     await this.stabilize(() => {
       // Erased hop (same pattern as SlotRegistry's own implementation arm);
       // the declaration signature above is the typed contract.
-      this.disposeEntry = (this.slots.register as unknown as ErasedRegister)({ name: 'root', children }, frame)
+      this.disposeEntry = (this.slots.register as ErasedRegister)({ name: 'root', children }, frame)
     })
   }
 
@@ -295,7 +295,7 @@ export class SlotTestRuntime {
    * @param plugin - plugin value (function, class, or `{ inject, apply }` object).
    * @returns handle owning the fiber's explicit disposal.
    */
-  async mount(plugin: Plugin): Promise<FeatureHandle> {
+  async mount(plugin: Plugin.Object): Promise<FeatureHandle> {
     const required = Object.keys(Inject.resolve((plugin as { inject?: Inject }).inject))
     const missing = required.filter(name => this.ctx.get(name) === undefined)
     if (missing.length > 0) {

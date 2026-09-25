@@ -1,6 +1,55 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/llm/llm-jev-router/README.md
-README.md: d7b706c62d52c96f626960585b8c5443889fbcd3
-README.zh.md: d423cfaa99cfc6f2a49f32bad6ba6b5fb123bf95
+/:
+  en: 871dc4287145c775
+  zh: 35435c7768ec66ce
+/deepseek-ai-dsh-llm-jev-router:
+  en: c859c72bf8e404ee
+  zh: 4a1788559a87ccfd
+/deepseek-ai-dsh-llm-jev-router/summary:
+  en: 1e030359160c7569
+  zh: 3161d2ac160e036b
+/deepseek-ai-dsh-llm-jev-router/table-of-contents:
+  en: 4e53164159b5ce41
+  zh: 89582dc0294d0776
+/deepseek-ai-dsh-llm-jev-router/use-this-package:
+  en: 46674d8dac274b58
+  zh: 74349473d44f30b8
+/deepseek-ai-dsh-llm-jev-router/use-this-package/minimal-configuration:
+  en: b794a7857897bc6e
+  zh: ca3e96342ad8bb17
+/deepseek-ai-dsh-llm-jev-router/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-llm-jev-router/model-experience/jev-routing-request:
+  en: 246e73c43ceeefec
+  zh: ad2416d2390db865
+/deepseek-ai-dsh-llm-jev-router/model-experience/jev-routing-request/what-the-model-sees:
+  en: 7f56f3acdd7d5647
+  zh: d767c3121f8aff02
+/deepseek-ai-dsh-llm-jev-router/model-experience/jev-routing-request/token-effect:
+  en: 8a5eb4f315d77370
+  zh: 0dc54ae86718510d
+/deepseek-ai-dsh-llm-jev-router/model-experience/jev-routing-request/kv-cache-effect:
+  en: b32c7cfd596918ea
+  zh: 87061f4434a169a4
+/deepseek-ai-dsh-llm-jev-router/model-experience/grep-relevance-ranking:
+  en: e7c2cb3d86f285c6
+  zh: e631fb3c5b179972
+/deepseek-ai-dsh-llm-jev-router/model-experience/grep-relevance-ranking/what-the-model-sees:
+  en: 3b4a26407fd257fe
+  zh: 930fcb20fd9465b9
+/deepseek-ai-dsh-llm-jev-router/model-experience/grep-relevance-ranking/token-effect:
+  en: dc057514df6c392e
+  zh: 081f7e7dc246a9f4
+/deepseek-ai-dsh-llm-jev-router/model-experience/grep-relevance-ranking/kv-cache-effect:
+  en: 523ab9d59b78d7cd
+  zh: b8221d72697b3ba2
+/deepseek-ai-dsh-llm-jev-router/known-limitations-and-deferred-work:
+  en: 834cfb9e810555aa
+  zh: 178d1c241d6468e8
+/deepseek-ai-dsh-llm-jev-router/known-limitations-and-deferred-work/dev-note:
+  en: a0d6330df2690e0d
+  zh: 208aef48c1c6f0af

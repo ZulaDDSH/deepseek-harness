@@ -18,10 +18,10 @@ import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/c
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
 import type { WorkspaceAppearance } from '../appearance.ts'
-import { deriveFlat, pinCurrentBlank, type SessionNode } from '../tree.ts'
+import { deriveFlat, pinCurrentBlank, type SessionNode, type SessionRowState } from '../tree.ts'
 import { deriveSections, type SectionNode } from '../sections.ts'
 import type { ChatSectionsState } from '../stores.ts'
-import { SectionHeaderItem, SessionNodeItem, type SessionSectionActions } from './Rows.tsx'
+import { SectionHeaderItem, SessionNodeItem, type RowRenderSlots, type SessionSectionActions } from './Rows.tsx'
 import css from './WorkspaceBrowser.module.css'
 import { useNativeDragAcceptance } from './drag.ts'
 
@@ -44,9 +44,11 @@ interface SectionDragState {
 
 export interface SectionsListProps extends Pick<
   WorkspaceBrowserProps,
-  'useSessionStatus' | 'open' | 'forkSession' | 'usePanelInfo' | 't'
+  'useSessionStatus' | 'open' | 'usePanelInfo' | 't'
 > {
   list: SessionListState
+  /** Registry-global pin and archive sets plus the archived-visibility choice. */
+  rowState: SessionRowState
   /** Visible top-level Sessions in fallback (recency) order. */
   visibleSessionIds: readonly SessionId[]
   /** Persisted section layer. */
@@ -55,8 +57,10 @@ export interface SectionsListProps extends Pick<
   appearanceBySession: Readonly<Record<string, WorkspaceAppearance>>
   /** Selected provisional New Session, pinned first wherever it renders. */
   currentBlank: SessionId | undefined
-  onSessionRename: (sessionId: SessionNode['id'], currentTitle: string) => void
-  onSessionArchive: (sessionId: SessionNode['id']) => void
+  /** Open the rename dialog from a row title double-click. */
+  onSessionRenameRequest: (sessionId: SessionNode['id'], currentTitle: string) => void
+  /** Child-seat renderer for the rows' action lists, leading decoration, and hover section. */
+  renderSlot: RowRenderSlots
   /** Assign a Session to a section (or to no section) at the head of its list. */
   assignSession: (sessionId: SessionId, sectionId: string | undefined) => void
   /** Move a Session within, or into, a section at an explicit position. */
@@ -78,8 +82,8 @@ export interface SectionsListProps extends Pick<
  * @returns the sections tree body.
  */
 export function SectionsList({
-  list, visibleSessionIds, sections, appearanceBySection, appearanceBySession, currentBlank, useSessionStatus, open, forkSession,
-  usePanelInfo, onSessionRename, onSessionArchive, assignSession, setSectionOrder,
+  list, rowState, visibleSessionIds, sections, appearanceBySection, appearanceBySession, currentBlank, useSessionStatus, open,
+  usePanelInfo, onSessionRenameRequest, renderSlot, assignSession, setSectionOrder,
   toggleSection, moveSection, onSectionRename, onSectionDelete, onSectionAppearanceChange,
   onSessionAppearanceChange, t,
   externalChatSessionId, onChatDragEnd,
@@ -91,8 +95,8 @@ export function SectionsList({
     [list.byId, sections, visibleSessionIds],
   )
   const nodes = useMemo(
-    () => new Map(deriveFlat(list, visibleSessionIds, statuses).map(node => [node.id as string, node])),
-    [list, statuses, visibleSessionIds],
+    () => new Map(deriveFlat(list, visibleSessionIds, rowState, statuses).map(node => [node.id as string, node])),
+    [list, rowState, statuses, visibleSessionIds],
   )
   const currentId = panelActive
     ? undefined
@@ -189,15 +193,13 @@ export function SectionsList({
         currentId={currentId}
         now={Date.now()}
         onOpen={open}
-        onRename={onSessionRename}
-        onFork={forkSession}
-        onArchive={onSessionArchive}
+        onRenameRequest={onSessionRenameRequest}
+        renderSlot={renderSlot}
         appearance={appearanceBySession[node.id]}
         appearanceActions={{
           color: (color) => { onSessionAppearanceChange(node.id, { color }) },
           icon: (icon) => { onSessionAppearanceChange(node.id, { icon }) },
         }}
-        flat
         sectionActions={sectionActions(sectionId)}
         drag={{
           start: () => {

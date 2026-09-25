@@ -40,8 +40,7 @@ function sessions(items: readonly SessionSummary[]): SessionListState {
     ids: items.map(item => item.id),
     byId: Object.fromEntries(items.map(item => [item.id, item])),
     phase: 'ready',
-    subagentsByParent: {},
-    jobsBySession: {},
+    projectionsBySession: {},
   }
 }
 
@@ -57,7 +56,7 @@ function workspace(id: string, title = id): WorkspaceView {
 }
 
 function workspaces(items: readonly WorkspaceView[]): WorkspaceSnapshot {
-  return { items, archivedSessionIds: [], state: 'idle', phase: 'ready', error: null }
+  return { items, archivedSessionIds: [], pinnedSessionIds: [], state: 'idle', phase: 'ready', error: null }
 }
 
 function mount(overrides: Partial<QuickSwitcherProps> = {}) {

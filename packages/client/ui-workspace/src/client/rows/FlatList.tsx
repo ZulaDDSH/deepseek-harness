@@ -5,77 +5,84 @@ import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/c
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
 import type { WorkspaceAppearance } from '../appearance.ts'
-import { deriveFlat, pinCurrentBlank, type SessionNode } from '../tree.ts'
+import { deriveFlat, type SessionNode, type SessionRowState } from '../tree.ts'
 import { FLAT_SESSION_ORDER_KEY } from '../stores.ts'
-import { SessionNodeItem } from './Rows.tsx'
+import { AnimatedRows } from './AnimatedRows.tsx'
+import { EmptySessions } from './EmptySessions.tsx'
+import { SessionNodeItem, type RowRenderSlots } from './Rows.tsx'
 import css from './WorkspaceBrowser.module.css'
-import { useNativeDragAcceptance } from './drag.ts'
+import { sessionDragOrder, type SessionDragState, useNativeDragAcceptance } from './drag.ts'
 
-interface DragState {
-  sessionId: SessionNode['id']
-  over: { id: SessionNode['id']; half: 'before' | 'after' } | null
-}
-
+/** Props of the flat "In one list" body. */
 export interface FlatListProps extends Pick<
   WorkspaceBrowserProps,
-  'useSessionStatus' | 'open' | 'forkSession' | 'usePanelInfo' | 't'
+  'useSessionStatus' | 'open' | 'usePanelInfo' | 't'
 > {
   list: SessionListState
   appearanceBySession: Readonly<Record<string, WorkspaceAppearance>>
   onSessionAppearanceChange: (sessionId: SessionId, change: WorkspaceAppearance) => void
   sessionIds: readonly SessionId[]
+  /** Registry-global pin and archive sets plus the archived-visibility choice. */
+  rowState: SessionRowState
+  /** Switch the archived filter back to the default hide-archived view. */
+  onLeaveArchivedOnly: () => void
+  /** Whether the current Workspace stream has a complete Host baseline. */
+  workspaceReady: boolean
+  /** Grouping, ordering, and filter changes replace the view without row motion. */
+  animationResetKey: string
   setSessionOrder: (accountKey: string, order: readonly string[]) => void
-  onSessionRename: (sessionId: SessionNode['id'], currentTitle: string) => void
-  onSessionArchive: (sessionId: SessionNode['id']) => void
+  /** Open the rename dialog from a row title double-click. */
+  onSessionRenameRequest: (sessionId: SessionNode['id'], currentTitle: string) => void
+  /** Child-seat renderer for the rows' action lists, leading decoration, and hover section. */
+  renderSlot: RowRenderSlots
   revealSessionId?: SessionId | undefined
   onSessionRevealed: (sessionId: SessionId) => void
 }
 
 /**
  * Render every visible Session as one draggable top-level row.
- * @param props - flat membership, ordering callback, row actions, and standard hooks.
+ * @param props - flat membership, ordering callback, row seats, and standard hooks.
  * @returns the flat Session list.
  */
 export function FlatList({
-  list, sessionIds, appearanceBySession, onSessionAppearanceChange, useSessionStatus, open, forkSession, onSessionRename, onSessionArchive,
-  usePanelInfo, setSessionOrder, revealSessionId, onSessionRevealed, t,
+  list, sessionIds, rowState, onLeaveArchivedOnly, appearanceBySession, onSessionAppearanceChange,
+  useSessionStatus, open, onSessionRenameRequest, renderSlot,
+  usePanelInfo, setSessionOrder, workspaceReady, animationResetKey, revealSessionId, onSessionRevealed, t,
 }: FlatListProps) {
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
   const statuses = useSessionStatus(s => s)
   const rows = useMemo(
-    () => deriveFlat(list, sessionIds, statuses),
-    [list, sessionIds, statuses],
+    () => deriveFlat(list, sessionIds, rowState, statuses),
+    [list, sessionIds, rowState, statuses],
   )
-  const [drag, setDrag] = useState<DragState | null>(null)
+  const [drag, setDrag] = useState<SessionDragState | null>(null)
   const dropCommitted = useRef(false)
   useNativeDragAcceptance(drag !== null)
   const currentId = panelActive
     ? undefined
     : Object.values(list.byId).find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
-  const commitDrag = (activeDrag: DragState, over: NonNullable<DragState['over']>): void => {
+  const commitDrag = (activeDrag: SessionDragState, over: NonNullable<SessionDragState['over']>): void => {
     if (dropCommitted.current) return
     dropCommitted.current = true
     setDrag(null)
-    const targetIndex = rows.findIndex(row => row.id === over.id)
-    if (targetIndex === -1) return
-    const anchor = over.half === 'before' ? over.id : rows[targetIndex + 1]?.id
-    if (anchor === activeDrag.sessionId) return
-    const sourceIndex = rows.findIndex(row => row.id === activeDrag.sessionId)
-    const anchorIndex = anchor === undefined ? rows.length : rows.findIndex(row => row.id === anchor)
-    if (sourceIndex !== -1 && (anchorIndex === sourceIndex || anchorIndex === sourceIndex + 1)) return
-    const nextOrder = rows.map(row => row.id).filter(id => id !== activeDrag.sessionId)
-    const insertAt = anchor === undefined ? nextOrder.length : nextOrder.indexOf(anchor)
-    nextOrder.splice(insertAt === -1 ? nextOrder.length : insertAt, 0, activeDrag.sessionId)
-    const currentBlank = rows.find(node => node.blank)?.id
-    setSessionOrder(FLAT_SESSION_ORDER_KEY, pinCurrentBlank(nextOrder, currentBlank))
+    const nextOrder = sessionDragOrder(sessionIds, rows, activeDrag, over)
+    if (nextOrder !== undefined) setSessionOrder(FLAT_SESSION_ORDER_KEY, nextOrder)
   }
   const now = Date.now()
   return (
     <div className={clsx(css.treeBody, css.wide)}>
-      <div className={clsx(css.list, css.flatList)} role="tree" aria-label={t('section.sessions')}>
-        {rows.length === 0 && <div className={css.empty}>{t('empty.none')}</div>}
+      <AnimatedRows
+        className={clsx(css.list, css.flatList)}
+        label={t('section.sessions')}
+        rowKeys={rows.length === 0 ? ['empty'] : rows.map(row => `session:${row.id}`)}
+        ready={list.phase === 'ready' && workspaceReady && drag === null}
+        resetKey={animationResetKey}
+      >
+        {rows.length === 0 && (
+          <EmptySessions rowState={rowState} onLeaveArchivedOnly={onLeaveArchivedOnly} t={t} />
+        )}
         {rows.map((node) => {
-          const active = drag !== null
+          const active = drag !== null && drag.pinned === node.pinned
           const normalizeHalf = (half: 'before' | 'after'): 'before' | 'after' =>
             node.blank ? 'after' : half
           return (
@@ -85,9 +92,8 @@ export function FlatList({
               currentId={currentId}
               now={now}
               onOpen={open}
-              onRename={onSessionRename}
-              onFork={forkSession}
-              onArchive={onSessionArchive}
+              onRenameRequest={onSessionRenameRequest}
+              renderSlot={renderSlot}
               appearance={appearanceBySession[node.id]}
               appearanceActions={{
                 color: (color) => { onSessionAppearanceChange(node.id, { color }) },
@@ -96,11 +102,10 @@ export function FlatList({
               onReveal={node.id === revealSessionId
                 ? () => { onSessionRevealed(node.id) }
                 : undefined}
-              flat
               drag={{
                 start: () => {
                   dropCommitted.current = false
-                  setDrag({ sessionId: node.id, over: null })
+                  setDrag({ accountKey: FLAT_SESSION_ORDER_KEY, sessionId: node.id, pinned: node.pinned, over: null })
                 },
                 active,
                 marker: active && drag.over?.id === node.id ? drag.over.half : null,
@@ -122,7 +127,7 @@ export function FlatList({
             />
           )
         })}
-      </div>
+      </AnimatedRows>
       <span className={css.fade} />
     </div>
   )

@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-18-pi-ai-catalog-supplement.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-18-pi-ai-catalog-supplement.md
-2026-09-18-pi-ai-catalog-supplement.md: 4ce592049a8823f6e437dd529a24d1bedbeab255
-2026-09-18-pi-ai-catalog-supplement.zh.md: feecda6449c1e125d761d78528534e17c290ea7d
+/agent-note-curated-pi-ai-catalog-supplement:
+  en: 9f16da52f1c2b1dd
+  zh: e5ccd5e14cbebd02
+/agent-note-curated-pi-ai-catalog-supplement/problem:
+  en: 56433b17a527dc1b
+  zh: 0a571948462f591b
+/agent-note-curated-pi-ai-catalog-supplement/decision:
+  en: 42e6371344708f62
+  zh: f5237790dfcb18dd
+/agent-note-curated-pi-ai-catalog-supplement/verification:
+  en: ff2fff1b0659eda5
+  zh: 7039e8c7088a7d42
+/agent-note-curated-pi-ai-catalog-supplement/alternatives-considered:
+  en: e3c4717d5c164a4d
+  zh: 7155b46afb8d2647
+/agent-note-curated-pi-ai-catalog-supplement/consequences:
+  en: 560e070f781e488b
+  zh: a5ca5e9353d868bc

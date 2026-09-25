@@ -1,44 +1,53 @@
-/** Browser-owned rename, archive, and Workspace deletion interactions. */
+/**
+ * Browser-owned Workspace rename and deletion dialogs. Session verbs are row
+ * action slot entries with their own surfaces, so none of them live here.
+ */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
-import type { SessionNode } from '../tree.ts'
 import css from './WorkspaceBrowser.module.css'
 
+/** The dialog tree plus the two row requests that open it. */
 export interface WorkspaceDialogController {
   dialogs: ReactNode
-  onWorkspaceRename: (workspaceId: WorkspaceId, currentTitle: string) => void
+  /** Open the rename dialog seeded with the label on screen. */
+  onWorkspaceRename: (workspaceId: WorkspaceId, displayTitle: string) => void
   onWorkspaceDelete: (workspaceId: WorkspaceId, title: string) => void
-  onSessionRename: (sessionId: SessionNode['id'], currentTitle: string) => void
-  onSessionArchive: (sessionId: SessionNode['id']) => void
 }
 
 /**
  * Own the browser dialogs so row unmounts cannot tear down in-flight mutations.
- * @param options - current Workspace projection, mutation callbacks, and locale seat.
+ * @param options - displayed and stored Workspace projections, mutation callbacks, and locale seat.
  * @returns row action callbacks plus the dialog tree rendered by the browser root.
  */
 export function useWorkspaceDialogs(options: {
+  /** Workspaces with their display titles (the automatic title localized). */
   workspaces: readonly WorkspaceView[]
+  /** Workspaces as stored; a rename compares against the stored title. */
+  storedWorkspaces: readonly WorkspaceView[]
   renameWorkspace: WorkspaceBrowserProps['renameWorkspace']
-  renameSession: WorkspaceBrowserProps['renameSession']
   deleteWorkspace: WorkspaceBrowserProps['deleteWorkspace']
-  archiveSession: WorkspaceBrowserProps['archiveSession']
   t: WorkspaceBrowserProps['t']
 }): WorkspaceDialogController {
-  const { workspaces, renameWorkspace, renameSession, deleteWorkspace, archiveSession, t } = options
+  const { workspaces, storedWorkspaces, renameWorkspace, deleteWorkspace, t } = options
   const composingRef = useRef(false)
 
-  const [renameTarget, setRenameTarget] = useState<{ workspaceId: WorkspaceId; currentTitle: string } | null>(null)
+  // The stored title decides whether confirming is a real rename; the draft is
+  // seeded with the label on screen. They differ for a Workspace still
+  // carrying its automatic title, so confirming the prefill pins that name.
+  const [renameTarget, setRenameTarget] = useState<{ workspaceId: WorkspaceId; storedTitle: string } | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
   const [renaming, setRenaming] = useState(false)
   const [renameError, setRenameError] = useState<string | null>(null)
   const renameTrimmed = renameDraft.trim()
-  const renameDuplicate = renameTarget !== null && renameTrimmed !== '' && renameTrimmed !== renameTarget.currentTitle
-    && workspaces.some(workspace => workspace.title === renameTrimmed)
+  // Self is excluded by identity, not by title: the draft is seeded with the
+  // localized label, which for an automatically titled Workspace equals its
+  // own displayed title without being a conflict with itself.
+  const renameDuplicate = renameTarget !== null && renameTrimmed !== ''
+    && workspaces.some(workspace => workspace.workspaceId !== renameTarget.workspaceId && workspace.title === renameTrimmed)
   const renameBlocked = renaming || renameTrimmed === ''
-    || renameTarget === null || renameTrimmed === renameTarget.currentTitle || renameDuplicate
+    || renameTarget === null || renameTrimmed === renameTarget.storedTitle || renameDuplicate
   const closeRename = (): void => {
     if (renaming) return
     setRenameTarget(null)
@@ -56,31 +65,6 @@ export function useWorkspaceDialogs(options: {
     }).catch((reason: unknown) => {
       setRenaming(false)
       setRenameError(reason instanceof Error ? reason.message : String(reason))
-    })
-  }
-
-  const [sessionRenameTarget, setSessionRenameTarget] = useState<{ sessionId: SessionNode['id']; currentTitle: string } | null>(null)
-  const [sessionRenameDraft, setSessionRenameDraft] = useState('')
-  const [sessionRenaming, setSessionRenaming] = useState(false)
-  const [sessionRenameError, setSessionRenameError] = useState<string | null>(null)
-  const sessionRenameTrimmed = sessionRenameDraft.trim()
-  const sessionRenameBlocked = sessionRenaming || sessionRenameTrimmed === '' || sessionRenameTarget === null
-  const closeSessionRename = (): void => {
-    if (sessionRenaming) return
-    setSessionRenameTarget(null)
-    setSessionRenameError(null)
-  }
-  const confirmSessionRename = (): void => {
-    // Same as confirmRename: sessionRenameBlocked already covers the null target.
-    if (sessionRenameBlocked) return
-    setSessionRenaming(true)
-    setSessionRenameError(null)
-    renameSession(sessionRenameTarget.sessionId, sessionRenameTrimmed).then(() => {
-      setSessionRenaming(false)
-      setSessionRenameTarget(null)
-    }).catch((reason: unknown) => {
-      setSessionRenaming(false)
-      setSessionRenameError(reason instanceof Error ? reason.message : String(reason))
     })
   }
 
@@ -113,24 +97,17 @@ export function useWorkspaceDialogs(options: {
     })
   }
 
-  const onWorkspaceRename = (workspaceId: WorkspaceId, currentTitle: string): void => {
-    setRenameTarget({ workspaceId, currentTitle })
-    setRenameDraft(currentTitle)
+  const onWorkspaceRename = (workspaceId: WorkspaceId, displayTitle: string): void => {
+    setRenameTarget({
+      workspaceId,
+      storedTitle: storedWorkspaces.find(workspace => workspace.workspaceId === workspaceId)?.title ?? displayTitle,
+    })
+    setRenameDraft(displayTitle)
     setRenameError(null)
   }
   const onWorkspaceDelete = (workspaceId: WorkspaceId, title: string): void => {
     setDeleteTarget({ workspaceId, title })
     setDeleteError(null)
-  }
-  const onSessionRename = (sessionId: SessionNode['id'], currentTitle: string): void => {
-    setSessionRenameTarget({ sessionId, currentTitle })
-    setSessionRenameDraft(currentTitle)
-    setSessionRenameError(null)
-  }
-  const onSessionArchive = (sessionId: SessionNode['id']): void => {
-    archiveSession(sessionId).catch((reason: unknown) => {
-      console.warn('session archive rejected:', reason)
-    })
   }
 
   const dialogs = (
@@ -151,7 +128,7 @@ export function useWorkspaceDialogs(options: {
           className={css.renameInput}
           value={renameDraft}
           aria-label={t('field.workspaceName')}
-          autoFocus
+          data-modal-autofocus
           disabled={renaming}
           onFocus={(event) => { event.target.select() }}
           onChange={(event) => { setRenameDraft(event.target.value); setRenameError(null) }}
@@ -168,38 +145,6 @@ export function useWorkspaceDialogs(options: {
           <div className={css.renameError} role="alert">{t('conflict.named', { name: renameTrimmed })}</div>
         )}
         {renameError !== null && <div className={css.renameError} role="alert">{renameError}</div>}
-      </Modal>
-
-      <Modal
-        open={sessionRenameTarget !== null}
-        onClose={closeSessionRename}
-        closeLabel={t('close')}
-        title={t('rename.session.title')}
-        footer={(
-          <>
-            <Button variant="outline" disabled={sessionRenaming} onClick={closeSessionRename}>{t('cancel')}</Button>
-            <Button variant="primary" disabled={sessionRenameBlocked} onClick={confirmSessionRename}>{t('rename')}</Button>
-          </>
-        )}
-      >
-        <input
-          className={css.renameInput}
-          value={sessionRenameDraft}
-          aria-label={t('field.sessionName')}
-          autoFocus
-          disabled={sessionRenaming}
-          onFocus={(event) => { event.target.select() }}
-          onChange={(event) => { setSessionRenameDraft(event.target.value); setSessionRenameError(null) }}
-          onCompositionStart={() => { composingRef.current = true }}
-          onCompositionEnd={() => { composingRef.current = false }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && !composingRef.current) {
-              event.preventDefault()
-              confirmSessionRename()
-            }
-          }}
-        />
-        {sessionRenameError !== null && <div className={css.renameError} role="alert">{sessionRenameError}</div>}
       </Modal>
 
       <Modal
@@ -230,5 +175,5 @@ export function useWorkspaceDialogs(options: {
     </>
   )
 
-  return { dialogs, onWorkspaceRename, onWorkspaceDelete, onSessionRename, onSessionArchive }
+  return { dialogs, onWorkspaceRename, onWorkspaceDelete }
 }

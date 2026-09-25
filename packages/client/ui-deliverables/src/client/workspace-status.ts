@@ -1,5 +1,5 @@
 /** Fetch-once cache for current git status of registered Workspaces. */
-import type { WorkspaceId } from '@deepseek-ai/dsh-workspace'
+import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import { isWorkspaceStatus, workspaceStatusUrl, type WorkspaceStatusValue } from '../changes.ts'
 import { HostReadStore } from './host-read-store.ts'
 

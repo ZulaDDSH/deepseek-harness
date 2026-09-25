@@ -16,7 +16,8 @@ import type { WorkspaceId, WorkspaceSnapshot, WorkspaceView } from '@deepseek-ai
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
-import type { WorkspaceBrowserProps } from '../src/client/contract/slots.ts'
+import type { DirectoryFlowOwnerProps, WorkspaceBrowserProps } from '../src/client/contract/slots.ts'
+import { createWorkspaceShortcutControls } from '../src/client/shortcuts.ts'
 import { createWorkspaceViewStore } from '../src/client/stores.ts'
 import { WorkspaceBrowser } from '../src/client/rows/WorkspaceBrowser.tsx'
 import { zh } from '../src/client/locales.ts'
@@ -46,7 +47,7 @@ const sessionState = (items: readonly SessionSummary[], main?: SessionId): Sessi
     ids: items.map(item => item.id),
     byId: Object.fromEntries(items.map(item => [item.id, item])),
     phase: 'ready',
-    subagentsByParent: {}, jobsBySession: {},
+    projectionsBySession: {},
   }
   if (main === undefined) return base
   const row = base.byId[main]
@@ -58,7 +59,7 @@ const workspace = (id: string, sessionIds: readonly string[], title = id): Works
   sessionIds: sessionIds.map(sid), createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
 })
 const workspaceState = (items: readonly WorkspaceView[]): WorkspaceSnapshot =>
-  ({ items, archivedSessionIds: [], state: 'idle', phase: 'ready', error: null })
+  ({ items, archivedSessionIds: [], pinnedSessionIds: [], state: 'idle', phase: 'ready', error: null })
 const noStatuses: SessionStatusSnapshot = new Map()
 const hook = <T,>(snapshot: T) => function select<S>(selector: (state: T) => S): S { return selector(snapshot) }
 
@@ -72,9 +73,23 @@ function fireDrag(target: HTMLElement, kind: 'dragOver' | 'drop', clientY = 0): 
 const dragData = (): Pick<DataTransfer, 'effectAllowed' | 'dropEffect' | 'setData'> =>
   ({ effectAllowed: 'uninitialized', dropEffect: 'none', setData: vi.fn() })
 
+const renderDirectoryFlowOnly: WorkspaceBrowserProps['renderSlot'] = (name: string, owner: object) =>
+  name === 'sidebar.workspaces.directoryFlow' && (owner as DirectoryFlowOwnerProps).open
+    ? <div data-testid="directory-flow" />
+    : null
+
 function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
+  const controls = createWorkspaceShortcutControls()
   const store = createWorkspaceViewStore().create()
   const props: WorkspaceBrowserProps = {
+    useShortcuts: select => select([]),
+    useWorkspaceShortcuts: bindSnapshotSelector(controls.state),
+    requestSearch: controls.search,
+    requestAddWorkspace: controls.add,
+    closeAddWorkspace: controls.closeAdd,
+    setDirectoryBusy: controls.directoryBusy,
+    requestSessionRename: controls.rename,
+    dismissForkError: controls.dismissForkError,
     wide: true,
     expandSidebar: vi.fn(),
     useSessions: hook(sessionState([])),
@@ -88,17 +103,16 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     open: vi.fn(),
     searchSessions: vi.fn(async () => ({ items: [], hasMore: false })),
     searchResultLimit: 20,
-    renameSession: vi.fn(async () => {}),
-    forkSession: vi.fn(),
+    notifyArchivedNotOpenable: vi.fn(),
     renameWorkspace: vi.fn(async () => {}),
     deleteWorkspace: vi.fn(async () => {}),
-    archiveSession: vi.fn(async () => {}),
+    unarchiveSession: vi.fn(async () => {}),
     insertWorkspaceBefore: vi.fn(async () => {}),
     createWorkspace: vi.fn(async () => workspace('created', [])),
     newSectionId: () => `section-${String(nextSectionId++)}`,
     useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => true, subscribe: () => () => {} }),
     useHostInfo: selector => selector({ home: undefined, isLoopback: true }),
-    renderSlot: ((_name: string, owner: { open: boolean }) => (owner.open ? <div data-testid="directory-flow" /> : null)) as never,
+    renderSlot: renderDirectoryFlowOnly,
     t,
     ...overrides,
   }

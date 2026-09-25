@@ -4,52 +4,40 @@ import clsx from 'clsx'
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { ShortcutCatalogEntry } from '@deepseek-ai/dsh-client-shortcuts/client'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
 import type { WorkspaceAppearance } from '../appearance.ts'
-import type { GroupNode, SessionNode } from '../tree.ts'
+import type { GroupNode, SessionNode, SessionRowState } from '../tree.ts'
 import {
-  deriveGroups, owningGroupKey, owningParentFolder, pinCurrentBlank, UNGROUPED_KEY,
+  deriveGroups, owningGroupKey, owningParentFolder, UNGROUPED_KEY,
 } from '../tree.ts'
-import { useNativeDragAcceptance } from './drag.ts'
-import { ProjectRowItem, SessionNodeItem } from './Rows.tsx'
+import { sessionDragOrder, type SessionDragState, useNativeDragAcceptance } from './drag.ts'
+import { AnimatedRows } from './AnimatedRows.tsx'
+import { EmptySessions } from './EmptySessions.tsx'
+import { ProjectRowItem, SessionNodeItem, type RowRenderSlots } from './Rows.tsx'
 import type { ChatSection } from '../stores.ts'
 import css from './WorkspaceBrowser.module.css'
 
+/** Idle Session rows visible per Workspace before the local overflow control. */
 const COLLAPSED_SESSION_LIMIT = 5
 
-/** Fold one Workspace without charging its provisional New Session against the ordinary-row limit. */
-function collapsedSessionRows(sessions: readonly SessionNode[]): {
+/** Keep provisional and running rows outside the idle-session quota, including parents with running children. */
+function collapsedSessionRows(sessions: readonly SessionNode[], limit = COLLAPSED_SESSION_LIMIT): {
   rows: readonly SessionNode[]
   hiddenCount: number
 } {
-  let ordinaryCount = 0
+  let idleCount = 0
   const rows = sessions.filter((session) => {
-    if (session.blank) return true
-    if (ordinaryCount >= COLLAPSED_SESSION_LIMIT) return false
-    ordinaryCount += 1
+    if (session.blank || session.running || session.runningSubagentCount > 0) return true
+    if (idleCount >= limit) return false
+    idleCount += 1
     return true
   })
   return { rows, hiddenCount: sessions.length - rows.length }
 }
 
-/** Immutable membership toggle for the local expand-all array. */
-function toggled(list: readonly string[], key: string): string[] {
-  return list.includes(key) ? list.filter(k => k !== key) : [...list, key]
-}
-
-/**
- * Accept the native drag at document level while a row drag is active: row
- * hover still owns the insertion marker, and releasing outside the list must
- * not be rendered as a rejected drop before dragend commits that last marker.
- */
-/** In-flight root-row drag: source identity plus the current insert marker. */
-interface DragState {
-  /** Workspace id, or {@link UNGROUPED_KEY} for the browser-local loose-session account. */
-  accountKey: string
-  sessionId: SessionNode['id']
-  /** Row the marker sits on and which half (insert above/below it). */
-  over: { id: SessionNode['id']; half: 'before' | 'after' } | null
-}
+/** In-flight Session-row drag; `accountKey` is a Workspace id or {@link UNGROUPED_KEY}. */
+type DragState = SessionDragState
 
 /** In-flight Workspace-row drag: source identity plus the current marker. */
 interface WorkspaceDragState {
@@ -65,9 +53,13 @@ function workspaceGroupHalf(e: { clientY: number; currentTarget: HTMLElement }):
 
 type SessionTreeProps = Pick<
   WorkspaceBrowserProps,
-  'useSessionStatus' | 'startSession' | 'open' | 'forkSession'
+  'useSessionStatus' | 'startSession' | 'open'
   | 'insertWorkspaceBefore' | 't' | 'usePanelInfo'
 > & {
+  /** Effective shortcut catalog; the Workspace row's New Session button shows its binding. */
+  shortcuts: readonly ShortcutCatalogEntry[]
+  /** Child-seat renderer for the rows' action lists, leading decoration, and hover section. */
+  renderSlot: RowRenderSlots
   /** Always-mounted Session list snapshot. */
   list: SessionListState
   /** Host account home for POSIX hover-path abbreviation. */
@@ -79,6 +71,8 @@ type SessionTreeProps = Pick<
   ungroupedSessionIds: readonly SessionId[]
   /** Whether the current Workspace stream has a complete Host baseline. */
   workspaceReady: boolean
+  /** Grouping, ordering, and filter changes replace the view without row motion. */
+  animationResetKey: string
   /** Nest Workspaces under their nearest registered ancestors. */
   nestWorkspaces: boolean
   /** Explicit persisted group expansion, including descendants in tree mode. */
@@ -87,8 +81,10 @@ type SessionTreeProps = Pick<
   setGroupExpanded: (key: string, expanded: boolean) => void
   /** Save a drag order and select Manual. */
   setSessionOrder: (accountKey: string, order: readonly string[]) => void
-  /** Registry-global archive set (hidden rows). */
-  archivedSessionIds: readonly SessionNode['id'][]
+  /** Registry-global pin and archive sets plus the archived-visibility choice. */
+  rowState: SessionRowState
+  /** Switch the archived filter back to the default hide-archived view. */
+  onLeaveArchivedOnly: () => void
   /** Open the browser-owned rename dialog for a real Workspace group. */
   onRenameRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
   /** Open the browser-owned delete-confirmation dialog for a real Workspace group. */
@@ -98,10 +94,8 @@ type SessionTreeProps = Pick<
   onAppearanceChange: (workspaceId: WorkspaceId, change: WorkspaceAppearance) => void
   appearanceBySession: Readonly<Record<string, WorkspaceAppearance>>
   onSessionAppearanceChange: (sessionId: SessionId, change: WorkspaceAppearance) => void
-  /** Open the browser-owned session rename dialog. */
-  onSessionRename: (sessionId: SessionNode['id'], currentTitle: string) => void
-  /** Archive a session (row menu action; the row disappears on the state echo). */
-  onSessionArchive: (sessionId: SessionNode['id']) => void
+  /** Open the rename dialog from a row title double-click. */
+  onSessionRenameRequest: (sessionId: SessionNode['id'], currentTitle: string) => void
   /** One Session chosen from search that must be exposed and scrolled into view. */
   revealSessionId?: SessionId | undefined
   /** Acknowledge that the chosen Session row has been revealed. */
@@ -126,10 +120,11 @@ type SessionTreeProps = Pick<
  * @returns the grouped tree body.
  */
 export function SessionTree({
-  list, useSessionStatus, startSession, open, forkSession, workspaces, ungroupedSessionIds, appearanceByWorkspace,
-  archivedSessionIds,
-  workspaceReady, usePanelInfo,
-  onRenameRequest, onDeleteRequest, onAppearanceRequest, onAppearanceChange, onSessionRename, onSessionArchive,
+  list, useSessionStatus, startSession, open, workspaces, ungroupedSessionIds, appearanceByWorkspace,
+  rowState, onLeaveArchivedOnly,
+  workspaceReady, animationResetKey, usePanelInfo,
+  onRenameRequest, onDeleteRequest, onAppearanceRequest, onAppearanceChange, onSessionRenameRequest,
+  renderSlot, shortcuts,
   appearanceBySession, onSessionAppearanceChange,
   insertWorkspaceBefore,
   nestWorkspaces, groupExpansion, setGroupExpanded,
@@ -145,7 +140,7 @@ export function SessionTree({
   const revealGroup = revealSessionId === undefined || !workspaceReady
     ? undefined
     : owningGroupKey(workspaces, revealSessionId)
-  const [expandedSessionGroups, setExpandedSessionGroups] = useState<string[]>([])
+  const [sessionLimits, setSessionLimits] = useState<Readonly<Record<string, number>>>({})
   const [drag, setDrag] = useState<DragState | null>(null)
   const sessionDropCommitted = useRef(false)
   const [workspaceDrag, setWorkspaceDrag] = useState<WorkspaceDragState | null>(null)
@@ -181,11 +176,11 @@ export function SessionTree({
       .filter(key => groupExpansion[key] ?? ancestorKeys.has(key))
   }, [groupExpansion, parents, workspaces])
   const groups = useMemo(
-    () => deriveGroups(list, workspaces, archivedSessionIds, statuses, {
+    () => deriveGroups(list, workspaces, rowState, statuses, {
       expandedGroups,
       ungroupedOrder: ungroupedSessionIds,
     }),
-    [list, workspaces, archivedSessionIds, statuses, expandedGroups, ungroupedSessionIds],
+    [list, workspaces, rowState, statuses, expandedGroups, ungroupedSessionIds],
   )
   useEffect(() => {
     for (let key = revealGroup; key !== undefined; key = parents.get(key)) {
@@ -199,7 +194,7 @@ export function SessionTree({
     const group = groups.find(candidate => candidate.key === revealGroup)
     if (group === undefined || !group.expanded || !group.sessions.some(row => row.id === revealSessionId)) return
     if (collapsedSessionRows(group.sessions).rows.some(row => row.id === revealSessionId)) return
-    setExpandedSessionGroups(keys => keys.includes(revealGroup) ? keys : [...keys, revealGroup])
+    setSessionLimits(limits => limits[revealGroup] === Infinity ? limits : { ...limits, [revealGroup]: Infinity })
   }, [groups, revealGroup, revealSessionId])
   const now = Date.now()
   const commitSessionDrag = (activeDrag: DragState, over: NonNullable<DragState['over']>): void => {
@@ -208,47 +203,14 @@ export function SessionTree({
     setDrag(null)
     const group = groups.find(candidate => candidate.key === activeDrag.accountKey)
     if (group === undefined) return
-    const sessionsExpanded = expandedSessionGroups.includes(group.key)
-    const renderedSessions = sessionsExpanded ? group.sessions : collapsedSessionRows(group.sessions).rows
-    const targetIndex = renderedSessions.findIndex(session => session.id === over.id)
-    if (targetIndex === -1) return
-    const sourceIndex = renderedSessions.findIndex(session => session.id === activeDrag.sessionId)
     if (over.id === activeDrag.sessionId) return
-    const withoutSource = renderedSessions.filter(session => session.id !== activeDrag.sessionId)
-    const targetWithoutSourceIndex = withoutSource.findIndex(session => session.id === over.id)
-    if (targetWithoutSourceIndex === -1) return
-    const visibleInsertAt = over.half === 'before' ? targetWithoutSourceIndex : targetWithoutSourceIndex + 1
-    if (sourceIndex !== -1 && visibleInsertAt === sourceIndex) return
     const accountSessionIds = activeDrag.accountKey === UNGROUPED_KEY
       ? ungroupedSessionIds
       : workspaces.find(workspace => workspace.workspaceId === activeDrag.accountKey)?.sessionIds
-    if (accountSessionIds === undefined || !accountSessionIds.includes(activeDrag.sessionId)) return
-    const nextOrder = accountSessionIds.filter(id => id !== activeDrag.sessionId)
-    let anchor: SessionId | undefined
-    if (sessionsExpanded) {
-      anchor = over.half === 'before' ? over.id : renderedSessions[targetIndex + 1]?.id
-    } else {
-      const previousVisible = withoutSource[visibleInsertAt - 1]?.id
-      if (previousVisible === undefined) {
-        anchor = nextOrder[0]
-      } else {
-        const previousIndex = nextOrder.indexOf(previousVisible)
-        if (previousIndex === -1) return
-        anchor = nextOrder[previousIndex + 1]
-      }
-    }
-    const insertAt = anchor === undefined ? nextOrder.length : nextOrder.indexOf(anchor)
-    nextOrder.splice(insertAt === -1 ? nextOrder.length : insertAt, 0, activeDrag.sessionId)
-    if (!sessionsExpanded && sourceIndex !== -1) {
-      const nodes = new Map(group.sessions.map(node => [node.id, node]))
-      const nextGroup = nextOrder.flatMap((id) => {
-        const node = nodes.get(id)
-        return node === undefined ? [] : [node]
-      })
-      if (!collapsedSessionRows(nextGroup).rows.some(node => node.id === activeDrag.sessionId)) return
-    }
-    const currentBlank = group.sessions.find(node => node.blank)?.id
-    setSessionOrder(activeDrag.accountKey, pinCurrentBlank(nextOrder, currentBlank))
+    if (accountSessionIds === undefined) return
+    const renderedSessions = collapsedSessionRows(group.sessions, sessionLimits[group.key]).rows
+    const nextOrder = sessionDragOrder(accountSessionIds, renderedSessions, activeDrag, over)
+    if (nextOrder !== undefined) setSessionOrder(activeDrag.accountKey, nextOrder)
   }
   const commitWorkspaceDrag = (
     activeDrag: WorkspaceDragState,
@@ -273,9 +235,13 @@ export function SessionTree({
     })
   }
   const childrenByParent = useMemo(() => {
+    const rendered = new Set(groups.map(group => group.key))
     const children = new Map<string | undefined, GroupNode[]>()
     for (const group of groups) {
-      const parent = parents.get(group.key)
+      // The archived-only view drops empty groups, so an ancestor may be
+      // absent; nest under the nearest rendered one.
+      let parent = parents.get(group.key)
+      while (parent !== undefined && !rendered.has(parent)) parent = parents.get(parent)
       const siblings = children.get(parent)
       if (siblings === undefined) children.set(parent, [group])
       else siblings.push(group)
@@ -287,12 +253,19 @@ export function SessionTree({
     && workspaceDrag?.over?.id === rootGroups[0].workspaceId
     && workspaceDrag.over.half === 'before'
 
+  const rowKeys: string[] = groups.length === 0 ? ['empty'] : []
   const renderGroup = (group: GroupNode, depth: number): ReactNode => {
     const workspaceId = group.workspaceId
     const children = childrenByParent.get(group.key) ?? []
     const compatibleDrag = workspaceDrag !== null && parents.get(workspaceDrag.workspaceId) === parents.get(group.key)
     const collapsed = collapsedSessionRows(group.sessions)
-    const sessionsExpanded = expandedSessionGroups.includes(group.key)
+    const visible = collapsedSessionRows(group.sessions, sessionLimits[group.key])
+    const sessionsExpanded = visible.hiddenCount === 0
+    rowKeys.push(`workspace:${group.key}`)
+    const childRows = group.expanded ? children.map(child => renderGroup(child, depth + 1)) : []
+    const sessions = visible.rows
+    for (const node of sessions) rowKeys.push(`session:${node.id}`)
+    if (collapsed.hiddenCount > 0) rowKeys.push(`overflow:${group.key}`)
     const workspaceMarker = workspaceId !== undefined && workspaceDrag?.over?.id === workspaceId
       ? workspaceDrag.over.half
       : null
@@ -360,6 +333,7 @@ export function SessionTree({
           }}
       >
         <ProjectRowItem
+          newShortcut={shortcuts.find(row => row.id === 'session.new')}
           group={group}
           appearance={group.workspaceId === undefined ? undefined : appearanceByWorkspace[group.workspaceId]}
           containsCurrentDescendant={currentAncestors.has(group.key)}
@@ -367,7 +341,7 @@ export function SessionTree({
           t={t}
           onToggle={() => {
             if (group.expanded) {
-              setExpandedSessionGroups(keys => keys.filter(key => key !== group.key))
+              setSessionLimits(limits => ({ ...limits, [group.key]: COLLAPSED_SESSION_LIMIT }))
             }
             setGroupExpanded(group.key, !group.expanded)
           }}
@@ -400,27 +374,27 @@ export function SessionTree({
               },
             }}
         />
-        {group.expanded && children.length > 0 && (
+        {childRows.length > 0 && (
           <div role="group">
-            {children.map(child => renderGroup(child, depth + 1))}
+            {childRows}
           </div>
         )}
-        {(sessionsExpanded
-          ? group.sessions
-          : collapsed.rows
-        ).map((node) => {
+        {sessions.map((node) => {
+          // Session drag never leaves its browser-local account, and pinned
+          // rows reorder only within their leading pinned block.
           const sameGroupDrag = drag !== null && drag.accountKey === group.key
+          const compatibleTarget = sameGroupDrag && drag.pinned === node.pinned
           const normalizeHalf = (half: 'before' | 'after'): 'before' | 'after' =>
             node.blank ? 'after' : half
           const dragProps = {
             start: () => {
               sessionDropCommitted.current = false
-              setDrag({ accountKey: group.key, sessionId: node.id, over: null })
+              setDrag({ accountKey: group.key, sessionId: node.id, pinned: node.pinned, over: null })
               // Publish so the Sections pane can accept this same gesture as a
               // filing drop; it owns that commit, this tree owns reordering.
               if (sectionDropTargets) onChatDragStart(node.id)
             },
-            active: sameGroupDrag,
+            active: compatibleTarget,
             marker: sameGroupDrag && drag.over?.id === node.id ? drag.over.half : null,
             hover: (half: 'before' | 'after') => {
             /* v8 ignore next -- narrowing guard: Rows gates hover on `active`, which is false while the drag state is null. */
@@ -447,9 +421,8 @@ export function SessionTree({
               currentId={current}
               now={now}
               onOpen={open}
-              onRename={onSessionRename}
-              onFork={forkSession}
-              onArchive={onSessionArchive}
+              onRenameRequest={onSessionRenameRequest}
+              renderSlot={renderSlot}
               appearance={group.workspaceId === undefined
                 ? appearanceBySession[node.id]
                 : { ...appearanceByWorkspace[group.workspaceId], ...appearanceBySession[node.id] }}
@@ -476,31 +449,44 @@ export function SessionTree({
           <button
             type="button"
             className={css.sessionOverflowButton}
+            data-row-key={`overflow:${group.key}`}
             aria-expanded={sessionsExpanded}
-            onClick={() => { setExpandedSessionGroups(keys => toggled(keys, group.key)) }}
+            onClick={() => {
+              setSessionLimits(limits => ({
+                ...limits,
+                [group.key]: sessionsExpanded
+                  ? COLLAPSED_SESSION_LIMIT
+                  : visible.hiddenCount <= COLLAPSED_SESSION_LIMIT
+                    ? Infinity
+                    : (limits[group.key] ?? COLLAPSED_SESSION_LIMIT) + COLLAPSED_SESSION_LIMIT,
+              }))
+            }}
           >
             {sessionsExpanded
               ? t('sessions.collapse')
-              : t('sessions.expand', { n: collapsed.hiddenCount })}
+              : t('sessions.expand', { n: visible.hiddenCount })}
           </button>
         )}
       </div>
     )
   }
 
+  const groupRows = rootGroups.map(group => renderGroup(group, 0))
   return (
     <div className={clsx(css.treeBody, css.wide)}>
       {workspaceDropAtListStart && <span className={css.listTopDropIndicator} aria-hidden="true" />}
-      <div
+      <AnimatedRows
         className={clsx(css.list, workspaceDropAtListStart && css.listTopDropActive)}
-        role="tree"
-        aria-label={t('section.sessions')}
+        label={t('section.sessions')}
+        rowKeys={rowKeys}
+        ready={list.phase === 'ready' && workspaceReady && !nativeDragActive}
+        resetKey={JSON.stringify([animationResetKey, sessionLimits])}
       >
         {groups.length === 0 && (
-          <div className={css.empty}>{t('empty.none')}</div>
+          <EmptySessions rowState={rowState} onLeaveArchivedOnly={onLeaveArchivedOnly} t={t} />
         )}
-        {rootGroups.map(group => renderGroup(group, 0))}
-      </div>
+        {groupRows}
+      </AnimatedRows>
       <span className={css.fade} />
     </div>
   )

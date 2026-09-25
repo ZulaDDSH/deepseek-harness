@@ -1,6 +1,43 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/client/ui-layout/README.md
-README.md: 07b656f4f8000a0830b74a23f1e60c88a672d2ae
-README.zh.md: 6f1f96fe9b5afa3bf4f0703d2b444ff7c30d2f5c
+/:
+  en: d96ec500357f8268
+  zh: 57610f377112cbde
+/deepseek-ai-dsh-client-ui-layout:
+  en: a2f7bed6f7fd12d9
+  zh: 9d7981efe76c734d
+/deepseek-ai-dsh-client-ui-layout/summary:
+  en: 994d69a996daddf2
+  zh: 8dccc753e48e0c0f
+/deepseek-ai-dsh-client-ui-layout/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-client-ui-layout/use-this-package:
+  en: 7d5a67000050f7a5
+  zh: 132593a00f1baae6
+/deepseek-ai-dsh-client-ui-layout/use-this-package/window-chrome-seat:
+  en: e55c831b460b40e4
+  zh: 8670e583bec8c50b
+/deepseek-ai-dsh-client-ui-layout/use-this-package/theme-presentation:
+  en: 1e1d3361dac7d8b0
+  zh: b6b3d210d65738f0
+/deepseek-ai-dsh-client-ui-layout/understand-the-implementation:
+  en: fe787c732671af12
+  zh: 02330bf66f3d0e29
+/deepseek-ai-dsh-client-ui-layout/further-exploration:
+  en: b6c728b6ed70f2a7
+  zh: 8ee2003b98695323
+/deepseek-ai-dsh-client-ui-layout/model-experience:
+  en: 9a94a7197da60052
+  zh: 369a59ab63d050f1
+/deepseek-ai-dsh-client-ui-layout/model-experience/kv-cache-effect:
+  en: ca75c51c89c2c9b0
+  zh: de54f3467ef3b9be
+/deepseek-ai-dsh-client-ui-layout/known-limitations-and-deferred-work:
+  en: b4102c1588bdab46
+  zh: ec154d6967758b42
+/deepseek-ai-dsh-client-ui-layout/known-limitations-and-deferred-work/dev-note:
+  en: 4671d1561021e834
+  zh: cf6dba523a442cb5

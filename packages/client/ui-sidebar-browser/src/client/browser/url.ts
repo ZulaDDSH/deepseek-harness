@@ -11,23 +11,6 @@ export type BrowserTarget =
 /** Why an address was refused before navigation. */
 export type BrowserAddressFailure = 'empty' | 'invalid' | 'protocol' | 'credentials' | 'application-origin'
 
-/**
- * Build a canonical target from an already-absolute HTTP(S) address, or
- * `undefined` when it is not one this allowlist accepts. Carrier observations
- * (a webview reporting where it actually navigated) arrive already absolute,
- * so they take this path rather than the address-bar parser.
- * @param url - absolute address observed from a carrier.
- * @returns the canonical target, or undefined outside the allowlist.
- */
-export function browserTargetOf(url: string): BrowserTarget | undefined {
-  if (url.length === 0 || url.length > MAX_BROWSER_URL_LENGTH) return undefined
-  let parsed: URL
-  try { parsed = new URL(url) } catch { return undefined }
-  if (parsed.username !== '' || parsed.password !== '') return undefined
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return undefined
-  return { kind: parsed.protocol === 'https:' ? 'https' : 'http', url: parsed.href, title: parsed.hostname }
-}
-
 /** Result of parsing an address-bar value. */
 export type BrowserAddressResult =
   | { readonly ok: true; readonly target: BrowserTarget }

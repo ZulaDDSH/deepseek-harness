@@ -8,7 +8,7 @@ description: "面向仓库维护者的 Issue 策略强制范围、Project 访问
 
 ## 摘要
 
-贡献者可以引用 Issue 作为背景，而无需让 PR（Pull Request）校验依赖 Project 可用性。解决型引用还会强制检查 Project Priority。必需的 `Issue policy` job 与独立的生命周期工作流使用受信任的默认分支代码。
+策略与生命周期模块保留供本地使用，并由无密钥测试覆盖。本 fork 不安装上游 Issue policy 或生命周期工作流，因此 PR 校验不需要 GitHub App token 或 GitHub Project。
 
 ## 目录
 
@@ -24,7 +24,7 @@ description: "面向仓库维护者的 Issue 策略强制范围、Project 访问
 <a id="pull-request-policy"></a>
 ## PR 策略
 
-[Issue policy](../workflows/issue-policy.yml)适用于已请求评审或已有评审、非草稿且由人类创建的 PR。豁免 PR 成功结束，不解析 Issue 引用、不签发 Project App token，也不查询 ProjectV2。工作流在昂贵读取前根据仓库实时状态判断强制范围；订阅事件仍保留必需 job。最终校验重新读取实时状态：预检不是缓存结论，也不是元数据编辑的豁免。
+策略库会校验已请求评审或已有评审、非草稿且由人类创建的 PR。维护者使用时，豁免 PR 不解析 Issue、不签发 Project App token，也不读取 ProjectV2。本 fork 不把这项策略作为必需 PR job 运行。
 
 选择性预检要求受信任的检出中存在 [selective-preflight.json](selective-preflight.json)。缺少该标记时，工作流保留旧版行为：人类 PR 获取 Project token 并执行完整旧版校验；Bot/App PR 跳过两者。受支持的预检执行失败时，job 失败而不回退。
 
@@ -41,7 +41,7 @@ REST 读取使用仓库 `GITHUB_TOKEN`。Project 校验使用独立的 App token
 <a id="lifecycle-events"></a>
 ## 生命周期事件
 
-[Issue lifecycle](../workflows/issue-lifecycle.yml)独立于 PR 校验强制范围修改 Project 数据。PR 打开、重新打开和正文编辑可将解决型 Issue 推进至 `In progress`；仅编辑标题不会。请求评审以 `In review` 为目标。请求修改的评审以 `In progress` 为目标，并遵守[人工状态归属与终态保护](../../.agents/notes/implemented/process/2026-08-10-event-directed-pr-review-status.zh.md)。
+生命周期库建模的 Project 更新独立于 PR 校验。本 fork 不安装上游生命周期工作流，因此这些事件不会在此处自动修改 Project 或发布审计评论。策略投影会将 PR 打开、重新打开和正文编辑映射到 `In progress`；仅编辑标题不会。请求评审对应 `In review`；请求修改对应 `In progress`，并遵守[人工状态归属与终态保护](../../.agents/notes/implemented/process/2026-08-10-event-directed-pr-review-status.zh.md)。
 
 仅批准或仅评论的评审不分配生命周期 runner。PR 推送与标签变更，以及 Issue 指派变更，不触发生命周期工作。其他已订阅的 Issue 事件维护 Project 归属、状态及审计评论；精确订阅列表由工作流定义。
 
@@ -61,7 +61,7 @@ PR 打开时，工作流按配置时区中的 PR 创建日期，为每个被引�
 <a id="module-ownership"></a>
 ## 模块归属
 
-维护者直接复用所属模块；[policy.mjs](policy.mjs)仅负责读取事件文件、分派命令并报告命令失败。[模块归属决策](../../.agents/notes/implemented/process/2026-09-07-issue-policy-module-ownership.zh.md)解释此职责分离。
+维护者直接复用所属模块；[policy.mjs](policy.mjs)仅负责读取事件文件、分派命令并报告命令失败。
 
 <details>
 <summary>实现职责</summary>

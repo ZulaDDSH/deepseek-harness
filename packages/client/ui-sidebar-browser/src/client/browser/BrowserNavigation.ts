@@ -1,41 +1,9 @@
-/** URL, history, and observability state for one Browser tab. */
-import type { BrowserAddressFailure, BrowserTarget } from './url.ts'
-import { browserTargetOf } from './url.ts'
+/** Bounded, application-known history used only by the iframe provider. */
+import type { BrowserTarget } from './url.ts'
+import type { BrowserHistoryEntry, BrowserTabState } from './BrowserPersistence.ts'
 
 /** Maximum retained application-known navigation entries per tab. */
 export const MAX_BROWSER_HISTORY = 100
-
-/** One canonical address in the application-managed Web history. */
-export type BrowserHistoryEntry = BrowserTarget
-
-/** Whether the current carrier document still corresponds to an application-known URL. */
-export type BrowserNavigationStatus =
-  | { readonly status: 'empty' }
-  | { readonly status: 'loading'; readonly revision: number }
-  | { readonly status: 'known'; readonly revision: number }
-  | { readonly status: 'unknown'; readonly revision: number }
-
-/** Address-policy or loading failure shown below the toolbar. */
-export type BrowserFailure =
-  { readonly kind: 'address'; readonly reason: BrowserAddressFailure }
-
-/** One Browser tab's serializable URL state. */
-export interface BrowserTabState {
-  readonly entries: readonly BrowserHistoryEntry[]
-  readonly index: number
-  /** Last application-directed load; carrier observations do not rewrite it. */
-  readonly request: { readonly revision: number; readonly target: BrowserTarget } | undefined
-  readonly navigation: BrowserNavigationStatus
-  readonly failure: BrowserFailure | undefined
-  /**
-   * Address the carrier last observed when it no longer matches the current
-   * application-known entry: an in-page or site-managed navigation the harness
-   * did not direct (for example a route change inside a single-page app). It is
-   * persisted so a remount restores the live page instead of the address the
-   * tab originally opened, and cleared once the carrier is back on a known one.
-   */
-  readonly observed: string | undefined
-}
 
 /**
  * Owns the application-known URL history and the iframe observation state machine.
@@ -56,7 +24,7 @@ export class BrowserNavigation {
    * @returns empty serializable state.
    */
   static empty(): BrowserTabState {
-    return { entries: [], index: -1, request: undefined, navigation: { status: 'empty' }, failure: undefined, observed: undefined }
+    return { entries: [], index: -1, request: undefined, navigation: { status: 'empty' }, failure: undefined }
   }
 
   /**
@@ -137,62 +105,12 @@ export class BrowserNavigation {
   }
 
   /**
-   * The address a carrier action should treat as current: the observed live
-   * address when the carrier left the application-known entry, otherwise that
-   * entry's address.
-   * @param state - serializable tab state.
-   * @returns the effective address, or undefined before any target.
-   */
-  static effectiveUrl(state: BrowserTabState | undefined): string | undefined {
-    return state?.observed ?? BrowserNavigation.current(state)?.url
-  }
-
-  /**
-   * Record an address the carrier navigated to on its own.
-   *
-   * An observation that matches the current application-known entry spends any
-   * earlier observation; one outside the HTTP(S) allowlist is ignored.
-   * @param url - absolute address the carrier reported.
-   * @returns whether the recorded state changed.
-   */
-  observe(url: string): boolean {
-    const current = BrowserNavigation.current(this.value)
-    // A report that matches the known entry spends an earlier observation; a
-    // report outside the allowlist is not evidence and leaves state alone.
-    if (url === current?.url) {
-      if (this.value.observed === undefined) return false
-      this.value = { ...this.value, observed: undefined }
-      return true
-    }
-    const target = browserTargetOf(url)
-    if (target === undefined || target.url === this.value.observed) return false
-    this.value = { ...this.value, observed: target.url }
-    return true
-  }
-
-  /**
-   * Start another load of the current entry, preferring a carrier-observed
-   * address so a remount restores the live page rather than the address the
-   * tab originally opened. A consumed observation replaces its history entry.
+   * Start another load of the last application-known target.
    * @returns a new load request, or undefined before the first target.
    */
   reload(): BrowserTabState['request'] {
-    const current = BrowserNavigation.current(this.value)
-    if (current === undefined) return undefined
-    const observed = this.value.observed
-    const target = observed === undefined ? current : browserTargetOf(observed) ?? current
-    const entries = target.url === current.url
-      ? this.value.entries
-      : [...this.value.entries.slice(0, this.value.index), target, ...this.value.entries.slice(this.value.index + 1)]
-    return this.request(target, { ...this.value, entries })
-  }
-
-  /**
-   * Record an invalid address without changing the active document state.
-   * @param reason - parser refusal.
-   */
-  addressFailed(reason: BrowserAddressFailure): void {
-    this.value = { ...this.value, failure: { kind: 'address', reason } }
+    const target = BrowserNavigation.current(this.value)
+    return target === undefined ? undefined : this.request(target, this.value)
   }
 
   /**
@@ -219,7 +137,6 @@ export class BrowserNavigation {
       request,
       navigation: { status: 'loading', revision: request.revision },
       failure: undefined,
-      observed: undefined,
     }
     return request
   }

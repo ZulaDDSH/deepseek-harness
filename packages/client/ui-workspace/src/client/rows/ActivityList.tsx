@@ -4,30 +4,39 @@ import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/c
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
 import type { WorkspaceAppearance } from '../appearance.ts'
-import { deriveFlat, type SessionNode } from '../tree.ts'
-import { SessionNodeItem } from './Rows.tsx'
+import { deriveFlat, type SessionNode, type SessionRowState } from '../tree.ts'
+import { SessionNodeItem, type RowRenderSlots } from './Rows.tsx'
 import css from './WorkspaceBrowser.module.css'
 
+/** Props of the activity-centered body. */
 export interface ActivityListProps extends Pick<
   WorkspaceBrowserProps,
-  'useSessionStatus' | 'open' | 'forkSession' | 'usePanelInfo' | 't'
+  'useSessionStatus' | 'open' | 'usePanelInfo' | 't'
 > {
   list: SessionListState
   appearanceBySession: Readonly<Record<string, WorkspaceAppearance>>
   onSessionAppearanceChange: (sessionId: SessionId, change: WorkspaceAppearance) => void
   sessionIds: readonly SessionId[]
-  onSessionRename: (sessionId: SessionNode['id'], currentTitle: string) => void
-  onSessionArchive: (sessionId: SessionNode['id']) => void
+  /** Registry-global pin and archive sets plus the archived-visibility choice. */
+  rowState: SessionRowState
+  /** Open the rename dialog from a row title double-click. */
+  onSessionRenameRequest: (sessionId: SessionNode['id'], currentTitle: string) => void
+  /** Child-seat renderer for the rows' action lists, leading decoration, and hover section. */
+  renderSlot: RowRenderSlots
 }
 
-/** Render Sessions grouped by user attention, live work, and recent completion. */
+/**
+ * Render Sessions grouped by user attention, live work, and recent completion.
+ * @param props - flat membership, row seats, and standard hooks.
+ * @returns the activity-centered body.
+ */
 export function ActivityList({
-  list, sessionIds, appearanceBySession, onSessionAppearanceChange, useSessionStatus, open, forkSession, onSessionRename, onSessionArchive,
-  usePanelInfo, t,
+  list, sessionIds, rowState, appearanceBySession, onSessionAppearanceChange, useSessionStatus, open,
+  onSessionRenameRequest, renderSlot, usePanelInfo, t,
 }: ActivityListProps) {
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
   const statuses = useSessionStatus(s => s)
-  const rows = useMemo(() => deriveFlat(list, sessionIds, statuses), [list, sessionIds, statuses])
+  const rows = useMemo(() => deriveFlat(list, sessionIds, rowState, statuses), [list, sessionIds, rowState, statuses])
   const groups = useMemo(() => [
     { key: 'attention', label: t('activity.attention'), rows: rows.filter(row => row.failed === true || row.pendingInteraction !== undefined) },
     {
@@ -61,15 +70,13 @@ export function ActivityList({
                   currentId={currentId}
                   now={now}
                   onOpen={open}
-                  onRename={onSessionRename}
-                  onFork={forkSession}
-                  onArchive={onSessionArchive}
+                  onRenameRequest={onSessionRenameRequest}
+                  renderSlot={renderSlot}
                   appearance={appearanceBySession[node.id]}
                   appearanceActions={{
                     color: (color) => { onSessionAppearanceChange(node.id, { color }) },
                     icon: (icon) => { onSessionAppearanceChange(node.id, { icon }) },
                   }}
-                  flat
                   t={t}
                 />
               ))}

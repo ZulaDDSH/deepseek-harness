@@ -19,7 +19,7 @@ function summaries(entries: readonly (readonly [string, number])[]): SessionList
   return Object.fromEntries(entries.map(([id, updatedAt]) => [
     id,
     { id: sid(id), displayTitle: id, running: false, blank: false, updatedAt, retainedBy: {} },
-  ])) as SessionListState['byId']
+  ]))
 }
 
 function layer(overrides: Partial<ChatSectionsState> = {}): ChatSectionsState {

@@ -83,7 +83,9 @@ async function expectHeadlessStream(normalized: string, expectedPath: string): P
 }
 
 /** Serve one deterministic DeepSeek-compatible response while retaining its request body. */
-async function deepseekDefaultsServer(options: { waitForTitleRequest?: boolean; protocol?: 'messages' } = {}): Promise<DeepSeekDefaultsServer> {
+async function deepseekDefaultsServer(
+  options: { waitForTitleRequest?: boolean; piAiCompatibility?: true; keepAliveCount?: number } = {},
+): Promise<DeepSeekDefaultsServer> {
   const requests: JsonObject[] = []
   const paths: string[] = []
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
@@ -94,7 +96,7 @@ async function deepseekDefaultsServer(options: { waitForTitleRequest?: boolean; 
       requests.push(JSON.parse(body) as JsonObject)
       paths.push(request.url ?? '')
       response.writeHead(200, { 'content-type': 'text/event-stream' })
-      let keepAlives = 3
+      let keepAlives = options.keepAliveCount ?? 3
       const write = (): void => {
         // One-shot teardown may cancel background title work after the main response.
         if (keepAlives-- > 0
@@ -103,7 +105,7 @@ async function deepseekDefaultsServer(options: { waitForTitleRequest?: boolean; 
           timer = setTimeout(write, 60)
           return
         }
-        if (options.protocol === 'messages') {
+        if (options.piAiCompatibility !== true) {
           response.end([
             { type: 'message_start', message: { id: 'defaults-response', model: 'deepseek-v4-flash', usage: { input_tokens: 3, output_tokens: 0 } } },
             { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
@@ -234,10 +236,12 @@ async function persistedLogs(cwd: string, root: string = join(cwd, '.sessions'))
 
 describe('headless stream-json snapshots', () => {
 
-  it('runs one task through the product headless profile command', async () => {
+  it.each(['src', 'lib'] as const)('runs one task through the product headless profile command (%s)', async (mode) => {
     const task = 'Prove the product headless profile path with one real tool round trip.'
     const result = await runLoaderSmoke({
       label: 'product headless profile snapshot',
+      mode,
+      sourceImport: 'tsx/esm',
       tempDirPrefix: 'headless-snapshot-profile-',
       binScript: dshBinScript,
       configPath: headlessOverlayPath,
@@ -580,11 +584,7 @@ describe('headless stream-json snapshots', () => {
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('keeps provider comments alive and sends DeepSeek defaults through the one-shot app', async () => {
-    // The case asserts both the agent request and the background title request,
-    // and title work is cancelled by one-shot teardown. Hold the response open
-    // until that second request lands, or a loaded runner records only the
-    // agent request and the length assertion below fails on scheduling alone.
-    const server = await deepseekDefaultsServer({ protocol: 'messages', waitForTitleRequest: true })
+    const server = await deepseekDefaultsServer({ keepAliveCount: 25 })
     try {
       const result = await runLoaderSmoke({
         label: 'DeepSeek adapter defaults headless stream-json snapshot',
@@ -607,12 +607,12 @@ describe('headless stream-json snapshots', () => {
       })
 
       expect(result.stderr).toBe('')
-      expect(server.requests).toHaveLength(2)
-      expect(server.paths).toEqual(['/v1/messages', '/v1/messages'])
-      const agentRequest = server.requests.find(request => request.max_tokens === 256_000)
-      const titleRequest = server.requests.find(request => request.max_tokens === 64)
-      expect(agentRequest?.output_config).toEqual({ effort: 'low' })
-      expect(titleRequest).toBeDefined()
+      expect(server.paths.every(path => path === '/v1/messages')).toBe(true)
+      const agentRequests = server.requests.filter(request => request.max_tokens === 256_000)
+      const titleRequests = server.requests.filter(request => request.max_tokens === 64)
+      expect(agentRequests).toHaveLength(1)
+      expect(agentRequests[0]?.output_config).toEqual({ effort: 'low' })
+      expect(server.requests).toHaveLength(agentRequests.length + titleRequests.length)
       const header = (parseJsonl(result.stdout)
         .map(record => record.event)
         .find((event): event is JsonObject => (
@@ -640,7 +640,7 @@ describe('headless stream-json snapshots', () => {
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('keeps the compatibility stream open until the title request arrives', async () => {
-    const server = await deepseekDefaultsServer({ waitForTitleRequest: true })
+    const server = await deepseekDefaultsServer({ waitForTitleRequest: true, piAiCompatibility: true })
     try {
       const response = await fetch(server.url, {
         method: 'POST',
@@ -677,7 +677,7 @@ describe('headless stream-json snapshots', () => {
   })
 
   it('sends pi-ai DeepSeek compatibility through the one-shot app', async () => {
-    const server = await deepseekDefaultsServer({ waitForTitleRequest: true })
+    const server = await deepseekDefaultsServer({ waitForTitleRequest: true, piAiCompatibility: true })
     try {
       const result = await runLoaderSmoke({
         label: 'pi-ai DeepSeek compatibility headless stream-json snapshot',
@@ -862,9 +862,17 @@ describe('headless stream-json snapshots', () => {
         "identityReminders": [
           "<system-reminder>
       You are teammate "implementer".
+      Your Team Lead is named "lead".
+      Use list_agents({}) to find your teammates and their names.
+      To message your Team Lead, use send_message({ target: "lead", message: "..." }).
+      To message another teammate, use send_message({ target: "<teammate name>", message: "..." }).
       </system-reminder>",
           "<system-reminder>
       You are teammate "researcher".
+      Your Team Lead is named "lead".
+      Use list_agents({}) to find your teammates and their names.
+      To message your Team Lead, use send_message({ target: "lead", message: "..." }).
+      To message another teammate, use send_message({ target: "<teammate name>", message: "..." }).
       </system-reminder>",
         ],
         "memberEdges": 4,
@@ -929,8 +937,7 @@ describe('headless stream-json snapshots', () => {
         })
         const probeData = probeResult?.data as JsonObject | undefined
         const probeMessage = probeData?.message as JsonObject | undefined
-        const probeContent = probeMessage?.content as JsonObject[] | undefined
-        expect(probeContent?.[0]?.isError).toBe(true)
+        expect(probeMessage?.isError).toBe(true)
         expect((probeData?.error as JsonObject | undefined)?.code).toBe('GOAL_NOT_FOUND')
         const goalChanges = records.filter(record => record.type === 'goal/change')
         expect(goalChanges).toHaveLength(1)

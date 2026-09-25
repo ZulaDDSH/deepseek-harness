@@ -31,7 +31,7 @@ const message = (text: string): UserMessage => ({
   id: 'message' as UserMessage['id'],
   role: 'user',
   content: [{ type: 'text', text }],
-  source: { kind: 'plugin', plugin: 'test', form: 'notice', summary: text },
+  source: { kind: 'user' },
 })
 
 describe('Jev router', () => {

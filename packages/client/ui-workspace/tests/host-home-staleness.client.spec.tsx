@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 /**
  * Host home reaches the browsing region through the assembled renderer, which
  * memoizes a root entry's inject result for the whole registration — so a home
@@ -28,7 +29,9 @@ function SidebarFrame({ renderSlot }: FrameProps) {
 /** The assembled sidebar over one Workspace inside the POSIX home the Host reports. */
 async function bench() {
   const runtime = await SlotTestRuntime.create()
-  runtime.ctx.provide('layout', { selectPanel: vi.fn() })
+  runtime.ctx.provide('shortcuts', { register: () => () => {}, catalog: createSnapshotStore([]) })
+  runtime.ctx.provide('uiConversation', {})
+  runtime.ctx.provide('layout', { selectPanel: vi.fn(), beginNavigation: () => new AbortController().signal })
   // The quick switcher consumes the command service structurally; its namespace
   // only has to be present for ui-workspace's inject to settle.
   runtime.ctx.provide('commandUi', {
@@ -60,14 +63,14 @@ async function bench() {
 function openHoverCard(): void {
   const row = screen.getByRole('treeitem').parentElement as HTMLElement
   fireEvent.pointerEnter(row)
-  act(() => { vi.advanceTimersByTime(500) })
+  act(() => { vi.advanceTimersByTime(800) })
 }
 
 /** Close it again, so the next hover rebuilds the card from current props. */
 function closeHoverCard(): void {
   const row = screen.getByRole('treeitem').parentElement as HTMLElement
   fireEvent.pointerLeave(row)
-  act(() => { vi.advanceTimersByTime(500) })
+  act(() => { vi.advanceTimersByTime(800) })
 }
 
 describe('Host home in the assembled browsing region', () => {

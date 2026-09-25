@@ -18,12 +18,12 @@ export class DesktopSessionAttention {
   private readonly notifications = new Map<string, Notification>()
 
   /**
-   * @param locale - Desktop-owned localized notification copy.
+   * @param locale - resolver for the current Desktop-owned localized notification copy.
    * @param window - current primary window resolver.
    * @param activate - callback that routes notification activation to a Session.
    */
   constructor(
-    private readonly locale: DesktopLocale,
+    private readonly locale: () => DesktopLocale,
     private readonly window: () => BrowserWindow | undefined,
     private readonly activate: (sessionId: string) => void,
   ) {}
@@ -36,9 +36,10 @@ export class DesktopSessionAttention {
     const parent = this.window()
     if (parent === undefined || parent.isDestroyed() || !Notification.isSupported()) return
     this.clear(request.sessionId)
+    const locale = this.locale()
     const notification = new Notification({
-      title: request.title === '' ? this.locale.messages.application : request.title,
-      body: bodyFor(request.kind, this.locale),
+      title: request.title === '' ? locale.messages.application : request.title,
+      body: bodyFor(request.kind, locale),
       silent: true,
     })
     this.notifications.set(request.sessionId, notification)

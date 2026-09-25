@@ -172,7 +172,7 @@ export const Config = z.union([
     toolFilter: ToolFilter,
     reconnect: Reconnect,
   }),
-]) as unknown as z<ConfigInput, Config>
+]) as z<ConfigInput, Config>
 
 // ---- Plugin apply ----
 

@@ -92,6 +92,8 @@ kind: "package-reference"
 
 ### Matcher subject 与串行执行
 
+DSH 内置的 `bash`、`write` 与 `edit` 名称也会匹配参考实现的 `Bash`、`Write` 与 `Edit` 拼写。
+
 matcher subject 是工具名称（`PreToolUse`／`PostToolUse`）、会话源（`SessionStart`），或常量 `agent_type` `general-purpose`（`SubagentStart`／`SubagentStop`——subagent seam 不携带每 kind 标签）；`UserPromptSubmit` 与 `Stop` 忽略 matcher。匹配 hook 按配置顺序串行运行，这使每个 hook 的 `hook/invoked`／`hook/result` 对在日志中相邻，且最严格折叠与顺序无关（`deny > ask > allow`）。
 
 ### 脱离运行与释放

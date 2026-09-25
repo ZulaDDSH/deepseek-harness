@@ -88,7 +88,7 @@ export function useSectionDialogs(options: {
       className={css.renameInput}
       value={value}
       aria-label={t('section.field.name')}
-      autoFocus
+      data-modal-autofocus
       disabled={disabled}
       onFocus={(event) => { event.target.select() }}
       onChange={(event) => { onChange(event.target.value) }}

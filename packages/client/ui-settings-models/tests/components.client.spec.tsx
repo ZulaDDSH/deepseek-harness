@@ -3,6 +3,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import Schema from '@deepseek-ai/schemastery'
+import { Context } from '@deepseek-ai/cordis'
 import { bindSnapshotSelector, RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type {
@@ -13,18 +14,17 @@ import {
   ModelsSection, needsSetup, providerCopy, providerTargetLabel, removeProviderProfile,
 } from '../src/client/ModelsSection.tsx'
 import type { ModelsSectionInjected, ModelsSectionProps } from '../src/client/ModelsSection.tsx'
-import { pathOps } from '../src/client/ProviderEditor.tsx'
+import { ProviderEditor, pathOps } from '../src/client/ProviderEditor.tsx'
 import {
   DeepSeekModelsEditor, formatCapacity, modelDrafts, parseCapacity, validateDeepSeekModels,
 } from '../src/client/DeepSeekModelsEditor.tsx'
 import { apiKeyFailure } from '../src/client/apiKey.ts'
 import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
 import { deriveKeyRef, ModelsSettingsStore } from '../src/client/store.ts'
-import type { AuthorizationOperations } from '../src/client/authorization-operations.ts'
 import { createModelsOperations } from '../src/client/operations.ts'
 import type { ModelsOperations } from '../src/client/operations.ts'
 import type { ProviderRow } from '../src/client/store.ts'
-import { en } from '../src/client/locales.ts'
+import { en, zh } from '../src/client/locales.ts'
 import { settingsSchema } from './settings-schema.client.ts'
 
 afterEach(cleanup)
@@ -48,6 +48,7 @@ function capacityInputs(label: string): HTMLInputElement[] {
 const PiAiConfig = Schema.object({
   providers: Schema.dict(Schema.object({
     apiKeyEnv: Schema.string().role('credential-ref'),
+    api: Schema.union(['openai-completions', 'openai-responses', 'anthropic-messages']),
     baseURL: Schema.string(),
     reasoning: Schema.union(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']),
     headers: Schema.dict(Schema.string()),
@@ -119,7 +120,7 @@ const JEV_ROUTE = {
   reasoningEffort: 'low',
 }
 
-/** The `jev-router` section view a Jev editor card renders against. */
+/** The `llm-jev-router` entry view a Jev editor card renders against. */
 function jevNamespaceView(routes: JsonValue[] = [JEV_ROUTE]): {
   namespace: SettingsNamespaceView
   value: JsonValue
@@ -139,7 +140,8 @@ function jevNamespaceView(routes: JsonValue[] = [JEV_ROUTE]): {
   return {
     value,
     namespace: {
-      ns: 'jev-router',
+      ns: 'llm-jev-router',
+      autoGenerate: true,
       schema: JSON.parse(JSON.stringify(JevConfig.toJSON())) as JsonValue,
       value,
       base: value,
@@ -170,7 +172,7 @@ function wireNamespaces(): SettingsNamespaceView[] {
       },
       base: { defaultContextWindow: 1_000_000, maxTokens: 256_000, models: DEFAULT_DEEPSEEK_MODELS },
       user: { baseURL: 'https://base' },
-      applies: 'live',
+      autoGenerate: true, applies: 'live',
       secrets: [],
       revision: 0,
     },
@@ -180,7 +182,7 @@ function wireNamespaces(): SettingsNamespaceView[] {
         profiles: Schema.dict(Schema.object({ note: Schema.string() })),
       }).toJSON())) as JsonValue,
       value: {},
-      applies: 'live',
+      autoGenerate: true, applies: 'live',
       secrets: [],
       revision: 0,
     },
@@ -189,7 +191,7 @@ function wireNamespaces(): SettingsNamespaceView[] {
       schema: JSON.parse(JSON.stringify(PiAiConfig.toJSON())) as JsonValue,
       value: { providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY', baseURL: 'https://proxy', headers: { 'X-Team': 'a' } }, zombie: {} } },
       user: { providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY', baseURL: 'https://proxy', headers: { 'X-Team': 'a' } }, zombie: {} } },
-      applies: 'live',
+      autoGenerate: true, applies: 'live',
       secrets: [],
       revision: 0,
     },
@@ -197,11 +199,31 @@ function wireNamespaces(): SettingsNamespaceView[] {
       ns: 'subagent-model-selection',
       schema: JSON.parse(JSON.stringify(Schema.object({ enabled: Schema.boolean().default(false) }).toJSON())) as JsonValue,
       value: { enabled: false },
-      applies: 'live',
+      autoGenerate: true, applies: 'live',
       secrets: [],
       revision: 4,
     },
+    {
+      ns: 'llm-deepseek-account',
+      schema: JSON.parse(JSON.stringify(DeepSeekConfig.toJSON())) as JsonValue,
+      value: {
+        baseURL: 'https://base',
+        defaultContextWindow: 1_000_000,
+        maxTokens: 256_000,
+        models: DEFAULT_DEEPSEEK_MODELS,
+      },
+      base: { defaultContextWindow: 1_000_000, maxTokens: 256_000, models: DEFAULT_DEEPSEEK_MODELS },
+      user: {},
+      autoGenerate: true, applies: 'live',
+      secrets: [],
+      revision: 0,
+    },
   ]
+}
+
+/** The account provider's settings namespace, under a composition's entry id. */
+function accountNamespace(ns = 'llm-deepseek-account'): SettingsNamespaceView {
+  return { ...wireNamespaces().find(view => view.ns === 'llm-deepseek-account')!, ns }
 }
 
 /** Credentials answers over the Remote carrier, which has no envelope. */
@@ -284,7 +306,9 @@ const contexts = new WeakMap<object, PageContext>()
 function ctxWith(face: object): PageContext {
   const existing = contexts.get(face)
   if (existing !== undefined) return existing
-  const ctx = { remote: face } as unknown as PageContext
+  const ctx = Object.assign(new Context(), { remote: { ...face,
+    session: { initializeDefaultModel: async () => ({ ok: true, value: undefined }) },
+  } })
   contexts.set(face, ctx)
   return ctx
 }
@@ -294,12 +318,13 @@ function ctxWith(face: object): PageContext {
  * as the plugin body binds them: an editor effect keyed by this face would
  * otherwise re-probe on every render.
  */
-const operations = new WeakMap<object, ModelsOperations>()
-function operationsWith(face: object): ModelsOperations {
+const operations = new WeakMap<object, { mirror: SettingsDescribeMirror; operations: ModelsOperations }>()
+function operationsWith(face: object, mirror?: SettingsDescribeMirror): ModelsOperations {
   const existing = operations.get(face)
-  if (existing !== undefined) return existing
-  const bound = createModelsOperations(ctxWith(face))
-  operations.set(face, bound)
+  if (existing !== undefined && (mirror === undefined || existing.mirror === mirror)) return existing.operations
+  const sharedMirror = mirror ?? existing?.mirror ?? new SettingsDescribeMirror(ctxWith(face))
+  const bound = createModelsOperations(ctxWith(face), sharedMirror)
+  operations.set(face, { mirror: sharedMirror, operations: bound })
   return bound
 }
 
@@ -325,17 +350,6 @@ function cardSeatCalls(
     ])
 }
 
-/**
- * Authorization operations with no registered flow, as a deployment without a
- * sign-in offers: the card stays out of the editor.
- */
-const noSignIn: AuthorizationOperations = {
-  list: () => Promise.resolve([]),
-  begin: () => Promise.resolve({ kind: 'cancelled' }),
-  answer: () => Promise.resolve({ kind: 'accepted' }),
-  cancel: () => Promise.resolve(),
-}
-
 async function mountFace(scripted: ReturnType<typeof scriptedFace>) {
   const { face, update, mutate, set, unset } = scripted
   const ctx = ctxWith(face)
@@ -347,8 +361,7 @@ async function mountFace(scripted: ReturnType<typeof scriptedFace>) {
     controller,
     useSnapshot: bindSnapshotSelector(controller.store),
     useCredentialsRevision: bindSnapshotSelector(createSnapshotStore({ revision: 0 })),
-    operations: operationsWith(face),
-    authorization: noSignIn,
+    operations: operationsWith(face, mirror),
     schema: settingsSchema,
     t,
     renderSlot: renderSlot as unknown as ModelsSectionProps['renderSlot'],
@@ -386,12 +399,11 @@ async function mountDeepSeekCard(overrides: Parameters<typeof scriptedFace>[0] =
 }
 
 describe('ModelsSection', () => {
-  it('hides both add actions when their settings namespaces are absent', async () => {
+  it('hides the add action when no settings namespace can open an editor', async () => {
     const scripted = scriptedFace()
     scripted.face.settings.describe.mockResolvedValue(remoteOk({ writable: true, hasDocument: false, namespaces: [] }))
     await mountFace(scripted)
     expect(screen.queryByRole('button', { name: en.add })).toBeNull()
-    expect(screen.queryByRole('button', { name: en.customAdd })).toBeNull()
   })
 
   it('offers only providers whose settings namespace can open an editor', async () => {
@@ -401,8 +413,11 @@ describe('ModelsSection', () => {
       namespaces: wireNamespaces().filter(view => view.ns !== 'llm-pi-ai'),
     }))
     await mountFace(scripted)
-    expect(screen.queryByRole('button', { name: en.customAdd })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: en.add }))
+    // Without the pi-ai namespace nothing can be hand-declared, so the card
+    // is the catalog form alone: no mode switch, no custom panel.
+    expect(screen.queryByRole('tablist')).toBeNull()
+    expect(screen.queryByRole('textbox', { name: en.customRoute })).toBeNull()
     expect(screen.queryByRole('option', { name: 'anthropic' })).toBeNull()
     expect(screen.getByRole('option', { name: 'plain' })).toBeTruthy()
   })
@@ -418,7 +433,6 @@ describe('ModelsSection', () => {
     fireEvent.click(screen.getByRole('button', { name: openaiCopy(en.editProvider) }))
     expect(await screen.findByLabelText(en.keyInput)).toBeTruthy()
     expect(screen.getByRole('button', { name: en.add })).toBeTruthy()
-    expect(screen.getByRole('button', { name: en.customAdd })).toBeTruthy()
   })
 
   it('renders nothing before the slot injects its dependencies', () => {
@@ -540,7 +554,6 @@ describe('ModelsSection', () => {
       useSnapshot={bindSnapshotSelector(controller.store)}
       useCredentialsRevision={bindSnapshotSelector(createSnapshotStore({ revision: 0 }))}
       operations={operationsWith(face)}
-      authorization={noSignIn}
       schema={settingsSchema}
       t={t}
       renderSlot={() => null}
@@ -567,7 +580,6 @@ describe('ModelsSection', () => {
       useSnapshot={bindSnapshotSelector(controller.store)}
       useCredentialsRevision={bindSnapshotSelector(createSnapshotStore({ revision: 0 }))}
       operations={operationsWith(face)}
-      authorization={noSignIn}
       schema={settingsSchema}
       t={t}
       renderSlot={() => null}
@@ -650,7 +662,6 @@ describe('ModelsSection', () => {
       schema={settingsSchema}
       settingsPath={[]}
       operations={operationsWith(face)}
-      authorization={noSignIn}
       t={t}
       readOnly={false}
       credentialOnly
@@ -728,7 +739,7 @@ describe('ModelsSection', () => {
     await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
     await waitFor(() => { expect(face.credentials.set).toHaveBeenCalledWith('TYPESAFE_API_KEY', 'jev-test-key') })
     expect(mutate.mock.calls[0]).toEqual([
-      'jev-router',
+      'llm-jev-router',
       [
         { op: 'set', path: ['enabled'], value: true },
         {
@@ -783,7 +794,7 @@ describe('ModelsSection', () => {
     fireEvent.click(screen.getByText(en.apply))
     await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
     expect(mutate.mock.calls[0]).toEqual([
-      'jev-router',
+      'llm-jev-router',
       expect.arrayContaining([
         { op: 'set', path: ['endpoint'], value: 'https://proxy.test/v1' },
         { op: 'set', path: ['model'], value: 'jev-next' },
@@ -816,7 +827,8 @@ describe('ModelsSection', () => {
     face.credentials.describe.mockImplementation(described(true))
     // A namespace with no layer values renders from the schema defaults alone.
     const namespace: SettingsNamespaceView = {
-      ns: 'jev-router',
+      ns: 'llm-jev-router',
+      autoGenerate: true,
       schema: JSON.parse(JSON.stringify(JevConfig.toJSON())) as JsonValue,
       value: {},
       base: {},
@@ -883,7 +895,7 @@ describe('ModelsSection', () => {
     const baseURL = screen.getByLabelText<HTMLInputElement>(en.baseUrl)
     // The deepseek placeholder is pinned to the public endpoint, not the
     // effective value (which may reflect a launch-environment override).
-    expect(baseURL.placeholder).toBe('https://api.deepseek.com')
+    expect(baseURL.placeholder).toBe('https://api.deepseek.com/anthropic')
     fireEvent.change(baseURL, { target: { value: 'https://next2' } })
     fireEvent.click(screen.getByText(en.apply))
     await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
@@ -931,11 +943,11 @@ describe('ModelsSection', () => {
     ])
   })
 
-  it('edits the shared DeepSeek card while preserving the YAML protocol selection', async () => {
+  it('edits the DeepSeek endpoint and credential without a protocol selection', async () => {
     const namespace: SettingsNamespaceView = {
       ...wireNamespaces()[0]!,
       ns: 'llm-deepseek',
-      value: { protocol: 'messages', apiKeyEnv: 'DEEPSEEK_API_KEY', models: DEFAULT_DEEPSEEK_MODELS },
+      value: { apiKeyEnv: 'DEEPSEEK_API_KEY', models: DEFAULT_DEEPSEEK_MODELS },
       user: {},
     }
     const { face, mutate, set } = scriptedFace({
@@ -949,7 +961,6 @@ describe('ModelsSection', () => {
       schema={settingsSchema}
       settingsPath={[]}
       operations={operationsWith(face)}
-      authorization={noSignIn}
       t={t}
       readOnly={false}
       onClose={vi.fn()}
@@ -1120,7 +1131,7 @@ describe('ModelsSection', () => {
       value: { ...stored, defaultContextWindow: 1_000_000 },
       ...base === undefined ? {} : { base },
       user: stored,
-      applies: 'live',
+      autoGenerate: true, applies: 'live',
       secrets: [],
       revision: 0,
     }
@@ -1132,7 +1143,6 @@ describe('ModelsSection', () => {
       schema={settingsSchema}
       settingsPath={[]}
       operations={operationsWith(face)}
-      authorization={noSignIn}
       t={t}
       readOnly={false}
       onClose={() => {}}
@@ -1351,7 +1361,7 @@ describe('ModelsSection', () => {
       ns: 'llm-deepseek',
       schema: JSON.parse(JSON.stringify(DeepSeekConfig.toJSON())) as JsonValue,
       value: {},
-      applies: 'live',
+      autoGenerate: true, applies: 'live',
       secrets: [],
       revision: 0,
     }
@@ -1363,18 +1373,27 @@ describe('ModelsSection', () => {
       schema={settingsSchema}
       settingsPath={[]}
       operations={operationsWith(face)}
-      authorization={noSignIn}
       t={t}
       readOnly={false}
       onClose={() => {}}
     />)
     fireEvent.click(screen.getByText(en.customized))
     const baseURL = screen.getByLabelText<HTMLInputElement>(en.baseUrl)
-    expect(baseURL.placeholder).toBe('https://api.deepseek.com')
+    expect(baseURL.placeholder).toBe('https://api.deepseek.com/anthropic')
     fireEvent.change(baseURL, { target: { value: 'https://x' } })
     expect(baseURL.value).toBe('https://x')
     fireEvent.change(baseURL, { target: { value: '' } })
     expect(baseURL.value).toBe('')
+  })
+
+  it('saves credentials without changing the default model', async () => {
+    const { ctx, set } = await mountDeepSeekCard()
+    const initialize = vi.spyOn(ctx.remote.session, 'initializeDefaultModel')
+    fireEvent.change(await screen.findByLabelText(en.keyInput), { target: { value: 'test-key' } })
+    fireEvent.click(screen.getByText(en.apply))
+    await waitFor(() => { expect(screen.queryByText(en.apply)).toBeNull() })
+    expect(set).toHaveBeenCalledOnce()
+    expect(initialize).not.toHaveBeenCalled()
   })
 
   it('rejects an invalid draft before writing', async () => {
@@ -1526,7 +1545,6 @@ describe('ModelsSection', () => {
       useSnapshot={bindSnapshotSelector(controller.store)}
       useCredentialsRevision={bindSnapshotSelector(createSnapshotStore({ revision: 0 }))}
       operations={operationsWith(face)}
-      authorization={noSignIn}
       schema={settingsSchema}
       t={t}
       renderSlot={() => null}
@@ -1662,7 +1680,6 @@ describe('ModelsSection', () => {
       useSnapshot={bindSnapshotSelector(controller.store)}
       useCredentialsRevision={bindSnapshotSelector(createSnapshotStore({ revision: 0 }))}
       operations={operationsWith(face.face)}
-      authorization={noSignIn}
       schema={settingsSchema}
       t={t}
       renderSlot={() => null}
@@ -1687,7 +1704,6 @@ describe('ModelsSection', () => {
       useSnapshot={bindSnapshotSelector(controller.store)}
       useCredentialsRevision={bindSnapshotSelector(createSnapshotStore({ revision: 0 }))}
       operations={operationsWith(face)}
-      authorization={noSignIn}
       schema={settingsSchema}
       t={t}
       renderSlot={() => null}
@@ -1709,6 +1725,253 @@ describe('ModelsSection', () => {
     fireEvent.click(screen.getByText(en.cancel))
     expect(screen.queryAllByLabelText(en.keyInput)).toHaveLength(0)
     expect(mutate).not.toHaveBeenCalled()
+  })
+
+  it('opens the add card on the catalog mode with both modes offered', async () => {
+    await mountSection()
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
+    const modes = screen.getByRole('tablist', { name: en.addMode })
+    expect(within(modes).getByRole('tab', { name: en.addCatalog }).getAttribute('aria-selected')).toBe('true')
+    expect(within(modes).getByRole('tab', { name: en.addCustom }).getAttribute('aria-selected')).toBe('false')
+    expect(screen.getByText(en.addCatalogHint)).toBeTruthy()
+    expect(screen.queryByText(en.addCustomHint)).toBeNull()
+    expect(screen.getByRole('combobox', { name: en.provider })).toBeTruthy()
+    // The custom panel is mounted but hidden, so its fields are not reachable.
+    expect(screen.queryByRole('textbox', { name: en.customRoute })).toBeNull()
+  })
+
+  it('switches between the modes without losing either draft', async () => {
+    await mountSection()
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: 'sk-catalog' } })
+
+    fireEvent.click(screen.getByRole('tab', { name: en.addCustom }))
+    expect(screen.getByText(en.addCustomHint)).toBeTruthy()
+    expect(screen.queryByText(en.addCatalogHint)).toBeNull()
+    expect(screen.queryByRole('combobox', { name: en.provider })).toBeNull()
+    fireEvent.change(screen.getByRole('textbox', { name: en.customRoute }), { target: { value: 'acme' } })
+
+    // Both panels stay mounted from here on, so the shown one is queried by name.
+    fireEvent.click(screen.getByRole('tab', { name: en.addCatalog }))
+    const catalog = screen.getByRole('tabpanel', { name: en.addCatalog })
+    expect(within(catalog).getByLabelText<HTMLInputElement>(en.keyInput).value).toBe('sk-catalog')
+    fireEvent.click(screen.getByRole('tab', { name: en.addCustom }))
+    expect(screen.getByRole<HTMLInputElement>('textbox', { name: en.customRoute }).value).toBe('acme')
+  })
+
+  it('opens on the custom mode when every catalog provider is already configured', async () => {
+    const scripted = scriptedFace()
+    scripted.face.llm.listConfigurableProviders.mockResolvedValue(remoteOk([
+      { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [] },
+      { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'] },
+    ]))
+    await mountFace(scripted)
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
+    const catalog = screen.getByRole<HTMLButtonElement>('tab', { name: en.addCatalog })
+    expect(catalog.disabled).toBe(true)
+    expect(screen.getByRole('tab', { name: en.addCustom }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByRole('textbox', { name: en.customRoute })).toBeTruthy()
+  })
+
+  it('shows the custom form alone when no directory row can be adopted', async () => {
+    const scripted = scriptedFace()
+    scripted.face.llm.listConfigurableProviders.mockResolvedValue(remoteOk([]))
+    await mountFace(scripted)
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
+    expect(screen.queryByRole('tablist')).toBeNull()
+    expect(screen.queryByRole('combobox', { name: en.provider })).toBeNull()
+    expect(screen.getByRole('textbox', { name: en.customRoute })).toBeTruthy()
+  })
+
+  it('disables the add action when neither mode can proceed', async () => {
+    const scripted = scriptedFace()
+    scripted.face.llm.listConfigurableProviders.mockResolvedValue(remoteOk([
+      { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'] },
+    ]))
+    // A pi-ai schema naming no protocol leaves nothing to declare either.
+    const protocolless = JSON.parse(JSON.stringify(
+      Schema.object({ providers: Schema.dict(Schema.object({})) }).toJSON(),
+    )) as JsonValue
+    scripted.face.settings.describe.mockResolvedValue(remoteOk({
+      writable: true, hasDocument: false,
+      namespaces: wireNamespaces().map(view => view.ns === 'llm-pi-ai' ? { ...view, schema: protocolless } : view),
+    }))
+    await mountFace(scripted)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: en.add }).disabled).toBe(true)
+  })
+
+  it('shows the custom panel when a refresh drops every configurable row mid-card', async () => {
+    const { face, controller } = await mountSection()
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
+    expect(screen.getByRole('combobox', { name: en.provider })).toBeTruthy()
+    // The directory empties while the card is open: the only mode left is the
+    // custom one, whose panel was never visited.
+    face.llm.listConfigurableProviders.mockResolvedValue(remoteOk([]))
+    await act(async () => { await controller.load() })
+    expect(screen.queryByRole('tablist')).toBeNull()
+    expect(screen.getByRole('textbox', { name: en.customRoute })).toBeTruthy()
+  })
+
+  it('picks a catalog target when the catalog becomes addable after the card opened', async () => {
+    const scripted = scriptedFace()
+    const exhausted = [
+      { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [] },
+      { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'] },
+    ]
+    scripted.face.llm.listConfigurableProviders.mockResolvedValue(remoteOk(exhausted))
+    const { controller } = await mountFace(scripted)
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
+    expect(screen.getByRole<HTMLButtonElement>('tab', { name: en.addCatalog }).disabled).toBe(true)
+    // A dormant route appears (another client deleted its profile, say).
+    scripted.face.llm.listConfigurableProviders.mockResolvedValue(remoteOk([
+      ...exhausted,
+      { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'] },
+    ]))
+    await act(async () => { await controller.load() })
+    const catalog = screen.getByRole<HTMLButtonElement>('tab', { name: en.addCatalog })
+    expect(catalog.disabled).toBe(false)
+    fireEvent.click(catalog)
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: en.provider }).value).toBe('anthropic')
+    expect(within(screen.getByRole('tabpanel', { name: en.addCatalog })).getByLabelText(en.keyInput)).toBeTruthy()
+  })
+
+  it('drops the custom panel when the pi-ai namespace disappears mid-card', async () => {
+    const { face, controller, mirror } = await mountSection()
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
+    fireEvent.click(screen.getByRole('tab', { name: en.addCustom }))
+    expect(screen.getByRole('textbox', { name: en.customRoute })).toBeTruthy()
+    face.settings.describe.mockResolvedValue(remoteOk({
+      writable: true, hasDocument: false,
+      namespaces: wireNamespaces().filter(view => view.ns !== 'llm-pi-ai'),
+    }))
+    // A namespace change reaches the page through the mirror's own refresh.
+    await act(async () => {
+      await mirror.load()
+      await controller.load()
+    })
+    // Nothing can be declared any more, so the form is gone rather than left
+    // to create a route the Host would refuse; the catalog form stands alone.
+    expect(screen.queryByRole('textbox', { name: en.customRoute })).toBeNull()
+    expect(screen.queryByRole('tablist')).toBeNull()
+    expect(screen.getByRole('combobox', { name: en.provider })).toBeTruthy()
+  })
+
+  it('forgets the catalog target when the custom form closes, so a later refresh opens no row editor', async () => {
+    const { face, controller, mirror } = await mountSection()
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: en.provider }).value).toBe('anthropic')
+    fireEvent.click(screen.getByRole('tab', { name: en.addCustom }))
+    fireEvent.click(within(screen.getByRole('tabpanel', { name: en.addCustom })).getByText(en.cancel))
+    expect(screen.queryByRole('tablist')).toBeNull()
+    // The draft's provider gets configured elsewhere: its row must arrive closed.
+    const withAnthropic = (layer: unknown): JsonValue => ({
+      providers: { ...(layer as { providers: object }).providers, anthropic: { apiKeyEnv: 'ANTHROPIC_API_KEY' } },
+    })
+    face.settings.describe.mockResolvedValue(remoteOk({
+      writable: true, hasDocument: false,
+      namespaces: wireNamespaces().map(view => view.ns === 'llm-pi-ai'
+        ? { ...view, value: withAnthropic(view.value), user: withAnthropic(view.user) }
+        : view),
+    }))
+    await act(async () => {
+      await mirror.load()
+      await controller.load()
+    })
+    expect(screen.getByRole('button', { name: providerCopy(en.editProvider, { provider: 'anthropic', displayName: 'anthropic' }) })).toBeTruthy()
+    expect(screen.queryAllByLabelText(en.keyInput)).toHaveLength(0)
+  })
+
+  it('locks the mode switch while the catalog form has a write in flight', async () => {
+    let settle: (() => void) | undefined
+    const pending = new Promise<void>((resolve) => { settle = resolve })
+    const providerNamespace = wireNamespaces().find(view => view.ns === 'llm-pi-ai')!
+    const mutate = vi.fn(() => pending.then(() => remoteOk(providerNamespace)))
+    await mountSection({ mutate })
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: 'sk-slow' } })
+    fireEvent.click(screen.getByText(en.apply))
+    await waitFor(() => { expect(screen.getByRole<HTMLButtonElement>('tab', { name: en.addCustom }).disabled).toBe(true) })
+    expect(screen.getByRole<HTMLButtonElement>('tab', { name: en.addCatalog }).disabled).toBe(true)
+    await act(async () => { settle!(); await pending })
+    // The apply closes the card once it lands; nothing was switched underneath it.
+    await waitFor(() => { expect(screen.queryByRole('tablist')).toBeNull() })
+    expect(mutate).toHaveBeenCalledOnce()
+  })
+
+  it('locks the mode switch while the custom form is asking the endpoint for models', async () => {
+    const scripted = scriptedFace()
+    let settle: (() => void) | undefined
+    const pending = new Promise<void>((resolve) => { settle = resolve })
+    scripted.face.llm.discoverModels.mockImplementation(() => pending.then(() => remoteOk([])))
+    await mountFace(scripted)
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
+    fireEvent.click(screen.getByRole('tab', { name: en.addCustom }))
+    const custom = within(screen.getByRole('tabpanel', { name: en.addCustom }))
+    fireEvent.change(custom.getByRole('textbox', { name: en.baseUrl }), { target: { value: 'https://acme.test/v1' } })
+    fireEvent.click(custom.getByRole('button', { name: en.fetchModels }))
+    await waitFor(() => { expect(screen.getByRole<HTMLButtonElement>('tab', { name: en.addCatalog }).disabled).toBe(true) })
+    await act(async () => { settle!(); await pending })
+    await waitFor(() => { expect(screen.getByRole<HTMLButtonElement>('tab', { name: en.addCatalog }).disabled).toBe(false) })
+  })
+
+  it('pairs each tab with its panel through ids', async () => {
+    await mountSection()
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
+    const catalogTab = screen.getByRole('tab', { name: en.addCatalog })
+    const catalogPanel = screen.getByRole('tabpanel', { name: en.addCatalog })
+    expect(catalogTab.getAttribute('aria-controls')).toBe(catalogPanel.id)
+    expect(catalogPanel.getAttribute('aria-labelledby')).toBe(catalogTab.id)
+    fireEvent.click(screen.getByRole('tab', { name: en.addCustom }))
+    const customTab = screen.getByRole('tab', { name: en.addCustom })
+    const customPanel = screen.getByRole('tabpanel', { name: en.addCustom })
+    expect(customTab.getAttribute('aria-controls')).toBe(customPanel.id)
+    expect(customPanel.getAttribute('aria-labelledby')).toBe(customTab.id)
+  })
+
+  it('titles a single-mode card with its mode instead of leaving an orphan tabpanel', async () => {
+    const scripted = scriptedFace()
+    scripted.face.llm.listConfigurableProviders.mockResolvedValue(remoteOk([]))
+    await mountFace(scripted)
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
+    expect(screen.queryByRole('tablist')).toBeNull()
+    expect(screen.queryByRole('tabpanel')).toBeNull()
+    expect(screen.getByText(en.addCustom)).toBeTruthy()
+    expect(screen.getByRole('textbox', { name: en.customRoute })).toBeTruthy()
+  })
+
+  it('explains a locked mode through its hover title', async () => {
+    const scripted = scriptedFace()
+    scripted.face.llm.listConfigurableProviders.mockResolvedValue(remoteOk([
+      { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'] },
+    ]))
+    await mountFace(scripted)
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
+    expect(screen.getByRole('tab', { name: en.addCatalog }).getAttribute('title')).toBe(en.addCatalogExhausted)
+    expect(screen.getByRole('tab', { name: en.addCustom }).getAttribute('title')).toBeNull()
+  })
+
+  it('explains a mode with no protocol to declare through its hover title', async () => {
+    const scripted = scriptedFace()
+    const protocolless = JSON.parse(JSON.stringify(
+      Schema.object({ providers: Schema.dict(Schema.object({})) }).toJSON(),
+    )) as JsonValue
+    scripted.face.settings.describe.mockResolvedValue(remoteOk({
+      writable: true, hasDocument: false,
+      namespaces: wireNamespaces().map(view => view.ns === 'llm-pi-ai' ? { ...view, schema: protocolless } : view),
+    }))
+    await mountFace(scripted)
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
+    expect(screen.getByRole('tab', { name: en.addCustom }).getAttribute('title')).toBe(en.addCustomUnavailable)
+    expect(screen.getByRole('tab', { name: en.addCatalog }).getAttribute('title')).toBeNull()
+  })
+
+  it('collapses the add card from the custom mode on cancel', async () => {
+    await mountSection()
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
+    fireEvent.click(screen.getByRole('tab', { name: en.addCustom }))
+    fireEvent.click(within(screen.getByRole('tabpanel', { name: en.addCustom })).getByText(en.cancel))
+    expect(screen.queryByRole('tablist')).toBeNull()
+    expect(screen.getByRole('button', { name: en.add })).toBeTruthy()
   })
 
   it('cancels the add card back to the add button', async () => {
@@ -1751,7 +2014,6 @@ describe('ModelsSection', () => {
       useSnapshot={bindSnapshotSelector(controller.store)}
       useCredentialsRevision={bindSnapshotSelector(createSnapshotStore({ revision: 0 }))}
       operations={operationsWith(face)}
-      authorization={noSignIn}
       schema={settingsSchema}
       t={t}
       renderSlot={() => null}
@@ -1895,4 +2157,120 @@ describe('apiKeyFailure', () => {
     expect(apiKeyFailure('"')).toBeUndefined()
     expect(apiKeyFailure('"a')).toBeUndefined()
   })
+})
+
+it.each([en, zh])('edits the account model catalog without credential or endpoint fields', async (copy) => {
+  const mutate = vi.fn(() => Promise.resolve(remoteOk(accountNamespace())))
+  const scripted = scriptedFace({ mutate })
+  const ops = operationsWith(scripted.face)
+  const describe = vi.spyOn(ops, 'describeCredential')
+  const namespace = accountNamespace()
+  const onClose = vi.fn()
+  render(<ProviderEditor provider="deepseek-account" displayName={copy.deepSeekAccount}
+    namespace={namespace} settingsPath={[]} schema={settingsSchema}
+    operations={ops} t={key => copy[key]} readOnly={false} onClose={onClose} />)
+  expect(screen.queryByLabelText(copy.keyInput)).toBeNull()
+  expect(screen.queryByLabelText(copy.baseUrl)).toBeNull()
+  expect(describe).not.toHaveBeenCalled()
+  expect(screen.getByDisplayValue('deepseek-v4-flash')).toBeTruthy()
+  expect(screen.queryByText(content => content.includes(copy.advancedHint))).toBeNull()
+  await expect(`${document.body.textContent}\n`)
+    .toMatchFileSnapshot(`./expected/deepseek-account-${copy === en ? 'en' : 'zh'}.txt`)
+  const set = vi.spyOn(ops, 'storeCredential')
+  fireEvent.change(screen.getAllByLabelText(new RegExp(copy.modelId))[0]!, { target: { value: 'deepseek-v4-mini' } })
+  fireEvent.click(screen.getByText(copy.apply))
+  await waitFor(() => { expect(onClose).toHaveBeenCalledWith(true) })
+  expect(mutate.mock.calls[0]).toEqual([
+    'llm-deepseek-account',
+    [{
+      op: 'set',
+      path: ['models'],
+      value: [
+        {
+          id: 'deepseek-v4-mini',
+          name: 'DeepSeek-V4-Flash',
+          description: 'Preserved hidden detail',
+          contextWindow: 1_000_000,
+        },
+        { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', contextWindow: 1_000_000 },
+      ],
+    }],
+    0,
+  ])
+  expect(set).not.toHaveBeenCalled()
+})
+
+it('keeps the DeepSeek editor for an account route under a renamed settings entry', async () => {
+  const namespace = accountNamespace('team-account-entry')
+  const mutate = vi.fn(() => Promise.resolve(remoteOk(namespace)))
+  const ops = operationsWith(scriptedFace({ mutate }).face)
+  const set = vi.spyOn(ops, 'storeCredential')
+  const onClose = vi.fn()
+  render(<ProviderEditor provider="deepseek-account" displayName={en.deepSeekAccount}
+    namespace={namespace} settingsPath={[]} schema={settingsSchema}
+    operations={ops} t={t} readOnly={false} onClose={onClose} />)
+  expect(screen.queryByText(content => content.includes(en.advancedHint))).toBeNull()
+  expect(screen.getByDisplayValue('deepseek-v4-flash')).toBeTruthy()
+  fireEvent.change(screen.getAllByLabelText(new RegExp(en.modelId))[0]!, { target: { value: 'deepseek-v4-mini' } })
+  fireEvent.click(screen.getByText(en.apply))
+  await waitFor(() => { expect(onClose).toHaveBeenCalledWith(true) })
+  expect(mutate).toHaveBeenCalledWith('team-account-entry', expect.any(Array), 0)
+  expect(set).not.toHaveBeenCalled()
+})
+
+it('opens the account row from the section and saves to its own namespace', async () => {
+  const namespace = accountNamespace()
+  const mutate = vi.fn(() => Promise.resolve(remoteOk(namespace)))
+  const { controller, set } = await mountSection({ mutate })
+  const row = controller.store.getSnapshot().rows[0]!
+  await act(async () => { controller.store.update((state) => {
+    state.rows = [{
+      ...row,
+      accountAvailable: true,
+      entry: {
+        provider: 'deepseek-account', displayName: en.deepSeekAccount, settingsNs: namespace.ns, settingsPath: [], active: true,
+      },
+    }, ...state.rows]
+  }) })
+  fireEvent.click(screen.getByRole('button', {
+    name: providerCopy(en.editProvider, { provider: 'deepseek-account', displayName: en.deepSeekAccount }),
+  }))
+  expect(screen.getByDisplayValue('deepseek-v4-flash')).toBeTruthy()
+  fireEvent.change(screen.getAllByLabelText(new RegExp(en.modelId))[0]!, { target: { value: 'deepseek-v4-mini' } })
+  fireEvent.click(screen.getByText(en.apply))
+  await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
+  expect(mutate.mock.calls[0]).toEqual([
+    'llm-deepseek-account',
+    [{
+      op: 'set',
+      path: ['models'],
+      value: [
+        {
+          id: 'deepseek-v4-mini',
+          name: 'DeepSeek-V4-Flash',
+          description: 'Preserved hidden detail',
+          contextWindow: 1_000_000,
+        },
+        { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', contextWindow: 1_000_000 },
+      ],
+    }],
+    0,
+  ])
+  expect(set).not.toHaveBeenCalled()
+})
+
+it('renders the localized account row and supports catalogs without capacity defaults', async () => {
+  const scripted = scriptedFace({})
+  const { controller, view } = await mountFace(scripted)
+  const row = controller.store.getSnapshot().rows[0]!
+  await act(async () => { controller.store.update((state) => {
+    state.rows = [{ ...row, accountAvailable: true, entry: { ...row.entry, provider: 'deepseek-account' } }]
+  }) })
+  expect(screen.getByText(en.deepSeekAccount)).toBeTruthy()
+  view.unmount()
+  const namespace = accountNamespace()
+  render(<ProviderEditor provider="deepseek-account" displayName={en.deepSeekAccount}
+    namespace={{ ...namespace, value: { models: [] }, base: { models: [] } }} settingsPath={[]} schema={settingsSchema}
+    operations={operationsWith(scripted.face)} t={t} readOnly={false} onClose={() => {}} />)
+  expect(screen.queryByLabelText(en.keyInput)).toBeNull()
 })

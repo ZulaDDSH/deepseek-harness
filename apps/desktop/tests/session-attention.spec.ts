@@ -39,7 +39,7 @@ function bench() {
   })
   const activated = vi.fn()
   attention = new DesktopSessionAttention(
-    resolveDesktopLocale('en-US'),
+    () => resolveDesktopLocale('en-US'),
     () => window as unknown as BrowserWindow,
     activated,
   )

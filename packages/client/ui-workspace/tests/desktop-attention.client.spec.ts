@@ -17,8 +17,7 @@ function list(): SessionListState {
       },
     },
     phase: 'ready',
-    subagentsByParent: {},
-    jobsBySession: {},
+    projectionsBySession: {},
   }
 }
 

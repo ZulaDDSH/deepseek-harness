@@ -1,7 +1,7 @@
 /** One model row of the composer seat's menu: the selectable option and its favorite toggle. */
 import type { ReactNode, Ref } from 'react'
 import clsx from 'clsx'
-import { IconCheckOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconCheckOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ModelChoice } from './model-choices.ts'
 import css from './ModelSelect.module.css'
@@ -54,7 +54,7 @@ export function ModelRow(
           <span className={css.modelName}>{choice.model.name}</span>
         </span>
         <span className={css.check}>
-          {selected ? <IconCheckOutline16 /> : null}
+          {selected ? <IconCheckOutlineRegular /> : null}
         </span>
       </button>
       <button
