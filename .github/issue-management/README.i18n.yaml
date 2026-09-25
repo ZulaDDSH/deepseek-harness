@@ -1,6 +1,34 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .github/issue-management/README.md
-README.md: fc8e604524fc0a7740b8fbdf59464b3e7cd7a1bb
-README.zh.md: 453a40c94ebafeca9556ae27fad7ec1776207ce5
+/:
+  en: d5e0fd5da06b95ab
+  zh: db4281526c40cc1d
+/issue-management:
+  en: 44fb5f74b6908794
+  zh: cc25f420bac7d40b
+/issue-management/summary:
+  en: 031708ae7a90dc47
+  zh: 7ff3321dd18fdd81
+/issue-management/table-of-contents:
+  en: cff988027897ee0d
+  zh: 36a444b895dfdc48
+/issue-management/pull-request-policy:
+  en: 49d02c7ed02760d1
+  zh: 8fc0ed556d0a8a7b
+/issue-management/lifecycle-events:
+  en: e05ee8f00b8da224
+  zh: bc9901e5825fcbf9
+/issue-management/configuration-and-limitations:
+  en: 3ef00734bb83737f
+  zh: 9d91319c953496dd
+/issue-management/module-ownership:
+  en: e83f694e0be99e69
+  zh: 85fb201f86af2ce8
+/issue-management/verification:
+  en: b52fe10bcb063600
+  zh: 3362170645a58eff
+/issue-management/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

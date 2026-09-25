@@ -3,7 +3,7 @@
  * catalog supplies defaults keyed by model id, and a profile's own model
  * entries override them field by field, so a route naming a catalog provider
  * stays configuration-free while a route pi-ai has never heard of is fully
- * describable from `settings.yaml`. A model the pinned pi-ai release does not
+ * describable from `cordis.patch.yml`. A model the pinned pi-ai release does not
  * ship yet is merged from {@link ./catalog-supplement.ts}, so a catalog route
  * serves a provider's newest model without a dependency upgrade.
  *

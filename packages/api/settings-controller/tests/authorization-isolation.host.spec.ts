@@ -266,11 +266,11 @@ async function openTab(
 
 /** The `WebSocket` this tab's mux client uses: one socket, this tab's cookie. */
 function cookieSocket(cookie: string): typeof WebSocket {
-  return class extends WebSocket {
-    constructor(address: string | URL, protocols?: string | string[]) {
-      super(address, protocols, { headers: { cookie } })
-    }
-  } as unknown as typeof WebSocket
+  return new Proxy(WebSocket, {
+    construct(target, [address, protocols]: [string | URL, string | string[] | undefined]) {
+      return new target(address, protocols, { headers: { cookie } })
+    },
+  })
 }
 
 /** Install one global for the duration of `use`, returning the restore. */
