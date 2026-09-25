@@ -23,6 +23,10 @@ export interface SubagentLimitsCardFace extends SettingsFormActions {
   hooks: {
     subagentLimitsCard: SnapshotStore<SubagentLimitsCardState>
   }
+  /** Write every staged edit, then re-seed from what the Host accepted.
+   * @returns A promise fulfilled after the write settles.
+   */
+  save: () => Promise<void>
 }
 
 function limitField(field: keyof SubagentLimitsSettings, minimum: number): SettingsFieldSpec {
@@ -58,7 +62,12 @@ export class SubagentLimitsCardController {
    * @returns The limits snapshot and staged write actions.
    */
   inject(): SubagentLimitsCardFace {
-    return { hooks: { subagentLimitsCard: this.store }, ...this.form.actions() }
+    const actions = this.form.actions()
+    return {
+      hooks: { subagentLimitsCard: this.store },
+      ...actions,
+      save: () => this.form.save(),
+    }
   }
   /** Release accepted-value subscriptions. */
   dispose(): void { this.form.dispose() }

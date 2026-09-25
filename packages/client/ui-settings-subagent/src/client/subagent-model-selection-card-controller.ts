@@ -62,8 +62,10 @@ export interface SubagentModelSelectionCardFace {
   toggleModel: (key: string) => void
   /** Retry the adapter directory. */
   retryCatalog: () => void
-  /** Persist the switch and exact routes as one revision-fenced mutation. */
-  save: () => void
+  /** Persist the switch and exact routes as one revision-fenced mutation.
+   * @returns A promise fulfilled after the mutation settles.
+   */
+  save: () => Promise<void>
   /** Drop the staged enabled state and route choices. */
   discard: () => void
 }
@@ -181,7 +183,7 @@ export class SubagentModelSelectionCardController {
       toggleEnabled: () => { this.toggleEnabled() },
       toggleModel: (key) => { this.toggleModel(key) },
       retryCatalog: () => { void this.loadCatalog() },
-      save: () => { void this.save() },
+      save: () => this.save(),
       discard: () => { this.discard() },
     }
   }

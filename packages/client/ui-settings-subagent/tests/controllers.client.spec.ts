@@ -110,7 +110,7 @@ describe('SubagentModelSelectionCardController', () => {
       expect(face.hooks.subagentModelSelectionCard.getSnapshot().candidates).toHaveLength(1)
     })
     face.toggleModel('alpha\0fast')
-    face.save()
+    const saving = face.save()
     await vi.waitFor(() => {
       expect(host.mutate).toHaveBeenCalledWith([
         { op: 'set', path: ['enabled'], value: true },
@@ -124,6 +124,7 @@ describe('SubagentModelSelectionCardController', () => {
       saving: false,
       failed: false,
     })
+    await saving
   })
 
   it('starts an empty draft when a ready test scope has no decoded value', () => {
@@ -153,7 +154,7 @@ describe('SubagentModelSelectionCardController', () => {
       expect(face.hooks.subagentModelSelectionCard.getSnapshot().candidates).toHaveLength(1)
     })
     face.toggleModel('alpha\0fast')
-    face.save()
+    const saving = face.save()
     await vi.waitFor(() => {
       expect(face.hooks.subagentModelSelectionCard.getSnapshot().failed).toBe(true)
     })
@@ -163,6 +164,7 @@ describe('SubagentModelSelectionCardController', () => {
       dirty: true,
       saving: false,
     })
+    await saving
   })
 
   it('loads stored routes, stages removal and disablement, and discards both', async () => {
@@ -495,7 +497,8 @@ describe('SubagentModelSelectionCardController', () => {
 describe('SubagentLimitsCardController', () => {
   it('validates staged limits, saves them, and restores composed defaults', async () => {
     const host = stubConfigForm<SubagentLimitsSettings>()
-    const face = new SubagentLimitsCardController(host.scope).inject()
+    const controller = new SubagentLimitsCardController(host.scope)
+    const face = controller.inject()
     const state = () => face.hooks.subagentLimitsCard.getSnapshot()
     host.publish({ status: 'ready', writable: true, value: { maxDepth: 3, maxActiveSubagents: 8 }, base: { maxDepth: 3, maxActiveSubagents: 8 }, user: {} })
     acceptWrites(host)
@@ -518,6 +521,7 @@ describe('SubagentLimitsCardController', () => {
     face.save()
     await vi.waitFor(() => { expect(state().saving).toBe(false) })
     expect(host.scope.getSnapshot().value).toEqual({ maxDepth: 3, maxActiveSubagents: 8 })
+    controller.dispose()
   })
 })
 
@@ -545,6 +549,30 @@ describe('shared Subagent card actions', () => {
     )
     return { limits, models, face, state }
   }
+
+  it('waits for model settings to settle before writing limits', async () => {
+    const { limits, models, face, state } = card()
+    const modelWrite = deferred<boolean>()
+    models.mutate.mockImplementationOnce(async () => {
+      const accepted = await modelWrite.promise
+      if (accepted) {
+        models.publish({
+          value: { enabled: true, allowedModels: [{ provider: 'alpha', model: 'fast' }] },
+          revision: 6,
+        })
+      }
+      return accepted
+    })
+    face.editLimit('maxDepth', '2')
+    face.toggleEnabled()
+    const saving = face.save()
+    await vi.waitFor(() => { expect(models.mutate).toHaveBeenCalledOnce() })
+    expect(limits.mutate).not.toHaveBeenCalled()
+    modelWrite.resolve(true)
+    await vi.waitFor(() => { expect(limits.mutate).toHaveBeenCalledOnce() })
+    await vi.waitFor(() => { expect(state()).toMatchObject({ saving: false, dirty: false, failed: false }) })
+    await saving
+  })
 
   it('saves both drafts through their existing namespaces from one action', async () => {
     const { limits, models, face, state } = card()

@@ -14,8 +14,10 @@ export interface SubagentCardFace {
   toggleEnabled: SubagentModelSelectionCardFace['toggleEnabled']
   toggleModel: SubagentModelSelectionCardFace['toggleModel']
   retryCatalog: SubagentModelSelectionCardFace['retryCatalog']
-  /** Save valid drafts through their owning namespace controllers. */
-  save: () => void
+  /** Save valid drafts through their owning namespace controllers.
+   * @returns A promise fulfilled after each write settles.
+   */
+  save: () => Promise<void>
   /** Discard both drafts without changing persisted settings. */
   discard: () => void
 }
@@ -59,13 +61,13 @@ export function subagentCardFace(
     toggleEnabled: models.toggleEnabled,
     toggleModel: models.toggleModel,
     retryCatalog: models.retryCatalog,
-    save: () => {
+    save: async () => {
       const limitState = limits.hooks.subagentLimitsCard.getSnapshot()
       const modelState = models.hooks.subagentModelSelectionCard.getSnapshot()
       const state = subagentCardShell(limitState, modelState)
       if (!state.available || !state.writable || !state.dirty || state.invalid || state.saving) return
-      if (modelState.available && modelState.dirty) models.save()
-      if (limitState.available && limitState.dirty) limits.save()
+      if (modelState.available && modelState.dirty) await models.save()
+      if (limitState.available && limitState.dirty) await limits.save()
     },
     discard: () => {
       if (subagentCardShell(
