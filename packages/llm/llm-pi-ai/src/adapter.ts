@@ -431,11 +431,16 @@ export class PiAiAdapter extends LlmAdapter {
           },
         }, onReplayDegrade)
       const sessionId = options.sessionId === undefined ? undefined : String(options.sessionId)
-      const events = snapshot.models.streamSimple(model, context, {
+      const mode = profile.modeRequests.get(model.id)
+      const requestModel = mode === undefined ? model : { ...model, id: mode.model }
+      const events = snapshot.models.streamSimple(requestModel, context, {
         ...profileOptions(profile, reasoning, apiKey),
         ...options.temperature === undefined ? {} : { temperature: options.temperature },
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
         ...sessionId === undefined ? {} : { sessionId },
+        ...mode === undefined ? {} : {
+          onPayload: body => ({ ...(body as Record<string, unknown>), service_tier: mode.serviceTier }),
+        },
         signal: watchdog.signal,
         // Profile headers are deployment-owned; attribution names are
         // Harness-owned and therefore win collisions.

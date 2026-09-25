@@ -1096,6 +1096,30 @@ describe('abort wiring', () => {
   })
 })
 
+describe('declared model modes', () => {
+  it('sends a mode tier while preserving the base model request', async () => {
+    const rejected = { status: 401, body: JSON.stringify({ error: { message: 'expected mock failure' } }) }
+    const server = await mockServer([rejected, rejected])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    ctx.llm.registerAdapter(['acme-gateway'], adapterOf({
+      'acme-gateway': {
+        api: 'openai-responses',
+        baseURL: server.url,
+        models: [{ id: 'acme-large', modes: { fast: { serviceTier: 'priority' } } }],
+      },
+    }))
+
+    await assemble(ctx, { provider: 'acme-gateway', model: 'acme-large-fast', messages: [] })
+    await assemble(ctx, { provider: 'acme-gateway', model: 'acme-large', messages: [] })
+
+    expect(server.requests).toHaveLength(2)
+    expect(server.requests[0]).toMatchObject({ model: 'acme-large', service_tier: 'priority' })
+    expect(server.requests[1]).toMatchObject({ model: 'acme-large' })
+    expect(server.requests[1]).not.toHaveProperty('service_tier')
+  })
+})
+
 it.each([
   new LlmError('missing credential', 'MISSING_CREDENTIAL'),
   new LlmError('invalid credential', 'INVALID_CREDENTIAL'),
