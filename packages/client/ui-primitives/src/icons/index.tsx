@@ -1656,3 +1656,157 @@ export const IconMicrophoneOutlineRegular = (props: IconProps) => (
 export const IconMicrophoneOutlineMedium = (props: IconProps) => (
   <IconMicrophoneOutlineArtwork {...props} strokeWidth={ICON_MEDIUM_STROKE} />
 )
+
+const IconFolderOutlineArtwork = ({ size = 16, className, strokeWidth }: WeightedIconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" strokeWidth={strokeWidth}>
+    <path d="M2.6 2.6h3.1l1.3 1.9h6.4a1.1 1.1 0 0 1 1.1 1.1v6.8a1.1 1.1 0 0 1-1.1 1.1H2.6a1.1 1.1 0 0 1-1.1-1.1V3.7a1.1 1.1 0 0 1 1.1-1.1Z" stroke="currentColor" strokeLinejoin="round" />
+  </svg>
+)
+
+/** Regular one-pixel IconFolderOutline artwork (Workspace appearance choice `folder`). */
+export const IconFolderOutlineRegular = (props: IconProps) => (
+  <IconFolderOutlineArtwork {...props} strokeWidth={ICON_REGULAR_STROKE} />
+)
+
+/** Medium IconFolderOutline artwork with a 1.3px stroke (Workspace appearance choice `folder`). */
+export const IconFolderOutlineMedium = (props: IconProps) => (
+  <IconFolderOutlineArtwork {...props} strokeWidth={ICON_MEDIUM_STROKE} />
+)
+
+const IconWorkspaceCodeOutlineArtwork = ({ size = 16, className, strokeWidth }: WeightedIconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" strokeWidth={strokeWidth}>
+    <path d="M5.4 4.6 1.9 8l3.5 3.4M10.6 4.6 14.1 8l-3.5 3.4M9.3 2.9 6.7 13.1" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
+
+/** Regular one-pixel IconWorkspaceCodeOutline artwork (Workspace appearance choice `code`). */
+export const IconWorkspaceCodeOutlineRegular = (props: IconProps) => (
+  <IconWorkspaceCodeOutlineArtwork {...props} strokeWidth={ICON_REGULAR_STROKE} />
+)
+
+/** Medium IconWorkspaceCodeOutline artwork with a 1.3px stroke (Workspace appearance choice `code`). */
+export const IconWorkspaceCodeOutlineMedium = (props: IconProps) => (
+  <IconWorkspaceCodeOutlineArtwork {...props} strokeWidth={ICON_MEDIUM_STROKE} />
+)
+
+const IconTerminalOutlineArtwork = ({ size = 16, className, strokeWidth }: WeightedIconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" strokeWidth={strokeWidth}>
+    <rect x="1.65" y="2.65" width="12.7" height="10.7" rx="1.4" stroke="currentColor" />
+    <path d="M4.4 6.1 6.3 8l-1.9 1.9M8.3 10.2h3.3" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
+
+/** Regular one-pixel IconTerminalOutline artwork (Workspace appearance choice `terminal`). */
+export const IconTerminalOutlineRegular = (props: IconProps) => (
+  <IconTerminalOutlineArtwork {...props} strokeWidth={ICON_REGULAR_STROKE} />
+)
+
+/** Medium IconTerminalOutline artwork with a 1.3px stroke (Workspace appearance choice `terminal`). */
+export const IconTerminalOutlineMedium = (props: IconProps) => (
+  <IconTerminalOutlineArtwork {...props} strokeWidth={ICON_MEDIUM_STROKE} />
+)
+
+const IconWorkspaceBranchOutlineArtwork = ({ size = 16, className, strokeWidth }: WeightedIconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" strokeWidth={strokeWidth}>
+    <circle cx="4.2" cy="3.4" r="1.8" stroke="currentColor" />
+    <circle cx="4.2" cy="12.6" r="1.8" stroke="currentColor" />
+    <circle cx="11.8" cy="6.2" r="1.8" stroke="currentColor" />
+    <path d="M4.2 5.2v5.6M11.8 8v.6a2.6 2.6 0 0 1-2.6 2.6H5.9" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
+
+/** Regular one-pixel IconWorkspaceBranchOutline artwork (Workspace appearance choice `branch`). */
+export const IconWorkspaceBranchOutlineRegular = (props: IconProps) => (
+  <IconWorkspaceBranchOutlineArtwork {...props} strokeWidth={ICON_REGULAR_STROKE} />
+)
+
+/** Medium IconWorkspaceBranchOutline artwork with a 1.3px stroke (Workspace appearance choice `branch`). */
+export const IconWorkspaceBranchOutlineMedium = (props: IconProps) => (
+  <IconWorkspaceBranchOutlineArtwork {...props} strokeWidth={ICON_MEDIUM_STROKE} />
+)
+
+const IconRocketOutlineArtwork = ({ size = 16, className, strokeWidth }: WeightedIconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" strokeWidth={strokeWidth}>
+    <path d="M8 1.4c2.6 1.5 4 4 4 6.9 0 1.2-.3 2.2-.8 3.1H4.8A6.8 6.8 0 0 1 4 8.3c0-2.9 1.4-5.4 4-6.9Z" stroke="currentColor" strokeLinejoin="round" />
+    <circle cx="8" cy="6.6" r="1.4" stroke="currentColor" />
+    <path d="M6.2 12.1 5.1 14.3M9.8 12.1l1.1 2.2" stroke="currentColor" strokeLinecap="round" />
+  </svg>
+)
+
+/** Regular one-pixel IconRocketOutline artwork (Workspace appearance choice `rocket`). */
+export const IconRocketOutlineRegular = (props: IconProps) => (
+  <IconRocketOutlineArtwork {...props} strokeWidth={ICON_REGULAR_STROKE} />
+)
+
+/** Medium IconRocketOutline artwork with a 1.3px stroke (Workspace appearance choice `rocket`). */
+export const IconRocketOutlineMedium = (props: IconProps) => (
+  <IconRocketOutlineArtwork {...props} strokeWidth={ICON_MEDIUM_STROKE} />
+)
+
+const IconWorkspaceSparkOutlineArtwork = ({ size = 16, className, strokeWidth }: WeightedIconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" strokeWidth={strokeWidth}>
+    <path d="M6.1 3.1Q6.6 7.8 11.3 8.3Q6.6 8.8 6.1 13.5Q5.6 8.8 0.9 8.3Q5.6 7.8 6.1 3.1Z" fill="currentColor" />
+    <path d="M11.9 1Q12.2 3.7 14.9 4Q12.2 4.3 11.9 7Q11.6 4.3 8.9 4Q11.6 3.7 11.9 1Z" fill="currentColor" />
+  </svg>
+)
+
+/** Regular one-pixel IconWorkspaceSparkOutline artwork (Workspace appearance choice `spark`). */
+export const IconWorkspaceSparkOutlineRegular = (props: IconProps) => (
+  <IconWorkspaceSparkOutlineArtwork {...props} strokeWidth={ICON_REGULAR_STROKE} />
+)
+
+/** Medium IconWorkspaceSparkOutline artwork with a 1.3px stroke (Workspace appearance choice `spark`). */
+export const IconWorkspaceSparkOutlineMedium = (props: IconProps) => (
+  <IconWorkspaceSparkOutlineArtwork {...props} strokeWidth={ICON_MEDIUM_STROKE} />
+)
+
+const IconExperimentOutlineArtwork = ({ size = 16, className, strokeWidth }: WeightedIconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" strokeWidth={strokeWidth}>
+    <path d="M6.3 1.9h3.4M7 1.9v4.3L3.2 12a1.3 1.3 0 0 0 1.1 2h7.4a1.3 1.3 0 0 0 1.1-2L9 6.2V1.9" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M5 10.4h6" stroke="currentColor" strokeLinecap="round" />
+  </svg>
+)
+
+/** Regular one-pixel IconExperimentOutline artwork (Workspace appearance choice `experiment`). */
+export const IconExperimentOutlineRegular = (props: IconProps) => (
+  <IconExperimentOutlineArtwork {...props} strokeWidth={ICON_REGULAR_STROKE} />
+)
+
+/** Medium IconExperimentOutline artwork with a 1.3px stroke (Workspace appearance choice `experiment`). */
+export const IconExperimentOutlineMedium = (props: IconProps) => (
+  <IconExperimentOutlineArtwork {...props} strokeWidth={ICON_MEDIUM_STROKE} />
+)
+
+const IconWorkspaceDatabaseOutlineArtwork = ({ size = 16, className, strokeWidth }: WeightedIconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" strokeWidth={strokeWidth}>
+    <ellipse cx="8" cy="3.6" rx="5.1" ry="2.1" stroke="currentColor" />
+    <path d="M2.9 3.6v8.8c0 1.2 2.3 2.1 5.1 2.1s5.1-.9 5.1-2.1V3.6" stroke="currentColor" />
+    <path d="M2.9 8c0 1.2 2.3 2.1 5.1 2.1s5.1-.9 5.1-2.1" stroke="currentColor" />
+  </svg>
+)
+
+/** Regular one-pixel IconWorkspaceDatabaseOutline artwork (Workspace appearance choice `database`). */
+export const IconWorkspaceDatabaseOutlineRegular = (props: IconProps) => (
+  <IconWorkspaceDatabaseOutlineArtwork {...props} strokeWidth={ICON_REGULAR_STROKE} />
+)
+
+/** Medium IconWorkspaceDatabaseOutline artwork with a 1.3px stroke (Workspace appearance choice `database`). */
+export const IconWorkspaceDatabaseOutlineMedium = (props: IconProps) => (
+  <IconWorkspaceDatabaseOutlineArtwork {...props} strokeWidth={ICON_MEDIUM_STROKE} />
+)
+
+const IconFilterOutlineArtwork = ({ size = 16, className, strokeWidth }: WeightedIconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" strokeWidth={strokeWidth}>
+    <path d="M1.9 3.2h12.2L9.4 8.3v4.5l-2.8 1.4V8.3L1.9 3.2Z" stroke="currentColor" strokeLinejoin="round" />
+  </svg>
+)
+
+/** Regular one-pixel IconFilterOutline artwork (Workspace list filter control). */
+export const IconFilterOutlineRegular = (props: IconProps) => (
+  <IconFilterOutlineArtwork {...props} strokeWidth={ICON_REGULAR_STROKE} />
+)
+
+/** Medium IconFilterOutline artwork with a 1.3px stroke (Workspace list filter control). */
+export const IconFilterOutlineMedium = (props: IconProps) => (
+  <IconFilterOutlineArtwork {...props} strokeWidth={ICON_MEDIUM_STROKE} />
+)

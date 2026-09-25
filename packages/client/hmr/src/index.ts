@@ -30,10 +30,19 @@ export const inject = ['clientModules', 'webServer']
 export interface Config {
   /** Bundle stat-poll interval in milliseconds (default 500, the build-side watcher's polling default). */
   pollIntervalMs?: number
+  /**
+   * Idle interval in milliseconds between SSE keep-alive comments (default
+   * 30000). The channel carries no traffic between rebuilds, and an
+   * intermediary that times out an idle response body closes it — the Desktop
+   * window forwards the stream through a fetch whose body timeout is 300
+   * seconds — after which the browser's EventSource reconnects.
+   */
+  keepAliveMs?: number
 }
 
 export const Config: z<Config> = z.object({
   pollIntervalMs: z.number().step(1).min(1).default(500),
+  keepAliveMs: z.number().step(1).min(1).default(30_000),
 })
 
 /** Serialize one frame as an SSE data line. */
@@ -68,6 +77,7 @@ function sameBundleStat(left: WatchedBundleStat, right: WatchedBundleStat): bool
 export function apply(ctx: Context, config: Config): void {
   // schemastery's .default() guarantees the field is set after validation.
   const pollIntervalMs = config.pollIntervalMs as number
+  const keepAliveMs = config.keepAliveMs as number
 
   // --- bundle watch: one HMR-owned stat poll ------------------------------
   const watched = new Map<string, WatchedBundle>()
@@ -157,6 +167,13 @@ export function apply(ctx: Context, config: Config): void {
 
   // --- /plugins/events SSE channel ----------------------------------------
   const connections = new Set<ServerResponse>()
+  let keepAlive: NodeJS.Timeout | undefined
+
+  const stopKeepAlive = (): void => {
+    if (keepAlive === undefined) return
+    clearInterval(keepAlive)
+    keepAlive = undefined
+  }
 
   const publishGraph = (): void => {
     const line = sseData({ type: 'graph', graph: ctx.clientModules.graph() })
@@ -174,7 +191,16 @@ export function apply(ctx: Context, config: Config): void {
     res.write(': connected\n\n')
     connections.add(res)
     res.write(sseData({ type: 'graph', graph: ctx.clientModules.graph() }))
-    res.on('close', () => { connections.delete(res) })
+    // The interval below is what keeps the body non-idle for the whole life of
+    // the channel; the opening comment only proves the channel is up.
+    keepAlive ??= setInterval(() => {
+      for (const open of connections) open.write(': keep-alive\n\n')
+    }, keepAliveMs)
+    keepAlive.unref()
+    res.on('close', () => {
+      connections.delete(res)
+      if (connections.size === 0) stopKeepAlive()
+    })
   }
 
   ctx.effect(() => {
@@ -201,6 +227,7 @@ export function apply(ctx: Context, config: Config): void {
       unsubscribeGraph()
       unsubscribe()
       disposeRoute()
+      stopKeepAlive()
       for (const res of connections) res.destroy()
       connections.clear()
     }

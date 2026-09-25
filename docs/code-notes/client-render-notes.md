@@ -18,6 +18,14 @@ A fact that can change after mount must therefore cross the inject face as a liv
 
 `packages/client/ui-settings-models/src/client/index.ts:apply` publishes the credential-record revision this way — a `createSnapshotStore({ revision })` bumped by the `credentials/record-updated` subscription, consumed by `ModelsSection` as `useCredentialsRevision`. A sign-in another browser tab completes commits a credential record rather than a settings reference, so without this channel a card already mounted keeps rendering the pre-login state it read at first render.
 
+## The application mount follows the Session scope owner
+
+`packages/client/web/src/mount.ts:mountClient` depends on both `uiRenderer` and `uiSession`. Replacing the Session owner during client reconciliation first disposes the application mount, so React cannot render `session-maybe` while its scope adapter is absent. The mount is recreated after the replacement installs the adapter.
+
+`packages/client/ui-conversation/src/client/apply.ts:apply` also verifies that each retained view binding is still the active Controller generation before restoring its selected view. This prevents locale or slot notifications during teardown from calling `uiConversation.binding()` for a retired Session.
+
+`packages/extensions/cordis-client-runner/src/client/inspect-registry.ts:ClientCordisInspectRegistry` drops queued manifest syncs when its owning Client entry is replaced, so a retired Remote namespace cannot report expected teardown failures.
+
 ## Related
 
 - [Web client architecture](../subsystems/web-client.md) — the render machinery, the three live-data channels, and the store discipline these notes depend on.

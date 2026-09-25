@@ -1,5 +1,5 @@
 ---
-description: "Shared Workspace browser and picker plugin for the dsh web client: grouped or flat session rows, management actions, the slot-composed Session row actions, and directory picking."
+description: "Shared Workspace browser and picker plugin for the dsh web client: workspace, flat, and activity Session views, Chat Sections grouping, management actions, the slot-composed Session row actions, and directory picking."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-This package lets users browse grouped or flat Session lists, choose a Workspace for a new Session, and manage Workspaces and Sessions through add, rename, reorder, search, fork, archive, and Workspace deletion; the Session row menu and its hover buttons are slot lists that client plugins extend. Pending interactions appear as warning dots, and subagent-origin Sessions remain hidden. An idle, unarchived Session row with active scheduled tasks shows a clock mark, and its hover card lists those tasks. Canonically distinct folder paths remain separate Workspaces. Adding a Workspace requires a composed directory picker; without one, adding is unavailable.
+This package lets users browse grouped, flat, or activity-centered Session lists, group Sessions into Chat Sections, choose a Workspace for a new Session, and manage Workspaces and Sessions through add, rename, reorder, search, fork, archive, and Workspace deletion; client plugins extend the Session row menu and hover buttons through slot lists. Pending interactions show warning dots, live work shows status text beside its dot, and subagent-origin Sessions stay hidden. An idle, unarchived Session with active scheduled tasks shows a clock mark whose hover card lists them. Distinct canonical folder paths stay separate Workspaces. Adding one requires a composed directory picker.
 
 ## Table of Contents
 
@@ -25,7 +25,7 @@ This package lets users browse grouped or flat Session lists, choose a Workspace
 <a id="use-this-package"></a>
 ## Use this package
 
-Use the sidebar to browse Workspaces and their Sessions, reorder them, and start new ones; use the picker in the Session Intent hero to choose a Workspace for a new session. An open Workspace shows five idle, non-blank Sessions by default. Running Sessions, including parents with running children, remain visible in their ordered positions without using that quota; the selected blank **New Session** is also an extra row until its first prompt. Each **Show more** click reveals up to five more idle Sessions; after the final batch, **Show less** restores the initial rows while keeping running Sessions visible. Closing and reopening the Workspace also restores this folded projection.
+Use the sidebar to browse Workspaces and their Sessions, reorder them, and start new ones; use the picker in the Session Intent hero to choose a Workspace for a new session. Press **Ctrl/Cmd+K** to open the root quick switcher for visible Sessions, registered Workspaces, and directly executable commands for the current Session. The switcher never inserts text into the composer, so an unsent draft stays untouched. An open Workspace shows five idle, non-blank Sessions by default. Running Sessions, including parents with running children, remain visible in their ordered positions without using that quota; the selected blank **New Session** is also an extra row until its first prompt. Each **Show more** click reveals up to five more idle Sessions; after the final batch, **Show less** restores the initial rows while keeping running Sessions visible. Closing and reopening the Workspace also restores this folded projection.
 
 ### Reordering and view options
 
@@ -35,9 +35,23 @@ Pinning moves the Session to the front of its complete saved sequence without ch
 
 The selected blank **New Session** retains its provisional first slot and cannot be dragged; after its first prompt it becomes an ordinary draggable row, retaining that position in Manual or following its current timestamp in Last updated. A collapsed-group drag uses the target Session identity and keeps the source visible. Session display orders for real Workspaces, Ungrouped, and the flat list are browser-local; Workspace group drag order remains Host-durable. The [Session pinning and archive decision](../../../.agents/notes/implemented/feature/2026-09-18-session-pin-and-sidebar-archive.md) records the ordering and recovery rules.
 
+### Chat Sections
+
+**New section** in the browsing header adds a **Sections** pane below the Workspace pane. Sections list the Chats you filed into them; a Chat with no section simply does not appear there.
+
+Sections are a saved visual filter over the Workspace list, not a second membership. Every Chat keeps living in its workspace folder above, and filing one never removes it from that folder — the same Chat can be seen in both panes. The two panes scroll independently, so filing a Chat does not move the Workspace list. The Sections pane exists only while at least one section does; with none, the Workspace list is the whole region.
+
+A section header collapses and expands on click and carries **Rename** and **Delete section**; deleting a section never deletes its Chats. Section order follows creation and changes by dragging one header onto another.
+
+File a Chat by dragging its row from the Workspace pane onto a section header, or with the row menu's **Move to Section → [name]**. Unfile with **Remove from section**, or by dragging the row back. The menu is the complete alternative to drag-and-drop, and both paths write the same state. A Chat belongs to at most one section; the provisional **New Session** row cannot be dragged and stays unfiled until its first prompt.
+
+The Workspace pane keeps its **View options** control (Group by: WorkSpace / Workspace Tree / In one list / Activity, Order by, and the archived filter) and its color/icon filter in every case — neither changes because sections exist.
+
+Sections organize Chats only. They carry no instructions, files, environment, shared context, agent configuration, repositories, or memory — those remain Workspace capabilities, and a Section changes nothing about a Session's Workspace, working directory, log, or archived state. The section layer is browser-local: it is not synchronized to the Host, so it does not follow a Session to another browser or machine.
+
 ### Workspace hierarchy
 
-Choose **Add workspace** and select a directory to register it and open a Session. **View options → Group by** defaults to **WorkSpace**, which lists Workspaces as sibling sections. Select **Workspace Tree** to nest each Workspace under its nearest registered ancestor, including Workspaces added later. Each Workspace keeps its own Sessions and row actions. Child Workspaces appear before the parent's own Sessions. Ancestors start expanded unless a saved collapsed state exists. A saved collapse also hides the current Session; ancestor folder icons stay highlighted when a descendant Workspace contains it. Row fills and hit targets span the same width at every level; only the contents indent. Workspace dragging reorders siblings; dropping on a descendant targets the nearest compatible ancestor, so an expanded parent can be moved past without collapsing it. Search-result navigation expands every ancestor. Grouping and expansion are saved in the current browser; switching modes preserves each Workspace's expansion preference, and the single-list view stays flat.
+Choose **Add workspace** and select a directory to register it and open a Session. **View options → Group by** defaults to **WorkSpace**, which lists Workspaces as sibling sections. Select **Workspace Tree** to nest each Workspace under its nearest registered ancestor, including Workspaces added later. Each Workspace keeps its own Sessions and row actions. Child Workspaces appear before the parent's own Sessions. Ancestors start expanded unless a saved collapsed state exists. A saved collapse also hides the current Session; ancestor folder icons stay highlighted when a descendant Workspace contains it. Row fills and hit targets span the same width at every level; only the contents indent. Workspace dragging reorders siblings; dropping on a descendant targets the nearest compatible ancestor, so an expanded parent can be moved past without collapsing it. Search-result navigation expands every ancestor. Grouping and expansion are saved in the current browser; switching modes preserves each Workspace's expansion preference, and the single-list view stays flat. **Activity** uses the same visible Session projection but groups only work that needs attention, is running directly or through descendants, or has an unread completion reminder. Idle Sessions stay out of Activity.
 
 Hierarchy uses registered canonical paths only. It does not scan for projects or resolve symlink aliases. Nesting does not change Session working directories, logs, or Workspace membership. Deleting a parent Workspace leaves its child Workspaces registered and places them under their next registered ancestor, or at the root.
 
@@ -57,7 +71,7 @@ The keyboard reference exposes New Session, Search sessions, Add workspace, Rena
 
 ### Pending interactions
 
-Session rows render the runtime's live `pendingInteraction` classification: approvals report **Waiting for approval**, plan reviews report **Plan awaiting review**, and ordinary questions report **Waiting for answer**. While an interaction is pending, the row uses the shared warning dot and replaces its trailing update time with **Approval**, **Plan review**, or **Answer**; the full status and relative time remain in hover details. Pending interaction takes precedence over the shared ongoing loader; a finished-but-unviewed Session uses done, while idle remains dot-free in the row and uses the shared idle dot in its hover details. The leading seat renders only while the row's primary status is idle — no pending interaction, no own or descendant activity, and no unviewed completion — so an occupant there never appears beside the row's own status dot. An archived row keeps that cell blank: it shows neither a status dot nor the seat, and its live status appears on the hover card only.
+Session rows render the runtime's live `pendingInteraction` classification: approvals report **Waiting for approval**, plan reviews report **Plan awaiting review**, and ordinary questions report **Waiting for answer**. While an interaction is pending, the row uses the shared warning dot and replaces its trailing update time with **Approval**, **Plan review**, or **Answer**; the full status and relative time remain in hover details. An unacknowledged runtime failure uses the error dot and replaces the update time with **Failed**; a running Session shows its status text beside the dot. Failure takes precedence over pending interaction, which takes precedence over the shared ongoing loader; the Activity view groups failed and pending rows under **Needs attention**; a finished-but-unviewed Session uses done, while idle remains dot-free in the row and uses the shared idle dot in its hover details. The leading seat renders only while the row's primary status is idle — no pending interaction, no own or descendant activity, and no unviewed completion — so an occupant there never appears beside the row's own status dot. An archived row keeps that cell blank: it shows neither a status dot nor the seat, and its live status appears on the hover card only.
 
 ### Active Schedule markers
 
@@ -81,7 +95,7 @@ The first-use directory name and its stored title are fixed, so neither follows 
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The package is one composition: both target slots are declared by other plugins, so `apply` uses `slots.inject()` to register for each declaration lifetime and re-register after a declaring slot is restored.
+The package is one composition: its browser and picker target slots are declared by other plugins, so `apply` uses `slots.inject()` to register for each declaration lifetime and re-register after a declaring slot is restored. It also contributes the additive `workspace-quick-switcher` entry to `shell.overlay`; that surface consumes `ctx.commandUi.quickCommands/runQuick` structurally and routes navigation through the existing `ctx.uiWorkspace` service.
 
 The browser entry also declares two root-scoped `list` child seats on each Session row: `sidebar.session.row.leading`, rendered only while that row's primary status is idle and left blank on an archived row, and `sidebar.session.row.hover`, mounted only while that row's hover card is open. Both take the row's Session identity and nothing else, so an occupant reads its own data by that id; a Session-scoped seat would force a Session binding, which would activate and retain every listed Session.
 
@@ -170,6 +184,18 @@ The sidebar hides durable summaries with `origin: 'subagent'`. A visible ordinar
 
 Row motion belongs to [AnimatedRows](src/client/rows/AnimatedRows.tsx). It measures keyed rows before and after React commits that change their membership or order, and uses native movement and opacity animations. Removed rows fade as inert copies outside the scrolling list; they do not delay React unmounting or extend its scroll range. Initial loading, drag commits, overflow expansion, and view-option changes settle immediately. The animator has no layout observers or polling and does not measure content-only updates or scrolling.
 
+### Chat Sections state
+
+The section layer is one field of the same persisted view value: sections with their display order, explicit collapse per section, Session-to-section assignments, and a saved Session order per section. Assignments reference generated section ids, never names, so renaming a section rebinds nothing. One Session appears in at most one section; `assignSession` removes it from its previous section before inserting it at the head of the target (or dropping it from the map entirely for the ungrouped case), and `deleteSection` removes a section's record, collapse flag, saved order, and assignments while leaving every Session untouched.
+
+`deriveSections` projects the layer against the caller's visible Session ids and the current Session summaries, reusing `reconcileManualOrder` so a newly discovered Chat joins its section without discarding saved positions. A dangling assignment — a removed session id, or a section a stale payload names — degrades to the ungrouped list rather than dropping the Chat.
+
+Sections is not a `SessionGroupBy` value. The pane renders below the Workspace pane whenever `sectionsActive` is true — any section exists, including an empty one, or any Session carries an assignment — so the selected grouping mode keeps governing the upper pane and is never displaced. Deleting the last section hides the pane and leaves the mode untouched.
+
+The two panes are independent components with their own local reorder state, but filing a Chat is one gesture that starts on a workspace row and ends on a section header. `WorkspaceBrowser` owns the in-flight Session id and passes it to both panes; the section pane observes it and owns the assignment commit, while the workspace tree keeps sole ownership of its own reordering. A cross-pane drop therefore files a Chat without also selecting manual order in the tree.
+
+The field was added to a persist key that already shipped, so the store declares a `migrate` step: a value written before this field existed rehydrates through the empty layer, which is what leaves every pre-existing Session ungrouped on the first run of a build that has the feature.
+
 ### Hover cards
 
 Workspace and Session hover cards copy the value their row clips: activating a Workspace card writes its full directory path, while activating a non-blank Session card writes its full display title. A provisional blank New Session card remains read-only because its localized label is a placeholder rather than session content. A Session card also renders its `sidebar.session.row.hover` seat between the relative time and the trailing status lines whenever the card is open, independent of the row's own state.
@@ -210,6 +236,7 @@ These limits define the search depth, the archive surface, and the picking carri
 - **No Session deletion** — sessions can be archived but never deleted; archived rows stay recoverable in place through the archived view filter and the search results' unarchive action, and Workspace registration deletion does not delete Sessions.
 - **Pending user interaction is not aggregated into collapsed groups** — a waiting row inside a collapsed group lights no group-header indicator and becomes visible only after that group is expanded.
 - **Native folder selection depends on the local Host carrier** — under the `-native` composition, in-process or remote browser deployments cannot open a local operating-system dialog; remote-capable picking is the `-browse` composition's in-app flow.
+- **Chat Sections are browser-local and single-level** — the layer lives in this browser's persisted view state rather than the Host, so it does not follow a Session to another browser, machine, or profile, and it has no nested sections or section-level ordering modes beyond the saved per-section order.
 
 <a id="dev-note"></a>
 ### Dev Note

@@ -37,6 +37,8 @@ beforeEach(() => {
 const t: WorkspaceBrowserProps['t'] = makeTranslate(zh, commonZh)
 
 const sid = (id: string) => id as SessionId
+/** Section identities are opaque and stable; the counter keeps them distinct per mount. */
+let nextSectionId = 1
 const wid = (id: string) => id as WorkspaceId
 const summary = (id: string, updatedAt: number, overrides: Partial<SessionSummary> = {}): SessionSummary => ({
   id: sid(id), displayTitle: id, running: false, blank: false, updatedAt, ...overrides,
@@ -134,6 +136,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     unarchiveSession: vi.fn(async () => {}),
     insertWorkspaceBefore: vi.fn(async () => {}),
     createWorkspace: vi.fn(async () => workspace('created', [])),
+    newSectionId: () => `section-${String(nextSectionId++)}`,
     useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => true, subscribe: () => () => {} }),
     useHostInfo: selector => selector({ home: undefined, isLoopback: true }),
     renderSlot: renderDirectoryFlowOnly,
@@ -149,6 +152,44 @@ function rerender(b: ReturnType<typeof mount>, overrides: Partial<WorkspaceBrows
   Object.assign(b.props, overrides)
   b.view.rerender(<WorkspaceBrowser {...b.props} />)
 }
+
+it('filters Workspaces by a chosen color and clears the filter', () => {
+  localStorage.clear()
+  const b = mount({
+    useSessions: hook(sessionState([summary('s1', 10)])),
+    useWorkspaces: hook(workspaceState([workspace('alpha', ['s1'], 'Alpha'), workspace('beta', [], 'Beta')])),
+  })
+  const openFilter = () => fireEvent.click(screen.getByRole('button', { name: '筛选工作区' }))
+  fireEvent.click(screen.getByRole('button', { name: '工作区“Alpha”的操作' }))
+  fireEvent.click(screen.getByText('颜色'))
+  fireEvent.click(screen.getByText('红色'))
+  openFilter()
+  fireEvent.click(screen.getByRole('menuitem', { name: '红色' }))
+  expect(screen.getByText('Alpha')).toBeTruthy()
+  expect(screen.queryByText('Beta')).toBeNull()
+  openFilter()
+  fireEvent.click(screen.getAllByRole('menuitem').find(i => i.textContent.startsWith('全部'))!)
+  expect(screen.getByText('Beta')).toBeTruthy()
+  b.view.unmount()
+})
+
+it('paints a chosen color onto the row and persists it across a remount', () => {
+  localStorage.clear()
+  const b = mount({
+    useSessions: hook(sessionState([])),
+    useWorkspaces: hook(workspaceState([workspace('alpha', [], 'Alpha')])),
+  })
+  fireEvent.click(screen.getByRole('button', { name: '工作区“Alpha”的操作' }))
+  fireEvent.click(screen.getByText('颜色'))
+  fireEvent.click(screen.getByText('紫色'))
+  const painted = () => screen.getByText('Alpha').closest('[role="treeitem"]') as HTMLElement
+  expect(painted().style.color).toBe('rgb(122, 90, 248)')
+  expect(getComputedStyle(screen.getByText('Alpha')).color).toBe('rgb(122, 90, 248)')
+  b.view.unmount()
+  mount({ useSessions: b.props.useSessions, useWorkspaces: b.props.useWorkspaces })
+  expect(painted().style.color).toBe('rgb(122, 90, 248)')
+  expect(getComputedStyle(screen.getByText('Alpha')).color).toBe('rgb(122, 90, 248)')
+})
 
 describe('WorkspaceBrowser', () => {
   it.each([{ messages: en, common: commonEn }, { messages: zh, common: commonZh }])('shows localized fork failures and dismisses them', ({ messages, common }) => {
@@ -405,8 +446,37 @@ describe('WorkspaceBrowser', () => {
     ])
   })
 
-  it('drops the obsolete timestamp ledger from persisted viewing state', async () => {
+  it('loads a view state written before Chat Sections existed with every chat ungrouped', async () => {
     localStorage.clear()
+    localStorage.setItem('dsh.workspace.view.v5', JSON.stringify({
+      groupBy: 'workspace',
+      orderBy: 'manual',
+      groupExpansion: { alpha: true },
+      sessionOrderByAccount: { alpha: ['alpha-s'] },
+    }))
+    const b = mount({
+      useSessions: hook(sessionState([summary('alpha-s', 1)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['alpha-s'])])),
+    })
+    // The unchanged fields survive; the section layer arrives empty, so the
+    // ordinary Workspace projection still renders.
+    expect(b.store.getSnapshot().chatSections).toEqual({
+      sections: [], collapse: {}, members: {}, sectionOrder: {},
+    })
+    expect(b.store.getSnapshot().groupExpansion).toEqual({ alpha: true })
+    expect(screen.getByText('alpha-s')).toBeTruthy()
+    expect(screen.queryByRole('tree', { name: '分组' })).toBeNull()
+    await waitFor(() => {
+      const persisted = JSON.parse(localStorage.getItem('dsh.workspace.view.v5') ?? '{}') as {
+        chatSections?: unknown
+      }
+      expect(persisted.chatSections).toEqual({
+        sections: [], collapse: {}, members: {}, sectionOrder: {},
+      })
+    })
+  })
+
+  it('drops the obsolete timestamp ledger from persisted viewing state', async () => {    localStorage.clear()
     localStorage.setItem('dsh.workspace.view.v5', JSON.stringify({
       groupBy: 'workspace',
       orderBy: 'manual',
@@ -461,7 +531,7 @@ describe('WorkspaceBrowser', () => {
     expect(screen.getByText('分组方式')).toBeTruthy() // the menu heading label
     expect(screen.getAllByRole('separator')).toHaveLength(2)
     expect(screen.getAllByRole('menuitem').map(item => item.textContent)).toEqual([
-      '按工作区', '按工作区树', '单列表', '手动排序', '最近更新', '隐藏已归档', '全部对话（显示已归档）', '仅显示已归档',
+      '按工作区', '按工作区树', '单列表', '活动', '手动排序', '最近更新', '隐藏已归档', '全部对话（显示已归档）', '仅显示已归档',
     ])
     expect(screen.getByRole('menuitem', { name: '按工作区' }).querySelector('svg')).toBeTruthy()
     expect(screen.getByRole('menuitem', { name: '手动排序' }).querySelector('svg')).toBeTruthy()
@@ -485,6 +555,73 @@ describe('WorkspaceBrowser', () => {
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('menu')).toBeNull()
     expect(b.store.getSnapshot().groupBy).toBe('workspace')
+  })
+
+  it('groups attention, live work, and recent completion in Activity view', () => {
+    const attentionId = sid('attention')
+    const failedId = sid('failed')
+    const runningId = sid('running')
+    const delegatedId = sid('delegated')
+    const completedId = sid('completed')
+    const idleId = sid('idle')
+    const statuses: SessionStatusSnapshot = new Map([
+      [attentionId, {
+        running: false,
+        pendingInteraction: { key: 'question', kind: 'question', sessionId: attentionId } as never,
+        completionUnread: false,
+      }],
+      [failedId, { running: false, pendingInteraction: undefined, completionUnread: false, failureUnread: true }],
+      [runningId, { running: true, pendingInteraction: undefined, completionUnread: false }],
+      [delegatedId, { running: false, pendingInteraction: undefined, completionUnread: false }],
+      [completedId, { running: false, pendingInteraction: undefined, completionUnread: true }],
+      [idleId, { running: false, pendingInteraction: undefined, completionUnread: false }],
+    ])
+    const sessions = sessionState([
+      summary('attention', 6),
+      summary('failed', 5),
+      summary('running', 4),
+      summary('delegated', 3),
+      summary('child', 2, { origin: 'subagent', parentId: delegatedId, running: true }),
+      summary('completed', 1),
+      summary('idle', 0),
+    ], {
+      byId: {
+        [attentionId]: summary('attention', 6),
+        [failedId]: summary('failed', 5),
+        [runningId]: summary('running', 4),
+        [delegatedId]: summary('delegated', 3),
+        [sid('child')]: summary('child', 2, { origin: 'subagent', parentId: delegatedId, running: true }),
+        [completedId]: summary('completed', 1),
+        [idleId]: summary('idle', 0),
+      },
+      projectionsBySession: {
+        [delegatedId]: {
+          state: 'ready', error: null,
+          values: { subagentCatalog: [{ id: sid('child'), mode: 'continuable', label: 'child', createdAt: 1 }] },
+        },
+      },
+    })
+    const b = mount({ useSessions: hook(sessions), useSessionStatus: hook(statuses) })
+
+    fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '活动' }))
+
+    expect(b.store.getSnapshot().groupBy).toBe('activity')
+    expect(screen.getByRole('group', { name: '需要处理' }).textContent).toContain('attention')
+    expect(screen.getByRole('group', { name: '需要处理' }).textContent).toContain('failed')
+    expect(screen.getByRole('group', { name: '进行中' }).textContent).toContain('running')
+    expect(screen.getByRole('group', { name: '进行中' }).textContent).toContain('delegated')
+    expect(screen.getByRole('group', { name: '最近完成' }).textContent).toContain('completed')
+    expect(screen.queryByText('idle')).toBeNull()
+  })
+
+  it('shows the empty Activity state while a global panel owns the main view', () => {
+    const b = mount({
+      usePanelInfo: selector => selector({ activePanelId: 'settings' as MainPanelId }),
+    })
+    act(() => { b.store.actions.setGroupBy('activity') })
+    expect(screen.getByText('暂无活动')).toBeTruthy()
+    expect(screen.queryByRole('group')).toBeNull()
   })
 
   it('picking 全部对话（显示已归档） keeps existing rows and reveals archived ones in place', () => {

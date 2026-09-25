@@ -1,5 +1,5 @@
 ---
-description: "dsh Web 客户端的共享 Workspace 浏览器与选择器插件：分组或扁平的会话行、管理操作、由 slot 组合的 Session 行 action 与目录选择。"
+description: "dsh Web 客户端的共享 Workspace 浏览器与选择器插件：Workspace、单列表与活动会话视图、Chat Sections 分组、管理操作、由 slot 组合的 Session 行 action 与目录选择。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-本包让用户浏览分组或扁平的 Session 列表、为新 Session 选择 Workspace，并通过添加、重命名、重排序、搜索、fork、归档和删除 Workspace 来管理 Workspace 与 Session；Session 行菜单及其悬停按钮是可由客户端插件扩展的 slot 列表。待处理交互显示为警告点，subagent 来源的 Session 则保持隐藏。处于空闲状态且未归档、其 Session 有活动定时任务的 Session 行会显示时钟标记，其悬浮卡片会列出这些任务。规范化后仍有差异的文件夹路径会保留为独立 Workspace。添加 Workspace 需要组合目录选择器；没有目录选择器时，添加操作不可用。
+本包让用户浏览分组、单列表或以活动为中心的 Session 列表、把 Session 归入 Chat Sections、为新 Session 选择 Workspace，并通过添加、重命名、重排序、搜索、fork、归档和删除 Workspace 来管理 Workspace 与 Session；客户端插件通过 slot 列表扩展 Session 行菜单及其悬停按钮。待处理交互显示为警告点，实时运行状态在状态点旁显示文字，subagent 来源的 Session 保持隐藏。空闲且未归档、有活动定时任务的 Session 显示时钟标记，其悬浮卡片列出这些任务。规范化后仍不同的文件夹路径保留为独立 Workspace。添加 Workspace 需要组合目录选择器。
 
 ## 目录
 
@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-用侧边栏浏览 Workspace 及其 Session、重排它们并新建会话；在 Session Intent 主视觉区用选择器为新会话选择 Workspace。打开的 Workspace 默认显示五条空闲的非空白 Session。正在运行的 Session（包括有子会话正在运行的父会话）始终按原顺序显示，不占用这五条配额；当前选中的空白**新会话**在首条提示词落地前也作为额外行。每次点击**展开其余**最多再显示五条空闲 Session；全部显示后，**收起**恢复初始行数，但仍显示正在运行的 Session。关闭再打开 Workspace 也会恢复该折叠投影。
+用侧边栏浏览 Workspace 及其 Session、重排它们并新建会话；在 Session Intent 主视觉区用选择器为新会话选择 Workspace。按 **Ctrl/Cmd+K** 可打开根级快速切换器，搜索可见 Session、已注册 Workspace，以及当前 Session 可直接执行的命令。切换器不会向 composer 写入文本，因此不会覆盖未发送草稿。打开的 Workspace 默认显示五条空闲的非空白 Session。正在运行的 Session（包括有子会话正在运行的父会话）始终按原顺序显示，不占用这五条配额；当前选中的空白**新会话**在首条提示词落地前也作为额外行。每次点击**展开其余**最多再显示五条空闲 Session；全部显示后，**收起**恢复初始行数，但仍显示正在运行的 Session。关闭再打开 Workspace 也会恢复该折叠投影。
 
 ### 重排序与视图选项
 
@@ -35,9 +35,23 @@ kind: "package-reference"
 
 当前选中的空白**新会话**保留临时首位且无法拖拽；首条提示词落地后，它成为可拖拽的普通行，在手动排序中保留该位置，在最近更新中按当前时间戳排列。折叠分组的拖拽使用目标 Session 身份，并保持来源行可见。真实 Workspace、Ungrouped 与单列表的 Session 显示顺序都保留在浏览器本地；Workspace 分组的拖拽顺序仍由 Host 持久化。[会话置顶与归档决定](../../../.agents/notes/implemented/feature/2026-09-18-session-pin-and-sidebar-archive.zh.md)记录排序与恢复规则。
 
+### Chat Sections
+
+浏览标题栏中的**新建分区**会在 Workspace 面板下方添加 **Sections** 面板。分区列表显示已归入其中的 Chat；没有分区的 Chat 不会出现在这里。
+
+分区是 Workspace 列表上的已保存视觉筛选，而不是第二个归属关系。每个 Chat 仍保留在上方的 Workspace 文件夹中，归档不会将它从该文件夹移除，因此同一 Chat 可以同时出现在两个面板中。两个面板独立滚动，归档 Chat 不会移动 Workspace 列表。只有至少存在一个分区时才显示 Sections 面板；没有分区时，Workspace 列表占据整个区域。
+
+点击分区标题可折叠或展开，并提供**重命名**和**删除分区**；删除分区不会删除其中的 Chat。分区顺序按创建顺序排列，也可以将一个标题拖到另一个标题上来调整。
+
+可以将 Workspace 面板中的 Chat 行拖到分区标题上，或使用行菜单中的 **Move to Section → [name]** 来归档 Chat。使用**从分区移除**或将行拖回去即可取消归档。菜单是拖放操作的完整替代方式，两条路径写入相同的状态。一个 Chat 最多属于一个分区；临时的**新会话**行不能拖动，在首条提示词落地前保持未归档。
+
+Workspace 面板始终保留**视图选项**控件（分组方式：工作区 / 工作区树 / 单一列表 / 活动，排序方式，以及归档筛选）和颜色/图标筛选；分区的存在不会改变二者。
+
+Sections 控件保持在浏览器本地；它们不需要 Workspace 能力，也不会改变上方 Workspace 列表的归属关系。
+
 ### 工作区层级
 
-选择**添加工作区**并选取目录，即可注册工作区并打开 Session。**视图选项 → 分组方式**默认为**按工作区**，将工作区作为同级分组显示。选择**按工作区树**后，每个 Workspace 会位于最近的已注册祖先之下，之后添加的 Workspace 也会自动归入。每个 Workspace 保留自己的 Session 和行操作，子 Workspace 显示在父级自己的 Session 之前。祖先默认展开，已有的折叠偏好除外。保存的折叠状态也会隐藏当前 Session；如果后代 Workspace 包含当前 Session，祖先文件夹图标仍保持高亮。各层级的高亮和点击区域保持整行同宽，仅内容缩进。拖拽 Workspace 仅重排同级项目；落在后代行上时，由最近的兼容祖先接收，因此无需先折叠父级就能将其他工作区拖到其后。选择搜索结果会展开全部祖先。分组方式和展开状态保存在当前浏览器中；切换模式会保留各 Workspace 的展开偏好，单列表视图保持平铺。
+选择**添加工作区**并选取目录，即可注册工作区并打开 Session。**视图选项 → 分组方式**默认为**按工作区**，将工作区作为同级分组显示。选择**按工作区树**后，每个 Workspace 会位于最近的已注册祖先之下，之后添加的 Workspace 也会自动归入。每个 Workspace 保留自己的 Session 和行操作，子 Workspace 显示在父级自己的 Session 之前。祖先默认展开，已有的折叠偏好除外。保存的折叠状态也会隐藏当前 Session；如果后代 Workspace 包含当前 Session，祖先文件夹图标仍保持高亮。各层级的高亮和点击区域保持整行同宽，仅内容缩进。拖拽 Workspace 仅重排同级项目；落在后代行上时，由最近的兼容祖先接收，因此无需先折叠父级就能将其他工作区拖到其后。选择搜索结果会展开全部祖先。分组方式和展开状态保存在当前浏览器中；切换模式会保留各 Workspace 的展开偏好，单列表视图保持平铺。**活动**使用同一份可见 Session 投影，但只分组显示需要用户处理、直接或通过后代正在运行、或带有未读完成提醒的工作；空闲 Session 不显示在活动视图中。
 
 层级仅使用已注册的规范路径，不扫描项目，也不解析符号链接别名。嵌套不会改变 Session 的工作目录、日志或 Workspace 归属。删除父 Workspace 后，子 Workspace 仍保持注册，并归入下一个已注册祖先；没有祖先时显示在根层级。
 
@@ -57,7 +71,7 @@ Session 行内的 Rename 操作打开一个以该行显示标题预填的对话�
 
 ### 待处理交互
 
-Session 行渲染运行时的实时 `pendingInteraction` 分类：审批显示**等待审批**，计划审阅显示**计划待审**，普通问题显示**等待回答**。交互待处理期间，该行使用共享 warning 橙点，并以**待批准**、**计划待审**或**待回答**替换尾部更新时间；悬停详情仍保留完整状态和相对时间。待处理交互的优先级高于共享 ongoing loading；已完成但未查看的 Session 使用 done，idle 在行内不显示点，在悬停详情中使用共享 idle 灰点。 行首 seat 仅在该行的主状态为 idle 时渲染——没有待处理交互、没有自身或后代活动、也没有未查看的完成提醒——因此该处的占用方不会与行自身的状态点同时出现。归档行该格整体留空：既不显示状态点也不挂 seat，其活动状态只出现在悬浮卡片上。
+Session 行渲染运行时的实时 `pendingInteraction` 分类：审批显示**等待审批**，计划审阅显示**计划待审**，普通问题显示**等待回答**。交互待处理期间，该行使用共享 warning 橙点，并以**待批准**、**计划待审**或**待回答**替换尾部更新时间；悬停详情仍保留完整状态和相对时间。尚未确认的运行时失败使用 error 红点，并以**失败**替换更新时间；正在运行的 Session 在状态点旁显示状态文字。失败优先于待处理交互，待处理交互的优先级高于共享 ongoing loading；活动视图把失败行和待处理行归入**需要处理**；已完成但未查看的 Session 使用 done，idle 在行内不显示点，在悬停详情中使用共享 idle 灰点。 行首 seat 仅在该行的主状态为 idle 时渲染——没有待处理交互、没有自身或后代活动、也没有未查看的完成提醒——因此该处的占用方不会与行自身的状态点同时出现。归档行该格整体留空：既不显示状态点也不挂 seat，其活动状态只出现在悬浮卡片上。
 
 ### 活动 Schedule 标识
 
@@ -81,7 +95,7 @@ Workspace 和 Session 的启动基线均就绪后，空安装环境调用 `works
 <details>
 <summary>实现细节——点击展开</summary>
 
-本包是一条组合：两个目标 slot 都由其他插件声明，因此 `apply` 使用 `slots.inject()` 在各自的声明生命周期内完成注册，并在目标 slot 的声明恢复后重新注册。
+本包是一条组合：浏览器与选择器的目标 slot 都由其他插件声明，因此 `apply` 使用 `slots.inject()` 在各自声明生命周期内完成注册，并在目标 slot 恢复后重新注册。它还向 `shell.overlay` 添加 `workspace-quick-switcher` 项；该界面以结构方式消费 `ctx.commandUi.quickCommands/runQuick`，导航则继续通过现有 `ctx.uiWorkspace` 服务。
 
 浏览器入口还为每个 Session 行声明两个 root 作用域的 `list` 子 slot：`sidebar.session.row.leading` 仅在该行主状态为 idle 时渲染、归档行留空，`sidebar.session.row.hover` 仅在该行的悬浮卡片打开时挂载。两者只接收行的 Session 身份，占用方据此读取自己的数据；Session 作用域的 slot 会强制建立 Session 绑定，从而激活并保留列表中每个 Session。
 
@@ -170,6 +184,18 @@ Workspace 基线就绪后，浏览器持久化的展开状态和 Session 顺序�
 
 行动画由 [AnimatedRows](src/client/rows/AnimatedRows.tsx) 负责。它仅在 React 提交改变行成员或顺序时读取更新前后的位置，并使用浏览器原生位移与透明度动画。被移除的行以不可交互的副本在滚动列表外淡出，不会延迟 React 卸载，也不会扩大列表的滚动范围。初始加载、拖拽提交、展开其余会话和视图选项变化直接完成。动画组件不使用布局观察器或轮询，也不会因仅内容更新或滚动而测量位置。
 
+### Chat Sections state
+
+分区层是同一份持久化视图值中的一个字段：包括分区显示顺序、每个分区的显式折叠状态、Session 到分区的归属，以及每个分区保存的 Session 顺序。归属引用生成的分区 id，而不是名称，因此重命名分区不会改变任何归属。一个 Session 最多出现在一个分区中；`assignSession` 会先从原分区移除它，再将它插入目标分区的头部（未分组时则从映射中移除），`deleteSection` 会删除分区记录、折叠标志、保存的顺序和归属，但保留所有 Session。
+
+`deriveSections` 会根据调用方可见的 Session id 和当前 Session 摘要生成投影，并复用 `reconcileManualOrder`，因此新发现的 Chat 会加入自己的分区而不会丢弃已保存的位置。悬空归属——已删除的 Session id，或过期载荷命名的分区——会降级到未分组列表，而不是隐藏 Chat。
+
+Sections 不是 `SessionGroupBy` 值。只要存在至少一个分区（包括空分区）或任一 Session 带有归属，Sections 面板就会显示在 Workspace 面板下方；选中的分组模式仍控制上方面板，不会被替换。删除最后一个分区会隐藏面板，但不会改变分组模式。
+
+两个面板各自维护本地重排状态，但归档 Chat 是从 Workspace 行开始、在分区标题结束的同一个手势。`WorkspaceBrowser` 持有拖拽中的 Session id，并将它传给两个面板；分区面板观察该状态并负责提交归属，Workspace 树仍只负责自己的重排。因此跨面板放置会归档 Chat，而不会同时选中树的手动排序。
+
+该字段加入了已经发布的持久化 key，因此 store 声明了 `migrate` 步骤：在字段存在之前写入的值会通过空分区层重新水合，因此首次运行包含该功能的构建时，已有 Session 都保持未归档。
+
 ### 悬浮卡片
 
 Workspace 与 Session 悬浮卡片会复制对应行被截断的值：激活 Workspace 卡片会写入其完整目录路径，激活非空白 Session 卡片则会写入其完整显示标题。临时的空白「新会话」卡片保持只读，因为其本地化标签是占位文案，并非会话内容。 Session 卡片在卡片打开期间还会在相对时间与行尾状态行之间渲染 `sidebar.session.row.hover` seat，与行自身状态无关。
@@ -210,6 +236,7 @@ Workspace 与 Session 悬浮卡片会复制对应行被截断的值：激活 Wor
 - **没有 Session 删除**：会话可以归档但绝不会被删除；已归档的行通过「已归档会话」视图筛选与搜索结果中的取消归档操作原位恢复，删除 Workspace 注册记录不会删除 Session。
 - **待处理的用户交互不会聚合到折叠的分组上**：折叠分组内正在等待的行不会点亮分组头指示，只有展开该分组后才可见。
 - **原生文件夹选择依赖本地 Host 载体**：在 `-native` 组合下，进程内部署或远程浏览器部署无法打开本地操作系统对话框；可远程的选取是 `-browse` 组合的应用内流程。
+- **Chat Sections 仅限当前浏览器且只有一级**：该层保存在当前浏览器的视图状态中，而不是 Host 中，因此不会随 Session 迁移到其他浏览器、机器或配置文件，也不支持嵌套分区或除每个分区已保存顺序之外的分区级排序模式。
 
 <a id="dev-note"></a>
 ### 开发备注

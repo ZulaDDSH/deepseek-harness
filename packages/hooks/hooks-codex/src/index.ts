@@ -3,7 +3,8 @@
  * supports five points (SessionStart, prompt/tool pre/post, Stop), regex-only
  * matchers, snake_case payloads without a trailing newline, no hook environment
  * or command substitution, and no pre-tool approval or rewrite path; only
- * blocking decisions are honored. Shared execution and parsing live in
+ * blocking decisions are honored. DSH file-tool arguments remain available to
+ * support global write/edit gates. Shared execution and parsing live in
  * `dsh-hook-protocol`.
  * @module @deepseek-ai/dsh-hooks-codex
  */
@@ -321,14 +322,19 @@ function commandOf(args: unknown): string {
   return ''
 }
 
+/** Preserve DSH file-tool arguments while retaining Codex's shell payload. */
+function toolInputOf(args: unknown): Record<string, unknown> {
+  if (typeof args !== 'object' || args === null || Array.isArray(args)) return { command: '' }
+  if ('command' in args) return { command: commandOf(args) }
+  return args as Record<string, unknown>
+}
+
 function preToolPayload(ctx: Context, exec: ToolExecution, model: string): Record<string, unknown> {
-  // `tool_name` is the REAL tool name (matching the `exec.name` matcher subject);
-  // a hardcoded constant would disagree with what the matcher tests and make a
-  // config's tool matcher never fire. `tool_input` keeps Codex's `{ command }`
-  // shape (its shell payload), derived from the call's `command` arg when present.
-  return { ...turnBase(ctx, exec.agent, 'PreToolUse', model), tool_name: exec.name, tool_input: { command: commandOf(exec.arguments) }, tool_use_id: exec.callId }
+  // `tool_name` is the real DSH name; matcher evaluation also tries the reference
+  // agent spelling for the built-in bash/write/edit tools.
+  return { ...turnBase(ctx, exec.agent, 'PreToolUse', model), tool_name: exec.name, tool_input: toolInputOf(exec.arguments), tool_use_id: exec.callId }
 }
 
 function postToolPayload(ctx: Context, exec: ToolExecution, result: ToolExecutionResult, model: string): Record<string, unknown> {
-  return { ...turnBase(ctx, exec.agent, 'PostToolUse', model), tool_name: exec.name, tool_input: { command: commandOf(exec.arguments) }, tool_use_id: exec.callId, tool_response: blocksToText(result.content) }
+  return { ...turnBase(ctx, exec.agent, 'PostToolUse', model), tool_name: exec.name, tool_input: toolInputOf(exec.arguments), tool_use_id: exec.callId, tool_response: blocksToText(result.content) }
 }

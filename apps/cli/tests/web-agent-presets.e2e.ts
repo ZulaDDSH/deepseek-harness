@@ -242,10 +242,10 @@ describe('the shipped Web composition', () => {
     }
   })
 
-  it('supplies both shipped presets, and only those, from the system root', async () => {
+  it('supplies the shipped presets, and only those, from the system root', async () => {
     const listed = await ctx.agentPresets.list()
 
-    expect(listed.map(preset => preset.id).sort()).toEqual(['cordis', 'minimal', 'ptc', 'standard'])
+    expect(listed.map(preset => preset.id).sort()).toEqual(['cordis', 'economy', 'lean', 'minimal', 'ptc', 'standard'])
     expect(listed.every(preset => !('path' in preset))).toBe(true)
     expect(ctx.agentPresets.defaultId).toBe('standard')
   })
@@ -429,6 +429,68 @@ describe('the shipped Web composition', () => {
     } finally {
       await native.dispose()
       await coded.dispose()
+    }
+  })
+
+  it('states the end-of-turn response rule in each preset that mounts workspace instructions', () => {
+    const definitions = composeEntries([webPatches('test')])
+      .filter(row => row.name === '@deepseek-ai/dsh-agent-preset')
+      .map(row => row.config as import('@deepseek-ai/dsh-agent-preset-registry').PresetDefinition)
+    for (const id of ['cordis', 'lean', 'minimal', 'ptc', 'standard']) {
+      const plugins = definitions.find(definition => definition.id === id)?.plugins
+      if (!Array.isArray(plugins)) throw new TypeError(`preset ${id} must parse to an entry array`)
+      const row = (plugins as Array<Record<string, unknown>>).find(entry => entry.id === 'agent-instructions')
+      expect(row?.disabled, id).not.toBe(true)
+      expect(row?.config, id).toMatchObject({ maxBytes: 65536, endOfTurnRule: true })
+    }
+  })
+
+  it('composes `economy` as PTC mode with reduced context budgets', async () => {
+    const economy = composeEntries([webPatches('test')]).find(row => row.id === 'preset-economy')!.config as import('@deepseek-ai/dsh-agent-preset-registry').PresetDefinition
+    const rows = new Map<string, Record<string, unknown>>()
+    const collect = (entries: unknown): void => {
+      if (!Array.isArray(entries)) return
+      for (const entry of entries as Array<Record<string, unknown>>) {
+        rows.set(entry.id as string, entry)
+        if (entry.group === true) collect(entry.config)
+      }
+    }
+    collect(economy.plugins)
+    expect(rows.get('agent-instructions')?.config).toMatchObject({ maxBytes: 32768 })
+    expect(rows.get('tool-skill')?.config).toMatchObject({ catalogDescriptionMaxLength: 240 })
+    expect(rows.get('compaction-basic')?.config).toMatchObject({ thresholdRatio: 0.6, retainRatio: 0.1, proactiveToolResultPruning: true })
+    expect(rows.get('tool-result-pruner')?.config).toMatchObject({ thresholdChars: 4096, headChars: 2048, tailChars: 512 })
+    expect(rows.get('tool-workflow')?.disabled).toBe(true)
+    expect(rows.get('workflow-ptc')?.disabled).toBe(true)
+    expect(rows.get('tool-ralph')?.disabled).toBe(true)
+
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('preset-economy'),
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'economy').then(() => undefined),
+    })
+    try {
+      const assembly = await ctx.systemPrompt.assemble({ scope: handle.agent })
+      expect(assembly.tools.map(tool => tool.name)).toEqual(['run_code'])
+      expect(toolNames(ctx, handle.agent)).toContain('web_fetch')
+      expect(toolNames(ctx, handle.agent)).not.toContain('workflow')
+    } finally {
+      await handle.dispose()
+    }
+  })
+
+  it('composes `lean` from file tools, the platform shell, and capped compaction', async () => {
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('preset-lean'),
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'lean').then(() => undefined),
+    })
+    try {
+      expect(toolNames(ctx, handle.agent).filter(name => name !== 'glob' && name !== 'grep')).toEqual([
+        process.platform === 'win32' ? 'pwsh' : 'bash', 'read', 'write',
+      ])
+      expect(ctx.commands.find(handle.agent, 'goal')).toBeUndefined()
+      expect(ctx.agentPresets.serviceFor(handle.agent, 'compaction')).toBeDefined()
+    } finally {
+      await handle.dispose()
     }
   })
 

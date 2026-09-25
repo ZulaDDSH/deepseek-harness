@@ -43,6 +43,8 @@ apps/web/dist/
 .orig
 .worktrees/
 worktrees/
+# Linked worktrees this checkout keeps under git/ (local worktree layout).
+/git/
 .agents/worktrees/
 .typert-*/
 native/system/test/bin/

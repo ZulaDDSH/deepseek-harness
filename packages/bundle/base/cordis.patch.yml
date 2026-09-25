@@ -34,6 +34,12 @@
     - id: llm
       name: '@deepseek-ai/dsh-llm'
 
+    - id: llm-jev-router
+      name: '@deepseek-ai/dsh-llm-jev-router'
+      config:
+        enabled: false
+        routes: []
+
     - id: deepseek-llm-api-extensions
       name: '@deepseek-ai/dsh-deepseek-llm-api-extensions'
 
@@ -512,6 +518,12 @@
       name: '@deepseek-ai/dsh-system-prompt'
       config:
         personaPrefix: ''
+
+    # One shared-knowledge rule for every agent, independent of provider or
+    # preset. Knowledge content is retrieved on demand through the configured
+    # knowledge MCP entry; this contributes policy text only.
+    - id: knowledge-policy
+      name: '@deepseek-ai/dsh-knowledge-policy'
 
     # Agents created at startup. The base stays empty; raw overlays may create
     # agents, while Web creates sessions on client request.

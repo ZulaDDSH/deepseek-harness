@@ -29,6 +29,14 @@ export const zh = {
   'error.notText': '该格式文件暂时无法预览',
   'error.notRegularFile': '该路径不是普通文件，没有可显示的内容',
   'error.unavailable': '读取失败：{message}',
+  'diff.show': '查看差异',
+  'diff.hide': '查看文件',
+  'diff.copy': '复制',
+  'diff.copied': '已复制',
+  'diff.collapse': '收起',
+  'diff.collapseAria': '收起差异',
+  'diff.expandAria': '展开其余 {count} 行差异',
+  'diff.expandRest': '… 其余 {count} 行',
   retry: '重试',
 } satisfies Record<string, string>
 
@@ -58,5 +66,13 @@ export const en = {
   'error.notText': 'Preview is not available for this file type yet.',
   'error.notRegularFile': 'Not a regular file, nothing to display.',
   'error.unavailable': 'Read failed: {message}',
+  'diff.show': 'View diff',
+  'diff.hide': 'Show file',
+  'diff.copy': 'Copy',
+  'diff.copied': 'Copied',
+  'diff.collapse': 'Collapse',
+  'diff.collapseAria': 'Collapse diff',
+  'diff.expandAria': 'Expand {count} more diff lines',
+  'diff.expandRest': '… {count} more lines',
   retry: 'Retry',
 } satisfies Record<SidebarDocumentPreviewKey, string>

@@ -680,6 +680,45 @@ describe('client bundle activation', () => {
     expect((await routeRequest(route, third)).status).toBe(200)
   })
 
+  it('retains one prior immutable entry generation across rebuild recomposition', async () => {
+    const packageName = '@fixture/entry-rebuild-race'
+    const clientPath = writePackage(packageName)
+    mkdirSync(dirname(clientPath), { recursive: true })
+    // Distinct sizes keep all three revisions distinct even within one filesystem clock tick.
+    writeFileSync(clientPath, 'module.exports = { generation: 1 }\n')
+    const { service, route } = constructWithRoute([packageName])
+    const first = service.graph().entries[0]!.url
+
+    writeFileSync(clientPath, 'module.exports = { generation: 200 }\n')
+    service.rebuilt(packageName)
+    const second = service.graph().entries[0]!.url
+    expect((await routeRequest(route, first)).status).toBe(200)
+    expect((await routeRequest(route, second)).status).toBe(200)
+
+    writeFileSync(clientPath, 'module.exports = { generation: 30000 }\n')
+    service.rebuilt(packageName)
+    const third = service.graph().entries[0]!.url
+    expect((await routeRequest(route, first)).status).toBe(404)
+    expect((await routeRequest(route, second)).status).toBe(200)
+    expect((await routeRequest(route, third)).status).toBe(200)
+  })
+
+  it('publishes the latest graph before the matching rebuilt frame', () => {
+    const packageName = '@fixture/rebuild-frame-order'
+    const clientPath = writePackage(packageName)
+    mkdirSync(dirname(clientPath), { recursive: true })
+    writeFileSync(clientPath, 'module.exports = { generation: 1 }\n')
+    const { service } = constructWithRoute([packageName])
+    const events: string[] = []
+    service.onGraphChanged(() => { events.push('graph') })
+    service.onRebuilt(() => { events.push('rebuilt') })
+
+    writeFileSync(clientPath, 'module.exports = { generation: 200 }\n')
+    service.rebuilt(packageName)
+
+    expect(events).toEqual(['graph', 'rebuilt'])
+  })
+
   it('preserves artifact revisions across registry restarts and scan order changes', () => {
     const firstName = '@fixture/startup-revision-first'
     const secondName = '@fixture/startup-revision-second'

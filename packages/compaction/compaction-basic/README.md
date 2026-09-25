@@ -73,6 +73,7 @@ All settings are optional. With context window `W`, effective request output cap
 | `compactionRetries` | `1` | Extra condensation attempts after the first when pressure remains above threshold. |
 | `maxOverflowRetries` | `1` | Maximum retries after a confirmed context-window overflow; `0` disables recovery only. |
 | `modelPolicies` | `[]` | Exact `{ provider, model, ...partialPolicy }` overrides for individual model routes. |
+| `proactiveToolResultPruning` | `false` | Before the pressure threshold check, trim oversized results only after a later assistant response proves the model already consumed them. |
 | `auto` | `true` | Enable automatic condensation and overflow recovery; set `false` for manual-only operation. |
 
 Misconfiguration fails fast: unknown settings, duplicate per-model overrides, invalid token counts, both retention forms together, or a retention ratio at least as large as the threshold ratio reject the plugin at load. When the model is first used, `W − O − B` must be positive and the resolved retained budget must be below the trigger. Zero headroom requires an explicit positive `maxTokens`, globally or in that model policy. Small-window deployments must configure headroom that fits their capacity; lower `thresholdRatio` to compact earlier.
@@ -87,7 +88,7 @@ With `dsh-command-compact` mounted, type `/compact` in a chat UI to condense imm
 
 ### Trimming oversized tool outputs
 
-Mount `dsh-compaction-tool-result-pruner` before this package to trim oversized tool results as part of condensation. Trimming makes no model call and can remove the need to summarize at all: when the trimmed conversation fits within the threshold, condensation skips the summary. Trimming only runs after a condensation trigger qualifies — a below-pressure conversation is never touched.
+Mount `dsh-compaction-tool-result-pruner` before this package to trim oversized tool results. Trimming makes no model call and can remove the need to summarize at all: when the trimmed conversation fits within the threshold, condensation skips the summary. By default the cache-first behavior waits until pressure qualifies. Set `proactiveToolResultPruning: true` to prune before the threshold check only when a later assistant response appears after a result on the current surface, which proves a later model request already consumed it. A result with no later assistant response stays verbatim, including a turn-ending result that has not yet reached another request. Proactive pruning lowers repeated input sooner but rewrites older history, so provider prefix-cache reuse is invalidated from the first changed result.
 
 -----
 
@@ -110,7 +111,7 @@ The backend is built on four commitments:
 
 ### Automatic triggers and overflow recovery
 
-With `auto: true`, a serial `agent/pre-step` listener checks pressure before request derivation: it prices the latest durable routed request envelope through `ctx.tokenMeter`, and when pressure crosses the routed model's threshold it prunes, then summarizes the oldest balanced span while keeping a priced recent tail. Every selected range starts at the first surface node that is not a `system/message`, so a system prompt at surface node 0 is never shadowed; a later `system/message` appended by an in-history prompt update is ordinary history that the range may shadow, and the agent loop's projection then replaces node 0 with the current prompt when their text differs ([decision rule](../../core/agent-loop/README.md#understand-the-implementation)). The `agent/request-error` listener reacts to a provider-confirmed `CONTEXT_WINDOW_EXCEEDED`: it bypasses the normal threshold and retention policy, attempts one maximal balanced head reduction, and authorizes a retry only after the surface replacement generation advances. Cancellation stays authoritative throughout.
+With `auto: true`, a serial `agent/pre-step` listener checks pressure before request derivation: with proactive tool-result pruning enabled it first rewrites qualifying oversized results that are followed by a later assistant response on the current surface, then prices the latest durable routed request envelope through `ctx.tokenMeter`. Otherwise pruning waits until pressure crosses the routed model's threshold. If pressure still qualifies, it summarizes the oldest balanced span while keeping a priced recent tail. Every selected range starts at the first surface node that is not a `system/message`, so a system prompt at surface node 0 is never shadowed; a later `system/message` appended by an in-history prompt update is ordinary history that the range may shadow, and the agent loop's projection then replaces node 0 with the current prompt when their text differs ([decision rule](../../core/agent-loop/README.md#understand-the-implementation)). The `agent/request-error` listener reacts to a provider-confirmed `CONTEXT_WINDOW_EXCEEDED`: it bypasses the normal threshold and retention policy, attempts one maximal balanced head reduction, and authorizes a retry only after the surface replacement generation advances. Cancellation stays authoritative throughout.
 
 Pressure policy resolves capacity from the adapter that owns the durable route. Missing capacity, output plus headroom exhausting the window, or a retained budget at least as large as the threshold makes the manual pressure path throw a target-specific configuration error. The automatic listener warns once for that exact target and skips proactive compaction until its configuration is corrected; provider-confirmed overflow recovery remains available.
 
@@ -164,7 +165,7 @@ Read these pages when the package-level contract is not enough; they move from t
 
 #### What the model sees
 
-After a successful step crosses the threshold, oversized tool results are first rewritten when the optional pruner is loaded. If summarization remains necessary, the next request receives the checkpoint preamble below, a blank line, `<compacted-summary>`, the data-dependent summary, and `</compacted-summary>`. Overflow recovery rebuilds the immediate retry from whatever replacement advanced the surface. A checkpoint replaces the selected older range and is followed by the retained recent units.
+With the default cache-first policy, oversized tool results are rewritten only after a successful step crosses the threshold. With `proactiveToolResultPruning: true`, an earlier pressure check may rewrite a qualifying result only after a later assistant response proves it has already entered a subsequent model request; unseen results remain verbatim. If summarization remains necessary, the next request receives the checkpoint preamble below, a blank line, `<compacted-summary>`, the data-dependent summary, and `</compacted-summary>`. Overflow recovery rebuilds the immediate retry from whatever replacement advanced the surface. A checkpoint replaces the selected older range and is followed by the retained recent units.
 
 ##### Conversation checkpoint preamble
 

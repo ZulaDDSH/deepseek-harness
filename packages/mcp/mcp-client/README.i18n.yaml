@@ -18,8 +18,8 @@
   en: e77871d58566601a
   zh: c5ef229d22eb3ebf
 /deepseek-ai-dsh-mcp-client/use-this-package/minimal-configuration:
-  en: 4d8b58f6a5e0c3f1
-  zh: 28e1c06aeef33131
+  en: 190bd9ac02aa7edb
+  zh: d3168bb1f4dc229f
 /deepseek-ai-dsh-mcp-client/use-this-package/tool-naming-and-coexistence:
   en: 75ae9745d5b04796
   zh: 8ae5b8ca6e73296e
@@ -36,8 +36,8 @@
   en: 4e213d68082b07f0
   zh: 7617949ba46a3b63
 /deepseek-ai-dsh-mcp-client/understand-the-implementation/source-map:
-  en: ab2bbaa701f24c2c
-  zh: c6db79438239388e
+  en: 1556bbfb1ebfc06c
+  zh: ae0ba5f41a7a3fc9
 /deepseek-ai-dsh-mcp-client/understand-the-implementation/lifecycle-and-sync:
   en: ae9029b48b2a2e4e
   zh: 048f08361b799667
@@ -57,14 +57,14 @@
   en: 9f6397197d9a607d
   zh: 79cf93aaf2e25a39
 /deepseek-ai-dsh-mcp-client/model-experience/discovered-mcp-tools/what-the-model-sees:
-  en: 866a129e71634e0e
-  zh: b27e4b22a07c2f26
+  en: d2bc79fc6f7ab3a9
+  zh: 6446ac39a2700455
 /deepseek-ai-dsh-mcp-client/model-experience/discovered-mcp-tools/token-effect:
-  en: ac85a6a5130c6440
-  zh: 9a31229f5355432b
+  en: c1d73bd72e59be58
+  zh: cec1ca4bdee36715
 /deepseek-ai-dsh-mcp-client/model-experience/discovered-mcp-tools/kv-cache-effect:
-  en: dae97512f6d61027
-  zh: 5e6103fab15ab42d
+  en: 605af814de7bbe0b
+  zh: 00e9c95199ac5179
 /deepseek-ai-dsh-mcp-client/model-experience/tool-call-history-and-results:
   en: a8503137ad03720c
   zh: 611a2dadf7c0c706
@@ -81,17 +81,17 @@
   en: a3cb7c5760a8c141
   zh: ec9fc8d4f00a5eb6
 /deepseek-ai-dsh-mcp-client/model-experience/server-instructions/what-the-model-sees:
-  en: d3e9d53702f9c494
-  zh: 62bd2b185abbd38c
+  en: b615968fa407c407
+  zh: 5c0cba1a3d14ccac
 /deepseek-ai-dsh-mcp-client/model-experience/server-instructions/token-effect:
-  en: 082214331ebf38d7
-  zh: 2251c4f8e4d2e05c
+  en: 469f1ea0e4169a1d
+  zh: 26ebc1df59b985fb
 /deepseek-ai-dsh-mcp-client/model-experience/server-instructions/kv-cache-effect:
   en: 189198f7ace2a991
   zh: 00948145a803d614
 /deepseek-ai-dsh-mcp-client/known-limitations-and-deferred-work:
-  en: 56be94497d0658a1
-  zh: df9bfeee7300a101
+  en: 0c75db2438b32040
+  zh: c6424c6a2c7d8d26
 /deepseek-ai-dsh-mcp-client/known-limitations-and-deferred-work/dev-note:
   en: 0ef388d17ea82af1
   zh: e7104aeb4b23c660

@@ -115,12 +115,17 @@
   padding-left: 0;
 }
 
+/* Header action cluster: Add workspace, New section, and View options, at
+   28px each with a 4px gap. The cap must cover every member — `overflow:
+   hidden` clips the remainder, so an undersized cap hides a control without
+   removing it from the DOM. Kept as a max-width so the search-expand
+   transition still animates to zero. */
 .headerActions {
   flex: none;
   display: flex;
   align-items: center;
   gap: 4px;
-  max-width: 60px;
+  max-width: 92px;
   opacity: 1;
   overflow: hidden;
   visibility: visible;
@@ -313,6 +318,86 @@
   margin-left: 0;
   margin-right: 0;
   padding-left: 0;
+}
+
+/* Stacked seat: the Workspaces pane above, the Chat Sections pane below.
+   The seat is a flex column with a bounded height, so the Workspace pane takes
+   exactly the leftover space (never more) and the Sections pane is sized from
+   its own content up to its cap.
+
+   `overflow: hidden` overrides the single-pane seat's `visible`. With two
+   stacked panes the upper pane's scrolled content would otherwise paint
+   outside its box and sit on top of the lower one, so a drop aimed at a
+   section header lands on a workspace row instead. */
+.listAreaStacked {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* The Workspaces pane. Each pane scrolls on its own, so filing a Chat never
+   moves the Workspace list's scroll position.
+
+   `overflow: hidden` is load-bearing, not cosmetic: the pane's scrolling list
+   is taller than the box the flex column gives it, and without clipping here
+   the rows paint over the Sections pane below. `elementFromPoint` then
+   resolves a drop aimed at a section header to a workspace row, so the drop
+   is silently lost even though the panes measure correctly. */
+.workspacePane {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  flex-direction: column;
+}
+
+.sectionsPane {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 0.5px solid var(--dsw-alias-border-l3);
+}
+
+/* The pane's scrolling region. It reserves the themed scrollbar exactly as the
+   Workspace list does, so the bar is visible and its appearance does not shift
+   the pane's rows. */
+.sectionsScroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin-right: var(--dsh-session-list-scrollbar-offset);
+  padding-right: calc(
+    var(--dsh-session-list-edge-inset)
+    - var(--dsh-session-list-scrollbar-width)
+    - var(--dsh-session-list-scrollbar-offset)
+  );
+  scrollbar-gutter: stable;
+  padding-bottom: 8px;
+}
+
+/* A pane's own heading, on the Activity view's section-heading rhythm. */
+.paneHeading {
+  flex: none;
+  padding: 0 8px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* Empty Sections pane: a quiet prompt rather than a full empty-state card. */
+.paneEmpty {
+  padding: 2px 8px 8px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
 }
 
 /* Relative for the bottom fade overlay. */
@@ -618,4 +703,145 @@
   .headerActions {
     transition: none;
   }
+}
+/* Color swatch inside a filter-menu row and an appearance choice. */
+.colorSwatch {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  corner-shape: round;
+}
+
+/* The filter control carries a resting accent once either half is filtering. */
+.iconButtonActive {
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.appearanceForm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.appearanceLabel {
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.appearanceChoices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.appearanceChoice {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.appearanceChoice:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.appearanceChoiceSelected {
+  border-color: var(--dsw-alias-state-business-primary);
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.activitySection + .activitySection {
+  margin-top: 12px;
+}
+
+.activityHeading {
+  padding: 0 8px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.activityRows > * + * {
+  margin-top: 2px;
+}
+
+/* One Chat Section: header row plus its member rows. The block is the drop
+   body for its own header, so a Chat released anywhere inside the section
+   joins it — the pointer path for a collapsed or still-empty section. */
+.sectionGroup {
+  position: relative;
+  border-radius: 8px;
+}
+
+.sectionGroup + .sectionGroup,
+.sectionGroup + .ungroupedBlock,
+.ungroupedBlock + .sectionGroup {
+  margin-top: 4px;
+}
+
+.sectionGroup > * + * {
+  margin-top: 2px;
+}
+
+/* Join affordance: the pointer is over this section with a Chat in hand, so
+   the whole block reads as one target rather than a stack of rows. */
+.sectionJoinActive {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.sectionGroup.dropInside,
+.sectionRow.dropInside {
+  box-shadow: inset 0 0 0 1px var(--dsw-alias-state-business-primary);
+}
+
+/* Collapsed sections keep a one-line hint: the header stays the drop target,
+   and the hint names what a drop there does. */
+.sectionHint {
+  height: 22px;
+  padding: 0 8px 0 calc(28px + var(--dsh-workspace-indent, 0px));
+  font-size: 11px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.sectionCount {
+  flex: none;
+  margin-right: 6px;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* The trailing member count yields to the hover actions, which occupy the
+   same cell: a row never widens when its actions appear. */
+.sectionRow:hover .sectionCount,
+.sectionRow.menuOpen .sectionCount {
+  display: none;
+}
+
+/* The Chats outside every section, under their own heading. */
+.ungroupedBlock {
+  display: flex;
+  flex-direction: column;
+}
+
+.ungroupedBlock > * + * {
+  margin-top: 2px;
+}
+
+/* A section header is a disclosure row, not a Workspace: it keeps the row
+   rhythm but carries no folder glyph, colour, or workspace hover card. */
+.sectionRow {
+  cursor: pointer;
 }

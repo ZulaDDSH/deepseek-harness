@@ -1,8 +1,14 @@
-/** Origin-scoped boot, native directory selection, host paths of picked files, and update presentation with native confirmation actions. */
+/**
+ * Origin-scoped boot, native directory selection, host paths of picked files, update presentation
+ * with native confirmation actions, and Session attention notifications.
+ */
 
 import type { DesktopShortcutInput, ShortcutConfigSnapshot, ShortcutSaveResult } from '@deepseek-ai/dsh-client-shortcuts/protocol'
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import { DESKTOP_IPC, SCHEME, type DshDesktopProductApi, type DesktopUpdatePresentation } from './ipc.ts'
+import {
+  DESKTOP_IPC, SCHEME, type DesktopAttentionRequest, type DshDesktopProductApi,
+  type DesktopUpdatePresentation,
+} from './ipc.ts'
 import { PLATFORM_IPC } from './platform-ipc.ts'
 import { markDocumentPlatform, syncWindowFullscreen } from './preload-platform.ts'
 import { syncNativeTheme } from './preload-theme.ts'
@@ -52,6 +58,15 @@ function createProductApi(): DshDesktopProductApi {
         const handle = (_event: Electron.IpcRendererEvent, state: DesktopUpdatePresentation): void => { listener(state) }
         ipcRenderer.on(DESKTOP_IPC.updatesPresentation, handle)
         return () => { ipcRenderer.off(DESKTOP_IPC.updatesPresentation, handle) }
+      },
+    },
+    attention: {
+      notify: (request: DesktopAttentionRequest) =>
+        ipcRenderer.invoke(DESKTOP_IPC.attentionNotify, request) as Promise<void>,
+      subscribe(listener) {
+        const handle = (_event: Electron.IpcRendererEvent, sessionId: string): void => { listener(sessionId) }
+        ipcRenderer.on(DESKTOP_IPC.attentionActivate, handle)
+        return () => { ipcRenderer.off(DESKTOP_IPC.attentionActivate, handle) }
       },
     },
   }

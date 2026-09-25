@@ -39,7 +39,9 @@ const POLICY_CONFIG_KEYS = [
 const BASIC_COMPACT_CONFIG_KEYS: ReadonlySet<string> = new Set([
   ...POLICY_CONFIG_KEYS,
   'modelPolicies',
+  'proactiveToolResultPruning',
   'auto',
+  'maxContextWindow',
 ])
 
 /** Complete exact-target override key set. */
@@ -68,8 +70,15 @@ export class TargetPressureConfigError extends Error {
 export function resolveConfig(config: BasicCompactionConfig = {}): ResolvedConfig {
   validateKeys(config, BASIC_COMPACT_CONFIG_KEYS, 'BasicCompactionConfig')
   validatePolicy(config, 'BasicCompactionConfig')
+  if (config.proactiveToolResultPruning !== undefined
+    && typeof config.proactiveToolResultPruning !== 'boolean') {
+    throw new Error('BasicCompactionConfig: proactiveToolResultPruning must be a boolean')
+  }
   if (config.auto !== undefined && typeof config.auto !== 'boolean') {
     throw new Error('BasicCompactionConfig: auto must be a boolean')
+  }
+  if (config.maxContextWindow !== undefined) {
+    assertPositiveInteger('BasicCompactionConfig.maxContextWindow', config.maxContextWindow)
   }
 
   const headroomTokens = config.headroomTokens ?? 65_536
@@ -105,7 +114,9 @@ export function resolveConfig(config: BasicCompactionConfig = {}): ResolvedConfi
     compactionRetries: config.compactionRetries ?? 1,
     maxOverflowRetries: config.maxOverflowRetries ?? 1,
     modelPolicies,
+    proactiveToolResultPruning: config.proactiveToolResultPruning ?? false,
     auto: config.auto ?? true,
+    ...config.maxContextWindow === undefined ? {} : { maxContextWindow: config.maxContextWindow },
   })
 }
 
@@ -135,6 +146,7 @@ export function resolveTargetPolicy(
     maxTokens: override?.maxTokens ?? config.maxTokens,
     compactionRetries: override?.compactionRetries ?? config.compactionRetries,
     maxOverflowRetries: override?.maxOverflowRetries ?? config.maxOverflowRetries,
+    ...config.maxContextWindow === undefined ? {} : { maxContextWindow: config.maxContextWindow },
   })
 }
 
@@ -143,7 +155,8 @@ export function resolveTargetPolicy(
  *
  * Pressure is capped by both the window fraction and the capacity remaining
  * after the routed output reservation plus compaction headroom. Retention scales
- * the message budget before headroom is deducted.
+ * the message budget before headroom is deducted. A configured
+ * `maxContextWindow` caps the adapter capacity before either budget is derived.
  *
  * @param policy - merged policy for the exact routed target.
  * @param contextWindow - positive adapter-owned capacity for that target.
@@ -162,6 +175,7 @@ export function resolveCompactSpec(
       `BasicCompactionConfig: contextWindow (${contextWindow}) must be a positive integer`,
     )
   }
+  const effectiveContextWindow = Math.min(contextWindow, policy.maxContextWindow ?? contextWindow)
   if (!Number.isInteger(reservedCompletionTokens) || reservedCompletionTokens < 0) {
     throw new TargetPressureConfigError(
       targetKey,
@@ -169,12 +183,12 @@ export function resolveCompactSpec(
       + 'must be a non-negative integer',
     )
   }
-  const messageBudgetTokens = contextWindow - reservedCompletionTokens
+  const messageBudgetTokens = effectiveContextWindow - reservedCompletionTokens
   if (messageBudgetTokens <= 0) {
     throw new TargetPressureConfigError(
       targetKey,
       `compaction-basic: ${targetKey} reserves ${reservedCompletionTokens} completion tokens `
-      + `of its ${contextWindow}-token context window, leaving no message budget; configure `
+      + `of its ${effectiveContextWindow}-token context window, leaving no message budget; configure `
       + "the adapter model's contextWindow above the effective request maxTokens",
     )
   }
@@ -183,13 +197,13 @@ export function resolveCompactSpec(
     throw new TargetPressureConfigError(
       targetKey,
       `compaction-basic: ${targetKey} reserves ${reservedCompletionTokens} completion tokens `
-      + `and ${policy.headroomTokens} headroom tokens of its ${contextWindow}-token context `
+      + `and ${policy.headroomTokens} headroom tokens of its ${effectiveContextWindow}-token context `
       + 'window, leaving no pressure budget; reduce the effective request maxTokens or '
       + 'compaction headroomTokens, or configure a larger adapter model contextWindow',
     )
   }
   const thresholdTokens = Math.floor(Math.min(
-    contextWindow * policy.thresholdRatio,
+    effectiveContextWindow * policy.thresholdRatio,
     pressureBudgetTokens,
   ))
   const retainTokens = policy.retainTokens === undefined
@@ -204,7 +218,7 @@ export function resolveCompactSpec(
   }
   return deepFreeze({
     target: { ...policy.target },
-    contextWindow,
+    contextWindow: effectiveContextWindow,
     thresholdRatio: policy.thresholdRatio,
     thresholdTokens,
     retainTokens,

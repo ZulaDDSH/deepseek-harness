@@ -54,6 +54,8 @@ export interface SessionNode {
   runningSubagentCount: number
   /** Finished running while not selected and not yet opened (the green "done" reminder dot). */
   completed: boolean
+  /** Runtime failure observed outside the main view and not yet acknowledged. */
+  failed?: boolean
   /** In the registry-global pin set: leads its section, reorderable only among pinned rows. */
   pinned: boolean
   /** In the registry-global archive set: shown grayed in place and not openable. */
@@ -95,6 +97,8 @@ export interface SearchResultNode {
   runningSubagentCount: number
   /** Finished running while not selected and not yet opened (the green "done" reminder dot). */
   completed: boolean
+  /** Runtime failure observed outside the main view and not yet acknowledged. */
+  failed?: boolean
   /** In the registry-global archive set: shown grayed and not openable. */
   archived: boolean
   snippet?: string
@@ -409,6 +413,7 @@ function sessionNode(
     running: status?.running ?? s.running,
     runningSubagentCount: runningChildCount(list, s.id, statuses),
     completed: status?.completionUnread === true,
+    ...(status?.failureUnread === true ? { failed: true } : {}),
     pinned: !archived.has(s.id) && pinned.has(s.id),
     archived: archived.has(s.id),
     updatedAt: s.updatedAt,
@@ -611,6 +616,7 @@ export function deriveSearchResults(
           ? {}
           : { pendingInteraction }),
         completed: status?.completionUnread === true,
+        ...(status?.failureUnread === true ? { failed: true } : {}),
         archived: archived.has(summary.id),
         ...match === undefined ? {} : { snippet: match.snippet },
       }

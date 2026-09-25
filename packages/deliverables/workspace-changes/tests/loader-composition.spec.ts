@@ -30,10 +30,15 @@ describe('real Loader composition', () => {
   it('loads the shipped rows and records a turn’s changes', async () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-workspace-changes-loader-'))
     const cwd = join(root, 'ws')
+    const store = join(root, 'store')
     await writeFile(join(root, 'cordis.yml'), [
       "- name: '@deepseek-ai/dsh-session'",
       "- name: '@deepseek-ai/dsh-subprocess-local'",
       "- name: '@deepseek-ai/dsh-workspace-changes'",
+      '  config:',
+      // Records are durable now, so the row names its own root: the default is
+      // the operator's `$DSH_HOME/workspace-changes`.
+      `    root: ${JSON.stringify(store)}`,
       '',
     ].join('\n'))
     context = new Context()
@@ -71,7 +76,7 @@ describe('real Loader composition', () => {
     toolCall(session, 1, 'bash', { command: 'x' })
     endTurn(session, 1)
     await context.waterfall('tools/pre-execute', { agent: { session } } as never, () => Promise.resolve(undefined as never))
-    const [recorded, ...rest] = changes(context, session)
+    const [recorded, ...rest] = await changes(context, session)
     expect(rest).toEqual([])
     expect(recorded).toEqual({
       turn: 1, cwd, total: 1, added: 1, deleted: 0,

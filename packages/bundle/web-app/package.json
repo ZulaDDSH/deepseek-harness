@@ -33,6 +33,8 @@
     "cordis.patch.yml",
     "presets/standard.patch.yml",
     "presets/ptc.patch.yml",
+    "presets/economy.patch.yml",
+    "presets/lean.patch.yml",
     "presets/minimal.patch.yml",
     "presets/cordis.patch.yml",
     "lib/types/**/*.d.ts"
@@ -44,6 +46,8 @@
         "./cordis.patch.yml",
         "./presets/standard.patch.yml",
         "./presets/ptc.patch.yml",
+        "./presets/economy.patch.yml",
+        "./presets/lean.patch.yml",
         "./presets/minimal.patch.yml",
         "./presets/cordis.patch.yml"
       ]
@@ -55,6 +59,7 @@
     "@deepseek-ai/dsh-agent-preset-registry": "workspace:*",
     "@deepseek-ai/dsh-agent-tool-presentation": "workspace:*",
     "@deepseek-ai/dsh-api-job-controller": "workspace:*",
+    "@deepseek-ai/dsh-api-quota-controller": "workspace:*",
     "@deepseek-ai/dsh-api-remotes": "workspace:*",
     "@deepseek-ai/dsh-api-session-controller": "workspace:*",
     "@deepseek-ai/dsh-api-settings-controller": "workspace:*",
@@ -86,6 +91,7 @@
     "@deepseek-ai/dsh-client-ui-message-feedback": "workspace:*",
     "@deepseek-ai/dsh-client-ui-model-selection": "workspace:*",
     "@deepseek-ai/dsh-client-ui-open-in-app": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-provider-quota": "workspace:*",
     "@deepseek-ai/dsh-client-ui-permission-presets": "workspace:*",
     "@deepseek-ai/dsh-client-ui-plan": "workspace:*",
     "@deepseek-ai/dsh-client-ui-plugin-manager": "workspace:*",

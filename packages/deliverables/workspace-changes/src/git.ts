@@ -141,6 +141,23 @@ export async function locateGitWorkspace(
 }
 
 /**
+ * Resolve the repository top-level directory enclosing a working directory for
+ * read-only commands. Unlike {@link locateGitWorkspace}, no private object store
+ * is prepared: reading the working tree, the index, and HEAD does not write
+ * objects, and redirecting the object store makes `git status` fail to discover
+ * the repository on Windows.
+ * @param git - command runner.
+ * @param cwd - absolute Session working directory.
+ * @param signal - cancellation.
+ * @returns the absolute repository root, or null when the directory is not inside one.
+ */
+export async function resolveRepositoryRoot(git: GitRunner, cwd: string, signal: AbortSignal): Promise<string | null> {
+  const found = await git.run(['rev-parse', '--show-toplevel'], { cwd, signal })
+  if (found.exitCode === 128 && /not a git repository/i.test(found.stderr)) return null
+  return resolve(cwd, ok(found, 'git rev-parse').stdout.trim())
+}
+
+/**
  * Write the complete work tree, including untracked and modified files but
  * not ignored ones, as a tree object through a private index seeded from the
  * repository's index. New blobs and the tree land in the private object store;

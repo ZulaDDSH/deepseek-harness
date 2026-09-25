@@ -47,6 +47,8 @@ import type {
   SessionPromptValue,
   SessionRenameRequest,
   SessionRenameValue,
+  SessionSelectMcpRequest,
+  SessionSelectMcpValue,
   SessionSelectModelRequest,
   SessionSelectModelValue,
   SessionUpdateQueueRequest,
@@ -144,6 +146,22 @@ export class SessionCommandController {
   }
 
   /**
+   * Validate and install one Session-local MCP connector selection.
+   * @param request - Session identity and requested connector namespaces.
+   * @returns the normalized connector selection installed for the Session.
+   */
+  async selectMcp(request: SessionSelectMcpRequest): Promise<SessionSelectMcpValue> {
+    const agent = await this.resolveAgent(request.sessionId)
+    try {
+      this.agents.selectMcpFor(agent, { connectorIds: request.connectorIds })
+      return { selected: { connectorIds: [...new Set(request.connectorIds)].sort() } }
+    } catch (error) {
+      if (error instanceof RemoteError) throw error
+      throw new RemoteError('gateway/bad-request', error instanceof Error ? error.message : String(error), {})
+    }
+  }
+
+  /**
    * Validate and install one Session-local model selection; save the default in the background.
    * @param request - Session identity and requested model selection.
    * @returns the normalized selection installed for the Session, without waiting for default persistence.
@@ -167,7 +185,7 @@ export class SessionCommandController {
             ? {}
             : { reasoningEffort: resolved.reasoningEffort }),
         }
-        this.agents.selectForNextRequest(agent, selected)
+        this.agents.selectModel(agent, selected)
         void this.ctx.agentDefaultModel.saveSelection(selected).catch((error: unknown) => {
           this.ctx.logger.warn(
             `session-controller: model selection changed for the Session but the default was not saved: ${String(error)}`,

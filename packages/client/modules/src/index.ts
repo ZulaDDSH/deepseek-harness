@@ -606,6 +606,7 @@ export class ClientModuleRegistry extends Service {
   private readonly dirty = new Set<string>()
   private responses = new Map<string, LazyResponse>()
   private batchResponses = new Map<string, LazyResponse>()
+  private entryResponses = new Map<string, LazyResponse>()
   /** One prior graph generation covers a request racing the HMR recomposition that replaced its URL. */
   private previousBatchResponses = new Map<string, LazyResponse>()
   private flushQueued = false
@@ -721,6 +722,7 @@ export class ClientModuleRegistry extends Service {
     record.entry = graphRow(id, rev, record.meta)
     record.bundle = bundle
     this.composed = this.compose()
+    this.notifyGraphChanged()
     for (const notify of this.rebuildListeners) {
       // Containment: rebuilt() runs inside the HMR watch callback — a
       // throwing subscriber must not kill the poll or skip later subscribers.
@@ -730,7 +732,6 @@ export class ClientModuleRegistry extends Service {
         this.ctx.logger.error(error)
       }
     }
-    this.notifyGraphChanged()
     return rev
   }
 
@@ -787,23 +788,34 @@ export class ClientModuleRegistry extends Service {
       })
     }
     const responses = new Map(batchResponses)
+    const entryResponses = new Map<string, LazyResponse>()
     for (const record of this.table.values()) {
       const artifact = buildCombo([record], this.readSourceMap, record.entry.rev)
-      responses.set(artifact.url, responses.get(artifact.url) ?? this.responses.get(artifact.url) ?? {
+      const response = responses.get(artifact.url) ?? this.responses.get(artifact.url) ?? {
         body: artifact.scriptBody,
         contentType: 'text/javascript; charset=utf-8',
-      })
-      responses.set(artifact.sourceMapUrl, responses.get(artifact.sourceMapUrl) ?? this.responses.get(artifact.sourceMapUrl) ?? {
+      }
+      responses.set(artifact.url, response)
+      entryResponses.set(artifact.url, response)
+      const sourceMapResponse = responses.get(artifact.sourceMapUrl) ?? this.responses.get(artifact.sourceMapUrl) ?? {
         body: artifact.sourceMapBody,
         contentType: 'application/json; charset=utf-8',
-      })
+      }
+      responses.set(artifact.sourceMapUrl, sourceMapResponse)
+      entryResponses.set(artifact.sourceMapUrl, sourceMapResponse)
     }
     for (const [resourceUrl, response] of this.responses) {
       if (this.chunkRequest(new URL(resourceUrl, 'http://x')) !== undefined) responses.set(resourceUrl, response)
     }
-    this.previousBatchResponses = this.batchResponses
+    const previousResponses = new Map<string, LazyResponse>()
+    for (const resourceUrl of [...this.batchResponses.keys(), ...this.entryResponses.keys()]) {
+      const response = this.responses.get(resourceUrl)
+      if (response !== undefined) previousResponses.set(resourceUrl, response)
+    }
+    this.previousBatchResponses = previousResponses
     this.batchResponses = batchResponses
     this.responses = responses
+    this.entryResponses = entryResponses
     const batches = artifacts.map(artifact => artifact.descriptor)
     return { rev: shortHash(JSON.stringify({ entries, batches })), entries, batches }
   }

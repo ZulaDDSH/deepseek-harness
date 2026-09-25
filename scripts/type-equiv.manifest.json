@@ -1493,6 +1493,11 @@
     },
     {
       "doc": "docs/subsystems/compaction.md",
+      "symbol": "PruneSessionOptions",
+      "source": "packages/compaction/compaction-tool-result-pruner/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/compaction.md",
       "symbol": "PrunedEntry",
       "source": "packages/compaction/compaction-tool-result-pruner/src/types.ts"
     },

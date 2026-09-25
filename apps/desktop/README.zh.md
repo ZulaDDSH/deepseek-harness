@@ -150,6 +150,18 @@ Desktop 在 Host 启动后、打开工作区前检查模型 API Key 引用是否
 
 欢迎窗口使用设计稿的 Platform light/dark 颜色跟随系统外观，展示 600 × 700 的[入口布局](https://www.figma.com/design/jRBBK7zBgcszdVWQ0Fh5J8/Harness?node-id=2121-39334)和 API Key 表单，包含原生窗口控件、可拖动标题区域、本地品牌 SVG、系统无衬线字体回退，以及非按钮文字使用的本地 Montserrat Light 字体。窗口使用 macOS menu vibrancy 或 Windows acrylic，叠加 onboarding 的窗口背景色：浅色模式为 40% 白色，深色模式为 50% rgb(24 25 28)。本地 React 欢迎入口将 React、公共 `StateDot` 加载指示器及其 CSS 一起打包；它通过隔离 preload 工作，不加载主 Web 应用。入口、登录状态和 API Key 页面共用固定的底部操作行；“返回登录”链接位于操作行下方。按钮共用平台的过渡时序，开启“减少动态效果”会禁用过渡。操作系统控制模糊强度和外部圆角。macOS 的“降低透明度”会抑制半透明效果，“增强对比度”会强制开启该设置。“保存并继续”写入开发环境的凭证存储；“稍后配置”打开真实工作区，不保存密钥或完成标记。生成的开发项目同时链接已声明的 workspace 依赖闭包和 pnpm 提升的包，因此未提升的配置插件仍能解析。[窗口记录](../../.agents/notes/implemented/architecture/2026-09-08-desktop-welcome-window-material.zh.md)负责材质与引导决策。
 
+### 可选的共享知识集成
+
+源码树 Desktop 开发可以把 Desktop profile 指向共享的 GARDEN 知识服务：
+
+```sh
+node scripts/setup-knowledge-desktop.mjs --url http://192.168.1.50:18080/mcp --token-env GARDEN_KNOWLEDGE_TOKEN
+```
+
+运行该命令前先停止 Desktop，运行后重新启动。该辅助脚本会追加一个使用 Streamable HTTP 的 `@deepseek-ai/dsh-mcp-client` 条目，并在条目已存在时保持幂等。凭据从指定的环境变量读取，因此不会把令牌写入 profile patch；启动 Desktop 前需要导出该变量。默认端点为同机服务的 `http://127.0.0.1:18080/mcp`；使用 `http://192.168.1.50:18080/mcp` 这样的局域网地址可以让多台机器共享同一个知识服务。
+
+知识服务拥有持久共享知识、检索、来源归属和知识生命周期。它不是会话、任务或 provider 的权威：会话、agent、provider、工具暴露和权限由 DSH 拥有。全局的 `@deepseek-ai/dsh-knowledge-policy` 条目规定每个 agent 如何使用共享知识，并把验证、提升、取代和标记过期限定给获得授权的监督者。
+
 ## 打包
 
 <a id="release-versions"></a>

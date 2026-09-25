@@ -122,6 +122,10 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 export interface SidebarOwnerProps {
   /** True when the sidebar is closed (the column renders the compact control rail). */
   collapsed: boolean
+  /** True while focus presentation suppresses secondary columns. */
+  focusMode: boolean
+  /** Exit or enter focus presentation without changing saved panel widths. */
+  toggleFocus: () => void
   /** Rendered column width in px (SIDEBAR_COLLAPSED when collapsed). */
   width: number
 }

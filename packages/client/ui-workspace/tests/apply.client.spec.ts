@@ -12,6 +12,7 @@ import { RemoteError, TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type { WorkspaceBrowserInjected, WorkspacePickerInjected } from '@deepseek-ai/dsh-client-ui-workspace/client'
+import type { QuickSwitcherInjected } from '../src/client/QuickSwitcher.tsx'
 import {
   type ArchiveSessionInjected, type ForkSessionInjected, menuOpenStateFactory, type PinSessionInjected,
   type RenameSessionInjected, type RowToastInjected, type SessionArchiveConfirmInjected, type SessionRenameDialogInjected,
@@ -24,6 +25,7 @@ import { PinSessionMenuItem, PinSessionRowButton } from '../src/client/session-a
 import { RenameSessionMenuItem, SessionRenameDialog } from '../src/client/session-actions/RenameSession.tsx'
 import { RowActionToast } from '../src/client/session-actions/RowActionToast.tsx'
 import { WorkspacePicker } from '../src/client/WorkspacePicker.tsx'
+import { QuickSwitcher } from '../src/client/QuickSwitcher.tsx'
 import { FLAT_SESSION_ORDER_KEY } from '../src/client/stores.ts'
 import { UNGROUPED_KEY } from '../src/client/tree.ts'
 import { apply as hostApply } from '../src/index.ts'
@@ -63,6 +65,13 @@ async function bench() {
   const rename = vi.fn(async () => ({}))
   const selectPanel = vi.fn()
   ctx.provide('layout', { selectPanel, beginNavigation: () => new AbortController().signal })
+  ctx.provide('uiSession', {
+    sessionStatus: { getSnapshot: () => new Map(), subscribe: () => () => {} },
+  } as never)
+  ctx.provide('commandUi', {
+    quickCommands: vi.fn(async () => []),
+    runQuick: vi.fn(() => true),
+  } as never)
   const search = vi.fn(async () => ({
     ok: true as const,
     value: { items: [{ sessionId: 'session' as never, snippet: 'match' }], hasMore: false },
@@ -185,6 +194,7 @@ describe('ui-workspace apply', () => {
   it('declares the services it drives', () => {
     expect(inject).toEqual([
       'slots', 'sessions', 'workspaces', 'locale', 'remote', 'remote.directoryPicker', 'layout', 'shortcuts',
+      'uiSession', 'commandUi',
     ])
   })
 
@@ -220,7 +230,7 @@ describe('ui-workspace apply', () => {
     // The row actions follow the browser's own declaration, whenever it lands.
     expect(after.slots.entries(MENU_ITEM)).toHaveLength(4)
     expect(after.slots.entries(ROW_ACTION)).toHaveLength(2)
-    expect(after.slots.entries('shell.overlay')).toHaveLength(3)
+    expect(after.slots.entries('shell.overlay')).toHaveLength(4)
   })
 
   it('declares the two Session row lists and registers the shipped actions and overlay surfaces into them', async () => {
@@ -250,6 +260,7 @@ describe('ui-workspace apply', () => {
       ['workspace.session-rename', undefined, SessionRenameDialog, 'workspace'],
       ['workspace.session-archive', undefined, SessionArchiveConfirmDialog, 'workspace'],
       ['workspace.row-toast', undefined, RowActionToast, 'workspace'],
+      ['workspace-quick-switcher', 10, QuickSwitcher, 'workspace'],
     ])
     // The browser and the row toast declare the same viewing-store handle,
     // which hands out one instance: the browser's injected callbacks write
@@ -521,6 +532,23 @@ describe('ui-workspace apply', () => {
     expect(unarchiveSession).toHaveBeenCalledWith('session')
   })
 
+  it('registers the root quick switcher and routes its actions through existing services', async () => {
+    const b = await bench()
+    declare(b.slots, 'shell.overlay')
+    const quickCommands = vi.spyOn(b.ctx.get('commandUi') as never, 'quickCommands')
+    const runQuick = vi.spyOn(b.ctx.get('commandUi') as never, 'runQuick')
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+
+    const entry = b.slots.entries('shell.overlay').find(item => item.options.id === 'workspace-quick-switcher')
+    expect(entry?.component).toBe(QuickSwitcher)
+    const injected = (entry?.inject as unknown as () => QuickSwitcherInjected)()
+    const signal = new AbortController().signal
+    await injected.quickCommands('session' as never, 'plan', signal)
+    expect(quickCommands).toHaveBeenCalledWith('session', 'plan', signal)
+    injected.runQuick('session' as never, 'plan')
+    expect(runQuick).toHaveBeenCalledWith('session', 'plan')
+  })
+
   it('routes browser actions and picker creation to the services', async () => {
     const b = await bench()
     declare(b.slots, 'sidebar.workspaces', 'conversation.hero.workspace')
@@ -598,7 +626,7 @@ describe('ui-workspace apply', () => {
     await fiber.await()
     expect(b.slots.entries(MENU_ITEM)).toHaveLength(4)
     expect(b.slots.entries(ROW_ACTION)).toHaveLength(2)
-    expect(b.slots.entries('shell.overlay')).toHaveLength(3)
+    expect(b.slots.entries('shell.overlay')).toHaveLength(4)
     await fiber.dispose()
     expect(b.slots.entries('sidebar.workspaces')).toHaveLength(0)
     expect(b.slots.entries('conversation.hero.workspace')).toHaveLength(0)

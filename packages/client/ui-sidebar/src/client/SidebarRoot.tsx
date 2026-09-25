@@ -87,6 +87,8 @@ function PanelRow({ id, label, wide, usePanelInfo, selectPanel, renderSlot }: Pa
  */
 export function SidebarRoot({
   collapsed,
+  focusMode,
+  toggleFocus,
   width,
   startSession,
   toggleSidebar,
@@ -100,7 +102,6 @@ export function SidebarRoot({
   const panels = usePanels(snapshot => snapshot)
   const shortcut = useShortcuts(rows => rows.find(row => row.id === 'sidebar.left.toggle'))
   const newShortcut = useShortcuts(rows => rows.find(row => row.id === 'session.new'))
-  const toggleLabel = collapsed ? t('toggle.open') : t('toggle.collapse')
   // Wide content stays mounted while the collapse animates (fading via
   // .collapsed .wide), unmounts at settle, and remounts right away on expand.
   const [settled, setSettled] = useState(collapsed)
@@ -175,14 +176,16 @@ export function SidebarRoot({
   // Rail resting state is the whale mark; hovering swaps in the panel icon
   // (the expand affordance, figma sidebar-hover flow). Expanded it is a plain
   // panel icon.
+  const toggleLabel = focusMode ? t('focus.exit') : collapsed ? t('toggle.open') : t('toggle.collapse')
+  const toggleShortcut = focusMode ? undefined : shortcut
   const toggle = (
-    <Tooltip label={toggleLabel} shortcutKeys={shortcut?.keys} delayMs={500} side={captionTooltipSide}>
+    <Tooltip label={toggleLabel} shortcutKeys={toggleShortcut?.keys} delayMs={500} side={captionTooltipSide}>
       <button
         type="button"
         className={clsx(css.iconButton, css.toggle)}
         aria-label={toggleLabel}
-        aria-keyshortcuts={shortcut?.aria}
-        onClick={() => { toggleSidebar() }}
+        aria-keyshortcuts={toggleShortcut?.aria}
+        onClick={() => { if (focusMode) toggleFocus(); else toggleSidebar() }}
       >
         {!wide && !windowsTitlebar && (
           <span className={css.railMark} aria-hidden="true">

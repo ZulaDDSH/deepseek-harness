@@ -23,6 +23,7 @@ import type {
 } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { HostObservable, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // Type-only: pulls the Controller service merges.
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
@@ -34,6 +35,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: pulls the Session root standard-hook merge.
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+import { DesktopAttentionSource, type DesktopAttentionBridge } from './desktop-attention.ts'
 import {
   type ArchiveSessionInjected, type ForkSessionInjected, menuOpenStateFactory, type PinSessionInjected,
   type SessionArchiveConfirmInjected, type SessionArchiveConfirmRequest,
@@ -51,6 +53,7 @@ import { PinSessionMenuItem, PinSessionRowButton } from './session-actions/PinSe
 import { RenameSessionMenuItem, SessionRenameDialog } from './session-actions/RenameSession.tsx'
 import { RowActionToast } from './session-actions/RowActionToast.tsx'
 import { WorkspacePicker } from './WorkspacePicker.tsx'
+import { QuickSwitcher, type QuickSwitcherInjected } from './QuickSwitcher.tsx'
 import { en, zh, type WorkspaceKey } from './locales.ts'
 
 export type { UiWorkspace } from './navigation.ts'
@@ -94,6 +97,7 @@ const NS = 'workspace'
  */
 export const inject = [
   'slots', 'sessions', 'workspaces', 'locale', 'remote', 'remote.directoryPicker', 'layout', 'shortcuts',
+  'uiSession', 'commandUi',
 ]
 
 /**
@@ -105,6 +109,10 @@ export const inject = [
 export function apply(ctx: Context): void {
   const sessions = ctx.get('sessions') as ISessions
   const workspaces = ctx.get('workspaces') as IWorkspaces
+  const commandUi = ctx.get('commandUi') as {
+    quickCommands: QuickSwitcherInjected['quickCommands']
+    runQuick: QuickSwitcherInjected['runQuick']
+  }
   // One viewing-store instance, created here as ui-layout does for its layout
   // store: the browser declares the handle, and the UiWorkspace service writes
   // view order through the same instance the renderer hands the browser.
@@ -117,6 +125,18 @@ export function apply(ctx: Context): void {
   const uiWorkspace = new UiWorkspaceService(
     ctx, ctx.remote.directoryPicker, workspaces, sessions, viewInstance.actions, notify,
   )
+  const carrier = (globalThis as typeof globalThis & {
+    dshDesktop?: { protocolVersion: number; attention?: DesktopAttentionBridge }
+  }).dshDesktop
+  if (carrier?.protocolVersion === 1 && carrier.attention !== undefined) {
+    const desktopAttention = new DesktopAttentionSource(
+      ctx.uiSession.sessionStatus,
+      sessions.list,
+      carrier.attention,
+      (sessionId) => { uiWorkspace.openSession(sessionId) },
+    )
+    ctx.effect(() => () => { desktopAttention.dispose() }, 'ui-workspace: desktop attention')
+  }
   ctx.slots.provideRoot({ hooks: { workspaces: workspaces.list } })
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-workspace: dictionaries')
   const shortcutControls = createWorkspaceShortcutControls()
@@ -241,6 +261,9 @@ export function apply(ctx: Context): void {
     },
     unarchiveSession: async (sessionId) => { await uiWorkspace.unarchiveSession(sessionId) },
     createWorkspace: input => workspaces.create(input),
+    // Chat Sections have no Host counterpart: the identity an assignment
+    // references is minted here and persisted with the browser view state.
+    newSectionId: () => randomUUID(),
     requestSearch: shortcutControls.search,
     requestAddWorkspace: shortcutControls.add,
     closeAddWorkspace: shortcutControls.closeAdd,
@@ -252,6 +275,19 @@ export function apply(ctx: Context): void {
     createWorkspace: input => workspaces.create(input),
     hooks: { directoryFlow: pickerFlowSource },
   })
+  const quickInjected = (): QuickSwitcherInjected => ({
+    openSession: (sessionId) => { uiWorkspace.openSession(sessionId) },
+    openWorkspace: workspaceId => uiWorkspace.openWorkspace(workspaceId),
+    quickCommands: (sessionId, query, signal) => commandUi.quickCommands(sessionId, query, signal),
+    runQuick: (sessionId, name) => commandUi.runQuick(sessionId, name),
+  })
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+    name: 'shell.overlay',
+    id: 'workspace-quick-switcher',
+    order: 10,
+    locale: NS,
+    inject: quickInjected,
+  }, QuickSwitcher))
   // Each registration declares its owned children in the same call; slot
   // injection follows both the owner and declaration HMR lifetimes.
   ctx.slots.inject('sidebar.workspaces', () => ctx.slots.register(

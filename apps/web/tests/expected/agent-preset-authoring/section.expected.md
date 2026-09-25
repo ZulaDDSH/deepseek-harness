@@ -28,6 +28,18 @@
       - 'button "如何使用: PTC 模式"': 如何使用
       - 'button "查看配置: PTC 模式"': 查看配置
     - listitem:
+      - 'button "设为新任务默认: 节省模式"':
+        - text: 节省模式 内置
+        - code: economy
+        - text: 使用 PTC 合并多步工具调用，并更早裁剪大型工具输出和压缩历史，以降低长会话的 token 消耗。
+      - 'button "查看配置: 节省模式"': 查看配置
+    - listitem:
+      - 'button "设为新任务默认: 精简模式"':
+        - text: 精简模式 内置
+        - code: lean
+        - text: 读取、检索、写入文件并运行命令，上下文上限为 20 万 tokens。
+      - 'button "查看配置: 精简模式"': 查看配置
+    - listitem:
       - 'button "设为新任务默认: 极简模式"':
         - text: 极简模式 内置
         - code: minimal

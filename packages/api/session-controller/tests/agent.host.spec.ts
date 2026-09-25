@@ -296,7 +296,7 @@ describe('ApiSession model selection', () => {
     expect(() => agents.selectionFor(live)).toThrow('required modelSelection projection')
   })
 
-  it('reads a reasoning-free request and consumes only the exact pending selection', async () => {
+  it('reads a reasoning-free request and keeps the selection across a divergent request', async () => {
     const { ctx, agents } = await harness()
     const logged = agent(ctx, header('logged-model'))
     logged.session.append('request/header', {
@@ -308,9 +308,9 @@ describe('ApiSession model selection', () => {
       model: 'logged-model',
     })
 
-    const pending = agent(ctx, header('pending-model'))
-    const selection = agents.selectionFor(pending)
-    agents.selectForNextRequest(pending, {
+    const picked = agent(ctx, header('picked-model'))
+    const selection = agents.selectionFor(picked)
+    agents.selectModel(picked, {
       provider: 'selected-provider',
       model: 'selected-model',
       reasoningEffort: 'high' as never,
@@ -318,14 +318,28 @@ describe('ApiSession model selection', () => {
     expect(selection.current).toMatchObject({
       provider: 'selected-provider', model: 'selected-model', reasoningEffort: 'high',
     })
-    expect(agents.consumeSelection(pending, 'other-provider', 'selected-model', 'high')).toBe(false)
-    expect(agents.consumeSelection(pending, 'selected-provider', 'other-model', 'high')).toBe(false)
-    expect(agents.consumeSelection(pending, 'selected-provider', 'selected-model', 'low')).toBe(false)
-    expect(agents.consumeSelection(pending, 'selected-provider', 'selected-model', 'high')).toBe(true)
-    expect(selection.current).toEqual({ provider: 'fixture', model: 'fixture-model' })
 
-    const untouched = agent(ctx, header('uninstalled-model'))
-    expect(agents.consumeSelection(untouched, 'fixture', 'fixture-model', undefined)).toBe(false)
+    // The pick is honored, then a router runs something else. The Session must
+    // still resolve the user's selection, not the route that happened to run.
+    picked.session.append('request/header', {
+      header: {
+        config: {
+          provider: 'selected-provider', model: 'selected-model', reasoningEffort: 'high' as never,
+        },
+      },
+      reason: 'initial',
+    })
+    picked.session.append('request/header', {
+      header: { config: { provider: 'router-provider', model: 'router-model' } },
+      reason: 'initial',
+    })
+    expect(agents.selectionFor(picked).current).toMatchObject({
+      provider: 'selected-provider', model: 'selected-model', reasoningEffort: 'high',
+    })
+    const resumed = { id: picked.id, session: picked.session, status: 'idle', ctx } as Agent
+    expect(agents.selectionFor(resumed).current).toMatchObject({
+      provider: 'selected-provider', model: 'selected-model', reasoningEffort: 'high',
+    })
   })
 })
 

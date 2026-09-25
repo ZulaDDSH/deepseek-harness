@@ -3,12 +3,15 @@
  * all data and callbacks arrive via props. Hover swaps (folder->chevron,
  * time->ellipsis, action buttons) are CSS-only, and a session row's clipped
  * title marquees programmatically while the row is hovered. Workspace row
- * menus are visual-only except Rename/Delete. A Session row's "..." menu and
- * its hover buttons are the `sidebar.workspaces.session.menu.item` and
- * `sidebar.workspaces.session.row.action` lists, rendered through the
+ * menus offer the appearance choices plus Rename/Delete. A Session row's "..."
+ * menu and its hover buttons are the `sidebar.workspaces.session.menu.item`
+ * and `sidebar.workspaces.session.row.action` lists, rendered through the
  * browser's `renderSlot` with the menu's open state as the occurrence's hook
  * context; this package's own actions are entries like any plugin's. The
- * session and workspace hover cards are suppressed while a menu is open.
+ * browser-local appearance and Chat Section rows lead that menu as data rows,
+ * and a right-click opens the same menu at the pointer. Chat Section headers
+ * render here too. The session and workspace hover cards are suppressed while
+ * a menu is open.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { RefObject } from 'react'
@@ -17,14 +20,20 @@ import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   HoverCard, IconArchiveOutlineRegular, IconEditOutlineRegular,
   IconEllipsisOutlineRegular, IconFolderCloseRegular, IconFolderOpenRegular,
-  IconNewChatOutlineRegular, IconPinFillRegular, IconTrashOutlineRegular,
+  IconNewChatOutlineRegular, IconPinFillRegular, IconPlusOutlineRegular, IconTrashOutlineRegular,
   IconTriangleRightFillRegular, IconUnarchiveOutlineRegular, Menu, relativeTime, StateDot, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { MenuEntry, MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ShortcutCatalogEntry } from '@deepseek-ai/dsh-client-shortcuts/client'
-import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import { abbreviateHomePath } from '@deepseek-ai/dsh-util-workspace-path'
 import type { MenuOpenState, WorkspaceBrowserProps } from '../contract/slots.ts'
+import { WORKSPACE_APPEARANCE_COLORS, WORKSPACE_COLORS, WORKSPACE_ICONS } from '../appearance.ts'
+import type { WorkspaceAppearance, WorkspaceColor, WorkspaceIcon } from '../appearance.ts'
+import type { ChatSection } from '../stores.ts'
+import type { SectionNode } from '../sections.ts'
 import type { GroupNode, SearchResultNode, SessionNode } from '../tree.ts'
+import { WORKSPACE_ICON_GLYPHS } from './WorkspaceIcons.ts'
+import { SessionStatusDots, sessionStatuses } from './SessionStatus.tsx'
 import css from './Rows.module.css'
 
 /** The standard locale seat, prop-passed from the browser root. */
@@ -37,7 +46,7 @@ type RowTranslate = WorkspaceBrowserProps['t']
  * leading occupant never share the row; the hover seat only while the row's
  * card is open.
  */
-type RowRenderSlots = PropsRenderSlots<
+export type RowRenderSlots = PropsRenderSlots<
   | 'sidebar.workspaces.session.menu.item'
   | 'sidebar.workspaces.session.row.action'
   | 'sidebar.session.row.leading'
@@ -133,6 +142,333 @@ function useTitleMarquee(title: RefObject<HTMLSpanElement | null>): { enter: () 
   }), [title])
 }
 
+/**
+ * Read a color out of a menu row id. The rows are built from WORKSPACE_COLORS,
+ * so a known suffix is a real choice; `clear` and anything unrecognized yield
+ * undefined, which clears the color rather than storing a value outside the union.
+ * @param id - the selected row id, `appearance.color.<choice>`.
+ * @returns the chosen color, or undefined to clear it.
+ */
+function workspaceColorOf(id: string): WorkspaceColor | undefined {
+  const choice = id.slice('appearance.color.'.length)
+  return choice === 'clear' ? undefined : WORKSPACE_COLORS.find(color => color === choice)
+}
+
+/**
+ * Read an icon out of a menu row id, on the same terms as the color rows.
+ * @param id - the selected row id, `appearance.icon.<choice>`.
+ * @returns the chosen icon, or undefined to clear it.
+ */
+function workspaceIconOf(id: string): WorkspaceIcon | undefined {
+  const choice = id.slice('appearance.icon.'.length)
+  return choice === 'clear' ? undefined : WORKSPACE_ICONS.find(icon => icon === choice)
+}
+
+/**
+ * The Color and Icon submenus every appearance entry point renders, so the row
+ * ellipsis and the right-click menu cannot offer different choices.
+ * @param t - the row's locale seat.
+ * @returns the two submenu row lists, in menu order.
+ */
+function appearanceSubmenus(t: RowTranslate): { colors: readonly MenuItem[]; icons: readonly MenuItem[] } {
+  return {
+    colors: [
+      { id: 'appearance.color.clear', label: t('appearance.default') },
+      ...WORKSPACE_COLORS.map(color => ({
+        id: `appearance.color.${color}`,
+        label: t(`appearance.color.${color}`),
+        icon: <span className={css.colorSwatch} style={{ background: WORKSPACE_APPEARANCE_COLORS[color] }} />,
+      })),
+    ],
+    icons: [
+      { id: 'appearance.icon.clear', label: t('appearance.default') },
+      ...WORKSPACE_ICONS.map(icon => ({
+        id: `appearance.icon.${icon}`,
+        label: t(`appearance.icon.${icon}`),
+        icon: <WorkspaceIconGlyph choice={icon} />,
+      })),
+    ],
+  }
+}
+
+/**
+ * Inline style painting a Workspace's chosen color onto its leading slot. The
+ * row label inherits this color, so one declaration colors both the glyph and
+ * the title; the default look leaves the slot to the stylesheet's alias.
+ * @param appearance - the Workspace's chosen appearance, when it has one.
+ * @returns the style to spread on the row, or undefined for the default look.
+ */
+function appearanceStyle(appearance: WorkspaceAppearance | undefined): { color: string } | undefined {
+  return appearance?.color === undefined ? undefined : { color: WORKSPACE_APPEARANCE_COLORS[appearance.color] }
+}
+
+/** One Workspace icon choice rendered from the shared icon library. */
+function WorkspaceIconGlyph({ choice }: { choice: WorkspaceIcon }) {
+  const Glyph = WORKSPACE_ICON_GLYPHS[choice]
+  return <Glyph size={16} />
+}
+/** Menu row id for one section choice. */
+function sectionMenuItemId(sectionId: string): string {
+  return `section.move.${sectionId}`
+}
+
+/** Menu row id for the ungrouped choice: removes the Chat from its section. */
+const SECTION_UNGROUPED_ITEM = 'section.move.none'
+
+/**
+ * Resolve a section choice from a menu row id.
+ * @param id - the selected menu row id.
+ * @returns the target section id, null for the ungrouped choice, or undefined
+ * for every other row (so no unrelated verb is read as a move).
+ */
+function sectionChoiceOf(id: string): string | null | undefined {
+  if (id === SECTION_UNGROUPED_ITEM) return null
+  if (!id.startsWith('section.move.')) return undefined
+  return id.slice('section.move.'.length)
+}
+
+/**
+ * The Move-to-Section submenu every Chat row offers, so a move stays available
+ * when drag-and-drop is not. The owning section is listed but disabled, which
+ * keeps the choice list stable while the current assignment stays visible; the
+ * ungrouped row removes the Chat from its section without deleting it.
+ * @param sections - every existing section in display order.
+ * @param currentSectionId - the Chat's owning section, if any.
+ * @param t - the row's locale seat.
+ * @returns the submenu rows; their ids carry the choice back through onSelect.
+ */
+function sectionMenuItems(
+  sections: readonly ChatSection[],
+  currentSectionId: string | undefined,
+  t: RowTranslate,
+): MenuItem[] {
+  return [
+    ...sections.map(section => ({
+      id: sectionMenuItemId(section.id),
+      label: section.name,
+      disabled: section.id === currentSectionId,
+    })),
+    { id: SECTION_UNGROUPED_ITEM, label: t('section.ungrouped'), disabled: currentSectionId === undefined },
+  ]
+}
+
+/**
+ * One Chat Section header row: disclosure chevron, title, member count, and
+ * the section verbs (add chat, rename, delete). The header is the drop target
+ * that assigns a dragged Chat to this section, so it reports its own hover
+ * state through the drag wiring its list owner supplies.
+ * @param props.section - derived section node.
+ * @param props.dragActive - a compatible Chat or section drag is in flight.
+ * @param props.marker - current drop marker: assign into, insert above, or none.
+ * @param props.onToggle - collapse or expand the section.
+ * @param props.onDragOver - report a hovered drop boundary.
+ * @param props.onDrop - commit the drop on this header.
+ * @param props.drag - optional section-row drag wiring (reorder).
+ * @param props.actions - section verbs.
+ * @param props.t - the browser root's locale seat.
+ * @returns the section header element.
+ */
+export function SectionHeaderItem({
+  section, appearance, dragActive = false, marker = null, onToggle, onDragOver, onDrop, onFileChat,
+  externalChatSessionId = null, drag, actions, t,
+}: {
+  section: SectionNode
+  appearance?: WorkspaceAppearance | undefined
+  dragActive?: boolean | undefined
+  marker?: 'before' | 'after' | 'inside' | null | undefined
+  onToggle: () => void
+  onDragOver?: ((half: 'before' | 'after') => void) | undefined
+  onDrop?: ((half: 'before' | 'after') => void) | undefined
+  onFileChat?: (() => void) | undefined
+  externalChatSessionId?: string | null | undefined
+  drag?: WorkspaceRowDragProps | undefined
+  actions: {
+    rename: () => void
+    delete: () => void
+    appearanceColor: (color: WorkspaceColor | undefined) => void
+    appearanceIcon: (icon: WorkspaceIcon | undefined) => void
+  }
+  t: RowTranslate
+}) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
+  const submenus = useMemo(() => appearanceSubmenus(t), [t])
+  const items = [
+    { id: 'appearance.color', label: t('appearance.color'), icon: <IconEditOutlineRegular />, submenu: submenus.colors },
+    { id: 'appearance.icon', label: t('appearance.icon'), icon: <IconEditOutlineRegular />, submenu: submenus.icons },
+    { id: 'rename', label: t('rename'), icon: <IconEditOutlineRegular /> },
+    { id: 'delete', label: t('section.delete'), icon: <IconTrashOutlineRegular />, danger: true },
+  ]
+  const select = (id: string): void => {
+    if (id.startsWith('appearance.color.')) actions.appearanceColor(workspaceColorOf(id))
+    else if (id.startsWith('appearance.icon.')) actions.appearanceIcon(workspaceIconOf(id))
+    else if (id === 'rename') actions.rename()
+    else if (id === 'delete') actions.delete()
+  }
+  return (
+    <div
+      className={clsx(
+        css.projectRow, css.sectionRow, menuOpen && css.menuOpen,
+        marker === 'before' && css.dropBefore, marker === 'after' && css.dropAfter,
+        marker === 'inside' && css.dropInside,
+      )}
+      style={appearanceStyle(appearance)}
+      role="treeitem"
+      aria-expanded={section.expanded}
+      aria-label={t('section.actions.aria', { name: section.name })}
+      onClick={onToggle}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        setMenuOpen(false)
+        setContextMenu({ x: e.clientX, y: e.clientY })
+      }}
+      draggable={drag !== undefined}
+      onDragStart={drag === undefined
+        ? undefined
+        : (e) => {
+          e.dataTransfer.effectAllowed = 'move'
+          e.dataTransfer.setData('text/plain', section.id)
+          drag.start()
+        }}
+      onDragEnd={drag?.end}
+      onDragOver={(event) => {
+        if (onFileChat !== undefined && externalChatSessionId !== null) {
+          event.preventDefault()
+          event.stopPropagation()
+          event.dataTransfer.dropEffect = 'move'
+          return
+        }
+        if (!dragActive) return
+        event.preventDefault()
+        event.stopPropagation()
+        event.dataTransfer.dropEffect = 'move'
+        onDragOver?.(rowHalf(event))
+      }}
+      onDrop={(event) => {
+        if (onFileChat !== undefined && externalChatSessionId !== null) {
+          event.preventDefault()
+          event.stopPropagation()
+          onFileChat()
+          return
+        }
+        if (!dragActive) return
+        event.preventDefault()
+        event.stopPropagation()
+        onDrop?.(rowHalf(event))
+      }}
+    >
+      <span className={clsx(css.slot, css.sectionGlyph)}>
+        {appearance?.icon === undefined || appearance.icon === 'folder'
+          ? section.expanded ? <IconFolderOpenRegular /> : <IconFolderCloseRegular />
+          : <WorkspaceIconGlyph choice={appearance.icon} />}
+      </span>
+      <span className={clsx(css.slot, css.chevron)}>
+        <IconTriangleRightFillRegular className={clsx(css.arrow, section.expanded && css.arrowOpen)} />
+      </span>
+      <span className={css.projectText}>
+        <span className={css.title}>{section.name}</span>
+      </span>
+      <span className={css.sectionCount}>{t('section.count.other', { n: section.sessionCount })}</span>
+      <span className={css.rowActions}>
+        <Menu
+          open={menuOpen}
+          onClose={() => { setMenuOpen(false) }}
+          items={items}
+          onSelect={(id) => { setMenuOpen(false); select(id) }}
+          portal
+          closeOnPointerLeave
+          anchor={(
+            <button
+              type="button"
+              className={css.iconButton}
+              aria-label={t('section.actions.aria', { name: section.name })}
+              onClick={(e) => { e.stopPropagation(); setMenuOpen(v => !v) }}
+            >
+              <IconEllipsisOutlineRegular />
+            </button>
+          )}
+        />
+        <button
+          type="button"
+          className={css.iconButton}
+          aria-label={t('section.add')}
+          onClick={(e) => { e.stopPropagation() }}
+        >
+          <IconPlusOutlineRegular />
+        </button>
+      </span>
+      {contextMenu !== null && (
+        <Menu
+          open
+          onClose={() => { setContextMenu(null) }}
+          items={items}
+          onSelect={(id) => { setContextMenu(null); select(id) }}
+          portal
+          getAnchorRect={() => DOMRect.fromRect({ x: contextMenu.x, y: contextMenu.y })}
+          anchor={<span className={css.contextAnchor} />}
+        />
+      )}
+    </div>
+  )
+}
+
+/**
+ * The Chat row menu's browser-local data rows: appearance choices plus the
+ * section assignment when sections render. The row verbs (pin, rename, fork,
+ * archive) are slot entries rendered after these rows. Both the hover menu and
+ * the context menu are built here, so the two cannot offer different actions.
+ * @param sectionActions - section assignment verbs, absent where sections do not render.
+ * @param appearanceActions - appearance verbs, absent where the row has no appearance choice.
+ * @param t - the row's locale seat.
+ * @returns the data rows, without the selection handling its owners add.
+ */
+function sessionMenuItemsFor(
+  sectionActions: SessionSectionActions | undefined,
+  appearanceActions: SessionAppearanceActions | undefined,
+  t: RowTranslate,
+): MenuEntry[] {
+  const submenus = appearanceSubmenus(t)
+  const items: MenuItem[] = appearanceActions === undefined ? [] : [
+    { id: 'appearance.color', label: t('appearance.color'), icon: <IconEditOutlineRegular />, submenu: submenus.colors },
+    { id: 'appearance.icon', label: t('appearance.icon'), icon: <IconEditOutlineRegular />, submenu: submenus.icons },
+  ]
+  if (sectionActions !== undefined) {
+    const { sections, currentSectionId } = sectionActions
+    items.push({
+      id: 'section.move',
+      label: t('section.moveTo'),
+      icon: <IconFolderCloseRegular />,
+      submenu: sectionMenuItems(sections, currentSectionId, t),
+    })
+    if (currentSectionId !== undefined) {
+      items.push({ id: 'section.remove', label: t('section.removeFrom'), icon: <IconFolderOpenRegular /> })
+    }
+  }
+  // The hairline separates these browser-local rows from the slot entries
+  // (the row verbs) the menu renders after them.
+  return items.length === 0 ? [] : [...items, { type: 'separator', id: 'row-verbs-separator' }]
+}
+
+/**
+ * One Chat row's section state plus the operations its menus apply. A context
+ * menu outlives the render that opened it, so every verb reads only this value.
+ */
+export interface SessionSectionActions {
+  /** Every existing section in display order. */
+  sections: readonly ChatSection[]
+  /** The Chat's owning section, or undefined while it is ungrouped. */
+  currentSectionId: string | undefined
+  /** Assign the Chat to a section, or to no section. */
+  move: (sessionId: SessionNode['id'], sectionId: string | undefined) => void
+}
+
+/** One Chat row's appearance operations; undefined clears the choice. */
+export interface SessionAppearanceActions {
+  color: (color: WorkspaceColor | undefined) => void
+  icon: (icon: WorkspaceIcon | undefined) => void
+}
+
 /** Localized compact relative time ("刚刚"/"5分钟" in zh, "now"/"5min" in en). */
 function timeLabel(updatedAt: number, now: number, t: RowTranslate): string {
   const { unit, n } = relativeTime(updatedAt, now)
@@ -211,19 +547,34 @@ function rowHalf(e: { clientY: number; currentTarget: HTMLElement }): 'before' |
  * @param props.containsCurrentDescendant - highlight an ancestor even when its subtree is collapsed.
  * @param props.onToggle - expand/collapse the group.
  * @param props.onCreate - start a frontend Session inside this Workspace.
+ * @param props.actions - real-Workspace menu verbs; absent for the ungrouped bucket.
+ * @param props.appearance - the Workspace's chosen color and icon.
  * @param props.drag - optional workspace-row drag wiring.
  * @param props.home - host account home for POSIX hover-path abbreviation.
+ * @param props.newShortcut - the New Session binding shown on the create button's tooltip.
  * @param props.t - the browser root's locale seat.
  * @returns the row element.
  */
-export function ProjectRowItem({ group, containsCurrentDescendant = false, onToggle, onCreate, actions, drag, home, newShortcut, t }: {
+export function ProjectRowItem({
+  group, containsCurrentDescendant = false, onToggle, onCreate, actions, appearance, drag, home, newShortcut, t,
+}: {
   group: GroupNode
   newShortcut?: ShortcutCatalogEntry | undefined
   containsCurrentDescendant?: boolean
   onToggle: () => void
   onCreate: () => void
   /** Real-Workspace actions; absent for the ungrouped bucket (no menu shown). */
-  actions?: { rename: () => void; delete: () => void } | undefined
+  actions?: {
+    rename: () => void
+    delete: () => void
+    appearance: () => void
+    /** Apply a color straight from an inline menu row; undefined clears it. */
+    appearanceColor: (color: WorkspaceColor | undefined) => void
+    /** Apply an icon straight from an inline menu row; undefined clears it. */
+    appearanceIcon: (icon: WorkspaceIcon | undefined) => void
+  } | undefined
+  /** The Workspace's chosen color and icon; absent for the default look. */
+  appearance?: WorkspaceAppearance | undefined
   /** Present only for real Workspace rows in the grouped view. */
   drag?: WorkspaceRowDragProps | undefined
   /** Host account home; POSIX home-rooted hover paths display as `~`. */
@@ -235,17 +586,34 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
   const label = row.workspaceId === undefined ? t('group.ungrouped') : row.label
   const active = containsCurrentDescendant || (group.expanded && group.containsCurrent)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
+  // A Workspace chooses its look inline. The dialog still exists for the
+  // two-field case, but a menu row avoids the round trip entirely.
+  const submenus = useMemo(() => appearanceSubmenus(t), [t])
   const workspaceMenuItems = [
+    { id: 'appearance.color', label: t('appearance.color'), icon: <IconEditOutlineRegular />, submenu: submenus.colors },
+    { id: 'appearance.icon', label: t('appearance.icon'), icon: <IconEditOutlineRegular />, submenu: submenus.icons },
+    { id: 'appearance', label: t('appearance.customize'), icon: <IconEditOutlineRegular /> },
     { id: 'rename', label: t('rename'), icon: <IconEditOutlineRegular /> },
     { id: 'delete', label: t('delete.workspace'), icon: <IconTrashOutlineRegular />, danger: true },
   ]
   const ownRow = (
     <div
       className={clsx(css.projectRow, menuOpen && css.menuOpen)}
+      style={appearanceStyle(appearance)}
       data-row-key={`workspace:${group.key}`}
       role="treeitem"
       aria-expanded={row.expanded}
       onClick={onToggle}
+      onContextMenu={actions === undefined
+        ? undefined
+        : (e) => {
+          // The browser menu would cover the row the choice applies to.
+          e.preventDefault()
+          e.stopPropagation()
+          setMenuOpen(false)
+          setContextMenu({ x: e.clientX, y: e.clientY })
+        }}
       draggable={drag !== undefined}
       onDragStart={drag === undefined
         ? undefined
@@ -256,8 +624,10 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
         }}
       onDragEnd={drag?.end}
     >
-      <span className={clsx(css.slot, css.folder, active && css.folderActive)}>
-        {row.expanded ? <IconFolderOpenRegular /> : <IconFolderCloseRegular />}
+      <span className={clsx(css.slot, css.folder, active && appearance?.color === undefined && css.folderActive)}>
+        {appearance?.icon === undefined || appearance.icon === 'folder'
+          ? row.expanded ? <IconFolderOpenRegular /> : <IconFolderCloseRegular />
+          : <WorkspaceIconGlyph choice={appearance.icon} />}
       </span>
       <span className={clsx(css.slot, css.chevron)}>
         <IconTriangleRightFillRegular className={clsx(css.arrow, row.expanded && css.arrowOpen)} />
@@ -275,10 +645,11 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
               setMenuOpen(false)
               // Unknown ids leave before the dispatch: a future menu row must
               // not inherit the destructive branch as an else fallback.
-              /* v8 ignore next -- Menu can emit only the rename and delete rows supplied above. */
-              if (id !== 'rename' && id !== 'delete') return
-              if (id === 'rename') actions.rename()
-              else actions.delete()
+              if (id === 'appearance') actions.appearance()
+              else if (id.startsWith('appearance.color.')) actions.appearanceColor(workspaceColorOf(id))
+              else if (id.startsWith('appearance.icon.')) actions.appearanceIcon(workspaceIconOf(id))
+              else if (id === 'rename') actions.rename()
+              else if (id === 'delete') actions.delete()
             }}
             portal
             closeOnPointerLeave
@@ -306,6 +677,24 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
           </button>
         </Tooltip>
       </span>
+      {contextMenu !== null && actions !== undefined && (
+        <Menu
+          open
+          onClose={() => { setContextMenu(null) }}
+          items={workspaceMenuItems}
+          onSelect={(id) => {
+            setContextMenu(null)
+            if (id === 'appearance') actions.appearance()
+            else if (id.startsWith('appearance.color.')) actions.appearanceColor(workspaceColorOf(id))
+            else if (id.startsWith('appearance.icon.')) actions.appearanceIcon(workspaceIconOf(id))
+            else if (id === 'rename') actions.rename()
+            else if (id === 'delete') actions.delete()
+          }}
+          portal
+          getAnchorRect={() => DOMRect.fromRect({ x: contextMenu.x, y: contextMenu.y })}
+          anchor={<span className={css.contextAnchor} />}
+        />
+      )}
     </div>
   )
   // The ungrouped bucket has no backing Workspace: no card to show.
@@ -320,91 +709,11 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
         t={t}
       />}
       openDelayMs={800}
-      disabled={menuOpen}
+      disabled={menuOpen || contextMenu !== null}
       copyText={row.cwd}
       copyLabel={t('copy')}
       copiedLabel={t('hover.copied')}
     />
-  )
-}
-
-/* v8 ignore next 3 -- closed-union backstop; only reached if the status is forged */
-function assertNever(value: never): never {
-  throw new Error(`unknown pending interaction: ${String(value)}`)
-}
-
-interface SessionStatus {
-  state: StateDotState
-  label: string
-  /** Compact text that replaces the Session row's update time. */
-  trailingLabel?: string
-}
-
-/**
- * Session status presentation; pending interaction is primary and live activity
- * outranks completion reminders.
- */
-function sessionStatuses(
-  node: Pick<SessionNode, 'pendingInteraction' | 'running' | 'runningSubagentCount' | 'completed'>,
-  t: RowTranslate,
-): readonly [SessionStatus, ...SessionStatus[]] {
-  const subagents: SessionStatus | undefined = node.runningSubagentCount === 0
-    ? undefined
-    : {
-      state: 'ongoing',
-      label: t(
-        node.runningSubagentCount === 1
-          ? 'status.subagentsRunning.one'
-          : 'status.subagentsRunning.other',
-        { n: node.runningSubagentCount },
-      ),
-    }
-  let pending: SessionStatus | undefined
-  switch (node.pendingInteraction) {
-    case 'approval':
-      pending = {
-        state: 'warning',
-        label: t('status.waitingApproval'),
-        trailingLabel: t('status.compact.approval'),
-      }
-      break
-    case 'plan-review':
-      pending = {
-        state: 'warning',
-        label: t('status.planReview'),
-        trailingLabel: t('status.compact.planReview'),
-      }
-      break
-    case 'question':
-      pending = {
-        state: 'warning',
-        label: t('status.waitingAnswer'),
-        trailingLabel: t('status.compact.answer'),
-      }
-      break
-    case undefined: break
-    /* v8 ignore next -- closed PendingInteractionStatus union */
-    default: return assertNever(node.pendingInteraction)
-  }
-  if (pending !== undefined) return subagents === undefined ? [pending] : [pending, subagents]
-  if (node.running) {
-    const primary: SessionStatus = { state: 'ongoing', label: t('status.running') }
-    return subagents === undefined ? [primary] : [primary, subagents]
-  }
-  if (subagents !== undefined) return [subagents]
-  if (node.completed) return [{ state: 'done', label: t('status.completed') }]
-  return [{ state: 'idle', label: t('status.idle') }]
-}
-
-/** Primary status dot plus every status's screen-reader label, shared by the search and session rows. */
-function SessionStatusDots({ statuses }: { statuses: readonly [SessionStatus, ...SessionStatus[]] }) {
-  return (
-    <>
-      <StateDot state={statuses[0].state} />
-      {statuses.map(status => (
-        <span className={css.visuallyHidden} key={status.label}>{status.label}</span>
-      ))}
-    </>
   )
 }
 
@@ -538,11 +847,15 @@ export function SearchResultItem({ result, currentId, onOpen, onUnarchive, t }: 
  * its leading decoration, and its hover-card section.
  * @param props.onReveal - scroll this row into view after search navigation, then acknowledge it.
  * @param props.drag - optional row-drag target wiring; blank rows cannot start a drag.
+ * @param props.appearance - the owning Workspace's appearance merged with the row's own choice.
+ * @param props.appearanceActions - appearance verbs offered in the row menus.
+ * @param props.sectionActions - section assignment verbs, present only where sections render.
  * @param props.t - the browser root's locale seat.
  * @returns the session row.
  */
 export function SessionNodeItem({
-  node, currentId, now, onOpen, onRenameRequest, renderSlot, onReveal, drag, t,
+  node, currentId, now, onOpen, onRenameRequest, renderSlot, onReveal, drag, appearance,
+  appearanceActions, sectionActions, t,
 }: {
   node: SessionNode
   currentId: string | undefined
@@ -554,6 +867,18 @@ export function SessionNodeItem({
   onReveal?: (() => void) | undefined
   /** Present on reorderable-list rows so every row can remain a drop target. */
   drag?: RowDragProps | undefined
+  /**
+   * The owning Workspace's appearance. Its icon leads the session title so a
+   * session stays identified with the Workspace it belongs to, and its color
+   * rides on that same glyph.
+   */
+  appearance?: WorkspaceAppearance | undefined
+  appearanceActions?: SessionAppearanceActions | undefined
+  /**
+   * Section assignment for this row. Absent wherever sections do not render,
+   * which leaves the row's menus without the section rows.
+   */
+  sectionActions?: SessionSectionActions | undefined
   t: RowTranslate
 } & PropsRenderSlots<
   | 'sidebar.workspaces.session.menu.item'
@@ -567,6 +892,16 @@ export function SessionNodeItem({
   const statuses = sessionStatuses(node, t)
   const primaryStatus = statuses[0]
   const showStatus = primaryStatus.state !== 'idle'
+  // Live work reads as text beside the title; states with a compact trailing
+  // label already say so in the time cell.
+  const showStatusLabel = !row.blank && !row.archived && primaryStatus.trailingLabel === undefined
+    && (row.running || row.runningSubagentCount > 0)
+  // The folder choice is the default look and gets no session-level mark; any
+  // other choice leads the title so the row reads as part of that Workspace.
+  const iconChoice = appearance?.icon
+  const sessionGlyph = iconChoice === undefined || iconChoice === 'folder'
+    ? undefined
+    : <WorkspaceIconGlyph choice={iconChoice} />
   // Archived rows hold their in-place grayed slot, so manual reorder cannot
   // move them. Pinned rows drag within the pinned block: the browser gates
   // their drop targets to fellow pinned rows.
@@ -574,6 +909,13 @@ export function SessionNodeItem({
   const [menuOpen, setMenuOpen] = useState(false)
   // The menu's open state, bound into the row entries' `useMenuOpenState` hook.
   const menuOpenState = useMemo((): MenuOpenState => [menuOpen, setMenuOpen], [menuOpen])
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
+  // The pointer-anchored copy of the same menu binds its own open state, so an
+  // entry's `setOpen(false)` dismisses whichever menu it sits in.
+  const contextMenuOpenState = useMemo((): MenuOpenState => [
+    contextMenu !== null,
+    (open) => { if (!open) setContextMenu(null) },
+  ], [contextMenu])
   const rowRef = useRef<HTMLDivElement>(null)
   const titleRef = useRef<HTMLSpanElement>(null)
   const marquee = useTitleMarquee(titleRef)
@@ -582,6 +924,20 @@ export function SessionNodeItem({
     rowRef.current?.scrollIntoView({ block: 'nearest' })
     onReveal()
   }, [onReveal])
+  const sessionMenuItems = sessionMenuItemsFor(sectionActions, appearanceActions, t)
+  /**
+   * Apply one data-row selection. The hover menu and the context menu share
+   * this, so they cannot diverge; the slot entries act on their own.
+   * @param id - the selected row id.
+   */
+  const selectMenuRow = (id: string): void => {
+    if (id.startsWith('appearance.color.')) { appearanceActions?.color(workspaceColorOf(id)); return }
+    if (id.startsWith('appearance.icon.')) { appearanceActions?.icon(workspaceIconOf(id)); return }
+    if (id === 'section.remove') { sectionActions?.move(node.id, undefined); return }
+    const choice = sectionChoiceOf(id)
+    if (choice === undefined) return
+    sectionActions?.move(node.id, choice ?? undefined)
+  }
   // Figma session cell: pad 8, status slot 16, then a 4px title gap.
   const ownRow = (
     <div
@@ -592,10 +948,21 @@ export function SessionNodeItem({
         row.archived && css.archived,
         drag?.marker === 'before' && css.dropBefore, drag?.marker === 'after' && css.dropAfter,
       )}
+      style={appearanceStyle(appearance)}
       role="treeitem"
       aria-selected={selected}
       aria-description={row.archived ? t('toast.archivedNotOpenable') : undefined}
       onClick={() => { onOpen(node.id) }}
+      onContextMenu={row.blank
+        ? undefined
+        : (e) => {
+          // A provisional New Session row has no content for the row verbs to
+          // act on, so it keeps the browser menu like it keeps its verbs.
+          e.preventDefault()
+          e.stopPropagation()
+          setMenuOpen(false)
+          setContextMenu({ x: e.clientX, y: e.clientY })
+        }}
       onPointerEnter={marquee.enter}
       onPointerLeave={marquee.leave}
       draggable={draggable}
@@ -630,9 +997,14 @@ export function SessionNodeItem({
           status stays on the hover card only. */}
       <span className={css.slot}>
         {!row.archived && !row.blank && (showStatus
-          ? <SessionStatusDots statuses={statuses} />
+          ? <SessionStatusDots statuses={statuses} visiblePrimary={showStatusLabel} />
           : renderSlot('sidebar.session.row.leading', { sessionId: node.id }))}
       </span>
+      {sessionGlyph !== undefined && (
+        <span className={clsx(css.slot, css.sessionGlyph)} style={appearanceStyle(appearance)}>
+          {sessionGlyph}
+        </span>
+      )}
       <span
         ref={titleRef}
         className={css.title}
@@ -642,6 +1014,7 @@ export function SessionNodeItem({
       >
         {title}
       </span>
+      {showStatusLabel && <span className={css.statusLabel}>{primaryStatus.label}</span>}
       {/* A blank New Session row is a provisional placeholder: nothing has
           happened in it yet, so a "now" timestamp and the row verbs
           (rename/fork/archive) would all act on content that does not
@@ -665,6 +1038,11 @@ export function SessionNodeItem({
           <Menu
             open={menuOpen}
             onClose={() => { setMenuOpen(false) }}
+            items={sessionMenuItems}
+            onSelect={(id) => {
+              setMenuOpen(false)
+              selectMenuRow(id)
+            }}
             portal
             closeOnPointerLeave
             anchor={(
@@ -687,6 +1065,26 @@ export function SessionNodeItem({
           {renderSlot('sidebar.workspaces.session.row.action', { sessionId: node.id, displayTitle: row.title })}
         </span>
       )}
+      {contextMenu !== null && !row.blank && (
+        <Menu
+          open
+          onClose={() => { setContextMenu(null) }}
+          items={sessionMenuItems}
+          onSelect={(id) => {
+            setContextMenu(null)
+            selectMenuRow(id)
+          }}
+          portal
+          getAnchorRect={() => DOMRect.fromRect({ x: contextMenu.x, y: contextMenu.y })}
+          anchor={<span className={css.contextAnchor} />}
+        >
+          {renderSlot(
+            'sidebar.workspaces.session.menu.item',
+            { sessionId: node.id, displayTitle: row.title },
+            { hookContext: contextMenuOpenState },
+          )}
+        </Menu>
+      )}
     </div>
   )
   return (
@@ -694,7 +1092,7 @@ export function SessionNodeItem({
       anchor={ownRow}
       content={<SessionHoverContent node={node} now={now} renderSlot={renderSlot} t={t} />}
       openDelayMs={800}
-      disabled={menuOpen || drag?.active === true}
+      disabled={menuOpen || contextMenu !== null || drag?.active === true}
       copyText={row.blank ? undefined : row.title}
       copyLabel={t('copy')}
       copiedLabel={t('hover.copied')}

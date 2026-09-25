@@ -24,8 +24,8 @@
   en: 4cb73d7a57908948
   zh: 7ba2ddc4c76e4957
 /deepseek-ai-dsh-compaction-basic/use-this-package/tuning-when-condensation-starts:
-  en: 3446c54c062d7e34
-  zh: fb502c941e508ae0
+  en: 1dd7e66c8cab7687
+  zh: d4df0f8b14bcb05f
 /deepseek-ai-dsh-compaction-basic/use-this-package/what-happens-when-condensation-runs:
   en: c872a8ef069596f0
   zh: b3a48e309ae830d4
@@ -33,8 +33,8 @@
   en: 4c5067e4c57ca708
   zh: 1c0e70319b9b2112
 /deepseek-ai-dsh-compaction-basic/use-this-package/trimming-oversized-tool-outputs:
-  en: 1d6a74c0dc874dc8
-  zh: bcfa95549308c030
+  en: 8b0d656658e217b9
+  zh: d9ced670af0867bb
 /deepseek-ai-dsh-compaction-basic/understand-the-implementation:
   en: deb655b3b1860576
   zh: 79f56e41a9dfe01f
@@ -42,8 +42,8 @@
   en: 54945a18965f12a8
   zh: fecd5d4fc2f2e6d6
 /deepseek-ai-dsh-compaction-basic/understand-the-implementation/automatic-triggers-and-overflow-recovery:
-  en: d62d65547dd0b2dc
-  zh: 5c21671f16d94f5a
+  en: 5ecb58fa9fb8b626
+  zh: 12622ec2ab846531
 /deepseek-ai-dsh-compaction-basic/understand-the-implementation/summarization-mechanics:
   en: 967531b71453eb88
   zh: c7919b46e36763e6
@@ -66,8 +66,8 @@
   en: 2e1148dd0f39a281
   zh: cd68c9fff63534af
 /deepseek-ai-dsh-compaction-basic/model-experience/conversation-history/what-the-model-sees:
-  en: 8d4325e6659bc314
-  zh: f80e69305b39f4a3
+  en: 314de5c32a172405
+  zh: dff4ef4be8cbe32c
 /deepseek-ai-dsh-compaction-basic/model-experience/conversation-history/what-the-model-sees/conversation-checkpoint-preamble:
   en: 129d1eaba2519330
   zh: 3ec517bdc6cb5ae3

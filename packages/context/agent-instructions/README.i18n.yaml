@@ -9,8 +9,8 @@
   en: e88163f21938a7e6
   zh: 17acc4af39bd7df0
 /deepseek-ai-dsh-agent-instructions/summary:
-  en: 9d849b3c7bc5e3b7
-  zh: aee26ccc12e73fe3
+  en: 308e8a227339a2d8
+  zh: d90717f4134991b0
 /deepseek-ai-dsh-agent-instructions/table-of-contents:
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
@@ -18,11 +18,11 @@
   en: d8c9258bcc5c9b32
   zh: 1bbeb9c58828d83c
 /deepseek-ai-dsh-agent-instructions/use-this-package/what-the-agent-gets:
-  en: 68f776f145a0dec4
-  zh: e63e9140aa305936
+  en: 41584c66945296db
+  zh: f4862720f8e4210b
 /deepseek-ai-dsh-agent-instructions/use-this-package/configuration:
-  en: 14b4bcce25065881
-  zh: 8cd77151b711808b
+  en: 277c185bae658421
+  zh: cf0c9967e1c645e6
 /deepseek-ai-dsh-agent-instructions/use-this-package/observing-the-budget:
   en: 9797082b1e69b72c
   zh: d26c00b1b90fe4ea
@@ -33,14 +33,14 @@
   en: 4708b51bf8fe86f7
   zh: 869fc4b1f78383ee
 /deepseek-ai-dsh-agent-instructions/understand-the-implementation/source-map:
-  en: 737fdf08415bc08d
-  zh: 625d53b1418ab6bb
+  en: bffe8e758d36d683
+  zh: cf0c397738b02537
 /deepseek-ai-dsh-agent-instructions/understand-the-implementation/main-flow:
   en: d881b9055f823929
   zh: 87b25f0bf8e204e9
 /deepseek-ai-dsh-agent-instructions/understand-the-implementation/invariants:
-  en: 7f6e9b5356da91fd
-  zh: 7b99f255d23d982e
+  en: 272c16d903fe768c
+  zh: 1e565dc13affa3a5
 /deepseek-ai-dsh-agent-instructions/further-exploration:
   en: b3e57c263575fa5f
   zh: b67efbda908ac82c
@@ -51,14 +51,14 @@
   en: 41690f63ce8a7e6a
   zh: 6cff922d5afef38f
 /deepseek-ai-dsh-agent-instructions/model-experience/baseline-context/what-the-model-sees:
-  en: 41ad1efcf640edf2
-  zh: 3d06e265788fc2b7
+  en: ec0e44e5407c936b
+  zh: dd0278067cba7fb9
 /deepseek-ai-dsh-agent-instructions/model-experience/baseline-context/what-the-model-sees/baseline-instruction-template:
   en: 0ced1c177da6d120
   zh: 6c61efb987e227fe
 /deepseek-ai-dsh-agent-instructions/model-experience/baseline-context/token-effect:
-  en: e7c0cc34065a1113
-  zh: a973ba9fac7a918d
+  en: 6d2a84641d45b8ca
+  zh: 00345cccbf7c81ab
 /deepseek-ai-dsh-agent-instructions/model-experience/baseline-context/kv-cache-effect:
   en: c611902b9f369d86
   zh: d7da1dbe6c1ac7f1

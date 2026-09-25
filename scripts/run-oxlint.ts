@@ -31,7 +31,7 @@ export interface OxlintInvocation {
  * @returns the complete CLI arguments and child environment.
  */
 export function resolveOxlintInvocation(args: readonly string[], env: NodeJS.ProcessEnv): OxlintInvocation {
-  const resolvedArgs = [...args]
+  const resolvedArgs = ['--ignore-pattern=git/**', ...args]
   if (env.CI === 'true' && !hasOutputFormat(args)) resolvedArgs.push('--format=default')
   const raw = env.DSH_OXLINT_THREADS
   if (raw === undefined || raw === '') return { args: resolvedArgs, env: { ...env } }

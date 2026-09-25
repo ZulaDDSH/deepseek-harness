@@ -19,6 +19,10 @@ export type AgentPresetSettingsKey =
   | 'presetPtcDescription'
   | 'presetMinimalName'
   | 'presetMinimalDescription'
+  | 'presetEconomyName'
+  | 'presetEconomyDescription'
+  | 'presetLeanName'
+  | 'presetLeanDescription'
   | 'presetCordisName'
   | 'presetCordisDescription'
   | 'inUse'
@@ -52,6 +56,12 @@ export const en: Record<AgentPresetSettingsKey, string> = {
   presetMinimalName: 'Minimal mode',
   presetMinimalDescription:
     'The agent works using only a terminal tool. Useful for testing and comparing its basic performance.',
+  presetEconomyName: 'Economy mode',
+  presetEconomyDescription:
+    'Uses PTC to combine multi-step tool calls, and trims large tool output and compacts history earlier to reduce token use in long sessions.',
+  presetLeanName: 'Lean mode',
+  presetLeanDescription:
+    'Read, inspect, and write files and run commands, with a 200k-token context cap.',
   presetCordisName: 'Creator mode',
   presetCordisDescription:
     'Customize DSH through conversation. Let the agent write plugins that add features or UI, or combine tools and prompts to create your own mode.',
@@ -90,6 +100,10 @@ export const zh: Record<AgentPresetSettingsKey, string> = {
   presetPtcDescription: '包含标准模式的所有能力，更适合批量调用工具，并对结果进行筛选、整理、去重、统计或汇总的任务。',
   presetMinimalName: '极简模式',
   presetMinimalDescription: 'Agent 仅使用终端工具完成任务，适合测试和对比其基础表现。',
+  presetEconomyName: '节省模式',
+  presetEconomyDescription: '使用 PTC 合并多步工具调用，并更早裁剪大型工具输出和压缩历史，以降低长会话的 token 消耗。',
+  presetLeanName: '精简模式',
+  presetLeanDescription: '读取、检索、写入文件并运行命令，上下文上限为 20 万 tokens。',
   presetCordisName: '创造模式',
   presetCordisDescription: '用对话定制 DSH：让 Agent 编写插件，添加新功能或界面；也能组合工具和提示词，创建自己的模式。',
 

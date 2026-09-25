@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-compaction-tool-result-pruner` 防止超大工具输出填满上下文窗口。压缩触发条件满足后，它会把超出预算的文本替换为长度受限的头部、简短的「middle pruned」标记与长度受限的尾部；未达到压力阈值的对话保持不变。完整原始结果仍保留在会话日志中，可供精确回放与检查。修剪不发起模型调用，并可能充分缓解 token 压力，使压缩跳过摘要。字符预算只能近似 token 用量；token meter 负责判定压力是否得到缓解。
+`dsh-compaction-tool-result-pruner` 防止超大工具输出填满上下文窗口。默认情况下，压缩触发条件满足后，它会把超出预算的文本替换为长度受限的头部、「middle pruned」标记与长度受限的尾部。调用方也可以把一次修剪限制为其后已有后续 assistant 响应的结果；`dsh-compaction-basic` 在主动修剪时使用这种形式，因此模型尚未消费的工具输出保持完整。完整原始结果仍保留在会话日志中，可供精确回放与检查。修剪不发起模型调用，并可能充分缓解压力，使压缩跳过摘要。字符预算只能近似 token 用量；token meter 负责判定压力是否得到缓解。
 
 ## 目录
 
@@ -57,7 +57,7 @@ kind: "package-reference"
 
 ### 修剪何时运行
 
-修剪只在压缩触发条件满足后运行：`dsh-compaction-basic` 在压力或溢出确认后、选择要压缩的内容之前调用它。低于压力时不会修剪任何内容，修剪本身也不发起模型调用。
+默认情况下，`dsh-compaction-basic` 会在压力或溢出确认后、选择要压缩的内容之前调用修剪。该后端启用 `proactiveToolResultPruning` 时，自动 pre-step 检查会先运行已消费历史修剪：只有当前 surface 中某个工具结果之后存在后续 assistant 响应，从而证明后续模型请求已消费该结果时，它才符合条件。没有后续 assistant 响应的结果保持原样。修剪本身不发起模型调用。
 
 -----
 
@@ -87,7 +87,7 @@ kind: "package-reference"
 |---|---|
 | [`src/index.ts`](src/index.ts) | 插件入口：`ToolResultPruner` 服务、`pruneSession` / `pruneContent` / `measureContent` |
 | [`src/config.ts`](src/config.ts) | `PRUNE_MARKER`、默认值、码点计数、预算验证 |
-| [`src/types.ts`](src/types.ts) | `ToolResultPruneConfig`、`ResolvedConfig`、`PrunedEntry`、`PruneResult` |
+| [`src/types.ts`](src/types.ts) | `ToolResultPruneConfig`、`ResolvedConfig`、`PruneSessionOptions`、`PrunedEntry`、`PruneResult` |
 | — | 不发布运行时不变式伴生入口；Session 会验证每次仅改写内容的操作，其伴生条目负责维护跨事件包围关系。 |
 
 </details>
@@ -114,7 +114,7 @@ kind: "package-reference"
 
 #### 模型看到的内容
 
-一旦满足压缩触发条件，后续请求看到的将是保留的头部、`\n\n[... tool result middle pruned ...]\n\n` 和保留的尾部，而非被移除的文本。富内容块保持原有顺序。模型不会看到原文的第二份副本。
+修剪器运行后，后续请求看到的将是保留的头部、`\n\n[... tool result middle pruned ...]\n\n` 和保留的尾部，而非被移除的文本。富内容块保持原有顺序。模型不会看到原文的第二份副本。
 
 #### Token 影响
 

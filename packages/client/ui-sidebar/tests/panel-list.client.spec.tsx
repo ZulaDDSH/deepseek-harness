@@ -66,7 +66,7 @@ async function bench(collapsed = false) {
     const activePanelId = usePanelInfo(info => info.activePanelId)
     return (
       <>
-        <aside>{renderSlot('sidebar', { collapsed, width: collapsed ? 56 : 300 })}</aside>
+        <aside>{renderSlot('sidebar', { collapsed, focusMode: false, toggleFocus: vi.fn(), width: collapsed ? 56 : 300 })}</aside>
         <main>{renderSlot('main', {}, { entryKey: activePanelId ?? 'conversation' })}</main>
       </>
     )

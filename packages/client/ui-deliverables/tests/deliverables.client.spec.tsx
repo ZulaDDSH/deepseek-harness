@@ -751,11 +751,13 @@ describe('plugin registration', () => {
         'conversation.chat.turnTail': { kind: 'list', scope: 'session' },
         'tool.call.toolview': { kind: 'keyed', scope: 'session' },
         'sidebar.right.pane.tab': { kind: 'keyed', scope: 'session' },
+        'main': { kind: 'keyed', scope: 'root' },
+        'sidebar.panellist': { kind: 'list', scope: 'root' },
       },
     } as never, () => null)
-    const registerTab = vi.fn(() => () => { registered = undefined })
-    let registered: unknown
-    ctx.provide('sidebarRightTabs', { register: (definition: unknown) => { registered = definition; return registerTab() } } as never)
+    const registerTab = vi.fn(() => () => { registered.length = 0 })
+    const registered: unknown[] = []
+    ctx.provide('sidebarRightTabs', { register: (definition: unknown) => { registered.push(definition); return registerTab() } } as never)
     const openResource = vi.fn()
     ctx.provide('sidebarRight', { openResource } as never)
     // ui-theme's Appearance row binds a durable scope through these two.
@@ -776,8 +778,11 @@ describe('plugin registration', () => {
     const [entry] = ctx.slots.entries('conversation.chat.turnTail')
     expect(entry).toBeDefined()
     expect(ctx.slots.entries('tool.call.toolview')).toHaveLength(1)
+    expect(ctx.slots.entries('main')).toHaveLength(1)
+    expect(ctx.slots.entries('sidebar.panellist')).toHaveLength(1)
     expect(entry?.inject).toBeDefined()
-    expect(registered).toMatchObject({ kind: 'changes-review', patterns: ['dsh-resource://changes-review/**'] })
+    expect(registered).toContainEqual(expect.objectContaining({ kind: 'changes-review', patterns: ['dsh-resource://changes-review/**'] }))
+    expect(registered).toContainEqual(expect.objectContaining({ kind: 'workspace-changes' }))
     const [tabEntry] = ctx.slots.entries('sidebar.right.pane.tab')
     expect(tabEntry?.options.key).toBe('@deepseek-ai/dsh-client-ui-deliverables')
 
@@ -825,7 +830,8 @@ describe('plugin registration', () => {
     expect(face.hooks.presentedOpen.getSnapshot()['api/changes.open?sessionId=child-session&seq=5&index=0']).toBe('opened')
     face.openChangesReview({ sessionId: SessionId('child-session'), seq: 5, turn: 3 }, 1)
     expect(openResource).toHaveBeenCalledWith('dsh-resource://changes-review/session/child-session/5/3', { params: { index: 1 } })
-    expect((registered as { title(address: string): string }).title('dsh-resource://changes-review/session/child-session/5/3')).toBe('Review · turn 3')
+    const reviewType = registered.find(definition => (definition as { kind: string }).kind === 'changes-review') as { title(address: string): string }
+    expect(reviewType.title('dsh-resource://changes-review/session/child-session/5/3')).toBe('Review · turn 3')
     const tabFace = tabEntry!.inject!(SessionId('child-session') as never) as unknown as ReviewInjected
     fetcher.mockResolvedValueOnce(Response.json({ turn: 3, files: [], total: 0, added: 0, deleted: 0 }))
     await tabFace.loadChangesSummary(SessionId('child-session'), 6)
@@ -859,8 +865,10 @@ describe('plugin registration', () => {
     unsubscribe()
     expect(ctx.slots.entries('conversation.chat.turnTail')).toHaveLength(0)
     expect(ctx.slots.entries('tool.call.toolview')).toHaveLength(0)
+    expect(ctx.slots.entries('main')).toHaveLength(0)
+    expect(ctx.slots.entries('sidebar.panellist')).toHaveLength(0)
     expect(ctx.slots.entries('sidebar.right.pane.tab')).toHaveLength(0)
-    expect(registered).toBeUndefined()
+    expect(registered).toEqual([])
     // Fiber teardown retracts the service: the consumer's ctx.get sees the off state.
     expect((ctx as { get(name: string): unknown }).get('chatFileMentions')).toBeUndefined()
   })

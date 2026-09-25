@@ -18,7 +18,7 @@ const modelSelectionSchema = z.object({
 
 const modelSelectionProjectionStateSchema = z.object({
   lastUsed: modelSelectionSchema.nullable(),
-  pending: modelSelectionSchema.nullable(),
+  selected: modelSelectionSchema.nullable(),
 }) as z.ZodType<ModelSelectionProjectionState>
 
 const modelSelectionProjectionSchema = z.object({
@@ -37,11 +37,13 @@ function applyModelSelectionProjection(
   event: SessionEvent,
 ): ModelSelectionProjectionState {
   if (event.type === 'model/selection') {
-    return sameSelection(state.pending, event.data)
+    return sameSelection(state.selected, event.data)
       ? state
-      : { lastUsed: state.lastUsed, pending: event.data }
+      : { lastUsed: state.lastUsed, selected: event.data }
   }
   if (event.type !== 'request/header') return state
+  // A request records what ran without touching the user's choice: a router or
+  // a fallback that ran something else must not rebind the Session's model.
   const lastUsed: ModelSelection = {
     provider: event.data.header.config.provider,
     model: event.data.header.config.model,
@@ -49,22 +51,19 @@ function applyModelSelectionProjection(
       ? {}
       : { reasoningEffort: String(event.data.header.config.reasoningEffort) }),
   }
-  const pending = sameSelection(state.pending, lastUsed) ? null : state.pending
-  return sameSelection(state.lastUsed, lastUsed) && pending === state.pending
-    ? state
-    : { lastUsed, pending }
+  return sameSelection(state.lastUsed, lastUsed) ? state : { lastUsed, selected: state.selected }
 }
 
 const modelSelectionProjection = {
   key: 'modelSelection',
   stateSchema: modelSelectionProjectionStateSchema,
-  init: () => ({ lastUsed: null, pending: null }),
+  init: () => ({ lastUsed: null, selected: null }),
   apply: applyModelSelectionProjection,
   wire: {
     viewSchema: modelSelectionProjectionSchema,
-    view: state => ({ lastUsed: state.lastUsed, next: state.pending ?? state.lastUsed }),
+    view: state => ({ lastUsed: state.lastUsed, next: state.selected ?? state.lastUsed }),
   },
-  stateVersion: 2,
+  stateVersion: 3,
 } satisfies ProjectionDefinition<'modelSelection', ModelSelectionProjectionState>
 
 function sameSelection(left: ModelSelection | null, right: ModelSelection | null): boolean {

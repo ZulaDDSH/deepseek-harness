@@ -98,13 +98,21 @@ type ManualCompactionErrorCode =
 
 `changed` 和 `summary` 闭合失败尝试并将其持久化到日志，不写入摘要替换；恢复过程中记录的图片省略仍然有效。`commit` 可能发生在部分变更之后；`persistence` 表示内存中的标记对已闭合，但 flush 失败。取消独立于这些失败，并在完成必要清理后抛出原始 abort 原因。
 
-压力压缩在 `agent/pre-step` waterfall（瀑布式事件）中运行，先于请求推导。一旦压力或规范化溢出满足条件，compaction-basic 会在选择范围前调用可选的 [`ctx.toolResultPruner`](../../packages/compaction/compaction-tool-result-pruner/README.zh.md)，再通过 `ctx.tokenMeter` 重新测量，并且可以在不生成摘要的情况下推进 surface。失败请求的恢复在失败的步骤关闭后通过 `agent/request-error` 运行；仅当 surface replacement generation 前进时才返回重试动作，即便后续摘要工作在剪枝后抛异常亦如此；取消仍然优先。区域边界保持工具调用/结果配对，但不保持整个轮次，因此一个过大轮次中较早关闭的步骤可以被压缩。`dsh-compaction-basic` 拥有阈值、保留尾部策略、溢出上限与失败处理。
+压力压缩在 `agent/pre-step` waterfall（瀑布式事件）中运行，先于请求推导。启用主动工具结果修剪时，该 pre-step 只修剪当前 surface 中其后已经存在后续 assistant 响应的超大结果；这证明后续模型请求已消费该结果，而尚未被后续请求消费的工具输出保持原样。默认情况下则保持缓存优先行为，不在阈值前改写历史。一旦压力或规范化溢出满足条件，compaction-basic 仍会在选择范围前调用可选的 [`ctx.toolResultPruner`](../../packages/compaction/compaction-tool-result-pruner/README.zh.md)，再通过 `ctx.tokenMeter` 重新测量，并且可以在不生成摘要的情况下推进 surface。失败请求的恢复在失败的步骤关闭后通过 `agent/request-error` 运行；仅当 surface replacement generation 前进时才返回重试动作，即便后续摘要工作在剪枝后抛异常亦如此；取消仍然优先。区域边界保持工具调用/结果配对，但不保持整个轮次，因此一个过大轮次中较早关闭的步骤可以被压缩。`dsh-compaction-basic` 拥有阈值、保留尾部策略、溢出上限与失败处理。
 
 该 Service Definition 导出 `toolPairingBalancedBefore(session, seq)` 与 `toolPairingBalancedAfter(session, seq)`，用于检查 seq 之前与之后的工具调用/结果配对。两者都会验证当前 surface 成员关系，并拒绝缺失的 seq 与遗留结果；[包约定](../../packages/compaction/compaction/README.zh.md#tool-pairing-boundaries)定义其缓存行为。
 
 ## 工具结果剪枝产出
 
 可选的工具结果剪枝服务会报告每次持久内容替换以及 Unicode code point 的总减少量。其公开结果类型位于 [`compaction-tool-result-pruner/src/types.ts`](../../packages/compaction/compaction-tool-result-pruner/src/types.ts)。
+
+```ts type-equiv
+/** Optional eligibility policy for one pruning pass. */
+interface PruneSessionOptions {
+  /** Prune only results followed by a later assistant message on the current surface. */
+  readonly previouslyConsumed?: boolean
+}
+```
 
 ```ts type-equiv
 /** Cited source event and size accounting for one landed surface replacement. */
@@ -240,11 +248,12 @@ pruneContent(blocks: readonly ContentBlock[]): ContentBlock[] | null
  * shadowed node through the injected token meter, so pure consumers can
  * subtract it without per-node state.
  * @param session - session whose current surface is rewritten.
+ * @param options - optional eligibility policy limiting historical results.
  * @returns landed replacements and aggregate Unicode-code-point savings.
  * @throws when the session rejects a replacement; replacements committed
  * earlier in the pass remain durable.
  */
-pruneSession(session: Session): PruneResult
+pruneSession(session: Session, options: PruneSessionOptions = {}): PruneResult
 ```
 
 Types: [ContentBlock](llm-streaming.zh.md) · [Session](session.zh.md)

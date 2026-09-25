@@ -107,13 +107,13 @@ class FakeFs extends FileSystem {
   }
 }
 
-async function setup() {
+async function setup(config: ToolFs.Config = {}) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(FakeFs)
   await ctx.plugin(FsPolicy)
-  await ctx.plugin(ToolFs)
+  await ctx.plugin(ToolFs, config)
   const fs = ctx.fs as FakeFs
   return { ctx, fs }
 }
@@ -162,6 +162,11 @@ describe('registration', () => {
   it('registers read, write, and edit', async () => {
     const { ctx } = await setup()
     expect(ctx.tools.schemas().map(s => s.name).sort()).toEqual(['edit', 'read', 'write'])
+  })
+
+  it('registers only the configured filesystem tools', async () => {
+    const { ctx } = await setup({ enabledTools: ['read', 'write'] })
+    expect(ctx.tools.schemas().map(s => s.name).sort()).toEqual(['read', 'write'])
   })
 
   it('declares read parallel-safe while write/edit remain exclusive', async () => {
