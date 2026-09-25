@@ -1,6 +1,13 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for client-render-notes.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/code-notes/client-render-notes.md
-client-render-notes.md: db077e9ffb7798be2978c904c2f496c04b8da67e
-client-render-notes.zh.md: c43058cf8eedb7e38c72d7b0311ca161425bb1c3
+/client-code-notes:
+  en: c845268b19c5513e
+  zh: 4f51def07031c6d3
+/client-code-notes/root-scope-slot-entries-memoize-their-inject-result:
+  en: c234d102b0e59728
+  zh: 571a4edaefb6b6c6
+/client-code-notes/related:
+  en: d6d53a072f7b7fa3
+  zh: 347542abea28e452

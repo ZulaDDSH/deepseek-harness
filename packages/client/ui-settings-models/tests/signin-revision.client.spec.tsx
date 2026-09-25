@@ -71,6 +71,7 @@ async function bench(): Promise<{
       schema: JSON.parse(JSON.stringify(PiAiConfig.toJSON())) as never,
       value: { providers: { 'openai-codex': { apiKeyEnv: 'OPENAI_API_KEY' } } },
       applies: 'live',
+      autoGenerate: false,
       secrets: [],
       revision: 0,
     }],
@@ -91,6 +92,9 @@ async function bench(): Promise<{
       describe: () => Promise.resolve({ ok: true as const, value: {} }),
       set: () => Promise.resolve({ ok: true as const, value: undefined }),
       unset: () => Promise.resolve({ ok: true as const, value: undefined }),
+    },
+    session: {
+      modelCatalog: () => Promise.resolve(ok({ groups: [] })),
     },
     llm: {
       listProviders: () => Promise.resolve(ok([{ id: 'openai-codex', name: 'openai-codex' }])),

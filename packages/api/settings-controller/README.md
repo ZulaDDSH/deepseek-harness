@@ -29,7 +29,7 @@ Mount this package as a Loader entry in a profile that serves browser configurat
 
 `settings.describe()` returns deployment facts and every namespace under `redactSecrets: true`. `settings.update`, `settings.replace`, and `settings.mutate` expose the settings service's three write operations and return the namespace's new redacted view; stale writes use `settings-conflict` and other provider refusals use `settings-rejected`.
 
-`settings.openSettingsDocument()` prepares the provider-owned document and opens it with the native text-editor intent. `settings.canOpenAgentPresetDirectory()` reports native-opening availability when the preset page becomes visible. `settings.openAgentPresetDirectory(id)` resolves only a user-authored preset and either opens its directory or returns the path when native opening is unavailable; neither open method accepts a browser-supplied filesystem target.
+`settings.openSettingsDocument()` prepares the provider-owned document and opens it with the native text editor; it accepts no browser-supplied filesystem target.
 
 `authorization.list()` answers every flow the mounted registry offers, each joined with whether a credential is already stored for its key, so a surface can label a signed-in provider without a second call. `authorization.begin(key, method, signal)` is a stream: its first item names an unguessable per-attempt capability, every later item is a notice from the flow, and the last names how the attempt ended. `authorization.answer(attempt, prompt, value)` answers a question and `authorization.cancel(attempt)` withdraws the attempt, both addressed by that capability.
 
@@ -42,7 +42,6 @@ A notice can carry an authorization URL, a device code, or a question, so it is 
 
 | Field | Default | Meaning |
 |---|---|---|
-| `nativeOpen` | platform-detected | Whether Agent preset directories can be handed to a native desktop opener |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-api-settings-controller) is the exhaustive source for accepted fields and their JSDoc.
 
