@@ -101,8 +101,7 @@ export function SignInCard(props: SignInCardProps): ReactNode {
     }
   }, [])
 
-  const start = useCallback(async (method: string) => {
-    if (entry === null) return
+  const start = useCallback(async (authorizedEntry: AuthorizationEntryView, method: string) => {
     const controller = new AbortController()
     abortRef.current = controller
     setQuestion(null)
@@ -110,7 +109,7 @@ export function SignInCard(props: SignInCardProps): ReactNode {
     setDraft('')
     cancelRequestedRef.current = false
     setPhase({ status: 'running', attempt: '', notices: [] })
-    const outcome = await operations.begin(entry.key, method, (item) => {
+    const outcome = await operations.begin(authorizedEntry.key, method, (item) => {
       if (!mountedRef.current) return
       if (item.type === 'start') {
         setPhase(current => current.status === 'running' ? { ...current, attempt: item.attempt } : current)
@@ -150,7 +149,7 @@ export function SignInCard(props: SignInCardProps): ReactNode {
       return
     }
     setPhase(outcome.kind === 'cancelled' ? { status: 'cancelled' } : { status: 'failed', message: outcome.message })
-  }, [entry, operations, onSignedIn, reloadEntry])
+  }, [operations, onSignedIn, reloadEntry])
 
   /**
    * Withdraw the Host attempt. A withdrawal pressed before the start item
@@ -167,9 +166,7 @@ export function SignInCard(props: SignInCardProps): ReactNode {
     await operations.cancel(attempt)
   }, [operations])
 
-  const answer = useCallback(async (value: string) => {
-    if (question === null) return
-    const answered = question
+  const answer = useCallback(async (answered: OpenQuestion, value: string) => {
     const outcome = await operations.answer(answered.attempt, answered.prompt, value)
     if (!mountedRef.current) return
     if (outcome.kind === 'refused') {
@@ -181,7 +178,7 @@ export function SignInCard(props: SignInCardProps): ReactNode {
       ? null
       : current)
     setDraft('')
-  }, [operations, question])
+  }, [operations])
 
   if (!loaded) return null
   if (entry === null) return null
@@ -221,7 +218,7 @@ export function SignInCard(props: SignInCardProps): ReactNode {
                   key={option.id}
                   type="button"
                   className={styles['secondaryButton']}
-                  onClick={() => { void answer(option.id) }}
+                  onClick={() => { void answer(question, option.id) }}
                 >
                   {option.label}
                 </button>
@@ -236,13 +233,13 @@ export function SignInCard(props: SignInCardProps): ReactNode {
                 value={draft}
                 placeholder={question.placeholder ?? ''}
                 onChange={(event) => { setDraft(event.target.value) }}
-                onKeyDown={(event) => { if (event.key === 'Enter' && draft.length > 0) void answer(draft) }}
+                onKeyDown={(event) => { if (event.key === 'Enter' && draft.length > 0) void answer(question, draft) }}
               />
               <button
                 type="button"
                 className={styles['primaryButton']}
                 disabled={draft.length === 0}
-                onClick={() => { void answer(draft) }}
+                onClick={() => { void answer(question, draft) }}
               >
                 {t('signInSubmit')}
               </button>
@@ -272,7 +269,7 @@ export function SignInCard(props: SignInCardProps): ReactNode {
           <button
             type="button"
             className={styles['primaryButton']}
-            onClick={() => { void start(entry.methods[0]?.id ?? '') }}
+            onClick={() => { void start(entry, entry.methods[0]?.id ?? '') }}
           >
             {phase.status === 'failed' || phase.status === 'cancelled' ? t('signInRetry') : t('signIn')}
           </button>

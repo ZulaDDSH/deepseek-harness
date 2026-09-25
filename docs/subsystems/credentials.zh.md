@@ -130,6 +130,59 @@ async begin(request: AuthorizationRequest): Promise<AuthorizationOutcome>
 
 Source: [`packages/credentials/authorization/src/index.ts`](../../packages/credentials/authorization/src/index.ts)
 
+<a id="ctxauthorizationcontroller--authorizationcontroller"></a>
+
+### `ctx.authorizationController` — `AuthorizationController`
+
+Host service backing the generated `ctx.remote.authorization` namespace.
+
+The registry itself lives on `ctx.authorization`, which an LLM adapter fills with the flows it can run; this controller adds the wire obligations — key validation, capability addressing, prompt correlation, and refusal mapping — and never knows which provider a flow signs into.
+
+```ts cordis-catalog
+/**
+ * Every flow a configuration surface can offer, joined with whether a
+ * credential is already stored for it. Credential state is read per key so
+ * the page can label a signed-in provider without a second round trip.
+ * @returns one entry per registered flow, in registration order.
+ */
+@Remote async list(): Promise<AuthorizationEntryView[]>
+
+/**
+ * Run one attempt, delivering its notices to this caller alone.
+ *
+ * The first item names the attempt capability and every later item is a
+ * notice from the flow. The caller answers through `answer` and withdraws
+ * through `cancel`, both addressed by that capability. The stream ends when
+ * the flow commits its credential, the human withdraws, or the flow fails.
+ * @param key - the credential record to authorize; a flow must be registered for it.
+ * @param method - which of the flow's methods to run; omitted takes the first.
+ * @param signal - caller lifetime; aborting withdraws the attempt.
+ * @returns one start item followed by this attempt's notices.
+ * @throws RemoteError when the request is invalid or no flow claims the key.
+ */
+@Remote({ mode: 'stream' }) async *begin( key: string, method: string | undefined, signal: AbortSignal, ): AsyncIterable<AuthorizationStart | AuthorizationNotice | AuthorizationEnd>
+
+/**
+ * Answer the question a running attempt asked. The value is the typed text,
+ * or the chosen option's id for a `select` question.
+ * @param attempt - the capability the attempt's start item named.
+ * @param prompt - the question id carried by the question notice.
+ * @param value - the human's answer.
+ * @throws RemoteError when the capability is unknown or the question is not awaiting one.
+ */
+@Remote answer(attempt: string, prompt: string, value: string): void
+
+/**
+ * Withdraw a running attempt. The attempt's stream ends as `cancelled` rather
+ * than failing, because a withdrawal is an outcome.
+ * @param attempt - the capability the attempt's start item named.
+ * @throws RemoteError when no attempt has that capability.
+ */
+@Remote cancel(attempt: string): void
+```
+
+Source: [`packages/api/settings-controller/src/authorization.ts`](../../packages/api/settings-controller/src/authorization.ts)
+
 <a id="ctxcredentials--credentialprovider-abstract-seam"></a>
 
 ### `ctx.credentials` — `CredentialProvider` (abstract seam)
