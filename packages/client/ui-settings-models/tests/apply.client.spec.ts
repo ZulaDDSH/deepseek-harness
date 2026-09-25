@@ -160,6 +160,30 @@ describe('ui-settings-models apply', () => {
     expect(after.slots.entries('settings.section')).toHaveLength(1)
   })
 
+  it('registers the authorization card when the Remote namespace is available', async () => {
+    const b = await bench()
+    declare(b.slots)
+    const authorization = {
+      list: vi.fn(async () => ({ ok: true as const, value: [] })),
+      async *begin() {},
+      answer: vi.fn(async () => ({ ok: true as const, value: undefined })),
+      cancel: vi.fn(async () => {}),
+    }
+    b.ctx.provide('remote.authorization', authorization)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    expect(b.slots.entries('settings.models.provider-card')).toMatchObject([
+      { options: { key: 'llm-pi-ai' } },
+    ])
+  })
+
+  it('omits the browser welcome notice in the desktop shell', async () => {
+    vi.stubGlobal('dshDesktop', {})
+    const b = await bench()
+    declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    expect(b.slots.entries('settings.onboarding').map(entry => entry.options.id)).toEqual(['deepseek-official'])
+  })
+
   it('the label thunk follows the active locale without re-registration', async () => {
     const b = await bench()
     declare(b.slots)
