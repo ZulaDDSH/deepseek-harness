@@ -253,12 +253,13 @@ function ctxWith(face: object): PageContext {
  * as the plugin body binds them: an editor effect keyed by this face would
  * otherwise re-probe on every render.
  */
-const operations = new WeakMap<object, ModelsOperations>()
-function operationsWith(face: object): ModelsOperations {
+const operations = new WeakMap<object, { mirror: SettingsDescribeMirror; operations: ModelsOperations }>()
+function operationsWith(face: object, mirror?: SettingsDescribeMirror): ModelsOperations {
   const existing = operations.get(face)
-  if (existing !== undefined) return existing
-  const bound = createModelsOperations(ctxWith(face))
-  operations.set(face, bound)
+  if (existing !== undefined && (mirror === undefined || existing.mirror === mirror)) return existing.operations
+  const sharedMirror = mirror ?? existing?.mirror ?? new SettingsDescribeMirror(ctxWith(face))
+  const bound = createModelsOperations(ctxWith(face), sharedMirror)
+  operations.set(face, { mirror: sharedMirror, operations: bound })
   return bound
 }
 
@@ -295,7 +296,7 @@ async function mountFace(scripted: ReturnType<typeof scriptedFace>) {
     controller,
     useSnapshot: bindSnapshotSelector(controller.store),
     useCredentialsRevision: bindSnapshotSelector(createSnapshotStore({ revision: 0 })),
-    operations: operationsWith(face),
+    operations: operationsWith(face, mirror),
     schema: settingsSchema,
     t,
     renderSlot: renderSlot as unknown as ModelsSectionProps['renderSlot'],

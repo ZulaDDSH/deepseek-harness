@@ -167,12 +167,13 @@ function ctxWith(face: object): PageContext {
  * as the plugin body binds them: an editor effect keyed by this face would
  * otherwise re-probe on every render.
  */
-const operations = new WeakMap<object, ModelsOperations>()
-function operationsWith(face: object): ModelsOperations {
+const operations = new WeakMap<object, { mirror: SettingsDescribeMirror; operations: ModelsOperations }>()
+function operationsWith(face: object, mirror?: SettingsDescribeMirror): ModelsOperations {
   const existing = operations.get(face)
-  if (existing !== undefined) return existing
-  const bound = createModelsOperations(ctxWith(face))
-  operations.set(face, bound)
+  if (existing !== undefined && (mirror === undefined || existing.mirror === mirror)) return existing.operations
+  const sharedMirror = mirror ?? existing?.mirror ?? new SettingsDescribeMirror(ctxWith(face))
+  const bound = createModelsOperations(ctxWith(face), sharedMirror)
+  operations.set(face, { mirror: sharedMirror, operations: bound })
   return bound
 }
 
@@ -209,14 +210,16 @@ function credentialsRevision(revision: number) {
 
 async function mountSection(options: Parameters<typeof scriptedFace>[0] = {}) {
   const scripted = scriptedFace(options)
+  const ctx = ctxWith(scripted.face)
+  const mirror = new SettingsDescribeMirror(ctx)
   const controller = new ModelsSettingsStore(
-    ctxWith(scripted.face), settingsSchema, new SettingsDescribeMirror(ctxWith(scripted.face)))
+    ctx, settingsSchema, mirror)
   await controller.load()
   const injected: ModelsSectionProps = {
     controller,
     useSnapshot: bindSnapshotSelector(controller.store),
     useCredentialsRevision: bindSnapshotSelector(credentialsRevision(0)),
-    operations: operationsWith(scripted.face),
+    operations: operationsWith(scripted.face, mirror),
     schema: settingsSchema,
     t,
     renderSlot: () => null,

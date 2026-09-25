@@ -7,8 +7,7 @@
  * packages/client/AGENTS.md.
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-// Type-only: pulls the shell's SlotMap merge (the 'settings.section' entry).
-import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { SettingsDescribeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
@@ -87,14 +86,15 @@ export function apply(ctx: ClientContext): void {
   const schema = createSettingsSchemaOperations(ctx.settingsSchema)
   // Bound once here, where the Remote namespaces are declared in this plugin's
   // own `inject`; the cards receive callbacks and never a context.
-  const operations = createModelsOperations(ctx)
+  const settingsDescribe: SettingsDescribeFace = ctx.configForms.describe()
+  const operations = createModelsOperations(ctx, settingsDescribe)
   const authorizationRemote = ctx.get('remote.authorization') as
     | NonNullable<ClientContext['remote']['authorization']>
     | undefined
   const authorization = authorizationRemote === undefined
     ? undefined
     : createAuthorizationOperations(authorizationRemote)
-  const controller = new ModelsSettingsStore(ctx, schema, ctx.configForms.describe())
+  const controller = new ModelsSettingsStore(ctx, schema, settingsDescribe)
   // Registration-time text (the nav label thunk) and the inject faces share
   // one bound translate; copy freshness rides the locale revision.
   const t = ctx.locale.bind(NS) as ModelsSectionInjected['t']
