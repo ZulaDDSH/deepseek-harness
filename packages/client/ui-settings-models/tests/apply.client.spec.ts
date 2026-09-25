@@ -171,9 +171,9 @@ describe('ui-settings-models apply', () => {
     }
     b.ctx.provide('remote.authorization', authorization)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
-    expect(b.slots.entries('settings.models.provider-card')).toMatchObject([
-      { options: { key: 'llm-pi-ai' } },
-    ])
+    const entry = b.slots.entries('settings.models.provider-card')[0]!
+    expect(entry.options.key).toBe('llm-pi-ai')
+    expect(entry.inject?.()).toMatchObject({ authorization: { list: expect.any(Function) } })
   })
 
   it('omits the browser welcome notice in the desktop shell', async () => {
