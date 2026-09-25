@@ -184,6 +184,21 @@ describe('PiAiAdapter provider routing', () => {
     expect(opencode.headers[0]?.['x-opencode-session']).toBe('session-go')
   })
 
+  it('treats an unparseable custom baseURL as not an OpenCode route', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: { deepseek: { apiKeyEnv: 'PI_TEST_KEY', baseURL: 'not-a-valid-url' } },
+    })
+
+    const result = await assemble(ctx, {
+      model: 'deepseek-v4-flash',
+      messages: [],
+      sessionId: 'session-unparseable' as never,
+    })
+    expect(result.finish).toEqual({ kind: 'error', failure: { code: 'PI_AI_ERROR', message: 'Invalid URL' } })
+  })
+
   it('forwards common stream options and profile reasoning', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url, {

@@ -1214,6 +1214,29 @@ describe('declared model modes', () => {
     })).toThrow(/lists model "acme-large-fast" more than once/)
   })
 
+  it('refuses a mode with an empty name', () => {
+    expect(() => resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-responses',
+        baseURL: 'https://acme.test',
+        models: [{ id: 'acme-large', modes: { '': { serviceTier: 'priority' } } }],
+      },
+    })).toThrow(/model "acme-large" has a mode with an empty name/)
+  })
+
+  it('refuses a mode id claimed by another model\'s mode', () => {
+    expect(() => resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-responses',
+        baseURL: 'https://acme.test',
+        models: [
+          { id: 'acme-x', modes: { fast: { serviceTier: 'priority' } } },
+          { id: 'acme', modes: { 'x-fast': { serviceTier: 'priority' } } },
+        ],
+      },
+    })).toThrow(/lists model "acme-x-fast" more than once/)
+  })
+
   it('drops a mode when deferred loading invalidates its base model', () => {
     const resolved = resolveProfiles({
       'acme-gateway': {
