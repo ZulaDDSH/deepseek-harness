@@ -356,7 +356,8 @@ export class PiAiAdapter extends LlmAdapter {
     const defaultLevel = describableReasoningLevel(resolvedModel, profile.reasoning)
     // Only a cap the deployment configured is a request default; the
     // catalog's `maxTokens` sizes the model and stops there.
-    const configuredMaxTokens = profile.configuredMaxTokens.get(model)
+    const requestModel = profile.modeRequests.get(model)?.model ?? model
+    const configuredMaxTokens = profile.configuredMaxTokens.get(requestModel)
     return {
       provider,
       id: model,
