@@ -1183,6 +1183,23 @@ describe('declared model modes', () => {
       .toEqual({ model: 'acme-large', serviceTier: 'priority' })
   })
 
+  it('inherits configured maxTokens defaults onto a mode alias', async () => {
+    const ctx = await harness({
+      providers: {
+        'acme-gateway': {
+          api: 'openai-responses',
+          baseURL: 'https://acme.test',
+          models: [{ id: 'acme-large', maxTokens: 4096, modes: { fast: { serviceTier: 'priority' } } }],
+        },
+      },
+    })
+
+    const base = await ctx.llm.resolveModelInfo('acme-gateway', 'acme-large')
+    const mode = await ctx.llm.resolveModelInfo('acme-gateway', 'acme-large-fast')
+    expect(base.defaultMaxTokens).toBe(4096)
+    expect(mode.defaultMaxTokens).toBe(4096)
+  })
+
   it('refuses modes without a service tier or a supported protocol', () => {
     expect(() => resolveProfiles({
       'acme-gateway': {
@@ -1235,6 +1252,32 @@ describe('declared model modes', () => {
         ],
       },
     })).toThrow(/lists model "acme-x-fast" more than once/)
+  })
+
+  it('drops conflicting generated ids during deferred loading', () => {
+    const modeCollision = resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-responses',
+        baseURL: 'https://acme.test',
+        models: [
+          { id: 'acme-x', modes: { fast: { serviceTier: 'priority' } } },
+          { id: 'acme', modes: { 'x-fast': { serviceTier: 'priority' } } },
+        ],
+      },
+    }, 'deferred')
+    expect(modeCollision.get('acme-gateway')?.piProvider?.getModels().map(model => model.id)).toEqual(['acme-x'])
+
+    const plainCollision = resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-responses',
+        baseURL: 'https://acme.test',
+        models: [
+          { id: 'acme-x-fast' },
+          { id: 'acme-x', modes: { fast: { serviceTier: 'priority' } } },
+        ],
+      },
+    }, 'deferred')
+    expect(plainCollision.get('acme-gateway')?.piProvider?.getModels().map(model => model.id)).toEqual([])
   })
 
   it('drops a mode when deferred loading invalidates its base model', () => {
