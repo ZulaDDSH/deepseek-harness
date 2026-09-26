@@ -1146,6 +1146,157 @@ describe('Codex subscription model gate', () => {
   })
 })
 
+describe('declared model modes', () => {
+  it('offers Codex fast mode from a model override', async () => {
+    const ctx = await harness({
+      providers: {
+        'openai-codex': {
+          modelOverrides: { 'gpt-5.6-luna': { modes: { fast: { serviceTier: 'fast' } } } },
+        },
+      },
+    })
+
+    expect((await ctx.llm.listModels('openai-codex')).map(model => model.id)).toContain('gpt-5.6-luna-fast')
+  })
+
+  it('expands a mode into a selectable catalog entry', async () => {
+    const model: LlmPiAi.PiAiModelProfile = {
+      id: 'acme-large',
+      name: 'Acme Large',
+      contextWindow: 65_536,
+      maxTokens: 4096,
+      modes: { fast: { serviceTier: 'priority' } },
+    }
+    const resolved = resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-responses',
+        baseURL: 'https://acme.test',
+        models: [model],
+      },
+    })
+
+    expect(resolved.get('acme-gateway')?.piProvider?.getModels()).toMatchObject([
+      { id: 'acme-large', name: 'Acme Large' },
+      { id: 'acme-large-fast', name: 'Acme Large Fast', contextWindow: 65_536, maxTokens: 4096 },
+    ])
+    expect(resolved.get('acme-gateway')?.modeRequests.get('acme-large-fast'))
+      .toEqual({ model: 'acme-large', serviceTier: 'priority' })
+  })
+
+  it('inherits configured maxTokens defaults onto a mode alias', async () => {
+    const ctx = await harness({
+      providers: {
+        'acme-gateway': {
+          api: 'openai-responses',
+          baseURL: 'https://acme.test',
+          models: [{ id: 'acme-large', maxTokens: 4096, modes: { fast: { serviceTier: 'priority' } } }],
+        },
+      },
+    })
+
+    const base = await ctx.llm.resolveModelInfo('acme-gateway', 'acme-large')
+    const mode = await ctx.llm.resolveModelInfo('acme-gateway', 'acme-large-fast')
+    expect(base.defaultMaxTokens).toBe(4096)
+    expect(mode.defaultMaxTokens).toBe(4096)
+  })
+
+  it('refuses modes without a service tier or a supported protocol', () => {
+    expect(() => resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-responses',
+        baseURL: 'https://acme.test',
+        models: [{ id: 'acme-large', modes: { fast: { serviceTier: '' } } }],
+      },
+    })).toThrow(/mode "fast" has an empty serviceTier/)
+
+    expect(() => resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-completions',
+        baseURL: 'https://acme.test',
+        models: [{ id: 'acme-large', modes: { fast: { serviceTier: 'priority' } } }],
+      },
+    })).toThrow(/mode "fast" sets a serviceTier, but protocol "openai-completions" has no service-tier request option/)
+  })
+
+  it('refuses a mode id claimed by another model', () => {
+    expect(() => resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-responses',
+        baseURL: 'https://acme.test',
+        models: [
+          { id: 'acme-large', modes: { fast: { serviceTier: 'priority' } } },
+          { id: 'acme-large-fast' },
+        ],
+      },
+    })).toThrow(/lists model "acme-large-fast" more than once/)
+  })
+
+  it('refuses a mode with an empty name', () => {
+    expect(() => resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-responses',
+        baseURL: 'https://acme.test',
+        models: [{ id: 'acme-large', modes: { '': { serviceTier: 'priority' } } }],
+      },
+    })).toThrow(/model "acme-large" has a mode with an empty name/)
+  })
+
+  it('refuses a mode id claimed by another model\'s mode', () => {
+    expect(() => resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-responses',
+        baseURL: 'https://acme.test',
+        models: [
+          { id: 'acme-x', modes: { fast: { serviceTier: 'priority' } } },
+          { id: 'acme', modes: { 'x-fast': { serviceTier: 'priority' } } },
+        ],
+      },
+    })).toThrow(/lists model "acme-x-fast" more than once/)
+  })
+
+  it('drops conflicting generated ids during deferred loading', () => {
+    const modeCollision = resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-responses',
+        baseURL: 'https://acme.test',
+        models: [
+          { id: 'acme-x', modes: { fast: { serviceTier: 'priority' } } },
+          { id: 'acme', modes: { 'x-fast': { serviceTier: 'priority' } } },
+        ],
+      },
+    }, 'deferred')
+    expect(modeCollision.get('acme-gateway')?.piProvider?.getModels().map(model => model.id)).toEqual(['acme-x'])
+
+    const plainCollision = resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-responses',
+        baseURL: 'https://acme.test',
+        models: [
+          { id: 'acme-x-fast' },
+          { id: 'acme-x', modes: { fast: { serviceTier: 'priority' } } },
+        ],
+      },
+    }, 'deferred')
+    expect(plainCollision.get('acme-gateway')?.piProvider?.getModels().map(model => model.id)).toEqual([])
+  })
+
+  it('drops a mode when deferred loading invalidates its base model', () => {
+    const resolved = resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-responses',
+        baseURL: 'https://acme.test',
+        models: [
+          { id: 'acme-large', modes: { fast: { serviceTier: 'priority' } } },
+          { id: 'acme-large' },
+          { id: 'acme-small' },
+        ],
+      },
+    }, 'deferred')
+
+    expect(resolved.get('acme-gateway')?.piProvider?.getModels().map(model => model.id)).toEqual(['acme-small'])
+  })
+})
+
 describe('resolution snapshots', () => {
   it('finishes an in-flight request under the configuration it started with', async () => {
     const server = await mockServer([{ events: textEvents }])

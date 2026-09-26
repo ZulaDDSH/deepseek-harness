@@ -51,6 +51,12 @@ Each profile may set a `retryPolicy`; omission uses normal mode with five retrie
         retryPolicy:
           mode: normal
           maxRetries: 3
+      openai-codex:
+        modelOverrides:
+          gpt-5.6-luna:
+            modes:
+              fast:
+                serviceTier: fast
       anthropic:
         apiKeyEnv: ANTHROPIC_API_KEY
         models:
@@ -79,7 +85,7 @@ Each profile may set a `retryPolicy`; omission uses normal mode with five retrie
 | `api` | catalog protocol | Wire protocol; only needed for routes the catalog does not supply |
 | `baseURL` | catalog endpoint | Endpoint of every model on the route |
 | `models` | installed catalog | Replaces the route's catalog wholesale; each entry defaults from the installed model |
-| `modelOverrides` | none | Reshapes individual installed-catalog models without replacing the rest |
+| `modelOverrides` | none | Reshapes individual installed-catalog models or adds their request modes without replacing the rest |
 | `compat` | catalog detection | Wire-compatibility switches for unrecognized endpoints |
 | `defaultContextWindow` | `262,144` | Capacity fallback for undescribed models |
 | `defaultMaxTokens` | `32,768` | Output-cap fallback for undescribed models |
@@ -97,6 +103,8 @@ A provider pi-ai ships a login for can be signed into through the harness author
 ### Resolve the model catalog
 
 A profile's `models` list replaces the route's installed catalog rather than extending it; each entry defaults its unset fields from the installed model of the same id, so narrowing a route to two models, correcting one capacity, or adding a model newer than the installed catalog are one-line edits. `modelOverrides` reshapes individual installed-catalog models without that cost — correct one model, keep the other thirty-seven — and is refused when set beside a `models` list, on a hand-declared route, or naming a model the catalog does not describe, because a silently unchanged model would be a typo someone hunts for later.
+
+A model can declare selectable request modes under `modes`. The selector adds an entry named `<id>-<mode>`; for example, the configuration above offers `gpt-5.6-luna-fast`. A mode keeps the provider's base model id and sends its configured `serviceTier` as `service_tier`; modes are supported by `openai-codex-responses` and `openai-responses`.
 
 ### Run with reasoning and wire compatibility
 

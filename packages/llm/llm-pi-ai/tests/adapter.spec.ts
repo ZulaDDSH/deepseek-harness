@@ -184,6 +184,21 @@ describe('PiAiAdapter provider routing', () => {
     expect(opencode.headers[0]?.['x-opencode-session']).toBe('session-go')
   })
 
+  it('treats an unparseable custom baseURL as not an OpenCode route', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: { deepseek: { apiKeyEnv: 'PI_TEST_KEY', baseURL: 'not-a-valid-url' } },
+    })
+
+    const result = await assemble(ctx, {
+      model: 'deepseek-v4-flash',
+      messages: [],
+      sessionId: 'session-unparseable' as never,
+    })
+    expect(result.finish).toEqual({ kind: 'error', failure: { code: 'PI_AI_ERROR', message: 'Invalid URL' } })
+  })
+
   it('forwards common stream options and profile reasoning', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url, {
@@ -1093,6 +1108,30 @@ describe('abort wiring', () => {
     }
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(server.requests).toHaveLength(1)
+  })
+})
+
+describe('declared model modes', () => {
+  it('sends a mode tier while preserving the base model request', async () => {
+    const rejected = { status: 401, body: JSON.stringify({ error: { message: 'expected mock failure' } }) }
+    const server = await mockServer([rejected, rejected])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    ctx.llm.registerAdapter(['acme-gateway'], adapterOf({
+      'acme-gateway': {
+        api: 'openai-responses',
+        baseURL: server.url,
+        models: [{ id: 'acme-large', modes: { fast: { serviceTier: 'priority' } } }],
+      },
+    }))
+
+    await assemble(ctx, { provider: 'acme-gateway', model: 'acme-large-fast', messages: [] })
+    await assemble(ctx, { provider: 'acme-gateway', model: 'acme-large', messages: [] })
+
+    expect(server.requests).toHaveLength(2)
+    expect(server.requests[0]).toMatchObject({ model: 'acme-large', service_tier: 'priority' })
+    expect(server.requests[1]).toMatchObject({ model: 'acme-large' })
+    expect(server.requests[1]).not.toHaveProperty('service_tier')
   })
 })
 

@@ -653,6 +653,16 @@ export interface PiAiModelProfile {
   reasoningEfforts?: false | PiAiReasoningEfforts
   /** pi-ai wire-compatibility switches for this model, winning over the route's per field; one its protocol does not declare is refused. */
   compat?: PiAiCompatProfile
+  /** Additional selectable request modes, expanded from this model's existing fields. */
+  modes?: Readonly<Record<string, PiAiModeProfile>>
+}
+
+/** One selectable request mode offered beside a model. */
+export interface PiAiModeProfile {
+  /** Optional selector label; the mode name is appended to the model name by default. */
+  name?: string
+  /** Service tier added to requests through this mode. */
+  serviceTier: string
 }
 
 /**
@@ -847,6 +857,8 @@ function resolveModelCompat(
 export interface RouteCatalog {
   /** The materialized models in configuration order. */
   models: readonly Model<Api>[]
+  /** Provider model and service tier for each additional mode entry. */
+  modeRequests: ReadonlyMap<string, PiAiModeRequest>
   /** Models that cannot be resolved, retained as diagnostics during stored-config reads. */
   modelErrors: ReadonlyMap<string, string>
   /**
@@ -861,6 +873,16 @@ export interface RouteCatalog {
    */
   configuredMaxTokens: ReadonlyMap<string, number>
 }
+
+/** Provider-side model identity and service tier for one mode entry. */
+export interface PiAiModeRequest {
+  /** Model id the provider receives for a selected mode. */
+  model: string
+  /** Service tier the mode adds to each request. */
+  serviceTier: string
+}
+
+const SERVICE_TIER_APIS: ReadonlySet<string> = new Set(['openai-codex-responses', 'openai-responses'])
 
 /**
  * Materialize one route's catalog by merging the installed catalog defaults
@@ -924,11 +946,15 @@ export function resolveRouteModels(
   // never reach the protocol that would have taken it.
   assertOfferedCompatFields(provider, 'route', request.compat)
   const seen = new Set<string>()
+  const invalidIds = new Set<string>()
   const configuredMaxTokens = new Map<string, number>()
   const resolveEntry = (entry: PiAiModelProfile): Model<Api> => {
     assertOfferedCompatFields(provider, `model "${entry.id}"`, entry.compat)
     if (entry.id.length === 0) invalid(provider, 'has a model with an empty id')
-    if (seen.has(entry.id)) invalid(provider, `lists model "${entry.id}" more than once`)
+    if (seen.has(entry.id)) {
+      invalidIds.add(entry.id)
+      invalid(provider, `lists model "${entry.id}" more than once`)
+    }
     seen.add(entry.id)
     const base = defaults.get(entry.id)
     const api = request.api ?? base?.api ?? routeApi
@@ -976,19 +1002,45 @@ export function resolveRouteModels(
     }
   }
   const models: Model<Api>[] = []
+  const modeRequests = new Map<string, PiAiModeRequest>()
   for (const entry of entries) {
-    let model: Model<Api>
     try {
-      model = resolveEntry(entry)
+      const model = resolveEntry(entry)
+      const modes = Object.entries(entry.modes ?? {}).map(([mode, profile]) => {
+        if (mode.length === 0) invalid(provider, `model "${entry.id}" has a mode with an empty name`)
+        if (profile.serviceTier.length === 0) {
+          invalid(provider, `model "${entry.id}" mode "${mode}" has an empty serviceTier`)
+        }
+        const id = `${entry.id}-${mode}`
+        if (seen.has(id)) {
+          invalidIds.add(id)
+          invalid(provider, `lists model "${id}" more than once`)
+        }
+        if (!SERVICE_TIER_APIS.has(model.api)) {
+          invalid(provider, `model "${entry.id}" mode "${mode}" sets a serviceTier, but protocol "${model.api}" has`
+            + ` no service-tier request option; a mode is servable only on ${[...SERVICE_TIER_APIS].join(', ')}`)
+        }
+        return {
+          model: { ...model, id, name: profile.name ?? `${model.name} ${mode.charAt(0).toUpperCase()}${mode.slice(1)}` },
+          request: { model: model.id, serviceTier: profile.serviceTier },
+        }
+      })
+      for (const mode of modes) {
+        seen.add(mode.model.id)
+        modeRequests.set(mode.model.id, mode.request)
+      }
+      models.push(model, ...modes.map(mode => mode.model))
     } catch (error) {
       if (validation === 'strict' || !(error instanceof PiAiCatalogError)) throw error
       modelErrors.set(entry.id, error.message)
-      continue
     }
-    models.push(model)
   }
   // A later duplicate invalidates the id, including an earlier resolved entry.
-  const serviceableModels = models.filter(model => !modelErrors.has(model.id))
+  const serviceableModels = models.filter(model => (
+    !invalidIds.has(model.id)
+    && !modelErrors.has(model.id)
+    && !modelErrors.has(modeRequests.get(model.id)?.model ?? model.id)
+  ))
   // Per field, not per block: a route may default a switch its completions
   // models take beside one only its anthropic models do, and neither should
   // fail for the other's sake. What is refused is a route default no model on
@@ -999,5 +1051,5 @@ export function resolveRouteModels(
     invalid(provider, `sets compat "${field}", but no model on the route speaks a protocol that takes it;`
       + ` it exists on ${takers.join(', ')}`)
   }
-  return { models: serviceableModels, configuredMaxTokens, modelErrors }
+  return { models: serviceableModels, configuredMaxTokens, modeRequests, modelErrors }
 }

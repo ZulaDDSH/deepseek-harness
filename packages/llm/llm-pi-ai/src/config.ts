@@ -36,6 +36,8 @@ import {
 import type {
   PiAiCompatProfile,
   PiAiModality,
+  PiAiModeProfile,
+  PiAiModeRequest,
   PiAiModelOverride,
   PiAiModelProfile,
   PiAiReasoningEfforts,
@@ -216,6 +218,8 @@ export interface ResolvedPiAiProviderProfile
    * own, so a catalog capability must not appear here.
    */
   configuredMaxTokens: ReadonlyMap<string, number>
+  /** Base model id and request tier for each selectable mode id. */
+  modeRequests: ReadonlyMap<string, PiAiModeRequest>
 }
 
 /** Plugin configuration: the provider routes this instance owns. */
@@ -299,6 +303,11 @@ const reasoningEfforts = z.dict(
   z.union(THINKING_LEVELS),
 ) as unknown as z<PiAiReasoningEfforts>
 
+const modeProfile: z<PiAiModeProfile> = z.object({
+  name: z.string(),
+  serviceTier: z.string().required(),
+})
+
 /** The fields a `models` entry and a `modelOverrides` value share; only the id's home differs. */
 const modelFields = {
   name: z.string(),
@@ -313,6 +322,7 @@ const modelFields = {
   // installed catalog's capability", while `false` disables reasoning.
   reasoningEfforts: z.union([z.const(false), reasoningEfforts]),
   compat: compatProfile,
+  modes: z.dict(modeProfile),
 }
 
 const modelProfile: z<PiAiModelProfile> = z.object({
@@ -501,6 +511,7 @@ export function resolveProfiles(
       ...rest.headers === undefined ? {} : { headers: { ...rest.headers } },
       ...rest.thinkingBudgets === undefined ? {} : { thinkingBudgets: { ...rest.thinkingBudgets } },
       configuredMaxTokens: catalog?.configuredMaxTokens ?? new Map(),
+      modeRequests: catalog?.modeRequests ?? new Map(),
       modelErrors: catalog?.modelErrors ?? new Map(),
       ...piProvider === undefined ? {} : { piProvider },
       ...catalogError === undefined ? {} : { catalogError },

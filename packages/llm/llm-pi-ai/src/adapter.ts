@@ -356,7 +356,8 @@ export class PiAiAdapter extends LlmAdapter {
     const defaultLevel = describableReasoningLevel(resolvedModel, profile.reasoning)
     // Only a cap the deployment configured is a request default; the
     // catalog's `maxTokens` sizes the model and stops there.
-    const configuredMaxTokens = profile.configuredMaxTokens.get(model)
+    const requestModel = profile.modeRequests.get(model)?.model ?? model
+    const configuredMaxTokens = profile.configuredMaxTokens.get(requestModel)
     return {
       provider,
       id: model,
@@ -431,11 +432,16 @@ export class PiAiAdapter extends LlmAdapter {
           },
         }, onReplayDegrade)
       const sessionId = options.sessionId === undefined ? undefined : String(options.sessionId)
-      const events = snapshot.models.streamSimple(model, context, {
+      const mode = profile.modeRequests.get(model.id)
+      const requestModel = mode === undefined ? model : { ...model, id: mode.model }
+      const events = snapshot.models.streamSimple(requestModel, context, {
         ...profileOptions(profile, reasoning, apiKey),
         ...options.temperature === undefined ? {} : { temperature: options.temperature },
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
         ...sessionId === undefined ? {} : { sessionId },
+        ...mode === undefined ? {} : {
+          onPayload: body => ({ ...(body as Record<string, unknown>), service_tier: mode.serviceTier }),
+        },
         signal: watchdog.signal,
         // Profile headers are deployment-owned; attribution names are
         // Harness-owned and therefore win collisions.
