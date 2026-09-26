@@ -946,11 +946,15 @@ export function resolveRouteModels(
   // never reach the protocol that would have taken it.
   assertOfferedCompatFields(provider, 'route', request.compat)
   const seen = new Set<string>()
+  const invalidIds = new Set<string>()
   const configuredMaxTokens = new Map<string, number>()
   const resolveEntry = (entry: PiAiModelProfile): Model<Api> => {
     assertOfferedCompatFields(provider, `model "${entry.id}"`, entry.compat)
     if (entry.id.length === 0) invalid(provider, 'has a model with an empty id')
-    if (seen.has(entry.id)) invalid(provider, `lists model "${entry.id}" more than once`)
+    if (seen.has(entry.id)) {
+      invalidIds.add(entry.id)
+      invalid(provider, `lists model "${entry.id}" more than once`)
+    }
     seen.add(entry.id)
     const base = defaults.get(entry.id)
     const api = request.api ?? base?.api ?? routeApi
@@ -1008,7 +1012,10 @@ export function resolveRouteModels(
           invalid(provider, `model "${entry.id}" mode "${mode}" has an empty serviceTier`)
         }
         const id = `${entry.id}-${mode}`
-        if (seen.has(id)) invalid(provider, `lists model "${id}" more than once`)
+        if (seen.has(id)) {
+          invalidIds.add(id)
+          invalid(provider, `lists model "${id}" more than once`)
+        }
         if (!SERVICE_TIER_APIS.has(model.api)) {
           invalid(provider, `model "${entry.id}" mode "${mode}" sets a serviceTier, but protocol "${model.api}" has`
             + ` no service-tier request option; a mode is servable only on ${[...SERVICE_TIER_APIS].join(', ')}`)
@@ -1030,7 +1037,9 @@ export function resolveRouteModels(
   }
   // A later duplicate invalidates the id, including an earlier resolved entry.
   const serviceableModels = models.filter(model => (
-    !modelErrors.has(model.id) && !modelErrors.has(modeRequests.get(model.id)?.model ?? model.id)
+    !invalidIds.has(model.id)
+    && !modelErrors.has(model.id)
+    && !modelErrors.has(modeRequests.get(model.id)?.model ?? model.id)
   ))
   // Per field, not per block: a route may default a switch its completions
   // models take beside one only its anthropic models do, and neither should
