@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-25-pi-ai-request-modes.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-25-pi-ai-request-modes.md
+/agent-note-selectable-request-modes-for-pi-ai-models:
+  en: 48f1388c6fbdeea7
+  zh: 5d3933c110111b91
+/agent-note-selectable-request-modes-for-pi-ai-models/problem:
+  en: 021f203f4e3091e7
+  zh: 7d1bc816b6ca6384
+/agent-note-selectable-request-modes-for-pi-ai-models/decision:
+  en: 1659992235903431
+  zh: bb246c886add76d3
+/agent-note-selectable-request-modes-for-pi-ai-models/verification:
+  en: 52162d2bf67f5882
+  zh: a4846bfe65aa8f83
+/agent-note-selectable-request-modes-for-pi-ai-models/alternatives-considered:
+  en: 5ef2021e9466ed57
+  zh: bff37b99773380a0
+/agent-note-selectable-request-modes-for-pi-ai-models/consequences:
+  en: 6a63777cd8d07564
+  zh: ec1922e97bcfe008

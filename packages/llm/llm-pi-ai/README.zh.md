@@ -51,6 +51,12 @@ kind: "package-reference"
         retryPolicy:
           mode: normal
           maxRetries: 3
+      openai-codex:
+        modelOverrides:
+          gpt-5.6-luna:
+            modes:
+              fast:
+                serviceTier: fast
       anthropic:
         apiKeyEnv: ANTHROPIC_API_KEY
         models:
@@ -79,7 +85,7 @@ kind: "package-reference"
 | `api` | 目录协议 | 协议格式；仅目录不提供的路由需要 |
 | `baseURL` | 目录端点 | 路由上所有模型的端点 |
 | `models` | 已安装目录 | 整体替换路由目录；每个条目从已安装模型取默认值 |
-| `modelOverrides` | 无 | 重塑个别已安装目录模型，而不替换其余模型 |
+| `modelOverrides` | 无 | 重塑个别已安装目录模型，或为其添加请求模式，而不替换其余模型 |
 | `compat` | 目录检测 | 无法识别端点的协议兼容开关 |
 | `defaultContextWindow` | `262,144` | 未描述模型的容量回退 |
 | `defaultMaxTokens` | `32,768` | 未描述模型的输出上限回退 |
@@ -97,6 +103,8 @@ pi-ai 提供登录的提供方可以通过 harness 授权 seam 登录：流程�
 ### 解析模型目录
 
 profile 的 `models` 列表会替换而非扩展路由的已安装目录；每个条目从同 id 已安装模型取未设置字段的默认值，因此把路由收窄到两个模型、修正一个容量或添加比已安装目录更新的模型都是一行编辑。`modelOverrides` 无需该代价即可重塑个别已安装目录模型——修正一个模型，保留其余三十七个——当它与 `models` 列表并存、位于手工声明路由上、或点名目录未描述的模型时会被拒绝，因为静默不变的模型会成为别人日后寻找的拼写错误。
+
+模型可在 `modes` 下声明可选择的请求模式。选择器会添加名为 `<id>-<mode>` 的条目；例如，上述配置会提供 `gpt-5.6-luna-fast`。模式仍向提供方发送基础模型 id，并将配置的 `serviceTier` 作为 `service_tier` 放入请求；`openai-codex-responses` 与 `openai-responses` 支持这些模式。
 
 ### 带推理（reasoning）与协议兼容运行
 
