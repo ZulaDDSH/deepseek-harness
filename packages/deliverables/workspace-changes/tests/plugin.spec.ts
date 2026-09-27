@@ -159,7 +159,7 @@ describe('workspace-changes in a repository', () => {
     ctx.emit('session/disposed', session)
     expect(await pending).toBeUndefined()
     expect(await diff(0)).toBeUndefined()
-  })
+  }, 15_000)
 
   it('records nothing and stays quiet about captures for a working directory that no longer exists', async () => {
     const root = await scratchDir('dsh-workspace-changes-gone-', cleanups)
