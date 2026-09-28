@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-用侧边栏浏览 Workspace 及其 Session、重排它们并新建会话；在 Session Intent 主视觉区用选择器为新会话选择 Workspace。按 **Ctrl/Cmd+K** 可打开根级快速切换器，搜索可见 Session、已注册 Workspace，以及当前 Session 可直接执行的命令。切换器不会向 composer 写入文本，因此不会覆盖未发送草稿。打开的 Workspace 默认显示五条空闲的非空白 Session。正在运行的 Session（包括有子会话正在运行的父会话）始终按原顺序显示，不占用这五条配额；当前选中的空白**新会话**在首条提示词落地前也作为额外行。每次点击**展开其余**最多再显示五条空闲 Session；全部显示后，**收起**恢复初始行数，但仍显示正在运行的 Session。关闭再打开 Workspace 也会恢复该折叠投影。
+用侧边栏浏览 Workspace 及其 Session、重排它们并新建会话；在 Session Intent 主视觉区用选择器为新会话选择 Workspace。按 **Ctrl/Cmd+K** 可打开根级快速切换器，搜索可见 Session、已注册 Workspace，以及当前 Session 可直接执行的命令。命令行保留其所属 Session 的身份；没有 Session 占用主视图时，命令行会隐藏。切换器不会向 composer 写入文本，因此不会覆盖未发送草稿。打开的 Workspace 默认显示五条空闲的非空白 Session。正在运行的 Session（包括有子会话正在运行的父会话）始终按原顺序显示，不占用这五条配额；当前选中的空白**新会话**在首条提示词落地前也作为额外行。每次点击**展开其余**最多再显示五条空闲 Session；全部显示后，**收起**恢复初始行数，但仍显示正在运行的 Session。关闭再打开 Workspace 也会恢复该折叠投影。
 
 ### 重排序与视图选项
 

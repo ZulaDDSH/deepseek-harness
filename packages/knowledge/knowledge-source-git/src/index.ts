@@ -81,10 +81,10 @@ function git(args: readonly string[], cwd?: string): Promise<GitResult> {
  * @param cwd - Directory to run in.
  * @returns trimmed stdout.
  */
-async function gitOrThrow(args: readonly string[], cwd?: string): Promise<string> {
+async function gitOrThrow(args: readonly [string, ...string[]], cwd?: string): Promise<string> {
   const result = await git(args, cwd)
   if (result.code !== 0) {
-    throw new Error(`git ${args[0] ?? ''} failed: ${result.stderr.trim() || `exit code ${result.code}`}`)
+    throw new Error(`git ${args[0]} failed: ${result.stderr.trim() || `exit code ${result.code}`}`)
   }
   return result.stdout.trim()
 }
@@ -133,10 +133,10 @@ export async function resolveGitSource(source: GitKnowledgeSource): Promise<Reso
     await git(['fetch', '--all', '--tags'], root)
   } else {
     root = source.checkoutDir ?? join(process.cwd(), '.dsh-knowledge', source.repo.replace(/[^A-Za-z0-9._-]/gu, '_'))
+    await mkdir(root, { recursive: true })
     if (await isWorkTree(root)) {
       await gitOrThrow(['fetch', '--all', '--tags'], root)
     } else {
-      await mkdir(root, { recursive: true })
       await gitOrThrow(['clone', '--no-checkout', remote, root])
     }
   }
@@ -160,7 +160,7 @@ export async function listSourceFiles(
   resolved: ResolvedGitSource,
   paths: readonly string[],
 ): Promise<string[]> {
-  const args = ['ls-files', '--cached', '--', ...paths]
+  const args: [string, ...string[]] = ['ls-files', '--cached', '--', ...paths]
   const stdout = await gitOrThrow(args, resolved.root)
   return stdout.split('\n').map(line => line.trim()).filter(line => line.length > 0)
 }

@@ -39,6 +39,49 @@ afterEach(() => {
 })
 
 describe('DesktopAttentionSource', () => {
+  it('ignores unknown interaction kinds and missing catalog rows, and tolerates carrier rejection', async () => {
+    const statuses = createSnapshotStore<SessionStatusSnapshot>(new Map())
+    const sessions = createSnapshotStore(list())
+    const notify = vi.fn(async () => { throw new Error('native carrier unavailable') })
+    const source = new DesktopAttentionSource(statuses, sessions, { notify, subscribe: () => () => {} }, vi.fn())
+    sources.push(source)
+    statuses.set(status({ pendingInteraction: { key: 'foreign', kind: 'custom', sessionId: id } }))
+    expect(notify).not.toHaveBeenCalled()
+    statuses.set(status({ completionUnread: true }))
+    await Promise.resolve()
+    expect(notify).toHaveBeenCalledOnce()
+    sessions.set({ ...list(), byId: {}, ids: [] })
+    statuses.set(status({ failureUnread: true }))
+    expect(notify).toHaveBeenCalledOnce()
+  })
+
+  it('ignores delayed status and activation callbacks after idempotent disposal', () => {
+    const statuses = createSnapshotStore(status())
+    const sessions = createSnapshotStore(list())
+    let changed: (() => void) | undefined
+    let activated: ((id: SessionId) => void) | undefined
+    const disposeStatus = vi.fn()
+    const disposeActivation = vi.fn()
+    const notify = vi.fn(async () => {})
+    const open = vi.fn()
+    const source = new DesktopAttentionSource({
+      getSnapshot: () => statuses.getSnapshot(),
+      subscribe(listener) { changed = listener; return disposeStatus },
+    }, sessions, {
+      notify, subscribe(listener) { activated = listener; return disposeActivation },
+    }, open)
+    sources.push(source)
+    source.dispose()
+    source.dispose()
+    statuses.set(status({ failureUnread: true }))
+    changed?.()
+    activated?.(id)
+    expect(notify).not.toHaveBeenCalled()
+    expect(open).not.toHaveBeenCalled()
+    expect(disposeStatus).toHaveBeenCalledOnce()
+    expect(disposeActivation).toHaveBeenCalledOnce()
+  })
+
   it('does not notify for the initial status baseline or a stable refresh', () => {
     const statuses = createSnapshotStore(status({ completionUnread: true }))
     const sessions = createSnapshotStore(list())

@@ -4,6 +4,8 @@ import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '../src/client/index.ts'
 import { ProviderQuotaAction } from '../src/client/ProviderQuotaAction.tsx'
+import type { ProviderQuotaActionInjected } from '../src/client/ProviderQuotaAction.tsx'
+import { apply as applyHost } from '../src/index.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
 
 afterEach(() => { vi.restoreAllMocks() })
@@ -31,6 +33,13 @@ describe('provider quota browser half', () => {
     const { ctx, fiber } = await boot()
     expect(ctx.slots.entries('conversation.session.header.utilities')[0]?.component).toBe(ProviderQuotaAction)
     expect(ctx.slots.entries('conversation.session.header.utilities')[0]?.options.id).toBe('provider-quota')
+    const injectAction = ctx.slots.entries('conversation.session.header.utilities')[0]?.inject as (() => ProviderQuotaActionInjected) | undefined
+    if (injectAction === undefined) throw new Error('quota action injection was not registered')
+    const injected = injectAction()
+    await injected.refresh()
+    expect(injected.hooks.providers.getSnapshot()).toEqual([{ id: 'opencode-go', name: 'OpenCode Go' }])
+    expect(injected.hooks.state.getSnapshot().status).toBe('ready')
+    applyHost()
     ctx.locale.setLocale('en')
     expect(ctx.locale.bind(NS)('title')).toBe(en.title)
     ctx.locale.setLocale('zh')

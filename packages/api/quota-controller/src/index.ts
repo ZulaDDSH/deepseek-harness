@@ -84,9 +84,8 @@ export class QuotaController extends TypertRemoteService {
       })
       : this.fetchProvider(provider)
     this.pending.set(providerId, operation)
-    void operation.finally(() => {
-      if (this.pending.get(providerId) === operation) this.pending.delete(providerId)
-    })
+    const release = (): void => { this.pending.delete(providerId) }
+    void operation.then(release, release)
     return operation
   }
 

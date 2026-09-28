@@ -22,7 +22,7 @@ This package resolves a Git repository and ref into a local checkout a knowledge
 <a id="use-this-package"></a>
 ## Use this package
 
-Call `resolveGitSource` with a repository, ref, and the paths you plan to ingest before pointing a knowledge service's index configuration at the result.
+Call `resolveGitSource` with a repository, ref, and the paths you plan to ingest before pointing a knowledge service's index configuration at the result. Remote sources may name a nonexistent `checkoutDir`; the resolver creates it before cloning.
 
 ```ts
 import { resolveGitSource, listSourceFiles } from '@deepseek-ai/dsh-knowledge-source-git'

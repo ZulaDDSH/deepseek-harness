@@ -15,13 +15,14 @@ function translate(key: string, params?: Record<string, string>): string {
     : template.replace(/\{(\w+)\}/g, (_match, name: string) => params[name] ?? `{${name}}`)
 }
 
-function renderPopover(results: readonly QuotaResult[], providers = [{ id: 'opencode-go', name: 'OpenCode Go' }]) {
+function renderPopover(results: readonly QuotaResult[], providers = [{ id: 'opencode-go', name: 'OpenCode Go' }], overrides: Partial<ProviderQuotaActionProps> = {}) {
   const props = {
     useProviders: (select: (value: unknown) => unknown) => select(providers),
     useState: (select: (value: unknown) => unknown) => select({ status: 'ready' as const, results }),
     useProjection: () => undefined,
     refresh: vi.fn(async () => {}),
     t: translate,
+    ...overrides,
   } as ProviderQuotaActionProps
   const view = render(<ProviderQuotaAction {...props} />)
   fireEvent.click(view.getByRole('button', { name: en.title }))
@@ -29,6 +30,53 @@ function renderPopover(results: readonly QuotaResult[], providers = [{ id: 'open
 }
 
 describe('ProviderQuotaAction popover', () => {
+  it('refreshes on opening and on request, and closes without refreshing', () => {
+    const refresh = vi.fn(async () => {})
+    const view = renderPopover([], undefined, { refresh })
+    expect(refresh).toHaveBeenCalledOnce()
+    fireEvent.click(view.getByRole('button', { name: en.refresh }))
+    expect(refresh).toHaveBeenCalledTimes(2)
+    fireEvent.click(view.getByRole('button', { name: en.title }))
+    expect(view.queryByRole('dialog')).toBeNull()
+    expect(refresh).toHaveBeenCalledTimes(2)
+  })
+
+  it.each(['loading', 'error'] as const)('renders %s without results', (status) => {
+    const refresh = vi.fn(async () => {})
+    const view = renderPopover([], undefined, { refresh, useState: select => select({ status, results: [] }) })
+    expect(view.getByText(status === 'loading' ? en.loading : translate('error', { message: en.unavailable }))).toBeDefined()
+    expect(refresh).toHaveBeenCalledTimes(status === 'loading' ? 0 : 1)
+  })
+
+  it('reports explicit request failure text and empty provider directories', () => {
+    const view = renderPopover([], undefined, {
+      useState: select => select({ status: 'error', results: [], message: 'offline' }),
+    })
+    expect(view.getByText(translate('error', { message: 'offline' }))).toBeDefined()
+    cleanup()
+    expect(renderPopover([], []).getByText(en.empty)).toBeDefined()
+  })
+
+  it('shows loading before provider discovery and unavailable after an empty result', () => {
+    expect(renderPopover([], undefined, { useProviders: select => select(null) }).getByText(en.loading)).toBeDefined()
+    cleanup()
+    expect(renderPopover([]).getByText(en.unavailable)).toBeDefined()
+  })
+
+  it('renders warning usage and tolerates windows without a metric or reset', () => {
+    const view = renderPopover([{
+      providerId: 'fixture', providerName: 'Fixture', configured: true, ok: true,
+      windows: {
+        '5h': { usedPercent: 50.4, resetAt: Number.NaN, status: 'OK' },
+        monthly: { usedPercent: null, resetAt: null },
+      },
+    }, { providerId: 'other', providerName: 'Other', configured: true, ok: true }])
+    expect(view.getByText('50% used').className).toContain('warn')
+    expect(view.getByText(en['window.monthly'])).toBeDefined()
+    expect(view.queryByText(/^Resets /)).toBeNull()
+    expect(view.getByText(en.unavailable)).toBeDefined()
+  })
+
   it('shows every window with its metric and reset time', () => {
     const view = renderPopover([{
       providerId: 'opencode-go', providerName: 'OpenCode Go', configured: true, ok: true,

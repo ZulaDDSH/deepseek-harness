@@ -10,9 +10,11 @@ import ToolRuntime, { defineContentToolFixture, type ToolExecutionResult } from 
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiSessionAgentController } from '../src/agent.ts'
+import { SessionCommandController } from '../src/commands.ts'
+import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { installMcpSelectionProjection } from '../src/mcp-selection-projection.ts'
 import { installModelSelectionProjection } from '../src/model-selection-projection.ts'
-import { installSessionReadTestServices } from './test-remote.ts'
+import { createSessionTestController, installSessionReadTestServices } from './test-remote.ts'
 
 const roots: Context[] = []
 const testToolSignal = new AbortController().signal
@@ -26,7 +28,7 @@ afterEach(async () => {
  * by a sibling entry, so `ctx.tools` is not reachable from the controller's
  * injection chain and only `ctx.get('tools')` resolves it.
  */
-async function harness(): Promise<{ ctx: Context; agents: ApiSessionAgentController }> {
+async function harness(withTools = true): Promise<{ ctx: Context; agents: ApiSessionAgentController }> {
   const ctx = new Context()
   roots.push(ctx)
   await ctx.plugin(TypertRegistry)
@@ -40,7 +42,7 @@ async function harness(): Promise<{ ctx: Context; agents: ApiSessionAgentControl
     currentSelection: () => ({ provider: 'fixture', model: 'fixture-model' }),
     saveSelection: () => Promise.resolve(),
   } as never)
-  await ctx.plugin(ToolRuntime)
+  if (withTools) await ctx.plugin(ToolRuntime)
   let agents: ApiSessionAgentController | undefined
   await ctx.plugin(Object.assign((inner: Context) => { agents = new ApiSessionAgentController(inner) }, {
     // The production `inject` list, minus the services these paths never read.
@@ -89,6 +91,77 @@ function agentUnder(ctx: Context, id: string): Agent {
 }
 
 describe('MCP connector selection installation', () => {
+  it('exposes connector discovery and normalized selection through the Session controller', async () => {
+    const ctx = new Context()
+    roots.push(ctx)
+    await ctx.plugin(TypertRegistry)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    ctx.tools.register(connectorTool('mcp__console__ping'))
+    const controller = createSessionTestController(ctx, {
+      defaultModelSelection: () => ({ provider: 'fixture', model: 'fixture-model' }), cwd: '/workspace',
+    })
+    const agent = agentUnder(ctx, 'mcp-facade')
+    await ctx.agents.register(agent)
+    expect(controller.listMcpConnectors()).toEqual({ connectorIds: ['console'] })
+    await expect(controller.selectMcp({ sessionId: agent.id, connectorIds: ['console', 'console'] }))
+      .resolves.toEqual({ selected: { connectorIds: ['console'] } })
+    await expect(controller.selectMcp({ sessionId: agent.id, connectorIds: ['missing'] }))
+      .rejects.toMatchObject({ code: 'gateway/bad-request', message: 'unknown MCP connector: missing' })
+  })
+
+  it('preserves remote errors and reports non-Error selection failures', async () => {
+    const { ctx, agents } = await harness()
+    const agent = agentUnder(ctx, 'mcp-errors')
+    await ctx.agents.register(agent)
+    const commands = new SessionCommandController(ctx, agents, '/workspace')
+    const failure = new RemoteError('gateway/internal', 'selection unavailable', {})
+    const select = vi.spyOn(agents, 'selectMcpFor').mockImplementationOnce(() => { throw failure })
+    await expect(commands.selectMcp({ sessionId: agent.id, connectorIds: [] })).rejects.toBe(failure)
+    select.mockImplementationOnce(() => { throw 'offline' })
+    await expect(commands.selectMcp({ sessionId: agent.id, connectorIds: [] }))
+      .rejects.toMatchObject({ code: 'gateway/bad-request', message: 'offline' })
+  })
+
+  it('lists unique connector namespaces and rejects unknown selections without recording them', async () => {
+    const { ctx, agents } = await harness()
+    for (const name of ['mcp__zeta__ping', 'mcp__alpha__ping', 'mcp__alpha__probe', 'local', 'mcp____invalid', 'mcp__incomplete']) {
+      ctx.tools.register(connectorTool(name))
+    }
+    expect(agents.listMcpConnectorIds()).toEqual(['alpha', 'zeta'])
+    const agent = agentUnder(ctx, 'mcp-normalize')
+    expect(() => { agents.selectMcpFor(agent, { connectorIds: ['missing'] }) }).toThrow('unknown MCP connector: missing')
+    expect(agents.mcpSelectionFor(agent.session)).toBeNull()
+    agents.selectMcpFor(agent, { connectorIds: ['zeta', 'alpha', 'zeta'] })
+    expect(agents.mcpSelectionFor(agent.session)).toEqual({ connectorIds: ['alpha', 'zeta'] })
+  })
+
+  it('records selections when the tool registry is absent', async () => {
+    const { ctx, agents } = await harness(false)
+    const agent = agentUnder(ctx, 'mcp-no-tools')
+    expect(agents.listMcpConnectorIds()).toEqual([])
+    agents.installMcpSelection(agent, null)
+    agents.selectMcpFor(agent, { connectorIds: [] })
+    expect(agents.mcpSelectionFor(agent.session)).toEqual({ connectorIds: [] })
+  })
+
+  it('updates restrictions and restores unrestricted access while preserving local tools', async () => {
+    const { ctx, agents } = await harness()
+    for (const name of ['mcp__console__ping', 'local', 'mcp____invalid']) ctx.tools.register(connectorTool(name))
+    const agent = agentUnder(ctx, 'mcp-update')
+    agents.installMcpSelection(agent, { connectorIds: [] })
+    const execute = (name: string) => ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId(name), name, arguments: {}, agent })
+    expect((await execute('local')).isError).toBe(false)
+    expect((await execute('mcp____invalid')).isError).toBe(false)
+    expect((await execute('mcp__console__ping')).isError).toBe(true)
+    agents.installMcpSelection(agent, null)
+    expect((await execute('mcp__console__ping')).isError).toBe(false)
+    agents.installMcpSelection(agent, { connectorIds: ['console'] })
+    expect((await execute('mcp__console__ping')).isError).toBe(false)
+  })
+
   it('installs without an injected tools property on the controller context', async () => {
     const { ctx, agents } = await harness()
     ctx.tools.register(connectorTool('mcp__console__ping'))

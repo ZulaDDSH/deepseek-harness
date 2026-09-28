@@ -59,8 +59,9 @@ export class ProviderQuotaController {
     const providers = this.providers.getSnapshot() ?? []
     const responses = await Promise.all(providers.map(provider => this.remote.quota.fetch(provider.id)))
     const failures = responses.filter(response => !response.ok)
-    if (failures.length === responses.length && failures.length > 0) {
-      this.state.set({ status: 'error', results: [], message: failures.at(0)?.error.message ?? 'Request failed' })
+    const failure = failures[0]
+    if (failures.length === responses.length && failure !== undefined) {
+      this.state.set({ status: 'error', results: [], message: failure.error.message })
       return
     }
     this.state.set({ status: 'ready', results: responses.flatMap(response => response.ok ? [response.value] : []) })

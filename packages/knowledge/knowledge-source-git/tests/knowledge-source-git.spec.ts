@@ -4,12 +4,13 @@
  * when the source advances.
  */
 
-import { describe, expect, it, beforeEach, afterEach } from 'vitest'
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
 import { execFile } from 'node:child_process'
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import { pathToFileURL } from 'node:url'
 import { cloneSource, listSourceFiles, resolveGitSource } from '../src/index.ts'
 
 const run = promisify(execFile)
@@ -41,12 +42,33 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   // Git leaves pack and index files briefly mapped on Windows, so a concurrent
   // run can lose the race against teardown; retry rather than fail the spec.
   await rm(workdir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 })
 
 describe('git knowledge source', () => {
+  it('clones a remote source into an absent directory and fetches an existing checkout', async () => {
+    const first = await commitFile('knowledge/note.md', 'first', 'first')
+    const remote = pathToFileURL(repo).href
+    const checkoutDir = join(workdir, 'new-checkout')
+    const source = { repo: remote, ref: 'master', paths: ['knowledge/**'], checkoutDir }
+    expect((await resolveGitSource(source)).commit).toBe(first)
+    const second = await commitFile('knowledge/note.md', 'second', 'second')
+    expect((await resolveGitSource({ ...source, ref: 'origin/master' })).commit).toBe(second)
+  })
+
+  it('uses the default checkout directory and reports an invalid checkout ref', async () => {
+    await commitFile('knowledge/note.md', 'first', 'first')
+    vi.spyOn(process, 'cwd').mockReturnValue(workdir)
+    const remote = pathToFileURL(repo).href
+    const resolved = await resolveGitSource({ repo: remote, ref: 'master', paths: [] })
+    expect(resolved.root).toBe(join(workdir, '.dsh-knowledge', remote.replace(/[^A-Za-z0-9._-]/gu, '_')))
+    await expect(resolveGitSource({ repo, ref: 'missing-ref', paths: [] })).rejects.toThrow(/git checkout failed:/)
+    expect(cloneSource('./local')).toBe('./local')
+  })
+
   it('resolves a local checkout to its exact commit', async () => {
     const commit = await commitFile('decisions/adr-001.md', '# ADR 001\nUse SQLite.', 'add adr')
     const resolved = await resolveGitSource({ repo, ref: 'master', paths: ['decisions/**'] })

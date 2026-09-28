@@ -29,6 +29,19 @@ function layer(overrides: Partial<ChatSectionsState> = {}): ChatSectionsState {
 afterEach(() => { localStorage.clear() })
 
 describe('Chat Sections persistence', () => {
+  it('rehydrates missing section arrays and reassigns members without saved ordering', () => {
+    localStorage.setItem('dsh.workspace.view.v5', JSON.stringify({
+      groupBy: 'workspace', orderBy: 'updated', groupExpansion: {}, sessionOrderByAccount: {},
+      chatSections: { members: { a: 'old' } },
+    }))
+    const instance = createWorkspaceViewStore().create()
+    expect(instance.getSnapshot().chatSections.sections).toEqual([])
+    instance.actions.createSection({ id: 'new', name: 'New' })
+    instance.actions.assignSession('a', 'new')
+    expect(instance.getSnapshot().chatSections.members).toEqual({ a: 'new' })
+    expect(instance.getSnapshot().chatSections.sectionOrder.new).toEqual(['a'])
+  })
+
   it('starts empty so every existing chat is ungrouped', () => {
     const instance = createWorkspaceViewStore().create()
     expect(instance.getSnapshot().chatSections).toEqual(emptyChatSections())
@@ -204,7 +217,7 @@ describe('Chat Sections derivation', () => {
     const sections = layer({
       sections: [{ id: 'work', name: 'Work' }],
       // 'gone' names a section that no longer exists.
-      members: { a: 'work', b: 'gone' },
+      members: { a: 'work', b: 'gone', hidden: 'work' },
     })
     const projection = deriveSections(sections, [sid('a'), sid('b')], summaries([['a', 2], ['b', 1]]))
     expect(projection.sections[0]?.sessionIds).toEqual([sid('a')])

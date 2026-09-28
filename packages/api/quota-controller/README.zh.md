@@ -23,7 +23,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-把本包挂载到同时提供 `ctx.credentials` 与 Remote gateway 的 Host 组合中。`listProviders()` 只报告凭据当前可解析的提供商，而 `fetch(providerId)` 返回标准化配额状态，绝不返回凭据本身。
+把本包挂载到同时提供 `ctx.credentials` 与 Remote gateway 的 Host 组合中。`listProviders()` 报告凭据当前可解析的提供商和已连接的模型提供商，而 `fetch(providerId)` 返回标准化配额状态，绝不返回凭据本身。并发读取共用一个待完成请求；请求完成或失败后会释放该请求，以便后续读取重试。
 
 内置提供商读取 DeepSeek 账户余额与 OpenCode Go 滚动配额窗口。部署代码可以通过 `QuotaControllerInternals` 提供额外的 `QuotaProvider` 条目。
 

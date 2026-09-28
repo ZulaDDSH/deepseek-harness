@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import {
   IconFolderOpenOutlineRegular, IconNewChatOutlineRegular, IconPlayOutlineRegular, IconSearchOutlineRegular,
-  Input, Modal,
+  Input, MenuSurface, Modal,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -34,7 +34,7 @@ export type QuickSwitcherProps =
 type SwitcherRow =
   | { key: string; kind: 'session'; title: string; detail?: string; sessionId: SessionId }
   | { key: string; kind: 'workspace'; title: string; detail?: string; workspaceId: WorkspaceId }
-  | { key: string; kind: 'command'; title: string; detail?: string; command: QuickCommand }
+  | { key: string; kind: 'command'; title: string; detail?: string; command: QuickCommand; sessionId: SessionId }
 
 function includes(text: string | undefined, query: string): boolean {
   return text?.toLocaleLowerCase().includes(query) ?? false
@@ -139,12 +139,13 @@ export function QuickSwitcher({
       detail: row.path,
       workspaceId: row.workspaceId,
     }))
-  const commandRows = commands.slice(0, 8).map((command): SwitcherRow => ({
+  const commandRows = currentSessionId === undefined ? [] : commands.slice(0, 8).map((command): SwitcherRow => ({
     key: `command:${command.name}`,
     kind: 'command',
     title: command.label ?? `/${command.name}`,
     ...(command.description === undefined ? {} : { detail: command.description }),
     command,
+    sessionId: currentSessionId,
   }))
   const rows = [...sessionRows, ...workspaceRows, ...commandRows]
   const selected = rows.length === 0 ? 0 : Math.min(active, rows.length - 1)
@@ -163,7 +164,7 @@ export function QuickSwitcher({
         void openWorkspace(row.workspaceId)
         break
       case 'command':
-        if (currentSessionId !== undefined) runQuick(currentSessionId, row.command.name)
+        runQuick(row.sessionId, row.command.name)
         break
     }
   }
@@ -194,13 +195,13 @@ export function QuickSwitcher({
           autoComplete="off"
           autoFocus
         />
-        <div className={css.results} role="listbox" aria-label={t('quick.title')}>
+        <MenuSurface className={css.results} role="listbox" aria-label={t('quick.title')}>
           {renderGroup(sessionRows, t('quick.sessions'))}
           {renderGroup(workspaceRows, t('quick.workspaces'))}
           {(commandRows.length > 0 || commandBusy) && renderGroup(commandRows, t('quick.commands'))}
           {rows.length === 0 && !commandBusy && <div className={css.empty}>{t('quick.empty')}</div>}
           {rows.length === 0 && commandBusy && <div className={css.empty}>{t('quick.loading')}</div>}
-        </div>
+        </MenuSurface>
         <div className={css.footer}><span>↑↓</span><span>{t('quick.navigate')}</span><span>↵</span><span>{t('quick.open')}</span></div>
       </div>
     </Modal>

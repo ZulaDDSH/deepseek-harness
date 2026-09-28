@@ -96,6 +96,92 @@ function openPalette(): void {
 }
 
 describe('QuickSwitcher', () => {
+  it('clamps keyboard selection when rows disappear and hides commands without their Session', async () => {
+    const quickCommands = vi.fn<QuickSwitcherProps['quickCommands']>(async () => [{ name: 'plain', kind: 'run' }])
+    const b = mount({ quickCommands })
+    openPalette()
+    const input = await screen.findByRole('textbox')
+    await screen.findByText('/plain')
+    fireEvent.keyDown(input, { key: 'ArrowUp' })
+    b.view.rerender(<QuickSwitcher {...b.props} useSessions={hook(sessions([summary('current', true)]))} useWorkspaces={hook(workspaces([]))} />)
+    expect(screen.getByRole('option', { name: /plain/ }).getAttribute('aria-selected')).toBe('true')
+    b.view.rerender(<QuickSwitcher {...b.props} useSessions={hook(sessions([]))} useWorkspaces={hook(workspaces([]))} />)
+    expect(screen.queryByText('/plain')).toBeNull()
+    expect(screen.getByText(zh['quick.empty'])).toBeTruthy()
+  })
+
+  it('ignores unrelated shortcuts and navigates with arrows, hover, and focus', async () => {
+    const b = mount()
+    fireEvent.keyDown(window, { key: 'x', ctrlKey: true })
+    fireEvent.keyDown(window, { key: 'k' })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    openPalette()
+    const input = await screen.findByRole('textbox')
+    await screen.findByText('/plan')
+    fireEvent.keyDown(input, { key: 'ArrowUp' })
+    expect(screen.getByRole('option', { name: /Theme/ }).getAttribute('aria-selected')).toBe('true')
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    expect(screen.getByRole('option', { name: /Current task/ }).getAttribute('aria-selected')).toBe('true')
+    fireEvent.keyDown(input, { key: 'Tab' })
+    fireEvent.mouseEnter(screen.getByRole('option', { name: /Other task/ }))
+    fireEvent.focusIn(screen.getByRole('option', { name: /Beta Workspace/ }))
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(b.openWorkspace).toHaveBeenCalledWith(wid('beta'))
+  })
+
+  it('omits missing, archived, and subagent Sessions and supports empty navigation', async () => {
+    const state = sessions([summary('archived'), summary('child', false, { origin: 'subagent' }), summary('plain')])
+    state.ids.push(sid('missing'))
+    const workspaceState = { ...workspaces([]), archivedSessionIds: [sid('archived')] }
+    mount({ useSessions: hook(state), useWorkspaces: hook(workspaceState) })
+    openPalette()
+    const input = await screen.findByRole('textbox')
+    expect(screen.queryByText('archived')).toBeNull()
+    expect(screen.queryByText('child')).toBeNull()
+    expect(screen.getByText('plain')).toBeTruthy()
+    fireEvent.change(input, { target: { value: 'absent' } })
+    expect(screen.getByText('没有匹配项')).toBeTruthy()
+    for (const key of ['ArrowUp', 'ArrowDown', 'Enter']) fireEvent.keyDown(input, { key })
+    expect(screen.getByRole('dialog')).toBeTruthy()
+  })
+
+  it('shows command loading and failure without losing local navigation', async () => {
+    let reject: ((reason: Error) => void) | undefined
+    const quickCommands: QuickSwitcherProps['quickCommands'] = () => new Promise((_resolve, fail) => { reject = fail })
+    const b = mount({ quickCommands })
+    openPalette()
+    const input = await screen.findByRole('textbox')
+    fireEvent.change(input, { target: { value: 'unmatched' } })
+    expect(await screen.findByText(zh['quick.loading'])).toBeTruthy()
+    if (reject === undefined) throw new Error('command request did not start')
+    reject(new Error('offline'))
+    await screen.findByText('没有匹配项')
+    fireEvent.change(input, { target: { value: '' } })
+    fireEvent.click(screen.getByText('Current task'))
+    expect(b.openSession).toHaveBeenCalledOnce()
+  })
+
+  it('ignores command responses and failures after their request is aborted', async () => {
+    let resolve: ((value: readonly []) => void) | undefined
+    let reject: ((error: Error) => void) | undefined
+    const quickCommands = vi.fn<QuickSwitcherProps['quickCommands']>()
+      .mockImplementationOnce(() => new Promise((finish) => { resolve = finish }))
+      .mockImplementationOnce(() => new Promise((_finish, fail) => { reject = fail }))
+    mount({ quickCommands })
+    openPalette()
+    await screen.findByRole('textbox')
+    openPalette()
+    if (resolve === undefined) throw new Error('command request did not start')
+    resolve([])
+    openPalette()
+    await screen.findByRole('textbox')
+    openPalette()
+    if (reject === undefined) throw new Error('second command request did not start')
+    reject(new Error('cancelled'))
+    await Promise.resolve()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
   it('opens from Ctrl/Cmd+K with Sessions, Workspaces, and current-Session commands', async () => {
     const b = mount()
     openPalette()

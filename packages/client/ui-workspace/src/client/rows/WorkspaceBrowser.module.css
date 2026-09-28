@@ -745,7 +745,7 @@
   height: 28px;
   padding: 0;
   border: 0.5px solid var(--dsw-alias-border-l3);
-  border-radius: 8px;
+  border-radius: var(--dsw-radius-sm);
   background: transparent;
   cursor: pointer;
   color: var(--dsw-alias-label-secondary);
@@ -781,7 +781,7 @@
    joins it — the pointer path for a collapsed or still-empty section. */
 .sectionGroup {
   position: relative;
-  border-radius: 8px;
+  border-radius: var(--dsw-radius-sm);
 }
 
 .sectionGroup + .sectionGroup,
