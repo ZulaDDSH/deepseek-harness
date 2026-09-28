@@ -655,9 +655,8 @@ function coverageGates(): Gate[] {
   const workers = coverageWorkerArgs()
   const timeouts = coverageTestTimeoutArgs(process.env[COVERAGE_TEST_TIMEOUT_ENV])
   const coverageIncludes = coverageFileIncludes(process.env.DSH_COVERAGE_FILES)
-  const configuredPartitions = process.env[COVERAGE_PARTITIONS_ENV]
-  const partitions = parseCoveragePartitionCount(configuredPartitions)
-  const instrumented = configuredPartitions === undefined || configuredPartitions === ''
+  const partitions = parseCoveragePartitionCount(process.env[COVERAGE_PARTITIONS_ENV])
+  const instrumented = partitions === undefined
     ? pnpmExec('coverage', [
       'vitest',
       'run',
