@@ -1,7 +1,7 @@
 /** Current repository status and line counts for the Source Control panel. */
 import { constants } from 'node:fs'
 import { lstat, open, readlink } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { WorkspaceFileDiff, WorkspaceStatus, WorkspaceStatusFile } from './types.ts'
 import { parseNumstat, type NumstatEntry } from './numstat.ts'
 import { compareText } from './compare.ts'
@@ -29,8 +29,8 @@ export async function readWorkspaceStatus(
   const records = parseStatus(status.stdout)
   const files: WorkspaceStatusFile[] = []
   for (const record of records) {
+    const absolute = await worktreePath(root, record.path)
     const counts = await countPath(git, root, record.path, signal)
-    const absolute = resolve(root, record.path)
     files.push({
       path: record.path,
       display: displayPathOf(absolute, cwd, root, ''),
@@ -98,8 +98,8 @@ async function readHead(git: GitRunner, root: string, path: string, maxBytes: nu
 /** Read symlink targets as Git blobs and regular work-tree text. */
 async function readWorktree(root: string, path: string, maxBytes: number, signal: AbortSignal): Promise<TextSide> {
   try {
-    const absolute = resolve(root, path)
     signal.throwIfAborted()
+    const absolute = await worktreePath(root, path)
     const stat = await lstat(absolute)
     let bytes: Buffer
     if (stat.isSymbolicLink()) {
@@ -130,6 +130,26 @@ async function readWorktree(root: string, path: string, maxBytes: number, signal
     throw error
   }
 }
+/** Resolve a repository entry without traversing symlinked parent directories. */
+async function worktreePath(root: string, path: string): Promise<string> {
+  const absolute = resolve(root, path)
+  const rel = relative(root, absolute)
+  if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw new Error(`worktree path is outside repository: ${path}`)
+  let parent = root
+  for (const component of rel.split(sep).slice(0, -1)) {
+    parent = join(parent, component)
+    try {
+      const stat = await lstat(parent)
+      if (stat.isSymbolicLink()) throw new Error(`worktree path traverses a symlinked directory: ${path}`)
+      if (!stat.isDirectory()) throw new Error(`worktree parent is not a directory: ${path}`)
+    } catch (error: unknown) {
+      if (typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'ENOENT') return absolute
+      throw error
+    }
+  }
+  return absolute
+}
+
 interface StatusRecord {
   index: string
   worktree: string

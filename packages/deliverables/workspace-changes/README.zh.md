@@ -49,7 +49,7 @@ Host 还会为已注册的 Workspace 提供实时状态和当前对比。状态�
 
 每个文件携带持久的 `path`——位于工作目录内时为相对路径，否则为绝对路径——以及用于排序和标签的 `display` 路径：相对路径，仓库内位于工作目录之上的文件为 `../` 路径，家目录下的文件为 `~` 路径，其余为绝对路径。文件按 `display` 的码元顺序排序，因此上级路径和绝对路径排在工作目录自身文件之前。`workspace/changes` 事件只携带轮号；`ctx.workspaceChanges.summary(sessionId, seq)` 返回该序号的事件宣告的摘要，Session 已释放或本 Host 进程从未记录时返回 undefined。`ctx.workspaceChanges.diff(sessionId, seq, index, signal)` 对比该下标所列的文件：从两棵快照树或两份副本得出带三行上下文的 hunk；git 报告为二进制或某一侧含 NUL 字节时返回 `binary`；某一侧超过 `maxFileBytes` 时返回 `oversized`。逐行对比运行超过 `diffTimeoutMs` 时退化为一个替换全部行的 hunk，并标记 `coarse`。因此 Host 重启后重新打开的对话，先前轮次既没有卡片也没有对比。
 
-实时对比使用符号链接的目标文本，与 Git blob 一致，不读取目标文件。常规工作树文件的读取最多消耗 `maxFileBytes + 1` 字节，超过包含上限值的限制时返回 `oversized`。
+实时对比使用符号链接的目标文本，与 Git blob 一致，不读取目标文件。实时状态行数和对比会拒绝符号链接目录下的路径，包括 Windows junction。常规工作树文件的读取最多消耗 `maxFileBytes + 1` 字节，超过包含上限值的限制时返回 `oversized`。
 
 -----
 
@@ -100,6 +100,7 @@ git 通过 `subprocess` 能力运行，使用净化后的环境、`GIT_CONFIG_CO
 - 对比会把所列文件的完整文本送到客户端，包括被忽略的文件、工作目录之上的仓库文件和工作区外的文件；摘要路由只送路径和行数。必须把这类内容留在 Host 上的部署应把本插件组合出去。
 - 退化为整文件替换的对比携带两侧的全部行，最多两倍 `maxFileBytes`。
 - Windows 路径在 `path` 中保留原生分隔符；`display` 始终用斜杠分隔。
+- 实时路径检查和读取是独立的文件系统操作；并发替换父目录可能使读取转向其他位置。
 
 <a id="dev-note"></a>
 ### 开发备注

@@ -1,5 +1,5 @@
 /** Live comparisons preserve Git symlink content and bound filesystem reads. */
-import { lstat, open, readFile, readlink, symlink, unlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, open, readFile, readlink, symlink, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { readWorkspaceDiff, readWorkspaceStatus } from '../src/status.ts'
@@ -82,11 +82,45 @@ it.each(['', 'abcd', 'abcde', 'éé', 'ééé'])('applies the inclusive byte lim
   const root = await scratchDir('dsh-status-limit-', cleanups)
   const { ctx, git: command } = await runner()
   cleanups.push(() => ctx.fiber.dispose())
-  await writeFile(join(root, 'file'), content)
-  const file = { path: 'file', display: 'file', index: '?', worktree: '?', added: 1, deleted: 0 }
+  await mkdir(join(root, '..notes'))
+  await writeFile(join(root, '..notes', 'file'), content)
+  const file = { path: '..notes/file', display: '..notes/file', index: '?', worktree: '?', added: 1, deleted: 0 }
   const diff = await readWorkspaceDiff(command, root, file, 4, 1000, signal)
   expect(diff.kind).toBe(Buffer.byteLength(content) > 4 ? 'oversized' : 'text')
   if (content !== '' && diff.kind === 'text') expect(diff.hunks.flatMap(hunk => hunk.lines)).toEqual([`+${content}`])
+})
+
+it.each(['../outside', '..', 'parent/file', 'missing/file'])('rejects escapes and non-directory parents, and preserves missing entries (%s)', async (path) => {
+  const root = await scratchDir('dsh-status-parent-', cleanups)
+  const { ctx, git: command } = await runner()
+  cleanups.push(() => ctx.fiber.dispose())
+  await writeFile(join(root, 'parent'), 'text')
+  const file = { path, display: path, index: '?', worktree: '?', added: 1, deleted: 0 }
+  if (path === 'missing/file') {
+    expect(await readWorkspaceDiff(command, root, file, 1024, 1000, signal)).toMatchObject({ kind: 'text', after: false })
+  } else {
+    await expect(readWorkspaceDiff(command, root, file, 1024, 1000, signal)).rejects.toThrow(
+      path === 'parent/file' ? 'worktree parent is not a directory' : 'worktree path is outside repository',
+    )
+  }
+})
+
+it('rejects a file below a directory symlink or Windows junction', async () => {
+  const directory = await scratchDir('dsh-status-directory-link-', cleanups)
+  const root = join(directory, 'repo')
+  const outside = join(directory, 'outside')
+  await mkdir(root)
+  await mkdir(outside)
+  git(root, 'init', '-q', '-b', 'main')
+  await writeFile(join(outside, 'secret.txt'), 'private destination contents')
+  await symlink(outside, join(root, 'link'), process.platform === 'win32' ? 'junction' : 'dir')
+  const { ctx, git: command } = await runner()
+  cleanups.push(() => ctx.fiber.dispose())
+  const file = { path: 'link/secret.txt', display: 'link/secret.txt', index: '?', worktree: '?', added: 1, deleted: 0 }
+  await expect(readWorkspaceDiff(command, root, file, 1024, 1000, signal)).rejects.toThrow(/symlinked directory/)
+  if (process.platform === 'win32') {
+    await expect(readWorkspaceStatus(command, root, root, 20, signal)).rejects.toThrow(/symlinked directory/)
+  }
 })
 
 it.for([false, true])('never discloses an external symlink destination (tracked=%s)', async (tracked, context) => {

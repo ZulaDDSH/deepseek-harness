@@ -49,7 +49,7 @@ Before a `write`, `edit`, or mutating `str_replace_editor` call runs, the record
 
 Each file carries a durable `path` — relative to the working directory inside it, absolute elsewhere — and a `display` path used for ordering and labels: the relative path, a `../` path for repository files above the working directory, a `~` path under the home directory, otherwise the absolute path. Files sort by `display` in code-unit order, which lists parent and absolute paths before the working directory's own files. The `workspace/changes` event carries only the turn number; `ctx.workspaceChanges.summary(sessionId, seq)` returns the summary the event with that sequence announced, or undefined once the Session is disposed or when this Host process never recorded it. `ctx.workspaceChanges.diff(sessionId, seq, index, signal)` compares the listed file at that index: hunks with three context lines from the two snapshot trees or the two copies, `binary` for a side git reported as binary or that holds a NUL byte, `oversized` for a side larger than `maxFileBytes`. A line comparison that runs longer than `diffTimeoutMs` degrades to one hunk replacing every line, marked `coarse`. A conversation reopened after a Host restart therefore has no card, and no comparison, for its earlier turns.
 
-Live comparisons use a symlink's target text, matching Git blobs, without reading its destination. Regular work-tree reads consume at most `maxFileBytes + 1` bytes and return `oversized` above the inclusive limit.
+Live comparisons use a symlink's target text, matching Git blobs, without reading its destination. Live status counts and comparisons reject paths below symlinked directories, including Windows junctions. Regular work-tree reads consume at most `maxFileBytes + 1` bytes and return `oversized` above the inclusive limit.
 
 -----
 
@@ -100,6 +100,7 @@ Nothing here enters a model request, so provider cache reuse is unaffected.
 - A comparison serves the listed file's complete text to the client, including ignored files, repository files above the working directory, and files outside the workspace; the summary route serves only paths and counts. A deployment that must keep such content on the Host composes this plugin out.
 - A comparison that degrades to whole-file replacement carries every line of both sides, up to twice `maxFileBytes`.
 - Windows paths keep native separators in `path`; `display` is always slash-separated.
+- Live path checks and reads are separate filesystem operations; concurrently replacing a parent directory can redirect a read.
 
 <a id="dev-note"></a>
 ### Dev Note
