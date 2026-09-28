@@ -148,6 +148,18 @@ The browser-login waiting page offers a copy-link action for the current pending
 
 The welcome window follows system appearance with the design’s Platform light/dark colors and shows the 600 × 700 [entry layout](https://www.figma.com/design/jRBBK7zBgcszdVWQ0Fh5J8/Harness?node-id=2121-39334) and the API-key form, with native window controls, a draggable title area, a local brand SVG, system sans-serif fallbacks, and locally bundled Montserrat Light for non-button text. The window uses macOS menu vibrancy or Windows acrylic with the onboarding window tint: 40% white in light mode and 50% rgb(24 25 28) in dark mode. The local React welcome entry bundles React and the shared `StateDot` loading indicator with its CSS; it uses the isolated preload without loading the main Web application. The entry, sign-in status and API-key pages share a fixed bottom action row; the back-to-sign-in link sits below it. Buttons share the platform motion timings, and Reduce Motion disables their transitions. The OS owns blur strength and outer corners. macOS Reduce Transparency suppresses translucency, and Increase Contrast forces that setting on. Save and continue writes to the development credential store; Set up later opens the real workspace without saving a key or completion flag. The generated project links the declared workspace dependency closure as well as pnpm’s hoisted packages, so unhoisted configured plugins remain resolvable. [The window note](../../.agents/notes/implemented/architecture/2026-09-08-desktop-welcome-window-material.md) owns the material and onboarding decisions.
 
+### Optional shared knowledge integration
+
+For source-tree Desktop development, the repository can point the Desktop profile at a shared GARDEN knowledge service:
+
+```sh
+node scripts/setup-knowledge-desktop.mjs --url http://192.168.1.50:18080/mcp --token-env GARDEN_KNOWLEDGE_TOKEN
+```
+
+Stop Desktop before running the setup command, then restart it. The helper appends one `@deepseek-ai/dsh-mcp-client` entry using Streamable HTTP and is idempotent when the entry is already present. The credential is read from the named environment variable, so no token is written into the profile patch; export the variable before launching Desktop. The default endpoint is `http://127.0.0.1:18080/mcp` for a service on the same machine; a LAN address such as `http://192.168.1.50:18080/mcp` lets several machines share one knowledge server.
+
+The knowledge service owns durable shared knowledge, retrieval, source attribution, and knowledge lifecycle. It is not the session, task, or provider authority: DSH owns sessions, agents, providers, tool exposure, and permissions. The global `@deepseek-ai/dsh-knowledge-policy` entry states how every agent uses shared knowledge and restricts verification, promotion, supersession, and staleness marking to an authorized supervisor.
+
 ## Package
 
 <a id="release-versions"></a>

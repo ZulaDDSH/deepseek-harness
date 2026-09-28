@@ -139,11 +139,32 @@
   color: var(--dsw-alias-state-business-primary);
 }
 
+/* Session-leading mark: the owning Workspace's icon choice ahead of the title.
+   The 16px cell comes from .slot; this only owns the title gap, so a row with
+   no mark keeps its unmodified title rhythm. */
+/* Color choice row: the palette entry shown in the menu's 16px icon slot. */
+.colorSwatch {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  corner-shape: round;
+}
 
-/* Project leading slot: folder by default, expand arrow on row hover. */
-.projectRow .chevron { display: none; }
-.projectRow:hover .chevron { display: inline-flex; }
-.projectRow:hover .folder { display: none; }
+/* Context-menu placeholder: an empty box inside the row that the portaled list
+   is anchored to. The pointer supplies the position through getAnchorRect, so
+   this only has to exist as the Menu's anchor child. */
+.contextAnchor {
+  display: none;
+}
+
+.sessionGlyph {
+  margin-right: 4px;
+}
+
+
+/* Keep the workspace identity and disclosure seats stable while the pointer moves. */
+.projectRow .chevron { display: inline-flex; }
 
 /* Expand arrow (filled triangle): points right closed, rotates to point down open. */
 .arrow {
@@ -190,6 +211,18 @@
    scroll-behavior applies here. */
 .sessionRow .title {
   flex: 1;
+}
+
+.statusLabel {
+  flex: none;
+  max-width: 104px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
 }
 
 /* While the marquee travels, both clipping edges fade in over 12px instead of
@@ -421,3 +454,5 @@
     transition: none;
   }
 }
+
+.workspaceGlyph { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; font-size: 12px; font-weight: 600; }

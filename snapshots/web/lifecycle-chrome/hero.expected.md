@@ -3,11 +3,14 @@
 - button "New session": New Session
 - navigation "Global panels":
   - button "Plugins"
+  - button "Changes"
 - text: Workspaces
+- button "Filter workspaces"
 - button "Search sessions"
 - textbox "Search session names"
-- button "View options"
 - button "Add workspace"
+- button "View options"
+- button "New section"
 - tree "Sessions":
   - treeitem "workspace" [expanded]
   - treeitem "New Session" [selected]

@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-dsh Web 客户端的侧边栏让用户识别当前构建、启动新会话、将导航折叠为 56px 轨道、浏览 Workspace 与 Session，以及打开 Settings。它会将 Settings 入口固定在底部，并在隐藏空闲滚动条时避免浏览器行发生位移。New Session 优先使用显式选择的 Workspace，其次使用当前 Session 所属的 Workspace，再其次使用最近活跃的 Workspace；如果都不存在，则打开空白的 New Session 页面。部署可以替换品牌标记或名称，同时保留导航控件和轨道几何。
+侧边栏提供应用标识、新建 Session、Workspace 与 Session 导航、Settings，以及 56px 折叠轨道。专注模式复用现有侧栏切换按钮作为**退出专注模式**，且不会改写已保存的宽度偏好。空闲滚动条保持隐藏，不会移动列表行。新建 Session 会依次选择显式 Workspace、当前 Session 的 Workspace、最近活动的 Workspace，最后才回退到空白页面。部署方可替换品牌图标或名称，而无需替换导航外壳。
 
 ## 目录
 

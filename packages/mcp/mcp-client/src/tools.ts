@@ -23,6 +23,8 @@ import type { ToolDefinition, ToolExecution, ToolExecutionResult } from '@deepse
 import { assertSupportedJsonSchema } from '@deepseek-ai/dsh-tools'
 import type { JsonSchemaNode } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
+import { toolAllowed } from './tool-filter.ts'
+import type { ResolvedToolFilter } from './tool-filter.ts'
 
 /** Resolved options relevant to tool bridging. */
 export interface ToolBridgeOptions {
@@ -30,6 +32,7 @@ export interface ToolBridgeOptions {
   registrationFailure: 'contain' | 'throw'
   serverName: string
   toolCallTimeoutMs: number
+  toolFilter?: ResolvedToolFilter
 }
 
 /** State for one sync generation: the current set of disposers keyed by public name. */
@@ -118,14 +121,22 @@ export async function syncTools(
 ): Promise<ToolDisposers> {
   // Phase 1: fetch and build the next generation without touching the registry.
   const definitions = new Map<string, ToolDefinition>()
+  const rawNames = new Set<string>()
   const response = client.getServerCapabilities()?.tools === undefined
     ? { tools: [] }
     : await client.listTools(undefined, { cacheMode: 'refresh' })
   for (const tool of response.tools) {
+    if (rawNames.has(tool.name)) {
+      throw new Error(
+        `mcp-client(${opts.serverName}): server listed tool "${tool.name}" more than once — invalid tool list`,
+      )
+    }
+    rawNames.add(tool.name)
+    if (!toolAllowed(opts.toolFilter, tool.name)) continue
     const publicName = publicToolName(opts.serverName, tool.name)
     if (definitions.has(publicName)) {
       throw new Error(
-        `mcp-client(${opts.serverName}): server listed tool "${tool.name}" more than once — invalid tool list`,
+        `mcp-client(${opts.serverName}): filtered tool names collide at "${publicName}"`,
       )
     }
     definitions.set(publicName, createMcpToolDefinition(ctx, {

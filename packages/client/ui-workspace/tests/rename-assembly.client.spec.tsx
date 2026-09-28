@@ -39,6 +39,12 @@ async function createRuntime(): Promise<SlotTestRuntime> {
   const runtime = await SlotTestRuntime.create()
   runtime.ctx.provide('shortcuts', { register: () => () => {}, catalog: createSnapshotStore([]) })
   runtime.ctx.provide('layout', { selectPanel: vi.fn(), beginNavigation: () => new AbortController().signal })
+  // The quick switcher consumes the command service structurally; its namespace
+  // only has to be present for ui-workspace's inject to settle.
+  runtime.ctx.provide('commandUi', {
+    quickCommands: vi.fn(async () => []),
+    runQuick: vi.fn(() => true),
+  } as never)
   runtime.releaseWorkspaceSource()
   // The rename flow never picks a directory; the namespace only has to be there
   // for ui-workspace's inject to settle.
@@ -122,10 +128,11 @@ describe('session rename through the assembled browser', () => {
     const row = (await view.findByText('Session title')).closest('[role="treeitem"]')!
     const trigger = within(row as HTMLElement).getByLabelText('会话“Session title”的操作')
     fireEvent.click(trigger)
+    // The browser-local appearance rows lead as data rows, closed by their own hairline.
     expect(view.getAllByRole('menuitem').map(item => item.textContent)).toEqual([
-      '置顶会话', '重命名', '分叉会话', '归档会话', 'Export action', 'Last action',
+      '颜色', '图标', '置顶会话', '重命名', '分叉会话', '归档会话', 'Export action', 'Last action',
     ])
-    expect(view.getAllByRole('separator')).toHaveLength(1)
+    expect(view.getAllByRole('separator')).toHaveLength(2)
     const last = view.getByRole('menuitem', { name: 'Last action' })
     const exportRow = view.getByRole('menuitem', { name: 'Export action' })
     trigger.focus()

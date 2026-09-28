@@ -14,7 +14,8 @@ import type { SessionInspection } from '@deepseek-ai/dsh-session-persistence'
 import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-typert-registry'
-import type { ModelSelection } from './types.ts'
+import type {} from '@deepseek-ai/dsh-tools'
+import type { McpSelection, ModelSelection } from './types.ts'
 
 /** Cold Session identity absent from persistence. */
 export class ApiSessionNotFound extends Error {}
@@ -65,9 +66,14 @@ export type ApiSessionAgentResult =
   | { readonly agent: Agent }
   | { readonly error: ApiSessionAgentError }
 
+type InstalledMcpSelection = {
+  selected: Set<string> | null
+  disposeRestriction: (() => void) | undefined
+  disposeGuard: (() => void) | undefined
+}
+
 type InstalledSelection = ModelSelectionRef & {
   current: AgentModelSelection
-  consume(provider: string, model: string, reasoningEffort: string | undefined): boolean
 }
 
 /**
@@ -141,6 +147,7 @@ export class ApiSessionAgentController {
   private readonly resumes = new Map<SessionId, Promise<Agent>>()
   private readonly creations = new Map<SessionId, Promise<Agent>>()
   private readonly selections = new WeakMap<Agent, InstalledSelection>()
+  private readonly mcpSelections = new WeakMap<Agent, InstalledMcpSelection>()
   private readonly imageAdmissionChains = new WeakMap<Agent, Promise<void>>()
 
   /** @param ctx - Host context carrying Agent, model, persistence, and Typert services. */
@@ -287,9 +294,9 @@ export class ApiSessionAgentController {
     if (projectionState === undefined) {
       throw new Error('api-session: required modelSelection projection is not registered')
     }
-    let picked = projectionState.pending === null
+    let picked = projectionState.selected === null
       ? undefined
-      : agentModelSelection(projectionState.pending)
+      : agentModelSelection(projectionState.selected)
     const defaultModel = this.ctx.agentDefaultModel
     const selection: InstalledSelection = {
       get current(): AgentModelSelection {
@@ -311,13 +318,6 @@ export class ApiSessionAgentController {
       set current(next: AgentModelSelection) {
         picked = next
       },
-      consume(provider: string, model: string, reasoningEffort: string | undefined): boolean {
-        if (picked?.provider !== provider
-          || picked.model !== model
-          || picked.reasoningEffort !== reasoningEffort) return false
-        picked = undefined
-        return true
-      },
       assembled: undefined,
     }
     installModelSelection(agent.ctx, selection)
@@ -326,30 +326,15 @@ export class ApiSessionAgentController {
   }
 
   /**
-   * Commit and cache one validated selection for the next prompt assembly.
+   * Commit and cache one validated model selection for this Session.
+   * The selection stays in force for every later request until another one
+   * replaces it, so a request that ran something else cannot displace it.
    * @param agent - live Agent that owns the selection.
    * @param selection - validated selection to record and apply.
    */
-  selectForNextRequest(agent: Agent, selection: AgentModelSelection): void {
+  selectModel(agent: Agent, selection: AgentModelSelection): void {
     agent.session.append('model/selection', selection)
     this.selectionFor(agent).current = selection
-  }
-
-  /**
-   * Let a matching durable request header retire the execution cache.
-   * @param agent - live Agent whose request was recorded.
-   * @param provider - provider route used by the request.
-   * @param model - provider-owned model used by the request.
-   * @param reasoningEffort - adapter-owned effort used by the request.
-   * @returns whether the pending selection was consumed.
-   */
-  consumeSelection(
-    agent: Agent,
-    provider: string,
-    model: string,
-    reasoningEffort: string | undefined,
-  ): boolean {
-    return this.selections.get(agent)?.consume(provider, model, reasoningEffort) ?? false
   }
 
   /**
@@ -359,6 +344,75 @@ export class ApiSessionAgentController {
    */
   presetForSession(session: Session): string | undefined {
     return this.ctx.sessionProjections.stateOf(session, 'agentPreset') ?? undefined
+  }
+
+  /**
+   * Return MCP connector namespaces exposed by the current global tool registry.
+   * @returns sorted connector namespace identifiers.
+   */
+  listMcpConnectorIds(): readonly string[] {
+    const ids = new Set<string>()
+    for (const schema of this.ctx.get('tools')?.schemas() ?? []) {
+      const rest = schema.name.startsWith('mcp__') ? schema.name.slice(5) : ''
+      const separator = rest.indexOf('__')
+      if (separator > 0) ids.add(rest.slice(0, separator))
+    }
+    return [...ids].sort()
+  }
+
+  /**
+   * Read the durable MCP selection for one Session.
+   * @param session - Session whose projected selection should be read.
+   * @returns the current selection, or null when unrestricted.
+   */
+  mcpSelectionFor(session: Session): McpSelection | null {
+    return this.ctx.sessionProjections.stateOf(session, 'mcpSelection')?.current ?? null
+  }
+
+  /**
+   * Install or update the Agent-scoped MCP restriction.
+   * @param agent - live Agent whose tool registry is restricted.
+   * @param selection - selected connector namespaces, or null for unrestricted access.
+   */
+  installMcpSelection(agent: Agent, selection: McpSelection | null): void {
+    const runtime = this.mcpSelections.get(agent) ?? { selected: null, disposeRestriction: undefined, disposeGuard: undefined }
+    runtime.selected = selection === null ? null : new Set(selection.connectorIds)
+    const tools = agent.ctx.get('tools')
+    if (tools === undefined) {
+      this.mcpSelections.set(agent, runtime)
+      return
+    }
+    runtime.disposeGuard ??= tools.guard((execution) => {
+      const rest = execution.name.startsWith('mcp__') ? execution.name.slice(5) : ''
+      const separator = rest.indexOf('__')
+      if (separator <= 0 || runtime.selected === null || runtime.selected.has(rest.slice(0, separator))) return undefined
+      return 'MCP connector is not enabled for this Session'
+    })
+    runtime.disposeRestriction?.()
+    const allTools = tools.schemas().map(schema => schema.name)
+    const deny = runtime.selected === null
+      ? []
+      : allTools.filter((name) => {
+        const rest = name.startsWith('mcp__') ? name.slice(5) : ''
+        const separator = rest.indexOf('__')
+        return separator > 0 && !runtime.selected?.has(rest.slice(0, separator))
+      })
+    runtime.disposeRestriction = deny.length === 0 ? undefined : tools.restrict({ deny })
+    this.mcpSelections.set(agent, runtime)
+  }
+
+  /**
+   * Persist and apply one MCP connector selection for a live Agent.
+   * @param agent - live Agent that owns the Session selection.
+   * @param selection - requested connector namespaces.
+   */
+  selectMcpFor(agent: Agent, selection: McpSelection): void {
+    const allowed = new Set(this.listMcpConnectorIds())
+    const invalid = selection.connectorIds.filter(id => !allowed.has(id))
+    if (invalid.length > 0) throw new Error(`unknown MCP connector: ${invalid[0]}`)
+    const normalized = { connectorIds: [...new Set(selection.connectorIds)].sort() }
+    agent.session.append('mcp/selection', normalized)
+    this.installMcpSelection(agent, normalized)
   }
 
   /**
@@ -384,7 +438,12 @@ export class ApiSessionAgentController {
   }> {
     const presets = this.ctx.get('agentPresets')
     if (presets === undefined) {
-      return { setup: (_agentCtx, agent) => { this.installSelection(agent) } }
+      return {
+        setup: (_agentCtx, agent) => {
+          this.installSelection(agent)
+          this.installMcpSelection(agent, this.mcpSelectionFor(agent.session))
+        },
+      }
     }
     const resolvedId = (await presets.resolve(presetId)).id
     return {
@@ -392,6 +451,7 @@ export class ApiSessionAgentController {
       setup: async (agentCtx, agent) => {
         this.installSelection(agent)
         await presets.mount(agentCtx, resolvedId)
+        this.installMcpSelection(agent, this.mcpSelectionFor(agent.session))
       },
     }
   }

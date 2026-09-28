@@ -9,7 +9,9 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-This plugin summarizes which files each top-level turn changed, with per-file line counts, and serves each listed file's turn-start and turn-end comparison. Git snapshots of the working tree at turn start and turn end are diffed; every file a file tool edits is copied whole before its first edit and again at turn end, covering the files git does not. Without a repository or git, only file-tool edits are listed. The Session log receives one `workspace/changes` event naming the turn; summaries and comparisons stay on the Host until the Session is disposed. The Web changed-files card renders them.
+This plugin lists changed files, serves bounded comparisons, and provides live Git status and comparisons for registered Workspaces. Turn summaries use Git snapshots and whole-file captures for file-tool edits outside Git coverage. The Host keeps results while the Session lives and announces one `workspace/changes` event. Without Git, only file-tool edits appear; the Web card renders summaries.
+
+The Host also serves a live status and current comparison for a registered Workspace. The status uses Git porcelain records and line counts against HEAD; unknown Workspaces and directories outside Git repositories return no status or comparison. These reads do not append Session events.
 
 ## Table of Contents
 
@@ -46,6 +48,8 @@ Every Session with a working directory and no subagent origin is recorded; subag
 Before a `write`, `edit`, or mutating `str_replace_editor` call runs, the recorder copies the file at its path into the Session's temporary directory, once per path per turn, and copies it again at turn end; the copies are named by the SHA-1 of their bytes, so identical content is stored once. This needs no git. Paths the snapshots cover keep their git counts; the copies serve the other paths — files matching an ignore pattern, files outside the repository, and every file-tool edit when there is no snapshot — with counts from a line comparison of the two copies, so repeated edits to one file count once and a shell edit after a file-tool edit is included. A path whose content is unchanged at turn end is not listed. A copy larger than `maxFileBytes` is not stored: the file is listed with `oversized` and no counts, and a path whose both sides are that large is listed too, since unread content is never known to be unchanged. A path whose only difference is a missing final newline compares as unchanged, while git still counts that line. Files under `/tmp` or the platform temporary directory are excluded unless they lie inside the repository. Changes made only through shell commands outside the snapshot coverage are not recorded.
 
 Each file carries a durable `path` — relative to the working directory inside it, absolute elsewhere — and a `display` path used for ordering and labels: the relative path, a `../` path for repository files above the working directory, a `~` path under the home directory, otherwise the absolute path. Files sort by `display` in code-unit order, which lists parent and absolute paths before the working directory's own files. The `workspace/changes` event carries only the turn number; `ctx.workspaceChanges.summary(sessionId, seq)` returns the summary the event with that sequence announced, or undefined once the Session is disposed or when this Host process never recorded it. `ctx.workspaceChanges.diff(sessionId, seq, index, signal)` compares the listed file at that index: hunks with three context lines from the two snapshot trees or the two copies, `binary` for a side git reported as binary or that holds a NUL byte, `oversized` for a side larger than `maxFileBytes`. A line comparison that runs longer than `diffTimeoutMs` degrades to one hunk replacing every line, marked `coarse`. A conversation reopened after a Host restart therefore has no card, and no comparison, for its earlier turns.
+
+Live comparisons use a symlink's target text, matching Git blobs, without reading its destination. Live status counts and comparisons reject paths below symlinked directories, including Windows junctions. Regular work-tree reads consume at most `maxFileBytes + 1` bytes and return `oversized` above the inclusive limit.
 
 -----
 
@@ -96,6 +100,7 @@ Nothing here enters a model request, so provider cache reuse is unaffected.
 - A comparison serves the listed file's complete text to the client, including ignored files, repository files above the working directory, and files outside the workspace; the summary route serves only paths and counts. A deployment that must keep such content on the Host composes this plugin out.
 - A comparison that degrades to whole-file replacement carries every line of both sides, up to twice `maxFileBytes`.
 - Windows paths keep native separators in `path`; `display` is always slash-separated.
+- Live path checks and reads are separate filesystem operations; concurrently replacing a parent directory can redirect a read.
 
 <a id="dev-note"></a>
 ### Dev Note
@@ -103,6 +108,6 @@ Nothing here enters a model request, so provider cache reuse is unaffected.
 <details>
 <summary>Working context for maintainers — click to expand</summary>
 
-None.
+`status.ts:countPath` accepts an empty numstat response as zero counts. Every nonempty response passes through `numstat.ts:parseNumstat`, which returns at least one record or rejects malformed output; command failures remain errors.
 
 </details>

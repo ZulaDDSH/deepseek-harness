@@ -246,7 +246,7 @@
     "f2fe8bd862649a2492b7f99f0c35e78ba051a248f339d248d0dcfab163c69752": 1
   },
   "packages/api/session-controller/tests/controller.host.spec.ts": {
-    "40725eab4d86929b16d87c88d5cf83168035def78b4d901613dd0369876f0731": 4,
+    "40725eab4d86929b16d87c88d5cf83168035def78b4d901613dd0369876f0731": 3,
     "6667f55d27d315e8906a2ffdd1b7ab83c3785036fce5575f865b1dab9f3710b3": 2
   },
   "packages/api/session-controller/tests/event-script.client.ts": {
@@ -671,7 +671,6 @@
     "fd6a096d3e7b6ef3e57058b9246118020d10aab852ba64f3296ba07d9e8e7116": 1
   },
   "packages/client/ui-sidebar-documentpreview/tests/fixtures.client.ts": {
-    "410ac7f98f84d730fc008a23d09f26dd5e8d329c91df6e4d8977255b07935a4c": 1,
     "5fac996b1dd9ca4a26580c92e56a82ebe711af84cb711042265e4c03d1997a17": 1,
     "bccbd200429e3147b8602a65bc06d46264a54c0318232051adeac835deaa311b": 1
   },
@@ -988,8 +987,8 @@
     "7fe58280287ff63d40e979e72329f975e11015a95e9a8eec207a5a78748d3c89": 1
   },
   "packages/core/tools/src/index.ts": {
-    "6061de0a1e01547eb1abf9d4e1b5fa79fda112fa35dda980775491123413dcce": 1,
-    "5639a84e4446e0bad6c55c8543cc984e09598a66f50d79fb6065501727919772": 1
+    "5639a84e4446e0bad6c55c8543cc984e09598a66f50d79fb6065501727919772": 1,
+    "6061de0a1e01547eb1abf9d4e1b5fa79fda112fa35dda980775491123413dcce": 1
   },
   "packages/core/tools/src/ptc.ts": {
     "dfa48d6930621bc7332e15ad2146cfd49542a64075f820bd3e1f48083679bfd1": 1

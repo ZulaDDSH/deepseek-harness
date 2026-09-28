@@ -51,6 +51,7 @@ export const coverageExemptHeavySuites: readonly CoverageExemptSuite[] = [
   // Compiler-bound: scans the whole repo with the TypeScript compiler to build
   // a persistence schema, over scripts/ sources coverage never measures.
   { filter: 'scripts/persistence-epoch-header.spec.ts', exclude: 'scripts/persistence-epoch-header.spec.ts' },
+  { filter: 'scripts/gen-client-catalog.spec.ts', exclude: 'scripts/gen-client-catalog.spec.ts' },
   // Built-artifact proof. Packer/runtime src is threshold-excluded, and the
   // suite self-skips on unbuilt checkouts; the serial-windows complete
   // reference still starts this uninstrumented gate after its build gate, so

@@ -113,6 +113,10 @@ describe('WorkspaceBrowser.module.css list', () => {
       .toBe('var(--dsw-alias-interactive-bg-hover)')
   })
 
+  it('keeps the Workspace disclosure chevron beside its identity glyph', () => {
+    expect(rowDeclarations('.projectRow .chevron')?.get('display')).toBe('inline-flex')
+  })
+
   it('marquees a clipped session title on row hover', () => {
     // The crawl itself is scripted in Rows.tsx frame by frame, so the title
     // declares no scroll-behavior; the stylesheet keeps the hovered cell
@@ -133,5 +137,59 @@ describe('WorkspaceBrowser.module.css list', () => {
     expect(declarations('.rail .sectionHeader')?.get('justify-content')).toBe('flex-start')
     expect(declarations('.rail .iconButton')?.get('width')).toBe('36px')
     expect(declarations('.rail .search')?.get('width')).toBe('36px')
+  })
+
+  it('sizes the header action cap to fit every control it holds', () => {
+    // `overflow: hidden` clips the cluster's tail, so an undersized cap hides a
+    // control while leaving it in the DOM — invisible to a DOM-only assertion,
+    // and to the operator only as a missing button. The cap must cover every
+    // member: Add workspace, New section, and View options at 28px each.
+    const cap = declarations('.headerActions')?.get('max-width')
+    expect(cap).toBeDefined()
+    expect(declarations('.headerActions')?.get('overflow')).toBe('hidden')
+    const controls = 3
+    const button = 28
+    const gap = 4
+    const needed = controls * button + (controls - 1) * gap
+    expect(Number.parseFloat(cap!.replace('px', ''))).toBeGreaterThanOrEqual(needed)
+    // Collapsing still animates the same property to zero.
+    expect(declarations('.headerActionsHidden')?.get('max-width')).toBe('0')
+  })
+
+  it('splits the Sections pane evenly with the Workspace pane', () => {
+    // The pane must not grow beyond its content in the stacked seat.
+    expect(declarations('.sectionsPane')?.get('flex')).toBe('1 1 0')
+    // The Workspace pane takes exactly the leftover space.
+    expect(declarations('.workspacePane')?.get('flex')).toBe('1 1 0')
+    expect(declarations('.workspacePane')?.get('min-height')).toBe('0')
+    // Overflow is confined to the pane's scroll area.
+    expect(declarations('.sectionsScroll')?.get('overflow-y')).toBe('auto')
+    expect(declarations('.sectionsScroll')?.get('min-height')).toBe('0')
+  })
+
+  it('reserves the themed scrollbar inside the Sections pane like the main list', () => {
+    // The two panes sit in one column, so their scrollbars must occupy the
+    // same track width and offset or the divider reads as misaligned.
+    const pane = declarations('.sectionsScroll')
+    const list = declarations('.list')
+    expect(pane?.get('margin-right')).toBe('var(--dsh-session-list-scrollbar-offset)')
+    expect(pane?.get('margin-right')).toBe(list?.get('margin-right'))
+    expect(pane?.get('padding-right')).toBe(list?.get('padding-right'))
+    expect(pane?.get('scrollbar-gutter')).toBe('stable')
+  })
+
+  it('gives Chat Section blocks the same rhythm as Workspace groups', () => {
+    // Sections sit in the same list as Workspace groups, so the 2px row gap
+    // and 4px block gap must match or the two projections look like different
+    // lists when a section is created.
+    expect(declarations('.sectionGroup > * + *')?.get('margin-top')).toBe('2px')
+    expect(declarations('.sectionGroup + .sectionGroup')?.get('margin-top')).toBe('4px')
+    expect(declarations('.ungroupedBlock > * + *')?.get('margin-top')).toBe('2px')
+    // The join fill reuses the row hover alias rather than a literal colour.
+    expect(declarations('.sectionJoinActive')?.get('background'))
+      .toBe('var(--dsw-alias-interactive-bg-hover)')
+    // The join outline rides the same accent every other drop marker uses.
+    expect(declarations('.sectionGroup.dropInside')?.get('box-shadow'))
+      .toContain('var(--dsw-alias-state-business-primary)')
   })
 })

@@ -48,9 +48,8 @@ describe('web e2e: hovering a clipped session title marquees it to its far edge'
     onTestFailed(() => saveFailureShot(page, 'web-e2e-sidebar-title-hover-scroll'))
     const row = page.getByRole('treeitem').filter({ has: page.getByText(TITLE, { exact: true }) })
     await row.waitFor({ timeout: 20_000 })
-    const title = row.getByText(TITLE, { exact: true })
+    const title = row.getByText(TITLE, { exact: true }).first()
 
-    // At rest the row clips its title with an ellipsis and holds its start.
     expect(await title.evaluate(el => el.scrollWidth - el.clientWidth)).toBeGreaterThan(0)
     expect(await title.evaluate(el => getComputedStyle(el).textOverflow)).toBe('ellipsis')
     expect(await title.evaluate(el => el.scrollLeft)).toBe(0)
@@ -93,6 +92,7 @@ describe('web e2e: hovering a clipped session title marquees it to its far edge'
     ).toBe(0)
     expect(await title.evaluate(el => el.hasAttribute('data-scrolled'))).toBe(false)
     expect(await title.evaluate(el => getComputedStyle(el).textOverflow)).toBe('ellipsis')
+    expect(await page.getByText(TITLE, { exact: true }).count()).toBeGreaterThanOrEqual(2)
 
     // Reduced motion reaches the handler's matchMedia probe: the reveal jumps
     // to the far edge instead of crawling.

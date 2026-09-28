@@ -43,8 +43,9 @@ import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
 
 /** Per-adapter-family curated field sets (unknown namespaces get the hint alone). */
-type EditorLayout = 'deepseek' | 'pi-ai' | 'unknown'
+type EditorLayout = 'deepseek' | 'pi-ai' | 'jev' | 'unknown'
 
+export type ModelPickerOption = { provider: string; displayName: string; models: readonly string[] }
 
 
 /** Props of {@link ProviderEditor}. */
@@ -67,6 +68,7 @@ export interface ProviderEditorProps {
   namespace: SettingsNamespaceView
   /** Settings-owned synchronous schema and immutable path operations. */
   schema: SettingsSchemaOperations
+  modelOptions?: readonly ModelPickerOption[]
   /** Path from the section root to this provider's profile. */
   settingsPath: readonly string[]
   /** The Host operations this card writes and interrogates through. */
@@ -150,10 +152,25 @@ export function pathOps(
   return ops
 }
 
+/**
+ * The editable fields of one Jev route in render order, each paired with the
+ * locale key naming it. A `Map` rather than an object literal because a
+ * `description` row there reads as unlocalized product copy to the
+ * client-i18n gate, which cannot tell a locale key from the copy itself.
+ */
+const JEV_ROUTE_FIELDS = new Map([
+  ['id', 'jevRouteId'],
+  ['provider', 'jevRouteProvider'],
+  ['model', 'jevRouteModel'],
+  ['description', 'jevRouteDescription'],
+  ['reasoningEffort', 'jevRouteReasoningEffort'],
+] as const)
+
 /** The editor layout the owning namespace selects. */
 function layoutOf(ns: string): EditorLayout {
   if (ns === 'llm-deepseek') return 'deepseek'
   if (ns === 'llm-pi-ai') return 'pi-ai'
+  if (ns === 'llm-jev-router') return 'jev'
   return 'unknown'
 }
 
@@ -163,12 +180,18 @@ function refFor(
   namespace: SettingsNamespaceView,
   path: readonly string[],
   provider: string,
+  draft: unknown,
 ): string {
-  const profile = schema.getPath(namespace.value, path)
-  const named = typeof profile === 'object' && profile !== null
-    ? (profile as { apiKeyEnv?: unknown }).apiKeyEnv
-    : undefined
-  return typeof named === 'string' && named.length > 0 ? named : deriveKeyRef(provider)
+  // The card's own edit wins, then the layers beneath it, so a field this card
+  // has not touched still resolves the reference the profile actually uses.
+  for (const source of [draft, namespace.base, namespace.value]) {
+    const profile = schema.getPath(source, path)
+    const named = typeof profile === 'object' && profile !== null
+      ? (profile as { apiKeyEnv?: unknown }).apiKeyEnv
+      : undefined
+    if (typeof named === 'string' && named.length > 0) return named
+  }
+  return deriveKeyRef(provider)
 }
 
 /**
@@ -200,7 +223,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   const accountProvider = props.provider === 'deepseek-account'
   // Account settings use a configurable Cordis entry id.
   const layout = accountProvider ? 'deepseek' : layoutOf(namespace.ns)
-  const keyRef = refFor(schema, namespace, settingsPath, props.provider)
+  const keyRef = refFor(schema, namespace, settingsPath, props.provider, draft)
   // The same schema read the create card makes, so the choices offered here
   // and there cannot drift apart: both come from the adapter's own `Config`.
   // Only the pi-ai layout has a per-route protocol for the read to find, and
@@ -359,7 +382,220 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
    * narrowed so the per-family branches below are total: an unknown namespace
    * renders the hint instead and never reaches this body.
    */
-  const curatedFields = (family: 'deepseek' | 'pi-ai'): ReactNode => {
+  const curatedFields = (family: 'deepseek' | 'pi-ai' | 'jev'): ReactNode => {
+    if (family === 'jev') {
+      const keyPlaceholder = keyLocked
+        ? t('keyEnvLocked')
+        : keyState?.configured === true && props.credentialRequired !== true
+          ? t('keyStored')
+          : t('keyPlaceholder')
+      const effective = (key: string): unknown => schema.getPath(draft, [key]) ?? schema.getPath(fallback, [key])
+      const textValue = (key: string, defaultValue: string): string => {
+        const value = effective(key)
+        return typeof value === 'string' ? value : defaultValue
+      }
+      const numberValue = (key: string, defaultValue: number): number => {
+        const value = effective(key)
+        return typeof value === 'number' ? value : defaultValue
+      }
+      const booleanValue = (key: string, defaultValue: boolean): boolean => {
+        const value = effective(key)
+        return typeof value === 'boolean' ? value : defaultValue
+      }
+      const setNumber = (key: string, value: string): void => {
+        // A cleared or unparseable field unsets the key rather than storing the
+        // zero `Number('')` yields, which the section schema would then refuse.
+        const parsed = value.trim().length === 0 ? Number.NaN : Number(value)
+        setDraft(current => Number.isFinite(parsed)
+          ? schema.setPath(current, [key], parsed)
+          : schema.deletePath(current, [key]))
+      }
+      const routeSource = effective('routes')
+      const routes = Array.isArray(routeSource)
+        ? routeSource.filter((route): route is Record<string, unknown> => (
+          typeof route === 'object' && route !== null && !Array.isArray(route)
+        )).map(route => ({ ...route }))
+        : []
+      const routeText = (route: Record<string, unknown>, key: string): string => {
+        const value = route[key]
+        return typeof value === 'string' ? value : ''
+      }
+      const setRoutes = (next: Record<string, unknown>[]): void => {
+        setDraft(current => schema.setPath(current, ['routes'], next))
+      }
+      const updateRoute = (index: number, key: string, value: string | undefined): void => {
+        setRoutes(routes.map((route, routeIndex) => routeIndex === index
+          ? value === undefined ? schema.deletePath(route, [key]) : { ...route, [key]: value }
+          : route))
+      }
+      const textSetting = (labelKey: keyof typeof en, fieldKey: string, defaultValue: string): ReactNode => (
+        <div className={styles['field']} key={fieldKey}>
+          <label className={styles['fieldLabel']} htmlFor={`jev-${fieldKey}`}>{t(labelKey)}</label>
+          <input
+            id={`jev-${fieldKey}`}
+            className={styles['input']}
+            type="text"
+            value={textValue(fieldKey, defaultValue)}
+            aria-label={t(labelKey)}
+            disabled={disabled}
+            onChange={(event) => { setField(fieldKey, event.target.value) }}
+          />
+        </div>
+      )
+      const numberSetting = (
+        labelKey: keyof typeof en,
+        fieldKey: string,
+        defaultValue: number,
+        min: number,
+        max?: number,
+        step = 1,
+      ): ReactNode => (
+        <div className={styles['field']} key={fieldKey}>
+          <label className={styles['fieldLabel']} htmlFor={`jev-${fieldKey}`}>{t(labelKey)}</label>
+          <input
+            id={`jev-${fieldKey}`}
+            className={styles['input']}
+            type="number"
+            value={numberValue(fieldKey, defaultValue)}
+            min={min}
+            {...max === undefined ? {} : { max }}
+            step={step}
+            aria-label={t(labelKey)}
+            disabled={disabled}
+            onChange={(event) => { setNumber(fieldKey, event.target.value) }}
+          />
+        </div>
+      )
+      const providers = props.modelOptions ?? []
+      const providerIds = [...new Set(providers.map(option => option.provider))]
+      const keyField = (
+        <div className={styles['field']}>
+          <span className={styles['fieldLabel']}>{t('keyInput')}</span>
+          <input
+            className={styles['input']}
+            type="password"
+            autoComplete="off"
+            value={keyDraft}
+            placeholder={keyPlaceholder}
+            aria-label={t('keyInput')}
+            aria-invalid={shownKeyFailure !== undefined}
+            required={props.credentialRequired === true}
+            autoFocus={props.autoFocusCredential === true}
+            disabled={disabled || keyLocked}
+            onChange={(event) => { setKeyDraft(event.target.value) }}
+          />
+          {shownKeyFailure === undefined ? null : <p className={styles['error']}>{t(shownKeyFailure)}</p>}
+        </div>
+      )
+      if (props.credentialOnly === true) return keyField
+      return (
+        <>
+          {keyField}
+          <div className={styles['customizedBody']}>
+            <div className={styles['field']}>
+              <label className={styles['fieldLabel']}>
+                <input
+                  type="checkbox"
+                  checked={booleanValue('enabled', false)}
+                  aria-label={t('jevEnabled')}
+                  disabled={disabled}
+                  onChange={(event) => {
+                    setDraft(current => schema.setPath(current, ['enabled'], event.target.checked))
+                  }}
+                />
+                {t('jevEnabled')}
+              </label>
+            </div>
+            {textSetting('jevApiKeyEnv', 'apiKeyEnv', 'TYPESAFE_API_KEY')}
+            {textSetting('jevEndpoint', 'endpoint', 'https://api.typesafe.ai/v1/systemone')}
+            {textSetting('jevModel', 'model', 'jev-latest')}
+            {numberSetting('jevTimeoutMs', 'timeoutMs', 1500, 1)}
+            {numberSetting('jevMinConfidence', 'minConfidence', 0.8, 0, 1, 0.01)}
+            {numberSetting('jevStateMaxChars', 'stateMaxChars', 12000, 256)}
+            {textSetting('jevFallback', 'fallback', 'keep')}
+            <div className={styles['field']}>
+              <label className={styles['fieldLabel']}>
+                <input
+                  type="checkbox"
+                  checked={booleanValue('failOpen', true)}
+                  aria-label={t('jevFailOpen')}
+                  disabled={disabled}
+                  onChange={(event) => {
+                    setDraft(current => schema.setPath(current, ['failOpen'], event.target.checked))
+                  }}
+                />
+                {t('jevFailOpen')}
+              </label>
+            </div>
+            <div className={styles['field']}>
+              <span className={styles['fieldLabel']}>{t('jevRoutes')}</span>
+              <div className={styles['modelList']}>
+                {routes.map((route, index) => {
+                  const selectedProvider = routeText(route, 'provider')
+                  const selectedModels = providers.find(option => option.provider === selectedProvider)?.models ?? []
+                  const modelIds = [...new Set([...selectedModels, routeText(route, 'model')].filter(value => value.length > 0))]
+                  return (
+                    <div className={styles['modelEntry']} key={`${routeText(route, 'id')}-${index}`}>
+                      {[...JEV_ROUTE_FIELDS].map(([fieldKey, labelKey]) => {
+                        const listId = fieldKey === 'provider' ? 'jev-provider-options' : `jev-route-${index}-${fieldKey}-options`
+                        const options = fieldKey === 'provider' ? providerIds : fieldKey === 'model' ? modelIds : []
+                        return (
+                          <div className={styles['modelField']} key={fieldKey}>
+                            <label className={styles['modelFieldLabel']} htmlFor={`jev-route-${index}-${fieldKey}`}>
+                              {t(labelKey)}
+                            </label>
+                            <input
+                              id={`jev-route-${index}-${fieldKey}`}
+                              className={styles['input']}
+                              type="text"
+                              list={options.length === 0 ? undefined : listId}
+                              value={routeText(route, fieldKey)}
+                              aria-label={`${t(labelKey)} ${index + 1}`}
+                              placeholder={fieldKey === 'reasoningEffort' ? t('jevRouteReasoningEffortPlaceholder') : undefined}
+                              disabled={disabled}
+                              onChange={(event) => {
+                                updateRoute(index, fieldKey, fieldKey === 'reasoningEffort' && event.target.value === ''
+                                  ? undefined
+                                  : event.target.value)
+                              }}
+                            />
+                            {options.length === 0 ? null : (
+                              <datalist id={listId}>
+                                {options.map(option => <option key={option} value={option} />)}
+                              </datalist>
+                            )}
+                          </div>
+                        )
+                      })}
+                      <button
+                        className={`${styles['iconButton']} ${styles['iconButtonDanger']}`}
+                        type="button"
+                        disabled={disabled}
+                        aria-label={`${t('jevRemoveRoute')} ${index + 1}`}
+                        onClick={() => { setRoutes(routes.filter((_, routeIndex) => routeIndex !== index)) }}
+                      >
+                        {t('jevRemoveRoute')}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+              <datalist id="jev-provider-options">
+                {providerIds.map(provider => <option key={provider} value={provider} />)}
+              </datalist>
+              <button
+                className={styles['addModelButton']}
+                type="button"
+                disabled={disabled}
+                onClick={() => { setRoutes([...routes, { id: '', provider: '', model: '', description: '' }]) }}
+              >
+                {t('jevAddRoute')}
+              </button>
+            </div>
+          </div>
+        </>
+      )
+    }
     // What a hand-declared route names for itself and nothing else can supply.
     // A whole-section `llm-deepseek` profile is a composition fact with no
     // per-route identity for its schema to carry, hence the family test.

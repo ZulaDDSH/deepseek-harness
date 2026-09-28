@@ -34,7 +34,7 @@ import { deriveKeyRef, protocolChoices, providerUsable } from './store.ts'
 import type { CredentialsRevisionState, ModelsSettingsStore, ProviderRow } from './store.ts'
 import type { ModelsOperations } from './operations.ts'
 import type { SettingsSchemaOperations } from './schema-operations.ts'
-import { ProviderEditor, type ProviderEditorProps } from './ProviderEditor.tsx'
+import { ProviderEditor, type ModelPickerOption, type ProviderEditorProps } from './ProviderEditor.tsx'
 import type { AuthorizationOperations } from './authorization-operations.ts'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
@@ -124,7 +124,7 @@ interface CatalogDraft {
 interface ProviderEditorRenderProps extends Pick<
   ProviderEditorProps,
   'namespace' | 'schema' | 'operations' | 'authorization' | 'credentialsRevision' | 't' | 'readOnly'
-  | 'onCredentialChanged' | 'onClose'
+  | 'onCredentialChanged' | 'onClose' | 'modelOptions'
 > {
   target: EditorTarget
 }
@@ -410,6 +410,20 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
   const addRow = draft === undefined
     ? undefined
     : state.rows.find(row => row.entry.provider === draft.target.provider)
+  const modelOptions: ModelPickerOption[] = state.rows.flatMap((row) => {
+    const namespace = state.namespaces.get(row.entry.settingsNs)
+    if (namespace === undefined) return []
+    const profile = schema.getPath(namespace.value, row.entry.settingsPath)
+    const rawModels = schema.getPath(profile, ['models'])
+    const models = Array.isArray(rawModels)
+      ? rawModels.flatMap((model) => {
+        if (typeof model !== 'object' || model === null || Array.isArray(model)) return []
+        const id = (model as { id?: unknown }).id
+        return typeof id === 'string' && id.length > 0 ? [id] : []
+      })
+      : []
+    return [{ provider: row.entry.provider, displayName: row.entry.displayName, models }]
+  })
 
   return (
     <div className={styles['section']}>
@@ -441,6 +455,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                 {renderProviderEditor({
                   target,
                   namespace,
+                  modelOptions,
                   schema,
                   operations,
                   ...authorization === undefined ? {} : { authorization },
@@ -539,6 +554,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                 ? renderProviderEditor({
                   target,
                   namespace,
+                  modelOptions,
                   schema,
                   operations,
                   ...authorization === undefined ? {} : { authorization },
@@ -631,9 +647,13 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                       namespace={draft.namespace}
                       schema={schema}
                       settingsPath={draft.target.settingsPath}
+                      modelOptions={modelOptions}
                       operations={operations}
+                      {...authorization === undefined ? {} : { authorization }}
+                      credentialsRevision={credentialsRevision}
                       t={t}
                       readOnly={!state.writable}
+                      onCredentialChanged={() => { void controller.load() }}
                       onClose={(changed) => { closeEditor(changed, draft.target) }}
                       onBusyChange={setCatalogBusy}
                     />

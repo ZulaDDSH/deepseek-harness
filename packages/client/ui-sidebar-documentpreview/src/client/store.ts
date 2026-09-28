@@ -61,6 +61,12 @@ export interface TextTabState {
   wrap: boolean
   /** The `navigation.revision` the body already answered; absent before the first. */
   revision: number | undefined
+  /**
+   * A change comparison the reader asked for: the text shown when they asked,
+   * and the file's current text. Its presence switches the body to the diff
+   * view; a reload or a new file version drops it.
+   */
+  diff?: { readonly before: string; readonly after: string }
 }
 
 /** Every tab's state, keyed by tab id. */
@@ -109,6 +115,8 @@ type TextActions = {
   scrolled: (draft: TextState, tabId: TabId, scrollTop: number) => void
   toggledWrap: (draft: TextState, tabId: TabId) => void
   navigated: (draft: TextState, tabId: TabId, revision: number) => void
+  diffed: (draft: TextState, tabId: TabId, before: string, after: string) => void
+  diffCleared: (draft: TextState, tabId: TabId) => void
   forget: (draft: TextState, tabId: TabId) => void
 }
 
@@ -213,6 +221,7 @@ export function createTextStore(): EngineStoreHandle<TextState, TextActions> {
         state.loadRevision++
         state.pages = {}
         delete state.complete
+        delete state.diff
         state.eof = false
         state.version = undefined
         state.observedVersion = undefined
@@ -246,6 +255,27 @@ export function createTextStore(): EngineStoreHandle<TextState, TextActions> {
        */
       navigated: (d, tabId: TabId, revision: number) => {
         bucket(d, tabId).revision = revision
+      },
+      /**
+       * Show the comparison the reader asked for.
+       * @param d - draft state.
+       * @param tabId - the tab being drawn.
+       * @param before - text shown when the comparison was requested.
+       * @param after - the file's current text.
+       */
+      diffed: (d, tabId: TabId, before: string, after: string) => {
+        const state = bucket(d, tabId)
+        state.diff = { before, after }
+        state.loading = false
+        state.failure = undefined
+      },
+      /**
+       * Return one tab's body from the diff view to the file itself.
+       * @param d - draft state.
+       * @param tabId - the tab being drawn.
+       */
+      diffCleared: (d, tabId: TabId) => {
+        delete bucket(d, tabId).diff
       },
       /**
        * Drop one tab's state, for a tab record that is gone.

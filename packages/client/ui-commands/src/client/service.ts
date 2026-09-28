@@ -28,7 +28,7 @@ import type {
   CandidateRequest, ClientSessionContext, CommandClaim, PickOutcome, InputTriggerCandidate, InputTriggerPick,
   SubmitAttachment, SubmitEnvelope, SubmitOutcome,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
-import type { CommandContribution, CommandDecoration, CommandUiContract } from './contract.ts'
+import type { CommandContribution, CommandDecoration, CommandUiContract, QuickCommand } from './contract.ts'
 import type { CommandDescriptor } from './directory.ts'
 import { CommandDirectory } from './directory.ts'
 import { PopupSelectController } from './popup.ts'
@@ -166,6 +166,65 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
   }
 
   /**
+   * List directly executable command rows for the root quick switcher.
+   * Host commands requiring arguments are omitted so no unsent draft is replaced.
+   * @param sessionId - Session whose command directory should be searched.
+   * @param query - current palette query.
+   * @param signal - cancellation for superseded palette searches.
+   * @returns directly executable command rows in search order.
+   */
+  async quickCommands(sessionId: SessionId, query: string, signal: AbortSignal): Promise<readonly QuickCommand[]> {
+    const session: ClientSessionContext = { sessionId }
+    const rows: QuickCommand[] = []
+    const host = await this.directory.ensureReady(sessionId, signal)
+    const seen = new Set<string>()
+    for (const desc of host) {
+      seen.add(desc.name)
+      if (desc.input !== undefined) continue
+      const decoration = this.live.decorations.get(desc.name)
+      const face = builtinRowFace(desc, this.t) ?? { description: desc.description }
+      rows.push({
+        name: desc.name,
+        ...face,
+        kind: decoration !== undefined && decoration.available(session) && decoration.ui.kind === 'popupSelect'
+          ? 'popup'
+          : 'run',
+      })
+    }
+    this.forEachAvailableContribution(session, seen, (contribution) => {
+      rows.push({
+        ...this.contributionRowBase(contribution),
+        kind: contribution.ui.kind === 'popupSelect' ? 'popup' : 'run',
+      })
+    })
+    return query === '' ? rows : rankByName(rows, query)
+  }
+
+  /**
+   * Run one quick-switcher command without writing into the composer draft.
+   * @param sessionId - Session whose command should run.
+   * @param name - command name without the leading slash.
+   * @returns true when the command was admitted, false when it became unavailable.
+   */
+  runQuick(sessionId: SessionId, name: string): boolean {
+    const session: ClientSessionContext = { sessionId }
+    const contribution = this.live.contributions.get(name)
+    if (contribution !== undefined && contribution.available(session)) {
+      this.invoke(name, contribution.ui, session, { via: 'quick' })
+      return true
+    }
+    const desc = this.directory.resolve(sessionId, name)
+    if (desc === undefined || desc.input !== undefined) return false
+    const decoration = this.live.decorations.get(name)
+    if (decoration !== undefined && decoration.available(session)) {
+      this.invoke(name, decoration.ui, session, { via: 'quick' })
+      return true
+    }
+    this.runDetached(desc, session, `/${name}`)
+    return true
+  }
+
+  /**
    * Close every open popup for a command whose options have become stale.
    * Pending loads and confirmations lose their binding; drafts stay intact.
    * @param name - command name without the leading slash.
@@ -199,7 +258,7 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
     const existing = popups.get(binding)
     if (existing !== undefined) return existing
     const controller = new PopupSelectController<ClientSessionContext>({
-      consume: segment => binding.ctx.bail(binding.ctx, 'slash/input-consume-token', {
+      consume: segment => segment.via === 'quick' || binding.ctx.bail(binding.ctx, 'slash/input-consume-token', {
         guard: segment.via === 'menu'
           ? { kind: 'span', span: segment.span }
           : { kind: 'bare-token', token: segment.token },
@@ -232,20 +291,37 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
         ...(c.input !== undefined ? { hint: c.input.hint } : {}),
       })
     }
+    this.forEachAvailableContribution(session, seen, (contribution) => {
+      rows.push({
+        ...this.contributionRowBase(contribution),
+        ...(contribution.icon === undefined ? {} : { icon: contribution.icon }),
+      })
+    })
+    const visible = rows.filter(c => req.position === 'leading' || c.hint === undefined)
+    return req.query === '' ? sectionRows(visible, this.t) : rankByName(visible, req.query)
+  }
+
+  private forEachAvailableContribution(
+    session: ClientSessionContext,
+    seen: Set<string>,
+    visit: (contribution: CommandContribution) => void,
+  ): void {
     for (const contribution of this.live.contributions.values()) {
       if (!contribution.available(session)) continue
       if (seen.has(contribution.name)) {
         throw new Error(`ui-commands: contribution /${contribution.name} collides with a host command`)
       }
-      rows.push({
-        name: contribution.name,
-        ...(contribution.label === undefined ? {} : { label: contribution.label() }),
-        ...(contribution.description === undefined ? {} : { description: contribution.description() }),
-        ...(contribution.icon === undefined ? {} : { icon: contribution.icon }),
-      })
+      seen.add(contribution.name)
+      visit(contribution)
     }
-    const visible = rows.filter(c => req.position === 'leading' || c.hint === undefined)
-    return req.query === '' ? sectionRows(visible, this.t) : rankByName(visible, req.query)
+  }
+
+  private contributionRowBase(contribution: CommandContribution): Pick<InputTriggerCandidate, 'name' | 'label' | 'description'> {
+    return {
+      name: contribution.name,
+      ...(contribution.label === undefined ? {} : { label: contribution.label() }),
+      ...(contribution.description === undefined ? {} : { description: contribution.description() }),
+    }
   }
 
   /** Decision table, menu column: contribution/decorated-host → popup or action; host input → claim; host bare → detached execute. */
@@ -359,7 +435,7 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
     segment: TokenSegment,
   ): void {
     if (ui.kind === 'action') {
-      this.consumeVia(session.sessionId, segment)
+      if (segment.via !== 'quick') this.consumeVia(session.sessionId, segment)
       ui.run(session)
       return
     }
@@ -460,6 +536,7 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
 
   /** Dispatch a consume-token event to one session (menu-pick / bare-enter execute paths). */
   private consumeVia(id: SessionId, segment: TokenSegment): void {
+    if (segment.via === 'quick') return
     const actx = this.scopeFor(id)
     if (actx === undefined) return
     actx.bail(actx, 'slash/input-consume-token', {

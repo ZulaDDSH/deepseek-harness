@@ -81,6 +81,9 @@
       "path": "../workspace-files/tsconfig.client.json"
     },
     {
+      "path": "../quota-controller/tsconfig.client.json"
+    },
+    {
       "path": "../settings-controller"
     },
     {

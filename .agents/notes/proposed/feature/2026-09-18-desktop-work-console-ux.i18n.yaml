@@ -1,0 +1,25 @@
+# Bilingual-pair consistency record for 2026-09-18-desktop-work-console-ux.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/proposed/feature/2026-09-18-desktop-work-console-ux.md
+/agent-note-desktop-work-console-ux:
+  en: 977ef9397e97d09b
+  zh: fa8edd9c5c75305b
+/agent-note-desktop-work-console-ux/problem:
+  en: 2223c7f501221b5b
+  zh: 829a8518962c4ed3
+/agent-note-desktop-work-console-ux/proposal:
+  en: 5847cf23454639d8
+  zh: 716875800ac6e052
+/agent-note-desktop-work-console-ux/staging:
+  en: bddafe0e2c49429b
+  zh: de2e87c53c169821
+/agent-note-desktop-work-console-ux/alternatives-considered:
+  en: 89a6f7b79c5558f2
+  zh: fd37abb0fd4cabda
+/agent-note-desktop-work-console-ux/acceptance-criteria:
+  en: a320fc77e21191af
+  zh: 2eb59221aed68e68
+/agent-note-desktop-work-console-ux/risks:
+  en: 91393d42bfc9d4ad
+  zh: 247bb9643519fb02

@@ -156,8 +156,8 @@ describe('web e2e: a git workspace turn ends with its changed files', () => {
     expect(announced, 'the turn must announce its changed files').toBeDefined()
     if (announced === undefined) throw new Error('no changed-files announcement')
     expect(announced.data).toEqual({ turn: 1 })
-    // The log carries only the turn; the Host serves the summary for the announcing event while the Session lives.
-    const summary = scaffold.ctx.workspaceChanges.summary(sessionId, announced.seq)
+    // The log carries only the turn; the Host serves the summary for the announcing event, from its durable record.
+    const summary = await scaffold.ctx.workspaceChanges.summary(sessionId, announced.seq)
     if (summary === undefined) throw new Error('the Host serves no summary for the announcement')
     // app.local is ignored by the repository, so its counts come from the write call rather than git.
     expect(summary.files.map(file => file.display)).toEqual(['app.local', 'intro.md', 'notes.txt', 'src/util.ts'])

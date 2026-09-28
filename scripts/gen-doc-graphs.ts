@@ -206,6 +206,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Adapters register provider implementations; the loop and compaction call the provider-neutral stream service.',
   },
   {
+    key: 'jevRouter',
+    pkg: 'llm-jev-router',
+    title: 'Optional Jev grep relevance ranking',
+    mode: 'core',
+    consumers: ['tool-fs-search'],
+    note: 'Consumers treat the service as optional and keep their normal output when it is absent, disabled, or fails.',
+  },
+  {
     key: 'deepseekLlmApiExtensions',
     pkg: 'deepseek-llm-api-extensions',
     title: 'Official DeepSeek request extensions',
@@ -279,6 +287,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Host credential-surface Remote controller',
     mode: 'core',
     note: 'Projects the credential-reference seam onto the generated Remote namespace: batch fan-out, view projection, and refusal mapping live here, not on the seam Definition.',
+  },
+  {
+    key: 'quotaController',
+    pkg: 'api-quota-controller',
+    title: 'Host provider quota Remote controller',
+    mode: 'core',
+    consumers: ['client-ui-provider-quota'],
+    note: 'Resolves provider credentials on the Host and projects per-provider usage quotas onto the generated Remote namespace; concurrent reads for one provider share a request.',
   },
   {
     key: 'authorizationController',

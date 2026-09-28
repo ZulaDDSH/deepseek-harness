@@ -78,6 +78,18 @@ describe('text store', () => {
     })
   })
 
+  it('shows a comparison and drops it on reset', () => {
+    const instance = createTextStore().create()
+    instance.actions.diffed(TAB_1, 'a\nb', 'a\nc')
+    expect(instance.getSnapshot().byTab[TAB_1]?.diff).toEqual({ before: 'a\nb', after: 'a\nc' })
+    instance.actions.diffCleared(TAB_1)
+    expect(instance.getSnapshot().byTab[TAB_1]?.diff).toBeUndefined()
+
+    instance.actions.diffed(TAB_1, 'a', 'b')
+    instance.actions.reset(TAB_1)
+    expect(instance.getSnapshot().byTab[TAB_1]?.diff).toBeUndefined()
+  })
+
   it('forgets one tab and keeps the rest', () => {
     const instance = createTextStore().create()
     instance.actions.toggledWrap(TAB_1)

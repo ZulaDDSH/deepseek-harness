@@ -413,6 +413,29 @@ abstract getPlatformSession(): Promise<PlatformSession | null>
 
 Source: [`packages/credentials/deepseek-account/src/index.ts`](../../packages/credentials/deepseek-account/src/index.ts)
 
+<a id="ctxquotacontroller--quotacontroller"></a>
+
+### `ctx.quotaController` — `QuotaController`
+
+requires credential-backed provider quota Remote service.
+
+```ts cordis-catalog
+/**
+ * List providers whose credentials can currently be resolved.
+ * @returns configured providers with available credentials.
+ */
+@Remote async listProviders(): Promise<readonly QuotaProviderView[]>
+
+/**
+ * Fetch quota state for one provider, coalescing concurrent requests.
+ * @param providerId - provider identifier.
+ * @returns the provider quota result.
+ */
+@Remote fetch(providerId: string): Promise<QuotaResult>
+```
+
+Source: [`packages/api/quota-controller/src/index.ts`](../../packages/api/quota-controller/src/index.ts)
+
 <a id="authorization-events"></a>
 
 ### `authorization/*` events

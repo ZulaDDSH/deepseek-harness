@@ -121,28 +121,27 @@ describe('installModelSelection()', () => {
     await ctx.fiber.dispose()
   })
 
-  it('announces same-provider and cross-provider route changes from the assembled selection', async () => {
-    const { agent, ctx, dispose, selection } = await switchHarness(
-      { provider: 'alpha', model: 'a1' },
-      { provider: 'alpha', model: 'a0' },
-    )
-    await expect(preStep(ctx, agent)).resolves.toMatchObject({
-      messages: [INPUT, expectedNotice('a0', 'a1')],
-    })
+  it('announces same-provider and cross-provider route changes from the assembled selection', async () => {    const { agent, ctx, dispose, selection } = await switchHarness(
+    { provider: 'alpha', model: 'a1' },
+    { provider: 'alpha', model: 'a0' },
+  )
+  await expect(preStep(ctx, agent)).resolves.toMatchObject({
+    messages: [INPUT, expectedNotice('a0', 'a1')],
+  })
 
-    selection.current = { provider: 'beta', model: 'b1' }
-    await ctx.systemPrompt.assemble()
-    selection.current = { provider: 'alpha', model: 'a2' }
-    await expect(preStep(ctx, agent)).resolves.toMatchObject({
-      messages: [INPUT, expectedNotice('alpha/a0', 'beta/b1')],
-    })
-    await ctx.systemPrompt.assemble()
-    await expect(preStep(ctx, agent)).resolves.toMatchObject({
-      messages: [INPUT, expectedNotice('a0', 'a2')],
-    })
+  selection.current = { provider: 'beta', model: 'b1' }
+  await ctx.systemPrompt.assemble()
+  selection.current = { provider: 'alpha', model: 'a2' }
+  await expect(preStep(ctx, agent)).resolves.toMatchObject({
+    messages: [INPUT, expectedNotice('alpha/a0', 'beta/b1')],
+  })
+  await ctx.systemPrompt.assemble()
+  await expect(preStep(ctx, agent)).resolves.toMatchObject({
+    messages: [INPUT, expectedNotice('a0', 'a2')],
+  })
 
-    dispose()
-    await ctx.fiber.dispose()
+  dispose()
+  await ctx.fiber.dispose()
   })
 
   it('does not announce initial, same-route, effort-only, rejected, aborted, or disposed steps', async () => {
@@ -186,6 +185,36 @@ describe('installModelSelection()', () => {
     await expect(preStep(ctx, agent, { messages: [], offered: [], step: 2 })).resolves.toMatchObject({
       messages: [{ source: { summary: 'a0 → a1' } }],
     })
+    await ctx.fiber.dispose()
+  })
+
+  it('keeps the selected route when a prepended router rewrites the request', async () => {
+    // A router that claims the request first (jev-router registers this way)
+    // decides the route for the step. The user's selection must still win: a
+    // listener registered after that router sees the rewritten config as its
+    // `next()`, so it has to be the one that applies the selection last.
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    // Registered BEFORE the selection, as a plugin that mounts earlier in the
+    // composition does, so a plain listener here sits downstream of the router.
+    ctx.on('agent/request', async (_payload, next): Promise<LlmCallConfig> => {
+      const base = await next()
+      return { ...base, provider: 'router', model: 'routed' }
+    }, { prepend: true })
+    const selection: ModelSelectionRef = { current: undefined, assembled: undefined }
+    const dispose = installModelSelection(ctx, selection)
+    const agent = createAgent()
+    const signal = new AbortController().signal
+
+    selection.current = { provider: 'anthropic', model: 'claude-opus-5' }
+    await ctx.systemPrompt.assemble()
+    await expect(agentEvents(ctx, agent).waterfall(
+      'agent/request',
+      { turn: 1, step: 0, signal },
+      () => Promise.resolve<LlmCallConfig>({ provider: 'base', model: 'base' }),
+    )).resolves.toEqual({ provider: 'anthropic', model: 'claude-opus-5' })
+
+    dispose()
     await ctx.fiber.dispose()
   })
 })

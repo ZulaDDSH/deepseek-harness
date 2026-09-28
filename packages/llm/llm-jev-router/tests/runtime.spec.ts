@@ -1,0 +1,207 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
+import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { createLaunchEnvironmentSnapshot, DSH_LAUNCH_ENVIRONMENT_KEY } from '@deepseek-ai/dsh-launch-environment'
+import LlmRuntime, { createUserMessage, ToolCallId, type LlmCallConfig } from '@deepseek-ai/dsh-llm'
+import { JevRouter, apply, createJevClient, selectRelevantGrepMatches, stateForMessages, type Config, type JevClient } from '../src/index.ts'
+import * as jevPlugin from '../src/index.ts'
+import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
+
+const config = {
+  enabled: true, apiKeyEnv: 'JEV_TEST_KEY', endpoint: 'https://jev.example.test/v1', model: 'jev-test',
+  timeoutMs: 1000, minConfidence: 0.8, stateMaxChars: 1000, fallback: 'keep', failOpen: true,
+  routes: [{ id: 'small', provider: 'target', model: 'small', description: 'Routine work' }],
+} satisfies Config
+const input = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'fix routing' }] })
+const base: LlmCallConfig = { provider: 'base', model: 'base' }
+const signal = new AbortController().signal
+const contexts: Context[] = []
+
+afterEach(async () => {
+  for (const ctx of contexts.splice(0)) await ctx.fiber.dispose()
+  vi.unstubAllGlobals()
+  vi.useRealTimers()
+})
+
+async function mount(overrides: Partial<Config> = {}, credentials?: Record<string, string>) {
+  const ctx = new Context()
+  contexts.push(ctx)
+  ctx.provide(DSH_LAUNCH_ENVIRONMENT_KEY, createLaunchEnvironmentSnapshot([
+    { source: 'process', values: { JEV_TEST_KEY: 'fixture-key' } },
+  ]))
+  await ctx.plugin(LlmRuntime)
+  if (credentials !== undefined) await ctx.plugin(MemoryCredentials, credentials)
+  const fiber = await ctx.plugin(jevPlugin, { ...config, ...overrides })
+  const agent = { session: Session.create(SessionId('jev-runtime')) } as Agent
+  const events = agentEvents(ctx, agent)
+  const preStep = (step = 1, currentSignal = signal, kind: 'enter' | 'reject' = 'enter') => events.waterfall(
+    'agent/pre-step', { turn: 1, step, messages: [input], signal: currentSignal },
+    () => Promise.resolve(kind === 'enter' ? { kind, messages: [input] } : { kind }),
+  )
+  const request = (step = 1, currentSignal = signal) => events.waterfall(
+    'agent/request', { turn: 1, step, signal: currentSignal }, () => Promise.resolve(base),
+  )
+  return { ctx, fiber, agent, preStep, request }
+}
+
+function answer(value: unknown) {
+  const fetchImpl = vi.fn<typeof fetch>(async () => Response.json(value))
+  vi.stubGlobal('fetch', fetchImpl)
+  return fetchImpl
+}
+
+describe('Jev routing lifecycle', () => {
+  it('routes only the evaluated step and releases its provider and listeners', async () => {
+    const fetchImpl = answer({ answers: { route: { choice: 'small', confidence: 1 } } })
+    const { ctx, fiber, preStep, request } = await mount()
+    expect(ctx.get('llm')!.listConfigurableProviders()).toMatchObject([{ provider: 'jev-router' }])
+    expect(await request()).toBe(base)
+    expect(await preStep()).toEqual({ kind: 'enter', messages: [input] })
+    expect(await request()).toEqual({ provider: 'target', model: 'small' })
+    expect(await request(2)).toBe(base)
+    expect(await request(1, AbortSignal.abort())).toBe(base)
+    await preStep(2)
+    expect(await request(2)).toEqual({ provider: 'target', model: 'small' })
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    await fiber.dispose()
+    expect(ctx.get('llm')!.listConfigurableProviders()).toEqual([])
+    expect(await request()).toBe(base)
+  })
+
+  it('delegates disabled, rejected, aborted, empty-route and keep decisions', async () => {
+    const fetchImpl = answer({ answers: { route: { choice: 'missing', confidence: 1 } } })
+    for (const overrides of [{ enabled: false }, { routes: [] }, {}]) {
+      const { preStep, request } = await mount(overrides)
+      expect(await preStep(1, signal, 'reject')).toEqual({ kind: 'reject' })
+      expect(await preStep(1, AbortSignal.abort())).toEqual({ kind: 'enter', messages: [input] })
+      expect(await preStep()).toEqual({ kind: 'enter', messages: [input] })
+      expect(await request()).toBe(base)
+    }
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves or rejects the admitted input according to failure policy', async () => {
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>(async () => { throw new Error('offline') }))
+    for (const failOpen of [true, false]) {
+      const { preStep, request } = await mount({ failOpen })
+      expect((await preStep()).kind).toBe(failOpen ? 'enter' : 'reject')
+      expect(await request()).toBe(base)
+    }
+  })
+
+  it('uses the credential provider rather than falling back to the environment', async () => {
+    const fetchImpl = answer({ answers: { route: { choice: 'small', confidence: 1 } } })
+    const resolved = await mount({}, { JEV_TEST_KEY: 'provider-fixture-key' })
+    await resolved.preStep()
+    expect(new Headers(fetchImpl.mock.calls[0]?.[1]?.headers).get('authorization')).toBe('Bearer provider-fixture-key')
+    const missing = await mount({}, {})
+    await missing.preStep()
+    expect(await missing.request()).toBe(base)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    { endpoint: 'invalid' }, { endpoint: 'ftp://jev.example.test' },
+    { endpoint: 'https://user@jev.example.test' }, { endpoint: 'https://:password@jev.example.test' },
+    { endpoint: 'https://jev.example.test?q=1' }, { endpoint: 'https://jev.example.test#fragment' },
+    { routes: [config.routes[0]!, config.routes[0]!] }, { fallback: 'missing' },
+  ])('refuses invalid deployment settings %j', (overrides) => {
+    expect(() => { apply(new Context(), { ...config, ...overrides }) }).toThrow('jev-router:')
+  })
+})
+
+describe('Jev HTTP validation and cancellation', () => {
+  it.each([null, {}, { answers: {} }, { answers: { route: { choice: 3, confidence: 1 } } },
+    { answers: { route: { choice: 'small', confidence: 'high' } } },
+    { answers: { route: { choice: 'small', confidence: -1 } } },
+    { answers: { route: { choice: 'small', confidence: 2 } } },
+  ])('refuses malformed route responses %j', async (value) => {
+    const client = createJevClient(async () => 'fixture-key', answer(value))
+    await expect(client.decide([input], config, signal)).rejects.toThrow('Jev')
+  })
+
+  it.each([null, {}, { answers: {} }, { answers: { match_0: { noul: 'high' } } },
+    { answers: { match_0: { noul: -1 } } }, { answers: { match_0: { noul: 2 } } },
+  ])('refuses malformed relevance scores %j', async (value) => {
+    const client = createJevClient(async () => 'fixture-key', answer(value))
+    await expect(client.scoreGrep('task', 'pattern', [{ path: 'a', lineNumber: 1, line: 'a' }], config, signal))
+      .rejects.toThrow('Jev')
+  })
+
+  it('refuses a missing credential before making an HTTP request', async () => {
+    const fetchImpl = answer({})
+    const client = createJevClient(async () => undefined, fetchImpl)
+    await expect(client.decide([], config, signal)).rejects.toThrow('no credential')
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('propagates an existing abort, a later abort and the configured deadline', async () => {
+    vi.useFakeTimers()
+    for (const mode of ['already', 'later', 'deadline']) {
+      const controller = new AbortController()
+      if (mode === 'already') controller.abort()
+      const fetchImpl = vi.fn<typeof fetch>(async (_url, init) => {
+        const requestSignal = init!.signal!
+        if (requestSignal.aborted) throw new Error('aborted')
+        return new Promise<Response>((_resolve, reject) => {
+          requestSignal.addEventListener('abort', () => { reject(new Error('aborted')) }, { once: true })
+        })
+      })
+      const client = createJevClient(async () => 'fixture-key', fetchImpl)
+      const assertion = expect(client.decide([], config, controller.signal)).rejects.toThrow('aborted')
+      await Promise.resolve()
+      if (mode === 'later') controller.abort()
+      if (mode === 'deadline') await vi.advanceTimersByTimeAsync(config.timeoutMs)
+      await assertion
+      expect(vi.getTimerCount()).toBe(0)
+    }
+  })
+})
+
+describe('Jev grep behavior', () => {
+  it('keeps normal output unless a task state and enough candidates can be scored', async () => {
+    const ctx = new Context()
+    contexts.push(ctx)
+    const agent = { session: Session.create(SessionId('jev-grep')) } as Agent
+    const states = new WeakMap<Agent, string>()
+    let active: Config = { ...config }
+    const scoreGrep = vi.fn<JevClient['scoreGrep']>(async () => Array.from({ length: 250 }, (_v, index) => index / 250))
+    const router = new JevRouter(ctx, () => active, { decide: vi.fn(), scoreGrep }, states)
+    const matches = Array.from({ length: 300 }, (_v, index) => ({ path: 'a', lineNumber: index + 1, line: 'match' }))
+    const args = { agent, pattern: 'match', matches, signal }
+    expect(await router.filterGrepMatches(args)).toBe(matches)
+    states.set(agent, 'task')
+    active = { ...config, enabled: false }
+    expect(await router.filterGrepMatches(args)).toBe(matches)
+    active = { ...config }
+    expect(await router.filterGrepMatches({ ...args, signal: AbortSignal.abort() })).toBe(matches)
+    const few = matches.slice(0, 99)
+    expect(await router.filterGrepMatches({ ...args, matches: few })).toBe(few)
+    expect(await router.filterGrepMatches(args)).toEqual(matches.slice(218, 250))
+    expect(scoreGrep.mock.calls[0]?.[2]).toHaveLength(250)
+    scoreGrep.mockRejectedValueOnce(new Error('offline'))
+    expect(await router.filterGrepMatches(args)).toBe(matches)
+  })
+
+  it('rejects unaligned scores and invalid retention counts; preserves ties and short output', () => {
+    const matches = [{ path: 'a', lineNumber: 1, line: 'a' }, { path: 'b', lineNumber: 2, line: 'b' }]
+    expect(() => selectRelevantGrepMatches(matches, [], 1)).toThrow('candidate count')
+    expect(() => selectRelevantGrepMatches(matches, [1, 1], 0)).toThrow('positive integer')
+    expect(selectRelevantGrepMatches(matches, [1, 1])).toEqual(matches)
+    expect(selectRelevantGrepMatches(matches, [1, 1], 1)).toEqual([matches[0]])
+  })
+
+  it('projects every content kind and keeps oversized metadata within the state budget', () => {
+    const content = [
+      { type: 'reasoning' as const, text: 'think' },
+      { type: 'tool-call' as const, id: ToolCallId('call'), name: 'read', arguments: '{}' },
+      { type: 'image' as const, attachment: {} as import('@deepseek-ai/dsh-llm').ImageBlock['attachment'] },
+      { type: 'file' as const, attachment: {} as import('@deepseek-ai/dsh-llm').FileBlock['attachment'] },
+      { type: 'tool-removal' as const, toolName: 'read' },
+    ]
+    expect(stateForMessages([{ ...input, content }], 1000)).toContain('[content block]')
+    expect(stateForMessages([{ ...input, content }], 1000)).toContain('[reasoning: think]')
+    expect(stateForMessages(Array.from({ length: 30 }, () => input), 20)).toBe('{"messages":[]}')
+  })
+})
