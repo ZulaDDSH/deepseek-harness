@@ -175,7 +175,7 @@ export function harness(script: Record<number, RemoteResult<WorkspaceFileText>> 
     useDocumentPreviews: () => definitions,
     renderSlot,
     t,
-  }) as unknown as TextPreviewProps
+  }) as TextPreviewProps
   return {
     instance,
     face,
