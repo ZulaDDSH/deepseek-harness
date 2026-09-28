@@ -89,12 +89,6 @@ function nextHandlerId(point: string): string {
   return `claude-code:${point}:${++handlerCounter}`
 }
 
-/** Match the reference agent names used by global configs against DSH tool names. */
-function toolMatcherSubjects(name: string): string[] {
-  const referenceName = name === 'bash' ? 'Bash' : name === 'write' ? 'Write' : name === 'edit' ? 'Edit' : undefined
-  return referenceName === undefined ? [name] : [name, referenceName]
-}
-
 /** The `{kind:'hooks-claude-code'}` producer source stamped on every context this bridge injects. */
 const CONTEXT_SOURCE: MessageSource = { kind: 'hooks-claude-code' }
 
@@ -162,7 +156,7 @@ export function apply(ctx: Context, config: Config): void {
     const projectDir = config.projectDir ?? workdir
     const hookEnv = projectDir !== undefined ? { CLAUDE_PROJECT_DIR: projectDir } : undefined
     for (const group of groups) {
-      if (!toolMatcherSubjects(matchQuery).some(subject => matchesMatcher(group.matcher, subject, 'claude-code'))) continue
+      if (!matchesMatcher(group.matcher, matchQuery, 'claude-code')) continue
       for (const hook of group.hooks) {
         const handlerId = nextHandlerId(point)
         const session = opts.agent?.session

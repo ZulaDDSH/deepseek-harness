@@ -66,11 +66,9 @@ Jev 请求与所选 DSH provider 请求拥有独立的缓存生命周期。修�
 
 ### Grep 相关性排序
 
-`jevRouter` 服务公开 `filterGrepMatches`，`tool-fs-search` 会对顶层 grep 结果调用它。每个候选项是一个 `JevGrepMatch`（`path`、从 1 开始的 `lineNumber`、匹配的 `line`）。路由启用且至少收到 100 条匹配时，最多 250 个候选项会根据 Agent 的有界 Jev 状态评分，并按原始顺序保留最相关的 32 条。路由关闭、signal 已中止、缺少 Agent 状态或评分失败时，匹配结果原样返回。
-
 #### 模型看到的内容
 
-模型照常收到 grep 工具结果；排序成功时，结果缩减为保留的匹配。Jev 评分请求及其分数不会进入模型提示词。
+`jevRouter` 服务公开 `filterGrepMatches`，`tool-fs-search` 会对顶层 grep 结果调用它。每个候选项是一个 `JevGrepMatch`（`path`、从 1 开始的 `lineNumber`、匹配的 `line`）。路由启用且至少收到 100 条匹配时，最多 250 个候选项会根据 Agent 的有界 Jev 状态评分，并按原始顺序保留最相关的 32 条。路由关闭、signal 已中止、缺少 Agent 状态或评分失败时，匹配结果原样返回。 模型照常收到 grep 工具结果；排序成功时，结果缩减为保留的匹配。Jev 评分请求及其分数不会进入模型提示词。
 
 #### Token 影响
 

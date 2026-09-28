@@ -71,12 +71,6 @@ export interface Config {
   projectRootMarkers?: string[]
   /** UTF-8 byte cap for one rendered baseline or dynamic batch; non-positive or non-finite disables loading. */
   maxBytes: number
-  /**
-   * Prepend the fixed end-of-turn response rule to the baseline. Enabled by
-   * default so every mode carries the same rule; a composition turns it off
-   * when it supplies its own end-of-turn wording.
-   */
-  endOfTurnRule?: boolean
   /** Maximum UTF-8 bytes read from one instruction file; larger files are ignored. */
   maxSourceBytes?: number
   /**
@@ -755,12 +749,8 @@ export type ThemePreference = typeof THEME_PREFERENCES[number]
 export interface BasicCompactionConfig extends CompactionPolicyConfig {
   /** Exact provider/model overrides; duplicate targets fail plugin load. */
   modelPolicies?: ModelCompactPolicyConfig[]
-  /** Prune oversized tool results before pressure reaches the compaction threshold. Defaults to `false`. */
-  proactiveToolResultPruning?: boolean
   /** Enable automatic step-boundary pressure and overflow-recovery listeners. Defaults to `true`. */
   auto?: boolean
-  /** Caps the capacity used for scoped pressure compaction. */
-  maxContextWindow?: number
 }
 
 /** Policy fields shared by the default policy and exact model overrides. */
@@ -1438,7 +1428,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-hooks-codex`
 
 - `inject`: `shell` · `sessionProjections`
-- `source`: [`packages/hooks/hooks-codex/src/index.ts:51`](../packages/hooks/hooks-codex/src/index.ts)
+- `source`: [`packages/hooks/hooks-codex/src/index.ts:50`](../packages/hooks/hooks-codex/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: where the Codex hooks.json lives + the model name for payloads. */
@@ -3679,10 +3669,10 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-fs`
 
 - `inject`: `tools` · `fs` · `systemPrompt`
-- `source`: [`packages/fs/tool-fs/src/index.ts:30`](../packages/fs/tool-fs/src/index.ts)
+- `source`: [`packages/fs/tool-fs/src/index.ts:25`](../packages/fs/tool-fs/src/index.ts)
 
 ```ts config-catalog
-/** Runtime configuration for filesystem read and mutation tools. */
+/** Plugin config (all optional — `Config` supplies the defaults). */
 export interface Config {
   /** Default and maximum number of lines returned by one `read` call. */
   readLimit?: number
@@ -3692,12 +3682,7 @@ export interface Config {
   readMaxBytes?: number
   /** Files at or above this size stream instead of loading whole into memory. */
   readStreamMinSize?: number
-  /** Selects which filesystem tools this composition registers. */
-  enabledTools?: ToolName[]
 }
-
-/** Plugin config (all optional — `Config` supplies the defaults). */
-export type ToolName = 'read' | 'write' | 'edit' | 'read_image'
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-fs -->
 
@@ -3707,7 +3692,7 @@ export type ToolName = 'read' | 'write' | 'edit' | 'read_image'
 ## `@deepseek-ai/dsh-tool-fs-search`
 
 - `inject`: `tools` · `systemPrompt` · `subprocess`
-- `source`: [`packages/fs/tool-fs-search/src/index.ts:78`](../packages/fs/tool-fs-search/src/index.ts)
+- `source`: [`packages/fs/tool-fs-search/src/index.ts:73`](../packages/fs/tool-fs-search/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config; over-cap glob sampling is an explicit deployment choice and the remaining fields have defaults. */
@@ -3733,12 +3718,7 @@ export interface Config {
    * `@deepseek-ai/dsh-tool-call-timeout-policy` through `exec.signal`.
    */
   timeoutMs?: number
-  /** Selects which search tools this composition registers. */
-  enabledTools?: ToolName[]
 }
-
-/** Name of a search tool this package can register. */
-export type ToolName = 'glob' | 'grep'
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-fs-search -->
 

@@ -6,10 +6,6 @@
  * Plugin lifecycle reads use the optional `ctx.fs` provider, so providerless products
  * mount it as a no-op.
  *
- * The baseline also prepends the fixed end-of-turn response rule as static
- * intro text unless a composition sets `endOfTurnRule: false`; the rule
- * carries no scope or change record of its own.
- *
  * @module @deepseek-ai/dsh-agent-instructions
  */
 
@@ -44,7 +40,6 @@ export type {
   InstructionFile,
   LoadedInstructionFile,
 } from './files.ts'
-export { END_OF_TURN_RULE } from './end-of-turn.ts'
 export { renderAgentInstructions } from './render.ts'
 export type { RenderedAgentInstructions, TruncatedInstruction } from './render.ts'
 
@@ -148,7 +143,6 @@ export function apply(ctx: Context, config: Config): void {
         projectRootMarkers: resolved.projectRootMarkers,
         maxBytes: resolved.maxBytes,
         maxSourceBytes: resolved.maxSourceBytes,
-        endOfTurnRule: resolved.endOfTurnRule,
         instructionFileCandidates: resolved.instructionFileCandidates,
         localInstructionFileCandidates: resolved.localInstructionFileCandidates,
         projectRoot,

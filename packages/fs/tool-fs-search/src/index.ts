@@ -69,11 +69,6 @@ export const name = 'tool-fs-search'
 /** Services required by the search tool suite (`spillStore` is optional, read via `ctx.get()`). */
 export const inject = ['tools', 'systemPrompt', 'subprocess']
 
-/** Name of a search tool this package can register. */
-export type ToolName = 'glob' | 'grep'
-
-const TOOL_NAMES = ['glob', 'grep'] as const satisfies readonly ToolName[]
-
 /** Plugin config; over-cap glob sampling is an explicit deployment choice and the remaining fields have defaults. */
 export interface Config {
   /** Whether an over-cap `glob` page is sampled across top-level entries instead of taking the modification-time head. */
@@ -97,13 +92,10 @@ export interface Config {
    * `@deepseek-ai/dsh-tool-call-timeout-policy` through `exec.signal`.
    */
   timeoutMs?: number
-  /** Selects which search tools this composition registers. */
-  enabledTools?: ToolName[]
 }
 
 export const Config: z<Config> = z.object({
   sampleOverCapGlobResults: z.boolean().required(),
-  enabledTools: z.array(z.union(TOOL_NAMES)).default([...TOOL_NAMES]),
   globMaxResults: z.number().default(GLOB_MAX_RESULTS),
   grepMaxMatches: z.number().default(GREP_MAX_MATCHES),
   grepMaxLineBytes: z.number().default(GREP_MAX_LINE_BYTES),
@@ -136,7 +128,6 @@ function assertPositiveInteger(name: string, value: number): void {
 export async function apply(ctx: Context, config: Config): Promise<void> {
   // schemastery (Config) has already filled every defaulted field.
   const resolved = config as ResolvedConfig
-  const enabled = new Set(resolved.enabledTools)
   assertPositiveInteger('globMaxResults', resolved.globMaxResults)
   assertPositiveInteger('grepMaxMatches', resolved.grepMaxMatches)
   assertPositiveInteger('grepMaxLineBytes', resolved.grepMaxLineBytes)
@@ -148,7 +139,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   }
   assertPositiveInteger('stderrMaxBytes', resolved.stderrMaxBytes)
   assertPositiveInteger('timeoutMs', resolved.timeoutMs)
-  if (enabled.has('glob')) applyGlobTool(ctx, {
+  applyGlobTool(ctx, {
     sampleOverCapGlobResults: resolved.sampleOverCapGlobResults,
     maxResults: resolved.globMaxResults,
     maxMetaBytes: resolved.searchMetaMaxBytes,
@@ -157,7 +148,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     stderrMaxBytes: resolved.stderrMaxBytes,
     timeoutMs: resolved.timeoutMs,
   })
-  if (enabled.has('grep')) applyGrepTool(ctx, {
+  applyGrepTool(ctx, {
     maxMatches: resolved.grepMaxMatches,
     maxLineBytes: resolved.grepMaxLineBytes,
     maxMetaBytes: resolved.searchMetaMaxBytes,

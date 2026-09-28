@@ -22,7 +22,7 @@ function renderPopover(results: readonly QuotaResult[], providers = [{ id: 'open
     useProjection: () => undefined,
     refresh: vi.fn(async () => {}),
     t: translate,
-  } as unknown as ProviderQuotaActionProps
+  } as ProviderQuotaActionProps
   const view = render(<ProviderQuotaAction {...props} />)
   fireEvent.click(view.getByRole('button', { name: en.title }))
   return view
@@ -64,7 +64,7 @@ describe('ProviderQuotaAction popover', () => {
       useProjection: () => ({ uncachedInputTokens: 100, outputTokens: 25, cacheReadTokens: 50, cacheWriteTokens: 5 }),
       refresh: vi.fn(async () => {}),
       t: translate,
-    } as unknown as ProviderQuotaActionProps
+    } as ProviderQuotaActionProps
     const view = render(<ProviderQuotaAction {...props} />)
     fireEvent.click(view.getByRole('button', { name: en.title }))
     expect(view.getByText('This session: 180 tokens')).toBeDefined()

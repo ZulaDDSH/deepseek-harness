@@ -468,7 +468,6 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   PtcRunResult: 'ptc-runtime.md',
   CompactionResult: 'compaction.md',
   CompactionTrigger: 'compaction.md',
-  PruneSessionOptions: 'compaction.md',
   PruneResult: 'compaction.md',
   FileReadOutcome: 'filesystem.md',
   FsDirEntry: 'filesystem.md',

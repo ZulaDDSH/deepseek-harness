@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { expect, it, vi } from 'vitest'
-import type { BrowserWindow, WebContents } from 'electron'
+import type { WebContents } from 'electron'
 
 const openExternal = vi.hoisted(() => vi.fn())
 vi.mock('electron', () => ({ shell: { openExternal } }))
@@ -9,18 +9,18 @@ import { applyBrowserGuestPolicy, applyWindowNavigationPolicy } from '../src/bro
 
 it('installs one popup policy for every attached guest without accumulating host listeners', () => {
   const host = Object.assign(new EventEmitter(), {
-    setWindowOpenHandler: vi.fn(),
+    setWindowOpenHandler: vi.fn<WebContents['setWindowOpenHandler']>(),
     getURL: () => 'dsh-app://app/',
   })
-  const window = { webContents: host } as unknown as BrowserWindow
+  const window = { webContents: host }
 
   applyWindowNavigationPolicy(window)
 
   expect(host.listenerCount('did-attach-webview')).toBe(1)
-  const firstHandler = vi.fn()
-  const secondHandler = vi.fn()
-  const firstGuest = Object.assign(new EventEmitter(), { setWindowOpenHandler: firstHandler }) as unknown as WebContents
-  const secondGuest = Object.assign(new EventEmitter(), { setWindowOpenHandler: secondHandler }) as unknown as WebContents
+  const firstHandler = vi.fn<WebContents['setWindowOpenHandler']>()
+  const secondHandler = vi.fn<WebContents['setWindowOpenHandler']>()
+  const firstGuest = { setWindowOpenHandler: firstHandler }
+  const secondGuest = { setWindowOpenHandler: secondHandler }
   host.emit('did-attach-webview', {}, firstGuest)
   host.emit('did-attach-webview', {}, secondGuest)
 

@@ -2,8 +2,7 @@
  * Node half of the HMR plugin: bundle watches follow the graph, stat changes
  * report through clientModuleHost.rebuilt, and everything dies with the fiber.
  */
-import { EventEmitter } from 'node:events'
-import type { ServerResponse, IncomingMessage } from 'node:http'
+import { ServerResponse, type IncomingMessage } from 'node:http'
 import { mkdtempSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -260,11 +259,12 @@ describe('hmr node half', () => {
     const fiber = await mount(fakeClientModuleHost(new Map([['a', bundle]])), fakeHttpServer(routes), { keepAliveMs: POLL_MS })
 
     const lines: string[] = []
-    const response = Object.assign(new EventEmitter(), {
-      writeHead: vi.fn(), write: (line: string) => { lines.push(line) },
-      destroy: vi.fn(), end: vi.fn(),
-    })
-    await routes[0]!.handler({ method: 'GET' } as IncomingMessage, response as unknown as ServerResponse)
+    const response = new ServerResponse({ method: 'GET' } as IncomingMessage)
+    vi.spyOn(response, 'writeHead').mockReturnValue(response)
+    vi.spyOn(response, 'write').mockImplementation((line) => { lines.push(String(line)); return true })
+    vi.spyOn(response, 'destroy').mockReturnValue(response)
+    vi.spyOn(response, 'end').mockReturnValue(response)
+    await routes[0]!.handler({ method: 'GET' } as IncomingMessage, response)
     expect(lines).toHaveLength(2)
 
     // The opening comment proves the channel is up; only a later one keeps an
@@ -310,11 +310,12 @@ it('broadcasts the desired graph without waiting for Host activation or cleanup'
   const route = routes[0]!
   const connect = async () => {
     const lines: string[] = []
-    const response = Object.assign(new EventEmitter(), {
-      writeHead: vi.fn(), write: (line: string) => { lines.push(line) },
-      destroy: vi.fn(), end: vi.fn(),
-    })
-    await route.handler({ method: 'GET' } as IncomingMessage, response as unknown as ServerResponse)
+    const response = new ServerResponse({ method: 'GET' } as IncomingMessage)
+    vi.spyOn(response, 'writeHead').mockReturnValue(response)
+    vi.spyOn(response, 'write').mockImplementation((line) => { lines.push(String(line)); return true })
+    vi.spyOn(response, 'destroy').mockReturnValue(response)
+    vi.spyOn(response, 'end').mockReturnValue(response)
+    await route.handler({ method: 'GET' } as IncomingMessage, response)
     return { lines, response }
   }
   try {

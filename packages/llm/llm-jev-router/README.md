@@ -66,11 +66,9 @@ The Jev request has an independent cache lifecycle from the selected DSH provide
 
 ### Grep relevance ranking
 
-The `jevRouter` service exposes `filterGrepMatches`, which `tool-fs-search` calls for top-level grep results. Each candidate is a `JevGrepMatch` (`path`, one-based `lineNumber`, matched `line`). When routing is enabled and at least 100 matches arrive, up to 250 candidates are scored against the Agent's bounded Jev state and the 32 most relevant are kept in their original order. Disabled routing, an aborted signal, a missing Agent state, or a scoring failure returns the matches unchanged.
-
 #### What the model sees
 
-The model receives the grep tool result as usual, reduced to the kept matches when ranking succeeds. The Jev scoring request and its scores never enter the model's prompt.
+The `jevRouter` service exposes `filterGrepMatches`, which `tool-fs-search` calls for top-level grep results. Each candidate is a `JevGrepMatch` (`path`, one-based `lineNumber`, matched `line`). When routing is enabled and at least 100 matches arrive, up to 250 candidates are scored against the Agent's bounded Jev state and the 32 most relevant are kept in their original order. Disabled routing, an aborted signal, a missing Agent state, or a scoring failure returns the matches unchanged. The model receives the grep tool result as usual, reduced to the kept matches when ranking succeeds. The Jev scoring request and its scores never enter the model's prompt.
 
 #### Token effect
 

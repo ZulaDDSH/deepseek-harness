@@ -6,12 +6,12 @@ import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import { z } from 'zod'
 import type { McpSelection, McpSelectionProjection, McpSelectionProjectionState } from './types.ts'
 
-const selectionSchema = z.object({
+const selectionSchema: z.ZodType<McpSelection> = z.object({
   connectorIds: z.array(z.string().min(1)).readonly(),
-}) as unknown as z.ZodType<McpSelection>
+})
 
-const stateSchema = z.object({ current: selectionSchema.nullable() }) as unknown as z.ZodType<McpSelectionProjectionState>
-const viewSchema = z.object({ current: selectionSchema.nullable() }) as unknown as z.ZodType<McpSelectionProjection>
+const stateSchema: z.ZodType<McpSelectionProjectionState> = z.object({ current: selectionSchema.nullable() })
+const viewSchema: z.ZodType<McpSelectionProjection> = stateSchema
 
 const mcpSelectionProjection = {
   key: 'mcpSelection',

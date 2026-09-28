@@ -74,8 +74,17 @@ function agentUnder(ctx: Context, id: string): Agent {
     cwd: '/workspace',
   }
   const session = ctx.sessions.create(SessionId(id), { meta })
-  const agent = { id: SessionId(id), session, status: 'idle', steer: vi.fn(), followup: vi.fn(), cancel: vi.fn() } as unknown as Agent
-  ;(agent as { ctx: Context }).ctx = createScope(ctx, agent).ctx
+  const rejectInboxMutation = (): never => { throw new Error('this fixture does not mutate the inbox') }
+  const agent: Agent = {
+    id: SessionId(id), session, options: {}, ctx, status: 'idle',
+    inbox: {
+      nextTurn: [], nextStep: [], append: rejectInboxMutation, prepend: rejectInboxMutation,
+      replace: rejectInboxMutation, remove: rejectInboxMutation, splice: rejectInboxMutation, clear: rejectInboxMutation,
+    },
+    steer: vi.fn(), followup: vi.fn(), cancel: vi.fn(), send: vi.fn(), inject: vi.fn(),
+    whenIdle: () => Promise.resolve(), runMaintenance: task => task(new AbortController().signal),
+  }
+  Object.assign(agent, { ctx: createScope(ctx, agent).ctx })
   return agent
 }
 

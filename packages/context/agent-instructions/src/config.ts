@@ -22,12 +22,6 @@ export interface Config {
   projectRootMarkers?: string[]
   /** UTF-8 byte cap for one rendered baseline or dynamic batch; non-positive or non-finite disables loading. */
   maxBytes: number
-  /**
-   * Prepend the fixed end-of-turn response rule to the baseline. Enabled by
-   * default so every mode carries the same rule; a composition turns it off
-   * when it supplies its own end-of-turn wording.
-   */
-  endOfTurnRule?: boolean
   /** Maximum UTF-8 bytes read from one instruction file; larger files are ignored. */
   maxSourceBytes?: number
   /**
@@ -46,7 +40,6 @@ export const Config: z<Config> = z.object({
   dshHome: z.string(),
   projectRootMarkers: z.array(z.string()).default([...DEFAULT_PROJECT_ROOT_MARKERS]),
   maxBytes: z.number().required(),
-  endOfTurnRule: z.boolean().default(true),
   maxSourceBytes: z.number().step(1).min(1).default(DEFAULT_MAX_SOURCE_BYTES),
   instructionFileCandidates: z.array(z.string()).default([...DEFAULT_INSTRUCTION_FILE_CANDIDATES]),
   localInstructionFileCandidates: z.array(z.string()).default([...DEFAULT_LOCAL_INSTRUCTION_FILE_CANDIDATES]),
@@ -64,7 +57,6 @@ export interface ResolvedDiscoveryConfig {
 export interface ResolvedConfig extends ResolvedDiscoveryConfig {
   maxBytes: number
   maxSourceBytes: number
-  endOfTurnRule: boolean
 }
 
 /**
@@ -84,7 +76,6 @@ export function workspaceBaselineIdentity(
     projectRootMarkers: config.projectRootMarkers,
     maxBytes: config.maxBytes,
     maxSourceBytes: config.maxSourceBytes,
-    endOfTurnRule: config.endOfTurnRule,
     instructionFileCandidates: config.instructionFileCandidates,
     localInstructionFileCandidates: config.localInstructionFileCandidates,
   })
@@ -92,14 +83,6 @@ export function workspaceBaselineIdentity(
 
 /**
  * Resolve defaults, the harness home, and valid same-directory candidates.
- *
- * `endOfTurnRule` defaults to `false` here rather than mirroring the plugin
- * schema's `true` default: Cordis applies the schema default only when this
- * package's plugin is mounted through `ctx.plugin`, while a direct call to
- * {@link loadBaselineInstructions} or {@link loadBaselineInstructionSet}
- * bypasses that schema and reaches this resolver with whatever the caller
- * wrote. Omitting the field there keeps the pre-existing workspace-file-only
- * result unless a caller opts in explicitly.
  * @param config - user-facing plugin configuration.
  * @returns normalized runtime configuration.
  */
@@ -108,7 +91,6 @@ export function resolveConfig(config: Config): ResolvedConfig {
     ...resolveDiscoveryConfig(config),
     maxBytes: config.maxBytes,
     maxSourceBytes: config.maxSourceBytes ?? DEFAULT_MAX_SOURCE_BYTES,
-    endOfTurnRule: config.endOfTurnRule ?? false,
   }
 }
 

@@ -1,5 +1,6 @@
 /** Application-window navigation policy and in-app Browser guest policy. */
-import { shell, type BrowserWindow } from 'electron'
+import type { EventEmitter } from 'node:events'
+import { shell, type WebContents } from 'electron'
 import { SCHEME } from './ipc.ts'
 
 const OPENABLE_PROTOCOLS = ['http:', 'https:']
@@ -18,12 +19,14 @@ function isOpenable(url: string): boolean {
  * Restrict one window to its own origin and hand its other Web addresses to the system browser.
  * @param window - Window whose contents are restricted.
  */
-export function applyWindowNavigationPolicy(window: BrowserWindow): void {
+export function applyWindowNavigationPolicy(window: {
+  webContents: EventEmitter & Pick<WebContents, 'getURL' | 'setWindowOpenHandler'>
+}): void {
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (isOpenable(url)) void shell.openExternal(url)
     return { action: 'deny' }
   })
-  window.webContents.on('did-attach-webview', (_event, guest) => {
+  window.webContents.on('did-attach-webview', (_event, guest: Pick<WebContents, 'setWindowOpenHandler'>) => {
     guest.setWindowOpenHandler(({ url }) => {
       if (isOpenable(url)) void shell.openExternal(url)
       return { action: 'deny' }

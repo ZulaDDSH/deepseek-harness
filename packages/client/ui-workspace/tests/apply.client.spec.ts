@@ -12,7 +12,6 @@ import { RemoteError, TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type { WorkspaceBrowserInjected, WorkspacePickerInjected } from '@deepseek-ai/dsh-client-ui-workspace/client'
-import type { QuickSwitcherInjected } from '../src/client/QuickSwitcher.tsx'
 import {
   type ArchiveSessionInjected, type ForkSessionInjected, menuOpenStateFactory, type PinSessionInjected,
   type RenameSessionInjected, type RowToastInjected, type SessionArchiveConfirmInjected, type SessionRenameDialogInjected,
@@ -541,7 +540,10 @@ describe('ui-workspace apply', () => {
 
     const entry = b.slots.entries('shell.overlay').find(item => item.options.id === 'workspace-quick-switcher')
     expect(entry?.component).toBe(QuickSwitcher)
-    const injected = (entry?.inject as unknown as () => QuickSwitcherInjected)()
+    const injected = entry!.inject!()
+    if (typeof injected.quickCommands !== 'function' || typeof injected.runQuick !== 'function') {
+      throw new Error('quick switcher actions are missing')
+    }
     const signal = new AbortController().signal
     await injected.quickCommands('session' as never, 'plan', signal)
     expect(quickCommands).toHaveBeenCalledWith('session', 'plan', signal)

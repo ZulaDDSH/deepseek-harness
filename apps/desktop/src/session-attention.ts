@@ -24,7 +24,7 @@ export class DesktopSessionAttention {
    */
   constructor(
     private readonly locale: () => DesktopLocale,
-    private readonly window: () => BrowserWindow | undefined,
+    private readonly window: () => Pick<BrowserWindow, 'isDestroyed' | 'isMinimized' | 'restore' | 'show' | 'focus'> | undefined,
     private readonly activate: (sessionId: string) => void,
   ) {}
 

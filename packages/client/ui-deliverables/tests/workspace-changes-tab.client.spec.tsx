@@ -46,7 +46,7 @@ describe('WorkspaceChangesTab', () => {
     const loadStatus = vi.fn<WorkspaceStatusStore['load']>(() => Promise.resolve())
     const loadDiff = vi.fn<WorkspaceDiffStore['load']>(() => Promise.resolve())
     const workspaces = [{ workspaceId, path: '/work', title: 'Project', sessionIds: [], createdAt: '', updatedAt: '' }]
-    const sessions = { byId: { [sessionId]: { cwd: '/work' } } } as unknown as SessionListState
+    const sessions = { byId: { [sessionId]: { cwd: '/work' } } } as SessionListState
     const props = {
       sessionId,
       useWorkspaces: <S,>(selector: (state: { items: typeof workspaces }) => S): S => selector({ items: workspaces }),
@@ -55,7 +55,7 @@ describe('WorkspaceChangesTab', () => {
       useWorkspaceDiff: hookOf(diffs.state),
       loadStatus, refreshStatus, loadDiff,
       t: makeTranslate(en),
-    } as unknown as WorkspaceChangesTabProps
+    } as WorkspaceChangesTabProps
 
     const view = render(<WorkspaceChangesTab {...props} />)
     expect(view.getByText('Changed: 2')).toBeTruthy()
@@ -78,7 +78,7 @@ describe('WorkspaceChangesTab', () => {
       { workspaceId: otherId, path: '/elsewhere', title: 'Other', sessionIds: [], createdAt: '', updatedAt: '' },
       { workspaceId, path: '/work', title: 'Project', sessionIds: [], createdAt: '', updatedAt: '' },
     ]
-    const sessions = { byId: { [sessionId]: { cwd: '/work' } } } as unknown as SessionListState
+    const sessions = { byId: { [sessionId]: { cwd: '/work' } } } as SessionListState
     const props = {
       sessionId,
       useWorkspaces: <S,>(selector: (state: { items: typeof workspaces }) => S): S => selector({ items: workspaces }),
@@ -89,7 +89,7 @@ describe('WorkspaceChangesTab', () => {
       refreshStatus: vi.fn<WorkspaceStatusStore['refresh']>(() => Promise.resolve()),
       loadDiff: vi.fn<WorkspaceDiffStore['load']>(() => Promise.resolve()),
       t: makeTranslate(en),
-    } as unknown as WorkspaceChangesTabProps
+    } as WorkspaceChangesTabProps
 
     render(<WorkspaceChangesTab {...props} />)
     expect(loadStatus).toHaveBeenCalledWith(workspaceId)
@@ -101,7 +101,7 @@ describe('WorkspaceChangesTab', () => {
     const statuses = new WorkspaceStatusStore()
     const diffs = new WorkspaceDiffStore()
     const single = [{ workspaceId, path: '/work', title: 'Project', sessionIds: [], createdAt: '', updatedAt: '' }]
-    const sessions = { byId: { [sessionId]: { cwd: '/work' } } } as unknown as SessionListState
+    const sessions = { byId: { [sessionId]: { cwd: '/work' } } } as SessionListState
     const base = {
       sessionId,
       useSessions: <S,>(selector: (state: SessionListState) => S): S => selector(sessions),
@@ -114,7 +114,7 @@ describe('WorkspaceChangesTab', () => {
     }
     const singleProps = { ...base,
       useWorkspaces: <S,>(s: (state: { items: typeof single }) => S): S => s({ items: single }),
-    } as unknown as WorkspaceChangesTabProps
+    } as WorkspaceChangesTabProps
     const view = render(<WorkspaceChangesTab {...singleProps} />)
     expect(view.queryByLabelText('Workspace')).toBeNull()
     view.unmount()
@@ -124,7 +124,7 @@ describe('WorkspaceChangesTab', () => {
     }]
     const manyProps = { ...base,
       useWorkspaces: <S,>(s: (state: { items: typeof many }) => S): S => s({ items: many }),
-    } as unknown as WorkspaceChangesTabProps
+    } as WorkspaceChangesTabProps
     const second = render(<WorkspaceChangesTab {...manyProps} />)
     expect(second.getByLabelText('Workspace')).toBeTruthy()
     void statuses.dispose()

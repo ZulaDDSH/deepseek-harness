@@ -460,7 +460,7 @@ describe('server-filesystem — real filesystem operations', () => {
 
 /** Live libuv handles owned by this process. */
 function activeHandles(): unknown[] {
-  return (process as unknown as { _getActiveHandles(): unknown[] })._getActiveHandles()
+  return (process as NodeJS.Process & { _getActiveHandles(): unknown[] })._getActiveHandles()
 }
 
 /** Whether a handle keeps the event loop alive: sockets, child processes, and timers with an active ref. */

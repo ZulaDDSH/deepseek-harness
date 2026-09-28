@@ -5,7 +5,6 @@
  */
 
 import { basename, dirname } from 'node:path'
-import { END_OF_TURN_RULE } from './end-of-turn.ts'
 import type { InstructionFile, LoadedInstructionFile } from './files.ts'
 
 const SYSTEM_REMINDER_OPEN = '<system-reminder>'
@@ -157,31 +156,16 @@ function additionalSectionText(file: LoadedInstructionFile): string {
   ].join('\n')
 }
 
-/**
- * Prepend the fixed end-of-turn rule ahead of an intro string. The rule is
- * static prose baked into the intro slot: it carries no scope or change
- * record, so the per-directory reconciliation in `state.ts` never sees it and
- * toggling it only affects rendered bytes and the baseline identity.
- * @param intro - the base intro text this baseline would otherwise render.
- * @param endOfTurnRule - whether the owning composition prepends the rule.
- * @returns the combined intro text.
- */
-function withEndOfTurnIntro(intro: string, endOfTurnRule: boolean | undefined): string {
-  if (endOfTurnRule !== true) return intro
-  return intro.length === 0 ? END_OF_TURN_RULE : `${END_OF_TURN_RULE}\n\n${intro}`
-}
+const BASELINE_RENDER_STYLE: RenderStyle = { intro: AGENT_INSTRUCTIONS_INTRO, section: sectionText }
 
-function baselineRenderStyle(
-  files: LoadedInstructionFile[],
-  replacePreviousBaseline: boolean | undefined,
-  endOfTurnRule: boolean | undefined,
-): RenderStyle {
-  const intro = replacePreviousBaseline !== true
-    ? AGENT_INSTRUCTIONS_INTRO
-    : files.length === 0
+function baselineRenderStyle(files: LoadedInstructionFile[], replacePreviousBaseline: boolean | undefined): RenderStyle {
+  if (replacePreviousBaseline !== true) return BASELINE_RENDER_STYLE
+  return {
+    ...BASELINE_RENDER_STYLE,
+    intro: files.length === 0
       ? EMPTY_REPLACEMENT_AGENT_INSTRUCTIONS_INTRO
-      : REPLACEMENT_AGENT_INSTRUCTIONS_INTRO
-  return { intro: withEndOfTurnIntro(intro, endOfTurnRule), section: sectionText }
+      : REPLACEMENT_AGENT_INSTRUCTIONS_INTRO,
+  }
 }
 
 function changedSectionText(item: ChangeRenderItem): string {
@@ -350,16 +334,15 @@ function renderInstructionContext(
 /**
  * Render a baseline together with the exact source files semantically represented in it.
  * @param files - loaded files ordered from broadest to most specific.
- * @param options - rendering byte budget, whether this baseline supersedes a visible
- * predecessor, and whether the fixed end-of-turn rule prepends the intro.
+ * @param options - rendering byte budget and whether this baseline supersedes a visible predecessor.
  * @returns bounded public rendering plus files with surviving content, including genuinely empty files.
  * @internal
  */
 export function renderAgentInstructionSet(
   files: LoadedInstructionFile[],
-  options: { maxBytes: number; replacePreviousBaseline?: boolean; endOfTurnRule?: boolean },
+  options: { maxBytes: number; replacePreviousBaseline?: boolean },
 ): { rendered: RenderedAgentInstructions; included: LoadedInstructionFile[] } {
-  const style = baselineRenderStyle(files, options.replacePreviousBaseline, options.endOfTurnRule)
+  const style = baselineRenderStyle(files, options.replacePreviousBaseline)
   const { represented, ...rendered } = renderInstructionContext(files, options.maxBytes, style)
   return { rendered, included: represented }
 }
@@ -367,13 +350,12 @@ export function renderAgentInstructionSet(
 /**
  * Render the baseline instruction chain with deterministic precedence budgeting.
  * @param files - loaded files ordered from broadest to most specific.
- * @param options - rendering byte budget, whether this baseline supersedes a visible
- * predecessor, and whether the fixed end-of-turn rule prepends the intro.
+ * @param options - rendering byte budget and whether this baseline supersedes a visible predecessor.
  * @returns bounded baseline prompt text and budget diagnostics.
  */
 export function renderAgentInstructions(
   files: LoadedInstructionFile[],
-  options: { maxBytes: number; replacePreviousBaseline?: boolean; endOfTurnRule?: boolean },
+  options: { maxBytes: number; replacePreviousBaseline?: boolean },
 ): RenderedAgentInstructions {
   return renderAgentInstructionSet(files, options).rendered
 }

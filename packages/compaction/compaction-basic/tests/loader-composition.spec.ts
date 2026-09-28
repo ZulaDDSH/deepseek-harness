@@ -77,7 +77,6 @@ describe('real Loader composition', () => {
       '        headroomTokens: 0',
       '        maxTokens: 32',
       '    retainRatio: 0.125',
-      '    proactiveToolResultPruning: true',
       '    auto: false',
     ])
 
@@ -92,7 +91,6 @@ describe('real Loader composition', () => {
       headroomTokens: 4000,
       modelPolicies: [{ provider: 'mock', model: 'small', headroomTokens: 0, maxTokens: 32 }],
       retainRatio: 0.125,
-      proactiveToolResultPruning: true,
       auto: false,
     })
   })

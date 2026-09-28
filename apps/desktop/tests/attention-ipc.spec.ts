@@ -8,13 +8,13 @@ it('accepts valid application attention requests and rejects invalid or unowned 
   expect(() => parseDesktopAttentionRequest({ ...valid, kind: 'other' })).toThrow('invalid attention request')
   expect(() => {
     assertDesktopSender(
-      { senderFrame: { url: 'dsh-app://app/' } } as unknown as IpcMainInvokeEvent,
+      { senderFrame: { url: 'dsh-app://app/' } } as IpcMainInvokeEvent,
       ['app'],
     )
   }).not.toThrow()
   expect(() => {
     assertDesktopSender(
-      { senderFrame: { url: 'dsh-app://shell/' } } as unknown as IpcMainInvokeEvent,
+      { senderFrame: { url: 'dsh-app://shell/' } } as IpcMainInvokeEvent,
       ['app'],
     )
   }).toThrow('unowned renderer')

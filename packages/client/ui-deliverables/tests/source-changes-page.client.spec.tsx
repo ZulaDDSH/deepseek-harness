@@ -4,6 +4,7 @@ import { useSyncExternalStore } from 'react'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
+import { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { workspaceDiffUrl, workspaceStatusUrl, type WorkspaceDiff, type WorkspaceStatusValue } from '../src/changes.ts'
@@ -43,7 +44,13 @@ describe('SourceChangesPage', () => {
     const loadStatus = vi.fn<WorkspaceStatusStore['load']>(() => Promise.resolve())
     const loadDiff = vi.fn<WorkspaceDiffStore['load']>(() => Promise.resolve())
     const workspaces = [{ workspaceId, path: '/work', title: 'Project', sessionIds: [], createdAt: '', updatedAt: '' }]
-    const sessions = { byId: { session: { cwd: '/work', retainedBy: { mainView: 1 } } } } as unknown as SessionListState
+    const sessions: SessionListState = {
+      ids: [SessionId('session')], phase: 'ready', projectionsBySession: {},
+      byId: { [SessionId('session')]: {
+        id: SessionId('session'), displayTitle: 'session', cwd: '/work', retainedBy: { mainView: 1 },
+        running: false, blank: false, updatedAt: 1,
+      } },
+    }
     const props = {
       useWorkspaces: <S,>(selector: (state: { items: typeof workspaces }) => S): S => selector({ items: workspaces }),
       useSessions: <S,>(selector: (state: SessionListState) => S): S => selector(sessions),
@@ -51,7 +58,7 @@ describe('SourceChangesPage', () => {
       useWorkspaceDiff: hookOf(diffs.state),
       loadStatus, refreshStatus, loadDiff,
       t: makeTranslate(en),
-    } as unknown as SourceChangesPageProps
+    } as SourceChangesPageProps
 
     const view = render(<SourceChangesPage {...props} />)
     expect(view.getByRole('heading', { name: 'Changes' })).toBeTruthy()
