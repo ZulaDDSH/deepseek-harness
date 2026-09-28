@@ -14,6 +14,7 @@ const cleanups: Array<() => Promise<unknown>> = []
 const signal = new AbortController().signal
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   vi.resetAllMocks()
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
 })
@@ -31,44 +32,46 @@ it('compares a symlink target without reading its destination', async () => {
 })
 
 it('reads at most maxFileBytes plus one byte before reporting oversized', async () => {
+  const root = await scratchDir('dsh-status-read-', cleanups)
   const { ctx, git: command } = await runner()
   cleanups.push(() => ctx.fiber.dispose())
   const bytes = Buffer.from('0123456789')
-  const stat = { isSymbolicLink: () => false, isFile: () => true, dev: 1, ino: 2 }
-  vi.mocked(lstat).mockResolvedValueOnce(stat as Awaited<ReturnType<typeof lstat>>)
+  await writeFile(join(root, 'large'), bytes)
+  const handle = await open(join(root, 'large'), 'r')
+  cleanups.push(() => handle.close())
+  const read = vi.spyOn(handle, 'read')
+  const close = vi.spyOn(handle, 'close')
+  vi.mocked(open).mockResolvedValueOnce(handle)
   vi.mocked(readFile).mockResolvedValueOnce(bytes)
-  let consumed = 0
-  const read = vi.fn(async (buffer: Buffer, offset: number, length: number, position: number) => {
-    const bytesRead = bytes.copy(buffer, offset, position, Math.min(position + length, position + 2))
-    consumed += bytesRead
-    return { bytesRead, buffer }
-  })
-  const close = vi.fn(async () => {})
-  vi.mocked(open).mockResolvedValueOnce({ read, close, stat: async () => stat } as unknown as Awaited<ReturnType<typeof open>>)
   const file = { path: 'large', display: 'large', index: '?', worktree: '?', added: 1, deleted: 0 }
-  expect(await readWorkspaceDiff(command, '/repo', file, 4, 1000, signal)).toMatchObject({ kind: 'oversized' })
-  expect(consumed).toBe(5)
+  expect(await readWorkspaceDiff(command, root, file, 4, 1000, signal)).toMatchObject({ kind: 'oversized' })
+  const reads = await Promise.all(read.mock.results.flatMap(result => result.type === 'return' ? [result.value] : []))
+  expect(reads.reduce((sum, result) => sum + result.bytesRead, 0)).toBe(5)
   expect(close).toHaveBeenCalledOnce()
   expect(readFile).not.toHaveBeenCalled()
 })
 
 it.each(['device', 'inode', 'directory', 'read failure', 'cancellation'])('closes the handle after %s without following a replaced entry', async (failure) => {
+  const root = await scratchDir('dsh-status-error-', cleanups)
   const { ctx, git: command } = await runner()
   cleanups.push(() => ctx.fiber.dispose())
   const controller = new AbortController()
-  const stat = { isSymbolicLink: () => false, isFile: () => true, dev: 1, ino: 2 }
-  vi.mocked(lstat).mockResolvedValueOnce(stat as Awaited<ReturnType<typeof lstat>>)
-  const read = vi.fn(async () => { throw new Error('read failed') })
-  const close = vi.fn(async () => {})
-  const opened = { ...stat, dev: failure === 'device' ? 3 : 1, ino: failure === 'inode' ? 3 : 2, isFile: () => failure !== 'directory' }
-  vi.mocked(open).mockResolvedValueOnce({
-    read, close, stat: async () => {
-      if (failure === 'cancellation') controller.abort(new Error('cancelled'))
-      return opened
-    },
-  } as unknown as Awaited<ReturnType<typeof open>>)
+  await writeFile(join(root, 'file'), 'text')
+  const handle = await open(join(root, 'file'), 'r')
+  cleanups.push(() => handle.close())
+  const opened = await handle.stat()
+  if (failure === 'device') opened.dev += 1
+  if (failure === 'inode') opened.ino += 1
+  if (failure === 'directory') vi.spyOn(opened, 'isFile').mockReturnValue(false)
+  vi.spyOn(handle, 'stat').mockImplementationOnce(async () => {
+    if (failure === 'cancellation') controller.abort(new Error('cancelled'))
+    return opened
+  })
+  const read = vi.spyOn(handle, 'read').mockRejectedValueOnce(new Error('read failed'))
+  const close = vi.spyOn(handle, 'close')
+  vi.mocked(open).mockResolvedValueOnce(handle)
   const file = { path: 'file', display: 'file', index: '?', worktree: '?', added: 1, deleted: 0 }
-  await expect(readWorkspaceDiff(command, '/repo', file, 4, 1000, controller.signal)).rejects.toThrow(
+  await expect(readWorkspaceDiff(command, root, file, 4, 1000, controller.signal)).rejects.toThrow(
     failure === 'read failure' ? 'read failed' : failure === 'cancellation' ? 'cancelled' : 'worktree entry changed or is not a regular file',
   )
   expect(close).toHaveBeenCalledOnce()
