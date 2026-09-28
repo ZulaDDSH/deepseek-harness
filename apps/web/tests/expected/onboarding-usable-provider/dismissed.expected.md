@@ -60,6 +60,9 @@
       - option "xiaomi-token-plan-sgp"
       - option "zai"
       - option "zai-coding-cn"
+    - text: 登录 minimax-cn 未登录
+    - paragraph: 请在浏览器中完成登录，此窗口会自动更新。
+    - button "登录"
     - text: API 密钥
     - textbox "API 密钥":
       - /placeholder: 输入 API 密钥，或留空使用环境认证

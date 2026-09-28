@@ -1,4 +1,4 @@
 - tree "Sessions":
   - treeitem "workspace" [expanded]
   - treeitem "New Session" [selected]
-  - treeitem "1 subagent running Delegate a background job. now"
+  - treeitem "Delegate a background job. 1 subagent running now"
