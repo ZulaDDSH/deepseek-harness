@@ -64,8 +64,6 @@ describe('ModelSelect reasoning effort', () => {
     })
     render(<ModelSelect
       locked={false}
-      favorites={createSnapshotStore<string[]>([])}
-      toggleFavorite={vi.fn()}
       available
       directory={directory}
       load={vi.fn()}
@@ -109,8 +107,6 @@ describe('ModelSelect reasoning effort', () => {
     }))
     render(<ModelSelect
       locked={false}
-      favorites={createSnapshotStore<string[]>([])}
-      toggleFavorite={vi.fn()}
       available
       directory={directory}
       load={vi.fn()}
@@ -133,8 +129,6 @@ describe('ModelSelect reasoning effort', () => {
     const select = vi.fn().mockResolvedValue({ ok: true, value: undefined })
     render(<ModelSelect
       locked={false}
-      favorites={createSnapshotStore<string[]>([])}
-      toggleFavorite={vi.fn()}
       available
       directory={directory}
       load={vi.fn()}
@@ -154,9 +148,7 @@ describe('ModelSelect reasoning effort', () => {
 
   it.each(['model', 'provider'])('keeps the saved id and effort when the selected %s disappears', (removed) => {
     const directory = createSnapshotStore(state({ retainedEffort: 'High' }))
-    render(<ModelSelect locked={false} available directory={directory}
-      load={vi.fn()} select={vi.fn()}
-      favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()} t={t} />)
+    render(<ModelSelect locked={false} available directory={directory} load={vi.fn()} select={vi.fn()} t={t} />)
     expect(screen.getByRole('button', { name: /选择模型，当前/ }).textContent).toContain('DeepSeek-V4-Flash')
     act(() => { directory.update((snapshot) => {
       snapshot.groups = removed === 'provider' ? [] : snapshot.groups.map(group => ({ ...group, models: [] }))
@@ -176,8 +168,6 @@ describe('ModelSelect reasoning effort', () => {
     }))
     render(<ModelSelect
       locked={false}
-      favorites={createSnapshotStore<string[]>([])}
-      toggleFavorite={vi.fn()}
       available
       directory={directory}
       load={vi.fn()}
@@ -214,8 +204,6 @@ describe('ModelSelect reasoning effort', () => {
     })
     render(<ModelSelect
       locked={false}
-      favorites={createSnapshotStore<string[]>([])}
-      toggleFavorite={vi.fn()}
       available
       directory={directory}
       load={vi.fn()}
@@ -256,9 +244,7 @@ describe('ModelSelect reasoning effort', () => {
         }
       })
     })
-    render(<ModelSelect locked={false} available directory={directory}
-      load={vi.fn()} select={select}
-      favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()} t={t} />)
+    render(<ModelSelect locked={false} available directory={directory} load={vi.fn()} select={select} t={t} />)
     const spinners = () => document.querySelectorAll('[data-state="ongoing"]')
 
     const trigger = screen.getByRole('button', { name: /选择模型|当前/ })
@@ -287,9 +273,7 @@ describe('ModelSelect reasoning effort', () => {
       directory.set(state({ status: 'selecting', pending: selection }))
       return new Promise<undefined>(() => {})
     })
-    render(<ModelSelect locked={false} available directory={directory}
-      load={vi.fn()} select={select}
-      favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()} t={t} />)
+    render(<ModelSelect locked={false} available directory={directory} load={vi.fn()} select={select} t={t} />)
 
     fireEvent.click(screen.getByRole('button', { name: /选择模型|当前/ }))
     fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
@@ -307,8 +291,6 @@ describe('ModelSelect reasoning effort', () => {
     try {
       const { container } = render(<ModelSelect
         locked={false}
-        favorites={createSnapshotStore<string[]>([])}
-        toggleFavorite={vi.fn()}
         available
         directory={createSnapshotStore(state())}
         load={vi.fn()}
@@ -342,8 +324,6 @@ describe('ModelSelect reasoning effort', () => {
     const load = vi.fn()
     render(<ModelSelect
       locked={false}
-      favorites={createSnapshotStore<string[]>([])}
-      toggleFavorite={vi.fn()}
       available={false}
       directory={createSnapshotStore(state())}
       load={load}
@@ -356,54 +336,11 @@ describe('ModelSelect reasoning effort', () => {
   })
 })
 
-describe('ModelSelect search and favorites', () => {
-  it('filters the model list and moves favorited models into a top section', () => {
-    const groups = [{
-      id: 'provider',
-      name: 'Provider',
-      models: [
-        { id: 'flash', name: 'Flash' },
-        { id: 'pro', name: 'Pro' },
-      ],
-    }]
-    const directory = createSnapshotStore(state({ groups, current: { provider: 'provider', model: 'flash' } }))
-    const favorites = createSnapshotStore<string[]>([])
-    const toggleFavorite = (key: string): void => {
-      favorites.update((ids) => {
-        const at = ids.indexOf(key)
-        if (at === -1) ids.push(key)
-        else ids.splice(at, 1)
-      })
-    }
-    render(<ModelSelect
-      locked={false}
-      favorites={favorites}
-      toggleFavorite={toggleFavorite}
-      available
-      directory={directory}
-      load={vi.fn()}
-      select={vi.fn().mockResolvedValue({ ok: true, value: undefined })}
-      t={t}
-    />)
-
-    fireEvent.click(screen.getByRole('button', { name: /选择模型/ }))
-    fireEvent.click(screen.getByRole('menuitem', { name: /模型/ }))
-    const search = screen.getByRole('searchbox', { name: '筛选模型' })
-    fireEvent.change(search, { target: { value: 'pro' } })
-    expect(screen.getAllByRole('menuitemradio').map(row => row.textContent)).toEqual(['Pro'])
-    fireEvent.change(search, { target: { value: '' } })
-    fireEvent.click(screen.getByRole('button', { name: '收藏 Pro' }))
-    expect(screen.getAllByRole('menuitemradio').map(row => row.textContent)).toEqual(['Pro', 'Flash'])
-  })
-})
-
 describe('ModelSelect keyboard walk', () => {
   function mountOpen() {
     const select = vi.fn().mockResolvedValue({ ok: true, value: undefined })
     render(<ModelSelect
       locked={false}
-      favorites={createSnapshotStore<string[]>([])}
-      toggleFavorite={vi.fn()}
       available
       directory={createSnapshotStore(state())}
       load={vi.fn()}
@@ -477,8 +414,6 @@ describe('ModelSelect keyboard walk', () => {
   it('Tab with the keyboard still on the trigger enters the menu at the value in use', () => {
     render(<ModelSelect
       locked={false}
-      favorites={createSnapshotStore<string[]>([])}
-      toggleFavorite={vi.fn()}
       available
       directory={createSnapshotStore(state())}
       load={vi.fn()}
@@ -525,8 +460,6 @@ describe('ModelSelect keyboard walk', () => {
     }))
     render(<ModelSelect
       locked={false}
-      favorites={createSnapshotStore<string[]>([])}
-      toggleFavorite={vi.fn()}
       available
       directory={directory}
       load={load}
@@ -591,8 +524,6 @@ describe('ModelSelect keyboard walk', () => {
     // The session runs a model the catalog no longer lists: no row is checked.
     render(<ModelSelect
       locked={false}
-      favorites={createSnapshotStore<string[]>([])}
-      toggleFavorite={vi.fn()}
       available
       directory={createSnapshotStore(state({ current: { provider: 'gone', model: 'gone' } }))}
       load={vi.fn()}
@@ -609,9 +540,7 @@ describe('ModelSelect keyboard walk', () => {
 
 it('shows the unselected model control with the inherited effort', async () => {
   const directory = createSnapshotStore<ModelDirectoryState>(state({ current: null, routable: false, retainedEffort: 'High' }))
-  render(<ModelSelect locked={false} available directory={directory}
-    load={vi.fn()} select={vi.fn()}
-    favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()} t={t} />)
+  render(<ModelSelect locked={false} available directory={directory} load={vi.fn()} select={vi.fn()} t={t} />)
   const trigger = screen.getByRole('button', { name: '请选择模型' })
   expect(trigger.hasAttribute('disabled')).toBe(false)
   await expect(`${trigger.textContent}\n`).toMatchFileSnapshot('./expected/unselected-model.txt')
@@ -630,9 +559,7 @@ it('places account and official models before third-party models', async () => {
     id, name: id, models: [1, 2].map(index => ({ id: `${id}-${index}`, name: `${id}-${index}` })),
   }))
   const directory = createSnapshotStore<ModelDirectoryState>(state({ current: null, groups }))
-  render(<ModelSelect locked={false} available directory={directory}
-    load={vi.fn()} select={vi.fn()}
-    favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()} t={t} />)
+  render(<ModelSelect locked={false} available directory={directory} load={vi.fn()} select={vi.fn()} t={t} />)
   fireEvent.click(screen.getByRole('button', { name: '请选择模型' }))
   const names = screen.getAllByRole('menuitemradio').map(row => row.textContent)
   expect(names).toEqual([
@@ -650,8 +577,7 @@ it.each([en, zh])('localizes the account group while preserving external names',
   }))
   render(<ModelSelect locked={false} available
     directory={createSnapshotStore(state({ current: null, groups }))}
-    load={vi.fn()} select={vi.fn()} favorites={createSnapshotStore<string[]>([])}
-    toggleFavorite={vi.fn()} t={key => key in copy ? copy[key as keyof typeof copy] : key} />)
+    load={vi.fn()} select={vi.fn()} t={key => key in copy ? copy[key as keyof typeof copy] : key} />)
   fireEvent.click(screen.getByRole('button', { name: copy['trigger.selectAria'] }))
   expect(screen.getByRole('group', { name: copy['provider.account'] })).toBeTruthy()
   expect(screen.getByRole('group', { name: 'My Gateway' })).toBeTruthy()
@@ -663,9 +589,7 @@ it('restores the account model name after login without changing the saved route
   ] }]
   const selected = { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' }
   const directory = createSnapshotStore(state({ current: selected, groups, retainedEffort: 'High' }))
-  render(<ModelSelect locked={false} available directory={directory}
-    load={vi.fn()} select={vi.fn()}
-    favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()} t={t} />)
+  render(<ModelSelect locked={false} available directory={directory} load={vi.fn()} select={vi.fn()} t={t} />)
   expect(screen.getByRole('button', { name: /选择模型，当前/ }).textContent).toBe('DeepSeek FlashHigh')
   act(() => { directory.update((snapshot) => { snapshot.groups = []; snapshot.routable = false }) })
   expect(screen.getByRole('button', { name: /选择模型，当前/ }).textContent)

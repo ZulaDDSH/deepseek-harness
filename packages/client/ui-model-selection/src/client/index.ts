@@ -64,12 +64,7 @@ function descriptionOf(
 }
 
 /** Flatten the directory into popup rows; failure rows are listed for visibility but never selectable. */
-function optionsOf(
-  directory: ModelDirectoryState,
-  t: TranslateNS<'model'>,
-  favoriteIds: readonly string[],
-): SelectOption[] {
-  const favorites = new Set(favoriteIds)
+function optionsOf(directory: ModelDirectoryState, t: TranslateNS<'model'>): SelectOption[] {
   const rows: SelectOption[] = []
   for (const group of directory.groups) {
     const name = group.id === 'deepseek-account' ? t('provider.account') : group.name
@@ -86,7 +81,6 @@ function optionsOf(
       })
     }
   }
-  rows.sort((left, right) => Number(favorites.has(right.id)) - Number(favorites.has(left.id)))
   for (const failure of directory.failures) {
     rows.push({
       id: `failure/${failure.id}`,
@@ -160,7 +154,7 @@ export function apply(ctx: ClientContext): void {
           if (sessions.subagentAddress(session.sessionId) !== undefined) {
             throw new Error('model selection is unavailable for addressed subagent sessions')
           }
-          return optionsOf(await models.directoryFor(session.sessionId).load(), t, models.favorites.getSnapshot())
+          return optionsOf(await models.directoryFor(session.sessionId).load(), t)
         },
         onSelect: async (option, session) => {
           if (sessions.subagentAddress(session.sessionId) !== undefined) {
@@ -194,14 +188,6 @@ export function apply(ctx: ClientContext): void {
         return {
           available,
           directory: directory.store,
-          favorites: models.favorites,
-          toggleFavorite: (key) => {
-            models.favorites.update((ids) => {
-              const at = ids.indexOf(key)
-              if (at === -1) ids.push(key)
-              else ids.splice(at, 1)
-            })
-          },
           load: () => {
             if (available) directory.load().catch(() => { /* surfaced on the store */ })
           },

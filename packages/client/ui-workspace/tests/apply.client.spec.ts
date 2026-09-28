@@ -25,6 +25,7 @@ import { RenameSessionMenuItem, SessionRenameDialog } from '../src/client/sessio
 import { RowActionToast } from '../src/client/session-actions/RowActionToast.tsx'
 import { WorkspacePicker } from '../src/client/WorkspacePicker.tsx'
 import { QuickSwitcher } from '../src/client/QuickSwitcher.tsx'
+import type { QuickSwitcherInjected } from '../src/client/QuickSwitcher.tsx'
 import { FLAT_SESSION_ORDER_KEY } from '../src/client/stores.ts'
 import { UNGROUPED_KEY } from '../src/client/tree.ts'
 import { apply as hostApply } from '../src/index.ts'
@@ -540,8 +541,8 @@ describe('ui-workspace apply', () => {
 
     const entry = b.slots.entries('shell.overlay').find(item => item.options.id === 'workspace-quick-switcher')
     expect(entry?.component).toBe(QuickSwitcher)
-    const injected = entry!.inject!()
-    if (typeof injected.quickCommands !== 'function' || typeof injected.runQuick !== 'function') {
+    const injected = entry!.inject!() as Partial<QuickSwitcherInjected>
+    if (injected.quickCommands === undefined || injected.runQuick === undefined) {
       throw new Error('quick switcher actions are missing')
     }
     const signal = new AbortController().signal

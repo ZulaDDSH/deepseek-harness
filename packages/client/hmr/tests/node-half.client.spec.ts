@@ -313,10 +313,10 @@ it('broadcasts the desired graph without waiting for Host activation or cleanup'
     const response = new ServerResponse({ method: 'GET' } as IncomingMessage)
     vi.spyOn(response, 'writeHead').mockReturnValue(response)
     vi.spyOn(response, 'write').mockImplementation((line) => { lines.push(String(line)); return true })
-    vi.spyOn(response, 'destroy').mockReturnValue(response)
+    const destroy = vi.spyOn(response, 'destroy').mockReturnValue(response)
     vi.spyOn(response, 'end').mockReturnValue(response)
     await route.handler({ method: 'GET' } as IncomingMessage, response)
-    return { lines, response }
+    return { lines, response, destroy }
   }
   try {
     const first = await connect()
@@ -354,8 +354,8 @@ it('broadcasts the desired graph without waiting for Host activation or cleanup'
     await fiber.dispose()
     host.fireGraphChanged()
     expect(second.lines).toHaveLength(3)
-    expect(second.response.destroy).toHaveBeenCalledOnce()
-    expect(third.response.destroy).toHaveBeenCalledOnce()
+    expect(second.destroy).toHaveBeenCalledOnce()
+    expect(third.destroy).toHaveBeenCalledOnce()
   } finally {
     release()
     cleaned()

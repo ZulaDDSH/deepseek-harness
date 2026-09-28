@@ -32,7 +32,7 @@ export function applyWindowNavigationPolicy(window: {
       return { action: 'deny' }
     })
   })
-  window.webContents.on('will-navigate', (event, url) => {
+  window.webContents.on('will-navigate', (event: Electron.Event, url: string) => {
     const destination = new URL(url)
     const current = new URL(window.webContents.getURL())
     if (destination.protocol !== `${SCHEME}:`
@@ -41,7 +41,7 @@ export function applyWindowNavigationPolicy(window: {
       if (isOpenable(url)) void shell.openExternal(url)
     }
   })
-  window.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+  window.webContents.on('will-attach-webview', (event: Electron.Event, webPreferences: Electron.WebPreferences, params: { src: string }) => {
     if (!applyBrowserGuestPolicy(webPreferences, params.src)) event.preventDefault()
   })
 }

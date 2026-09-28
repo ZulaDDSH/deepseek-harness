@@ -8,11 +8,11 @@ import { JevRouter, apply, createJevClient, selectRelevantGrepMatches, stateForM
 import * as jevPlugin from '../src/index.ts'
 import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
 
-const config: Config = {
+const config = {
   enabled: true, apiKeyEnv: 'JEV_TEST_KEY', endpoint: 'https://jev.example.test/v1', model: 'jev-test',
   timeoutMs: 1000, minConfidence: 0.8, stateMaxChars: 1000, fallback: 'keep', failOpen: true,
   routes: [{ id: 'small', provider: 'target', model: 'small', description: 'Routine work' }],
-}
+} satisfies Config
 const input = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'fix routing' }] })
 const base: LlmCallConfig = { provider: 'base', model: 'base' }
 const signal = new AbortController().signal
@@ -107,7 +107,7 @@ describe('Jev routing lifecycle', () => {
     { endpoint: 'https://jev.example.test?q=1' }, { endpoint: 'https://jev.example.test#fragment' },
     { routes: [config.routes[0]!, config.routes[0]!] }, { fallback: 'missing' },
   ])('refuses invalid deployment settings %j', (overrides) => {
-    expect(() => apply(new Context(), { ...config, ...overrides })).toThrow('jev-router:')
+    expect(() => { apply(new Context(), { ...config, ...overrides }) }).toThrow('jev-router:')
   })
 })
 
@@ -165,7 +165,7 @@ describe('Jev grep behavior', () => {
     contexts.push(ctx)
     const agent = { session: Session.create(SessionId('jev-grep')) } as Agent
     const states = new WeakMap<Agent, string>()
-    let active = { ...config }
+    let active: Config = { ...config }
     const scoreGrep = vi.fn<JevClient['scoreGrep']>(async () => Array.from({ length: 250 }, (_v, index) => index / 250))
     const router = new JevRouter(ctx, () => active, { decide: vi.fn(), scoreGrep }, states)
     const matches = Array.from({ length: 300 }, (_v, index) => ({ path: 'a', lineNumber: index + 1, line: 'match' }))
