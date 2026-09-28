@@ -1,5 +1,6 @@
 /** Current repository status and line counts for the Source Control panel. */
-import { readFile } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { lstat, open, readlink } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import type { WorkspaceFileDiff, WorkspaceStatus, WorkspaceStatusFile } from './types.ts'
 import { parseNumstat, type NumstatEntry } from './numstat.ts'
@@ -94,10 +95,35 @@ async function readHead(git: GitRunner, root: string, path: string, maxBytes: nu
   return result.stdout
 }
 
-/** Read the current work-tree text side, bounded after the read. */
+/** Read symlink targets as Git blobs and regular work-tree text. */
 async function readWorktree(root: string, path: string, maxBytes: number, signal: AbortSignal): Promise<TextSide> {
   try {
-    const bytes = await readFile(resolve(root, path), { signal })
+    const absolute = resolve(root, path)
+    signal.throwIfAborted()
+    const stat = await lstat(absolute)
+    let bytes: Buffer
+    if (stat.isSymbolicLink()) {
+      bytes = await readlink(absolute, { encoding: 'buffer' })
+    } else {
+      const handle = await open(absolute, constants.O_RDONLY | constants.O_NOFOLLOW)
+      try {
+        const opened = await handle.stat()
+        if (!opened.isFile() || opened.dev !== stat.dev || opened.ino !== stat.ino) {
+          throw new Error(`worktree entry changed or is not a regular file: ${path}`)
+        }
+        const probe = Buffer.allocUnsafe(maxBytes + 1)
+        let length = 0
+        while (length < probe.length) {
+          signal.throwIfAborted()
+          const { bytesRead } = await handle.read(probe, length, probe.length - length, length)
+          if (bytesRead === 0) break
+          length += bytesRead
+        }
+        bytes = probe.subarray(0, length)
+      } finally {
+        await handle.close()
+      }
+    }
     return bytes.length > maxBytes ? 'oversized' : bytes.toString('utf8')
   } catch (error: unknown) {
     if (typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'ENOENT') return null

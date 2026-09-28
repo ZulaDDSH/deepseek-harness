@@ -11,6 +11,7 @@
  */
 
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
@@ -132,16 +133,27 @@ export async function resolveGitSource(source: GitKnowledgeSource): Promise<Reso
     // A local checkout may have no remote; fetching is best effort.
     await git(['fetch', '--all', '--tags'], root)
   } else {
-    root = source.checkoutDir ?? join(process.cwd(), '.dsh-knowledge', source.repo.replace(/[^A-Za-z0-9._-]/gu, '_'))
+    root = source.checkoutDir ?? join(process.cwd(), '.dsh-knowledge', createHash('sha256').update(remote).digest('hex'))
     await mkdir(root, { recursive: true })
-    if (await isWorkTree(root)) {
+    if (await isWorkTree(root) && await gitOrThrow(['rev-parse', '--show-prefix'], root) === '') {
+      const origin = await gitOrThrow(['config', '--get', 'remote.origin.url'], root)
+      if (origin !== remote) throw new Error(`knowledge checkout "${root}" has a different origin from "${source.repo}"`)
       await gitOrThrow(['fetch', '--all', '--tags'], root)
     } else {
       await gitOrThrow(['clone', '--no-checkout', remote, root])
     }
   }
 
-  await gitOrThrow(['checkout', '--force', source.ref], root)
+  const branch = source.ref.replace(/^refs\/heads\//u, '')
+  const tag = await git(['rev-parse', '--verify', '--end-of-options', `refs/tags/${source.ref}^{commit}`], root)
+  const fetched = await git(['rev-parse', '--verify', '--end-of-options', `refs/remotes/origin/${branch}^{commit}`], root)
+  const pinned = /^(?:[a-f\d]{40}|[a-f\d]{64})$/iu.test(source.ref)
+    || source.ref.startsWith('refs/') && !source.ref.startsWith('refs/heads/')
+    || source.ref.startsWith('origin/')
+  const ref = pinned ? source.ref : tag.code === 0 ? tag.stdout.trim() : fetched.code === 0 ? fetched.stdout.trim() : source.ref
+  const commitRef = await gitOrThrow(['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`], root)
+  const localBranch = isLocalPath(source.repo) && !pinned && tag.code !== 0 && fetched.code !== 0
+  await gitOrThrow(['checkout', '--force', ...localBranch ? [] : ['--detach'], localBranch ? source.ref : `${commitRef}^{commit}`], root)
   const commit = await gitOrThrow(['rev-parse', 'HEAD'], root)
   return { root, commit, repo: source.repo, ref: source.ref }
 }

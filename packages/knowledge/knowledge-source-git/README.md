@@ -54,7 +54,9 @@ A private repository is never given credentials by this package: cloning and fet
 
 ### What you get
 
-`resolveGitSource` clones a new remote repository, or fetches an existing one, checks out the configured ref, and returns the checkout root plus the resulting commit SHA. Calling it again after the upstream repository advances re-fetches and returns the new commit, so a knowledge sync process comparing the returned commit against a stored one can detect that the source changed. `listSourceFiles` reports exactly the tracked files the configured pathspecs select, using Git's own pathspec matching so `**` behaves as Git defines it.
+`resolveGitSource` clones a new remote repository, or fetches an existing one, checks out the resolved commit, and returns the checkout root plus its SHA. A branch resolves to its fetched `origin` commit when available; repeating the same branch source after upstream advances returns the new commit. Tags take precedence over unqualified branch names; use `refs/heads/<name>` to select a colliding branch. Qualified refs and full commit SHAs retain their explicit meaning. A local checkout without the fetched branch uses its local ref. `listSourceFiles` reports exactly the tracked files the configured pathspecs select, using Git's own pathspec matching so `**` behaves as Git defines it.
+
+Remote checkouts default to `.dsh-knowledge/<sha256>` under the current directory, with the hash computed from the complete expanded clone source. An existing checkout must have an `origin` URL exactly matching that clone source; a missing or different origin rejects the call before fetching or changing the checkout. Equivalent URL spellings are not normalized.
 
 -----
 
