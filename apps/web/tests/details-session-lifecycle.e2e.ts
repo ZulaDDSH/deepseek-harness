@@ -269,6 +269,9 @@ describe.skipIf(MODE === 'record')('web e2e: details panel follows the current S
     acknowledgeReloadConnectionLoss(tripwire, warningStart)
     await appFrame(page).waitFor({ timeout: 30_000 })
     await page.getByText('LIGHTHOUSE', { exact: true }).waitFor({ timeout: 15_000 })
+    await expect.poll(() => sidebarTrack(page)).toBe(sidebarBefore + 70)
+    await dragSidebar(page, sidebarBefore)
+    await expect.poll(() => sidebarTrack(page)).toBe(sidebarBefore)
     await expect.poll(() => detailsTrack(page), { timeout: 5_000 }).toBe(0)
     expect(await page.getByText('Details', { exact: true }).isVisible()).toBe(false)
 

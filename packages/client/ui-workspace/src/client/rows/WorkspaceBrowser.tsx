@@ -686,7 +686,7 @@ export function WorkspaceBrowser({
         {wide && sectionsOn && (
           <div className={css.paneHeading}>{t('section.workspaces')}</div>
         )}
-        <div className={clsx(wide && sectionsOn && css.workspacePane)}>
+        <div className={css.workspacePane}>
           {wide && (normalizedQuery !== ''
             ? (
               <SearchResults
