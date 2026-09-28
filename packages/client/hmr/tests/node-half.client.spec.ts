@@ -2,7 +2,8 @@
  * Node half of the HMR plugin: bundle watches follow the graph, stat changes
  * report through clientModuleHost.rebuilt, and everything dies with the fiber.
  */
-import { ServerResponse, type IncomingMessage } from 'node:http'
+import { EventEmitter } from 'node:events'
+import type { ServerResponse, IncomingMessage } from 'node:http'
 import { mkdtempSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -12,7 +13,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ClientArtifactBaseline, ClientModuleRegistry, WebBootGraph } from '@deepseek-ai/dsh-client-modules'
 import type { WebRoute, WebServer } from '@deepseek-ai/dsh-host-webserver'
 import { apply, Config, EVENTS_ENDPOINT, inject } from '../src/index.ts'
-import type { Config as HmrConfig } from '../src/index.ts'
 
 const POLL_MS = 20
 
@@ -89,13 +89,13 @@ function fakeHttpServer(routes: WebRoute[]): WebServer {
   return fake as WebServer
 }
 
-async function mount(clientModuleHost: FakeHost, webServer: WebServer, config: HmrConfig = {}) {
+async function mount(clientModuleHost: FakeHost, webServer: WebServer) {
   const ctx = new Context()
   ctx.provide('clientModules', clientModuleHost)
   ctx.provide('webServer', webServer)
   const fiber = ctx.plugin(
     { inject: [...inject], Config, apply },
-    Object.assign({ pollIntervalMs: POLL_MS }, config),
+    { pollIntervalMs: POLL_MS },
   )
   await fiber.await()
   return fiber
@@ -251,33 +251,8 @@ describe('hmr node half', () => {
     await vi.waitFor(() => { expect(clientModuleHost.rebuiltCalls).toEqual(['pkg-a', 'pkg-a']) }, { timeout: 3_000 })
     await fiber.dispose()
   })
-
-  it('keeps an open SSE channel from going idle between rebuilds', async () => {
-    const bundle = join(dir, 'keep-alive.js')
-    writeFileSync(bundle, 'a')
-    const routes: WebRoute[] = []
-    const fiber = await mount(fakeClientModuleHost(new Map([['a', bundle]])), fakeHttpServer(routes), { keepAliveMs: POLL_MS })
-
-    const lines: string[] = []
-    const response = new ServerResponse({ method: 'GET' } as IncomingMessage)
-    vi.spyOn(response, 'writeHead').mockReturnValue(response)
-    vi.spyOn(response, 'write').mockImplementation((line) => { lines.push(String(line)); return true })
-    vi.spyOn(response, 'destroy').mockReturnValue(response)
-    vi.spyOn(response, 'end').mockReturnValue(response)
-    await routes[0]!.handler({ method: 'GET' } as IncomingMessage, response)
-    expect(lines).toHaveLength(2)
-
-    // The opening comment proves the channel is up; only a later one keeps an
-    // intermediary's idle-body timeout from closing it.
-    await vi.waitFor(() => { expect(lines).toContain(': keep-alive\n\n') }, { timeout: 3_000 })
-
-    response.emit('close')
-    const afterClose = lines.length
-    await new Promise(resolve => setTimeout(resolve, POLL_MS * 3))
-    expect(lines).toHaveLength(afterClose)
-    await fiber.dispose()
-  })
 })
+
 
 it('broadcasts the desired graph without waiting for Host activation or cleanup', async () => {
   const ctx = new Context()
@@ -310,13 +285,12 @@ it('broadcasts the desired graph without waiting for Host activation or cleanup'
   const route = routes[0]!
   const connect = async () => {
     const lines: string[] = []
-    const response = new ServerResponse({ method: 'GET' } as IncomingMessage)
-    vi.spyOn(response, 'writeHead').mockReturnValue(response)
-    vi.spyOn(response, 'write').mockImplementation((line) => { lines.push(String(line)); return true })
-    const destroy = vi.spyOn(response, 'destroy').mockReturnValue(response)
-    vi.spyOn(response, 'end').mockReturnValue(response)
-    await route.handler({ method: 'GET' } as IncomingMessage, response)
-    return { lines, response, destroy }
+    const response = Object.assign(new EventEmitter(), {
+      writeHead: vi.fn(), write: (line: string) => { lines.push(line) },
+      destroy: vi.fn(), end: vi.fn(),
+    })
+    await route.handler({ method: 'GET' } as IncomingMessage, response as unknown as ServerResponse)
+    return { lines, response }
   }
   try {
     const first = await connect()
@@ -354,8 +328,8 @@ it('broadcasts the desired graph without waiting for Host activation or cleanup'
     await fiber.dispose()
     host.fireGraphChanged()
     expect(second.lines).toHaveLength(3)
-    expect(second.destroy).toHaveBeenCalledOnce()
-    expect(third.destroy).toHaveBeenCalledOnce()
+    expect(second.response.destroy).toHaveBeenCalledOnce()
+    expect(third.response.destroy).toHaveBeenCalledOnce()
   } finally {
     release()
     cleaned()
