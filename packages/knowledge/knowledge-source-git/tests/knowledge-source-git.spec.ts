@@ -21,7 +21,7 @@ let repo: string
 
 /** Run one Git command in the disposable repository. */
 async function git(args: string[]): Promise<string> {
-  const { stdout } = await run('git', args, { cwd: repo })
+  const { stdout } = await run('git', ['-c', 'user.email=test@example.com', '-c', 'user.name=Test', ...args], { cwd: repo })
   return stdout.trim()
 }
 
@@ -31,7 +31,7 @@ async function commitFile(path: string, content: string, message: string): Promi
   await mkdir(join(full, '..'), { recursive: true })
   await writeFile(full, content, 'utf8')
   await git(['add', path])
-  await git(['-c', 'user.email=test@example.com', '-c', 'user.name=Test', 'commit', '-m', message])
+  await git(['commit', '-m', message])
   return await git(['rev-parse', 'HEAD'])
 }
 
@@ -40,6 +40,8 @@ beforeEach(async () => {
   repo = join(workdir, 'garden-knowledge')
   await mkdir(repo, { recursive: true })
   await git(['init', '-b', 'master'])
+  await git(['config', 'user.name', ''])
+  await git(['config', 'user.email', ''])
 })
 
 afterEach(async () => {
