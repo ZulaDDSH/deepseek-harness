@@ -115,7 +115,7 @@ export function FlatList({
                   })
                 },
                 drop: (half) => {
-                  if (drag !== null) commitDrag(drag, { id: node.id, half: normalizeHalf(half) })
+                  commitDrag(drag as SessionDragState, { id: node.id, half: normalizeHalf(half) })
                 },
                 end: () => {
                   if (drag?.over !== null && drag?.over !== undefined) commitDrag(drag, drag.over)

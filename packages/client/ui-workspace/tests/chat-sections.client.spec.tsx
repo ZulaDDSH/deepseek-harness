@@ -455,4 +455,153 @@ describe('Chat Sections pane', () => {
     expect(membersOf('Work')).toEqual([])
     expect(screen.getByText('1 个会话')).toBeTruthy()
   })
+
+  it('cancels a section drag without a drop target', () => {
+    const b = mount()
+    createSection('Work')
+    createSection('Personal')
+    const source = header('Personal')
+    fireEvent.dragStart(source, { dataTransfer: dragData() })
+    fireEvent.dragEnd(source)
+    expect(b.store.getSnapshot().chatSections.sections.map(section => section.name)).toEqual(['Work', 'Personal'])
+  })
+
+  it('persists section and member appearance choices separately', () => {
+    mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
+    createSection('Work')
+    fileInto('chat-a', 'Work')
+    const choose = (label: string, category: string, value: string): void => {
+      fireEvent.click(within(sectionsPane()).getByRole('button', { name: label }))
+      fireEvent.click(screen.getByRole('menuitem', { name: category }))
+      fireEvent.click(screen.getByRole('menuitem', { name: value }))
+    }
+    choose('分组“Work”的操作', '颜色', '红色')
+    choose('分组“Work”的操作', '图标', '火箭')
+    choose('会话“chat-a”的操作', '颜色', '蓝色')
+    choose('会话“chat-a”的操作', '图标', '终端')
+    expect(JSON.parse(localStorage.getItem('dsh.workspace.appearance.v2') ?? 'null')).toEqual({
+      workspaces: {}, sections: { 'section-1': { color: 'red', icon: 'rocket' } },
+      sessions: { 'chat-a': { color: 'blue', icon: 'terminal' } },
+    })
+  })
+
+  it('ends a chat drag without a target without changing membership', () => {
+    const b = mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
+    createSection('Work')
+    fileInto('chat-a', 'Work')
+    const source = membersOf('Work')[0]!
+    fireEvent.dragStart(source, { dataTransfer: dragData() })
+    fireEvent.dragEnd(source)
+    expect(b.store.getSnapshot().chatSections.members).toEqual({ 'chat-a': 'section-1' })
+  })
+
+  it('moves a member onto another section header', () => {
+    const b = mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
+    createSection('Work')
+    createSection('Personal')
+    fileInto('chat-a', 'Work')
+    const source = membersOf('Work')[0]!
+    const target = header('Personal')
+    stubRect(target, 100)
+    fireEvent.dragStart(source, { dataTransfer: dragData() })
+    fireDrag(target, 'dragOver', 120)
+    fireDrag(target, 'drop', 120)
+    fireEvent.dragEnd(source)
+    expect(b.store.getSnapshot().chatSections.members).toEqual({ 'chat-a': 'section-2' })
+    expect(titlesOf(membersOf('Work'))).toEqual([])
+    expect(titlesOf(membersOf('Personal'))).toEqual(['chat-a'])
+  })
+
+  it('shows the member insertion marker and commits the hovered order at drag end', () => {
+    const b = mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
+    createSection('Work')
+    fileInto('chat-a', 'Work')
+    fileInto('chat-b', 'Work')
+    const source = membersOf('Work').find(row => row.textContent?.includes('chat-a'))!
+    const target = membersOf('Work').find(row => row.textContent?.includes('chat-b'))!
+    stubRect(target, 100)
+    fireEvent.dragStart(source, { dataTransfer: dragData() })
+    fireDrag(target, 'dragOver', 102)
+    expect(target.className).toContain('dropBefore')
+    fireEvent.dragEnd(source)
+    expect(titlesOf(membersOf('Work'))).toEqual(['chat-a', 'chat-b'])
+    expect(b.store.getSnapshot().chatSections.members).toEqual({ 'chat-a': 'section-1', 'chat-b': 'section-1' })
+  })
+
+  it('files a member by hovering a collapsed section body and ending the drag', () => {
+    const b = mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
+    createSection('Work')
+    createSection('Personal')
+    fileInto('chat-a', 'Work')
+    fireEvent.click(header('Personal'))
+    const source = membersOf('Work')[0]!
+    const target = within(sectionsPane()).getByText('拖到此处加入分组')
+    fireEvent.dragStart(source, { dataTransfer: dragData() })
+    fireDrag(target, 'dragOver', 120)
+    fireEvent.dragEnd(source)
+    expect(b.store.getSnapshot().chatSections.members).toEqual({ 'chat-a': 'section-2' })
+  })
+
+  it('keeps the order when a member is dropped on itself', () => {
+    const b = mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
+    createSection('Work')
+    fileInto('chat-a', 'Work')
+    const source = membersOf('Work')[0]!
+    stubRect(source, 100)
+    fireEvent.dragStart(source, { dataTransfer: dragData() })
+    fireDrag(source, 'drop', 102)
+    expect(titlesOf(membersOf('Work'))).toEqual(['chat-a'])
+    expect(b.store.getSnapshot().chatSections.members).toEqual({ 'chat-a': 'section-1' })
+  })
+
+  it('moves a member by dropping onto an expanded section body', () => {
+    const b = mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
+    createSection('Work')
+    createSection('Personal')
+    fileInto('chat-a', 'Work')
+    const source = membersOf('Work')[0]!
+    const target = within(sectionsPane()).getByRole('group', { name: 'Personal' })
+    fireEvent.dragStart(source, { dataTransfer: dragData() })
+    fireDrag(target, 'dragOver', 120)
+    fireDrag(target, 'drop', 120)
+    expect(b.store.getSnapshot().chatSections.members).toEqual({ 'chat-a': 'section-2' })
+  })
+
+  it('ignores body drops without a chat gesture and during a section drag', () => {
+    const b = mount()
+    createSection('Work')
+    const body = within(sectionsPane()).getByRole('group', { name: 'Work' })
+    fireDrag(body, 'dragOver', 120)
+    fireDrag(body, 'drop', 120)
+    fireEvent.dragStart(header('Work'), { dataTransfer: dragData() })
+    fireDrag(body, 'dragOver', 120)
+    fireDrag(body, 'drop', 120)
+    fireEvent.dragEnd(header('Work'))
+    expect(b.store.getSnapshot().chatSections.members).toEqual({})
+    expect(b.store.getSnapshot().chatSections.sections).toEqual([{ id: 'section-1', name: 'Work' }])
+  })
+
+  it('appends a section after the last header and ignores its trailing drag end', () => {
+    const b = mount()
+    createSection('Work')
+    createSection('Personal')
+    const source = header('Work')
+    const target = header('Personal')
+    stubRect(target, 100)
+    fireEvent.dragStart(source, { dataTransfer: dragData() })
+    fireDrag(target, 'drop', 130)
+    fireEvent.dragEnd(source)
+    expect(b.store.getSnapshot().chatSections.sections.map(section => section.name)).toEqual(['Personal', 'Work'])
+  })
+
+  it('keeps a section in place when dropped immediately before itself', () => {
+    const b = mount()
+    createSection('Work')
+    const source = header('Work')
+    stubRect(source, 100)
+    fireEvent.dragStart(source, { dataTransfer: dragData() })
+    fireDrag(source, 'drop', 102)
+    fireEvent.dragEnd(source)
+    expect(b.store.getSnapshot().chatSections.sections.map(section => section.name)).toEqual(['Work'])
+  })
 })

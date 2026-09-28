@@ -360,6 +360,56 @@ describe('workspace browser rows', () => {
     expect(onIcon).toHaveBeenCalledWith('rocket')
   })
 
+  it('reorders section headers through their drag callbacks and displays each marker', () => {
+    const section: SectionNode = { id: 'section', name: 'Work', sessionIds: [], sessionCount: 0, expanded: false }
+    const actions = { rename: vi.fn(), delete: vi.fn(), appearanceColor: vi.fn(), appearanceIcon: vi.fn() }
+    const drag = { start: vi.fn(), end: vi.fn() }
+    const onDragOver = vi.fn()
+    const onDrop = vi.fn()
+    const props = { section, actions, drag, onDragOver, onDrop, onToggle: vi.fn(), t }
+    const view = render(<SectionHeaderItem {...props} marker="before" appearance={{ icon: 'rocket' }} />)
+    const row = screen.getByRole('treeitem')
+    stubRect(row)
+    expect(row.className).toContain('dropBefore')
+    fireEvent.dragStart(row, { dataTransfer })
+    expect(drag.start).toHaveBeenCalledOnce()
+    fireDrag(row, 'dragOver', 105)
+    fireDrag(row, 'drop', 130)
+    expect(onDragOver).not.toHaveBeenCalled()
+    expect(onDrop).not.toHaveBeenCalled()
+    view.rerender(<SectionHeaderItem {...props} dragActive marker="after" appearance={{ icon: 'folder' }} />)
+    expect(row.className).toContain('dropAfter')
+    fireDrag(row, 'dragOver', 105)
+    fireDrag(row, 'drop', 130)
+    fireEvent.dragEnd(row)
+    expect(onDragOver).toHaveBeenCalledWith('before')
+    expect(onDrop).toHaveBeenCalledWith('after')
+    expect(drag.end).toHaveBeenCalledOnce()
+    view.rerender(<SectionHeaderItem {...props} dragActive marker="inside" />)
+    expect(row.className).toContain('dropInside')
+    fireEvent.click(screen.getByRole('button', { name: label('section.add') }))
+    expect(props.onToggle).not.toHaveBeenCalled()
+  })
+
+  it('opens section actions from the context menu and closes without selecting', () => {
+    const section: SectionNode = { id: 'section', name: 'Work', sessionIds: [], sessionCount: 0, expanded: true }
+    const actions = { rename: vi.fn(), delete: vi.fn(), appearanceColor: vi.fn(), appearanceIcon: vi.fn() }
+    render(<SectionHeaderItem section={section} actions={actions} onToggle={vi.fn()} t={t} />)
+    const row = screen.getByRole('treeitem')
+    fireEvent.contextMenu(row, { clientX: 4, clientY: 6 })
+    fireEvent.click(screen.getByRole('menuitem', { name: label('rename') }))
+    expect(actions.rename).toHaveBeenCalledOnce()
+    fireEvent.contextMenu(row, { clientX: 4, clientY: 6 })
+    fireEvent.click(screen.getByRole('menuitem', { name: label('section.delete') }))
+    expect(actions.delete).toHaveBeenCalledOnce()
+    fireEvent.contextMenu(row, { clientX: 4, clientY: 6 })
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('menu')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: label('section.actions.aria', { name: 'Work' }) }))
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
   it('applies appearance choices from an individual Session row menu', () => {
     const onColor = vi.fn()
     const onIcon = vi.fn()

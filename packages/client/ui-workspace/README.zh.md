@@ -43,6 +43,8 @@ kind: "package-reference"
 
 点击分区标题可折叠或展开，并提供**重命名**和**删除分区**；删除分区不会删除其中的 Chat。分区顺序按创建顺序排列，也可以将一个标题拖到另一个标题上来调整。
 
+把 Chat 拖到另一个成员行上时，会显示插入标记并保留该行位置；拖放到分区主体则会把 Chat 归入分区首位。
+
 可以将 Workspace 面板中的 Chat 行拖到分区标题上，或使用行菜单中的 **Move to Section → [name]** 来归档 Chat。使用**从分区移除**或将行拖回去即可取消归档。菜单是拖放操作的完整替代方式，两条路径写入相同的状态。一个 Chat 最多属于一个分区；临时的**新会话**行不能拖动，在首条提示词落地前保持未归档。
 
 Workspace 面板始终保留**视图选项**控件（分组方式：工作区 / 工作区树 / 单一列表 / 活动，排序方式，以及归档筛选）和颜色/图标筛选；分区的存在不会改变二者。
@@ -177,6 +179,8 @@ export function apply(ctx: Context): void {
 动态加载的 browser half 采用同一套组件协议，能拿到哪些模块取决于它走哪条 lane。Module Loader 包（`factory(require)`，即真实 Loader/Web fixture 那种）把 `@deepseek-ai/dsh-client-ui-primitives` 当作隐式 baseline external：通过 loader 的 `require` 解析 `MenuItemButton`，不要把 primitive 列为运行时依赖或打包另一份副本，仅在源码编译需要其类型时声明开发依赖。`cordis-client-runner` 闭包（生成的 Client Slot catalog 面向的读者）无法 import 任何东西：它用 `React.createElement` 渲染自己的 `role="menuitem"` `<button>`，样式经 `styles.insert` 注入，并通过同一个 `useMenuOpenState` hook 关闭菜单，catalog 里的示例就是这个写法。
 
 ### 视图状态
+
+[SessionNodeItem](src/client/rows/Rows.tsx) 仅在 `RowDragProps.active` 为 true 时调用行悬停与拖放回调。已接受的行事件不再传播到外层分组。
 
 Workspace 基线就绪后，浏览器持久化的展开状态和 Session 顺序记录只保留当前 Workspace id、Ungrouped 和单列表记账。`WorkspaceView.sessionIds` 提供真实 Workspace 的成员关系，而不提供 Session 显示顺序。视图操作接收完整记账顺序，而不是筛选后的行。尚无 Session 摘要的新成员会等待摘要，已保存的位置则在摘要暂时缺失时保留。归档显隐仅在派生行时应用。置顶和拖拽写入完整顺序，普通派生不执行写入。当前选中的空白 Session 仍是一次显式位置写入；Workspace 重连时同样如此，此时保留其他已保存成员，直到基线确定成员关系。侧边栏收成窄栏或搜索替代列表主体时，排序仍保持挂载。最近更新从当前摘要派生，不读取已保存位置；时间相同时按 Session id 稳定排序。
 

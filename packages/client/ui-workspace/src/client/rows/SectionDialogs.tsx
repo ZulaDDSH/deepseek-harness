@@ -59,13 +59,6 @@ export function useSectionDialogs(options: {
 
   const [deleteTarget, setDeleteTarget] = useState<{ sectionId: string; name: string } | null>(null)
   const closeDelete = (): void => { setDeleteTarget(null) }
-  const confirmDelete = (): void => {
-    if (deleteTarget === null) return
-    // Deleting a section never deletes its Chats: the store drops only the
-    // grouping, so every member returns to the ungrouped list.
-    deleteSection(deleteTarget.sectionId)
-    setDeleteTarget(null)
-  }
 
   // A section deleted elsewhere (another surface, a reload of the projected
   // list) must not leave its rename or delete dialog addressing a dead id.
@@ -144,9 +137,14 @@ export function useSectionDialogs(options: {
         footer={(
           <>
             <Button variant="outline" onClick={closeDelete}>{t('cancel')}</Button>
-            <Button variant="outline" className={css.deleteAction} onClick={confirmDelete}>
-              {t('section.delete')}
-            </Button>
+            {deleteTarget !== null && (
+              <Button variant="outline" className={css.deleteAction} onClick={() => {
+                deleteSection(deleteTarget.sectionId)
+                setDeleteTarget(null)
+              }}>
+                {t('section.delete')}
+              </Button>
+            )}
           </>
         )}
       />

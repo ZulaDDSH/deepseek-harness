@@ -979,6 +979,7 @@ export function SessionNodeItem({
         : (e) => {
           if (!drag.active) return
           e.preventDefault()
+          e.stopPropagation()
           e.dataTransfer.dropEffect = 'move'
           drag.hover(rowHalf(e))
         }}
@@ -987,6 +988,7 @@ export function SessionNodeItem({
         : (e) => {
           if (!drag.active) return
           e.preventDefault()
+          e.stopPropagation()
           drag.drop(rowHalf(e))
         }}
     >

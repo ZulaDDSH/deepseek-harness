@@ -43,6 +43,8 @@ Sections are a saved visual filter over the Workspace list, not a second members
 
 A section header collapses and expands on click and carries **Rename** and **Delete section**; deleting a section never deletes its Chats. Section order follows creation and changes by dragging one header onto another.
 
+Dragging a Chat over another member row shows an insertion marker and preserves that row position; dropping on the section body instead files the Chat at the section's head.
+
 File a Chat by dragging its row from the Workspace pane onto a section header, or with the row menu's **Move to Section → [name]**. Unfile with **Remove from section**, or by dragging the row back. The menu is the complete alternative to drag-and-drop, and both paths write the same state. A Chat belongs to at most one section; the provisional **New Session** row cannot be dragged and stays unfiled until its first prompt.
 
 The Workspace pane keeps its **View options** control (Group by: WorkSpace / Workspace Tree / In one list / Activity, Order by, and the archived filter) and its color/icon filter in every case — neither changes because sections exist.
@@ -177,6 +179,8 @@ export function apply(ctx: Context): void {
 A dynamically loaded browser half follows the same component contract; which modules it can reach depends on its lane. A Module Loader package (`factory(require)`, as in the real Loader/Web fixture) gets `@deepseek-ai/dsh-client-ui-primitives` as an implicit baseline external: resolve `MenuItemButton` through the loader's `require`, do not list the primitive as a runtime dependency or bundle another copy, and declare a development dependency only when source compilation needs its types. A `cordis-client-runner` closure (the audience of the generated Client Slot catalog) cannot import anything: it renders its own `role="menuitem"` `<button>` with `React.createElement`, styles it through `styles.insert`, and dismisses the menu through the same `useMenuOpenState` hook, as the catalog's example shows.
 
 ### View state
+
+[SessionNodeItem](src/client/rows/Rows.tsx) dispatches row hover and drop callbacks only while `RowDragProps.active` is true. Accepted row events stop propagating to enclosing groups.
 
 Once the Workspace baseline is ready, browser-persisted expansion and Session-order records retain only current Workspace ids plus Ungrouped and the flat-list account. `WorkspaceView.sessionIds` supplies real-Workspace membership, not Session display order. View actions receive complete account orders, never filtered rows. A new member without a Session summary waits for that summary, while a saved position survives a temporarily missing summary. Archive visibility is applied only when deriving rows. Pin and drag writes save complete orders; ordinary derivation does not write them. The selected blank Session remains an explicit position write, including during Workspace reconnection, when other saved members are retained until the baseline establishes membership. Ordering remains mounted while the sidebar is a rail or search replaces its body. Last updated derives from current summaries without reading saved positions; equal timestamps use Session ids as a stable tie-break.
 

@@ -39,7 +39,6 @@ interface ChatDragState {
 /** One in-flight section-header drag, used only to reorder sections. */
 interface SectionDragState {
   sectionId: string
-  over: { id: string; half: 'before' | 'after' } | null
 }
 
 export interface SectionsListProps extends Pick<
@@ -162,7 +161,7 @@ export function SectionsList({
     setSectionOrder(targetSectionId, pinCurrentBlank(next, blankIn(next)))
   }
 
-  const commitSectionDrop = (activeDrag: SectionDragState, over: NonNullable<SectionDragState['over']>): void => {
+  const commitSectionDrop = (activeDrag: SectionDragState, over: { id: string; half: 'before' | 'after' }): void => {
     if (sectionDropCommitted.current) return
     sectionDropCommitted.current = true
     setSectionDrag(null)
@@ -230,11 +229,9 @@ export function SectionsList({
 
   /** One section: header (drop target + reorder handle) and its member rows. */
   const sectionBlock = (section: SectionNode) => {
-    const marker = sectionDrag?.over?.id === section.id
-      ? sectionDrag.over.half
-      : chatDrag?.over?.kind === 'section' && chatDrag.over.id === section.id
-        ? chatDrag.over.half
-        : null
+    const marker = chatDrag?.over?.kind === 'section' && chatDrag.over.id === section.id
+      ? chatDrag.over.half
+      : null
     const joinActive = chatDrag !== null && chatDrag.over?.kind === 'section' && chatDrag.over.id === section.id
     return (
       <div
@@ -283,12 +280,6 @@ export function SectionsList({
           onToggle={() => { toggleSection(section.id) }}
           externalChatSessionId={externalChatSessionId}
           onFileChat={() => { commitExternalDrop(section.id) }}
-          onDragOver={() => {
-            // The cross-pane gesture files the Chat; the header owns this
-            // commit, so the drag never reaches the tree's own reorder path.
-            if (externalChatSessionId !== null) return
-            if (chatDrag !== null) return
-          }}
           onDrop={(half) => {
             if (externalChatSessionId !== null) {
               commitExternalDrop(section.id)
@@ -306,14 +297,10 @@ export function SectionsList({
           drag={{
             start: () => {
               sectionDropCommitted.current = false
-              setSectionDrag({ sectionId: section.id, over: null })
+              setSectionDrag({ sectionId: section.id })
             },
             end: () => {
-              if (sectionDrag?.over !== null && sectionDrag?.over !== undefined) {
-                commitSectionDrop(sectionDrag, sectionDrag.over)
-              } else {
-                setSectionDrag(null)
-              }
+              setSectionDrag(null)
               sectionDropCommitted.current = false
             },
           }}

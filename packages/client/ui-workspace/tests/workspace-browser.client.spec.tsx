@@ -1558,6 +1558,16 @@ describe('WorkspaceBrowser', () => {
     }
   })
 
+  it('leaves search matches unselected while another panel is active', () => {
+    mount({
+      useSessions: hook(sessionState([summary('needle', 1, { retainedBy: { mainView: 1 } })])),
+      usePanelInfo: selector => selector({ activePanelId: 'other' as MainPanelId }),
+    })
+    fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
+    fireEvent.change(screen.getByPlaceholderText('搜索会话名称'), { target: { value: 'needle' } })
+    expect(within(screen.getByRole('tree', { name: '搜索结果' })).getByRole('treeitem').getAttribute('aria-selected')).toBe('false')
+  })
+
   it('collapses an empty search on outside click but keeps a non-empty query expanded', () => {
     mount()
     const search = screen.getByRole('button', { name: '搜索会话' })
@@ -2435,6 +2445,10 @@ describe('WorkspaceBrowser', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(renameWorkspace).not.toHaveBeenCalled()
     fireEvent.change(input, { target: { value: 'Renamed' } })
+    fireEvent.compositionStart(input)
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(renameWorkspace).not.toHaveBeenCalled()
+    fireEvent.compositionEnd(input)
     fireEvent.keyDown(input, { key: 'a' })
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(renameWorkspace).toHaveBeenCalledWith(wid('alpha'), 'Renamed')
