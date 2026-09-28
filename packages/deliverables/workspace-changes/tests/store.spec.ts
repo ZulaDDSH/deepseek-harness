@@ -2,11 +2,18 @@
 import { mkdir, mkdtemp, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   isStoredRecord, pruneRoot, readRecord, sessionDirectory,
   STORE_VERSION, writeRecord, type RetentionPolicy, type StoredRecord,
 } from '../src/store.ts'
+
+const filesystem = vi.hoisted(() => ({ readdir: vi.fn() }))
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  filesystem.readdir.mockImplementation(actual.readdir)
+  return { ...actual, readdir: filesystem.readdir }
+})
 
 const cleanups: Array<() => Promise<unknown>> = []
 afterEach(async () => {
@@ -184,5 +191,23 @@ describe('retention', () => {
     const directory = await session(root, 'measured', 10, 0)
     expect((await stat(directory)).isDirectory()).toBe(true)
     expect(await pruneRoot(root, policy, Date.now())).toBe(0)
+  })
+
+  it('keeps an unreadable session directory when it disappears during the walk', async () => {
+    const root = await scratch('dsh-prune-')
+    const directory = await session(root, 'vanished', 10, 0)
+    const mockedReaddir = vi.mocked(readdir)
+    const nativeReaddir = mockedReaddir.getMockImplementation()
+    if (nativeReaddir === undefined) throw new Error('readdir mock has no filesystem implementation')
+    mockedReaddir.mockImplementation(async (path, options) => {
+      if (String(path) === directory) throw Object.assign(new Error('directory disappeared'), { code: 'ENOENT' })
+      return nativeReaddir(path, options)
+    })
+    try {
+      expect(await pruneRoot(root, policy, Date.now())).toBe(0)
+      expect(await readdir(root)).toEqual(['vanished'])
+    } finally {
+      mockedReaddir.mockImplementation(nativeReaddir)
+    }
   })
 })

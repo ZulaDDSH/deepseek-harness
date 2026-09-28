@@ -70,28 +70,32 @@ export function useWorkspaceDialogs(options: {
 
   const [deleteTarget, setDeleteTarget] = useState<{ workspaceId: WorkspaceId; title: string } | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const deletePending = useRef(false)
   const [deleteCommittedId, setDeleteCommittedId] = useState<WorkspaceId | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   useEffect(() => {
     if (deleteCommittedId === null
       || workspaces.some(workspace => workspace.workspaceId === deleteCommittedId)) return
     setDeleting(false)
+    deletePending.current = false
     setDeleteCommittedId(null)
     setDeleteTarget(null)
   }, [deleteCommittedId, workspaces])
   const closeDelete = (): void => {
-    if (deleting) return
+    if (deletePending.current) return
     setDeleteTarget(null)
     setDeleteError(null)
   }
-  const confirmDelete = (): void => {
-    if (deleting || deleteTarget === null) return
+  const confirmDelete = (workspaceId: WorkspaceId): void => {
+    if (deletePending.current) return
+    deletePending.current = true
     setDeleting(true)
     setDeleteCommittedId(null)
     setDeleteError(null)
-    deleteWorkspace(deleteTarget.workspaceId).then(() => {
-      setDeleteCommittedId(deleteTarget.workspaceId)
+    deleteWorkspace(workspaceId).then(() => {
+      setDeleteCommittedId(workspaceId)
     }).catch((reason: unknown) => {
+      deletePending.current = false
       setDeleting(false)
       setDeleteError(reason instanceof Error ? reason.message : String(reason))
     })
@@ -158,14 +162,14 @@ export function useWorkspaceDialogs(options: {
         footer={(
           <>
             <Button variant="outline" disabled={deleting} onClick={closeDelete}>{t('cancel')}</Button>
-            <Button
+            {deleteTarget !== null && <Button
               variant="outline"
               className={css.deleteAction}
               disabled={deleting}
-              onClick={confirmDelete}
+              onClick={() => { confirmDelete(deleteTarget.workspaceId) }}
             >
               {t('delete.workspace')}
-            </Button>
+            </Button>}
           </>
         )}
       >

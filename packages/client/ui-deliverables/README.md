@@ -35,6 +35,8 @@ Two surfaces read the current status of a registered Workspace through the Host:
 
 Either surface refreshes on demand and does not add a Session event. Neither scans arbitrary browser paths; the Host resolves the selected Workspace identity before running Git.
 
+`SourceChangesPage` and `WorkspaceChangesTab` render a comparison retry only for a file from the selected Workspace status. The captured retry uses that Workspace identity and file index; missing or failed Host responses retain their separate read states.
+
 <a id="explicit-deliveries"></a>
 ### Explicit deliveries
 

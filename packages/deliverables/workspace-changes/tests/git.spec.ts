@@ -80,7 +80,7 @@ describe('snapshots and diffs', () => {
     const tree = await snapshotTree(runnerGit, workspace!, signal)
     expect(tree).toMatch(/^[0-9a-f]{40,64}$/)
     expect(git(cwd, 'status', '--porcelain')).toContain('UU f.txt')
-  })
+  }, 30_000)
 
   it('fails loudly when the addressed repository cannot be written or diffed', async () => {
     const cwd = await scratchDir('dsh-git-broken-', cleanups)

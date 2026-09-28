@@ -180,6 +180,8 @@ export function apply(ctx: Context): void {
 
 ### 视图状态
 
+工作区删除对话框会立即拒绝重复确认，直到 Workspace 投影移除该项目后才关闭；请求失败后可以重试。
+
 [SessionNodeItem](src/client/rows/Rows.tsx) 仅在 `RowDragProps.active` 为 true 时调用行悬停与拖放回调。已接受的行事件不再传播到外层分组。
 
 Workspace 基线就绪后，浏览器持久化的展开状态和 Session 顺序记录只保留当前 Workspace id、Ungrouped 和单列表记账。`WorkspaceView.sessionIds` 提供真实 Workspace 的成员关系，而不提供 Session 显示顺序。视图操作接收完整记账顺序，而不是筛选后的行。尚无 Session 摘要的新成员会等待摘要，已保存的位置则在摘要暂时缺失时保留。归档显隐仅在派生行时应用。置顶和拖拽写入完整顺序，普通派生不执行写入。当前选中的空白 Session 仍是一次显式位置写入；Workspace 重连时同样如此，此时保留其他已保存成员，直到基线确定成员关系。侧边栏收成窄栏或搜索替代列表主体时，排序仍保持挂载。最近更新从当前摘要派生，不读取已保存位置；时间相同时按 Session id 稳定排序。

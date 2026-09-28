@@ -17,6 +17,7 @@ import { createWorkspaceShortcutControls } from '../src/client/shortcuts.ts'
 import { createWorkspaceViewStore, FLAT_SESSION_ORDER_KEY } from '../src/client/stores.ts'
 import { UNGROUPED_KEY } from '../src/client/tree.ts'
 import { WorkspaceBrowser } from '../src/client/rows/WorkspaceBrowser.tsx'
+import { useWorkspaceDialogs } from '../src/client/rows/WorkspaceDialogs.tsx'
 import { en, zh } from '../src/client/locales.ts'
 
 // Every fixture carries the resource hook the resources plugin merges into GlobalStandardProps.
@@ -192,6 +193,38 @@ it('paints a chosen color onto the row and persists it across a remount', () => 
 })
 
 describe('WorkspaceBrowser', () => {
+  it('clears workspace and chat icons through their context menus', () => {
+    const b = mount({ useWorkspaces: hook(workspaceState([workspace('alpha', ['chat'], 'Alpha')])),
+      useSessions: hook(sessionState([summary('chat', 1)])) })
+    fireEvent.click(screen.getByText('Alpha').closest('[role="treeitem"]') as HTMLElement)
+    const choose = (name: string, icon: string): void => {
+      fireEvent.contextMenu(screen.getByText(name).closest('[role="treeitem"]') as HTMLElement)
+      fireEvent.click(screen.getByRole('menuitem', { name: '图标' }))
+      fireEvent.click(screen.getByRole('menuitem', { name: icon }))
+    }
+    choose('Alpha', '火箭')
+    choose('chat', '终端')
+    expect(JSON.parse(localStorage.getItem('dsh.workspace.appearance.v2') ?? 'null')).toMatchObject({
+      workspaces: { alpha: { icon: 'rocket' } }, sessions: { chat: { icon: 'terminal' } },
+    })
+    choose('Alpha', '默认')
+    choose('chat', '默认')
+    expect(JSON.parse(localStorage.getItem('dsh.workspace.appearance.v2') ?? 'null')).toMatchObject({ workspaces: {}, sessions: {} })
+    fireEvent.click(screen.getByText('Alpha').closest('[role="treeitem"]') as HTMLElement)
+    expect(screen.queryByText('chat')).toBeNull()
+    b.view.unmount()
+  })
+
+  it('selects the archived-only view from the view options menu', () => {
+    const b = mount({ useWorkspaces: hook(workspaceState([workspace('alpha', ['active', 'archived'])], [sid('archived')])),
+      useSessions: hook(sessionState([summary('active', 2), summary('archived', 1)])) })
+    fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '仅显示已归档' }))
+    fireEvent.click(screen.getByText('alpha').closest('[role="treeitem"]') as HTMLElement)
+    expect(screen.getByText('archived')).toBeTruthy()
+    expect(screen.queryByText('active')).toBeNull()
+    expect(b.store.getSnapshot().archivedFilter).toBe('only')
+  })
   it.each([{ messages: en, common: commonEn }, { messages: zh, common: commonZh }])('shows localized fork failures and dismisses them', ({ messages, common }) => {
     const b = mount({ t: makeTranslate(messages, common) })
     act(() => { b.controls.forkFailed('unavailable') })
@@ -2358,6 +2391,27 @@ describe('WorkspaceBrowser', () => {
     expect(b.store.getSnapshot().sessionOrderByAccount.alpha).toEqual(['two', 'one'])
   })
 
+  it('commits a chat reorder once when drop, late hover, and drag-end share a render', () => {
+    const b = mount({ useSessions: hook(sessionState([summary('one', 2), summary('two', 1)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['one', 'two'])])) })
+    fireEvent.click(screen.getByText('alpha'))
+    const one = screen.getByText('one').closest('[role="treeitem"]') as HTMLElement
+    const two = screen.getByText('two').closest('[role="treeitem"]') as HTMLElement
+    two.getBoundingClientRect = () => ({
+      top: 150, bottom: 184, left: 0, right: 200, width: 200, height: 34, x: 0, y: 150, toJSON: () => ({}),
+    })
+    const setOrder = vi.spyOn(b.store.actions, 'setSessionOrder')
+    fireEvent.dragStart(one, { dataTransfer: dragData() })
+    fireDrag(two, 'dragOver', 180)
+    act(() => {
+      fireDrag(two, 'drop', 180)
+      fireDrag(two, 'dragOver', 180)
+      fireEvent.dragEnd(one)
+    })
+    expect(setOrder).toHaveBeenCalledOnce()
+    expect(b.store.getSnapshot().sessionOrderByAccount.alpha).toEqual(['two', 'one'])
+  })
+
   it('accepts a document-level drop and commits the last Session marker on drag end', () => {
     const b = mount({
       useSessions: hook(sessionState([summary('one', 2), summary('two', 1)])),
@@ -2473,6 +2527,29 @@ describe('WorkspaceBrowser', () => {
     await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('denied') })
   })
 
+  it('uses the displayed title when a rename request has no stored Workspace summary', async () => {
+    const renameWorkspace = vi.fn(async () => {})
+    function Dialogs() {
+      const owner = useWorkspaceDialogs({
+        workspaces: [workspace('late', [], 'Visible')], storedWorkspaces: [],
+        renameWorkspace, deleteWorkspace: vi.fn(async () => {}), t,
+      })
+      return <>
+        <button onClick={() => { owner.onWorkspaceRename(wid('late'), 'Visible') }}>Rename pending Workspace</button>
+        {owner.dialogs}
+      </>
+    }
+    render(<Dialogs />)
+    fireEvent.click(screen.getByText('Rename pending Workspace'))
+    const input = screen.getByLabelText<HTMLInputElement>('工作区名称')
+    expect(input.value).toBe('Visible')
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '重命名' }).disabled).toBe(true)
+    fireEvent.change(input, { target: { value: 'Changed' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
+    expect(renameWorkspace).toHaveBeenCalledWith(wid('late'), 'Changed')
+  })
+
   it('confirms Workspace deletion, explains retention, and blocks duplicate submission', async () => {
     let resolveDelete!: () => void
     const deleteWorkspace = vi.fn(() => new Promise<void>((resolve) => { resolveDelete = resolve }))
@@ -2488,8 +2565,12 @@ describe('WorkspaceBrowser', () => {
     expect(dialog.textContent).toContain('其会话将显示在“未分组”下')
 
     const confirm = screen.getByRole<HTMLButtonElement>('button', { name: '删除工作区' })
-    fireEvent.click(confirm)
-    fireEvent.click(confirm)
+    act(() => {
+      fireEvent.click(confirm)
+      fireEvent.click(confirm)
+      fireEvent.keyDown(document, { key: 'Escape' })
+      fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    })
     expect(deleteWorkspace).toHaveBeenCalledOnce()
     expect(deleteWorkspace).toHaveBeenCalledWith(wid('alpha'))
     expect(confirm.disabled).toBe(true)
@@ -2567,6 +2648,42 @@ describe('Workspace tree grouping', () => {
   const team = workspace('team', ['team-session'], 'Team')
   const child = { ...workspace('child', ['child-session'], 'Child'), path: '/projects/team/child' }
   const section = (title: string) => screen.getByText(title).closest<HTMLElement>('[class*="groupSection"]')!
+
+  it('collapses a parent, customizes its appearance, and colors a nested chat', () => {
+    const b = mount({ useWorkspaces: hook(workspaceState([root, team])),
+      useSessions: hook(sessionState([summary('root-session', 2), summary('team-session', 1)])) })
+    fireEvent.click(screen.getByText('Projects'))
+    expect(screen.queryByText('Team')).toBeNull()
+    fireEvent.click(screen.getByText('Projects'))
+    fireEvent.click(screen.getByRole('button', { name: '工作区“Projects”的操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '自定义外观' }))
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    fireEvent.click(screen.getByText('Team'))
+    fireEvent.contextMenu(screen.getByText('team-session').closest('[role="treeitem"]') as HTMLElement)
+    fireEvent.click(screen.getByRole('menuitem', { name: '颜色' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '红色' }))
+    expect(JSON.parse(localStorage.getItem('dsh.workspace.appearance.v2') ?? 'null')).toMatchObject({
+      sessions: { 'team-session': { color: 'red' } },
+    })
+    b.view.unmount()
+  })
+
+  it('ends a section-enabled blank-target drag and files a nested chat from its menu', () => {
+    const b = mount({ useWorkspaces: hook(workspaceState([root, team])),
+      useSessions: hook(sessionState([summary('root-session', 2), summary('blank', 3, { blank: true })], { main: sid('blank') })) })
+    rerender(b, { useWorkspaces: hook(workspaceState([{ ...root, sessionIds: [sid('root-session'), sid('blank')] }, team])) })
+    act(() => { b.store.actions.createSection({ id: 'work', name: 'Work' }) })
+    const source = screen.getByText('root-session').closest('[role="treeitem"]') as HTMLElement
+    const blank = screen.getByText(t('session.new')).closest('[role="treeitem"]') as HTMLElement
+    fireEvent.dragStart(source, { dataTransfer: dragData() })
+    fireDrag(blank, 'dragOver', 0)
+    fireEvent.dragEnd(source)
+    fireEvent.contextMenu(source)
+    fireEvent.click(screen.getByRole('menuitem', { name: '移动到分组' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Work' }))
+    expect(b.store.getSnapshot().chatSections.members['root-session']).toBe('work')
+  })
 
   it('adopts a parent directory and opens its Session without confirmation', async () => {
     const b = mount({
@@ -2665,6 +2782,57 @@ describe('Workspace tree grouping', () => {
       'outside', 'Projects', 'Team', 'Child', 'other',
     ])
     expect(within(section('Team')).getByText('Child')).toBeTruthy()
+  })
+
+  it('ignores a removed workspace anchor and commits a queued workspace drop once', () => {
+    const insertWorkspaceBefore = vi.fn(async () => { throw new Error('host refused') })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const alphaWorkspace = workspace('alpha', [])
+    const betaWorkspace = workspace('beta', [])
+    const b = mount({ useWorkspaces: hook(workspaceState([alphaWorkspace, betaWorkspace])), insertWorkspaceBefore })
+    const source = () => screen.getByText('alpha').closest('[role="treeitem"]') as HTMLElement
+    const target = () => screen.getByText('beta').closest<HTMLElement>('[class*="groupSection"]') as HTMLElement
+    fireEvent.dragStart(source(), { dataTransfer: dragData() })
+    fireDrag(target(), 'dragOver', 100)
+    rerender(b, { useWorkspaces: hook(workspaceState([alphaWorkspace])) })
+    fireEvent.dragEnd(source())
+    expect(insertWorkspaceBefore).not.toHaveBeenCalled()
+    rerender(b, { useWorkspaces: hook(workspaceState([alphaWorkspace, betaWorkspace])) })
+    fireEvent.dragStart(source(), { dataTransfer: dragData() })
+    fireDrag(target(), 'dragOver', 100)
+    act(() => {
+      fireDrag(target(), 'drop', 100)
+      fireDrag(target(), 'dragOver', 100)
+      fireEvent.dragEnd(source())
+    })
+    expect(insertWorkspaceBefore).toHaveBeenCalledOnce()
+    expect(insertWorkspaceBefore).toHaveBeenCalledWith(wid('alpha'), undefined)
+    return waitFor(() => { expect(warn).toHaveBeenCalledWith('workspace reorder rejected:', expect.any(Error)); warn.mockRestore() })
+  })
+
+  it('cancels a workspace drop on the ungrouped bucket', () => {
+    const b = mount({ useWorkspaces: hook(workspaceState([workspace('alpha', [])])),
+      useSessions: hook(sessionState([summary('stray', 1)])) })
+    const source = screen.getByText('alpha').closest('[role="treeitem"]') as HTMLElement
+    const bucket = screen.getByText(t('group.ungrouped')).closest<HTMLElement>('[class*="groupSection"]') as HTMLElement
+    fireEvent.dragStart(source, { dataTransfer: dragData() })
+    fireDrag(bucket, 'dragOver', 100)
+    fireDrag(bucket, 'drop', 100)
+    fireEvent.dragEnd(source)
+    expect(b.props.insertWorkspaceBefore).not.toHaveBeenCalled()
+  })
+
+  it('ignores a chat drag whose workspace disappeared before drag end', () => {
+    const sessions = sessionState([summary('one', 2), summary('two', 1)])
+    const b = mount({ useWorkspaces: hook(workspaceState([workspace('alpha', ['one', 'two'])])), useSessions: hook(sessions) })
+    fireEvent.click(screen.getByText('alpha'))
+    const source = () => screen.getByText('one').closest('[role="treeitem"]') as HTMLElement
+    fireEvent.dragStart(source(), { dataTransfer: dragData() })
+    fireDrag(screen.getByText('two').closest('[role="treeitem"]') as HTMLElement, 'dragOver', 100)
+    rerender(b, { useWorkspaces: hook(workspaceState([])) })
+    fireEvent.click(screen.getByText(t('group.ungrouped')))
+    fireEvent.dragEnd(source())
+    expect(b.store.getSnapshot().sessionOrderByAccount.alpha).toBeUndefined()
   })
 
   it('keeps a saved ancestor collapse and highlights the current descendant', () => {

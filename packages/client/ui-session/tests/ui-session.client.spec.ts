@@ -606,6 +606,9 @@ describe('UiSession status', () => {
     bench.setMainView(id, 1)
     expect(service.sessionStatus.getSnapshot().get(id)?.failureUnread).toBeUndefined()
 
+    bench.emitError(id)
+    expect(service.sessionStatus.getSnapshot().get(id)?.failureUnread).toBeUndefined()
+
     bench.setMainView(id, 0)
     bench.emitError(id)
     expect(service.sessionStatus.getSnapshot().get(id)?.failureUnread).toBe(true)

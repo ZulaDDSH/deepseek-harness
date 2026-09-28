@@ -56,7 +56,7 @@ export function ViewOptionsMenu({ groupBy, orderBy, archivedFilter, onGroupPick,
         else if (id === 'manual' || id === 'updated') onOrderPick(id)
         else if (id === 'hide-archived') onArchivedFilterPick('default')
         else if (id === 'show-archived') onArchivedFilterPick('show')
-        else if (id === 'only-archived') onArchivedFilterPick('only')
+        else onArchivedFilterPick('only')
         setOpen(false)
       }}
       align="end"

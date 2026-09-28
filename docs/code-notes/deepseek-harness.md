@@ -18,6 +18,10 @@ Reference: `packages/api/settings-controller/src/request.ts:settingsRequest.pars
 
 `packages/llm/llm-jev-router/src/index.ts:JevRoute`: `id` is the Jev choice; `provider`, `model`, and optional `reasoningEffort` are the DSH destination; `description` is sent as Jev choice criteria.
 
+## Model selection precedence
+
+`packages/core/agent/src/model-selection.ts:installModelSelection`: the prepended `agent/request` listener applies the assembled selection after downstream resolvers return. The selected provider, model, and reasoning effort therefore remain authoritative when a router also prepends its listener.
+
 ## Client type boundaries
 
 `packages/deliverables/workspace-changes/src/types.ts` and `packages/client/ui-deliverables/src/changes.ts`: client-reachable code imports `WorkspaceId` from `@deepseek-ai/dsh-workspace/types`, not the package root. The root entry imports the `@deepseek-ai/dsh-session` root, whose `Context.sessions: SessionStore` augmentation conflicts with the client `ISessions` declaration in `packages/api/session-controller/src/client/index.ts`. The type-aware linter resolves project-reference declarations to source and therefore sees that transitive augmentation, which tsc does not, and reports `ctx.sessions` in `packages/client/ui-open-in-app/src/client/index.ts` as an error type.

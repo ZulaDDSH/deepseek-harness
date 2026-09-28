@@ -2,7 +2,7 @@
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import type { WorkspaceFileDiff, WorkspaceStatus, WorkspaceStatusFile } from './types.ts'
-import { parseNumstat } from './numstat.ts'
+import { parseNumstat, type NumstatEntry } from './numstat.ts'
 import { compareText } from './compare.ts'
 import { displayPathOf, compareDisplay } from './paths.ts'
 import type { GitRunner } from './git.ts'
@@ -137,18 +137,16 @@ interface Counts { added: number; deleted: number; binary?: true }
 async function countPath(git: GitRunner, root: string, path: string, signal: AbortSignal): Promise<Counts> {
   const tracked = await git.run(['diff', '--numstat', '-z', '--no-ext-diff', 'HEAD', '--', path], { cwd: root, signal })
   if (tracked.exitCode === 0 && tracked.stdout !== '') {
-    const entry = parseNumstat(tracked.stdout)[0]
-    if (entry !== undefined) return { added: entry.added, deleted: entry.deleted, ...entry.binary ? { binary: true } : {} }
+    const entry = parseNumstat(tracked.stdout)[0] as NumstatEntry
+    return { added: entry.added, deleted: entry.deleted, ...entry.binary ? { binary: true } : {} }
   } else if (tracked.exitCode !== 0 && !/does not have any commits yet|bad revision/i.test(tracked.stderr)) {
     throw new Error(`git diff failed: ${tracked.stderr.trim()}`)
   }
   const untracked = await git.run(['diff', '--no-index', '--numstat', '-z', '--no-ext-diff', '--', '/dev/null', path], { cwd: root, signal })
   if (untracked.exitCode !== 0 && untracked.exitCode !== 1) throw new Error(`git diff --no-index failed: ${untracked.stderr.trim()}`)
   if (untracked.stdout === '') return { added: 0, deleted: 0 }
-  const entry = parseNumstat(untracked.stdout)[0]
-  return entry === undefined
-    ? { added: 0, deleted: 0 }
-    : { added: entry.added, deleted: entry.deleted, ...entry.binary ? { binary: true } : {} }
+  const entry = parseNumstat(untracked.stdout)[0] as NumstatEntry
+  return { added: entry.added, deleted: entry.deleted, ...entry.binary ? { binary: true } : {} }
 }
 
 /** Read the branch without treating detached HEAD as an error. */

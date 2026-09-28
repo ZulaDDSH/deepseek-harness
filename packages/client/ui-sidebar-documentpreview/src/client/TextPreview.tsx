@@ -249,13 +249,6 @@ export function TextPreview({
     if (!canRead || current?.loading || current?.eof) return
     loadPage(tab.id, file, next, signal, meta.value?.version)
   }
-  // A comparison needs the text the reader is looking at: only the paged text
-  // view holds that, and only once a page has arrived.
-  const diffable = mode === 'text-pages' && content?.kind === 'text' && !current?.loading
-  const viewDiff = (): void => {
-    if (!canRead || content?.kind !== 'text') return
-    showDiff(tab.id, file, signal, content.text, observedVersion)
-  }
   return (
     <div className={css.preview} data-textpreview-state="text" data-textpreview-url={tab.contentId} data-document-preview={selected.id}>
       {meta.failure !== undefined && hasContent
@@ -279,12 +272,12 @@ export function TextPreview({
         : changed && (
           <p className={css.changed} data-textpreview-changed>
             <span>{t('changed')}</span>
-            {diffable && (
+            {mode === 'text-pages' && content?.kind === 'text' && !current?.loading && (
               <button
                 type="button"
                 className={css.action}
                 data-textpreview-view-diff
-                onClick={viewDiff}
+                onClick={() => { showDiff(tab.id, file, signal, content.text, observedVersion) }}
               >
                 {t('diff.show')}
               </button>

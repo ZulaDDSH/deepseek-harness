@@ -10,7 +10,7 @@
  * Real-`rg` behavior is pinned separately in integration.spec.ts.
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
 import { join, sep } from 'node:path'
@@ -942,6 +942,73 @@ describe('grep results', () => {
     const { ctx, subprocess } = await setup()
     subprocess.handler = () => runResult(`${matchLine('a.ts', 1, 'hit')}\n`)
     expect(text(await call(ctx, 'grep', { pattern: 'hit' }))).toBe('Found 1 match\n\na.ts\nLine 1: hit')
+  })
+
+  it('shows Jev-selected matches and spills the complete grep result', async () => {
+    const { ctx, subprocess, spill } = await setup({ config: { grepMaxMatches: 3 }, spill: true })
+    const filterGrepMatches = vi.fn(async ({ matches }: {
+      matches: readonly { path: string; lineNumber: number; line: string }[]
+    }) => [matches[1]!])
+    ctx.provide('jevRouter', { filterGrepMatches } as never)
+    subprocess.handler = () => runResult([
+      matchLine('a.ts', 1, 'first'),
+      matchLine('a.ts', 2, 'selected'),
+      matchLine('b.ts', 3, 'last'),
+      '',
+    ].join('\n'))
+
+    const result = await call(ctx, 'grep', { pattern: 'needle' }, { agent: agent('/w') })
+
+    expect(filterGrepMatches).toHaveBeenCalledOnce()
+    expect(filterGrepMatches.mock.calls[0]?.[0]).toMatchObject({ pattern: 'needle', matches: [
+      { path: 'a.ts', lineNumber: 1, line: 'first' },
+      { path: 'a.ts', lineNumber: 2, line: 'selected' },
+      { path: 'b.ts', lineNumber: 3, line: 'last' },
+    ] })
+    expect(text(result)).toBe('Jev kept 1 of 3 grep matches\n\na.ts\nLine 2: selected\n\n(Full grep result stored at: /spill/grep-results.txt. Use the fake retrieval hint.)')
+    expect(spill?.saves[0]?.content).toBe('Found 3 matches\n\na.ts\nLine 1: first\nLine 2: selected\n\nb.ts\nLine 3: last')
+  })
+
+  it('explains Jev filtering when the complete result cannot be saved', async () => {
+    const { ctx, subprocess } = await setup({ config: { grepMaxMatches: 3 } })
+    ctx.provide('jevRouter', {
+      filterGrepMatches: async ({ matches }: { matches: readonly { path: string; lineNumber: number; line: string }[] }) => [matches[0]!],
+    } as never)
+    subprocess.handler = () => runResult([
+      matchLine('a.ts', 1, 'selected'),
+      matchLine('b.ts', 2, 'hidden'),
+      '',
+    ].join('\n'))
+
+    const result = await call(ctx, 'grep', { pattern: 'needle' }, { agent: agent('/w') })
+
+    expect(text(result)).toBe('Jev kept 1 of 2 grep matches\n\na.ts\nLine 1: selected\n\n(Jev filtered the remaining matches; narrow pattern, path, or include to inspect more.)')
+  })
+
+  it('preserves ordinary grep output when Jev filtering throws', async () => {
+    const { ctx, subprocess, warnings } = await setup()
+    ctx.provide('jevRouter', { filterGrepMatches: vi.fn().mockRejectedValue(new Error('scoring failed')) } as never)
+    subprocess.handler = () => runResult(`${matchLine('a.ts', 1, 'one')}\n${matchLine('b.ts', 2, 'two')}\n`)
+
+    const result = await call(ctx, 'grep', { pattern: 'needle' }, { agent: agent('/w') })
+
+    expect(text(result)).toBe('Found 2 matches\n\na.ts\nLine 1: one\n\nb.ts\nLine 2: two')
+    expect(warnings).toEqual(['grep: Jev relevance filter failed; preserving normal grep output', 'Error: scoring failed'])
+  })
+
+  it.each([
+    ['without an Agent', {}],
+    ['inside a parent tool call', { agent: agent('/w'), parent: Symbol('run_code') as ToolExecutionToken }],
+  ])('does not ask Jev to filter grep results %s', async (_label, options) => {
+    const { ctx, subprocess } = await setup()
+    const filterGrepMatches = vi.fn()
+    ctx.provide('jevRouter', { filterGrepMatches } as never)
+    subprocess.handler = () => runResult(`${matchLine('a.ts', 1, 'one')}\n`)
+
+    const result = await call(ctx, 'grep', { pattern: 'needle' }, options)
+
+    expect(text(result)).toBe('Found 1 match\n\na.ts\nLine 1: one')
+    expect(filterGrepMatches).not.toHaveBeenCalled()
   })
 
   it('relativizes absolute match paths against the resolved workdir', async () => {

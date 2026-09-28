@@ -105,6 +105,6 @@ git 通过 `subprocess` 能力运行，使用净化后的环境、`GIT_CONFIG_CO
 <details>
 <summary>维护者的工作上下文——点击展开</summary>
 
-无。
+`status.ts:countPath` 将空 numstat 响应视为零行数。每个非空响应都经过 `numstat.ts:parseNumstat`，它返回至少一条记录或拒绝格式错误的输出；命令失败仍然作为错误处理。
 
 </details>

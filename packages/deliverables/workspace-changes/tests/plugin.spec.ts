@@ -5,11 +5,13 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent'
+import type { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import * as WorkspaceChanges from '../src/index.ts'
 import { changes, endTurn, git, mutate, scratchDir, settle, startTurn, toolCall } from './support.ts'
 import { sessionDirectory } from '../src/store.ts'
+import * as Store from '../src/store.ts'
 
 // These tests spawn real git children and can exceed the default budget under load.
 vi.setConfig({ testTimeout: 30_000 })
@@ -61,6 +63,45 @@ function announcedSeq(session: Session): number {
 }
 
 describe('workspace-changes in a repository', () => {
+  it('serves live status and comparisons only for registered Git workspaces', async () => {
+    const cwd = await repository()
+    await writeFile(join(cwd, 'a.txt'), 'changed\n')
+    const outside = await scratchDir('dsh-workspace-status-outside-', cleanups)
+    const { ctx } = await boot()
+    let path = cwd
+    const workspaceId = 'live' as WorkspaceId
+    ctx.provide('workspaceRegistry', { get: () => ({ path }) } as never)
+    const status = await ctx.workspaceChanges.status(workspaceId, signal)
+    expect(status?.files).toContainEqual(expect.objectContaining({ path: 'a.txt' }))
+    const index = status!.files.findIndex(file => file.path === 'a.txt')
+    expect(await ctx.workspaceChanges.workspaceDiff(workspaceId, index, signal)).toMatchObject({ kind: 'text', path: 'a.txt' })
+    expect(await ctx.workspaceChanges.workspaceDiff(workspaceId, status!.files.length, signal)).toBeUndefined()
+    path = outside
+    expect(await ctx.workspaceChanges.status(workspaceId, signal)).toBeUndefined()
+    expect(await ctx.workspaceChanges.workspaceDiff(workspaceId, 0, signal)).toBeUndefined()
+  })
+
+  it('reports retention failures without failing plugin load', async () => {
+    let fail!: (error: Error) => void
+    vi.spyOn(Store, 'pruneRoot').mockReturnValue(new Promise((_resolve, reject) => { fail = reject }))
+    const { ctx } = await boot()
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    fail(new Error('permission denied'))
+    await vi.waitFor(() => { expect(warn).toHaveBeenCalledWith(expect.stringContaining('retention pruning failed')) })
+    const session = ctx.sessions.create(SessionId('unrecorded'))
+    ctx.emit('session/disposed', session)
+  })
+
+  it.each([
+    { timeoutMs: 0 }, { outputMaxBytes: 0 }, { maxFiles: 0 }, { maxFileBytes: 0 }, { diffTimeoutMs: 0 },
+    { retentionSessions: 0 }, { retentionBytes: 0 }, { retentionDays: -1 }, { retentionDays: Number.NaN }, { root: ' ' },
+  ])('rejects invalid plugin bounds %j', (invalid) => {
+    const config: WorkspaceChanges.Config = {
+      timeoutMs: 30_000, outputMaxBytes: 1024 * 1024, maxFiles: 20, maxFileBytes: 1024 * 1024, diffTimeoutMs: 1000,
+      root: '/unused', retentionSessions: 200, retentionBytes: 512 * 1024 * 1024, retentionDays: 30, ...invalid,
+    }
+    expect(() => { WorkspaceChanges.apply(new Context(), config) }).toThrow(/workspace-changes requires/)
+  })
   it('records the turn’s own changes and excludes the user’s prior uncommitted work', async () => {
     const cwd = await repository()
     await writeFile(join(cwd, 'b.txt'), 'x user\n')
@@ -406,6 +447,16 @@ describe('workspace-changes without a repository', () => {
     const index = served!.files.findIndex(file => file.path === 'kept.txt')
     expect(await second.ctx.workspaceChanges.diff(SessionId('restart'), seq, index, signal))
       .toMatchObject({ kind: 'text', path: 'kept.txt', before: false, after: true })
+    const spawned = vi.spyOn(second.ctx.subprocess, 'spawn')
+    expect(await second.ctx.workspaceChanges.diff(SessionId('restart'), seq, index, signal))
+      .toMatchObject({ kind: 'text', path: 'kept.txt' })
+    expect(spawned.mock.calls.filter(([request]) => request.argv.includes('rev-parse'))).toHaveLength(0)
+    const withoutGit = await boot({ root })
+    vi.spyOn(withoutGit.ctx.subprocess, 'resolveExecutable').mockRejectedValue(new Error('missing git'))
+    expect(await withoutGit.ctx.workspaceChanges.diff(SessionId('restart'), seq, index, signal)).toBeUndefined()
+    await rename(join(cwd, '.git'), join(cwd, '.saved-git'))
+    const withoutRepository = await boot({ root })
+    expect(await withoutRepository.ctx.workspaceChanges.diff(SessionId('restart'), seq, index, signal)).toBeUndefined()
   })
 
   it('lists oversized and binary captured files without counts and serves no lines for them', async () => {
@@ -505,6 +556,13 @@ describe('workspace-changes without a repository', () => {
 })
 
 describe('workspace-changes without git', () => {
+  it('returns no live status or comparison when Git is unavailable', async () => {
+    const { ctx } = await boot()
+    vi.spyOn(ctx.subprocess, 'resolveExecutable').mockRejectedValue(new Error('missing git'))
+    ctx.provide('workspaceRegistry', { get: () => ({ path: '/unused' }) } as never)
+    expect(await ctx.workspaceChanges.status('workspace' as WorkspaceId, signal)).toBeUndefined()
+    expect(await ctx.workspaceChanges.workspaceDiff('workspace' as WorkspaceId, 0, signal)).toBeUndefined()
+  })
   it('summarizes file-tool edits only, even inside a repository, and reports the absence once', async () => {
     const cwd = await repository()
     const { ctx } = await boot()

@@ -121,6 +121,18 @@ const settlements = [
 ] as const
 
 describe('textFace', () => {
+  it('ignores comparisons after cancellation or a newer reading generation', async () => {
+    const retired = bench()
+    retired.controller.abort()
+    retired.face.showDiff(TAB_1, FILE, retired.controller.signal, 'before')
+    expect(retired.bytes).not.toHaveBeenCalled()
+
+    const current = bench()
+    current.face.showDiff(TAB_1, FILE, current.controller.signal, 'before')
+    current.face.reloadPages(TAB_1, FILE, current.controller.signal)
+    await current.settleAll(complete())
+    expect(current.tab()?.diff).toBeUndefined()
+  })
   it('compares the shown text with the file current text, and reports a failed read', async () => {
     const benchOne = bench()
     benchOne.face.showDiff(TAB_1, FILE, benchOne.controller.signal, 'a\nb')

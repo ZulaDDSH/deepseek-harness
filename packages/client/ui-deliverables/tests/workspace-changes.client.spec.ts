@@ -23,6 +23,25 @@ const diff: WorkspaceDiff = {
 afterEach(() => { vi.unstubAllGlobals() })
 
 describe('WorkspaceStatusStore', () => {
+  it.each([
+    ['HTTP failure', () => new Response('offline', { status: 500 })],
+    ['invalid status', () => Response.json({ files: [] })],
+    ['null status', () => Response.json(null)],
+    ['non-record file', () => Response.json({ ...status, files: [null] })],
+    ['invalid rename path', () => Response.json({ ...status, files: [{ ...status.files[0], oldPath: 7 }] })],
+    ['invalid binary flag', () => Response.json({ ...status, files: [{ ...status.files[0], binary: false }] })],
+  ] as const)('retries after %s', async (_label, response) => {
+    const fetcher = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>()
+      .mockResolvedValueOnce(response())
+      .mockResolvedValueOnce(Response.json(status))
+    vi.stubGlobal('fetch', fetcher)
+    const store = new WorkspaceStatusStore()
+    await store.load(workspaceId)
+    expect(store.state.getSnapshot()[workspaceStatusUrl(workspaceId)]).toBe('error')
+    await store.load(workspaceId)
+    expect(store.state.getSnapshot()[workspaceStatusUrl(workspaceId)]).toEqual(status)
+    await store.dispose()
+  })
   it('caches successful reads, refreshes explicitly, and retains missing responses', async () => {
     const fetcher = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>()
     vi.stubGlobal('fetch', fetcher)
@@ -45,6 +64,23 @@ describe('WorkspaceStatusStore', () => {
 })
 
 describe('WorkspaceDiffStore', () => {
+  it('retains missing comparisons and retries invalid comparison data', async () => {
+    const fetcher = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>()
+      .mockResolvedValueOnce(new Response('missing', { status: 404 }))
+      .mockResolvedValueOnce(Response.json({ kind: 'text' }))
+      .mockResolvedValueOnce(Response.json(diff))
+    vi.stubGlobal('fetch', fetcher)
+    const store = new WorkspaceDiffStore()
+    await store.load(workspaceId, 0)
+    expect(store.state.getSnapshot()[workspaceDiffUrl(workspaceId, 0)]).toBe('missing')
+    await store.load(workspaceId, 0)
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    await store.load(workspaceId, 1)
+    expect(store.state.getSnapshot()[workspaceDiffUrl(workspaceId, 1)]).toBe('error')
+    await store.load(workspaceId, 1)
+    expect(store.state.getSnapshot()[workspaceDiffUrl(workspaceId, 1)]).toEqual(diff)
+    await store.dispose()
+  })
   it('reads a comparison once per workspace file and retries a failed response', async () => {
     const fetcher = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>()
     vi.stubGlobal('fetch', fetcher)

@@ -110,9 +110,8 @@ export function SectionsList({
   useNativeDragAcceptance(chatDrag !== null || sectionDrag !== null || externalChatSessionId !== null)
 
   /** File an externally dragged Chat into a section, then clear the gesture. */
-  const commitExternalDrop = (sectionId: string): void => {
-    if (externalChatSessionId === null) return
-    assignSession(externalChatSessionId, sectionId)
+  const commitExternalDrop = (sessionId: SessionId, sectionId: string): void => {
+    assignSession(sessionId, sectionId)
     onChatDragEnd()
   }
 
@@ -146,7 +145,6 @@ export function SectionsList({
     /* v8 ignore next -- rows render only for sections present in the projection. */
     if (section === undefined || targetSectionId === undefined) return
     const rendered = section.sessionIds
-    if (!rendered.includes(over.id)) return
     if (over.id === activeDrag.sessionId && activeDrag.fromSectionId === targetSectionId) return
     const withoutSource = rendered.filter(id => id !== activeDrag.sessionId)
     const targetIndex = withoutSource.findIndex(id => id === over.id)
@@ -213,8 +211,7 @@ export function SectionsList({
             }))
           },
           drop: (half) => {
-            if (chatDrag === null) return
-            commitChatDrop(chatDrag, { kind: 'chat', id: node.id, half, sectionId })
+            commitChatDrop(chatDrag as ChatDragState, { kind: 'chat', id: node.id, half, sectionId })
           },
           end: () => {
             if (chatDrag?.over !== null && chatDrag?.over !== undefined) commitChatDrop(chatDrag, chatDrag.over)
@@ -260,7 +257,7 @@ export function SectionsList({
           if (externalChatSessionId !== null) {
             e.preventDefault()
             e.stopPropagation()
-            commitExternalDrop(section.id)
+            commitExternalDrop(externalChatSessionId, section.id)
             return
           }
           if (sectionDrag !== null || chatDrag === null) return
@@ -279,12 +276,10 @@ export function SectionsList({
           marker={marker}
           onToggle={() => { toggleSection(section.id) }}
           externalChatSessionId={externalChatSessionId}
-          onFileChat={() => { commitExternalDrop(section.id) }}
+          onFileChat={externalChatSessionId === null
+            ? undefined
+            : () => { commitExternalDrop(externalChatSessionId, section.id) }}
           onDrop={(half) => {
-            if (externalChatSessionId !== null) {
-              commitExternalDrop(section.id)
-              return
-            }
             if (sectionDrag !== null) {
               commitSectionDrop(sectionDrag, { id: section.id, half })
               return

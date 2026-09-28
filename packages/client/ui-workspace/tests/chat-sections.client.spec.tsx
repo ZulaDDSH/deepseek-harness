@@ -9,17 +9,19 @@
  */
 import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, createEvent, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, createEvent, fireEvent, render, screen, within } from '@testing-library/react'
 import { bindSnapshotSelector, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { WorkspaceId, WorkspaceSnapshot, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { DirectoryFlowOwnerProps, WorkspaceBrowserProps } from '../src/client/contract/slots.ts'
 import { createWorkspaceShortcutControls } from '../src/client/shortcuts.ts'
 import { createWorkspaceViewStore } from '../src/client/stores.ts'
 import { WorkspaceBrowser } from '../src/client/rows/WorkspaceBrowser.tsx'
+import { SectionsList, type SectionsListProps } from '../src/client/rows/SectionsList.tsx'
 import { zh } from '../src/client/locales.ts'
 
 const useResource = (() => ({
@@ -579,6 +581,117 @@ describe('Chat Sections pane', () => {
     fireEvent.dragEnd(header('Work'))
     expect(b.store.getSnapshot().chatSections.members).toEqual({})
     expect(b.store.getSnapshot().chatSections.sections).toEqual([{ id: 'section-1', name: 'Work' }])
+  })
+
+  it('commits one member reorder when drop and late hover events share a batch', () => {
+    const b = mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
+    createSection('Work')
+    fileInto('chat-a', 'Work')
+    fileInto('chat-b', 'Work')
+    const source = membersOf('Work').find(row => row.textContent?.includes('chat-a'))!
+    const target = membersOf('Work').find(row => row.textContent?.includes('chat-b'))!
+    const body = within(sectionsPane()).getByRole('group', { name: 'Work' })
+    stubRect(target, 100)
+    fireEvent.dragStart(source, { dataTransfer: dragData() })
+    fireDrag(target, 'dragOver', 130)
+    act(() => {
+      fireDrag(target, 'drop', 130)
+      fireDrag(body, 'dragOver', 130)
+      fireDrag(body, 'drop', 130)
+      fireDrag(target, 'dragOver', 102)
+      fireDrag(target, 'drop', 130)
+      fireEvent.dragEnd(source)
+    })
+    expect(b.store.getSnapshot().chatSections.sectionOrder['section-1']).toEqual(['chat-b', 'chat-a'])
+    expect(titlesOf(membersOf('Work'))).toEqual(['chat-b', 'chat-a'])
+  })
+
+  it('commits one section reorder for duplicate batched drops', () => {
+    const b = mount()
+    createSection('Work')
+    createSection('Personal')
+    const source = header('Work')
+    const target = header('Personal')
+    stubRect(target, 100)
+    fireEvent.dragStart(source, { dataTransfer: dragData() })
+    act(() => {
+      fireDrag(target, 'drop', 130)
+      fireDrag(target, 'drop', 130)
+    })
+    fireEvent.dragEnd(source)
+    expect(b.store.getSnapshot().chatSections.sections.map(section => section.name)).toEqual(['Personal', 'Work'])
+  })
+
+  it('files a member once when a section header receives duplicate batched drops', () => {
+    const b = mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
+    createSection('Work')
+    createSection('Personal')
+    fileInto('chat-a', 'Work')
+    const source = membersOf('Work')[0]!
+    const target = header('Personal')
+    stubRect(target, 100)
+    fireEvent.dragStart(source, { dataTransfer: dragData() })
+    act(() => {
+      fireDrag(target, 'drop', 130)
+      fireDrag(target, 'drop', 130)
+    })
+    expect(b.store.getSnapshot().chatSections.members).toEqual({ 'chat-a': 'section-2' })
+    expect(titlesOf(membersOf('Personal'))).toEqual(['chat-a'])
+  })
+
+  it('renders empty sections and waits for a visible member summary', () => {
+    const props: SectionsListProps = {
+      list: sessionState([]), visibleSessionIds: [],
+      rowState: { pinnedSessionIds: [], archivedSessionIds: [], archivedFilter: 'default' },
+      sections: { sections: [], members: {}, collapse: {}, sectionOrder: {} },
+      appearanceBySection: {}, appearanceBySession: {}, currentBlank: undefined,
+      useSessionStatus: hook(noStatuses), open: vi.fn(), usePanelInfo,
+      onSessionRenameRequest: vi.fn(), renderSlot: () => null,
+      assignSession: vi.fn(), setSectionOrder: vi.fn(), toggleSection: vi.fn(), moveSection: vi.fn(),
+      onSectionRename: vi.fn(), onSectionDelete: vi.fn(), onSectionAppearanceChange: vi.fn(), onSessionAppearanceChange: vi.fn(),
+      externalChatSessionId: null, onChatDragEnd: vi.fn(), t,
+    }
+    const view = render(<SectionsList {...props} />)
+    expect(screen.getByText('暂未创建分组')).toBeTruthy()
+    const pending = {
+      ...props, visibleSessionIds: [sid('pending')],
+      sections: { sections: [{ id: 'work', name: 'Work' }], members: { pending: 'work' }, collapse: {}, sectionOrder: {} },
+    }
+    view.rerender(<SectionsList {...pending} />)
+    expect(screen.getByText('0 个会话')).toBeTruthy()
+    expect(membersOf('Work')).toEqual([])
+    view.rerender(<SectionsList {...pending} list={sessionState([summary('pending', 1, { origin: 'subagent' })])} />)
+    expect(screen.getByText('1 个会话')).toBeTruthy()
+    expect(membersOf('Work')).toEqual([])
+    view.rerender(<SectionsList {...pending} list={sessionState([summary('pending', 1)])} />)
+    expect(titlesOf(membersOf('Work'))).toEqual(['pending'])
+  })
+
+  it('keeps the selected blank member first when reordering another member', () => {
+    const list = sessionState([summary('blank', 4, { blank: true }), summary('chat-a', 3), summary('chat-b', 2)], sid('blank'))
+    const b = mount({
+      useSessions: hook(list), useWorkspaces: hook(workspaceState([workspace('alpha', list.ids)])),
+    })
+    createSection('Work')
+    act(() => {
+      for (const id of list.ids) b.store.actions.assignSession(id, 'section-1')
+    })
+    const source = membersOf('Work').find(row => row.textContent?.includes('chat-a'))!
+    const target = membersOf('Work').find(row => row.textContent?.includes('chat-b'))!
+    stubRect(target, 100)
+    fireEvent.dragStart(source, { dataTransfer: dragData() })
+    fireDrag(target, 'drop', 130)
+    expect(b.store.getSnapshot().chatSections.sectionOrder['section-1']).toEqual(['blank', 'chat-b', 'chat-a'])
+  })
+
+  it('does not mark a section member selected while another panel is active', () => {
+    mount({
+      useSessions: hook(sessionState([summary('chat-a', 3)], sid('chat-a'))), useWorkspaces: hook(oneWorkspace()),
+      usePanelInfo: selector => selector({ activePanelId: 'other' as MainPanelId }),
+    })
+    createSection('Work')
+    fileInto('chat-a', 'Work')
+    expect(membersOf('Work')[0]?.getAttribute('aria-selected')).toBe('false')
   })
 
   it('appends a section after the last header and ignores its trailing drag end', () => {

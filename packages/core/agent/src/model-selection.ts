@@ -93,11 +93,6 @@ export function installModelSelection(agentCtx: Context, selection: ModelSelecti
       },
     }
   })
-  // Prepended so the selection is applied AFTER every downstream resolver has
-  // had its say. A router that claims the request first (a prepended listener
-  // that decides the route itself) would otherwise overwrite the user's choice
-  // by returning its own config out of this listener's `next()`, leaving the
-  // session labeled with a model it never called.
   const disposeRequest = agentCtx.on(
     'agent/request',
     async (_payload, next): Promise<LlmCallConfig> => {

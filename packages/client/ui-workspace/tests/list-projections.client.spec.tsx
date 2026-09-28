@@ -11,6 +11,9 @@ import { zh } from '../src/client/locales.ts'
 import type { RowRenderSlots } from '../src/client/rows/Rows.tsx'
 import { ActivityList } from '../src/client/rows/ActivityList.tsx'
 import { FlatList, type FlatListProps } from '../src/client/rows/FlatList.tsx'
+import { SessionTree } from '../src/client/rows/SessionTree.tsx'
+import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
+import type { ShortcutCommandId } from '@deepseek-ai/dsh-client-shortcuts/client'
 import { FLAT_SESSION_ORDER_KEY } from '../src/client/stores.ts'
 import type { SessionRowState } from '../src/client/tree.ts'
 
@@ -42,6 +45,32 @@ function flatProps(overrides: Partial<FlatListProps> = {}): FlatListProps {
     onSessionRevealed: vi.fn(), t, ...overrides,
   }
 }
+
+it('keeps a revealed chat beyond the collapsed limit visible across Host list refreshes', () => {
+  Element.prototype.scrollIntoView = vi.fn()
+  const rows = Array.from({ length: 8 }, (_, index) => summary(`chat-${String(index)}`))
+  const onSessionRevealed = vi.fn()
+  const props: Parameters<typeof SessionTree>[0] = {
+    list: sessionList(...rows), workspaces: [{ workspaceId: 'workspace' as WorkspaceId, title: 'Project', path: '/work',
+      sessionIds: rows.map(row => row.id), createdAt: '', updatedAt: '' }],
+    shortcuts: [{ id: 'session.new' as ShortcutCommandId, label: 'New', aliases: [], binding: null, keys: ['Ctrl', 'N'],
+      aria: 'Control+N', modified: true, conflicts: [], issue: null }],
+    appearanceByWorkspace: {}, appearanceBySession: {}, ungroupedSessionIds: [], rowState,
+    workspaceReady: true, animationResetKey: 'tree', nestWorkspaces: false, groupExpansion: { workspace: true },
+    usePanelInfo, useSessionStatus, renderSlot, startSession: vi.fn(), open: vi.fn(), insertWorkspaceBefore: vi.fn(async () => {}),
+    setGroupExpanded: vi.fn(), setSessionOrder: vi.fn(), onLeaveArchivedOnly: vi.fn(),
+    onRenameRequest: vi.fn(), onDeleteRequest: vi.fn(), onAppearanceRequest: vi.fn(), onAppearanceChange: vi.fn(),
+    onSessionAppearanceChange: vi.fn(), onSessionRenameRequest: vi.fn(), revealSessionId: sid('chat-7'), onSessionRevealed,
+    sections: [], assignSession: vi.fn(), onChatDragStart: vi.fn(), onChatDragEnd: vi.fn(), t,
+  }
+  const view = render(<SessionTree {...props} />)
+  expect(screen.getByText('chat-7')).toBeTruthy()
+  expect(screen.getByRole('button', { name: '在“Project”中新建会话' }).getAttribute('aria-keyshortcuts')).toBe('Control+N')
+  expect(onSessionRevealed).toHaveBeenCalledWith(sid('chat-7'))
+  view.rerender(<SessionTree {...props} list={sessionList(...rows)} />)
+  expect(screen.getByText('chat-7')).toBeTruthy()
+  expect(onSessionRevealed).toHaveBeenCalledWith(sid('chat-7'))
+})
 
 function fireDrag(row: HTMLElement, kind: 'dragOver' | 'drop', clientY = 0): void {
   const event = kind === 'dragOver' ? createEvent.dragOver(row) : createEvent.drop(row)

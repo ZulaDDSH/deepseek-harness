@@ -105,6 +105,6 @@ Nothing here enters a model request, so provider cache reuse is unaffected.
 <details>
 <summary>Working context for maintainers — click to expand</summary>
 
-None.
+`status.ts:countPath` accepts an empty numstat response as zero counts. Every nonempty response passes through `numstat.ts:parseNumstat`, which returns at least one record or rejects malformed output; command failures remain errors.
 
 </details>

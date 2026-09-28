@@ -180,6 +180,8 @@ A dynamically loaded browser half follows the same component contract; which mod
 
 ### View state
 
+The Workspace deletion dialog rejects repeated confirmation immediately, remains open until the Workspace projection removes the item, and allows another request after a failure.
+
 [SessionNodeItem](src/client/rows/Rows.tsx) dispatches row hover and drop callbacks only while `RowDragProps.active` is true. Accepted row events stop propagating to enclosing groups.
 
 Once the Workspace baseline is ready, browser-persisted expansion and Session-order records retain only current Workspace ids plus Ungrouped and the flat-list account. `WorkspaceView.sessionIds` supplies real-Workspace membership, not Session display order. View actions receive complete account orders, never filtered rows. A new member without a Session summary waits for that summary, while a saved position survives a temporarily missing summary. Archive visibility is applied only when deriving rows. Pin and drag writes save complete orders; ordinary derivation does not write them. The selected blank Session remains an explicit position write, including during Workspace reconnection, when other saved members are retained until the baseline establishes membership. Ordering remains mounted while the sidebar is a rail or search replaces its body. Last updated derives from current summaries without reading saved positions; equal timestamps use Session ids as a stable tie-break.

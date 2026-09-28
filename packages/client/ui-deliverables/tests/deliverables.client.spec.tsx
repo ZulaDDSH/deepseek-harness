@@ -26,6 +26,10 @@ import type { ChatFileMentions, TurnTailOwnerProps } from '@deepseek-ai/dsh-clie
 import { makeTranslate, stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
 import { Deliverables, DeliverablesTail, selectDeliverables, type DeliverablesInjected } from '../src/client/Deliverables.tsx'
 import type { ReviewInjected } from '../src/client/ReviewTab.tsx'
+import type { SourceChangesInjected } from '../src/client/SourceChangesPage.tsx'
+import { SourceChangesPanelIcon } from '../src/client/SourceChangesPanelIcon.tsx'
+import { workspaceChangesDefinition } from '../src/client/workspace-changes-definition.ts'
+import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import { ChangesDiffStore } from '../src/client/changes-diff.ts'
 import { ChangesSummaryStore } from '../src/client/changes-summary.ts'
 import { changesSummaryUrl, type ChangesSummary } from '../src/changes.ts'
@@ -740,6 +744,15 @@ describe('producedFileMentions resolver', () => {
 
 
 describe('plugin registration', () => {
+  it('names the workspace guide and renders the Source Control rail icon at the requested size', () => {
+    const definition = workspaceChangesDefinition(makeTranslate(en))
+    expect(definition.title?.('')).toBe('Changes')
+    const guide = definition.guide?.[0]
+    expect(guide?.title()).toBe('Changes')
+    expect(guide?.description?.()).toBe(en['source.subtitle'])
+    const view = render(<SourceChangesPanelIcon {...{ size: 20, active: false } as Parameters<typeof SourceChangesPanelIcon>[0]} />)
+    expect(view.container.querySelector('svg')?.getAttribute('width')).toBe('20')
+  })
   it('registers the tail entry and fiber disposal removes it', async () => {
     const ctx = new Context()
     await ctx.plugin(SlotRegistry).await()
@@ -801,6 +814,30 @@ describe('plugin registration', () => {
     expect(opened).toEqual(['site/report.html'])
     const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
     vi.stubGlobal('fetch', fetcher)
+    const mainEntry = ctx.slots.entries('main')[0]!
+    const workspaceEntry = ctx.slots.entries('sidebar.right.pane.tab')
+      .find(value => value.options.key === '@deepseek-ai/dsh-client-ui-deliverables/workspace-changes')!
+    const mainFace = mainEntry.inject!(undefined as never) as SourceChangesInjected & Record<string, unknown>
+    const workspaceFace = workspaceEntry.inject!(SessionId('child-session') as never) as SourceChangesInjected & Record<string, unknown>
+    const workspaceId = 'workspace' as WorkspaceId
+    const status = { workspaceId, files: [], total: 0, added: 0, deleted: 0 }
+    expect(workspaceFace.hooks.workspaceStatus).toBe(mainFace.hooks.workspaceStatus)
+    expect(workspaceFace.hooks.workspaceDiff).toBe(mainFace.hooks.workspaceDiff)
+    for (const readFace of [mainFace, workspaceFace]) {
+      ctx.emit('connection/reset')
+      fetcher.mockResolvedValueOnce(Response.json(status))
+      await readFace.loadStatus(workspaceId)
+      expect(readFace.hooks.workspaceStatus.getSnapshot()['api/workspace.status?workspaceId=workspace']).toEqual(status)
+      fetcher.mockResolvedValueOnce(Response.json({ ...status, branch: 'main' }))
+      await readFace.refreshStatus(workspaceId)
+      expect(readFace.hooks.workspaceStatus.getSnapshot()['api/workspace.status?workspaceId=workspace']).toMatchObject({ branch: 'main' })
+      fetcher.mockResolvedValueOnce(Response.json({ kind: 'binary', path: 'image.png', display: 'image.png' }))
+      await readFace.loadDiff(workspaceId, 0)
+      expect(readFace.hooks.workspaceDiff.getSnapshot()['api/workspace.diff?workspaceId=workspace&index=0']).toMatchObject({ kind: 'binary' })
+    }
+    const label = ctx.slots.entries('sidebar.panellist')[0]!.options.label
+    expect(typeof label === 'function' ? label() : label).toBe('Changes')
+    fetcher.mockClear()
     const preview = vi.fn<(path: string) => void>()
     for (const produced of [[], [{ path: 'out/report.docx', seq: 1 }]]) {
       const delivered = tailOwner({ produced, presented: [{ path: 'out/report.docx', seq: 2, index: 0 }] }, 3, preview)

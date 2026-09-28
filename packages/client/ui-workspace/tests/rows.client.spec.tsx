@@ -360,6 +360,24 @@ describe('workspace browser rows', () => {
     expect(onIcon).toHaveBeenCalledWith('rocket')
   })
 
+  it('starts a drag from a Workspace row with its stable row key', () => {
+    const start = vi.fn()
+    const end = vi.fn()
+    const group: GroupNode = {
+      key: 'project', workspaceId: wid('project'), cwd: '/projects/project', createdAt: 0, label: 'Project',
+      sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
+    }
+    render(<ProjectRowItem
+      group={group} onToggle={vi.fn()} onCreate={vi.fn()} drag={{ start, end }} t={t}
+    />)
+    const row = screen.getByRole('treeitem')
+    fireEvent.dragStart(row, { dataTransfer })
+    expect(dataTransfer.setData).toHaveBeenLastCalledWith('text/plain', group.key)
+    expect(start).toHaveBeenCalledOnce()
+    fireEvent.dragEnd(row)
+    expect(end).toHaveBeenCalledOnce()
+  })
+
   it('reorders section headers through their drag callbacks and displays each marker', () => {
     const section: SectionNode = { id: 'section', name: 'Work', sessionIds: [], sessionCount: 0, expanded: false }
     const actions = { rename: vi.fn(), delete: vi.fn(), appearanceColor: vi.fn(), appearanceIcon: vi.fn() }
@@ -389,6 +407,29 @@ describe('workspace browser rows', () => {
     expect(row.className).toContain('dropInside')
     fireEvent.click(screen.getByRole('button', { name: label('section.add') }))
     expect(props.onToggle).not.toHaveBeenCalled()
+  })
+
+  it('routes an external Chat drop to the section filing action', () => {
+    const onFileChat = vi.fn()
+    const onDrop = vi.fn()
+    const onParentDrop = vi.fn()
+    const section: SectionNode = { id: 'section', name: 'Work', sessionIds: [], sessionCount: 0, expanded: true }
+    render(<div onDrop={onParentDrop}>
+      <SectionHeaderItem
+        section={section} onToggle={vi.fn()} actions={{
+          rename: vi.fn(), delete: vi.fn(), appearanceColor: vi.fn(), appearanceIcon: vi.fn(),
+        }} onFileChat={onFileChat}
+        externalChatSessionId="external-chat" onDrop={onDrop} t={t}
+      />
+    </div>)
+    const row = screen.getByRole('treeitem')
+
+    fireDrag(row, 'dragOver', 105)
+    fireDrag(row, 'drop', 120)
+
+    expect(onFileChat).toHaveBeenCalledOnce()
+    expect(onDrop).not.toHaveBeenCalled()
+    expect(onParentDrop).not.toHaveBeenCalled()
   })
 
   it('opens section actions from the context menu and closes without selecting', () => {
@@ -430,6 +471,70 @@ describe('workspace browser rows', () => {
     expect(onIcon).toHaveBeenCalledWith('terminal')
   })
 
+  it('moves a Session through the section submenu, including back to ungrouped', () => {
+    const move = vi.fn()
+    const node: SessionNode = {
+      id: sid('session'), title: 'Session', blank: false, running: false,
+      runningSubagentCount: 0, completed: false, updatedAt: 0, pinned: false, archived: false,
+    }
+    render(<SessionNodeItem
+      node={node} currentId={undefined} now={0} onOpen={vi.fn()}
+      sectionActions={{
+        sections: [{ id: 'work', name: 'Work' }, { id: 'home', name: 'Home' }],
+        currentSectionId: 'work', move,
+      }}
+      t={t}
+    />)
+    const trigger = screen.getByRole('button', { name: label('actions.session.aria', { name: 'Session' }) })
+
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('menuitem', { name: label('section.moveTo') }))
+    expect(screen.getByRole('menuitem', { name: 'Work' }).hasAttribute('disabled')).toBe(true)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Home' }))
+    expect(move).toHaveBeenLastCalledWith(node.id, 'home')
+
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('menuitem', { name: label('section.moveTo') }))
+    fireEvent.click(screen.getByRole('menuitem', { name: label('section.ungrouped') }))
+    expect(move).toHaveBeenLastCalledWith(node.id, undefined)
+    expect(move).toHaveBeenCalledTimes(2)
+  })
+
+  it('omits section removal from an unassigned Session menu', () => {
+    const node: SessionNode = {
+      id: sid('session'), title: 'Session', blank: false, running: false,
+      runningSubagentCount: 0, completed: false, updatedAt: 0, pinned: false, archived: false,
+    }
+    render(<SessionNodeItem
+      node={node} currentId={undefined} now={0} onOpen={vi.fn()}
+      sectionActions={{ sections: [{ id: 'work', name: 'Work' }], currentSectionId: undefined, move: vi.fn() }} t={t}
+    />)
+    fireEvent.click(screen.getByRole('button', { name: label('actions.session.aria', { name: 'Session' }) }))
+    expect(screen.queryByRole('menuitem', { name: label('section.removeFrom') })).toBeNull()
+    expect(screen.getByRole('menuitem', { name: label('section.moveTo') })).toBeTruthy()
+  })
+
+  it('removes an assigned Session from its section through the context menu', () => {
+    const move = vi.fn()
+    const node: SessionNode = {
+      id: sid('session'), title: 'Session', blank: false, running: false,
+      runningSubagentCount: 0, completed: false, updatedAt: 0, pinned: false, archived: false,
+    }
+    render(<SessionNodeItem
+      node={node} currentId={undefined} now={0} onOpen={vi.fn()}
+      sectionActions={{ sections: [{ id: 'work', name: 'Work' }], currentSectionId: 'work', move }} t={t}
+    />)
+    const row = screen.getByText('Session')
+    fireEvent.contextMenu(row, { clientX: 4, clientY: 6 })
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('menu')).toBeNull()
+
+    fireEvent.contextMenu(row, { clientX: 4, clientY: 6 })
+    fireEvent.click(screen.getByRole('menuitem', { name: label('section.removeFrom') }))
+    expect(move).toHaveBeenCalledWith(node.id, undefined)
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
   it('closes the context menu when the pointer leaves, without choosing', () => {
     const onAppearanceColor = vi.fn()
     render(
@@ -458,12 +563,20 @@ describe('workspace browser rows', () => {
       const hookContext = opts !== undefined && 'hookContext' in opts ? opts.hookContext : undefined
       const [, setMenuOpen] = hookContext as MenuOpenState
       return (
-        <MenuItemButton onSelect={() => {
-          setMenuOpen(false)
-          onEntry(sessionId, displayTitle)
-        }}>
-          Rename
-        </MenuItemButton>
+        <>
+          <MenuItemButton onSelect={() => {
+            setMenuOpen(true)
+            onEntry(sessionId, displayTitle)
+          }}>
+            Keep open
+          </MenuItemButton>
+          <MenuItemButton onSelect={() => {
+            setMenuOpen(false)
+            onEntry(sessionId, displayTitle)
+          }}>
+            Rename
+          </MenuItemButton>
+        </>
       )
     }
     const node: SessionNode = {
@@ -478,8 +591,11 @@ describe('workspace browser rows', () => {
       />,
     )
     fireEvent.contextMenu(screen.getByText('Session'), { clientX: 30, clientY: 70 })
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Rename' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Keep open' }))
     expect(onEntry).toHaveBeenCalledWith(node.id, 'Session')
+    expect(screen.getByRole('menu')).toBeTruthy()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Rename' }))
+    expect(onEntry).toHaveBeenCalledTimes(2)
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
@@ -780,6 +896,21 @@ describe('workspace browser rows', () => {
     expect(screen.getByRole('treeitem').querySelector('[data-state="done"]')).not.toBeNull()
   })
 
+  it('unarchives an archived search result in the ungrouped workspace', () => {
+    const onUnarchive = vi.fn()
+    const id = sid('archived')
+    render(<SearchResultItem
+      result={{
+        id, title: 'Archived', workspace: '', running: false,
+        runningSubagentCount: 0, completed: false, archived: true,
+      }}
+      currentId={undefined} onOpen={vi.fn()} onUnarchive={onUnarchive} t={t}
+    />)
+    expect(screen.getByText(label('group.ungrouped'))).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: label('menu.unarchiveSession') }))
+    expect(onUnarchive).toHaveBeenCalledWith(id)
+  })
+
   it('workspace row menu opens on the ellipsis, renames, and shows the danger delete row', () => {
     const onRename = vi.fn()
     const onDelete = vi.fn()
@@ -808,6 +939,36 @@ describe('workspace browser rows', () => {
     // Escape closes without selecting (Menu onClose path).
     fireEvent.click(screen.getByRole('button', { name: '工作区“Project”的操作' }))
     fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('runs rename and delete from a Workspace context menu', () => {
+    const actions = workspaceActions()
+    const group: GroupNode = {
+      key: 'project', workspaceId: wid('project'), cwd: '/projects/project', createdAt: 0, label: 'Project',
+      sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
+    }
+    render(<ProjectRowItem
+      group={group} onToggle={vi.fn()} onCreate={vi.fn()} actions={actions} t={t}
+    />)
+    const row = screen.getByText('Project')
+    fireEvent.contextMenu(row, { clientX: 4, clientY: 6 })
+    fireEvent.click(screen.getByRole('menuitem', { name: label('appearance.customize') }))
+    expect(actions.appearance).toHaveBeenCalledOnce()
+
+    fireEvent.contextMenu(row, { clientX: 4, clientY: 6 })
+    fireEvent.click(screen.getByRole('menuitem', { name: label('appearance.icon') }))
+    fireEvent.click(screen.getByRole('menuitem', { name: label('appearance.default') }))
+    expect(actions.appearanceIcon).toHaveBeenCalledWith(undefined)
+
+    fireEvent.contextMenu(row, { clientX: 4, clientY: 6 })
+    fireEvent.click(screen.getByRole('menuitem', { name: label('rename') }))
+    expect(actions.rename).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('menu')).toBeNull()
+
+    fireEvent.contextMenu(row, { clientX: 4, clientY: 6 })
+    fireEvent.click(screen.getByRole('menuitem', { name: label('delete.workspace') }))
+    expect(actions.delete).toHaveBeenCalledOnce()
     expect(screen.queryByRole('menu')).toBeNull()
   })
 

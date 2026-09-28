@@ -216,18 +216,6 @@ function sectionMenuItemId(sectionId: string): string {
 const SECTION_UNGROUPED_ITEM = 'section.move.none'
 
 /**
- * Resolve a section choice from a menu row id.
- * @param id - the selected menu row id.
- * @returns the target section id, null for the ungrouped choice, or undefined
- * for every other row (so no unrelated verb is read as a move).
- */
-function sectionChoiceOf(id: string): string | null | undefined {
-  if (id === SECTION_UNGROUPED_ITEM) return null
-  if (!id.startsWith('section.move.')) return undefined
-  return id.slice('section.move.'.length)
-}
-
-/**
  * The Move-to-Section submenu every Chat row offers, so a move stays available
  * when drag-and-drop is not. The owning section is listed but disabled, which
  * keeps the choice list stable while the current assignment stays visible; the
@@ -303,7 +291,7 @@ export function SectionHeaderItem({
     if (id.startsWith('appearance.color.')) actions.appearanceColor(workspaceColorOf(id))
     else if (id.startsWith('appearance.icon.')) actions.appearanceIcon(workspaceIconOf(id))
     else if (id === 'rename') actions.rename()
-    else if (id === 'delete') actions.delete()
+    else actions.delete()
   }
   return (
     <div
@@ -649,7 +637,7 @@ export function ProjectRowItem({
               else if (id.startsWith('appearance.color.')) actions.appearanceColor(workspaceColorOf(id))
               else if (id.startsWith('appearance.icon.')) actions.appearanceIcon(workspaceIconOf(id))
               else if (id === 'rename') actions.rename()
-              else if (id === 'delete') actions.delete()
+              else actions.delete()
             }}
             portal
             closeOnPointerLeave
@@ -688,7 +676,7 @@ export function ProjectRowItem({
             else if (id.startsWith('appearance.color.')) actions.appearanceColor(workspaceColorOf(id))
             else if (id.startsWith('appearance.icon.')) actions.appearanceIcon(workspaceIconOf(id))
             else if (id === 'rename') actions.rename()
-            else if (id === 'delete') actions.delete()
+            else actions.delete()
           }}
           portal
           getAnchorRect={() => DOMRect.fromRect({ x: contextMenu.x, y: contextMenu.y })}
@@ -934,9 +922,7 @@ export function SessionNodeItem({
     if (id.startsWith('appearance.color.')) { appearanceActions?.color(workspaceColorOf(id)); return }
     if (id.startsWith('appearance.icon.')) { appearanceActions?.icon(workspaceIconOf(id)); return }
     if (id === 'section.remove') { sectionActions?.move(node.id, undefined); return }
-    const choice = sectionChoiceOf(id)
-    if (choice === undefined) return
-    sectionActions?.move(node.id, choice ?? undefined)
+    sectionActions?.move(node.id, id === SECTION_UNGROUPED_ITEM ? undefined : id.slice('section.move.'.length))
   }
   // Figma session cell: pad 8, status slot 16, then a 4px title gap.
   const ownRow = (

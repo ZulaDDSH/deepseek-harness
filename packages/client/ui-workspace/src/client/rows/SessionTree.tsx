@@ -206,8 +206,7 @@ export function SessionTree({
     if (over.id === activeDrag.sessionId) return
     const accountSessionIds = activeDrag.accountKey === UNGROUPED_KEY
       ? ungroupedSessionIds
-      : workspaces.find(workspace => workspace.workspaceId === activeDrag.accountKey)?.sessionIds
-    if (accountSessionIds === undefined) return
+      : (workspaces.find(workspace => workspace.workspaceId === activeDrag.accountKey) as WorkspaceView).sessionIds
     const renderedSessions = collapsedSessionRows(group.sessions, sessionLimits[group.key]).rows
     const nextOrder = sessionDragOrder(accountSessionIds, renderedSessions, activeDrag, over)
     if (nextOrder !== undefined) setSessionOrder(activeDrag.accountKey, nextOrder)
@@ -352,26 +351,14 @@ export function SessionTree({
             }
           }}
           drag={workspaceDragProps}
-          actions={group.workspaceId === undefined
+          actions={workspaceId === undefined
             ? undefined
             : {
-              rename: () => {
-              /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
-                if (group.workspaceId !== undefined) onRenameRequest(group.workspaceId, group.label)
-              },
-              delete: () => {
-              /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
-                if (group.workspaceId !== undefined) onDeleteRequest(group.workspaceId, group.label)
-              },
-              appearance: () => {
-                if (group.workspaceId !== undefined) onAppearanceRequest(group.workspaceId)
-              },
-              appearanceColor: (color) => {
-                if (group.workspaceId !== undefined) onAppearanceChange(group.workspaceId, { color })
-              },
-              appearanceIcon: (icon) => {
-                if (group.workspaceId !== undefined) onAppearanceChange(group.workspaceId, { icon })
-              },
+              rename: () => { onRenameRequest(workspaceId, group.label) },
+              delete: () => { onDeleteRequest(workspaceId, group.label) },
+              appearance: () => { onAppearanceRequest(workspaceId) },
+              appearanceColor: (color) => { onAppearanceChange(workspaceId, { color }) },
+              appearanceIcon: (icon) => { onAppearanceChange(workspaceId, { icon }) },
             }}
         />
         {childRows.length > 0 && (
@@ -397,15 +384,12 @@ export function SessionTree({
             active: compatibleTarget,
             marker: sameGroupDrag && drag.over?.id === node.id ? drag.over.half : null,
             hover: (half: 'before' | 'after') => {
-            /* v8 ignore next -- narrowing guard: Rows gates hover on `active`, which is false while the drag state is null. */
               setDrag(d => (d === null ? d : {
                 ...d, over: { id: node.id, half: normalizeHalf(half) },
               }))
             },
             drop: (half: 'before' | 'after') => {
-            /* v8 ignore next -- narrowing guard: Rows gates drop on `active`, which is false while the drag state is null. */
-              if (drag === null) return
-              commitSessionDrag(drag, { id: node.id, half: normalizeHalf(half) })
+              commitSessionDrag(drag as DragState, { id: node.id, half: normalizeHalf(half) })
             },
             end: () => {
               if (drag?.over !== null && drag?.over !== undefined) commitSessionDrag(drag, drag.over)

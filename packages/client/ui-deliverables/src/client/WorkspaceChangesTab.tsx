@@ -117,7 +117,7 @@ export function WorkspaceChangesTab({
       <div className={css.diff}>
         {file === undefined && <p className={css.status}>{t('source.selectFile')}</p>}
         {file !== undefined && <SourceDiff state={diffState}
-          retry={() => { if (selectedId !== undefined) void loadDiff(selectedId, selectedIndex) }} t={t} />}
+          retry={() => { void loadDiff(selectedId as WorkspaceId, selectedIndex) }} t={t} />}
       </div>
     </>}
   </div>

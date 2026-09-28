@@ -1,12 +1,12 @@
 /** Repository status and current working-tree comparison behavior. */
-import { unlink, writeFile } from 'node:fs/promises'
+import { mkdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SessionStore from '@deepseek-ai/dsh-session'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace'
-import { resolveRepositoryRoot } from '../src/git.ts'
+import { resolveRepositoryRoot, type GitRunResult } from '../src/git.ts'
 import * as WorkspaceChanges from '../src/index.ts'
 import { readWorkspaceDiff, readWorkspaceStatus } from '../src/status.ts'
 import { git, runner, scratchDir } from './support.ts'
@@ -22,6 +22,64 @@ afterEach(async () => {
 })
 
 describe('current workspace status', () => {
+  it.each([
+    ['unterminated', '?? file'], ['short', 'x\0'], ['separator', '??xfile\0'], ['rename', 'R  file\0'],
+  ])('rejects %s Git status output', async (_label, output) => {
+    const { ctx, git: command } = await runner()
+    cleanups.push(() => ctx.fiber.dispose())
+    vi.spyOn(command, 'run').mockResolvedValue({ exitCode: 0, stdout: output, stderr: '', truncated: false })
+    await expect(readWorkspaceStatus(command, '/repo', '/repo', 20, signal)).rejects.toThrow(/malformed|NUL/)
+  })
+
+  it.each(['status', 'tracked diff', 'untracked diff', 'branch'] as const)('reports %s command failures', async (failure) => {
+    const { ctx, git: command } = await runner()
+    cleanups.push(() => ctx.fiber.dispose())
+    vi.spyOn(command, 'run').mockImplementation(async (args): Promise<GitRunResult> => {
+      const failed = args[0] === 'status' ? failure === 'status' : args[0] === 'branch' ? failure === 'branch'
+        : args.includes('--no-index') ? failure === 'untracked diff' : failure === 'tracked diff'
+      return { exitCode: failed ? 2 : 0, stdout: args[0] === 'status' ? '?? file\0' : '', stderr: failed ? 'denied' : '', truncated: false }
+    })
+    await expect(readWorkspaceStatus(command, '/repo', '/repo', 20, signal)).rejects.toThrow(/git .* failed: denied/)
+  })
+
+  it.each([false, true])('counts binary files in a repository without HEAD (tracked=%s)', async (tracked) => {
+    const { ctx, git: command } = await runner()
+    cleanups.push(() => ctx.fiber.dispose())
+    const run = vi.spyOn(command, 'run').mockResolvedValue({ exitCode: 0, stdout: '', stderr: '', truncated: false })
+    run.mockResolvedValueOnce({ exitCode: 0, stdout: '?? image\0', stderr: '', truncated: false })
+    run.mockResolvedValueOnce({ exitCode: tracked ? 0 : 128, stdout: tracked ? '-\t-\timage\0' : '', stderr: 'bad revision HEAD', truncated: false })
+    if (!tracked) run.mockResolvedValueOnce({ exitCode: 1, stdout: '-\t-\timage\0', stderr: '', truncated: false })
+    const result = await readWorkspaceStatus(command, '/repo', '/repo', 20, signal)
+    expect(result.branch).toBeUndefined()
+    expect(result.files[0]).toMatchObject({ path: 'image', binary: true, added: 0, deleted: 0 })
+  })
+
+  it.each([false, true])('rejects a terminator without a numstat record (tracked=%s)', async (tracked) => {
+    const { ctx, git: command } = await runner()
+    cleanups.push(() => ctx.fiber.dispose())
+    const run = vi.spyOn(command, 'run').mockResolvedValue({ exitCode: 0, stdout: '\0', stderr: '', truncated: false })
+    run.mockResolvedValueOnce({ exitCode: 0, stdout: '?? file\0', stderr: '', truncated: false })
+    if (!tracked) run.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '', truncated: false })
+    await expect(readWorkspaceStatus(command, '/repo', '/repo', 20, signal)).rejects.toThrow('malformed numstat record')
+  })
+
+  it('compares added, missing, binary, and oversized sides and propagates read errors', async () => {
+    const root = await scratchDir('dsh-status-sides-', cleanups)
+    const { ctx, git: command } = await runner()
+    cleanups.push(() => ctx.fiber.dispose())
+    const run = vi.spyOn(command, 'run').mockResolvedValue({ exitCode: 1, stdout: '', stderr: '', truncated: false })
+    const file = { path: 'file', display: 'file', index: '?', worktree: '?', added: 1, deleted: 0 }
+    expect(await readWorkspaceDiff(command, root, { ...file, binary: true }, 4, 1000, signal)).toMatchObject({ kind: 'binary' })
+    expect(await readWorkspaceDiff(command, root, file, 4, 1000, signal)).toMatchObject({ before: false, after: false })
+    await writeFile(join(root, 'file'), 'oversized')
+    expect(await readWorkspaceDiff(command, root, { ...file, index: 'A' }, 4, 1000, signal)).toMatchObject({ kind: 'oversized' })
+    run.mockResolvedValueOnce({ exitCode: 0, stdout: 'large', stderr: '', truncated: true })
+    expect(await readWorkspaceDiff(command, root, { ...file, index: 'D' }, 4, 1000, signal)).toMatchObject({ kind: 'oversized' })
+    await unlink(join(root, 'file'))
+    expect(await readWorkspaceDiff(command, root, { ...file, index: 'M' }, 4, 1000, signal)).toMatchObject({ before: false, after: false })
+    await mkdir(join(root, 'file'))
+    await expect(readWorkspaceDiff(command, root, file, 4, 1000, signal)).rejects.toThrow()
+  })
   it('reports modified, deleted, added, and renamed files with line counts', async () => {
     const root = await scratchDir('dsh-status-', cleanups)
     git(root, 'init', '-q', '-b', 'main')

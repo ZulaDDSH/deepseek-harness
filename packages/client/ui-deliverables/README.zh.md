@@ -35,6 +35,8 @@ kind: "package-reference"
 
 两个表面都按需刷新，不追加 Session 事件。它们都不会扫描浏览器任意路径；Host 会先解析所选工作区身份，再运行 Git。
 
+`SourceChangesPage` 和 `WorkspaceChangesTab` 仅为所选工作区状态中的文件渲染对比重试。重试回调使用该工作区身份和文件索引；Host 响应缺失或失败时保留各自独立的读取状态。
+
 <a id="explicit-deliveries"></a>
 ### 显式交付
 
