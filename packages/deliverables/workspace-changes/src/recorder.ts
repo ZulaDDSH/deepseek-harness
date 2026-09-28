@@ -1,7 +1,7 @@
 /** Per-Session turn recorder: snapshots, captures around file-tool edits, the turn-end diff, and the records kept until disposal. */
-import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
+import { mkdir, readFile, realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join, relative, resolve } from 'node:path'
+import { basename, join, relative, resolve } from 'node:path'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { captureFile, mutationPath, sameCapture, type Capture } from './capture.ts'
 import { compareText } from './compare.ts'
@@ -9,14 +9,13 @@ import {
   blobText, diffTrees, gitlinkPaths, ignoredPaths, locateGitWorkspace, snapshotTree, treeBlob, type GitRunner, type GitWorkspace,
 } from './git.ts'
 import { canonicalPath, compareDisplay, displayPathOf, durablePathOf, isInside, isTemporaryPath, temporaryRoots, toPosix } from './paths.ts'
+import { STORE_VERSION, writeRecord, type StoredRecord, type StoredSide, type StoredSources } from './store.ts'
 import type { WorkspaceChangedFile, WorkspaceChangesSummary, WorkspaceFileDiff } from './types.ts'
 
 /** Facts shared by every recorder of one plugin instance. */
 export interface RecorderEnvironment {
   /** Resolves to the runner, or null when git is unavailable and no snapshot is taken. */
   git: Promise<GitRunner | null>
-  /** Directory that receives each Session's temporary directory. */
-  tempRoot: string
   /** Maximum files carried by one summary. */
   maxFiles: number
   /** Inclusive byte cap on a captured copy and on a snapshot blob read for a comparison. */
@@ -38,7 +37,7 @@ interface Paths {
 }
 
 /** The repository enclosing the working directory and the runner that snapshots it. */
-interface Repository {
+export interface Repository {
   git: GitRunner
   workspace: GitWorkspace
 }
@@ -61,7 +60,7 @@ type FileSources =
   | { refusal?: undefined; before: ContentSource; after: ContentSource }
 
 /** A served summary with the content sources of its listed files, index-aligned with `summary.files`. */
-interface TurnRecord {
+export interface TurnRecord {
   summary: WorkspaceChangesSummary
   sources: FileSources[]
 }
@@ -122,6 +121,8 @@ export class TurnRecorder {
     private readonly session: Session,
     private readonly cwd: string,
     private readonly env: RecorderEnvironment,
+    /** This Session's durable directory, holding its records, captures, and snapshot objects. */
+    private readonly directory: string,
   ) {}
 
   /**
@@ -221,33 +222,27 @@ export class TurnRecorder {
    */
   async diff(seq: number, index: number, signal: AbortSignal): Promise<WorkspaceFileDiff | undefined> {
     const record = this.records.get(seq)
-    const file = record?.summary.files[index]
-    const sources = record?.sources[index]
-    if (file === undefined || sources === undefined) return undefined
-    const { path, display } = file
-    if (sources.refusal !== undefined) return { kind: sources.refusal, path, display }
+    if (record === undefined) return undefined
     const combined = AbortSignal.any([signal, this.lifetime.signal])
     try {
-      const [before, after] = await Promise.all([this.readSide(sources.before, combined), this.readSide(sources.after, combined)])
-      if (before === OVERSIZED || after === OVERSIZED) return { kind: 'oversized', path, display }
-      const { hunks, coarse } = compareText(before, after, this.env.diffTimeoutMs)
-      return { kind: 'text', path, display, before: before !== null, after: after !== null, hunks, coarse }
+      return await diffOfRecord(record, index, this.env, combined)
     } catch (error: unknown) {
-      // Disposal removes the temporary directory under a running read; the Session is gone either way.
+      // A read interrupted by disposal is expected cancellation; the Session is gone either way.
       if (this.lifetime.signal.aborted) return undefined
       throw error
     }
   }
 
   /**
-   * Abort queued work, forget every record, and remove the temporary directory.
-   * @returns once the temporary directory is gone.
+   * Abort queued work and forget every in-memory record. The durable directory
+   * stays: it is what a later Host process serves this Session's turns from, and
+   * the configured retention policy owns its removal.
+   * @returns once queued work has stopped.
    */
   async dispose(): Promise<void> {
     this.lifetime.abort()
     this.records.clear()
     await this.chain
-    if (this.scratch !== undefined) await rm(await this.scratch, { recursive: true, force: true })
   }
 
   private enqueue(task: (signal: AbortSignal) => Promise<void>): Promise<void> {
@@ -268,9 +263,13 @@ export class TurnRecorder {
     if (!this.lifetime.signal.aborted) this.env.warn(`workspace-changes: ${String(error)}`)
   }
 
-  /** This Session's temporary directory, created on first use. */
+  /**
+   * This Session's durable directory, created on first use. Records, captured
+   * copies, and snapshot objects all live here, so a Session reopened in a later
+   * Host process serves its earlier turns from the same content.
+   */
   private scratchDir(): Promise<string> {
-    this.scratch ??= mkdtemp(join(this.env.tempRoot, 'dsh-workspace-changes-'))
+    this.scratch ??= mkdir(this.directory, { recursive: true }).then(() => this.directory)
     return this.scratch
   }
 
@@ -283,21 +282,6 @@ export class TurnRecorder {
     if (workspace === null) return null
     this.repository = { git, workspace }
     return this.repository
-  }
-
-  /** One side's text, null for an absent file, or {@link OVERSIZED} for a snapshot side beyond the byte cap. */
-  private async readSide(source: ContentSource, signal: AbortSignal): Promise<string | null | typeof OVERSIZED> {
-    switch (source.kind) {
-      case 'absent': return null
-      case 'file': return readFile(source.file, { encoding: 'utf8', signal })
-      case 'snapshot': {
-        const { git, workspace } = source.repository
-        const blob = await treeBlob(git, workspace, source.tree, source.path, signal)
-        if (blob === null) return null
-        if (blob.size > this.env.maxFileBytes) return OVERSIZED
-        return blobText(git, workspace, blob.oid, this.env.maxFileBytes, signal)
-      }
-    }
   }
 
   private async record(state: TurnState, signal: AbortSignal): Promise<void> {
@@ -353,7 +337,7 @@ export class TurnRecorder {
     if (sorted.length === 0 && state.recordedAfterSeq < 0) return
     const event = this.session.append('workspace/changes', { turn: state.turn })
     const kept = sorted.slice(0, this.env.maxFiles)
-    this.records.set(event.seq, {
+    const record: TurnRecord = {
       summary: {
         turn: state.turn,
         cwd: this.cwd,
@@ -364,8 +348,12 @@ export class TurnRecorder {
         ...snapshot === undefined ? {} : { snapshot },
       },
       sources: kept.map(entry => entry.sources),
-    })
+    }
+    this.records.set(event.seq, record)
     state.recordedAfterSeq = event.seq
+    // Durable before the summary is served, so a restart cannot lose a card the
+    // Client has already been told about.
+    await writeRecord(this.directory, event.seq, storedRecordOf(record))
   }
 
   /**
@@ -388,6 +376,107 @@ export class TurnRecorder {
 /** Whether a captured side holds binary content. */
 function isBinary(capture: Capture): boolean {
   return capture.kind === 'file' && capture.binary
+}
+
+/** The durable form of one side: a snapshot keeps its tree, a copy keeps its content-addressed name. */
+function storedSideOf(source: ContentSource): StoredSide {
+  switch (source.kind) {
+    case 'absent': return { kind: 'absent' }
+    case 'file': return { kind: 'file', name: basename(source.file), binary: source.binary }
+    case 'snapshot': return { kind: 'snapshot', tree: source.tree, path: source.path }
+  }
+}
+
+/**
+ * The durable form of one served record. Snapshot sides keep only their tree
+ * and path: the located repository is rediscovered from the record's working
+ * directory when a later Host process serves the comparison.
+ * @param record - the record just served.
+ * @returns the record to write.
+ */
+export function storedRecordOf(record: TurnRecord): StoredRecord {
+  return {
+    version: STORE_VERSION,
+    summary: record.summary,
+    sources: record.sources.map((sources): StoredSources => sources.refusal !== undefined
+      ? { refusal: sources.refusal }
+      : { before: storedSideOf(sources.before), after: storedSideOf(sources.after) }),
+  }
+}
+
+/** The served form of one side, or undefined when a snapshot side has no repository to read it from. */
+function servedSideOf(side: StoredSide, directory: string, repository: Repository | null): ContentSource | undefined {
+  switch (side.kind) {
+    case 'absent': return { kind: 'absent' }
+    case 'file': return { kind: 'file', file: join(directory, 'captures', side.name), binary: side.binary }
+    case 'snapshot':
+      return repository === null ? undefined : { kind: 'snapshot', repository, tree: side.tree, path: side.path }
+  }
+}
+
+/**
+ * The served form of one durable record.
+ * @param stored - the record read from disk.
+ * @param directory - the Session's durable directory holding its captured copies.
+ * @param repository - the repository rediscovered from the record's working directory, or null without git.
+ * @returns the served record, or undefined when a snapshot side cannot be read.
+ */
+export function servedRecordOf(stored: StoredRecord, directory: string, repository: Repository | null): TurnRecord | undefined {
+  const sources: FileSources[] = []
+  for (const entry of stored.sources) {
+    if (entry.refusal !== undefined) {
+      sources.push({ refusal: entry.refusal })
+      continue
+    }
+    const before = entry.before === undefined ? undefined : servedSideOf(entry.before, directory, repository)
+    const after = entry.after === undefined ? undefined : servedSideOf(entry.after, directory, repository)
+    if (before === undefined || after === undefined) return undefined
+    sources.push({ before, after })
+  }
+  return { summary: stored.summary, sources }
+}
+
+/**
+ * Compare one listed file of a served record.
+ * @param record - the served record.
+ * @param index - the file's index in the summary's `files`.
+ * @param env - comparison bounds.
+ * @param signal - cancels the reads.
+ * @returns the comparison, or undefined for an index that names no listed file.
+ */
+export async function diffOfRecord(
+  record: TurnRecord,
+  index: number,
+  env: Pick<RecorderEnvironment, 'maxFileBytes' | 'diffTimeoutMs'>,
+  signal: AbortSignal,
+): Promise<WorkspaceFileDiff | undefined> {
+  const file = record.summary.files[index]
+  const sources = record.sources[index]
+  if (file === undefined || sources === undefined) return undefined
+  const { path, display } = file
+  if (sources.refusal !== undefined) return { kind: sources.refusal, path, display }
+  const [before, after] = await Promise.all([
+    readSide(sources.before, env.maxFileBytes, signal),
+    readSide(sources.after, env.maxFileBytes, signal),
+  ])
+  if (before === OVERSIZED || after === OVERSIZED) return { kind: 'oversized', path, display }
+  const { hunks, coarse } = compareText(before, after, env.diffTimeoutMs)
+  return { kind: 'text', path, display, before: before !== null, after: after !== null, hunks, coarse }
+}
+
+/** One side's text, null for an absent file, or {@link OVERSIZED} for a snapshot side beyond the byte cap. */
+async function readSide(source: ContentSource, maxFileBytes: number, signal: AbortSignal): Promise<string | null | typeof OVERSIZED> {
+  switch (source.kind) {
+    case 'absent': return null
+    case 'file': return readFile(source.file, { encoding: 'utf8', signal })
+    case 'snapshot': {
+      const { git, workspace } = source.repository
+      const blob = await treeBlob(git, workspace, source.tree, source.path, signal)
+      if (blob === null) return null
+      if (blob.size > maxFileBytes) return OVERSIZED
+      return blobText(git, workspace, blob.oid, maxFileBytes, signal)
+    }
+  }
 }
 
 interface Counts { added: number; deleted: number; binary: boolean; oversized?: boolean }

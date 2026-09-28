@@ -25,15 +25,17 @@ import { useId, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Button, IconPlusOutlineRegular, Modal, SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: pulls this package's SlotMap merge (the two Models child slots).
 import type {} from './slot-contract.ts'
 import { CustomProviderCard } from './CustomProviderCard.tsx'
 import { deriveKeyRef, protocolChoices, providerUsable } from './store.ts'
-import type { ModelsSettingsStore, ProviderRow } from './store.ts'
+import type { CredentialsRevisionState, ModelsSettingsStore, ProviderRow } from './store.ts'
 import type { ModelsOperations } from './operations.ts'
 import type { SettingsSchemaOperations } from './schema-operations.ts'
-import { ProviderEditor, type ProviderEditorProps } from './ProviderEditor.tsx'
+import { ProviderEditor, type ModelPickerOption, type ProviderEditorProps } from './ProviderEditor.tsx'
+import type { AuthorizationOperations } from './authorization-operations.ts'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
 
@@ -44,9 +46,21 @@ export interface ModelsSectionInjected {
   hooks: {
     /** Page snapshot bound by the UI renderer as useSnapshot. */
     snapshot: ModelsSettingsStore['store']
+    /**
+     * Credential-record revision bound by the UI renderer as
+     * useCredentialsRevision. A root entry's inject result is memoized for the
+     * life of that entry, so a card learns about a sign-in it did not perform
+     * only through a live source like this one.
+     */
+    credentialsRevision: SnapshotStore<CredentialsRevisionState>
   }
   /** The Host operations the section and its cards invoke. */
   operations: ModelsOperations
+  /**
+   * The Host authorization calls, when this deployment mounts a registry. An
+   * engine that mounts none leaves every card with its API-key field alone.
+   */
+  authorization?: AuthorizationOperations
   /** Settings schema and immutable path callbacks. */
   schema: SettingsSchemaOperations
   /** Section copy. */
@@ -109,7 +123,8 @@ interface CatalogDraft {
 /** Values that vary around the shared provider-editor rendering. */
 interface ProviderEditorRenderProps extends Pick<
   ProviderEditorProps,
-  'namespace' | 'schema' | 'operations' | 't' | 'readOnly' | 'onClose'
+  'namespace' | 'schema' | 'operations' | 'authorization' | 'credentialsRevision' | 't' | 'readOnly'
+  | 'onCredentialChanged' | 'onClose' | 'modelOptions'
 > {
   target: EditorTarget
 }
@@ -221,19 +236,33 @@ export function providerCopy(template: string, target: ProviderIdentity): string
  * @returns the section, or null while the shell has not injected yet.
  */
 export function ModelsSection(props: ModelsSectionProps): ReactNode {
-  const { controller, useSnapshot, operations, schema, t, renderSlot } = props
+  const { controller, useSnapshot, useCredentialsRevision, operations, authorization, schema, t, renderSlot } = props
   if (
-    controller === undefined || useSnapshot === undefined || operations === undefined
-    || schema === undefined || t === undefined
+    controller === undefined || useSnapshot === undefined || useCredentialsRevision === undefined
+    || operations === undefined || schema === undefined || t === undefined
   ) return null
-  return <Loaded injected={{ controller, useSnapshot, operations, schema, t }} renderSlot={renderSlot} />
+  return (
+    <Loaded
+      injected={{
+        controller,
+        useSnapshot,
+        useCredentialsRevision,
+        operations,
+        ...authorization === undefined ? {} : { authorization },
+        schema,
+        t,
+      }}
+      renderSlot={renderSlot}
+    />
+  )
 }
 
 function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderSlot: ModelsRenderSlot }): ReactNode {
-  const { controller, operations, schema, t } = injected
+  const { controller, useCredentialsRevision, operations, authorization, schema, t } = injected
   const snapshot = injected.useSnapshot(value => value)
   const state = { ...snapshot, rows: snapshot.rows.map(row => row.entry.provider === 'deepseek-account'
     ? { ...row, entry: { ...row.entry, displayName: t('deepSeekAccount') } } : row) }
+  const credentialsRevision = useCredentialsRevision(value => value.revision)
   const [editing, setEditing] = useState<EditorTarget | undefined>(undefined)
   const [addOpen, setAddOpen] = useState(false)
   const [addMode, setAddMode] = useState<AddMode>('catalog')
@@ -381,6 +410,20 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
   const addRow = draft === undefined
     ? undefined
     : state.rows.find(row => row.entry.provider === draft.target.provider)
+  const modelOptions: ModelPickerOption[] = state.rows.flatMap((row) => {
+    const namespace = state.namespaces.get(row.entry.settingsNs)
+    if (namespace === undefined) return []
+    const profile = schema.getPath(namespace.value, row.entry.settingsPath)
+    const rawModels = schema.getPath(profile, ['models'])
+    const models = Array.isArray(rawModels)
+      ? rawModels.flatMap((model) => {
+        if (typeof model !== 'object' || model === null || Array.isArray(model)) return []
+        const id = (model as { id?: unknown }).id
+        return typeof id === 'string' && id.length > 0 ? [id] : []
+      })
+      : []
+    return [{ provider: row.entry.provider, displayName: row.entry.displayName, models }]
+  })
 
   return (
     <div className={styles['section']}>
@@ -412,10 +455,14 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                 {renderProviderEditor({
                   target,
                   namespace,
+                  modelOptions,
                   schema,
                   operations,
+                  ...authorization === undefined ? {} : { authorization },
+                  credentialsRevision,
                   t,
                   readOnly: !state.writable,
+                  onCredentialChanged: () => { void controller.load() },
                   onClose: (changed) => { closeSetup(changed, target) },
                 })}
                 {renderSlot(
@@ -507,10 +554,14 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                 ? renderProviderEditor({
                   target,
                   namespace,
+                  modelOptions,
                   schema,
                   operations,
+                  ...authorization === undefined ? {} : { authorization },
+                  credentialsRevision,
                   t,
                   readOnly: !state.writable,
+                  onCredentialChanged: () => { void controller.load() },
                   onClose: (changed) => { closeEditor(changed, target) },
                 })
                 : null}
@@ -596,9 +647,13 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                       namespace={draft.namespace}
                       schema={schema}
                       settingsPath={draft.target.settingsPath}
+                      modelOptions={modelOptions}
                       operations={operations}
+                      {...authorization === undefined ? {} : { authorization }}
+                      credentialsRevision={credentialsRevision}
                       t={t}
                       readOnly={!state.writable}
+                      onCredentialChanged={() => { void controller.load() }}
                       onClose={(changed) => { closeEditor(changed, draft.target) }}
                       onBusyChange={setCatalogBusy}
                     />

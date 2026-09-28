@@ -109,6 +109,7 @@ export function installModelSelection(agentCtx: Context, selection: ModelSelecti
           : { reasoningEffort: selected.reasoningEffort },
       }
     },
+    { prepend: true },
   )
   const disposeNotice = agentCtx.on(
     'agent/pre-step',

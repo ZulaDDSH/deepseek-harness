@@ -22,6 +22,46 @@ function buildChildEnv(extra: Record<string, string>): Record<string, string> {
   return { ...scrubbedParentEnv(), ...extra }
 }
 
+/** Header values for a Streamable HTTP connection, literal or environment-sourced. */
+export interface HttpHeaderConfig {
+  /** Explicit header values; an entry here overrides the same name in `headerEnv`. */
+  headers?: Record<string, string>
+  /** Header name to environment variable name; the variable supplies the header value. */
+  headerEnv?: Record<string, string>
+}
+
+/**
+ * Resolve the request headers for a Streamable HTTP connection.
+ *
+ * `headerEnv` reads a credential from the process environment so a committed
+ * `cordis.yml` names the variable instead of holding the value. A literal
+ * `headers` entry for the same name wins, keeping an explicit deployment
+ * override possible. A name whose variable is unset or empty is omitted rather
+ * than sent as an empty credential.
+ *
+ * @param config - literal headers and the header-to-variable map.
+ * @param options - `required` fails loudly when a named variable has no value.
+ * @returns the resolved header map; callers must not log or serialize it.
+ */
+export function resolveHttpHeaders(
+  config: HttpHeaderConfig,
+  options: { required?: boolean } = {},
+): Record<string, string> {
+  const resolved: Record<string, string> = { ...config.headers }
+  for (const [header, variable] of Object.entries(config.headerEnv ?? {})) {
+    if (config.headers?.[header] !== undefined) continue
+    const value = process.env[variable]
+    if (value === undefined || value === '') {
+      if (options.required === true) {
+        throw new Error(`streamable-http header "${header}" reads environment variable "${variable}", which is unset or empty`)
+      }
+      continue
+    }
+    resolved[header] = value
+  }
+  return resolved
+}
+
 /**
  * Create an MCP transport from the resolved plugin config.
  *
@@ -40,7 +80,7 @@ export function createTransport(config: Config): Transport {
     case 'streamable-http':
       return new StreamableHTTPClientTransport(
         new URL(config.url),
-        { requestInit: { headers: config.headers } },
+        { requestInit: { headers: resolveHttpHeaders(config, { required: true }) } },
       )
   }
 }

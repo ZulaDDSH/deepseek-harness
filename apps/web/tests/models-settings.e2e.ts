@@ -387,6 +387,7 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
       await image.uncheck()
       await dialog.getByRole('button', { name: '保存', exact: true }).click()
       await types.waitFor({ state: 'detached' })
+      await dialog.getByText('已保存 openai。', { exact: true }).waitFor({ timeout: 10_000 })
       await expect(scaffold.ctx.llm.resolveModelInfo('openai', 'gpt-6-astra')).resolves.toMatchObject({ inputModalities: ['text'] })
       // The saved notice confirms the browser directory refresh after the editor closes.
       // Reopening before it copies the previous selection into a new draft, which

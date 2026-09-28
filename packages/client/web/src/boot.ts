@@ -41,6 +41,14 @@ export class AppWebEntry {
   }
 
   /**
+   * Update the framework-free boot hint for a carrier-owned startup phase.
+   * @param text - Localized startup phase presented before plugin activation.
+   */
+  setBootHint(text: string): void {
+    this.page.setHint(text)
+  }
+
+  /**
    * Load and activate every client entry, then hand the mount point to the
    * UI renderer. Plugin failures remain visible on the boot page.
    * @param onFailure - Optional carrier-owned fatal presentation; keeps the boot page visible.

@@ -29,7 +29,9 @@ import { DesktopPlatformView, PLATFORM_IPC, platformBounds } from './platform-vi
 import { installDesktopDirectoryPicker } from './directory-picker.ts'
 import { installMicrophonePermissions } from './microphone-permissions.ts'
 import { DesktopBackendController } from './backend-controller.ts'
-import { DESKTOP_IPC, SCHEME, assertDesktopSender, type DesktopUpdateState } from './ipc.ts'
+import {
+  DESKTOP_IPC, SCHEME, assertDesktopSender, parseDesktopAttentionRequest, type DesktopUpdateState,
+} from './ipc.ts'
 import { readDeviceInfo } from './device-info.ts'
 import { desktopUpdateReadyConfirmation, formatDesktopMessage, resolveDesktopLocale, resolveDesktopStartupLocale } from './locale.ts'
 import { claimDesktopSingleInstance } from './single-instance.ts'
@@ -57,6 +59,7 @@ import { DesktopUpdateOverlays } from './update-overlay.ts'
 import { DesktopQuitConfirmation } from './quit-confirmation.ts'
 import { DesktopTray } from './tray.ts'
 import { DesktopBackgroundNotice } from './background-notice.ts'
+import { DesktopSessionAttention } from './session-attention.ts'
 
 let focusPrimaryWindow = (): void => {}
 let stopForRecovery = async (): Promise<void> => {}
@@ -208,6 +211,10 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
     minWidth: 520,
     minHeight: 600,
     show,
+    // A frame must have one background before the first paint: without it a
+    // window shown before the document finishes paints blank, and every
+    // recovery re-navigation flashes that blank again.
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#1b1b1c' : '#f9fafb',
     ...(process.platform === 'win32' && primary ? {
       titleBarStyle: 'hidden' as const,
       titleBarOverlay: { height: WINDOWS_TITLEBAR_HEIGHT, color: chromeFallbackFill(),
@@ -351,6 +358,15 @@ async function main(): Promise<void> {
   const isQuitting = (): boolean => quitting
   const currentMainWindow = (): BrowserWindow | undefined => mainWindow
   const ordinaryDialogs = new Set<AbortController>()
+  const sessionAttention = new DesktopSessionAttention(
+    () => locale,
+    currentMainWindow,
+    (sessionId) => {
+      const window = currentMainWindow()
+      if (window === undefined || window.isDestroyed()) return
+      window.webContents.send(DESKTOP_IPC.attentionActivate, sessionId)
+    },
+  )
   const currentDialogWindow = (): BrowserWindow | undefined => welcomeWindow ?? mainWindow
   const updateOverlays = new DesktopUpdateOverlays()
   const updateDialog = new DesktopUpdateDialog(fileURLToPath(new URL('./preload-update-dialog.cjs', import.meta.url)), () => locale, updateOverlays)
@@ -766,6 +782,10 @@ async function main(): Promise<void> {
     assertProductSender(event)
     await openUpdatePrompt()
   })
+  ipcMain.handle(DESKTOP_IPC.attentionNotify, (event, request: unknown) => {
+    assertProductSender(event)
+    sessionAttention.notify(parseDesktopAttentionRequest(request))
+  })
 
   let promptOperation: Promise<void> | undefined
   let policyAuthenticationQueued = false
@@ -892,6 +912,7 @@ async function main(): Promise<void> {
   }
   powerMonitor.on('resume', automaticCheck)
   app.on('will-quit', () => {
+    sessionAttention.dispose()
     updateSchedule.dispose()
     powerMonitor.off('resume', automaticCheck)
     updates.dispose()
@@ -1081,6 +1102,10 @@ async function main(): Promise<void> {
         reportFatal(new Error(`Desktop renderer exited: ${details.reason}`), 'renderer')
       }
     })
+    // The renderer can stall without exiting, which the user sees as a frozen
+    // blank window; record both edges so an intermittent stall is diagnosable.
+    window.webContents.on('unresponsive', () => { console.warn('dsh desktop: renderer became unresponsive') })
+    window.webContents.on('responsive', () => { console.warn('dsh desktop: renderer responsive again') })
     return window
   }
   const enterWorkspace = async ({ activate = true }: { activate?: boolean } = {}): Promise<void> => {

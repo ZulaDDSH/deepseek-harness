@@ -18,6 +18,15 @@ describe('BootPage', () => {
     expect(el.textContent).toContain('Loading plugins…')
   })
 
+  it('lets a carrier replace the startup hint without replacing the boot page', () => {
+    const { el, page } = mount()
+    const root = el.firstElementChild
+    page.setHint('Starting local runtime…')
+    expect(el.firstElementChild).toBe(root)
+    expect(el.textContent).toContain('Starting local runtime…')
+    expect(el.textContent).not.toContain('Loading plugins…')
+  })
+
   it('keeps loading while entries are active or loading', () => {
     const { el, page } = mount()
     page.setTotal(2)

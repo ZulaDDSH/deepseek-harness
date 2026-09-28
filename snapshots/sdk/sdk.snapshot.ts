@@ -149,7 +149,7 @@ const SDK_ASSERTIONS: Readonly<Record<string, SdkAssertions>> = {
   'persistent-tools': {
     environment: { DSH_SYSTEM_PROMPT: MINIMAL_SYSTEM_PROMPT },
     expectedTools: { bash: ['command'], str_replace_editor: ['command', 'path'] },
-    expectedSystem: MINIMAL_SYSTEM_PROMPT,
+    expectedSystem: (await readFile(new URL('./persistent-tools/system-prompt.expected.md', import.meta.url), 'utf8')).trimEnd(),
     expectedToolDescriptions: { bash: MINIMAL_BASH_DESCRIPTION },
     runtimeContext: {
       includes: ['Current DSH file policy: danger-full-access', 'Approval prompts are disabled in this session'],

@@ -19,9 +19,11 @@ try {
   if (el === null) throw new Error('web app: missing #root')
   const entry = new AppWebEntry(el)
   if (desktop !== undefined) {
+    entry.setBootHint('Starting local runtime…')
     const gate = (globalThis as { __DSH_BOOT_READY__?: PromiseWithResolvers<void> }).__DSH_BOOT_READY__
     if (gate === undefined) throw new Error('desktop web: boot readiness is missing')
     void desktop.ready().then(async ({ injections, streamBaseUrl }) => {
+      entry.setBootHint('Loading application…')
       const transport = globalThis as { __DSH_TRANSPORT__?: { ownsHost: boolean; streamBaseUrl: string } }
       transport.__DSH_TRANSPORT__ = { ownsHost: true, streamBaseUrl }
       await applyIndexInjections(injections, src => new Promise<void>((resolve, reject) => {
@@ -31,6 +33,7 @@ try {
         script.onerror = () => { reject(new Error(`desktop web: failed to load ${src}`)) }
         document.head.append(script)
       }))
+      entry.setBootHint('Loading plugins…')
       gate.resolve()
     }).catch((error: unknown) => { gate.reject(error) })
   }

@@ -32,6 +32,12 @@ async function bench() {
   runtime.ctx.provide('shortcuts', { register: () => () => {}, catalog: createSnapshotStore([]) })
   runtime.ctx.provide('uiConversation', {})
   runtime.ctx.provide('layout', { selectPanel: vi.fn(), beginNavigation: () => new AbortController().signal })
+  // The quick switcher consumes the command service structurally; its namespace
+  // only has to be present for ui-workspace's inject to settle.
+  runtime.ctx.provide('commandUi', {
+    quickCommands: vi.fn(async () => []),
+    runQuick: vi.fn(() => true),
+  } as never)
   runtime.releaseWorkspaceSource()
   const directoryPicker = {}
   const { remote } = runtime

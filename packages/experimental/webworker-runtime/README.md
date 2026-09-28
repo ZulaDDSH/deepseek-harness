@@ -71,7 +71,7 @@ None; this package neither assembles nor sends a provider request.
 <details>
 <summary>Working context for maintainers — click to expand</summary>
 
-None.
+`tsconfig.host.json` compiles the Worker runtime without the page-side `src/client` program. `webworker-packer/tsconfig.json` references that Host config. `tsconfig.client.json` compiles the page-side program after Host Remote declarations are generated; the package root config is solution-only.
 
 </details>
 

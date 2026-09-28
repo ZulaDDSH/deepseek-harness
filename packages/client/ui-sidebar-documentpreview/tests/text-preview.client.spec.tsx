@@ -14,6 +14,7 @@ import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react
 import { RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import type { TabId } from '@deepseek-ai/dsh-client-ui-dockkit'
 import type { OwnerOf } from '@deepseek-ai/dsh-client-ui-slots'
+import type { DiffBlockProps } from '@deepseek-ai/dsh-client-ui-primitives'
 import { TextPreview } from '../src/client/TextPreview.tsx'
 import type { TextPreviewProps } from '../src/client/TextPreview.tsx'
 import { CodeBody } from '../src/client/code/CodeBody.tsx'
@@ -23,6 +24,15 @@ import { PLAIN_BODY_ID } from '../src/client/text/index.ts'
 import { documentSlots, ABSOLUTE_PATH, ADDRESS, PATH, SESSION, TAB_ID, failure, harness, page, settle } from './fixtures.client.ts'
 
 const LINE_HEIGHT = 20
+
+const comparison = vi.hoisted(() => ({ props: undefined as DiffBlockProps | undefined }))
+vi.mock('@deepseek-ai/dsh-client-ui-primitives', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@deepseek-ai/dsh-client-ui-primitives')>()
+  return { ...actual, DiffBlock: (props: DiffBlockProps) => {
+    comparison.props = props
+    return <actual.DiffBlock {...props} />
+  } }
+})
 
 const originals = {
   offsetTop: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetTop'),
@@ -117,6 +127,25 @@ function click(container: HTMLElement, selector: string): void {
 }
 
 describe('TextPreview — pages', () => {
+  it('compares the shown file with updated bytes and returns to its pages', async () => {
+    const h = harness({ 1: page(1, ['before'], true) })
+    const view = render(<TextPreview {...h.props()} />)
+    await settle()
+    click(view.container, '[data-textpreview-tool="auto-refresh"]')
+    h.setVersion('v2')
+    h.bytes.mockResolvedValue({ ok: true, value: { absolutePath: ABSOLUTE_PATH, version: 'v2', offset: 0, data: new TextEncoder().encode('after'), eof: true, bytes: 5 } })
+    view.rerender(<TextPreview {...h.props()} />)
+    click(view.container, '[data-textpreview-view-diff]')
+    await settle()
+    expect(view.container.querySelector('[data-textpreview-diff]')).not.toBeNull()
+    expect(h.instance.getSnapshot().byTab[TAB_ID]?.diff).toEqual({ before: 'before', after: 'after' })
+    expect(comparison.props?.maxLines).toBe(Number.MAX_SAFE_INTEGER)
+    expect(comparison.props?.labels.expandAria(3)).toBe('diff.expandAria(count=3)')
+    expect(comparison.props?.labels.expand(3)).toBe('diff.expandRest(count=3)')
+    click(view.container, '[data-textpreview-show-file]')
+    expect(view.container.querySelector('[data-textpreview-diff]')).toBeNull()
+    expect(lines(view.container)).toEqual(['before\n'])
+  })
   it.each([ABSOLUTE_PATH, 'C:\\work\\project\\notes.md', '\\\\host\\share\\notes.md'])(
     'shows the Host path %s in the header and tooltip even when text cannot be read',
     async (absolutePath) => {

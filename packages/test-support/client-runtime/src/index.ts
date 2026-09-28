@@ -295,7 +295,7 @@ export class SlotTestRuntime {
    * @param plugin - plugin value (function, class, or `{ inject, apply }` object).
    * @returns handle owning the fiber's explicit disposal.
    */
-  async mount(plugin: Plugin): Promise<FeatureHandle> {
+  async mount(plugin: Plugin.Object): Promise<FeatureHandle> {
     const required = Object.keys(Inject.resolve((plugin as { inject?: Inject }).inject))
     const missing = required.filter(name => this.ctx.get(name) === undefined)
     if (missing.length > 0) {

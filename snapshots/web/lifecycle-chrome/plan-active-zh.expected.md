@@ -3,11 +3,14 @@
 - button "新建会话": 新会话
 - navigation "全局面板":
   - button "插件"
+  - button "更改"
 - text: 工作区
+- button "筛选工作区"
 - button "搜索会话"
 - textbox "搜索会话名称"
-- button "视图选项"
 - button "添加工作区"
+- button "视图选项"
+- button "新建分组"
 - tree "会话":
   - treeitem "workspace" [expanded]
   - treeitem "新会话" [selected]

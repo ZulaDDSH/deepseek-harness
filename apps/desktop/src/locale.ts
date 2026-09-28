@@ -139,6 +139,11 @@ export const en = {
   mandatoryCopyFailed: 'Could not copy the link. Select and copy it below.',
   mandatoryAddress: 'Download link',
   mandatoryNotification: 'Return to the application to confirm installation and restart.',
+  sessionAttentionApproval: 'Approval requested',
+  sessionAttentionPlanReview: 'Plan ready for review',
+  sessionAttentionQuestion: 'Answer requested',
+  sessionAttentionCompleted: 'Session completed',
+  sessionAttentionFailed: 'Session failed',
 } as const
 
 /** Every Desktop locale supplies the complete English key set. */
@@ -283,6 +288,11 @@ export const zh = {
   mandatoryCopyFailed: '复制失败，请手动选择并复制下方链接。',
   mandatoryAddress: '下载链接',
   mandatoryNotification: '返回应用确认安装并重启。',
+  sessionAttentionApproval: '需要审批',
+  sessionAttentionPlanReview: '计划等待审阅',
+  sessionAttentionQuestion: '需要回答',
+  sessionAttentionCompleted: 'Session 已完成',
+  sessionAttentionFailed: 'Session 失败',
 } as const satisfies DesktopMessages
 
 /** Locale payload exposed to the Desktop-owned renderer. */

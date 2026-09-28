@@ -827,6 +827,19 @@ inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionInspectio
 @Remote('selectModel') selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue>
 
 /**
+ * List connector namespaces exposed by globally connected MCP tools.
+ * @returns connector namespaces available for Session selection.
+ */
+@Remote('listMcpConnectors') listMcpConnectors(): McpConnectorCatalog
+
+/**
+ * Select MCP connector namespaces for one Session.
+ * @param request - Session identity and selected connector namespaces.
+ * @returns the normalized Session selection.
+ */
+@Remote('selectMcp') selectMcp(request: SessionSelectMcpRequest): Promise<SessionSelectMcpValue>
+
+/**
  * Select the first available account model after login when no provider API key is configured.
  * @returns after saving the first available model or retaining the existing default.
  */

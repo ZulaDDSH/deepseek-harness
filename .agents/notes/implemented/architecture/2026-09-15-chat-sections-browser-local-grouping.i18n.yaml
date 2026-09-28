@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-15-chat-sections-browser-local-grouping.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-15-chat-sections-browser-local-grouping.md
+/agent-note-chat-sections-as-a-browser-local-organization-layer:
+  en: 16cb5a2aca8c8c50
+  zh: 34c1180f214084c0
+/agent-note-chat-sections-as-a-browser-local-organization-layer/problem:
+  en: 0fa7ee2b9a77c739
+  zh: 15a9add1c0e380c0
+/agent-note-chat-sections-as-a-browser-local-organization-layer/decision:
+  en: 8e17fc06fc182d53
+  zh: 1659b298396250b8
+/agent-note-chat-sections-as-a-browser-local-organization-layer/alternatives-considered:
+  en: 053fe2ec10c642b5
+  zh: 2d06524e4b8679b9
+/agent-note-chat-sections-as-a-browser-local-organization-layer/consequences:
+  en: 76f2c91ff4f397aa
+  zh: f479ce9f01178f6a
+/agent-note-chat-sections-as-a-browser-local-organization-layer/verification:
+  en: b618ad22e501e960
+  zh: f300b515fdd43169

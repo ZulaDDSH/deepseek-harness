@@ -227,6 +227,68 @@ describe('registration', () => {
   })
 })
 
+describe('quick switcher', () => {
+  it('lists only draft-safe Host commands plus available client contributions', async () => {
+    const { command } = await bench()
+    command.register(themeContribution())
+    const rows = await command.quickCommands(sid('s1'), '', new AbortController().signal)
+
+    expect(rows).toEqual([
+      { name: 'plan', description: 'bare kind', kind: 'run' },
+      { name: 'theme', description: 'client popup kind', kind: 'popup' },
+    ])
+    await expect(command.quickCommands(sid('s1'), 'the', new AbortController().signal))
+      .resolves.toEqual([{ name: 'theme', description: 'client popup kind', kind: 'popup' }])
+  })
+
+  it('runs bare Host and client action commands without inserting composer text', async () => {
+    const { command, executeCalls } = await bench()
+    const run = vi.fn()
+    command.register({
+      name: 'local-action',
+      available: () => true,
+      ui: { kind: 'action', run },
+    })
+    await command.quickCommands(sid('s1'), '', new AbortController().signal)
+
+    expect(command.runQuick(sid('s1'), 'goal')).toBe(false)
+    expect(command.runQuick(sid('s1'), 'local-action')).toBe(true)
+    expect(run).toHaveBeenCalledExactlyOnceWith(proj('s1'))
+    expect(command.runQuick(sid('s1'), 'plan')).toBe(true)
+    await vi.waitFor(() => {
+      expect(executeCalls).toEqual([{ sessionId: sid('s1'), line: '/plan', images: [] }])
+    })
+  })
+
+  it('opens popup contributions from the quick switcher with no draft token to consume', async () => {
+    const { command, mint, focuses } = await bench()
+    const scope = mint('s1')
+    command.register(themeContribution())
+    await command.quickCommands(sid('s1'), '', new AbortController().signal)
+
+    expect(command.runQuick(sid('s1'), 'theme')).toBe(true)
+    const popup = command.popupFor(scope.ctx)
+    await vi.waitFor(() => { expect(popup.state.getSnapshot().status).toBe('ready') })
+    expect(popup.state.getSnapshot()).toMatchObject({ open: true, command: 'theme' })
+    await popup.select(0)
+    expect(popup.state.getSnapshot().open).toBe(false)
+    expect(focuses).toEqual([sid('s1')])
+  })
+
+  it('returns false when a command becomes unavailable after the palette snapshot', async () => {
+    const { command } = await bench()
+    let available = true
+    command.register({
+      name: 'local-action',
+      available: () => available,
+      ui: { kind: 'action', run: vi.fn() },
+    })
+    await command.quickCommands(sid('s1'), '', new AbortController().signal)
+    available = false
+    expect(command.runQuick(sid('s1'), 'local-action')).toBe(false)
+  })
+})
+
 describe('candidates', () => {
   it('waits for initial history and retains the Session until the catalog RPC settles', async () => {
     const opened = Promise.withResolvers<undefined>()

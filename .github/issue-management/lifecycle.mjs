@@ -1,12 +1,12 @@
 /** Repository event orchestration and Issue audit comments. */
 
-import config from './config.json' with { type: 'json' }
 import {
   api,
   ensureProjectItem,
   initializeIssueStartDate,
   issueSnapshot,
   projectContext,
+  repositoryTarget,
   setStatus,
   updateStatus,
 } from './github.mjs'
@@ -39,15 +39,16 @@ export async function initializePullRequestStartDates(
 }
 
 async function upsertAudit(number, errors) {
+  const target = repositoryTarget()
   const comments = await api(
-    `/repos/${config.organization}/${config.repository}/issues/${number}/comments?per_page=100`,
+    `/repos/${target.organization}/${target.repository}/issues/${number}/comments?per_page=100`,
   )
   const existing = comments.find(
     (comment) => comment.user?.type === 'Bot' && comment.body?.includes(AUDIT_MARKER),
   )
   if (errors.length === 0) {
     if (existing) {
-      await api(`/repos/${config.organization}/${config.repository}/issues/comments/${existing.id}`, {
+      await api(`/repos/${target.organization}/${target.repository}/issues/comments/${existing.id}`, {
         method: 'DELETE',
       })
     }
@@ -56,13 +57,13 @@ async function upsertAudit(number, errors) {
   const body = `${AUDIT_MARKER}\n⚠️ Issue policy 未通过：\n\n${errors.map((error) => `- ${error}`).join('\n')}`
   if (existing) {
     if (existing.body === body) return
-    await api(`/repos/${config.organization}/${config.repository}/issues/comments/${existing.id}`, {
+    await api(`/repos/${target.organization}/${target.repository}/issues/comments/${existing.id}`, {
       method: 'PATCH',
       body: JSON.stringify({ body }),
       headers: { 'Content-Type': 'application/json' },
     })
   } else {
-    await api(`/repos/${config.organization}/${config.repository}/issues/${number}/comments`, {
+    await api(`/repos/${target.organization}/${target.repository}/issues/${number}/comments`, {
       method: 'POST',
       body: JSON.stringify({ body }),
       headers: { 'Content-Type': 'application/json' },
@@ -76,10 +77,11 @@ async function upsertAudit(number, errors) {
  * @returns {Promise<object>} Snapshot containing only labels that remain on the Issue.
  */
 export async function repairIssueLabels(issue) {
+  const target = repositoryTarget()
   const invalidLabels = issue.labels.filter(isInvalidIssueLabel)
   for (const label of invalidLabels) {
     await api(
-      `/repos/${config.organization}/${config.repository}/issues/${issue.number}/labels/${encodeURIComponent(label)}`,
+      `/repos/${target.organization}/${target.repository}/issues/${issue.number}/labels/${encodeURIComponent(label)}`,
       { method: 'DELETE', allow404: true },
     )
   }

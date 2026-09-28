@@ -3,8 +3,8 @@
  * directory (`llm/listProviders` joined with `llm/listConfigurableProviders`),
  * the settings namespaces (shared settings mirror),
  * and the referenced credentials (`credentials/describe`). The host stays the
- * single fact source — every mutation writes through the wire and the page
- * re-renders from the next describe, pushed or refetched.
+ * single fact source — every mutation writes through the wire and, after the
+ * initial describe, successful write answers update the shared mirror before returning.
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
@@ -149,6 +149,11 @@ function apiKeyEnvOf(
   if (typeof profile !== 'object' || profile === null) return undefined
   const ref = (profile as { apiKeyEnv?: unknown }).apiKeyEnv
   return typeof ref === 'string' && ref.length > 0 ? ref : undefined
+}
+
+/** How many credential-record writes this page has observed. */
+export interface CredentialsRevisionState {
+  revision: number
 }
 
 /** The models settings page controller (one per settings surface). */

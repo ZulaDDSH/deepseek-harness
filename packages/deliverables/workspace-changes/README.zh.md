@@ -9,7 +9,9 @@ kind: "package-reference"
 
 ## 概述
 
-本插件汇总每个顶层轮次改动了哪些文件、每个文件的行数，并提供每个所列文件在轮次开始与结束时的内容对比。比较轮次开始和结束时的 git 工作树快照；文件工具编辑的每个文件在首次编辑之前和轮次结束时各复制一份整文件，以此覆盖 git 覆盖不到的文件。没有仓库或没有 git 时，只列文件工具的编辑。Session 日志只收到一条写明轮号的 `workspace/changes` 事件；摘要和对比留在 Host 上，直到 Session 释放。Web 的改动文件卡片渲染它们。
+本插件列出改动文件，提供有上限的内容对比，并为已注册 Workspace 提供实时 Git 状态和对比。轮次摘要使用 Git 快照，并为 Git 覆盖不到的文件工具编辑保存整文件内容。Host 在 Session 存活期间保留结果，并追加一条 `workspace/changes` 事件。没有 Git 时只列文件工具编辑；Web 改动文件卡片渲染摘要。
+
+Host 还会为已注册的 Workspace 提供实时状态和当前对比。状态使用 Git porcelain 记录与相对 HEAD 的行数；未知 Workspace 或不在 Git 仓库内的目录不会返回状态或对比。这些读取不会追加 Session 事件。
 
 ## 目录
 
@@ -46,6 +48,8 @@ kind: "package-reference"
 在 `write`、`edit` 或有修改作用的 `str_replace_editor` 调用运行之前，记录器把该路径上的文件复制到 Session 的临时目录，每轮每个路径只复制第一次，轮次结束时再复制一次；副本按其字节的 SHA-1 命名，相同内容只存一份。这一步不需要 git。快照覆盖到的路径保留 git 的行数；其余路径由副本提供，也就是匹配忽略模式的文件、仓库之外的文件，以及没有快照时的每一次文件工具编辑，行数来自两份副本的逐行对比，因此同一文件的重复编辑只计一次，文件工具编辑之后的 shell 改动也包含在内。轮次结束时内容没有变化的路径不会列出。超过 `maxFileBytes` 的副本不会保存：该文件列出时带 `oversized`，没有行数；两侧都这么大的路径同样列出，因为没读过的内容永远不能认定为没有改动。只差一个末尾换行的路径对比为两侧相同，而 git 仍会把那一行计入行数。`/tmp` 与平台临时目录下的文件被排除，除非它们位于仓库内。快照覆盖范围之外只通过 shell 命令做出的改动不会被记录。
 
 每个文件携带持久的 `path`——位于工作目录内时为相对路径，否则为绝对路径——以及用于排序和标签的 `display` 路径：相对路径，仓库内位于工作目录之上的文件为 `../` 路径，家目录下的文件为 `~` 路径，其余为绝对路径。文件按 `display` 的码元顺序排序，因此上级路径和绝对路径排在工作目录自身文件之前。`workspace/changes` 事件只携带轮号；`ctx.workspaceChanges.summary(sessionId, seq)` 返回该序号的事件宣告的摘要，Session 已释放或本 Host 进程从未记录时返回 undefined。`ctx.workspaceChanges.diff(sessionId, seq, index, signal)` 对比该下标所列的文件：从两棵快照树或两份副本得出带三行上下文的 hunk；git 报告为二进制或某一侧含 NUL 字节时返回 `binary`；某一侧超过 `maxFileBytes` 时返回 `oversized`。逐行对比运行超过 `diffTimeoutMs` 时退化为一个替换全部行的 hunk，并标记 `coarse`。因此 Host 重启后重新打开的对话，先前轮次既没有卡片也没有对比。
+
+实时对比使用符号链接的目标文本，与 Git blob 一致，不读取目标文件。实时状态行数和对比会拒绝符号链接目录下的路径，包括 Windows junction。常规工作树文件的读取最多消耗 `maxFileBytes + 1` 字节，超过包含上限值的限制时返回 `oversized`。
 
 -----
 
@@ -96,6 +100,7 @@ git 通过 `subprocess` 能力运行，使用净化后的环境、`GIT_CONFIG_CO
 - 对比会把所列文件的完整文本送到客户端，包括被忽略的文件、工作目录之上的仓库文件和工作区外的文件；摘要路由只送路径和行数。必须把这类内容留在 Host 上的部署应把本插件组合出去。
 - 退化为整文件替换的对比携带两侧的全部行，最多两倍 `maxFileBytes`。
 - Windows 路径在 `path` 中保留原生分隔符；`display` 始终用斜杠分隔。
+- 实时路径检查和读取是独立的文件系统操作；并发替换父目录可能使读取转向其他位置。
 
 <a id="dev-note"></a>
 ### 开发备注
@@ -103,6 +108,6 @@ git 通过 `subprocess` 能力运行，使用净化后的环境、`GIT_CONFIG_CO
 <details>
 <summary>维护者的工作上下文——点击展开</summary>
 
-无。
+`status.ts:countPath` 将空 numstat 响应视为零行数。每个非空响应都经过 `numstat.ts:parseNumstat`，它返回至少一条记录或拒绝格式错误的输出；命令失败仍然作为错误处理。
 
 </details>

@@ -276,6 +276,7 @@ function bench(options: BenchOptions = {}) {
   const ctx = new Context()
   contexts.push(ctx)
   const layout = new LayoutController({
+    resetRuntime: vi.fn(), toggleFocus: vi.fn(),
     selectPanel: vi.fn(), retainMainPanels: vi.fn(),
     setSidebar: vi.fn(), toggleSidebar: vi.fn(), setViewportWidth: vi.fn(),
     setRightbar: vi.fn(), openRightbar: vi.fn(), closeRightbar: vi.fn(),

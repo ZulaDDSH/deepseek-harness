@@ -543,6 +543,38 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'authorizationController',
+    summary: 'Host service backing the generated `ctx.remote.authorization` namespace.',
+    description: 'Host service backing the generated `ctx.remote.authorization` namespace.\n\nThe registry itself lives on `ctx.authorization`, which an LLM adapter fills with the flows it can run; this controller adds the wire obligations — key validation, capability addressing, prompt correlation, and refusal mapping — and never knows which provider a flow signs into.',
+    methods: [
+      {
+        signature: '@Remote async list(): Promise<AuthorizationEntryView[]>',
+        description: 'Every flow a configuration surface can offer, joined with whether a credential is already stored for it. Credential state is read per key so the page can label a signed-in provider without a second round trip.',
+        parameters: [],
+        returns: 'one entry per registered flow, in registration order.',
+      },
+      {
+        signature: '@Remote({ mode: \'stream\' }) async *begin( key: string, method: string | undefined, signal: AbortSignal, ): AsyncIterable<AuthorizationStart | AuthorizationNotice | AuthorizationEnd>',
+        description: 'Run one attempt, delivering its notices to this caller alone.\n\nThe first item names the attempt capability and every later item is a notice from the flow. The caller answers through `answer` and withdraws through `cancel`, both addressed by that capability. The stream ends when the flow commits its credential, the human withdraws, or the flow fails.',
+        parameters: [{ name: 'key', description: 'the credential record to authorize; a flow must be registered for it.' }, { name: 'method', description: 'which of the flow\'s methods to run; omitted takes the first.' }, { name: 'signal', description: 'caller lifetime; aborting withdraws the attempt.' }],
+        returns: 'one start item followed by this attempt\'s notices.',
+        throws: ['RemoteError when the request is invalid or no flow claims the key.'],
+      },
+      {
+        signature: '@Remote answer(attempt: string, prompt: string, value: string): void',
+        description: 'Answer the question a running attempt asked. The value is the typed text, or the chosen option\'s id for a `select` question.',
+        parameters: [{ name: 'attempt', description: 'the capability the attempt\'s start item named.' }, { name: 'prompt', description: 'the question id carried by the question notice.' }, { name: 'value', description: 'the human\'s answer.' }],
+        throws: ['RemoteError when the capability is unknown or the question is not awaiting one.'],
+      },
+      {
+        signature: '@Remote cancel(attempt: string): void',
+        description: 'Withdraw a running attempt. The attempt\'s stream ends as `cancelled` rather than failing, because a withdrawal is an outcome.',
+        parameters: [{ name: 'attempt', description: 'the capability the attempt\'s start item named.' }],
+        throws: ['RemoteError when no attempt has that capability.'],
+      },
+    ],
+  },
+  {
     key: 'browserUse',
     summary: 'Owns one optional provider registration in the shared browser-use service.',
     description: 'Owns one optional provider registration in the shared browser-use service.',
@@ -1272,6 +1304,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'jevRouter',
+    summary: 'Grep relevance ranking backed by the Jev client.',
+    description: 'Grep relevance ranking backed by the Jev client. Every failure path returns the input matches unchanged, so a consumer never loses grep output to Jev.',
+    methods: [
+      {
+        signature: 'async filterGrepMatches(input: { agent: Agent pattern: string matches: readonly JevGrepMatch[] signal: AbortSignal }): Promise<readonly JevGrepMatch[]>',
+        description: 'Keep the grep matches Jev ranks most relevant to the Agent\'s current task. Returns `input.matches` unchanged when routing is disabled, the signal is aborted, fewer than GREP_RELEVANCE_MIN_MATCHES matches arrive, the Agent has no recorded state, or scoring fails.',
+        parameters: [{ name: 'input', description: 'requesting Agent, grep pattern, candidate matches, and abort signal.' }],
+        returns: 'at most {@link GREP_RELEVANCE_KEEP_MATCHES} matches in input order, or the input matches.',
+      },
+    ],
+  },
+  {
     key: 'jobController',
     summary: 'Host service backing the generated `ctx.remote.job` namespace.',
     description: 'Host service backing the generated `ctx.remote.job` namespace.',
@@ -1817,6 +1862,25 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'quotaController',
+    summary: 'requires credential-backed provider quota Remote service.',
+    description: 'requires credential-backed provider quota Remote service.',
+    methods: [
+      {
+        signature: '@Remote async listProviders(): Promise<readonly QuotaProviderView[]>',
+        description: 'List providers whose credentials can currently be resolved.',
+        parameters: [],
+        returns: 'configured providers with available credentials.',
+      },
+      {
+        signature: '@Remote fetch(providerId: string): Promise<QuotaResult>',
+        description: 'Fetch quota state for one provider, coalescing concurrent requests.',
+        parameters: [{ name: 'providerId', description: 'provider identifier.' }],
+        returns: 'the provider quota result.',
+      },
+    ],
+  },
+  {
     key: 'sandbox',
     summary: 'Abstract process-sandbox service.',
     description: 'Abstract process-sandbox service. confine must return enforcing argv or fail closed at wrap or runner-execution time; silent unconfined passthrough is forbidden. Functional probes arbitrate multi-runner chains and may be skipped for a sole candidate, whose own refusal remains the fail-closed end.',
@@ -1942,6 +2006,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Select one Session-local model after explicitly resuming the Session; save the default in the background.',
         parameters: [{ name: 'request', description: 'Session identity and requested model selection.' }],
         returns: 'the normalized selection installed for the Session, without waiting for default persistence.',
+      },
+      {
+        signature: '@Remote(\'listMcpConnectors\') listMcpConnectors(): McpConnectorCatalog',
+        description: 'List connector namespaces exposed by globally connected MCP tools.',
+        parameters: [],
+        returns: 'connector namespaces available for Session selection.',
+      },
+      {
+        signature: '@Remote(\'selectMcp\') selectMcp(request: SessionSelectMcpRequest): Promise<SessionSelectMcpValue>',
+        description: 'Select MCP connector namespaces for one Session.',
+        parameters: [{ name: 'request', description: 'Session identity and selected connector namespaces.' }],
+        returns: 'the normalized Session selection.',
       },
       {
         signature: '@Remote async initializeDefaultModel(): Promise<void>',
@@ -3525,14 +3601,26 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'workspaceChanges',
-    summary: 'Serves the summaries and file comparisons the recorder keeps for live Sessions.',
-    description: 'Serves the summaries and file comparisons the recorder keeps for live Sessions.',
+    summary: 'Serves live turn comparisons and current repository status for Sessions.',
+    description: 'Serves live turn comparisons and current repository status for Sessions.',
     methods: [
       {
-        signature: 'summary(sessionId: SessionId, seq: number): WorkspaceChangesSummary | undefined',
+        signature: 'status(workspaceId: WorkspaceId, signal: AbortSignal): Promise<WorkspaceStatus | undefined>',
+        description: 'Read the current git working-tree status for a registered Workspace.',
+        parameters: [{ name: 'workspaceId', description: 'registered workspace identity.' }, { name: 'signal', description: 'cancels git and filesystem work.' }],
+        returns: 'the repository status, or undefined when git is unavailable or the directory is not a repository.',
+      },
+      {
+        signature: 'summary(sessionId: SessionId, seq: number): Promise<WorkspaceChangesSummary | undefined>',
         description: 'The summary announced by one `workspace/changes` event.',
         parameters: [{ name: 'sessionId', description: 'the Session that appended the event.' }, { name: 'seq', description: 'the event\'s sequence number.' }],
-        returns: 'the summary, or undefined once its Session was disposed or when this Host never recorded it.',
+        returns: 'the summary, or undefined when this Host never recorded it or its records were pruned. A Session this process no longer holds is served from the durable records the previous process wrote.',
+      },
+      {
+        signature: 'workspaceDiff(workspaceId: WorkspaceId, index: number, signal: AbortSignal): Promise<WorkspaceFileDiff | undefined>',
+        description: 'Compare one current repository-status file against HEAD.',
+        parameters: [{ name: 'workspaceId', description: 'registered workspace identity.' }, { name: 'index', description: 'index in the current status response.' }, { name: 'signal', description: 'cancels git and filesystem work.' }],
+        returns: 'a current comparison, or undefined for an unknown workspace or file.',
       },
       {
         signature: 'diff(sessionId: SessionId, seq: number, index: number, signal: AbortSignal): Promise<WorkspaceFileDiff | undefined>',
@@ -4604,8 +4692,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type AttachmentId = Branded<\'AttachmentId\'>;',
   },
   {
+    name: 'AuthorizationEnd',
+    declaration: 'export interface AuthorizationEnd {\n    readonly type: \'end\';\n    readonly status: \'authorized\' | \'cancelled\';\n}',
+  },
+  {
     name: 'AuthorizationEntry',
     declaration: 'export interface AuthorizationEntry {\n    key: CredentialKey;\n    label: string;\n    methods: readonly AuthorizationMethod[];\n    inFlight: boolean;\n}',
+  },
+  {
+    name: 'AuthorizationEntryView',
+    declaration: 'export interface AuthorizationEntryView {\n    readonly key: string;\n    readonly label: string;\n    readonly methods: readonly {\n        readonly id: string;\n        readonly label: string;\n    }[];\n    readonly inFlight: boolean;\n    readonly configured: boolean;\n}',
   },
   {
     name: 'AuthorizationFlow',
@@ -4618,14 +4714,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AuthorizationMethod',
     declaration: 'export interface AuthorizationMethod {\n    id: string;\n    label: string;\n}',
-  },
-  {
-    name: 'AuthorizationNotice',
-    declaration: 'export interface AuthorizationNotice {\n    message: string;\n    url?: string;\n    code?: string;\n}',
-  },
-  {
-    name: 'AuthorizationOutcome',
-    declaration: 'export interface AuthorizationOutcome {\n    status: AuthorizationStatus;\n}',
   },
   {
     name: 'AuthorizationPrompt',
@@ -4646,6 +4734,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AuthorizationSettlement',
     declaration: 'export type AuthorizationSettlement = AuthorizationStatus | \'failed\';',
+  },
+  {
+    name: 'AuthorizationStart',
+    declaration: 'export interface AuthorizationStart {\n    readonly type: \'start\';\n    readonly attempt: string;\n    readonly key: string;\n}',
   },
   {
     name: 'AuthorizationStatus',
@@ -5408,6 +5500,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface InvokeRemoteRequest {\n    readonly namespace: string;\n    readonly method: string;\n    readonly args: Readonly<Record<string, unknown>>;\n    readonly uplink?: AsyncIterable<unknown>;\n    readonly peer?: PeerScope;\n    readonly signal?: AbortSignal;\n}',
   },
   {
+    name: 'JevGrepMatch',
+    declaration: 'export interface JevGrepMatch {\n    readonly path: string;\n    readonly lineNumber: number;\n    readonly line: string;\n}',
+  },
+  {
     name: 'JobAppendOptions',
     declaration: 'export interface JobAppendOptions {\n    channel?: JobChannel;\n    gapBefore?: true;\n}',
   },
@@ -5672,12 +5768,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ManualCompactAgentContext extends CompactionAgentContext {\n    runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T>;\n}',
   },
   {
+    name: 'McpConnectorCatalog',
+    declaration: 'export interface McpConnectorCatalog {\n    readonly connectorIds: readonly string[];\n}',
+  },
+  {
     name: 'McpResourceProvider',
     declaration: 'export interface McpResourceProvider {\n    request(request: McpResourceRequest, exec: ToolExecution): Promise<JsonValue>;\n}',
   },
   {
     name: 'McpResourceRequest',
     declaration: 'export type McpResourceRequest = {\n    method: \'resources/list\' | \'resources/templates/list\';\n    cursor?: string;\n} | {\n    method: \'resources/read\';\n    uri: string;\n};',
+  },
+  {
+    name: 'McpSelection',
+    declaration: 'export interface McpSelection {\n    readonly connectorIds: readonly string[];\n}',
   },
   {
     name: 'Message',
@@ -6114,6 +6218,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'QueueAction',
     declaration: 'export type QueueAction = {\n    readonly kind: \'edit\';\n    readonly content: readonly TextBlock[];\n} | {\n    readonly kind: \'remove\';\n} | {\n    readonly kind: \'steer\';\n};',
+  },
+  {
+    name: 'QuotaProviderView',
+    declaration: 'export interface QuotaProviderView {\n    readonly id: string;\n    readonly name: string;\n}',
+  },
+  {
+    name: 'QuotaResult',
+    declaration: 'export interface QuotaResult {\n    readonly providerId: string;\n    readonly providerName: string;\n    readonly configured: boolean;\n    readonly ok: boolean;\n    readonly error?: string;\n    readonly windows?: Partial<Record<QuotaWindowId, QuotaWindow>>;\n}',
+  },
+  {
+    name: 'QuotaWindow',
+    declaration: 'export interface QuotaWindow {\n    readonly usedPercent: number | null;\n    readonly resetAt: number | null;\n    readonly valueLabel?: string;\n    readonly status?: string;\n}',
+  },
+  {
+    name: 'QuotaWindowId',
+    declaration: 'export type QuotaWindowId = \'5h\' | \'weekly\' | \'monthly\' | \'credits\';',
   },
   {
     name: 'ReadFileLine',
@@ -6814,6 +6934,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionSeedEventState',
     declaration: 'export type SessionSeedEventState = \'detached\' | \'shared-frozen\';',
+  },
+  {
+    name: 'SessionSelectMcpRequest',
+    declaration: 'export interface SessionSelectMcpRequest {\n    readonly sessionId: SessionId;\n    readonly connectorIds: readonly string[];\n}',
+  },
+  {
+    name: 'SessionSelectMcpValue',
+    declaration: 'export interface SessionSelectMcpValue {\n    readonly selected: McpSelection;\n}',
   },
   {
     name: 'SessionSelectModelRequest',
@@ -8106,6 +8234,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WorkspaceRenameRequest',
     declaration: 'export interface WorkspaceRenameRequest {\n    readonly workspaceId: WorkspaceId;\n    readonly title: string;\n}',
+  },
+  {
+    name: 'WorkspaceStatus',
+    declaration: 'export interface WorkspaceStatus {\n    cwd: string;\n    root: string;\n    branch?: string;\n    files: WorkspaceStatusFile[];\n    total: number;\n    added: number;\n    deleted: number;\n}',
+  },
+  {
+    name: 'WorkspaceStatusFile',
+    declaration: 'export interface WorkspaceStatusFile {\n    path: string;\n    display: string;\n    index: string;\n    worktree: string;\n    oldPath?: string;\n    added: number;\n    deleted: number;\n    binary?: true;\n}',
   },
   {
     name: 'WorkspaceUnarchiveSessionRequest',

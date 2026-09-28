@@ -150,7 +150,7 @@ No direct effect; what the user reads here never enters a model request.
 <details>
 <summary>Working context for maintainers — click to expand</summary>
 
-None.
+`TextPreview` offers comparison after paged text has loaded. Its button captures that displayed text; tab cancellation and newer read generations retire pending comparisons in `textFace`.
 
 </details>
 

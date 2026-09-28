@@ -71,7 +71,7 @@ kind: "package-library"
 <details>
 <summary>维护者工作上下文——点击展开</summary>
 
-无。
+`tsconfig.host.json` 编译 Worker 运行时，不包含页面侧的 `src/client` 程序。`webworker-packer/tsconfig.json` 引用该 Host 配置。`tsconfig.client.json` 在 Host Remote 声明生成后编译页面侧程序；包根配置仅用作项目集合。
 
 </details>
 

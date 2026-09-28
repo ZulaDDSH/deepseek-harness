@@ -34,6 +34,12 @@
     - id: llm
       name: '@deepseek-ai/dsh-llm'
 
+    - id: llm-jev-router
+      name: '@deepseek-ai/dsh-llm-jev-router'
+      config:
+        enabled: false
+        routes: []
+
     - id: deepseek-llm-api-extensions
       name: '@deepseek-ai/dsh-deepseek-llm-api-extensions'
 
@@ -116,6 +122,14 @@
 
     - id: credentials
       name: '@deepseek-ai/dsh-credentials-local'
+
+    # Credential-obtaining flows: a plugin registers how to get a credential
+    # that only a human can hand over (a ChatGPT/Codex OAuth grant, a pasted
+    # key), and a surface runs one attempt. Mounted here so the flows
+    # `dsh-llm-pi-ai` registers below are reachable; without this row the
+    # registry never exists and no sign-in can start.
+    - id: authorization
+      name: '@deepseek-ai/dsh-authorization'
 
     # The pi-ai multi-provider twin, mounted dormant: zero routes (and no extra
     # models in the picker) until a `llm-pi-ai:` settings section supplies provider
@@ -505,6 +519,12 @@
       name: '@deepseek-ai/dsh-system-prompt'
       config:
         personaPrefix: ''
+
+    # One shared-knowledge rule for every agent, independent of provider or
+    # preset. Knowledge content is retrieved on demand through the configured
+    # knowledge MCP entry; this contributes policy text only.
+    - id: knowledge-policy
+      name: '@deepseek-ai/dsh-knowledge-policy'
 
     # Agents created at startup. The base stays empty; raw overlays may create
     # agents, while Web creates sessions on client request.

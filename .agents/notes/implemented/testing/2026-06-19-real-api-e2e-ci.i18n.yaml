@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/testing/2026-06-19-real-api-e2e-ci.md
 /agent-note-real-api-e2e-in-ci-against-the-external-deepseek-api:
-  en: 705c6fd43858bdac
-  zh: 2bbc6491368fb4c0
+  en: 0841f6fa0d1c9139
+  zh: f2a05866d43e43bf
 /agent-note-real-api-e2e-in-ci-against-the-external-deepseek-api/problem:
   en: 80cf8dc578552364
   zh: a54441ea02664483
 /agent-note-real-api-e2e-in-ci-against-the-external-deepseek-api/decision:
-  en: 3fbdb8769322e05f
-  zh: f46f68f8eba74d67
+  en: dfe5dcc95448e7bc
+  zh: 47a89754622d649e
 /agent-note-real-api-e2e-in-ci-against-the-external-deepseek-api/decision/a-separate-workflow-not-a-job-in-ci-yml:
   en: e4745c43611b96bb
   zh: 8fb980401b0c5e9b

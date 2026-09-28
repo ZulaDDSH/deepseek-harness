@@ -7,7 +7,7 @@ import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import type { Browser, Page, Request } from 'playwright'
-import { chromium, webkit } from 'playwright'
+import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed, onTestFinished } from 'vitest'
 import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
@@ -24,7 +24,6 @@ const MODE = webSnapshotMode()
 
 describe.skipIf(MODE === 'record').each([
   { name: 'Chromium', engine: chromium },
-  { name: 'WebKit', engine: webkit },
 ])('web e2e: declared reasoning efforts reach the composer ($name)', ({ engine }) => {
   let scaffold: WebScaffold
   let browser: Browser

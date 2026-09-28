@@ -21,7 +21,7 @@ afterEach(async () => {
 })
 
 function SidebarFrame({ renderSlot }: PropsRenderSlots<'sidebar'>) {
-  return renderSlot('sidebar', { collapsed: false, width: 300 })
+  return renderSlot('sidebar', { collapsed: false, focusMode: false, toggleFocus: vi.fn(), width: 300 })
 }
 
 async function bench(declare = true) {

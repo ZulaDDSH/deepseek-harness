@@ -123,6 +123,82 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.headers[0]?.['user-agent']).toBe(userAgent())
   })
 
+  it('withholds the OpenCode session header from a lookalike host', async () => {
+    const lookalike = await mockServer([{ events: textEvents }])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        'opencode-go': {
+          apiKeyEnv: 'PI_TEST_KEY',
+          baseURL: lookalike.url.replace(/^http:\/\/(127\.0\.0\.1|localhost)/, 'http://opencode.ai.evil.test'),
+        },
+      },
+    })
+
+    await assemble(ctx, {
+      provider: 'opencode-go',
+      model: 'deepseek-v4.1-flash',
+      messages: [],
+      sessionId: 'session-leak' as never,
+    })
+
+    expect(lookalike.headers[0]?.['x-opencode-session']).toBeUndefined()
+  })
+
+  it('keeps an explicitly configured OpenCode session header whatever its case', async () => {
+    const opencode = await mockServer([{ events: textEvents }])
+    const ctx = await harness(opencode.url, {
+      headers: { 'X-OpenCode-Session': 'configured-session' },
+    })
+
+    await assemble(ctx, { model: 'deepseek-v4-flash', messages: [], sessionId: 'stream-session' as never })
+
+    const sent = (opencode.rawHeaderNames[0] ?? [])
+      .filter(name => name.toLowerCase() === 'x-opencode-session')
+    expect(sent).toEqual(['X-OpenCode-Session'])
+    expect(opencode.headers[0]?.['x-opencode-session']).toBe('configured-session')
+  })
+
+  it('sends the OpenCode session header only on OpenCode routes', async () => {
+    const deepseek = await mockServer([{ events: textEvents }])
+    const opencode = await mockServer([{ events: textEvents }])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        deepseek: { apiKeyEnv: 'PI_TEST_KEY', baseURL: deepseek.url },
+        'opencode-go': { apiKeyEnv: 'PI_TEST_KEY', baseURL: opencode.url },
+      },
+    })
+
+    await assemble(ctx, { model: 'deepseek-v4-flash', messages: [], sessionId: 'session-plain' as never })
+    expect(deepseek.headers[0]?.['x-opencode-session']).toBeUndefined()
+
+    await assemble(ctx, {
+      provider: 'opencode-go',
+      model: 'deepseek-v4.1-flash',
+      messages: [],
+      sessionId: 'session-go' as never,
+    })
+    expect(opencode.headers[0]?.['x-opencode-session']).toBe('session-go')
+  })
+
+  it('treats an unparseable custom baseURL as not an OpenCode route', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: { deepseek: { apiKeyEnv: 'PI_TEST_KEY', baseURL: 'not-a-valid-url' } },
+    })
+
+    const result = await assemble(ctx, {
+      model: 'deepseek-v4-flash',
+      messages: [],
+      sessionId: 'session-unparseable' as never,
+    })
+    expect(result.finish).toEqual({ kind: 'error', failure: { code: 'PI_AI_ERROR', message: 'Invalid URL' } })
+  })
+
   it('forwards common stream options and profile reasoning', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url, {
@@ -1032,6 +1108,30 @@ describe('abort wiring', () => {
     }
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(server.requests).toHaveLength(1)
+  })
+})
+
+describe('declared model modes', () => {
+  it('sends a mode tier while preserving the base model request', async () => {
+    const rejected = { status: 401, body: JSON.stringify({ error: { message: 'expected mock failure' } }) }
+    const server = await mockServer([rejected, rejected])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    ctx.llm.registerAdapter(['acme-gateway'], adapterOf({
+      'acme-gateway': {
+        api: 'openai-responses',
+        baseURL: server.url,
+        models: [{ id: 'acme-large', modes: { fast: { serviceTier: 'priority' } } }],
+      },
+    }))
+
+    await assemble(ctx, { provider: 'acme-gateway', model: 'acme-large-fast', messages: [] })
+    await assemble(ctx, { provider: 'acme-gateway', model: 'acme-large', messages: [] })
+
+    expect(server.requests).toHaveLength(2)
+    expect(server.requests[0]).toMatchObject({ model: 'acme-large', service_tier: 'priority' })
+    expect(server.requests[1]).toMatchObject({ model: 'acme-large' })
+    expect(server.requests[1]).not.toHaveProperty('service_tier')
   })
 })
 

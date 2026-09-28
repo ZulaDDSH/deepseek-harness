@@ -195,7 +195,7 @@ describe('session.history projections block', () => {
     expect(snapshot.header).not.toHaveProperty('seedLength')
   })
 
-  it('tracks pending and used model selections across repeated request headers', async () => {
+  it('keeps the selected model durable while request headers record what ran', async () => {
     const { ctx, session } = await harness(true)
     remote(ctx)
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -209,6 +209,8 @@ describe('session.history projections block', () => {
       header: { config: { provider: 'p', model: 'used' } }, reason: 'initial',
     })
 
+    // The pick survives a request that ran a different model: `next` is the
+    // user's choice, `lastUsed` is what actually ran.
     expect(ctx.sessionProjections.snapshot(session).values.modelSelection).toEqual({
       lastUsed: { provider: 'p', model: 'used' },
       next: selected,
@@ -219,6 +221,15 @@ describe('session.history projections block', () => {
     })
     expect(ctx.sessionProjections.snapshot(session).values.modelSelection).toEqual({
       lastUsed: selected,
+      next: selected,
+    })
+
+    // A later divergent request still leaves the choice in force.
+    session.append('request/header', {
+      header: { config: { provider: 'router', model: 'routed' } }, reason: 'initial',
+    })
+    expect(ctx.sessionProjections.snapshot(session).values.modelSelection).toEqual({
+      lastUsed: { provider: 'router', model: 'routed' },
       next: selected,
     })
   })

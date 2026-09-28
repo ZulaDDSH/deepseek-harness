@@ -624,6 +624,15 @@ describe('deriveSearchResults archive filtering', () => {
 })
 
 describe('deriveSearchResults', () => {
+  it('carries unread runtime failure into matching search rows', () => {
+    const result = deriveSearchResults(
+      list(summary('failed', 1)), [], 'failed', noArchive, 'default',
+      new Map([[sid('failed'), { running: false, pendingInteraction: undefined, completionUnread: false, failureUnread: true }]]),
+      { items: [], hasMore: false }, 10,
+    )
+    expect(result.items[0]?.failed).toBe(true)
+  })
+
   it('merges local title/Workspace matches before ranked content hits and enriches duplicates', () => {
     const titleHit = summary('title-hit', 30, '/projects/a')
     titleHit.title = titleHit.displayTitle = 'Needle title'

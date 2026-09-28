@@ -239,6 +239,9 @@ describe('plugin activation', () => {
         id: 'renderer',
         factory: () => ({
           apply: (ctx: Context) => {
+            // mountClient waits on both services, so the fixture supplies the
+            // session face alongside the renderer.
+            ctx.reflect.provide('uiSession', {})
             ctx.reflect.provide('uiRenderer', {
               mount: (element: HTMLElement) => {
                 events.push('mount')

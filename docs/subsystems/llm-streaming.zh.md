@@ -925,6 +925,28 @@ async prepare(request: DeepSeekLlmApiExtensionRequest): Promise<PreparedDeepSeek
 
 Source: [`packages/llm/deepseek-llm-api-extensions/src/index.ts`](../../packages/llm/deepseek-llm-api-extensions/src/index.ts)
 
+<a id="ctxjevrouter--jevrouter"></a>
+
+### `ctx.jevRouter` — `JevRouter`
+
+Grep relevance ranking backed by the Jev client. Every failure path returns the input matches unchanged, so a consumer never loses grep output to Jev.
+
+```ts cordis-catalog
+/**
+ * Keep the grep matches Jev ranks most relevant to the Agent's current task.
+ * Returns `input.matches` unchanged when routing is disabled, the signal is
+ * aborted, fewer than {@link GREP_RELEVANCE_MIN_MATCHES} matches arrive, the
+ * Agent has no recorded state, or scoring fails.
+ * @param input - requesting Agent, grep pattern, candidate matches, and abort signal.
+ * @returns at most {@link GREP_RELEVANCE_KEEP_MATCHES} matches in input order, or the input matches.
+ */
+async filterGrepMatches(input: { agent: Agent pattern: string matches: readonly JevGrepMatch[] signal: AbortSignal }): Promise<readonly JevGrepMatch[]>
+```
+
+Types: [Agent](core.zh.md)
+
+Source: [`packages/llm/llm-jev-router/src/index.ts`](../../packages/llm/llm-jev-router/src/index.ts)
+
 <a id="ctxllm--llmruntime"></a>
 
 ### `ctx.llm` — `LlmRuntime`

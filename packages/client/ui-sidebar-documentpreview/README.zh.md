@@ -150,7 +150,7 @@ Office Remote 通过 Connection 的 multipart 二进制传输返回原生 `Uint8
 <details>
 <summary>维护者工作上下文——点击展开</summary>
 
-无。
+`TextPreview` 在分页文本加载后提供比较按钮。按钮捕获当前显示的文本；标签取消或更新的读取代次会在 `textFace` 中停用尚未完成的比较。
 
 </details>
 
