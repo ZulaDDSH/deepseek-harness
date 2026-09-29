@@ -27,7 +27,7 @@ const renderSlot: RowRenderSlots = () => null
 const rowState: SessionRowState = { pinnedSessionIds: [], archivedSessionIds: [], archivedFilter: 'default' }
 
 function summary(id: string, overrides: Partial<SessionSummary> = {}): SessionSummary {
-  return { id: sid(id), displayTitle: id, running: false, blank: false, updatedAt: 1, retainedBy: {}, ...overrides }
+  return { id: sid(id), title: id, displayTitle: id, running: false, blank: false, updatedAt: 1, retainedBy: {}, ...overrides }
 }
 
 function sessionList(...rows: SessionSummary[]): SessionListState {
