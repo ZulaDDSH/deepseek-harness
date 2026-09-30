@@ -279,6 +279,7 @@ export function removeLinkProjections(dir: string): void {
   for (const link of symlinksUnder(join(dir, 'node_modules'))) {
     if (pointsInto(link, ownedModules)) unlinkSync(link)
   }
+  for (const link of symlinksUnder(ownedModules)) unlinkSync(link)
   rmSync(owned, { recursive: true, force: true })
 }
 
