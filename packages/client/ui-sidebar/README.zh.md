@@ -7,6 +7,8 @@ kind: "package-reference"
 
 [English](README.md) | 中文
 
+桌面端产品事件使用可选的[产品埋点服务](../product-analytics/README.zh.md)，不包含普通 Web 交互。
+
 ## 概述
 
 侧边栏提供应用标识、新建 Session、Workspace 与 Session 导航、Settings，以及 56px 折叠轨道。专注模式复用现有侧栏切换按钮作为**退出专注模式**，且不会改写已保存的宽度偏好。空闲滚动条保持隐藏，不会移动列表行。新建 Session 会依次选择显式 Workspace、当前 Session 的 Workspace、最近活动的 Workspace，最后才回退到空白页面。部署方可替换品牌图标或名称，而无需替换导航外壳。

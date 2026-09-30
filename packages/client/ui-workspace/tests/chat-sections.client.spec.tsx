@@ -41,7 +41,7 @@ const sid = (id: string) => id as SessionId
 const wid = (id: string) => id as WorkspaceId
 
 const summary = (id: string, updatedAt: number, overrides: Partial<SessionSummary> = {}): SessionSummary => ({
-  id: sid(id), displayTitle: id, running: false, blank: false, updatedAt, ...overrides,
+  id: sid(id), title: id, displayTitle: id, running: false, blank: false, updatedAt, ...overrides,
   retainedBy: overrides.retainedBy ?? {},
 })
 const sessionState = (items: readonly SessionSummary[], main?: SessionId): SessionListState => {
