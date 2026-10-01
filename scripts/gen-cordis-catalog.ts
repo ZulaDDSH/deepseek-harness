@@ -62,6 +62,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   profileContext: 'boot.md',
   hmr: 'boot.md',
   knowledge: 'mcp.md',
+  memoryWorkspace: 'mcp.md',
   mcpResources: 'mcp.md',
   agentLoop: 'core.md',
   agentDefaultModel: 'core.md',
@@ -215,6 +216,7 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
  * {@link EVENT_WALK_EXEMPTIONS} names each one with its documentation owner.
  */
 export const EVENT_SCOPE_PAGE: Record<string, string> = {
+  mcp: 'mcp.md',
   'app-boot': 'boot.md',
   hmr: 'boot.md',
   'plugin-manager': 'boot.md',
@@ -868,6 +870,11 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   Profile: 'resolved profile layers are owned by packages/boot/app-boot/README.md',
   PatchOptions: 'Include patch entries are owned by vendor/include (vendored upstream)',
   McpResourceProvider: 'scoped resource provider is owned by packages/mcp/mcp-resources/README.md',
+  McpHumanOperations: 'Host-owned provider access is owned by packages/mcp/mcp-client/README.md',
+  MemorixTable: 'Memorix browser values are owned by packages/knowledge/knowledge-router/README.md',
+  MemorixPage: 'Memorix browser values are owned by packages/knowledge/knowledge-router/README.md',
+  MemoryGraph: 'Native graph viewer values are owned by packages/client/ui-memory-workspace/README.md',
+  MemoryImportResult: 'Document import outcomes are owned by packages/client/ui-memory-workspace/README.md',
   'z.ZodType': 'Zod response validation API is owned by https://zod.dev/packages/zod',
   Socket: 'Node.js byte stream API is owned by https://nodejs.org/api/net.html#class-netsocket',
   z: 'schemastery schema constructor is owned by vendor/schemastery (vendored upstream)',

@@ -1203,7 +1203,11 @@ function locationIdentity(location: ConversationLocation): string {
 export const chatViewDefinition: ConversationViewDefinition<ChatConversationViewNode, ChatSnapshot> = {
   target: 'chat',
   create: () => new ChatSnapshotBuilder(),
-  isActive: snapshot => snapshot.order.some(key => snapshot.nodes.get(key)?.kind !== 'command'),
+  isActive: snapshot => snapshot.order.some((key) => {
+    const node = snapshot.nodes.get(key)
+    return node !== undefined && (node.kind !== 'command'
+      || Boolean((node as ChatNode<'command'>).data.outcome?.text?.trim()))
+  }),
 }
 
 /**

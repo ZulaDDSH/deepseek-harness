@@ -26,8 +26,10 @@ import type { Context } from '@deepseek-ai/cordis'
 import { assertNever, type JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { ServerContext } from './server-context.ts'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import { createTransport } from './transport.ts'
-import { syncTools } from './tools.ts'
+import { buildChildEnv, createTransport } from './transport.ts'
+import { publicToolName, syncTools } from './tools.ts'
+import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
+import { registerHumanOperations } from './human-operations.ts'
 import type { ToolBridgeOptions, ToolDisposers } from './tools.ts'
 import { resolveToolFilter } from './tool-filter.ts'
 import type { Config } from './index.ts'
@@ -132,6 +134,7 @@ export interface ConnectionHandle extends ServerContext {
  * @returns Handle with a `ready` promise for startup-await and a `dispose` for teardown.
  */
 export function startConnection(ctx: Context, config: Config, policy: ResolvedReconnectPolicy): ConnectionHandle {
+  const environment = config.transport === 'stdio' ? buildChildEnv(config.env) : {}
   const label = `mcp-client(${config.serverName})`
   const incompleteDisposalMessage = `${label}: transport closure could not be confirmed during disposal — server shutdown may be incomplete`
   const toolFilter = resolveToolFilter(
@@ -322,7 +325,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     }
     let instructions: string
     try {
-      transport = createTransport(config)
+      transport = createTransport(config, environment)
       await generation.connect(transport)
       if (hasClosed()) {
         attemptSettled = true
@@ -378,6 +381,22 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     if (client !== undefined) return {}
     /* v8 ignore next -- defensive: firstAttemptError is always set when connect/sync fails */
     return { error: firstAttemptError ?? new Error(`${label}: initial connection failed`) }
+  })
+
+  registerHumanOperations(ctx, config.serverName, {
+    local: config.transport === 'stdio',
+    cwd: config.transport === 'stdio' ? config.cwd : '',
+    env: environment,
+    async call(rawName, args, signal): Promise<unknown> {
+      const generation = client
+      if (!generation || connectedAt === undefined) throw new Error(`${label}: server is disconnected`)
+      const publicName = publicToolName(config.serverName, rawName)
+      const definition = ctx.tools.get(publicName)
+      if (!disposers.has(publicName) || definition === undefined) throw new Error(`${label}: tool is unavailable`)
+      const errors = validateJsonSchemaValue(definition.parameters, args)
+      if (errors.length > 0) throw new Error(`${label}: invalid tool arguments: ${errors.join('; ')}`)
+      return generation.callTool({ name: rawName, arguments: args }, { signal, timeout: config.toolCallTimeoutMs })
+    },
   })
 
   return {

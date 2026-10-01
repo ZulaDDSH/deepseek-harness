@@ -41,3 +41,13 @@
 `packages/client/ui-provider-quota/src/client/ProviderQuotaAction.tsx:sessionTokenLabel` 格式化必需的模型用量，由调用方处理缺失的会话用量。`.github/workflows/ci.yml:refresh-web-snapshots` 在 Linux 上运行选定的 Web 会话测试，并上传当前写入器的输出供审核。
 
 `apps/web/tests/preview-boot.e2e.ts:respond` 先用 POSIX 分隔符规范化 URL 路径，再匹配生成的资源键；文件系统路径仍使用平台原生的连接方式。
+
+## Memory workspace
+
+`packages/knowledge/knowledge-router/src/memorix-types.ts` 包含平台无关的浏览器值；生成的 Client RPC 声明导入此叶模块，不加载 Host Agent 服务。
+
+`packages/client/ui-memory-workspace/src/index.ts:MemoryWorkspace` 浏览已连接的 Memorix 存储，并通过当前提供方导入保留的文档。`packages/knowledge/knowledge-router/src/memorix-store.ts:memorixStoredChunk` 校验确认的观察记录与项目、主题和完整叙述。`packages/client/ui-memory-workspace/src/document-text.ts:documentText` 使用现有 PDF 与 Office 提供方提取文本；原始文件不会自动进入模型请求。`packages/mcp/mcp-client/src/human-operations.ts:registerHumanOperations` 提供随作用域释放的 Host 访问，只能调用已发现且通过过滤的工具，不使用 Agent 工具执行令牌。
+
+`packages/client/ui-memory-workspace/src/index.ts:MemoryWorkspace.loadGraph` 调用已安装的 Graphify HTML 导出器；`src/client/MemoryPage.tsx:MemoryPage` 嵌入未修改的查看器，允许脚本而禁止同源访问。`packages/knowledge/knowledge-router/src/graphify-command.ts:registerGraphifyCommand` 从聊天工作目录调用同一配置的提供方。`scripts/graphify-native.py:run` 在同一 Python 进程调用 Graphify 的结构标签函数和官方 CLI，不实现图谱布局或聚类算法。
+
+`packages/client/ui-chat/src/client/conversation-nodes/chat-snapshot-builder.ts:chatViewDefinition.isActive` 将非空斜杠命令结果文本计入可见会话活动，没有文本的命令保留起始布局。

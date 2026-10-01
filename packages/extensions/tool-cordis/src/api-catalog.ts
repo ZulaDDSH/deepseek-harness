@@ -1569,6 +1569,37 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'memoryWorkspace',
+    summary: 'Authenticated GUI operations; provider calls remain Host-owned.',
+    description: 'Authenticated GUI operations; provider calls remain Host-owned.',
+    methods: [
+      {
+        signature: '@Remote async inventory(): Promise<MemorixTable[]>',
+        description: 'Read the complete local provider inventory without modifying it.',
+        parameters: [],
+        returns: 'every stored table and record count across projects and statuses.',
+      },
+      {
+        signature: '@Remote async page(table: string, offset: number, query: string): Promise<MemorixPage>',
+        description: 'Browse or search a provider table with bounded pagination.',
+        parameters: [{ name: 'table', description: 'table from inventory.' }, { name: 'offset', description: 'nonnegative row offset.' }, { name: 'query', description: 'literal substring matched against every column.' }],
+        returns: 'one complete page and total matching count.',
+      },
+      {
+        signature: '@Remote graph(): Promise<MemoryGraph>',
+        description: 'Load a complete provider-generated Graphify graph, bounded before decoding.',
+        parameters: [],
+        returns: 'the official Graphify viewer and its graph source path.',
+      },
+      {
+        signature: '@Remote importDocument(filename: string, data: string): Promise<MemoryImportResult>',
+        description: 'Retain an uploaded document and import all chunks through Memorix.',
+        parameters: [{ name: 'filename', description: 'source filename displayed with the memory.' }, { name: 'data', description: 'canonical base64 encoding of complete original bytes.' }],
+        returns: 'verified chunk counts, original path and an explicit partial-failure message.',
+      },
+    ],
+  },
+  {
     key: 'messageFeedback',
     summary: 'Session-log service; cold operations never construct a Session or Agent.',
     description: 'Session-log service; cold operations never construct a Session or Agent.',
@@ -4234,6 +4265,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'options', description: 'the full request. A LOOP-built request carries the process-local {@link markAgentLoopRequest} identity and arrives deep-frozen (mutation throws): its content is a pure function of the session log (the reconstructability Agent Note), so listeners read it, never rewrite it. Hand-built calls do not carry that marker; callers own their request inputs and must keep them unchanged until the stream settles.' }],
   },
   {
+    name: 'mcp/human-operations',
+    mode: 'waterfall',
+    signature: '\'mcp/human-operations\'(server: string, next: () => Promise<McpHumanOperations | undefined>): Promise<McpHumanOperations | undefined>',
+    summary: 'Resolve one global provider for a Host-owned human operation.',
+    description: 'Resolve one global provider for a Host-owned human operation.',
+    parameters: [{ name: 'server', description: 'configured server name.' }, { name: 'next', description: 'delegation to other configured providers.' }],
+  },
+  {
     name: 'permission-presets/catalog-changed',
     mode: 'emit',
     signature: '\'permission-presets/catalog-changed\'(): void',
@@ -5842,6 +5881,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface McpConnectorCatalog {\n    readonly connectorIds: readonly string[];\n}',
   },
   {
+    name: 'McpHumanOperations',
+    declaration: 'export interface McpHumanOperations {\n    readonly local: boolean;\n    readonly cwd: string;\n    readonly env: Readonly<Record<string, string>>;\n    call(name: string, args: Record<string, JsonValue>, signal: AbortSignal): Promise<unknown>;\n}',
+  },
+  {
     name: 'McpResourceProvider',
     declaration: 'export interface McpResourceProvider {\n    request(request: McpResourceRequest, exec: ToolExecution): Promise<JsonValue>;\n}',
   },
@@ -5852,6 +5895,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'McpSelection',
     declaration: 'export interface McpSelection {\n    readonly connectorIds: readonly string[];\n}',
+  },
+  {
+    name: 'MemorixCell',
+    declaration: 'export type MemorixCell = string | number | null | {\n    base64: string;\n};',
+  },
+  {
+    name: 'MemorixPage',
+    declaration: 'export interface MemorixPage {\n    table: string;\n    columns: string[];\n    rows: Record<string, MemorixCell>[];\n    total: number;\n    offset: number;\n    limit: number;\n}',
+  },
+  {
+    name: 'MemorixTable',
+    declaration: 'export interface MemorixTable {\n    name: string;\n    columns: string[];\n    count: number;\n}',
+  },
+  {
+    name: 'MemoryGraph',
+    declaration: 'export interface MemoryGraph {\n    html: string;\n    path: string;\n}',
+  },
+  {
+    name: 'MemoryImportResult',
+    declaration: 'export interface MemoryImportResult {\n    filename: string;\n    originalPath: string;\n    completed: number;\n    total: number;\n    error: string | null;\n}',
   },
   {
     name: 'Message',

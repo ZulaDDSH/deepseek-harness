@@ -41,3 +41,13 @@ Reference: `packages/api/settings-controller/src/request.ts:settingsRequest.pars
 `packages/client/ui-provider-quota/src/client/ProviderQuotaAction.tsx:sessionTokenLabel` formats required model usage and leaves absent session usage to the caller. `.github/workflows/ci.yml:refresh-web-snapshots` runs the selected web-session owners on Linux and uploads their current-writer outputs for review.
 
 `apps/web/tests/preview-boot.e2e.ts:respond` normalizes URL paths with POSIX separators before matching generated asset keys; filesystem joins remain platform-native.
+
+## Memory workspace
+
+`packages/knowledge/knowledge-router/src/memorix-types.ts` contains the platform-neutral browser values; generated Client RPC declarations import this leaf without loading Host Agent services.
+
+`packages/client/ui-memory-workspace/src/index.ts:MemoryWorkspace` browses the connected Memorix store and imports retained documents through the live provider. `packages/knowledge/knowledge-router/src/memorix-store.ts:memorixStoredChunk` verifies the acknowledged observation and project, topic and complete narrative. `packages/client/ui-memory-workspace/src/document-text.ts:documentText` extracts text with the existing PDF and Office providers; originals remain separate from model requests. `packages/mcp/mcp-client/src/human-operations.ts:registerHumanOperations` exposes effect-scoped Host access to discovered, filtered tools without an Agent tool-execution token.
+
+`packages/client/ui-memory-workspace/src/index.ts:MemoryWorkspace.loadGraph` invokes the installed Graphify HTML exporter; `src/client/MemoryPage.tsx:MemoryPage` embeds the unmodified viewer with scripts permitted and same-origin access denied. `packages/knowledge/knowledge-router/src/graphify-command.ts:registerGraphifyCommand` invokes the same configured provider from chat workspace paths. `scripts/graphify-native.py:run` calls Graphify’s structural label function and official CLI in one Python process; it owns no graph layout or clustering algorithm.
+
+`packages/client/ui-chat/src/client/conversation-nodes/chat-snapshot-builder.ts:chatViewDefinition.isActive` treats nonempty slash-command result text as visible conversation activity while leaving commands without text in the starter layout.

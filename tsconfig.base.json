@@ -28,6 +28,8 @@
     // not declaration path aliases, keep each package/vendor source compiled
     // under its own tsconfig boundary.
     "paths": {
+      "@deepseek-ai/dsh-knowledge-router/types": ["./packages/knowledge/knowledge-router/src/types.ts"],
+      "@deepseek-ai/dsh-knowledge-router/memorix-types": ["./packages/knowledge/knowledge-router/src/memorix-types.ts"],
       "@deepseek-ai/dsh-client-product-analytics": ["./packages/client/product-analytics/src/index.ts"],
       "@deepseek-ai/dsh-client-product-analytics/types": ["./packages/client/product-analytics/src/events.ts"],
       "@deepseek-ai/dsh-client-product-analytics/client": ["./packages/client/product-analytics/src/client/index.ts"],
@@ -306,6 +308,8 @@
       "@deepseek-ai/dsh-client-ui-provider-quota": ["./packages/client/ui-provider-quota/src"],
       "@deepseek-ai/dsh-client-ui-provider-quota/client": ["./packages/client/ui-provider-quota/src/client"],
       "@deepseek-ai/dsh-client-ui-plugin-manager": ["./packages/client/ui-plugin-manager/src"],
+      "@deepseek-ai/dsh-client-ui-memory-workspace": ["./packages/client/ui-memory-workspace/src"],
+      "@deepseek-ai/dsh-client-ui-memory-workspace/types": ["./packages/client/ui-memory-workspace/src/types.ts"],
       "@deepseek-ai/dsh-client-ui-settings-plugin-inventory": ["./packages/client/ui-settings-plugin-inventory/src"],
       "@deepseek-ai/dsh-client-locale": ["./packages/client/locale/src"],
       "@deepseek-ai/dsh-client-web/injections": ["./packages/client/web/src/apply-injections.ts"],

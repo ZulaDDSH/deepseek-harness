@@ -11,7 +11,9 @@
     "src/types.ts"
   ],
   "references": [
-    { "path": "../../client/product-analytics/tsconfig.client.json" },
+    {
+      "path": "../../client/product-analytics/tsconfig.client.json"
+    },
     {
       "path": "../../../vendor/cordis"
     },
@@ -110,6 +112,9 @@
     },
     {
       "path": "../../credentials/deepseek-account"
+    },
+    {
+      "path": "../../client/ui-memory-workspace/tsconfig.host.json"
     }
   ]
 }

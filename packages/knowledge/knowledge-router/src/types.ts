@@ -93,3 +93,5 @@ export interface RetrieveOptions {
   /** Cancellation for every provider query this retrieval dispatches. */
   readonly signal: AbortSignal
 }
+
+export type { MemorixCell, MemorixPage, MemorixTable } from './memorix-types.ts'

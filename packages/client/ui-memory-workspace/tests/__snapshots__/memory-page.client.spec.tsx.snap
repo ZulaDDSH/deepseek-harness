@@ -1,0 +1,9 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`renders provider records and embeds the official Graphify viewer in a script-only sandbox > memory browser 1`] = `
+"Memorix & GraphifyRefreshBrowse memoriesContext graphLocal store: all projects, statuses and visibility scopes. These records are shown to you, not automatically sent to a model.observations (1)Saved guideproject-aRecord details{
+  "title": "Saved guide",
+  "projectId": "project-a",
+  "narrative": "Complete guide text"
+}PreviousTotal: 1NextUpload documentsExtracted text is stored as Memorix memories. The original file is retained locally. Partial imports can be retried.Documents: TXT, Markdown, CSV, JSON, logs, PDF and Office"
+`;

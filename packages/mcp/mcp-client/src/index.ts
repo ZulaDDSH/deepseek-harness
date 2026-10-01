@@ -29,6 +29,7 @@ export { createMcpToolDefinition } from './tools.ts'
 export type { McpResult, McpToolDefinitionOptions } from './tools.ts'
 export type { ReconnectConfig, ResolvedReconnectPolicy } from './connection.ts'
 export type { ToolFilterConfig, ResolvedToolFilter } from './tool-filter.ts'
+export type { McpHumanOperations } from './human-operations.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'mcp-client'

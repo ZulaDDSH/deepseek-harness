@@ -608,6 +608,42 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-shortcuts -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-memory-workspace -->
+<a id="deepseek-aidsh-client-ui-memory-workspace"></a>
+
+## `@deepseek-ai/dsh-client-ui-memory-workspace`
+
+- `source`: [`packages/client/ui-memory-workspace/src/index.ts:22`](../packages/client/ui-memory-workspace/src/index.ts)
+
+```ts config-catalog
+/** Local storage selections and upload limits. */
+export interface Config {
+  /** Connected MCP server name. */
+  memorixServer: string
+  /** Explicit database override; empty derives it from the provider. */
+  databasePath: string
+  /** Graphify export path; empty uses the provider project default. */
+  graphPath: string
+  /** Graphify executable or a launcher such as uv. */
+  graphifyCommand: string
+  /** Launcher arguments preceding Graphify's own arguments. */
+  graphifyArgs: string[]
+  /** Directory retaining original uploaded files. */
+  importDirectory: string
+  /** Maximum records returned by one browse request. */
+  pageSize: number
+  /** Maximum original upload size. */
+  maxDocumentBytes: number
+  /** Maximum complete extracted text length. */
+  maxDocumentCharacters: number
+  /** Maximum Unicode code points stored in one observation. */
+  chunkCharacters: number
+  /** Maximum complete Graphify export size. */
+  maxGraphBytes: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-ui-memory-workspace -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-plugin-manager -->
 <a id="deepseek-aidsh-client-ui-plugin-manager"></a>
 
@@ -1667,7 +1703,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-knowledge-router`
 
 - `inject`: `tools`
-- `source`: [`packages/knowledge/knowledge-router/src/index.ts:103`](../packages/knowledge/knowledge-router/src/index.ts)
+- `source`: [`packages/knowledge/knowledge-router/src/index.ts:107`](../packages/knowledge/knowledge-router/src/index.ts)
 
 ```ts config-catalog
 /** Plugin configuration. */
@@ -1699,6 +1735,8 @@ export interface GitnexusConfig extends ProviderConfig {
 
 /** Graphify enablement plus its retrieval bounds. */
 export interface GraphifyConfig extends ProviderConfig {
+  /** Installed CLI launcher; omitted leaves the chat command unregistered. */
+  cli?: GraphifyCommandConfig
   /** Graph traversal depth the provider searches; defaults to 1. */
   depth?: number
   /** Token budget the provider applies to its own output; defaults to 1500. */
@@ -1729,6 +1767,14 @@ export interface ProviderConfig {
   enabled?: boolean
   /** MCP client `serverName`; defaults to the provider's own name. */
   serverName?: string
+}
+
+/** Executable and optional launcher arguments for Graphify. */
+export interface GraphifyCommandConfig {
+  /** Executable path or PATH name. */
+  command: string
+  /** Arguments preceding the Graphify subcommand. */
+  args: string[]
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-knowledge-router -->
@@ -2244,7 +2290,7 @@ export interface LspLocalServerConfig {
 ## `@deepseek-ai/dsh-mcp-client`
 
 - `inject`: `tools`
-- `source`: [`packages/mcp/mcp-client/src/index.ts:121`](../packages/mcp/mcp-client/src/index.ts)
+- `source`: [`packages/mcp/mcp-client/src/index.ts:122`](../packages/mcp/mcp-client/src/index.ts)
 
 ```ts config-catalog
 /** Configuration for one stdio or Streamable HTTP MCP server. */

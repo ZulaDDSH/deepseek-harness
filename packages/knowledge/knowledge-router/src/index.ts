@@ -9,6 +9,7 @@ import type { ScopeKey } from '@deepseek-ai/dsh-scope'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { assertSupervisor } from './authority.ts'
 import { registerKnowledgeCommand } from './command.ts'
+import { registerGraphifyCommand, type GraphifyCommandConfig } from './graphify-command.ts'
 import { gitnexusFreshness, parseStaleness } from './gitnexus.ts'
 import {
   explainLesson,
@@ -40,6 +41,7 @@ export { assertSupervisor, isWorker } from './authority.ts'
 export { PROVIDER_NAMES, PROVIDER_SPECS, providerStatuses, registeredToolName, serverToolNames } from './provider.ts'
 export { assemblePacket, byteLength, extractLessonSignals, freshnessFor, renderPacket } from './packet.ts'
 export { routeTask } from './routing.ts'
+export { memorixInventory, memorixPage, memorixStoredChunk } from './memorix-store.ts'
 export { assertWritable, explainLesson, firstNodeLabel, parseLessonState, recordLearning } from './graphify-learn.ts'
 export { gitnexusFreshness, parseStaleness } from './gitnexus.ts'
 export type { GitnexusStaleness } from './gitnexus.ts'
@@ -75,6 +77,8 @@ export interface GitnexusConfig extends ProviderConfig {
 
 /** Graphify enablement plus its retrieval bounds. */
 export interface GraphifyConfig extends ProviderConfig {
+  /** Installed CLI launcher; omitted leaves the chat command unregistered. */
+  cli?: GraphifyCommandConfig
   /** Graph traversal depth the provider searches; defaults to 1. */
   depth?: number
   /** Token budget the provider applies to its own output; defaults to 1500. */
@@ -206,6 +210,7 @@ export class KnowledgeRouter extends Service {
     graphify: z.object({
       enabled: z.boolean().default(false),
       serverName: z.string(),
+      cli: z.object({ command: z.string().min(1), args: z.array(z.string()).default([]) }),
       depth: z.number().step(1).min(1).max(6).default(1),
       tokenBudget: z.number().step(1).min(1).default(1500),
     }),
@@ -232,6 +237,10 @@ export class KnowledgeRouter extends Service {
     super(ctx, 'knowledge')
     this.config = resolveConfig(config)
     ctx.inject(['commands'], (inner) => { registerKnowledgeCommand(inner, this) })
+    const graphifyCli = config.graphify?.cli
+    if (graphifyCli !== undefined) {
+      ctx.inject(['commands'], (inner) => { registerGraphifyCommand(inner, graphifyCli) })
+    }
     if (this.config.mode === 'off') return
     registerKnowledgeTool(ctx, this)
     if (this.config.learning !== undefined) registerKnowledgeLearnTool(ctx, this)

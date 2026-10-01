@@ -7,6 +7,8 @@ A service can be a core spine service, a swappable capability seam, a bundle/com
 
 ```mermaid
 flowchart LR
+  pkg_client_ui_memory_workspace["client-ui-memory-workspace"]
+  svc_memoryWorkspace["ctx.memoryWorkspace<br/>Local memory workspace"]
   pkg_knowledge_router["knowledge-router"]
   svc_knowledge["ctx.knowledge<br/>Knowledge retrieval and explicit learning"]
   pkg_hmr["hmr"]
@@ -313,6 +315,7 @@ flowchart LR
   pkg_client_file_upload --> svc_fileUploads
   pkg_client_modules --> svc_clientModules
   pkg_client_product_analytics --> svc_productAnalytics
+  pkg_client_ui_memory_workspace --> svc_memoryWorkspace
   pkg_client_ui_plugin_manager --> svc_pluginRegistryProbe
   pkg_command_feedback --> svc_sessionFeedback
   pkg_commands --> svc_commands
@@ -494,6 +497,7 @@ flowchart LR
   svc_llm --> pkg_compaction_basic
   svc_lsp --> pkg_tool_lsp
   svc_mcpResources --> pkg_mcp_resources
+  svc_memoryWorkspace --> pkg_client_ui_memory_workspace
   svc_officeToPdf --> pkg_client_ui_sidebar_documentpreview
   svc_otel --> pkg_host_product_telemetry_otel
   svc_otel --> pkg_session_telemetry_otel
@@ -593,6 +597,7 @@ flowchart LR
 
 | ctx key | Role | Owner | Implementations | Direct consumers | Companion plugins | Note |
 | --- | --- | --- | --- | --- | --- | --- |
+| `ctx.memoryWorkspace` | `core` | [`client-ui-memory-workspace`](../packages/client/ui-memory-workspace) | - | [`client-ui-memory-workspace`](../packages/client/ui-memory-workspace) | - | Browses the connected Memorix store, imports documents through its MCP provider, and exports the native Graphify viewer. |
 | `ctx.knowledge` | `service` | [`knowledge-router`](../packages/knowledge/knowledge-router) | - | [`knowledge-router`](../packages/knowledge/knowledge-router) | - | Routes configured GitNexus and Graphify MCP tools; assisted delegation and learning writes require explicit enablement. |
 | `ctx.hmr` | `core` | [`hmr`](../packages/boot/hmr) | - | [`app-boot`](../packages/boot/app-boot) | - | Owns module and exact configuration watchers; application mutations share its queue and automatic reloads await the application file lock. |
 | `ctx.pluginRegistryProbe` | `core` | [`client-ui-plugin-manager`](../packages/client/ui-plugin-manager) | - | [`client-ui-plugin-manager`](../packages/client/ui-plugin-manager) | - | Races public registry responses on the Host; the Client owns the initial registry recommendation. |

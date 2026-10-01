@@ -108,6 +108,11 @@ const GROUP_ORDER = [
 
 const SERVICE_ROLES: ServiceRole[] = [
   {
+    key: 'memoryWorkspace', pkg: 'client-ui-memory-workspace', title: 'Local memory workspace',
+    mode: 'core', consumers: ['client-ui-memory-workspace'],
+    note: 'Browses the connected Memorix store, imports documents through its MCP provider, and exports the native Graphify viewer.',
+  },
+  {
     key: 'knowledge',
     pkg: 'knowledge-router',
     title: 'Knowledge retrieval and explicit learning',

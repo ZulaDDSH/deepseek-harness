@@ -25,6 +25,8 @@ Retrieve bounded knowledge from configured GitNexus and Graphify MCP servers. Ma
 <a id="use-this-package"></a>
 ## Use this package
 
+`graphify.cli` registers the human `/graphify` command independently of MCP retrieval. Set its `command` executable and `args` launcher prefix. The command uses the caller’s recorded workspace and accepts `update`, `query "question"`, `explain "node"`, `path "source" "target"`, and `export html`; single-quoted literals and JSON double-quoted strings are supported, without shell expansion. Update runs the installed Graphify extraction, clustering without model labels, and official HTML exporter. `scripts/graphify-native.py` supplies absent labels through Graphify’s own structural label function. Configure the Memory panel with the same executable and prefix.
+
 Mount the router after the configured MCP clients.
 
 ### When to choose it
@@ -64,6 +66,9 @@ Nested provider calls retain their enclosing execution. Assisted workers obey th
 | [src/index.ts](src/index.ts) | Configuration, retrieval, and delegation. |
 | [src/packet.ts](src/packet.ts) | Rendering and byte limits. |
 | [src/graphify-learn.ts](src/graphify-learn.ts) | Learning and freshness commands. |
+
+
+`memorixInventory` and `memorixPage` open the configured Memorix 1.3.0 SQLite database read-only. They enumerate every table across projects, visibility scopes and statuses, search literal text, and paginate records in row order. They reject unsupported migration inventories and never initialize, migrate or modify provider storage. These are local human browsing APIs, not model retrieval tools.
 
 No runtime invariant companion is published: packets derive from registry and provider results without independently maintained state.
 

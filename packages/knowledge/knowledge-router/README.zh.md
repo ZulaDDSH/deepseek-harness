@@ -25,6 +25,8 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## Use this package
 
+`graphify.cli` 独立于 MCP 检索注册用户 `/graphify` 命令。配置 `command` 可执行文件与 `args` 参数前缀。命令使用调用聊天记录的工作目录，支持 `update`、`query "question"`、`explain "node"`、`path "source" "target"` 与 `export html`；支持单引号字面量和 JSON 双引号字符串，不执行 shell 展开。更新调用已安装 Graphify 的提取、不使用模型标签的聚类与官方 HTML 导出器。`scripts/graphify-native.py` 使用 Graphify 自己的结构标签函数补充缺失的标签。Memory 面板应配置同一可执行文件与前缀。
+
 在已配置的 MCP 客户端之后挂载路由器。
 
 ### When to choose it
@@ -64,6 +66,9 @@ kind: "package-reference"
 | [src/index.ts](src/index.ts) | 配置、检索和委派。 |
 | [src/packet.ts](src/packet.ts) | 渲染和字节限制。 |
 | [src/graphify-learn.ts](src/graphify-learn.ts) | 学习和新鲜度命令。 |
+
+
+`memorixInventory` 和 `memorixPage` 以只读方式打开已配置的 Memorix 1.3.0 SQLite 数据库，跨项目、可见范围和状态列出所有表，进行字面文本搜索，并按行顺序分页读取记录。它们拒绝不支持的迁移清单，绝不初始化、迁移或修改提供方存储。这些 API 用于本地用户浏览，不是模型检索工具。
 
 不发布运行时不变量配套入口：检索包来自注册表和提供方结果，没有独立维护的状态。
 

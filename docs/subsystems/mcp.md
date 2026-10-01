@@ -192,4 +192,65 @@ register(server: string, provider: McpResourceProvider): () => void
 ```
 
 Source: [`packages/mcp/mcp-resources/src/index.ts`](../../packages/mcp/mcp-resources/src/index.ts)
+
+<a id="ctxmemoryworkspace--memoryworkspace"></a>
+
+### `ctx.memoryWorkspace` — `MemoryWorkspace`
+
+Authenticated GUI operations; provider calls remain Host-owned.
+
+```ts cordis-catalog
+/**
+ * Read the complete local provider inventory without modifying it.
+ * @returns every stored table and record count across projects and statuses.
+ */
+@Remote async inventory(): Promise<MemorixTable[]>
+
+/**
+ * Browse or search a provider table with bounded pagination.
+ * @param table - table from inventory.
+ * @param offset - nonnegative row offset.
+ * @param query - literal substring matched against every column.
+ * @returns one complete page and total matching count.
+ */
+@Remote async page(table: string, offset: number, query: string): Promise<MemorixPage>
+
+/**
+ * Load a complete provider-generated Graphify graph, bounded before decoding.
+ * @returns the official Graphify viewer and its graph source path.
+ */
+@Remote graph(): Promise<MemoryGraph>
+
+/**
+ * Retain an uploaded document and import all chunks through Memorix.
+ * @param filename - source filename displayed with the memory.
+ * @param data - canonical base64 encoding of complete original bytes.
+ * @returns verified chunk counts, original path and an explicit partial-failure message.
+ */
+@Remote importDocument(filename: string, data: string): Promise<MemoryImportResult>
+```
+
+Source: [`packages/client/ui-memory-workspace/src/index.ts`](../../packages/client/ui-memory-workspace/src/index.ts)
+
+<a id="mcp-events"></a>
+
+### `mcp/*` events
+
+<a id="mcphuman-operations--waterfall"></a>
+
+#### `mcp/human-operations` — waterfall
+
+Resolve one global provider for a Host-owned human operation.
+
+```ts cordis-catalog
+/**
+ * Resolve one global provider for a Host-owned human operation.
+ * @mode waterfall
+ * @param server - configured server name.
+ * @param next - delegation to other configured providers.
+ */
+'mcp/human-operations'(server: string, next: () => Promise<McpHumanOperations | undefined>): Promise<McpHumanOperations | undefined>
+```
+
+Source: [`packages/mcp/mcp-client/src/human-operations.ts`](../../packages/mcp/mcp-client/src/human-operations.ts)
 <!-- END GENERATED cordis-surface -->

@@ -104,6 +104,8 @@ kind: "package-reference"
 <a id="understand-the-implementation"></a>
 ## 理解实现
 
+根作用域服务器还会为经过身份验证的 GUI 服务发布 Host 所有的人工操作。调用使用当前连接、已发现工具的过滤、JSON schema 校验、配置的截止时间与调用方取消信号。Agent 作用域服务器不包含在内。此能力不增加通用浏览器工具调用端点，也不改变模型执行策略。
+
 <details>
 <summary>实现细节——点击展开</summary>
 

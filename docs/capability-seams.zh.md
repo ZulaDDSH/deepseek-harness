@@ -9,6 +9,8 @@
 
 ```mermaid
 flowchart LR
+  pkg_client_ui_memory_workspace["client-ui-memory-workspace"]
+  svc_memoryWorkspace["ctx.memoryWorkspace<br/>Local memory workspace"]
   pkg_knowledge_router["knowledge-router"]
   svc_knowledge["ctx.knowledge<br/>Knowledge retrieval and explicit learning"]
   pkg_hmr["hmr"]
@@ -315,6 +317,7 @@ flowchart LR
   pkg_client_file_upload --> svc_fileUploads
   pkg_client_modules --> svc_clientModules
   pkg_client_product_analytics --> svc_productAnalytics
+  pkg_client_ui_memory_workspace --> svc_memoryWorkspace
   pkg_client_ui_plugin_manager --> svc_pluginRegistryProbe
   pkg_command_feedback --> svc_sessionFeedback
   pkg_commands --> svc_commands
@@ -496,6 +499,7 @@ flowchart LR
   svc_llm --> pkg_compaction_basic
   svc_lsp --> pkg_tool_lsp
   svc_mcpResources --> pkg_mcp_resources
+  svc_memoryWorkspace --> pkg_client_ui_memory_workspace
   svc_officeToPdf --> pkg_client_ui_sidebar_documentpreview
   svc_otel --> pkg_host_product_telemetry_otel
   svc_otel --> pkg_session_telemetry_otel
@@ -595,6 +599,7 @@ flowchart LR
 
 | ctx 键 | 角色 | 所属包 | 实现 | 直接消费方 | 配套插件 | 说明 |
 | --- | --- | --- | --- | --- | --- | --- |
+| `ctx.memoryWorkspace` | `core` | [`client-ui-memory-workspace`](../packages/client/ui-memory-workspace) | - | [`client-ui-memory-workspace`](../packages/client/ui-memory-workspace) | - | 浏览已连接的 Memorix 存储，通过其 MCP 提供者导入文档，并导出原生 Graphify 查看器。 |
 | `ctx.knowledge` | `service` | [`knowledge-router`](../packages/knowledge/knowledge-router) | - | [`knowledge-router`](../packages/knowledge/knowledge-router) | - | 路由已配置的 GitNexus 和 Graphify MCP 工具；辅助委派和学习写入需要显式启用。 |
 | `ctx.hmr` | `core` | [`hmr`](../packages/boot/hmr) | - | [`app-boot`](../packages/boot/app-boot) | - | 负责模块和精确配置监听；应用修改共用其队列，自动重载等待应用文件锁。 |
 | `ctx.pluginRegistryProbe` | `core` | [`client-ui-plugin-manager`](../packages/client/ui-plugin-manager) | - | [`client-ui-plugin-manager`](../packages/client/ui-plugin-manager) | - | 在 Host 上并发比较公共安装源响应；初始安装源推荐由 Client 负责。 |
