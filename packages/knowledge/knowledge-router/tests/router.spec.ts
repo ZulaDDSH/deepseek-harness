@@ -73,12 +73,23 @@ describe('provider isolation', () => {
     expect(context.knowledge.route('What calls Session::close?')).toEqual(['gitnexus'])
   })
 
-  it('rejects a provider identity outside the closed provider set', async () => {
-    context = await mount({ mode: 'manual' })
-    const queryArguments = (context.knowledge as unknown as {
-      queryArguments(provider: string, task: string): Record<string, string | number>
-    }).queryArguments.bind(context.knowledge)
-    expect(() => queryArguments('unknown', 'task')).toThrow(/knowledge provider/)
+  it('sends each configured provider its bounded query arguments', async () => {
+    context = await mount({
+      mode: 'manual',
+      gitnexus: { enabled: true, limit: 2, maxSymbols: 4 },
+      graphify: { enabled: true, depth: 3, tokenBudget: 500 },
+    })
+    let gitnexusArgs: unknown
+    let graphifyArgs: unknown
+    const gitnexus = stubTool('mcp__gitnexus__query', 'CODE')
+    gitnexus.execute = async (args) => { gitnexusArgs = args; return 'CODE' }
+    const graphify = stubTool('mcp__graphify__query_graph', 'LESSON')
+    graphify.execute = async (args) => { graphifyArgs = args; return 'LESSON' }
+    context.tools.register(gitnexus)
+    context.tools.register(graphify)
+    await context.knowledge.retrieve('task', { providers: ['gitnexus', 'graphify'], signal: signal() })
+    expect(gitnexusArgs).toMatchObject({ search_query: 'task', limit: 2, max_symbols: 4 })
+    expect(graphifyArgs).toMatchObject({ question: 'task', depth: 3, token_budget: 500 })
   })
 
   it('does not query a disabled provider whose MCP tool is registered', async () => {
@@ -99,6 +110,21 @@ describe('provider isolation', () => {
     const callId = ToolCallId('knowledge-query-root')
     await context.tools.execute({ callId, name: 'knowledge_query', arguments: { task: 'What calls close?' }, signal: signal() })
     expect(root).toBe(callId)
+  })
+
+  it('uses a fresh tool call identity for every repeated provider query', async () => {
+    context = await mount({ mode: 'manual', gitnexus: { enabled: true } })
+    const callIds: string[] = []
+    const tool = stubTool('mcp__gitnexus__query', 'CODE')
+    tool.execute = async (_args, execution) => {
+      callIds.push(String(execution.callId))
+      return 'CODE'
+    }
+    context.tools.register(tool)
+    await context.knowledge.retrieve('What calls close?', { providers: ['gitnexus'], signal: signal() })
+    await context.knowledge.retrieve('What calls close?', { providers: ['gitnexus'], signal: signal() })
+    expect(callIds).toHaveLength(2)
+    expect(new Set(callIds).size).toBe(2)
   })
 
   it('starts with neither provider enabled', async () => {

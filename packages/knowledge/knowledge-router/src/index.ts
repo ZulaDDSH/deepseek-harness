@@ -1,12 +1,12 @@
 /** @module @deepseek-ai/dsh-knowledge-router */
 
+import { randomUUID } from 'node:crypto'
 import { Service, type Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import type { ScopeKey } from '@deepseek-ai/dsh-scope'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
-import { assertNever } from '@deepseek-ai/dsh-util-values'
 import { assertSupervisor } from './authority.ts'
 import { registerKnowledgeCommand } from './command.ts'
 import { gitnexusFreshness, parseStaleness } from './gitnexus.ts'
@@ -328,8 +328,8 @@ export class KnowledgeRouter extends Service {
       else planned.push({ provider, toolName })
     }
     const items: KnowledgeItem[] = []
-    for (const [index, query] of planned.entries()) {
-      items.push(await this.queryProvider(query, task, options, index + 1))
+    for (const query of planned) {
+      items.push(await this.queryProvider(query, task, options))
     }
     return assemblePacket({
       task,
@@ -343,22 +343,19 @@ export class KnowledgeRouter extends Service {
 
   /** Provider-specific query arguments, bounded by configuration. */
   private queryArguments(provider: KnowledgeProviderName, task: string): Record<string, string | number> {
-    switch (provider) {
-      case 'gitnexus':
-        return {
-          [PROVIDER_SPECS.gitnexus.taskArgument]: task,
-          limit: this.config.gitnexusLimit,
-          max_symbols: this.config.gitnexusMaxSymbols,
-        }
-      case 'graphify':
-        return {
-          [PROVIDER_SPECS.graphify.taskArgument]: task,
-          depth: this.config.graphifyDepth,
-          token_budget: this.config.graphifyTokenBudget,
-        }
-      default:
-        return assertNever(provider, 'knowledge provider')
+    const argumentsByProvider: Record<KnowledgeProviderName, Record<string, string | number>> = {
+      gitnexus: {
+        [PROVIDER_SPECS.gitnexus.taskArgument]: task,
+        limit: this.config.gitnexusLimit,
+        max_symbols: this.config.gitnexusMaxSymbols,
+      },
+      graphify: {
+        [PROVIDER_SPECS.graphify.taskArgument]: task,
+        depth: this.config.graphifyDepth,
+        token_budget: this.config.graphifyTokenBudget,
+      },
     }
+    return argumentsByProvider[provider]
   }
 
   /** Dispatch one provider query and package its result. */
@@ -366,11 +363,10 @@ export class KnowledgeRouter extends Service {
     query: PlannedQuery,
     task: string,
     options: RetrieveOptions,
-    index: number,
   ): Promise<KnowledgeItem> {
     const retrievedAt = new Date().toISOString()
     const result = await this.ctx.tools.execute({
-      callId: ToolCallId(`knowledge:${query.provider}:${String(index)}`),
+      callId: ToolCallId(randomUUID()),
       name: query.toolName,
       arguments: this.queryArguments(query.provider, task),
       ...options.agent !== undefined ? { agent: options.agent } : {},

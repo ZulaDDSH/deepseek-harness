@@ -85,3 +85,9 @@
 - id: session-log-deepseek
   config:
     enabled: false
+
+- id: tool-bash
+  disabled: true
+
+- id: tool-pwsh
+  disabled: true

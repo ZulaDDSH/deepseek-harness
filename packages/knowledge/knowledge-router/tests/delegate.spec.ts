@@ -23,10 +23,12 @@ interface Captured {
 
 /** A subagent service that records what it was asked to start. */
 class StubSubagents extends Service {
+  static lastCreated: StubSubagents | undefined
   readonly captured: Captured[] = []
 
   constructor(ctx: Context) {
     super(ctx, 'subagents')
+    StubSubagents.lastCreated = this
   }
 
   resolveMaxDepth(): number | undefined { return 4 }
@@ -80,13 +82,16 @@ interface Mounted {
 /** Mount the router beside a stub subagent service and one production Agent. */
 async function mount(mode: 'manual' | 'assisted', unbounded = false): Promise<Mounted> {
   const ctx = new Context()
+  StubSubagents.lastCreated = undefined
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(unbounded ? UnboundedStubSubagents : StubSubagents)
+  const stub = StubSubagents.lastCreated
+  if (stub === undefined) throw new Error('stub subagent service was not constructed')
   await ctx.plugin(KnowledgeRouter, { mode, gitnexus: { enabled: true }, graphify: { enabled: true } })
   const harness = await mountAgentLoopTestHarness(ctx)
   const agent = await harness.create(SessionId('parent-1'))
   context = ctx
-  return { stub: ctx.subagents as unknown as StubSubagents, agent }
+  return { stub, agent }
 }
 
 /** Dispatch the delegation tool as the delegating agent. */

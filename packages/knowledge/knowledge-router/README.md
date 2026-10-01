@@ -105,6 +105,7 @@ Providers and their data belong to the deployment.
 
 - Provider executables are not bundled. Real-provider tests skip when commands are unavailable; fixtures validate the router independently.
 - Graphify learning runs a configured host command outside the filesystem sandbox. Enable it only for a trusted provider and memory location.
+- Auto permission review does not support generic nested provider dispatch; these calls fail closed.
 - Missing provider freshness remains `unknown`. Lesson freshness for a custom Graphify memory directory remains unknown because `explain` cannot select that directory.
 
 <a id="dev-note"></a>

@@ -9633,9 +9633,6 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: workspace:*
         version: link:../../core/tools
-      '@deepseek-ai/dsh-util-values':
-        specifier: workspace:*
-        version: link:../../util/values
       '@modelcontextprotocol/server':
         specifier: 2.0.0
         version: 2.0.0

@@ -51,3 +51,9 @@
     endOfTurnRule: true
     dshHome: !!js process.cwd() + '/.dsh'
     projectRootMarkers: [.dsh-project]
+
+- id: tool-bash
+  disabled: true
+
+- id: tool-pwsh
+  disabled: true
