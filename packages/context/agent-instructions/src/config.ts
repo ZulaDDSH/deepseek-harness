@@ -22,7 +22,7 @@ export interface Config {
   projectRootMarkers?: string[]
   /** UTF-8 byte cap for one rendered baseline or dynamic batch; non-positive or non-finite disables loading. */
   maxBytes: number
-  /** Prepend the fixed response rule; plugin default true, direct loader default false. */
+  /** Prepend the fixed response rule; default false. */
   endOfTurnRule?: boolean
   /** Maximum UTF-8 bytes read from one instruction file; larger files are ignored. */
   maxSourceBytes?: number
@@ -42,7 +42,7 @@ export const Config: z<Config> = z.object({
   dshHome: z.string(),
   projectRootMarkers: z.array(z.string()).default([...DEFAULT_PROJECT_ROOT_MARKERS]),
   maxBytes: z.number().required(),
-  endOfTurnRule: z.boolean().default(true),
+  endOfTurnRule: z.boolean().default(false),
   maxSourceBytes: z.number().step(1).min(1).default(DEFAULT_MAX_SOURCE_BYTES),
   instructionFileCandidates: z.array(z.string()).default([...DEFAULT_INSTRUCTION_FILE_CANDIDATES]),
   localInstructionFileCandidates: z.array(z.string()).default([...DEFAULT_LOCAL_INSTRUCTION_FILE_CANDIDATES]),
@@ -80,7 +80,7 @@ export function workspaceBaselineIdentity(
     projectRootMarkers: config.projectRootMarkers,
     maxBytes: config.maxBytes,
     maxSourceBytes: config.maxSourceBytes,
-    endOfTurnRule: config.endOfTurnRule,
+    ...config.endOfTurnRule ? { endOfTurnRule: true } : {},
     instructionFileCandidates: config.instructionFileCandidates,
     localInstructionFileCandidates: config.localInstructionFileCandidates,
   })

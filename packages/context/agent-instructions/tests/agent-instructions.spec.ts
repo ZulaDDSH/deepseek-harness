@@ -213,7 +213,7 @@ class BlockingReadFileSystem extends RecordingFileSystem {
 async function mountAgentInstructionsPlugin(ctx: Context, config: AgentInstructions.Config): Promise<Awaited<ReturnType<Context['plugin']>>> {
   if (ctx.get('sessionProjections') === undefined) await ctx.plugin(SessionProjectionRegistry)
   ctx.sessionProjections.register(turnBoundaryProjectionDefinition)
-  return ctx.plugin(AgentInstructions, Object.assign({ endOfTurnRule: false }, config))
+  return ctx.plugin(AgentInstructions, config)
 }
 
 async function mountAgentInstructions(ctx: Context, config: AgentInstructions.Config): Promise<Awaited<ReturnType<Context['plugin']>>> {
@@ -1056,7 +1056,7 @@ describe('workspace context request injection', () => {
     expect(AgentInstructions.inject).toEqual(['sessionProjections'])
   })
 
-  it('prepends the end-of-turn rule by plugin schema default', async () => {
+  it('prepends the end-of-turn rule when enabled', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -1066,7 +1066,7 @@ describe('workspace context request injection', () => {
       await ctx.plugin(LocalFileSystem, { cwd: '/' })
       if (ctx.get('sessionProjections') === undefined) await ctx.plugin(SessionProjectionRegistry)
       ctx.sessionProjections.register(turnBoundaryProjectionDefinition)
-      await ctx.plugin(AgentInstructions, { dshHome: home, maxBytes: 65536 })
+      await ctx.plugin(AgentInstructions, { dshHome: home, maxBytes: 65536, endOfTurnRule: true })
       const agent = await stubAgent(root)
 
       await composeBaselinePrefix(ctx, agent)
@@ -1112,7 +1112,7 @@ describe('workspace context request injection', () => {
       await ctx.plugin(LocalFileSystem, { cwd: '/' })
       if (ctx.get('sessionProjections') === undefined) await ctx.plugin(SessionProjectionRegistry)
       ctx.sessionProjections.register(turnBoundaryProjectionDefinition)
-      await ctx.plugin(AgentInstructions, { dshHome: home, maxBytes: 65536 })
+      await ctx.plugin(AgentInstructions, { dshHome: home, maxBytes: 65536, endOfTurnRule: true })
       const agent = await stubAgent(root)
 
       await composeBaselinePrefix(ctx, agent)
@@ -1140,7 +1140,7 @@ describe('workspace context request injection', () => {
       await ctx.plugin(LocalFileSystem, { cwd: '/' })
       if (ctx.get('sessionProjections') === undefined) await ctx.plugin(SessionProjectionRegistry)
       ctx.sessionProjections.register(turnBoundaryProjectionDefinition)
-      await ctx.plugin(AgentInstructions, { dshHome: home, maxBytes: 65536 })
+      await ctx.plugin(AgentInstructions, { dshHome: home, maxBytes: 65536, endOfTurnRule: true })
       const agent = await stubAgent(root)
 
       await composeBaselinePrefix(ctx, agent)

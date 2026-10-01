@@ -9,6 +9,8 @@
 
 ```mermaid
 flowchart LR
+  pkg_knowledge_router["knowledge-router"]
+  svc_knowledge["ctx.knowledge<br/>Knowledge retrieval and explicit learning"]
   pkg_hmr["hmr"]
   svc_hmr["ctx.hmr<br/>Serialized module and configuration reloads"]
   pkg_app_boot["app-boot"]
@@ -355,6 +357,7 @@ flowchart LR
   pkg_invariants --> svc_invariants
   pkg_jobs --> svc_jobs
   pkg_jobs_local --> svc_jobs
+  pkg_knowledge_router --> svc_knowledge
   pkg_llm --> svc_llm
   pkg_llm_deepseek --> svc_llm
   pkg_llm_jev_router --> svc_jevRouter
@@ -488,6 +491,7 @@ flowchart LR
   svc_jobs --> pkg_tool_pwsh
   svc_jobs --> pkg_tool_subagent
   svc_jobs --> pkg_tool_terminal
+  svc_knowledge --> pkg_knowledge_router
   svc_llm --> pkg_agent_loop
   svc_llm --> pkg_compaction_basic
   svc_lsp --> pkg_tool_lsp
@@ -591,6 +595,7 @@ flowchart LR
 
 | ctx 键 | 角色 | 所属包 | 实现 | 直接消费方 | 配套插件 | 说明 |
 | --- | --- | --- | --- | --- | --- | --- |
+| `ctx.knowledge` | `service` | [`knowledge-router`](../packages/knowledge/knowledge-router) | - | [`knowledge-router`](../packages/knowledge/knowledge-router) | - | 路由已配置的 GitNexus 和 Graphify MCP 工具；辅助委派和学习写入需要显式启用。 |
 | `ctx.hmr` | `core` | [`hmr`](../packages/boot/hmr) | - | [`app-boot`](../packages/boot/app-boot) | - | 负责模块和精确配置监听；应用修改共用其队列，自动重载等待应用文件锁。 |
 | `ctx.pluginRegistryProbe` | `core` | [`client-ui-plugin-manager`](../packages/client/ui-plugin-manager) | - | [`client-ui-plugin-manager`](../packages/client/ui-plugin-manager) | - | 在 Host 上并发比较公共安装源响应；初始安装源推荐由 Client 负责。 |
 | `ctx.pluginManager` | `core` | [`plugin-manager`](../packages/boot/plugin-manager) | - | [`plugin-manager`](../packages/boot/plugin-manager), `ui-settings-plugin-inventory` | - | 与 CLI 共享 profile 包操作，并向 Web 和 Agent 调用方分别报告持久状态与运行状态。 |

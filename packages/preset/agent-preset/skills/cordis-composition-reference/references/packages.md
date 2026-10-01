@@ -281,6 +281,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | Package | Config | Description |
 |---|---|---|
 | `@deepseek-ai/dsh-knowledge-policy` | yes | Global shared-knowledge policy section describing on-demand retrieval, evidence precedence, and supervisor-only knowledge administration |
+| `@deepseek-ai/dsh-knowledge-router` | yes | Routes bounded knowledge queries to configured MCP-backed knowledge providers |
 
 ## llm
 

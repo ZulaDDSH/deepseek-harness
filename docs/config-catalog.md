@@ -71,7 +71,7 @@ export interface Config {
   projectRootMarkers?: string[]
   /** UTF-8 byte cap for one rendered baseline or dynamic batch; non-positive or non-finite disables loading. */
   maxBytes: number
-  /** Prepend the fixed response rule; plugin default true, direct loader default false. */
+  /** Prepend the fixed response rule; default false. */
   endOfTurnRule?: boolean
   /** Maximum UTF-8 bytes read from one instruction file; larger files are ignored. */
   maxSourceBytes?: number
@@ -1660,6 +1660,78 @@ export interface Config {
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-knowledge-policy -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-knowledge-router -->
+<a id="deepseek-aidsh-knowledge-router"></a>
+
+## `@deepseek-ai/dsh-knowledge-router`
+
+- `inject`: `tools`
+- `source`: [`packages/knowledge/knowledge-router/src/index.ts:103`](../packages/knowledge/knowledge-router/src/index.ts)
+
+```ts config-catalog
+/** Plugin configuration. */
+export interface Config {
+  /** Automatic-retrieval mode; defaults to `off`. */
+  mode?: KnowledgeMode
+  /** GitNexus provider settings. */
+  gitnexus?: GitnexusConfig
+  /** Graphify provider settings. */
+  graphify?: GraphifyConfig
+  /** Learned-knowledge write-back settings. */
+  learning?: LearningSettings
+  /** Assisted-mode delegation settings. */
+  delegation?: DelegationSettings
+  /** Maximum UTF-8 bytes of one assembled packet; defaults to 4096. */
+  maxPacketBytes?: number
+}
+
+/** Deployment-selected automatic-retrieval mode. */
+export type KnowledgeMode = 'off' | 'manual' | 'assisted'
+
+/** GitNexus enablement plus its retrieval bounds. */
+export interface GitnexusConfig extends ProviderConfig {
+  /** Maximum process groups the provider returns; defaults to 5. */
+  limit?: number
+  /** Maximum symbols per returned process; defaults to 10. */
+  maxSymbols?: number
+}
+
+/** Graphify enablement plus its retrieval bounds. */
+export interface GraphifyConfig extends ProviderConfig {
+  /** Graph traversal depth the provider searches; defaults to 1. */
+  depth?: number
+  /** Token budget the provider applies to its own output; defaults to 1500. */
+  tokenBudget?: number
+}
+
+/** Learned-knowledge write-back settings. */
+export interface LearningSettings {
+  /** Whether the write-back tool is registered; defaults to false. */
+  enabled?: boolean
+  /** The Graphify executable name or path; defaults to `graphify`. */
+  command?: string
+  /** Graphify work-memory directory; omitted uses Graphify's own default. */
+  memoryDir?: string
+  /** Whether to run `reflect` after a successful write; defaults to true. */
+  reflect?: boolean
+}
+
+/** Assisted-mode delegation settings. */
+export interface DelegationSettings {
+  /** The `ctx.subagents` provider used for a knowledge-carrying worker; defaults to `spawn`. */
+  provider?: string
+}
+
+/** One provider's enablement and MCP client server name. */
+export interface ProviderConfig {
+  /** Whether this provider participates; defaults to false. */
+  enabled?: boolean
+  /** MCP client `serverName`; defaults to the provider's own name. */
+  serverName?: string
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-knowledge-router -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-llm-deepseek-account -->
 <a id="deepseek-aidsh-llm-deepseek-account"></a>

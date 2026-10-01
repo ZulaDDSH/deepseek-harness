@@ -61,6 +61,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   configEditor: 'boot.md',
   profileContext: 'boot.md',
   hmr: 'boot.md',
+  knowledge: 'mcp.md',
   mcpResources: 'mcp.md',
   agentLoop: 'core.md',
   agentDefaultModel: 'core.md',
@@ -845,6 +846,13 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
 
 /** Project types deliberately documented outside the subsystems catalog. */
 export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
+  LearningResult: 'Knowledge router public types are owned by packages/knowledge/knowledge-router/README.md and src/types.ts',
+  LearningWrite: 'Knowledge router public types are owned by packages/knowledge/knowledge-router/README.md and src/types.ts',
+  ProviderStatus: 'Knowledge router public types are owned by packages/knowledge/knowledge-router/README.md and src/types.ts',
+  KnowledgeProviderName: 'Knowledge router public types are owned by packages/knowledge/knowledge-router/README.md and src/types.ts',
+  KnowledgePacket: 'Knowledge router public types are owned by packages/knowledge/knowledge-router/README.md and src/types.ts',
+  RetrieveOptions: 'Knowledge router public types are owned by packages/knowledge/knowledge-router/README.md and src/types.ts',
+
   ProductEvent: 'Desktop event fields are owned by packages/client/product-analytics/README.md and src/events.ts',
   QuotaProviderView: 'provider quota projection is owned by packages/api/quota-controller/README.md',
   QuotaResult: 'provider quota result is owned by packages/api/quota-controller/README.md',

@@ -20,7 +20,7 @@ kind: "package-reference"
 - [已知限制与延期工作](#known-limitations-and-deferred-work)
 - [开发备注](#dev-note)
 
-`endOfTurnRule` 默认启用固定的回合结束回复规则；即使工作区没有指令文件，该规则仍会加载。设为 `false` 可禁用。规则计入 `maxBytes` 字节预算，并在预算不足时先于工作区文件省略。
+设为 `endOfTurnRule: true` 可启用固定的回合结束回复规则；即使工作区没有指令文件，该规则仍会加载。默认禁用，随附桌面预设会启用。规则计入 `maxBytes` 字节预算，并在预算不足时先于工作区文件省略。
 
 -----
 
@@ -62,7 +62,7 @@ export interface Config {
 | 字段 | 默认值 | 含义 |
 |---|---|---|
 | `maxBytes` | 必填 | 完整渲染基线消息的上限，单位为字节 |
-| `endOfTurnRule` | `true` | 在基线前添加固定回复规则；字节预算不足时先于工作区文件省略 |
+| `endOfTurnRule` | `false` | 在基线前添加固定回复规则；字节预算不足时先于工作区文件省略 |
 | `maxSourceBytes` | `1048576` | 渲染前单个源指令文件的上限 |
 | `projectRootMarkers` | `['.git']` | 标记项目根目录的目录名 |
 | `instructionFileCandidates` | `['AGENTS.md', 'CLAUDE.md']` | 每个项目目录中加载的基础文件名 |

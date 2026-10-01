@@ -1407,6 +1407,38 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'knowledge',
+    summary: 'Bounded routing over MCP-backed knowledge providers.',
+    description: 'Bounded routing over MCP-backed knowledge providers.\n\nEvery method reads the live tool registry, so a provider that is disabled, absent, or filtered out reports as unavailable instead of failing a query.',
+    methods: [
+      {
+        signature: 'async learn(write: LearningWrite, signal: AbortSignal, agent?: Agent): Promise<LearningResult>',
+        description: 'Write one validated finding to the learned-knowledge provider.\n\nThis is the only path that persists knowledge and it never runs automatically. A delegated worker is refused here, in the operation that persists, so no caller can promote a worker\'s own answer.',
+        parameters: [{ name: 'write', description: 'the validated finding and its source references.' }, { name: 'signal', description: 'caller cancellation.' }, { name: 'agent', description: 'the calling agent, whose authority decides whether the write is allowed.' }],
+        returns: 'The written outcome and whether reflection ran.',
+        throws: ['when the caller is a delegated worker, when write-back is not configured, or when the provider command fails.'],
+      },
+      {
+        signature: 'status(agent?: ScopeKey): ProviderStatus[]',
+        description: 'Report every supported provider\'s configuration and live connection state.',
+        parameters: [{ name: 'agent', description: 'caller whose scope the registry is read in; omitted reads the global view.' }],
+        returns: 'One status per supported provider.',
+      },
+      {
+        signature: 'route(task: string): KnowledgeProviderName[]',
+        description: 'Decide which providers a task warrants.',
+        parameters: [{ name: 'task', description: 'the task text to classify.' }],
+        returns: 'Provider identities to query; empty when no cue matches.',
+      },
+      {
+        signature: 'async retrieve(task: string, options: RetrieveOptions): Promise<KnowledgePacket>',
+        description: 'Retrieve a bounded knowledge packet for one task.\n\nProviders that are disabled, unconfigured, or missing their query tool are reported as unavailable rather than raising, so a dead provider never fails the caller.',
+        parameters: [{ name: 'task', description: 'the task text to route and query.' }, { name: 'options', description: 'explicit providers, caller source references, and cancellation.' }],
+        returns: 'The bounded packet, including which providers answered.',
+      },
+    ],
+  },
+  {
     key: 'llm',
     summary: 'The abstract `llm` service: an adapter registry plus a streaming model-call API, interceptable via the `llm/stream` waterfall.',
     description: 'The abstract `llm` service: an adapter registry plus a streaming model-call API, interceptable via the `llm/stream` waterfall.',
@@ -5284,6 +5316,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface FrequencyTooHighError {\n    readonly code: \'frequency_too_high\';\n    readonly message: string;\n}',
   },
   {
+    name: 'Freshness',
+    declaration: 'export type Freshness = {\n    readonly kind: \'unknown\';\n} | {\n    readonly kind: \'current\';\n} | {\n    readonly kind: \'stale\';\n    readonly detail: string;\n};',
+  },
+  {
     name: 'FsDirEntry',
     declaration: 'export interface FsDirEntry {\n    name: string;\n    type: \'file\' | \'directory\' | \'other\';\n    target: FsTarget;\n    version?: FsVersion;\n    size?: number;\n}',
   },
@@ -5628,6 +5664,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
   },
   {
+    name: 'KnowledgeItem',
+    declaration: 'export interface KnowledgeItem {\n    readonly provider: KnowledgeProviderName;\n    readonly serverName: string;\n    readonly task: string;\n    readonly text: string;\n    readonly freshness: Freshness;\n    readonly signals: KnowledgeSignals;\n    readonly retrievedAt: string;\n}',
+  },
+  {
+    name: 'KnowledgePacket',
+    declaration: 'export interface KnowledgePacket {\n    readonly task: string;\n    readonly requestedBy?: string;\n    readonly providers: KnowledgeProviderName[];\n    readonly unavailable: KnowledgeProviderName[];\n    readonly items: KnowledgeItem[];\n    readonly bytes: number;\n    readonly truncated: boolean;\n}',
+  },
+  {
+    name: 'KnowledgeProviderName',
+    declaration: 'export type KnowledgeProviderName = \'gitnexus\' | \'graphify\';',
+  },
+  {
+    name: 'KnowledgeSignals',
+    declaration: 'export interface KnowledgeSignals {\n    readonly lessonsObserved: number;\n    readonly staleLessons: number;\n    readonly lessonStatuses: string[];\n}',
+  },
+  {
     name: 'KvFacet',
     declaration: 'export interface KvFacet {\n    open(descriptor: KvUnitDescriptor): Promise<KvUnit>;\n}',
   },
@@ -5642,6 +5694,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'KvUnitDescriptor',
     declaration: 'export interface KvUnitDescriptor {\n    readonly name: string;\n    readonly version: number;\n    readonly tables: readonly string[];\n    readonly hasGlobal: boolean;\n    readonly layout?: \'single\' | \'per-record\';\n    readonly compatibleVersions?: readonly number[];\n}',
+  },
+  {
+    name: 'LearningOutcome',
+    declaration: 'export type LearningOutcome = \'useful\' | \'dead_end\' | \'corrected\';',
+  },
+  {
+    name: 'LearningResult',
+    declaration: 'export interface LearningResult {\n    readonly outcome: LearningOutcome;\n    readonly reflected: boolean;\n    readonly stdout: string;\n    readonly reflectionError?: string;\n}',
+  },
+  {
+    name: 'LearningWrite',
+    declaration: 'export interface LearningWrite {\n    readonly question: string;\n    readonly answer: string;\n    readonly outcome: LearningOutcome;\n    readonly correction?: string;\n    readonly nodes?: readonly string[];\n    readonly validatedBy: string;\n}',
   },
   {
     name: 'LlmAdapter',
@@ -6168,6 +6232,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ProviderRequestId = Branded<\'ProviderRequestId\'>;',
   },
   {
+    name: 'ProviderStatus',
+    declaration: 'export interface ProviderStatus {\n    readonly provider: KnowledgeProviderName;\n    readonly enabled: boolean;\n    readonly serverName: string;\n    readonly connected: boolean;\n    readonly tools: string[];\n}',
+  },
+  {
     name: 'PrunedEntry',
     declaration: 'export interface PrunedEntry {\n    readonly originalSeq: SessionSeq;\n    readonly replacementSeq: SessionSeq;\n    readonly callId: ToolCallId;\n    readonly charsBefore: number;\n    readonly charsAfter: number;\n}',
   },
@@ -6354,6 +6422,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ResumeAgentOptions',
     declaration: 'export interface ResumeAgentOptions {\n    readonly resumeSessionId: SessionId;\n    readonly parentAgent?: Agent;\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: AgentSetup;\n}',
+  },
+  {
+    name: 'RetrieveOptions',
+    declaration: 'export interface RetrieveOptions {\n    readonly execution?: Pick<ToolExecution, \'token\' | \'rootCallId\'>;\n    readonly providers?: readonly KnowledgeProviderName[];\n    readonly requestedBy?: string;\n    readonly agent?: Agent;\n    readonly signal: AbortSignal;\n}',
   },
   {
     name: 'RpcId',

@@ -108,6 +108,14 @@ const GROUP_ORDER = [
 
 const SERVICE_ROLES: ServiceRole[] = [
   {
+    key: 'knowledge',
+    pkg: 'knowledge-router',
+    title: 'Knowledge retrieval and explicit learning',
+    mode: 'service',
+    consumers: ['knowledge-router'],
+    note: 'Routes configured GitNexus and Graphify MCP tools; assisted delegation and learning writes require explicit enablement.',
+  },
+  {
     key: 'hmr',
     pkg: 'hmr',
     title: 'Serialized module and configuration reloads',

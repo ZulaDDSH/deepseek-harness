@@ -119,6 +119,62 @@ interface McpResourceProvider {
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxknowledge--knowledgerouter"></a>
+
+### `ctx.knowledge` — `KnowledgeRouter`
+
+Bounded routing over MCP-backed knowledge providers.
+
+Every method reads the live tool registry, so a provider that is disabled, absent, or filtered out reports as unavailable instead of failing a query.
+
+```ts cordis-catalog
+/**
+ * Write one validated finding to the learned-knowledge provider.
+ *
+ * This is the only path that persists knowledge and it never runs
+ * automatically. A delegated worker is refused here, in the operation that
+ * persists, so no caller can promote a worker's own answer.
+ *
+ * @param write - the validated finding and its source references.
+ * @param signal - caller cancellation.
+ * @param agent - the calling agent, whose authority decides whether the write is allowed.
+ * @returns The written outcome and whether reflection ran.
+ * @throws when the caller is a delegated worker, when write-back is not configured, or when the provider command fails.
+ */
+async learn(write: LearningWrite, signal: AbortSignal, agent?: Agent): Promise<LearningResult>
+
+/**
+ * Report every supported provider's configuration and live connection state.
+ * @param agent - caller whose scope the registry is read in; omitted reads the global view.
+ * @returns One status per supported provider.
+ */
+status(agent?: ScopeKey): ProviderStatus[]
+
+/**
+ * Decide which providers a task warrants.
+ * @param task - the task text to classify.
+ * @returns Provider identities to query; empty when no cue matches.
+ */
+route(task: string): KnowledgeProviderName[]
+
+/**
+ * Retrieve a bounded knowledge packet for one task.
+ *
+ * Providers that are disabled, unconfigured, or missing their query tool are
+ * reported as unavailable rather than raising, so a dead provider never fails
+ * the caller.
+ *
+ * @param task - the task text to route and query.
+ * @param options - explicit providers, caller source references, and cancellation.
+ * @returns The bounded packet, including which providers answered.
+ */
+async retrieve(task: string, options: RetrieveOptions): Promise<KnowledgePacket>
+```
+
+Types: [Agent](core.zh.md) · [ScopeKey](scope.zh.md)
+
+Source: [`packages/knowledge/knowledge-router/src/index.ts`](../../packages/knowledge/knowledge-router/src/index.ts)
+
 <a id="ctxmcpresources--mcpresourceruntime"></a>
 
 ### `ctx.mcpResources` — `McpResourceRuntime`
