@@ -12,6 +12,7 @@ import type {
 import LlmRuntime, { createToolResultMessage, createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
+import { QuotaController } from '@deepseek-ai/dsh-api-quota-controller'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { DEFAULT_MAX_REQUEST_IMAGE_BYTES, resolveProfiles } from '../src/config.ts'
@@ -516,6 +517,21 @@ describe('provider profile lifecycle', () => {
       'mapUsage',
       'toStreamChunks',
     ]) expect(LlmPiAi).not.toHaveProperty(helper)
+  })
+
+  it('registers Codex account usage with its provider and removes it on disposal', async () => {
+    const ctx = new Context()
+    try {
+      await ctx.plugin(LlmRuntime)
+      ctx.provide('credentials', { resolve: async () => undefined, readRecord: async () => undefined } as never)
+      const controller = new QuotaController(ctx)
+      const fiber = await ctx.plugin(LlmPiAi, { providers: { 'openai-codex': {} } })
+      await expect(controller.listProviders()).resolves.toContainEqual({ id: 'openai-codex', name: 'openai-codex' })
+      await expect(controller.fetch('openai-codex')).resolves.toMatchObject({ ok: false, error: 'Not configured' })
+      await fiber.dispose()
+      await expect(controller.listProviders()).resolves.toEqual([])
+      await expect(controller.fetch('openai-codex')).resolves.toMatchObject({ ok: false, error: 'Unsupported provider' })
+    } finally { await ctx.fiber.dispose() }
   })
 
   it('registers every profile atomically and unregisters on dispose', async () => {

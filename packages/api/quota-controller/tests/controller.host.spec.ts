@@ -113,6 +113,8 @@ describe('QuotaController credential resolution', () => {
     expect(() => controller.registerSource(source)).toThrow('already registered')
     await expect(controller.listProviders()).resolves.toContainEqual({ id: 'oauth-test', name: 'OAuth test' })
     await expect(controller.fetch('oauth-test')).resolves.toMatchObject({ ok: true })
+    source.configured = async () => false
+    await expect(controller.listProviders()).resolves.toEqual([])
     remove()
     remove()
     await expect(controller.listProviders()).resolves.toEqual([])
