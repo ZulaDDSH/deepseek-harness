@@ -11,7 +11,7 @@ English | [中文](README.zh.md)
 
 This plugin lists changed files, serves bounded comparisons, and provides live Git status and comparisons for registered Workspaces. Turn summaries use Git snapshots and whole-file captures for file-tool edits outside Git coverage. The Host keeps results while the Session lives and announces one `workspace/changes` event. Without Git, only file-tool edits appear; the Web card renders summaries.
 
-The Host also serves a live status and current comparison for a registered Workspace. The status uses Git porcelain records and line counts against HEAD; unknown Workspaces and directories outside Git repositories return no status or comparison. These reads do not append Session events.
+The Host also serves a live status and current comparison for a registered Workspace. The status uses Git porcelain records and one Git numstat read for tracked-file counts against HEAD; untracked files use individual no-index reads; unknown Workspaces and directories outside Git repositories return no status or comparison. These reads do not append Session events.
 
 ## Table of Contents
 

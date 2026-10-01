@@ -97,7 +97,9 @@ describe('current workspace status', () => {
     cleanups.push(() => ctx.fiber.dispose())
     const repositoryRoot = await resolveRepositoryRoot(command, root, signal)
     expect(repositoryRoot).not.toBeNull()
+    const run = vi.spyOn(command, 'run')
     const status = await readWorkspaceStatus(command, repositoryRoot!, root, 20, signal)
+    expect(run.mock.calls.filter(([args]) => args[0] === 'diff' && !args.includes('--no-index'))).toHaveLength(1)
 
     expect(status.branch).toBe('main')
     expect(status.total).toBe(4)
@@ -105,7 +107,7 @@ describe('current workspace status', () => {
     expect(status.files.find(file => file.path === 'changed.txt')).toMatchObject({ index: ' ', worktree: 'M', added: 1, deleted: 0 })
     expect(status.files.find(file => file.path === 'new.txt')).toMatchObject({ index: '?', worktree: '?', added: 1, deleted: 0 })
     expect(status.files.find(file => file.path === 'removed.txt')).toMatchObject({ index: ' ', worktree: 'D', added: 0, deleted: 1 })
-    expect(status.files.find(file => file.path === 'moved.txt')).toMatchObject({ oldPath: 'renamed.txt' })
+    expect(status.files.find(file => file.path === 'moved.txt')).toMatchObject({ oldPath: 'renamed.txt', added: 1, deleted: 0 })
     expect(status.added).toBe(3)
     expect(status.deleted).toBe(1)
   })

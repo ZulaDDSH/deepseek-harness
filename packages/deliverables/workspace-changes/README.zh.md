@@ -11,7 +11,7 @@ kind: "package-reference"
 
 本插件列出改动文件，提供有上限的内容对比，并为已注册 Workspace 提供实时 Git 状态和对比。轮次摘要使用 Git 快照，并为 Git 覆盖不到的文件工具编辑保存整文件内容。Host 在 Session 存活期间保留结果，并追加一条 `workspace/changes` 事件。没有 Git 时只列文件工具编辑；Web 改动文件卡片渲染摘要。
 
-Host 还会为已注册的 Workspace 提供实时状态和当前对比。状态使用 Git porcelain 记录与相对 HEAD 的行数；未知 Workspace 或不在 Git 仓库内的目录不会返回状态或对比。这些读取不会追加 Session 事件。
+Host 还会为已注册的 Workspace 提供实时状态和当前对比。状态对受跟踪文件使用一次 Git numstat 读取，对未跟踪文件使用各自的 no-index 读取，并使用 Git porcelain 记录与相对 HEAD 的行数；未知 Workspace 或不在 Git 仓库内的目录不会返回状态或对比。这些读取不会追加 Session 事件。
 
 ## 目录
 
