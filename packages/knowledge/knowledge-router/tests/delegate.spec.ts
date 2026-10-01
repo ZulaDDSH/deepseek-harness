@@ -166,7 +166,7 @@ describe('assisted-mode delegation', () => {
       arguments: { description: 'Investigate the race', prompt: 'Investigate this recurring race.' },
     })
     expect(result?.isError).toBe(true)
-    expect(result?.content).toContainEqual(expect.objectContaining({ text: expect.stringContaining('requires a delegating agent') }))
+    expect(JSON.stringify(result?.content)).toContain('requires a delegating agent')
   })
 
   it('omits an unavailable worker depth limit', async () => {

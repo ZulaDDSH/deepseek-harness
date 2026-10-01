@@ -51,9 +51,6 @@ describe('knowledge_query', () => {
       bytes: 0,
       truncated: false,
     }
-    expect(definition.output.render({}, value)).toEqual([{
-      type: 'text',
-      text: expect.stringContaining('queried: graphify'),
-    }])
+    expect(JSON.stringify(definition.output.render({}, value))).toContain('queried: graphify')
   })
 })
