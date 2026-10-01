@@ -143,4 +143,14 @@ describe('ProviderQuotaAction popover', () => {
     expect(view.getByText('anthropic / claude-sonnet-5-5: 180 tokens')).toBeDefined()
     expect(view.getByText(en.accountQuota)).toBeDefined()
   })
+  it('puts the selected model provider account first without duplicating it', () => {
+    const view = renderPopover([
+      { providerId: 'opencode-go', providerName: 'OpenCode Go', configured: true, ok: true },
+      { providerId: 'openai-codex', providerName: 'OpenAI Codex', configured: true, ok: true },
+    ], undefined, { useProjection: key => key === 'modelSelection' ? { next: { provider: 'openai-codex', model: 'gpt-6.1-sol' } } : undefined })
+    const names = Array.from(view.getByRole('dialog').querySelectorAll('section > header')).map(header => header.textContent)
+    expect(names).toEqual([en.accountQuota, 'OpenAI Codex', 'OpenCode Go'])
+    expect(view.getAllByText('OpenAI Codex')).toHaveLength(1)
+  })
+
 })

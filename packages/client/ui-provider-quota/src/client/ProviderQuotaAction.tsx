@@ -39,8 +39,7 @@ function resetLabel(resetAt: number | null): string | undefined {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(resetAt)
 }
 
-function sessionTokenLabel(usage: TokenUsageProjection | undefined): string | undefined {
-  if (usage === undefined) return undefined
+function sessionTokenLabel(usage: TokenUsageProjection): string {
   const total = usage.uncachedInputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens
   return new Intl.NumberFormat().format(total)
 }
@@ -96,7 +95,8 @@ function ProviderSection({ result, t }: {
 export function ProviderQuotaAction(props: ProviderQuotaActionProps): React.JSX.Element {
   const providers = props.useProviders(value => value)
   const state = props.useState(value => value)
-  const sessionTokens = sessionTokenLabel(props.useProjection('tokenUsage'))
+  const sessionUsage = props.useProjection('tokenUsage')
+  const sessionTokens = sessionUsage === undefined ? undefined : sessionTokenLabel(sessionUsage)
   const modelUsage = props.useProjection('modelUsage')
   const selection = props.useProjection('modelSelection')?.next
   const selectedResult = state.results.find(result => result.providerId === selection?.provider)
@@ -122,7 +122,7 @@ export function ProviderQuotaAction(props: ProviderQuotaActionProps): React.JSX.
         {sessionTokens !== undefined && <p className={css.sessionTotal}>{props.t('sessionTotal', { tokens: sessionTokens })}</p>}
         {modelUsage !== undefined && modelUsage.length > 0 && <section className={css.provider}>
           <header className={css.providerName}>{props.t('modelUsage')}</header>
-          {modelUsage.map(entry => <p key={JSON.stringify([entry.provider, entry.model])}>{props.t('modelTokens', { provider: entry.provider, model: entry.model, tokens: sessionTokenLabel(entry.usage) ?? props.t('unavailable') })}</p>)}
+          {modelUsage.map(entry => <p key={JSON.stringify([entry.provider, entry.model])}>{props.t('modelTokens', { provider: entry.provider, model: entry.model, tokens: sessionTokenLabel(entry.usage) })}</p>)}
         </section>}
         <section className={css.provider}>
           <header className={css.providerName}>{props.t('accountQuota')}</header><p>{props.t('sharedQuota')}</p>
