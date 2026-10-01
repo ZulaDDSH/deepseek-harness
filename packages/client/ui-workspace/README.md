@@ -7,6 +7,8 @@ kind: "package-reference"
 
 English | [中文](README.zh.md)
 
+Desktop product events use the optional [product analytics service](../product-analytics/README.md); ordinary Web interactions are excluded.
+
 ## Summary
 
 This package lets users browse grouped, flat, or activity-centered Session lists, group Sessions into Chat Sections, choose a Workspace for a new Session, and manage Workspaces and Sessions through add, rename, reorder, search, fork, archive, and Workspace deletion; client plugins extend the Session row menu and hover buttons through slot lists. Pending interactions show warning dots, live work shows status text beside its dot, and subagent-origin Sessions stay hidden. An idle, unarchived Session with active scheduled tasks shows a clock mark whose hover card lists them. Distinct canonical folder paths stay separate Workspaces. Adding one requires a composed directory picker.
@@ -26,6 +28,8 @@ This package lets users browse grouped, flat, or activity-centered Session lists
 ## Use this package
 
 Use the sidebar to browse Workspaces and their Sessions, reorder them, and start new ones; use the picker in the Session Intent hero to choose a Workspace for a new session. Press **Ctrl/Cmd+K** to open the root quick switcher for visible Sessions, registered Workspaces, and directly executable commands for the current Session. Command rows retain their Session identity and disappear when no Session owns the main view. The switcher never inserts text into the composer, so an unsent draft stays untouched. An open Workspace shows five idle, non-blank Sessions by default. Running Sessions, including parents with running children, remain visible in their ordered positions without using that quota; the selected blank **New Session** is also an extra row until its first prompt. Each **Show more** click reveals up to five more idle Sessions; after the final batch, **Show less** restores the initial rows while keeping running Sessions visible. Closing and reopening the Workspace also restores this folded projection.
+
+History rows without a stored title use the localized unnamed label (未命名 / Untitled), rather than a directory name. The current blank row remains New Session; other blank rows remain hidden. Rename drafts use the stored title, or start empty when unnamed; unnamed rows do not offer title copying.
 
 ### Reordering and view options
 
