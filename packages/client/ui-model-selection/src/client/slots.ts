@@ -15,6 +15,8 @@ export interface ModelSelectInjected {
   available: boolean
   /** The session's shared directory store (same instance the /model popup reads). */
   directory: SnapshotStore<ModelDirectoryState>
+  favorites: SnapshotStore<string[]>
+  toggleFavorite: (key: string) => void
   /** Ensure the shared advisory catalog is loaded (errors land on the store). */
   load: () => void
   /**
