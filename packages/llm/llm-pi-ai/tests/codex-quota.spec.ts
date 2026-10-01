@@ -45,4 +45,29 @@ describe('Codex account usage', () => {
     expect(fetcher).not.toHaveBeenCalled()
   })
 
+  it('keeps missing windows and rate-limit status explicit', async () => {
+    const source = createCodexQuotaSource(auth(), () => true)
+    await expect(source.fetch(async () => Response.json({ rate_limit: { primary_window: null } })))
+      .resolves.toMatchObject({ ok: false, error: 'Codex usage windows unavailable' })
+    await expect(source.fetch(async () => Response.json({ rate_limit: { allowed: false,
+      primary_window: { used_percent: 100, limit_window_seconds: 18000, reset_at: null } } })))
+      .resolves.toMatchObject({ ok: true, windows: { '5h': { usedPercent: 100, status: 'rate-limited' } } })
+  })
+  it('handles malformed account tokens and logout during a read', async () => {
+    const invalid = auth()
+    invalid.stored.set('openai-codex', { type: 'oauth', access: 'invalid-token', refresh: 'test', expires: Date.now() + 3_600_000 })
+    const fetcher = vi.fn<typeof fetch>()
+    await expect(createCodexQuotaSource(invalid, () => true).fetch(fetcher)).resolves.toMatchObject({ ok: false, error: 'Codex account token is invalid' })
+    const loggedOut = auth()
+    let reads = 0
+    const read = loggedOut.credentials.read
+    loggedOut.credentials.read = id => ++reads === 1 ? read(id) : Promise.resolve(undefined)
+    await expect(createCodexQuotaSource(loggedOut, () => true).fetch(fetcher)).resolves.toMatchObject({ ok: false, error: 'Codex authentication unavailable' })
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+  it('normalizes foreign fetch rejection values', async () => {
+    await expect(createCodexQuotaSource(auth(), () => true).fetch(async () => { throw 'offline' }))
+      .resolves.toMatchObject({ ok: false, error: 'Codex usage request failed' })
+  })
+
 })

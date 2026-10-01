@@ -20,6 +20,7 @@ describe('model usage projection', () => {
       }, { surfaceOp: 'append' })
       add('anthropic', 'claude-sonnet-5-5', 0, 100)
       add('anthropic', 'claude-sonnet-5-5', 0, 120)
+      add('anthropic', 'claude-sonnet-5-5', 0, 120)
       add('openai-codex', 'gpt-6.1-sol', 1, 50)
       expect(ctx.sessionProjections.snapshot(session).values.modelUsage).toEqual([
         { provider: 'anthropic', model: 'claude-sonnet-5-5', usage: { uncachedInputTokens: 120, outputTokens: 5, cacheReadTokens: 10, cacheWriteTokens: 2 } },
@@ -36,6 +37,7 @@ describe('model usage projection', () => {
       const session = ctx.sessions.create()
       const attempt = (inputTokens: number) => session.append('assistant/attempt', { turn: 0, step: 0,
         stream: [{ type: 'chunk', time: 0, chunk: { type: 'usage', usage: { inputTokens, outputTokens: 1 } } }] })
+      session.append('step/start', { turn: 0, step: 0 })
       attempt(999)
       session.append('request/header', { header: { config: { provider: 'anthropic', model: 'claude-sonnet-5-5' } }, reason: 'initial' })
       attempt(10)
