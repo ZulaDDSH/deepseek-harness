@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-agent-instructions` 向 agent（智能体）提供来自用户全局文件和项目级文件的工作区指引；这些文件均与 `AGENTS.md` 兼容。它为第一次请求加载适用的指令链。它不会持续监视外部编辑：成功的文件系统操作会发现新适用的嵌套文件，并让后续变更或移除可见；恢复会话也会对账基线。`dsh-base` 默认启用此行为，profile 可以禁用。字节预算限制注入的上下文：较宽泛的文件先被省略，最具体的文件最后被截断，空指令链不添加任何内容。
+`dsh-agent-instructions` 向 agent（智能体）提供来自用户全局文件和项目级文件的工作区指引；这些文件均与 `AGENTS.md` 兼容。它为第一次请求加载适用的指令链。它不会持续监视外部编辑：成功的文件系统操作会发现新适用的嵌套文件，并让后续变更或移除可见；恢复会话也会对账基线。`dsh-base` 默认启用此行为，profile 可以禁用。字节预算限制注入的上下文：较宽泛的文件先被省略，最具体的文件最后被截断，空指令链仍会包含启用的回合结束回复规则。
 
 ## 目录
 
@@ -19,6 +19,8 @@ kind: "package-reference"
 - [模型体验](#model-experience)
 - [已知限制与延期工作](#known-limitations-and-deferred-work)
 - [开发备注](#dev-note)
+
+`endOfTurnRule` 默认启用固定的回合结束回复规则；即使工作区没有指令文件，该规则仍会加载。设为 `false` 可禁用。规则计入 `maxBytes` 字节预算，并在预算不足时先于工作区文件省略。
 
 -----
 
@@ -50,6 +52,7 @@ export interface Config {
   dshHome?: string
   projectRootMarkers?: string[]
   maxBytes: number
+  endOfTurnRule?: boolean
   maxSourceBytes?: number
   instructionFileCandidates?: string[]
   localInstructionFileCandidates?: string[]
@@ -59,6 +62,7 @@ export interface Config {
 | 字段 | 默认值 | 含义 |
 |---|---|---|
 | `maxBytes` | 必填 | 完整渲染基线消息的上限，单位为字节 |
+| `endOfTurnRule` | `true` | 在基线前添加固定回复规则；字节预算不足时先于工作区文件省略 |
 | `maxSourceBytes` | `1048576` | 渲染前单个源指令文件的上限 |
 | `projectRootMarkers` | `['.git']` | 标记项目根目录的目录名 |
 | `instructionFileCandidates` | `['AGENTS.md', 'CLAUDE.md']` | 每个项目目录中加载的基础文件名 |
@@ -148,7 +152,7 @@ Instructions from: AGENTS.md
 
 #### Token 影响
 
-渲染后基线只追加一次，并保留在派生历史中直到压缩。`maxBytes` 限制完整消息，较宽泛文件在最具体文件截断之前被省略，空指令链不产生 token。
+渲染后基线只追加一次，并保留在派生历史中直到压缩。`maxBytes` 限制完整消息，较宽泛文件在最具体文件截断之前被省略，禁用 `endOfTurnRule` 后，空指令链不产生 token。
 
 #### KV Cache 影响
 

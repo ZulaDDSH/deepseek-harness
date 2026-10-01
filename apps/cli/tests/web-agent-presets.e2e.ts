@@ -245,7 +245,7 @@ describe('the shipped Web composition', () => {
   it('supplies the shipped presets, and only those, from the system root', async () => {
     const listed = await ctx.agentPresets.list()
 
-    expect(listed.map(preset => preset.id).sort()).toEqual(['cordis', 'lean', 'minimal', 'ptc', 'standard'])
+    expect(listed.map(preset => preset.id).sort()).toEqual(['cordis', 'economy', 'lean', 'minimal', 'ptc', 'standard'])
     expect(listed.every(preset => !('path' in preset))).toBe(true)
     expect(ctx.agentPresets.defaultId).toBe('standard')
   })
@@ -308,9 +308,30 @@ describe('the shipped Web composition', () => {
     }
   })
 
-  it('composes four file tools and capped compaction from `lean`', async () => {
+  it('presents `economy` through PTC with reduced retained-context budgets', async () => {
     const handle = await ctx.agents.create({
-      sessionId: SessionId('preset-lean'),
+      sessionId: SessionId(`preset-economy-${randomUUID()}`),
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'economy').then(() => undefined),
+    })
+    try {
+      const assembly = await ctx.systemPrompt.assemble({ scope: handle.agent })
+      expect(assembly.tools.map(tool => tool.name)).toEqual(['run_code'])
+      expect(ctx.agentPresets.serviceFor(handle.agent, 'compaction')).toBeDefined()
+      expect(ctx.commands.find(handle.agent, 'goal')).toBeDefined()
+      const document = await ctx.agentPresets.readDocument('economy')
+      expect(document.content).toContain('thresholdRatio: 0.6')
+      expect(document.content).toContain('retainRatio: 0.1')
+      expect(document.content).toContain('maxBytes: 32768')
+      expect(document.content).toContain('catalogDescriptionMaxLength: 240')
+      expect(document.content).toContain('thresholdChars: 4096')
+    } finally {
+      await handle.dispose()
+    }
+  })
+
+  it('composes file tools, foreground shell, and capped compaction from `lean`', async () => {
+    const handle = await ctx.agents.create({
+      sessionId: SessionId(`preset-lean-${randomUUID()}`),
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'lean').then(() => undefined),
     })
     try {
@@ -318,7 +339,9 @@ describe('the shipped Web composition', () => {
       expect(assembly.sections).toEqual([
         { name: 'deployment:persona-prefix', text: 'You are a focused software engineer assistant.' },
       ])
-      expect(assembly.tools.map(tool => tool.name).sort()).toEqual(['glob', 'grep', 'read', 'write'])
+      const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
+      expect(assembly.tools.map(tool => tool.name).sort()).toEqual(['glob', 'grep', 'read', 'write', shell].sort())
+      expect(toolParameterNames(ctx, handle.agent, shell)).not.toContain('run_in_background')
       expect(ctx.agentPresets.serviceFor(handle.agent, 'compaction')).toBeDefined()
       expect(ctx.commands.find(handle.agent, 'goal')).toBeUndefined()
     } finally {
