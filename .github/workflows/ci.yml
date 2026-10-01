@@ -3,6 +3,11 @@ name: CI
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      refresh-web-snapshots:
+        description: Refresh and upload web-session fixtures for review
+        type: boolean
+        default: false
 permissions:
   contents: read
 
@@ -237,7 +242,7 @@ jobs:
 
   node-24-bench:
     continue-on-error: true
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && !inputs.refresh-web-snapshots
     runs-on: ubuntu-24.04
     name: node 24 / benchmarks
     # Wall-clock budgets need an otherwise idle runner, so this job runs the
@@ -572,3 +577,39 @@ jobs:
           exit 1
       - name: All checks passed
         run: echo "All needed jobs succeeded (${{ join(needs.*.result, ', ') }})"
+
+  refresh-web-snapshots:
+    if: github.event_name == 'workflow_dispatch' && inputs.refresh-web-snapshots
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: bash scripts/prepare-ci-bubblewrap.sh
+      - run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium
+      - name: Refresh web-session owners
+        run: >-
+          pnpm run test:web:refresh
+          apps/web/tests/approval-composer.e2e.ts apps/web/tests/changed-files-turn.e2e.ts
+          apps/web/tests/deepseek-messages-chat.e2e.ts apps/web/tests/feedback-command.e2e.ts
+          apps/web/tests/file-upload-round.e2e.ts apps/web/tests/replay-round-trip.e2e.ts
+          apps/web/tests/goal-multi-turn-actions.e2e.ts apps/web/tests/lifecycle-chrome.e2e.ts
+          apps/web/tests/live-interactions.e2e.ts apps/web/tests/permission-policy-context.e2e.ts
+          apps/web/tests/plan-review.e2e.ts apps/web/tests/present.e2e.ts
+          apps/web/tests/present-svg.e2e.ts apps/web/tests/ptc-escalation.e2e.ts
+          apps/web/tests/ptc-round.e2e.ts apps/web/tests/question-composer.e2e.ts
+          apps/web/tests/steering.e2e.ts apps/web/tests/turn-tail-actions.e2e.ts
+          apps/web/tests/web-search-round.e2e.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: refreshed-web-snapshots
+          path: snapshots/web/
+          retention-days: 3

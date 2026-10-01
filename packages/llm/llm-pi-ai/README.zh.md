@@ -11,8 +11,6 @@ kind: "package-reference"
 
 `@deepseek-ai/dsh-llm-pi-ai` 通过一份配置把模型请求路由到多个 pi-ai 提供方、OpenAI 兼容网关或自托管服务器。已安装的 pi-ai 提供方会提供端点、协议和模型目录默认值；自定义路由可以直接声明这些值，无需修改代码。profile 与凭据按请求解析，因此设置变更会在下一个请求生效，无需重启。受支持的提供方可以使用已存储的 OAuth 或交互式密钥登录，并通过跨进程锁刷新凭据。本包可以在没有路由时启动，并在用户设置添加路由后将其激活。
 
-固定版本目录的显示名称省略“latest”；用户配置的名称保持不变。挂载配额控制器时，Codex 路由使用推理的 OAuth 账户和串行 token 刷新报告账户限额。提供商验证窗口时长和重置时间；不可用数据显示错误而非零用量。ChatGPT 用量端点是内部后端 API，可能变化。
-
 ## 目录
 
 - [使用本包](#use-this-package)
@@ -28,6 +26,8 @@ kind: "package-reference"
 ## 使用本包
 
 当组合需要通过 pi-ai 的提供方目录、或通过 pi-ai 已安装目录未描述的网关路由模型请求时挂载本插件。`providers` 字典就是整个配置面：每个键都是请求用 `GenerateOptions.provider` 选择的提供方路由名。
+
+固定版本目录的显示名称省略“latest”；用户配置的名称保持不变。挂载配额控制器时，Codex 路由使用推理的 OAuth 账户和串行 token 刷新报告账户限额。提供商验证窗口时长和重置时间；不可用数据显示错误而非零用量。ChatGPT 用量端点是内部后端 API，可能变化。
 
 离线目录在 `anthropic` 上提供 Claude Opus 5.5 和 Sonnet 5.5，并在 `openai` 与 `openai-codex` 上提供 GPT-6.1 Sol。现有目录模型仍然可用。
 

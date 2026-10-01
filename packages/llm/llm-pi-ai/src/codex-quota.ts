@@ -26,7 +26,6 @@ const claimsSchema = z.object({ 'https://api.openai.com/auth': z.object({ chatgp
  * @returns account quota source.
  */
 export function createCodexQuotaSource(auth: PiAiAuthInjection, enabled: () => boolean): QuotaSource {
-  const models = builtinModels(auth)
   return {
     id: 'openai-codex', name: 'OpenAI Codex',
     async configured() { return enabled() && (await auth.credentials.read('openai-codex'))?.type === 'oauth' },
@@ -34,6 +33,7 @@ export function createCodexQuotaSource(auth: PiAiAuthInjection, enabled: () => b
       const identity = { providerId: this.id, providerName: this.name }
       try {
         if (!await this.configured()) return { ...identity, configured: false, ok: false, error: 'Not configured' }
+        const models = builtinModels(auth)
         const resolved = await models.getAuth('openai-codex').catch(() => { throw new Error('Codex authentication failed; sign in again') })
         if (!resolved?.auth.apiKey) throw new Error('Codex authentication unavailable')
         const claimPart = resolved.auth.apiKey.split('.')[1]

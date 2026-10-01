@@ -11,8 +11,6 @@ English | [中文](README.zh.md)
 
 Use `ctx.tokenMeter` to estimate a session's current request and context pressure or price one message. Measurements replay the durable session log, remain deterministic, and make no model calls, so compaction, occupancy displays, and telemetry can share one result. When session projections are available, consumers can read `tokenUsage`, `modelUsage`, `contextPressure`, and `contextBreakdown`; text and routes without image pricing use an approximate fixed heuristic, declared visual-token pricing applies when available, and files are priced as model-visible handle text. Provider-reported usage is reused only for an identical request envelope; the package adds no model-visible content and makes no loop decisions.
 
-`modelUsage` groups the same durable usage buckets by actual provider and model, including reported cache tokens. Successful messages supply their model source; attempts use the request header. Retry starts retain previous-attempt usage and clear replacement slots. No model calls or new Session events are required.
-
 ## Table of Contents
 
 - [Use this package](#use-this-package)
@@ -28,6 +26,8 @@ Use `ctx.tokenMeter` to estimate a session's current request and context pressur
 ## Use this package
 
 Mount this plugin when a consumer needs token or context pressure for compaction decisions, occupancy displays, or telemetry. The estimator has no settings and adds no model-visible surface; model capacity belongs to the adapter that owns the exact provider/model route and is available through `ctx.llm.resolveModelInfo().context`.
+
+`modelUsage` groups the same durable usage buckets by actual provider and model, including reported cache tokens. Successful messages supply their model source; attempts use the request header. Retry starts retain previous-attempt usage and clear replacement slots. No model calls or new Session events are required.
 
 ### When to choose it
 
