@@ -60,7 +60,7 @@ describe('Codex account usage', () => {
     await expect(createCodexQuotaSource(invalid, () => true).fetch(fetcher)).resolves.toMatchObject({ ok: false, error: 'Codex account token is invalid' })
     const loggedOut = auth()
     let reads = 0
-    const read = loggedOut.credentials.read
+    const read = loggedOut.credentials.read.bind(loggedOut.credentials)
     loggedOut.credentials.read = id => ++reads === 1 ? read(id) : Promise.resolve(undefined)
     await expect(createCodexQuotaSource(loggedOut, () => true).fetch(fetcher)).resolves.toMatchObject({ ok: false, error: 'Codex authentication unavailable' })
     expect(fetcher).not.toHaveBeenCalled()

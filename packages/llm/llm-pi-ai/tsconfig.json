@@ -51,7 +51,7 @@
       "path": "../../settings/settings"
     },
     {
-      "path": "../../api/quota-controller"
+      "path": "../../api/quota-controller/tsconfig.host.json"
     }
   ]
 }
