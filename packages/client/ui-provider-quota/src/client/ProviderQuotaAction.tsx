@@ -97,6 +97,9 @@ export function ProviderQuotaAction(props: ProviderQuotaActionProps): React.JSX.
   const providers = props.useProviders(value => value)
   const state = props.useState(value => value)
   const sessionTokens = sessionTokenLabel(props.useProjection('tokenUsage'))
+  const modelUsage = props.useProjection('modelUsage')
+  const selection = props.useProjection('modelSelection')?.next
+  const selectedResult = state.results.find(result => result.providerId === selection?.provider)
   const [open, setOpen] = useState(false)
   const toggle = (): void => {
     const next = !open
@@ -117,11 +120,21 @@ export function ProviderQuotaAction(props: ProviderQuotaActionProps): React.JSX.
           <button type="button" className={css.refresh} aria-label={props.t('refresh')} onClick={() => { void props.refresh() }}><IconRefreshOutlineMedium size={14} /></button>
         </header>
         {sessionTokens !== undefined && <p className={css.sessionTotal}>{props.t('sessionTotal', { tokens: sessionTokens })}</p>}
+        {modelUsage !== undefined && modelUsage.length > 0 && <section className={css.provider}>
+          <header className={css.providerName}>{props.t('modelUsage')}</header>
+          {modelUsage.map(entry => <p key={JSON.stringify([entry.provider, entry.model])}>{props.t('modelTokens', { provider: entry.provider, model: entry.model, tokens: sessionTokenLabel(entry.usage) ?? props.t('unavailable') })}</p>)}
+        </section>}
+        <section className={css.provider}>
+          <header className={css.providerName}>{props.t('accountQuota')}</header><p>{props.t('sharedQuota')}</p>
+        </section>
+        {selectedResult !== undefined && <ProviderSection result={selectedResult} t={props.t} />}
         {providers === null || state.status === 'loading' ? <p>{props.t('loading')}</p>
           : state.status === 'error' ? <p>{props.t('error', { message: state.message ?? props.t('unavailable') })}</p>
             : providers.length === 0 ? <p>{props.t('empty')}</p>
               : state.results.length === 0 ? <p>{props.t('unavailable')}</p>
-                : state.results.map(result => <ProviderSection key={result.providerId} result={result} t={props.t} />)}
+                : state.results.filter(result => result !== selectedResult).map(result => (
+                  <ProviderSection key={result.providerId} result={result} t={props.t} />
+                ))}
       </div>}
     </span>
   )

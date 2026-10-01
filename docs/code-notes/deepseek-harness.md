@@ -31,3 +31,7 @@ Reference: `packages/api/settings-controller/src/request.ts:settingsRequest.pars
 ## Projection cleanup
 
 `packages/boot/app-boot/src/profile.ts:removeLinkProjections` unlinks direct and scoped projection junctions before removing their real containing directory. Electron 44 carries Node 24.18.1, whose recursive removal fails on a cyclic Windows junction with errno -4094; the build host Node 24.19.0 does not reproduce that failure. `packages/boot/app-boot/tests/profile.spec.ts:removeLinkProjections` exercises direct and scoped cyclic projections with per-case unlink cleanup; the regression is validated on the packaged Electron runtime.
+
+## Model usage display
+
+`packages/llm/llm-pi-ai/src/catalog.ts:catalogModels` removes recency labels from pinned defaults while retaining user names. `packages/client/ui-provider-quota/src/client/ProviderQuotaAction.module.css:.popover` uses the defined opaque floating fill. `packages/llm/token-meter/src/model-usage-projection.ts:modelUsageProjectionDefinition` groups durable reported usage by actual routes and reuses settlement/retry accounting. `packages/llm/llm-pi-ai/src/codex-quota.ts:createCodexQuotaSource` keeps credential refresh provider-owned; `packages/api/quota-controller/src/index.ts:QuotaController.registerSource` retains effect-based disposal.

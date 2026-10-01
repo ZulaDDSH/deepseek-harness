@@ -11,6 +11,8 @@ kind: "package-reference"
 
 当浏览器界面需要标准化的提供商配额或余额数据、但不应接收凭据值时，请使用本包。它通过 `quota` Remote namespace 暴露已配置的提供商，在 Host 上解析凭据，按提供商合并并发读取，并且只返回客户端安全的用量字段。内置注册表支持 DeepSeek 余额与 OpenCode Go 配额窗口，也可由 Host 组合扩展。
 
+拥有自身认证的提供商通过 `registerSource()` 注册 `QuotaSource`，并通过 Cordis effect 持有注销操作；来源负责解析和刷新自己的凭据。
+
 ## 目录
 
 - [使用本包](#use-this-package)

@@ -109,7 +109,7 @@ describe('ProviderQuotaAction popover', () => {
     const props = {
       useProviders: (select: (value: unknown) => unknown) => select([{ id: 'deepseek', name: 'DeepSeek' }]),
       useState: (select: (value: unknown) => unknown) => select({ status: 'ready' as const, results: [] }),
-      useProjection: () => ({ uncachedInputTokens: 100, outputTokens: 25, cacheReadTokens: 50, cacheWriteTokens: 5 }),
+      useProjection: key => key === 'tokenUsage' ? { uncachedInputTokens: 100, outputTokens: 25, cacheReadTokens: 50, cacheWriteTokens: 5 } : undefined,
       refresh: vi.fn(async () => {}),
       t: translate,
     } as ProviderQuotaActionProps
@@ -135,5 +135,12 @@ describe('ProviderQuotaAction popover', () => {
 
     expect(view.getByText('Anthropic')).toBeDefined()
     expect(view.getByText('Usage reporting is not available for this provider')).toBeDefined()
+  })
+  it('shows real model token counts separately from shared account quotas', () => {
+    const view = renderPopover([], undefined, { useProjection: key => key === 'modelUsage' ? [
+      { provider: 'anthropic', model: 'claude-sonnet-5-5', usage: { uncachedInputTokens: 100, outputTokens: 25, cacheReadTokens: 50, cacheWriteTokens: 5 } },
+    ] : undefined })
+    expect(view.getByText('anthropic / claude-sonnet-5-5: 180 tokens')).toBeDefined()
+    expect(view.getByText(en.accountQuota)).toBeDefined()
   })
 })

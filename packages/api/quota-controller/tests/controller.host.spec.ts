@@ -103,4 +103,20 @@ describe('QuotaController credential resolution', () => {
       error: 'Usage reporting is not available for this provider',
     })
   })
+  it('removes registered account sources when their owner disposes', async () => {
+    const ctx = new Context()
+    ctx.provide('credentials', { resolve: async () => undefined, readRecord: async () => undefined } as never)
+    const controller = new QuotaController(ctx)
+    const source = { id: 'oauth-test', name: 'OAuth test', configured: async () => true,
+      fetch: async () => ({ providerId: 'oauth-test', providerName: 'OAuth test', configured: true, ok: true }) }
+    const remove = controller.registerSource(source)
+    expect(() => controller.registerSource(source)).toThrow('already registered')
+    await expect(controller.listProviders()).resolves.toContainEqual({ id: 'oauth-test', name: 'OAuth test' })
+    await expect(controller.fetch('oauth-test')).resolves.toMatchObject({ ok: true })
+    remove()
+    remove()
+    await expect(controller.listProviders()).resolves.toEqual([])
+    await expect(controller.fetch('oauth-test')).resolves.toMatchObject({ ok: false, error: 'Unsupported provider' })
+  })
+
 })

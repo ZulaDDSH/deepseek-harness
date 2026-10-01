@@ -53,7 +53,7 @@ const projectionSchema = z.object({
  * The token-usage unit's state schema — the one definition of the state
  * shape; the state type is inferred from it.
  */
-const tokenUsageStateSchema = z.object({
+export const tokenUsageStateSchema = z.object({
   totals: projectionSchema,
   last: z.object({
     turn: z.number().int().nonnegative(),

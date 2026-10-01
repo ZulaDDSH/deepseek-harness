@@ -9868,6 +9868,9 @@ importers:
 
   packages/llm/llm-pi-ai:
     dependencies:
+      '@deepseek-ai/dsh-api-quota-controller':
+        specifier: workspace:*
+        version: link:../../api/quota-controller
       '@deepseek-ai/dsh-brand':
         specifier: workspace:*
         version: link:../../util/brand
@@ -9880,6 +9883,9 @@ importers:
       '@earendil-works/pi-ai':
         specifier: ^0.85.1
         version: 0.85.1(patch_hash=b9bcce474fb2ac44633dff0fa722816a5bff5451b4575d5874035ea14ba70a4f)(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:~

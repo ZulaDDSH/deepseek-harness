@@ -25,7 +25,7 @@ kind: "package-reference"
 
 把客户端插件挂载到包含本包所声明 Remote、locale、conversation 与 renderer 依赖的 Web 组合中。插件会向 `conversation.session.header.utilities` 添加一个紧凑的用量控件，并通过 Host 服务刷新提供商配额。
 
-弹窗只显示 Host 注册表返回的提供商。Session projection 数据可用时，它还会显示当前 Session 的持久 token 总量。
+不透明弹窗显示 Host 注册表返回的提供商，并优先显示所选提供商。持久 Session 用量按实际执行请求的提供商和模型分组，同时显示会话总量。账户限额单独显示，因为多个模型可能共享配额。
 
 -----
 

@@ -1899,6 +1899,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'requires credential-backed provider quota Remote service.',
     methods: [
       {
+        signature: 'registerSource(source: QuotaSource): () => void',
+        description: 'Register an account source whose provider owns authentication.',
+        parameters: [{ name: 'source', description: 'provider-owned source.' }],
+        returns: 'disposer that removes this source.',
+      },
+      {
         signature: '@Remote async listProviders(): Promise<readonly QuotaProviderView[]>',
         description: 'List providers whose credentials can currently be resolved.',
         parameters: [],
@@ -6294,6 +6300,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'QuotaResult',
     declaration: 'export interface QuotaResult {\n    readonly providerId: string;\n    readonly providerName: string;\n    readonly configured: boolean;\n    readonly ok: boolean;\n    readonly error?: string;\n    readonly windows?: Partial<Record<QuotaWindowId, QuotaWindow>>;\n}',
+  },
+  {
+    name: 'QuotaSource',
+    declaration: 'export interface QuotaSource {\n    readonly id: string;\n    readonly name: string;\n    configured(): Promise<boolean>;\n    fetch(fetchImpl: typeof fetch): Promise<QuotaResult>;\n}',
   },
   {
     name: 'QuotaWindow',

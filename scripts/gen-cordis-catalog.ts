@@ -855,6 +855,7 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
 
   ProductEvent: 'Desktop event fields are owned by packages/client/product-analytics/README.md and src/events.ts',
   QuotaProviderView: 'provider quota projection is owned by packages/api/quota-controller/README.md',
+  QuotaSource: 'provider-owned account source is owned by packages/api/quota-controller/README.md',
   QuotaResult: 'provider quota result is owned by packages/api/quota-controller/README.md',
   JevGrepMatch: 'Jev grep relevance candidate is owned by packages/llm/llm-jev-router/README.md',
   ConnectionFetchHandler: 'shared Fetch dispatch is owned by packages/client/connection/src/rpc.ts',
