@@ -52,7 +52,9 @@ export { REGION_BEGIN, REGION_END }
 export const SERVICE_PAGE: Record<string, string> = {
   speechToText: 'voice-input.md',
   speechController: 'voice-input.md',
+  otel: 'otel.md',
   productTelemetry: 'product-telemetry.md',
+  productAnalytics: 'product-telemetry.md',
   connection: 'web-server.md',
   pluginManager: 'boot.md',
   pluginRegistryProbe: 'boot.md',
@@ -276,6 +278,12 @@ export const EVENT_WALK_EXEMPTIONS: Record<string, string> = {
  * appear on more than one page.
  */
 export const LINK_MAP: Readonly<Record<string, string>> = {
+  EventLogOptions: 'otel.md',
+  EventLogReporter: 'otel.md',
+  SessionLogOptions: 'otel.md',
+  SessionLogReporter: 'otel.md',
+  OTelEventRecord: 'otel.md',
+  OTelEventScalar: 'otel.md',
   ProductTelemetryRecord: 'product-telemetry.md',
   ProductTelemetryScalar: 'product-telemetry.md',
   WorkspaceChangesSummary: 'deliverables.md',
@@ -837,6 +845,7 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
 
 /** Project types deliberately documented outside the subsystems catalog. */
 export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
+  ProductEvent: 'Desktop event fields are owned by packages/client/product-analytics/README.md and src/events.ts',
   QuotaProviderView: 'provider quota projection is owned by packages/api/quota-controller/README.md',
   QuotaResult: 'provider quota result is owned by packages/api/quota-controller/README.md',
   JevGrepMatch: 'Jev grep relevance candidate is owned by packages/llm/llm-jev-router/README.md',

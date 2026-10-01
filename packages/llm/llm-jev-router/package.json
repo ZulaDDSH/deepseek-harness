@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-llm-jev-router",
   "description": "Optional TypeSafe Jev decision router for DeepSeek Harness model selection",
-  "version": "0.1.7-rc.2",
+  "version": "0.2.0-rc.1",
   "publishConfig": {
     "access": "public"
   },

@@ -7,6 +7,8 @@ kind: "package-reference"
 
 English | [中文](README.zh.md)
 
+Desktop product events use the optional [product analytics service](../product-analytics/README.md); ordinary Web interactions are excluded.
+
 ## Summary
 
 The sidebar provides the app identity, New Session action, Workspace and Session navigation, Settings, and a 56px collapsed rail. Focus mode reuses the existing sidebar toggle as **Exit focus mode** without changing saved width preferences. Idle scrollbars stay hidden without moving rows. New Session chooses an explicit Workspace, the current Session's Workspace, or the most recently active Workspace before falling back to a blank page. Deployments can replace the brand mark or name without replacing the navigation shell.
