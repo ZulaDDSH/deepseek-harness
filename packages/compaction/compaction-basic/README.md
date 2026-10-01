@@ -20,6 +20,8 @@ This package keeps long agent conversations working near the model's context lim
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 - [Dev Note](#dev-note)
 
+`maxContextWindow` optionally caps the adapter window before output reservation, headroom, pressure, and retention budgets are calculated. It must be a positive integer and can be overridden per model.
+
 -----
 
 <a id="use-this-package"></a>

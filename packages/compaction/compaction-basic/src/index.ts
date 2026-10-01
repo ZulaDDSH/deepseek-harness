@@ -91,6 +91,7 @@ const maxOverflowRetriesSchema = z.number().step(1).min(0)
 const modelPolicy: z<ModelCompactPolicyConfig> = z.object({
   provider: z.string().required(),
   model: z.string().required(),
+  maxContextWindow: z.number().step(1).min(1),
   thresholdRatio: thresholdRatioSchema,
   headroomTokens: headroomTokensSchema,
   retainRatio: retainRatioSchema,
@@ -114,6 +115,7 @@ export class BasicCompactionEngine extends CompactionEngine {
   static inject = ['llm', 'tokenMeter', 'sessions']
 
   static Config: z<BasicCompactionConfig> = z.object({
+    maxContextWindow: z.number().step(1).min(1),
     thresholdRatio: thresholdRatioSchema,
     headroomTokens: headroomTokensSchema,
     retainRatio: retainRatioSchema,

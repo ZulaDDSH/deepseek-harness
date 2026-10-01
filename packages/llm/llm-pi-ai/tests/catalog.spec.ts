@@ -1434,6 +1434,20 @@ describe('configurable-provider directory', () => {
 })
 
 describe('catalog supplement', () => {
+  it.each([
+    ['anthropic', 'claude-opus-5-5', 'anthropic-messages'],
+    ['anthropic', 'claude-sonnet-5-5', 'anthropic-messages'],
+    ['openai', 'gpt-6.1-sol', 'openai-responses'],
+    ['openai-codex', 'gpt-6.1-sol', 'openai-codex-responses'],
+  ])('offers %s model %s with its provider protocol', async (provider, id, api) => {
+    const ctx = await harness({ providers: { [provider]: { apiKeyEnv: KEY_ENV } } })
+    expect(await ctx.llm.listModels(provider)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id, inputModalities: ['text', 'image'] }),
+    ]))
+    const models = resolveProfiles({ [provider]: { apiKeyEnv: KEY_ENV } }).get(provider)?.piProvider?.getModels() ?? []
+    expect(models.find(model => model.id === id)).toMatchObject({ api, contextWindow: provider === 'anthropic' ? 1_000_000 : 272_000 })
+  })
+
   it('serves a model the pinned pi-ai catalog does not ship and keeps the installed ids', async () => {
     const ctx = await harness({ providers: { 'opencode-go': { apiKeyEnv: KEY_ENV } } })
 

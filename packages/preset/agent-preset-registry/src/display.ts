@@ -11,6 +11,7 @@
 export type BuiltInPresetCopyKey =
   | 'presetStandardName' | 'presetStandardDescription'
   | 'presetPtcName' | 'presetPtcDescription'
+  | 'presetLeanName' | 'presetLeanDescription'
   | 'presetMinimalName' | 'presetMinimalDescription'
   | 'presetCordisName' | 'presetCordisDescription'
 
@@ -40,6 +41,7 @@ interface PresetLocaleKeys {
 const BUILT_IN_PRESET_KEYS: Readonly<Partial<Record<string, PresetLocaleKeys>>> = {
   standard: { name: 'presetStandardName', description: 'presetStandardDescription' },
   ptc: { name: 'presetPtcName', description: 'presetPtcDescription' },
+  lean: { name: 'presetLeanName', description: 'presetLeanDescription' },
   minimal: { name: 'presetMinimalName', description: 'presetMinimalDescription' },
   cordis: { name: 'presetCordisName', description: 'presetCordisDescription' },
 }

@@ -754,7 +754,7 @@ export type ThemePreference = typeof THEME_PREFERENCES[number]
 ## `@deepseek-ai/dsh-compaction-basic`
 
 - `inject`: `llm` · `tokenMeter` · `sessions`
-- `source`: [`packages/compaction/compaction-basic/src/types.ts:40`](../packages/compaction/compaction-basic/src/types.ts)
+- `source`: [`packages/compaction/compaction-basic/src/types.ts:42`](../packages/compaction/compaction-basic/src/types.ts)
 
 ```ts config-catalog
 /** Basic compaction configuration with an optional exact-target policy table. */
@@ -767,6 +767,8 @@ export interface BasicCompactionConfig extends CompactionPolicyConfig {
 
 /** Policy fields shared by the default policy and exact model overrides. */
 export interface CompactionPolicyConfig {
+  /** Optional positive token cap on the adapter context window used for compaction budgets. */
+  maxContextWindow?: number
   /** Window fraction for pressure; capped at context window minus reserved output and `headroomTokens`. Defaults to `0.8`. */
   thresholdRatio?: number
   /** Additional pressure headroom beyond the routed output reservation. Non-negative integer; defaults to `65536`. */
@@ -3697,6 +3699,8 @@ export interface Config {
 ```ts config-catalog
 /** Plugin config (all optional — `Config` supplies the defaults). */
 export interface Config {
+  /** Model-visible tools to register; defaults to all tools in this plugin. */
+  enabledTools?: ('read' | 'write' | 'edit' | 'read_image')[]
   /** Default and maximum number of lines returned by one `read` call. */
   readLimit?: number
   /** Maximum characters returned for a single line before truncation. */
@@ -3720,6 +3724,8 @@ export interface Config {
 ```ts config-catalog
 /** Plugin config; over-cap glob sampling is an explicit deployment choice and the remaining fields have defaults. */
 export interface Config {
+  /** Model-visible tools to register; defaults to all tools in this plugin. */
+  enabledTools?: ('glob' | 'grep')[]
   /** Whether an over-cap `glob` page is sampled across top-level entries instead of taking the modification-time head. */
   sampleOverCapGlobResults: boolean
   /** Max paths one `glob` call retains inline; later paths go to the formatted spill file. */

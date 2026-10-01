@@ -20,6 +20,8 @@ kind: "package-reference"
 - [已知限制与暂缓事项](#known-limitations-and-deferred-work)
 - [开发备注](#dev-note)
 
+`maxContextWindow` 可在计算输出预留、余量、压力与保留预算前限制适配器的上下文窗口。它必须为正整数，并可按模型覆盖。
+
 -----
 
 <a id="use-this-package"></a>

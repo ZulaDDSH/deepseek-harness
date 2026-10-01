@@ -242,10 +242,10 @@ describe('the shipped Web composition', () => {
     }
   })
 
-  it('supplies both shipped presets, and only those, from the system root', async () => {
+  it('supplies the shipped presets, and only those, from the system root', async () => {
     const listed = await ctx.agentPresets.list()
 
-    expect(listed.map(preset => preset.id).sort()).toEqual(['cordis', 'minimal', 'ptc', 'standard'])
+    expect(listed.map(preset => preset.id).sort()).toEqual(['cordis', 'lean', 'minimal', 'ptc', 'standard'])
     expect(listed.every(preset => !('path' in preset))).toBe(true)
     expect(ctx.agentPresets.defaultId).toBe('standard')
   })
@@ -305,6 +305,24 @@ describe('the shipped Web composition', () => {
       await ctx.settings.update(SUBAGENT_MODEL_SELECTION_SETTINGS_NAMESPACE, { enabled: false })
       await enabled.dispose()
       await disabled.dispose()
+    }
+  })
+
+  it('composes four file tools and capped compaction from `lean`', async () => {
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('preset-lean'),
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'lean').then(() => undefined),
+    })
+    try {
+      const assembly = await ctx.systemPrompt.assemble({ scope: handle.agent })
+      expect(assembly.sections).toEqual([
+        { name: 'deployment:persona-prefix', text: 'You are a focused software engineer assistant.' },
+      ])
+      expect(assembly.tools.map(tool => tool.name).sort()).toEqual(['glob', 'grep', 'read', 'write'])
+      expect(ctx.agentPresets.serviceFor(handle.agent, 'compaction')).toBeDefined()
+      expect(ctx.commands.find(handle.agent, 'goal')).toBeUndefined()
+    } finally {
+      await handle.dispose()
     }
   })
 

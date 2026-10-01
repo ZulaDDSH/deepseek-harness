@@ -17,6 +17,8 @@ export type AgentPresetSettingsKey =
   | 'presetStandardDescription'
   | 'presetPtcName'
   | 'presetPtcDescription'
+  | 'presetLeanName'
+  | 'presetLeanDescription'
   | 'presetMinimalName'
   | 'presetMinimalDescription'
   | 'presetCordisName'
@@ -49,6 +51,8 @@ export const en: Record<AgentPresetSettingsKey, string> = {
   presetPtcName: 'PTC mode',
   presetPtcDescription:
     'Includes all Standard mode capabilities. Better suited to tasks that call tools in batches and then filter, organize, deduplicate, count, or summarize the results.',
+  presetLeanName: 'Lean mode',
+  presetLeanDescription: 'Read, inspect, and write files using four tools and a 200,000-token context cap.',
   presetMinimalName: 'Minimal mode',
   presetMinimalDescription:
     'The agent works using only a terminal tool. Useful for testing and comparing its basic performance.',
@@ -88,6 +92,8 @@ export const zh: Record<AgentPresetSettingsKey, string> = {
   presetStandardDescription: '处理代码、文件和资料，适合大多数任务。Agent 会按需使用检索、编辑和终端等工具。',
   presetPtcName: 'PTC 模式',
   presetPtcDescription: '包含标准模式的所有能力，更适合批量调用工具，并对结果进行筛选、整理、去重、统计或汇总的任务。',
+  presetLeanName: '精简模式',
+  presetLeanDescription: '使用四个工具读取、检索和写入文件，上下文上限为 200,000 token。',
   presetMinimalName: '极简模式',
   presetMinimalDescription: 'Agent 仅使用终端工具完成任务，适合测试和对比其基础表现。',
   presetCordisName: '创造模式',

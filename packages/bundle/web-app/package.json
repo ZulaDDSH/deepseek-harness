@@ -33,6 +33,7 @@
     "cordis.patch.yml",
     "presets/standard.patch.yml",
     "presets/ptc.patch.yml",
+    "presets/lean.patch.yml",
     "presets/minimal.patch.yml",
     "presets/cordis.patch.yml",
     "lib/types/**/*.d.ts"
@@ -44,6 +45,7 @@
         "./cordis.patch.yml",
         "./presets/standard.patch.yml",
         "./presets/ptc.patch.yml",
+        "./presets/lean.patch.yml",
         "./presets/minimal.patch.yml",
         "./presets/cordis.patch.yml"
       ]

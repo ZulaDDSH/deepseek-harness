@@ -159,6 +159,20 @@ describe('session cwd resolution', () => {
 })
 
 describe('registration', () => {
+  it('registers only the configured tools and their prompt sections', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(FakeFs)
+    await ctx.plugin(FsPolicy)
+    const fiber = await ctx.plugin(ToolFs, { enabledTools: ['read', 'write'] })
+    expect(ctx.tools.schemas().map(s => s.name).sort()).toEqual(['read', 'write'])
+    const prompt = renderPrompt(await ctx.systemPrompt.assemble())
+    expect(prompt).not.toContain('before editing it')
+    await fiber.dispose()
+    expect(ctx.tools.schemas()).toHaveLength(0)
+  })
+
   it('registers read, write, and edit', async () => {
     const { ctx } = await setup()
     expect(ctx.tools.schemas().map(s => s.name).sort()).toEqual(['edit', 'read', 'write'])

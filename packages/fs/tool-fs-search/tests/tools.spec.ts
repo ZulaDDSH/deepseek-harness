@@ -241,6 +241,14 @@ function matchLine(path: string, lineNumber: number, lineText: string): string {
 }
 
 describe('registration', () => {
+  it('registers only the configured search tools', async () => {
+    const { ctx, fiber } = await setup({ config: { enabledTools: ['grep'] } })
+    expect(ctx.tools.schemas().map(s => s.name)).toEqual(['grep'])
+    expect(renderPrompt(await ctx.systemPrompt.assemble())).not.toContain('Use the glob tool')
+    await fiber.dispose()
+    expect(ctx.tools.schemas()).toHaveLength(0)
+  })
+
   it('registers glob and grep unconditionally with their prompt sections', async () => {
     const { ctx, subprocess } = await setup()
     // Registration performs NO load-time probe: the packaged binary is always
