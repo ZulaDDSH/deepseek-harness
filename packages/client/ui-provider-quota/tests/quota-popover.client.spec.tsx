@@ -147,7 +147,7 @@ describe('ProviderQuotaAction popover', () => {
     const view = renderPopover([
       { providerId: 'opencode-go', providerName: 'OpenCode Go', configured: true, ok: true },
       { providerId: 'openai-codex', providerName: 'OpenAI Codex', configured: true, ok: true },
-    ], undefined, { useProjection: key => key === 'modelSelection' ? { next: { provider: 'openai-codex', model: 'gpt-6.1-sol' } } : undefined })
+    ], undefined, { useProjection: (key: string) => key === 'modelSelection' ? { next: { provider: 'openai-codex', model: 'gpt-6.1-sol' } } : undefined })
     const names = Array.from(view.getByRole('dialog').querySelectorAll('section > header')).map(header => header.textContent)
     expect(names).toEqual([en.accountQuota, 'OpenAI Codex', 'OpenCode Go'])
     expect(view.getAllByText('OpenAI Codex')).toHaveLength(1)
