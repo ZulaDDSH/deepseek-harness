@@ -39,3 +39,5 @@ Reference: `packages/api/settings-controller/src/request.ts:settingsRequest.pars
 `packages/llm/llm-pi-ai/src/codex-quota.ts:createCodexQuotaSource` creates the model collection only for configured account reads. `packages/experimental/webworker-runtime/src/node/external_packages/pi-ai.ts:builtinModels` rejects authentication operations unsupported by the worker.
 
 `packages/client/ui-provider-quota/src/client/ProviderQuotaAction.tsx:sessionTokenLabel` formats required model usage and leaves absent session usage to the caller. `.github/workflows/ci.yml:refresh-web-snapshots` runs the selected web-session owners on Linux and uploads their current-writer outputs for review.
+
+`apps/web/tests/preview-boot.e2e.ts:respond` normalizes URL paths with POSIX separators before matching generated asset keys; filesystem joins remain platform-native.
