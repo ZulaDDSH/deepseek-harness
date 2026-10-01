@@ -22,6 +22,8 @@ The Host also serves live status and comparisons for registered Workspaces witho
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 - [Dev Note](#dev-note)
 
+Repositories without commits count current files against an empty baseline.
+
 -----
 
 <a id="use-this-package"></a>

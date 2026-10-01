@@ -28,7 +28,7 @@ export async function readWorkspaceStatus(
   if (status.exitCode !== 0) throw new Error(`git status failed: ${status.stderr.trim()}`)
   const records = parseStatus(status.stdout)
   const tracked = await git.run(['diff', '--numstat', '-z', '--no-ext-diff', '--no-renames', 'HEAD'], { cwd: root, signal })
-  if (tracked.exitCode !== 0 && !/does not have any commits yet|bad revision/i.test(tracked.stderr)) {
+  if (tracked.exitCode !== 0 && !/does not have any commits yet|bad revision|unknown revision/i.test(tracked.stderr)) {
     throw new Error(`git diff failed: ${tracked.stderr.trim()}`)
   }
   const trackedCounts = new Map((tracked.stdout === '' ? [] : parseNumstat(tracked.stdout)).map(entry => [entry.path, entry]))

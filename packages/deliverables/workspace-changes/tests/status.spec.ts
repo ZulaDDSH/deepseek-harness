@@ -22,6 +22,19 @@ afterEach(async () => {
 })
 
 describe('current workspace status', () => {
+  it('counts a repository without HEAD when Git reports an ambiguous revision', async () => {
+    const root = await scratchDir('dsh-status-unborn-', cleanups)
+    git(root, 'init', '-q')
+    await writeFile(join(root, 'file.txt'), 'hello\n')
+    const { ctx, git: command } = await runner()
+    cleanups.push(() => ctx.fiber.dispose())
+    const run = command.run.bind(command)
+    vi.spyOn(command, 'run').mockImplementation((args, options) => args.includes('HEAD')
+      ? Promise.resolve({ exitCode: 128, stdout: '', stderr: "fatal: ambiguous argument 'HEAD': unknown revision or path not in the working tree.", truncated: false })
+      : run(args, options))
+    expect(await readWorkspaceStatus(command, root, root, 20, signal)).toMatchObject({ added: 1, deleted: 0 })
+  })
+
   it.each([
     ['unterminated', '?? file'], ['short', 'x\0'], ['separator', '??xfile\0'], ['rename', 'R  file\0'],
   ])('rejects %s Git status output', async (_label, output) => {

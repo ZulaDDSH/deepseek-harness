@@ -22,6 +22,8 @@ Host 还会为已注册的 Workspace 提供实时状态和对比，而不追加 
 - [已知限制与延期工作](#known-limitations-and-deferred-work)
 - [开发备注](#dev-note)
 
+尚无提交的仓库以空基线统计当前文件。
+
 -----
 
 <a id="use-this-package"></a>
