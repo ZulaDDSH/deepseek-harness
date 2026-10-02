@@ -42,8 +42,8 @@ export function apply(ctx: ClientContext): void {
     }
     return result.value
   }
-  const setDisabledHooks: HooksSettingsSectionInjected['setDisabledHooks'] = async (entryId, keys) => {
-    const result = await ctx.remote.settings.mutate(entryId, [{ op: 'set', path: ['disabledHooks'], value: [...keys] }], undefined)
+  const setEnabledHooks: HooksSettingsSectionInjected['setEnabledHooks'] = async (entryId, keys) => {
+    const result = await ctx.remote.settings.mutate(entryId, [{ op: 'set', path: ['enabledHooks'], value: [...keys] }], undefined)
     if (!result.ok) throw new Error(`settings.mutate failed: ${result.error.code}: ${result.error.message}`)
   }
   // Resolved per call over ui-agent-preset's dictionaries, so a language
@@ -60,7 +60,7 @@ export function apply(ctx: ClientContext): void {
 
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section', id: 'hooks', order: 70, label: () => t('hooksTitle'), locale: NS,
-    inject: () => ({ list, setDisabledHooks }),
+    inject: () => ({ list, setEnabledHooks }),
   }, HooksSettingsSection))
 
   ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({

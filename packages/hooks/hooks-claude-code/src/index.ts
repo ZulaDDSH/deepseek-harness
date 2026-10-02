@@ -77,8 +77,8 @@ export interface Config {
   defaultTimeoutMs?: number
   /** Character cap for the `hook/result` event's persisted stderr summary. */
   stderrSummaryMaxChars?: number
-  /** {@link hookKey} values of commands to skip; edited live from Settings. */
-  disabledHooks?: Volatile<string[]>
+  /** {@link hookKey} values of the only commands that run; edited live from Settings. */
+  enabledHooks?: Volatile<string[]>
 }
 
 export const Config = z.object({
@@ -87,7 +87,7 @@ export const Config = z.object({
   projectDir: z.string(),
   defaultTimeoutMs: z.number().default(DEFAULT_HOOK_TIMEOUT_MS),
   stderrSummaryMaxChars: z.number().default(DEFAULT_STDERR_SUMMARY_MAX_CHARS),
-  disabledHooks: z.array(z.string()).default([]).volatile(),
+  enabledHooks: z.array(z.string()).default([]).volatile(),
 })
 
 /** A stable per-handler id so an invoked/result pair correlates in the log. */
@@ -116,9 +116,9 @@ export function apply(ctx: Context, config: Config): void {
   let inventory: HookInventoryReport = {
     dialect: 'claude-code', source: config.configPath, status: 'failed', handlers: [], skipped: [],
   }
-  const disabledHooks = (): readonly string[] => config.disabledHooks?.get() ?? []
+  const enabledHooks = (): readonly string[] => config.enabledHooks?.get() ?? []
   ctx.on('hooks/inventory', (reports) => {
-    reports.push({ ...inventory, handlers: describeHookHandlers(parsed, disabledHooks()) })
+    reports.push({ ...inventory, handlers: describeHookHandlers(parsed, enabledHooks()) })
   })
   try {
     const raw: unknown = JSON.parse(readFileSync(config.configPath, 'utf8'))
@@ -174,17 +174,17 @@ export function apply(ctx: Context, config: Config): void {
     // workspace (the same dir the hook runs in).
     const projectDir = config.projectDir ?? workdir
     const hookEnv = projectDir !== undefined ? { CLAUDE_PROJECT_DIR: projectDir } : undefined
-    const disabled = new Set(disabledHooks())
+    const enabled = new Set(enabledHooks())
     const overrides = opts.agent === undefined ? undefined
       : ctx.sessionProjections.stateOf(opts.agent.session, 'hookOverrides')?.current?.overrides
-    for (const [key, enabled] of Object.entries(overrides ?? {})) {
-      if (enabled) disabled.delete(key)
-      else disabled.add(key)
+    for (const [key, on] of Object.entries(overrides ?? {})) {
+      if (on) enabled.add(key)
+      else enabled.delete(key)
     }
     for (const group of groups) {
       if (!matchesMatcher(group.matcher, matchQuery, 'claude-code')) continue
       for (const hook of group.hooks) {
-        if (disabled.has(hookKey(point, group.matcher, hook.command))) continue
+        if (!enabled.has(hookKey(point, group.matcher, hook.command))) continue
         const handlerId = nextHandlerId(point)
         const session = opts.agent?.session
         if (session && opts.turn !== undefined) {

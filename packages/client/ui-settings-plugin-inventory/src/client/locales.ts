@@ -3,7 +3,7 @@
 /** Simplified Chinese dictionary and key source of truth. */
 export const zh = {
   hooksTitle: '钩子',
-  hooksHelp: '查看 Codex 和 Claude 的钩子配置文件以及 Harness 已加载的桥接器。外部配置不代表 Harness 会执行这些命令；加载状态也不代表命令已经执行。',
+  hooksHelp: '只有在这里启用的钩子才会在 Harness 中运行。新的或已更改的外部钩子默认关闭。',
   hooksRefresh: '刷新状态',
   hooksEmpty: '未找到钩子配置文件或已加载的桥接器。',
   hooksLoaded: '已加载',
@@ -64,7 +64,7 @@ export type PluginInventoryLocaleKey = keyof typeof zh
 /** English dictionary checked against the Chinese key set. */
 export const en = {
   hooksTitle: 'Hooks',
-  hooksHelp: 'Inspect Codex and Claude hook files alongside loaded Harness bridges. External configuration does not mean Harness executes those commands; loaded does not mean executed.',
+  hooksHelp: 'Only hooks switched on here run in Harness. New or changed hooks in external files start off.',
   hooksRefresh: 'Refresh status',
   hooksEmpty: 'No hook files or loaded bridges were found.',
   hooksLoaded: 'Loaded',

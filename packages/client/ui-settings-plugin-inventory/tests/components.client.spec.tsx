@@ -675,58 +675,55 @@ it('shows current-page sync errors and retries without re-reading Host inventory
 })
 
 describe('Hooks settings', () => {
-  it('distinguishes external configuration from loaded bridge commands', async () => {
+  it('hides external configuration that Harness does not control', async () => {
     const list = vi.fn<PluginInventorySettingsTabInjected['list']>().mockResolvedValue({ entries: [], hooks: [{
       dialect: 'claude-code', source: '/settings.json', status: 'configured',
       handlers: [{ event: 'SubagentStart', command: 'external-policy', key: 'k0' }], skipped: [],
     }] })
-    render(<HooksSettingsSection {...props(list)} setDisabledHooks={vi.fn()} close={() => {}} />)
-    await screen.findByText('external-policy')
-    expect(screen.getByText(en.hooksConfigured, { exact: false })).toBeTruthy()
-    expect(screen.queryByText(en.hooksLoaded)).toBeNull()
+    render(<HooksSettingsSection {...props(list)} setEnabledHooks={vi.fn()} close={() => {}} />)
+    expect(await screen.findByText(en.hooksEmpty)).toBeTruthy()
+    expect(screen.queryByText('external-policy')).toBeNull()
   })
-  it('shows loaded commands and refreshes load diagnostics', async () => {
+  it('shows loaded hooks by script name and refreshes load diagnostics', async () => {
     const list = vi.fn<PluginInventorySettingsTabInjected['list']>().mockResolvedValue({ entries: [], hooks: [{
-      dialect: 'codex', source: '/hooks.json', status: 'loaded',
-      handlers: [{ event: 'PreToolUse', matcher: 'Bash', command: 'check-policy', key: 'k1' }], skipped: ['unsupported prompt'],
+      dialect: 'codex', source: '/hooks.json', status: 'loaded', skipped: [],
+      handlers: [{ event: 'PreToolUse', matcher: 'Bash', command: 'node "C:/h/check-policy.mjs" --x', key: 'k1' }],
     }] })
-    render(<HooksSettingsSection {...props(list)} setDisabledHooks={vi.fn()} close={() => {}} />)
-    await screen.findByText('check-policy')
-    expect(screen.getByText('PreToolUse')).toBeTruthy()
-    expect(screen.getByText('unsupported prompt')).toBeTruthy()
+    render(<HooksSettingsSection {...props(list)} setEnabledHooks={vi.fn()} close={() => {}} />)
+    expect(await screen.findByText('check-policy')).toBeTruthy()
     expect(screen.getByText(en.hooksHelp)).toBeTruthy()
     list.mockResolvedValueOnce({ entries: [], hooks: [{
       dialect: 'codex', source: '/hooks.json', status: 'failed', handlers: [], skipped: [], error: 'Invalid JSON',
     }] })
     fireEvent.click(screen.getByRole('button', { name: en.hooksRefresh }))
-    await screen.findByRole('alert')
-    expect(screen.getByText('Invalid JSON')).toBeTruthy()
+    expect(await screen.findByText('Invalid JSON')).toBeTruthy()
     expect(screen.queryByText('check-policy')).toBeNull()
   })
-  it('toggles loaded hooks through the bridge entry settings', async () => {
+  it('toggles loaded hooks through the bridge allow-list', async () => {
     const entry = { entryId: 'hooks-1', moduleName: '@deepseek-ai/dsh-hooks-codex', enabled: true, fiberPhase: null }
-    const report = (disabled: boolean) => ({ entries: [entry], hooks: [{
+    const report = (on: boolean) => ({ entries: [entry], hooks: [{
       dialect: 'codex', source: '/hooks.json', status: 'loaded', skipped: [], handlers: [
-        { event: 'PreToolUse', command: 'one', key: 'k1', ...disabled ? { disabled: true } : {} },
-        { event: 'Stop', command: 'two', key: 'k2' },
+        { event: 'PreToolUse', command: 'one', key: 'k1', ...on ? {} : { disabled: true } },
+        { event: 'Stop', command: 'two', key: 'k2', disabled: true },
       ],
     }] }) as unknown as Snapshot
     const list = vi.fn<PluginInventorySettingsTabInjected['list']>().mockResolvedValue(report(false))
-    const setDisabledHooks = vi.fn(async () => {})
-    render(<HooksSettingsSection {...props(list)} setDisabledHooks={setDisabledHooks} close={() => {}} />)
-    fireEvent.click(await screen.findByRole('switch', { name: `${en.hooksToggle}: PreToolUse one` }))
-    await waitFor(() => { expect(setDisabledHooks).toHaveBeenCalledWith('hooks-1', ['k1']) })
+    const setEnabledHooks = vi.fn(async () => {})
+    render(<HooksSettingsSection {...props(list)} setEnabledHooks={setEnabledHooks} close={() => {}} />)
+    const toggle = () => screen.findByRole('switch', { name: `${en.hooksToggle}: one PreToolUse` })
+    fireEvent.click(await toggle())
+    await waitFor(() => { expect(setEnabledHooks).toHaveBeenCalledWith('hooks-1', ['k1']) })
     list.mockResolvedValue(report(true))
     fireEvent.click(screen.getByRole('button', { name: en.hooksRefresh }))
-    await waitFor(() => { expect(screen.getByRole('switch', { name: `${en.hooksToggle}: PreToolUse one` }).getAttribute('aria-checked')).toBe('false') })
-    fireEvent.click(screen.getByRole('switch', { name: `${en.hooksToggle}: PreToolUse one` }))
-    await waitFor(() => { expect(setDisabledHooks).toHaveBeenLastCalledWith('hooks-1', []) })
+    await waitFor(async () => { expect((await toggle()).getAttribute('aria-checked')).toBe('true') })
+    fireEvent.click(await toggle())
+    await waitFor(() => { expect(setEnabledHooks).toHaveBeenLastCalledWith('hooks-1', []) })
+    fireEvent.click(await screen.findByRole('button', { name: en.hooksEnableAll }))
+    await waitFor(() => { expect(setEnabledHooks).toHaveBeenLastCalledWith('hooks-1', ['k1', 'k2']) })
     fireEvent.click(await screen.findByRole('button', { name: en.hooksDisableAll }))
-    await waitFor(() => { expect(setDisabledHooks).toHaveBeenLastCalledWith('hooks-1', ['k1', 'k2']) })
-    fireEvent.click(await screen.findByRole('button', { name: en.hooksEnableAll }))
-    await waitFor(() => { expect(setDisabledHooks).toHaveBeenLastCalledWith('hooks-1', []) })
-    setDisabledHooks.mockRejectedValueOnce(new Error('refused'))
-    fireEvent.click(await screen.findByRole('button', { name: en.hooksEnableAll }))
+    await waitFor(() => { expect(setEnabledHooks).toHaveBeenLastCalledWith('hooks-1', []) })
+    setEnabledHooks.mockRejectedValueOnce(new Error('refused'))
+    fireEvent.click(await screen.findByRole('button', { name: en.hooksDisableAll }))
     expect(await screen.findByText(en.hooksWriteFailed)).toBeTruthy()
   })
 })

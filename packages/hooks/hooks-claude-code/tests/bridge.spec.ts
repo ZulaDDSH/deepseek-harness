@@ -15,7 +15,7 @@ import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import SubagentRuntime, { SubagentRunId } from '@deepseek-ai/dsh-subagent'
 import * as HooksClaude from '@deepseek-ai/dsh-hooks-claude-code'
-import { hookKey, type HookInventoryReport } from '@deepseek-ai/dsh-hook-protocol'
+import type { HookInventoryReport } from '@deepseek-ai/dsh-hook-protocol'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
 /**
@@ -158,7 +158,7 @@ describe('hooks-claude-code bridge — PreToolUse', () => {
     expect(result?.type === 'tool/result' && result.data.message.content.some(b => b.type === 'text' && b.text.includes('danger tool blocked'))).toBe(true)
   })
 
-  it('a disabled PreToolUse hook is skipped and reported as disabled', async () => {
+  it('a PreToolUse hook not in enabledHooks is skipped and reported as disabled', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsh-hooks-claude-'))
     dirs.push(dir)
     const deny = join(dir, 'deny.sh')
@@ -171,7 +171,7 @@ describe('hooks-claude-code bridge — PreToolUse', () => {
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(LocalSubprocessRuntime)
     await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
-    await ctx.plugin(HooksClaude, { configPath: join(dir, 'hooks.json'), disabledHooks: [hookKey('PreToolUse', 'danger', deny)] })
+    await ctx.plugin(HooksClaude, { configPath: join(dir, 'hooks.json') })
     ctx.llm.registerAdapter(['mock'], new MockAdapter([toolCallResponse('c1', 'danger', {}), textResponse('done')]))
     let ran = false
     ctx.tools.register(defineContentToolFixture({ name: 'danger', description: 'd', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ran' }] } }))

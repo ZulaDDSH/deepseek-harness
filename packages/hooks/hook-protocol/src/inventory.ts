@@ -6,9 +6,9 @@ export interface HookInventoryHandler {
   readonly event: string
   readonly matcher?: string
   readonly command: string
-  /** Stable identity a bridge's `disabledHooks` setting names. */
+  /** Stable identity a bridge's `enabledHooks` setting names. */
   readonly key: string
-  /** Whether the bridge currently skips this command. */
+  /** Whether the bridge currently skips this command (not in `enabledHooks`). */
   readonly disabled?: boolean
 }
 
@@ -26,7 +26,7 @@ export interface HookInventoryReport {
  * @param event Hook event name.
  * @param matcher Selecting matcher, when the group has one.
  * @param command Command after substitution.
- * @returns The key stored in a bridge's `disabledHooks` setting.
+ * @returns The key stored in a bridge's `enabledHooks` setting.
  */
 export function hookKey(event: string, matcher: string | undefined, command: string): string {
   return JSON.stringify([event, matcher ?? null, command])
@@ -34,18 +34,18 @@ export function hookKey(event: string, matcher: string | undefined, command: str
 
 /** Flatten the accepted groups without exposing parser state.
  * @param config Parsed event groups retained by the bridge.
- * @param disabled Keys the bridge currently skips.
+ * @param enabled Keys the bridge runs; every other command is skipped.
  * @returns Commands with their selecting event, optional matcher and enablement.
  */
 export function describeHookHandlers(
   config: Record<string, readonly MatcherGroup[]>,
-  disabled: readonly string[] = [],
+  enabled: readonly string[] = [],
 ): HookInventoryHandler[] {
   return Object.entries(config).flatMap(([event, groups]) => groups.flatMap(group => group.hooks.map((hook) => {
     const key = hookKey(event, group.matcher, hook.command)
     return {
       event, command: hook.command, key, ...group.matcher === undefined ? {} : { matcher: group.matcher },
-      ...disabled.includes(key) ? { disabled: true } : {},
+      ...enabled.includes(key) ? {} : { disabled: true },
     }
   })))
 }

@@ -78,10 +78,10 @@ describe('ui-settings-plugin-inventory browser plugin', () => {
     expect(hooks.options.id).toBe('hooks')
     expect(resolveSlotLabel(hooks.options.label)).toBe('钩子')
     const hooksInjected = (hooks.inject as unknown as () => HooksSettingsSectionInjected)()
-    await hooksInjected.setDisabledHooks('hooks-1', ['k1'])
-    expect(b.mutate).toHaveBeenCalledWith('hooks-1', [{ op: 'set', path: ['disabledHooks'], value: ['k1'] }], undefined)
+    await hooksInjected.setEnabledHooks('hooks-1', ['k1'])
+    expect(b.mutate).toHaveBeenCalledWith('hooks-1', [{ op: 'set', path: ['enabledHooks'], value: ['k1'] }], undefined)
     b.mutate.mockResolvedValueOnce({ ok: false, error: { code: 'settings/refused', message: 'no' } })
-    await expect(hooksInjected.setDisabledHooks('hooks-1', [])).rejects.toThrow('settings.mutate failed: settings/refused: no')
+    await expect(hooksInjected.setEnabledHooks('hooks-1', [])).rejects.toThrow('settings.mutate failed: settings/refused: no')
 
     const injected = (entry.inject as unknown as () => PluginInventorySettingsTabInjected)()
     const text = { en: 'Local tools', zh: '本地工具' }
