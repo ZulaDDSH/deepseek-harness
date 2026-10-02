@@ -1,5 +1,9 @@
 # DeepSeek Harness code notes
 
+`scripts/project-doc-site.spec.ts:publishableImage` tests external image rejection through a directory link. Windows uses a junction so the negative case does not depend on file-symlink privileges.
+
+`packages/client/ui-conversation/src/client/apply.ts:apply` registers the desktop folder and Session connector menu actions through the existing command registry. Folder selections retain their captured Session binding and use the existing reference grammar. `packages/api/session-controller/src/agent.ts:ApiSessionAgentController.installMcpSelection` refreshes inherited tool restrictions when the tool registry changes, removes disabled namespaces from schemas and server sections, and guards shared resource tools using their requested server. `packages/client/ui-plugin-manager/src/client/index.ts:apply` contributes profile management navigation to the Session command menu.
+
 English | [中文](deepseek-harness.zh.md)
 
 ## Workflow repository targeting
@@ -43,6 +47,8 @@ Reference: `packages/api/settings-controller/src/request.ts:settingsRequest.pars
 `apps/web/tests/preview-boot.e2e.ts:respond` normalizes URL paths with POSIX separators before matching generated asset keys; filesystem joins remain platform-native.
 
 ## Memory workspace
+
+`scripts/graphify-native.py:memorix_graph` reconstructs complete active document imports from a read-only Memorix snapshot and passes their text to Graphify's Markdown extractor, builder, community detector and HTML exporter. Partial imports are excluded. The graph contains saved documents only; structural headings and explicit references do not imply semantic inference. `packages/client/ui-memory-workspace/src/index.ts:MemoryWorkspace.graph` serializes rebuilds and regenerates this derived view when opened or refreshed; graph failures do not undo stored memories.
 
 `packages/knowledge/knowledge-router/src/memorix-types.ts` contains the platform-neutral browser values; generated Client RPC declarations import this leaf without loading Host Agent services.
 

@@ -28,7 +28,7 @@ Enable the `ui-memory-workspace` row beside a configured Memorix MCP client. `me
 
 Select **Memory** to browse every provider table, search all columns and inspect complete records. The local view includes all projects, statuses and visibility scopes; it does not forward those records to a model. Uploading TXT, Markdown, CSV, JSON, logs, PDF or Office documents retains the original file and writes every extracted text chunk through `memorix_store`. Each chunk is read back using the provider-acknowledged observation and project before success is reported. Partial imports preserve completed chunks and can be retried using stable document identifiers.
 
-The **Context graph** tab loads the configured `graphPath`, or `graphify-out/graph.json` beneath the provider working directory, then invokes the installed Graphify CLI with `export html --graph <path>`. It embeds the resulting `graph.html` in a script-only sandbox; community filters, layout, search and node details belong to Graphify. Configure `graphifyCommand` and `graphifyArgs` for the installed Graphify executable. To supply Graphify’s own structural community labels without model calls, use its Python interpreter with `scripts/graphify-native.py` as the argument prefix; the adapter calls Graphify’s label function and official CLI in the same process. General launchers require separate descendant-cancellation validation. The official viewer loads its pinned visualization library from unpkg and requires network access. Enable Knowledge Router’s `graphify.cli` with the same launcher to use `/graphify update`, `/graphify query "question"`, `/graphify explain "node"`, `/graphify path "source" "target"` and `/graphify export html` in chats. Commands use that chat’s recorded workspace; update runs Graphify extraction, clustering without model labels, and HTML export.
+The **Context graph** tab rebuilds complete active document imports from the connected Memorix database whenever opened or refreshed. Configure `graphifyCommand` as Graphify's Python interpreter and `graphifyArgs` with `scripts/graphify-native.py`. The adapter reconstructs saved text and invokes Graphify's own Markdown extractor, builder, community detector, structural labels and HTML exporter, without model calls or scanning Harness code. Headings and explicit links are structural evidence; conceptual inference is not performed. Partial and archived imports are excluded. Output uses `graphPath`, or `graphify-out/graph.json` beneath `importDirectory`. The native viewer retains its community filters, layout, search and node details in a script-only sandbox; its pinned visualization library loads from unpkg. Older installed Hosts can use the adapter prefix `--memorix-database <database>` before their HTML export command. Knowledge Router's `/graphify` commands continue to use the calling chat's workspace graph.
 
 -----
 
@@ -47,7 +47,15 @@ No runtime invariant companion is published: displayed data derives from provide
 
 ## Model Experience
 
+### Document import tool
+
+#### What the model sees
+
 With the tool registry and filesystem mounted, agents can call `memorix_import_file` with an absolute path or a path relative to their chat workspace. It uses the same bounded, provider-verified importer as the panel and returns retained-file and chunk counts, including partial failures. For example, ask: “Import docs/guide.pdf into Memorix using memorix_import_file.” Existing Memorix tools retrieve imported memories; the panel adds no automatic memory injection.
+
+#### Token effect
+
+The tool schema and provider-confirmed import result consume request and transcript tokens. Imported document contents are not automatically injected into later requests.
 
 #### KV Cache effect
 
@@ -56,7 +64,7 @@ Memorix provider configuration owns subsequent retrieval and its request effects
 ## Known Limitations and Deferred Work
 
 - Only the Memorix 1.3.0 migration inventory is supported; unsupported databases fail explicitly and are never migrated. Uploads accept UTF-8 text, PDF text layers and Office documents through the existing Office conversion provider. Scanned documents require OCR; this panel does not perform OCR. Byte and extracted-character limits reject oversized documents without truncation.
-- Graphify must be installed and a graph export must exist; this package invokes its HTML exporter and does not implement graph rendering or semantic relationship generation. Local browsing includes private and team records owned by the local user and is intended for an authenticated personal Host.
+- Graphify and the supplied adapter must be installed. The derived graph rebuilds when opened or refreshed; uploads remain successful if later graph generation fails. Local browsing includes private and team records owned by the local user and is intended for an authenticated personal Host.
 
 <a id="dev-note"></a>
 ### Dev Note

@@ -12,6 +12,7 @@ import ToolRuntime, { type ToolExecutionToken, type ToolRunContext } from '@deep
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { runNativeCommand } from '@deepseek-ai/dsh-native-command'
 
 vi.mock('@deepseek-ai/dsh-native-command', () => ({ runNativeCommand: vi.fn(async () => ({ stdout: '', stderr: '' })) }))
 
@@ -108,13 +109,16 @@ describe('Memory workspace', () => {
     await writeFile(graphPath, JSON.stringify({ nodes: [{ id: 'a', label: 'Guide', source_file: 'guide.md' }, { id: 'b' }], links: [{ source: 'a', target: 'b', relation: 'references' }] }))
     const graphCtx = new Context()
     roots.push(graphCtx)
-    registerHumanOperations(graphCtx, 'memorix', { local: true, cwd: directory, env: {}, call: async () => ({}) })
+    registerHumanOperations(graphCtx, 'memorix', { local: true, cwd: directory, env: { MEMORIX_DATA_DIR: directory }, call: async () => ({}) })
     await graphCtx.plugin(MemoryWorkspace, { graphPath, maxGraphBytes: 512 })
     const html = '<html><body>Graphify communities</body></html>'
     await writeFile(join(directory, 'graph.html'), html)
     const graph = await graphCtx.memoryWorkspace.graph()
     expect(graph.html).toBe(html)
     expect(graph.path).toBe(graphPath)
+    expect(runNativeCommand).toHaveBeenLastCalledWith('graphify', [
+      'memorix', '--database', join(directory, 'memorix.db'), '--graph', graphPath,
+    ], expect.any(AbortSignal), 'hidden')
     await writeFile(graphPath, 'x'.repeat(513))
     await expect(graphCtx.memoryWorkspace.graph()).rejects.toThrow('configured byte limit')
     await expect(ctx.memoryWorkspace.importDocument('empty.txt', Buffer.from(' ').toString('base64'))).rejects.toThrow('no extractable text')

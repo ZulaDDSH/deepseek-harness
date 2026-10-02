@@ -62,6 +62,22 @@ function declare(slots: SlotRegistry): () => void {
 }
 
 describe('ui-plugin-manager browser plugin', () => {
+  it('opens plugin management from the session command menu and unregisters the shortcut on disposal', async () => {
+    const b = await bench()
+    const entries = new Map<string, { ui: { run(): void } }>()
+    b.ctx.provide('commandUi', {
+      register: (entry: { name: string; ui: { run(): void } }) => {
+        entries.set(entry.name, entry)
+        return () => { entries.delete(entry.name) }
+      },
+    })
+    const feature = b.ctx.plugin({ inject: [...inject], apply })
+    await feature.await()
+    entries.get('plugins')!.ui.run()
+    expect(b.selectPanel).toHaveBeenCalledWith(PANEL_ID)
+    await feature.dispose()
+    expect(entries.size).toBe(0)
+  })
   it('resets bundle selection when leaving Plugins and releases its panel observer with the registration', async () => {
     const b = await bench()
     const removeRoot = declare(b.slots)

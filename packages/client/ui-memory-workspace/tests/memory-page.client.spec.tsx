@@ -34,6 +34,7 @@ it('renders provider records and embeds the official Graphify viewer in a script
   expect(frame.getAttribute('srcdoc')).toBe('<html>Official Graphify communities</html>')
   expect(frame.getAttribute('sandbox')).toBe('allow-scripts')
   expect(container.querySelector('svg')).toBeNull()
+  expect(container.textContent).toMatchSnapshot('memory graph')
 
 })
 

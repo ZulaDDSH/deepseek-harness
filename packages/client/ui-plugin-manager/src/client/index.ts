@@ -75,6 +75,15 @@ export const inject = ['slots', 'locale', 'remote', 'remote.pluginManager', 'rem
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-plugin-manager: dictionaries')
   const t = ctx.locale.bind(NS)
+  ctx.inject(['commandUi'], (scope) => {
+    const commands = scope.get('commandUi') as {
+      register(entry: { name: string; label(): string; available(): boolean; ui: { kind: 'action'; run(): void } }): () => void
+    }
+    scope.effect(() => commands.register({
+      name: 'plugins', label: () => t('panel'), available: () => true,
+      ui: { kind: 'action', run: () => { ctx.layout.selectPanel(PANEL_ID) } },
+    }), 'ui-plugin-manager: composer navigation')
+  })
   const controller = new PluginManagerController(ctx)
   ctx.effect(() => () => { controller.dispose() }, 'ui-plugin-manager: controller')
   // The Host says when what is installed, enabled, or composed changed — from

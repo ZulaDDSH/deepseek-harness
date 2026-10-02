@@ -216,7 +216,7 @@ Authenticated GUI operations; provider calls remain Host-owned.
 @Remote async page(table: string, offset: number, query: string): Promise<MemorixPage>
 
 /**
- * Load a complete provider-generated Graphify graph, bounded before decoding.
+ * Rebuild complete active Memorix documents with the Graphify adapter and load its bounded viewer.
  * @returns the official Graphify viewer and its graph source path.
  */
 @Remote graph(): Promise<MemoryGraph>

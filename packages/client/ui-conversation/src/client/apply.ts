@@ -20,6 +20,7 @@ import type {
   ConversationSessionInjected, DraftFileUploads,
 } from './contract/slots.ts'
 import type { InputNotice } from './contract/input.ts'
+import type { McpSelectionProjection } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { ReferenceInsert } from './contract/draft-editor.ts'
 import { createConversationStore, readConversationViewPreference } from './stores.ts'
 import { formatFileMention } from '@deepseek-ai/dsh-file-reference/grammar'
@@ -123,7 +124,11 @@ interface FileCommandRegistry {
     label(): string
     icon: typeof IconPaperclipOutlineRegular
     available(session: { sessionId: SessionId }): boolean
-    ui: { kind: 'action'; run(session: { sessionId: SessionId }): void }
+    ui: { kind: 'action'; run(session: { sessionId: SessionId }): void } | {
+      kind: 'popupSelect'
+      options(session: { sessionId: SessionId }, signal: AbortSignal): Promise<readonly { id: string; label: string; active?: boolean }[]>
+      onSelect(option: { id: string }, session: { sessionId: SessionId }): Promise<void>
+    }
   }): () => void
 }
 
@@ -278,6 +283,74 @@ export async function apply(ctx: Context, config: Config = Config({})): Promise<
       available: session => inputHub.canPickFiles(session.sessionId),
       ui: { kind: 'action', run: (session) => { inputHub.pickFiles(session.sessionId) } },
     }), 'ui-conversation: File action')
+    const desktop = (globalThis as typeof globalThis & {
+      __DSH_DIRECTORY_PICKER__?: { pick(): Promise<string | null> }
+    }).__DSH_DIRECTORY_PICKER__
+    if (desktop !== undefined) {
+      scope.effect(() => commands.register({
+        name: 'folder', label: () => t('input.folder'), icon: IconPaperclipOutlineRegular,
+        available: session => inputHub.canPickFiles(session.sessionId),
+        ui: { kind: 'action', run: ({ sessionId }) => {
+          const binding = sessions.binding(sessionId)
+          if (binding === undefined || !inputHub.canPickFiles(sessionId)) return
+          const shell = inputHub.shellFor(binding)
+          void desktop.pick().then((path) => {
+            if (path === null || sessions.binding(sessionId) !== binding || !inputHub.canPickFiles(sessionId)) return
+            const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
+            const mention = formatFileMention({ path: `${relativizeToCwd(path, cwd)}/`, kind: 'file' }, false)
+            if (mention === undefined) { shell.notify('error', t('attachment.pathUnsupported')); return }
+            if (!shell.addFiles([{
+              source: 'reference', ref: mention, label: `${workspaceTitleOf(path)}/`,
+              appearance: 'folder', clipboardText: mention,
+            }], [])) shell.notify('error', t('attachment.dropBlocked'))
+          }).catch((error: unknown) => {
+            if (sessions.binding(sessionId) === binding) shell.notify('error', error instanceof Error ? error.message : String(error))
+          })
+        } },
+      }), 'ui-conversation: Folder action')
+    }
+    scope.inject(['remote', 'remote.session'], (remoteScope) => {
+      const remote = remoteScope.remote.session
+      remoteScope.effect(() => commands.register({
+        name: 'connectors', label: () => t('input.connectors'), icon: IconPaperclipOutlineRegular,
+        available: session => sessions.binding(session.sessionId) !== undefined
+          && sessions.subagentAddress(session.sessionId) === undefined,
+        ui: {
+          kind: 'popupSelect',
+          options: async ({ sessionId }) => {
+            const result = await remote.listMcpConnectors()
+            if (!result.ok) throw new Error(result.error.message)
+            const projection = sessions.binding(sessionId)?.session.projections.faceOf('mcpSelection').getSnapshot() as McpSelectionProjection | undefined
+            const selection = projection?.current
+            const rows: { id: string; label: string; active?: boolean }[] = result.value.connectorIds
+              .map(id => ({ id, label: id, active: selection == null || selection.connectorIds.includes(id) }))
+            if (ctx.get('pluginNavigation') !== undefined) rows.push({ id: '$manage', label: t('input.manageConnectors') })
+            return rows
+          },
+          onSelect: async (option, { sessionId }) => {
+            if (option.id === '$manage') {
+              const navigation = ctx.get('pluginNavigation') as { openBundle(name: string): void } | undefined
+              if (navigation === undefined) throw new Error(t('input.connectorsUnavailable'))
+              navigation.openBundle('@deepseek-ai/dsh-mcp-client')
+              return
+            }
+            if (sessions.subagentAddress(sessionId) !== undefined) throw new Error(t('input.connectorsUnavailable'))
+            const binding = sessions.binding(sessionId)
+            if (binding === undefined) throw new Error(t('file.sessionUnavailable'))
+            const catalog = await remote.listMcpConnectors()
+            if (!catalog.ok) throw new Error(catalog.error.message)
+            if (sessions.binding(sessionId) !== binding) throw new Error(t('file.sessionUnavailable'))
+            const projection = binding.session.projections.faceOf('mcpSelection').getSnapshot() as McpSelectionProjection | undefined
+            const selection = projection?.current
+            const selected = new Set((selection?.connectorIds ?? catalog.value.connectorIds)
+              .filter(id => catalog.value.connectorIds.includes(id)))
+            if (selected.has(option.id)) selected.delete(option.id); else selected.add(option.id)
+            const result = await remote.selectMcp({ sessionId, connectorIds: [...selected] })
+            if (!result.ok) throw new Error(result.error.message)
+          },
+        },
+      }), 'ui-conversation: Session connectors')
+    })
   })
 
   // Conversation assembly and input share the Session binding lifecycle. The

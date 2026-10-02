@@ -1587,7 +1587,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: '@Remote graph(): Promise<MemoryGraph>',
-        description: 'Load a complete provider-generated Graphify graph, bounded before decoding.',
+        description: 'Rebuild complete active Memorix documents with the Graphify adapter and load its bounded viewer.',
         parameters: [],
         returns: 'the official Graphify viewer and its graph source path.',
       },

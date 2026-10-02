@@ -1,5 +1,9 @@
 # DeepSeek Harness 代码备注
 
+`scripts/project-doc-site.spec.ts:publishableImage` 通过目录链接测试外部图片拒绝路径。Windows 使用 junction，使负向用例不依赖文件符号链接权限。
+
+`packages/client/ui-conversation/src/client/apply.ts:apply` 通过现有命令注册表提供桌面文件夹与 Session 连接器菜单操作。文件夹选择保留原 Session binding，并使用现有引用语法。`packages/api/session-controller/src/agent.ts:ApiSessionAgentController.installMcpSelection` 在工具注册表变更时刷新继承工具限制，从 schema 和服务器段落中移除禁用的命名空间，并根据请求的服务器限制共享资源工具。`packages/client/ui-plugin-manager/src/client/index.ts:apply` 在 Session 命令菜单中提供 profile 管理导航。
+
 [English](deepseek-harness.md) | 中文
 
 ## 工作流仓库定位
@@ -43,6 +47,8 @@
 `apps/web/tests/preview-boot.e2e.ts:respond` 先用 POSIX 分隔符规范化 URL 路径，再匹配生成的资源键；文件系统路径仍使用平台原生的连接方式。
 
 ## Memory workspace
+
+`scripts/graphify-native.py:memorix_graph` 从只读 Memorix 快照还原完整且有效的文档导入，将文本交给 Graphify 的 Markdown 提取器、构建器、社区检测器与 HTML 导出器。部分导入被排除。图谱只包含已保存的文档；结构标题与明确引用不代表语义推断。`packages/client/ui-memory-workspace/src/index.ts:MemoryWorkspace.graph` 串行执行重建，在打开或刷新时重新生成派生视图；图谱失败不会撤销已保存的记忆。
 
 `packages/knowledge/knowledge-router/src/memorix-types.ts` 包含平台无关的浏览器值；生成的 Client RPC 声明导入此叶模块，不加载 Host Agent 服务。
 

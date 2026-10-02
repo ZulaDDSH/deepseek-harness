@@ -136,7 +136,7 @@ export function MemoryPage({ memory, t }: PageProps): ReactNode {
         {imports.map((result, index) => <p key={index} role="status">{result.filename}: {t('imported')} {result.completed}/{result.total} {result.error ?? ''}</p>)}
       </div>
     </> : <>
-      {graph === null && <p>{t('graphMissing')}</p>}
+      <p>{t('graphMissing')}</p>
       {graph && <iframe className={css.graph} title={t('graph')} sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={graph.html} />}
       {graph && <p>{t('source')}: {graph.path}</p>}
     </>}

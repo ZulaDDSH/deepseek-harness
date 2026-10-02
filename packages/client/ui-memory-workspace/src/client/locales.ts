@@ -8,7 +8,7 @@ export const en = {
   allScope: 'Local store: all projects, statuses and visibility scopes. These records are shown to you, not automatically sent to a model.',
   detail: 'Record details', empty: 'No records', imported: 'Document chunks saved', total: 'Total',
   source: 'Source',
-  graphMissing: 'Generate a Graphify graph.json export in this project’s graphify-out folder, then refresh.',
+  graphMissing: 'Graphify maps complete saved document imports. Upload documents into Memorix, then refresh to see their headings and explicit links.',
 }
 /** Keys in the memory workspace dictionary. */
 export type MemoryWorkspaceKey = keyof typeof en
@@ -22,7 +22,7 @@ export const zh: Record<MemoryWorkspaceKey, string> = {
   allScope: '本地存储：所有项目、状态与可见范围。这些记录仅向你展示，不会自动发送给模型。',
   detail: '记录详情', empty: '没有记录', imported: '已保存的文档片段', total: '总数',
   source: '来源',
-  graphMissing: '在此项目的 graphify-out 文件夹中生成 Graphify graph.json 导出，然后刷新。',
+  graphMissing: 'Graphify 映射完整保存的文档导入。将文档上传到 Memorix，然后刷新以查看标题与明确链接。',
 }
 /** Registered memory workspace locale namespace. */
 export const NS = 'memoryWorkspace'

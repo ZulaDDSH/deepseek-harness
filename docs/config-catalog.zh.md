@@ -615,7 +615,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-client-ui-memory-workspace`
 
-- `source`: [`packages/client/ui-memory-workspace/src/index.ts:22`](../packages/client/ui-memory-workspace/src/index.ts)
+- `source`: [`packages/client/ui-memory-workspace/src/index.ts:24`](../packages/client/ui-memory-workspace/src/index.ts)
 
 ```ts config-catalog
 /** Local storage selections and upload limits. */
@@ -624,7 +624,7 @@ export interface Config {
   memorixServer: string
   /** Explicit database override; empty derives it from the provider. */
   databasePath: string
-  /** Graphify export path; empty uses the provider project default. */
+  /** Derived document graph path; empty uses the import directory. */
   graphPath: string
   /** Graphify executable or a launcher such as uv. */
   graphifyCommand: string

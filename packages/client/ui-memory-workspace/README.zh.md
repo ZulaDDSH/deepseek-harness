@@ -28,7 +28,7 @@ kind: "package-reference"
 
 选择 **Memory**，浏览提供方的所有表、搜索所有列并检查完整记录。本地视图包含所有项目、状态和可见范围，不会将这些记录转发给模型。上传 TXT、Markdown、CSV、JSON、日志、PDF 或 Office 文档时，保留原始文件，并通过 `memorix_store` 写入每个提取文本片段。每个片段都按提供方确认的观察记录标识与项目从数据库重新读取后才报告成功。部分导入保留已完成的片段，并可使用稳定文档标识重试。
 
-**Context graph** 标签页读取已配置的 `graphPath`，否则使用提供方工作目录下的 `graphify-out/graph.json`，然后调用已安装的 Graphify CLI：`export html --graph <path>`。生成的 `graph.html` 嵌入仅允许脚本的沙箱；社区筛选、布局、搜索和节点详情均由 Graphify 提供。通过 `graphifyCommand` 与 `graphifyArgs` 配置 Graphify 可执行文件。若需要不调用模型的结构社区名称，可配置 Graphify 的 Python 解释器并以 `scripts/graphify-native.py` 作为参数前缀；适配器在同一进程调用 Graphify 的标签函数和官方 CLI。其他启动器需要另行验证子进程取消。官方查看器从 unpkg 加载固定版本的可视化库，需要网络访问。为知识路由器的 `graphify.cli` 配置同一可执行文件后，可在聊天中使用 `/graphify update`、`/graphify query "question"`、`/graphify explain "node"`、`/graphify path "source" "target"` 与 `/graphify export html`。命令使用该聊天记录的工作目录；更新依次调用 Graphify 提取、不使用模型标签的聚类和 HTML 导出。
+**Context graph** 标签页每次打开或刷新时，从已连接的 Memorix 数据库重建完整且有效的文档导入。将 `graphifyCommand` 配置为 Graphify 的 Python 解释器，并在 `graphifyArgs` 中指定 `scripts/graphify-native.py`。适配器还原保存的文本，调用 Graphify 自带的 Markdown 提取器、构建器、社区检测器、结构标签与 HTML 导出器，不调用模型或扫描 Harness 代码。标题与明确链接属于结构证据，不进行概念推断。部分导入与归档导入被排除。输出使用 `graphPath`，否则使用 `importDirectory` 下的 `graphify-out/graph.json`。原生查看器在仅允许脚本的沙箱中保留社区筛选、布局、搜索与节点详情；固定版本的可视化库从 unpkg 加载。旧版已安装的 Host 可在适配器参数中加入 `--memorix-database <database>` 前缀，然后运行 HTML 导出命令。知识路由器的 `/graphify` 命令继续使用当前聊天工作目录的图谱。
 
 -----
 
@@ -47,7 +47,15 @@ kind: "package-reference"
 
 ## Model Experience
 
+### 文档导入工具
+
+#### 模型所见
+
 挂载工具注册表与文件系统后，智能体可调用 `memorix_import_file`，传入绝对路径或相对于聊天工作目录的路径。此工具与面板共用有大小限制且经提供方验证的导入器，返回保留文件的路径、片段计数与部分失败。示例请求：“使用 memorix_import_file 将 docs/guide.pdf 导入 Memorix。”现有 Memorix 工具可检索导入的记忆；面板不自动注入记忆。
+
+#### Token 影响
+
+工具 schema 和经提供方确认的导入结果占用请求及对话 token。导入文档的内容不会自动注入后续请求。
 
 #### KV 缓存影响
 
@@ -56,7 +64,7 @@ Memorix 提供方配置负责后续检索及其请求影响。
 ## Known Limitations and Deferred Work
 
 - 仅支持 Memorix 1.3.0 的迁移清单；不支持的数据库会明确失败，绝不会迁移。上传支持 UTF-8 文本、PDF 文本层与现有 Office 转换提供方支持的文档。扫描文档需要 OCR；此面板不执行 OCR。超过字节或提取字符限制的文档会被拒绝，不会截断。
-- 必须安装 Graphify 并已有图谱导出；此包调用其 HTML 导出器，不实现图谱渲染或语义关系生成。本地浏览包含本地用户拥有的个人与团队记录，适用于经过身份验证的个人 Host。
+- 必须安装 Graphify 与所提供的适配器。派生图谱在打开或刷新时重建；后续图谱生成失败不会影响已成功的上传。本地浏览包含本地用户拥有的个人与团队记录，适用于经过身份验证的个人 Host。
 
 <a id="dev-note"></a>
 ### 开发备注

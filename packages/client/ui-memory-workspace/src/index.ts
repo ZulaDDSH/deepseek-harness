@@ -26,7 +26,7 @@ export interface Config {
   memorixServer: string
   /** Explicit database override; empty derives it from the provider. */
   databasePath: string
-  /** Graphify export path; empty uses the provider project default. */
+  /** Derived document graph path; empty uses the import directory. */
   graphPath: string
   /** Graphify executable or a launcher such as uv. */
   graphifyCommand: string
@@ -63,6 +63,7 @@ export default class MemoryWorkspace extends TypertRemoteService {
 
   private readonly lifetime = new AbortController()
   private readonly pending = new Set<Promise<unknown>>()
+  private graphQueue: Promise<unknown> = Promise.resolve()
 
   constructor(ctx: Context, private readonly config: Config) {
     super(ctx, 'memoryWorkspace')
@@ -131,12 +132,13 @@ export default class MemoryWorkspace extends TypertRemoteService {
   }
 
   /**
-   * Load a complete provider-generated Graphify graph, bounded before decoding.
+   * Rebuild complete active Memorix documents with the Graphify adapter and load its bounded viewer.
    * @returns the official Graphify viewer and its graph source path.
    */
   @Remote
   graph(): Promise<MemoryGraph> {
-    const pending = this.loadGraph()
+    const pending = this.graphQueue.then(() => this.loadGraph(), () => this.loadGraph())
+    this.graphQueue = pending
     this.pending.add(pending)
     void pending.then(() => this.pending.delete(pending), () => this.pending.delete(pending))
     return pending
@@ -144,10 +146,12 @@ export default class MemoryWorkspace extends TypertRemoteService {
 
   private async loadGraph(): Promise<MemoryGraph> {
     const provider = await this.provider()
-    const path = resolve(provider.cwd || process.cwd(), this.config.graphPath || join('graphify-out', 'graph.json'))
-    await this.readExport(path)
+    const path = resolve(this.config.graphPath || join(this.config.importDirectory, 'graphify-out', 'graph.json'))
+    const database = this.database(provider)
+    memorixInventory(database)
     await runNativeCommand(this.config.graphifyCommand, [...this.config.graphifyArgs,
-      'export', 'html', '--graph', path], this.lifetime.signal, 'hidden')
+      'memorix', '--database', database, '--graph', path], this.lifetime.signal, 'hidden')
+    await this.readExport(path)
     return { path, html: new TextDecoder('utf-8', { fatal: true }).decode(await this.readExport(join(dirname(path), 'graph.html'))) }
   }
 
