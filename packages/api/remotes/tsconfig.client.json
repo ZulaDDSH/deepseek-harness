@@ -114,7 +114,7 @@
       "path": "../../credentials/deepseek-account"
     },
     {
-      "path": "../../client/ui-memory-workspace/tsconfig.host.json"
+      "path": "../../knowledge/knowledge-router"
     }
   ]
 }

@@ -4029,24 +4029,9 @@ importers:
 
   packages/client/ui-memory-workspace:
     dependencies:
-      '@deepseek-ai/dsh-home-paths':
-        specifier: workspace:*
-        version: link:../../util/home-paths
-      '@deepseek-ai/dsh-knowledge-router':
-        specifier: workspace:*
-        version: link:../../knowledge/knowledge-router
-      '@deepseek-ai/dsh-native-command':
-        specifier: workspace:*
-        version: link:../../util/native-command
-      '@deepseek-ai/dsh-office-to-pdf':
-        specifier: workspace:*
-        version: link:../../document/office-to-pdf
       '@deepseek-ai/dsh-typert-protocol':
         specifier: workspace:*
         version: link:../../typert/protocol
-      '@deepseek-ai/dsh-util-crypto':
-        specifier: workspace:*
-        version: link:../../util/crypto
       '@deepseek-ai/dsh-util-values':
         specifier: workspace:*
         version: link:../../util/values
@@ -4084,15 +4069,30 @@ importers:
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: workspace:*
         version: link:../ui-slots
+      '@deepseek-ai/dsh-home-paths':
+        specifier: workspace:*
+        version: link:../../util/home-paths
+      '@deepseek-ai/dsh-knowledge-router':
+        specifier: workspace:*
+        version: link:../../knowledge/knowledge-router
       '@deepseek-ai/dsh-mcp-client':
         specifier: workspace:*
         version: link:../../mcp/mcp-client
+      '@deepseek-ai/dsh-native-command':
+        specifier: workspace:*
+        version: link:../../util/native-command
+      '@deepseek-ai/dsh-office-to-pdf':
+        specifier: workspace:*
+        version: link:../../document/office-to-pdf
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:*
         version: link:../../core/system-prompt
       '@deepseek-ai/dsh-tools':
         specifier: workspace:*
         version: link:../../core/tools
+      '@deepseek-ai/dsh-util-crypto':
+        specifier: workspace:*
+        version: link:../../util/crypto
       '@testing-library/react':
         specifier: ^16.1.0
         version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)

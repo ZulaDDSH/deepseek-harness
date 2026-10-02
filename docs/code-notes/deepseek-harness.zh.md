@@ -51,3 +51,5 @@
 `packages/client/ui-memory-workspace/src/index.ts:MemoryWorkspace.loadGraph` 调用已安装的 Graphify HTML 导出器；`src/client/MemoryPage.tsx:MemoryPage` 嵌入未修改的查看器，允许脚本而禁止同源访问。`packages/knowledge/knowledge-router/src/graphify-command.ts:registerGraphifyCommand` 从聊天工作目录调用同一配置的提供方。`scripts/graphify-native.py:run` 在同一 Python 进程调用 Graphify 的结构标签函数和官方 CLI，不实现图谱布局或聚类算法。
 
 `packages/client/ui-chat/src/client/conversation-nodes/chat-snapshot-builder.ts:chatViewDefinition.isActive` 将非空斜杠命令结果文本计入可见会话活动，没有文本的命令保留起始布局。
+
+`scripts/package-dependency-policy.ts:PEER_REQUIRED_HOST_EXPORTS` 使 Memorix 存储读取、Office 标识、主目录路径和原生命令执行使用共享的 Host peer 实例。`packages/client/ui-memory-workspace/tsconfig.client.json` 和 `packages/api/remotes/tsconfig.client.json` 使用生成的 Remote 声明，而不引用 Memory Host 项目。

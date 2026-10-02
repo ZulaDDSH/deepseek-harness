@@ -31,10 +31,10 @@
       "path": "../ui-slots"
     },
     {
-      "path": "./tsconfig.host.json"
+      "path": "../../util/crypto"
     },
     {
-      "path": "../../util/crypto"
+      "path": "../../knowledge/knowledge-router"
     }
   ],
   "include": [
