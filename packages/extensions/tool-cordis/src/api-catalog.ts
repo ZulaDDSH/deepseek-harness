@@ -4249,6 +4249,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'reloads', description: 'Replaced plugins and their module locations.' }],
   },
   {
+    name: 'hooks/inventory',
+    mode: 'emit',
+    signature: '\'hooks/inventory\'(reports: HookInventoryReport[]): void',
+    summary: 'Collect configuration snapshots from currently mounted hook bridges.',
+    description: 'Collect configuration snapshots from currently mounted hook bridges.',
+    parameters: [{ name: 'reports', description: 'Mutable destination for loaded bridge reports.' }],
+  },
+  {
     name: 'llm/adapters-updated',
     mode: 'emit',
     signature: '\'llm/adapters-updated\'(): void',
@@ -5463,6 +5471,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'GrantRecord',
     declaration: 'export interface GrantRecord {\n    readonly kind: \'grant\';\n    readonly payload: unknown;\n}',
+  },
+  {
+    name: 'HookDialect',
+    declaration: 'export type HookDialect = \'claude-code\' | \'codex\';',
+  },
+  {
+    name: 'HookInventoryHandler',
+    declaration: 'export interface HookInventoryHandler {\n    readonly event: string;\n    readonly matcher?: string;\n    readonly command: string;\n}',
+  },
+  {
+    name: 'HookInventoryReport',
+    declaration: 'export interface HookInventoryReport {\n    readonly dialect: HookDialect;\n    readonly source: string;\n    readonly status: \'loaded\' | \'failed\';\n    readonly handlers: readonly HookInventoryHandler[];\n    readonly skipped: readonly string[];\n    readonly error?: string;\n}',
   },
   {
     name: 'HostConnectionFetch',

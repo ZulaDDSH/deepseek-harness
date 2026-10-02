@@ -28,6 +28,8 @@ import {
   appendHookInvoked,
   appendHookResult,
   createDetachedRuns,
+  describeHookHandlers,
+  type HookInventoryReport,
   DEFAULT_HOOK_TIMEOUT_MS,
   DEFAULT_STDERR_SUMMARY_MAX_CHARS,
   matchesMatcher,
@@ -106,6 +108,10 @@ export function apply(ctx: Context, config: Config): void {
   const defaultTimeoutMs = config.defaultTimeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS
   // Parse once at load. A read or parse failure logs and registers nothing.
   let parsed: ClaudeCodeHookConfig = {}
+  let inventory: HookInventoryReport = {
+    dialect: 'claude-code', source: config.configPath, status: 'failed', handlers: [], skipped: [],
+  }
+  ctx.on('hooks/inventory', (reports) => { reports.push(inventory) })
   try {
     const raw: unknown = JSON.parse(readFileSync(config.configPath, 'utf8'))
     const result = parseClaudeCodeConfig(raw, {
@@ -113,10 +119,15 @@ export function apply(ctx: Context, config: Config): void {
       ...config.projectDir !== undefined ? { projectDir: config.projectDir } : {},
     })
     parsed = result.config
+    inventory = {
+      ...inventory, status: 'loaded', handlers: describeHookHandlers(parsed),
+      skipped: result.skipped.map(s => `${s.event}: ${s.type}`),
+    }
     for (const s of result.skipped) {
       ctx.logger.warn(`hooks-claude-code: skipping unsupported "${s.type}" hook on ${s.event} (only command hooks run)`)
     }
   } catch (error: unknown) {
+    inventory = { ...inventory, error: String(error) }
     ctx.logger.warn(`hooks-claude-code: could not load hook config "${config.configPath}": ${String(error)} — no hooks registered`)
     return
   }

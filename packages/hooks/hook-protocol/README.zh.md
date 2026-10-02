@@ -25,6 +25,8 @@ kind: "package-library"
 <a id="use-this-package"></a>
 ## 使用本包
 
+`hooks/inventory` 为设置页面收集已挂载桥接器的加载报告。`describeHookHandlers` 将接受的事件组转换为命令、事件和匹配器条目，不改变钩子执行。
+
 你无需直接安装或配置本包——挂载 `dsh-hooks-claude-code` 或 `dsh-hooks-codex` 就会把这些规则应用到你的 `hooks.json` 钩子上。用本页了解钩子能做什么、运行时会发生什么；两个桥接页面列出各方言支持的事件。
 
 ### 何时选择

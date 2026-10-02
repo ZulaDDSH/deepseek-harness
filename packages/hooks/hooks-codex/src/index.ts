@@ -31,6 +31,8 @@ import {
   appendHookInvoked,
   appendHookResult,
   createDetachedRuns,
+  describeHookHandlers,
+  type HookInventoryReport,
   DEFAULT_HOOK_TIMEOUT_MS,
   DEFAULT_STDERR_SUMMARY_MAX_CHARS,
   matchesMatcher,
@@ -90,14 +92,23 @@ export function apply(ctx: Context, config: Config): void {
   assertPositiveInteger('stderrSummaryMaxChars', stderrSummaryMaxChars)
   const defaultTimeoutMs = config.defaultTimeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS
   let parsed: CodexHookConfig = {}
+  let inventory: HookInventoryReport = {
+    dialect: 'codex', source: config.configPath, status: 'failed', handlers: [], skipped: [],
+  }
+  ctx.on('hooks/inventory', (reports) => { reports.push(inventory) })
   try {
     const raw: unknown = JSON.parse(readFileSync(config.configPath, 'utf8'))
     const result = parseCodexConfig(raw)
     parsed = result.config
+    inventory = {
+      ...inventory, status: 'loaded', handlers: describeHookHandlers(parsed),
+      skipped: result.skipped.map(s => `${s.event}: ${s.reason}`),
+    }
     for (const s of result.skipped) {
       ctx.logger.warn(`hooks-codex: skipping ${s.reason} on ${s.event} (only sync command hooks run)`)
     }
   } catch (error: unknown) {
+    inventory = { ...inventory, error: String(error) }
     ctx.logger.warn(`hooks-codex: could not load hook config "${config.configPath}": ${String(error)} — no hooks registered`)
     return
   }

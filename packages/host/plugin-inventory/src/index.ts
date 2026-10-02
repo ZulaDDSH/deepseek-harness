@@ -1,6 +1,7 @@
 /** Read-only projection of the current Cordis Loader plugin entries. */
 
 import type { Context, FiberState } from '@deepseek-ai/cordis'
+import type { HookInventoryReport } from '@deepseek-ai/dsh-hook-protocol'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 // Type-only: the optional agent-preset roster resolved through `ctx.get`.
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
@@ -80,6 +81,8 @@ export default PluginInventoryGateway
  * @returns Current inventory with optional display metadata and no separate runtime cache.
  */
 export async function readPluginInventory(ctx: Context): Promise<PluginInventorySnapshot> {
+  const hooks: HookInventoryReport[] = []
+  ctx.emit('hooks/inventory', hooks)
   const entries: PluginInventoryEntry[] = []
   const packages = ctx.get('pluginPackages')
   for (const entry of ctx.loader.entries()) {
@@ -96,7 +99,7 @@ export async function readPluginInventory(ctx: Context): Promise<PluginInventory
   }
   const presets = ctx.get('agentPresets')
   const management = ctx.get('pluginManager') === undefined ? {} : { managementAvailable: true }
-  if (presets === undefined) return { entries, ...management }
+  if (presets === undefined) return { entries, hooks, ...management }
   const agentPresets: AgentPresetPluginGroup[] = (await presets.compositionInventory()).map(
     composition => ({
       ...composition,
@@ -110,5 +113,5 @@ export async function readPluginInventory(ctx: Context): Promise<PluginInventory
       }),
     }),
   )
-  return { entries, agentPresets, ...management }
+  return { entries, agentPresets, hooks, ...management }
 }

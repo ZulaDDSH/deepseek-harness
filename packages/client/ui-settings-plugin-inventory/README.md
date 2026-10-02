@@ -25,6 +25,8 @@ The **Plugin list** tab lets Web users inspect plugins without changing their co
 <a id="use-this-package"></a>
 ## Use this package
 
+Open **Settings → Hooks** to inspect mounted bridge sources, loaded commands, event matchers, parser-reported skips and load failures. Refresh reads the current runtime reports without changing configuration. Loaded commands run only when their event and matcher apply; this page does not claim execution or inspect hooks enforced by other applications or Git.
+
 Open the Plugins section in Settings and select the **Plugin list** tab to inspect the Host's plugin inventory. The tab reads no Remote during plugin activation — selecting it for the first time mounts the component and lazily calls `ctx.remote.pluginInventory.list()` through `api-remotes`.
 
 A failed installation with pending pnpm build permissions offers **Allow these scripts and retry**. The action displays the exact package names and persistent permission scope, then retries the original package spec and activation choice. One click approves the entire displayed group, which can include pending packages from earlier attempts. Closing the page grants no permission.

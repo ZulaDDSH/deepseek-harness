@@ -119,6 +119,7 @@ describe('PluginInventoryGateway', () => {
 
     expect(await inventory.list()).toEqual({
       entries: [],
+      hooks: [],
       agentPresets: [{
         id: 'local', isDefault: true,
         rows: [

@@ -12,6 +12,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-agent-preset/client'
 import { presetDisplayText } from '@deepseek-ai/dsh-agent-preset-registry/display'
 import { PluginInventorySettingsTab, type PluginInventorySettingsTabInjected } from './PluginInventorySettingsTab.tsx'
 import { en, zh, type PluginInventoryLocaleKey } from './locales.ts'
+import { HooksSettingsSection } from './HooksSettingsSection.tsx'
 
 export type { PluginInventorySettingsTabInjected, PluginInventorySettingsTabProps } from './PluginInventorySettingsTab.tsx'
 export type { PluginInventoryLocaleKey } from './locales.ts'
@@ -52,6 +53,11 @@ export function apply(ctx: ClientContext): void {
     hooks: { clientSync: ctx.modules.entries.state },
     retryClient: () => { void ctx.modules.entries.retry().catch((error: unknown) => { ctx.logger.error(error) }) },
   })
+
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section', id: 'hooks', order: 70, label: () => t('hooksTitle'), locale: NS,
+    inject: () => ({ list }),
+  }, HooksSettingsSection))
 
   ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
     name: 'settings.plugins.tab',

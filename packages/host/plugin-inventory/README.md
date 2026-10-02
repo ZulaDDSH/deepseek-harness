@@ -25,6 +25,8 @@ Clients can call `pluginInventory/list` to display the host’s current plugins 
 <a id="use-this-package"></a>
 ## Use this package
 
+The snapshot includes `hooks` reports collected synchronously from mounted hook bridges. Reports describe the configuration captured at load, accepted commands and parser-reported skips or load errors; the response does not reread files or establish execution history.
+
 Call `pluginInventory/list` when a client or settings page needs to show what is currently composed in the host — which plugins are loaded, enabled, and alive, and what each agent preset would give a session. The Remote is the only entry point: the service is Remote-only and deliberately declares no same-process Cordis `Context` merge.
 
 ### What a snapshot contains

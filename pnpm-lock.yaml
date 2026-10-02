@@ -9341,6 +9341,9 @@ importers:
       '@deepseek-ai/dsh-brand':
         specifier: workspace:*
         version: link:../../util/brand
+      '@deepseek-ai/dsh-hook-protocol':
+        specifier: workspace:*
+        version: link:../../hooks/hook-protocol
       '@deepseek-ai/dsh-package-manifest':
         specifier: workspace:*
         version: link:../../util/package-manifest

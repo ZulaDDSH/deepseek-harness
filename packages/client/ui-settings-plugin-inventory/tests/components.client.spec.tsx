@@ -8,6 +8,7 @@ import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { PluginInventorySettingsTab } from '../src/client/PluginInventorySettingsTab.tsx'
+import { HooksSettingsSection } from '../src/client/HooksSettingsSection.tsx'
 import type {
   PluginInventorySettingsTabInjected,
   PluginInventorySettingsTabProps,
@@ -671,4 +672,25 @@ it('shows current-page sync errors and retries without re-reading Host inventory
   expect(list).toHaveBeenCalledOnce()
   act(() => { sync.set({ syncing: false, failures: [] }) })
   expect(screen.queryByRole('alert')).toBeNull()
+})
+
+describe('Hooks settings', () => {
+  it('shows loaded commands and refreshes load diagnostics', async () => {
+    const list = vi.fn<PluginInventorySettingsTabInjected['list']>().mockResolvedValue({ entries: [], hooks: [{
+      dialect: 'codex', source: '/hooks.json', status: 'loaded',
+      handlers: [{ event: 'PreToolUse', matcher: 'Bash', command: 'check-policy' }], skipped: ['unsupported prompt'],
+    }] })
+    render(<HooksSettingsSection {...props(list)} close={() => {}} />)
+    await screen.findByText('check-policy')
+    expect(screen.getByText('PreToolUse')).toBeTruthy()
+    expect(screen.getByText('unsupported prompt')).toBeTruthy()
+    expect(screen.getByText(en.hooksHelp)).toBeTruthy()
+    list.mockResolvedValueOnce({ entries: [], hooks: [{
+      dialect: 'codex', source: '/hooks.json', status: 'failed', handlers: [], skipped: [], error: 'Invalid JSON',
+    }] })
+    fireEvent.click(screen.getByRole('button', { name: en.hooksRefresh }))
+    await screen.findByRole('alert')
+    expect(screen.getByText('Invalid JSON')).toBeTruthy()
+    expect(screen.queryByText('check-policy')).toBeNull()
+  })
 })

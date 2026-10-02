@@ -61,3 +61,5 @@
 `scripts/package-dependency-policy.ts:PEER_REQUIRED_HOST_EXPORTS` 使 Memorix 存储读取、Office 标识、主目录路径和原生命令执行使用共享的 Host peer 实例。`packages/client/ui-memory-workspace/tsconfig.client.json` 和 `packages/api/remotes/tsconfig.client.json` 使用生成的 Remote 声明，而不引用 Memory Host 项目。
 
 `packages/client/ui-memory-workspace/src/index.ts:MemoryWorkspace` 使用现有工具注册表和文件系统注册 `memorix_import_file`。读取以调用方聊天工作目录为基准，遵循文件系统限制，并结合调用方取消与插件释放；面板与工具共用文档保留和提供方重新读取验证。`src/client/MemoryPage.module.css` 指定原生选项颜色和当前深色方案。包的 `./types` 导出参考 `ui-settings-general`，仅公开类型声明，不发布带 CSS 导入的原始 Client JavaScript。
+
+`packages/hooks/hook-protocol/src/inventory.ts:HookInventoryReport`、`packages/hooks/hooks-codex/src/index.ts:apply`、`packages/hooks/hooks-claude-code/src/index.ts:apply`、`packages/host/plugin-inventory/src/index.ts:readPluginInventory` 和 `packages/client/ui-settings-plugin-inventory/src/client/HooksSettingsSection.tsx:HooksSettingsSection` 通过同步收集器发布已加载的钩子配置，并以只读方式显示。不会重新读取来源文件，销毁会移除报告，加载状态不表示命令已执行。

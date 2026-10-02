@@ -25,6 +25,8 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
+快照包含从已挂载钩子桥接器同步收集的 `hooks` 报告。报告描述加载时读取的配置、接受的命令，以及解析器报告的跳过项或加载错误；响应不会重新读取文件，也不提供执行历史。
+
 当客户端或设置页需要展示宿主当前组合了什么——哪些插件已加载、已启用、是否存活，以及每个 agent preset 会给会话什么——时调用 `pluginInventory/list`。Remote 是唯一入口：该服务仅供 Remote 使用，刻意不声明同进程 Cordis `Context` 合并。
 
 ### 快照包含什么

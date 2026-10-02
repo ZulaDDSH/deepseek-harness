@@ -9,6 +9,11 @@
   color: var(--dsw-alias-label-primary);
 }
 
+.hookCommand {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .status,
 .failure p {
   margin: 0;

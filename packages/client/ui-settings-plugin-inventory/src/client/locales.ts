@@ -2,6 +2,15 @@
 
 /** Simplified Chinese dictionary and key source of truth. */
 export const zh = {
+  hooksTitle: '钩子',
+  hooksHelp: '这些命令已由 Harness 钩子桥接器加载，并在事件和匹配条件满足时运行。加载状态不代表命令已执行。其他应用和 Git 的钩子由各自进程执行。',
+  hooksRefresh: '刷新状态',
+  hooksEmpty: '当前没有钩子桥接器报告已加载的配置。',
+  hooksLoaded: '已加载',
+  hooksFailed: '配置加载失败',
+  hooksAll: '所有匹配对象',
+  hooksSkipped: '已报告的跳过项',
+  hooksBridges: '配置中的钩子桥接器',
   tab: '插件列表',
   loading: '正在读取插件…',
   clientSyncing: '正在同步本页面的插件…',
@@ -49,6 +58,15 @@ export type PluginInventoryLocaleKey = keyof typeof zh
 
 /** English dictionary checked against the Chinese key set. */
 export const en = {
+  hooksTitle: 'Hooks',
+  hooksHelp: 'These commands are loaded by Harness hook bridges and run when their event and matcher apply. Loaded does not mean executed. Other applications and Git enforce their own hooks.',
+  hooksRefresh: 'Refresh status',
+  hooksEmpty: 'No hook bridge currently reports a loaded configuration.',
+  hooksLoaded: 'Loaded',
+  hooksFailed: 'Configuration failed to load',
+  hooksAll: 'All subjects',
+  hooksSkipped: 'Reported skipped hooks',
+  hooksBridges: 'Configured hook bridges',
   tab: 'Plugin list',
   loading: 'Reading plugins…',
   clientSyncing: 'Syncing plugins on this page…',

@@ -44,7 +44,10 @@ async function bench() {
 function declare(slots: SlotRegistry): () => void {
   return slots.register({
     name: 'root',
-    children: { 'settings.plugins.tab': { kind: 'list', scope: 'root' } },
+    children: {
+      'settings.plugins.tab': { kind: 'list', scope: 'root' },
+      'settings.section': { kind: 'list', scope: 'root' },
+    },
   } as never, () => null)
 }
 
@@ -68,6 +71,9 @@ describe('ui-settings-plugin-inventory browser plugin', () => {
     expect(entry.locale).toBe(NS)
     expect(resolveSlotLabel(entry.options.label)).toBe('插件列表')
     expect(b.list).not.toHaveBeenCalled()
+    const hooks = b.slots.entries('settings.section')[0]!
+    expect(hooks.options.id).toBe('hooks')
+    expect(resolveSlotLabel(hooks.options.label)).toBe('钩子')
 
     const injected = (entry.inject as unknown as () => PluginInventorySettingsTabInjected)()
     const text = { en: 'Local tools', zh: '本地工具' }
@@ -92,6 +98,7 @@ describe('ui-settings-plugin-inventory browser plugin', () => {
     expect(injected.presetName({ id: 'standard', isDefault: true, rows: [] })).toBe('标准模式')
     expect(injected.presetName({ id: 'mine', name: '我自己的', isDefault: false, rows: [] })).toBe('我自己的')
     await b.ctx.fiber.dispose()
+    expect(b.slots.entries('settings.section')).toHaveLength(0)
   })
 
   it('follows locale and recovers across late declaration and declarer reload', async () => {
