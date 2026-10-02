@@ -704,22 +704,23 @@ describe('Hooks settings', () => {
     const report = (on: boolean) => ({ entries: [entry], hooks: [{
       dialect: 'codex', source: '/hooks.json', status: 'loaded', skipped: [], handlers: [
         { event: 'PreToolUse', command: 'one', key: 'k1', ...on ? {} : { disabled: true } },
+        { event: 'Stop', command: 'one', key: 'k3', ...on ? {} : { disabled: true } },
         { event: 'Stop', command: 'two', key: 'k2', disabled: true },
       ],
     }] }) as unknown as Snapshot
     const list = vi.fn<PluginInventorySettingsTabInjected['list']>().mockResolvedValue(report(false))
     const setEnabledHooks = vi.fn(async () => {})
     render(<HooksSettingsSection {...props(list)} setEnabledHooks={setEnabledHooks} close={() => {}} />)
-    const toggle = () => screen.findByRole('switch', { name: `${en.hooksToggle}: one PreToolUse` })
+    const toggle = () => screen.findByRole('switch', { name: `${en.hooksToggle}: one` })
     fireEvent.click(await toggle())
-    await waitFor(() => { expect(setEnabledHooks).toHaveBeenCalledWith('hooks-1', ['k1']) })
+    await waitFor(() => { expect(setEnabledHooks).toHaveBeenCalledWith('hooks-1', ['k1', 'k3']) })
     list.mockResolvedValue(report(true))
     fireEvent.click(screen.getByRole('button', { name: en.hooksRefresh }))
     await waitFor(async () => { expect((await toggle()).getAttribute('aria-checked')).toBe('true') })
     fireEvent.click(await toggle())
     await waitFor(() => { expect(setEnabledHooks).toHaveBeenLastCalledWith('hooks-1', []) })
     fireEvent.click(await screen.findByRole('button', { name: en.hooksEnableAll }))
-    await waitFor(() => { expect(setEnabledHooks).toHaveBeenLastCalledWith('hooks-1', ['k1', 'k2']) })
+    await waitFor(() => { expect(setEnabledHooks).toHaveBeenLastCalledWith('hooks-1', ['k1', 'k3', 'k2']) })
     fireEvent.click(await screen.findByRole('button', { name: en.hooksDisableAll }))
     await waitFor(() => { expect(setEnabledHooks).toHaveBeenLastCalledWith('hooks-1', []) })
     setEnabledHooks.mockRejectedValueOnce(new Error('refused'))

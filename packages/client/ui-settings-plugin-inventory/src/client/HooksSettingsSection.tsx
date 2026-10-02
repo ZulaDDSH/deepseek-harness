@@ -21,6 +21,15 @@ export function hookName(command: string): string {
   return (script.split(/[\/]/).pop() ?? script).replace(/\.[^.]+$/, '')
 }
 
+function groupByScript(handlers: HookInventoryReport['handlers']): [string, HookInventoryReport['handlers']][] {
+  const groups = new Map<string, HookInventoryReport['handlers'][number][]>()
+  for (const handler of handlers) {
+    const name = hookName(handler.command)
+    groups.set(name, [...groups.get(name) ?? [], handler])
+  }
+  return [...groups]
+}
+
 export function HooksSettingsSection({ t, list, setEnabledHooks }: HooksSettingsSectionProps) {
   const [snapshot, setSnapshot] = useState<PluginInventorySnapshot>()
   const [failed, setFailed] = useState(false)
@@ -67,18 +76,22 @@ export function HooksSettingsSection({ t, list, setEnabledHooks }: HooksSettings
             {' '}
             <Button variant="outline" disabled={busy} onClick={() => { write(entryId, []) }}>{t('hooksDisableAll')}</Button>
           </p> : null}
-          <ul>{report.handlers.map((handler, position) => <li key={position} title={handler.command}>
-            {entryId === undefined ? null : <Switch
-              checked={handler.disabled !== true}
-              disabled={busy}
-              label={`${t('hooksToggle')}: ${hookName(handler.command)} ${handler.event}`}
-              onChange={(on) => {
-                const others = enabledOf(report).filter(key => key !== handler.key)
-                write(entryId, on ? [...others, handler.key] : others)
-              }}
-            />}
-            {' '}<strong>{hookName(handler.command)}</strong> — {handler.event}
-          </li>)}</ul>
+          <ul>{groupByScript(report.handlers).map(([name, handlers]) => {
+            const keys = handlers.map(handler => handler.key)
+            const on = handlers.every(handler => handler.disabled !== true)
+            return <li key={name} title={[...new Set(handlers.map(handler => handler.command))].join('\n')}>
+              {entryId === undefined ? null : <Switch
+                checked={on}
+                disabled={busy}
+                label={`${t('hooksToggle')}: ${name}`}
+                onChange={(next) => {
+                  const others = enabledOf(report).filter(key => !keys.includes(key))
+                  write(entryId, next ? [...others, ...keys] : others)
+                }}
+              />}
+              {' '}<strong>{name}</strong> — <small>{[...new Set(handlers.map(handler => handler.event))].join(', ')}</small>
+            </li>
+          })}</ul>
         </article>
       })}
     </>}
