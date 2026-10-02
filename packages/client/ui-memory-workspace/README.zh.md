@@ -47,7 +47,7 @@ kind: "package-reference"
 
 ## Model Experience
 
-间接通过现有 Memorix 工具检索导入的记忆；面板不注册模型工具、提示词文本或自动记忆注入。
+挂载工具注册表与文件系统后，智能体可调用 `memorix_import_file`，传入绝对路径或相对于聊天工作目录的路径。此工具与面板共用有大小限制且经提供方验证的导入器，返回保留文件的路径、片段计数与部分失败。示例请求：“使用 memorix_import_file 将 docs/guide.pdf 导入 Memorix。”现有 Memorix 工具可检索导入的记忆；面板不自动注入记忆。
 
 #### KV 缓存影响
 

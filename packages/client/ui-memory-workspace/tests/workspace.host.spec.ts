@@ -7,6 +7,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { registerHumanOperations } from '../../../mcp/mcp-client/src/human-operations.ts'
 import MemoryWorkspace from '../src/index.ts'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import ToolRuntime, { type ToolExecutionToken, type ToolRunContext } from '@deepseek-ai/dsh-tools'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 
 vi.mock('@deepseek-ai/dsh-native-command', () => ({ runNativeCommand: vi.fn(async () => ({ stdout: '', stderr: '' })) }))
 
@@ -44,6 +49,41 @@ async function setup(persist = true): Promise<{ ctx: Context; directory: string 
 }
 
 describe('Memory workspace', () => {
+  it('imports a workspace-relative file through the registered agent tool and honors cancellation', async () => {
+    const { ctx, directory } = await setup()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(LocalFileSystem)
+    await writeFile(join(directory, 'guide.md'), 'café😀 memory')
+    const tool = ctx.tools.get('memorix_import_file')
+    expect(tool).toBeDefined()
+    const agent = { session: { header: { cwd: directory } } } as Agent
+    const signal = new AbortController().signal
+    const callId = ToolCallId('memory-file-import')
+    const exec: ToolRunContext = {
+      callId, rootCallId: callId, token: Symbol('memory-file-import') as ToolExecutionToken,
+      name: 'memorix_import_file', arguments: { path: 'guide.md' }, signal, agent,
+      deferContext: () => {}, concludeTurn: () => {},
+    }
+    const result = await tool!.execute(exec.arguments, exec)
+    const saved = JSON.parse(String(result))
+    expect(tool!.output.render({ path: 'guide.md' }, JSON.stringify({ ...saved, originalPath: '<retained original>' }))).toMatchInlineSnapshot(`
+      [
+        {
+          "text": "{\"filename\":\"guide.md\",\"originalPath\":\"<retained original>\",\"completed\":4,\"total\":4,\"error\":null}",
+          "type": "text",
+        },
+      ]
+    `)
+    expect(saved).toMatchObject({ filename: 'guide.md', completed: 4, total: 4, error: null })
+    expect((await ctx.memoryWorkspace.page('observations', 0, '')).total).toBe(4)
+    const aborted = AbortSignal.abort()
+    await expect(tool!.execute({ path: 'guide.md' }, { ...exec, signal: aborted })).rejects.toThrow()
+    const unowned = { ...exec }
+    delete unowned.agent
+    await expect(tool!.execute({ path: 'guide.md' }, unowned)).rejects.toThrow('requires a chat workspace')
+  })
+
   it('uses the connected provider storage and verifies every document chunk and retry', async () => {
     const { ctx } = await setup()
     const text = 'full😀 document'

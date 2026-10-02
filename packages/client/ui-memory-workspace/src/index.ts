@@ -4,6 +4,8 @@ import { homedir } from 'node:os'
 import { basename, dirname, extname, join, resolve } from 'node:path'
 import { readFile, mkdir, writeFile, open } from 'node:fs/promises'
 import type { Context } from '@deepseek-ai/cordis'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-fs'
 import z from '@deepseek-ai/schemastery'
 import { z as schema } from 'zod'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
@@ -64,6 +66,32 @@ export default class MemoryWorkspace extends TypertRemoteService {
 
   constructor(ctx: Context, private readonly config: Config) {
     super(ctx, 'memoryWorkspace')
+    ctx.inject(['tools', 'fs'], (inner) => {
+      inner.tools.register(defineTool({
+        name: 'memorix_import_file',
+        description: 'Import a complete file into persistent Memorix memory when the user asks to remember or upload it. Accepts UTF-8 text, PDF text layers and Office documents. Retains the original and verifies every stored chunk. Partial imports can be retried.',
+        parameters: { path: { type: 'string', required: true, description: 'File path, absolute or relative to this chat workspace.' } },
+        output: {
+          schema: { type: 'string' },
+          render: (_args, value) => [{ type: 'text', text: value }],
+        },
+        execute: async (args, exec) => {
+          const signal = AbortSignal.any([exec.signal, this.lifetime.signal])
+          signal.throwIfAborted()
+          const cwd = exec.agent?.session.header.cwd
+          if (cwd === undefined) throw new Error('Memorix file import requires a chat workspace')
+          const pending = (async () => {
+            const target = await inner.fs.resolve(args.path, { cwd, signal })
+            const bytes = await inner.fs.readBytes(target, signal, config.maxDocumentBytes)
+            signal.throwIfAborted()
+            const result = await this.importBytes(basename(args.path), Buffer.from(bytes).toString('base64'), signal)
+            return JSON.stringify(result)
+          })()
+          this.pending.add(pending)
+          try { return await pending } finally { this.pending.delete(pending) }
+        },
+      }))
+    })
     ctx.effect(() => async () => {
       this.lifetime.abort()
       await Promise.allSettled(this.pending)
@@ -153,7 +181,7 @@ export default class MemoryWorkspace extends TypertRemoteService {
     return pending
   }
 
-  private async importBytes(filename: string, data: string): Promise<MemoryImportResult> {
+  private async importBytes(filename: string, data: string, signal = this.lifetime.signal): Promise<MemoryImportResult> {
     schema.string().min(1).max(255).parse(filename)
     schema.string().max(Math.ceil(this.config.maxDocumentBytes / 3) * 4).parse(data)
     const bytes = Buffer.from(data, 'base64')
@@ -161,9 +189,10 @@ export default class MemoryWorkspace extends TypertRemoteService {
     if (bytes.byteLength === 0 || bytes.byteLength > this.config.maxDocumentBytes) throw new Error('Document exceeds the configured byte limit or is empty')
     const provider = await this.provider()
     const hash = createHash('sha256').update(bytes).digest('hex')
-    const text = await documentText(this.ctx, filename, bytes, hash, this.config.maxDocumentCharacters, this.lifetime.signal)
+    const text = await documentText(this.ctx, filename, bytes, hash, this.config.maxDocumentCharacters, signal)
     schema.string().min(1).max(this.config.maxDocumentCharacters).parse(text)
     if (text.trim() === '') throw new Error('The document has no extractable text; scanned documents require OCR')
+    signal.throwIfAborted()
     const originalPath = join(this.config.importDirectory, `${hash}${extname(filename).toLowerCase()}`)
     await mkdir(this.config.importDirectory, { recursive: true, mode: 0o700 })
     try { await writeFile(originalPath, bytes, { flag: 'wx', mode: 0o600 }) }
@@ -178,7 +207,7 @@ export default class MemoryWorkspace extends TypertRemoteService {
       const topicKey = `document:${hash}:part:${index + 1}`
       const narrative = characters.slice(index * this.config.chunkCharacters, (index + 1) * this.config.chunkCharacters).join('')
       try {
-        this.lifetime.signal.throwIfAborted()
+        signal.throwIfAborted()
         const outcome = schema.object({
           isError: schema.boolean().optional(),
           content: schema.array(schema.object({ type: schema.string(), text: schema.string().optional() })),
@@ -186,7 +215,7 @@ export default class MemoryWorkspace extends TypertRemoteService {
           await provider.call('memorix_store', {
             entityName: `document:${hash}`, type: 'discovery', title: `${basename(filename)} (${index + 1}/${total})`,
             narrative, topicKey, filesModified: [originalPath],
-          }, this.lifetime.signal))
+          }, signal))
         if (outcome.isError === true) throw new Error('Memorix rejected this document chunk')
         const acknowledgement = outcome.content.filter(item => item.type === 'text').map(item => item.text ?? '').join('\n')
         const stored = new RegExp('\\[(?:OK|UPDATED)\\] (?:Stored|Updated) observation #(\\d+) [^\\n]*\\n'

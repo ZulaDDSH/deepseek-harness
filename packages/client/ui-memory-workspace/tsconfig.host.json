@@ -37,6 +37,12 @@
     },
     {
       "path": "../../util/native-command"
+    },
+    {
+      "path": "../../core/tools"
+    },
+    {
+      "path": "../../fs/fs"
     }
   ]
 }

@@ -17,3 +17,6 @@
 .upload input { display: block; margin-top: 8px; }
 .graph { display: block; width: 100%; height: 650px; border: 0; background: #0f0f1a; margin-top: 20px; }
 @media (max-width: 760px) { .records { grid-template-columns: 1fr; } }
+.page select, .page option { background: var(--dsw-alias-button-floating-fill); color: inherit; }
+:global(body[data-ds-dark-theme]) .page select { color-scheme: dark; }
+.page select:focus-visible { outline: 2px solid #4797ff; outline-offset: 2px; }

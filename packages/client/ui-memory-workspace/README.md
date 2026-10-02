@@ -47,7 +47,7 @@ No runtime invariant companion is published: displayed data derives from provide
 
 ## Model Experience
 
-Indirectly, through the existing Memorix tools retrieving imported memories; the panel registers no model tools, prompt text or automatic memory injection.
+With the tool registry and filesystem mounted, agents can call `memorix_import_file` with an absolute path or a path relative to their chat workspace. It uses the same bounded, provider-verified importer as the panel and returns retained-file and chunk counts, including partial failures. For example, ask: “Import docs/guide.pdf into Memorix using memorix_import_file.” Existing Memorix tools retrieve imported memories; the panel adds no automatic memory injection.
 
 #### KV Cache effect
 
