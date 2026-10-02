@@ -34,7 +34,7 @@ export function HooksSettingsSection({ t, list }: HooksSettingsSectionProps) {
       {(snapshot.hooks?.length ?? 0) === 0 ? <p>{t('hooksEmpty')}</p> : null}
       {snapshot.hooks?.map((report, index) => <article key={index}>
         <h3>{report.dialect}</h3>
-        <p><code>{report.source}</code> — {t(report.status === 'loaded' ? 'hooksLoaded' : 'hooksFailed')}</p>
+        <p><code>{report.source}</code> — {t(report.status === 'loaded' ? 'hooksLoaded' : report.status === 'configured' ? 'hooksConfigured' : 'hooksFailed')}</p>
         {report.error === undefined ? null : <p role="alert">{report.error}</p>}
         <ul>{report.handlers.map((handler, position) => <li key={position}>
           <strong>{handler.event}</strong> {handler.matcher === undefined ? t('hooksAll') : <code>{handler.matcher}</code>}

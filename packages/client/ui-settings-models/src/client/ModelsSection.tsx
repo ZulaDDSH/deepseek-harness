@@ -31,7 +31,7 @@ import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from './slot-contract.ts'
 import { CustomProviderCard } from './CustomProviderCard.tsx'
 import { deriveKeyRef, protocolChoices, providerUsable } from './store.ts'
-import type { CredentialsRevisionState, ModelsSettingsStore, ProviderRow } from './store.ts'
+import type { CredentialsRevisionState, ModelsSettingsState, ModelsSettingsStore, ProviderRow } from './store.ts'
 import type { ModelsOperations } from './operations.ts'
 import type { SettingsSchemaOperations } from './schema-operations.ts'
 import { ProviderEditor, type ModelPickerOption, type ProviderEditorProps } from './ProviderEditor.tsx'
@@ -257,6 +257,28 @@ export function ModelsSection(props: ModelsSectionProps): ReactNode {
   )
 }
 
+/** Build editable provider and model suggestions from configured namespaces.
+ * @param state Current provider rows and settings views.
+ * @param schema Settings path reader.
+ * @returns Suggestions retaining arbitrary manual provider and model input.
+ */
+export function providerModelOptions(state: Pick<ModelsSettingsState, 'rows' | 'namespaces'>, schema: SettingsSchemaOperations): ModelPickerOption[] {
+  return state.rows.flatMap((row) => {
+    const namespace = state.namespaces.get(row.entry.settingsNs)
+    if (namespace === undefined) return []
+    const profile = schema.getPath(namespace.value, row.entry.settingsPath)
+    const rawModels = schema.getPath(profile, ['models'])
+    const models = Array.isArray(rawModels)
+      ? rawModels.flatMap((model) => {
+        if (typeof model !== 'object' || model === null || Array.isArray(model)) return []
+        const id = (model as { id?: unknown }).id
+        return typeof id === 'string' && id.length > 0 ? [id] : []
+      })
+      : []
+    return [{ provider: row.entry.provider, displayName: row.entry.displayName, models }]
+  })
+}
+
 function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderSlot: ModelsRenderSlot }): ReactNode {
   const { controller, useCredentialsRevision, operations, authorization, schema, t } = injected
   const snapshot = injected.useSnapshot(value => value)
@@ -410,20 +432,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
   const addRow = draft === undefined
     ? undefined
     : state.rows.find(row => row.entry.provider === draft.target.provider)
-  const modelOptions: ModelPickerOption[] = state.rows.flatMap((row) => {
-    const namespace = state.namespaces.get(row.entry.settingsNs)
-    if (namespace === undefined) return []
-    const profile = schema.getPath(namespace.value, row.entry.settingsPath)
-    const rawModels = schema.getPath(profile, ['models'])
-    const models = Array.isArray(rawModels)
-      ? rawModels.flatMap((model) => {
-        if (typeof model !== 'object' || model === null || Array.isArray(model)) return []
-        const id = (model as { id?: unknown }).id
-        return typeof id === 'string' && id.length > 0 ? [id] : []
-      })
-      : []
-    return [{ provider: row.entry.provider, displayName: row.entry.displayName, models }]
-  })
+  const modelOptions = providerModelOptions(state, schema)
 
   return (
     <div className={styles['section']}>

@@ -32,7 +32,7 @@ async function mount(overrides: Partial<Config> = {}, credentials?: Record<strin
   ]))
   await ctx.plugin(LlmRuntime)
   if (credentials !== undefined) await ctx.plugin(MemoryCredentials, credentials)
-  const fiber = await ctx.plugin(jevPlugin, { ...config, ...overrides })
+  const fiber = await ctx.plugin(jevPlugin, { ...config, ...overrides, routes: [...(overrides.routes ?? config.routes)] })
   const agent = { session: Session.create(SessionId('jev-runtime')) } as Agent
   const events = agentEvents(ctx, agent)
   const preStep = (step = 1, currentSignal = signal, kind: 'enter' | 'reject' = 'enter') => events.waterfall(
@@ -107,7 +107,7 @@ describe('Jev routing lifecycle', () => {
     { endpoint: 'https://jev.example.test?q=1' }, { endpoint: 'https://jev.example.test#fragment' },
     { routes: [config.routes[0]!, config.routes[0]!] }, { fallback: 'missing' },
   ])('refuses invalid deployment settings %j', (overrides) => {
-    expect(() => { apply(new Context(), { ...config, ...overrides }) }).toThrow('jev-router:')
+    expect(() => { apply(new Context(), jevPlugin.Config({ ...config, ...overrides })) }).toThrow('jev-router:')
   })
 })
 

@@ -3,10 +3,11 @@
 /** Simplified Chinese dictionary and key source of truth. */
 export const zh = {
   hooksTitle: '钩子',
-  hooksHelp: '这些命令已由 Harness 钩子桥接器加载，并在事件和匹配条件满足时运行。加载状态不代表命令已执行。其他应用和 Git 的钩子由各自进程执行。',
+  hooksHelp: '查看 Codex 和 Claude 的钩子配置文件以及 Harness 已加载的桥接器。外部配置不代表 Harness 会执行这些命令；加载状态也不代表命令已经执行。',
   hooksRefresh: '刷新状态',
-  hooksEmpty: '当前没有钩子桥接器报告已加载的配置。',
+  hooksEmpty: '未找到钩子配置文件或已加载的桥接器。',
   hooksLoaded: '已加载',
+  hooksConfigured: '外部应用中已配置；未由 Harness 加载',
   hooksFailed: '配置加载失败',
   hooksAll: '所有匹配对象',
   hooksSkipped: '已报告的跳过项',
@@ -59,10 +60,11 @@ export type PluginInventoryLocaleKey = keyof typeof zh
 /** English dictionary checked against the Chinese key set. */
 export const en = {
   hooksTitle: 'Hooks',
-  hooksHelp: 'These commands are loaded by Harness hook bridges and run when their event and matcher apply. Loaded does not mean executed. Other applications and Git enforce their own hooks.',
+  hooksHelp: 'Inspect Codex and Claude hook files alongside loaded Harness bridges. External configuration does not mean Harness executes those commands; loaded does not mean executed.',
   hooksRefresh: 'Refresh status',
-  hooksEmpty: 'No hook bridge currently reports a loaded configuration.',
+  hooksEmpty: 'No hook files or loaded bridges were found.',
   hooksLoaded: 'Loaded',
+  hooksConfigured: 'Configured externally; not loaded by Harness',
   hooksFailed: 'Configuration failed to load',
   hooksAll: 'All subjects',
   hooksSkipped: 'Reported skipped hooks',

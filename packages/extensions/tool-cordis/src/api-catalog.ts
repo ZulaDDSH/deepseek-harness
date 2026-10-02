@@ -5482,7 +5482,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'HookInventoryReport',
-    declaration: 'export interface HookInventoryReport {\n    readonly dialect: HookDialect;\n    readonly source: string;\n    readonly status: \'loaded\' | \'failed\';\n    readonly handlers: readonly HookInventoryHandler[];\n    readonly skipped: readonly string[];\n    readonly error?: string;\n}',
+    declaration: 'export interface HookInventoryReport {\n    readonly dialect: HookDialect;\n    readonly source: string;\n    readonly status: \'loaded\' | \'configured\' | \'failed\';\n    readonly handlers: readonly HookInventoryHandler[];\n    readonly skipped: readonly string[];\n    readonly error?: string;\n}',
   },
   {
     name: 'HostConnectionFetch',

@@ -1,4 +1,4 @@
-import { Service, type Context } from '@deepseek-ai/cordis'
+import { Service, type Context, type Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import {
@@ -62,7 +62,7 @@ export interface Config {
   /** Preserve the base route when Jev fails. */
   failOpen: boolean
   /** Allow-listed destination routes. */
-  routes: JevRoute[]
+  routes: readonly JevRoute[]
 }
 
 const routeSchema: z<JevRoute> = z.object({
@@ -73,8 +73,11 @@ const routeSchema: z<JevRoute> = z.object({
   reasoningEffort: z.string().min(1),
 })
 
+/** Live Jev settings retained by the router. */
+export type RuntimeConfig = Volatile<Config>
+
 /** Runtime schema for the plugin config. */
-export const Config: z<Config> = z.object({
+export const Config = z.object({
   enabled: z.boolean().default(false),
   apiKeyEnv: z.string().role('credential-ref').default(DEFAULT_API_KEY_ENV),
   endpoint: z.string().default(DEFAULT_ENDPOINT),
@@ -85,7 +88,7 @@ export const Config: z<Config> = z.object({
   fallback: z.string().min(1).default('keep'),
   failOpen: z.boolean().default(true),
   routes: z.array(routeSchema).default([]),
-})
+}).default({}).volatile()
 
 interface JevAnswer {
   readonly choice?: unknown
@@ -430,9 +433,13 @@ export function applyRoute(config: LlmCallConfig, route: JevRoute): LlmCallConfi
 }
 
 /** Install Jev routing into the agent waterfalls. */
-export function apply(ctx: Context, initial: Config): void {
-  validateConfig(initial)
-  const current = (): Config => initial
+export function apply(ctx: Context, initial: RuntimeConfig): void {
+  const current = (): Config => {
+    const value = initial.get()
+    validateConfig(value)
+    return value
+  }
+  current()
   const decisions = new WeakMap<Agent, Map<string, CachedRoute>>()
   const states = new WeakMap<Agent, string>()
   const client = createJevClient(async (config) => {

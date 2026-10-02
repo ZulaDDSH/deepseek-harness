@@ -23,7 +23,7 @@ Use this package when an Agent step should ask TypeSafe Jev to choose from an ex
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount the plugin in the base composition. Open **Settings → Models → TypeSafe / Jev** and enter the key. The editor stores it under the `TYPESAFE_API_KEY` credential reference; headless deployments can provide that reference through the launch environment.
+Mount the plugin in the base composition. Open **Settings → Jev** and enter the key. The editor stores it under the `TYPESAFE_API_KEY` credential reference; headless deployments can provide that reference through the launch environment. The configuration is live: edits update the router's retained reference without remounting it.
 
 ### Minimal configuration
 

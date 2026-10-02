@@ -34,7 +34,7 @@ async function harness(baseUrl?: string): Promise<{
   await ctx.plugin(Loader)
   ctx.loader.builtins.active = activePlugin
   ctx.loader.builtins.pending = pendingPlugin
-  await ctx.plugin(PluginInventoryGateway)
+  await ctx.plugin(PluginInventoryGateway, { externalHookSources: [] })
   const inventory = ctx.get('pluginInventory') as PluginInventoryGateway
   return { ctx, inventory }
 }

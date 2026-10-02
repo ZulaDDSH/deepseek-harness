@@ -1569,6 +1569,32 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-host-open-in-app -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-host-plugin-inventory -->
+<a id="deepseek-aidsh-host-plugin-inventory"></a>
+
+## `@deepseek-ai/dsh-host-plugin-inventory`
+
+- `inject`: `loader`
+- `refs`: [`HookInventoryReport`](../packages/hooks/hook-protocol/src/index.ts)
+- `source`: [`packages/host/plugin-inventory/src/index.ts:27`](../packages/host/plugin-inventory/src/index.ts)
+
+```ts config-catalog
+/** External hook files shown by the inventory. */
+export interface Config {
+  /** Read-only Codex and Claude configuration sources. */
+  externalHookSources: readonly HookFileSource[]
+}
+
+/** External application's JSON hook file. */
+export interface HookFileSource {
+  /** Application owning the hook configuration. */
+  readonly dialect: HookInventoryReport['dialect']
+  /** Local JSON configuration file path. */
+  readonly source: string
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-host-plugin-inventory -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-host-product-telemetry-otel -->
 <a id="deepseek-aidsh-host-product-telemetry-otel"></a>
 
@@ -1820,9 +1846,13 @@ export interface Config extends ProtocolConfig {
 ## `@deepseek-ai/dsh-llm-jev-router`
 
 - `inject`: `llm`
-- `source`: [`packages/llm/llm-jev-router/src/index.ts:45`](../packages/llm/llm-jev-router/src/index.ts)
+- `refs`: `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/llm/llm-jev-router/src/index.ts:77`](../packages/llm/llm-jev-router/src/index.ts)
 
 ```ts config-catalog
+/** Live Jev settings retained by the router. */
+export type RuntimeConfig = Volatile<Config>
+
 /** Jev router settings. */
 export interface Config {
   /** Enable automatic routing. */
@@ -1844,7 +1874,7 @@ export interface Config {
   /** Preserve the base route when Jev fails. */
   failOpen: boolean
   /** Allow-listed destination routes. */
-  routes: JevRoute[]
+  routes: readonly JevRoute[]
 }
 
 /** Allow-listed DSH destination selected by Jev. */
@@ -4701,7 +4731,6 @@ export interface Config {
 | `@deepseek-ai/dsh-goal-round-driver` | `agents` · `goals` · `sessions` | [`packages/goal/goal-round-driver/src/index.ts`](../packages/goal/goal-round-driver/src/index.ts) |
 | `@deepseek-ai/dsh-host-directory-picker-auto` | `webServer` · `loader` | [`packages/host/directory-picker-auto/src/index.ts`](../packages/host/directory-picker-auto/src/index.ts) |
 | `@deepseek-ai/dsh-host-directory-picker-native` | — | [`packages/host/directory-picker-native/src/index.ts`](../packages/host/directory-picker-native/src/index.ts) |
-| `@deepseek-ai/dsh-host-plugin-inventory` | `loader` | [`packages/host/plugin-inventory/src/index.ts`](../packages/host/plugin-inventory/src/index.ts) |
 | `@deepseek-ai/dsh-llm` | — | [`packages/llm/llm/src/index.ts`](../packages/llm/llm/src/index.ts) |
 | `@deepseek-ai/dsh-lsp` | — | [`packages/lsp/lsp/src/index.ts`](../packages/lsp/lsp/src/index.ts) |
 | `@deepseek-ai/dsh-mcp-resources` | `tools` | [`packages/mcp/mcp-resources/src/index.ts`](../packages/mcp/mcp-resources/src/index.ts) |

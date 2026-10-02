@@ -675,6 +675,16 @@ it('shows current-page sync errors and retries without re-reading Host inventory
 })
 
 describe('Hooks settings', () => {
+  it('distinguishes external configuration from loaded bridge commands', async () => {
+    const list = vi.fn<PluginInventorySettingsTabInjected['list']>().mockResolvedValue({ entries: [], hooks: [{
+      dialect: 'claude-code', source: '/settings.json', status: 'configured',
+      handlers: [{ event: 'SubagentStart', command: 'external-policy' }], skipped: [],
+    }] })
+    render(<HooksSettingsSection {...props(list)} close={() => {}} />)
+    await screen.findByText('external-policy')
+    expect(screen.getByText(en.hooksConfigured, { exact: false })).toBeTruthy()
+    expect(screen.queryByText(en.hooksLoaded)).toBeNull()
+  })
   it('shows loaded commands and refreshes load diagnostics', async () => {
     const list = vi.fn<PluginInventorySettingsTabInjected['list']>().mockResolvedValue({ entries: [], hooks: [{
       dialect: 'codex', source: '/hooks.json', status: 'loaded',

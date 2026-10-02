@@ -15,6 +15,7 @@ import {
 } from '../src/client/ModelsSection.tsx'
 import type { ModelsSectionInjected, ModelsSectionProps } from '../src/client/ModelsSection.tsx'
 import { ProviderEditor, pathOps } from '../src/client/ProviderEditor.tsx'
+import { JevSettingsSection } from '../src/client/JevSettingsSection.tsx'
 import {
   DeepSeekModelsEditor, formatCapacity, modelDrafts, parseCapacity, validateDeepSeekModels,
 } from '../src/client/DeepSeekModelsEditor.tsx'
@@ -373,6 +374,28 @@ async function mountFace(scripted: ReturnType<typeof scriptedFace>) {
 async function mountSection(overrides: Parameters<typeof scriptedFace>[0] = {}) {
   return mountFace(scriptedFace(overrides))
 }
+
+it('opens the dedicated Jev editor with configured routing controls', async () => {
+  const scripted = scriptedFace()
+  const jev = jevNamespaceView()
+  scripted.face.settings.describe.mockImplementation(async () => remoteOk({
+    writable: true, hasDocument: false, namespaces: [...wireNamespaces(), jev.namespace],
+  }))
+  scripted.face.llm.listConfigurableProviders.mockImplementation(async () => remoteOk([
+    { provider: 'jev-router', displayName: 'TypeSafe / Jev', settingsNs: 'llm-jev-router', settingsPath: [], active: false },
+  ]))
+  const ctx = ctxWith(scripted.face)
+  const mirror = new SettingsDescribeMirror(ctx)
+  const controller = new ModelsSettingsStore(ctx, settingsSchema, mirror)
+  render(<JevSettingsSection controller={controller}
+    useSnapshot={bindSnapshotSelector(controller.store)}
+    useCredentialsRevision={bindSnapshotSelector(createSnapshotStore({ revision: 0 }))}
+    operations={operationsWith(scripted.face, mirror)} schema={settingsSchema} t={t} />)
+  await screen.findByLabelText(en.jevEnabled)
+  expect(screen.getByRole('heading', { name: en.jevTitle })).toBeTruthy()
+  expect(screen.getByLabelText(en.jevEndpoint)).toHaveProperty('value', 'https://api.typesafe.ai/v1/systemone')
+  expect(screen.getByLabelText(en.jevRouteModel)).toHaveProperty('value', 'claude-opus-5')
+})
 
 /**
  * Mount for a user who cannot reach any provider yet: no credential is stored

@@ -1,4 +1,4 @@
-/** Loaded hook configuration reports collected without rereading source files. */
+/** Hook commands and their configuration or runtime loading status. */
 import type { HookDialect, MatcherGroup } from './types.ts'
 
 /** One accepted command and the event and matcher that select it. */
@@ -8,11 +8,11 @@ export interface HookInventoryHandler {
   readonly command: string
 }
 
-/** Configuration captured when a hook bridge loads. */
+/** Loaded bridge configuration or a read-only external configuration report. */
 export interface HookInventoryReport {
   readonly dialect: HookDialect
   readonly source: string
-  readonly status: 'loaded' | 'failed'
+  readonly status: 'loaded' | 'configured' | 'failed'
   readonly handlers: readonly HookInventoryHandler[]
   readonly skipped: readonly string[]
   readonly error?: string
