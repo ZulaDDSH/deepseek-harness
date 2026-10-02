@@ -355,6 +355,14 @@ export async function apply(ctx: Context, config: Config = Config({})): Promise<
         const script = words.find(word => /\.(m?js|cjs|ts|sh|ps1|py|cmd|bat|exe)$/i.test(word)) ?? words[0] ?? command
         return (script.split(/[\\/]/).pop() ?? script).replace(/\.[^.]+$/, '')
       }
+      const hookGroups = <H extends { dialect: string; command: string }>(hooks: readonly H[]): Map<string, H[]> => {
+        const groups = new Map<string, H[]>()
+        for (const hook of hooks) {
+          const id = `${hook.dialect}/${hookName(hook.command)}`
+          groups.set(id, [...groups.get(id) ?? [], hook])
+        }
+        return groups
+      }
       const hookOverrides = (sessionId: SessionId): Record<string, boolean> => {
         const projection = sessions.binding(sessionId)?.session.projections.faceOf('hookOverrides').getSnapshot() as HookOverridesProjection | undefined
         return { ...projection?.current?.overrides }
@@ -368,21 +376,23 @@ export async function apply(ctx: Context, config: Config = Config({})): Promise<
             const result = await remote.listHooks()
             if (!result.ok) throw new Error(result.error.message)
             const overrides = hookOverrides(sessionId)
-            if (result.value.hooks.length === 0) return [{ id: '$empty', label: t('input.hooksEmpty') }]
-            return result.value.hooks.map(hook => ({
-              id: hook.key,
-              label: `${hookName(hook.command)} — ${hook.event} (${hook.dialect})`,
-              active: overrides[hook.key] ?? !hook.globallyDisabled,
+            const groups = hookGroups(result.value.hooks)
+            if (groups.size === 0) return [{ id: '$empty', label: t('input.hooksEmpty') }]
+            return [...groups].map(([id, hooks]) => ({
+              id,
+              label: `${hookName(hooks[0]?.command ?? '')} — ${[...new Set(hooks.map(hook => hook.event))].join(', ')} (${hooks[0]?.dialect ?? ''})`,
+              active: hooks.every(hook => overrides[hook.key] ?? !hook.globallyDisabled),
             }))
           },
           onSelect: async (option, { sessionId }) => {
             if (option.id === '$empty') return
             const catalog = await remote.listHooks()
             if (!catalog.ok) throw new Error(catalog.error.message)
-            const hook = catalog.value.hooks.find(row => row.key === option.id)
-            if (hook === undefined) return
+            const hooks = hookGroups(catalog.value.hooks).get(option.id)
+            if (hooks === undefined) return
             const overrides = hookOverrides(sessionId)
-            overrides[hook.key] = !(overrides[hook.key] ?? !hook.globallyDisabled)
+            const on = !hooks.every(hook => overrides[hook.key] ?? !hook.globallyDisabled)
+            for (const hook of hooks) overrides[hook.key] = on
             const result = await remote.setHookOverrides({ sessionId, overrides })
             if (!result.ok) throw new Error(result.error.message)
           },
