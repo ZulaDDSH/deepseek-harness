@@ -357,6 +357,7 @@ export interface SessionHookRow {
   readonly matcher?: string
   readonly command: string
   readonly globallyDisabled: boolean
+  readonly description?: string
 }
 
 /** Hooks loaded by mounted bridges. */

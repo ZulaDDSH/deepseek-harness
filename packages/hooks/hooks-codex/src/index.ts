@@ -67,6 +67,8 @@ export interface Config {
   stderrSummaryMaxChars?: number
   /** {@link hookKey} values of the only commands that run; edited live from Settings. */
   enabledHooks?: Volatile<string[]>
+  /** User-written descriptions keyed by {@link hookKey}; edited live from Settings. */
+  hookDescriptions?: Volatile<Record<string, string>>
 }
 
 export const Config = z.object({
@@ -75,6 +77,7 @@ export const Config = z.object({
   defaultTimeoutMs: z.number().default(DEFAULT_HOOK_TIMEOUT_MS),
   stderrSummaryMaxChars: z.number().default(DEFAULT_STDERR_SUMMARY_MAX_CHARS),
   enabledHooks: z.array(z.string()).default([]).volatile(),
+  hookDescriptions: z.dict(z.string()).default({}).volatile(),
 })
 
 let handlerCounter = 0
@@ -102,7 +105,7 @@ export function apply(ctx: Context, config: Config): void {
   }
   const enabledHooks = (): readonly string[] => config.enabledHooks?.get() ?? []
   ctx.on('hooks/inventory', (reports) => {
-    reports.push({ ...inventory, handlers: describeHookHandlers(parsed, enabledHooks()) })
+    reports.push({ ...inventory, handlers: describeHookHandlers(parsed, enabledHooks(), config.hookDescriptions?.get() ?? {}) })
   })
   try {
     const raw: unknown = JSON.parse(readFileSync(config.configPath, 'utf8'))

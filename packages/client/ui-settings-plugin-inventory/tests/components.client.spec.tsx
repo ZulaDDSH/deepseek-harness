@@ -680,7 +680,7 @@ describe('Hooks settings', () => {
       dialect: 'claude-code', source: '/settings.json', status: 'configured',
       handlers: [{ event: 'SubagentStart', command: 'external-policy', key: 'k0' }], skipped: [],
     }] })
-    render(<HooksSettingsSection {...props(list)} setEnabledHooks={vi.fn()} close={() => {}} />)
+    render(<HooksSettingsSection {...props(list)} setEnabledHooks={vi.fn()} setHookDescriptions={vi.fn()} close={() => {}} />)
     expect(await screen.findByText(en.hooksEmpty)).toBeTruthy()
     expect(screen.queryByText('external-policy')).toBeNull()
   })
@@ -689,7 +689,7 @@ describe('Hooks settings', () => {
       dialect: 'codex', source: '/hooks.json', status: 'loaded', skipped: [],
       handlers: [{ event: 'PreToolUse', matcher: 'Bash', command: 'node "C:/h/check-policy.mjs" --x', key: 'k1' }],
     }] })
-    render(<HooksSettingsSection {...props(list)} setEnabledHooks={vi.fn()} close={() => {}} />)
+    render(<HooksSettingsSection {...props(list)} setEnabledHooks={vi.fn()} setHookDescriptions={vi.fn()} close={() => {}} />)
     expect(await screen.findByText('check-policy')).toBeTruthy()
     expect(screen.getByText(en.hooksHelp)).toBeTruthy()
     list.mockResolvedValueOnce({ entries: [], hooks: [{
@@ -698,6 +698,32 @@ describe('Hooks settings', () => {
     fireEvent.click(screen.getByRole('button', { name: en.hooksRefresh }))
     expect(await screen.findByText('Invalid JSON')).toBeTruthy()
     expect(screen.queryByText('check-policy')).toBeNull()
+  })
+  it('adds, edits and clears a script description', async () => {
+    const entry = { entryId: 'hooks-1', moduleName: '@deepseek-ai/dsh-hooks-codex', enabled: true, fiberPhase: null }
+    const snapshot = (description?: string) => ({ entries: [entry], hooks: [{
+      dialect: 'codex', source: '/hooks.json', status: 'loaded', skipped: [], handlers: [
+        { event: 'PreToolUse', command: 'one', key: 'k1', ...description === undefined ? {} : { description } },
+        { event: 'Stop', command: 'one', key: 'k2', ...description === undefined ? {} : { description } },
+        { event: 'Stop', command: 'two', key: 'k3', description: 'other' },
+      ],
+    }] }) as unknown as Snapshot
+    const list = vi.fn<PluginInventorySettingsTabInjected['list']>().mockResolvedValue(snapshot())
+    const setHookDescriptions = vi.fn(async () => {})
+    render(<HooksSettingsSection {...props(list)} setEnabledHooks={vi.fn()} setHookDescriptions={setHookDescriptions} close={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: en.hooksDescriptionAdd }))
+    fireEvent.change(screen.getByRole('textbox', { name: `${en.hooksDescription}: one` }), { target: { value: ' Blocks risky tools ' } })
+    fireEvent.click(screen.getByRole('button', { name: en.hooksDescriptionSave }))
+    await waitFor(() => { expect(setHookDescriptions).toHaveBeenCalledWith('hooks-1', { k3: 'other', k1: 'Blocks risky tools', k2: 'Blocks risky tools' }) })
+    list.mockResolvedValue(snapshot('Blocks risky tools'))
+    fireEvent.click(screen.getByRole('button', { name: en.hooksRefresh }))
+    expect(await screen.findByText('Blocks risky tools', { exact: false })).toBeTruthy()
+    fireEvent.click(screen.getAllByRole('button', { name: en.hooksDescriptionEdit })[0]!)
+    fireEvent.click(screen.getByRole('button', { name: en.hooksDescriptionCancel }))
+    fireEvent.click(screen.getAllByRole('button', { name: en.hooksDescriptionEdit })[0]!)
+    fireEvent.change(screen.getByRole('textbox', { name: `${en.hooksDescription}: one` }), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: en.hooksDescriptionSave }))
+    await waitFor(() => { expect(setHookDescriptions).toHaveBeenLastCalledWith('hooks-1', { k3: 'other' }) })
   })
   it('toggles loaded hooks through the bridge allow-list', async () => {
     const entry = { entryId: 'hooks-1', moduleName: '@deepseek-ai/dsh-hooks-codex', enabled: true, fiberPhase: null }
@@ -710,7 +736,7 @@ describe('Hooks settings', () => {
     }] }) as unknown as Snapshot
     const list = vi.fn<PluginInventorySettingsTabInjected['list']>().mockResolvedValue(report(false))
     const setEnabledHooks = vi.fn(async () => {})
-    render(<HooksSettingsSection {...props(list)} setEnabledHooks={setEnabledHooks} close={() => {}} />)
+    render(<HooksSettingsSection {...props(list)} setEnabledHooks={setEnabledHooks} setHookDescriptions={vi.fn()} close={() => {}} />)
     const toggle = () => screen.findByRole('switch', { name: `${en.hooksToggle}: one` })
     fireEvent.click(await toggle())
     await waitFor(() => { expect(setEnabledHooks).toHaveBeenCalledWith('hooks-1', ['k1', 'k3']) })

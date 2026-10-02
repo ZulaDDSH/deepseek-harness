@@ -307,6 +307,7 @@ export class SessionController extends TypertRemoteService {
       hooks: reports.filter(report => report.status === 'loaded').flatMap(report => report.handlers.map(handler => ({
         key: handler.key, dialect: report.dialect, event: handler.event, command: handler.command,
         globallyDisabled: handler.disabled === true, ...handler.matcher === undefined ? {} : { matcher: handler.matcher },
+        ...handler.description === undefined ? {} : { description: handler.description },
       }))),
     }
   }

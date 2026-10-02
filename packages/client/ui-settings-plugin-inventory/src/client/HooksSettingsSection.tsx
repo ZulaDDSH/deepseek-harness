@@ -9,6 +9,7 @@ type HookInventoryReport = NonNullable<PluginInventorySnapshot['hooks']>[number]
 
 export interface HooksSettingsSectionInjected extends Pick<PluginInventorySettingsTabInjected, 'list'> {
   setEnabledHooks: (entryId: string, keys: readonly string[]) => Promise<void>
+  setHookDescriptions: (entryId: string, descriptions: Readonly<Record<string, string>>) => Promise<void>
 }
 
 export type HooksSettingsSectionProps = PropsRuntime<'settings.section'>
@@ -30,12 +31,13 @@ function groupByScript(handlers: HookInventoryReport['handlers']): [string, Hook
   return [...groups]
 }
 
-export function HooksSettingsSection({ t, list, setEnabledHooks }: HooksSettingsSectionProps) {
+export function HooksSettingsSection({ t, list, setEnabledHooks, setHookDescriptions }: HooksSettingsSectionProps) {
   const [snapshot, setSnapshot] = useState<PluginInventorySnapshot>()
   const [failed, setFailed] = useState(false)
   const [writeFailed, setWriteFailed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [revision, setRevision] = useState(0)
+  const [editing, setEditing] = useState<{ id: string; draft: string }>()
   useEffect(() => {
     let current = true
     setFailed(false)
@@ -44,15 +46,25 @@ export function HooksSettingsSection({ t, list, setEnabledHooks }: HooksSettings
   }, [list, revision])
   const bridgeOf = (report: HookInventoryReport): string | undefined =>
     snapshot?.entries.find(entry => entry.enabled && entry.moduleName.endsWith(`dsh-hooks-${report.dialect}`))?.entryId
-  const write = (entryId: string, enabled: readonly string[]): void => {
+  const save = (operation: Promise<void>): void => {
     setBusy(true)
     setWriteFailed(false)
-    void setEnabledHooks(entryId, enabled)
+    void operation
       .catch(() => { setWriteFailed(true) })
       .finally(() => {
         setBusy(false)
         setRevision(value => value + 1)
       })
+  }
+  const write = (entryId: string, enabled: readonly string[]): void => { save(setEnabledHooks(entryId, enabled)) }
+  const describe = (entryId: string, report: HookInventoryReport, keys: readonly string[], text: string): void => {
+    const descriptions: Record<string, string> = {}
+    for (const handler of report.handlers) {
+      if (handler.description !== undefined && !keys.includes(handler.key)) descriptions[handler.key] = handler.description
+    }
+    if (text.trim().length > 0) for (const key of keys) descriptions[key] = text.trim()
+    setEditing(undefined)
+    save(setHookDescriptions(entryId, descriptions))
   }
   const enabledOf = (report: HookInventoryReport): string[] =>
     report.handlers.filter(handler => handler.disabled !== true).map(handler => handler.key)
@@ -79,6 +91,8 @@ export function HooksSettingsSection({ t, list, setEnabledHooks }: HooksSettings
           <ul>{groupByScript(report.handlers).map(([name, handlers]) => {
             const keys = handlers.map(handler => handler.key)
             const on = handlers.every(handler => handler.disabled !== true)
+            const description = handlers.find(handler => handler.description !== undefined)?.description
+            const id = `${report.dialect}/${name}`
             return <li key={name} title={[...new Set(handlers.map(handler => handler.command))].join('\n')}>
               {entryId === undefined ? null : <Switch
                 checked={on}
@@ -90,6 +104,23 @@ export function HooksSettingsSection({ t, list, setEnabledHooks }: HooksSettings
                 }}
               />}
               {' '}<strong>{name}</strong> — <small>{[...new Set(handlers.map(handler => handler.event))].join(', ')}</small>
+              {editing?.id === id && entryId !== undefined
+                ? <form onSubmit={(event) => { event.preventDefault(); describe(entryId, report, keys, editing.draft) }}>
+                  <input
+                    aria-label={`${t('hooksDescription')}: ${name}`}
+                    value={editing.draft}
+                    placeholder={t('hooksDescriptionPlaceholder')}
+                    onChange={(event) => { setEditing({ id, draft: event.target.value }) }}
+                  />
+                  {' '}<Button type="submit" disabled={busy}>{t('hooksDescriptionSave')}</Button>
+                  {' '}<Button variant="outline" onClick={() => { setEditing(undefined) }}>{t('hooksDescriptionCancel')}</Button>
+                </form>
+                : <div>
+                  {description === undefined ? null : <span>{description} </span>}
+                  {entryId === undefined ? null : <Button variant="outline" onClick={() => { setEditing({ id, draft: description ?? '' }) }}>
+                    {t(description === undefined ? 'hooksDescriptionAdd' : 'hooksDescriptionEdit')}
+                  </Button>}
+                </div>}
             </li>
           })}</ul>
         </article>

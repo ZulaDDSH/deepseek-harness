@@ -355,7 +355,7 @@ export async function apply(ctx: Context, config: Config = Config({})): Promise<
         const script = words.find(word => /\.(m?js|cjs|ts|sh|ps1|py|cmd|bat|exe)$/i.test(word)) ?? words[0] ?? command
         return (script.split(/[\\/]/).pop() ?? script).replace(/\.[^.]+$/, '')
       }
-      const hookGroups = <H extends { dialect: string; command: string }>(hooks: readonly H[]): Map<string, H[]> => {
+      const hookGroups = <H extends { dialect: string; command: string; description?: string }>(hooks: readonly H[]): Map<string, H[]> => {
         const groups = new Map<string, H[]>()
         for (const hook of hooks) {
           const id = `${hook.dialect}/${hookName(hook.command)}`
@@ -380,7 +380,8 @@ export async function apply(ctx: Context, config: Config = Config({})): Promise<
             if (groups.size === 0) return [{ id: '$empty', label: t('input.hooksEmpty') }]
             return [...groups].map(([id, hooks]) => ({
               id,
-              label: `${hookName(hooks[0]?.command ?? '')} — ${[...new Set(hooks.map(hook => hook.event))].join(', ')} (${hooks[0]?.dialect ?? ''})`,
+              label: `${hookName(hooks[0]?.command ?? '')} — ${hooks.find(hook => hook.description !== undefined)?.description
+                ?? [...new Set(hooks.map(hook => hook.event))].join(', ')} (${hooks[0]?.dialect ?? ''})`,
               active: hooks.every(hook => overrides[hook.key] ?? !hook.globallyDisabled),
             }))
           },

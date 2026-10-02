@@ -80,6 +80,10 @@ describe('ui-settings-plugin-inventory browser plugin', () => {
     const hooksInjected = (hooks.inject as unknown as () => HooksSettingsSectionInjected)()
     await hooksInjected.setEnabledHooks('hooks-1', ['k1'])
     expect(b.mutate).toHaveBeenCalledWith('hooks-1', [{ op: 'set', path: ['enabledHooks'], value: ['k1'] }], undefined)
+    await hooksInjected.setHookDescriptions('hooks-1', { k1: 'd' })
+    expect(b.mutate).toHaveBeenLastCalledWith('hooks-1', [{ op: 'set', path: ['hookDescriptions'], value: { k1: 'd' } }], undefined)
+    b.mutate.mockResolvedValueOnce({ ok: false, error: { code: 'settings/refused', message: 'no' } })
+    await expect(hooksInjected.setHookDescriptions('hooks-1', {})).rejects.toThrow('settings.mutate failed')
     b.mutate.mockResolvedValueOnce({ ok: false, error: { code: 'settings/refused', message: 'no' } })
     await expect(hooksInjected.setEnabledHooks('hooks-1', [])).rejects.toThrow('settings.mutate failed: settings/refused: no')
 

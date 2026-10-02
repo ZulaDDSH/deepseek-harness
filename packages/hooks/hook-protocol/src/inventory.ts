@@ -10,6 +10,8 @@ export interface HookInventoryHandler {
   readonly key: string
   /** Whether the bridge currently skips this command (not in `enabledHooks`). */
   readonly disabled?: boolean
+  /** User-written description from the bridge's `hookDescriptions` setting. */
+  readonly description?: string
 }
 
 /** Loaded bridge configuration or a read-only external configuration report. */
@@ -35,17 +37,20 @@ export function hookKey(event: string, matcher: string | undefined, command: str
 /** Flatten the accepted groups without exposing parser state.
  * @param config Parsed event groups retained by the bridge.
  * @param enabled Keys the bridge runs; every other command is skipped.
+ * @param descriptions User-written descriptions keyed by hook key.
  * @returns Commands with their selecting event, optional matcher and enablement.
  */
 export function describeHookHandlers(
   config: Record<string, readonly MatcherGroup[]>,
   enabled: readonly string[] = [],
+  descriptions: Readonly<Record<string, string>> = {},
 ): HookInventoryHandler[] {
   return Object.entries(config).flatMap(([event, groups]) => groups.flatMap(group => group.hooks.map((hook) => {
     const key = hookKey(event, group.matcher, hook.command)
     return {
       event, command: hook.command, key, ...group.matcher === undefined ? {} : { matcher: group.matcher },
       ...enabled.includes(key) ? {} : { disabled: true },
+      ...descriptions[key] ? { description: descriptions[key] } : {},
     }
   })))
 }
