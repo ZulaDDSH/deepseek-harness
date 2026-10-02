@@ -1,6 +1,6 @@
 /** Read external hook configuration without registering or executing commands. */
 import { readFile } from 'node:fs/promises'
-import type { HookInventoryHandler, HookInventoryReport } from '@deepseek-ai/dsh-hook-protocol'
+import { hookKey, type HookInventoryHandler, type HookInventoryReport } from '@deepseek-ai/dsh-hook-protocol'
 
 /** External application's JSON hook file. */
 export interface HookFileSource {
@@ -41,7 +41,8 @@ export async function readHookFiles(sources: readonly HookFileSource[]): Promise
             const hook = object(candidateHook)
             if (hook === undefined) continue
             if (typeof hook.command === 'string') handlers.push({
-              event, command: hook.command, ...typeof group.matcher === 'string' ? { matcher: group.matcher } : {},
+              event, command: hook.command, key: hookKey(event, typeof group.matcher === 'string' ? group.matcher : undefined, hook.command),
+              ...typeof group.matcher === 'string' ? { matcher: group.matcher } : {},
             })
             else skipped.push(`${event}: ${typeof hook.type === 'string' ? hook.type : 'missing command'}`)
           }

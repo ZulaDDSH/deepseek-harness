@@ -16,8 +16,8 @@ it('reads all external command events, refreshes files and reports safe failures
   } }))
   expect(await readHookFiles([source, { ...source, source: join(root, 'absent.json') }])).toEqual([{
     ...source, status: 'configured', handlers: [
-      { event: 'PreToolUse', matcher: 'Write', command: `write ${marker}` },
-      { event: 'FutureEvent', command: 'future' },
+      { event: 'PreToolUse', matcher: 'Write', command: `write ${marker}`, key: expect.any(String) },
+      { event: 'FutureEvent', command: 'future', key: expect.any(String) },
     ], skipped: ['FutureEvent: prompt'],
   }])
   await writeFile(source.source, '{"secret":"do-not-display"')
@@ -26,7 +26,7 @@ it('reads all external command events, refreshes files and reports safe failures
   await writeFile(claude.source, JSON.stringify({ model: 'no-hook-settings' }))
   expect(await readHookFiles([claude])).toEqual([])
   await writeFile(claude.source, JSON.stringify({ hooks: { SubagentStart: [{ hooks: [{ command: 'claude' }] }] } }))
-  expect((await readHookFiles([claude]))[0]?.handlers).toEqual([{ event: 'SubagentStart', command: 'claude' }])
+  expect((await readHookFiles([claude]))[0]?.handlers).toEqual([{ event: 'SubagentStart', command: 'claude', key: expect.any(String) }])
   const { existsSync } = await import('node:fs')
   expect(existsSync(marker)).toBe(false)
 })

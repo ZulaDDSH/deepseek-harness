@@ -20,7 +20,7 @@ import type {
   ConversationSessionInjected, DraftFileUploads,
 } from './contract/slots.ts'
 import type { InputNotice } from './contract/input.ts'
-import type { McpSelectionProjection } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { HookOverridesProjection, McpSelectionProjection } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { ReferenceInsert } from './contract/draft-editor.ts'
 import { createConversationStore, readConversationViewPreference } from './stores.ts'
 import { formatFileMention } from '@deepseek-ai/dsh-file-reference/grammar'
@@ -350,6 +350,44 @@ export async function apply(ctx: Context, config: Config = Config({})): Promise<
           },
         },
       }), 'ui-conversation: Session connectors')
+      const hookName = (command: string): string => {
+        const words = command.split(/\s+/).map(word => word.replaceAll('"', '').replaceAll("'", ''))
+        const script = words.find(word => /\.(m?js|cjs|ts|sh|ps1|py|cmd|bat|exe)$/i.test(word)) ?? words[0] ?? command
+        return (script.split(/[\\/]/).pop() ?? script).replace(/\.[^.]+$/, '')
+      }
+      const hookOverrides = (sessionId: SessionId): Record<string, boolean> => {
+        const projection = sessions.binding(sessionId)?.session.projections.faceOf('hookOverrides').getSnapshot() as HookOverridesProjection | undefined
+        return { ...projection?.current?.overrides }
+      }
+      remoteScope.effect(() => commands.register({
+        name: 'hooks', label: () => t('input.hooks'), icon: IconPaperclipOutlineRegular,
+        available: session => sessions.binding(session.sessionId) !== undefined,
+        ui: {
+          kind: 'popupSelect',
+          options: async ({ sessionId }) => {
+            const result = await remote.listHooks()
+            if (!result.ok) throw new Error(result.error.message)
+            const overrides = hookOverrides(sessionId)
+            if (result.value.hooks.length === 0) return [{ id: '$empty', label: t('input.hooksEmpty') }]
+            return result.value.hooks.map(hook => ({
+              id: hook.key,
+              label: `${hookName(hook.command)} — ${hook.event} (${hook.dialect})`,
+              active: overrides[hook.key] ?? !hook.globallyDisabled,
+            }))
+          },
+          onSelect: async (option, { sessionId }) => {
+            if (option.id === '$empty') return
+            const catalog = await remote.listHooks()
+            if (!catalog.ok) throw new Error(catalog.error.message)
+            const hook = catalog.value.hooks.find(row => row.key === option.id)
+            if (hook === undefined) return
+            const overrides = hookOverrides(sessionId)
+            overrides[hook.key] = !(overrides[hook.key] ?? !hook.globallyDisabled)
+            const result = await remote.setHookOverrides({ sessionId, overrides })
+            if (!result.ok) throw new Error(result.error.message)
+          },
+        },
+      }), 'ui-conversation: Session hooks')
     })
   })
 

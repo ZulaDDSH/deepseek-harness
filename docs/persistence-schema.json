@@ -10154,6 +10154,90 @@
       }
     },
     {
+      "key": "event:hooks/session-overrides",
+      "kind": "event",
+      "event": "hooks/session-overrides",
+      "surface": false,
+      "digest": "8f1df624af4d2a5d9aa39342beb3d354c8147388e80ba7a0cf9b6aa7d1cb0f5e",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "data",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "ignorable",
+                "type": 5,
+                "optional": true
+              },
+              {
+                "name": "seq",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "time",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "type",
+                "type": 7,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "overrides",
+                "type": 2,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [],
+            "indices": [
+              {
+                "key": 3,
+                "value": 4
+              }
+            ]
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
+            "kind": "primitive",
+            "type": "boolean"
+          },
+          {
+            "kind": "literal",
+            "value": true
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          },
+          {
+            "kind": "literal",
+            "value": "hooks/session-overrides"
+          }
+        ]
+      }
+    },
+    {
       "key": "event:image/offload",
       "kind": "event",
       "event": "image/offload",
@@ -21989,6 +22073,15 @@
       "sources": []
     },
     {
+      "digest": "12cb8c094c08420f70cb16ebac2114462df5558735c289a9faed4e4013e150b6",
+      "names": [
+        "packages/api/session-controller/src/types.ts#HookOverrides"
+      ],
+      "sources": [
+        "packages/api/session-controller/src/types.ts:343"
+      ]
+    },
+    {
       "digest": "12d5808fac1996b9b3c2afa806e03022252ba2d7b88f835862ae1896591f60c7",
       "names": [
         "packages/llm/llm/src/types.ts#ImageBlock"
@@ -22875,7 +22968,7 @@
         "packages/workflow/workflow/src/types.ts#WorkflowRunId"
       ],
       "sources": [
-        "packages/api/session-controller/src/types.ts:442",
+        "packages/api/session-controller/src/types.ts:479",
         "packages/attachment/attachment/src/brand.ts:6",
         "packages/compaction/compaction/src/brand.ts:4",
         "packages/core/session/src/types.ts:20",
@@ -23333,7 +23426,7 @@
       "digest": "6a4f72e2e179e17b922f2a9392c0e1c8f8c707f32494372454850a3eb184a6e7",
       "names": [],
       "sources": [
-        "packages/api/session-controller/src/types.ts:447"
+        "packages/api/session-controller/src/types.ts:484"
       ]
     },
     {
@@ -23371,6 +23464,11 @@
     },
     {
       "digest": "6c1cccb433ddc153facb380c7dda956237ba5c31f8a532a69142dc277890cc9b",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "6c40c18a58ccdb11c7982342c40ad9db8857b3026b5e07b3d8a1bb95b4bf0cf9",
       "names": [],
       "sources": []
     },
@@ -23854,6 +23952,11 @@
       ]
     },
     {
+      "digest": "8f1df624af4d2a5d9aa39342beb3d354c8147388e80ba7a0cf9b6aa7d1cb0f5e",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "8f324cea3916c0517261e88167def8efb3a9994c1135e23d40ed9fd48f8c7bd4",
       "names": [],
       "sources": []
@@ -23903,6 +24006,11 @@
     },
     {
       "digest": "93c33d9687613293f8c95d46c4d922fe9ceae83b84c384beff5c3315abe005f2",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "93c9d307f39e233847329a9379762b668f02a03686f6147aa51c6e634da28189",
       "names": [],
       "sources": []
     },
@@ -24794,7 +24902,7 @@
         "packages/api/session-controller/src/types.ts#McpSelection"
       ],
       "sources": [
-        "packages/api/session-controller/src/types.ts:133"
+        "packages/api/session-controller/src/types.ts:139"
       ]
     },
     {
@@ -25123,7 +25231,7 @@
         "packages/api/session-controller/src/types.ts#ModelSelection"
       ],
       "sources": [
-        "packages/api/session-controller/src/types.ts:106"
+        "packages/api/session-controller/src/types.ts:112"
       ]
     },
     {

@@ -12,7 +12,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-agent-preset/client'
 import { presetDisplayText } from '@deepseek-ai/dsh-agent-preset-registry/display'
 import { PluginInventorySettingsTab, type PluginInventorySettingsTabInjected } from './PluginInventorySettingsTab.tsx'
 import { en, zh, type PluginInventoryLocaleKey } from './locales.ts'
-import { HooksSettingsSection } from './HooksSettingsSection.tsx'
+import { HooksSettingsSection, type HooksSettingsSectionInjected } from './HooksSettingsSection.tsx'
 
 export type { PluginInventorySettingsTabInjected, PluginInventorySettingsTabProps } from './PluginInventorySettingsTab.tsx'
 export type { PluginInventoryLocaleKey } from './locales.ts'
@@ -28,7 +28,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 export const NS = 'settings.pluginInventory'
 
 /** Services required by the Settings registration and generated Remote face. */
-export const inject = ['slots', 'locale', 'remote', 'remote.pluginInventory', 'modules']
+export const inject = ['slots', 'locale', 'remote', 'remote.pluginInventory', 'remote.settings', 'modules']
 
 /** Contribute the lazy inventory tab to the Plugins settings section. */
 export function apply(ctx: ClientContext): void {
@@ -41,6 +41,10 @@ export function apply(ctx: ClientContext): void {
       throw new Error(`pluginInventory.list failed: ${result.error.code}: ${result.error.message}`)
     }
     return result.value
+  }
+  const setDisabledHooks: HooksSettingsSectionInjected['setDisabledHooks'] = async (entryId, keys) => {
+    const result = await ctx.remote.settings.mutate(entryId, [{ op: 'set', path: ['disabledHooks'], value: [...keys] }], undefined)
+    if (!result.ok) throw new Error(`settings.mutate failed: ${result.error.code}: ${result.error.message}`)
   }
   // Resolved per call over ui-agent-preset's dictionaries, so a language
   // switch re-resolves shipped names; user-authored metadata passes through.
@@ -56,7 +60,7 @@ export function apply(ctx: ClientContext): void {
 
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section', id: 'hooks', order: 70, label: () => t('hooksTitle'), locale: NS,
-    inject: () => ({ list }),
+    inject: () => ({ list, setDisabledHooks }),
   }, HooksSettingsSection))
 
   ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({

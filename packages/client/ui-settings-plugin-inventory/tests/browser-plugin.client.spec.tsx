@@ -11,6 +11,7 @@ import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply, inject, NS } from '../src/client/index.ts'
 import { PluginInventorySettingsTab } from '../src/client/PluginInventorySettingsTab.tsx'
 import type { PluginInventorySettingsTabInjected } from '../src/client/PluginInventorySettingsTab.tsx'
+import type { HooksSettingsSectionInjected } from '../src/client/HooksSettingsSection.tsx'
 import { apply as hostApply } from '../src/index.ts'
 
 usePinnedBrowserLanguages('zh-CN')
@@ -38,7 +39,9 @@ async function bench() {
   const list = vi.fn<() => Promise<ListResult>>()
     .mockResolvedValue({ ok: true, value: EMPTY })
   ctx.provide('remote.pluginInventory', { list })
-  return { ctx, retryClient, slots: ctx.get('slots') as SlotRegistry, locale, list }
+  const mutate = vi.fn(async () => ({ ok: true }) as { ok: boolean; error?: { code: string; message: string } })
+  ctx.provide('remote.settings', { mutate })
+  return { ctx, retryClient, slots: ctx.get('slots') as SlotRegistry, locale, list, mutate }
 }
 
 function declare(slots: SlotRegistry): () => void {
@@ -57,7 +60,7 @@ describe('ui-settings-plugin-inventory browser plugin', () => {
   })
 
   it('declares only the services used by the Settings Remote contribution', () => {
-    expect(inject).toEqual(['slots', 'locale', 'remote', 'remote.pluginInventory', 'modules'])
+    expect(inject).toEqual(['slots', 'locale', 'remote', 'remote.pluginInventory', 'remote.settings', 'modules'])
   })
 
   it('registers a localized tab without reading the Remote eagerly', async () => {
@@ -74,6 +77,11 @@ describe('ui-settings-plugin-inventory browser plugin', () => {
     const hooks = b.slots.entries('settings.section')[0]!
     expect(hooks.options.id).toBe('hooks')
     expect(resolveSlotLabel(hooks.options.label)).toBe('钩子')
+    const hooksInjected = (hooks.inject as unknown as () => HooksSettingsSectionInjected)()
+    await hooksInjected.setDisabledHooks('hooks-1', ['k1'])
+    expect(b.mutate).toHaveBeenCalledWith('hooks-1', [{ op: 'set', path: ['disabledHooks'], value: ['k1'] }], undefined)
+    b.mutate.mockResolvedValueOnce({ ok: false, error: { code: 'settings/refused', message: 'no' } })
+    await expect(hooksInjected.setDisabledHooks('hooks-1', [])).rejects.toThrow('settings.mutate failed: settings/refused: no')
 
     const injected = (entry.inject as unknown as () => PluginInventorySettingsTabInjected)()
     const text = { en: 'Local tools', zh: '本地工具' }

@@ -9,10 +9,11 @@
  */
 
 import { readFileSync } from 'node:fs'
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent, PreStepDecision, TurnBoundaryProjection } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-session-projection'
+import type {} from '@deepseek-ai/dsh-api-session-controller'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 declare module '@deepseek-ai/dsh-llm' {
@@ -29,6 +30,7 @@ import {
   appendHookResult,
   createDetachedRuns,
   describeHookHandlers,
+  hookKey,
   type HookInventoryReport,
   DEFAULT_HOOK_TIMEOUT_MS,
   DEFAULT_STDERR_SUMMARY_MAX_CHARS,
@@ -75,14 +77,17 @@ export interface Config {
   defaultTimeoutMs?: number
   /** Character cap for the `hook/result` event's persisted stderr summary. */
   stderrSummaryMaxChars?: number
+  /** {@link hookKey} values of commands to skip; edited live from Settings. */
+  disabledHooks?: Volatile<string[]>
 }
 
-export const Config: z<Config> = z.object({
+export const Config = z.object({
   configPath: z.string().required(),
   pluginRoot: z.string(),
   projectDir: z.string(),
   defaultTimeoutMs: z.number().default(DEFAULT_HOOK_TIMEOUT_MS),
   stderrSummaryMaxChars: z.number().default(DEFAULT_STDERR_SUMMARY_MAX_CHARS),
+  disabledHooks: z.array(z.string()).default([]).volatile(),
 })
 
 /** A stable per-handler id so an invoked/result pair correlates in the log. */
@@ -111,7 +116,10 @@ export function apply(ctx: Context, config: Config): void {
   let inventory: HookInventoryReport = {
     dialect: 'claude-code', source: config.configPath, status: 'failed', handlers: [], skipped: [],
   }
-  ctx.on('hooks/inventory', (reports) => { reports.push(inventory) })
+  const disabledHooks = (): readonly string[] => config.disabledHooks?.get() ?? []
+  ctx.on('hooks/inventory', (reports) => {
+    reports.push({ ...inventory, handlers: describeHookHandlers(parsed, disabledHooks()) })
+  })
   try {
     const raw: unknown = JSON.parse(readFileSync(config.configPath, 'utf8'))
     const result = parseClaudeCodeConfig(raw, {
@@ -120,7 +128,7 @@ export function apply(ctx: Context, config: Config): void {
     })
     parsed = result.config
     inventory = {
-      ...inventory, status: 'loaded', handlers: describeHookHandlers(parsed),
+      ...inventory, status: 'loaded',
       skipped: result.skipped.map(s => `${s.event}: ${s.type}`),
     }
     for (const s of result.skipped) {
@@ -166,9 +174,17 @@ export function apply(ctx: Context, config: Config): void {
     // workspace (the same dir the hook runs in).
     const projectDir = config.projectDir ?? workdir
     const hookEnv = projectDir !== undefined ? { CLAUDE_PROJECT_DIR: projectDir } : undefined
+    const disabled = new Set(disabledHooks())
+    const overrides = opts.agent === undefined ? undefined
+      : ctx.sessionProjections.stateOf(opts.agent.session, 'hookOverrides')?.current?.overrides
+    for (const [key, enabled] of Object.entries(overrides ?? {})) {
+      if (enabled) disabled.delete(key)
+      else disabled.add(key)
+    }
     for (const group of groups) {
       if (!matchesMatcher(group.matcher, matchQuery, 'claude-code')) continue
       for (const hook of group.hooks) {
+        if (disabled.has(hookKey(point, group.matcher, hook.command))) continue
         const handlerId = nextHandlerId(point)
         const session = opts.agent?.session
         if (session && opts.turn !== undefined) {

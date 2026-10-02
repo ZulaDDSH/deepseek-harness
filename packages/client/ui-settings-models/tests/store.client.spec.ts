@@ -84,6 +84,7 @@ const NAMESPACES = [
 
 function api(overrides: {
   accountAvailable?: boolean
+  catalogFails?: boolean
   providers?: () => Promise<RpcResponse<{ providers: typeof DIRECTORY }>>
   describeSettings?: () => Promise<RemoteAnswer<{ writable: boolean; hasDocument: boolean; namespaces: typeof NAMESPACES }>>
   describeCredentials?: (refs: readonly string[]) => Promise<RemoteAnswer<Record<string, unknown>>>
@@ -108,7 +109,7 @@ function api(overrides: {
       : remoteFail(response.result.error.message)
   }
   const face = {
-    session: { modelCatalog: async () => remoteOk({ groups: overrides.accountAvailable
+    session: { modelCatalog: async () => overrides.catalogFails ? remoteFail('catalog down') : remoteOk({ groups: overrides.accountAvailable
       ? [{ id: 'deepseek-account', models: [{ id: 'deepseek-flash' }] }] : [] }) },
     llm: {
       listProviders: () => mapProviderBatch(rows => rows
@@ -367,6 +368,14 @@ it.each([false, true])('uses account availability without asking for an API key:
   }
   expect(store.store.getSnapshot().namespaces.get('llm-deepseek-account')?.ns).toBe('llm-deepseek-account')
   expect(seenRefs).toEqual([])
+})
+
+it.each([false, true])('keeps the page usable and records the model catalog (catalog fails: %s)', async (catalogFails) => {
+  const { ctx, mirror } = api({ accountAvailable: true, catalogFails })
+  const store = new ModelsSettingsStore(ctx, settingsSchema, mirror)
+  await store.load()
+  expect(store.store.getSnapshot().status).toBe('ready')
+  expect(store.store.getSnapshot().catalog).toHaveLength(catalogFails ? 0 : 1)
 })
 
 it('removes the account row after sign-out and restores it after sign-in', async () => {

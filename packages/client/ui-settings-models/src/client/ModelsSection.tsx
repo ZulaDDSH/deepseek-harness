@@ -262,8 +262,17 @@ export function ModelsSection(props: ModelsSectionProps): ReactNode {
  * @param schema Settings path reader.
  * @returns Suggestions retaining arbitrary manual provider and model input.
  */
-export function providerModelOptions(state: Pick<ModelsSettingsState, 'rows' | 'namespaces'>, schema: SettingsSchemaOperations): ModelPickerOption[] {
-  return state.rows.flatMap((row) => {
+export function providerModelOptions(state: Pick<ModelsSettingsState, 'rows' | 'namespaces' | 'catalog'>, schema: SettingsSchemaOperations): ModelPickerOption[] {
+  const options = new Map<string, ModelPickerOption>()
+  for (const group of state.catalog ?? []) {
+    options.set(group.id, {
+      provider: group.id,
+      displayName: group.name,
+      models: group.models.map(model => model.id),
+      efforts: Object.fromEntries(group.models.map(model => [model.id, model.reasoning?.efforts.map(effort => effort.id) ?? []])),
+    })
+  }
+  const configured = state.rows.flatMap((row) => {
     const namespace = state.namespaces.get(row.entry.settingsNs)
     if (namespace === undefined) return []
     const profile = schema.getPath(namespace.value, row.entry.settingsPath)
@@ -277,6 +286,13 @@ export function providerModelOptions(state: Pick<ModelsSettingsState, 'rows' | '
       : []
     return [{ provider: row.entry.provider, displayName: row.entry.displayName, models }]
   })
+  for (const option of configured) {
+    const known = options.get(option.provider)
+    options.set(option.provider, known === undefined
+      ? option
+      : { ...known, models: [...new Set([...known.models, ...option.models])] })
+  }
+  return [...options.values()]
 }
 
 function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderSlot: ModelsRenderSlot }): ReactNode {

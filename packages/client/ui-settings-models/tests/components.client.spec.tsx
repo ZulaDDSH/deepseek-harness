@@ -308,7 +308,10 @@ function ctxWith(face: object): PageContext {
   const existing = contexts.get(face)
   if (existing !== undefined) return existing
   const ctx = Object.assign(new Context(), { remote: { ...face,
-    session: { initializeDefaultModel: async () => ({ ok: true, value: undefined }) },
+    session: {
+      initializeDefaultModel: async () => ({ ok: true, value: undefined }),
+      modelCatalog: async () => ({ ok: true, value: { groups: [] } }),
+    },
   } })
   contexts.set(face, ctx)
   return ctx
@@ -747,16 +750,17 @@ describe('ModelsSection', () => {
 
     expect(screen.getByLabelText(en.keyInput)).toBeTruthy()
     expect(screen.getByLabelText(en.jevEnabled)).toBeTruthy()
-    const routeProvider = screen.getByLabelText<HTMLInputElement>(`${en.jevRouteProvider} 1`)
-    const routeModel = screen.getByLabelText<HTMLInputElement>(`${en.jevRouteModel} 1`)
-    expect(routeProvider.getAttribute('list')).toBe('jev-provider-options')
-    expect(routeModel.getAttribute('list')).toBe('jev-route-0-model-options')
-    expect(document.getElementById('jev-provider-options')?.querySelector('option[value="deepseek"]')).toBeTruthy()
-    expect(document.getElementById('jev-route-0-model-options')?.querySelector('option[value="claude-opus-5"]')).toBeTruthy()
+    const routeProvider = screen.getByLabelText<HTMLSelectElement>(`${en.jevRouteProvider} 1`)
+    const routeModel = screen.getByLabelText<HTMLSelectElement>(`${en.jevRouteModel} 1`)
+    expect(routeProvider.tagName).toBe('SELECT')
+    expect(routeModel.tagName).toBe('SELECT')
+    expect(routeProvider.querySelector('option[value="deepseek"]')).toBeTruthy()
+    expect(routeModel.querySelector('option[value="claude-opus-5"]')).toBeTruthy()
     expect(screen.queryByText(en.customized)).toBeNull()
     fireEvent.click(screen.getByLabelText(en.jevEnabled))
     fireEvent.change(routeProvider, { target: { value: 'deepseek' } })
-    fireEvent.change(routeModel, { target: { value: 'custom-model' } })
+    fireEvent.change(routeModel, { target: { value: '__custom__' } })
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>(`${en.jevRouteModel} 1`), { target: { value: 'custom-model' } })
     fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.keyInput), { target: { value: 'jev-test-key' } })
     fireEvent.click(screen.getByText(en.apply))
     await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
@@ -881,8 +885,7 @@ describe('ModelsSection', () => {
     expect(screen.getByLabelText<HTMLInputElement>(en.jevStateMaxChars).value).toBe('12000')
     expect(screen.getByLabelText<HTMLInputElement>(en.jevFallback).value).toBe('keep')
     expect(screen.getByLabelText<HTMLInputElement>(en.jevFailOpen).checked).toBe(true)
-    // No configured routes and no model catalog leaves both suggestion lists empty.
-    expect(document.getElementById('jev-provider-options')?.querySelectorAll('option')).toHaveLength(0)
+    expect(screen.queryByLabelText(`${en.jevRouteProvider} 1`)).toBeNull()
     // An unusable number is unset, so the field falls back to the schema default.
     fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.jevTimeoutMs), { target: { value: '1e999' } })
     expect(screen.getByLabelText<HTMLInputElement>(en.jevTimeoutMs).value).toBe('1500')
