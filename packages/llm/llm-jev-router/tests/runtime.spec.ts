@@ -33,7 +33,7 @@ async function mount(overrides: Partial<Config> = {}, credentials?: Record<strin
   await ctx.plugin(LlmRuntime)
   if (credentials !== undefined) await ctx.plugin(MemoryCredentials, credentials)
   const fiber = await ctx.plugin(jevPlugin, { ...config, ...overrides, routes: [...(overrides.routes ?? config.routes)] })
-  const agent = { session: Session.create(SessionId('jev-runtime')) } as Agent
+  const agent = { session: Session.create(SessionId('jev-runtime')), ctx } as unknown as Agent
   const events = agentEvents(ctx, agent)
   const preStep = (step = 1, currentSignal = signal, kind: 'enter' | 'reject' = 'enter') => events.waterfall(
     'agent/pre-step', { turn: 1, step, messages: [input], signal: currentSignal },
@@ -67,6 +67,16 @@ describe('Jev routing lifecycle', () => {
     await fiber.dispose()
     expect(ctx.get('llm')!.listConfigurableProviders()).toEqual([])
     expect(await request()).toBe(base)
+  })
+
+  it('wins over a per-Session model selection installed after the plugin', async () => {
+    answer({ answers: { route: { choice: 'small', confidence: 1 } } })
+    const { ctx, preStep, request } = await mount()
+    ctx.on('agent/request', async (_payload, next) => ({ ...await next(), provider: 'picked', model: 'picked' }), { prepend: true })
+    expect(await request()).toEqual({ provider: 'picked', model: 'picked' })
+    await preStep()
+    expect(await request()).toEqual({ provider: 'target', model: 'small' })
+    expect(await request(2)).toEqual({ provider: 'picked', model: 'picked' })
   })
 
   it('delegates disabled, rejected, aborted, empty-route and keep decisions', async () => {

@@ -479,6 +479,7 @@ export function apply(ctx: Context, initial: RuntimeConfig): void {
     const config = current()
     if (admitted.kind === 'reject' || payload.signal.aborted) return admitted
     if (!config.enabled) return admitted
+    hookAgent(payload.agent)
     states.set(payload.agent, stateForMessages(admitted.messages, config.stateMaxChars))
     if (config.routes.length === 0) return admitted
     try {
@@ -507,10 +508,19 @@ export function apply(ctx: Context, initial: RuntimeConfig): void {
     return admitted
   })
 
-  ctx.on('agent/request', async (payload, next): Promise<LlmCallConfig> => {
-    const base = await next()
-    const route = decisions.get(payload.agent)?.get(stepKey(payload.turn, payload.step))
-    if (route === undefined || payload.signal.aborted) return base
-    return applyRoute(base, route.route)
-  }, { prepend: true })
+  const hooked = new Map<Agent, () => void>()
+  ctx.effect(() => () => {
+    for (const dispose of hooked.values()) dispose()
+    hooked.clear()
+  }, 'jev-router: per-Agent request routing')
+  // Registered after Agent setup so it wraps the per-Session model selection listener.
+  const hookAgent = (agent: Agent): void => {
+    if (hooked.has(agent)) return
+    hooked.set(agent, agent.ctx.on('agent/request', async (payload, next): Promise<LlmCallConfig> => {
+      const base = await next()
+      const route = decisions.get(payload.agent)?.get(stepKey(payload.turn, payload.step))
+      if (route === undefined || payload.signal.aborted) return base
+      return applyRoute(base, route.route)
+    }, { prepend: true }))
+  }
 }
