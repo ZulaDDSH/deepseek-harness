@@ -1,6 +1,8 @@
 - listbox "Trigger suggestions":
   - text: Add
   - option "File" [selected]
+  - option "Connectors"
+  - option "Plugins"
   - option "Goal Set or view the goal for a long-running task"
   - option "Plan Enter or leave plan mode"
   - option "Feedback Record feedback about this session"
@@ -9,3 +11,4 @@
   - option "Permission Switch the permission preset (sandbox mode + approval policy)"
   - option "Model Select the model for this conversation"
   - option "Export Download this Session log as a ZIP archive"
+  - option "Hooks"

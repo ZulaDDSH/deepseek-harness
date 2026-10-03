@@ -136,6 +136,28 @@ Manage profile files and apply their declared reload lifecycle.
  */
 @Remote setPluginEnabled(id: PluginEntryId, enabled: boolean): Promise<ChangeResult>
 
+/** List MCP servers configured as MCP client plugin entries.
+ * @returns One row per server with its target, enablement and runtime phase.
+ */
+@Remote async listMcpServers(): Promise<McpServerRow[]>
+
+/** Find MCP servers configured for Claude Desktop, Claude Code and Codex.
+ * @returns Importable servers, marking names already configured here.
+ */
+@Remote async discoverMcpServers(): Promise<McpServerCandidate[]>
+
+/** Add an MCP server as a new MCP client plugin entry in the profile.
+ * @param config Server name and stdio or streamable HTTP connection.
+ * @returns Persisted and runtime outcomes.
+ */
+@Remote addMcpServer(config: McpServerConfig): Promise<ChangeResult>
+
+/** Remove an MCP server the profile added.
+ * @param id Loader entry identity returned by listMcpServers.
+ * @returns Persisted and runtime outcomes.
+ */
+@Remote removeMcpServer(id: PluginEntryId): Promise<ChangeResult>
+
 /** Select or remove a bundle layer while retaining installed dependencies.
  * @param name Bundle package name.
  * @param enabled Whether the bundle contributes its patch layer.

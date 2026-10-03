@@ -48,6 +48,8 @@ import type {
   SessionRenameRequest,
   SessionRenameValue,
   SessionSelectMcpRequest,
+  SessionSetHookOverridesRequest,
+  HookOverrides,
   SessionSelectMcpValue,
   SessionSelectModelRequest,
   SessionSelectModelValue,
@@ -143,6 +145,18 @@ export class SessionCommandController {
     }
     const agentPreset = this.agents.presetForSession(adopted.session)
     return { sessionId, ...(agentPreset === undefined ? {} : { agentPreset }) }
+  }
+
+  /**
+   * Persist the complete hook overrides of one Session.
+   * @param request - Session identity and override map.
+   * @returns the stored overrides.
+   */
+  async setHookOverrides(request: SessionSetHookOverridesRequest): Promise<HookOverrides> {
+    const agent = await this.resolveAgent(request.sessionId)
+    const value = { overrides: { ...request.overrides } }
+    agent.session.append('hooks/session-overrides', value)
+    return value
   }
 
   /**

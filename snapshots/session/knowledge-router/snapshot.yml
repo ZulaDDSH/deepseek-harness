@@ -1,0 +1,8 @@
+version: 1
+scenario: knowledge-router
+profile: headless
+composition: knowledge-router
+recording: authored
+header:
+  class: knowledge-router
+  pin: true

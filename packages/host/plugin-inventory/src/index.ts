@@ -1,6 +1,11 @@
 /** Read-only projection of the current Cordis Loader plugin entries. */
 
 import type { Context, FiberState } from '@deepseek-ai/cordis'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+import z from '@deepseek-ai/schemastery'
+import { readHookFiles, type HookFileSource } from './hook-files.ts'
+import type { HookInventoryReport } from '@deepseek-ai/dsh-hook-protocol'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 // Type-only: the optional agent-preset roster resolved through `ctx.get`.
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
@@ -17,6 +22,12 @@ import type {
 } from './types.ts'
 
 export type * from './types.ts'
+
+/** External hook files shown by the inventory. */
+export interface Config {
+  /** Read-only Codex and Claude configuration sources. */
+  externalHookSources: readonly HookFileSource[]
+}
 
 /**
  * Brand an existing Loader-tree entry id at the owning boundary.
@@ -50,8 +61,15 @@ const FIBER_PHASE = {
 /** Remote-only service exposing the Loader's current non-group entry state. */
 export class PluginInventoryGateway extends TypertRemoteService {
   static inject = ['loader']
+  static Config = z.object({
+    externalHookSources: z.array(z.object({ dialect: z.union(['codex', 'claude-code']).required(), source: z.string().required() })).default([
+      { dialect: 'codex', source: join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'hooks.json') },
+      { dialect: 'claude-code', source: join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), 'settings.json') },
+      { dialect: 'claude-code', source: join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), 'settings.local.json') },
+    ]),
+  })
 
-  constructor(ctx: Context) {
+  constructor(ctx: Context, private readonly config: Config = { externalHookSources: [] }) {
     super(ctx, 'pluginInventory')
   }
 
@@ -69,7 +87,7 @@ export class PluginInventoryGateway extends TypertRemoteService {
    */
   @Remote('list')
   async list(): Promise<PluginInventorySnapshot> {
-    return readPluginInventory(this.ctx)
+    return readPluginInventory(this.ctx, this.config.externalHookSources)
   }
 }
 
@@ -77,9 +95,15 @@ export default PluginInventoryGateway
 
 /** Read current Loader entries and optional preset compositions.
  * @param ctx Context with the Loader service.
+ * @param hookSources External hook JSON files to inspect without executing.
  * @returns Current inventory with optional display metadata and no separate runtime cache.
  */
-export async function readPluginInventory(ctx: Context): Promise<PluginInventorySnapshot> {
+export async function readPluginInventory(ctx: Context, hookSources: readonly HookFileSource[] = []): Promise<PluginInventorySnapshot> {
+  const hooks: HookInventoryReport[] = []
+  ctx.emit('hooks/inventory', hooks)
+  for (const report of await readHookFiles(hookSources)) {
+    if (!hooks.some(loaded => loaded.dialect === report.dialect && loaded.source === report.source)) hooks.push(report)
+  }
   const entries: PluginInventoryEntry[] = []
   const packages = ctx.get('pluginPackages')
   for (const entry of ctx.loader.entries()) {
@@ -96,7 +120,7 @@ export async function readPluginInventory(ctx: Context): Promise<PluginInventory
   }
   const presets = ctx.get('agentPresets')
   const management = ctx.get('pluginManager') === undefined ? {} : { managementAvailable: true }
-  if (presets === undefined) return { entries, ...management }
+  if (presets === undefined) return { entries, hooks, ...management }
   const agentPresets: AgentPresetPluginGroup[] = (await presets.compositionInventory()).map(
     composition => ({
       ...composition,
@@ -110,5 +134,5 @@ export async function readPluginInventory(ctx: Context): Promise<PluginInventory
       }),
     }),
   )
-  return { entries, agentPresets, ...management }
+  return { entries, agentPresets, hooks, ...management }
 }

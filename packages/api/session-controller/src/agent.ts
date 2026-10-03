@@ -70,6 +70,9 @@ type InstalledMcpSelection = {
   selected: Set<string> | null
   disposeRestriction: (() => void) | undefined
   disposeGuard: (() => void) | undefined
+  disposePrompt: (() => void) | undefined
+  disposeChange: (() => void) | undefined
+  restrictionSignature: string
 }
 
 type InstalledSelection = ModelSelectionRef & {
@@ -375,21 +378,47 @@ export class ApiSessionAgentController {
    * @param selection - selected connector namespaces, or null for unrestricted access.
    */
   installMcpSelection(agent: Agent, selection: McpSelection | null): void {
-    const runtime = this.mcpSelections.get(agent) ?? { selected: null, disposeRestriction: undefined, disposeGuard: undefined }
+    const runtime: InstalledMcpSelection = this.mcpSelections.get(agent) ?? {
+      selected: null, disposeRestriction: undefined, disposeGuard: undefined, disposePrompt: undefined,
+      disposeChange: undefined, restrictionSignature: '[]',
+    }
     runtime.selected = selection === null ? null : new Set(selection.connectorIds)
+    this.mcpSelections.set(agent, runtime)
     const tools = agent.ctx.get('tools')
     if (tools === undefined) {
       this.mcpSelections.set(agent, runtime)
       return
     }
     runtime.disposeGuard ??= tools.guard((execution) => {
+      if (runtime.selected !== null
+        && ['list_mcp_resources', 'list_mcp_resource_templates', 'read_mcp_resource'].includes(execution.name)) {
+        const args = execution.arguments
+        if (typeof args === 'object' && args !== null && 'server' in args
+          && typeof args.server === 'string' && !runtime.selected.has(args.server)) {
+          return 'MCP connector is not enabled for this Session'
+        }
+      }
       const rest = execution.name.startsWith('mcp__') ? execution.name.slice(5) : ''
       const separator = rest.indexOf('__')
       if (separator <= 0 || runtime.selected === null || runtime.selected.has(rest.slice(0, separator))) return undefined
       return 'MCP connector is not enabled for this Session'
     })
-    runtime.disposeRestriction?.()
-    const allTools = tools.schemas().map(schema => schema.name)
+    runtime.disposePrompt ??= agent.ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
+      const assembly = await next()
+      if (runtime.selected === null) return assembly
+      assembly.sections = assembly.sections.filter(section => section.name !== 'mcp-resource-servers'
+        && (!section.name.startsWith('mcp:') || runtime.selected?.has(section.name.slice(4))))
+      assembly.tools = assembly.tools.filter((tool) => {
+        const rest = tool.name.startsWith('mcp__') ? tool.name.slice(5) : ''
+        const separator = rest.indexOf('__')
+        return separator <= 0 || runtime.selected?.has(rest.slice(0, separator))
+      })
+      return assembly
+    })
+    runtime.disposeChange ??= agent.ctx.on('tools/change', () => {
+      this.installMcpSelection(agent, runtime.selected === null ? null : { connectorIds: [...runtime.selected] })
+    })
+    const allTools = this.ctx.get('tools')?.schemas().map(schema => schema.name) ?? []
     const deny = runtime.selected === null
       ? []
       : allTools.filter((name) => {
@@ -397,7 +426,14 @@ export class ApiSessionAgentController {
         const separator = rest.indexOf('__')
         return separator > 0 && !runtime.selected?.has(rest.slice(0, separator))
       })
-    runtime.disposeRestriction = deny.length === 0 ? undefined : tools.restrict({ deny })
+    const signature = JSON.stringify(deny.sort())
+    if (signature !== runtime.restrictionSignature) {
+      runtime.restrictionSignature = signature
+      const previous = runtime.disposeRestriction
+      runtime.disposeRestriction = undefined
+      previous?.()
+      runtime.disposeRestriction = deny.length === 0 ? undefined : tools.restrict({ deny })
+    }
     this.mcpSelections.set(agent, runtime)
   }
 

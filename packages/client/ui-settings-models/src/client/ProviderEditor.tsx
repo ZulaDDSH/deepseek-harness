@@ -45,7 +45,12 @@ import styles from './ModelsSection.module.css'
 /** Per-adapter-family curated field sets (unknown namespaces get the hint alone). */
 type EditorLayout = 'deepseek' | 'pi-ai' | 'jev' | 'unknown'
 
-export type ModelPickerOption = { provider: string; displayName: string; models: readonly string[] }
+export type ModelPickerOption = {
+  provider: string
+  displayName: string
+  models: readonly string[]
+  efforts?: Readonly<Record<string, readonly string[]>>
+}
 
 
 /** Props of {@link ProviderEditor}. */
@@ -168,6 +173,8 @@ const JEV_ROUTE_FIELDS = new Map([
   ['reasoningEffort', 'jevRouteReasoningEffort'],
 ] as const)
 
+const CUSTOM_CHOICE = '__custom__'
+
 /** The editor layout the owning namespace selects. */
 function layoutOf(ns: string): EditorLayout {
   if (ns === 'llm-deepseek') return 'deepseek'
@@ -205,6 +212,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   const { namespace, schema, settingsPath, operations, t, authorization } = props
   const [draft, setDraft] = useState<Record<string, unknown>>(() => draftAt(schema, namespace, settingsPath))
   const [keyDraft, setKeyDraft] = useState('')
+  const [customFields, setCustomFields] = useState<ReadonlySet<string>>(() => new Set())
   const [keyState, setKeyState] = useState<CredentialInfo | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   const [listBusy, setListBusy] = useState(false)
@@ -469,7 +477,8 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
         </div>
       )
       const providers = props.modelOptions ?? []
-      const providerIds = [...new Set(providers.map(option => option.provider))]
+      const providerIds = [...new Set(providers.map(option => option.provider))].filter(provider => provider !== props.provider)
+      const providerNames = new Map(providers.map(option => [option.provider, option.displayName]))
       const keyField = (
         <div className={styles['field']}>
           <span className={styles['fieldLabel']}>{t('keyInput')}</span>
@@ -535,36 +544,61 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
                 {routes.map((route, index) => {
                   const selectedProvider = routeText(route, 'provider')
                   const selectedModels = providers.find(option => option.provider === selectedProvider)?.models ?? []
-                  const modelIds = [...new Set([...selectedModels, routeText(route, 'model')].filter(value => value.length > 0))]
+                  const effortIds = providers.find(option => option.provider === selectedProvider)?.efforts?.[routeText(route, 'model')] ?? []
                   return (
                     <div className={styles['modelEntry']} key={`${routeText(route, 'id')}-${index}`}>
                       {[...JEV_ROUTE_FIELDS].map(([fieldKey, labelKey]) => {
-                        const listId = fieldKey === 'provider' ? 'jev-provider-options' : `jev-route-${index}-${fieldKey}-options`
-                        const options = fieldKey === 'provider' ? providerIds : fieldKey === 'model' ? modelIds : []
+                        const options = fieldKey === 'provider' ? providerIds
+                          : fieldKey === 'model' ? selectedModels
+                            : fieldKey === 'reasoningEffort' ? effortIds : undefined
+                        const fieldId = `jev-route-${index}-${fieldKey}`
+                        const current = routeText(route, fieldKey)
+                        const choices = options === undefined ? [] : [...new Set([...options, current].filter(value => value.length > 0))]
+                        const asSelect = options !== undefined && !customFields.has(fieldId)
                         return (
                           <div className={styles['modelField']} key={fieldKey}>
                             <label className={styles['modelFieldLabel']} htmlFor={`jev-route-${index}-${fieldKey}`}>
                               {t(labelKey)}
                             </label>
-                            <input
-                              id={`jev-route-${index}-${fieldKey}`}
-                              className={styles['input']}
-                              type="text"
-                              list={options.length === 0 ? undefined : listId}
-                              value={routeText(route, fieldKey)}
-                              aria-label={`${t(labelKey)} ${index + 1}`}
-                              placeholder={fieldKey === 'reasoningEffort' ? t('jevRouteReasoningEffortPlaceholder') : undefined}
-                              disabled={disabled}
-                              onChange={(event) => {
-                                updateRoute(index, fieldKey, fieldKey === 'reasoningEffort' && event.target.value === ''
-                                  ? undefined
-                                  : event.target.value)
-                              }}
-                            />
-                            {options.length === 0 ? null : (
-                              <datalist id={listId}>
-                                {options.map(option => <option key={option} value={option} />)}
-                              </datalist>
+                            {asSelect ? (
+                              <select
+                                id={fieldId}
+                                className={`${styles['input']} ${styles['selectInput']}`}
+                                value={current}
+                                aria-label={`${t(labelKey)} ${index + 1}`}
+                                disabled={disabled}
+                                onChange={(event) => {
+                                  const value = event.target.value
+                                  if (value === CUSTOM_CHOICE) {
+                                    setCustomFields(fields => new Set(fields).add(fieldId))
+                                    return
+                                  }
+                                  updateRoute(index, fieldKey, fieldKey === 'reasoningEffort' && value === '' ? undefined : value)
+                                }}
+                              >
+                                <option value="">{t(fieldKey === 'reasoningEffort' ? 'jevRouteEffortDefault' : 'jevRouteChoose')}</option>
+                                {choices.map(choice => (
+                                  <option key={choice} value={choice}>
+                                    {fieldKey === 'provider' ? providerNames.get(choice) ?? choice : choice}
+                                  </option>
+                                ))}
+                                <option value={CUSTOM_CHOICE}>{t('jevRouteCustom')}</option>
+                              </select>
+                            ) : (
+                              <input
+                                id={fieldId}
+                                className={styles['input']}
+                                type="text"
+                                value={current}
+                                aria-label={`${t(labelKey)} ${index + 1}`}
+                                placeholder={fieldKey === 'reasoningEffort' ? t('jevRouteReasoningEffortPlaceholder') : undefined}
+                                disabled={disabled}
+                                onChange={(event) => {
+                                  updateRoute(index, fieldKey, fieldKey === 'reasoningEffort' && event.target.value === ''
+                                    ? undefined
+                                    : event.target.value)
+                                }}
+                              />
                             )}
                           </div>
                         )
@@ -582,9 +616,6 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
                   )
                 })}
               </div>
-              <datalist id="jev-provider-options">
-                {providerIds.map(provider => <option key={provider} value={provider} />)}
-              </datalist>
               <button
                 className={styles['addModelButton']}
                 type="button"

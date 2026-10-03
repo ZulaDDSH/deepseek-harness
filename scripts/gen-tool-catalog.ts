@@ -68,6 +68,7 @@ import type PluginManager from '@deepseek-ai/dsh-plugin-manager'
 import * as PluginManagerTools from '@deepseek-ai/dsh-plugin-manager/tools'
 import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
 import McpResources from '@deepseek-ai/dsh-mcp-resources'
+import KnowledgeRouter from '@deepseek-ai/dsh-knowledge-router'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
 import { registerListSubagentModels } from '../packages/subagent/tool-subagent/src/list-models.ts'
 import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
@@ -203,6 +204,21 @@ export interface ToolPackage {
  * guard proves it is exhaustive against the on-disk glob.
  */
 const TOOL_PACKAGES: ToolPackage[] = [
+  {
+    pkg: '@deepseek-ai/dsh-knowledge-router',
+    dir: 'knowledge-router',
+    source: {
+      knowledge_query: 'packages/knowledge/knowledge-router/src/tool.ts',
+      knowledge_delegate: 'packages/knowledge/knowledge-router/src/tool-delegate.ts',
+      knowledge_record: 'packages/knowledge/knowledge-router/src/tool-learn.ts',
+    },
+    requires: ['ctx.tools', 'ctx.subagents (assisted mode)', 'ctx.commands (optional)'],
+    writes: ['tool/call', 'tool/result', 'child sessions', 'configured Graphify memory (explicit learning)'],
+    async mount(ctx) {
+      await ctx.plugin(SubagentRuntime)
+      await ctx.plugin(KnowledgeRouter, { mode: 'assisted', learning: { enabled: true } })
+    },
+  },
   {
     pkg: '@deepseek-ai/dsh-plugin-manager',
     dir: 'plugin-manager',

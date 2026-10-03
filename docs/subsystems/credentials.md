@@ -427,6 +427,13 @@ requires credential-backed provider quota Remote service.
 
 ```ts cordis-catalog
 /**
+ * Register an account source whose provider owns authentication.
+ * @param source - provider-owned source.
+ * @returns disposer that removes this source.
+ */
+registerSource(source: QuotaSource): () => void
+
+/**
  * List providers whose credentials can currently be resolved.
  * @returns configured providers with available credentials.
  */

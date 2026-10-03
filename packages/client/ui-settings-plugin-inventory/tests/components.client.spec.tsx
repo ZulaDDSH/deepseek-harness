@@ -8,6 +8,7 @@ import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { PluginInventorySettingsTab } from '../src/client/PluginInventorySettingsTab.tsx'
+import { HooksSettingsSection } from '../src/client/HooksSettingsSection.tsx'
 import type {
   PluginInventorySettingsTabInjected,
   PluginInventorySettingsTabProps,
@@ -671,4 +672,88 @@ it('shows current-page sync errors and retries without re-reading Host inventory
   expect(list).toHaveBeenCalledOnce()
   act(() => { sync.set({ syncing: false, failures: [] }) })
   expect(screen.queryByRole('alert')).toBeNull()
+})
+
+describe('Hooks settings', () => {
+  it('hides external configuration that Harness does not control', async () => {
+    const list = vi.fn<PluginInventorySettingsTabInjected['list']>().mockResolvedValue({ entries: [], hooks: [{
+      dialect: 'claude-code', source: '/settings.json', status: 'configured',
+      handlers: [{ event: 'SubagentStart', command: 'external-policy', key: 'k0' }], skipped: [],
+    }, {
+      dialect: 'codex', source: '/broken-hooks.json', status: 'failed', handlers: [], skipped: [], error: 'Invalid hook JSON',
+    }] })
+    render(<HooksSettingsSection {...props(list)} setEnabledHooks={vi.fn()} setHookDescriptions={vi.fn()} close={() => {}} />)
+    expect(await screen.findByText(en.hooksEmpty)).toBeTruthy()
+    expect(screen.queryByText('external-policy')).toBeNull()
+    expect(screen.queryByText('Invalid hook JSON')).toBeNull()
+  })
+  it('shows loaded hooks by script name and refreshes load diagnostics', async () => {
+    const list = vi.fn<PluginInventorySettingsTabInjected['list']>().mockResolvedValue({ entries: [], hooks: [{
+      dialect: 'codex', source: '/hooks.json', status: 'loaded', settingsNs: 'hooks-codex', skipped: [],
+      handlers: [{ event: 'PreToolUse', matcher: 'Bash', command: 'node "C:/h/check-policy.mjs" --x', key: 'k1' }],
+    }] })
+    render(<HooksSettingsSection {...props(list)} setEnabledHooks={vi.fn()} setHookDescriptions={vi.fn()} close={() => {}} />)
+    expect(await screen.findByText('check-policy')).toBeTruthy()
+    expect(screen.getByText(en.hooksHelp)).toBeTruthy()
+    list.mockResolvedValueOnce({ entries: [], hooks: [{
+      dialect: 'codex', source: '/hooks.json', status: 'failed', settingsNs: 'hooks-codex', handlers: [], skipped: [], error: 'Invalid JSON',
+    }] })
+    fireEvent.click(screen.getByRole('button', { name: en.hooksRefresh }))
+    expect(await screen.findByText('Invalid JSON')).toBeTruthy()
+    expect(screen.queryByText('check-policy')).toBeNull()
+  })
+  it('adds, edits and clears a script description', async () => {
+    const entry = { entryId: 'hooks-1' as PluginEntryId, moduleName: '@deepseek-ai/dsh-hooks-codex', enabled: true, fiberPhase: null }
+    const snapshot = (description?: string): Snapshot => ({ entries: [entry], hooks: [{
+      dialect: 'codex', source: '/hooks.json', status: 'loaded', settingsNs: 'hooks-1', skipped: [], handlers: [
+        { event: 'PreToolUse', command: 'one', key: 'k1', ...description === undefined ? {} : { description } },
+        { event: 'Stop', command: 'one', key: 'k2', ...description === undefined ? {} : { description } },
+        { event: 'Stop', command: 'two', key: 'k3', description: 'other' },
+      ],
+    }] })
+    const list = vi.fn<PluginInventorySettingsTabInjected['list']>().mockResolvedValue(snapshot())
+    const setHookDescriptions = vi.fn(async () => {})
+    render(<HooksSettingsSection {...props(list)} setEnabledHooks={vi.fn()} setHookDescriptions={setHookDescriptions} close={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: en.hooksDescriptionAdd }))
+    fireEvent.change(screen.getByRole('textbox', { name: `${en.hooksDescription}: one` }), { target: { value: ' Blocks risky tools ' } })
+    fireEvent.click(screen.getByRole('button', { name: en.hooksDescriptionSave }))
+    await waitFor(() => { expect(setHookDescriptions).toHaveBeenCalledWith('hooks-1', { k3: 'other', k1: 'Blocks risky tools', k2: 'Blocks risky tools' }) })
+    list.mockResolvedValue(snapshot('Blocks risky tools'))
+    fireEvent.click(screen.getByRole('button', { name: en.hooksRefresh }))
+    expect(await screen.findByText('Blocks risky tools', { exact: false })).toBeTruthy()
+    fireEvent.click(screen.getAllByRole('button', { name: en.hooksDescriptionEdit })[0]!)
+    fireEvent.click(screen.getByRole('button', { name: en.hooksDescriptionCancel }))
+    fireEvent.click(screen.getAllByRole('button', { name: en.hooksDescriptionEdit })[0]!)
+    fireEvent.change(screen.getByRole('textbox', { name: `${en.hooksDescription}: one` }), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: en.hooksDescriptionSave }))
+    await waitFor(() => { expect(setHookDescriptions).toHaveBeenLastCalledWith('hooks-1', { k3: 'other' }) })
+  })
+  it('toggles loaded hooks through the bridge allow-list', async () => {
+    const entry = { entryId: 'hooks-1' as PluginEntryId, moduleName: '@deepseek-ai/dsh-hooks-codex', enabled: true, fiberPhase: null }
+    const report = (on: boolean): Snapshot => ({ entries: [entry], hooks: [{
+      dialect: 'codex', source: '/hooks.json', status: 'loaded', settingsNs: 'hooks-1', skipped: [], handlers: [
+        { event: 'PreToolUse', command: 'one', key: 'k1', ...on ? {} : { disabled: true } },
+        { event: 'Stop', command: 'one', key: 'k3', ...on ? {} : { disabled: true } },
+        { event: 'Stop', command: 'two', key: 'k2', disabled: true },
+      ],
+    }] })
+    const list = vi.fn<PluginInventorySettingsTabInjected['list']>().mockResolvedValue(report(false))
+    const setEnabledHooks = vi.fn(async () => {})
+    render(<HooksSettingsSection {...props(list)} setEnabledHooks={setEnabledHooks} setHookDescriptions={vi.fn()} close={() => {}} />)
+    const toggle = () => screen.findByRole('switch', { name: `${en.hooksToggle}: one` })
+    fireEvent.click(await toggle())
+    await waitFor(() => { expect(setEnabledHooks).toHaveBeenCalledWith('hooks-1', ['k1', 'k3']) })
+    list.mockResolvedValue(report(true))
+    fireEvent.click(screen.getByRole('button', { name: en.hooksRefresh }))
+    await waitFor(async () => { expect((await toggle()).getAttribute('aria-checked')).toBe('true') })
+    fireEvent.click(await toggle())
+    await waitFor(() => { expect(setEnabledHooks).toHaveBeenLastCalledWith('hooks-1', []) })
+    fireEvent.click(await screen.findByRole('button', { name: en.hooksEnableAll }))
+    await waitFor(() => { expect(setEnabledHooks).toHaveBeenLastCalledWith('hooks-1', ['k1', 'k3', 'k2']) })
+    fireEvent.click(await screen.findByRole('button', { name: en.hooksDisableAll }))
+    await waitFor(() => { expect(setEnabledHooks).toHaveBeenLastCalledWith('hooks-1', []) })
+    setEnabledHooks.mockRejectedValueOnce(new Error('refused'))
+    fireEvent.click(await screen.findByRole('button', { name: en.hooksDisableAll }))
+    expect(await screen.findByText(`${en.hooksWriteFailed}: refused`)).toBeTruthy()
+  })
 })

@@ -20,6 +20,7 @@ import type {
   ConversationSessionInjected, DraftFileUploads,
 } from './contract/slots.ts'
 import type { InputNotice } from './contract/input.ts'
+import type { HookOverridesProjection, McpSelectionProjection } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { ReferenceInsert } from './contract/draft-editor.ts'
 import { createConversationStore, readConversationViewPreference } from './stores.ts'
 import { formatFileMention } from '@deepseek-ai/dsh-file-reference/grammar'
@@ -123,7 +124,11 @@ interface FileCommandRegistry {
     label(): string
     icon: typeof IconPaperclipOutlineRegular
     available(session: { sessionId: SessionId }): boolean
-    ui: { kind: 'action'; run(session: { sessionId: SessionId }): void }
+    ui: { kind: 'action'; run(session: { sessionId: SessionId }): void } | {
+      kind: 'popupSelect'
+      options(session: { sessionId: SessionId }, signal: AbortSignal): Promise<readonly { id: string; label: string; active?: boolean }[]>
+      onSelect(option: { id: string }, session: { sessionId: SessionId }): Promise<void>
+    }
   }): () => void
 }
 
@@ -278,6 +283,123 @@ export async function apply(ctx: Context, config: Config = Config({})): Promise<
       available: session => inputHub.canPickFiles(session.sessionId),
       ui: { kind: 'action', run: (session) => { inputHub.pickFiles(session.sessionId) } },
     }), 'ui-conversation: File action')
+    const desktop = (globalThis as typeof globalThis & {
+      __DSH_DIRECTORY_PICKER__?: { pick(): Promise<string | null> }
+    }).__DSH_DIRECTORY_PICKER__
+    if (desktop !== undefined) {
+      scope.effect(() => commands.register({
+        name: 'folder', label: () => t('input.folder'), icon: IconPaperclipOutlineRegular,
+        available: session => inputHub.canPickFiles(session.sessionId),
+        ui: { kind: 'action', run: ({ sessionId }) => {
+          const binding = sessions.binding(sessionId)
+          if (binding === undefined || !inputHub.canPickFiles(sessionId)) return
+          const shell = inputHub.shellFor(binding)
+          void desktop.pick().then((path) => {
+            if (path === null || sessions.binding(sessionId) !== binding || !inputHub.canPickFiles(sessionId)) return
+            const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
+            const mention = formatFileMention({ path: `${relativizeToCwd(path, cwd)}/`, kind: 'file' }, false)
+            if (mention === undefined) { shell.notify('error', t('attachment.pathUnsupported')); return }
+            if (!shell.addFiles([{
+              source: 'reference', ref: mention, label: `${workspaceTitleOf(path)}/`,
+              appearance: 'folder', clipboardText: mention,
+            }], [])) shell.notify('error', t('attachment.dropBlocked'))
+          }).catch((error: unknown) => {
+            if (sessions.binding(sessionId) === binding) shell.notify('error', error instanceof Error ? error.message : String(error))
+          })
+        } },
+      }), 'ui-conversation: Folder action')
+    }
+    scope.inject(['remote', 'remote.session'], (remoteScope) => {
+      const remote = remoteScope.remote.session
+      remoteScope.effect(() => commands.register({
+        name: 'connectors', label: () => t('input.connectors'), icon: IconPaperclipOutlineRegular,
+        available: session => sessions.binding(session.sessionId) !== undefined
+          && sessions.subagentAddress(session.sessionId) === undefined,
+        ui: {
+          kind: 'popupSelect',
+          options: async ({ sessionId }) => {
+            const result = await remote.listMcpConnectors()
+            if (!result.ok) throw new Error(result.error.message)
+            const projection = sessions.binding(sessionId)?.session.projections.faceOf('mcpSelection').getSnapshot() as McpSelectionProjection | undefined
+            const selection = projection?.current
+            const rows: { id: string; label: string; active?: boolean }[] = result.value.connectorIds
+              .map(id => ({ id, label: id, active: selection == null || selection.connectorIds.includes(id) }))
+            if (ctx.get('pluginNavigation') !== undefined) rows.push({ id: '$manage', label: t('input.manageConnectors') })
+            return rows
+          },
+          onSelect: async (option, { sessionId }) => {
+            if (option.id === '$manage') {
+              const navigation = ctx.get('pluginNavigation') as { openBundle(name: string): void } | undefined
+              if (navigation === undefined) throw new Error(t('input.connectorsUnavailable'))
+              navigation.openBundle('@deepseek-ai/dsh-mcp-client')
+              return
+            }
+            if (sessions.subagentAddress(sessionId) !== undefined) throw new Error(t('input.connectorsUnavailable'))
+            const binding = sessions.binding(sessionId)
+            if (binding === undefined) throw new Error(t('file.sessionUnavailable'))
+            const catalog = await remote.listMcpConnectors()
+            if (!catalog.ok) throw new Error(catalog.error.message)
+            if (sessions.binding(sessionId) !== binding) throw new Error(t('file.sessionUnavailable'))
+            const projection = binding.session.projections.faceOf('mcpSelection').getSnapshot() as McpSelectionProjection | undefined
+            const selection = projection?.current
+            const selected = new Set((selection?.connectorIds ?? catalog.value.connectorIds)
+              .filter(id => catalog.value.connectorIds.includes(id)))
+            if (selected.has(option.id)) selected.delete(option.id); else selected.add(option.id)
+            const result = await remote.selectMcp({ sessionId, connectorIds: [...selected] })
+            if (!result.ok) throw new Error(result.error.message)
+          },
+        },
+      }), 'ui-conversation: Session connectors')
+      const hookName = (command: string): string => {
+        const words = command.split(/\s+/).map(word => word.replaceAll('"', '').replaceAll("'", ''))
+        const script = words.find(word => /\.(m?js|cjs|ts|sh|ps1|py|cmd|bat|exe)$/i.test(word)) ?? words[0] ?? command
+        return (script.split(/[\\/]/).pop() ?? script).replace(/\.[^.]+$/, '')
+      }
+      const hookGroups = <H extends { dialect: string; command: string; description?: string }>(hooks: readonly H[]): Map<string, H[]> => {
+        const groups = new Map<string, H[]>()
+        for (const hook of hooks) {
+          const id = `${hook.dialect}/${hookName(hook.command)}`
+          groups.set(id, [...groups.get(id) ?? [], hook])
+        }
+        return groups
+      }
+      const hookOverrides = (sessionId: SessionId): Record<string, boolean> => {
+        const projection = sessions.binding(sessionId)?.session.projections.faceOf('hookOverrides').getSnapshot() as HookOverridesProjection | undefined
+        return { ...projection?.current?.overrides }
+      }
+      remoteScope.effect(() => commands.register({
+        name: 'hooks', label: () => t('input.hooks'), icon: IconPaperclipOutlineRegular,
+        available: session => sessions.binding(session.sessionId) !== undefined,
+        ui: {
+          kind: 'popupSelect',
+          options: async ({ sessionId }) => {
+            const result = await remote.listHooks()
+            if (!result.ok) throw new Error(result.error.message)
+            const overrides = hookOverrides(sessionId)
+            const groups = hookGroups(result.value.hooks)
+            if (groups.size === 0) return [{ id: '$empty', label: t('input.hooksEmpty') }]
+            return [...groups].map(([id, hooks]) => ({
+              id,
+              label: `${hookName(hooks[0]?.command ?? '')} — ${hooks.find(hook => hook.description !== undefined)?.description
+                ?? [...new Set(hooks.map(hook => hook.event))].join(', ')} (${hooks[0]?.dialect ?? ''})`,
+              active: hooks.every(hook => overrides[hook.key] ?? !hook.globallyDisabled),
+            }))
+          },
+          onSelect: async (option, { sessionId }) => {
+            if (option.id === '$empty') return
+            const catalog = await remote.listHooks()
+            if (!catalog.ok) throw new Error(catalog.error.message)
+            const hooks = hookGroups(catalog.value.hooks).get(option.id)
+            if (hooks === undefined) return
+            const overrides = hookOverrides(sessionId)
+            const on = !hooks.every(hook => overrides[hook.key] ?? !hook.globallyDisabled)
+            for (const hook of hooks) overrides[hook.key] = on
+            const result = await remote.setHookOverrides({ sessionId, overrides })
+            if (!result.ok) throw new Error(result.error.message)
+          },
+        },
+      }), 'ui-conversation: Session hooks')
+    })
   })
 
   // Conversation assembly and input share the Session binding lifecycle. The

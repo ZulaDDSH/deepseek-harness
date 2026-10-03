@@ -1,0 +1,52 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/knowledge/knowledge-router/README.md
+/:
+  en: 279d2a36149dac8d
+  zh: bed0620e1d30a74c
+/deepseek-ai-dsh-knowledge-router:
+  en: 6dd7dbc7c62437a6
+  zh: 5b276700a4712290
+/deepseek-ai-dsh-knowledge-router/summary:
+  en: ba03c81f61e03b36
+  zh: a0b35eebcac54632
+/deepseek-ai-dsh-knowledge-router/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: ffab54373e9e61f0
+/deepseek-ai-dsh-knowledge-router/use-this-package:
+  en: fa3a29d994e33d31
+  zh: 41e6d104d1087b1b
+/deepseek-ai-dsh-knowledge-router/use-this-package/when-to-choose-it:
+  en: dfb3ac03fbfa5cf2
+  zh: 577658cb8efb1119
+/deepseek-ai-dsh-knowledge-router/use-this-package/minimal-configuration:
+  en: 2c4171e0c8a9480d
+  zh: b0edfcdcf9773db1
+/deepseek-ai-dsh-knowledge-router/understand-the-implementation:
+  en: f5259be48bc8a415
+  zh: 926360efb891f491
+/deepseek-ai-dsh-knowledge-router/further-exploration:
+  en: 87c81c19ea1786a1
+  zh: 87c81c19ea1786a1
+/deepseek-ai-dsh-knowledge-router/model-experience:
+  en: 215e7ba838619b7b
+  zh: 215e7ba838619b7b
+/deepseek-ai-dsh-knowledge-router/model-experience/tools:
+  en: 72ee1234c12b966a
+  zh: 72ee1234c12b966a
+/deepseek-ai-dsh-knowledge-router/model-experience/tools/what-the-model-sees:
+  en: dd7fe1cbf51ddcbe
+  zh: 0b020f936376eb14
+/deepseek-ai-dsh-knowledge-router/model-experience/tools/token-effect:
+  en: b5b479ce6e24c042
+  zh: 50437571cf2dcfd4
+/deepseek-ai-dsh-knowledge-router/model-experience/tools/kv-cache-effect:
+  en: f08727d1b6beb579
+  zh: b24a3181c926f45d
+/deepseek-ai-dsh-knowledge-router/known-limitations-and-deferred-work:
+  en: a63892eeffd872eb
+  zh: c8c55bf386b58e46
+/deepseek-ai-dsh-knowledge-router/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: cdd2a143b725accd

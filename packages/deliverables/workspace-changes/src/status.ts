@@ -27,10 +27,15 @@ export async function readWorkspaceStatus(
   const status = await git.run(['status', '--porcelain=v1', '-z', '--untracked-files=all'], { cwd: root, signal })
   if (status.exitCode !== 0) throw new Error(`git status failed: ${status.stderr.trim()}`)
   const records = parseStatus(status.stdout)
+  const tracked = await git.run(['diff', '--numstat', '-z', '--no-ext-diff', '--no-renames', 'HEAD'], { cwd: root, signal })
+  if (tracked.exitCode !== 0 && !/does not have any commits yet|bad revision|unknown revision/i.test(tracked.stderr)) {
+    throw new Error(`git diff failed: ${tracked.stderr.trim()}`)
+  }
+  const trackedCounts = new Map((tracked.stdout === '' ? [] : parseNumstat(tracked.stdout)).map(entry => [entry.path, entry]))
   const files: WorkspaceStatusFile[] = []
   for (const record of records) {
     const absolute = await worktreePath(root, record.path)
-    const counts = await countPath(git, root, record.path, signal)
+    const counts = trackedCounts.get(record.path) ?? await countPath(git, root, record.path, signal)
     files.push({
       path: record.path,
       display: displayPathOf(absolute, cwd, root, ''),
@@ -179,15 +184,8 @@ function parseStatus(output: string): StatusRecord[] {
 
 interface Counts { added: number; deleted: number; binary?: true }
 
-/** Count one path against HEAD, including untracked paths through no-index diff. */
+/** Count a path absent from the tracked numstat response through no-index diff. */
 async function countPath(git: GitRunner, root: string, path: string, signal: AbortSignal): Promise<Counts> {
-  const tracked = await git.run(['diff', '--numstat', '-z', '--no-ext-diff', 'HEAD', '--', path], { cwd: root, signal })
-  if (tracked.exitCode === 0 && tracked.stdout !== '') {
-    const entry = parseNumstat(tracked.stdout)[0] as NumstatEntry
-    return { added: entry.added, deleted: entry.deleted, ...entry.binary ? { binary: true } : {} }
-  } else if (tracked.exitCode !== 0 && !/does not have any commits yet|bad revision/i.test(tracked.stderr)) {
-    throw new Error(`git diff failed: ${tracked.stderr.trim()}`)
-  }
   const untracked = await git.run(['diff', '--no-index', '--numstat', '-z', '--no-ext-diff', '--', '/dev/null', path], { cwd: root, signal })
   if (untracked.exitCode !== 0 && untracked.exitCode !== 1) throw new Error(`git diff --no-index failed: ${untracked.stderr.trim()}`)
   if (untracked.stdout === '') return { added: 0, deleted: 0 }

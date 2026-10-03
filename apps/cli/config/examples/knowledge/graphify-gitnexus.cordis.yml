@@ -1,0 +1,27 @@
+- insert:
+    - id: knowledge-gitnexus
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: gitnexus
+        transport: stdio
+        command: gitnexus
+        args: ['mcp']
+        cwd: !!js process.cwd()
+        failOnStartupError: false
+    - id: knowledge-graphify
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: graphify
+        transport: stdio
+        command: graphify-mcp
+        cwd: !!js process.cwd()
+        failOnStartupError: false
+    - id: knowledge
+      name: '@deepseek-ai/dsh-knowledge-router'
+      config:
+        mode: assisted
+        gitnexus: { enabled: true, serverName: gitnexus }
+        graphify: { enabled: true, serverName: graphify }
+        learning:
+          enabled: true
+          command: graphify

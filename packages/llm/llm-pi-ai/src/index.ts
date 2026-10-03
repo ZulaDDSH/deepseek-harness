@@ -54,6 +54,8 @@
  *
  * @module @deepseek-ai/dsh-llm-pi-ai
  */
+import type {} from '@deepseek-ai/dsh-api-quota-controller'
+import { createCodexQuotaSource } from './codex-quota.ts'
 import type {} from '@deepseek-ai/dsh-settings'
 
 import type {} from '@deepseek-ai/cordis-plugin-loader'
@@ -209,6 +211,9 @@ export function apply(ctx: Context, config: Config): void {
   // through `ctx` per call, so they stay correct across the collection rebuilds
   // a configuration change causes, and a sign-in survives one.
   const auth = { credentials: credentialStoreFrom(ctx), authContext: authContextFrom(ctx) }
+  ctx.inject(['quotaController'], (quota) => {
+    quota.effect(() => quota.quotaController.registerSource(createCodexQuotaSource(auth, () => profiles().has('openai-codex'))))
+  })
   const adapter = new PiAiAdapter({
     profiles,
     resolveApiKey,

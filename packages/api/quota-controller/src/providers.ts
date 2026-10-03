@@ -4,6 +4,20 @@ import { credentialKey } from '@deepseek-ai/dsh-credentials'
 import type { CredentialKey, CredentialRef, ResolvedCredential } from '@deepseek-ai/dsh-credentials'
 import type { QuotaResult, QuotaWindow } from './types.ts'
 
+/** Provider-owned authentication and account usage source. */
+export interface QuotaSource {
+  readonly id: string
+  readonly name: string
+  /** @returns whether this provider has a usable configured account. */
+  configured(): Promise<boolean>
+  /**
+   * Read account usage without exposing authentication to the client.
+   * @param fetchImpl - Host fetch implementation.
+   * @returns normalized account usage.
+   */
+  fetch(fetchImpl: typeof fetch): Promise<QuotaResult>
+}
+
 /** Host adapter capable of resolving and reading one provider's quota state. */
 export interface QuotaProvider {
   /** Stable provider identifier exposed across the Remote boundary. */

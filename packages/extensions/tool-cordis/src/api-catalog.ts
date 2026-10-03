@@ -1407,6 +1407,38 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'knowledge',
+    summary: 'Bounded routing over MCP-backed knowledge providers.',
+    description: 'Bounded routing over MCP-backed knowledge providers.\n\nEvery method reads the live tool registry, so a provider that is disabled, absent, or filtered out reports as unavailable instead of failing a query.',
+    methods: [
+      {
+        signature: 'async learn(write: LearningWrite, signal: AbortSignal, agent?: Agent): Promise<LearningResult>',
+        description: 'Write one validated finding to the learned-knowledge provider.\n\nThis is the only path that persists knowledge and it never runs automatically. A delegated worker is refused here, in the operation that persists, so no caller can promote a worker\'s own answer.',
+        parameters: [{ name: 'write', description: 'the validated finding and its source references.' }, { name: 'signal', description: 'caller cancellation.' }, { name: 'agent', description: 'the calling agent, whose authority decides whether the write is allowed.' }],
+        returns: 'The written outcome and whether reflection ran.',
+        throws: ['when the caller is a delegated worker, when write-back is not configured, or when the provider command fails.'],
+      },
+      {
+        signature: 'status(agent?: ScopeKey): ProviderStatus[]',
+        description: 'Report every supported provider\'s configuration and live connection state.',
+        parameters: [{ name: 'agent', description: 'caller whose scope the registry is read in; omitted reads the global view.' }],
+        returns: 'One status per supported provider.',
+      },
+      {
+        signature: 'route(task: string): KnowledgeProviderName[]',
+        description: 'Decide which providers a task warrants.',
+        parameters: [{ name: 'task', description: 'the task text to classify.' }],
+        returns: 'Provider identities to query; empty when no cue matches.',
+      },
+      {
+        signature: 'async retrieve(task: string, options: RetrieveOptions): Promise<KnowledgePacket>',
+        description: 'Retrieve a bounded knowledge packet for one task.\n\nProviders that are disabled, unconfigured, or missing their query tool are reported as unavailable rather than raising, so a dead provider never fails the caller.',
+        parameters: [{ name: 'task', description: 'the task text to route and query.' }, { name: 'options', description: 'explicit providers, caller source references, and cancellation.' }],
+        returns: 'The bounded packet, including which providers answered.',
+      },
+    ],
+  },
+  {
     key: 'llm',
     summary: 'The abstract `llm` service: an adapter registry plus a streaming model-call API, interceptable via the `llm/stream` waterfall.',
     description: 'The abstract `llm` service: an adapter registry plus a streaming model-call API, interceptable via the `llm/stream` waterfall.',
@@ -1533,6 +1565,37 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Register one server and expose resource tools while that scope has providers.',
         parameters: [{ name: 'server', description: 'configured server name, unique in this scope.' }, { name: 'provider', description: 'connection-owned resource operations.' }],
         returns: 'the effect disposer for this exact registration.',
+      },
+    ],
+  },
+  {
+    key: 'memoryWorkspace',
+    summary: 'Authenticated GUI operations; provider calls remain Host-owned.',
+    description: 'Authenticated GUI operations; provider calls remain Host-owned.',
+    methods: [
+      {
+        signature: '@Remote async inventory(): Promise<MemorixTable[]>',
+        description: 'Read the complete local provider inventory without modifying it.',
+        parameters: [],
+        returns: 'every stored table and record count across projects and statuses.',
+      },
+      {
+        signature: '@Remote async page(table: string, offset: number, query: string): Promise<MemorixPage>',
+        description: 'Browse or search a provider table with bounded pagination.',
+        parameters: [{ name: 'table', description: 'table from inventory.' }, { name: 'offset', description: 'nonnegative row offset.' }, { name: 'query', description: 'literal substring matched against every column.' }],
+        returns: 'one complete page and total matching count.',
+      },
+      {
+        signature: '@Remote graph(): Promise<MemoryGraph>',
+        description: 'Rebuild complete active Memorix documents with the Graphify adapter and load its bounded viewer.',
+        parameters: [],
+        returns: 'the official Graphify viewer and its graph source path.',
+      },
+      {
+        signature: '@Remote importDocument(filename: string, data: string): Promise<MemoryImportResult>',
+        description: 'Retain an uploaded document and import all chunks through Memorix.',
+        parameters: [{ name: 'filename', description: 'source filename displayed with the memory.' }, { name: 'data', description: 'canonical base64 encoding of complete original bytes.' }],
+        returns: 'verified chunk counts, original path and an explicit partial-failure message.',
       },
     ],
   },
@@ -1722,6 +1785,30 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'Saved and runtime outcomes, including higher-priority overrides.',
       },
       {
+        signature: '@Remote async listMcpServers(): Promise<McpServerRow[]>',
+        description: 'List MCP servers configured as MCP client plugin entries.',
+        parameters: [],
+        returns: 'One row per server with its target, enablement and runtime phase.',
+      },
+      {
+        signature: '@Remote async discoverMcpServers(): Promise<McpServerCandidate[]>',
+        description: 'Find MCP servers configured for Claude Desktop, Claude Code and Codex.',
+        parameters: [],
+        returns: 'Importable servers, marking names already configured here.',
+      },
+      {
+        signature: '@Remote addMcpServer(config: McpServerConfig): Promise<ChangeResult>',
+        description: 'Add an MCP server as a new MCP client plugin entry in the profile.',
+        parameters: [{ name: 'config', description: 'Server name and stdio or streamable HTTP connection.' }],
+        returns: 'Persisted and runtime outcomes.',
+      },
+      {
+        signature: '@Remote removeMcpServer(id: PluginEntryId): Promise<ChangeResult>',
+        description: 'Remove an MCP server the profile added.',
+        parameters: [{ name: 'id', description: 'Loader entry identity returned by listMcpServers.' }],
+        returns: 'Persisted and runtime outcomes.',
+      },
+      {
         signature: '@Remote setBundleEnabled(name: string, enabled: boolean): Promise<ChangeResult>',
         description: 'Select or remove a bundle layer while retaining installed dependencies.',
         parameters: [{ name: 'name', description: 'Bundle package name.' }, { name: 'enabled', description: 'Whether the bundle contributes its patch layer.' }],
@@ -1866,6 +1953,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'requires credential-backed provider quota Remote service.',
     description: 'requires credential-backed provider quota Remote service.',
     methods: [
+      {
+        signature: 'registerSource(source: QuotaSource): () => void',
+        description: 'Register an account source whose provider owns authentication.',
+        parameters: [{ name: 'source', description: 'provider-owned source.' }],
+        returns: 'disposer that removes this source.',
+      },
       {
         signature: '@Remote async listProviders(): Promise<readonly QuotaProviderView[]>',
         description: 'List providers whose credentials can currently be resolved.',
@@ -2012,6 +2105,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'List connector namespaces exposed by globally connected MCP tools.',
         parameters: [],
         returns: 'connector namespaces available for Session selection.',
+      },
+      {
+        signature: '@Remote(\'listHooks\') listHooks(): SessionHookCatalog',
+        description: 'List hooks loaded by mounted hook bridges.',
+        parameters: [],
+        returns: 'every loaded hook with its global enablement.',
+      },
+      {
+        signature: '@Remote(\'setHookOverrides\') setHookOverrides(request: SessionSetHookOverridesRequest): Promise<HookOverrides>',
+        description: 'Replace the hook overrides of one Session.',
+        parameters: [{ name: 'request', description: 'Session identity and the complete override map.' }],
+        returns: 'the stored overrides.',
       },
       {
         signature: '@Remote(\'selectMcp\') selectMcp(request: SessionSelectMcpRequest): Promise<SessionSelectMcpValue>',
@@ -4180,6 +4285,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'reloads', description: 'Replaced plugins and their module locations.' }],
   },
   {
+    name: 'hooks/inventory',
+    mode: 'emit',
+    signature: '\'hooks/inventory\'(reports: HookInventoryReport[]): void',
+    summary: 'Collect configuration snapshots from currently mounted hook bridges.',
+    description: 'Collect configuration snapshots from currently mounted hook bridges.',
+    parameters: [{ name: 'reports', description: 'Mutable destination for loaded bridge reports.' }],
+  },
+  {
     name: 'llm/adapters-updated',
     mode: 'emit',
     signature: '\'llm/adapters-updated\'(): void',
@@ -4194,6 +4307,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'Waterfall around every streaming model call (retry, replay, routing).',
     description: 'Waterfall around every streaming model call (retry, replay, routing). Bound to the LlmRuntime; call `next()` to reach the resolved adapter\'s stream, or yield your own chunks to short-circuit.',
     parameters: [{ name: 'options', description: 'the full request. A LOOP-built request carries the process-local {@link markAgentLoopRequest} identity and arrives deep-frozen (mutation throws): its content is a pure function of the session log (the reconstructability Agent Note), so listeners read it, never rewrite it. Hand-built calls do not carry that marker; callers own their request inputs and must keep them unchanged until the stream settles.' }],
+  },
+  {
+    name: 'mcp/human-operations',
+    mode: 'waterfall',
+    signature: '\'mcp/human-operations\'(server: string, next: () => Promise<McpHumanOperations | undefined>): Promise<McpHumanOperations | undefined>',
+    summary: 'Resolve one global provider for a Host-owned human operation.',
+    description: 'Resolve one global provider for a Host-owned human operation.',
+    parameters: [{ name: 'server', description: 'configured server name.' }, { name: 'next', description: 'delegation to other configured providers.' }],
   },
   {
     name: 'permission-presets/catalog-changed',
@@ -5284,6 +5405,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface FrequencyTooHighError {\n    readonly code: \'frequency_too_high\';\n    readonly message: string;\n}',
   },
   {
+    name: 'Freshness',
+    declaration: 'export type Freshness = {\n    readonly kind: \'unknown\';\n} | {\n    readonly kind: \'current\';\n} | {\n    readonly kind: \'stale\';\n    readonly detail: string;\n};',
+  },
+  {
     name: 'FsDirEntry',
     declaration: 'export interface FsDirEntry {\n    name: string;\n    type: \'file\' | \'directory\' | \'other\';\n    target: FsTarget;\n    version?: FsVersion;\n    size?: number;\n}',
   },
@@ -5382,6 +5507,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'GrantRecord',
     declaration: 'export interface GrantRecord {\n    readonly kind: \'grant\';\n    readonly payload: unknown;\n}',
+  },
+  {
+    name: 'HookDialect',
+    declaration: 'export type HookDialect = \'claude-code\' | \'codex\';',
+  },
+  {
+    name: 'HookInventoryHandler',
+    declaration: 'export interface HookInventoryHandler {\n    readonly event: string;\n    readonly matcher?: string;\n    readonly command: string;\n    readonly key: string;\n    readonly disabled?: boolean;\n    readonly description?: string;\n}',
+  },
+  {
+    name: 'HookInventoryReport',
+    declaration: 'export interface HookInventoryReport {\n    readonly dialect: HookDialect;\n    readonly source: string;\n    readonly status: \'loaded\' | \'configured\' | \'failed\';\n    readonly handlers: readonly HookInventoryHandler[];\n    readonly skipped: readonly string[];\n    readonly error?: string;\n    readonly settingsNs?: string;\n}',
+  },
+  {
+    name: 'HookOverrides',
+    declaration: 'export interface HookOverrides {\n    readonly overrides: Readonly<Record<string, boolean>>;\n}',
   },
   {
     name: 'HostConnectionFetch',
@@ -5628,6 +5769,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
   },
   {
+    name: 'KnowledgeItem',
+    declaration: 'export interface KnowledgeItem {\n    readonly provider: KnowledgeProviderName;\n    readonly serverName: string;\n    readonly task: string;\n    readonly text: string;\n    readonly freshness: Freshness;\n    readonly signals: KnowledgeSignals;\n    readonly retrievedAt: string;\n}',
+  },
+  {
+    name: 'KnowledgePacket',
+    declaration: 'export interface KnowledgePacket {\n    readonly task: string;\n    readonly requestedBy?: string;\n    readonly providers: KnowledgeProviderName[];\n    readonly unavailable: KnowledgeProviderName[];\n    readonly items: KnowledgeItem[];\n    readonly bytes: number;\n    readonly truncated: boolean;\n}',
+  },
+  {
+    name: 'KnowledgeProviderName',
+    declaration: 'export type KnowledgeProviderName = \'gitnexus\' | \'graphify\';',
+  },
+  {
+    name: 'KnowledgeSignals',
+    declaration: 'export interface KnowledgeSignals {\n    readonly lessonsObserved: number;\n    readonly staleLessons: number;\n    readonly lessonStatuses: string[];\n}',
+  },
+  {
     name: 'KvFacet',
     declaration: 'export interface KvFacet {\n    open(descriptor: KvUnitDescriptor): Promise<KvUnit>;\n}',
   },
@@ -5642,6 +5799,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'KvUnitDescriptor',
     declaration: 'export interface KvUnitDescriptor {\n    readonly name: string;\n    readonly version: number;\n    readonly tables: readonly string[];\n    readonly hasGlobal: boolean;\n    readonly layout?: \'single\' | \'per-record\';\n    readonly compatibleVersions?: readonly number[];\n}',
+  },
+  {
+    name: 'LearningOutcome',
+    declaration: 'export type LearningOutcome = \'useful\' | \'dead_end\' | \'corrected\';',
+  },
+  {
+    name: 'LearningResult',
+    declaration: 'export interface LearningResult {\n    readonly outcome: LearningOutcome;\n    readonly reflected: boolean;\n    readonly stdout: string;\n    readonly reflectionError?: string;\n}',
+  },
+  {
+    name: 'LearningWrite',
+    declaration: 'export interface LearningWrite {\n    readonly question: string;\n    readonly answer: string;\n    readonly outcome: LearningOutcome;\n    readonly correction?: string;\n    readonly nodes?: readonly string[];\n    readonly validatedBy: string;\n}',
   },
   {
     name: 'LlmAdapter',
@@ -5772,6 +5941,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface McpConnectorCatalog {\n    readonly connectorIds: readonly string[];\n}',
   },
   {
+    name: 'McpHumanOperations',
+    declaration: 'export interface McpHumanOperations {\n    readonly local: boolean;\n    readonly cwd: string;\n    readonly env: Readonly<Record<string, string>>;\n    call(name: string, args: Record<string, JsonValue>, signal: AbortSignal): Promise<unknown>;\n}',
+  },
+  {
     name: 'McpResourceProvider',
     declaration: 'export interface McpResourceProvider {\n    request(request: McpResourceRequest, exec: ToolExecution): Promise<JsonValue>;\n}',
   },
@@ -5782,6 +5955,42 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'McpSelection',
     declaration: 'export interface McpSelection {\n    readonly connectorIds: readonly string[];\n}',
+  },
+  {
+    name: 'McpServerCandidate',
+    declaration: 'export interface McpServerCandidate {\n    readonly source: McpServerSource;\n    readonly config: McpServerConfig;\n    readonly configured: boolean;\n}',
+  },
+  {
+    name: 'McpServerConfig',
+    declaration: 'export type McpServerConfig = {\n    readonly transport: \'stdio\';\n    readonly serverName: string;\n    readonly command: string;\n    readonly args: readonly string[];\n    readonly env: Readonly<Record<string, string>>;\n} | {\n    readonly transport: \'streamable-http\';\n    readonly serverName: string;\n    readonly url: string;\n    readonly headers: Readonly<Record<string, string>>;\n};',
+  },
+  {
+    name: 'McpServerRow',
+    declaration: 'export interface McpServerRow {\n    readonly entryId: string;\n    readonly patchId?: string;\n    readonly serverName: string;\n    readonly transport: string;\n    readonly target: string;\n    readonly enabled: boolean;\n    readonly phase: string | null;\n    readonly removable: boolean;\n}',
+  },
+  {
+    name: 'McpServerSource',
+    declaration: 'export type McpServerSource = \'claude-desktop\' | \'claude-code\' | \'codex\';',
+  },
+  {
+    name: 'MemorixCell',
+    declaration: 'export type MemorixCell = string | number | null | {\n    base64: string;\n};',
+  },
+  {
+    name: 'MemorixPage',
+    declaration: 'export interface MemorixPage {\n    table: string;\n    columns: string[];\n    rows: Record<string, MemorixCell>[];\n    total: number;\n    offset: number;\n    limit: number;\n}',
+  },
+  {
+    name: 'MemorixTable',
+    declaration: 'export interface MemorixTable {\n    name: string;\n    columns: string[];\n    count: number;\n}',
+  },
+  {
+    name: 'MemoryGraph',
+    declaration: 'export interface MemoryGraph {\n    html: string;\n    path: string;\n}',
+  },
+  {
+    name: 'MemoryImportResult',
+    declaration: 'export interface MemoryImportResult {\n    filename: string;\n    originalPath: string;\n    completed: number;\n    total: number;\n    error: string | null;\n}',
   },
   {
     name: 'Message',
@@ -6168,6 +6377,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ProviderRequestId = Branded<\'ProviderRequestId\'>;',
   },
   {
+    name: 'ProviderStatus',
+    declaration: 'export interface ProviderStatus {\n    readonly provider: KnowledgeProviderName;\n    readonly enabled: boolean;\n    readonly serverName: string;\n    readonly connected: boolean;\n    readonly tools: string[];\n}',
+  },
+  {
     name: 'PrunedEntry',
     declaration: 'export interface PrunedEntry {\n    readonly originalSeq: SessionSeq;\n    readonly replacementSeq: SessionSeq;\n    readonly callId: ToolCallId;\n    readonly charsBefore: number;\n    readonly charsAfter: number;\n}',
   },
@@ -6226,6 +6439,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'QuotaResult',
     declaration: 'export interface QuotaResult {\n    readonly providerId: string;\n    readonly providerName: string;\n    readonly configured: boolean;\n    readonly ok: boolean;\n    readonly error?: string;\n    readonly windows?: Partial<Record<QuotaWindowId, QuotaWindow>>;\n}',
+  },
+  {
+    name: 'QuotaSource',
+    declaration: 'export interface QuotaSource {\n    readonly id: string;\n    readonly name: string;\n    configured(): Promise<boolean>;\n    fetch(fetchImpl: typeof fetch): Promise<QuotaResult>;\n}',
   },
   {
     name: 'QuotaWindow',
@@ -6354,6 +6571,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ResumeAgentOptions',
     declaration: 'export interface ResumeAgentOptions {\n    readonly resumeSessionId: SessionId;\n    readonly parentAgent?: Agent;\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: AgentSetup;\n}',
+  },
+  {
+    name: 'RetrieveOptions',
+    declaration: 'export interface RetrieveOptions {\n    readonly execution?: Pick<ToolExecution, \'token\' | \'rootCallId\'>;\n    readonly providers?: readonly KnowledgeProviderName[];\n    readonly requestedBy?: string;\n    readonly agent?: Agent;\n    readonly signal: AbortSignal;\n}',
   },
   {
     name: 'RpcId',
@@ -6728,6 +6949,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SessionHistoryRecord = SessionEventEntry;',
   },
   {
+    name: 'SessionHookCatalog',
+    declaration: 'export interface SessionHookCatalog {\n    readonly hooks: readonly SessionHookRow[];\n}',
+  },
+  {
+    name: 'SessionHookRow',
+    declaration: 'export interface SessionHookRow {\n    readonly key: string;\n    readonly dialect: string;\n    readonly event: string;\n    readonly matcher?: string;\n    readonly command: string;\n    readonly globallyDisabled: boolean;\n    readonly description?: string;\n}',
+  },
+  {
     name: 'SessionId',
     declaration: 'export type SessionId = Branded<\'SessionId\'>;',
   },
@@ -6958,6 +7187,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionSeqCursor',
     declaration: 'export type SessionSeqCursor = SessionSeq | -1;',
+  },
+  {
+    name: 'SessionSetHookOverridesRequest',
+    declaration: 'export interface SessionSetHookOverridesRequest {\n    readonly sessionId: SessionId;\n    readonly overrides: Readonly<Record<string, boolean>>;\n}',
   },
   {
     name: 'SessionStartSource',

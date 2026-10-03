@@ -3,8 +3,11 @@
     - text: 设置
     - button "通用设置"
     - button "模型"
+    - button "Jev"
     - button "内置插件"
     - button "Agent 预设"
+    - button "MCP 服务器"
+    - button "钩子"
   - button "打开配置文件"
   - button "关闭"
   - heading "Agent 预设" [level=2]
@@ -27,6 +30,18 @@
       - 'button "模式说明: PTC 模式"': 模式说明
       - 'button "如何使用: PTC 模式"': 如何使用
       - 'button "查看配置: PTC 模式"': 查看配置
+    - listitem:
+      - 'button "设为新任务默认: 节省模式"':
+        - text: 节省模式 内置
+        - code: economy
+        - text: 通过 PTC 批量调用工具，更早裁剪大型结果并减少保留历史，以降低上下文用量。
+      - 'button "查看配置: 节省模式"': 查看配置
+    - listitem:
+      - 'button "设为新任务默认: 精简模式"':
+        - text: 精简模式 内置
+        - code: lean
+        - text: 读取、检索和写入文件，并运行前台命令，上下文上限为 200,000 token。
+      - 'button "查看配置: 精简模式"': 查看配置
     - listitem:
       - 'button "设为新任务默认: 极简模式"':
         - text: 极简模式 内置

@@ -12,6 +12,7 @@ import type {
 import LlmRuntime, { createToolResultMessage, createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
+import { QuotaController } from '@deepseek-ai/dsh-api-quota-controller'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { DEFAULT_MAX_REQUEST_IMAGE_BYTES, resolveProfiles } from '../src/config.ts'
@@ -490,19 +491,17 @@ describe('PiAiAdapter provider routing', () => {
   })
 
   it('stops the SDK request when the adapter idle watchdog expires', async () => {
-    const server = await mockServer([{ events: textEvents, delayMs: 200 }])
+    const warmup = await mockServer([{ events: textEvents }])
+    const warmupContext = await harness(warmup.url)
+    expect((await assemble(warmupContext, { model: 'deepseek-v4-flash', messages: [] })).finish.kind).toBe('stop')
+
+    const server = await mockServer([{ holdOpen: true }])
     const ctx = await harness(server.url, { streamIdleTimeoutMs: 20 })
 
     const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
     expect(result.finish).toMatchObject({ kind: 'error', failure: { code: 'TIMEOUT' } })
-    await Promise.race([
-      server.responseClosed,
-      new Promise<never>((_resolve, reject) => {
-        setTimeout(() => { reject(new Error('SDK request did not close after idle timeout')) }, 1_000)
-      }),
-    ])
-
     expect(server.paths).toEqual(['/chat/completions'])
+    await expect(server.responseClosed).resolves.toBe(true)
     expect(server.closedResponses).toBe(1)
   })
 })
@@ -518,6 +517,21 @@ describe('provider profile lifecycle', () => {
       'mapUsage',
       'toStreamChunks',
     ]) expect(LlmPiAi).not.toHaveProperty(helper)
+  })
+
+  it('registers Codex account usage with its provider and removes it on disposal', async () => {
+    const ctx = new Context()
+    try {
+      await ctx.plugin(LlmRuntime)
+      ctx.provide('credentials', { resolve: async () => undefined, readRecord: async () => undefined } as never)
+      const controller = new QuotaController(ctx)
+      const fiber = await ctx.plugin(LlmPiAi, { providers: { 'openai-codex': {} } })
+      await expect(controller.listProviders()).resolves.toContainEqual({ id: 'openai-codex', name: 'openai-codex' })
+      await expect(controller.fetch('openai-codex')).resolves.toMatchObject({ ok: false, error: 'Not configured' })
+      await fiber.dispose()
+      await expect(controller.listProviders()).resolves.toEqual([])
+      await expect(controller.fetch('openai-codex')).resolves.toMatchObject({ ok: false, error: 'Unsupported provider' })
+    } finally { await ctx.fiber.dispose() }
   })
 
   it('registers every profile atomically and unregisters on dispose', async () => {

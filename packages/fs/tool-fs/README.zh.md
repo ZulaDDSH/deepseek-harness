@@ -20,6 +20,8 @@ kind: "package-reference"
 - [已知限制与延期工作](#known-limitations-and-deferred-work)
 - [开发备注](#dev-note)
 
+`enabledTools` 选择注册的工具（`read`、`write`、`edit`、`read_image`）；省略时启用全部工具。禁用的工具不会提供 schema 或提示词段落。
+
 -----
 
 <a id="use-this-package"></a>

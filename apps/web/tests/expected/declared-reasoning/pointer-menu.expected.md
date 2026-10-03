@@ -1,9 +1,14 @@
 - menu "模型与推理等级":
+  - searchbox "筛选模型"
   - group "DeepSeek":
     - text: DeepSeek
     - menuitemradio "DeepSeek-V4-Flash"
+    - button "收藏 DeepSeek-V4-Flash"
     - menuitemradio "DeepSeek-V4-Flash-Vision-Exp"
+    - button "收藏 DeepSeek-V4-Flash-Vision-Exp"
   - group "Acme Gateway":
     - text: Acme Gateway
     - menuitemradio "Acme Think"
+    - button "收藏 Acme Think"
     - menuitemradio "Acme Swift" [checked]
+    - button "收藏 Acme Swift"

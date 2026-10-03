@@ -17,6 +17,7 @@ knowledge 组将共享知识策略加入系统提示词，并从配置的 Git �
 |---|---|
 | [`knowledge-policy`](knowledge-policy/README.md) | 注册共享知识系统提示词段落。 |
 | [`knowledge-source-git`](knowledge-source-git/README.md) | 读取和搜索 Git 支持的知识记录。 |
+| [knowledge-router](knowledge-router/README.zh.md) | 将有界查询路由到配置的 MCP 提供方。 |
 
 ## 相关文档
 

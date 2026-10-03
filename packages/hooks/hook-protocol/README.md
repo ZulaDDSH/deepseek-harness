@@ -25,6 +25,8 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
+`hooks/inventory` collects load-time reports from mounted bridges for Settings. `HookInventoryReport.status` distinguishes loaded bridge commands, externally configured files and read failures. `describeHookHandlers` projects accepted event groups into command, event and matcher rows without changing hook execution.
+
 You don't install or configure this package directly — mounting `dsh-hooks-claude-code` or `dsh-hooks-codex` applies these rules to your existing `hooks.json` hooks. Use this page to learn what a hook can do and what happens when it runs; the two bridge pages list which events each dialect supports.
 
 ### When to choose it

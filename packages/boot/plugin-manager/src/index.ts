@@ -24,6 +24,10 @@ import { classifyInstallFailure } from './install-failure.ts'
 import { InvalidInstallSpecError, parseInstallSpec, type ParsedInstallSpec } from './install-spec.ts'
 import { attributeFailure, normalizeRegistry, NPMMIRROR_REGISTRY, registryPlan } from './registry.ts'
 import { writePluginEnabled } from './patch.ts'
+import {
+  discoverMcpServers, insertMcpServer, MCP_CLIENT_MODULE, mcpServerName, removeMcpServer,
+  type McpServerCandidate, type McpServerConfig, type McpServerRow,
+} from './mcp-servers.ts'
 import { incompatiblePlugin, ManagementFailure } from './failure.ts'
 import { approveBuilds, readPendingBuilds } from './build-approval.ts'
 import { checkGithubConnection } from './github-connection.ts'
@@ -432,6 +436,66 @@ export class PluginManager extends TypertRemoteService {
       const current = (await this.listPlugins()).find(item => item.entryId === id)
       return current?.enabled !== enabled && this.ownerContext.get('hmr') !== undefined ? 'overridden' : undefined
     }), { stage: 'enable', target: id, enabled }, 'plugin')
+  }
+
+  /** List MCP servers configured as MCP client plugin entries.
+   * @returns One row per server with its target, enablement and runtime phase.
+   */
+  @Remote
+  async listMcpServers(): Promise<McpServerRow[]> {
+    const plugins = await this.listPlugins()
+    return plugins.filter(row => row.moduleName === MCP_CLIENT_MODULE).map((row) => {
+      const entry = [...this.ctx.loader.entries()].find(item => item.id === row.entryId)
+      const config = (entry?.options.config ?? {}) as Record<string, unknown>
+      const args: unknown[] = Array.isArray(config.args) ? config.args : []
+      const target = config.transport === 'streamable-http'
+        ? typeof config.url === 'string' ? config.url : ''
+        : [config.command, ...args].filter(part => typeof part === 'string').join(' ')
+      return {
+        entryId: row.entryId, ...row.patchId === undefined ? {} : { patchId: row.patchId },
+        serverName: typeof config.serverName === 'string' ? config.serverName : row.entryId,
+        transport: typeof config.transport === 'string' ? config.transport : 'stdio',
+        target, enabled: row.enabled, phase: row.fiberPhase, removable: row.patchId !== undefined,
+      }
+    })
+  }
+
+  /** Find MCP servers configured for Claude Desktop, Claude Code and Codex.
+   * @returns Importable servers, marking names already configured here.
+   */
+  @Remote
+  async discoverMcpServers(): Promise<McpServerCandidate[]> {
+    const configured = new Set((await this.listMcpServers()).map(row => row.serverName))
+    return (await discoverMcpServers()).map(row => ({ ...row, configured: configured.has(row.config.serverName) }))
+  }
+
+  /** Add an MCP server as a new MCP client plugin entry in the profile.
+   * @param config Server name and stdio or streamable HTTP connection.
+   * @returns Persisted and runtime outcomes.
+   */
+  @Remote
+  addMcpServer(config: McpServerConfig): Promise<ChangeResult> {
+    const serverName = mcpServerName(config.serverName)
+    const id = `mcp-${serverName}`
+    return this.change(result => this.configure(async () => {
+      if ((await this.listMcpServers()).some(row => row.serverName === serverName)) throw new ManagementFailure('ambiguous-install')
+      await insertMcpServer(this.profile.patchPath, id, { ...config, serverName })
+      result.warnings = await this.reload([id])
+    }), { stage: 'install', target: id, enabled: true }, 'plugin')
+  }
+
+  /** Remove an MCP server the profile added.
+   * @param id Loader entry identity returned by listMcpServers.
+   * @returns Persisted and runtime outcomes.
+   */
+  @Remote
+  removeMcpServer(id: PluginEntryId): Promise<ChangeResult> {
+    return this.change(result => this.configure(async () => {
+      const row = (await this.listMcpServers()).find(item => item.entryId === id)
+      if (row?.patchId === undefined) throw new ManagementFailure(row === undefined ? 'unknown-plugin' : 'not-removable')
+      if (!await removeMcpServer(this.profile.patchPath, row.patchId)) throw new ManagementFailure('not-removable')
+      result.warnings = await this.reload()
+    }), { stage: 'remove', target: id, enabled: false }, 'plugin')
   }
 
   /** Select or remove a bundle layer while retaining installed dependencies.

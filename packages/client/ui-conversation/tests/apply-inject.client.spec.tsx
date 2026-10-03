@@ -144,6 +144,76 @@ async function bench() {
 }
 
 describe('Conversation inject API', () => {
+  it('toggles connected MCP tools for this session and reports failed selections without changing the projection', async () => {
+    const b = await bench()
+    onTestFinished(() => b.runtime.dispose())
+    const contributions = new Map<string, CommandContribution>()
+    b.runtime.ctx.provide('commandUi', {
+      register: (entry: CommandContribution) => {
+        contributions.set(entry.name, entry)
+        return () => { contributions.delete(entry.name) }
+      },
+    })
+    const selectMcp = vi.fn(async (request: { sessionId: SessionId; connectorIds: string[] }) => {
+      await b.runtime.sessions.setProjection(ROOT, 'mcpSelection', { current: { connectorIds: request.connectorIds } })
+      return { ok: true as const, value: { selected: { connectorIds: request.connectorIds } } }
+    })
+    b.runtime.remote.provideNamespaces({ session: {
+      listMcpConnectors: async () => ({ ok: true, value: { connectorIds: ['memorix', 'github'] } }), selectMcp,
+    } })
+    await vi.waitFor(() => { expect(contributions.has('connectors')).toBe(true) })
+    const entry = contributions.get('connectors')!
+    if (entry.ui.kind !== 'popupSelect') throw new Error('Expected connector popup')
+    const popup = entry.ui
+    const target = { sessionId: ROOT }
+    const signal = new AbortController().signal
+    expect(await popup.options(target, signal)).toEqual([
+      { id: 'memorix', label: 'memorix', active: true }, { id: 'github', label: 'github', active: true },
+    ])
+    await popup.onSelect({ id: 'github', label: 'github' }, target)
+    expect(selectMcp).toHaveBeenLastCalledWith({ sessionId: ROOT, connectorIds: ['memorix'] })
+    expect(await popup.options(target, signal)).toMatchInlineSnapshot(`
+      [
+        {
+          "active": true,
+          "id": "memorix",
+          "label": "memorix",
+        },
+        {
+          "active": false,
+          "id": "github",
+          "label": "github",
+        },
+      ]
+    `)
+    selectMcp.mockRejectedValueOnce(new Error('writer held'))
+    await expect(popup.onSelect({ id: 'memorix', label: 'memorix' }, target)).rejects.toThrow('writer held')
+    expect((await popup.options(target, signal))[0]?.active).toBe(true)
+  })
+
+  it('adds a picked desktop folder as a reference without uploading directory contents', async () => {
+    const pick = vi.fn(async () => '/proj/my folder')
+    vi.stubGlobal('__DSH_DIRECTORY_PICKER__', { pick })
+    onTestFinished(() => { vi.unstubAllGlobals() })
+    const b = await bench()
+    onTestFinished(() => b.runtime.dispose())
+    const contributions = new Map<string, CommandContribution>()
+    b.runtime.ctx.provide('commandUi', {
+      register: (entry: CommandContribution) => {
+        contributions.set(entry.name, entry)
+        return () => { contributions.delete(entry.name) }
+      },
+    })
+    await vi.waitFor(() => { expect(contributions.has('folder')).toBe(true) })
+    const entry = contributions.get('folder')!
+    const keyboard = b.composerApi(ROOT).keyboard!
+    const unbind = keyboard.bindFilePicker({ open: vi.fn(), available: () => true })
+    onTestFinished(unbind)
+    if (entry.ui.kind !== 'action') throw new Error('Expected folder action')
+    entry.ui.run({ sessionId: ROOT })
+    await vi.waitFor(() => { expect(b.inputApi(ROOT).state.getSnapshot().draft).toBe('@"my folder/" ') })
+    expect(b.rootUpload).not.toHaveBeenCalled()
+  })
   it('owns the File action, reads its mounted composer availability, and unregisters on disposal', async () => {
     const b = await bench()
     onTestFinished(() => b.runtime.dispose())
