@@ -3,8 +3,11 @@
     - text: 设置
     - button "通用设置"
     - button "模型"
+    - button "Jev"
     - button "内置插件"
     - button "Agent 预设"
+    - button "MCP 服务器"
+    - button "钩子"
   - button "打开配置文件"
   - button "关闭"
   - heading "模型" [level=2]
@@ -15,6 +18,30 @@
       - textbox "API 密钥":
         - /placeholder: 输入 API 密钥
       - group: 自定义设置
+      - button "取消"
+      - button "保存"
+    - listitem:
+      - text: TypeSafe / Jev jev-router API 密钥
+      - textbox "API 密钥":
+        - /placeholder: 输入 API 密钥
+      - checkbox "启用 Jev 路由"
+      - text: 启用 Jev 路由 Jev API 密钥环境变量名称
+      - textbox "Jev API 密钥环境变量名称": TYPESAFE_API_KEY
+      - text: Jev 端点
+      - textbox "Jev 端点": https://api.typesafe.ai/v1/systemone
+      - text: Jev 模型
+      - textbox "Jev 模型": jev-latest
+      - text: Jev 超时（毫秒）
+      - spinbutton "Jev 超时（毫秒）": "1500"
+      - text: 最低置信度
+      - spinbutton "最低置信度": "0.8"
+      - text: 状态最大字符数
+      - spinbutton "状态最大字符数": "12000"
+      - text: 回退路由
+      - textbox "回退路由": keep
+      - checkbox "Jev 失败时保留请求" [checked]
+      - text: Jev 失败时保留请求 路由规则
+      - button "添加路由"
       - button "取消"
       - button "保存"
   - button "添加模型提供商"
