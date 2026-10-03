@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import assert from 'node:assert/strict'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ClientModuleLoader } from '@deepseek-ai/dsh-client-modules/client'
 import { Context, Service } from '@deepseek-ai/cordis'
@@ -18,6 +19,10 @@ usePinnedBrowserLanguages('zh-CN')
 afterEach(cleanup)
 
 const EMPTY = { entries: [] }
+function isHooksFace(face: Record<string, unknown>): face is Record<string, unknown> & HooksSettingsSectionInjected {
+  return typeof face.setEnabledHooks === 'function' && typeof face.setHookDescriptions === 'function'
+}
+
 type ListResult =
   | { readonly ok: true; readonly value: typeof EMPTY }
   | { readonly ok: false; readonly error: { readonly code: string; readonly message: string } }
@@ -39,7 +44,7 @@ async function bench() {
   const list = vi.fn<() => Promise<ListResult>>()
     .mockResolvedValue({ ok: true, value: EMPTY })
   ctx.provide('remote.pluginInventory', { list })
-  const mutate = vi.fn(async () => ({ ok: true }) as { ok: boolean; error?: { code: string; message: string } })
+  const mutate = vi.fn<() => Promise<{ ok: boolean; error?: { code: string; message: string } }>>(async () => ({ ok: true }))
   ctx.provide('remote.settings', { mutate })
   return { ctx, retryClient, slots: ctx.get('slots') as SlotRegistry, locale, list, mutate }
 }
@@ -77,7 +82,9 @@ describe('ui-settings-plugin-inventory browser plugin', () => {
     const hooks = b.slots.entries('settings.section')[0]!
     expect(hooks.options.id).toBe('hooks')
     expect(resolveSlotLabel(hooks.options.label)).toBe('钩子')
-    const hooksInjected = (hooks.inject as unknown as () => HooksSettingsSectionInjected)()
+    assert(hooks.inject !== undefined)
+    const hooksInjected = hooks.inject()
+    assert(isHooksFace(hooksInjected))
     await hooksInjected.setEnabledHooks('hooks-1', ['k1'])
     expect(b.mutate).toHaveBeenCalledWith('hooks-1', [{ op: 'set', path: ['enabledHooks'], value: ['k1'] }], undefined)
     await hooksInjected.setHookDescriptions('hooks-1', { k1: 'd' })

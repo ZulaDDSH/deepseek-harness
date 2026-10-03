@@ -31,6 +31,7 @@ import {
   appendHookResult,
   createDetachedRuns,
   describeHookHandlers,
+  hookEnabled,
   hookKey,
   type HookInventoryReport,
   DEFAULT_HOOK_TIMEOUT_MS,
@@ -182,17 +183,13 @@ export function apply(ctx: Context, config: Config): void {
     // workspace (the same dir the hook runs in).
     const projectDir = config.projectDir ?? workdir
     const hookEnv = projectDir !== undefined ? { CLAUDE_PROJECT_DIR: projectDir } : undefined
-    const enabled = new Set(enabledHooks())
+    const enabled = enabledHooks()
     const overrides = opts.agent === undefined ? undefined
       : ctx.sessionProjections.stateOf(opts.agent.session, 'hookOverrides')?.current?.overrides
-    for (const [key, on] of Object.entries(overrides ?? {})) {
-      if (on) enabled.add(key)
-      else enabled.delete(key)
-    }
     for (const group of groups) {
       if (!matchesMatcher(group.matcher, matchQuery, 'claude-code')) continue
       for (const hook of group.hooks) {
-        if (!enabled.has(hookKey(point, group.matcher, hook.command))) continue
+        if (!hookEnabled(hookKey(point, group.matcher, hook.command), enabled, overrides)) continue
         const handlerId = nextHandlerId(point)
         const session = opts.agent?.session
         if (session && opts.turn !== undefined) {

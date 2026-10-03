@@ -6,6 +6,7 @@
  * process once the child has exited, so the supervisor never signals one.
  * Isolated file so the MCP SDK mocks cannot pollute other test suites.
  */
+import type * as TransportModule from '../src/transport.ts'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
@@ -46,7 +47,7 @@ vi.mock('@modelcontextprotocol/client/stdio', () => ({
   StdioClientTransport: vi.fn(function () { return { close: () => Promise.resolve() } }),
 }))
 
-vi.mock('../src/transport.ts', () => ({ createTransport: mockCreateTransport }))
+vi.mock('../src/transport.ts', async importOriginal => ({ ...await importOriginal<typeof TransportModule>(), createTransport: mockCreateTransport }))
 
 import { startConnection, resolveReconnectPolicy } from '@deepseek-ai/dsh-mcp-client/src/connection.ts'
 

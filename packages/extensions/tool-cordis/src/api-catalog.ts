@@ -1785,6 +1785,30 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'Saved and runtime outcomes, including higher-priority overrides.',
       },
       {
+        signature: '@Remote async listMcpServers(): Promise<McpServerRow[]>',
+        description: 'List MCP servers configured as MCP client plugin entries.',
+        parameters: [],
+        returns: 'One row per server with its target, enablement and runtime phase.',
+      },
+      {
+        signature: '@Remote async discoverMcpServers(): Promise<McpServerCandidate[]>',
+        description: 'Find MCP servers configured for Claude Desktop, Claude Code and Codex.',
+        parameters: [],
+        returns: 'Importable servers, marking names already configured here.',
+      },
+      {
+        signature: '@Remote addMcpServer(config: McpServerConfig): Promise<ChangeResult>',
+        description: 'Add an MCP server as a new MCP client plugin entry in the profile.',
+        parameters: [{ name: 'config', description: 'Server name and stdio or streamable HTTP connection.' }],
+        returns: 'Persisted and runtime outcomes.',
+      },
+      {
+        signature: '@Remote removeMcpServer(id: PluginEntryId): Promise<ChangeResult>',
+        description: 'Remove an MCP server the profile added.',
+        parameters: [{ name: 'id', description: 'Loader entry identity returned by listMcpServers.' }],
+        returns: 'Persisted and runtime outcomes.',
+      },
+      {
         signature: '@Remote setBundleEnabled(name: string, enabled: boolean): Promise<ChangeResult>',
         description: 'Select or remove a bundle layer while retaining installed dependencies.',
         parameters: [{ name: 'name', description: 'Bundle package name.' }, { name: 'enabled', description: 'Whether the bundle contributes its patch layer.' }],
@@ -2081,6 +2105,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'List connector namespaces exposed by globally connected MCP tools.',
         parameters: [],
         returns: 'connector namespaces available for Session selection.',
+      },
+      {
+        signature: '@Remote(\'listHooks\') listHooks(): SessionHookCatalog',
+        description: 'List hooks loaded by mounted hook bridges.',
+        parameters: [],
+        returns: 'every loaded hook with its global enablement.',
+      },
+      {
+        signature: '@Remote(\'setHookOverrides\') setHookOverrides(request: SessionSetHookOverridesRequest): Promise<HookOverrides>',
+        description: 'Replace the hook overrides of one Session.',
+        parameters: [{ name: 'request', description: 'Session identity and the complete override map.' }],
+        returns: 'the stored overrides.',
       },
       {
         signature: '@Remote(\'selectMcp\') selectMcp(request: SessionSelectMcpRequest): Promise<SessionSelectMcpValue>',
@@ -5478,11 +5514,15 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'HookInventoryHandler',
-    declaration: 'export interface HookInventoryHandler {\n    readonly event: string;\n    readonly matcher?: string;\n    readonly command: string;\n}',
+    declaration: 'export interface HookInventoryHandler {\n    readonly event: string;\n    readonly matcher?: string;\n    readonly command: string;\n    readonly key: string;\n    readonly disabled?: boolean;\n    readonly description?: string;\n}',
   },
   {
     name: 'HookInventoryReport',
-    declaration: 'export interface HookInventoryReport {\n    readonly dialect: HookDialect;\n    readonly source: string;\n    readonly status: \'loaded\' | \'configured\' | \'failed\';\n    readonly handlers: readonly HookInventoryHandler[];\n    readonly skipped: readonly string[];\n    readonly error?: string;\n}',
+    declaration: 'export interface HookInventoryReport {\n    readonly dialect: HookDialect;\n    readonly source: string;\n    readonly status: \'loaded\' | \'configured\' | \'failed\';\n    readonly handlers: readonly HookInventoryHandler[];\n    readonly skipped: readonly string[];\n    readonly error?: string;\n    readonly settingsNs?: string;\n}',
+  },
+  {
+    name: 'HookOverrides',
+    declaration: 'export interface HookOverrides {\n    readonly overrides: Readonly<Record<string, boolean>>;\n}',
   },
   {
     name: 'HostConnectionFetch',
@@ -5915,6 +5955,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'McpSelection',
     declaration: 'export interface McpSelection {\n    readonly connectorIds: readonly string[];\n}',
+  },
+  {
+    name: 'McpServerCandidate',
+    declaration: 'export interface McpServerCandidate {\n    readonly source: McpServerSource;\n    readonly config: McpServerConfig;\n    readonly configured: boolean;\n}',
+  },
+  {
+    name: 'McpServerConfig',
+    declaration: 'export type McpServerConfig = {\n    readonly transport: \'stdio\';\n    readonly serverName: string;\n    readonly command: string;\n    readonly args: readonly string[];\n    readonly env: Readonly<Record<string, string>>;\n} | {\n    readonly transport: \'streamable-http\';\n    readonly serverName: string;\n    readonly url: string;\n    readonly headers: Readonly<Record<string, string>>;\n};',
+  },
+  {
+    name: 'McpServerRow',
+    declaration: 'export interface McpServerRow {\n    readonly entryId: string;\n    readonly patchId?: string;\n    readonly serverName: string;\n    readonly transport: string;\n    readonly target: string;\n    readonly enabled: boolean;\n    readonly phase: string | null;\n    readonly removable: boolean;\n}',
+  },
+  {
+    name: 'McpServerSource',
+    declaration: 'export type McpServerSource = \'claude-desktop\' | \'claude-code\' | \'codex\';',
   },
   {
     name: 'MemorixCell',
@@ -6893,6 +6949,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SessionHistoryRecord = SessionEventEntry;',
   },
   {
+    name: 'SessionHookCatalog',
+    declaration: 'export interface SessionHookCatalog {\n    readonly hooks: readonly SessionHookRow[];\n}',
+  },
+  {
+    name: 'SessionHookRow',
+    declaration: 'export interface SessionHookRow {\n    readonly key: string;\n    readonly dialect: string;\n    readonly event: string;\n    readonly matcher?: string;\n    readonly command: string;\n    readonly globallyDisabled: boolean;\n    readonly description?: string;\n}',
+  },
+  {
     name: 'SessionId',
     declaration: 'export type SessionId = Branded<\'SessionId\'>;',
   },
@@ -7123,6 +7187,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionSeqCursor',
     declaration: 'export type SessionSeqCursor = SessionSeq | -1;',
+  },
+  {
+    name: 'SessionSetHookOverridesRequest',
+    declaration: 'export interface SessionSetHookOverridesRequest {\n    readonly sessionId: SessionId;\n    readonly overrides: Readonly<Record<string, boolean>>;\n}',
   },
   {
     name: 'SessionStartSource',

@@ -242,7 +242,7 @@ jobs:
 
   node-24-bench:
     continue-on-error: true
-    if: github.event_name == 'workflow_dispatch' && !inputs.refresh-web-snapshots
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     name: node 24 / benchmarks
     # Wall-clock budgets need an otherwise idle runner, so this job runs the
@@ -587,6 +587,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}

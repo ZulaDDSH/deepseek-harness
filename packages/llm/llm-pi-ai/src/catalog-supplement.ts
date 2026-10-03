@@ -93,7 +93,7 @@ const SUPPLEMENT: Readonly<Record<string, readonly Model<Api>[]>> = {
       baseUrl: 'https://api.openai.com/v1',
       reasoning: true,
       input: ['text', 'image'],
-      contextWindow: 272_000,
+      contextWindow: 1_050_000,
       maxTokens: 128_000,
       thinkingLevelMap: {
         off: null,

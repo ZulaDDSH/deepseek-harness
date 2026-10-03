@@ -238,7 +238,7 @@ export class KnowledgeRouter extends Service {
     this.config = resolveConfig(config)
     ctx.inject(['commands'], (inner) => { registerKnowledgeCommand(inner, this) })
     const graphifyCli = config.graphify?.cli
-    if (graphifyCli !== undefined) {
+    if (typeof graphifyCli?.command === 'string') {
       ctx.inject(['commands'], (inner) => { registerGraphifyCommand(inner, graphifyCli) })
     }
     if (this.config.mode === 'off') return

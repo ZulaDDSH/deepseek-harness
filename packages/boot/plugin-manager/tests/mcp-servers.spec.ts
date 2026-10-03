@@ -1,9 +1,9 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, it, onTestFinished } from 'vitest'
+import { expect, it, onTestFinished, vi } from 'vitest'
 import { parse } from 'yaml'
-import { discoverMcpServers, insertMcpServer, normalizeMcpServer, removeMcpServer } from '../src/mcp-servers.ts'
+import { discoverMcpServers, insertMcpServer, mcpServerName, normalizeMcpServer, removeMcpServer } from '../src/mcp-servers.ts'
 
 it('discovers Claude Desktop, Claude Code and Codex servers and edits the profile patch', async () => {
   const home = mkdtempSync(join(tmpdir(), 'mcp-discover-'))
@@ -36,4 +36,45 @@ it('discovers Claude Desktop, Claude Code and Codex servers and edits the profil
   expect(await removeMcpServer(patch, 'mcp-re')).toBe(true)
   expect(parse(readFileSync(patch, 'utf8'))).toEqual([{ id: 'other', config: {} }])
   expect(await removeMcpServer(patch, 'mcp-re')).toBe(false)
+
+  writeFileSync(patch, '- id: other\n  config: {}\n- id: mcp-re\n  disabled: true\n')
+  expect(await removeMcpServer(patch, 'mcp-re')).toBe(true)
+  expect(parse(readFileSync(patch, 'utf8'))).toEqual([{ id: 'other', config: {} }])
+})
+
+it('tolerates missing sources and rejects unusable profile patches', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'mcp-empty-'))
+  onTestFinished(() => { rmSync(home, { recursive: true, force: true }) })
+  expect(await discoverMcpServers(home, join(home, 'AppData'))).toEqual([])
+  writeFileSync(join(home, '.claude.json'), '{ not json')
+  mkdirSync(join(home, '.codex'))
+  writeFileSync(join(home, '.codex', 'config.toml'), '[mcp_servers.x\n')
+  expect(await discoverMcpServers(home, join(home, 'AppData'))).toEqual([])
+  expect(normalizeMcpServer('a', { command: '', url: 'https://x', type: 'sse' })).toBeUndefined()
+  expect(normalizeMcpServer('a', { command: 'node', args: 'one' })).toEqual({ transport: 'stdio', serverName: 'a', command: 'node', args: [], env: {} })
+  expect(normalizeMcpServer('!!!', { url: 'https://x' })).toEqual({ transport: 'streamable-http', serverName: '---', url: 'https://x', headers: {} })
+
+  const patch = join(home, 'missing.yml')
+  await insertMcpServer(patch, 'mcp-a', { transport: 'stdio', serverName: 'a', command: 'node', args: [], env: {} })
+  expect(parse(readFileSync(patch, 'utf8'))).toHaveLength(1)
+  await expect(insertMcpServer(home, 'mcp-a', { transport: 'stdio', serverName: 'a', command: 'node', args: [], env: {} })).rejects.toThrow()
+  writeFileSync(patch, ['- plain', '- insert:', '    - keep', '    - id: mcp-a', '    - id: mcp-b', ''].join('\n'))
+  expect(await removeMcpServer(patch, 'mcp-a')).toBe(true)
+  expect(parse(readFileSync(patch, 'utf8'))).toEqual(['plain', { insert: ['keep', { id: 'mcp-b' }] }])
+  expect(await removeMcpServer(patch, 'mcp-missing')).toBe(false)
+  writeFileSync(patch, ['- id: tool', '  config:', '    command: !!js process.execPath', '- id: mcp-b', ''].join('\n'))
+  expect(await removeMcpServer(patch, 'mcp-b')).toBe(true)
+  expect(readFileSync(patch, 'utf8')).toContain('!!js process.execPath')
+  expect(mcpServerName('')).toBe('server')
+  vi.stubEnv('HOME', home)
+  vi.stubEnv('USERPROFILE', home)
+  vi.stubEnv('APPDATA', join(home, 'Roaming'))
+  expect(await discoverMcpServers()).toEqual([])
+  vi.stubEnv('APPDATA', undefined)
+  expect(await discoverMcpServers(home)).toEqual([])
+  vi.unstubAllEnvs()
+  writeFileSync(patch, 'a: [')
+  await expect(removeMcpServer(patch, 'mcp-a')).rejects.toThrow()
+  writeFileSync(patch, 'a: 1\n')
+  await expect(removeMcpServer(patch, 'mcp-a')).rejects.toThrow('Profile patch must be a YAML sequence')
 })

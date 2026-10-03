@@ -34,6 +34,7 @@ import {
   appendHookResult,
   createDetachedRuns,
   describeHookHandlers,
+  hookEnabled,
   hookKey,
   type HookInventoryReport,
   DEFAULT_HOOK_TIMEOUT_MS,
@@ -159,18 +160,14 @@ export function apply(ctx: Context, config: Config): void {
     // Run hooks in the agent's session workspace so relative paths address the
     // user's project rather than the server launch directory.
     const workdir = opts.agent?.session.header.cwd
-    const enabled = new Set(enabledHooks())
+    const enabled = enabledHooks()
     const overrides = opts.agent === undefined ? undefined
       : ctx.sessionProjections.stateOf(opts.agent.session, 'hookOverrides')?.current?.overrides
-    for (const [key, on] of Object.entries(overrides ?? {})) {
-      if (on) enabled.add(key)
-      else enabled.delete(key)
-    }
     for (const group of groups) {
       // Codex always interprets matchers as regexes; it has no literal fast path.
       if (!matchesMatcher(group.matcher, matchQuery, 'codex')) continue
       for (const hook of group.hooks) {
-        if (!enabled.has(hookKey(point, group.matcher, hook.command))) continue
+        if (!hookEnabled(hookKey(point, group.matcher, hook.command), enabled, overrides)) continue
         const handlerId = nextHandlerId(point)
         const session = opts.agent?.session
         if (session && opts.turn !== undefined) {

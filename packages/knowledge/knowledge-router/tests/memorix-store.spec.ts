@@ -38,6 +38,16 @@ describe('Memorix read-only browsing', () => {
     expect(await readFile(path)).toEqual(before)
   })
 
+  it('encodes BLOB columns as base64', async () => {
+    const path = await fixture()
+    const db = new DatabaseSync(path)
+    db.exec('CREATE TABLE attachments(id INTEGER, payload BLOB)')
+    db.prepare('INSERT INTO attachments VALUES (?, ?)').run(1, new Uint8Array([1, 2, 255]))
+    db.close()
+    expect(memorixPage(path, { table: 'attachments', limit: 1, offset: 0, query: '' }).rows)
+      .toEqual([{ id: '1', payload: { base64: 'AQL/' } }])
+  })
+
   it('searches the complete table and treats wildcard input literally', async () => {
     const path = await fixture()
     expect(memorixPage(path, { table: 'observations', limit: 1, offset: 0, query: '%' }).total).toBe(1)

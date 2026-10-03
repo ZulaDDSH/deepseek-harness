@@ -18,8 +18,9 @@ export type HooksSettingsSectionProps = PropsRuntime<'settings.section'>
 
 export function hookName(command: string): string {
   const words = command.split(/\s+/).map(word => word.replaceAll('"', '').replaceAll("'", ''))
-  const script = words.find(word => /\.(m?js|cjs|ts|sh|ps1|py|cmd|bat|exe)$/i.test(word)) ?? words[0] ?? command
-  return (script.split(/[\/]/).pop() ?? script).replace(/\.[^.]+$/, '')
+  const [first = ''] = words
+  const script = words.find(word => /\.(m?js|cjs|ts|sh|ps1|py|cmd|bat|exe)$/i.test(word)) ?? first
+  return script.replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '')
 }
 
 function groupByScript(handlers: HookInventoryReport['handlers']): [string, HookInventoryReport['handlers']][] {
@@ -44,7 +45,6 @@ export function HooksSettingsSection({ t, list, setEnabledHooks, setHookDescript
     void list().then((value) => { if (current) setSnapshot(value) }, () => { if (current) setFailed(true) })
     return () => { current = false }
   }, [list, revision])
-  const bridgeOf = (report: HookInventoryReport): string | undefined => report.status === 'loaded' ? report.settingsNs : undefined
   const save = (operation: Promise<void>): void => {
     setBusy(true)
     setWriteFailed(undefined)
@@ -67,20 +67,20 @@ export function HooksSettingsSection({ t, list, setEnabledHooks, setHookDescript
   }
   const enabledOf = (report: HookInventoryReport): string[] =>
     report.handlers.filter(handler => handler.disabled !== true).map(handler => handler.key)
-  const controlled = (snapshot?.hooks ?? []).filter(report => report.status !== 'configured')
+  const controlled = (snapshot?.hooks ?? []).flatMap(report =>
+    report.settingsNs === undefined ? [] : [{ report, entryId: report.settingsNs }])
   return <section className={css.section}>
     <h2>{t('hooksTitle')}</h2>
     <p>{t('hooksHelp')}</p>
-    <Button variant="outline" onClick={() => setRevision(value => value + 1)}>{t('hooksRefresh')}</Button>
+    <Button variant="outline" onClick={() => { setRevision(value => value + 1) }}>{t('hooksRefresh')}</Button>
     {writeFailed === undefined ? null : <p role="alert">{t('hooksWriteFailed')}: {writeFailed}</p>}
     {failed ? <p role="alert">{t('error')}</p> : snapshot === undefined ? <p>{t('loading')}</p> : <>
       {controlled.length === 0 ? <p>{t('hooksEmpty')}</p> : null}
-      {controlled.map((report, index) => {
-        const entryId = bridgeOf(report)
+      {controlled.map(({ report, entryId }, index) => {
         return <article key={index}>
           <h3 title={report.source}>{report.dialect}</h3>
           {report.error === undefined ? null : <p role="alert">{report.error}</p>}
-          {entryId !== undefined && report.handlers.length > 0 ? <p>
+          {report.handlers.length > 0 ? <p>
             <Button variant="outline" disabled={busy} onClick={() => { write(entryId, report.handlers.map(handler => handler.key)) }}>
               {t('hooksEnableAll')}
             </Button>
@@ -93,7 +93,7 @@ export function HooksSettingsSection({ t, list, setEnabledHooks, setHookDescript
             const description = handlers.find(handler => handler.description !== undefined)?.description
             const id = `${report.dialect}/${name}`
             return <li key={name} title={[...new Set(handlers.map(handler => handler.command))].join('\n')}>
-              {entryId === undefined ? null : <Switch
+              <Switch
                 checked={on}
                 disabled={busy}
                 label={`${t('hooksToggle')}: ${name}`}
@@ -101,9 +101,9 @@ export function HooksSettingsSection({ t, list, setEnabledHooks, setHookDescript
                   const others = enabledOf(report).filter(key => !keys.includes(key))
                   write(entryId, next ? [...others, ...keys] : others)
                 }}
-              />}
+              />
               {' '}<strong>{name}</strong> — <small>{[...new Set(handlers.map(handler => handler.event))].join(', ')}</small>
-              {editing?.id === id && entryId !== undefined
+              {editing?.id === id
                 ? <form onSubmit={(event) => { event.preventDefault(); describe(entryId, report, keys, editing.draft) }}>
                   <input
                     aria-label={`${t('hooksDescription')}: ${name}`}
@@ -116,9 +116,9 @@ export function HooksSettingsSection({ t, list, setEnabledHooks, setHookDescript
                 </form>
                 : <div>
                   {description === undefined ? null : <span>{description} </span>}
-                  {entryId === undefined ? null : <Button variant="outline" onClick={() => { setEditing({ id, draft: description ?? '' }) }}>
+                  <Button variant="outline" onClick={() => { setEditing({ id, draft: description ?? '' }) }}>
                     {t(description === undefined ? 'hooksDescriptionAdd' : 'hooksDescriptionEdit')}
-                  </Button>}
+                  </Button>
                 </div>}
             </li>
           })}</ul>

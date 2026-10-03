@@ -16,8 +16,12 @@ export type McpServersSectionProps = PropsRuntime<'settings.section'>
   & PropsLocale<'pluginManager'>
   & InjectFace<McpServersSectionInjected>
 
+function reason(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
 function splitArgs(text: string): string[] {
-  return [...text.matchAll(/"([^"]*)"|(\S+)/g)].map(match => match[1] ?? match[2] ?? '')
+  return [...text.matchAll(/"([^"]*)"|\S+/g)].map(match => match[1] ?? match[0])
 }
 
 function parseEnv(text: string): Record<string, string> {
@@ -44,7 +48,7 @@ export function McpServersSection(props: McpServersSectionProps) {
     let current = true
     void props.listMcpServers().then(
       (rows) => { if (current) setServers(rows) },
-      (error: unknown) => { if (current) setFailure(String(error)) },
+      (error: unknown) => { if (current) setFailure(reason(error)) },
     )
     return () => { current = false }
   }, [props.listMcpServers, revision])
@@ -52,7 +56,7 @@ export function McpServersSection(props: McpServersSectionProps) {
     setBusy(true)
     setFailure(undefined)
     void operation()
-      .catch((error: unknown) => { setFailure(error instanceof Error ? error.message : String(error)) })
+      .catch((error: unknown) => { setFailure(reason(error)) })
       .finally(() => {
         setBusy(false)
         setCandidates(undefined)
@@ -95,7 +99,7 @@ export function McpServersSection(props: McpServersSectionProps) {
             <div className={css.identity}>
               <span className={css.nameLine}>
                 <span className={css.name}>{server.serverName}</span>
-                <Tag>{server.transport === 'streamable-http' ? 'HTTP' : 'stdio'}</Tag>
+                <Tag>{t(server.transport === 'streamable-http' ? 'mcpTagHttp' : 'mcpTagStdio')}</Tag>
               </span>
               <span className={css.detail} title={server.target}>{phaseLabel(server)} · {server.target}</span>
             </div>
@@ -120,7 +124,7 @@ export function McpServersSection(props: McpServersSectionProps) {
       <span className={css.groupAction}>
         <Button variant="outline" disabled={busy} onClick={() => {
           setFailure(undefined)
-          void props.discoverMcpServers().then(setCandidates, (error: unknown) => { setFailure(String(error)) })
+          void props.discoverMcpServers().then(setCandidates, (error: unknown) => { setFailure(reason(error)) })
         }}>{t('mcpImportFind')}</Button>
       </span>
     </div>
@@ -160,14 +164,14 @@ export function McpServersSection(props: McpServersSectionProps) {
       </div>
       {draft.transport === 'stdio'
         ? <>
-          {field('mcpCommand', <input className={css.input} aria-label={t('mcpCommand')} placeholder="node" value={draft.command}
+          {field('mcpCommand', <input className={css.input} aria-label={t('mcpCommand')} placeholder={t('mcpCommandPlaceholder')} value={draft.command}
             onChange={(event) => { setDraft({ ...draft, command: event.target.value }) }} />)}
-          {field('mcpArgs', <input className={css.input} aria-label={t('mcpArgs')} placeholder="server.js --flag" value={draft.args}
+          {field('mcpArgs', <input className={css.input} aria-label={t('mcpArgs')} placeholder={t('mcpArgsPlaceholder')} value={draft.args}
             onChange={(event) => { setDraft({ ...draft, args: event.target.value }) }} />)}
           {field('mcpEnv', <textarea className={`${css.input} ${css.textarea}`} aria-label={t('mcpEnv')} placeholder={t('mcpEnvPlaceholder')}
             value={draft.env} onChange={(event) => { setDraft({ ...draft, env: event.target.value }) }} />)}
         </>
-        : field('mcpUrl', <input className={css.input} aria-label={t('mcpUrl')} placeholder="https://" value={draft.url}
+        : field('mcpUrl', <input className={css.input} aria-label={t('mcpUrl')} placeholder={t('mcpUrlPlaceholder')} value={draft.url}
           onChange={(event) => { setDraft({ ...draft, url: event.target.value }) }} />)}
       <div className={css.formActions}>
         <Button variant="primary" type="submit" disabled={busy || !canAdd}>{t('mcpAdd')}</Button>

@@ -17,6 +17,7 @@ export function JevSettingsSection({
   const state = useSnapshot(value => value)
   const revision = useCredentialsRevision(value => value.revision)
   useEffect(() => { void controller.load() }, [controller])
+  const reload = (): void => { void controller.load() }
   const row = state.rows.find(row => row.entry.provider === 'jev-router')
   const namespace = row === undefined ? undefined : state.namespaces.get(row.entry.settingsNs)
   return <div className={styles['section']}>
@@ -25,14 +26,14 @@ export function JevSettingsSection({
     {state.status === 'error' ? <p role="alert">{state.error}</p> : null}
     {namespace === undefined || row === undefined
       ? <><p>{t(state.status === 'idle' || state.status === 'loading' ? 'jevLoading' : 'jevUnavailable')}</p>
-        <Button variant="outline" onClick={() => { void controller.load() }}>{t('retry')}</Button></>
+        <Button variant="outline" onClick={reload}>{t('retry')}</Button></>
       : <ProviderEditor
         provider={row.entry.provider} displayName={row.entry.displayName} namespace={namespace}
         settingsPath={row.entry.settingsPath} operations={operations} schema={schema} t={t}
         credentialsRevision={revision} readOnly={!state.writable}
         modelOptions={providerModelOptions(state, schema)}
-        onCredentialChanged={() => { void controller.load() }}
-        onClose={() => { void controller.load() }}
+        onCredentialChanged={reload}
+        onClose={reload}
       />}
   </div>
 }

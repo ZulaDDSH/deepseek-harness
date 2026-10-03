@@ -4,7 +4,7 @@
  */
 
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Commands from '@deepseek-ai/dsh-commands'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -137,5 +137,55 @@ describe('/graphify through the real command registry', () => {
     const malformed = await ctx.commands.execute(agent, '/graphify query "unclosed', [], new AbortController().signal)
     expect(malformed?.result.kind).toBe('error')
     expect(calls).toHaveLength(4)
+  }, 30_000)
+
+  it('accepts single quotes and every documented form, defaulting to update', async () => {
+    const ctx = new Context()
+    context = ctx
+    await mountAgentLoopTestDependencies(ctx)
+    await ctx.plugin(Commands)
+    const harness = await mountAgentLoopTestHarness(ctx)
+    const agent = await harness.create(SessionId('graphify-forms-agent'), {}, { cwd: process.cwd() })
+    const bare = await harness.create(SessionId('graphify-no-workspace-agent'))
+    const graph = join(agent.session.header.cwd!, 'graphify-out', 'graph.json')
+    const calls: string[][] = []
+    registerGraphifyCommand(ctx, { command: 'graphify', args: [] }, async (_command, args) => {
+      calls.push([...args])
+      return { stdout: 'ok', stderr: '' }
+    })
+    const run = async (target: typeof agent, input: string) =>
+      (await ctx.commands.execute(target, input, [], new AbortController().signal))?.result.kind
+
+    expect(await run(bare, '/graphify update')).toBe('error')
+    for (const input of ['/graphify export csv', '/graphify path "a"', '/graphify query', '/graphify update extra']) {
+      expect(await run(agent, input), input).toBe('error')
+    }
+    expect(calls).toEqual([])
+    expect(await run(agent, "/graphify explain 'node one'")).toBe('success')
+    expect(await run(agent, '/graphify path "a" \'b\'')).toBe('success')
+    expect(await run(agent, '/graphify export html')).toBe('success')
+    expect(calls).toEqual([
+      ['explain', 'node one', '--graph', graph],
+      ['path', 'a', 'b', '--graph', graph],
+      ['export', 'html', '--graph', graph],
+    ])
+    calls.length = 0
+    expect(await run(agent, '/graphify')).toBe('success')
+    expect(calls.map(call => call[0])).toEqual(['update', 'cluster-only', 'export'])
+  }, 30_000)
+
+  it('leaves /graphify unregistered until a launcher is configured', async () => {
+    const registered = async (config: ConstructorParameters<typeof KnowledgeRouter>[1]): Promise<boolean> => {
+      const ctx = new Context()
+      onTestFinished(async () => { await ctx.fiber.dispose() })
+      await mountAgentLoopTestDependencies(ctx)
+      await ctx.plugin(Commands)
+      await ctx.plugin(KnowledgeRouter, config)
+      const harness = await mountAgentLoopTestHarness(ctx)
+      const agent = await harness.create(SessionId('graphify-registration-agent'))
+      return ctx.commands.find(agent, 'graphify') !== undefined
+    }
+    expect(await registered({})).toBe(false)
+    expect(await registered({ graphify: { enabled: true, serverName: 'graphify', cli: { command: 'graphify', args: [] } } })).toBe(true)
   }, 30_000)
 })

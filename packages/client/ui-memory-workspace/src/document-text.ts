@@ -48,7 +48,10 @@ export async function documentText(ctx: Context, filename: string, bytes: Uint8A
       const page = await document.getPage(index)
       try {
         const content = await page.getTextContent()
-        const text = content.items.map(item => 'str' in item ? item.str + (item.hasEOL ? '\n' : ' ') : '').join('')
+        const text = content.items
+          .filter((item): item is Extract<typeof item, { str: string }> => 'str' in item)
+          .map(item => item.str + (item.hasEOL ? '\n' : ' '))
+          .join('')
         length += text.length + 1
         if (length > maxCharacters) throw new Error('Extracted document exceeds the configured character limit')
         pages.push(text)

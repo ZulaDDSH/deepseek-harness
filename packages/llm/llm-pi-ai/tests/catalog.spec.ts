@@ -1445,7 +1445,8 @@ describe('catalog supplement', () => {
       expect.objectContaining({ id, inputModalities: ['text', 'image'] }),
     ]))
     const models = resolveProfiles({ [provider]: { apiKeyEnv: KEY_ENV } }).get(provider)?.piProvider?.getModels() ?? []
-    expect(models.find(model => model.id === id)).toMatchObject({ api, contextWindow: provider === 'anthropic' ? 1_000_000 : 272_000 })
+    const contextWindow = { anthropic: 1_000_000, openai: 1_050_000, 'openai-codex': 272_000 }[provider]
+    expect(models.find(model => model.id === id)).toMatchObject({ api, contextWindow })
   })
 
   it('serves a model the pinned pi-ai catalog does not ship and keeps the installed ids', async () => {

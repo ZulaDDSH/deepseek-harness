@@ -224,7 +224,8 @@ export default class MemoryWorkspace extends TypertRemoteService {
         const acknowledgement = outcome.content.filter(item => item.type === 'text').map(item => item.text ?? '').join('\n')
         const stored = new RegExp('\\[(?:OK|UPDATED)\\] (?:Stored|Updated) observation #(\\d+) [^\\n]*\\n'
           + 'Entity: [^\\n]*? \\| Project: ([^|\\n]+) \\| Topic:').exec(acknowledgement)
-        if (stored === null || !memorixStoredChunk(this.database(provider), Number(stored[1]), (stored[2] ?? '').trim(), topicKey, narrative)) {
+        if (stored === null
+          || !memorixStoredChunk(this.database(provider), Number(stored[1]), String(stored[2]).trim(), topicKey, narrative)) {
           throw new Error('Memorix did not persist the complete document chunk')
         }
         result.completed++

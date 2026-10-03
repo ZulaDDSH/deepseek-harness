@@ -62,4 +62,24 @@
 
 `packages/client/ui-memory-workspace/src/index.ts:MemoryWorkspace` 使用现有工具注册表和文件系统注册 `memorix_import_file`。读取以调用方聊天工作目录为基准，遵循文件系统限制，并结合调用方取消与插件释放；面板与工具共用文档保留和提供方重新读取验证。`src/client/MemoryPage.module.css` 指定原生选项颜色和当前深色方案。包的 `./types` 导出参考 `ui-settings-general`，仅公开类型声明，不发布带 CSS 导入的原始 Client JavaScript。
 
-`packages/hooks/hook-protocol/src/inventory.ts:HookInventoryReport`、`packages/hooks/hooks-codex/src/index.ts:apply`、`packages/hooks/hooks-claude-code/src/index.ts:apply`、`packages/host/plugin-inventory/src/index.ts:readPluginInventory` 和 `packages/client/ui-settings-plugin-inventory/src/client/HooksSettingsSection.tsx:HooksSettingsSection` 通过同步收集器发布已加载的钩子配置，并以只读方式显示。不会重新读取来源文件，销毁会移除报告，加载状态不表示命令已执行。
+`packages/hooks/hook-protocol/src/inventory.ts:HookInventoryReport`、`packages/hooks/hooks-codex/src/index.ts:apply`、`packages/hooks/hooks-claude-code/src/index.ts:apply`、`packages/host/plugin-inventory/src/index.ts:readPluginInventory` 和 `packages/client/ui-settings-plugin-inventory/src/client/HooksSettingsSection.tsx:HooksSettingsSection` 通过同步收集器发布已加载的钩子配置，设置页面会连同下文所述的启用控制一起列出。不会重新读取来源文件，销毁会移除报告，加载状态不表示命令已执行。
+
+`packages/hooks/hook-protocol/src/inventory.ts:hookEnabled` 是两个桥接器（`runPoint`）和 `describeHookHandlers` 共用的唯一钩子启用规则。钩子的标识是替换后的 `hookKey` = `[event, matcher, command]`。会话覆盖优先；否则只有当桥接器的易变 `enabledHooks` 列出其键或包含 `ALL_HOOKS`（`'*'`）时钩子才会运行。默认拒绝意味着新增或修改的外部钩子会得到新键并保持关闭。通配符用于运维编写的组合，例如 `snapshots/session/text-turn/cordis.yml`；设置页面只写入明确的键。
+
+`packages/client/ui-settings-plugin-inventory/src/client/HooksSettingsSection.tsx:HooksSettingsSection` 只列出带有 `settingsNs`（`ctx.fiber.entry.options.id`）的报告，只有已挂载的桥接器会设置它；来自 `packages/host/plugin-inventory/src/hook-files.ts:readHookFiles` 的外部文件报告（包括解析失败的）无法控制，因此会被隐藏。开关和描述通过 `remote.settings.mutate` 将 `enabledHooks` 和 `hookDescriptions` 写入该命名空间；Loader 的 `entry.id` 带有设置不接受的 `include/` 前缀。
+
+`packages/client/ui-settings-plugin-inventory/src/client/HooksSettingsSection.tsx:hookName` 以最后一个 `/` 或 `\` 之后的脚本文件名称呼钩子，因此 `node "C:\hooks\check.mjs"` 这样的 Windows 命令显示为 `check`。`HooksSettingsSection` 直接把 `settingsNs` 用作写入命名空间：加载失败的桥接器不报告任何处理器（`packages/hooks/hooks-codex/src/index.ts:apply` 使 `parsed` 保持为空），因此没有已加载的桥接器就不会出现处理器行及其控件。
+
+`packages/api/session-controller/src/hook-overrides-projection.ts:installHookOverridesProjection` 将仅写入日志的 `hooks/session-overrides` 事件折叠到 `hookOverrides` 投影中。`SessionController.listHooks` 和 `setHookOverrides` 为 `packages/client/ui-conversation/src/client/apply.ts` 中的输入框 `hooks` 弹窗提供服务。
+
+`packages/client/ui-settings-models/src/client/ProviderEditor.tsx:ProviderEditor` 将 Jev 路由的提供方、模型和推理强度渲染为下拉选择，选项来自 Host 模型目录并合并各配置的 `models`；目录中缺失的已存值仍可选择，自定义选项则回退为自由文本。
+
+`packages/llm/llm-jev-router/src/index.ts:apply` 每个用户轮次只决定一次并在该轮所有步骤中复用，失败会缓存为“无路由”，因此每轮最多调用一次 Jev。每个结果都记录为仅写入日志的 `jev/decision` 事件。`agent/request` 监听器在第一次启用的 `agent/pre-step` 时注册到 `agent.ctx` 上，从而包裹按会话的 `installModelSelection` 监听器；未路由的步骤会解析为 `modelSelection.selected`，否则为 `agent.options`，而不是沿用先前步骤持久化的路由。
+
+`packages/boot/plugin-manager/src/mcp-servers.ts:discoverMcpServers` 读取 Claude Desktop、Claude Code（顶层和按项目的 `mcpServers`）以及 Codex（`config.toml` 的 `mcp_servers`）；由于 `dsh-mcp-client` 只支持 stdio 和可流式 HTTP，SSE 服务器会被跳过。`PluginManager.addMcpServer` 追加一个 id 为 `mcp-<serverName>` 的配置 `insert` 行，`removeMcpServer` 删除该插入行以及该 id 的所有直接行，启用状态复用 `setPluginEnabled`。
+
+`packages/knowledge/knowledge-router/src/index.ts:KnowledgeRouter` 仅当 `config.graphify.cli.command` 是字符串时才注册 `/graphify`。`Config` 模式即使没有配置启动器也会把 `graphify.cli` 填充为 `{ args: [] }`，因此用 `cli !== undefined` 判断会注册一个执行未定义可执行文件的命令。
+
+`packages/client/ui-memory-workspace/src/document-text.ts:documentText` 只保留 `getTextContent()` 返回的文本项。标记内容项仅在请求 `includeMarkedContent` 时才存在，而此调用未开启它，因此该过滤只是类型收窄，不会丢弃内容。
+
+`packages/client/ui-plugin-manager/src/client/McpServersSection.tsx:reason` 把被拒绝的列表、发现或变更调用转换为其消息文本，对不是 `Error` 实例的值使用 `String(error)`，因此传输层的拒绝不会显示为空白提示。

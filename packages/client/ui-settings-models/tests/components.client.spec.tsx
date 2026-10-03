@@ -400,6 +400,26 @@ it('opens the dedicated Jev editor with configured routing controls', async () =
   expect(screen.getByLabelText(en.jevRouteModel)).toHaveProperty('value', 'claude-opus-5')
 })
 
+it('reports a Jev load failure and reloads on retry', async () => {
+  const scripted = scriptedFace()
+  const listProviders = vi.fn(() => Promise.resolve(remoteFail('directory down', 'gateway/internal')))
+  scripted.face.llm.listProviders = listProviders as never
+  const ctx = ctxWith(scripted.face)
+  const mirror = new SettingsDescribeMirror(ctx)
+  const controller = new ModelsSettingsStore(ctx, settingsSchema, mirror)
+  render(<JevSettingsSection controller={controller}
+    useSnapshot={bindSnapshotSelector(controller.store)}
+    useCredentialsRevision={bindSnapshotSelector(createSnapshotStore({ revision: 0 }))}
+    operations={operationsWith(scripted.face, mirror)} schema={settingsSchema} t={t} />)
+  expect((await screen.findByRole('alert')).textContent).toMatch(/directory down/)
+  expect(screen.getByText(en.jevUnavailable)).toBeTruthy()
+  const calls = listProviders.mock.calls.length
+  listProviders.mockResolvedValue(remoteOk([]) as never)
+  fireEvent.click(screen.getByRole('button', { name: en.retry }))
+  await waitFor(() => { expect(screen.queryByRole('alert')).toBeNull() })
+  expect(listProviders.mock.calls.length).toBeGreaterThan(calls)
+})
+
 /**
  * Mount for a user who cannot reach any provider yet: no credential is stored
  * anywhere, so the whole-section DeepSeek route owns the first-run setup card.

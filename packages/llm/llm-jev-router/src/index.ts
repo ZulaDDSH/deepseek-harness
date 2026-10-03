@@ -485,7 +485,6 @@ export function apply(ctx: Context, initial: RuntimeConfig): void {
       perAgent = new Map()
       decisions.set(payload.agent, perAgent)
     }
-    // One decision per user turn: later steps mostly carry tool output, which would read as routine work.
     if (perAgent.has(payload.turn)) return admitted
     try {
       const decision = await client.decide(admitted.messages, config, payload.signal)
@@ -498,9 +497,10 @@ export function apply(ctx: Context, initial: RuntimeConfig): void {
     } catch (error) {
       ctx.logger.warn('jev-router: Jev decision failed; preserving the configured model route')
       payload.agent.session.append('jev/decision', {
-        turn: payload.turn, step: payload.step, error: error instanceof Error ? error.message : String(error),
+        turn: payload.turn, step: payload.step, error: String(error),
       })
       ctx.logger.warn(error)
+      perAgent.set(payload.turn, {})
       if (!config.failOpen) return { kind: 'reject' }
     }
     return admitted
@@ -511,8 +511,6 @@ export function apply(ctx: Context, initial: RuntimeConfig): void {
     for (const dispose of hooked.values()) dispose()
     hooked.clear()
   }, 'jev-router: per-Agent request routing')
-  // Registered after Agent setup so it wraps the per-Session model selection listener.
-  // A step Jev leaves alone runs the Session's chosen model, not a route persisted by an earlier step.
   const unrouted = (agent: Agent, base: LlmCallConfig): LlmCallConfig => {
     const selected = ctx.get('sessionProjections')?.stateOf(agent.session, 'modelSelection')?.selected
     const fallback = selected ?? (agent.options.provider !== undefined && agent.options.model !== undefined

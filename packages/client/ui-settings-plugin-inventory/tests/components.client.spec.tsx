@@ -679,35 +679,38 @@ describe('Hooks settings', () => {
     const list = vi.fn<PluginInventorySettingsTabInjected['list']>().mockResolvedValue({ entries: [], hooks: [{
       dialect: 'claude-code', source: '/settings.json', status: 'configured',
       handlers: [{ event: 'SubagentStart', command: 'external-policy', key: 'k0' }], skipped: [],
+    }, {
+      dialect: 'codex', source: '/broken-hooks.json', status: 'failed', handlers: [], skipped: [], error: 'Invalid hook JSON',
     }] })
     render(<HooksSettingsSection {...props(list)} setEnabledHooks={vi.fn()} setHookDescriptions={vi.fn()} close={() => {}} />)
     expect(await screen.findByText(en.hooksEmpty)).toBeTruthy()
     expect(screen.queryByText('external-policy')).toBeNull()
+    expect(screen.queryByText('Invalid hook JSON')).toBeNull()
   })
   it('shows loaded hooks by script name and refreshes load diagnostics', async () => {
     const list = vi.fn<PluginInventorySettingsTabInjected['list']>().mockResolvedValue({ entries: [], hooks: [{
-      dialect: 'codex', source: '/hooks.json', status: 'loaded', skipped: [],
+      dialect: 'codex', source: '/hooks.json', status: 'loaded', settingsNs: 'hooks-codex', skipped: [],
       handlers: [{ event: 'PreToolUse', matcher: 'Bash', command: 'node "C:/h/check-policy.mjs" --x', key: 'k1' }],
     }] })
     render(<HooksSettingsSection {...props(list)} setEnabledHooks={vi.fn()} setHookDescriptions={vi.fn()} close={() => {}} />)
     expect(await screen.findByText('check-policy')).toBeTruthy()
     expect(screen.getByText(en.hooksHelp)).toBeTruthy()
     list.mockResolvedValueOnce({ entries: [], hooks: [{
-      dialect: 'codex', source: '/hooks.json', status: 'failed', handlers: [], skipped: [], error: 'Invalid JSON',
+      dialect: 'codex', source: '/hooks.json', status: 'failed', settingsNs: 'hooks-codex', handlers: [], skipped: [], error: 'Invalid JSON',
     }] })
     fireEvent.click(screen.getByRole('button', { name: en.hooksRefresh }))
     expect(await screen.findByText('Invalid JSON')).toBeTruthy()
     expect(screen.queryByText('check-policy')).toBeNull()
   })
   it('adds, edits and clears a script description', async () => {
-    const entry = { entryId: 'hooks-1', moduleName: '@deepseek-ai/dsh-hooks-codex', enabled: true, fiberPhase: null }
-    const snapshot = (description?: string) => ({ entries: [entry], hooks: [{
+    const entry = { entryId: 'hooks-1' as PluginEntryId, moduleName: '@deepseek-ai/dsh-hooks-codex', enabled: true, fiberPhase: null }
+    const snapshot = (description?: string): Snapshot => ({ entries: [entry], hooks: [{
       dialect: 'codex', source: '/hooks.json', status: 'loaded', settingsNs: 'hooks-1', skipped: [], handlers: [
         { event: 'PreToolUse', command: 'one', key: 'k1', ...description === undefined ? {} : { description } },
         { event: 'Stop', command: 'one', key: 'k2', ...description === undefined ? {} : { description } },
         { event: 'Stop', command: 'two', key: 'k3', description: 'other' },
       ],
-    }] }) as unknown as Snapshot
+    }] })
     const list = vi.fn<PluginInventorySettingsTabInjected['list']>().mockResolvedValue(snapshot())
     const setHookDescriptions = vi.fn(async () => {})
     render(<HooksSettingsSection {...props(list)} setEnabledHooks={vi.fn()} setHookDescriptions={setHookDescriptions} close={() => {}} />)
@@ -726,14 +729,14 @@ describe('Hooks settings', () => {
     await waitFor(() => { expect(setHookDescriptions).toHaveBeenLastCalledWith('hooks-1', { k3: 'other' }) })
   })
   it('toggles loaded hooks through the bridge allow-list', async () => {
-    const entry = { entryId: 'hooks-1', moduleName: '@deepseek-ai/dsh-hooks-codex', enabled: true, fiberPhase: null }
-    const report = (on: boolean) => ({ entries: [entry], hooks: [{
+    const entry = { entryId: 'hooks-1' as PluginEntryId, moduleName: '@deepseek-ai/dsh-hooks-codex', enabled: true, fiberPhase: null }
+    const report = (on: boolean): Snapshot => ({ entries: [entry], hooks: [{
       dialect: 'codex', source: '/hooks.json', status: 'loaded', settingsNs: 'hooks-1', skipped: [], handlers: [
         { event: 'PreToolUse', command: 'one', key: 'k1', ...on ? {} : { disabled: true } },
         { event: 'Stop', command: 'one', key: 'k3', ...on ? {} : { disabled: true } },
         { event: 'Stop', command: 'two', key: 'k2', disabled: true },
       ],
-    }] }) as unknown as Snapshot
+    }] })
     const list = vi.fn<PluginInventorySettingsTabInjected['list']>().mockResolvedValue(report(false))
     const setEnabledHooks = vi.fn(async () => {})
     render(<HooksSettingsSection {...props(list)} setEnabledHooks={setEnabledHooks} setHookDescriptions={vi.fn()} close={() => {}} />)

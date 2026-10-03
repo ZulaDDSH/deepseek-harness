@@ -2,11 +2,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { Context } from '@deepseek-ai/cordis'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { registerHumanOperations } from '../../../mcp/mcp-client/src/human-operations.ts'
-import MemoryWorkspace from '../src/index.ts'
+import { join, resolve } from 'node:path'
+import { registerHumanOperations, type McpHumanOperations } from '../../../mcp/mcp-client/src/human-operations.ts'
+import MemoryWorkspace, { type Config } from '../src/index.ts'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { type ToolExecutionToken, type ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
@@ -15,16 +16,25 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { runNativeCommand } from '@deepseek-ai/dsh-native-command'
 
 vi.mock('@deepseek-ai/dsh-native-command', () => ({ runNativeCommand: vi.fn(async () => ({ stdout: '', stderr: '' })) }))
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const original = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...original, writeFile: vi.fn(original.writeFile) }
+})
 
 const roots: Context[] = [], directories: string[] = []
 afterEach(async () => {
+  vi.unstubAllEnvs()
   await Promise.all(roots.splice(0).map(ctx => ctx.fiber.dispose()))
   await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true })))
 })
 
-async function setup(persist = true): Promise<{ ctx: Context; directory: string }> {
+async function temporary(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), 'dsh-memory-workspace-'))
   directories.push(directory)
+  return directory
+}
+
+function createDatabase(directory: string): DatabaseSync {
   const db = new DatabaseSync(join(directory, 'memorix.db'))
   db.exec("CREATE TABLE schema_migrations(id TEXT PRIMARY KEY); CREATE TABLE observations(id INTEGER PRIMARY KEY, title TEXT, narrative TEXT, topicKey TEXT UNIQUE, projectId TEXT DEFAULT 'fixture')")
   for (const id of [
@@ -32,6 +42,30 @@ async function setup(persist = true): Promise<{ ctx: Context; directory: string 
     '1.2-workflow-inheritance', '1.2.2-observation-admission', '1.2.2-observation-visibility',
     '1.2.7-compaction-checkpoints', '1.3-long-term-memory',
   ]) db.prepare('INSERT INTO schema_migrations VALUES (?)').run(id)
+  return db
+}
+
+async function connect(config: Partial<Config>, provider?: McpHumanOperations): Promise<Context> {
+  const ctx = new Context()
+  roots.push(ctx)
+  if (provider !== undefined) registerHumanOperations(ctx, 'memorix', provider)
+  await ctx.plugin(MemoryWorkspace, config)
+  return ctx
+}
+
+const localProvider = (directory: string, call: McpHumanOperations['call'] = async () => ({})): McpHumanOperations =>
+  ({ local: true, cwd: directory, env: { MEMORIX_DATA_DIR: directory }, call })
+const encode = (text: string): string => Buffer.from(text).toString('base64')
+
+function refused(reason: string): Promise<never> {
+  const settled = Promise.withResolvers<never>()
+  settled.reject(reason)
+  return settled.promise
+}
+
+async function setup(persist = true): Promise<{ ctx: Context; directory: string }> {
+  const directory = await temporary()
+  const db = createDatabase(directory)
   const ctx = new Context()
   roots.push(ctx)
   ctx.effect(() => () => { db.close() })
@@ -67,7 +101,7 @@ describe('Memory workspace', () => {
       deferContext: () => {}, concludeTurn: () => {},
     }
     const result = await tool!.execute(exec.arguments, exec)
-    const saved = JSON.parse(String(result))
+    const saved = JSON.parse(String(result)) as Record<string, unknown>
     expect(tool!.output.render({ path: 'guide.md' }, JSON.stringify({ ...saved, originalPath: '<retained original>' }))).toMatchInlineSnapshot(`
       [
         {
@@ -122,5 +156,75 @@ describe('Memory workspace', () => {
     await writeFile(graphPath, 'x'.repeat(513))
     await expect(graphCtx.memoryWorkspace.graph()).rejects.toThrow('configured byte limit')
     await expect(ctx.memoryWorkspace.importDocument('empty.txt', Buffer.from(' ').toString('base64'))).rejects.toThrow('no extractable text')
+  })
+})
+
+describe('Memory workspace provider access', () => {
+  it('requires a connected provider and a database path it can resolve', async () => {
+    const directory = await temporary()
+    await expect((await connect({})).memoryWorkspace.inventory()).rejects.toThrow('Memorix is not connected')
+    const remote = await connect({}, { ...localProvider(directory), local: false })
+    await expect(remote.memoryWorkspace.inventory()).rejects.toThrow('explicit local database path')
+  })
+
+  it('browses an explicit database for a remote provider', async () => {
+    const directory = await temporary()
+    createDatabase(directory).close()
+    const remote = await connect({ databasePath: join(directory, 'memorix.db') }, { ...localProvider(directory), local: false, cwd: '', env: {} })
+    expect((await remote.memoryWorkspace.inventory()).map(table => table.name)).toContain('observations')
+  })
+
+  it('falls back to the home data directory when the provider names none', async () => {
+    const home = await temporary()
+    const data = join(home, '.memorix', 'data')
+    await mkdir(data, { recursive: true })
+    createDatabase(data).close()
+    vi.stubEnv('HOME', home)
+    vi.stubEnv('USERPROFILE', home)
+    const ctx = await connect({}, { ...localProvider(home), cwd: '', env: {} })
+    expect((await ctx.memoryWorkspace.inventory()).map(table => table.name)).toContain('observations')
+  })
+
+  it('serves the default graph location and recovers after a failed rebuild', async () => {
+    const directory = await temporary()
+    createDatabase(directory).close()
+    const imports = join(directory, 'imports')
+    const ctx = await connect({ importDirectory: imports }, localProvider(directory))
+    await expect(ctx.memoryWorkspace.graph()).rejects.toThrow()
+    const output = join(imports, 'graphify-out')
+    await mkdir(output, { recursive: true })
+    await writeFile(join(output, 'graph.json'), '{}')
+    await writeFile(join(output, 'graph.html'), '<html></html>')
+    expect(await ctx.memoryWorkspace.graph()).toEqual({ path: resolve(output, 'graph.json'), html: '<html></html>' })
+  })
+})
+
+describe('Memory workspace import safeguards', () => {
+  it('rejects uploads that are not canonical, empty or too large', async () => {
+    const directory = await temporary()
+    const ctx = await connect({ maxDocumentBytes: 5 }, localProvider(directory))
+    await expect(ctx.memoryWorkspace.importDocument('a.md', 'AB')).rejects.toThrow('not canonical base64')
+    await expect(ctx.memoryWorkspace.importDocument('a.md', '')).rejects.toThrow('byte limit or is empty')
+    await expect(ctx.memoryWorkspace.importDocument('a.md', encode('abcdef'))).rejects.toThrow('byte limit or is empty')
+  })
+
+  it('refuses a retained original whose content differs and surfaces other storage failures', async () => {
+    const { ctx, directory } = await setup()
+    const hash = createHash('sha256').update('tail').digest('hex')
+    await mkdir(join(directory, 'documents'), { recursive: true })
+    await writeFile(join(directory, 'documents', `${hash}.md`), 'different')
+    await expect(ctx.memoryWorkspace.importDocument('a.md', encode('tail'))).rejects.toThrow('does not match its identifier')
+    vi.mocked(writeFile).mockRejectedValueOnce(Object.assign(new Error('disk full'), { code: 'ENOSPC' }))
+    await expect(ctx.memoryWorkspace.importDocument('b.md', encode('other'))).rejects.toThrow('disk full')
+  })
+
+  it.each([
+    ['a refused chunk', async () => ({ isError: true, content: [] }), 'Memorix rejected this document chunk'],
+    ['an acknowledgement without text', async () => ({ content: [{ type: 'text' }] }), 'Memorix did not persist the complete document chunk'],
+    ['a non-Error rejection', () => refused('refused'), 'Document import failed'],
+  ])('reports %s without claiming success', async (_name, call, error) => {
+    const directory = await temporary()
+    const ctx = await connect({ importDirectory: join(directory, 'documents') }, localProvider(directory, call))
+    expect(await ctx.memoryWorkspace.importDocument('note.md', encode('note'))).toMatchObject({ completed: 0, total: 1, error })
   })
 })

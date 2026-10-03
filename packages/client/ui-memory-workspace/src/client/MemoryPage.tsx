@@ -51,6 +51,8 @@ export function MemoryPage({ memory, t }: PageProps): ReactNode {
   const [uploading, setUploading] = useState(false)
   const [imports, setImports] = useState<MemoryImportResult[]>([])
   const [revision, setRevision] = useState(0)
+  const limit = page?.limit ?? 0
+  const shown = page?.rows.length ?? 0
 
   useEffect(() => {
     let active = true
@@ -85,7 +87,6 @@ export function MemoryPage({ memory, t }: PageProps): ReactNode {
         outcomes.push(answer(await memory.importDocument(file.name, bytesToBase64(bytes))))
         setImports([...outcomes])
       }
-
     } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)) }
     finally {
       if (outcomes.some(result => result.completed > 0)) setRevision(value => value + 1)
@@ -95,10 +96,10 @@ export function MemoryPage({ memory, t }: PageProps): ReactNode {
   }
 
   return <section className={css.page} data-memory-workspace>
-    <header><h1>{t('title')}</h1><button disabled={busy} onClick={() =>{  setRevision(value => value + 1) }}>{t('refresh')}</button></header>
+    <header><h1>{t('title')}</h1><button disabled={busy} onClick={() => { setRevision(value => value + 1) }}>{t('refresh')}</button></header>
     <nav>
-      <button aria-pressed={tab === 'browse'} onClick={() =>{  setTab('browse') }}>{t('browse')}</button>
-      <button aria-pressed={tab === 'graph'} onClick={() =>{  setTab('graph') }}>{t('graph')}</button>
+      <button aria-pressed={tab === 'browse'} onClick={() => { setTab('browse') }}>{t('browse')}</button>
+      <button aria-pressed={tab === 'graph'} onClick={() => { setTab('graph') }}>{t('graph')}</button>
     </nav>
     {busy && <p role="status">{uploading ? t('importing') : t('loading')}</p>}
     {error && <p role="alert">{error}</p>}
@@ -123,9 +124,9 @@ export function MemoryPage({ memory, t }: PageProps): ReactNode {
         <aside><h2>{t('detail')}</h2><pre>{detail}</pre></aside>
       </div>
       <div className={css.controls}>
-        <button disabled={busy || offset === 0} onClick={() =>{  setOffset(Math.max(0, offset - (page?.limit ?? 0))) }}>{t('previous')}</button>
+        <button disabled={busy || offset === 0} onClick={() => { setOffset(Math.max(0, offset - limit)) }}>{t('previous')}</button>
         <span>{t('total')}: {page?.total ?? 0}</span>
-        <button disabled={busy || page === null || page.rows.length === 0 || offset + page.rows.length >= page.total} onClick={() =>{  setOffset(offset + (page?.rows.length ?? 0)) }}>{t('next')}</button>
+        <button disabled={busy || page === null || shown === 0 || offset + shown >= page.total} onClick={() => { setOffset(offset + shown) }}>{t('next')}</button>
       </div>
       <div className={css.upload}>
         <h2>{t('upload')}</h2><p>{t('importInfo')}</p>

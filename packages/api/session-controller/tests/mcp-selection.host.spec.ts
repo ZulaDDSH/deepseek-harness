@@ -188,6 +188,17 @@ describe('MCP connector selection installation', () => {
     expect(agents.mcpSelectionFor(agent.session)).toEqual({ connectorIds: [] })
   })
 
+  it('guards an Agent whose tool registry the controller context cannot see without restricting it', async () => {
+    const { agents } = await harness(false)
+    const { ctx } = await harness()
+    ctx.tools.register(connectorTool('mcp__console__ping'))
+    const agent = agentUnder(ctx, 'mcp-foreign-tools')
+    agents.installMcpSelection(agent, { connectorIds: [] })
+    expect(ctx.tools.schemas().map(schema => schema.name)).toContain('mcp__console__ping')
+    const call = { signal: testToolSignal, callId: ToolCallId('ping'), name: 'mcp__console__ping', arguments: {}, agent }
+    expect((await ctx.tools.execute(call)).isError).toBe(true)
+  })
+
   it('updates restrictions and restores unrestricted access while preserving local tools', async () => {
     const { ctx, agents } = await harness()
     for (const name of ['mcp__console__ping', 'local', 'mcp____invalid']) ctx.tools.register(connectorTool(name))

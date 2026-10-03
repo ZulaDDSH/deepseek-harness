@@ -33,7 +33,7 @@ async function mount(overrides: Partial<Config> = {}, credentials?: Record<strin
   await ctx.plugin(LlmRuntime)
   if (credentials !== undefined) await ctx.plugin(MemoryCredentials, credentials)
   const fiber = await ctx.plugin(jevPlugin, { ...config, ...overrides, routes: [...(overrides.routes ?? config.routes)] })
-  const agent = { session: Session.create(SessionId('jev-runtime')), ctx, options: {} } as unknown as Agent
+  const agent = { session: Session.create(SessionId('jev-runtime')), ctx, options: {} } as Agent
   const events = agentEvents(ctx, agent)
   const preStep = (step = 1, currentSignal = signal, kind: 'enter' | 'reject' = 'enter', turn = 1) => events.waterfall(
     'agent/pre-step', { turn, step, messages: [input], signal: currentSignal },
@@ -113,6 +113,46 @@ describe('Jev routing lifecycle', () => {
       expect((await preStep()).kind).toBe(failOpen ? 'enter' : 'reject')
       expect(await request()).toBe(base)
     }
+  })
+
+  it('does not retry a failed decision on later steps of the same turn', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => { throw new Error('offline') })
+    vi.stubGlobal('fetch', fetchImpl)
+    const { preStep, request } = await mount()
+    expect((await preStep()).kind).toBe('enter')
+    expect((await preStep(2)).kind).toBe('enter')
+    expect(await request(2)).toBe(base)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    await preStep(1, signal, 'enter', 2)
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
+  it('records a decision failure as a jev/decision event', async () => {
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>(() => Promise.reject(new Error('offline'))))
+    const thrown = await mount()
+    await thrown.preStep()
+    expect(thrown.agent.session.snapshotEvents().filter(event => event.type === 'jev/decision').map(event => event.data))
+      .toEqual([{ turn: 1, step: 1, error: expect.stringContaining('offline') as string }])
+  })
+
+  it('falls back to the Agent route only when it names both provider and model', async () => {
+    answer({ answers: { route: { choice: 'small', confidence: 1 } } })
+    const { agent, preStep, request } = await mount()
+    Object.assign(agent.options, { provider: 'base' })
+    await preStep()
+    const previous = { provider: 'target', model: 'small' }
+    expect(await request(1, signal, previous, 2)).toBe(previous)
+    Object.assign(agent.options, { model: 'base' })
+    expect(await request(1, signal, previous, 2)).toEqual({ provider: 'base', model: 'base' })
+  })
+
+  it('returns an unrouted step to the Session model selection when one is stored', async () => {
+    answer({ answers: { route: { choice: 'small', confidence: 1 } } })
+    const { ctx, preStep, request } = await mount()
+    ctx.provide('sessionProjections', { stateOf: () => ({ selected: { provider: 'chosen', model: 'pick' } }) } as never)
+    await preStep()
+    const previous = { provider: 'target', model: 'small' }
+    expect(await request(1, signal, previous, 2)).toEqual({ provider: 'chosen', model: 'pick' })
   })
 
   it('uses the credential provider rather than falling back to the environment', async () => {

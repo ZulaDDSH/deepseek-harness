@@ -229,6 +229,11 @@ export const zh = {
   mcpEnvPlaceholder: '每行一个 NAME=value',
   mcpUrl: 'URL',
   mcpAdd: '添加',
+  mcpTagHttp: 'HTTP',
+  mcpTagStdio: 'stdio',
+  mcpCommandPlaceholder: 'node',
+  mcpArgsPlaceholder: 'server.js --flag',
+  mcpUrlPlaceholder: 'https://',
 } satisfies Record<string, string>
 
 /** Plugin manager locale key union. */
@@ -458,4 +463,9 @@ export const en = {
   mcpEnvPlaceholder: 'One NAME=value per line',
   mcpUrl: 'URL',
   mcpAdd: 'Add',
+  mcpTagHttp: 'HTTP',
+  mcpTagStdio: 'stdio',
+  mcpCommandPlaceholder: 'node',
+  mcpArgsPlaceholder: 'server.js --flag',
+  mcpUrlPlaceholder: 'https://',
 } satisfies Record<PluginManagerLocaleKey, string>

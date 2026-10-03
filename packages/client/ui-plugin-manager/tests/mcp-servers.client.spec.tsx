@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import assert from 'node:assert/strict'
+import type { McpServerRow } from '@deepseek-ai/dsh-plugin-manager/types'
 import { McpServersSection, type McpServersSectionInjected, type McpServersSectionProps } from '../src/client/McpServersSection.tsx'
 import { en } from '../src/client/locales.ts'
 
@@ -27,7 +29,7 @@ function mount(overrides: Partial<McpServersSectionInjected> = {}) {
     setMcpServerEnabled: vi.fn(async () => {}),
     ...overrides,
   }
-  render(<McpServersSection {...{ t, ...face } as unknown as McpServersSectionProps} />)
+  render(<McpServersSection {...{ t, ...face } as McpServersSectionProps} />)
   return face
 }
 
@@ -70,6 +72,35 @@ it('lists, toggles, removes, imports and adds MCP servers', async () => {
   })
 })
 
+it('ignores reads that settle after unmount and refuses an incomplete submit', async () => {
+  let settle: (rows: McpServerRow[]) => void = () => {}
+  let fail: (error: Error) => void = () => {}
+  const first = mount({ listMcpServers: vi.fn(() => new Promise<McpServerRow[]>((resolve) => { settle = resolve })) })
+  cleanup()
+  settle([])
+  const second = mount({ listMcpServers: vi.fn(() => new Promise<McpServerRow[]>((_, reject) => { fail = reject })) })
+  cleanup()
+  fail(new Error('late'))
+  await Promise.resolve()
+  expect(first.listMcpServers).toHaveBeenCalledOnce()
+  expect(second.listMcpServers).toHaveBeenCalledOnce()
+  const face = mount()
+  const form = screen.getByRole('button', { name: en.mcpAdd }).closest('form')
+  assert(form !== null)
+  fireEvent.submit(form)
+  expect(face.addMcpServer).not.toHaveBeenCalled()
+})
+
+it('reports failed reads', async () => {
+  mount({
+    listMcpServers: vi.fn(async () => { throw new Error('list down') }),
+    discoverMcpServers: vi.fn(async () => { throw new Error('scan down') }),
+  })
+  expect(await screen.findByText(`${en.mcpFailed}: list down`)).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: en.mcpImportFind }))
+  expect(await screen.findByText(`${en.mcpFailed}: scan down`)).toBeTruthy()
+})
+
 it('reports empty lists and failed changes', async () => {
   mount({
     listMcpServers: vi.fn(async () => []),
@@ -83,4 +114,25 @@ it('reports empty lists and failed changes', async () => {
   fireEvent.change(screen.getByRole('textbox', { name: en.mcpCommand }), { target: { value: 'node' } })
   fireEvent.click(screen.getByRole('button', { name: en.mcpAdd }))
   expect(await screen.findByText(`${en.mcpFailed}: ambiguous-install`)).toBeTruthy()
+})
+
+function refused<T>(reason: string): Promise<T> {
+  const settled = Promise.withResolvers<T>()
+  settled.reject(reason)
+  return settled.promise
+}
+
+it('shows a rejection that is not an Error', async () => {
+  mount({
+    listMcpServers: vi.fn(() => refused<McpServerRow[]>('list refused')),
+    discoverMcpServers: vi.fn(() => refused<never[]>('scan refused')),
+    addMcpServer: vi.fn(() => refused<undefined>('add refused')),
+  })
+  expect(await screen.findByText(`${en.mcpFailed}: list refused`)).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: en.mcpImportFind }))
+  expect(await screen.findByText(`${en.mcpFailed}: scan refused`)).toBeTruthy()
+  fireEvent.change(screen.getByRole('textbox', { name: en.mcpName }), { target: { value: 'x' } })
+  fireEvent.change(screen.getByRole('textbox', { name: en.mcpCommand }), { target: { value: 'node' } })
+  fireEvent.click(screen.getByRole('button', { name: en.mcpAdd }))
+  expect(await screen.findByText(`${en.mcpFailed}: add refused`)).toBeTruthy()
 })
