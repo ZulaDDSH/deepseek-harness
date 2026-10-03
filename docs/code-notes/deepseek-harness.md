@@ -83,3 +83,5 @@ Reference: `packages/api/settings-controller/src/request.ts:settingsRequest.pars
 `packages/client/ui-memory-workspace/src/document-text.ts:documentText` keeps only text items from `getTextContent()`. Marked-content items exist only when `includeMarkedContent` is requested, which this call leaves off, so the filter is a type narrowing and never drops content.
 
 `packages/client/ui-plugin-manager/src/client/McpServersSection.tsx:reason` turns a rejected list, discovery or change call into its message, using `String(error)` for values that are not `Error` instances, so a rejection from the transport layer is never shown as a blank alert.
+
+`packages/client/ui-settings-models/src/client/ModelsSection.tsx:Loaded` leaves `jev-router` out of the provider rows. `packages/llm/llm-jev-router/src/index.ts:apply` registers a configurable provider only so `JevSettingsSection` can read its settings namespace from the shared join. Jev is a routing service, not an adapter route, so listing it on the Models page would offer a key field and, on first run, a setup card that does not give the user a model provider.

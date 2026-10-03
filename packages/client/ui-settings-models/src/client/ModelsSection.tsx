@@ -298,8 +298,9 @@ export function providerModelOptions(state: Pick<ModelsSettingsState, 'rows' | '
 function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderSlot: ModelsRenderSlot }): ReactNode {
   const { controller, useCredentialsRevision, operations, authorization, schema, t } = injected
   const snapshot = injected.useSnapshot(value => value)
-  const state = { ...snapshot, rows: snapshot.rows.map(row => row.entry.provider === 'deepseek-account'
-    ? { ...row, entry: { ...row.entry, displayName: t('deepSeekAccount') } } : row) }
+  const state = { ...snapshot, rows: snapshot.rows.filter(row => row.entry.provider !== 'jev-router')
+    .map(row => row.entry.provider === 'deepseek-account'
+      ? { ...row, entry: { ...row.entry, displayName: t('deepSeekAccount') } } : row) }
   const credentialsRevision = useCredentialsRevision(value => value.revision)
   const [editing, setEditing] = useState<EditorTarget | undefined>(undefined)
   const [addOpen, setAddOpen] = useState(false)

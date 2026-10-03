@@ -9,6 +9,7 @@ import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
 import { ModelsSection } from '../src/client/ModelsSection.tsx'
+import { JevSettingsSection } from '../src/client/JevSettingsSection.tsx'
 import type { ModelsSectionProps } from '../src/client/ModelsSection.tsx'
 import { ProviderEditor } from '../src/client/ProviderEditor.tsx'
 import { ModelsSettingsStore } from '../src/client/store.ts'
@@ -124,7 +125,7 @@ function authorization(): AuthorizationOperations {
   }
 }
 
-function mount(rows: ProviderRow[], namespaces: SettingsNamespaceView[], catalog: ModelsSettingsState['catalog'] = []) {
+function mount(rows: ProviderRow[], namespaces: SettingsNamespaceView[], catalog: ModelsSettingsState['catalog'] = [], jevPage = false) {
   const ctx = new Context()
   const controller = new ModelsSettingsStore(ctx, settingsSchema, new SettingsDescribeMirror(ctx))
   controller.store.update((state) => {
@@ -147,7 +148,10 @@ function mount(rows: ProviderRow[], namespaces: SettingsNamespaceView[], catalog
     t,
     renderSlot,
   }
-  const view = render(<ModelsSection {...props} />)
+  const view = render(jevPage
+    ? <JevSettingsSection controller={controller} useSnapshot={bindSnapshotSelector(controller.store)}
+      useCredentialsRevision={bindSnapshotSelector(credentials)} operations={operations} schema={settingsSchema} t={t} />
+    : <ModelsSection {...props} />)
   return { view, controller, load }
 }
 
@@ -183,9 +187,10 @@ describe('Models section integration branches', () => {
     mount(
       [row('openai', 'llm-pi-ai', ['providers', 'openai'], true), jevRow],
       [pi, jev],
+      [],
+      true,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Edit jev-router' }))
     const modelField = await screen.findByRole('combobox', { name: 'Route model 1' })
     const options = [...modelField.querySelectorAll('option')].map(option => option.getAttribute('value'))
     expect(options).toEqual(['', 'usable-model', '__custom__'])
@@ -205,7 +210,7 @@ describe('Models section integration branches', () => {
         { id: 'gpt-mini', name: 'GPT mini' },
       ] },
       { id: 'anthropic', name: 'Anthropic', models: [{ id: 'claude-opus-5', name: 'Opus' }] },
-    ])
+    ], true)
     const values = (name: string) => [...screen.getByRole('combobox', { name }).querySelectorAll('option')]
       .map(option => option.getAttribute('value'))
     expect(values('Route provider 1')).toEqual(['', 'openai', 'anthropic', '__custom__'])

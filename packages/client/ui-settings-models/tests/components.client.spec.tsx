@@ -251,8 +251,13 @@ function scriptedFace(overrides: {
   mutate?: ReturnType<typeof vi.fn>
   set?: ReturnType<typeof vi.fn>
   unset?: ReturnType<typeof vi.fn>
+  withJev?: boolean
 } = {}) {
   const providerNamespace = wireNamespaces().find(view => view.ns === 'llm-pi-ai')!
+  const jevEntries = overrides.withJev === true
+    ? [{ provider: 'jev-router', displayName: 'TypeSafe / Jev', settingsNs: 'llm-jev-router', settingsPath: [] as string[] }]
+    : []
+  const jevNamespaces = overrides.withJev === true ? [jevNamespaceView().namespace] : []
   const update = overrides.update ?? vi.fn(() => Promise.resolve(remoteOk(providerNamespace)))
   const mutate = overrides.mutate ?? vi.fn(() => Promise.resolve(remoteOk(providerNamespace)))
   const set = overrides.set ?? vi.fn(() => Promise.resolve(remoteOk(undefined)))
@@ -270,11 +275,13 @@ function scriptedFace(overrides: {
         { provider: 'zombie', displayName: 'zombie', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'zombie'], active: false },
         { provider: 'broken', displayName: 'broken', settingsNs: 'llm-pi-ai', settingsPath: ['nope', 'x'], active: false },
         { provider: 'plain', displayName: 'plain', settingsNs: 'llm-plain', settingsPath: ['profiles', 'plain'], active: false },
-      ].map(({ active: _active, ...entry }) => entry)))),
+      ].map(({ active: _active, ...entry }) => entry).concat(jevEntries)))),
       discoverModels: vi.fn(() => Promise.resolve(remoteOk([]))),
     },
     settings: {
-      describe: vi.fn(() => Promise.resolve(remoteOk({ writable: true, hasDocument: false, namespaces: wireNamespaces() }))),
+      describe: vi.fn(() => Promise.resolve(remoteOk({
+        writable: true, hasDocument: false, namespaces: [...wireNamespaces(), ...jevNamespaces],
+      }))),
       update,
       mutate,
     },
@@ -445,6 +452,26 @@ async function mountDeepSeekCard(overrides: Parameters<typeof scriptedFace>[0] =
 }
 
 describe('ModelsSection', () => {
+  it('keeps the Jev router out of the provider list while Settings → Jev still serves it', async () => {
+    const { controller, face, mirror } = await mountSection({ withJev: true })
+    expect(screen.queryByText('TypeSafe / Jev')).toBeNull()
+    expect(screen.queryByRole('button', { name: /TypeSafe \/ Jev/ })).toBeNull()
+    expect(screen.queryByLabelText(en.jevEnabled)).toBeNull()
+    cleanup()
+    render(<JevSettingsSection controller={controller}
+      useSnapshot={bindSnapshotSelector(controller.store)}
+      useCredentialsRevision={bindSnapshotSelector(createSnapshotStore({ revision: 0 }))}
+      operations={operationsWith(face, mirror)} schema={settingsSchema} t={t} />)
+    expect(await screen.findByLabelText(en.jevEnabled)).toBeTruthy()
+  })
+
+  it('offers only model-provider setup on first run when the Jev router is present', async () => {
+    await mountFirstRun({ withJev: true })
+    expect(screen.queryByText('TypeSafe / Jev')).toBeNull()
+    expect(screen.queryByLabelText(en.jevEnabled)).toBeNull()
+    expect(screen.getAllByLabelText(en.keyInput)).toHaveLength(1)
+  })
+
   it('hides the add action when no settings namespace can open an editor', async () => {
     const scripted = scriptedFace()
     scripted.face.settings.describe.mockResolvedValue(remoteOk({ writable: true, hasDocument: false, namespaces: [] }))

@@ -12,11 +12,7 @@
   - button "关闭"
   - heading "模型" [level=2]
   - paragraph: 填入各提供商的 API 密钥即可使用其模型。
-  - list:
-    - listitem:
-      - text: TypeSafe / Jev
-      - img "API 密钥缺失"
-      - button "编辑 TypeSafe / Jev (jev-router)": 编辑
+  - list
   - tablist "添加方式":
     - tab "第三方模型提供商" [selected]
     - tab "自定义模型 API"

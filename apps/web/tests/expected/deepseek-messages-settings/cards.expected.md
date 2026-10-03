@@ -46,8 +46,4 @@
           - button "添加模型"
       - button "取消"
       - button "保存"
-    - listitem:
-      - text: TypeSafe / Jev
-      - img "API 密钥缺失"
-      - button "编辑 TypeSafe / Jev (jev-router)": 编辑
   - button "添加模型提供商"

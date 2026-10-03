@@ -83,3 +83,5 @@
 `packages/client/ui-memory-workspace/src/document-text.ts:documentText` 只保留 `getTextContent()` 返回的文本项。标记内容项仅在请求 `includeMarkedContent` 时才存在，而此调用未开启它，因此该过滤只是类型收窄，不会丢弃内容。
 
 `packages/client/ui-plugin-manager/src/client/McpServersSection.tsx:reason` 把被拒绝的列表、发现或变更调用转换为其消息文本，对不是 `Error` 实例的值使用 `String(error)`，因此传输层的拒绝不会显示为空白提示。
+
+`packages/client/ui-settings-models/src/client/ModelsSection.tsx:Loaded` 不在提供商行中列出 `jev-router`。`packages/llm/llm-jev-router/src/index.ts:apply` 注册可配置提供商，只是为了让 `JevSettingsSection` 能从共享连接结果中读取其设置命名空间。Jev 是路由服务而不是适配器路由，如果在模型页面列出它，会提供一个密钥输入框，并在首次运行时显示一张并不能让用户获得模型提供商的设置卡片。
