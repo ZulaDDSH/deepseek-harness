@@ -85,3 +85,5 @@
 `packages/client/ui-plugin-manager/src/client/McpServersSection.tsx:reason` 把被拒绝的列表、发现或变更调用转换为其消息文本，对不是 `Error` 实例的值使用 `String(error)`，因此传输层的拒绝不会显示为空白提示。
 
 `packages/client/ui-settings-models/src/client/ModelsSection.tsx:Loaded` 不在提供商行中列出 `jev-router`。`packages/llm/llm-jev-router/src/index.ts:apply` 注册可配置提供商，只是为了让 `JevSettingsSection` 能从共享连接结果中读取其设置命名空间。Jev 是路由服务而不是适配器路由，如果在模型页面列出它，会提供一个密钥输入框，并在首次运行时显示一张并不能让用户获得模型提供商的设置卡片。
+
+`packages/llm/llm-pi-ai/src/catalog-supplement.ts:SUPPLEMENT` 收录固定版本 pi-ai 目录中缺失的 `opencode-go` 模型，数据转录自 `opencode models opencode-go --verbose`（OpenCode 1.18.33）：`deepseek-v4.1-flash`、`gpt-6-luna`、`grok-4.7`、`longcat-2.5-preview-free`、`mimo-v2.6-flash`、`mimo-v2.6-pro` 和 `space-bunny-free`。pi-ai 的 `Model` 只接受文本和图像输入，因此音频、视频和 PDF 模态被省略，分级的长上下文价格采用基础费率。OpenAI 协议的模型使用 `openai-responses` 并设置 `sessionAffinityFormat: 'openai-nosession'`，与已安装的同类路由一致；其余模型沿用已安装的 OpenAI 兼容 `compat`。
