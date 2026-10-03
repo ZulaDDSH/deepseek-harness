@@ -12,6 +12,8 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-session-projection'
+import type {} from '@deepseek-ai/dsh-api-session-controller'
 
 export const name = 'llm-jev-router'
 export const inject = ['llm']
@@ -514,13 +516,26 @@ export function apply(ctx: Context, initial: RuntimeConfig): void {
     hooked.clear()
   }, 'jev-router: per-Agent request routing')
   // Registered after Agent setup so it wraps the per-Session model selection listener.
+  // A step Jev leaves alone runs the Session's chosen model, not a route persisted by an earlier step.
+  const unrouted = (agent: Agent, base: LlmCallConfig): LlmCallConfig => {
+    const selected = ctx.get('sessionProjections')?.stateOf(agent.session, 'modelSelection')?.selected
+    const fallback = selected ?? (agent.options.provider !== undefined && agent.options.model !== undefined
+      ? {
+        provider: agent.options.provider, model: agent.options.model,
+        ...agent.options.reasoningEffort === undefined ? {} : { reasoningEffort: agent.options.reasoningEffort },
+      }
+      : undefined)
+    if (fallback === undefined || (fallback.provider === base.provider && fallback.model === base.model)) return base
+    return applyRoute(base, { id: '', description: '', ...fallback })
+  }
   const hookAgent = (agent: Agent): void => {
     if (hooked.has(agent)) return
     hooked.set(agent, agent.ctx.on('agent/request', async (payload, next): Promise<LlmCallConfig> => {
       const base = await next()
       const route = decisions.get(payload.agent)?.get(stepKey(payload.turn, payload.step))
-      if (route === undefined || payload.signal.aborted) return base
-      return applyRoute(base, route.route)
+      if (payload.signal.aborted) return base
+      if (route !== undefined) return applyRoute(base, route.route)
+      return unrouted(payload.agent, base)
     }, { prepend: true }))
   }
 }

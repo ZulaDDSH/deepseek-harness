@@ -33,14 +33,14 @@ async function mount(overrides: Partial<Config> = {}, credentials?: Record<strin
   await ctx.plugin(LlmRuntime)
   if (credentials !== undefined) await ctx.plugin(MemoryCredentials, credentials)
   const fiber = await ctx.plugin(jevPlugin, { ...config, ...overrides, routes: [...(overrides.routes ?? config.routes)] })
-  const agent = { session: Session.create(SessionId('jev-runtime')), ctx } as unknown as Agent
+  const agent = { session: Session.create(SessionId('jev-runtime')), ctx, options: {} } as unknown as Agent
   const events = agentEvents(ctx, agent)
   const preStep = (step = 1, currentSignal = signal, kind: 'enter' | 'reject' = 'enter') => events.waterfall(
     'agent/pre-step', { turn: 1, step, messages: [input], signal: currentSignal },
     () => Promise.resolve(kind === 'enter' ? { kind, messages: [input] } : { kind }),
   )
-  const request = (step = 1, currentSignal = signal) => events.waterfall(
-    'agent/request', { turn: 1, step, signal: currentSignal }, () => Promise.resolve(base),
+  const request = (step = 1, currentSignal = signal, seed: LlmCallConfig = base) => events.waterfall(
+    'agent/request', { turn: 1, step, signal: currentSignal }, () => Promise.resolve(seed),
   )
   return { ctx, fiber, agent, preStep, request }
 }
@@ -77,6 +77,18 @@ describe('Jev routing lifecycle', () => {
     await preStep()
     expect(await request()).toEqual({ provider: 'target', model: 'small' })
     expect(await request(2)).toEqual({ provider: 'picked', model: 'picked' })
+  })
+
+  it('returns an unrouted step to the configured model instead of the previous route', async () => {
+    answer({ answers: { route: { choice: 'small', confidence: 1 } } })
+    const { agent, preStep, request } = await mount()
+    const previous = { provider: 'target', model: 'small' }
+    expect(await request(2, signal, previous)).toBe(previous)
+    Object.assign(agent.options, { provider: 'base', model: 'base', reasoningEffort: 'high' })
+    await preStep()
+    expect(await request()).toEqual({ provider: 'target', model: 'small' })
+    expect(await request(2, signal, previous)).toEqual({ provider: 'base', model: 'base', reasoningEffort: 'high' })
+    expect(await request(2)).toBe(base)
   })
 
   it('delegates disabled, rejected, aborted, empty-route and keep decisions', async () => {
