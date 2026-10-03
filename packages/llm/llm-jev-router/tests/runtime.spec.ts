@@ -35,12 +35,12 @@ async function mount(overrides: Partial<Config> = {}, credentials?: Record<strin
   const fiber = await ctx.plugin(jevPlugin, { ...config, ...overrides, routes: [...(overrides.routes ?? config.routes)] })
   const agent = { session: Session.create(SessionId('jev-runtime')), ctx, options: {} } as unknown as Agent
   const events = agentEvents(ctx, agent)
-  const preStep = (step = 1, currentSignal = signal, kind: 'enter' | 'reject' = 'enter') => events.waterfall(
-    'agent/pre-step', { turn: 1, step, messages: [input], signal: currentSignal },
+  const preStep = (step = 1, currentSignal = signal, kind: 'enter' | 'reject' = 'enter', turn = 1) => events.waterfall(
+    'agent/pre-step', { turn, step, messages: [input], signal: currentSignal },
     () => Promise.resolve(kind === 'enter' ? { kind, messages: [input] } : { kind }),
   )
-  const request = (step = 1, currentSignal = signal, seed: LlmCallConfig = base) => events.waterfall(
-    'agent/request', { turn: 1, step, signal: currentSignal }, () => Promise.resolve(seed),
+  const request = (step = 1, currentSignal = signal, seed: LlmCallConfig = base, turn = 1) => events.waterfall(
+    'agent/request', { turn, step, signal: currentSignal }, () => Promise.resolve(seed),
   )
   return { ctx, fiber, agent, preStep, request }
 }
@@ -52,17 +52,20 @@ function answer(value: unknown) {
 }
 
 describe('Jev routing lifecycle', () => {
-  it('routes only the evaluated step and releases its provider and listeners', async () => {
+  it('decides once per turn, reuses it for every step, and releases its provider and listeners', async () => {
     const fetchImpl = answer({ answers: { route: { choice: 'small', confidence: 1 } } })
     const { ctx, fiber, preStep, request } = await mount()
     expect(ctx.get('llm')!.listConfigurableProviders()).toMatchObject([{ provider: 'jev-router' }])
     expect(await request()).toBe(base)
     expect(await preStep()).toEqual({ kind: 'enter', messages: [input] })
     expect(await request()).toEqual({ provider: 'target', model: 'small' })
-    expect(await request(2)).toBe(base)
     expect(await request(1, AbortSignal.abort())).toBe(base)
     await preStep(2)
     expect(await request(2)).toEqual({ provider: 'target', model: 'small' })
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(await request(1, signal, base, 2)).toBe(base)
+    await preStep(1, signal, 'enter', 2)
+    expect(await request(1, signal, base, 2)).toEqual({ provider: 'target', model: 'small' })
     expect(fetchImpl).toHaveBeenCalledTimes(2)
     await fiber.dispose()
     expect(ctx.get('llm')!.listConfigurableProviders()).toEqual([])
@@ -76,19 +79,19 @@ describe('Jev routing lifecycle', () => {
     expect(await request()).toEqual({ provider: 'picked', model: 'picked' })
     await preStep()
     expect(await request()).toEqual({ provider: 'target', model: 'small' })
-    expect(await request(2)).toEqual({ provider: 'picked', model: 'picked' })
+    expect(await request(1, signal, base, 2)).toEqual({ provider: 'picked', model: 'picked' })
   })
 
   it('returns an unrouted step to the configured model instead of the previous route', async () => {
     answer({ answers: { route: { choice: 'small', confidence: 1 } } })
     const { agent, preStep, request } = await mount()
     const previous = { provider: 'target', model: 'small' }
-    expect(await request(2, signal, previous)).toBe(previous)
+    expect(await request(1, signal, previous, 2)).toBe(previous)
     Object.assign(agent.options, { provider: 'base', model: 'base', reasoningEffort: 'high' })
     await preStep()
     expect(await request()).toEqual({ provider: 'target', model: 'small' })
-    expect(await request(2, signal, previous)).toEqual({ provider: 'base', model: 'base', reasoningEffort: 'high' })
-    expect(await request(2)).toBe(base)
+    expect(await request(1, signal, previous, 2)).toEqual({ provider: 'base', model: 'base', reasoningEffort: 'high' })
+    expect(await request(1, signal, base, 2)).toBe(base)
   })
 
   it('delegates disabled, rejected, aborted, empty-route and keep decisions', async () => {

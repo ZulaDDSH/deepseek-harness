@@ -134,7 +134,7 @@ export interface JevClient {
 }
 
 interface CachedRoute {
-  readonly route: JevRoute
+  readonly route?: JevRoute
 }
 
 function validateConfig(config: Config): void {
@@ -422,10 +422,6 @@ export class JevRouter extends Service {
   }
 }
 
-function stepKey(turn: number, step: number): string {
-  return `${turn}:${step}`
-}
-
 /** Resolve a decision through confidence and fallback policy.
  * @param decision parsed Jev decision.
  * @param config active router settings.
@@ -461,7 +457,7 @@ export function apply(ctx: Context, initial: RuntimeConfig): void {
     return value
   }
   current()
-  const decisions = new WeakMap<Agent, Map<string, CachedRoute>>()
+  const decisions = new WeakMap<Agent, Map<number, CachedRoute>>()
   const states = new WeakMap<Agent, string>()
   const client = createJevClient(async (config) => {
     const credentials = ctx.get('credentials')
@@ -484,6 +480,13 @@ export function apply(ctx: Context, initial: RuntimeConfig): void {
     hookAgent(payload.agent)
     states.set(payload.agent, stateForMessages(admitted.messages, config.stateMaxChars))
     if (config.routes.length === 0) return admitted
+    let perAgent = decisions.get(payload.agent)
+    if (perAgent === undefined) {
+      perAgent = new Map()
+      decisions.set(payload.agent, perAgent)
+    }
+    // One decision per user turn: later steps mostly carry tool output, which would read as routine work.
+    if (perAgent.has(payload.turn)) return admitted
     try {
       const decision = await client.decide(admitted.messages, config, payload.signal)
       const route = selectedRoute(decision, config)
@@ -491,14 +494,7 @@ export function apply(ctx: Context, initial: RuntimeConfig): void {
         turn: payload.turn, step: payload.step, choice: decision.route, confidence: decision.confidence,
         ...route === undefined ? {} : { provider: route.provider, model: route.model },
       })
-      if (route !== undefined) {
-        let perAgent = decisions.get(payload.agent)
-        if (perAgent === undefined) {
-          perAgent = new Map()
-          decisions.set(payload.agent, perAgent)
-        }
-        perAgent.set(stepKey(payload.turn, payload.step), { route })
-      }
+      perAgent.set(payload.turn, route === undefined ? {} : { route })
     } catch (error) {
       ctx.logger.warn('jev-router: Jev decision failed; preserving the configured model route')
       payload.agent.session.append('jev/decision', {
@@ -532,9 +528,9 @@ export function apply(ctx: Context, initial: RuntimeConfig): void {
     if (hooked.has(agent)) return
     hooked.set(agent, agent.ctx.on('agent/request', async (payload, next): Promise<LlmCallConfig> => {
       const base = await next()
-      const route = decisions.get(payload.agent)?.get(stepKey(payload.turn, payload.step))
+      const route = decisions.get(payload.agent)?.get(payload.turn)?.route
       if (payload.signal.aborted) return base
-      if (route !== undefined) return applyRoute(base, route.route)
+      if (route !== undefined) return applyRoute(base, route)
       return unrouted(payload.agent, base)
     }, { prepend: true }))
   }
