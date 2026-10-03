@@ -42,6 +42,7 @@
     "@deepseek-ai/dsh-credentials": "workspace:*",
     "@deepseek-ai/dsh-launch-environment": "workspace:*",
     "@deepseek-ai/dsh-llm": "workspace:*",
+    "@deepseek-ai/dsh-session": "workspace:*",
     "@deepseek-ai/schemastery": "workspace:~"
   },
   "peerDependenciesMeta": {

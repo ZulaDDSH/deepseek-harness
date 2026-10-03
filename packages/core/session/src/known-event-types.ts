@@ -43,6 +43,7 @@ export const KNOWN_SESSION_EVENT_TYPES: ReadonlySet<string> = new Set([
   'hook/result',
   'hooks/session-overrides',
   'image/offload',
+  'jev/decision',
   'llm/retry',
   'llm/retry-started',
   'mcp/selection',

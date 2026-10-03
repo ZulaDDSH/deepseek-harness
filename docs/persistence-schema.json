@@ -10328,6 +10328,106 @@
       }
     },
     {
+      "key": "event:jev/decision",
+      "kind": "event",
+      "event": "jev/decision",
+      "surface": false,
+      "digest": "06f9dc0f3520fd54d8bb07d330acf0d089e87898429952c991c18803eddaf7f8",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "data",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "ignorable",
+                "type": 4,
+                "optional": true
+              },
+              {
+                "name": "seq",
+                "type": 3,
+                "optional": false
+              },
+              {
+                "name": "time",
+                "type": 3,
+                "optional": false
+              },
+              {
+                "name": "type",
+                "type": 5,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "choice",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "confidence",
+                "type": 3,
+                "optional": true
+              },
+              {
+                "name": "error",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "model",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "provider",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "step",
+                "type": 3,
+                "optional": false
+              },
+              {
+                "name": "turn",
+                "type": 3,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          },
+          {
+            "kind": "literal",
+            "value": true
+          },
+          {
+            "kind": "literal",
+            "value": "jev/decision"
+          }
+        ]
+      }
+    },
+    {
       "key": "event:llm/retry",
       "kind": "event",
       "event": "llm/retry",
@@ -21885,6 +21985,11 @@
       ]
     },
     {
+      "digest": "06f9dc0f3520fd54d8bb07d330acf0d089e87898429952c991c18803eddaf7f8",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "07e1a58c58b593f507b8e7f25723bb0aa42baae6e00f5ecfddf28cb1e64d3235",
       "names": [
         "packages/session/session-title/src/types.ts#SessionTitleModelIdentity",
@@ -22929,6 +23034,11 @@
       ]
     },
     {
+      "digest": "4b31b0e4f80a08aaa4c7e622fddb55ef5afc18516b03a0ed8727d5e483b2ea4f",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "4b7ddaf3710b88ff9b8df66304f5f97bf03688fd19730eedc2e9535203c820ea",
       "names": [],
       "sources": []
@@ -22968,7 +23078,7 @@
         "packages/workflow/workflow/src/types.ts#WorkflowRunId"
       ],
       "sources": [
-        "packages/api/session-controller/src/types.ts:479",
+        "packages/api/session-controller/src/types.ts:480",
         "packages/attachment/attachment/src/brand.ts:6",
         "packages/compaction/compaction/src/brand.ts:4",
         "packages/core/session/src/types.ts:20",
@@ -23426,7 +23536,7 @@
       "digest": "6a4f72e2e179e17b922f2a9392c0e1c8f8c707f32494372454850a3eb184a6e7",
       "names": [],
       "sources": [
-        "packages/api/session-controller/src/types.ts:484"
+        "packages/api/session-controller/src/types.ts:485"
       ]
     },
     {
@@ -24261,6 +24371,15 @@
       "digest": "a6567ccb2e530606b775371eb4fa31468d72084339968e8b0440a516a23b39dc",
       "names": [],
       "sources": []
+    },
+    {
+      "digest": "a667acf5cb25728d4fa3d93539a459d639bb35ff0b6e5d1975af9ec7310fe4dd",
+      "names": [
+        "packages/llm/llm-jev-router/src/index.ts#JevDecisionRecord"
+      ],
+      "sources": [
+        "packages/llm/llm-jev-router/src/index.ts:354"
+      ]
     },
     {
       "digest": "a6b41f5bede8094d7bf635be5d69b1bd7a25e006ca9cf9415bceb9322f1a7feb",

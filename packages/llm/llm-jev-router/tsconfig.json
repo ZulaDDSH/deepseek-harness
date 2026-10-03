@@ -8,12 +8,29 @@
     "src"
   ],
   "references": [
-    { "path": "../../../vendor/cordis" },
-    { "path": "../../../vendor/loader" },
-    { "path": "../../../vendor/schemastery" },
-    { "path": "../../core/agent" },
-    { "path": "../../credentials/credentials" },
-    { "path": "../../llm/llm" },
-    { "path": "../../util/launch-environment" }
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../../vendor/loader"
+    },
+    {
+      "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../credentials/credentials"
+    },
+    {
+      "path": "../../llm/llm"
+    },
+    {
+      "path": "../../util/launch-environment"
+    },
+    {
+      "path": "../../core/session"
+    }
   ]
 }

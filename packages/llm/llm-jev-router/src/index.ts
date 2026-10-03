@@ -11,6 +11,7 @@ import {
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
+import type {} from '@deepseek-ai/dsh-session'
 
 export const name = 'llm-jev-router'
 export const inject = ['llm']
@@ -349,6 +350,24 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
+/** One Jev routing outcome recorded for inspection. */
+export interface JevDecisionRecord {
+  readonly turn: number
+  readonly step: number
+  readonly choice?: string
+  readonly confidence?: number
+  readonly provider?: string
+  readonly model?: string
+  readonly error?: string
+}
+
+declare module '@deepseek-ai/dsh-session/types' {
+  interface SessionEventMap {
+    /** Jev routing outcome for one step. Log-only: it never enters model history. */
+    'jev/decision': JevDecisionRecord
+  }
+}
+
 /**
  * Grep relevance ranking backed by the Jev client. Every failure path returns
  * the input matches unchanged, so a consumer never loses grep output to Jev.
@@ -465,6 +484,10 @@ export function apply(ctx: Context, initial: RuntimeConfig): void {
     try {
       const decision = await client.decide(admitted.messages, config, payload.signal)
       const route = selectedRoute(decision, config)
+      payload.agent.session.append('jev/decision', {
+        turn: payload.turn, step: payload.step, choice: decision.route, confidence: decision.confidence,
+        ...route === undefined ? {} : { provider: route.provider, model: route.model },
+      })
       if (route !== undefined) {
         let perAgent = decisions.get(payload.agent)
         if (perAgent === undefined) {
@@ -475,6 +498,9 @@ export function apply(ctx: Context, initial: RuntimeConfig): void {
       }
     } catch (error) {
       ctx.logger.warn('jev-router: Jev decision failed; preserving the configured model route')
+      payload.agent.session.append('jev/decision', {
+        turn: payload.turn, step: payload.step, error: error instanceof Error ? error.message : String(error),
+      })
       ctx.logger.warn(error)
       if (!config.failOpen) return { kind: 'reject' }
     }
