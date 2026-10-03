@@ -40,6 +40,9 @@
     },
     {
       "path": "../../api/session-controller/tsconfig.host.json"
+    },
+    {
+      "path": "../../../vendor/loader"
     }
   ]
 }

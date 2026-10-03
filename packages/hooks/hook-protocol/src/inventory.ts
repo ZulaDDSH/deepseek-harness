@@ -22,6 +22,8 @@ export interface HookInventoryReport {
   readonly handlers: readonly HookInventoryHandler[]
   readonly skipped: readonly string[]
   readonly error?: string
+  /** Settings namespace of the bridge entry that loaded this report. */
+  readonly settingsNs?: string
 }
 
 /** Identify one command hook across reloads.

@@ -702,7 +702,7 @@ describe('Hooks settings', () => {
   it('adds, edits and clears a script description', async () => {
     const entry = { entryId: 'hooks-1', moduleName: '@deepseek-ai/dsh-hooks-codex', enabled: true, fiberPhase: null }
     const snapshot = (description?: string) => ({ entries: [entry], hooks: [{
-      dialect: 'codex', source: '/hooks.json', status: 'loaded', skipped: [], handlers: [
+      dialect: 'codex', source: '/hooks.json', status: 'loaded', settingsNs: 'hooks-1', skipped: [], handlers: [
         { event: 'PreToolUse', command: 'one', key: 'k1', ...description === undefined ? {} : { description } },
         { event: 'Stop', command: 'one', key: 'k2', ...description === undefined ? {} : { description } },
         { event: 'Stop', command: 'two', key: 'k3', description: 'other' },
@@ -728,7 +728,7 @@ describe('Hooks settings', () => {
   it('toggles loaded hooks through the bridge allow-list', async () => {
     const entry = { entryId: 'hooks-1', moduleName: '@deepseek-ai/dsh-hooks-codex', enabled: true, fiberPhase: null }
     const report = (on: boolean) => ({ entries: [entry], hooks: [{
-      dialect: 'codex', source: '/hooks.json', status: 'loaded', skipped: [], handlers: [
+      dialect: 'codex', source: '/hooks.json', status: 'loaded', settingsNs: 'hooks-1', skipped: [], handlers: [
         { event: 'PreToolUse', command: 'one', key: 'k1', ...on ? {} : { disabled: true } },
         { event: 'Stop', command: 'one', key: 'k3', ...on ? {} : { disabled: true } },
         { event: 'Stop', command: 'two', key: 'k2', disabled: true },
@@ -751,6 +751,6 @@ describe('Hooks settings', () => {
     await waitFor(() => { expect(setEnabledHooks).toHaveBeenLastCalledWith('hooks-1', []) })
     setEnabledHooks.mockRejectedValueOnce(new Error('refused'))
     fireEvent.click(await screen.findByRole('button', { name: en.hooksDisableAll }))
-    expect(await screen.findByText(en.hooksWriteFailed)).toBeTruthy()
+    expect(await screen.findByText(`${en.hooksWriteFailed}: refused`)).toBeTruthy()
   })
 })

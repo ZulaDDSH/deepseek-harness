@@ -183,6 +183,7 @@ describe('hooks-claude-code bridge — PreToolUse', () => {
     const reports: HookInventoryReport[] = []
     ctx.emit('hooks/inventory', reports)
     expect(reports[0]?.handlers).toEqual([expect.objectContaining({ command: deny, disabled: true })])
+    expect(reports[0]?.settingsNs).toBeUndefined()
   })
 
   it('a PreToolUse hook whose matcher does NOT match leaves the tool alone', async () => {

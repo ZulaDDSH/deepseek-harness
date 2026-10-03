@@ -14,6 +14,7 @@ import z from '@deepseek-ai/schemastery'
 import type { Agent, PreStepDecision, TurnBoundaryProjection } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
+import type {} from '@deepseek-ai/cordis-plugin-loader'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 declare module '@deepseek-ai/dsh-llm' {
@@ -121,7 +122,11 @@ export function apply(ctx: Context, config: Config): void {
   }
   const enabledHooks = (): readonly string[] => config.enabledHooks?.get() ?? []
   ctx.on('hooks/inventory', (reports) => {
-    reports.push({ ...inventory, handlers: describeHookHandlers(parsed, enabledHooks(), config.hookDescriptions?.get() ?? {}) })
+    const settingsNs = ctx.fiber.entry?.options.id
+    reports.push({
+      ...inventory, handlers: describeHookHandlers(parsed, enabledHooks(), config.hookDescriptions?.get() ?? {}),
+      ...settingsNs === undefined ? {} : { settingsNs },
+    })
   })
   try {
     const raw: unknown = JSON.parse(readFileSync(config.configPath, 'utf8'))

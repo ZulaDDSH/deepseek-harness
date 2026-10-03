@@ -34,7 +34,7 @@ function groupByScript(handlers: HookInventoryReport['handlers']): [string, Hook
 export function HooksSettingsSection({ t, list, setEnabledHooks, setHookDescriptions }: HooksSettingsSectionProps) {
   const [snapshot, setSnapshot] = useState<PluginInventorySnapshot>()
   const [failed, setFailed] = useState(false)
-  const [writeFailed, setWriteFailed] = useState(false)
+  const [writeFailed, setWriteFailed] = useState<string>()
   const [busy, setBusy] = useState(false)
   const [revision, setRevision] = useState(0)
   const [editing, setEditing] = useState<{ id: string; draft: string }>()
@@ -44,13 +44,12 @@ export function HooksSettingsSection({ t, list, setEnabledHooks, setHookDescript
     void list().then((value) => { if (current) setSnapshot(value) }, () => { if (current) setFailed(true) })
     return () => { current = false }
   }, [list, revision])
-  const bridgeOf = (report: HookInventoryReport): string | undefined =>
-    snapshot?.entries.find(entry => entry.enabled && entry.moduleName.endsWith(`dsh-hooks-${report.dialect}`))?.entryId
+  const bridgeOf = (report: HookInventoryReport): string | undefined => report.status === 'loaded' ? report.settingsNs : undefined
   const save = (operation: Promise<void>): void => {
     setBusy(true)
-    setWriteFailed(false)
+    setWriteFailed(undefined)
     void operation
-      .catch(() => { setWriteFailed(true) })
+      .catch((error: unknown) => { setWriteFailed(error instanceof Error ? error.message : String(error)) })
       .finally(() => {
         setBusy(false)
         setRevision(value => value + 1)
@@ -73,7 +72,7 @@ export function HooksSettingsSection({ t, list, setEnabledHooks, setHookDescript
     <h2>{t('hooksTitle')}</h2>
     <p>{t('hooksHelp')}</p>
     <Button variant="outline" onClick={() => setRevision(value => value + 1)}>{t('hooksRefresh')}</Button>
-    {writeFailed ? <p role="alert">{t('hooksWriteFailed')}</p> : null}
+    {writeFailed === undefined ? null : <p role="alert">{t('hooksWriteFailed')}: {writeFailed}</p>}
     {failed ? <p role="alert">{t('error')}</p> : snapshot === undefined ? <p>{t('loading')}</p> : <>
       {controlled.length === 0 ? <p>{t('hooksEmpty')}</p> : null}
       {controlled.map((report, index) => {
