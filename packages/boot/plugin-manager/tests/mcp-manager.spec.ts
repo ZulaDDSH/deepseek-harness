@@ -61,7 +61,7 @@ it('lists, discovers, adds and removes MCP servers through the profile patch', a
     entry('include:mcp-c', { transport: 'streamable-http' }),
     entry('include:mcp-d', { command: 'run', args: 'x' }),
   ]
-  const loaderEntries = vi.spyOn(ctx.loader, 'entries').mockImplementation(() => entries.values())
+  const loaderEntries = vi.spyOn(ctx.loader, 'entries').mockImplementation(function* () { yield* entries })
   const plugins = vi.spyOn(manager, 'listPlugins').mockResolvedValue([
     row('include:mcp-a', 'mcp-a'), row('include:mcp-b'), row('include:mcp-c', 'mcp-c'), row('include:mcp-d', 'mcp-d'), row('include:mcp-e', 'mcp-e'),
     { ...row('include:other', 'other'), moduleName: '@acme/other' },

@@ -4,6 +4,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { HookInventoryReport } from '@deepseek-ai/dsh-hook-protocol'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionHeader } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
@@ -17,9 +18,8 @@ afterEach(async () => {
 })
 
 function agentUnder(ctx: Context, id: string): Agent {
-  const session = ctx.sessions.create(SessionId(id), {
-    meta: { version: SESSION_FORMAT_VERSION, id: SessionId(id), createdAt: 1, isSeeded: false, cwd: '/workspace' },
-  })
+  const meta: SessionHeader = { version: SESSION_FORMAT_VERSION, id: SessionId(id), createdAt: 1, isSeeded: false, cwd: '/workspace' }
+  const session = ctx.sessions.create(SessionId(id), { meta })
   const reject = (): never => { throw new Error('this fixture does not mutate the inbox') }
   const agent: Agent = {
     id: SessionId(id), session, options: {}, ctx, status: 'idle',
