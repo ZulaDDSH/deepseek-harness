@@ -13,6 +13,9 @@ function mount(overrides: Partial<McpServersSectionInjected> = {}) {
     listMcpServers: vi.fn(async () => [
       { entryId: 'include/mcp-obs', patchId: 'mcp-obs', serverName: 'obs', transport: 'stdio', target: 'npx obs-mcp', enabled: true, phase: 'active', removable: true },
       { entryId: 'include/memory', serverName: 'memorix', transport: 'stdio', target: 'node m.js', enabled: false, phase: null, removable: false },
+      { entryId: 'include/mcp-web', serverName: 'web', transport: 'streamable-http', target: 'https://w', enabled: true, phase: 'failed', removable: true },
+      { entryId: 'include/mcp-slow', serverName: 'slow', transport: 'stdio', target: 'slow', enabled: true, phase: 'loading', removable: true },
+      { entryId: 'include/mcp-gone', serverName: 'gone', transport: 'stdio', target: 'gone', enabled: true, phase: null, removable: true },
     ]),
     discoverMcpServers: vi.fn(async () => [
       { source: 'claude-desktop' as const, configured: true, config: { transport: 'stdio' as const, serverName: 'obs', command: 'npx', args: [], env: {} } },
@@ -31,10 +34,14 @@ function mount(overrides: Partial<McpServersSectionInjected> = {}) {
 it('lists, toggles, removes, imports and adds MCP servers', async () => {
   const face = mount()
   expect(await screen.findByText('obs')).toBeTruthy()
-  expect(screen.getByText(`stdio · ${en.mcpStopped}`, { exact: false })).toBeTruthy()
+  expect(screen.getByText(`${en.mcpOff} · node m.js`)).toBeTruthy()
+  expect(screen.getByText(`${en.mcpRunning} · npx obs-mcp`)).toBeTruthy()
+  expect(screen.getByText(`${en.mcpFailedState} · https://w`)).toBeTruthy()
+  expect(screen.getByText('loading · slow')).toBeTruthy()
+  expect(screen.getByText(`${en.mcpStopped} · gone`)).toBeTruthy()
   fireEvent.click(screen.getByRole('switch', { name: `${en.mcpToggle}: obs` }))
   await waitFor(() => { expect(face.setMcpServerEnabled).toHaveBeenCalledWith('include/mcp-obs', false) })
-  fireEvent.click(await screen.findByRole('button', { name: en.mcpRemove }))
+  fireEvent.click((await screen.findAllByRole('button', { name: en.mcpRemove }))[0]!)
   await waitFor(() => { expect(face.removeMcpServer).toHaveBeenCalledWith('include/mcp-obs') })
 
   fireEvent.click(screen.getByRole('button', { name: en.mcpImportFind }))
