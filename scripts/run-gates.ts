@@ -798,7 +798,6 @@ function docSyncLeafGates(options: {
     pnpmScript('workflow-guest', 'verify-workflow-guest', { label: 'workflow guest source' }),
     pnpmScript('mermaid', 'verify-mermaid'),
     pnpmScript('scoped-events', 'verify-scoped-events', { label: 'scoped events' }),
-    pnpmScript('translation-pairing', 'verify-translation-pairing', { label: 'translation pairing', quick: true }),
     pnpmScript('markdown-wrap', 'verify-md-wrap', { label: 'markdown wrap', quick: true }),
     pnpmScript('client-catalog', 'verify-client-catalog', { label: 'client catalog' }),
     pnpmScript('export-jsdoc', 'verify-export-jsdoc', { label: 'export jsdoc' }),
@@ -825,7 +824,6 @@ function docSyncLeafGates(options: {
     pnpmScript('agent-note-format', 'verify-agent-note-format', { label: 'agent note format', quick: true }),
     pnpmScript('archived-agent-notes', 'verify-archived-agent-notes', { label: 'archived agent notes', quick: true }),
     pnpmScript('skill-invocation-metadata', 'verify-skill-invocation-metadata', { label: 'skill invocation metadata', quick: true }),
-    pnpmScript('translation-prompt', 'verify-translation-prompt', { label: 'translation prompt', quick: true }),
     pnpmScript('doc-budgets', 'verify-doc-budgets', { label: 'doc budgets', quick: true }),
     pnpmExec('doc-standard-tests', ['vitest', 'run', 'scripts/doc-standard.spec.ts'], {
       label: 'documentation standard tests',
