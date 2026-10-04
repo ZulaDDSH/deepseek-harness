@@ -112,4 +112,4 @@
 
 ## 输入框中的路由模型
 
-`packages/client/ui-model-selection/src/client/RoutedModel.tsx:RoutedModel` 位于 `conversation.input.right`，紧挨模型选择器左侧；当最近一次请求实际运行的模型与所选模型不同时，显示"当前：<model>"。它读取现有的 `modelSelection` 投影（`packages/api/session-controller/src/model-selection-projection.ts`）：`lastUsed` 来自每个 `request/header`，因此已经反映 `llm-jev-router` 选择的模型，`next` 是用户的选择。无需 Jev 专用投影。未选择模型时，`next` 回退为 `lastUsed`，此时模型选择器本身显示路由后的模型，标签保持隐藏。
+`packages/client/ui-model-selection/src/client/RoutedModel.tsx:RoutedModel` 位于 `conversation.input.right`，紧挨模型选择器左侧；当 Session 正在用与所选模型不同的模型运行一轮对话时，显示"当前：<model>"。它读取现有的 `modelSelection` 投影（`packages/api/session-controller/src/model-selection-projection.ts`）以及 Session 快照的 `running` 标志：`lastUsed` 来自每个 `request/header`，因此已经反映 `llm-jev-router` 选择的模型，`next` 是用户的选择。该轮结束后标签即撤回，因为 `lastUsed` 的生命周期长于它所记录的那次请求。无需 Jev 专用投影。未选择模型时，`next` 回退为 `lastUsed`，此时模型选择器本身显示路由后的模型，标签保持隐藏。

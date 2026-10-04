@@ -7,15 +7,17 @@ export type RoutedModelProps = PropsRuntime<'conversation.input.right'> & PropsL
 
 /**
  * Show the model that ran the latest request when it differs from the
- * selected one, as when a router such as Jev picked another model.
- * @param props - the session projection seat and locale.
- * @returns the label, or nothing while the selected model is the one running.
+ * selected one, as when a router such as Jev picked another model. The label
+ * describes the turn in flight, so it is withdrawn once that turn ends.
+ * @param props - the session projection, session state, and locale seats.
+ * @returns the label while the session runs on another model, otherwise nothing.
  */
-export function RoutedModel({ useProjection, t }: Pick<RoutedModelProps, 'useProjection' | 't'>) {
+export function RoutedModel({ useSession, useProjection, t }: Pick<RoutedModelProps, 'useSession' | 'useProjection' | 't'>) {
   const selection = useProjection('modelSelection')
+  const running = useSession(snapshot => snapshot.running)
   const used = selection?.lastUsed
   const next = selection?.next
-  if (used === undefined || used === null || (next?.provider === used.provider && next.model === used.model)) return null
+  if (!running || used === undefined || used === null || (next?.provider === used.provider && next.model === used.model)) return null
   return <span className={css.routed} role="status" title={t('routed.title', { provider: used.provider, model: used.model })}>
     {t('routed.label', { model: used.model })}
   </span>

@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
+import { sessionSnapshot } from '@deepseek-ai/dsh-client-test-runtime'
 import type { ModelSelectionProjection } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { RoutedModel, type RoutedModelProps } from '../src/client/RoutedModel.tsx'
 import { en } from '../src/client/locales.ts'
 
@@ -10,9 +12,11 @@ afterEach(cleanup)
 const t = ((key: keyof typeof en, params: Record<string, string> = {}) =>
   en[key].replace(/\{(\w+)\}/g, (_match, name: string) => params[name] ?? '')) as RoutedModelProps['t']
 
-function mount(selection: ModelSelectionProjection | undefined) {
+function mount(selection: ModelSelectionProjection | undefined, running = true) {
   const useProjection = (() => selection) as RoutedModelProps['useProjection']
-  return render(<RoutedModel t={t} useProjection={useProjection} />)
+  const snapshot = { ...sessionSnapshot('s1' as SessionId), running }
+  const useSession: RoutedModelProps['useSession'] = selector => selector(snapshot)
+  return render(<RoutedModel t={t} useProjection={useProjection} useSession={useSession} />)
 }
 
 it('shows the model that ran when a router picked another one', () => {
@@ -34,7 +38,13 @@ it('shows a run on another provider with the same model name', () => {
   expect(screen.getByRole('status').textContent).toBe('Now: m')
 })
 
-it('shows the run when nothing is selected yet but a model already ran', () => {
-  mount({ lastUsed: { provider: 'b', model: 'm' }, next: null })
-  expect(screen.getByRole('status').textContent).toBe('Now: m')
+it('hides the routed model once the turn that used it has ended', () => {
+  mount({ lastUsed: { provider: 'anthropic', model: 'claude-opus-5' }, next: { provider: 'deepseek', model: 'deepseek-v4.1-flash' } }, false)
+  expect(screen.queryByRole('status')).toBeNull()
+})
+
+it('stays hidden when no model is selected, because the projection reports the last run as next', () => {
+  const fallback = { provider: 'b', model: 'm' }
+  mount({ lastUsed: fallback, next: fallback })
+  expect(screen.queryByRole('status')).toBeNull()
 })
