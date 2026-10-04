@@ -875,7 +875,7 @@ describe('ModelsSection', () => {
         { op: 'set', path: ['timeoutMs'], value: 2500 },
         { op: 'set', path: ['minConfidence'], value: 0.5 },
         { op: 'set', path: ['stateMaxChars'], value: 4096 },
-        { op: 'set', path: ['fallback'], value: 'opus-5-low' },
+        { op: 'set', path: ['fallback'], value: 'strong' },
         { op: 'set', path: ['failOpen'], value: false },
         {
           op: 'set',
