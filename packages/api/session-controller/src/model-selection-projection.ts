@@ -1,7 +1,7 @@
 /** Durable model-selection intent and request-use projection. */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import { z } from 'zod'
 import type {
@@ -16,13 +16,17 @@ const modelSelectionSchema = z.object({
   reasoningEffort: z.string().min(1).optional(),
 }) as unknown as z.ZodType<ModelSelection>
 
+const sessionSeq = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).transform(SessionSeq)
+
 const modelSelectionProjectionStateSchema = z.object({
   lastUsed: modelSelectionSchema.nullable(),
+  lastUsedSeq: sessionSeq.nullable(),
   selected: modelSelectionSchema.nullable(),
 }) as z.ZodType<ModelSelectionProjectionState>
 
 const modelSelectionProjectionSchema = z.object({
   lastUsed: modelSelectionSchema.nullable(),
+  lastUsedSeq: sessionSeq.nullable(),
   next: modelSelectionSchema.nullable(),
 }) as z.ZodType<ModelSelectionProjection>
 
@@ -39,7 +43,7 @@ function applyModelSelectionProjection(
   if (event.type === 'model/selection') {
     return sameSelection(state.selected, event.data)
       ? state
-      : { lastUsed: state.lastUsed, selected: event.data }
+      : { lastUsed: state.lastUsed, lastUsedSeq: state.lastUsedSeq, selected: event.data }
   }
   if (event.type !== 'request/header') return state
   // A request records what ran without touching the user's choice: a router or
@@ -51,19 +55,21 @@ function applyModelSelectionProjection(
       ? {}
       : { reasoningEffort: String(event.data.header.config.reasoningEffort) }),
   }
-  return sameSelection(state.lastUsed, lastUsed) ? state : { lastUsed, selected: state.selected }
+  /* Every header advances the seq, even when it repeats the previous model:
+     the seq is what tells a consumer which turn ran it. */
+  return { lastUsed, lastUsedSeq: event.seq, selected: state.selected }
 }
 
 const modelSelectionProjection = {
   key: 'modelSelection',
   stateSchema: modelSelectionProjectionStateSchema,
-  init: () => ({ lastUsed: null, selected: null }),
+  init: () => ({ lastUsed: null, lastUsedSeq: null, selected: null }),
   apply: applyModelSelectionProjection,
   wire: {
     viewSchema: modelSelectionProjectionSchema,
-    view: state => ({ lastUsed: state.lastUsed, next: state.selected ?? state.lastUsed }),
+    view: state => ({ lastUsed: state.lastUsed, lastUsedSeq: state.lastUsedSeq, next: state.selected ?? state.lastUsed }),
   },
-  stateVersion: 3,
+  stateVersion: 4,
 } satisfies ProjectionDefinition<'modelSelection', ModelSelectionProjectionState>
 
 function sameSelection(left: ModelSelection | null, right: ModelSelection | null): boolean {
