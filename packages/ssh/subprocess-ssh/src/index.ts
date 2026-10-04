@@ -1,5 +1,5 @@
 /** Remote subprocess and PTY handles with independent SSH streams and helper-owned process lifetimes. */
-import { Duplex, PassThrough, type Readable, type Writable } from 'node:stream'
+import { Duplex, PassThrough, Readable, Writable } from 'node:stream'
 import type { Socket } from 'node:net'
 import { Context } from '@deepseek-ai/cordis'
 import { SubprocessRuntime, SubprocessExecutableNotFoundError } from '@deepseek-ai/dsh-subprocess'
@@ -47,7 +47,7 @@ class RemoteProcess implements SubprocessHandle {
     this.stdout = spec.stdio.stdout === 'pipe' ? this.out : undefined
     this.stderr = spec.stdio.stderr === 'pipe' ? this.err : undefined
     const requestedControl = (spec.stdio as typeof spec.stdio & { control?: 'pipe' }).control
-    this.control = requestedControl === undefined ? undefined : Duplex.from({ writable: this.toControl, readable: this.fromControl })
+    this.control = requestedControl === undefined ? undefined : Duplex.fromWeb({ writable: Writable.toWeb(this.toControl), readable: Readable.toWeb(this.fromControl) })
     for (const stream of [this.inbound, this.out, this.err, this.toControl, this.fromControl, this.control]) stream?.on('error', () => {})
     const collect = (name: 'stdout' | 'stderr', stream: PassThrough, mode: SubprocessOutputMode) => {
       if (mode === 'pipe') return undefined
