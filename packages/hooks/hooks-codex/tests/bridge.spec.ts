@@ -1,4 +1,5 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { ALL_HOOKS } from '@deepseek-ai/dsh-hook-protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -51,7 +52,7 @@ async function harness(dir: string, adapter: MockAdapter, beforeHooks?: (ctx: Co
   await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
   beforeHooks?.(ctx)
-  await ctx.plugin(HooksCodex, { configPath: join(dir, 'hooks.json'), model: 'test-model' })
+  await ctx.plugin(HooksCodex, { configPath: join(dir, 'hooks.json'), model: 'test-model', enabledHooks: [ALL_HOOKS] })
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx
 }
@@ -207,7 +208,7 @@ describe('hooks-codex bridge', () => {
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(LocalSubprocessRuntime)
     await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
-    const fiber = await ctx.plugin(HooksCodex, { configPath: join(dir, 'hooks.json'), model: 'm' })
+    const fiber = await ctx.plugin(HooksCodex, { configPath: join(dir, 'hooks.json'), model: 'm', enabledHooks: [ALL_HOOKS] })
     await fiber.dispose()
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
@@ -230,7 +231,7 @@ describe('hooks-codex bridge', () => {
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(LocalSubprocessRuntime)
     await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
-    const fiber = await ctx.plugin(HooksCodex, { configPath: join(dir, 'hooks.json'), model: 'm' })
+    const fiber = await ctx.plugin(HooksCodex, { configPath: join(dir, 'hooks.json'), model: 'm', enabledHooks: [ALL_HOOKS] })
     ctx.llm.registerAdapter(['mock'], new MockAdapter([]))
     const warn = vi.fn()
     ctx.logger.warn = warn as never
