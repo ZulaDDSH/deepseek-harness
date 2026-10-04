@@ -819,7 +819,7 @@ describe('ModelsSection', () => {
         {
           op: 'set',
           path: ['routes'],
-          value: [{ ...JEV_ROUTE, provider: 'deepseek', model: 'custom-model' }],
+          value: [{ ...JEV_ROUTE, id: 'custom-model', provider: 'deepseek', model: 'custom-model' }],
         },
       ],
       0,

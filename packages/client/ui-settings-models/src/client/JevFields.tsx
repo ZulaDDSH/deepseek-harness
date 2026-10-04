@@ -54,11 +54,6 @@ function uniqueId(base: string, taken: ReadonlySet<string>): string {
   return `${base}-${String(suffix)}`
 }
 
-function isDerivedId(id: string, model: string): boolean {
-  const base = routeIdFor(model)
-  return id === '' || id === base || (id.startsWith(`${base}-`) && /^\d+$/.test(id.slice(base.length + 1)))
-}
-
 function text(route: Route, key: string): string {
   const value = route[key]
   return typeof value === 'string' ? value : ''
@@ -66,7 +61,7 @@ function text(route: Route, key: string): string {
 
 /**
  * Render the Jev settings with an explanation under each one, and the route
- * rows, whose ID follows the chosen model until the user names it.
+ * rows, whose ID is set from the chosen model and can then be renamed.
  * @param props Draft, schema operations, model catalog and copy.
  * @returns The Jev fields.
  */
@@ -107,7 +102,7 @@ export function JevFields(props: JevFieldsProps): ReactNode {
     if (before === undefined) return
     let after: Route = value === undefined ? schema.deletePath(before, [key]) : { ...before, [key]: value }
     const oldId = text(before, 'id')
-    if (key === 'model' && value !== undefined && isDerivedId(oldId, text(before, 'model'))) {
+    if (key === 'model' && value !== undefined) {
       const taken = new Set(routes.filter((_, other) => other !== index).map(route => text(route, 'id')))
       const derived = routeIdFor(value)
       after = { ...after, id: derived === '' ? '' : uniqueId(derived, taken) }
