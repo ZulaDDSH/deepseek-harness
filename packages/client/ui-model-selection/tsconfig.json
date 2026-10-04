@@ -48,6 +48,9 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../session/session-turn-outline"
+    },
+    {
       "path": "../../api/session-controller/tsconfig.client.json"
     },
     {

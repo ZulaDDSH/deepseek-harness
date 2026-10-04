@@ -1,20 +1,14 @@
 import { Service, type Context, type Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
-import {
-  assertUsableApiKey,
-  ReasoningEffortId,
-  type ContentBlock,
-  type LlmCallConfig,
-  type UserMessage,
-} from '@deepseek-ai/dsh-llm'
+import { assertUsableApiKey, type ContentBlock, type UserMessage } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-session'
-import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import { jevDecisionProjection } from './projection.ts'
+import { applyRoute, installAgentRequestRouting, selectedRoute } from './request-routing.ts'
 import type { JevDecisionRecord } from './types.ts'
 
 export const name = 'llm-jev-router'
@@ -415,33 +409,6 @@ export class JevRouter extends Service {
   }
 }
 
-/** Resolve a decision through confidence and fallback policy.
- * @param decision parsed Jev decision.
- * @param config active router settings.
- * @returns an allow-listed route or undefined to preserve the base route.
- */
-export function selectedRoute(decision: JevDecision, config: Config): JevRoute | undefined {
-  const route = config.routes.find(candidate => candidate.id === decision.route)
-  if (route !== undefined && decision.confidence >= config.minConfidence) return route
-  if (config.fallback === 'keep') return undefined
-  return config.routes.find(candidate => candidate.id === config.fallback)
-}
-
-/** Apply a selected route without mutating the frozen base config.
- * @param config base DSH call configuration.
- * @param route selected destination.
- * @returns the replacement call configuration.
- */
-export function applyRoute(config: LlmCallConfig, route: JevRoute): LlmCallConfig {
-  const { reasoningEffort: _inheritedEffort, ...withoutInheritedEffort } = config
-  return {
-    ...withoutInheritedEffort,
-    provider: route.provider,
-    model: route.model,
-    ...route.reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(route.reasoningEffort) },
-  }
-}
-
 /** Install Jev routing into the agent waterfalls. */
 export function apply(ctx: Context, initial: RuntimeConfig): void {
   const current = (): Config => {
@@ -465,6 +432,8 @@ export function apply(ctx: Context, initial: RuntimeConfig): void {
     settingsNs: ctx.fiber.entry?.options.id ?? name,
     settingsPath: [],
   }])
+  const hookAgent = installAgentRequestRouting(ctx, () => current().enabled,
+    (agent, turn) => decisions.get(agent)?.get(turn)?.route)
 
   ctx.on('agent/pre-step', async (payload, next): Promise<PreStepDecision> => {
     const admitted = await next()
@@ -499,31 +468,6 @@ export function apply(ctx: Context, initial: RuntimeConfig): void {
     }
     return admitted
   })
-
-  const hooked = new Map<Agent, () => void>()
-  ctx.effect(() => () => {
-    for (const dispose of hooked.values()) dispose()
-    hooked.clear()
-  }, 'jev-router: per-Agent request routing')
-  const unrouted = (agent: Agent, base: LlmCallConfig): LlmCallConfig => {
-    const selected = ctx.get('sessionProjections')?.stateOf(agent.session, 'modelSelection')?.selected
-    const fallback = selected ?? (agent.options.provider !== undefined && agent.options.model !== undefined
-      ? {
-        provider: agent.options.provider, model: agent.options.model,
-        ...agent.options.reasoningEffort === undefined ? {} : { reasoningEffort: agent.options.reasoningEffort },
-      }
-      : undefined)
-    if (fallback === undefined || (fallback.provider === base.provider && fallback.model === base.model)) return base
-    return applyRoute(base, { id: '', description: '', ...fallback })
-  }
-  const hookAgent = (agent: Agent): void => {
-    if (hooked.has(agent)) return
-    hooked.set(agent, agent.ctx.on('agent/request', async (payload, next): Promise<LlmCallConfig> => {
-      const base = await next()
-      const route = decisions.get(payload.agent)?.get(payload.turn)?.route
-      if (payload.signal.aborted) return base
-      if (route !== undefined) return applyRoute(base, route)
-      return unrouted(payload.agent, base)
-    }, { prepend: true }))
-  }
 }
+
+export { applyRoute, selectedRoute }

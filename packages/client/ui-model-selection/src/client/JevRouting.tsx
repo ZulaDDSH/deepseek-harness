@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import { MenuSurface, useAnchoredPosition, useDismissOnOutsidePointer } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {} from '@deepseek-ai/dsh-session-turn-outline/client'
 import type { ModelSelection } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { JevDecisionRecord } from '@deepseek-ai/dsh-llm-jev-router/client'
 import css from './ModelSelect.module.css'
@@ -37,12 +38,20 @@ function decisionText(decision: JevDecisionRecord | null, t: Translate): string 
 /**
  * Button beside the model picker that opens a panel naming the model running
  * now, the selected model, and Jev's latest routing decision.
- * @param props - the session projection seat and locale.
+ *
+ * `lastUsed` outlives its turn, so naming a model as running additionally
+ * requires the recorded request to belong to the turn in flight: its
+ * `request/header` seq must follow the latest `turn/start` seq, and the
+ * session must still be running. Without that identity, the pre-request window
+ * of a new turn would present the previous turn's routed model as running.
+ *
+ * @param props - the session projection, session state, and locale seats.
  * @returns the button, or nothing before Jev has decided and while the selected model is running.
  */
-export function JevRouting({ useProjection, t }: Pick<JevRoutingProps, 'useProjection' | 't'>) {
+export function JevRouting({ useSession, useProjection, t }: Pick<JevRoutingProps, 'useSession' | 'useProjection' | 't'>) {
   const selection = useProjection('modelSelection')
   const decision = useProjection('jevDecision') ?? null
+  const running = useSession(snapshot => snapshot.running)
   const [open, setOpen] = useState(false)
   const anchorRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
@@ -50,7 +59,11 @@ export function JevRouting({ useProjection, t }: Pick<JevRoutingProps, 'useProje
   const position = useAnchoredPosition({ open, anchorRef, panelRef, side: 'top', align: 'end', gap: 6, margin: 12 })
   const used = selection?.lastUsed ?? null
   const next = selection?.next ?? null
-  const routed = used !== null && (next === null || used.provider !== next.provider || used.model !== next.model)
+  const usedSeq = selection?.lastUsedSeq
+  const turnStartSeq = useProjection('turnOutline')?.at(-1)?.seq
+  const ranThisTurn = running && usedSeq !== null && usedSeq !== undefined
+    && turnStartSeq !== undefined && usedSeq > turnStartSeq
+  const routed = ranThisTurn && used !== null && (next === null || used.provider !== next.provider || used.model !== next.model)
   if (decision === null && !routed) return null
   const closeOnEscape = (event: KeyboardEvent): void => {
     if (event.key !== 'Escape' || !open) return
@@ -82,7 +95,7 @@ export function JevRouting({ useProjection, t }: Pick<JevRoutingProps, 'useProje
       >
         <dl className={css.routingList}>
           <dt>{t('routing.running')}</dt>
-          <dd>{modelName(used, t)}</dd>
+          <dd>{modelName(ranThisTurn ? used : null, t)}</dd>
           <dt>{t('routing.selected')}</dt>
           <dd>{modelName(next, t)}</dd>
           <dt>{t('routing.decision')}</dt>

@@ -202,17 +202,16 @@ describe('session.history projections block', () => {
     const selected = { provider: 'p', model: 'next' }
     session.append('model/selection', selected)
     session.append('model/selection', selected)
-    session.append('request/header', {
-      header: { config: { provider: 'p', model: 'used' } }, reason: 'initial',
-    })
-    session.append('request/header', {
+    const repeatedHeader = session.append('request/header', {
       header: { config: { provider: 'p', model: 'used' } }, reason: 'initial',
     })
 
     // The pick survives a request that ran a different model: `next` is the
     // user's choice, `lastUsed` is what actually ran.
+    /* The repeated header advances `lastUsedSeq` even though the model it names is unchanged. */
     expect(ctx.sessionProjections.snapshot(session).values.modelSelection).toEqual({
       lastUsed: { provider: 'p', model: 'used' },
+      lastUsedSeq: repeatedHeader.seq,
       next: selected,
     })
 
@@ -221,6 +220,7 @@ describe('session.history projections block', () => {
     })
     expect(ctx.sessionProjections.snapshot(session).values.modelSelection).toEqual({
       lastUsed: selected,
+      lastUsedSeq: session.seq - 1,
       next: selected,
     })
 
@@ -230,6 +230,7 @@ describe('session.history projections block', () => {
     })
     expect(ctx.sessionProjections.snapshot(session).values.modelSelection).toEqual({
       lastUsed: { provider: 'router', model: 'routed' },
+      lastUsedSeq: session.seq - 1,
       next: selected,
     })
   })

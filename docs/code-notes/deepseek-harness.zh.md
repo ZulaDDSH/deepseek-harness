@@ -112,7 +112,7 @@
 
 ## 输入框中的路由模型
 
-`packages/client/ui-model-selection/src/client/JevRouting.tsx:JevRouting` 是位于 `conversation.input.right`、紧挨模型选择器左侧的按钮。当 Jev 在本会话中做出过决定，或最近一次请求实际运行的模型与所选模型不同时显示，文字为"Jev"，路由时为"Jev：<model>"。点击后打开面板，列出当前运行的模型（`modelSelection.lastUsed`，来自每个 `request/header`）、所选模型（`modelSelection.next`）以及 Jev 最近的决定：路由及其置信度、保留聊天模型或失败原因。决定来自 `jevDecision` 投影（`packages/llm/llm-jev-router/src/projection.ts:jevDecisionProjection`），它保存最新的 `jev/decision`，因此重新加载或较早事件被分页移出后面板仍然可用。其类型通过路由器的 `./types` 与 `./client` 出口发布，客户端包仅以类型方式导入。聊天记录中不会新增任何内容。
+`packages/client/ui-model-selection/src/client/JevRouting.tsx:JevRouting` 是位于 `conversation.input.right`、紧挨模型选择器左侧的按钮。当 Jev 在本会话中做出过决定，或最近一次请求实际运行的模型与所选模型不同时显示，文字为"Jev"，路由时为"Jev：<model>"。点击后打开面板，列出当前运行的模型（`modelSelection.lastUsed`，来自每个 `request/header`）、所选模型（`modelSelection.next`）以及 Jev 最近的决定：路由及其置信度、保留聊天模型或失败原因。由于 `lastUsed` 的生命周期长于写入它的那一轮，把某个模型称为"当前运行"还要求所记录的请求属于正在进行的这一轮：在 Session 报告运行中的同时，`modelSelection.lastUsedSeq` 必须晚于最新 `turnOutline` 条目的 `turn/start` seq（`packages/session/session-turn-outline`）。缺少这一身份判断时，新一轮在写入自己的请求头之前会把上一轮的路由模型当作正在运行的模型。决定来自 `jevDecision` 投影（`packages/llm/llm-jev-router/src/projection.ts:jevDecisionProjection`），它保存最新的 `jev/decision`，因此重新加载或较早事件被分页移出后面板仍然可用。其类型通过路由器的 `./types` 与 `./client` 出口发布，客户端包仅以类型方式导入。聊天记录中不会新增任何内容。
 
 ## 模型选择器中的提供方筛选
 

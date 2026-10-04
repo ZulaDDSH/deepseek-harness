@@ -22,7 +22,7 @@
  */
 
 import { createRequire } from 'node:module'
-import { existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import type { EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
 import { applyEntryPatches, type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
@@ -270,11 +270,13 @@ const LINK_PROJECTION_DIR = '.dsh-module-fallback'
  * Only symlinks under the profile's `node_modules` whose target lies inside
  * `<profile>/.dsh-module-fallback/node_modules` are unlinked, then that directory is removed;
  * pnpm-installed packages and every other symlink stay. A profile without the directory is untouched.
+ * A `.dsh-module-fallback` that is not itself a directory is not a projection directory this
+ * launch owns — traversing a link there would unlink entries outside the profile — so it is left alone.
  * @param dir - the profile directory.
  */
 export function removeLinkProjections(dir: string): void {
   const owned = join(dir, LINK_PROJECTION_DIR)
-  if (!existsSync(owned)) return
+  if (lstatSync(owned, { throwIfNoEntry: false })?.isDirectory() !== true) return
   const ownedModules = join(owned, 'node_modules')
   for (const link of symlinksUnder(join(dir, 'node_modules'))) {
     if (pointsInto(link, ownedModules)) unlinkSync(link)
