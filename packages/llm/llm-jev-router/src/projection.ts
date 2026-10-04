@@ -7,6 +7,7 @@ const jevDecisionSchema = z.object({
   step: z.number(),
   choice: z.string().exactOptional(),
   confidence: z.number().exactOptional(),
+  route: z.string().exactOptional(),
   provider: z.string().exactOptional(),
   model: z.string().exactOptional(),
   error: z.string().exactOptional(),

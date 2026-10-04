@@ -485,7 +485,7 @@ export function apply(ctx: Context, initial: RuntimeConfig): void {
       const route = selectedRoute(decision, config)
       payload.agent.session.append('jev/decision', {
         turn: payload.turn, step: payload.step, choice: decision.route, confidence: decision.confidence,
-        ...route === undefined ? {} : { provider: route.provider, model: route.model },
+        ...route === undefined ? {} : { route: route.id, provider: route.provider, model: route.model },
       })
       perAgent.set(payload.turn, route === undefined ? {} : { route })
     } catch (error) {

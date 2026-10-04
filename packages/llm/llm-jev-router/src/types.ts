@@ -13,6 +13,8 @@ export interface JevDecisionRecord {
   readonly step: number
   readonly choice?: string
   readonly confidence?: number
+  /** Id of the route applied: Jev's choice, or the fallback when Jev was not confident enough. */
+  readonly route?: string
   readonly provider?: string
   readonly model?: string
   readonly error?: string

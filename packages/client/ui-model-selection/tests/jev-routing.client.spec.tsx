@@ -36,7 +36,7 @@ it('names the routed model on the button and explains the decision in a panel', 
   expect(panel()).toBe([
     en['routing.running'], 'anthropic / claude-opus-5',
     en['routing.selected'], 'deepseek / flash',
-    en['routing.decision'], 'Sent to route deep (anthropic / claude-opus-5) at 92% confidence.',
+    en['routing.decision'], 'Jev picked route deep (anthropic / claude-opus-5) with 92% confidence.',
   ].join(''))
   fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
   expect(screen.queryByRole('dialog')).toBeNull()
@@ -71,11 +71,29 @@ it('explains a routed run with no decision yet and an unknown selection', () => 
 it('reports a missing route name as empty', () => {
   mount({ lastUsed: routedTo, next: chosen }, { turn: 1, step: 1, confidence: 1, ...routedTo })
   fireEvent.click(screen.getByRole('button', { name: 'Jev: claude-opus-5' }))
-  expect(panel()).toContain('Sent to route  (anthropic / claude-opus-5) at 100% confidence.')
+  expect(panel()).toContain('Jev picked route  (anthropic / claude-opus-5) with 100% confidence.')
 })
 
 it('shows nothing known before any request has run', () => {
   mount({ lastUsed: null, next: chosen }, { turn: 1, step: 1, error: 'down' })
   fireEvent.click(screen.getByRole('button', { name: en['routing.button'] }))
   expect(panel()).toContain(`${en['routing.running']}${en['routing.unknown']}`)
+})
+
+it('says when the fallback route ran because Jev was not confident enough', () => {
+  mount({ lastUsed: routedTo, next: chosen }, { turn: 1, step: 1, choice: 'flash', confidence: 0.01, route: 'safe', ...routedTo })
+  fireEvent.click(screen.getByRole('button', { name: 'Jev: claude-opus-5' }))
+  expect(panel()).toContain("Jev wasn't confident enough (best match flash at 1%), so the fallback route safe (anthropic / claude-opus-5) was used.")
+})
+
+it("names the applied route when it is Jev's pick", () => {
+  mount({ lastUsed: routedTo, next: chosen }, { turn: 1, step: 1, choice: 'deep', confidence: 0.9, route: 'deep', ...routedTo })
+  fireEvent.click(screen.getByRole('button', { name: 'Jev: claude-opus-5' }))
+  expect(panel()).toContain('Jev picked route deep (anthropic / claude-opus-5) with 90% confidence.')
+})
+
+it('describes a fallback recorded without a best match', () => {
+  mount({ lastUsed: routedTo, next: chosen }, { turn: 1, step: 1, confidence: 0, route: 'safe', ...routedTo })
+  fireEvent.click(screen.getByRole('button', { name: 'Jev: claude-opus-5' }))
+  expect(panel()).toContain('(best match  at 0%), so the fallback route safe')
 })

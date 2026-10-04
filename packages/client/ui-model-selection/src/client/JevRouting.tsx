@@ -24,7 +24,11 @@ function decisionText(decision: JevDecisionRecord | null, t: Translate): string 
   if (decision.error !== undefined) return t('routing.failed', { error: decision.error })
   const confidence = String(Math.round((decision.confidence ?? 0) * 100))
   if (decision.provider !== undefined && decision.model !== undefined) {
-    return t('routing.routed', { route: decision.choice ?? '', provider: decision.provider, model: decision.model, confidence })
+    const applied = { provider: decision.provider, model: decision.model, confidence }
+    if (decision.route !== undefined && decision.route !== decision.choice) {
+      return t('routing.fallback', { ...applied, route: decision.route, choice: decision.choice ?? '' })
+    }
+    return t('routing.routed', { ...applied, route: decision.route ?? decision.choice ?? '' })
   }
   if (decision.choice === undefined || decision.choice === 'keep') return t('routing.kept', { confidence })
   return t('routing.unsure', { route: decision.choice, confidence })

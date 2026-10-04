@@ -127,6 +127,19 @@ describe('Jev routing lifecycle', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2)
   })
 
+  it.each([
+    [{ choice: 'small', confidence: 0.9 }, {}, { route: 'small', provider: 'target', model: 'small' }],
+    [{ choice: 'small', confidence: 0.01 }, { fallback: 'safe' }, { route: 'safe', provider: 'target', model: 'safe' }],
+    [{ choice: 'small', confidence: 0.01 }, {}, {}],
+  ])('records Jev\'s pick %o and the route actually applied', async (pick, overrides, applied) => {
+    answer({ answers: { route: pick } })
+    const routes = [...config.routes, { id: 'safe', provider: 'target', model: 'safe', description: 'Fallback' }]
+    const { agent, preStep } = await mount({ ...overrides, routes })
+    await preStep()
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'jev/decision').map(event => event.data))
+      .toEqual([{ turn: 1, step: 1, ...pick, ...applied }])
+  })
+
   it('records a decision failure as a jev/decision event', async () => {
     vi.stubGlobal('fetch', vi.fn<typeof fetch>(() => Promise.reject(new Error('offline'))))
     const thrown = await mount()
