@@ -295,6 +295,40 @@ describe('MCP OAuth sign-in', () => {
     expect(report(ctx).error).toContain('401')
   })
 
+  it('reports a rejected static credential as a failure, never as sign-in-required', async () => {
+    const fixture = await startFixture()
+    fixture.accept('static-token')
+    const ctx = await mount(configFor(fixture.url, { headers: { Authorization: 'Bearer static-token' } }))
+    expect(report(ctx)).toMatchObject({ state: 'connected', toolCount: 1 })
+    expect(report(ctx).authKey).toBeUndefined()
+
+    fixture.expire()
+    const refused = await ping(ctx)
+    expect(refused.isError, JSON.stringify(refused)).toBe(true)
+
+    const after = report(ctx)
+    expect(after.state).not.toBe('auth-required')
+    expect(after.state).toBe('failed')
+    expect(after.authKey).toBeUndefined()
+    expect(after.error).toBeTruthy()
+    expect(ctx.authorization.list()).toEqual([])
+  })
+
+  it('reports a static credential refused for insufficient scope as a failure, not sign-in', async () => {
+    const fixture = await startFixture()
+    fixture.accept('static-token')
+    const ctx = await mount(configFor(fixture.url, { headers: { Authorization: 'Bearer static-token' } }))
+    fixture.requireScope('mcp:tools')
+    const refused = await ping(ctx)
+    expect(refused.isError, JSON.stringify(refused)).toBe(true)
+
+    const after = report(ctx)
+    expect(after.state).not.toBe('auth-required')
+    expect(after.state).toBe('failed')
+    expect(after.authKey).toBeUndefined()
+    expect(ctx.authorization.list()).toEqual([])
+  })
+
   it('reports a connection failure with its reason', async () => {
     const ctx = await mount(configFor('http://127.0.0.1:1/mcp'))
     expect(report(ctx)).toMatchObject({ state: 'failed', toolCount: 0 })

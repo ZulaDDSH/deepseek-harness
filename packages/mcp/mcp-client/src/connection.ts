@@ -276,15 +276,17 @@ export function startConnection(
     client = generation
     closeClient = closeGeneration
     /**
-     * Every request failure reaches this seam, including a retry that the
-     * transport refused after a successful token refresh and a
-     * `403 insufficient_scope` challenge no stored grant can satisfy. An
-     * established generation whose grant stopped authorizing waits for sign-in
-     * instead of reporting a healthy connection; a failed attempt is reported
-     * by the catch path below.
+     * Every request failure reaches this seam: a refused retry after a token
+     * refresh, a `403 insufficient_scope` challenge, and the plain 401 a static
+     * `Authorization` header gets. Only a server that offers sign-in can wait
+     * for authorization; a failed attempt is reported by the catch path below.
      */
     generation.onerror = (error) => {
-      if (isAuthRequired(error)) signInLost()
+      if (!isAuthRequired(error)) return
+      /* v8 ignore next -- a second in-flight request can lose the credential after the first clears connectedAt */
+      if (connectedAt === undefined) return
+      if (auth === undefined) credentialRejected(error)
+      else signInLost()
     }
     generation.onclose = () => {
       closeObserved = true
@@ -385,22 +387,36 @@ export function startConnection(
     return { error: firstAttemptError ?? new Error(`${label}: initial connection failed`) }
   })
 
-  /** An established connection whose grant stopped working waits for sign-in instead of retrying. */
-  function signInLost(): void {
-    /* v8 ignore next -- a second in-flight request can lose the grant after the first clears connectedAt */
-    if (connectedAt === undefined) return
+  /** Stop serving through the current generation; the close is deferred so the failing request rejects first. */
+  function abandonGeneration(): void {
     const close = closeClient
     connectedAt = undefined
-    authRequired = true
-    lastError = undefined
     client = undefined
     closeClient = undefined
-    ctx.logger.warn(`${label}: sign-in required; waiting for a stored grant instead of retrying`)
-    // The failing request must reject with the sign-in error before its transport closes.
     setTimeout(() => {
       /* v8 ignore next -- an established connection always holds its close function */
       void close?.()
     }, 0)
+  }
+
+  /** An established connection whose grant stopped working waits for sign-in instead of retrying. */
+  function signInLost(): void {
+    authRequired = true
+    lastError = undefined
+    ctx.logger.warn(`${label}: sign-in required; waiting for a stored grant instead of retrying`)
+    abandonGeneration()
+  }
+
+  /**
+   * An established connection whose static `Authorization` credential was
+   * refused reports that failure; no stored grant can replace a credential the
+   * configuration owns, so the state is never `auth-required`.
+   */
+  function credentialRejected(error: unknown): void {
+    const message = describeFailure(error)
+    lastError = message
+    ctx.logger.warn(`${label}: the server refused the configured Authorization credential: ${message}`)
+    abandonGeneration()
   }
 
   if (auth !== undefined) {
