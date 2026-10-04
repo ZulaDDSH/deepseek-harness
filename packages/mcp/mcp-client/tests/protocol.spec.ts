@@ -11,7 +11,8 @@ import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import McpResources from '@deepseek-ai/dsh-mcp-resources'
-import { startConnection, resolveReconnectPolicy } from '../src/connection.ts'
+import { startConnection } from '../src/connection.ts'
+import { resolveReconnectPolicy } from '../src/reconnect-policy.ts'
 import type { Config } from '../src/index.ts'
 
 const { mockTransport } = vi.hoisted(() => ({ mockTransport: vi.fn<() => Transport>() }))

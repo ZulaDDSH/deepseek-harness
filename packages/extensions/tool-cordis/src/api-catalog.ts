@@ -4309,6 +4309,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'options', description: 'the full request. A LOOP-built request carries the process-local {@link markAgentLoopRequest} identity and arrives deep-frozen (mutation throws): its content is a pure function of the session log (the reconstructability Agent Note), so listeners read it, never rewrite it. Hand-built calls do not carry that marker; callers own their request inputs and must keep them unchanged until the stream settles.' }],
   },
   {
+    name: 'mcp-client/inventory',
+    mode: 'emit',
+    signature: '\'mcp-client/inventory\'(reports: McpConnectionReport[]): void',
+    summary: 'A listener is asking for the connection state of the configured MCP servers; each server appends its report.',
+    description: 'A listener is asking for the connection state of the configured MCP servers; each server appends its report.',
+    parameters: [{ name: 'reports', description: 'Collected reports, one per configured server.' }],
+  },
+  {
     name: 'mcp/human-operations',
     mode: 'waterfall',
     signature: '\'mcp/human-operations\'(server: string, next: () => Promise<McpHumanOperations | undefined>): Promise<McpHumanOperations | undefined>',
@@ -5937,6 +5945,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ManualCompactAgentContext extends CompactionAgentContext {\n    runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T>;\n}',
   },
   {
+    name: 'McpConnectionReport',
+    declaration: 'export interface McpConnectionReport {\n    readonly serverName: string;\n    readonly state: McpConnectionState;\n    readonly toolCount: number;\n    readonly error?: string;\n    readonly authKey?: string;\n}',
+  },
+  {
+    name: 'McpConnectionState',
+    declaration: 'export type McpConnectionState = \'connecting\' | \'connected\' | \'auth-required\' | \'failed\';',
+  },
+  {
     name: 'McpConnectorCatalog',
     declaration: 'export interface McpConnectorCatalog {\n    readonly connectorIds: readonly string[];\n}',
   },
@@ -5965,8 +5981,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type McpServerConfig = {\n    readonly transport: \'stdio\';\n    readonly serverName: string;\n    readonly command: string;\n    readonly args: readonly string[];\n    readonly env: Readonly<Record<string, string>>;\n} | {\n    readonly transport: \'streamable-http\';\n    readonly serverName: string;\n    readonly url: string;\n    readonly headers: Readonly<Record<string, string>>;\n};',
   },
   {
+    name: 'McpServerConnection',
+    declaration: 'export interface McpServerConnection {\n    readonly state: \'connecting\' | \'connected\' | \'auth-required\' | \'failed\';\n    readonly toolCount: number;\n    readonly error?: string;\n    readonly authKey?: string;\n}',
+  },
+  {
     name: 'McpServerRow',
-    declaration: 'export interface McpServerRow {\n    readonly entryId: string;\n    readonly patchId?: string;\n    readonly serverName: string;\n    readonly transport: string;\n    readonly target: string;\n    readonly enabled: boolean;\n    readonly phase: string | null;\n    readonly removable: boolean;\n}',
+    declaration: 'export interface McpServerRow {\n    readonly entryId: string;\n    readonly patchId?: string;\n    readonly serverName: string;\n    readonly transport: string;\n    readonly target: string;\n    readonly enabled: boolean;\n    readonly phase: string | null;\n    readonly removable: boolean;\n    readonly connection?: McpServerConnection;\n}',
   },
   {
     name: 'McpServerSource',

@@ -19,7 +19,8 @@ import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { Config } from '@deepseek-ai/dsh-mcp-client'
-import { startConnection, resolveReconnectPolicy } from '@deepseek-ai/dsh-mcp-client/src/connection.ts'
+import { startConnection } from '@deepseek-ai/dsh-mcp-client/src/connection.ts'
+import { resolveReconnectPolicy } from '@deepseek-ai/dsh-mcp-client/src/reconnect-policy.ts'
 
 const FIXTURE_SERVER = fileURLToPath(new URL('./reap-fixture-server.ts', import.meta.url))
 

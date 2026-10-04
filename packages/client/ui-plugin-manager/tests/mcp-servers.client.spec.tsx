@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest'
+import { act } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import assert from 'node:assert/strict'
 import type { McpServerRow } from '@deepseek-ai/dsh-plugin-manager/types'
@@ -8,7 +9,8 @@ import { en } from '../src/client/locales.ts'
 
 afterEach(cleanup)
 
-const t = ((key: keyof typeof en) => en[key]) as McpServersSectionProps['t']
+const t = ((key: keyof typeof en, params: Record<string, string> = {}) =>
+  en[key].replace(/\{(\w+)\}/g, (_match, name: string) => params[name] ?? '')) as McpServersSectionProps['t']
 
 function mount(overrides: Partial<McpServersSectionInjected> = {}) {
   const face: McpServersSectionInjected = {
@@ -27,6 +29,7 @@ function mount(overrides: Partial<McpServersSectionInjected> = {}) {
     addMcpServer: vi.fn(async () => {}),
     removeMcpServer: vi.fn(async () => {}),
     setMcpServerEnabled: vi.fn(async () => {}),
+    signInMcpServer: vi.fn(async () => {}),
     ...overrides,
   }
   render(<McpServersSection {...{ t, ...face } as McpServersSectionProps} />)
@@ -135,4 +138,140 @@ it('shows a rejection that is not an Error', async () => {
   fireEvent.change(screen.getByRole('textbox', { name: en.mcpCommand }), { target: { value: 'node' } })
   fireEvent.click(screen.getByRole('button', { name: en.mcpAdd }))
   expect(await screen.findByText(`${en.mcpFailed}: add refused`)).toBeTruthy()
+})
+
+function row(name: string, connection: NonNullable<McpServerRow['connection']>, extra: Partial<McpServerRow> = {}): McpServerRow {
+  return { entryId: `include/mcp-${name}`, serverName: name, transport: 'streamable-http', target: `https://${name}`, enabled: true, phase: 'active', removable: false, connection, ...extra }
+}
+
+const authRow = () => row('forge', { state: 'auth-required', toolCount: 0, authKey: 'mcp:forge' })
+
+it('labels each connection state truthfully', async () => {
+  mount({ listMcpServers: vi.fn(async () => [
+    row('one', { state: 'connected', toolCount: 1 }),
+    row('many', { state: 'connected', toolCount: 3 }),
+    row('auth', { state: 'auth-required', toolCount: 0 }),
+    row('bad', { state: 'failed', toolCount: 0, error: 'refused' }),
+    row('blank', { state: 'failed', toolCount: 0 }),
+    row('off', { state: 'connected', toolCount: 2 }, { enabled: false }),
+  ]) })
+  expect(await screen.findByText(`${en.mcpConnectedOne} · https://one`)).toBeTruthy()
+  expect(screen.getByText(`${en.mcpConnectedMany.replace('{count}', '3')} · https://many`)).toBeTruthy()
+  expect(screen.getByText(`${en.mcpAuthRequired} · https://auth`)).toBeTruthy()
+  expect(screen.getByText(`${en.mcpConnectionFailed.replace('{error}', 'refused')} · https://bad`)).toBeTruthy()
+  expect(screen.getByTitle(/^Connection failed: +· https:\/\/blank$/)).toBeTruthy()
+  expect(screen.getByText(`${en.mcpOff} · https://off`)).toBeTruthy()
+  expect(screen.queryByRole('button', { name: en.mcpSignIn })).toBeNull()
+})
+
+it('polls while a server is still connecting and stops once it settles', async () => {
+  vi.useFakeTimers()
+  try {
+    const list = vi.fn<McpServersSectionInjected['listMcpServers']>()
+      .mockResolvedValueOnce([row('slow', { state: 'connecting', toolCount: 0 })])
+      .mockResolvedValue([row('slow', { state: 'connected', toolCount: 2 })])
+    mount({ listMcpServers: list })
+    await act(async () => { await Promise.resolve() })
+    expect(screen.getByText(`${en.mcpConnecting} · https://slow`)).toBeTruthy()
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500) })
+    expect(screen.getByText(`${en.mcpConnectedMany.replace('{count}', '2')} · https://slow`)).toBeTruthy()
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+    expect(list).toHaveBeenCalledTimes(2)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it('keeps a settled status current, showing a later loss of sign-in without user action', async () => {
+  vi.useFakeTimers()
+  try {
+    const list = vi.fn<McpServersSectionInjected['listMcpServers']>()
+      .mockResolvedValueOnce([row('forge', { state: 'connected', toolCount: 2 })])
+      .mockResolvedValue([authRow()])
+    mount({ listMcpServers: list })
+    await act(async () => { await Promise.resolve() })
+    expect(screen.getByText(`${en.mcpConnectedMany.replace('{count}', '2')} · https://forge`)).toBeTruthy()
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000) })
+    expect(screen.getByText(`${en.mcpAuthRequired} · https://forge`)).toBeTruthy()
+    expect(screen.getByRole('button', { name: en.mcpSignIn })).toBeTruthy()
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it('signs in, shows notices with a link, and refreshes afterwards', async () => {
+  const finish = Promise.withResolvers<undefined>()
+  const signInMcpServer = vi.fn<McpServersSectionInjected['signInMcpServer']>(async (_key, onNotice) => {
+    onNotice({ message: 'Open the page', url: 'https://auth.test/login' })
+    onNotice({ message: 'Waiting' })
+    await finish.promise
+  })
+  const list = vi.fn(async () => [authRow(), row('other', { state: 'auth-required', toolCount: 0, authKey: 'mcp:other' })])
+  mount({ listMcpServers: list, signInMcpServer })
+  fireEvent.click((await screen.findAllByRole('button', { name: en.mcpSignIn }))[0]!)
+  expect(signInMcpServer).toHaveBeenCalledWith('mcp:forge', expect.any(Function), expect.any(AbortSignal))
+  expect(await screen.findByText('Waiting')).toBeTruthy()
+  expect(screen.getByRole('link', { name: en.mcpSignInOpenPage }).getAttribute('href')).toBe('https://auth.test/login')
+  expect(screen.getByRole('button', { name: en.mcpSignIn }).hasAttribute('disabled')).toBe(true)
+  const reads = list.mock.calls.length
+  finish.resolve(undefined)
+  await waitFor(() => { expect(screen.queryByRole('button', { name: en.mcpSignInCancel })).toBeNull() })
+  await waitFor(() => { expect(list.mock.calls.length).toBeGreaterThan(reads) })
+  expect(screen.queryByText('Waiting')).toBeNull()
+})
+
+it('cancels a sign-in and reports a failed one', async () => {
+  let seen: AbortSignal | undefined
+  const signInMcpServer = vi.fn<McpServersSectionInjected['signInMcpServer']>((_key, _onNotice, signal) => {
+    seen = signal
+    return new Promise((resolve) => { signal.addEventListener('abort', () => { resolve() }) })
+  })
+  mount({ listMcpServers: vi.fn(async () => [authRow()]), signInMcpServer })
+  fireEvent.click(await screen.findByRole('button', { name: en.mcpSignIn }))
+  fireEvent.click(await screen.findByRole('button', { name: en.mcpSignInCancel }))
+  expect(seen?.aborted).toBe(true)
+  expect(await screen.findByRole('button', { name: en.mcpSignIn })).toBeTruthy()
+  signInMcpServer.mockRejectedValueOnce(new Error('denied'))
+  fireEvent.click(screen.getByRole('button', { name: en.mcpSignIn }))
+  expect(await screen.findByText(`${en.mcpFailed}: denied`)).toBeTruthy()
+})
+
+it('ignores notices that arrive after a sign-in settled', async () => {
+  let late: ((notice: { message: string }) => void) | undefined
+  mount({
+    listMcpServers: vi.fn(async () => [authRow()]),
+    signInMcpServer: vi.fn<McpServersSectionInjected['signInMcpServer']>(async (_key, onNotice) => { late = onNotice }),
+  })
+  fireEvent.click(await screen.findByRole('button', { name: en.mcpSignIn }))
+  await waitFor(() => { expect(screen.queryByRole('button', { name: en.mcpSignInCancel })).toBeNull() })
+  act(() => { late?.({ message: 'too late' }) })
+  expect(screen.queryByText('too late')).toBeNull()
+})
+
+it('aborts a running sign-in on unmount', async () => {
+  let seen: AbortSignal | undefined
+  mount({
+    listMcpServers: vi.fn(async () => [authRow()]),
+    signInMcpServer: vi.fn<McpServersSectionInjected['signInMcpServer']>((_key, _onNotice, signal) => { seen = signal; return new Promise<void>(() => {}) }),
+  })
+  fireEvent.click(await screen.findByRole('button', { name: en.mcpSignIn }))
+  expect(seen?.aborted).toBe(false)
+  cleanup()
+  expect(seen?.aborted).toBe(true)
+})
+
+it('parses header lines for an HTTP server', async () => {
+  const face = mount()
+  fireEvent.change(screen.getByRole('textbox', { name: en.mcpName }), { target: { value: 'forge' } })
+  fireEvent.change(screen.getByRole('combobox', { name: en.mcpTransport }), { target: { value: 'streamable-http' } })
+  fireEvent.change(screen.getByRole('textbox', { name: en.mcpUrl }), { target: { value: ' https://mcp.test/mcp ' } })
+  fireEvent.change(screen.getByRole('textbox', { name: en.mcpHeaders }), {
+    target: { value: ['Authorization: Bearer a:b', 'no colon', ': empty', ' X-Team : core '].join(String.fromCharCode(13, 10)) },
+  })
+  fireEvent.click(screen.getByRole('button', { name: en.mcpAdd }))
+  await waitFor(() => {
+    expect(face.addMcpServer).toHaveBeenLastCalledWith({
+      transport: 'streamable-http', serverName: 'forge', url: 'https://mcp.test/mcp', headers: { 'Authorization': 'Bearer a:b', 'X-Team': 'core' },
+    })
+  })
 })

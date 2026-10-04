@@ -23,6 +23,14 @@ export interface McpServerCandidate {
   readonly configured: boolean
 }
 
+/** Live connection of one MCP server, as its client reports it. */
+export interface McpServerConnection {
+  readonly state: 'connecting' | 'connected' | 'auth-required' | 'failed'
+  readonly toolCount: number
+  readonly error?: string
+  readonly authKey?: string
+}
+
 /** Configured MCP client entry as listed in Settings. */
 export interface McpServerRow {
   readonly entryId: string
@@ -33,6 +41,7 @@ export interface McpServerRow {
   readonly enabled: boolean
   readonly phase: string | null
   readonly removable: boolean
+  readonly connection?: McpServerConnection
 }
 
 function object(value: unknown): Record<string, unknown> | undefined {
