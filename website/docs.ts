@@ -337,7 +337,7 @@ const reference = [
   }))),
   ...sitePages(([
     ['docs/config-catalog.md', 'reference/config-catalog.md', 'Plugin configuration'],
-    ['docs/tool-catalog.md', 'reference/tool-catalog.md', 'Tool Schema', 'Tool schemas'],
+    ['docs/tool-catalog.md', 'reference/tool-catalog.md', 'Tool schemas'],
     ['docs/persistence-catalog.md', 'reference/persistence-catalog.md', 'Persistence events', 'deep'],
   ] as const).map(([source, route, label, outline], order): SitePage => ({
     source,
