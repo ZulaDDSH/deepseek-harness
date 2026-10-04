@@ -4,6 +4,7 @@ import LlmRuntime from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import * as jevPlugin from '../src/index.ts'
 import { jevDecisionProjection } from '../src/projection.ts'
+import type { JevDecisionRecord } from '../src/types.ts'
 
 const decision = (data: SessionEvent['data']): SessionEvent => ({ type: 'jev/decision', data, time: 1 }) as SessionEvent
 
@@ -11,7 +12,7 @@ it('keeps the latest Jev decision and ignores other events', () => {
   const { init, apply, stateSchema, wire } = jevDecisionProjection
   const routed = { turn: 1, step: 1, choice: 'small', confidence: 0.9, provider: 'target', model: 'small' }
   const failed = { turn: 2, step: 1, error: 'timeout' }
-  let state = init()
+  let state: JevDecisionRecord | null = init()
   expect(state).toBeNull()
   state = apply(state, decision(routed))
   expect(state).toEqual(routed)
