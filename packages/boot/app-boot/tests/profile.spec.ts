@@ -783,6 +783,23 @@ describe('removeLinkProjections', () => {
     expect(() => { removeLinkProjections(profile) }).not.toThrow()
   })
 
+  it('leaves a .dsh-module-fallback that is itself a link to an external directory untouched', () => {
+    const home = tmp()
+    const profile = join(home, 'profiles', 'web')
+    const external = join(home, 'elsewhere', 'module-fallback')
+    const projected = join(home, 'elsewhere', 'projected')
+    packageAt(projected, 'projected', '1.0.0')
+    link(projected, join(external, 'node_modules', 'projected'))
+    link(external, join(profile, '.dsh-module-fallback'))
+
+    removeLinkProjections(profile)
+
+    expect(lstatSync(join(external, 'node_modules', 'projected'), { throwIfNoEntry: false })?.isSymbolicLink()).toBe(true)
+    expect(readlinkSync(join(external, 'node_modules', 'projected'))).toBe(projected)
+    expect(existsSync(join(projected, 'package.json'))).toBe(true)
+    expect(lstatSync(join(profile, '.dsh-module-fallback'), { throwIfNoEntry: false })?.isSymbolicLink()).toBe(true)
+  })
+
   it('removes the directory when the profile has no node_modules and keeps links whose target parent is gone', () => {
     const home = tmp()
     const profile = join(home, 'profiles', 'web')
