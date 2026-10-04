@@ -19,7 +19,7 @@
  * shows a spinner in place of its chevron, and each row whose value that
  * selection carries shows one in place of its check mark.
  */
-import { MenuSurface } from '@deepseek-ai/dsh-client-ui-primitives'
+import { MenuSurface, Pill } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore,
   type CSSProperties, type KeyboardEvent, type FocusEvent,
@@ -471,15 +471,14 @@ export function ModelSelect(
                   {[{ id: null, name: t('filter.all') }, ...groups.map(group => ({
                     id: group.id, name: group.id === 'deepseek-account' ? t('provider.account') : group.name,
                   }))].map(filter => (
-                    <button
+                    <Pill
                       key={filter.id ?? ''}
-                      type="button"
-                      className={css.filter}
+                      active={providerFilter === filter.id}
                       aria-pressed={providerFilter === filter.id}
                       onClick={() => { setProviderFilter(filter.id) }}
                     >
                       {filter.name}
-                    </button>
+                    </Pill>
                   ))}
                 </div>
               )}

@@ -112,8 +112,8 @@
 
 ## 输入框中的路由模型
 
-`packages/client/ui-model-selection/src/client/RoutedModel.tsx:RoutedModel` 位于 `conversation.input.right`，紧挨模型选择器左侧；当最近一次请求实际运行的模型与所选模型不同时，显示"当前：<model>"。它读取现有的 `modelSelection` 投影（`packages/api/session-controller/src/model-selection-projection.ts`）：`lastUsed` 来自每个 `request/header`，因此已经反映 `llm-jev-router` 选择的模型，`next` 是用户的选择。无需 Jev 专用投影。未选择模型时，`next` 回退为 `lastUsed`，此时模型选择器本身显示路由后的模型，标签保持隐藏。
+`packages/client/ui-model-selection/src/client/JevRouting.tsx:JevRouting` 是位于 `conversation.input.right`、紧挨模型选择器左侧的按钮。当 Jev 在本会话中做出过决定，或最近一次请求实际运行的模型与所选模型不同时显示，文字为"Jev"，路由时为"Jev：<model>"。点击后打开面板，列出当前运行的模型（`modelSelection.lastUsed`，来自每个 `request/header`）、所选模型（`modelSelection.next`）以及 Jev 最近的决定：路由及其置信度、保留聊天模型或失败原因。决定来自 `jevDecision` 投影（`packages/llm/llm-jev-router/src/projection.ts:jevDecisionProjection`），它保存最新的 `jev/decision`，因此重新加载或较早事件被分页移出后面板仍然可用。其类型通过路由器的 `./types` 与 `./client` 出口发布，客户端包仅以类型方式导入。聊天记录中不会新增任何内容。
 
 ## 模型选择器中的提供方筛选
 
-`packages/client/ui-model-selection/src/client/ModelSelect.tsx:ModelSelect` 在加载了多个提供方时，于模型搜索框下方显示一行提供方筛选按钮（"全部"以及每个提供方分组各一个）。选择某个提供方会把 `visibleGroups` 缩小到该分组，并包含其中已收藏的模型，因此"收藏"分区仅在"全部"下显示；搜索仍在所选提供方内生效。每次打开选择器时，筛选都会重置为"全部"。
+`packages/client/ui-model-selection/src/client/ModelSelect.tsx:ModelSelect` 在加载了多个提供方时，于模型搜索框下方显示一行提供方筛选按钮（"全部"以及每个提供方分组各一个）。选择某个提供方会把 `visibleGroups` 缩小到该分组，并包含其中已收藏的模型，因此"收藏"分区仅在"全部"下显示；搜索仍在所选提供方内生效。每次打开选择器时，筛选都会重置为"全部"。这些筛选按钮使用共享的 `Pill` 组件。其所在行设为 `flex: 0 0 auto`：菜单卡片是限高的纵向布局，可收缩的行会被压到内容高度以下，与第一个分组标题重叠。

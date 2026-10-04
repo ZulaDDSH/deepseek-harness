@@ -14,6 +14,8 @@ import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
+import { jevDecisionProjection } from './projection.ts'
+import type { JevDecisionRecord } from './types.ts'
 
 export const name = 'llm-jev-router'
 export const inject = ['llm']
@@ -352,16 +354,7 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/** One Jev routing outcome recorded for inspection. */
-export interface JevDecisionRecord {
-  readonly turn: number
-  readonly step: number
-  readonly choice?: string
-  readonly confidence?: number
-  readonly provider?: string
-  readonly model?: string
-  readonly error?: string
-}
+export type { JevDecisionRecord } from './types.ts'
 
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
@@ -465,6 +458,7 @@ export function apply(ctx: Context, initial: RuntimeConfig): void {
     return launchEnvironmentOf(ctx).get(config.apiKeyEnv)?.value
   })
   new JevRouter(ctx, current, client, states)
+  ctx.inject(['sessionProjections'], (inner) => { inner.sessionProjections.register(jevDecisionProjection) })
   ctx.llm.registerConfigurableProviders([{
     provider: 'jev-router',
     displayName: 'TypeSafe / Jev',

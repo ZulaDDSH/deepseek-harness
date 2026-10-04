@@ -1,0 +1,29 @@
+/**
+ * Jev routing types shared with clients: the decision record and the Session
+ * projection that carries the latest one.
+ *
+ * @module @deepseek-ai/dsh-llm-jev-router/types
+ */
+
+import type {} from '@deepseek-ai/dsh-session-projection'
+
+/** One Jev routing outcome recorded for inspection. */
+export interface JevDecisionRecord {
+  readonly turn: number
+  readonly step: number
+  readonly choice?: string
+  readonly confidence?: number
+  readonly provider?: string
+  readonly model?: string
+  readonly error?: string
+}
+
+declare module '@deepseek-ai/dsh-session-projection/types' {
+  interface SessionProjectionMap {
+    /** The latest Jev routing outcome in the Session, or null before the first one. */
+    jevDecision: JevDecisionRecord | null
+  }
+  interface SessionProjectionStateMap {
+    jevDecision: JevDecisionRecord | null
+  }
+}

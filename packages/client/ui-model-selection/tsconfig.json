@@ -51,6 +51,9 @@
       "path": "../../api/session-controller/tsconfig.client.json"
     },
     {
+      "path": "../../llm/llm-jev-router"
+    },
+    {
       "path": "../../util/values"
     },
     {
