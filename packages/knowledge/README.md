@@ -5,8 +5,6 @@ kind: "package-group"
 
 # knowledge/ — shared knowledge
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 The knowledge group contributes shared-knowledge policy to the system prompt and reads knowledge records from a configured Git repository. Retrieval supplies records on demand; the policy package does not inject their contents into model requests.

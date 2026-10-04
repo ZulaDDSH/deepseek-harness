@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-09-18-pi-ai-catalog-supplement.zh.md)
-
 ## Problem
 
 pi-ai generates its provider catalogs from [models.dev](https://models.dev) and publishes them inside a versioned package, so a model a provider adds between pi-ai releases is absent from the harness until the dependency is upgraded. OpenCode Go added DeepSeek V4.1 Flash after `@earendil-works/pi-ai@0.85.1` (npm `latest`) shipped, so the model was missing from every selector and could not be requested. The existing configuration cannot fill the gap: a profile's `models` list replaces the route's whole catalog, and a route `api` override applies to every model, so a chat-completions model cannot be added to opencode-go's mixed catalog (anthropic-messages, openai-completions, and openai-responses) without dropping its other models. opencode itself — and OpenChamber, which wraps it — reads models.dev live, so it lists the model without a client update; the harness builds offline and reproducibly and does not fetch a catalog at request time.

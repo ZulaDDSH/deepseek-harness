@@ -5,8 +5,6 @@ kind: persistence-change
 
 # 2026-09-27-mcp-connector-selection
 
-English | [中文](2026-09-27-mcp-connector-selection.zh.md)
-
 ## Summary
 
 Adds the mcp/selection Session event with the selected connectorIds.

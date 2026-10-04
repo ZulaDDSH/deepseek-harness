@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-client-ui-provider-quota
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Use this package to show provider quota and session token usage in the conversation header. It reads configured provider results from the Host `quota` Remote namespace, renders percentage windows, balances, reset times, and provider status, and can show the current Session's durable token total. It owns presentation and refresh state only; provider credentials and quota requests remain on the Host.

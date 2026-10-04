@@ -15,7 +15,7 @@ import {
 } from './persistence-catalog-source.ts'
 import { extractPersistenceSchema } from './persistence-schema.ts'
 import { persistenceCatalogText, type PersistenceCatalogLocale } from './persistence-catalog-text.ts'
-import { renderPersistencePair, type PersistenceArtifact } from './persistence-artifacts.ts'
+import type { PersistenceArtifact } from './persistence-artifacts.ts'
 
 export { annotateSurface, collectEventEnvelopeTypes, collectLogEvents, collectSurfaceEventTypes } from './persistence-catalog-source.ts'
 export type { AnnotatedLogEventEntry, EventEnvelopeTypeEntry, LogEventEntry } from './persistence-catalog-source.ts'
@@ -64,9 +64,7 @@ function typeLinks(payload: string, locale: PersistenceCatalogLocale): string {
   }
   if (seen.size === 0) return ''
   const links = Object.entries(LINK_MAP).filter(([name]) => seen.has(name)).sort(([left], [right]) => left.localeCompare(right))
-    .map(([name, path]) => {
-      return `[${name}](${locale === 'zh' ? path.replace(/\.md$/u, '.zh.md') : path})`
-    })
+    .map(([name, path]) => `[${name}](${path})`)
   return `${persistenceCatalogText[locale].types}${links.join(' · ')}`
 }
 
@@ -95,7 +93,6 @@ export function render(
     '',
     `# ${text.title}`,
     '',
-    ...(locale === 'zh' ? ['[English](persistence-catalog.md) | 中文', ''] : []),
     text.intro,
     '',
     text.generation,
@@ -170,13 +167,13 @@ export function renderKnownEventTypes(events: AnnotatedLogEventEntry[]): string 
  * Render the complete generated persistence reference from one extracted inventory.
  * @param scanRoot - checkout whose source event declarations supply JSDoc.
  * @param schema - already extracted source schemas; shared with record validation.
- * @returns both catalog languages, pairing metadata, runtime names and machine schemas.
+ * @returns the catalog, runtime names and machine schemas.
  */
 export function persistenceCatalogArtifacts(scanRoot: string, schema: PersistenceSchemaInventory): PersistenceArtifact[] {
   const events = annotateSurface(collectLogEvents(scanRoot), collectSurfaceEventTypes(scanRoot))
   const envelope = collectEventEnvelopeTypes(scanRoot)
   return [
-    ...renderPersistencePair(scanRoot, OUT, render(events, envelope, schema), render(events, envelope, schema, 'zh')),
+    { path: OUT, content: render(events, envelope, schema) },
     { path: OUT_RUNTIME_TYPES, content: renderKnownEventTypes(events) },
     { path: OUT_SCHEMA, content: `${JSON.stringify(persistenceSchemaSnapshot(schema), null, 2)}\n` },
   ]

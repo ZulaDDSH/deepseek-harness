@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-09-15-chat-sections-browser-local-grouping.zh.md)
-
 ## Problem
 
 The sidebar could only group Sessions by Workspace. `ClientWorkspaceModel.sessionIds` is Host-durable membership that also selects a Session's working directory, and the browser's `Group by` modes (Workspace, Workspace tree, flat, activity) all re-project that one membership. A user who wanted to keep "Code Review" and "Research" beside each other had no way to say so: registering a Workspace would have changed the Session's `cwd`, which is not what they were asking for.

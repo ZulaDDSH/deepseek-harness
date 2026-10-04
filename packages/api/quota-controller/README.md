@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-api-quota-controller
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Use this package when a browser surface needs normalized provider quota or balance data without receiving credential values. It exposes configured providers through the `quota` Remote namespace, resolves credentials on the Host, coalesces concurrent reads per provider, and returns only client-safe usage fields. The built-in registry covers DeepSeek credits and OpenCode Go windows and can be extended by Host composition.

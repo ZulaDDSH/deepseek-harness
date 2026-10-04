@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-09-25-pi-ai-request-modes.zh.md)
-
 ## Problem
 
 Codex fast mode changes the service tier of a model request while keeping the provider model id. A selectable mode needs its own model id in the harness without sending that alias to the provider.

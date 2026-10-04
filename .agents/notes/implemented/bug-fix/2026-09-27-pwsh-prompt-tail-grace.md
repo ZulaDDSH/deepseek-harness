@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-09-27-pwsh-prompt-tail-grace.zh.md)
-
 ## Problem
 
 Windows sessions on the self-hosted lane settled one or two of seven sends on the controlled prompt and charged the silence tier for the rest (2026-09-25/26, issue #2487). The exact readiness evidence is the controlled prompt's printable tail after the OSC `133;D` marker, and the bound on waiting for it was `idleSilenceMs + handoffGraceMs`. A native Windows probe shows the render arrives as two pty chunks: the marker alone, then the five-byte `dsh> ` 2-28 ms later (56 renders), with nothing printable after any prompt and no terminal queries in the output. The marker is written by the shell's own prompt function and the tail by the same render, so a tail that arrives past the bound means the host stalled that delivery, not that the prompt is absent. The session settled `inferred_idle` anyway, and each such send cost the tool call roughly three seconds.
