@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { PluginInventorySnapshot } from '@deepseek-ai/dsh-api-remotes/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { PluginInventorySettingsTabInjected } from './PluginInventorySettingsTab.tsx'
-import { Button, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconSearchOutlineRegular, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './PluginInventorySettingsTab.module.css'
 
 type HookInventoryReport = NonNullable<PluginInventorySnapshot['hooks']>[number]
@@ -23,8 +23,14 @@ export function hookName(command: string): string {
   return script.replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '')
 }
 
+type HookHandler = HookInventoryReport['handlers'][number]
+
+function eventLabel(handler: HookHandler): string {
+  return handler.matcher === undefined ? handler.event : `${handler.event} (${handler.matcher})`
+}
+
 function groupByScript(handlers: HookInventoryReport['handlers']): [string, HookInventoryReport['handlers']][] {
-  const groups = new Map<string, HookInventoryReport['handlers'][number][]>()
+  const groups = new Map<string, HookHandler[]>()
   for (const handler of handlers) {
     const name = hookName(handler.command)
     groups.set(name, [...groups.get(name) ?? [], handler])
@@ -39,6 +45,7 @@ export function HooksSettingsSection({ t, list, setEnabledHooks, setHookDescript
   const [busy, setBusy] = useState(false)
   const [revision, setRevision] = useState(0)
   const [editing, setEditing] = useState<{ id: string; draft: string }>()
+  const [query, setQuery] = useState('')
   useEffect(() => {
     let current = true
     setFailed(false)
@@ -69,25 +76,47 @@ export function HooksSettingsSection({ t, list, setEnabledHooks, setHookDescript
     report.handlers.filter(handler => handler.disabled !== true).map(handler => handler.key)
   const controlled = (snapshot?.hooks ?? []).flatMap(report =>
     report.settingsNs === undefined ? [] : [{ report, entryId: report.settingsNs }])
+  const needle = query.trim().toLowerCase()
+  const searching = needle.length > 0
+  const matches = (report: HookInventoryReport, name: string, handlers: readonly HookHandler[]): boolean =>
+    !searching || [report.source, report.dialect, name, ...handlers.flatMap(handler =>
+      [eventLabel(handler), handler.command, handler.description ?? ''])].join('\n').toLowerCase().includes(needle)
+  const visible = controlled
+    .map(item => ({
+      ...item,
+      groups: groupByScript(item.report.handlers).filter(([name, handlers]) => matches(item.report, name, handlers)),
+    }))
+    .filter(item => !searching || item.groups.length > 0)
   return <section className={css.section}>
     <h2>{t('hooksTitle')}</h2>
     <p>{t('hooksHelp')}</p>
     <Button variant="outline" onClick={() => { setRevision(value => value + 1) }}>{t('hooksRefresh')}</Button>
     {writeFailed === undefined ? null : <p role="alert">{t('hooksWriteFailed')}: {writeFailed}</p>}
     {failed ? <p role="alert">{t('error')}</p> : snapshot === undefined ? <p>{t('loading')}</p> : <>
-      {controlled.length === 0 ? <p>{t('hooksEmpty')}</p> : null}
-      {controlled.map(({ report, entryId }, index) => {
+      {controlled.length === 0 ? <p>{t('hooksEmpty')}</p> : <label className={css.search}>
+        <IconSearchOutlineRegular aria-hidden="true" />
+        <input
+          type="search"
+          value={query}
+          placeholder={t('hooksSearch')}
+          aria-label={t('hooksSearch')}
+          onChange={(event) => { setQuery(event.currentTarget.value) }}
+        />
+      </label>}
+      {controlled.length > 0 && visible.length === 0 ? <p>{t('hooksEmptySearch')}</p> : null}
+      {visible.map(({ report, entryId, groups }, index) => {
         return <article key={index}>
-          <h3 title={report.source}>{report.dialect}</h3>
+          <h3>{report.dialect}</h3>
+          <p className={css.hint}><code className={css.hookCommand}>{report.source}</code></p>
           {report.error === undefined ? null : <p role="alert">{report.error}</p>}
-          {report.handlers.length > 0 ? <p>
+          {report.handlers.length > 0 && !searching ? <p>
             <Button variant="outline" disabled={busy} onClick={() => { write(entryId, report.handlers.map(handler => handler.key)) }}>
               {t('hooksEnableAll')}
             </Button>
             {' '}
             <Button variant="outline" disabled={busy} onClick={() => { write(entryId, []) }}>{t('hooksDisableAll')}</Button>
           </p> : null}
-          <ul>{groupByScript(report.handlers).map(([name, handlers]) => {
+          <ul>{groups.map(([name, handlers]) => {
             const keys = handlers.map(handler => handler.key)
             const on = handlers.every(handler => handler.disabled !== true)
             const description = handlers.find(handler => handler.description !== undefined)?.description
@@ -102,7 +131,9 @@ export function HooksSettingsSection({ t, list, setEnabledHooks, setHookDescript
                   write(entryId, next ? [...others, ...keys] : others)
                 }}
               />
-              {' '}<strong>{name}</strong> — <small>{[...new Set(handlers.map(handler => handler.event))].join(', ')}</small>
+              {' '}<strong>{name}</strong> — <small>{[...new Set(handlers.map(eventLabel))].join(', ')}</small>
+              {[...new Set(handlers.map(handler => handler.command))].map(command =>
+                <p key={command} className={css.hint}><code className={css.hookCommand}>{command}</code></p>)}
               {editing?.id === id
                 ? <form onSubmit={(event) => { event.preventDefault(); describe(entryId, report, keys, editing.draft) }}>
                   <input
