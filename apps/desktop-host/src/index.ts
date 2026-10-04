@@ -54,7 +54,7 @@ async function main(): Promise<void> {
     const running = await application.catch(() => undefined)
     await running?.shutdown.shutdown(0)
     await send({ type: 'shutdown-complete' })
-    if (process.connected) process.disconnect()
+    if (process.connected) process.disconnect?.()
   })()
   process.on('message', (message: unknown) => {
     if (typeof message !== 'object' || message === null || !('type' in message)) return
@@ -64,8 +64,9 @@ async function main(): Promise<void> {
       const requestId = message.requestId
       void (async () => {
         try {
-          if (stopping !== undefined || control.quitInspection === undefined) throw new Error('desktop quit: Host is unavailable')
-          const inspection = await control.quitInspection()
+          const quitInspection = control.quitInspection
+          if (stopping !== undefined || quitInspection === undefined) throw new Error('desktop quit: Host is unavailable')
+          const inspection = await quitInspection()
           await send({ type: 'quit-inspection', requestId, ...inspection })
         } catch (error) {
           // The shell treats an unknown state as interruptible work and asks before quitting.
@@ -79,8 +80,9 @@ async function main(): Promise<void> {
       || !('action' in message) || !['inspect', 'lock', 'unlock'].includes(String(message.action))) return
     void (async () => {
       try {
-        if (stopping !== undefined || control.updateTasks === undefined) throw new Error('desktop update: Host is unavailable')
-        const active = await control.updateTasks(message.action as 'inspect' | 'lock' | 'unlock')
+        const updateTasks = control.updateTasks
+        if (stopping !== undefined || updateTasks === undefined) throw new Error('desktop update: Host is unavailable')
+        const active = await updateTasks(message.action as 'inspect' | 'lock' | 'unlock')
         await send({ type: 'update-tasks', requestId: message.requestId, active })
       } catch (error) {
         await send({ type: 'update-tasks', requestId: message.requestId, active: true,
@@ -117,6 +119,6 @@ if (import.meta.main) {
     if (process.connected) process.send?.({ type: 'fatal', message, diagnostic }, (error) => { if (error !== null) console.error(error) })
     console.error(error)
     process.exitCode = 1
-    if (process.connected) process.disconnect()
+    if (process.connected) process.disconnect?.()
   })
 }

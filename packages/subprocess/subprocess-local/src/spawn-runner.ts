@@ -434,7 +434,7 @@ class WindowsJobRunner {
     this.host.off('message', this.onMessage)
     this.host.off('disconnect', this.onDisconnect)
     this.host.exitCode = exitCode
-    if (disconnect && this.host.connected) this.host.disconnect()
+    if (disconnect && this.host.connected) this.host.disconnect?.()
     this.completion.resolve()
   }
 }
@@ -475,7 +475,7 @@ export async function reportSpawnRunnerFailure(
   if (selection === WINDOWS_RUNNER_SELECTION) {
     try { await sendMessage(host, { type: 'error', error: serializeRunnerError(error) }) } catch { /* No transport remains. */ }
     host.exitCode = 127
-    if (host.connected) host.disconnect()
+    if (host.connected) host.disconnect?.()
     return
   }
   if (selection !== undefined) {

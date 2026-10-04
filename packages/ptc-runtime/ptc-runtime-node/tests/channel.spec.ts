@@ -1,12 +1,12 @@
-import { Duplex, PassThrough } from 'node:stream'
+import { Duplex, PassThrough, Readable, Writable } from 'node:stream'
 import { describe, expect, it, onTestFinished } from 'vitest'
 import { JsonChannel } from '../src/channel.ts'
 
 function pair() {
   const left = new PassThrough()
   const right = new PassThrough()
-  const a = Duplex.from({ readable: left, writable: right })
-  const b = Duplex.from({ readable: right, writable: left })
+  const a = Duplex.fromWeb({ readable: Readable.toWeb(left), writable: Writable.toWeb(right) })
+  const b = Duplex.fromWeb({ readable: Readable.toWeb(right), writable: Writable.toWeb(left) })
   // Duplex.from forwards peer destruction as ABORT_ERR; channel owners observe their own failures.
   a.on('error', () => {})
   b.on('error', () => {})

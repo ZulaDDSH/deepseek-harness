@@ -10,6 +10,7 @@
  * `process.platform === 'linux'`, so a Windows branch means a bug.
  */
 import { DSH_ROOT } from '../../../storage/paths.ts'
+import type { FormatInputPathObject } from 'node:path'
 
 const CHAR_DOT = 46
 const CHAR_FORWARD_SLASH = 47
@@ -308,7 +309,7 @@ export function extname(path: string): string {
  * @param pathObject - dir/root/base/name/ext parts.
  * @returns the assembled path.
  */
-export function format(pathObject: Partial<ParsedPath>): string {
+export function format(pathObject: FormatInputPathObject): string {
   const dir = pathObject.dir ?? pathObject.root ?? ''
   const base = pathObject.base ?? `${pathObject.name ?? ''}${pathObject.ext ?? ''}`
   if (dir === '') return base
