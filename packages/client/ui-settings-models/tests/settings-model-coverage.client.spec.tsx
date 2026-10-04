@@ -296,6 +296,38 @@ describe('Jev page apply', () => {
     expect(load).toHaveBeenCalled()
   })
 
+  it('keeps the key shown as stored when the follow-up read is refused', async () => {
+    const storeCredential = vi.fn(async () => undefined)
+    const ops: ModelsOperations = { ...operations, describeCredential: vi.fn(async () => undefined), storeCredential }
+    mount([row('jev-router', 'llm-jev-router', [], true)], [namespace('llm-jev-router', JevConfig, jevValue)], [], true, ops)
+    const key = screen.getByLabelText<HTMLInputElement>(en.keyInput)
+    fireEvent.change(key, { target: { value: 'sk-jev' } })
+    fireEvent.click(screen.getByRole('button', { name: en.apply }))
+    await waitFor(() => { expect(key.placeholder).toBe(en.keyStored) })
+  })
+
+  it('drops the earlier confirmation when a later apply fails or is cancelled', async () => {
+    const storeCredential = vi.fn<ModelsOperations['storeCredential']>(async () => undefined)
+    const ops: ModelsOperations = { ...operations, storeCredential }
+    mount([row('jev-router', 'llm-jev-router', [], true)], [namespace('llm-jev-router', JevConfig, jevValue)], [], true, ops)
+    const key = screen.getByLabelText<HTMLInputElement>(en.keyInput)
+    fireEvent.change(key, { target: { value: 'sk-one' } })
+    fireEvent.click(screen.getByRole('button', { name: en.apply }))
+    expect((await screen.findByRole('status')).textContent).toBe('Saved jev-router.')
+
+    storeCredential.mockResolvedValueOnce('key refused')
+    fireEvent.change(key, { target: { value: 'sk-two' } })
+    fireEvent.click(screen.getByRole('button', { name: en.apply }))
+    expect(await screen.findByText('key refused')).toBeTruthy()
+    expect(screen.queryByRole('status')).toBeNull()
+
+    fireEvent.change(key, { target: { value: 'sk-three' } })
+    fireEvent.click(screen.getByRole('button', { name: en.apply }))
+    expect((await screen.findByRole('status')).textContent).toBe('Saved jev-router.')
+    fireEvent.click(screen.getByRole('button', { name: en.cancel }))
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
   it('reloads without confirming when the edit is cancelled', () => {
     const { load } = mount([row('jev-router', 'llm-jev-router', [], true)], [namespace('llm-jev-router', JevConfig, jevValue)], [], true)
     fireEvent.click(screen.getByRole('button', { name: en.cancel }))

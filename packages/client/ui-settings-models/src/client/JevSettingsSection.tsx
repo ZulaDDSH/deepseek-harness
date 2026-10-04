@@ -35,9 +35,10 @@ export function JevSettingsSection({
         credentialsRevision={revision} readOnly={!state.writable}
         modelOptions={providerModelOptions(state, schema)}
         onCredentialChanged={reload}
+        onSubmitCredential={() => { setSaved(undefined) }}
         onClose={(changed) => {
           reload()
-          if (changed) setSaved(providerCopy(t('savedProvider'), { provider: row.entry.provider, displayName: row.entry.displayName }))
+          setSaved(changed ? providerCopy(t('savedProvider'), { provider: row.entry.provider, displayName: row.entry.displayName }) : undefined)
         }}
       />}
   </div>
