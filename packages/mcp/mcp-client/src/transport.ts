@@ -6,7 +6,7 @@
  * @module
  */
 
-import type { Transport } from '@modelcontextprotocol/client'
+import type { AuthProvider, Transport } from '@modelcontextprotocol/client'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
@@ -69,9 +69,10 @@ export function resolveHttpHeaders(
  *
  * @param config - Resolved plugin config discriminated on `transport`.
  * @param environment - complete stdio environment snapshot, when supplied.
+ * @param authProvider - OAuth bearer source for a Streamable HTTP connection, when sign-in is offered.
  * @returns A connected-ready MCP Transport (stdio or Streamable HTTP).
  */
-export function createTransport(config: Config, environment?: Record<string, string>): Transport {
+export function createTransport(config: Config, environment?: Record<string, string>, authProvider?: AuthProvider): Transport {
   switch (config.transport) {
     case 'stdio':
       return new StdioClientTransport({
@@ -83,7 +84,10 @@ export function createTransport(config: Config, environment?: Record<string, str
     case 'streamable-http':
       return new StreamableHTTPClientTransport(
         new URL(config.url),
-        { requestInit: { headers: resolveHttpHeaders(config, { required: true }) } },
+        {
+          requestInit: { headers: resolveHttpHeaders(config, { required: true }) },
+          ...authProvider === undefined ? {} : { authProvider },
+        },
       )
   }
 }

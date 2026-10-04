@@ -234,6 +234,17 @@ export const zh = {
   mcpCommandPlaceholder: 'node',
   mcpArgsPlaceholder: 'server.js --flag',
   mcpUrlPlaceholder: 'https://',
+  mcpHeaders: '请求头',
+  mcpHeadersPlaceholder: '每行一个 Name: value，例如 Authorization: Bearer …',
+  mcpHeadersHint: '留空则通过服务器登录授权。请求头的值会保存在配置文件中。',
+  mcpConnecting: '正在连接…',
+  mcpConnectedOne: '已连接 · 1 个工具',
+  mcpConnectedMany: '已连接 · {count} 个工具',
+  mcpAuthRequired: '需要登录',
+  mcpConnectionFailed: '连接失败：{error}',
+  mcpSignIn: '登录',
+  mcpSignInCancel: '取消登录',
+  mcpSignInOpenPage: '打开登录页面',
 } satisfies Record<string, string>
 
 /** Plugin manager locale key union. */
@@ -468,4 +479,15 @@ export const en = {
   mcpCommandPlaceholder: 'node',
   mcpArgsPlaceholder: 'server.js --flag',
   mcpUrlPlaceholder: 'https://',
+  mcpHeaders: 'Headers',
+  mcpHeadersPlaceholder: 'One Name: value per line, e.g. Authorization: Bearer …',
+  mcpHeadersHint: 'Leave empty to sign in with the server instead. Header values are stored in the profile configuration.',
+  mcpConnecting: 'Connecting…',
+  mcpConnectedOne: 'Connected · 1 tool',
+  mcpConnectedMany: 'Connected · {count} tools',
+  mcpAuthRequired: 'Sign-in required',
+  mcpConnectionFailed: 'Connection failed: {error}',
+  mcpSignIn: 'Sign in',
+  mcpSignInCancel: 'Cancel sign-in',
+  mcpSignInOpenPage: 'Open sign-in page',
 } satisfies Record<PluginManagerLocaleKey, string>

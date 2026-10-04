@@ -167,6 +167,17 @@ export function apply(ctx: ClientContext): void {
     addMcpServer: config => changed(ctx.remote.pluginManager.addMcpServer(config)),
     removeMcpServer: entryId => changed(ctx.remote.pluginManager.removeMcpServer(entryId as never)),
     setMcpServerEnabled: (entryId, enabled) => changed(ctx.remote.pluginManager.setPluginEnabled(entryId as never, enabled)),
+    signInMcpServer: async (authKey, onNotice, signal) => {
+      const authorization = ctx.get('remote.authorization') as NonNullable<ClientContext['remote']['authorization']> | undefined
+      if (authorization === undefined) throw new Error('sign-in is not available on this host')
+      try {
+        for await (const item of authorization.begin(authKey, undefined, signal)) {
+          if (item.type === 'notice') onNotice({ message: item.message, ...item.url === undefined ? {} : { url: item.url } })
+        }
+      } catch (error: unknown) {
+        if (!signal.aborted) throw error
+      }
+    },
   }
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section', id: 'mcp', order: 60, label: () => t('mcpNav'), locale: NS,

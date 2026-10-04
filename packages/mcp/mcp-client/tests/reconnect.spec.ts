@@ -56,7 +56,8 @@ vi.mock('@modelcontextprotocol/client/stdio', () => ({
 // vi.mock is hoisted above static imports, so the modules under test see the
 // mocked SDK even through a static import.
 import { apply } from '@deepseek-ai/dsh-mcp-client/src/index.ts'
-import { RECONNECT_DEFAULTS, resolveReconnectPolicy, startConnection } from '@deepseek-ai/dsh-mcp-client/src/connection.ts'
+import { startConnection } from '@deepseek-ai/dsh-mcp-client/src/connection.ts'
+import { RECONNECT_DEFAULTS, resolveReconnectPolicy } from '@deepseek-ai/dsh-mcp-client/src/reconnect-policy.ts'
 
 // ---- Helpers ----
 
@@ -172,6 +173,37 @@ describe('reconnect supervisor', () => {
       expect(JSON.stringify(result.content)).toContain('server is disconnected')
     } finally {
       reconnectGate.resolve()
+      await handle.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('reports a failure that is not an Error, cut to a readable length', async () => {
+    mockConnect.mockRejectedValue('x'.repeat(500))
+    const config = stdioConfig({ enabled: false })
+    const handle = startConnection(ctx, config, resolveReconnectPolicy(config.reconnect, 'reconnect'))
+    try {
+      await handle.ready
+      expect(handle.status()).toEqual({ state: 'failed', toolCount: 0, error: 'x'.repeat(300) })
+    } finally {
+      await handle.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('reports connecting, not the previous failure, while a reconnect attempt is in flight', async () => {
+    const gate: PromiseWithResolvers<void> = Promise.withResolvers()
+    mockConnect.mockRejectedValueOnce(new Error('first attempt failed'))
+    mockConnect.mockImplementationOnce(() => gate.promise)
+    const config = stdioConfig({ initialDelayMs: 2, maxDelayMs: 8, maxAttempts: 3 })
+    const handle = startConnection(ctx, config, resolveReconnectPolicy(config.reconnect, 'reconnect'))
+    try {
+      await handle.ready
+      expect(handle.status()).toEqual({ state: 'failed', toolCount: 0, error: 'first attempt failed' })
+      await vi.waitFor(() => { expect(mockConnect).toHaveBeenCalledTimes(2) })
+      expect(handle.status()).toEqual({ state: 'connecting', toolCount: 0 })
+    } finally {
+      gate.resolve()
       await handle.dispose()
       await ctx.fiber.dispose()
     }

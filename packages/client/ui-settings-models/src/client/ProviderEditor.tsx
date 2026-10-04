@@ -34,6 +34,7 @@ import { apiKeyFailure } from './apiKey.ts'
 import { EditorFooter } from './EditorFooter.tsx'
 import { ModelListEditor } from './ModelListEditor.tsx'
 import { SignInCard } from './SignInCard.tsx'
+import { JevFields, jevConfigFailure } from './JevFields.tsx'
 import type { AuthorizationOperations } from './authorization-operations.ts'
 import { deriveKeyRef, protocolChoices } from './store.ts'
 import { protocolLabel } from './protocol-label.ts'
@@ -158,22 +159,6 @@ export function pathOps(
   }
   return ops
 }
-
-/**
- * The editable fields of one Jev route in render order, each paired with the
- * locale key naming it. A `Map` rather than an object literal because a
- * `description` row there reads as unlocalized product copy to the
- * client-i18n gate, which cannot tell a locale key from the copy itself.
- */
-const JEV_ROUTE_FIELDS = new Map([
-  ['id', 'jevRouteId'],
-  ['provider', 'jevRouteProvider'],
-  ['model', 'jevRouteModel'],
-  ['description', 'jevRouteDescription'],
-  ['reasoningEffort', 'jevRouteReasoningEffort'],
-] as const)
-
-const CUSTOM_CHOICE = '__custom__'
 
 /** The editor layout the owning namespace selects. */
 function layoutOf(ns: string): EditorLayout {
@@ -323,6 +308,13 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
         return `${t('model')} ${String(failure.index + 1)}: ${t(failure.key)}`
       }
     }
+    if (layout === 'jev' && props.credentialOnly !== true) {
+      const jevFailure = jevConfigFailure(
+        schema.getPath(next, ['routes']) ?? schema.getPath(fallback, ['routes']),
+        schema.getPath(next, ['fallback']) ?? schema.getPath(fallback, ['fallback']),
+      )
+      if (jevFailure !== undefined) return t(jevFailure)
+    }
     /* v8 ignore next -- apply is only reachable from the rendered card, which required a resolved node */
     if (props.credentialOnly !== true && node !== undefined && settingsPath.length === 0) {
       const sectionError = schema.validate(node, next)
@@ -347,6 +339,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
     if (keyValue.length > 0) {
       const stored = await operations.storeCredential(keyRef, keyValue)
       if (stored !== undefined) return stored
+      setKeyState(await operations.describeCredential(keyRef) ?? { configured: true, writable: true })
     }
     setKeyDraft('')
     return undefined
@@ -399,86 +392,6 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
         : keyState?.configured === true && props.credentialRequired !== true
           ? t('keyStored')
           : t('keyPlaceholder')
-      const effective = (key: string): unknown => schema.getPath(draft, [key]) ?? schema.getPath(fallback, [key])
-      const textValue = (key: string, defaultValue: string): string => {
-        const value = effective(key)
-        return typeof value === 'string' ? value : defaultValue
-      }
-      const numberValue = (key: string, defaultValue: number): number => {
-        const value = effective(key)
-        return typeof value === 'number' ? value : defaultValue
-      }
-      const booleanValue = (key: string, defaultValue: boolean): boolean => {
-        const value = effective(key)
-        return typeof value === 'boolean' ? value : defaultValue
-      }
-      const setNumber = (key: string, value: string): void => {
-        // A cleared or unparseable field unsets the key rather than storing the
-        // zero `Number('')` yields, which the section schema would then refuse.
-        const parsed = value.trim().length === 0 ? Number.NaN : Number(value)
-        setDraft(current => Number.isFinite(parsed)
-          ? schema.setPath(current, [key], parsed)
-          : schema.deletePath(current, [key]))
-      }
-      const routeSource = effective('routes')
-      const routes = Array.isArray(routeSource)
-        ? routeSource.filter((route): route is Record<string, unknown> => (
-          typeof route === 'object' && route !== null && !Array.isArray(route)
-        )).map(route => ({ ...route }))
-        : []
-      const routeText = (route: Record<string, unknown>, key: string): string => {
-        const value = route[key]
-        return typeof value === 'string' ? value : ''
-      }
-      const setRoutes = (next: Record<string, unknown>[]): void => {
-        setDraft(current => schema.setPath(current, ['routes'], next))
-      }
-      const updateRoute = (index: number, key: string, value: string | undefined): void => {
-        setRoutes(routes.map((route, routeIndex) => routeIndex === index
-          ? value === undefined ? schema.deletePath(route, [key]) : { ...route, [key]: value }
-          : route))
-      }
-      const textSetting = (labelKey: keyof typeof en, fieldKey: string, defaultValue: string): ReactNode => (
-        <div className={styles['field']} key={fieldKey}>
-          <label className={styles['fieldLabel']} htmlFor={`jev-${fieldKey}`}>{t(labelKey)}</label>
-          <input
-            id={`jev-${fieldKey}`}
-            className={styles['input']}
-            type="text"
-            value={textValue(fieldKey, defaultValue)}
-            aria-label={t(labelKey)}
-            disabled={disabled}
-            onChange={(event) => { setField(fieldKey, event.target.value) }}
-          />
-        </div>
-      )
-      const numberSetting = (
-        labelKey: keyof typeof en,
-        fieldKey: string,
-        defaultValue: number,
-        min: number,
-        max?: number,
-        step = 1,
-      ): ReactNode => (
-        <div className={styles['field']} key={fieldKey}>
-          <label className={styles['fieldLabel']} htmlFor={`jev-${fieldKey}`}>{t(labelKey)}</label>
-          <input
-            id={`jev-${fieldKey}`}
-            className={styles['input']}
-            type="number"
-            value={numberValue(fieldKey, defaultValue)}
-            min={min}
-            {...max === undefined ? {} : { max }}
-            step={step}
-            aria-label={t(labelKey)}
-            disabled={disabled}
-            onChange={(event) => { setNumber(fieldKey, event.target.value) }}
-          />
-        </div>
-      )
-      const providers = props.modelOptions ?? []
-      const providerIds = [...new Set(providers.map(option => option.provider))].filter(provider => provider !== props.provider)
-      const providerNames = new Map(providers.map(option => [option.provider, option.displayName]))
       const keyField = (
         <div className={styles['field']}>
           <span className={styles['fieldLabel']}>{t('keyInput')}</span>
@@ -502,130 +415,11 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
       return (
         <>
           {keyField}
-          <div className={styles['customizedBody']}>
-            <div className={styles['field']}>
-              <label className={styles['fieldLabel']}>
-                <input
-                  type="checkbox"
-                  checked={booleanValue('enabled', false)}
-                  aria-label={t('jevEnabled')}
-                  disabled={disabled}
-                  onChange={(event) => {
-                    setDraft(current => schema.setPath(current, ['enabled'], event.target.checked))
-                  }}
-                />
-                {t('jevEnabled')}
-              </label>
-            </div>
-            {textSetting('jevApiKeyEnv', 'apiKeyEnv', 'TYPESAFE_API_KEY')}
-            {textSetting('jevEndpoint', 'endpoint', 'https://api.typesafe.ai/v1/systemone')}
-            {textSetting('jevModel', 'model', 'jev-latest')}
-            {numberSetting('jevTimeoutMs', 'timeoutMs', 1500, 1)}
-            {numberSetting('jevMinConfidence', 'minConfidence', 0.8, 0, 1, 0.01)}
-            {numberSetting('jevStateMaxChars', 'stateMaxChars', 12000, 256)}
-            {textSetting('jevFallback', 'fallback', 'keep')}
-            <div className={styles['field']}>
-              <label className={styles['fieldLabel']}>
-                <input
-                  type="checkbox"
-                  checked={booleanValue('failOpen', true)}
-                  aria-label={t('jevFailOpen')}
-                  disabled={disabled}
-                  onChange={(event) => {
-                    setDraft(current => schema.setPath(current, ['failOpen'], event.target.checked))
-                  }}
-                />
-                {t('jevFailOpen')}
-              </label>
-            </div>
-            <div className={styles['field']}>
-              <span className={styles['fieldLabel']}>{t('jevRoutes')}</span>
-              <div className={styles['modelList']}>
-                {routes.map((route, index) => {
-                  const selectedProvider = routeText(route, 'provider')
-                  const selectedModels = providers.find(option => option.provider === selectedProvider)?.models ?? []
-                  const effortIds = providers.find(option => option.provider === selectedProvider)?.efforts?.[routeText(route, 'model')] ?? []
-                  return (
-                    <div className={styles['modelEntry']} key={`${routeText(route, 'id')}-${index}`}>
-                      {[...JEV_ROUTE_FIELDS].map(([fieldKey, labelKey]) => {
-                        const options = fieldKey === 'provider' ? providerIds
-                          : fieldKey === 'model' ? selectedModels
-                            : fieldKey === 'reasoningEffort' ? effortIds : undefined
-                        const fieldId = `jev-route-${index}-${fieldKey}`
-                        const current = routeText(route, fieldKey)
-                        const choices = options === undefined ? [] : [...new Set([...options, current].filter(value => value.length > 0))]
-                        const asSelect = options !== undefined && !customFields.has(fieldId)
-                        return (
-                          <div className={styles['modelField']} key={fieldKey}>
-                            <label className={styles['modelFieldLabel']} htmlFor={`jev-route-${index}-${fieldKey}`}>
-                              {t(labelKey)}
-                            </label>
-                            {asSelect ? (
-                              <select
-                                id={fieldId}
-                                className={`${styles['input']} ${styles['selectInput']}`}
-                                value={current}
-                                aria-label={`${t(labelKey)} ${index + 1}`}
-                                disabled={disabled}
-                                onChange={(event) => {
-                                  const value = event.target.value
-                                  if (value === CUSTOM_CHOICE) {
-                                    setCustomFields(fields => new Set(fields).add(fieldId))
-                                    return
-                                  }
-                                  updateRoute(index, fieldKey, fieldKey === 'reasoningEffort' && value === '' ? undefined : value)
-                                }}
-                              >
-                                <option value="">{t(fieldKey === 'reasoningEffort' ? 'jevRouteEffortDefault' : 'jevRouteChoose')}</option>
-                                {choices.map(choice => (
-                                  <option key={choice} value={choice}>
-                                    {fieldKey === 'provider' ? providerNames.get(choice) ?? choice : choice}
-                                  </option>
-                                ))}
-                                <option value={CUSTOM_CHOICE}>{t('jevRouteCustom')}</option>
-                              </select>
-                            ) : (
-                              <input
-                                id={fieldId}
-                                className={styles['input']}
-                                type="text"
-                                value={current}
-                                aria-label={`${t(labelKey)} ${index + 1}`}
-                                placeholder={fieldKey === 'reasoningEffort' ? t('jevRouteReasoningEffortPlaceholder') : undefined}
-                                disabled={disabled}
-                                onChange={(event) => {
-                                  updateRoute(index, fieldKey, fieldKey === 'reasoningEffort' && event.target.value === ''
-                                    ? undefined
-                                    : event.target.value)
-                                }}
-                              />
-                            )}
-                          </div>
-                        )
-                      })}
-                      <button
-                        className={`${styles['iconButton']} ${styles['iconButtonDanger']}`}
-                        type="button"
-                        disabled={disabled}
-                        aria-label={`${t('jevRemoveRoute')} ${index + 1}`}
-                        onClick={() => { setRoutes(routes.filter((_, routeIndex) => routeIndex !== index)) }}
-                      >
-                        {t('jevRemoveRoute')}
-                      </button>
-                    </div>
-                  )
-                })}
-              </div>
-              <button
-                className={styles['addModelButton']}
-                type="button"
-                disabled={disabled}
-                onClick={() => { setRoutes([...routes, { id: '', provider: '', model: '', description: '' }]) }}
-              >
-                {t('jevAddRoute')}
-              </button>
-            </div>
-          </div>
+          <JevFields
+            schema={schema} draft={draft} stored={fallback} setDraft={setDraft} setField={setField} disabled={disabled}
+            ownProvider={props.provider} providers={props.modelOptions ?? []}
+            customFields={customFields} setCustomFields={setCustomFields} t={t}
+          />
         </>
       )
     }

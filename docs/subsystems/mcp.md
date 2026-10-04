@@ -253,4 +253,25 @@ Resolve one global provider for a Host-owned human operation.
 ```
 
 Source: [`packages/mcp/mcp-client/src/human-operations.ts`](../../packages/mcp/mcp-client/src/human-operations.ts)
+
+<a id="mcp-client-events"></a>
+
+### `mcp-client/*` events
+
+<a id="mcp-clientinventory--emit"></a>
+
+#### `mcp-client/inventory` — emit
+
+A listener is asking for the connection state of the configured MCP servers; each server appends its report.
+
+```ts cordis-catalog
+/**
+ * A listener is asking for the connection state of the configured MCP servers; each server appends its report.
+ * @mode emit
+ * @param reports Collected reports, one per configured server.
+ */
+'mcp-client/inventory'(reports: McpConnectionReport[]): void
+```
+
+Source: [`packages/mcp/mcp-client/src/status.ts`](../../packages/mcp/mcp-client/src/status.ts)
 <!-- END GENERATED cordis-surface -->

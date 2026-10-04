@@ -124,7 +124,8 @@ kind: "package-reference"
 | 文件 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | 插件入口：`Config` schema、`serverName` 预留、激活等待 |
-| [`src/connection.ts`](src/connection.ts) | 连接监督器：客户端世代、重连策略、尝试预算、dispose（资源释放） |
+| [`src/connection.ts`](src/connection.ts) | 连接监督器：客户端世代、尝试预算、登录状态、dispose（资源释放） |
+| [`src/reconnect-policy.ts`](src/reconnect-policy.ts) | 重连配置、其默认值，以及校验它们的解析步骤 |
 | [`src/server-context.ts`](src/server-context.ts) | 资源提供方注册与字面服务器指令 |
 | [`src/tool-filter.ts`](src/tool-filter.ts) | 已发现工具的静态原始名称允许／拒绝解析 |
 | [`src/tools.ts`](src/tools.ts) | 工具桥接：发现、过滤、命名、注册交换、执行、图片投影 |
