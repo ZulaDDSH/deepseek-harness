@@ -1,5 +1,7 @@
+/** Connection state of one MCP server as shown to the user. */
 export type McpConnectionState = 'connecting' | 'connected' | 'auth-required' | 'failed'
 
+/** One server's answer to the `mcp-client/inventory` event. */
 export interface McpConnectionReport {
   readonly serverName: string
   readonly state: McpConnectionState
