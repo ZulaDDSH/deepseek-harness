@@ -653,7 +653,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'jev/decision': JevDecisionRecord
 ```
 
-来源：[`packages/llm/llm-jev-router/src/index.ts:369`](../packages/llm/llm-jev-router/src/index.ts)
+来源：[`packages/llm/llm-jev-router/src/index.ts:363`](../packages/llm/llm-jev-router/src/index.ts)
 
 ### `llm/*`
 
@@ -3731,7 +3731,7 @@ SHA-256: `96f4a9c81fc0f940ef71528a8cc66731ae4cf1f40d79680c5fe3c39f96d7723c`
 
 SHA-256: `a667acf5cb25728d4fa3d93539a459d639bb35ff0b6e5d1975af9ec7310fe4dd`
 
-来源：[`packages/llm/llm-jev-router/src/index.ts:356`](../packages/llm/llm-jev-router/src/index.ts)
+来源：[`packages/llm/llm-jev-router/src/index.ts:350`](../packages/llm/llm-jev-router/src/index.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
