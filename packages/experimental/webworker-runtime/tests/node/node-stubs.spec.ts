@@ -49,7 +49,7 @@ const CALLED: [string, Record<string, unknown>, readonly string[]][] = [
   ['execa', execa, ['execa']],
   ['got', got.default, ['post']],
   ['@deepseek-ai/pi-ai', piAi, [
-    'createProvider', 'createModels', 'openAICompletionsApi', 'openAIResponsesApi', 'anthropicMessagesApi',
+    'createProvider', 'createModels', 'builtinModels', 'openAICompletionsApi', 'openAIResponsesApi', 'anthropicMessagesApi',
     'isContextOverflow', 'getSupportedThinkingLevels',
   ]],
 ]

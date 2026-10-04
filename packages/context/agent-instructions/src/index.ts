@@ -40,6 +40,7 @@ export type {
   InstructionFile,
   LoadedInstructionFile,
 } from './files.ts'
+export { END_OF_TURN_RULE } from './end-of-turn.ts'
 export { renderAgentInstructions } from './render.ts'
 export type { RenderedAgentInstructions, TruncatedInstruction } from './render.ts'
 
@@ -143,6 +144,7 @@ export function apply(ctx: Context, config: Config): void {
         projectRootMarkers: resolved.projectRootMarkers,
         maxBytes: resolved.maxBytes,
         maxSourceBytes: resolved.maxSourceBytes,
+        endOfTurnRule: resolved.endOfTurnRule,
         instructionFileCandidates: resolved.instructionFileCandidates,
         localInstructionFileCandidates: resolved.localInstructionFileCandidates,
         projectRoot,

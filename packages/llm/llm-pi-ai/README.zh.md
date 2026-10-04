@@ -27,6 +27,10 @@ kind: "package-reference"
 
 当组合需要通过 pi-ai 的提供方目录、或通过 pi-ai 已安装目录未描述的网关路由模型请求时挂载本插件。`providers` 字典就是整个配置面：每个键都是请求用 `GenerateOptions.provider` 选择的提供方路由名。
 
+固定版本目录的显示名称省略“latest”；用户配置的名称保持不变。挂载配额控制器时，Codex 路由使用推理的 OAuth 账户和串行 token 刷新报告账户限额。提供商验证窗口时长和重置时间；不可用数据显示错误而非零用量。ChatGPT 用量端点是内部后端 API，可能变化。
+
+离线目录在 `anthropic` 上提供 Claude Opus 5.5 和 Sonnet 5.5，并在 `openai` 与 `openai-codex` 上提供 GPT-6.1 Sol。现有目录模型仍然可用。
+
 适配器接受 LLM 服务的[仅供请求使用的 user 输入](../llm/README.zh.md#use-this-package)，并可将其与持久历史混用。user 身份与来源不会进入 pi-ai 内容；assistant 回放元数据和工具调用关联仍由持久消息携带。
 
 ### 何时选择

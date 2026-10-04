@@ -22,6 +22,8 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
     modelSelection: ModelSelectionProjectionState
     /** Durable MCP connector selection for one Session. */
     mcpSelection: McpSelectionProjectionState
+    /** Durable per-Session hook enable/disable overrides. */
+    hookOverrides: HookOverridesProjection
   }
   interface SessionProjectionMap {
     /** Persisted facts used to summarize a Session without activating it. */
@@ -32,6 +34,8 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
     modelSelection: ModelSelectionProjection
     /** Client view of durable MCP connector selection. */
     mcpSelection: McpSelectionProjection
+    /** Client view of per-Session hook overrides. */
+    hookOverrides: HookOverridesProjection
   }
 }
 
@@ -44,6 +48,8 @@ declare module '@deepseek-ai/dsh-session/types' {
     'model/selection': ModelSelection
     /** Complete connector selection requested for subsequent MCP tool calls. */
     'mcp/selection': McpSelection
+    /** Complete per-Session hook overrides. Log-only: it never enters model history. */
+    'hooks/session-overrides': HookOverrides
   }
 }
 
@@ -331,6 +337,38 @@ export interface SessionSelectModelRequest extends ModelSelection {
 /** Accepted model selection after Host resolution. */
 export interface SessionSelectModelValue {
   readonly selected: ModelSelection
+}
+
+/** Per-Session hook overrides keyed by `hookKey`; true enables, false disables. */
+export interface HookOverrides {
+  readonly overrides: Readonly<Record<string, boolean>>
+}
+
+/** Host fold state and client view of per-Session hook overrides. */
+export interface HookOverridesProjection {
+  readonly current: HookOverrides | null
+}
+
+/** One loaded hook command and its global enablement. */
+export interface SessionHookRow {
+  readonly key: string
+  readonly dialect: string
+  readonly event: string
+  readonly matcher?: string
+  readonly command: string
+  readonly globallyDisabled: boolean
+  readonly description?: string
+}
+
+/** Hooks loaded by mounted bridges. */
+export interface SessionHookCatalog {
+  readonly hooks: readonly SessionHookRow[]
+}
+
+/** Session-local hook override request. */
+export interface SessionSetHookOverridesRequest {
+  readonly sessionId: SessionId
+  readonly overrides: Readonly<Record<string, boolean>>
 }
 
 /** MCP connector namespaces available to one Session. */

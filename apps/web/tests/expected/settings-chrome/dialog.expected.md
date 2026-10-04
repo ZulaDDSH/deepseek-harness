@@ -3,8 +3,11 @@
     - text: 设置
     - button "通用设置"
     - button "模型"
+    - button "Jev"
     - button "内置插件"
     - button "Agent 预设"
+    - button "MCP 服务器"
+    - button "钩子"
   - button "打开配置文件"
   - button "关闭"
   - text: 权限 选择新会话的默认权限模式

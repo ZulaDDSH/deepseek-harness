@@ -73,11 +73,13 @@
       name: '@deepseek-ai/dsh-hooks-claude-code'
       config:
         configPath: ./hooks.json
+        enabledHooks: ['*']
 
     - id: hooks-codex
       name: '@deepseek-ai/dsh-hooks-codex'
       config:
         configPath: ./codex-hooks.json
+        enabledHooks: ['*']
 
 - id: session-log-deepseek
   config:

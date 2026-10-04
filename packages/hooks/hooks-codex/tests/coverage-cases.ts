@@ -1,4 +1,5 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { ALL_HOOKS, type HookInventoryReport } from '@deepseek-ai/dsh-hook-protocol'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync, chmodSync, existsSync, readFileSync } from 'node:fs'
@@ -47,7 +48,7 @@ async function harness(configPath: string, adapter: MockAdapter, opts: HarnessOp
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
-  await ctx.plugin(HooksCodex, { configPath, model: 'm', ...opts })
+  await ctx.plugin(HooksCodex, { configPath, model: 'm', enabledHooks: [ALL_HOOKS], ...opts })
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx
 }
@@ -324,12 +325,36 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
       ctx.logger.warn = warn as never
       // Direct apply (schema bypass) → the `model ?? ''` fallback is exercised.
-      HooksCodex.apply(ctx, { configPath: join(d, 'hooks.json') })
+      HooksCodex.apply(ctx, { configPath: join(d, 'hooks.json'), enabledHooks: { get: () => [ALL_HOOKS] } })
       ctx.llm.registerAdapter(['mock'], adapter)
       const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       expect(existsSync(marker)).toBe(true)
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('async hook'))
+      const reports: HookInventoryReport[] = []
+      ctx.emit('hooks/inventory', reports)
+      expect(reports[0]?.handlers.some(handler => handler.disabled === true)).toBe(false)
+    })
+
+    it('a direct apply() without enabledHooks skips the hook and reports it disabled', async () => {
+      const d = dir()
+      const marker = join(d, 'ran')
+      hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: sh(d, 'h.sh', `#!/usr/bin/env bash\ntouch "${marker}"\n`) }] }] })
+      const ctx = new Context()
+      await mountAgentLoopTestDependencies(ctx)
+      await ctx.plugin(AgentLoop, { agents: [] })
+      await ctx.plugin(LocalSubprocessRuntime)
+      await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
+      HooksCodex.apply(ctx, { configPath: join(d, 'hooks.json') })
+      ctx.llm.registerAdapter(['mock'], new MockAdapter([textResponse('ok')]))
+      const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+      await waitForIdle(ctx, agent)
+      expect(existsSync(marker)).toBe(false)
+      const reports: HookInventoryReport[] = []
+      ctx.emit('hooks/inventory', reports)
+      expect(reports).toEqual([expect.objectContaining({ dialect: 'codex', status: 'loaded', handlers: [expect.objectContaining({ disabled: true })] })])
+      expect(reports[0]).not.toHaveProperty('settingsNs')
     })
 
     it('a no-op clean hook proceeds (contextFrom empty → next)', async () => {
@@ -640,7 +665,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       await ctx.plugin(AgentLoop, { agents: [] })
       await ctx.plugin(LocalSubprocessRuntime)
       await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000, cwd: serverDir })
-      await ctx.plugin(HooksCodex, { configPath: join(serverDir, 'hooks.json'), model: 'm' })
+      await ctx.plugin(HooksCodex, { configPath: join(serverDir, 'hooks.json'), model: 'm', enabledHooks: [ALL_HOOKS] })
       ctx.llm.registerAdapter(['mock'], adapter)
       ctx.tools.register(defineContentToolFixture({ name: 'Bash', description: 'b', parameters: { command: { type: 'string' } }, async execute() { return [{ type: 'text', text: 'ok' }] } }))
       const { SessionId } = await import('@deepseek-ai/dsh-session')

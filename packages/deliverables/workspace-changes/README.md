@@ -11,7 +11,7 @@ English | [中文](README.zh.md)
 
 This plugin lists changed files, serves bounded comparisons, and provides live Git status and comparisons for registered Workspaces. Turn summaries use Git snapshots and whole-file captures for file-tool edits outside Git coverage. The Host keeps results while the Session lives and announces one `workspace/changes` event. Without Git, only file-tool edits appear; the Web card renders summaries.
 
-The Host also serves a live status and current comparison for a registered Workspace. The status uses Git porcelain records and line counts against HEAD; unknown Workspaces and directories outside Git repositories return no status or comparison. These reads do not append Session events.
+The Host also serves live status and comparisons for registered Workspaces without appending Session events. Unknown Workspaces and non-Git directories have no status or comparison.
 
 ## Table of Contents
 
@@ -21,6 +21,8 @@ The Host also serves a live status and current comparison for a registered Works
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 - [Dev Note](#dev-note)
+
+Repositories without commits count current files against an empty baseline.
 
 -----
 
@@ -108,6 +110,6 @@ Nothing here enters a model request, so provider cache reuse is unaffected.
 <details>
 <summary>Working context for maintainers — click to expand</summary>
 
-`status.ts:countPath` accepts an empty numstat response as zero counts. Every nonempty response passes through `numstat.ts:parseNumstat`, which returns at least one record or rejects malformed output; command failures remain errors.
+`status.ts:readWorkspaceStatus` reads tracked counts with one Git numstat command. `status.ts:countPath` reads untracked counts individually with no-index commands and accepts an empty response as zero counts. Every nonempty response passes through `numstat.ts:parseNumstat`, which returns at least one record or rejects malformed output; command failures remain errors.
 
 </details>

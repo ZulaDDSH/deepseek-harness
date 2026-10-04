@@ -5,7 +5,7 @@
  */
 
 import {
-  existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync,
+  existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
@@ -739,6 +739,19 @@ describe('removeLinkProjections', () => {
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, version }))
   }
 
+  it.each(['loop', '@scope/loop'])('removes a cyclic projection junction at %s', (name) => {
+    const profile = join(tmp(), 'profiles', 'web')
+    const owned = join(profile, '.dsh-module-fallback')
+    const loop = join(owned, 'node_modules', name)
+    link(loop, loop)
+    onTestFinished(() => {
+      if (lstatSync(loop, { throwIfNoEntry: false })?.isSymbolicLink()) unlinkSync(loop)
+    })
+
+    expect(() => { removeLinkProjections(profile) }).not.toThrow()
+    expect(lstatSync(owned, { throwIfNoEntry: false })).toBeUndefined()
+  })
+
   it('removes only the symlinks that point into .dsh-module-fallback and the directory itself', () => {
     const home = tmp()
     const profile = join(home, 'profiles', 'web')
@@ -768,6 +781,23 @@ describe('removeLinkProjections', () => {
     expect(readlinkSync(join(modules, 'linked-plugin'))).toBe(outside)
     expect(lstatSync(join(modules, 'dangling')).isSymbolicLink()).toBe(true)
     expect(() => { removeLinkProjections(profile) }).not.toThrow()
+  })
+
+  it('leaves a .dsh-module-fallback that is itself a link to an external directory untouched', () => {
+    const home = tmp()
+    const profile = join(home, 'profiles', 'web')
+    const external = join(home, 'elsewhere', 'module-fallback')
+    const projected = join(home, 'elsewhere', 'projected')
+    packageAt(projected, 'projected', '1.0.0')
+    link(projected, join(external, 'node_modules', 'projected'))
+    link(external, join(profile, '.dsh-module-fallback'))
+
+    removeLinkProjections(profile)
+
+    expect(lstatSync(join(external, 'node_modules', 'projected'), { throwIfNoEntry: false })?.isSymbolicLink()).toBe(true)
+    expect(readlinkSync(join(external, 'node_modules', 'projected'))).toBe(projected)
+    expect(existsSync(join(projected, 'package.json'))).toBe(true)
+    expect(lstatSync(join(profile, '.dsh-module-fallback'), { throwIfNoEntry: false })?.isSymbolicLink()).toBe(true)
   })
 
   it('removes the directory when the profile has no node_modules and keeps links whose target parent is gone', () => {

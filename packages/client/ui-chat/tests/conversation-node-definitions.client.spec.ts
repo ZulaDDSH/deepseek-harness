@@ -316,6 +316,15 @@ describe('built-in conversation node Definitions', () => {
     expect(chatViewDefinition.isActive?.(current)).toBe(false)
   })
 
+  it.each(['success', 'error'])('reveals a first command with a %s result without a model turn', (kind) => {
+    const value = assembler([
+      at(1, 'command/run', { commandId: 'graphify-1', name: 'graphify', source: { kind: 'user' } }),
+      at(2, 'command/done', { commandId: 'graphify-1', kind, text: 'Graphify result' }),
+    ])
+    expect(chatViewDefinition.isActive?.(snapshot(value))).toBe(true)
+    expect(value.activityTargets().has('chat')).toBe(true)
+  })
+
   it('keeps the Turn rail projection current when a chunk updates one node in place', () => {
     const value = assembler([
       at(1, 'turn/start', { turn: 1 }),

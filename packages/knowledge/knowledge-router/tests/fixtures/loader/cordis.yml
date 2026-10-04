@@ -1,0 +1,38 @@
+- id: system-prompt
+  name: '@deepseek-ai/dsh-system-prompt'
+- id: tools
+  name: '@deepseek-ai/dsh-tools'
+- id: mcp-gitnexus
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    transport: stdio
+    serverName: gitnexus
+    command: !!js process.execPath
+    args: !!js '[process.env.DSH_KNOWLEDGE_FIXTURE]'
+    failOnStartupError: true
+    reconnect:
+      enabled: false
+- id: mcp-graphify
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    transport: stdio
+    serverName: graphify
+    command: !!js process.execPath
+    args: !!js '[process.env.DSH_KNOWLEDGE_FIXTURE]'
+    failOnStartupError: true
+    reconnect:
+      enabled: false
+- id: knowledge
+  name: '@deepseek-ai/dsh-knowledge-router'
+  config:
+    mode: assisted
+    gitnexus:
+      enabled: true
+      serverName: gitnexus
+      limit: 3
+      maxSymbols: 7
+    graphify:
+      enabled: true
+      serverName: graphify
+      depth: 2
+      tokenBudget: 900

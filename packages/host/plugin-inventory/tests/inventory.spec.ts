@@ -34,7 +34,7 @@ async function harness(baseUrl?: string): Promise<{
   await ctx.plugin(Loader)
   ctx.loader.builtins.active = activePlugin
   ctx.loader.builtins.pending = pendingPlugin
-  await ctx.plugin(PluginInventoryGateway)
+  await ctx.plugin(PluginInventoryGateway, { externalHookSources: [] })
   const inventory = ctx.get('pluginInventory') as PluginInventoryGateway
   return { ctx, inventory }
 }
@@ -119,6 +119,7 @@ describe('PluginInventoryGateway', () => {
 
     expect(await inventory.list()).toEqual({
       entries: [],
+      hooks: [],
       agentPresets: [{
         id: 'local', isDefault: true,
         rows: [
@@ -226,5 +227,24 @@ describe('PluginInventoryGateway', () => {
       },
       { id: 'damaged', isDefault: false, broken: 'the composition file is missing', rows: [] },
     ])
+  })
+
+  it('lists a loaded bridge report instead of rereading its own source file', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-inventory-hooks-'))
+    roots.push(root)
+    const body = JSON.stringify({ hooks: { Stop: [{ hooks: [{ command: 'stop' }] }] } })
+    const bridged = { dialect: 'codex' as const, source: join(root, 'hooks.json') }
+    const external = { dialect: 'claude-code' as const, source: join(root, 'settings.json') }
+    writeFileSync(bridged.source, body)
+    writeFileSync(external.source, body)
+    const ctx = new Context()
+    contexts.push(ctx)
+    await ctx.plugin(Loader)
+    await ctx.plugin(PluginInventoryGateway, { externalHookSources: [bridged, external] })
+    ctx.on('hooks/inventory', (reports) => {
+      reports.push({ ...bridged, status: 'loaded', handlers: [], skipped: [], settingsNs: 'hooks-codex' })
+    })
+    const { hooks } = await (ctx.get('pluginInventory') as PluginInventoryGateway).list()
+    expect(hooks?.map(({ dialect, status }) => [dialect, status])).toEqual([['codex', 'loaded'], ['claude-code', 'configured']])
   })
 })

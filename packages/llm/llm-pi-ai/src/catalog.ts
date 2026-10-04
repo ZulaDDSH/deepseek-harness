@@ -241,7 +241,7 @@ function unsupportedIds(provider: string): ReadonlySet<string> {
 export function catalogModels(provider: string): Map<string, Model<Api>> {
   if (!catalogProviders().has(provider)) return new Map()
   const models = getBuiltinModels(provider as BuiltinProvider) as Model<Api>[]
-  const merged = new Map(models.map(model => [model.id, model]))
+  const merged = new Map(models.map(model => [model.id, { ...model, name: model.name.replace(/\s*\(latest\)/gi, '') }]))
   for (const model of catalogSupplements(provider)) {
     if (!merged.has(model.id)) merged.set(model.id, model)
   }

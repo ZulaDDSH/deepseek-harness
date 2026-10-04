@@ -1,16 +1,13 @@
-import { Service, type Context } from '@deepseek-ai/cordis'
+import { Service, type Context, type Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
-import {
-  assertUsableApiKey,
-  ReasoningEffortId,
-  type ContentBlock,
-  type LlmCallConfig,
-  type UserMessage,
-} from '@deepseek-ai/dsh-llm'
+import { assertUsableApiKey, type ContentBlock, type UserMessage } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
+import type {} from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-api-session-controller'
+import { applyRoute, installAgentRequestRouting, selectedRoute } from './request-routing.ts'
 
 export const name = 'llm-jev-router'
 export const inject = ['llm']
@@ -62,7 +59,7 @@ export interface Config {
   /** Preserve the base route when Jev fails. */
   failOpen: boolean
   /** Allow-listed destination routes. */
-  routes: JevRoute[]
+  routes: readonly JevRoute[]
 }
 
 const routeSchema: z<JevRoute> = z.object({
@@ -73,8 +70,11 @@ const routeSchema: z<JevRoute> = z.object({
   reasoningEffort: z.string().min(1),
 })
 
+/** Live Jev settings retained by the router. */
+export type RuntimeConfig = Volatile<Config>
+
 /** Runtime schema for the plugin config. */
-export const Config: z<Config> = z.object({
+export const Config = z.object({
   enabled: z.boolean().default(false),
   apiKeyEnv: z.string().role('credential-ref').default(DEFAULT_API_KEY_ENV),
   endpoint: z.string().default(DEFAULT_ENDPOINT),
@@ -85,7 +85,7 @@ export const Config: z<Config> = z.object({
   fallback: z.string().min(1).default('keep'),
   failOpen: z.boolean().default(true),
   routes: z.array(routeSchema).default([]),
-})
+}).default({}).volatile()
 
 interface JevAnswer {
   readonly choice?: unknown
@@ -128,7 +128,7 @@ export interface JevClient {
 }
 
 interface CachedRoute {
-  readonly route: JevRoute
+  readonly route?: JevRoute
 }
 
 function validateConfig(config: Config): void {
@@ -346,6 +346,24 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
+/** One Jev routing outcome recorded for inspection. */
+export interface JevDecisionRecord {
+  readonly turn: number
+  readonly step: number
+  readonly choice?: string
+  readonly confidence?: number
+  readonly provider?: string
+  readonly model?: string
+  readonly error?: string
+}
+
+declare module '@deepseek-ai/dsh-session/types' {
+  interface SessionEventMap {
+    /** Jev routing outcome for one step. Log-only: it never enters model history. */
+    'jev/decision': JevDecisionRecord
+  }
+}
+
 /**
  * Grep relevance ranking backed by the Jev client. Every failure path returns
  * the input matches unchanged, so a consumer never loses grep output to Jev.
@@ -398,42 +416,15 @@ export class JevRouter extends Service {
   }
 }
 
-function stepKey(turn: number, step: number): string {
-  return `${turn}:${step}`
-}
-
-/** Resolve a decision through confidence and fallback policy.
- * @param decision parsed Jev decision.
- * @param config active router settings.
- * @returns an allow-listed route or undefined to preserve the base route.
- */
-export function selectedRoute(decision: JevDecision, config: Config): JevRoute | undefined {
-  const route = config.routes.find(candidate => candidate.id === decision.route)
-  if (route !== undefined && decision.confidence >= config.minConfidence) return route
-  if (config.fallback === 'keep') return undefined
-  return config.routes.find(candidate => candidate.id === config.fallback)
-}
-
-/** Apply a selected route without mutating the frozen base config.
- * @param config base DSH call configuration.
- * @param route selected destination.
- * @returns the replacement call configuration.
- */
-export function applyRoute(config: LlmCallConfig, route: JevRoute): LlmCallConfig {
-  const { reasoningEffort: _inheritedEffort, ...withoutInheritedEffort } = config
-  return {
-    ...withoutInheritedEffort,
-    provider: route.provider,
-    model: route.model,
-    ...route.reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(route.reasoningEffort) },
-  }
-}
-
 /** Install Jev routing into the agent waterfalls. */
-export function apply(ctx: Context, initial: Config): void {
-  validateConfig(initial)
-  const current = (): Config => initial
-  const decisions = new WeakMap<Agent, Map<string, CachedRoute>>()
+export function apply(ctx: Context, initial: RuntimeConfig): void {
+  const current = (): Config => {
+    const value = initial.get()
+    validateConfig(value)
+    return value
+  }
+  current()
+  const decisions = new WeakMap<Agent, Map<number, CachedRoute>>()
   const states = new WeakMap<Agent, string>()
   const client = createJevClient(async (config) => {
     const credentials = ctx.get('credentials')
@@ -447,37 +438,42 @@ export function apply(ctx: Context, initial: Config): void {
     settingsNs: ctx.fiber.entry?.options.id ?? name,
     settingsPath: [],
   }])
+  const hookAgent = installAgentRequestRouting(ctx, () => current().enabled,
+    (agent, turn) => decisions.get(agent)?.get(turn)?.route)
 
   ctx.on('agent/pre-step', async (payload, next): Promise<PreStepDecision> => {
     const admitted = await next()
     const config = current()
     if (admitted.kind === 'reject' || payload.signal.aborted) return admitted
     if (!config.enabled) return admitted
+    hookAgent(payload.agent)
     states.set(payload.agent, stateForMessages(admitted.messages, config.stateMaxChars))
     if (config.routes.length === 0) return admitted
+    let perAgent = decisions.get(payload.agent)
+    if (perAgent === undefined) {
+      perAgent = new Map()
+      decisions.set(payload.agent, perAgent)
+    }
+    if (perAgent.has(payload.turn)) return admitted
     try {
       const decision = await client.decide(admitted.messages, config, payload.signal)
       const route = selectedRoute(decision, config)
-      if (route !== undefined) {
-        let perAgent = decisions.get(payload.agent)
-        if (perAgent === undefined) {
-          perAgent = new Map()
-          decisions.set(payload.agent, perAgent)
-        }
-        perAgent.set(stepKey(payload.turn, payload.step), { route })
-      }
+      payload.agent.session.append('jev/decision', {
+        turn: payload.turn, step: payload.step, choice: decision.route, confidence: decision.confidence,
+        ...route === undefined ? {} : { provider: route.provider, model: route.model },
+      })
+      perAgent.set(payload.turn, route === undefined ? {} : { route })
     } catch (error) {
       ctx.logger.warn('jev-router: Jev decision failed; preserving the configured model route')
+      payload.agent.session.append('jev/decision', {
+        turn: payload.turn, step: payload.step, error: String(error),
+      })
       ctx.logger.warn(error)
+      perAgent.set(payload.turn, {})
       if (!config.failOpen) return { kind: 'reject' }
     }
     return admitted
   })
-
-  ctx.on('agent/request', async (payload, next): Promise<LlmCallConfig> => {
-    const base = await next()
-    const route = decisions.get(payload.agent)?.get(stepKey(payload.turn, payload.step))
-    if (route === undefined || payload.signal.aborted) return base
-    return applyRoute(base, route.route)
-  }, { prepend: true })
 }
+
+export { applyRoute, selectedRoute }

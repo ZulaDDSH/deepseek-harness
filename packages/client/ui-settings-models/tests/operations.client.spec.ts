@@ -31,6 +31,7 @@ describe('Models settings operations', () => {
     const mutate = vi.fn(async () => ({ ok: true as const, value: updated }))
     const ctx = { remote: {
       settings: { describe, mutate },
+      session: { modelCatalog: async () => ({ ok: true as const, value: { groups: [] } }) },
       llm: {
         listProviders: async () => ({ ok: true as const, value: [] }),
         listConfigurableProviders: async () => ({ ok: true as const, value: [] }),

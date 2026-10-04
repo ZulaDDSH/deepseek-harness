@@ -23,6 +23,8 @@ export const inject = ['tools', 'fs', 'systemPrompt']
 
 /** Plugin config (all optional — `Config` supplies the defaults). */
 export interface Config {
+  /** Model-visible tools to register; defaults to all tools in this plugin. */
+  enabledTools?: ('read' | 'write' | 'edit' | 'read_image')[]
   /** Default and maximum number of lines returned by one `read` call. */
   readLimit?: number
   /** Maximum characters returned for a single line before truncation. */
@@ -34,6 +36,7 @@ export interface Config {
 }
 
 export const Config: z<Config> = z.object({
+  enabledTools: z.array(z.union([z.const('read'), z.const('write'), z.const('edit'), z.const('read_image')])).default(['read', 'write', 'edit', 'read_image']),
   readLimit: z.number().default(READ_LIMIT),
   readMaxLineLength: z.number().default(READ_MAX_LINE_LENGTH),
   readMaxBytes: z.number().default(READ_MAX_BYTES),
@@ -50,15 +53,16 @@ function assertPositiveInteger(name: string, value: number): void {
   }
 }
 
-/** Register the full `read`/`write`/`edit` filesystem tool suite, plus `read_image` while `attachments` is mounted. */
+/** Register the configured `read`/`write`/`edit` filesystem tools, plus `read_image` while `attachments` is mounted. */
 export function apply(ctx: Context, config: Config): void {
   // schemastery (Config) has already filled every defaulted field.
   const resolved = config as ResolvedConfig
+  const enabled = new Set(resolved.enabledTools)
   assertPositiveInteger('readLimit', resolved.readLimit)
   assertPositiveInteger('readMaxLineLength', resolved.readMaxLineLength)
   assertPositiveInteger('readMaxBytes', resolved.readMaxBytes)
   assertPositiveInteger('readStreamMinSize', resolved.readStreamMinSize)
-  applyReadTool(ctx, {
+  if (enabled.has('read')) applyReadTool(ctx, {
     limit: resolved.readLimit,
     maxLineLength: resolved.readMaxLineLength,
     maxBytes: resolved.readMaxBytes,
@@ -67,13 +71,13 @@ export function apply(ctx: Context, config: Config): void {
   // read_image is composition-conditional: without a mounted attachment store
   // the deployment cannot durably commit image bytes, so the tool never
   // registers; the execute body keeps a defensive re-check for direct callers.
-  ctx.inject(['attachments'], (imageCtx) => {
+  if (enabled.has('read_image')) ctx.inject(['attachments'], (imageCtx) => {
     applyReadImageTool(imageCtx)
   })
   // One escalation API shared by both mutating tools: advertisement gating,
   // per-call policy resolution, and denial-marker mapping, all keyed off whether
   // the mounted ctx.fs confines (ctx.fs.sandboxMode).
   const sandbox = new FsSandboxController(ctx)
-  applyWriteTool(ctx, sandbox)
-  applyEditTool(ctx, sandbox)
+  if (enabled.has('write')) applyWriteTool(ctx, sandbox)
+  if (enabled.has('edit')) applyEditTool(ctx, sandbox)
 }

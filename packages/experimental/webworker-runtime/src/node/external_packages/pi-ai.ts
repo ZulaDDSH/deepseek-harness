@@ -20,6 +20,9 @@ export const createProvider = notImplementedFail(MODULE, 'createProvider')
 /** Model-list factory (unavailable). */
 export const createModels = notImplementedFail(MODULE, 'createModels')
 
+/** Builtin model collection (unavailable). */
+export const builtinModels = notImplementedFail(MODULE, 'builtinModels')
+
 /** Thinking-level catalog (unavailable). */
 export const getSupportedThinkingLevels = notImplementedFail(MODULE, 'getSupportedThinkingLevels')
 
@@ -86,7 +89,7 @@ export const __esModule = true
 
 /** CommonJS default export: the members `require()` hands a caller of this module. */
 export default {
-  createProvider, createModels, getSupportedThinkingLevels, isContextOverflow, builtinProviders,
+  createProvider, createModels, builtinModels, getSupportedThinkingLevels, isContextOverflow, builtinProviders,
   getBuiltinModels, getBuiltinProviders, anthropicMessagesApi, openAICompletionsApi,
   openAIResponsesApi,
 }

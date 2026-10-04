@@ -20,6 +20,8 @@ Use `dsh-tool-fs-search` to give models `glob` file discovery and `grep` content
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 - [Dev Note](#dev-note)
 
+`enabledTools` selects `glob` and/or `grep`; omitting it enables both. Disabled tools contribute neither schemas nor prompt sections.
+
 -----
 
 <a id="use-this-package"></a>

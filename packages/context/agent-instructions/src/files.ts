@@ -59,6 +59,7 @@ interface DiscoverOptions {
 interface LoadOptions extends DiscoverOptions {
   maxBytes: number
   maxSourceBytes?: number
+  endOfTurnRule?: boolean
   replacePreviousBaseline?: boolean
 }
 
@@ -433,10 +434,11 @@ export async function loadBaselineInstructionSet(
   }
   const deduped = dedupInstructionFilesByDirectory(loaded)
   if (deduped.length === 0) {
-    if (options.replacePreviousBaseline !== true) return undefined
+    if (options.replacePreviousBaseline !== true && !config.endOfTurnRule) return undefined
     const { rendered, included } = renderAgentInstructionSet([], {
       maxBytes: config.maxBytes,
-      replacePreviousBaseline: true,
+      endOfTurnRule: config.endOfTurnRule,
+      ...options.replacePreviousBaseline === true ? { replacePreviousBaseline: true } : {},
     })
     return {
       rendered,
@@ -446,6 +448,7 @@ export async function loadBaselineInstructionSet(
   }
   const { rendered, included } = renderAgentInstructionSet(deduped, {
     maxBytes: config.maxBytes,
+    endOfTurnRule: config.endOfTurnRule,
     ...options.replacePreviousBaseline === undefined
       ? {}
       : { replacePreviousBaseline: options.replacePreviousBaseline },

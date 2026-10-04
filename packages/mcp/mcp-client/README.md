@@ -104,6 +104,8 @@ When a server connection drops — for example a local server process crashes �
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
+Root-scoped servers also publish Host-owned human operations for authenticated GUI services. Calls use the current connection, discovered tool filters, JSON-schema validation, configured deadlines and caller cancellation. Agent-scoped servers are excluded. This does not add a generic browser tool-call endpoint or change model execution policy.
+
 <details>
 <summary>Implementation internals — click to expand</summary>
 

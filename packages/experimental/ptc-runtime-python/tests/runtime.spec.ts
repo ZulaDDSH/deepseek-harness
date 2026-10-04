@@ -5071,16 +5071,20 @@ describe('PythonPtcRuntime — hostile peer', () => {
     // either way, but the fixture stays within the address space so it is honest.
     //
     // The ordinary wall budget is 60s, not the 20s the memory assertion alone needs.
-    // The instrumented coverage lane gets 90s because several workers share one host
-    // and V8 instrumentation slows the 6M-element Python cursor substantially. This
-    // test asserts the O(depth) memory shape, not a speed claim.
-    const maxWallMs = process.env.DSH_COVERAGE_EXEMPT_HEAVY === '1' ? 90_000 : 60_000
+    /* The instrumented coverage lane gets 150s: several workers share one host and
+       V8 instrumentation slows the 6M-element Python cursor substantially, so the
+       lane measured ~87s on a passing run and exceeded the previous 90s ceiling on
+       2026-10-04 with `wall-clock ceiling reached (90000ms)`. The Vitest timeout
+       below stays above this ceiling, so an overrun settles as the runtime's own
+       `timeout` rather than as a killed test. This test asserts the O(depth) memory
+       shape, not a speed claim. */
+    const maxWallMs = process.env.DSH_COVERAGE_EXEMPT_HEAVY === '1' ? 150_000 : 60_000
     const { runtime } = await setup({ maxValueBytes: 20 * 1024 * 1024, addressSpaceMb: 384, maxWallMs })
     const result = await runtime.run(runtime.resolve({ program: 'return [0] * 6_000_000', bindings: [] }))
     expect(result.error).toBeUndefined()
     expect(Array.isArray(result.value)).toBe(true)
     expect((result.value as number[]).length).toBe(6_000_000)
-  }, 120_000)
+  }, 180_000)
 
   it('validates wide binding arguments in O(depth), not O(width)', async () => {
     // The completion-value walks are budgeted; this one is not. `dispatch` runs

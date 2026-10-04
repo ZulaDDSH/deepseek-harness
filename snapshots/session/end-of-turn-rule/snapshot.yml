@@ -1,0 +1,8 @@
+version: 1
+scenario: end-of-turn-rule
+profile: headless
+composition: end-of-turn-rule
+recording: authored
+header:
+  class: end-of-turn-rule
+  pin: true

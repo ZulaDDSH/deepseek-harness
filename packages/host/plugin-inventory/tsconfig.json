@@ -8,6 +8,7 @@
     "src"
   ],
   "references": [
+    { "path": "../../../vendor/schemastery" },
     {
       "path": "../../boot/app-boot"
     },
@@ -28,6 +29,9 @@
     },
     {
       "path": "../../typert/protocol"
+    },
+    {
+      "path": "../../hooks/hook-protocol"
     }
   ]
 }

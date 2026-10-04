@@ -368,6 +368,23 @@ describe('compact configuration and defaults', () => {
     expect(retentionOnly).not.toHaveProperty('retainRatio')
   })
 
+  it('caps context budgets while preserving output reservation and headroom', () => {
+    const target = { provider: MODEL, model: MODEL }
+    const policy = resolveTargetPolicy(resolveConfig({ maxContextWindow: 200_000, headroomTokens: 8192 }), target)
+    expect(resolveCompactSpec(policy, 1_000_000, 32_000)).toMatchObject({
+      contextWindow: 200_000, thresholdTokens: 159_808, retainTokens: 26_880,
+    })
+    expect(resolveCompactSpec(policy, 100_000, 32_000).contextWindow).toBe(100_000)
+    const overridden = resolveTargetPolicy(resolveConfig({
+      maxContextWindow: 200_000, modelPolicies: [{ ...target, maxContextWindow: 300_000 }],
+    }), target)
+    expect(resolveCompactSpec(overridden, 1_000_000, 0).contextWindow).toBe(300_000)
+    expect(() => resolveCompactSpec(policy, 1_000_000, 200_000)).toThrow(/no message budget/)
+    for (const maxContextWindow of [0, -1, 1.5, Number.NaN]) {
+      expect(() => resolveConfig({ maxContextWindow })).toThrow(/positive integer/)
+    }
+  })
+
   it('merges exact provider/model policy overrides and scales ratios per model', () => {
     const config = resolveConfig({
       headroomTokens: 0,

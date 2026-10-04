@@ -25,7 +25,7 @@ Use this package to show provider quota and session token usage in the conversat
 
 Mount the client plugin in a web composition that includes the Remote, locale, conversation, and renderer dependencies declared by the package. The plugin adds a compact usage control to `conversation.session.header.utilities` and refreshes provider quota through the Host service.
 
-The popover shows only providers returned by the Host registry. When Session projection data is available, it also displays the durable token total for the current Session.
+The opaque popover shows providers returned by the Host registry, with the selected provider first. Durable Session usage is grouped by the provider and model that actually ran each request, alongside the Session total. Account limits appear separately because their allowance may be shared across models.
 
 -----
 

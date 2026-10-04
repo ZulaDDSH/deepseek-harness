@@ -3,8 +3,8 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/code-notes/deepseek-harness.md
 /deepseek-harness-code-notes:
-  en: 18d394a66d5227d1
-  zh: 2058ca316e764a76
+  en: 15e52e47b7849f77
+  zh: 8c25f2d0270349b9
 /deepseek-harness-code-notes/workflow-repository-targeting:
   en: f736465021f4f571
   zh: 8720b5cafdb6cf7d
@@ -17,3 +17,12 @@
 /deepseek-harness-code-notes/client-type-boundaries:
   en: 59dadb2aa16bb70a
   zh: 5edbbd856b9b5e79
+/deepseek-harness-code-notes/projection-cleanup:
+  en: 9e5a9ff42dd76fed
+  zh: 42c3195f7ac043a9
+/deepseek-harness-code-notes/model-usage-display:
+  en: 9ee24c1e46fac0cc
+  zh: 8b0a6a02d2ea3583
+/deepseek-harness-code-notes/memory-workspace:
+  en: 6535c7c172d29e0e
+  zh: eba02719c5a7d88b
