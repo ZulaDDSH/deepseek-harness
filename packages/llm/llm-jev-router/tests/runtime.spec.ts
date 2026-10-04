@@ -4,8 +4,9 @@ import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { createLaunchEnvironmentSnapshot, DSH_LAUNCH_ENVIRONMENT_KEY } from '@deepseek-ai/dsh-launch-environment'
 import LlmRuntime, { createUserMessage, ToolCallId, type LlmCallConfig } from '@deepseek-ai/dsh-llm'
-import { JevRouter, apply, createJevClient, selectRelevantGrepMatches, stateForMessages, type Config, type JevClient } from '../src/index.ts'
+import { JevRouter, apply, createJevClient, selectRelevantGrepMatches, stateForMessages, type Config, type JevClient, type RuntimeConfig } from '../src/index.ts'
 import * as jevPlugin from '../src/index.ts'
+import { createVolatile, updateVolatile } from '../../../../vendor/cosmokit/src/volatile.ts'
 import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
 
 const config = {
@@ -104,6 +105,25 @@ describe('Jev routing lifecycle', () => {
       expect(await request()).toBe(base)
     }
     expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('delegates a later request unchanged after the live config disables routing', async () => {
+    answer({ answers: { route: { choice: 'small', confidence: 1 } } })
+    const { fiber, preStep, request } = await mount()
+    await preStep()
+    expect(await request()).toEqual({ provider: 'target', model: 'small' })
+    updateVolatile(fiber.config as RuntimeConfig, createVolatile({ ...config, routes: [...config.routes], enabled: false }))
+    expect(await request()).toBe(base)
+  })
+
+  it('releases a disposed Agent and stops routing its requests', async () => {
+    answer({ answers: { route: { choice: 'small', confidence: 1 } } })
+    const { ctx, agent, preStep, request } = await mount()
+    ctx.emit('agent/disposed', { agent })
+    await preStep()
+    expect(await request()).toEqual({ provider: 'target', model: 'small' })
+    ctx.emit('agent/disposed', { agent })
+    expect(await request()).toBe(base)
   })
 
   it('preserves or rejects the admitted input according to failure policy', async () => {
