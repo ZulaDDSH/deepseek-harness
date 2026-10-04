@@ -333,3 +333,14 @@
   height: 12px;
   color: var(--dsw-alias-menu-icon);
 }
+
+.routed {
+  align-self: center;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-caption);
+}
