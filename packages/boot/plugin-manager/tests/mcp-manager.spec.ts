@@ -97,3 +97,19 @@ it('lists, discovers, adds and removes MCP servers through the profile patch', a
   expect(readFileSync(profile.patchPath, 'utf8')).not.toContain('mcp-new-tool')
   loaderEntries.mockRestore()
 })
+
+it('attaches each server connection its MCP client reports to the listed row', async () => {
+  const { ctx, manager } = await fixture()
+  const entries = [
+    entry('include:mcp-a', { transport: 'streamable-http', serverName: 'a', url: 'https://a' }),
+    entry('include:mcp-b', { transport: 'streamable-http', serverName: 'b', url: 'https://b' }),
+  ]
+  vi.spyOn(ctx.loader, 'entries').mockImplementation(function* () { yield* entries })
+  vi.spyOn(manager, 'listPlugins').mockResolvedValue([row('include:mcp-a', 'mcp-a'), row('include:mcp-b', 'mcp-b')])
+  ctx.on('mcp-client/inventory', (reports) => {
+    reports.push({ serverName: 'a', state: 'auth-required', toolCount: 0, authKey: 'mcp-client/srv-a-1' })
+  })
+  const [first, second] = await manager.listMcpServers()
+  expect(first?.connection).toEqual({ state: 'auth-required', toolCount: 0, authKey: 'mcp-client/srv-a-1' })
+  expect(second).not.toHaveProperty('connection')
+})

@@ -18,6 +18,7 @@ import {
   setProfileVersionExemption, PROFILE_COMPATIBILITY_FILENAME,
 } from '@deepseek-ai/dsh-app-boot'
 import type {} from '@deepseek-ai/dsh-hmr'
+import type { McpConnectionReport } from '@deepseek-ai/dsh-mcp-client'
 import type { ProfileContext, ProfileManifest } from '@deepseek-ai/dsh-app-boot'
 import { bundleManifest, readProfileRegistry, registryArguments, runProfilePnpm, saveManifest, viewProfilePackage } from './operations.ts'
 import { classifyInstallFailure } from './install-failure.ts'
@@ -444,6 +445,8 @@ export class PluginManager extends TypertRemoteService {
   @Remote
   async listMcpServers(): Promise<McpServerRow[]> {
     const plugins = await this.listPlugins()
+    const reports: McpConnectionReport[] = []
+    this.ctx.emit('mcp-client/inventory', reports)
     return plugins.filter(row => row.moduleName === MCP_CLIENT_MODULE).map((row) => {
       const entry = [...this.ctx.loader.entries()].find(item => item.id === row.entryId)
       const config = (entry?.options.config ?? {}) as Record<string, unknown>
@@ -451,11 +454,14 @@ export class PluginManager extends TypertRemoteService {
       const target = config.transport === 'streamable-http'
         ? typeof config.url === 'string' ? config.url : ''
         : [config.command, ...args].filter(part => typeof part === 'string').join(' ')
+      const serverName = typeof config.serverName === 'string' ? config.serverName : row.entryId
+      const { serverName: _reported, ...connection } = reports.find(report => report.serverName === serverName) ?? { serverName }
       return {
         entryId: row.entryId, ...row.patchId === undefined ? {} : { patchId: row.patchId },
-        serverName: typeof config.serverName === 'string' ? config.serverName : row.entryId,
+        serverName,
         transport: typeof config.transport === 'string' ? config.transport : 'stdio',
         target, enabled: row.enabled, phase: row.fiberPhase, removable: row.patchId !== undefined,
+        ...'state' in connection ? { connection } : {},
       }
     })
   }

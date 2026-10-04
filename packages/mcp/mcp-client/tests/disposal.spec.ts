@@ -49,7 +49,8 @@ vi.mock('@modelcontextprotocol/client/stdio', () => ({
 
 vi.mock('../src/transport.ts', async importOriginal => ({ ...await importOriginal<typeof TransportModule>(), createTransport: mockCreateTransport }))
 
-import { startConnection, resolveReconnectPolicy } from '@deepseek-ai/dsh-mcp-client/src/connection.ts'
+import { startConnection } from '@deepseek-ai/dsh-mcp-client/src/connection.ts'
+import { resolveReconnectPolicy } from '@deepseek-ai/dsh-mcp-client/src/reconnect-policy.ts'
 
 const testToolSignal = new AbortController().signal
 

@@ -819,7 +819,7 @@ describe('ModelsSection', () => {
         {
           op: 'set',
           path: ['routes'],
-          value: [{ ...JEV_ROUTE, provider: 'deepseek', model: 'custom-model' }],
+          value: [{ ...JEV_ROUTE, id: 'custom-model', provider: 'deepseek', model: 'custom-model' }],
         },
       ],
       0,
@@ -875,7 +875,7 @@ describe('ModelsSection', () => {
         { op: 'set', path: ['timeoutMs'], value: 2500 },
         { op: 'set', path: ['minConfidence'], value: 0.5 },
         { op: 'set', path: ['stateMaxChars'], value: 4096 },
-        { op: 'set', path: ['fallback'], value: 'opus-5-low' },
+        { op: 'set', path: ['fallback'], value: 'strong' },
         { op: 'set', path: ['failOpen'], value: false },
         {
           op: 'set',
@@ -890,6 +890,24 @@ describe('ModelsSection', () => {
       ]),
       0,
     ])
+  })
+
+  it.each([
+    ['a fallback that names no route', 'gone', [JEV_ROUTE], 'jevFallbackMissing'],
+    ['two routes with the same ID', 'keep', [JEV_ROUTE, { ...JEV_ROUTE, model: 'claude-sonnet-5' }], 'jevRouteIdDuplicate'],
+  ] as const)('refuses to apply %s, which the router would reject', async (_name, fallback, routes, message) => {
+    const { face, mutate } = scriptedFace()
+    const { ProviderEditor } = await import('../src/client/ProviderEditor.tsx')
+    const { namespace } = jevNamespaceView([...routes])
+    const stored = { ...namespace, value: { ...(namespace.value as Record<string, JsonValue>), fallback } }
+    render(<ProviderEditor
+      provider="jev-router" displayName="TypeSafe / Jev" namespace={stored} schema={settingsSchema} settingsPath={[]}
+      modelOptions={[...JEV_MODEL_OPTIONS]} operations={operationsWith(face)} t={t} readOnly={false} onClose={vi.fn()}
+    />)
+    fireEvent.click(screen.getByLabelText(en.jevEnabled))
+    fireEvent.click(screen.getByText(en.apply))
+    expect(await screen.findByText(en[message])).toBeTruthy()
+    expect(mutate).not.toHaveBeenCalled()
   })
 
   it('renders Jev defaults, stored-key copy, and the credential-only form', async () => {

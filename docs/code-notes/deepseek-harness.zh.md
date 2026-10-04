@@ -91,3 +91,25 @@
 `packages/client/ui-settings-models/src/client/ProviderEditor.tsx:applyOnce` 在 `storeCredential` 成功后立即重新读取已存储凭据的状态。否则密钥提示在每个凭据引用下只获取一次，导致在持续挂载的卡片上，点击应用后输入框被清空，而占位文字仍显示未设置。`packages/client/ui-settings-models/src/client/JevSettingsSection.tsx:JevSettingsSection` 使用共享的 `savedProvider` 文案提示保存成功，因为它的关闭处理只重新加载，页面看起来没有任何变化。被拒绝的后续读取不能撤销已成功的写入，因此当 `describeCredential` 返回 `undefined` 时，`applyOnce` 回退为已配置且可写的状态。`JevSettingsSection` 在新一次应用开始和取消编辑时清除保存提示，因此第二次应用失败时，不会在错误旁边显示先前的“已保存”消息。
 
 `packages/client/ui-settings-plugin-inventory/src/client/HooksSettingsSection.tsx:HooksSettingsSection` 用一个搜索框过滤钩子，匹配范围包括来源文件、方言、脚本名、事件（含匹配器）、命令和描述。只要脚本分组中有任一处理器匹配，该分组就整体保留，因此分组开关仍作用于它所列出的每个处理器；搜索时隐藏“全部启用”和“全部禁用”按钮，因为它们作用于整个文件，包括被过滤隐藏的行。来源文件和每条命令以文本形式直接显示，而不是工具提示，用户由此可以找到定义某个钩子的文件。`hooksEmpty` 现在说明此页面只列出已加载的钩子桥接器，因为外部钩子文件从不显示在该页面上。
+
+## MCP 连接状态与 OAuth 登录
+
+`packages/mcp/mcp-client/src/status.ts:McpConnectionReport` 描述单个 HTTP 或 stdio MCP 服务器的真实连接状态：`connecting`、带工具数量的 `connected`、`auth-required`，或带错误信息的 `failed`。`packages/mcp/mcp-client/src/connection.ts:startConnection` 响应 `mcp-client/inventory` 事件，`packages/boot/plugin-manager/src/index.ts:PluginManager.listMcpServers` 发出该事件并把每条报告复制到 `McpServerRow.connection`。此前，只要插件 fiber 处于活动状态就显示"运行中"，即使服务器返回 401 且没有注册任何工具。
+
+`packages/mcp/mcp-client/src/connection.ts:startConnection` 在服务器需要登录时不安排重连：401 会无限重复。该次尝试以 `auth-required` 结束，只有当 `credentials/record-updated` 报告该服务器的授权记录（登录完成时写入）后才重新连接。已建立的连接在授权失效时也会转为 `auth-required`：`startConnection` 从客户端的传输错误接缝读取每一次请求失败，当 `oauth.ts:isAuthRequired` 报告需要登录时，`signInLost` 关闭当前连接代且不安排重连。这涵盖令牌刷新成功后仍被传输层拒绝的重试、任何已存授权都无法满足的 `403 insufficient_scope` 质询，以及静态 `Authorization` 请求头收到的普通 401，三者都不会再继续报告为 `connected`。凭据就是该静态请求头的服务器没有可运行的登录流程，因此 `startConnection` 将这种拒绝报告为 `failed` 并附上凭据错误，而不是进入无法退出的 `auth-required`。关闭会延后一个事件循环，使失败的工具或资源请求仍以模型可读的登录错误结束。任何刷新失败都会走到这里，因为 SDK 会回退到重新授权，而 `grantAuthProvider` 会将其转为 `AuthRequiredError`；只有授权服务器无法访问时连接才保持原状。`packages/client/ui-plugin-manager/src/client/McpServersSection.tsx:McpServersSection` 在有服务器连接中时每 1.5 秒、在任一已启用服务器报告连接状态时每 10 秒重新读取列表，因此之后失去登录或连接时无需用户操作即可显示。
+
+`packages/mcp/mcp-client/src/oauth-flow.ts:signIn` 复用模型提供方的接缝：`registerOAuthFlow` 注册一个 `authorization` 流程，令牌与动态客户端注册信息保存在凭据 `grant` 记录中（`oauth.ts:grantKey`），浏览器通过 `authorization` Remote 命名空间访问它。`listenForCallback` 将回调监听绑定到 Harness 主机的 `127.0.0.1`，因此只有浏览器运行在同一台机器上时登录才能完成；其他设备上的浏览器无法访问该回调。
+
+`packages/mcp/mcp-client/src/oauth-flow.ts:offerSignIn` 在服务器配置已包含 `Authorization` 请求头（`headers` 或 `headerEnv`，见 `oauth.ts:hasAuthorizationHeader`）时跳过 OAuth。此时静态令牌是唯一凭据，401 报告为 `failed` 而不是 `auth-required`。
+
+`packages/client/ui-plugin-manager/src/client/McpServersSection.tsx:McpServersSection` 将"请求头"字段作为 `headers` 写入 profile 补丁行。请求头的值（包括令牌）以明文保存在 profile 的 `cordis.patch.yml` 中；表单提示说明了这一点，`headerEnv` 仍是让密钥不进入该文件的方式。
+
+`packages/client/ui-plugin-manager/src/client/index.ts:apply` 为 MCP 段落提供自己的 `signInMcpServer` 回调，而不是复用模型页面的登录。功能插件不能导入其他插件的组件或值，因此该段落自行驱动 `remote.authorization.begin`、转发其提示，并在用户取消后把结束的流视为已完成而非错误。
+
+## Jev 设置表单
+
+`packages/client/ui-settings-models/src/client/JevFields.tsx:JevFields` 渲染 Jev 路由设置，这部分从 `ProviderEditor.tsx:ProviderEditor` 中移出，后者只保留 API 密钥字段。为路由选择模型时，会根据模型名称填写其 ID（`routeIdFor`）；若已有其他路由使用该 ID，则追加 `-2`、`-3`…。更换模型会重新设置 ID，除非用户在本次编辑中输入过该行的 ID；`typedIds` 记录这些行，因此输入的值（如 `model-7`）不会被替换。`ProviderEditor.tsx:applyOnce` 会拒绝保存重复的路由 ID 或指向不存在路由的回退值（`jevConfigFailure`），这与 `llm-jev-router` 加载时的两项检查一致。回退路由是一个包含 `keep` 和已配置路由 ID 的下拉框，重命名或删除其指向的路由时会同步更新。`packages/llm/llm-jev-router/src/index.ts:apply` 会拒绝指向不存在路由的回退值，而旧的自由文本字段允许这种情况。每个设置都带有通俗说明，并通过 `aria-describedby` 关联。
+
+## 输入框中的路由模型
+
+`packages/client/ui-model-selection/src/client/RoutedModel.tsx:RoutedModel` 位于 `conversation.input.right`，紧挨模型选择器左侧；当正在运行的那一轮使用了与所选模型不同的模型时，显示"当前：<model>"。它读取现有的 `modelSelection` 投影（`packages/api/session-controller/src/model-selection-projection.ts`）：`lastUsed` 来自每个 `request/header`，因此已经反映 `llm-jev-router` 选择的模型，`lastUsedSeq` 是那次请求头自身的 seq，`next` 是用户的选择。由于 `lastUsed` 的生命周期长于写入它的那一轮，标签还要求所记录的请求属于正在进行的这一轮：在 Session 报告运行中的同时，`lastUsedSeq` 必须晚于最新 `turnOutline` 条目的 `turn/start` seq（`packages/session/session-turn-outline`）。缺少这一身份判断时，新一轮在写入自己的请求头之前会重新显示上一轮的路由模型。无需 Jev 专用投影。未选择模型时，`next` 回退为 `lastUsed`，此时模型选择器本身显示路由后的模型，标签保持隐藏。
