@@ -179,7 +179,7 @@ describe.skipIf(MODE === 'record').each([
     try {
       await expect.poll(() => menu.count()).toBe(1)
       await expect.poll(() => current.evaluate(element => element === document.activeElement)).toBe(true)
-      await page.getByText('Acme Gateway', { exact: true }).hover()
+      await page.getByLabel('Acme Gateway').getByText('Acme Gateway', { exact: true }).hover()
     } finally {
       await page.mouse.up()
     }
