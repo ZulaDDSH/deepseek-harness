@@ -1,4 +1,5 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { ALL_HOOKS } from '@deepseek-ai/dsh-hook-protocol'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync, chmodSync, existsSync, readFileSync } from 'node:fs'
@@ -57,7 +58,7 @@ async function harness(configPath: string, adapter: MockAdapter, opts: HarnessOp
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
-  await ctx.plugin(HooksClaude, { configPath, ...opts })
+  await ctx.plugin(HooksClaude, { configPath, enabledHooks: [ALL_HOOKS], ...opts })
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx
 }
@@ -379,7 +380,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       // Direct apply with only configPath — bypasses schemastery's defaults, so
       // the bridge must run on the raw minimal config (the per-hook timeout is
       // the protocol lib's reference default, not a config knob).
-      HooksClaude.apply(ctx, { configPath: join(d, 'hooks.json') })
+      HooksClaude.apply(ctx, { configPath: join(d, 'hooks.json'), enabledHooks: { get: () => [ALL_HOOKS] } })
       ctx.llm.registerAdapter(['mock'], adapter)
       const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
@@ -681,7 +682,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       // Executor default cwd = serverDir (deliberately NOT the session cwd).
       await ctx.plugin(LocalSubprocessRuntime)
       await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000, cwd: serverDir })
-      await ctx.plugin(HooksClaude, { configPath: join(serverDir, 'hooks.json') })
+      await ctx.plugin(HooksClaude, { configPath: join(serverDir, 'hooks.json'), enabledHooks: [ALL_HOOKS] })
       ctx.llm.registerAdapter(['mock'], adapter)
       ctx.tools.register(defineContentToolFixture({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
 
@@ -710,7 +711,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       // Executor default cwd = serverDir (deliberately NOT the child session cwd).
       await ctx.plugin(LocalSubprocessRuntime)
       await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000, cwd: serverDir })
-      await ctx.plugin(HooksClaude, { configPath: join(serverDir, 'hooks.json') })
+      await ctx.plugin(HooksClaude, { configPath: join(serverDir, 'hooks.json'), enabledHooks: [ALL_HOOKS] })
       ctx.llm.registerAdapter(['mock'], new MockAdapter([]))
 
       const { SessionId } = await import('@deepseek-ai/dsh-session')

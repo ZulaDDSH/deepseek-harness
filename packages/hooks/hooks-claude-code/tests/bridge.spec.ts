@@ -15,7 +15,7 @@ import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import SubagentRuntime, { SubagentRunId } from '@deepseek-ai/dsh-subagent'
 import * as HooksClaude from '@deepseek-ai/dsh-hooks-claude-code'
-import type { HookInventoryReport } from '@deepseek-ai/dsh-hook-protocol'
+import { ALL_HOOKS, type HookInventoryReport } from '@deepseek-ai/dsh-hook-protocol'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
 /**
@@ -62,7 +62,7 @@ async function harnessWithFiber(
   await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
   beforeHooks?.(ctx)
-  const hooks = await ctx.plugin(HooksClaude, { configPath: join(configDir, 'hooks.json') })
+  const hooks = await ctx.plugin(HooksClaude, { configPath: join(configDir, 'hooks.json'), enabledHooks: [ALL_HOOKS] })
   ctx.llm.registerAdapter(['mock'], adapter)
   return { ctx, hooks }
 }
@@ -446,7 +446,7 @@ describe('hooks-claude-code bridge — load resilience', () => {
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(LocalSubprocessRuntime)
     await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
-    const fiber = await ctx.plugin(HooksClaude, { configPath: join(dir, 'hooks.json') })
+    const fiber = await ctx.plugin(HooksClaude, { configPath: join(dir, 'hooks.json'), enabledHooks: [ALL_HOOKS] })
     await fiber.dispose()
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
