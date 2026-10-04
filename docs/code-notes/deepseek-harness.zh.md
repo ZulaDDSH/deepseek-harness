@@ -113,3 +113,7 @@
 ## 输入框中的路由模型
 
 `packages/client/ui-model-selection/src/client/RoutedModel.tsx:RoutedModel` 位于 `conversation.input.right`，紧挨模型选择器左侧；当最近一次请求实际运行的模型与所选模型不同时，显示"当前：<model>"。它读取现有的 `modelSelection` 投影（`packages/api/session-controller/src/model-selection-projection.ts`）：`lastUsed` 来自每个 `request/header`，因此已经反映 `llm-jev-router` 选择的模型，`next` 是用户的选择。无需 Jev 专用投影。未选择模型时，`next` 回退为 `lastUsed`，此时模型选择器本身显示路由后的模型，标签保持隐藏。
+
+## 模型选择器中的提供方筛选
+
+`packages/client/ui-model-selection/src/client/ModelSelect.tsx:ModelSelect` 在加载了多个提供方时，于模型搜索框下方显示一行提供方筛选按钮（"全部"以及每个提供方分组各一个）。选择某个提供方会把 `visibleGroups` 缩小到该分组，并包含其中已收藏的模型，因此"收藏"分区仅在"全部"下显示；搜索仍在所选提供方内生效。每次打开选择器时，筛选都会重置为"全部"。

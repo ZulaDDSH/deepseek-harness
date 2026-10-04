@@ -113,3 +113,7 @@ Reference: `packages/api/settings-controller/src/request.ts:settingsRequest.pars
 ## Routed model in the composer
 
 `packages/client/ui-model-selection/src/client/RoutedModel.tsx:RoutedModel` sits in `conversation.input.right`, just left of the model picker, and shows "Now: <model>" while the model that ran the latest request differs from the selected one. It reads the existing `modelSelection` projection (`packages/api/session-controller/src/model-selection-projection.ts`): `lastUsed` comes from each `request/header`, so it already reflects a model chosen by `llm-jev-router`, and `next` is the user's selection. No Jev-specific projection is needed. When nothing is selected, `next` falls back to `lastUsed`, so the picker itself shows the routed model and the label stays hidden.
+
+## Provider filters in the model picker
+
+`packages/client/ui-model-selection/src/client/ModelSelect.tsx:ModelSelect` shows a row of provider chips ("All" plus one per provider group) under the model search when more than one provider is loaded. Choosing a provider narrows `visibleGroups` to that group, including its favorited models, so the Favorites section is shown only under "All"; the search still applies inside the chosen provider. The filter resets to "All" each time the picker opens.

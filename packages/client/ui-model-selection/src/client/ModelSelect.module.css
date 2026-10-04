@@ -344,3 +344,36 @@
   line-height: 20px;
   color: var(--dsw-alias-label-caption);
 }
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 2px 2px 4px;
+}
+
+.filter {
+  padding: 2px 8px;
+  border: 0.5px solid var(--dsw-alias-border-inverted);
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-caption);
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.filter:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.filter[aria-pressed='true'] {
+  border-color: var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-label-primary);
+}
+
+.filter:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);
+  outline-offset: 1px;
+}
