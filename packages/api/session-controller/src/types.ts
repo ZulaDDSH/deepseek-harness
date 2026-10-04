@@ -7,7 +7,7 @@ import type {
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { LlmAttemptId, MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { TextBlock } from '@deepseek-ai/dsh-llm'
-import type { SessionId, SessionSeqCursor } from '@deepseek-ai/dsh-session/types'
+import type { SessionId, SessionSeq, SessionSeqCursor } from '@deepseek-ai/dsh-session/types'
 import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
@@ -120,6 +120,12 @@ export interface ModelSelectionProjectionState {
   /** Selection the latest recorded model request used. */
   readonly lastUsed: ModelSelection | null
   /**
+   * Seq of the `request/header` that recorded {@link lastUsed}. It outlives the
+   * turn that wrote it, so consumers compare it against a turn boundary to tell
+   * which turn ran the model.
+   */
+  readonly lastUsedSeq: SessionSeq | null
+  /**
    * Model the user selected for this Session, kept until they select another.
    * A request that runs something else — a router deciding the route, a
    * fallback — records `lastUsed` without displacing this.
@@ -131,6 +137,8 @@ export interface ModelSelectionProjectionState {
 export interface ModelSelectionProjection {
   /** Selection consumed by the latest recorded model request. */
   readonly lastUsed: ModelSelection | null
+  /** Seq of the `request/header` that recorded {@link lastUsed}; identifies its turn. */
+  readonly lastUsedSeq: SessionSeq | null
   /** Selection the next request should use, falling back to {@link lastUsed}. */
   readonly next: ModelSelection | null
 }
