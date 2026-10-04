@@ -1,5 +1,9 @@
 - menu "模型与推理等级":
   - searchbox "筛选模型"
+  - group "按提供方筛选":
+    - button "全部" [pressed]
+    - button "DeepSeek"
+    - button "Acme Gateway"
   - group "DeepSeek":
     - text: DeepSeek
     - menuitemradio "DeepSeek-V4-Flash"
