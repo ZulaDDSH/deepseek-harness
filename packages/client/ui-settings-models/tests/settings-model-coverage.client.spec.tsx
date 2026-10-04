@@ -125,7 +125,7 @@ function authorization(): AuthorizationOperations {
   }
 }
 
-function mount(rows: ProviderRow[], namespaces: SettingsNamespaceView[], catalog: ModelsSettingsState['catalog'] = [], jevPage = false) {
+function mount(rows: ProviderRow[], namespaces: SettingsNamespaceView[], catalog: ModelsSettingsState['catalog'] = [], jevPage = false, ops: ModelsOperations = operations) {
   const ctx = new Context()
   const controller = new ModelsSettingsStore(ctx, settingsSchema, new SettingsDescribeMirror(ctx))
   controller.store.update((state) => {
@@ -142,7 +142,7 @@ function mount(rows: ProviderRow[], namespaces: SettingsNamespaceView[], catalog
     controller,
     useSnapshot: bindSnapshotSelector(controller.store),
     useCredentialsRevision: bindSnapshotSelector(credentials),
-    operations,
+    operations: ops,
     authorization: authorization(),
     schema: settingsSchema,
     t,
@@ -150,7 +150,7 @@ function mount(rows: ProviderRow[], namespaces: SettingsNamespaceView[], catalog
   }
   const view = render(jevPage
     ? <JevSettingsSection controller={controller} useSnapshot={bindSnapshotSelector(controller.store)}
-      useCredentialsRevision={bindSnapshotSelector(credentials)} operations={operations} schema={settingsSchema} t={t} />
+      useCredentialsRevision={bindSnapshotSelector(credentials)} operations={ops} schema={settingsSchema} t={t} />
     : <ModelsSection {...props} />)
   return { view, controller, load }
 }
@@ -268,5 +268,70 @@ describe('Models section integration branches', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: en.signIn }))
     await screen.findByText(en.signedIn)
+  })
+})
+
+describe('Jev page apply', () => {
+  const jevValue = {
+    enabled: true, apiKeyEnv: 'TYPESAFE_API_KEY', endpoint: 'https://example.test', model: 'jev-latest',
+    timeoutMs: 1500, minConfidence: 0.8, stateMaxChars: 12000, fallback: 'keep', failOpen: true, routes: [],
+  }
+
+  it('stores the typed key, shows it as stored and confirms the save', async () => {
+    let stored = false
+    const storeCredential = vi.fn(async () => { stored = true; return undefined })
+    const ops: ModelsOperations = {
+      ...operations,
+      describeCredential: vi.fn(async () => ({ configured: stored, writable: true })),
+      storeCredential,
+    }
+    const { load } = mount([row('jev-router', 'llm-jev-router', [], true)], [namespace('llm-jev-router', JevConfig, jevValue)], [], true, ops)
+    const key = screen.getByLabelText<HTMLInputElement>(en.keyInput)
+    expect(key.placeholder).not.toBe(en.keyStored)
+    fireEvent.change(key, { target: { value: 'sk-jev' } })
+    fireEvent.click(screen.getByRole('button', { name: en.apply }))
+    await waitFor(() => { expect(storeCredential).toHaveBeenCalledWith('TYPESAFE_API_KEY', 'sk-jev') })
+    await waitFor(() => { expect(key.placeholder).toBe(en.keyStored) })
+    expect((await screen.findByRole('status')).textContent).toBe('Saved jev-router.')
+    expect(load).toHaveBeenCalled()
+  })
+
+  it('keeps the key shown as stored when the follow-up read is refused', async () => {
+    const storeCredential = vi.fn(async () => undefined)
+    const ops: ModelsOperations = { ...operations, describeCredential: vi.fn(async () => undefined), storeCredential }
+    mount([row('jev-router', 'llm-jev-router', [], true)], [namespace('llm-jev-router', JevConfig, jevValue)], [], true, ops)
+    const key = screen.getByLabelText<HTMLInputElement>(en.keyInput)
+    fireEvent.change(key, { target: { value: 'sk-jev' } })
+    fireEvent.click(screen.getByRole('button', { name: en.apply }))
+    await waitFor(() => { expect(key.placeholder).toBe(en.keyStored) })
+  })
+
+  it('drops the earlier confirmation when a later apply fails or is cancelled', async () => {
+    const storeCredential = vi.fn<ModelsOperations['storeCredential']>(async () => undefined)
+    const ops: ModelsOperations = { ...operations, storeCredential }
+    mount([row('jev-router', 'llm-jev-router', [], true)], [namespace('llm-jev-router', JevConfig, jevValue)], [], true, ops)
+    const key = screen.getByLabelText<HTMLInputElement>(en.keyInput)
+    fireEvent.change(key, { target: { value: 'sk-one' } })
+    fireEvent.click(screen.getByRole('button', { name: en.apply }))
+    expect((await screen.findByRole('status')).textContent).toBe('Saved jev-router.')
+
+    storeCredential.mockResolvedValueOnce('key refused')
+    fireEvent.change(key, { target: { value: 'sk-two' } })
+    fireEvent.click(screen.getByRole('button', { name: en.apply }))
+    expect(await screen.findByText('key refused')).toBeTruthy()
+    expect(screen.queryByRole('status')).toBeNull()
+
+    fireEvent.change(key, { target: { value: 'sk-three' } })
+    fireEvent.click(screen.getByRole('button', { name: en.apply }))
+    expect((await screen.findByRole('status')).textContent).toBe('Saved jev-router.')
+    fireEvent.click(screen.getByRole('button', { name: en.cancel }))
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  it('reloads without confirming when the edit is cancelled', () => {
+    const { load } = mount([row('jev-router', 'llm-jev-router', [], true)], [namespace('llm-jev-router', JevConfig, jevValue)], [], true)
+    fireEvent.click(screen.getByRole('button', { name: en.cancel }))
+    expect(load).toHaveBeenCalled()
+    expect(screen.queryByRole('status')).toBeNull()
   })
 })
