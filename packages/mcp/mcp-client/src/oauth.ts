@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import {
-  auth, extractWWWAuthenticateParams, OAuthError, SdkErrorCode, SdkHttpError, UnauthorizedError,
+  auth, extractWWWAuthenticateParams, InsufficientScopeError, OAuthError, SdkErrorCode, SdkHttpError, UnauthorizedError,
   type AuthProvider, type OAuthClientMetadata, type OAuthClientProvider,
   type StoredOAuthClientInformation, type StoredOAuthTokens,
 } from '@modelcontextprotocol/client'
@@ -60,13 +60,19 @@ export function hasAuthorizationHeader(config: Pick<StreamableHttpConfig, 'heade
 
 /**
  * Whether an error, or one of its causes, means the server needs sign-in.
+ *
+ * A `403 insufficient_scope` challenge belongs here: the transport raises it
+ * when the stored grant cannot widen its own scope, so only a new
+ * authorization can satisfy the request.
+ *
  * @param error Failure from a connection attempt or request.
- * @returns True for sign-in, unauthorized and HTTP 401 failures.
+ * @returns True for sign-in, unauthorized, insufficient-scope and HTTP 401 failures.
  */
 export function isAuthRequired(error: unknown): boolean {
   let current: unknown = error
   for (let depth = 0; depth < 5 && current instanceof Error; depth++) {
     if (current instanceof AuthRequiredError || current instanceof UnauthorizedError) return true
+    if (current instanceof InsufficientScopeError) return true
     if (current instanceof SdkHttpError && current.code === SdkErrorCode.ClientHttpAuthentication) return true
     if (/HTTP 401/.test(current.message)) return true
     current = current.cause

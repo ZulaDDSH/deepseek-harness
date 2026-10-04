@@ -9,6 +9,8 @@ export interface OAuthMcpFixture extends HttpMcpFixture {
   rejectRefresh(code?: 'invalid_grant' | 'server_error'): void
   acceptRefresh(): void
   dropAuthorizationServer(): void
+  refuseAccess(): void
+  requireScope(scope: string): void
 }
 
 async function body(request: IncomingMessage): Promise<string> {
@@ -27,10 +29,12 @@ export async function startOAuthMcpFixture(): Promise<OAuthMcpFixture> {
   let tokenCount = 0
   let refreshRejected: 'invalid_grant' | 'server_error' | undefined
   let dropTokens = false
+  let refusingAccess = false
+  let requiredScope: string | undefined
   const state = { registrations: 0, refreshes: 0 }
   const issue = (response: ServerResponse): void => {
     tokenCount += 1
-    accepted.add(`access-${String(tokenCount)}`)
+    if (!refusingAccess) accepted.add(`access-${String(tokenCount)}`)
     json(response, 200, {
       access_token: `access-${String(tokenCount)}`, token_type: 'Bearer', refresh_token: `refresh-${String(tokenCount)}`, expires_in: 3600,
     })
@@ -44,6 +48,12 @@ export async function startOAuthMcpFixture(): Promise<OAuthMcpFixture> {
     switch (url.pathname) {
       case '/mcp': {
         const header = request.headers.authorization
+        if (requiredScope !== undefined && header !== undefined) {
+          response.writeHead(403, {
+            'www-authenticate': `Bearer error="insufficient_scope", scope="${requiredScope}", resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp"`,
+          }).end()
+          return true
+        }
         if (header !== undefined && accepted.has(header.replace(/^Bearer /, ''))) return false
         response.writeHead(401, {
           'www-authenticate': `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp"`,
@@ -106,5 +116,7 @@ export async function startOAuthMcpFixture(): Promise<OAuthMcpFixture> {
     rejectRefresh: (code = 'invalid_grant') => { refreshRejected = code },
     acceptRefresh: () => { refreshRejected = undefined },
     dropAuthorizationServer: () => { dropTokens = true },
+    refuseAccess: () => { refusingAccess = true; accepted.clear() },
+    requireScope: (scope: string) => { requiredScope = scope },
   }
 }
