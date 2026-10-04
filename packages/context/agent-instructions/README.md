@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-agent-instructions` gives agents workspace guidance from user-global and project-level `AGENTS.md`-compatible files. It loads the applicable chain for the first request. It does not watch external edits continuously: successful filesystem operations discover newly relevant nested files and make later changes or removals visible, while session resume reconciles the baseline. `dsh-base` enables this behavior by default, while profiles can disable it. A byte budget bounds the injected context: broader files are omitted before the most specific file is truncated, and an empty chain adds nothing.
+`dsh-agent-instructions` gives agents workspace guidance from user-global and project-level `AGENTS.md`-compatible files. It loads the applicable chain for the first request. It does not watch external edits continuously: successful filesystem operations discover newly relevant nested files and make later changes or removals visible, while session resume reconciles the baseline. `dsh-base` enables this behavior by default, while profiles can disable it. A byte budget bounds the injected context: broader files are omitted before the most specific file is truncated, and set `endOfTurnRule: true` to include the fixed response rule even when the file chain is empty. The shipped desktop presets enable it.
 
 ## Table of Contents
 
@@ -50,6 +50,7 @@ export interface Config {
   dshHome?: string
   projectRootMarkers?: string[]
   maxBytes: number
+  endOfTurnRule?: boolean
   maxSourceBytes?: number
   instructionFileCandidates?: string[]
   localInstructionFileCandidates?: string[]
@@ -59,6 +60,7 @@ export interface Config {
 | Field | Default | Meaning |
 |---|---|---|
 | `maxBytes` | required | Cap on the complete rendered baseline message, in bytes |
+| `endOfTurnRule` | `false` | Prepend the fixed response rule; omitted before workspace files when the byte budget is insufficient |
 | `maxSourceBytes` | `1048576` | Cap on one source instruction file before rendering |
 | `projectRootMarkers` | `['.git']` | Directory names that mark the project root |
 | `instructionFileCandidates` | `['AGENTS.md', 'CLAUDE.md']` | Base file names loaded in each project directory |

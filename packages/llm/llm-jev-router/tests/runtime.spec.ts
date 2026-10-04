@@ -32,15 +32,15 @@ async function mount(overrides: Partial<Config> = {}, credentials?: Record<strin
   ]))
   await ctx.plugin(LlmRuntime)
   if (credentials !== undefined) await ctx.plugin(MemoryCredentials, credentials)
-  const fiber = await ctx.plugin(jevPlugin, { ...config, ...overrides })
-  const agent = { session: Session.create(SessionId('jev-runtime')) } as Agent
+  const fiber = await ctx.plugin(jevPlugin, { ...config, ...overrides, routes: [...(overrides.routes ?? config.routes)] })
+  const agent = { session: Session.create(SessionId('jev-runtime')), ctx, options: {} } as Agent
   const events = agentEvents(ctx, agent)
-  const preStep = (step = 1, currentSignal = signal, kind: 'enter' | 'reject' = 'enter') => events.waterfall(
-    'agent/pre-step', { turn: 1, step, messages: [input], signal: currentSignal },
+  const preStep = (step = 1, currentSignal = signal, kind: 'enter' | 'reject' = 'enter', turn = 1) => events.waterfall(
+    'agent/pre-step', { turn, step, messages: [input], signal: currentSignal },
     () => Promise.resolve(kind === 'enter' ? { kind, messages: [input] } : { kind }),
   )
-  const request = (step = 1, currentSignal = signal) => events.waterfall(
-    'agent/request', { turn: 1, step, signal: currentSignal }, () => Promise.resolve(base),
+  const request = (step = 1, currentSignal = signal, seed: LlmCallConfig = base, turn = 1) => events.waterfall(
+    'agent/request', { turn, step, signal: currentSignal }, () => Promise.resolve(seed),
   )
   return { ctx, fiber, agent, preStep, request }
 }
@@ -52,21 +52,46 @@ function answer(value: unknown) {
 }
 
 describe('Jev routing lifecycle', () => {
-  it('routes only the evaluated step and releases its provider and listeners', async () => {
+  it('decides once per turn, reuses it for every step, and releases its provider and listeners', async () => {
     const fetchImpl = answer({ answers: { route: { choice: 'small', confidence: 1 } } })
     const { ctx, fiber, preStep, request } = await mount()
     expect(ctx.get('llm')!.listConfigurableProviders()).toMatchObject([{ provider: 'jev-router' }])
     expect(await request()).toBe(base)
     expect(await preStep()).toEqual({ kind: 'enter', messages: [input] })
     expect(await request()).toEqual({ provider: 'target', model: 'small' })
-    expect(await request(2)).toBe(base)
     expect(await request(1, AbortSignal.abort())).toBe(base)
     await preStep(2)
     expect(await request(2)).toEqual({ provider: 'target', model: 'small' })
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(await request(1, signal, base, 2)).toBe(base)
+    await preStep(1, signal, 'enter', 2)
+    expect(await request(1, signal, base, 2)).toEqual({ provider: 'target', model: 'small' })
     expect(fetchImpl).toHaveBeenCalledTimes(2)
     await fiber.dispose()
     expect(ctx.get('llm')!.listConfigurableProviders()).toEqual([])
     expect(await request()).toBe(base)
+  })
+
+  it('wins over a per-Session model selection installed after the plugin', async () => {
+    answer({ answers: { route: { choice: 'small', confidence: 1 } } })
+    const { ctx, preStep, request } = await mount()
+    ctx.on('agent/request', async (_payload, next) => ({ ...await next(), provider: 'picked', model: 'picked' }), { prepend: true })
+    expect(await request()).toEqual({ provider: 'picked', model: 'picked' })
+    await preStep()
+    expect(await request()).toEqual({ provider: 'target', model: 'small' })
+    expect(await request(1, signal, base, 2)).toEqual({ provider: 'picked', model: 'picked' })
+  })
+
+  it('returns an unrouted step to the configured model instead of the previous route', async () => {
+    answer({ answers: { route: { choice: 'small', confidence: 1 } } })
+    const { agent, preStep, request } = await mount()
+    const previous = { provider: 'target', model: 'small' }
+    expect(await request(1, signal, previous, 2)).toBe(previous)
+    Object.assign(agent.options, { provider: 'base', model: 'base', reasoningEffort: 'high' })
+    await preStep()
+    expect(await request()).toEqual({ provider: 'target', model: 'small' })
+    expect(await request(1, signal, previous, 2)).toEqual({ provider: 'base', model: 'base', reasoningEffort: 'high' })
+    expect(await request(1, signal, base, 2)).toBe(base)
   })
 
   it('delegates disabled, rejected, aborted, empty-route and keep decisions', async () => {
@@ -90,6 +115,46 @@ describe('Jev routing lifecycle', () => {
     }
   })
 
+  it('does not retry a failed decision on later steps of the same turn', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => { throw new Error('offline') })
+    vi.stubGlobal('fetch', fetchImpl)
+    const { preStep, request } = await mount()
+    expect((await preStep()).kind).toBe('enter')
+    expect((await preStep(2)).kind).toBe('enter')
+    expect(await request(2)).toBe(base)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    await preStep(1, signal, 'enter', 2)
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
+  it('records a decision failure as a jev/decision event', async () => {
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>(() => Promise.reject(new Error('offline'))))
+    const thrown = await mount()
+    await thrown.preStep()
+    expect(thrown.agent.session.snapshotEvents().filter(event => event.type === 'jev/decision').map(event => event.data))
+      .toEqual([{ turn: 1, step: 1, error: expect.stringContaining('offline') as string }])
+  })
+
+  it('falls back to the Agent route only when it names both provider and model', async () => {
+    answer({ answers: { route: { choice: 'small', confidence: 1 } } })
+    const { agent, preStep, request } = await mount()
+    Object.assign(agent.options, { provider: 'base' })
+    await preStep()
+    const previous = { provider: 'target', model: 'small' }
+    expect(await request(1, signal, previous, 2)).toBe(previous)
+    Object.assign(agent.options, { model: 'base' })
+    expect(await request(1, signal, previous, 2)).toEqual({ provider: 'base', model: 'base' })
+  })
+
+  it('returns an unrouted step to the Session model selection when one is stored', async () => {
+    answer({ answers: { route: { choice: 'small', confidence: 1 } } })
+    const { ctx, preStep, request } = await mount()
+    ctx.provide('sessionProjections', { stateOf: () => ({ selected: { provider: 'chosen', model: 'pick' } }) } as never)
+    await preStep()
+    const previous = { provider: 'target', model: 'small' }
+    expect(await request(1, signal, previous, 2)).toEqual({ provider: 'chosen', model: 'pick' })
+  })
+
   it('uses the credential provider rather than falling back to the environment', async () => {
     const fetchImpl = answer({ answers: { route: { choice: 'small', confidence: 1 } } })
     const resolved = await mount({}, { JEV_TEST_KEY: 'provider-fixture-key' })
@@ -107,7 +172,7 @@ describe('Jev routing lifecycle', () => {
     { endpoint: 'https://jev.example.test?q=1' }, { endpoint: 'https://jev.example.test#fragment' },
     { routes: [config.routes[0]!, config.routes[0]!] }, { fallback: 'missing' },
   ])('refuses invalid deployment settings %j', (overrides) => {
-    expect(() => { apply(new Context(), { ...config, ...overrides }) }).toThrow('jev-router:')
+    expect(() => { apply(new Context(), jevPlugin.Config({ ...config, ...overrides })) }).toThrow('jev-router:')
   })
 })
 

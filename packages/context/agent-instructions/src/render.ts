@@ -5,6 +5,7 @@
  */
 
 import { basename, dirname } from 'node:path'
+import { END_OF_TURN_RULE } from './end-of-turn.ts'
 import type { InstructionFile, LoadedInstructionFile } from './files.ts'
 
 const SYSTEM_REMINDER_OPEN = '<system-reminder>'
@@ -156,15 +157,19 @@ function additionalSectionText(file: LoadedInstructionFile): string {
   ].join('\n')
 }
 
-const BASELINE_RENDER_STYLE: RenderStyle = { intro: AGENT_INSTRUCTIONS_INTRO, section: sectionText }
-
-function baselineRenderStyle(files: LoadedInstructionFile[], replacePreviousBaseline: boolean | undefined): RenderStyle {
-  if (replacePreviousBaseline !== true) return BASELINE_RENDER_STYLE
-  return {
-    ...BASELINE_RENDER_STYLE,
-    intro: files.length === 0
+function baselineRenderStyle(
+  files: LoadedInstructionFile[],
+  replacePreviousBaseline: boolean | undefined,
+  endOfTurnRule: boolean | undefined,
+): RenderStyle {
+  const intro = replacePreviousBaseline !== true
+    ? AGENT_INSTRUCTIONS_INTRO
+    : files.length === 0
       ? EMPTY_REPLACEMENT_AGENT_INSTRUCTIONS_INTRO
-      : REPLACEMENT_AGENT_INSTRUCTIONS_INTRO,
+      : REPLACEMENT_AGENT_INSTRUCTIONS_INTRO
+  return {
+    intro: endOfTurnRule === true ? `${END_OF_TURN_RULE}\n\n${intro}` : intro,
+    section: sectionText,
   }
 }
 
@@ -334,15 +339,15 @@ function renderInstructionContext(
 /**
  * Render a baseline together with the exact source files semantically represented in it.
  * @param files - loaded files ordered from broadest to most specific.
- * @param options - rendering byte budget and whether this baseline supersedes a visible predecessor.
+ * @param options - rendering byte budget, baseline replacement, and end-of-turn rule inclusion.
  * @returns bounded public rendering plus files with surviving content, including genuinely empty files.
  * @internal
  */
 export function renderAgentInstructionSet(
   files: LoadedInstructionFile[],
-  options: { maxBytes: number; replacePreviousBaseline?: boolean },
+  options: { maxBytes: number; replacePreviousBaseline?: boolean; endOfTurnRule?: boolean },
 ): { rendered: RenderedAgentInstructions; included: LoadedInstructionFile[] } {
-  const style = baselineRenderStyle(files, options.replacePreviousBaseline)
+  const style = baselineRenderStyle(files, options.replacePreviousBaseline, options.endOfTurnRule)
   const { represented, ...rendered } = renderInstructionContext(files, options.maxBytes, style)
   return { rendered, included: represented }
 }
@@ -350,12 +355,12 @@ export function renderAgentInstructionSet(
 /**
  * Render the baseline instruction chain with deterministic precedence budgeting.
  * @param files - loaded files ordered from broadest to most specific.
- * @param options - rendering byte budget and whether this baseline supersedes a visible predecessor.
+ * @param options - rendering byte budget, baseline replacement, and end-of-turn rule inclusion.
  * @returns bounded baseline prompt text and budget diagnostics.
  */
 export function renderAgentInstructions(
   files: LoadedInstructionFile[],
-  options: { maxBytes: number; replacePreviousBaseline?: boolean },
+  options: { maxBytes: number; replacePreviousBaseline?: boolean; endOfTurnRule?: boolean },
 ): RenderedAgentInstructions {
   return renderAgentInstructionSet(files, options).rendered
 }

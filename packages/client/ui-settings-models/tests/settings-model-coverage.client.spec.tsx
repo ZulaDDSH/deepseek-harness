@@ -9,10 +9,11 @@ import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
 import { ModelsSection } from '../src/client/ModelsSection.tsx'
+import { JevSettingsSection } from '../src/client/JevSettingsSection.tsx'
 import type { ModelsSectionProps } from '../src/client/ModelsSection.tsx'
 import { ProviderEditor } from '../src/client/ProviderEditor.tsx'
 import { ModelsSettingsStore } from '../src/client/store.ts'
-import type { ProviderRow } from '../src/client/store.ts'
+import type { ModelsSettingsState, ProviderRow } from '../src/client/store.ts'
 import type { AuthorizationOperations } from '../src/client/authorization-operations.ts'
 import type { ModelsOperations } from '../src/client/operations.ts'
 import { en } from '../src/client/locales.ts'
@@ -124,7 +125,7 @@ function authorization(): AuthorizationOperations {
   }
 }
 
-function mount(rows: ProviderRow[], namespaces: SettingsNamespaceView[]) {
+function mount(rows: ProviderRow[], namespaces: SettingsNamespaceView[], catalog: ModelsSettingsState['catalog'] = [], jevPage = false) {
   const ctx = new Context()
   const controller = new ModelsSettingsStore(ctx, settingsSchema, new SettingsDescribeMirror(ctx))
   controller.store.update((state) => {
@@ -132,6 +133,7 @@ function mount(rows: ProviderRow[], namespaces: SettingsNamespaceView[]) {
     state.writable = true
     state.rows = rows
     state.namespaces = new Map(namespaces.map(view => [view.ns, view]))
+    state.catalog = catalog
   })
   const load = vi.spyOn(controller, 'load').mockResolvedValue()
   const credentials = createSnapshotStore({ revision: 0 })
@@ -146,7 +148,10 @@ function mount(rows: ProviderRow[], namespaces: SettingsNamespaceView[]) {
     t,
     renderSlot,
   }
-  const view = render(<ModelsSection {...props} />)
+  const view = render(jevPage
+    ? <JevSettingsSection controller={controller} useSnapshot={bindSnapshotSelector(controller.store)}
+      useCredentialsRevision={bindSnapshotSelector(credentials)} operations={operations} schema={settingsSchema} t={t} />
+    : <ModelsSection {...props} />)
   return { view, controller, load }
 }
 
@@ -182,14 +187,40 @@ describe('Models section integration branches', () => {
     mount(
       [row('openai', 'llm-pi-ai', ['providers', 'openai'], true), jevRow],
       [pi, jev],
+      [],
+      true,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Edit jev-router' }))
     const modelField = await screen.findByRole('combobox', { name: 'Route model 1' })
-    const listId = modelField.getAttribute('list')
-    expect(listId).toBeTruthy()
-    const options = [...document.querySelectorAll(`#${listId} option`)].map(option => option.getAttribute('value'))
-    expect(options).toEqual(['usable-model'])
+    const options = [...modelField.querySelectorAll('option')].map(option => option.getAttribute('value'))
+    expect(options).toEqual(['', 'usable-model', '__custom__'])
+  })
+
+  it('fills Jev route dropdowns from the Host model catalog', async () => {
+    const pi = namespace('llm-pi-ai', PiConfig, { providers: { openai: { models: [{ id: 'own-model' }] } } })
+    const jev = namespace('llm-jev-router', JevConfig, {
+      enabled: true, apiKeyEnv: 'TYPESAFE_API_KEY', endpoint: 'https://example.test', model: 'jev-latest',
+      timeoutMs: 1500, minConfidence: 0.8, stateMaxChars: 12000, fallback: 'keep', failOpen: true,
+      routes: [{ id: 'r', provider: 'openai', model: 'gpt-x', description: 'route' }],
+    })
+    const jevRow = row('jev-router', 'llm-jev-router', [], true)
+    mount([row('openai', 'llm-pi-ai', ['providers', 'openai'], true), jevRow], [pi, jev], [
+      { id: 'openai', name: 'OpenAI', models: [
+        { id: 'gpt-x', name: 'GPT X', reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }] } },
+        { id: 'gpt-mini', name: 'GPT mini' },
+      ] },
+      { id: 'anthropic', name: 'Anthropic', models: [{ id: 'claude-opus-5', name: 'Opus' }] },
+    ], true)
+    const values = (name: string) => [...screen.getByRole('combobox', { name }).querySelectorAll('option')]
+      .map(option => option.getAttribute('value'))
+    expect(values('Route provider 1')).toEqual(['', 'openai', 'anthropic', '__custom__'])
+    expect(values('Route model 1')).toEqual(['', 'gpt-x', 'gpt-mini', 'own-model', '__custom__'])
+    expect(values('Route reasoning effort 1')).toEqual(['', 'low', 'high', '__custom__'])
+    fireEvent.change(screen.getByRole('combobox', { name: 'Route reasoning effort 1' }), { target: { value: '__custom__' } })
+    const effort = screen.getByRole('textbox', { name: 'Route reasoning effort 1' })
+    fireEvent.change(effort, { target: { value: 'max' } })
+    fireEvent.change(effort, { target: { value: '' } })
+    expect((effort as HTMLInputElement).value).toBe('')
   })
 
   it('refreshes after sign-in from setup, row edit, and add cards', async () => {

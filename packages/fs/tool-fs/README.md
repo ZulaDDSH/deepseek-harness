@@ -20,6 +20,8 @@ Use `dsh-tool-fs` to let a model read UTF-8 files with line numbers, read suppor
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 - [Dev Note](#dev-note)
 
+`enabledTools` selects the registered tools (`read`, `write`, `edit`, `read_image`); omitting it enables the full suite. Disabled tools contribute neither schemas nor prompt sections.
+
 -----
 
 <a id="use-this-package"></a>

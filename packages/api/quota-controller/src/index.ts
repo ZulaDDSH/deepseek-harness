@@ -3,7 +3,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import type { CredentialProvider } from '@deepseek-ai/dsh-credentials'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
-import { createQuotaProviderRegistry, type QuotaProvider } from './providers.ts'
+import { createQuotaProviderRegistry, type QuotaProvider, type QuotaSource } from './providers.ts'
 import type { QuotaProviderView, QuotaResult } from './types.ts'
 
 interface ConnectedProvider {
@@ -17,7 +17,7 @@ interface LlmProviderDirectory {
 
 export type * from './types.ts'
 export { createQuotaProviderRegistry } from './providers.ts'
-export type { QuotaProvider } from './providers.ts'
+export type { QuotaProvider, QuotaSource } from './providers.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context { quotaController: QuotaController }
@@ -35,12 +35,24 @@ export interface QuotaControllerInternals {
 export class QuotaController extends TypertRemoteService {
   private readonly providers: ReadonlyMap<string, QuotaProvider>
   private readonly fetchImpl: typeof fetch
+  private readonly sources = new Map<string, QuotaSource>()
   private readonly pending = new Map<string, Promise<QuotaResult>>()
 
   constructor(ctx: Context, internals: QuotaControllerInternals = {}) {
     super(ctx, 'quotaController', { namespace: 'quota' })
     this.providers = createQuotaProviderRegistry(internals.providers)
     this.fetchImpl = internals.fetch ?? fetch
+  }
+
+  /**
+   * Register an account source whose provider owns authentication.
+   * @param source - provider-owned source.
+   * @returns disposer that removes this source.
+   */
+  registerSource(source: QuotaSource): () => void {
+    if (this.providers.has(source.id) || this.sources.has(source.id)) throw new Error(`Quota source already registered: ${source.id}`)
+    this.sources.set(source.id, source)
+    return () => { if (this.sources.get(source.id) === source) this.sources.delete(source.id) }
   }
 
   /**
@@ -56,6 +68,9 @@ export class QuotaController extends TypertRemoteService {
     const listed = new Map<string, QuotaProviderView>()
     for (const provider of configured) {
       if (provider !== undefined) listed.set(provider.id, provider)
+    }
+    for (const source of this.sources.values()) {
+      if (await source.configured()) listed.set(source.id, { id: source.id, name: source.name })
     }
     for (const provider of this.connectedProviders()) {
       listed.set(provider.id, listed.get(provider.id) ?? provider)
@@ -74,7 +89,8 @@ export class QuotaController extends TypertRemoteService {
     if (existing !== undefined) return existing
     const provider = this.providers.get(providerId)
     const connected = this.connectedProviders().find(candidate => candidate.id === providerId)
-    const operation = provider === undefined
+    const source = this.sources.get(providerId)
+    const operation = source !== undefined ? source.fetch(this.fetchImpl) : provider === undefined
       ? Promise.resolve({
         providerId,
         providerName: connected?.name ?? providerId,

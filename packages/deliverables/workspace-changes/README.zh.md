@@ -11,7 +11,7 @@ kind: "package-reference"
 
 本插件列出改动文件，提供有上限的内容对比，并为已注册 Workspace 提供实时 Git 状态和对比。轮次摘要使用 Git 快照，并为 Git 覆盖不到的文件工具编辑保存整文件内容。Host 在 Session 存活期间保留结果，并追加一条 `workspace/changes` 事件。没有 Git 时只列文件工具编辑；Web 改动文件卡片渲染摘要。
 
-Host 还会为已注册的 Workspace 提供实时状态和当前对比。状态使用 Git porcelain 记录与相对 HEAD 的行数；未知 Workspace 或不在 Git 仓库内的目录不会返回状态或对比。这些读取不会追加 Session 事件。
+Host 还会为已注册的 Workspace 提供实时状态和对比，而不追加 Session 事件。未知 Workspace 和非 Git 目录没有状态或对比。
 
 ## 目录
 
@@ -21,6 +21,8 @@ Host 还会为已注册的 Workspace 提供实时状态和当前对比。状态�
 - [模型体验](#model-experience)
 - [已知限制与延期工作](#known-limitations-and-deferred-work)
 - [开发备注](#dev-note)
+
+尚无提交的仓库以空基线统计当前文件。
 
 -----
 
@@ -108,6 +110,6 @@ git 通过 `subprocess` 能力运行，使用净化后的环境、`GIT_CONFIG_CO
 <details>
 <summary>维护者的工作上下文——点击展开</summary>
 
-`status.ts:countPath` 将空 numstat 响应视为零行数。每个非空响应都经过 `numstat.ts:parseNumstat`，它返回至少一条记录或拒绝格式错误的输出；命令失败仍然作为错误处理。
+`status.ts:readWorkspaceStatus` 通过一次 Git numstat 命令读取受跟踪文件的行数。`status.ts:countPath` 对未跟踪文件单独使用 no-index 命令。`status.ts:countPath` 将空 numstat 响应视为零行数。每个非空响应都经过 `numstat.ts:parseNumstat`，它返回至少一条记录或拒绝格式错误的输出；命令失败仍然作为错误处理。
 
 </details>

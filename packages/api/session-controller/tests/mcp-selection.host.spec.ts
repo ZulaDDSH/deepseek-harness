@@ -91,6 +91,47 @@ function agentUnder(ctx: Context, id: string): Agent {
 }
 
 describe('MCP connector selection installation', () => {
+  it('excludes newly connected tools and server instructions and blocks resource reads from disabled connectors', async () => {
+    const { ctx, agents } = await harness()
+    ctx.tools.register(connectorTool('mcp__console__ping'))
+    ctx.tools.register(defineContentToolFixture({
+      name: 'read_mcp_resource', description: 'Read resource',
+      parameters: { server: { type: 'string', required: true } },
+      async execute() { return [{ type: 'text', text: 'resource' }] },
+    }))
+    ctx.systemPrompt.section({ name: 'mcp:console', order: 1, text: 'Selected instructions' })
+    ctx.systemPrompt.section({ name: 'mcp:other', order: 2, text: 'Disabled instructions' })
+    ctx.systemPrompt.section({ name: 'mcp-resource-servers', order: 3, text: 'console, other' })
+    const agent = agentUnder(ctx, 'mcp-late')
+    agents.installMcpSelection(agent, { connectorIds: ['console'] })
+    ctx.tools.register(connectorTool('mcp__other__late'))
+    const assembly = await ctx.systemPrompt.assemble({ scope: agent })
+    expect(assembly.tools.map(tool => tool.name)).not.toContain('mcp__other__late')
+    expect(assembly.sections.map(section => section.name)).toContain('mcp:console')
+    expect(assembly.sections.map(section => section.name)).not.toContain('mcp:other')
+    const denied = await ctx.tools.execute({
+      signal: testToolSignal, callId: ToolCallId('resource-other'), name: 'read_mcp_resource',
+      arguments: { server: 'other' }, agent,
+    })
+    expect(denied.isError).toBe(true)
+    const allowed = await ctx.tools.execute({
+      signal: testToolSignal, callId: ToolCallId('resource-console'), name: 'read_mcp_resource',
+      arguments: { server: 'console' }, agent,
+    })
+    expect(allowed.isError).toBe(false)
+    ctx.provide('ptcRuntime', {
+      language: 'typescript',
+      resolve: () => { throw new Error('This fixture only assembles prompts') },
+      run: () => { throw new Error('This fixture only assembles prompts') },
+    } as never)
+    agent.ctx.get('tools')!.presentAs('both')
+    ctx.tools.register(connectorTool('mcp__other__later'))
+    const hybrid = await ctx.systemPrompt.assemble({ scope: agent })
+    const sdk = hybrid.sections.find(section => section.name === 'tools:sdk')?.text
+    expect(sdk).toContain('mcp__console__ping')
+    expect(sdk).not.toContain('mcp__other__later')
+    expect(hybrid.sections.map(section => section.name)).not.toContain('mcp-resource-servers')
+  })
   it('exposes connector discovery and normalized selection through the Session controller', async () => {
     const ctx = new Context()
     roots.push(ctx)
@@ -145,6 +186,17 @@ describe('MCP connector selection installation', () => {
     agents.installMcpSelection(agent, null)
     agents.selectMcpFor(agent, { connectorIds: [] })
     expect(agents.mcpSelectionFor(agent.session)).toEqual({ connectorIds: [] })
+  })
+
+  it('guards an Agent whose tool registry the controller context cannot see without restricting it', async () => {
+    const { agents } = await harness(false)
+    const { ctx } = await harness()
+    ctx.tools.register(connectorTool('mcp__console__ping'))
+    const agent = agentUnder(ctx, 'mcp-foreign-tools')
+    agents.installMcpSelection(agent, { connectorIds: [] })
+    expect(ctx.tools.schemas().map(schema => schema.name)).toContain('mcp__console__ping')
+    const call = { signal: testToolSignal, callId: ToolCallId('ping'), name: 'mcp__console__ping', arguments: {}, agent }
+    expect((await ctx.tools.execute(call)).isError).toBe(true)
   })
 
   it('updates restrictions and restores unrestricted access while preserving local tools', async () => {

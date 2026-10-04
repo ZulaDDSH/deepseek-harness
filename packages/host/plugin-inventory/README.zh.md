@@ -25,6 +25,8 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
+快照包含已加载桥接器的 `hooks` 报告和只读外部钩子文件。`externalHookSources` 配置选择 `{ dialect, source }` JSON 路径；默认读取 `CODEX_HOME/hooks.json` 以及 `CLAUDE_CONFIG_DIR/settings.json` 和 `settings.local.json`，环境变量不存在时使用 `~/.codex` 和 `~/.claude`。每次调用重新读取外部文件并标记为 `configured`；缺失文件会被省略，读取或 JSON 错误只返回安全诊断。读取不会挂载桥接器或运行命令。已加载报告保留桥接器捕获的配置；两种状态都不表示执行历史。
+
 当客户端或设置页需要展示宿主当前组合了什么——哪些插件已加载、已启用、是否存活，以及每个 agent preset 会给会话什么——时调用 `pluginInventory/list`。Remote 是唯一入口：该服务仅供 Remote 使用，刻意不声明同进程 Cordis `Context` 合并。
 
 ### 快照包含什么

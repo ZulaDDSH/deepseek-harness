@@ -25,6 +25,8 @@ The **Plugin list** tab lets Web users inspect plugins without changing their co
 <a id="use-this-package"></a>
 ## Use this package
 
+Open **Settings → Hooks** to inspect Codex and Claude command configuration alongside loaded Harness bridges. External files show configured commands and event matchers without enabling them in Harness. Refresh rereads external files and collects current bridge reports; loaded commands run only when their event and matcher apply. The page reports read failures and parser skips but does not claim execution or inspect Git hooks.
+
 Open the Plugins section in Settings and select the **Plugin list** tab to inspect the Host's plugin inventory. The tab reads no Remote during plugin activation — selecting it for the first time mounts the component and lazily calls `ctx.remote.pluginInventory.list()` through `api-remotes`.
 
 A failed installation with pending pnpm build permissions offers **Allow these scripts and retry**. The action displays the exact package names and persistent permission scope, then retries the original package spec and activation choice. One click approves the entire displayed group, which can include pending packages from earlier attempts. Closing the page grants no permission.

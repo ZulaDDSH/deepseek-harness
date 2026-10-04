@@ -1,0 +1,34 @@
+- id: system-prompt
+  name: '@deepseek-ai/dsh-system-prompt'
+- id: tools
+  name: '@deepseek-ai/dsh-tools'
+- id: mcp-gitnexus
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    transport: stdio
+    serverName: gitnexus
+    command: dsh-knowledge-router-missing-binary
+    args: []
+    failOnStartupError: false
+    reconnect:
+      enabled: false
+- id: mcp-graphify
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    transport: stdio
+    serverName: graphify
+    command: dsh-knowledge-router-missing-binary
+    args: []
+    failOnStartupError: false
+    reconnect:
+      enabled: false
+- id: knowledge
+  name: '@deepseek-ai/dsh-knowledge-router'
+  config:
+    mode: assisted
+    gitnexus:
+      enabled: true
+      serverName: gitnexus
+    graphify:
+      enabled: true
+      serverName: graphify

@@ -15,6 +15,7 @@ This table connects model-visible tool names to the plugin package and service s
 
 | Tool package | Model-visible names | Requires | Writes / affects | Shipped aliases | Deployment note |
 | --- | --- | --- | --- | --- | --- |
+| `@deepseek-ai/dsh-knowledge-router` | `knowledge_delegate`, `knowledge_query`, `knowledge_record` | `ctx.tools`, `ctx.subagents (assisted mode)`, `ctx.commands (optional)` | `tool/call`, `tool/result`, `child sessions`, `configured Graphify memory (explicit learning)` | - | - |
 | `@deepseek-ai/dsh-plugin-manager` | `plugin_manager` | `ctx.tools`, `ctx.pluginManager`, `ctx.sandboxPolicy` | `tool/call`, `tool/result`, `user/message` | - | - |
 | `@deepseek-ai/dsh-mcp-resources` | `list_mcp_resource_templates`, `list_mcp_resources`, `read_mcp_resource` | `ctx.tools`, `ctx.mcpResources` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-experimental-browser-use-stagehand-native` | `stagehand_act`, `stagehand_extract`, `stagehand_navigate`, `stagehand_observe`, `stagehand_screenshot`, `stagehand_tabs` | `ctx.browserUse`, `ctx.agents`, `ctx.tools`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | - |
@@ -45,6 +46,120 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`, `ctx.workflowEngine`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents the script children)` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-workspace-dependencies` | `load_workspace_dependencies` | `ctx.tools` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`, `web_search` | `ctx.tools`, `ctx.web`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps. |
+
+<a id="deepseek-aidsh-knowledge-router"></a>
+
+## `@deepseek-ai/dsh-knowledge-router`
+
+### `knowledge_delegate`
+
+Delegate a technical task to a worker that begins with a bounded knowledge packet. Prefer this over the plain subagent tool when the task is technical and code structure or earlier findings would change how it is approached: the harness retrieves only the knowledge the task warrants, bounded by the configured packet size, and passes it to the worker with the task. The worker is continuable, so send_message reaches the same child for follow-up and correction.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "description": {
+      "type": "string",
+      "description": "A short (3-5 word) description of the delegated task, for display."
+    },
+    "prompt": {
+      "type": "string",
+      "description": "The complete, self-contained task for the worker. It does not share this conversation, so include everything it needs."
+    }
+  },
+  "required": [
+    "description",
+    "prompt"
+  ]
+}
+```
+
+Source: [`packages/knowledge/knowledge-router/src/tool-delegate.ts`](../packages/knowledge/knowledge-router/src/tool-delegate.ts)
+
+### `knowledge_query`
+
+Retrieve bounded knowledge about a task from the configured knowledge providers. Code-intelligence providers answer structural questions about the codebase, such as what calls a symbol, what a change affects, or which execution flow contains it. Learned-knowledge providers answer what earlier work established, corrected, or abandoned. Omit providers to let the harness route the task; a task that names no routing cue retrieves nothing, and no provider is queried twice. Only bounded excerpts are returned, each with its source and freshness. Treat any result marked stale as requiring verification before you rely on it.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "task": {
+      "type": "string",
+      "description": "The question or task to retrieve knowledge for. Pass the task text as written; the router classifies it."
+    },
+    "providers": {
+      "type": "array",
+      "description": "Providers to query explicitly, overriding automatic routing. Omit to route the task.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "gitnexus",
+          "graphify"
+        ]
+      }
+    }
+  },
+  "required": [
+    "task"
+  ]
+}
+```
+
+Source: [`packages/knowledge/knowledge-router/src/tool.ts`](../packages/knowledge/knowledge-router/src/tool.ts)
+
+### `knowledge_record`
+
+Record a validated finding as persistent learned knowledge. Use this only after a finding has been verified against current repository source, runtime evidence, or test results; never to record an unverified guess or a worker's own unsupported answer. The finding is written to the configured learned-knowledge provider, which then decides how it is scored, corroborated, superseded, and marked stale. A `corrected` outcome must carry the correction that supersedes the earlier answer.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "question": {
+      "type": "string",
+      "description": "The question the validated finding answers."
+    },
+    "answer": {
+      "type": "string",
+      "description": "The validated answer, stated as the durable conclusion rather than the investigation that produced it."
+    },
+    "outcome": {
+      "type": "string",
+      "description": "How the finding was classified: `useful` confirmed an approach, `dead_end` rules one out, `corrected` supersedes an earlier answer.",
+      "enum": [
+        "useful",
+        "dead_end",
+        "corrected"
+      ]
+    },
+    "correction": {
+      "type": "string",
+      "description": "The correction that supersedes an earlier answer. Required when the outcome is `corrected`."
+    },
+    "nodes": {
+      "type": "array",
+      "description": "Node labels this finding is about, so the provider can attach the outcome to them. A finding that cites no node is recorded but never becomes a retrievable lesson.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "validated_by": {
+      "type": "string",
+      "description": "The agent or model that verified this finding, recorded so later readers can weigh its source references."
+    }
+  },
+  "required": [
+    "question",
+    "answer",
+    "outcome",
+    "validated_by"
+  ]
+}
+```
+
+Source: [`packages/knowledge/knowledge-router/src/tool-learn.ts`](../packages/knowledge/knowledge-router/src/tool-learn.ts)
 
 <a id="deepseek-aidsh-plugin-manager"></a>
 

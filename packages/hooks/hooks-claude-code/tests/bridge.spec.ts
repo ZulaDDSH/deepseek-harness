@@ -15,6 +15,7 @@ import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import SubagentRuntime, { SubagentRunId } from '@deepseek-ai/dsh-subagent'
 import * as HooksClaude from '@deepseek-ai/dsh-hooks-claude-code'
+import type { HookInventoryReport } from '@deepseek-ai/dsh-hook-protocol'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
 /**
@@ -155,6 +156,34 @@ describe('hooks-claude-code bridge — PreToolUse', () => {
     const result = events(agent).find(e => e.type === 'tool/result')
     expect(result?.type === 'tool/result' && result.data.message.isError).toBe(true)
     expect(result?.type === 'tool/result' && result.data.message.content.some(b => b.type === 'text' && b.text.includes('danger tool blocked'))).toBe(true)
+  })
+
+  it('a PreToolUse hook not in enabledHooks is skipped and reported as disabled', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-hooks-claude-'))
+    dirs.push(dir)
+    const deny = join(dir, 'deny.sh')
+    writeFileSync(deny, '#!/usr/bin/env bash\nexit 2\n')
+    chmodSync(deny, 0o755)
+    writeFileSync(join(dir, 'hooks.json'), JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'danger', hooks: [{ type: 'command', command: deny }] }] } }))
+
+    const ctx = new Context()
+    await mountAgentLoopTestDependencies(ctx)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(LocalSubprocessRuntime)
+    await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
+    await ctx.plugin(HooksClaude, { configPath: join(dir, 'hooks.json') })
+    ctx.llm.registerAdapter(['mock'], new MockAdapter([toolCallResponse('c1', 'danger', {}), textResponse('done')]))
+    let ran = false
+    ctx.tools.register(defineContentToolFixture({ name: 'danger', description: 'd', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ran' }] } }))
+    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'use danger' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    expect(ran).toBe(true)
+    const reports: HookInventoryReport[] = []
+    ctx.emit('hooks/inventory', reports)
+    expect(reports[0]?.handlers).toEqual([expect.objectContaining({ command: deny, disabled: true })])
+    expect(reports[0]?.settingsNs).toBeUndefined()
   })
 
   it('a PreToolUse hook whose matcher does NOT match leaves the tool alone', async () => {

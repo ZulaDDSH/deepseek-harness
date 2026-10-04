@@ -5,7 +5,7 @@
  */
 
 import {
-  existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync,
+  existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
@@ -738,6 +738,19 @@ describe('removeLinkProjections', () => {
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, version }))
   }
+
+  it.each(['loop', '@scope/loop'])('removes a cyclic projection junction at %s', (name) => {
+    const profile = join(tmp(), 'profiles', 'web')
+    const owned = join(profile, '.dsh-module-fallback')
+    const loop = join(owned, 'node_modules', name)
+    link(loop, loop)
+    onTestFinished(() => {
+      if (lstatSync(loop, { throwIfNoEntry: false })?.isSymbolicLink()) unlinkSync(loop)
+    })
+
+    expect(() => { removeLinkProjections(profile) }).not.toThrow()
+    expect(lstatSync(owned, { throwIfNoEntry: false })).toBeUndefined()
+  })
 
   it('removes only the symlinks that point into .dsh-module-fallback and the directory itself', () => {
     const home = tmp()

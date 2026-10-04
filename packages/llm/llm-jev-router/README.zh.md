@@ -23,7 +23,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-在 base composition 中挂载插件。打开 **设置 → 模型 → TypeSafe / Jev** 并输入密钥。编辑器会将其保存到 `TYPESAFE_API_KEY` 凭据引用；无界面部署可以通过启动环境提供该引用。
+在 base composition 中挂载插件。打开 **设置 → Jev** 并输入密钥。编辑器会将其保存到 `TYPESAFE_API_KEY` 凭据引用；无界面部署可以通过启动环境提供该引用。配置支持实时更新：编辑会更新路由器保留的引用，无需重新挂载。
 
 ### 最小配置
 

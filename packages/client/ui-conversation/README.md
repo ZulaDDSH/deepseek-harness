@@ -44,6 +44,8 @@ Target packages declaration-merge their snapshot and Location data maps, then re
 <a id="shell-and-standard-props"></a>
 ## Shell and standard props
 
+The composer **+** menu exposes files, slash commands, connected MCP namespaces and plugin management. Desktop **Add folder** inserts a folder reference without uploading its contents. **Connectors** toggles the selected namespace for the current Session and shows its saved selection when reopened; addressed subagents cannot change it. **Manage connectors** opens the MCP package configuration, which applies to the profile. Only connected namespaces with discovered tools appear.
+
 The shared image slot props keep display choices separate from durable references: `thumbnail` requests a contained attachment-list thumbnail, while `compact` requests a cropped gallery tile. An optional per-image `label` supplies the accessible display name; loading and cache identity still use the original attachment reference. [ui-attachment](../ui-attachment/README.md) owns rendering and the lightbox.
 
 The composer measures its expanded control groups after size, content, visibility, or font-loading changes. If they cannot share a line, the row sets `--dsh-composer-model-text-display: none` and `--dsh-composer-model-icon-display: block` for the model seat; their defaults are `block` and `none`. Wrapping remains available if even the icon cannot fit.

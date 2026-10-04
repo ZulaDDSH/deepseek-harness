@@ -25,6 +25,8 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
+Settings hook inventory reports the source and accepted commands captured when this bridge loads, including parser-reported skips and load errors. Editing the file requires reloading the bridge before its loaded commands change.
+
 Mount this package, point `configPath` at your `hooks.json`, and the hooks you already have start firing at the corresponding moments in agent runs. There is nothing else to set up before the first hook works.
 
 ### When to choose it

@@ -2,6 +2,10 @@
 
 /** English strings (the key-set source of truth for this pair). */
 export const en = {
+  jevTitle: 'Jev',
+  jevHelp: 'Configure automatic model routing and the Jev credential. Routing does not change the selected base model shown in chat.',
+  jevLoading: 'Reading Jev configuration…',
+  jevUnavailable: 'The Jev router has no editable configuration in this deployment.',
   nav: 'Models',
   deepSeekAccount: 'DeepSeek Account',
   title: 'Models',
@@ -61,6 +65,9 @@ export const en = {
   jevRouteDescription: 'Route description',
   jevRouteReasoningEffort: 'Route reasoning effort',
   jevRouteReasoningEffortPlaceholder: 'Optional',
+  jevRouteChoose: 'Choose…',
+  jevRouteCustom: 'Custom…',
+  jevRouteEffortDefault: 'Model default',
   jevAddRoute: 'Add route',
   jevRemoveRoute: 'Delete route',
   models: 'Models',
@@ -153,6 +160,10 @@ export type ModelsKey = keyof typeof en
 
 /** Chinese strings (same keys as {@link en}). */
 export const zh: { [Key in keyof typeof en]: string } = {
+  jevTitle: 'Jev',
+  jevHelp: '配置自动模型路由和 Jev 凭据。路由不会改变聊天中显示的已选基础模型。',
+  jevLoading: '正在读取 Jev 配置…',
+  jevUnavailable: '此部署中的 Jev 路由器没有可编辑的配置。',
   jevEnabled: '\u542f\u7528 Jev \u8def\u7531',
   jevApiKeyEnv: 'Jev API \u5bc6\u94a5\u73af\u5883\u53d8\u91cf\u540d\u79f0',
   jevEndpoint: 'Jev \u7aef\u70b9',
@@ -169,6 +180,9 @@ export const zh: { [Key in keyof typeof en]: string } = {
   jevRouteDescription: '\u8def\u7531\u63cf\u8ff0',
   jevRouteReasoningEffort: '\u8def\u7531\u63a8\u7406\u5f3a\u5ea6',
   jevRouteReasoningEffortPlaceholder: '\u53ef\u9009',
+  jevRouteChoose: '\u8bf7\u9009\u62e9\u2026',
+  jevRouteCustom: '\u81ea\u5b9a\u4e49\u2026',
+  jevRouteEffortDefault: '\u6a21\u578b\u9ed8\u8ba4',
   jevAddRoute: '\u6dfb\u52a0\u8def\u7531',
   jevRemoveRoute: '\u5220\u9664\u8def\u7531',
   nav: '模型',

@@ -1434,6 +1434,21 @@ describe('configurable-provider directory', () => {
 })
 
 describe('catalog supplement', () => {
+  it.each([
+    ['anthropic', 'claude-opus-5-5', 'anthropic-messages'],
+    ['anthropic', 'claude-sonnet-5-5', 'anthropic-messages'],
+    ['openai', 'gpt-6.1-sol', 'openai-responses'],
+    ['openai-codex', 'gpt-6.1-sol', 'openai-codex-responses'],
+  ])('offers %s model %s with its provider protocol', async (provider, id, api) => {
+    const ctx = await harness({ providers: { [provider]: { apiKeyEnv: KEY_ENV } } })
+    expect(await ctx.llm.listModels(provider)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id, inputModalities: ['text', 'image'] }),
+    ]))
+    const models = resolveProfiles({ [provider]: { apiKeyEnv: KEY_ENV } }).get(provider)?.piProvider?.getModels() ?? []
+    const contextWindow = { anthropic: 1_000_000, openai: 1_050_000, 'openai-codex': 272_000 }[provider]
+    expect(models.find(model => model.id === id)).toMatchObject({ api, contextWindow })
+  })
+
   it('serves a model the pinned pi-ai catalog does not ship and keeps the installed ids', async () => {
     const ctx = await harness({ providers: { 'opencode-go': { apiKeyEnv: KEY_ENV } } })
 
@@ -1444,6 +1459,24 @@ describe('catalog supplement', () => {
     expect(ids).toContain('deepseek-v4-flash')
     expect(listed.find(model => model.id === 'deepseek-v4.1-flash'))
       .toMatchObject({ name: 'DeepSeek V4.1 Flash', inputModalities: ['text', 'image'] })
+  })
+
+  it.each([
+    ['gpt-6-luna', 'openai-responses', 1_050_000, 128_000, 0.1],
+    ['grok-4.7', 'openai-responses', 500_000, 500_000, 2],
+    ['longcat-2.5-preview-free', 'openai-completions', 1_000_000, 131_072, 0],
+    ['mimo-v2.6-flash', 'openai-completions', 1_048_576, 131_072, 0.14],
+    ['mimo-v2.6-pro', 'openai-completions', 1_048_576, 131_072, 0.435],
+    ['space-bunny-free', 'openai-completions', 1_048_576, 524_288, 0],
+  ])('offers opencode-go model %s with its protocol, limits and price', async (id, api, contextWindow, maxTokens, input) => {
+    const ctx = await harness({ providers: { 'opencode-go': { apiKeyEnv: KEY_ENV } } })
+    expect(await ctx.llm.listModels('opencode-go')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id, inputModalities: ['text', 'image'] }),
+    ]))
+    const models = resolveProfiles({ 'opencode-go': { apiKeyEnv: KEY_ENV } }).get('opencode-go')?.piProvider?.getModels() ?? []
+    expect(models.find(model => model.id === id)).toMatchObject({
+      api, contextWindow, maxTokens, baseUrl: 'https://opencode.ai/zen/go/v1', cost: { input },
+    })
   })
 
   it('materializes the supplemented model with the route protocol and endpoint', () => {

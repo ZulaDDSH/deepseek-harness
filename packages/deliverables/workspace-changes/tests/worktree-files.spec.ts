@@ -61,7 +61,7 @@ it.each(['device', 'inode', 'directory', 'read failure', 'cancellation'])('close
   cleanups.push(() => handle.close())
   const opened = await handle.stat()
   if (failure === 'device') opened.dev += 1
-  if (failure === 'inode') opened.ino += 1
+  if (failure === 'inode') opened.ino = opened.ino === 0 ? 1 : 0
   if (failure === 'directory') vi.spyOn(opened, 'isFile').mockReturnValue(false)
   vi.spyOn(handle, 'stat').mockImplementationOnce(async () => {
     if (failure === 'cancellation') controller.abort(new Error('cancelled'))

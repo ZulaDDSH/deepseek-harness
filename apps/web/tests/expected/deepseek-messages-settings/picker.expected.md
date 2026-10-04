@@ -1,5 +1,8 @@
 - menu "模型与推理等级":
+  - searchbox "筛选模型"
   - group "DeepSeek":
     - text: DeepSeek
     - menuitemradio "Messages Flash" [checked]
+    - button "收藏 Messages Flash"
     - menuitemradio "DeepSeek-V4-Pro"
+    - button "收藏 DeepSeek-V4-Pro"
