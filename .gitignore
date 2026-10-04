@@ -46,3 +46,7 @@ worktrees/
 .agents/worktrees/
 .typert-*/
 native/system/test/bin/
+
+# English-only fork: do not track translated documentation artifacts.
+*.zh.md
+*.i18n.yaml
