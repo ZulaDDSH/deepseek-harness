@@ -108,4 +108,4 @@
 
 ## Jev 设置表单
 
-`packages/client/ui-settings-models/src/client/JevFields.tsx:JevFields` 渲染 Jev 路由设置，这部分从 `ProviderEditor.tsx:ProviderEditor` 中移出，后者只保留 API 密钥字段。为路由选择模型时，会根据模型名称填写其 ID（`routeIdFor`）；若已有其他路由使用该 ID，则追加 `-2`、`-3`…。每次更换模型都会重新设置 ID，之后用户可以重命名。回退路由是一个包含 `keep` 和已配置路由 ID 的下拉框，重命名或删除其指向的路由时会同步更新。`packages/llm/llm-jev-router/src/index.ts:apply` 会拒绝指向不存在路由的回退值，而旧的自由文本字段允许这种情况。每个设置都带有通俗说明，并通过 `aria-describedby` 关联。
+`packages/client/ui-settings-models/src/client/JevFields.tsx:JevFields` 渲染 Jev 路由设置，这部分从 `ProviderEditor.tsx:ProviderEditor` 中移出，后者只保留 API 密钥字段。为路由选择模型时，会根据模型名称填写其 ID（`routeIdFor`）；若已有其他路由使用该 ID，则追加 `-2`、`-3`…。更换模型会重新设置 ID，除非用户在本次编辑中输入过该行的 ID；`typedIds` 记录这些行，因此输入的值（如 `model-7`）不会被替换。`ProviderEditor.tsx:applyOnce` 会拒绝保存重复的路由 ID 或指向不存在路由的回退值（`jevConfigFailure`），这与 `llm-jev-router` 加载时的两项检查一致。回退路由是一个包含 `keep` 和已配置路由 ID 的下拉框，重命名或删除其指向的路由时会同步更新。`packages/llm/llm-jev-router/src/index.ts:apply` 会拒绝指向不存在路由的回退值，而旧的自由文本字段允许这种情况。每个设置都带有通俗说明，并通过 `aria-describedby` 关联。

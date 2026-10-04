@@ -1,5 +1,5 @@
 /** The Jev router's settings and route rows inside its provider card. */
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { SettingsSchemaOperations } from './schema-operations.ts'
 import type { ModelPickerOption } from './ProviderEditor.tsx'
 import type { en } from './locales.ts'
@@ -54,6 +54,21 @@ function uniqueId(base: string, taken: ReadonlySet<string>): string {
   return `${base}-${String(suffix)}`
 }
 
+/**
+ * Why the router would refuse these routes and fallback, if it would.
+ * @param routes Stored or edited route list.
+ * @param fallback Stored or edited fallback.
+ * @returns The locale key of the problem, or undefined when the router accepts them.
+ */
+export function jevConfigFailure(routes: unknown, fallback: unknown): 'jevRouteIdDuplicate' | 'jevFallbackMissing' | undefined {
+  const ids = (Array.isArray(routes) ? routes : [])
+    .map(route => typeof route === 'object' && route !== null ? (route as Route)['id'] : undefined)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+  if (new Set(ids).size !== ids.length) return 'jevRouteIdDuplicate'
+  if (typeof fallback === 'string' && fallback !== KEEP && !ids.includes(fallback)) return 'jevFallbackMissing'
+  return undefined
+}
+
 function text(route: Route, key: string): string {
   const value = route[key]
   return typeof value === 'string' ? value : ''
@@ -61,7 +76,7 @@ function text(route: Route, key: string): string {
 
 /**
  * Render the Jev settings with an explanation under each one, and the route
- * rows, whose ID is set from the chosen model and can then be renamed.
+ * rows, whose ID follows the chosen model until the user types one.
  * @param props Draft, schema operations, model catalog and copy.
  * @returns The Jev fields.
  */
@@ -90,6 +105,7 @@ export function JevFields(props: JevFieldsProps): ReactNode {
       .map(route => ({ ...route }))
     : []
   const fallback = textValue('fallback', KEEP)
+  const [typedIds, setTypedIds] = useState<readonly boolean[]>([])
   const setRoutes = (next: Route[], nextFallback = fallback): void => {
     setDraft((current) => {
       const withRoutes = schema.setPath(current, ['routes'], next)
@@ -102,7 +118,8 @@ export function JevFields(props: JevFieldsProps): ReactNode {
     if (before === undefined) return
     let after: Route = value === undefined ? schema.deletePath(before, [key]) : { ...before, [key]: value }
     const oldId = text(before, 'id')
-    if (key === 'model' && value !== undefined) {
+    if (key === 'id') setTypedIds(typed => Object.assign([...typed], { [index]: true }))
+    if (key === 'model' && value !== undefined && typedIds[index] !== true) {
       const taken = new Set(routes.filter((_, other) => other !== index).map(route => text(route, 'id')))
       const derived = routeIdFor(value)
       after = { ...after, id: derived === '' ? '' : uniqueId(derived, taken) }
@@ -111,6 +128,7 @@ export function JevFields(props: JevFieldsProps): ReactNode {
     setRoutes(routes.map((route, other) => other === index ? after : route), fallback === oldId && oldId !== '' ? newId || KEEP : fallback)
   }
   const removeRoute = (index: number, removed: string): void => {
+    setTypedIds(typed => typed.filter((_, other) => other !== index))
     setRoutes(routes.filter((_, other) => other !== index), fallback === removed ? KEEP : fallback)
   }
   const hint = (id: string, key: LocaleKey): ReactNode => <p id={`${id}-hint`} className={styles['advancedHint']}>{t(key)}</p>

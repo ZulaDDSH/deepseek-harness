@@ -34,7 +34,7 @@ import { apiKeyFailure } from './apiKey.ts'
 import { EditorFooter } from './EditorFooter.tsx'
 import { ModelListEditor } from './ModelListEditor.tsx'
 import { SignInCard } from './SignInCard.tsx'
-import { JevFields } from './JevFields.tsx'
+import { JevFields, jevConfigFailure } from './JevFields.tsx'
 import type { AuthorizationOperations } from './authorization-operations.ts'
 import { deriveKeyRef, protocolChoices } from './store.ts'
 import { protocolLabel } from './protocol-label.ts'
@@ -307,6 +307,13 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
       if (failure !== undefined) {
         return `${t('model')} ${String(failure.index + 1)}: ${t(failure.key)}`
       }
+    }
+    if (layout === 'jev' && props.credentialOnly !== true) {
+      const jevFailure = jevConfigFailure(
+        schema.getPath(next, ['routes']) ?? schema.getPath(fallback, ['routes']),
+        schema.getPath(next, ['fallback']) ?? schema.getPath(fallback, ['fallback']),
+      )
+      if (jevFailure !== undefined) return t(jevFailure)
     }
     /* v8 ignore next -- apply is only reachable from the rendered card, which required a resolved node */
     if (props.credentialOnly !== true && node !== undefined && settingsPath.length === 0) {

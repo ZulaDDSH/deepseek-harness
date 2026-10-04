@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { afterEach, expect, it } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { JevFields, routeIdFor } from '../src/client/JevFields.tsx'
+import { JevFields, jevConfigFailure, routeIdFor } from '../src/client/JevFields.tsx'
 import { en } from '../src/client/locales.ts'
 import { settingsSchema } from './settings-schema.client.ts'
 
@@ -51,9 +51,9 @@ it('fills the route id from the chosen model, keeps it unique, and follows later
   expect(screen.getByLabelText<HTMLInputElement>(`${en.jevRouteId} 3`).value).toBe('claude-opus-5-3')
   pick(`${en.jevRouteModel} 2`, 'Claude Sonnet 5.5')
   expect(screen.getByLabelText<HTMLInputElement>(`${en.jevRouteId} 2`).value).toBe('claude-sonnet-5-5')
-  pick(`${en.jevRouteId} 2`, 'fast')
+  pick(`${en.jevRouteId} 2`, 'model-7')
   pick(`${en.jevRouteModel} 2`, 'claude-opus-5')
-  expect(screen.getByLabelText<HTMLInputElement>(`${en.jevRouteId} 2`).value).toBe('claude-opus-5-2')
+  expect(screen.getByLabelText<HTMLInputElement>(`${en.jevRouteId} 2`).value).toBe('model-7')
   pick(`${en.jevRouteId} 2`, 'fast')
   pick(`${en.jevRouteModel} 3`, '')
   expect(screen.getByLabelText<HTMLInputElement>(`${en.jevRouteId} 3`).value).toBe('')
@@ -102,4 +102,13 @@ it('explains every setting', () => {
   }
   expect(screen.getByLabelText(en.jevMinConfidence).getAttribute('aria-describedby')).toBe('jev-minConfidence-hint')
   expect(document.getElementById('jev-minConfidence-hint')?.textContent).toBe(en.jevMinConfidenceHint)
+})
+
+it('reports the route problems the router refuses at load', () => {
+  expect(jevConfigFailure([{ id: 'a' }, { id: 'b' }], 'b')).toBeUndefined()
+  expect(jevConfigFailure([{ id: 'a' }, { id: '' }, { id: '' }], 'keep')).toBeUndefined()
+  expect(jevConfigFailure([{ id: 'a' }, { id: 'a' }], 'keep')).toBe('jevRouteIdDuplicate')
+  expect(jevConfigFailure([{ id: 'a' }, null, 'x', { id: 7 }], 'gone')).toBe('jevFallbackMissing')
+  expect(jevConfigFailure(undefined, 'gone')).toBe('jevFallbackMissing')
+  expect(jevConfigFailure(undefined, undefined)).toBeUndefined()
 })

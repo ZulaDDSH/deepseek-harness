@@ -892,6 +892,24 @@ describe('ModelsSection', () => {
     ])
   })
 
+  it.each([
+    ['a fallback that names no route', 'gone', [JEV_ROUTE], 'jevFallbackMissing'],
+    ['two routes with the same ID', 'keep', [JEV_ROUTE, { ...JEV_ROUTE, model: 'claude-sonnet-5' }], 'jevRouteIdDuplicate'],
+  ] as const)('refuses to apply %s, which the router would reject', async (_name, fallback, routes, message) => {
+    const { face, mutate } = scriptedFace()
+    const { ProviderEditor } = await import('../src/client/ProviderEditor.tsx')
+    const { namespace } = jevNamespaceView([...routes])
+    const stored = { ...namespace, value: { ...(namespace.value as Record<string, JsonValue>), fallback } }
+    render(<ProviderEditor
+      provider="jev-router" displayName="TypeSafe / Jev" namespace={stored} schema={settingsSchema} settingsPath={[]}
+      modelOptions={[...JEV_MODEL_OPTIONS]} operations={operationsWith(face)} t={t} readOnly={false} onClose={vi.fn()}
+    />)
+    fireEvent.click(screen.getByLabelText(en.jevEnabled))
+    fireEvent.click(screen.getByText(en.apply))
+    expect(await screen.findByText(en[message])).toBeTruthy()
+    expect(mutate).not.toHaveBeenCalled()
+  })
+
   it('renders Jev defaults, stored-key copy, and the credential-only form', async () => {
     const { face } = scriptedFace()
     const { ProviderEditor } = await import('../src/client/ProviderEditor.tsx')
