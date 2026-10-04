@@ -129,8 +129,8 @@
   en: e0cd9b1be7500c88
   zh: e0cd9b1be7500c88
 /session-persistence-event-catalog/events/jev/jev-decision-log-only:
-  en: 5d2210f810a35e2c
-  zh: 919fb11a4dde0852
+  en: 0ee81c048d3e4f8b
+  zh: 8653ec635c7bae50
 /session-persistence-event-catalog/events/llm:
   en: 8a5c09e48ec0a6ae
   zh: 8a5c09e48ec0a6ae
@@ -1053,8 +1053,8 @@
   en: 24b26c9f9fea9cbf
   zh: 257ec9be177630f6
 /session-persistence-event-catalog/resolved-persistence-types/jevdecisionrecord:
-  en: ff784beb806b788f
-  zh: eecfa286c66f33d1
+  en: 4dbd982a93fa4a06
+  zh: 05a3c75a1d817b75
 /session-persistence-event-catalog/resolved-persistence-types/jsonvalue:
   en: c239aa9c90226c35
   zh: 3561e77832c7c8b5

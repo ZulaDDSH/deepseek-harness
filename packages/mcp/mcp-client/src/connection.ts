@@ -21,13 +21,13 @@
  * @module
  */
 
-import { Client, type AuthProvider, type Transport } from '@modelcontextprotocol/client'
+import { Client, type Transport } from '@modelcontextprotocol/client'
 import type { SignInProvider } from './oauth.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { CredentialKey } from '@deepseek-ai/dsh-credentials'
 import { assertNever, type JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { ServerContext } from './server-context.ts'
-import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+import type { ResolvedReconnectPolicy } from './reconnect-policy.ts'
 import { buildChildEnv, createTransport } from './transport.ts'
 import { publicToolName, syncTools } from './tools.ts'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
@@ -38,26 +38,6 @@ import type { ToolBridgeOptions, ToolDisposers } from './tools.ts'
 import { resolveToolFilter } from './tool-filter.ts'
 import type { Config } from './index.ts'
 
-/** Automatic reconnect policy for one MCP server connection. */
-export interface ReconnectConfig {
-  /** Reconnect automatically after a lost connection (default true). */
-  enabled?: boolean
-  /** First reconnect delay in milliseconds; doubles per consecutive failed attempt (default 500). */
-  initialDelayMs?: number
-  /** Backoff ceiling in milliseconds; also the uptime after which the attempt budget resets (default 30000). */
-  maxDelayMs?: number
-  /** Consecutive failed attempts per outage before giving up for good (default 10). */
-  maxAttempts?: number
-}
-
-/** Defaults shared by the Config schema and {@link resolveReconnectPolicy}. */
-export const RECONNECT_DEFAULTS: Required<ReconnectConfig> = Object.freeze({
-  enabled: true,
-  initialDelayMs: 500,
-  maxDelayMs: 30_000,
-  maxAttempts: 10,
-})
-
 /** Default UTF-8 byte limit for attributed server instructions. */
 export const DEFAULT_MAX_INSTRUCTION_BYTES = 32_768
 
@@ -65,46 +45,6 @@ export const DEFAULT_MAX_INSTRUCTION_BYTES = 32_768
 // Keep one additional second for the process-close event that proves the old
 // generation is gone; timing out fails closed instead of overlapping children.
 const GENERATION_CLOSE_TIMEOUT_MS = 5_000
-
-/** Fully resolved reconnect policy captured at plugin load. */
-export type ResolvedReconnectPolicy = Readonly<Required<ReconnectConfig>>
-
-/**
- * The one explicit resolve step from raw reconnect config to the policy the
- * supervisor runs. Programmatic construction may bypass Schemastery
- * normalization, so every default and bound is re-judged here — misconfiguration
- * fails the plugin instance at load.
- *
- * @param config - Raw `reconnect` config; omission uses the defaults.
- * @param path - Diagnostic prefix naming the config location in thrown messages.
- * @returns The frozen resolved policy.
- */
-export function resolveReconnectPolicy(config: ReconnectConfig | undefined, path: string): ResolvedReconnectPolicy {
-  if (config !== undefined) {
-    for (const key of Object.keys(config)) {
-      if (!Object.hasOwn(RECONNECT_DEFAULTS, key)) throw new Error(`${path}.${key} is not a reconnect option`)
-    }
-  }
-  const enabled = config?.enabled ?? RECONNECT_DEFAULTS.enabled
-  const initialDelayMs = config?.initialDelayMs ?? RECONNECT_DEFAULTS.initialDelayMs
-  const maxDelayMs = config?.maxDelayMs ?? RECONNECT_DEFAULTS.maxDelayMs
-  const maxAttempts = config?.maxAttempts ?? RECONNECT_DEFAULTS.maxAttempts
-  /* jscpd:ignore-start — domain-specific delay validation parallels llm retry-policy; not extractable */
-  if (!Number.isFinite(initialDelayMs) || initialDelayMs <= 0 || initialDelayMs > MAX_TIMER_DELAY_MS) {
-    throw new Error(`${path}.initialDelayMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`)
-  }
-  if (!Number.isFinite(maxDelayMs) || maxDelayMs <= 0 || maxDelayMs > MAX_TIMER_DELAY_MS) {
-    throw new Error(`${path}.maxDelayMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`)
-  }
-  if (initialDelayMs > maxDelayMs) {
-    throw new Error(`${path}.initialDelayMs must be less than or equal to maxDelayMs`)
-  }
-  if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
-    throw new Error(`${path}.maxAttempts must be a positive integer`)
-  }
-  /* jscpd:ignore-end */
-  return Object.freeze({ enabled, initialDelayMs, maxDelayMs, maxAttempts })
-}
 
 /** Result from the initial connection attempt, for startup-await semantics. */
 export interface ConnectionOutcome {
@@ -205,18 +145,6 @@ export function startConnection(
   let lastError: string | undefined
   /** The server rejected the connection for lack of a usable grant; waits for sign-in instead of retrying. */
   let authRequired = false
-  const transportAuth: AuthProvider | undefined = auth === undefined ? undefined : {
-    ...auth.provider,
-    onUnauthorized: async (context) => {
-      try {
-        await auth.provider.onUnauthorized(context)
-      } catch (error) {
-        if (isAuthRequired(error)) signInLost()
-        throw error
-      }
-    },
-  }
-
   /** A generation may act only while it is the current one on a live plugin. */
   const isCurrent = (generation: Client): boolean => !disposed && client === generation
 
@@ -319,9 +247,13 @@ export function startConnection(
    * Every failure funnels through {@link generationDown}; success arms the
    * onclose-driven disconnect path. Never rejects.
    *
+   * Starting an attempt clears the previous failure text so configuration
+   * surfaces report `connecting` while the attempt is in flight.
+   *
    * @param startup - Whether this is the plugin's activation attempt.
    */
   async function connectGeneration(startup: boolean): Promise<void> {
+    lastError = undefined
     const generation = new Client(
       { name: 'dsh-mcp-client', version: '0.0.1' },
       {
@@ -343,6 +275,19 @@ export function startConnection(
     const hasClosed = (): boolean => closeObserved
     client = generation
     closeClient = closeGeneration
+    /**
+     * Every request failure reaches this seam: a refused retry after a token
+     * refresh, a `403 insufficient_scope` challenge, and the plain 401 a static
+     * `Authorization` header gets. Only a server that offers sign-in can wait
+     * for authorization; a failed attempt is reported by the catch path below.
+     */
+    generation.onerror = (error) => {
+      if (!isAuthRequired(error)) return
+      /* v8 ignore next -- a second in-flight request can lose the credential after the first clears connectedAt */
+      if (connectedAt === undefined) return
+      if (auth === undefined) credentialRejected(error)
+      else signInLost()
+    }
     generation.onclose = () => {
       closeObserved = true
       closed.resolve()
@@ -377,7 +322,7 @@ export function startConnection(
     }
     let instructions: string
     try {
-      transport = createTransport(config, environment, transportAuth)
+      transport = createTransport(config, environment, auth?.provider)
       await generation.connect(transport)
       if (hasClosed()) {
         attemptSettled = true
@@ -442,21 +387,36 @@ export function startConnection(
     return { error: firstAttemptError ?? new Error(`${label}: initial connection failed`) }
   })
 
-  /** An established connection whose grant stopped working waits for sign-in instead of retrying. */
-  function signInLost(): void {
-    if (connectedAt === undefined) return
+  /** Stop serving through the current generation; the close is deferred so the failing request rejects first. */
+  function abandonGeneration(): void {
     const close = closeClient
     connectedAt = undefined
-    authRequired = true
-    lastError = undefined
     client = undefined
     closeClient = undefined
-    ctx.logger.warn(`${label}: sign-in required; waiting for a stored grant instead of retrying`)
-    // The failing request must reject with the sign-in error before its transport closes.
     setTimeout(() => {
       /* v8 ignore next -- an established connection always holds its close function */
       void close?.()
     }, 0)
+  }
+
+  /** An established connection whose grant stopped working waits for sign-in instead of retrying. */
+  function signInLost(): void {
+    authRequired = true
+    lastError = undefined
+    ctx.logger.warn(`${label}: sign-in required; waiting for a stored grant instead of retrying`)
+    abandonGeneration()
+  }
+
+  /**
+   * An established connection whose static `Authorization` credential was
+   * refused reports that failure; no stored grant can replace a credential the
+   * configuration owns, so the state is never `auth-required`.
+   */
+  function credentialRejected(error: unknown): void {
+    const message = describeFailure(error)
+    lastError = message
+    ctx.logger.warn(`${label}: the server refused the configured Authorization credential: ${message}`)
+    abandonGeneration()
   }
 
   if (auth !== undefined) {

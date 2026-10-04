@@ -124,7 +124,8 @@ This section explains the design decisions behind the bridge and points at the c
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `Config` schema, `serverName` reservation, activation await |
-| [`src/connection.ts`](src/connection.ts) | Connection supervisor: client generations, reconnect policy, attempt budget, disposal |
+| [`src/connection.ts`](src/connection.ts) | Connection supervisor: client generations, attempt budget, sign-in state, disposal |
+| [`src/reconnect-policy.ts`](src/reconnect-policy.ts) | Reconnect config, its defaults, and the resolve step that validates them |
 | [`src/server-context.ts`](src/server-context.ts) | Resource-provider registration and literal server instructions |
 | [`src/tool-filter.ts`](src/tool-filter.ts) | Static raw-name allow/deny resolution for discovered tools |
 | [`src/tools.ts`](src/tools.ts) | Tool bridge: discovery, filtering, naming, registration swap, execution, image projection |

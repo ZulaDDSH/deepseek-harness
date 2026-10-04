@@ -8,7 +8,7 @@ import { credentialKey, parseCredentialKey } from '@deepseek-ai/dsh-credentials'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
-import { SdkErrorCode, SdkHttpError, UnauthorizedError } from '@modelcontextprotocol/client'
+import { SdkErrorCode, SdkHttpError, UnauthorizedError, InsufficientScopeError } from '@modelcontextprotocol/client'
 import { apply, type Config, type McpConnectionReport } from '../src/index.ts'
 import {
   AuthRequiredError, grantAuthProvider, grantKey, hasAuthorizationHeader, isAuthRequired, memoryGrantStore, recordGrantStore,
@@ -173,6 +173,38 @@ describe('MCP OAuth sign-in', () => {
     expect(report(ctx).state).toBe('connected')
   })
 
+  it('asks for sign-in again when a refreshed token is still refused', async () => {
+    const fixture = await startFixture()
+    const ctx = await mount(configFor(fixture.url, { reconnect: { enabled: true, initialDelayMs: 1, maxDelayMs: 2, maxAttempts: 3 } }))
+    await signIn(ctx, approve)
+    await vi.waitFor(() => { expect(report(ctx)).toMatchObject({ state: 'connected', toolCount: 1 }) })
+    fixture.refuseAccess()
+    const refused = await ping(ctx)
+    expect(refused.isError, JSON.stringify(refused)).toBe(true)
+    expect(fixture.refreshes).toBe(1)
+    await vi.waitFor(() => { expect(report(ctx)).toMatchObject({ state: 'auth-required' }) })
+  })
+
+  it('asks for sign-in instead of retrying when the server demands a wider scope', async () => {
+    const fixture = await startFixture()
+    const ctx = await mount(configFor(fixture.url, { reconnect: { enabled: true, initialDelayMs: 1, maxDelayMs: 2, maxAttempts: 3 } }))
+    expect(report(ctx).state).toBe('auth-required')
+    fixture.requireScope('mcp:tools')
+    expect((await signIn(ctx, approve)).status).toBe('authorized')
+    await vi.waitFor(() => { expect(report(ctx)).toMatchObject({ state: 'auth-required' }) })
+  })
+
+  it('asks for sign-in again when a live request is refused for insufficient scope', async () => {
+    const fixture = await startFixture()
+    const ctx = await mount(configFor(fixture.url))
+    await signIn(ctx, approve)
+    await vi.waitFor(() => { expect(report(ctx)).toMatchObject({ state: 'connected', toolCount: 1 }) })
+    fixture.requireScope('mcp:tools')
+    const refused = await ping(ctx)
+    expect(refused.isError, JSON.stringify(refused)).toBe(true)
+    await vi.waitFor(() => { expect(report(ctx)).toMatchObject({ state: 'auth-required' }) })
+  })
+
   it('passes a refresh failure that is not a revoked grant through unchanged', async () => {
     const fixture = await startFixture()
     const ctx = await mount(configFor(fixture.url))
@@ -263,6 +295,40 @@ describe('MCP OAuth sign-in', () => {
     expect(report(ctx).error).toContain('401')
   })
 
+  it('reports a rejected static credential as a failure, never as sign-in-required', async () => {
+    const fixture = await startFixture()
+    fixture.accept('static-token')
+    const ctx = await mount(configFor(fixture.url, { headers: { Authorization: 'Bearer static-token' } }))
+    expect(report(ctx)).toMatchObject({ state: 'connected', toolCount: 1 })
+    expect(report(ctx).authKey).toBeUndefined()
+
+    fixture.expire()
+    const refused = await ping(ctx)
+    expect(refused.isError, JSON.stringify(refused)).toBe(true)
+
+    const after = report(ctx)
+    expect(after.state).not.toBe('auth-required')
+    expect(after.state).toBe('failed')
+    expect(after.authKey).toBeUndefined()
+    expect(after.error).toBeTruthy()
+    expect(ctx.authorization.list()).toEqual([])
+  })
+
+  it('reports a static credential refused for insufficient scope as a failure, not sign-in', async () => {
+    const fixture = await startFixture()
+    fixture.accept('static-token')
+    const ctx = await mount(configFor(fixture.url, { headers: { Authorization: 'Bearer static-token' } }))
+    fixture.requireScope('mcp:tools')
+    const refused = await ping(ctx)
+    expect(refused.isError, JSON.stringify(refused)).toBe(true)
+
+    const after = report(ctx)
+    expect(after.state).not.toBe('auth-required')
+    expect(after.state).toBe('failed')
+    expect(after.authKey).toBeUndefined()
+    expect(ctx.authorization.list()).toEqual([])
+  })
+
   it('reports a connection failure with its reason', async () => {
     const ctx = await mount(configFor('http://127.0.0.1:1/mcp'))
     expect(report(ctx)).toMatchObject({ state: 'failed', toolCount: 0 })
@@ -312,6 +378,7 @@ describe('OAuth helpers', () => {
     expect(isAuthRequired(http)).toBe(true)
     expect(isAuthRequired(new Error('Error POSTing to endpoint (HTTP 401): '))).toBe(true)
     expect(isAuthRequired(new Error('outer', { cause: new AuthRequiredError('s') }))).toBe(true)
+    expect(isAuthRequired(new InsufficientScopeError({ requiredScope: 'mcp:tools' }))).toBe(true)
     expect(isAuthRequired(new Error('connection refused'))).toBe(false)
     expect(isAuthRequired('HTTP 401')).toBe(false)
   })

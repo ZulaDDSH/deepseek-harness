@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import {
-  auth, extractWWWAuthenticateParams, OAuthError, SdkErrorCode, SdkHttpError, UnauthorizedError,
+  auth, extractWWWAuthenticateParams, InsufficientScopeError, OAuthError, SdkErrorCode, SdkHttpError, UnauthorizedError,
   type AuthProvider, type OAuthClientMetadata, type OAuthClientProvider,
   type StoredOAuthClientInformation, type StoredOAuthTokens,
 } from '@modelcontextprotocol/client'
@@ -59,15 +59,25 @@ export function hasAuthorizationHeader(config: Pick<StreamableHttpConfig, 'heade
 }
 
 /**
- * Whether an error, or one of its causes, means the server needs sign-in.
+ * Whether an error, or one of its causes, means the server refused the request's
+ * credential: a sign-in error, an unauthorized response, a
+ * `403 insufficient_scope` challenge, or any HTTP 401. The Streamable HTTP
+ * transport reports a plain 401 with the status only in the error data, so the
+ * status is checked alongside the message.
+ *
+ * A server with a sign-in flow answers a refusal with `auth-required`; one whose
+ * credential is a static `Authorization` header has no flow to run and reports a
+ * failure instead.
+ *
  * @param error Failure from a connection attempt or request.
- * @returns True for sign-in, unauthorized and HTTP 401 failures.
+ * @returns True when the server refused the request's credential.
  */
 export function isAuthRequired(error: unknown): boolean {
   let current: unknown = error
   for (let depth = 0; depth < 5 && current instanceof Error; depth++) {
     if (current instanceof AuthRequiredError || current instanceof UnauthorizedError) return true
-    if (current instanceof SdkHttpError && current.code === SdkErrorCode.ClientHttpAuthentication) return true
+    if (current instanceof InsufficientScopeError) return true
+    if (current instanceof SdkHttpError && (current.code === SdkErrorCode.ClientHttpAuthentication || current.status === 401)) return true
     if (/HTTP 401/.test(current.message)) return true
     current = current.cause
   }
