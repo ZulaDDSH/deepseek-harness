@@ -1,9 +1,9 @@
 /** Dedicated Jev configuration using the shared provider editor. */
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import type { InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ModelsSectionInjected } from './ModelsSection.tsx'
-import { providerModelOptions } from './ModelsSection.tsx'
+import { providerCopy, providerModelOptions } from './ModelsSection.tsx'
 import { ProviderEditor } from './ProviderEditor.tsx'
 import styles from './ModelsSection.module.css'
 
@@ -17,12 +17,14 @@ export function JevSettingsSection({
   const state = useSnapshot(value => value)
   const revision = useCredentialsRevision(value => value.revision)
   useEffect(() => { void controller.load() }, [controller])
+  const [saved, setSaved] = useState<string | undefined>(undefined)
   const reload = (): void => { void controller.load() }
   const row = state.rows.find(row => row.entry.provider === 'jev-router')
   const namespace = row === undefined ? undefined : state.namespaces.get(row.entry.settingsNs)
   return <div className={styles['section']}>
     <h2 className={styles['title']}>{t('jevTitle')}</h2>
     <p className={styles['intro']}>{t('jevHelp')}</p>
+    {saved === undefined ? null : <p className={styles['savedNotice']} role="status" aria-live="polite">{saved}</p>}
     {state.status === 'error' ? <p role="alert">{state.error}</p> : null}
     {namespace === undefined || row === undefined
       ? <><p>{t(state.status === 'idle' || state.status === 'loading' ? 'jevLoading' : 'jevUnavailable')}</p>
@@ -33,7 +35,10 @@ export function JevSettingsSection({
         credentialsRevision={revision} readOnly={!state.writable}
         modelOptions={providerModelOptions(state, schema)}
         onCredentialChanged={reload}
-        onClose={reload}
+        onClose={(changed) => {
+          reload()
+          if (changed) setSaved(providerCopy(t('savedProvider'), { provider: row.entry.provider, displayName: row.entry.displayName }))
+        }}
       />}
   </div>
 }

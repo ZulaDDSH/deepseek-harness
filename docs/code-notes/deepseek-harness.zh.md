@@ -87,3 +87,5 @@
 `packages/client/ui-settings-models/src/client/ModelsSection.tsx:Loaded` 不在提供商行中列出 `jev-router`。`packages/llm/llm-jev-router/src/index.ts:apply` 注册可配置提供商，只是为了让 `JevSettingsSection` 能从共享连接结果中读取其设置命名空间。Jev 是路由服务而不是适配器路由，如果在模型页面列出它，会提供一个密钥输入框，并在首次运行时显示一张并不能让用户获得模型提供商的设置卡片。
 
 `packages/llm/llm-pi-ai/src/catalog-supplement.ts:SUPPLEMENT` 收录固定版本 pi-ai 目录中缺失的 `opencode-go` 模型，数据转录自 `opencode models opencode-go --verbose`（OpenCode 1.18.33）：`deepseek-v4.1-flash`、`gpt-6-luna`、`grok-4.7`、`longcat-2.5-preview-free`、`mimo-v2.6-flash`、`mimo-v2.6-pro` 和 `space-bunny-free`。pi-ai 的 `Model` 只接受文本和图像输入，因此音频、视频和 PDF 模态被省略，分级的长上下文价格采用基础费率。OpenAI 协议的模型使用 `openai-responses` 并设置 `sessionAffinityFormat: 'openai-nosession'`，与已安装的同类路由一致；其余模型沿用已安装的 OpenAI 兼容 `compat`。
+
+`packages/client/ui-settings-models/src/client/ProviderEditor.tsx:applyOnce` 在 `storeCredential` 成功后立即重新读取已存储凭据的状态。否则密钥提示在每个凭据引用下只获取一次，导致在持续挂载的卡片上，点击应用后输入框被清空，而占位文字仍显示未设置。`packages/client/ui-settings-models/src/client/JevSettingsSection.tsx:JevSettingsSection` 使用共享的 `savedProvider` 文案提示保存成功，因为它的关闭处理只重新加载，页面看起来没有任何变化。
