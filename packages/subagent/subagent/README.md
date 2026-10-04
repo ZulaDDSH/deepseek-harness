@@ -42,6 +42,16 @@ Mount the service with a provider and the delegation tool. The provider register
 
 An agent that calls the tool gets the child's final answer as the tool result. Mounting the service alone changes nothing: nothing can delegate until a provider and a tool are composed.
 
+### Root orchestration policy
+
+Mount the optional `@deepseek-ai/dsh-subagent/orchestration-policy` plugin when the top-level agent should own decomposition instead of delegating opportunistically:
+
+```yaml
+- name: '@deepseek-ai/dsh-subagent/orchestration-policy'
+```
+
+It contributes one system-prompt section that renders only for a top-level agent — a delegated child already carries its own delegation-scope statement — and states when to work directly, when to delegate one bounded subtask, and when to write a workflow script, plus how to decompose, parallelize, steer, stop, and synthesize delegated work. The section also states the route rule the composition implies: with no router mounted, a delegate inherits this agent's provider, model, and reasoning effort; when the composed Jev router is enabled, it instead forbids naming a delegate's provider, model, or reasoning effort, because that router decides each agent's route. The section re-renders on every assembly, so changing the router's enabled setting applies from the next request. Mounting the plugin changes the model-visible prompt; a composition that omits it keeps its prompt unchanged.
+
 ### Delegation settings
 
 The limits section on the **Plugins → Subagent** page edits the Host’s `subagent` settings section. User values override this plugin's composition; reset removes the user override. `maxDepth` defaults to `1` and supplies the delegation tools' depth when their own configuration omits it. An explicit tool depth, including `provider-managed`, takes precedence. Depth `0` disables delegation through tools inheriting this setting; depth `1` permits direct children only. Changes apply on the next delegation attempt. Direct service callers continue to supply their own optional request depth.
@@ -172,6 +182,20 @@ One fixed statement in each child's runtime-context snapshot; none in the parent
 #### KV Cache effect
 
 Prefix-stable within a child: the statement never changes during the child's lifetime, so it is written once into the first runtime-context snapshot. Parent-side, no direct invalidation; the named tool consumers own any request-prefix changes.
+
+### Root orchestration policy
+
+#### What the model sees
+
+With the optional orchestration-policy plugin mounted, one `orchestration:policy` section joins every top-level agent's system prompt after the team policy and before the knowledge policy. It ends with the inheritance clause, or with the router-owned clause while the composed Jev router is enabled. A delegated child never receives the section.
+
+#### Token effect
+
+One fixed policy paragraph plus one route clause in each top-level agent request; nothing in a child's request.
+
+#### KV Cache effect
+
+Prefix-stable within a deployment: the text changes only when the router's enabled setting changes.
 
 ## Known Limitations and Deferred Work
 

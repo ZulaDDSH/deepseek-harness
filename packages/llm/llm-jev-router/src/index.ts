@@ -353,6 +353,16 @@ class JevRouterRuntime extends Service {
     super(ctx, 'jevRouter')
   }
 
+  /**
+   * Whether this router currently owns route selection for admitted steps.
+   * A prompt policy that must not override a routed child reads this through
+   * `ctx.get('jevRouter')`.
+   * @returns the active `enabled` setting.
+   */
+  get enabled(): boolean {
+    return this.config().enabled
+  }
+
   async filterGrepMatches(input: {
     agent: Agent
     pattern: string
