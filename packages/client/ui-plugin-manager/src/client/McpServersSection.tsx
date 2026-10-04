@@ -67,11 +67,12 @@ export function McpServersSection(props: McpServersSectionProps) {
   const signInAbort = useRef<AbortController>()
   useEffect(() => () => { signInAbort.current?.abort() }, [])
   const connecting = servers?.some(server => server.enabled && server.connection?.state === 'connecting') === true
+  const watched = servers?.some(server => server.enabled && server.connection !== undefined) === true
   useEffect(() => {
-    if (!connecting) return
-    const timer = setTimeout(() => { setRevision(value => value + 1) }, 1500)
+    if (!watched) return
+    const timer = setTimeout(() => { setRevision(value => value + 1) }, connecting ? 1500 : 10_000)
     return () => { clearTimeout(timer) }
-  }, [connecting, revision])
+  }, [watched, connecting, revision])
   useEffect(() => {
     let current = true
     void props.listMcpServers().then(

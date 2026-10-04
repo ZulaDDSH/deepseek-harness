@@ -23,8 +23,9 @@ export async function startHttpMcpFixture(intercept?: HttpIntercept): Promise<Ht
   const handler = createMcpHandler(() => {
     const mcp = new McpServer(
       { name: 'http-fixture', version: '1.0.0' },
-      { capabilities: { tools: {} } },
+      { capabilities: { tools: {}, resources: {} } },
     )
+    mcp.registerResource('note', 'note://one', { mimeType: 'text/plain' }, async uri => ({ contents: [{ uri: uri.href, text: 'one' }] }))
     mcp.registerTool('ping', { description: 'Replies pong.', inputSchema: z.object({}) }, async (): Promise<CallToolResult> => {
       calls.push('ping')
       return { content: [{ type: 'text', text: 'pong' }] }

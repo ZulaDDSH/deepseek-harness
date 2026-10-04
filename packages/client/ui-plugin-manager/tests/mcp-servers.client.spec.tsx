@@ -182,6 +182,23 @@ it('polls while a server is still connecting and stops once it settles', async (
   }
 })
 
+it('keeps a settled status current, showing a later loss of sign-in without user action', async () => {
+  vi.useFakeTimers()
+  try {
+    const list = vi.fn<McpServersSectionInjected['listMcpServers']>()
+      .mockResolvedValueOnce([row('forge', { state: 'connected', toolCount: 2 })])
+      .mockResolvedValue([authRow()])
+    mount({ listMcpServers: list })
+    await act(async () => { await Promise.resolve() })
+    expect(screen.getByText(`${en.mcpConnectedMany.replace('{count}', '2')} · https://forge`)).toBeTruthy()
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000) })
+    expect(screen.getByText(`${en.mcpAuthRequired} · https://forge`)).toBeTruthy()
+    expect(screen.getByRole('button', { name: en.mcpSignIn })).toBeTruthy()
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
 it('signs in, shows notices with a link, and refreshes afterwards', async () => {
   const finish = Promise.withResolvers<undefined>()
   const signInMcpServer = vi.fn<McpServersSectionInjected['signInMcpServer']>(async (_key, onNotice) => {

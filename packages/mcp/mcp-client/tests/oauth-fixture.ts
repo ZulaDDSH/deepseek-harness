@@ -7,6 +7,8 @@ export interface OAuthMcpFixture extends HttpMcpFixture {
   accept(token: string): void
   expire(): void
   rejectRefresh(code?: 'invalid_grant' | 'server_error'): void
+  acceptRefresh(): void
+  dropAuthorizationServer(): void
 }
 
 async function body(request: IncomingMessage): Promise<string> {
@@ -24,6 +26,7 @@ export async function startOAuthMcpFixture(): Promise<OAuthMcpFixture> {
   let origin = ''
   let tokenCount = 0
   let refreshRejected: 'invalid_grant' | 'server_error' | undefined
+  let dropTokens = false
   const state = { registrations: 0, refreshes: 0 }
   const issue = (response: ServerResponse): void => {
     tokenCount += 1
@@ -34,6 +37,10 @@ export async function startOAuthMcpFixture(): Promise<OAuthMcpFixture> {
   }
   const fixture = await startHttpMcpFixture(async (request, response) => {
     const url = new URL(request.url ?? '/', origin)
+    if (dropTokens && url.pathname !== '/mcp') {
+      request.socket.destroy()
+      return true
+    }
     switch (url.pathname) {
       case '/mcp': {
         const header = request.headers.authorization
@@ -97,5 +104,7 @@ export async function startOAuthMcpFixture(): Promise<OAuthMcpFixture> {
     accept: (token: string) => { accepted.add(token) },
     expire: () => { accepted.clear() },
     rejectRefresh: (code = 'invalid_grant') => { refreshRejected = code },
+    acceptRefresh: () => { refreshRejected = undefined },
+    dropAuthorizationServer: () => { dropTokens = true },
   }
 }

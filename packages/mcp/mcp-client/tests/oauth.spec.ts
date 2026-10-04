@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AuthorizationService from '@deepseek-ai/dsh-authorization'
+import McpResources from '@deepseek-ai/dsh-mcp-resources'
 import { credentialKey, parseCredentialKey } from '@deepseek-ai/dsh-credentials'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -42,6 +43,7 @@ async function mount(config: Config, withCredentials = true) {
   roots.push(ctx)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(McpResources)
   if (withCredentials) {
     await ctx.plugin(MemoryCredentials)
     await ctx.plugin(AuthorizationService)
@@ -91,6 +93,10 @@ const ping = (ctx: Context) => ctx.tools.execute({
   name: 'mcp__Oauth_Srv__ping', arguments: {}, callId: ToolCallId('ping'), signal: new AbortController().signal,
 })
 
+const listResources = (ctx: Context) => ctx.tools.execute({
+  name: 'list_mcp_resources', arguments: { server: 'Oauth_Srv' }, callId: ToolCallId('list'), signal: new AbortController().signal,
+})
+
 describe('MCP OAuth sign-in', () => {
   it('waits for sign-in without retrying, then connects once the grant is stored', async () => {
     const fixture = await startFixture()
@@ -131,8 +137,40 @@ describe('MCP OAuth sign-in', () => {
     fixture.rejectRefresh(code)
     fixture.expire()
     const refused = await ping(ctx)
-    expect(refused.isError).toBe(true)
+    expect(refused.isError, JSON.stringify(refused)).toBe(true)
     expect(JSON.stringify(refused)).toContain('requires sign-in')
+  })
+
+  it.each(['tool', 'resource'] as const)('asks for sign-in again when a %s request finds the grant revoked, then recovers', async (path) => {
+    const fixture = await startFixture()
+    const ctx = await mount(configFor(fixture.url, { reconnect: { enabled: true, initialDelayMs: 1, maxDelayMs: 2, maxAttempts: 3 } }))
+    await signIn(ctx, approve)
+    await vi.waitFor(() => { expect(report(ctx)).toMatchObject({ state: 'connected', toolCount: 1 }) })
+    fixture.rejectRefresh('invalid_grant')
+    fixture.expire()
+    const refused = path === 'tool' ? await ping(ctx) : await listResources(ctx)
+    expect(refused.isError, JSON.stringify(refused)).toBe(true)
+    await vi.waitFor(() => { expect(report(ctx)).toMatchObject({ state: 'auth-required' }) })
+    expect(report(ctx).authKey).toBeDefined()
+    const attempts = fixture.authorization.length
+    await new Promise((resolve) => { setTimeout(resolve, 50) })
+    expect(fixture.authorization.length).toBe(attempts)
+
+    fixture.acceptRefresh()
+    expect((await signIn(ctx, approve)).status).toBe('authorized')
+    await vi.waitFor(() => { expect(report(ctx)).toMatchObject({ state: 'connected', toolCount: 1 }) })
+    expect((await ping(ctx)).isError).toBe(false)
+  })
+
+  it('stays connected when the authorization server cannot be reached', async () => {
+    const fixture = await startFixture()
+    const ctx = await mount(configFor(fixture.url))
+    await signIn(ctx, approve)
+    await vi.waitFor(() => { expect(report(ctx).state).toBe('connected') })
+    fixture.dropAuthorizationServer()
+    fixture.expire()
+    expect((await ping(ctx)).isError).toBe(true)
+    expect(report(ctx).state).toBe('connected')
   })
 
   it('passes a refresh failure that is not a revoked grant through unchanged', async () => {

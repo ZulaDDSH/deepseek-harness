@@ -22,6 +22,7 @@
  */
 
 import { Client, type AuthProvider, type Transport } from '@modelcontextprotocol/client'
+import type { SignInProvider } from './oauth.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { CredentialKey } from '@deepseek-ai/dsh-credentials'
 import { assertNever, type JsonValue } from '@deepseek-ai/dsh-util-values'
@@ -114,7 +115,7 @@ export interface ConnectionOutcome {
 /** Sign-in capability of a connection: the record its flow writes and the bearer source. */
 export interface ConnectionAuth {
   key: CredentialKey
-  provider: AuthProvider
+  provider: SignInProvider
 }
 
 /** Current connection state, as reported to configuration surfaces. */
@@ -204,6 +205,17 @@ export function startConnection(
   let lastError: string | undefined
   /** The server rejected the connection for lack of a usable grant; waits for sign-in instead of retrying. */
   let authRequired = false
+  const transportAuth: AuthProvider | undefined = auth === undefined ? undefined : {
+    ...auth.provider,
+    onUnauthorized: async (context) => {
+      try {
+        await auth.provider.onUnauthorized(context)
+      } catch (error) {
+        if (isAuthRequired(error)) signInLost()
+        throw error
+      }
+    },
+  }
 
   /** A generation may act only while it is the current one on a live plugin. */
   const isCurrent = (generation: Client): boolean => !disposed && client === generation
@@ -365,7 +377,7 @@ export function startConnection(
     }
     let instructions: string
     try {
-      transport = createTransport(config, environment, auth?.provider)
+      transport = createTransport(config, environment, transportAuth)
       await generation.connect(transport)
       if (hasClosed()) {
         attemptSettled = true
@@ -429,6 +441,23 @@ export function startConnection(
     /* v8 ignore next -- defensive: firstAttemptError is always set when connect/sync fails */
     return { error: firstAttemptError ?? new Error(`${label}: initial connection failed`) }
   })
+
+  /** An established connection whose grant stopped working waits for sign-in instead of retrying. */
+  function signInLost(): void {
+    if (connectedAt === undefined) return
+    const close = closeClient
+    connectedAt = undefined
+    authRequired = true
+    lastError = undefined
+    client = undefined
+    closeClient = undefined
+    ctx.logger.warn(`${label}: sign-in required; waiting for a stored grant instead of retrying`)
+    // The failing request must reject with the sign-in error before its transport closes.
+    setTimeout(() => {
+      /* v8 ignore next -- an established connection always holds its close function */
+      void close?.()
+    }, 0)
+  }
 
   if (auth !== undefined) {
     ctx.on('credentials/record-updated', (key) => {
