@@ -13,8 +13,11 @@ export interface HttpMcpFixture {
   close: () => Promise<void>
 }
 
+/** Handles a request itself, returning true, or lets the MCP endpoint answer it. */
+export type HttpIntercept = (request: IncomingMessage, response: ServerResponse) => boolean | Promise<boolean>
+
 /** Start a local stateless MCP endpoint exposing one `ping` tool. */
-export async function startHttpMcpFixture(): Promise<HttpMcpFixture> {
+export async function startHttpMcpFixture(intercept?: HttpIntercept): Promise<HttpMcpFixture> {
   const calls: string[] = []
   const authorization: Array<string | undefined> = []
   const handler = createMcpHandler(() => {
@@ -31,6 +34,7 @@ export async function startHttpMcpFixture(): Promise<HttpMcpFixture> {
   const handle = toNodeHandler(handler)
   const handleRequest = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     authorization.push(request.headers.authorization)
+    if (await intercept?.(request, response) === true) return
     // The adapter excludes explicit undefined on Node's optional HTTP fields.
     await handle(request as NodeIncomingMessageLike, response)
   }

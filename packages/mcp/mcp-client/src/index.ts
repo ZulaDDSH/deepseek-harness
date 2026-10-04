@@ -19,17 +19,22 @@ import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { DEFAULT_MAX_INSTRUCTION_BYTES, RECONNECT_DEFAULTS, resolveReconnectPolicy, startConnection } from './connection.ts'
 import type { ReconnectConfig } from './connection.ts'
+import { offerSignIn } from './oauth-flow.ts'
 import { registerServerContext } from './server-context.ts'
 import { resolveToolFilter } from './tool-filter.ts'
 import type { ToolFilterConfig } from './tool-filter.ts'
 // Side-effect type import: declaration-merges `ctx.tools` onto Context.
 import type {} from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-authorization'
+import type {} from '@deepseek-ai/dsh-credentials'
+import './status.ts'
 
 export { createMcpToolDefinition } from './tools.ts'
 export type { McpResult, McpToolDefinitionOptions } from './tools.ts'
 export type { ReconnectConfig, ResolvedReconnectPolicy } from './connection.ts'
 export type { ToolFilterConfig, ResolvedToolFilter } from './tool-filter.ts'
 export type { McpHumanOperations } from './human-operations.ts'
+export type { McpConnectionReport, McpConnectionState } from './status.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'mcp-client'
@@ -213,7 +218,11 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // The supervisor owns the client/transport generations, the reconnect
   // loop, and the live tool registrations; disposal stops reconnection,
   // quiesces in-flight work, and unregisters the current generation.
-  const connection = startConnection(ctx, config, reconnect)
+  const auth = offerSignIn(ctx, config)
+  const connection = startConnection(ctx, config, reconnect, auth)
+  ctx.on('mcp-client/inventory', (reports) => {
+    reports.push({ serverName: config.serverName, ...connection.status(), ...auth === undefined ? {} : { authKey: auth.key } })
+  })
   registerServerContext(ctx, config.serverName, connection)
   let stopping: Promise<void> | undefined
   const dispose = (): Promise<void> => stopping ??= connection.dispose()

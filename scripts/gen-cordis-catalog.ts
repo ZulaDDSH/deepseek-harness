@@ -218,6 +218,7 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
 export const EVENT_SCOPE_PAGE: Record<string, string> = {
   hooks: 'core.md',
   mcp: 'mcp.md',
+  'mcp-client': 'mcp.md',
   'app-boot': 'boot.md',
   hmr: 'boot.md',
   'plugin-manager': 'boot.md',
@@ -878,6 +879,7 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   PatchOptions: 'Include patch entries are owned by vendor/include (vendored upstream)',
   McpResourceProvider: 'scoped resource provider is owned by packages/mcp/mcp-resources/README.md',
   McpHumanOperations: 'Host-owned provider access is owned by packages/mcp/mcp-client/README.md',
+  McpConnectionReport: 'MCP connection status reports are owned by packages/mcp/mcp-client/README.md',
   MemorixTable: 'Memorix browser values are owned by packages/knowledge/knowledge-router/README.md',
   MemorixPage: 'Memorix browser values are owned by packages/knowledge/knowledge-router/README.md',
   MemoryGraph: 'Native graph viewer values are owned by packages/client/ui-memory-workspace/README.md',

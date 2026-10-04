@@ -256,4 +256,4 @@ declare module '@deepseek-ai/cordis' {
     'plugin-manager/install-state'(progress: PluginInstallProgress): void
   }
 }
-export type { McpServerCandidate, McpServerConfig, McpServerRow, McpServerSource } from './mcp-servers.ts'
+export type { McpServerCandidate, McpServerConfig, McpServerConnection, McpServerRow, McpServerSource } from './mcp-servers.ts'

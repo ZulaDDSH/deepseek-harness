@@ -1,8 +1,13 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { McpServerCandidate, McpServerConfig, McpServerRow } from '@deepseek-ai/dsh-plugin-manager/types'
 import { Button, StateDot, Switch, Tag, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './McpServersSection.module.css'
+
+export interface McpSignInNotice {
+  message: string
+  url?: string
+}
 
 export interface McpServersSectionInjected {
   listMcpServers: () => Promise<McpServerRow[]>
@@ -10,6 +15,7 @@ export interface McpServersSectionInjected {
   addMcpServer: (config: McpServerConfig) => Promise<void>
   removeMcpServer: (entryId: string) => Promise<void>
   setMcpServerEnabled: (entryId: string, enabled: boolean) => Promise<void>
+  signInMcpServer: (authKey: string, onNotice: (notice: McpSignInNotice) => void, signal: AbortSignal) => Promise<void>
 }
 
 export type McpServersSectionProps = PropsRuntime<'settings.section'>
@@ -29,12 +35,25 @@ function parseEnv(text: string): Record<string, string> {
     .map(line => [line.slice(0, line.indexOf('=')).trim(), line.slice(line.indexOf('=') + 1).trim()]))
 }
 
+function parseHeaders(text: string): Record<string, string> {
+  return Object.fromEntries(text.split(/\r?\n/).filter(line => line.includes(':'))
+    .map(line => [line.slice(0, line.indexOf(':')).trim(), line.slice(line.indexOf(':') + 1).trim()] as const)
+    .filter(([name]) => name.length > 0))
+}
+
 function stateOf(server: McpServerRow): StateDotState {
   if (!server.enabled) return 'idle'
-  if (server.phase === 'active') return 'done'
   if (server.phase === 'failed') return 'error'
-  return 'ongoing'
+  if (server.phase !== 'active') return 'ongoing'
+  switch (server.connection?.state) {
+    case 'connecting': return 'ongoing'
+    case 'auth-required':
+    case 'failed': return 'error'
+    default: return 'done'
+  }
 }
+
+const EMPTY_DRAFT = { name: '', transport: 'stdio' as McpServerConfig['transport'], command: '', args: '', env: '', url: '', headers: '' }
 
 export function McpServersSection(props: McpServersSectionProps) {
   const { t } = props
@@ -43,7 +62,16 @@ export function McpServersSection(props: McpServersSectionProps) {
   const [failure, setFailure] = useState<string>()
   const [busy, setBusy] = useState(false)
   const [revision, setRevision] = useState(0)
-  const [draft, setDraft] = useState({ name: '', transport: 'stdio' as McpServerConfig['transport'], command: '', args: '', env: '', url: '' })
+  const [draft, setDraft] = useState(EMPTY_DRAFT)
+  const [signIn, setSignIn] = useState<{ entryId: string; notices: McpSignInNotice[] }>()
+  const signInAbort = useRef<AbortController>()
+  useEffect(() => () => { signInAbort.current?.abort() }, [])
+  const connecting = servers?.some(server => server.enabled && server.connection?.state === 'connecting') === true
+  useEffect(() => {
+    if (!connecting) return
+    const timer = setTimeout(() => { setRevision(value => value + 1) }, 1500)
+    return () => { clearTimeout(timer) }
+  }, [connecting, revision])
   useEffect(() => {
     let current = true
     void props.listMcpServers().then(
@@ -63,13 +91,28 @@ export function McpServersSection(props: McpServersSectionProps) {
         setRevision(value => value + 1)
       })
   }
+  const startSignIn = (server: McpServerRow, authKey: string): void => {
+    const controller = new AbortController()
+    signInAbort.current = controller
+    setFailure(undefined)
+    setSignIn({ entryId: server.entryId, notices: [] })
+    props.signInMcpServer(authKey, (notice) => {
+      setSignIn(current => current === undefined ? current : { ...current, notices: [...current.notices, notice] })
+    }, controller.signal)
+      .catch((error: unknown) => { setFailure(reason(error)) })
+      .finally(() => {
+        signInAbort.current = undefined
+        setSignIn(undefined)
+        setRevision(value => value + 1)
+      })
+  }
   const add = (): void => {
     const config: McpServerConfig = draft.transport === 'stdio'
       ? { transport: 'stdio', serverName: draft.name.trim(), command: draft.command.trim(), args: splitArgs(draft.args), env: parseEnv(draft.env) }
-      : { transport: 'streamable-http', serverName: draft.name.trim(), url: draft.url.trim(), headers: {} }
+      : { transport: 'streamable-http', serverName: draft.name.trim(), url: draft.url.trim(), headers: parseHeaders(draft.headers) }
     run(async () => {
       await props.addMcpServer(config)
-      setDraft({ name: '', transport: 'stdio', command: '', args: '', env: '', url: '' })
+      setDraft(EMPTY_DRAFT)
     })
   }
   const canAdd = draft.name.trim().length > 0 && (draft.transport === 'stdio' ? draft.command.trim().length > 0 : draft.url.trim().length > 0)
@@ -77,9 +120,16 @@ export function McpServersSection(props: McpServersSectionProps) {
     t(source === 'claude-desktop' ? 'mcpSourceClaudeDesktop' : source === 'claude-code' ? 'mcpSourceClaudeCode' : 'mcpSourceCodex')
   const phaseLabel = (server: McpServerRow): string => {
     if (!server.enabled) return t('mcpOff')
-    if (server.phase === 'active') return t('mcpRunning')
     if (server.phase === 'failed') return t('mcpFailedState')
-    return server.phase ?? t('mcpStopped')
+    if (server.phase !== 'active') return server.phase ?? t('mcpStopped')
+    const { connection } = server
+    if (connection === undefined) return t('mcpRunning')
+    switch (connection.state) {
+      case 'connecting': return t('mcpConnecting')
+      case 'auth-required': return t('mcpAuthRequired')
+      case 'failed': return t('mcpConnectionFailed', { error: connection.error ?? '' })
+      default: return connection.toolCount === 1 ? t('mcpConnectedOne') : t('mcpConnectedMany', { count: String(connection.toolCount) })
+    }
   }
   const field = (label: Parameters<typeof t>[0], control: ReactNode): ReactNode =>
     <label className={css.field}><span className={css.fieldLabel}>{t(label)}</span>{control}</label>
@@ -94,29 +144,45 @@ export function McpServersSection(props: McpServersSectionProps) {
         ? <p className={css.empty}>{t('mcpLoading')}</p>
         : servers.length === 0
           ? <p className={css.empty}>{t('mcpEmpty')}</p>
-          : <ul className={css.rows}>{servers.map(server => <li key={server.entryId} className={css.row}>
-            <StateDot state={stateOf(server)} />
-            <div className={css.identity}>
-              <span className={css.nameLine}>
-                <span className={css.name}>{server.serverName}</span>
-                <Tag>{t(server.transport === 'streamable-http' ? 'mcpTagHttp' : 'mcpTagStdio')}</Tag>
+          : <ul className={css.rows}>{servers.map((server) => {
+            const authKey = server.connection?.state === 'auth-required' ? server.connection.authKey : undefined
+            return <li key={server.entryId} className={css.row}>
+              <StateDot state={stateOf(server)} />
+              <div className={css.identity}>
+                <span className={css.nameLine}>
+                  <span className={css.name}>{server.serverName}</span>
+                  <Tag>{t(server.transport === 'streamable-http' ? 'mcpTagHttp' : 'mcpTagStdio')}</Tag>
+                </span>
+                <span className={css.detail} title={`${phaseLabel(server)} · ${server.target}`}>{phaseLabel(server)} · {server.target}</span>
+                {signIn?.entryId === server.entryId
+                  ? signIn.notices.map((notice, index) => <span key={`${String(index)}:${notice.message}`} className={css.detail}>
+                    {notice.message}
+                    {notice.url === undefined ? null : <>{' '}<a href={notice.url} target="_blank" rel="noreferrer">{t('mcpSignInOpenPage')}</a></>}
+                  </span>)
+                  : null}
+              </div>
+              <span className={css.actions}>
+                {authKey !== undefined
+                  ? signIn?.entryId === server.entryId
+                    ? <Button variant="outline" onClick={() => { signInAbort.current?.abort() }}>{t('mcpSignInCancel')}</Button>
+                    : <Button variant="primary" disabled={busy || signIn !== undefined} onClick={() => { startSignIn(server, authKey) }}>
+                      {t('mcpSignIn')}
+                    </Button>
+                  : null}
+                {server.removable
+                  ? <Button variant="ghost" disabled={busy} onClick={() => { run(() => props.removeMcpServer(server.entryId)) }}>
+                    {t('mcpRemove')}
+                  </Button>
+                  : null}
+                <Switch
+                  checked={server.enabled}
+                  disabled={busy}
+                  label={`${t('mcpToggle')}: ${server.serverName}`}
+                  onChange={(enabled) => { run(() => props.setMcpServerEnabled(server.entryId, enabled)) }}
+                />
               </span>
-              <span className={css.detail} title={server.target}>{phaseLabel(server)} · {server.target}</span>
-            </div>
-            <span className={css.actions}>
-              {server.removable
-                ? <Button variant="ghost" disabled={busy} onClick={() => { run(() => props.removeMcpServer(server.entryId)) }}>
-                  {t('mcpRemove')}
-                </Button>
-                : null}
-              <Switch
-                checked={server.enabled}
-                disabled={busy}
-                label={`${t('mcpToggle')}: ${server.serverName}`}
-                onChange={(enabled) => { run(() => props.setMcpServerEnabled(server.entryId, enabled)) }}
-              />
-            </span>
-          </li>)}</ul>}
+            </li>
+          })}</ul>}
     </div>
 
     <div className={css.groupHead}>
@@ -171,8 +237,13 @@ export function McpServersSection(props: McpServersSectionProps) {
           {field('mcpEnv', <textarea className={`${css.input} ${css.textarea}`} aria-label={t('mcpEnv')} placeholder={t('mcpEnvPlaceholder')}
             value={draft.env} onChange={(event) => { setDraft({ ...draft, env: event.target.value }) }} />)}
         </>
-        : field('mcpUrl', <input className={css.input} aria-label={t('mcpUrl')} placeholder={t('mcpUrlPlaceholder')} value={draft.url}
-          onChange={(event) => { setDraft({ ...draft, url: event.target.value }) }} />)}
+        : <>
+          {field('mcpUrl', <input className={css.input} aria-label={t('mcpUrl')} placeholder={t('mcpUrlPlaceholder')} value={draft.url}
+            onChange={(event) => { setDraft({ ...draft, url: event.target.value }) }} />)}
+          {field('mcpHeaders', <textarea className={`${css.input} ${css.textarea}`} aria-label={t('mcpHeaders')} placeholder={t('mcpHeadersPlaceholder')}
+            value={draft.headers} onChange={(event) => { setDraft({ ...draft, headers: event.target.value }) }} />)}
+          <p className={css.intro}>{t('mcpHeadersHint')}</p>
+        </>}
       <div className={css.formActions}>
         <Button variant="primary" type="submit" disabled={busy || !canAdd}>{t('mcpAdd')}</Button>
       </div>

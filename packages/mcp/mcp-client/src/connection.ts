@@ -21,8 +21,9 @@
  * @module
  */
 
-import { Client, type Transport } from '@modelcontextprotocol/client'
+import { Client, type AuthProvider, type Transport } from '@modelcontextprotocol/client'
 import type { Context } from '@deepseek-ai/cordis'
+import type { CredentialKey } from '@deepseek-ai/dsh-credentials'
 import { assertNever, type JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { ServerContext } from './server-context.ts'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -30,6 +31,8 @@ import { buildChildEnv, createTransport } from './transport.ts'
 import { publicToolName, syncTools } from './tools.ts'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { registerHumanOperations } from './human-operations.ts'
+import { isAuthRequired } from './oauth.ts'
+import type { McpConnectionState } from './status.ts'
 import type { ToolBridgeOptions, ToolDisposers } from './tools.ts'
 import { resolveToolFilter } from './tool-filter.ts'
 import type { Config } from './index.ts'
@@ -108,8 +111,29 @@ export interface ConnectionOutcome {
   error?: unknown
 }
 
+/** Sign-in capability of a connection: the record its flow writes and the bearer source. */
+export interface ConnectionAuth {
+  key: CredentialKey
+  provider: AuthProvider
+}
+
+/** Current connection state, as reported to configuration surfaces. */
+export interface ConnectionStatus {
+  state: McpConnectionState
+  toolCount: number
+  error?: string
+}
+
+const MAX_ERROR_CHARS = 300
+
+function describeFailure(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).slice(0, MAX_ERROR_CHARS)
+}
+
 /** Handle for one plugin instance's supervised connection. */
 export interface ConnectionHandle extends ServerContext {
+  /** Snapshot of the connection for configuration surfaces. */
+  status(): ConnectionStatus
   /**
    * Settles when the first connection attempt completes (success or failure).
    * The supervisor enters its reconnect loop regardless; the caller decides
@@ -131,9 +155,15 @@ export interface ConnectionHandle extends ServerContext {
  * @param ctx - Cordis context providing the `tools` registry and logger.
  * @param config - Resolved plugin config selecting the transport and server identity.
  * @param policy - Resolved reconnect policy from {@link resolveReconnectPolicy}.
+ * @param auth - Sign-in capability of a Streamable HTTP server, when one is offered.
  * @returns Handle with a `ready` promise for startup-await and a `dispose` for teardown.
  */
-export function startConnection(ctx: Context, config: Config, policy: ResolvedReconnectPolicy): ConnectionHandle {
+export function startConnection(
+  ctx: Context,
+  config: Config,
+  policy: ResolvedReconnectPolicy,
+  auth?: ConnectionAuth,
+): ConnectionHandle {
   const environment = config.transport === 'stdio' ? buildChildEnv(config.env) : {}
   const label = `mcp-client(${config.serverName})`
   const incompleteDisposalMessage = `${label}: transport closure could not be confirmed during disposal — server shutdown may be incomplete`
@@ -170,6 +200,10 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
   let connectedAt: number | undefined
   /** The real error from the first connection attempt, for startup-await diagnostics. */
   let firstAttemptError: unknown
+  /** Latest attempt failure text; cleared once a generation connects. */
+  let lastError: string | undefined
+  /** The server rejected the connection for lack of a usable grant; waits for sign-in instead of retrying. */
+  let authRequired = false
 
   /** A generation may act only while it is the current one on a live plugin. */
   const isCurrent = (generation: Client): boolean => !disposed && client === generation
@@ -200,12 +234,18 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
   }
 
   /** Decide retry ownership after a failed connection's close barrier settles. */
-  function settleFailedGeneration(generation: Client, quiesced: boolean): void {
+  function settleFailedGeneration(generation: Client, quiesced: boolean, needsSignIn: boolean): void {
     if (!isCurrent(generation)) return
     if (!quiesced) {
       client = undefined
       closeClient = undefined
       ctx.logger.error(`${label}: failed generation could not confirm transport closure — reconnect stopped to avoid overlapping server processes; reload the plugin or restart the Host to retry`)
+      return
+    }
+    if (needsSignIn) {
+      client = undefined
+      closeClient = undefined
+      ctx.logger.warn(`${label}: sign-in required; waiting for a stored grant instead of retrying`)
       return
     }
     generationDown(generation)
@@ -325,7 +365,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     }
     let instructions: string
     try {
-      transport = createTransport(config, environment)
+      transport = createTransport(config, environment, auth?.provider)
       await generation.connect(transport)
       if (hasClosed()) {
         attemptSettled = true
@@ -348,10 +388,15 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
       if (firstAttemptError === undefined) firstAttemptError = error
       // Disposal clears current ownership before it closes the generation, so
       // only a live supervisor reports an attempt failure.
-      if (isCurrent(generation)) ctx.logger.warn(`${label}: connection attempt failed: ${String(error)}`)
+      const needsSignIn = auth !== undefined && isAuthRequired(error)
+      if (isCurrent(generation)) {
+        lastError = describeFailure(error)
+        authRequired = needsSignIn
+        ctx.logger.warn(`${label}: connection attempt failed: ${String(error)}`)
+      }
       const quiesced = await closeGeneration()
       attemptSettled = true
-      settleFailedGeneration(generation, quiesced)
+      settleFailedGeneration(generation, quiesced, needsSignIn)
       return
     }
     attemptSettled = true
@@ -362,6 +407,8 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     if (!isCurrent(generation)) return
     serverInstructions = instructions
     connectedAt = Date.now()
+    lastError = undefined
+    authRequired = false
     if (failedAttempts > 0) ctx.logger.info(`${label}: reconnected and re-synced tools (attempt ${failedAttempts}/${policy.maxAttempts})`)
   }
 
@@ -383,6 +430,16 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     return { error: firstAttemptError ?? new Error(`${label}: initial connection failed`) }
   })
 
+  if (auth !== undefined) {
+    ctx.on('credentials/record-updated', (key) => {
+      if (key !== auth.key || !authRequired || disposed) return
+      authRequired = false
+      lastError = undefined
+      failedAttempts = 0
+      settling = connectGeneration(false)
+    })
+  }
+
   registerHumanOperations(ctx, config.serverName, {
     local: config.transport === 'stdio',
     cwd: config.transport === 'stdio' ? config.cwd : '',
@@ -401,6 +458,11 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
 
   return {
     ready,
+    status: () => ({
+      state: connectedAt !== undefined ? 'connected' : authRequired ? 'auth-required' : lastError !== undefined ? 'failed' : 'connecting',
+      toolCount: disposers.size,
+      ...connectedAt === undefined && !authRequired && lastError !== undefined ? { error: lastError } : {},
+    }),
     instructions: () => serverInstructions,
     resources: {
       async request(request, exec): Promise<JsonValue> {

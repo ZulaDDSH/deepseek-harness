@@ -61,7 +61,7 @@ async function bench() {
 }
 
 function isMcpFace(face: Record<string, unknown>): face is Record<string, unknown> & McpServersSectionInjected {
-  return ['listMcpServers', 'discoverMcpServers', 'addMcpServer', 'removeMcpServer', 'setMcpServerEnabled'].every(name => typeof face[name] === 'function')
+  return ['listMcpServers', 'discoverMcpServers', 'addMcpServer', 'removeMcpServer', 'setMcpServerEnabled', 'signInMcpServer'].every(name => typeof face[name] === 'function')
 }
 
 function declare(slots: SlotRegistry): () => void {
@@ -173,6 +173,32 @@ describe('ui-plugin-manager browser plugin', () => {
     await expect(face.addMcpServer({ transport: 'stdio', serverName: 'a', command: 'node', args: [], env: {} })).rejects.toThrow('failed')
     b.mcp.addMcpServer.mockResolvedValueOnce({ ok: false })
     await expect(face.addMcpServer({ transport: 'stdio', serverName: 'a', command: 'node', args: [], env: {} })).rejects.toThrow('request failed')
+  })
+
+  it('signs MCP servers in through the authorization Remote and treats a cancelled stream as settled', async () => {
+    const b = await bench()
+    declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const face = b.slots.entries('settings.section').find(entry => entry.options.id === 'mcp')?.inject?.()
+    assert(face !== undefined && isMcpFace(face))
+    const signal = new AbortController().signal
+    await expect(face.signInMcpServer('mcp:forge', vi.fn(), signal)).rejects.toThrow('sign-in is not available on this host')
+    const begin = vi.fn(async function* (_key: string, _input: unknown, abort: AbortSignal) {
+      yield { type: 'notice', message: 'Open', url: 'https://auth.test' }
+      yield { type: 'notice', message: 'Waiting' }
+      yield { type: 'other' }
+      if (abort.aborted) throw new Error('aborted')
+    })
+    b.remote.provideNamespaces({ authorization: { begin } })
+    const notices = vi.fn()
+    await face.signInMcpServer('mcp:forge', notices, signal)
+    expect(begin).toHaveBeenCalledWith('mcp:forge', undefined, signal)
+    expect(notices.mock.calls).toEqual([[{ message: 'Open', url: 'https://auth.test' }], [{ message: 'Waiting' }]])
+    const aborted = new AbortController()
+    aborted.abort()
+    await expect(face.signInMcpServer('mcp:forge', vi.fn(), aborted.signal)).resolves.toBeUndefined()
+    begin.mockImplementationOnce(async function* () { throw new Error('denied') })
+    await expect(face.signInMcpServer('mcp:forge', vi.fn(), signal)).rejects.toThrow('denied')
   })
 
   it('declares only the services the page and its Remote methods use', () => {

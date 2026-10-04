@@ -177,6 +177,19 @@ describe('reconnect supervisor', () => {
     }
   })
 
+  it('reports a failure that is not an Error, cut to a readable length', async () => {
+    mockConnect.mockRejectedValue('x'.repeat(500))
+    const config = stdioConfig({ enabled: false })
+    const handle = startConnection(ctx, config, resolveReconnectPolicy(config.reconnect, 'reconnect'))
+    try {
+      await handle.ready
+      expect(handle.status()).toEqual({ state: 'failed', toolCount: 0, error: 'x'.repeat(300) })
+    } finally {
+      await handle.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('reconnects after a transport close, re-syncs tools through the new generation, and serves calls', async () => {
     const { warns, infos } = captureLogs(ctx)
     await apply(ctx, stdioConfig({ initialDelayMs: 5, maxDelayMs: 40, maxAttempts: 5 }))
