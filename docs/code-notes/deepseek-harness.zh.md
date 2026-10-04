@@ -105,3 +105,7 @@
 `packages/client/ui-plugin-manager/src/client/McpServersSection.tsx:McpServersSection` 将"请求头"字段作为 `headers` 写入 profile 补丁行。请求头的值（包括令牌）以明文保存在 profile 的 `cordis.patch.yml` 中；表单提示说明了这一点，`headerEnv` 仍是让密钥不进入该文件的方式。
 
 `packages/client/ui-plugin-manager/src/client/index.ts:apply` 为 MCP 段落提供自己的 `signInMcpServer` 回调，而不是复用模型页面的登录。功能插件不能导入其他插件的组件或值，因此该段落自行驱动 `remote.authorization.begin`、转发其提示，并在用户取消后把结束的流视为已完成而非错误。
+
+## Jev 设置表单
+
+`packages/client/ui-settings-models/src/client/JevFields.tsx:JevFields` 渲染 Jev 路由设置，这部分从 `ProviderEditor.tsx:ProviderEditor` 中移出，后者只保留 API 密钥字段。为路由选择模型时，会根据模型名称填写其 ID（`routeIdFor`）；若已有其他路由使用该 ID，则追加 `-2`、`-3`…。更换模型会重新设置 ID，除非用户在本次编辑中输入过该行的 ID；`typedIds` 记录这些行，因此输入的值（如 `model-7`）不会被替换。`ProviderEditor.tsx:applyOnce` 会拒绝保存重复的路由 ID 或指向不存在路由的回退值（`jevConfigFailure`），这与 `llm-jev-router` 加载时的两项检查一致。回退路由是一个包含 `keep` 和已配置路由 ID 的下拉框，重命名或删除其指向的路由时会同步更新。`packages/llm/llm-jev-router/src/index.ts:apply` 会拒绝指向不存在路由的回退值，而旧的自由文本字段允许这种情况。每个设置都带有通俗说明，并通过 `aria-describedby` 关联。
