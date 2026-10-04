@@ -104,7 +104,7 @@ function moduleNav(locale: DocsLocale): DefaultTheme.NavItem[] {
   ]
 }
 
-function watchCanonicalDocs(server: ViteDevServer): void {
+function watchCanonicalDocs(server: Pick<ViteDevServer, 'watcher'>): void {
   const sources = docsSourceFiles()
   server.watcher.add(sources)
   server.watcher.on('change', (changed) => {
@@ -118,7 +118,7 @@ function watchCanonicalDocs(server: ViteDevServer): void {
  * matching what `buildEnd` emits into the static build. Pages project from
  * their canonical sources per request, so an edit shows without a rebuild.
  */
-function serveRawMarkdown(server: ViteDevServer): void {
+function serveRawMarkdown(server: Pick<ViteDevServer, 'middlewares'>): void {
   server.middlewares.use(rawMarkdownMiddleware(base, () => llmsTxt({ base, ...siteIdentity })))
 }
 
