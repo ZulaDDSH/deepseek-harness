@@ -33,6 +33,8 @@ interface OtlpCapture {
 }
 
 const PROMPT = 'Reply with the single word LIGHTHOUSE and stop.'
+// The mock route runs its turn on a model other than the selected one, so only it shows the Jev routing button.
+const ROUTED_MODEL_LINE = /^\s*- 'button "Jev: .*\n/m
 
 describe.each(MODE === 'record' ? ['deepseek-official'] : ['deepseek-official', 'feedback-mock'])('web e2e: feedback release for %s', (provider) => {
   const official = provider === 'deepseek-official'
@@ -191,13 +193,14 @@ describe.each(MODE === 'record' ? ['deepseek-official'] : ['deepseek-official', 
     expect(await page.getByText(/Anonymous user: [0-9a-f-]+\.$/i).count()).toBe(1)
     await expectFeedbackRelease('feedback/record', 1)
 
-    const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
+    const shared = (aria: string): string => official ? aria : aria.replace(ROUTED_MODEL_LINE, '')
+    const snapshot = shared(await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
     await compareOrRefreshGolden(ACK_EXPECTED, snapshot, MODE)
-    const expanded = await captureExpandedTurnProcessAria(
+    const expanded = shared(await captureExpandedTurnProcessAria(
       page,
       '[class*="centerCol"]',
       scaffold.workspaceCwd,
-    )
+    ))
     await compareOrRefreshGolden(ACK_EXPANDED_EXPECTED, expanded, MODE)
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
