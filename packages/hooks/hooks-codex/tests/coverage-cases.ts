@@ -1,5 +1,5 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { ALL_HOOKS } from '@deepseek-ai/dsh-hook-protocol'
+import { ALL_HOOKS, type HookInventoryReport } from '@deepseek-ai/dsh-hook-protocol'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync, chmodSync, existsSync, readFileSync } from 'node:fs'
@@ -331,6 +331,30 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       expect(existsSync(marker)).toBe(true)
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('async hook'))
+      const reports: HookInventoryReport[] = []
+      ctx.emit('hooks/inventory', reports)
+      expect(reports[0]?.handlers.some(handler => handler.disabled === true)).toBe(false)
+    })
+
+    it('a direct apply() without enabledHooks skips the hook and reports it disabled', async () => {
+      const d = dir()
+      const marker = join(d, 'ran')
+      hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: sh(d, 'h.sh', `#!/usr/bin/env bash\ntouch "${marker}"\n`) }] }] })
+      const ctx = new Context()
+      await mountAgentLoopTestDependencies(ctx)
+      await ctx.plugin(AgentLoop, { agents: [] })
+      await ctx.plugin(LocalSubprocessRuntime)
+      await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
+      HooksCodex.apply(ctx, { configPath: join(d, 'hooks.json') })
+      ctx.llm.registerAdapter(['mock'], new MockAdapter([textResponse('ok')]))
+      const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+      await waitForIdle(ctx, agent)
+      expect(existsSync(marker)).toBe(false)
+      const reports: HookInventoryReport[] = []
+      ctx.emit('hooks/inventory', reports)
+      expect(reports).toEqual([expect.objectContaining({ dialect: 'codex', status: 'loaded', handlers: [expect.objectContaining({ disabled: true })] })])
+      expect(reports[0]).not.toHaveProperty('settingsNs')
     })
 
     it('a no-op clean hook proceeds (contextFrom empty → next)', async () => {

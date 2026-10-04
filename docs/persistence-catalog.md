@@ -651,7 +651,7 @@ Source: [`packages/compaction/compaction-image-offload/src/projection.ts:25`](..
 'jev/decision': JevDecisionRecord
 ```
 
-Source: [`packages/llm/llm-jev-router/src/index.ts:369`](../packages/llm/llm-jev-router/src/index.ts)
+Source: [`packages/llm/llm-jev-router/src/index.ts:363`](../packages/llm/llm-jev-router/src/index.ts)
 
 ### `llm/*`
 
@@ -3729,7 +3729,7 @@ One of:
 
 SHA-256: `a667acf5cb25728d4fa3d93539a459d639bb35ff0b6e5d1975af9ec7310fe4dd`
 
-Sources: [`packages/llm/llm-jev-router/src/index.ts:356`](../packages/llm/llm-jev-router/src/index.ts)
+Sources: [`packages/llm/llm-jev-router/src/index.ts:350`](../packages/llm/llm-jev-router/src/index.ts)
 
 | Property | Presence | Type |
 |---|---|---|
