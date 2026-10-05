@@ -74,7 +74,7 @@
 
 `packages/client/ui-settings-models/src/client/ProviderEditor.tsx:ProviderEditor` 将 Jev 路由的提供方、模型和推理强度渲染为下拉选择，选项来自 Host 模型目录并合并各配置的 `models`；目录中缺失的已存值仍可选择，自定义选项则回退为自由文本。
 
-`packages/llm/llm-jev-router/src/index.ts:apply` 每个用户轮次只决定一次并在该轮所有步骤中复用，失败会缓存为“无路由”，因此每轮最多调用一次 Jev。每个结果都记录为仅写入日志的 `jev/decision` 事件。`agent/request` 监听器在第一次启用的 `agent/pre-step` 时注册到 `agent.ctx` 上，从而包裹按会话的 `installModelSelection` 监听器；未路由的步骤会解析为 `modelSelection.selected`，否则为 `agent.options`，而不是沿用先前步骤持久化的路由。
+`packages/llm/llm-jev-router/src/index.ts:apply` 每个用户轮次只决定一次并在该轮所有步骤中复用，失败会缓存为“无路由”，因此每轮最多调用一次 Jev。每个结果都记录为仅写入日志的 `jev/decision` 事件；每个失败的决定都带 `rejected`：`failOpen: false` 停止该轮时为 `true`，保留聊天模型时为 `false`。`agent/request` 监听器在第一次启用的 `agent/pre-step` 时注册到 `agent.ctx` 上，从而包裹按会话的 `installModelSelection` 监听器；未路由的步骤会解析为 `modelSelection.selected`，否则为 `agent.options`，而不是沿用先前步骤持久化的路由。
 
 `packages/boot/plugin-manager/src/mcp-servers.ts:discoverMcpServers` 读取 Claude Desktop、Claude Code（顶层和按项目的 `mcpServers`）以及 Codex（`config.toml` 的 `mcp_servers`）；由于 `dsh-mcp-client` 只支持 stdio 和可流式 HTTP，SSE 服务器会被跳过。`PluginManager.addMcpServer` 追加一个 id 为 `mcp-<serverName>` 的配置 `insert` 行，`removeMcpServer` 删除该插入行以及该 id 的所有直接行，启用状态复用 `setPluginEnabled`。
 
@@ -96,7 +96,7 @@
 
 `packages/mcp/mcp-client/src/status.ts:McpConnectionReport` 描述单个 HTTP 或 stdio MCP 服务器的真实连接状态：`connecting`、带工具数量的 `connected`、`auth-required`，或带错误信息的 `failed`。`packages/mcp/mcp-client/src/connection.ts:startConnection` 响应 `mcp-client/inventory` 事件，`packages/boot/plugin-manager/src/index.ts:PluginManager.listMcpServers` 发出该事件并把每条报告复制到 `McpServerRow.connection`。此前，只要插件 fiber 处于活动状态就显示"运行中"，即使服务器返回 401 且没有注册任何工具。
 
-`packages/mcp/mcp-client/src/connection.ts:startConnection` 在服务器需要登录时不安排重连：401 会无限重复。该次尝试以 `auth-required` 结束，只有当 `credentials/record-updated` 报告该服务器的授权记录（登录完成时写入）后才重新连接。已建立的连接在授权失效时也会转为 `auth-required`：`startConnection` 从客户端的传输错误接缝读取每一次请求失败，当 `oauth.ts:isAuthRequired` 报告需要登录时，`signInLost` 关闭当前连接代且不安排重连。这涵盖令牌刷新成功后仍被传输层拒绝的重试、任何已存授权都无法满足的 `403 insufficient_scope` 质询，以及静态 `Authorization` 请求头收到的普通 401，三者都不会再继续报告为 `connected`。凭据就是该静态请求头的服务器没有可运行的登录流程，因此 `startConnection` 将这种拒绝报告为 `failed` 并附上凭据错误，而不是进入无法退出的 `auth-required`。关闭会延后一个事件循环，使失败的工具或资源请求仍以模型可读的登录错误结束。任何刷新失败都会走到这里，因为 SDK 会回退到重新授权，而 `grantAuthProvider` 会将其转为 `AuthRequiredError`；只有授权服务器无法访问时连接才保持原状。`packages/client/ui-plugin-manager/src/client/McpServersSection.tsx:McpServersSection` 在有服务器连接中时每 1.5 秒、在任一已启用服务器报告连接状态时每 10 秒重新读取列表，因此之后失去登录或连接时无需用户操作即可显示。
+`packages/mcp/mcp-client/src/connection.ts:startConnection` 在服务器需要登录时不安排重连：401 会无限重复。该次尝试以 `auth-required` 结束，只有当 `credentials/record-updated` 报告该服务器的授权记录（登录完成时写入）后才重新连接。已建立的连接在授权失效时也会转为 `auth-required`：`startConnection` 包装提供方的 `onUnauthorized`，当其报告需要登录（`oauth.ts:isAuthRequired`）时，`signInLost` 关闭当前连接代且不安排重连。关闭会延后一个事件循环，使失败的工具或资源请求仍以模型可读的登录错误结束。任何刷新失败都会走到这里，因为 SDK 会回退到重新授权，而 `grantAuthProvider` 会将其转为 `AuthRequiredError`；只有授权服务器无法访问时连接才保持原状。`packages/client/ui-plugin-manager/src/client/McpServersSection.tsx:McpServersSection` 在有服务器连接中时每 1.5 秒、在任一已启用服务器报告连接状态时每 10 秒重新读取列表，因此之后失去登录或连接时无需用户操作即可显示。
 
 `packages/mcp/mcp-client/src/oauth-flow.ts:signIn` 复用模型提供方的接缝：`registerOAuthFlow` 注册一个 `authorization` 流程，令牌与动态客户端注册信息保存在凭据 `grant` 记录中（`oauth.ts:grantKey`），浏览器通过 `authorization` Remote 命名空间访问它。`listenForCallback` 将回调监听绑定到 Harness 主机的 `127.0.0.1`，因此只有浏览器运行在同一台机器上时登录才能完成；其他设备上的浏览器无法访问该回调。
 
@@ -112,4 +112,8 @@
 
 ## 输入框中的路由模型
 
-`packages/client/ui-model-selection/src/client/RoutedModel.tsx:RoutedModel` 位于 `conversation.input.right`，紧挨模型选择器左侧；当正在运行的那一轮使用了与所选模型不同的模型时，显示"当前：<model>"。它读取现有的 `modelSelection` 投影（`packages/api/session-controller/src/model-selection-projection.ts`）：`lastUsed` 来自每个 `request/header`，因此已经反映 `llm-jev-router` 选择的模型，`lastUsedSeq` 是那次请求头自身的 seq，`next` 是用户的选择。由于 `lastUsed` 的生命周期长于写入它的那一轮，标签还要求所记录的请求属于正在进行的这一轮：在 Session 报告运行中的同时，`lastUsedSeq` 必须晚于最新 `turnOutline` 条目的 `turn/start` seq（`packages/session/session-turn-outline`）。缺少这一身份判断时，新一轮在写入自己的请求头之前会重新显示上一轮的路由模型。无需 Jev 专用投影。未选择模型时，`next` 回退为 `lastUsed`，此时模型选择器本身显示路由后的模型，标签保持隐藏。
+`packages/client/ui-model-selection/src/client/JevRouting.tsx:JevRouting` 是位于 `conversation.input.right`、紧挨模型选择器左侧的按钮。当 Jev 在本会话中做出过决定，或最近一次请求实际运行的模型与所选模型不同时显示，文字为"Jev"，路由时为"Jev：<model>"。点击后打开面板，列出当前运行的模型（`modelSelection.lastUsed`，来自每个 `request/header`）、所选模型（`modelSelection.next`）以及 Jev 最近的决定：应用的路由及其置信度、保留聊天模型、失败（`rejected: true` 表示该轮被停止，`false` 表示保留聊天模型，缺失时使用该属性出现之前记录的中性文案），或对 `route` 出现之前写入的记录，Jev 的选择与当时实际运行的 `provider`/`model`，因为缺失的 `route` 不是实际应用的路由 ID。由于 `lastUsed` 的生命周期长于写入它的那一轮，把某个模型称为"当前运行"还要求所记录的请求属于正在进行的这一轮：在 Session 报告运行中的同时，`modelSelection.lastUsedSeq` 必须晚于最新 `turnOutline` 条目的 `turn/start` seq（`packages/session/session-turn-outline`）。缺少这一身份判断时，新一轮在写入自己的请求头之前会把上一轮的路由模型当作正在运行的模型。决定来自 `jevDecision` 投影（`packages/llm/llm-jev-router/src/projection.ts:jevDecisionProjection`），它保存最新的 `jev/decision`，因此重新加载或较早事件被分页移出后面板仍然可用。其类型通过路由器的 `./types` 与 `./client` 出口发布，客户端包仅以类型方式导入。聊天记录中不会新增任何内容。
+
+## 模型选择器中的提供方筛选
+
+`packages/client/ui-model-selection/src/client/ModelSelect.tsx:ModelSelect` 在加载了多个提供方时，于模型搜索框下方显示一行提供方筛选按钮（"全部"以及每个提供方分组各一个）。选择某个提供方会把 `visibleGroups` 缩小到该分组，并包含其中已收藏的模型，因此"收藏"分区仅在"全部"下显示；搜索仍在所选提供方内生效。每次打开选择器时，筛选都会重置为"全部"。这些筛选按钮使用共享的 `Pill` 组件。其所在行设为 `flex: 0 0 auto`：菜单卡片是限高的纵向布局，可收缩的行会被压到内容高度以下，与第一个分组标题重叠。

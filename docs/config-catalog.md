@@ -1855,7 +1855,7 @@ export interface Config extends ProtocolConfig {
 
 - `inject`: `llm`
 - `refs`: `Volatile` (`@deepseek-ai/cordis`)
-- `source`: [`packages/llm/llm-jev-router/src/index.ts:74`](../packages/llm/llm-jev-router/src/index.ts)
+- `source`: [`packages/llm/llm-jev-router/src/index.ts:76`](../packages/llm/llm-jev-router/src/index.ts)
 
 ```ts config-catalog
 /** Live Jev settings retained by the router. */
