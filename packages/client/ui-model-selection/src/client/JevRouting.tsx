@@ -23,7 +23,9 @@ function modelName(selection: ModelSelection | null, t: Translate): string {
 function decisionText(decision: JevDecisionRecord | null, t: Translate): string {
   if (decision === null) return t('routing.none')
   if (decision.error !== undefined) {
-    return decision.rejected === true ? t('routing.rejected', { error: decision.error }) : t('routing.failed', { error: decision.error })
+    if (decision.rejected === true) return t('routing.rejected', { error: decision.error })
+    if (decision.rejected === false) return t('routing.failed', { error: decision.error })
+    return t('routing.failedLegacy', { error: decision.error })
   }
   const confidence = String(Math.round((decision.confidence ?? 0) * 100))
   if (decision.provider !== undefined && decision.model !== undefined) {

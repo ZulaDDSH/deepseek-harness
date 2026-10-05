@@ -11,12 +11,13 @@ const jevDecisionSchema = z.object({
   provider: z.string().exactOptional(),
   model: z.string().exactOptional(),
   error: z.string().exactOptional(),
+  rejected: z.boolean().exactOptional(),
 }).strict().nullable()
 
 /** Keeps the latest `jev/decision` so a client can show it without scanning the event window. */
 export const jevDecisionProjection = {
   key: 'jevDecision',
-  stateVersion: 1,
+  stateVersion: 2,
   stateSchema: jevDecisionSchema,
   init: () => null,
   apply: (state, event) => event.type === 'jev/decision' ? event.data : state,

@@ -18,7 +18,12 @@ export interface JevDecisionRecord {
   readonly provider?: string
   readonly model?: string
   readonly error?: string
-  /** True when the router stopped the turn instead of keeping the chat model. */
+  /**
+   * Whether the router stopped the turn instead of keeping the chat model.
+   * Set on every failed decision; absent on a successful one and on a failure
+   * record written before this property existed, which leaves the outcome
+   * unstated.
+   */
   readonly rejected?: boolean
 }
 

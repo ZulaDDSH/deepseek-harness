@@ -75,10 +75,19 @@ it.each([
   [{ turn: 1, step: 1, confidence: 0.5 }, 'Kept the chat model (50% confidence).'],
   [{ turn: 1, step: 1, choice: 'deep', confidence: 0.61 }, 'Kept the chat model: the best match was deep, but only at 61% confidence.'],
   [{ turn: 1, step: 1, choice: 'deep' }, 'Kept the chat model: the best match was deep, but only at 0% confidence.'],
-  [{ turn: 1, step: 1, error: 'timeout' }, 'The last decision failed, so the chat model was kept: timeout'],
   [{ turn: 1, step: 1, choice: 'deep', provider: 'anthropic' }, 'Kept the chat model: the best match was deep, but only at 0% confidence.'],
 ])('explains a decision that kept the chat model: %o', (decision, text) => {
   mount(projected(chosen, chosen), decision)
+  fireEvent.click(screen.getByRole('button', { name: en['routing.button'] }))
+  expect(panel()).toContain(text)
+})
+
+it.each([
+  [{ turn: 1, step: 1, error: 'timeout' }, 'The last Jev decision failed: timeout'],
+  [{ turn: 1, step: 1, error: 'timeout', rejected: false }, 'The last decision failed, so the chat model was kept: timeout'],
+  [{ turn: 1, step: 1, error: 'timeout', rejected: true }, 'The last decision failed, so the turn stopped: timeout'],
+])('explains a failed decision without assuming the chat model ran: %o', (decision, text) => {
+  mount(projected(null, chosen), decision)
   fireEvent.click(screen.getByRole('button', { name: en['routing.button'] }))
   expect(panel()).toContain(text)
 })
@@ -88,12 +97,6 @@ it('explains a routed run with no decision yet and an unknown selection', () => 
   fireEvent.click(screen.getByRole('button', { name: 'Jev: claude-opus-5' }))
   expect(panel()).toContain(en['routing.unknown'])
   expect(panel()).toContain(en['routing.none'])
-})
-
-it('says the turn stopped when Jev failed closed instead of keeping the chat model', () => {
-  mount(projected(null, chosen), { turn: 1, step: 1, error: 'offline', rejected: true })
-  fireEvent.click(screen.getByRole('button', { name: en['routing.button'] }))
-  expect(panel()).toContain('The last decision failed, so the turn stopped: offline')
 })
 
 it('reports a legacy fallback record without reading its missing route', () => {

@@ -9,7 +9,7 @@ English | [中文](2026-10-04-jev-decision-applied-route.zh.md)
 
 ## Summary
 
-`jev/decision` events gain two optional properties: `route`, the id of the route the router applied, which is Jev's choice or the configured fallback route when Jev was not confident enough, and `rejected`, which marks a turn the router stopped instead of keeping the chat model. Both are optional event-body properties, so the change is same-version.
+`jev/decision` events gain two optional properties: `route`, the id of the route the router applied, which is Jev's choice or the configured fallback route when Jev was not confident enough, and `rejected`, which states the outcome of a failed decision: true when the router stopped the turn, false when it kept the chat model. Both are optional event-body properties, so the change is same-version.
 
 ## Table of Contents
 
@@ -35,12 +35,12 @@ changes:
 <a id="compatibility"></a>
 ## Compatibility
 
-Existing `jev/decision` records stay valid. A record written before `route` existed omits it, and its `provider`/`model` can name the fallback that actually ran while `choice` holds the pick Jev made and the router rejected, so a reader must not treat a missing `route` as the applied route id. A record written before `rejected` existed omits it, and absence means the router kept the chat model, which is what those records recorded. The event is log-only and never enters model history, so older readers that ignore either property replay the Session unchanged.
+Existing `jev/decision` records stay valid. A record written before `route` existed omits it, and its `provider`/`model` can name the fallback that actually ran while `choice` holds the pick Jev made and the router rejected, so a reader must not treat a missing `route` as the applied route id. A record written before `rejected` existed omits it, and those records were written for both failure policies, so absence establishes neither a kept chat model nor a stopped turn and a reader must not infer one; the router records `rejected` on every failed decision. The event is log-only and never enters model history, so older readers that ignore either property replay the Session unchanged.
 
 <a id="verification"></a>
 ## Verification
 
-pnpm exec vitest run packages/llm/llm-jev-router passed 52 tests, including a record for a turn the router stopped when it fails closed. pnpm exec vitest run packages/client/ui-model-selection passed 78 tests at 100% coverage, including the stopped-turn and legacy-fallback copy. pnpm run verify-persistence-catalog passed after regeneration.
+pnpm exec vitest run packages/llm/llm-jev-router passed 53 tests, including a stopped-turn record folded through the projection state and wire view. pnpm exec vitest run packages/client/ui-model-selection passed 79 tests at 100% coverage, including the neutral, kept and stopped failure copy. pnpm run verify-persistence-catalog passed after regeneration.
 
 <a id="dev-note"></a>
 ## Dev Note

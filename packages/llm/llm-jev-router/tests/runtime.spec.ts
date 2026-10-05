@@ -165,7 +165,7 @@ describe('Jev routing lifecycle', () => {
     const thrown = await mount()
     await thrown.preStep()
     expect(thrown.agent.session.snapshotEvents().filter(event => event.type === 'jev/decision').map(event => event.data))
-      .toEqual([{ turn: 1, step: 1, error: expect.stringContaining('offline') as string }])
+      .toEqual([{ turn: 1, step: 1, error: expect.stringContaining('offline') as string, rejected: false }])
   })
 
   it('records a stopped turn when the router fails closed', async () => {

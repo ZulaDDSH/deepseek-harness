@@ -25,6 +25,17 @@ it('keeps the latest Jev decision and ignores other events', () => {
   expect(() => stateSchema.parse({ ...routed, extra: true })).toThrow()
 })
 
+it('stores the failure outcome under a bumped state version', () => {
+  const { init, apply, stateSchema, stateVersion, wire } = jevDecisionProjection
+  const stopped = { turn: 3, step: 1, error: 'offline', rejected: true }
+  expect(stateVersion).toBe(2)
+  const state = apply(init(), decision(stopped))
+  expect(state).toEqual(stopped)
+  expect(stateSchema.parse(state)).toEqual(stopped)
+  expect(wire.view(state)).toEqual(stopped)
+  expect(wire.viewSchema.parse(wire.view(state))).toEqual(stopped)
+})
+
 it('registers the projection once the projection registry is available', async () => {
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
