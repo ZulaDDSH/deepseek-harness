@@ -4,8 +4,6 @@ Status: implemented
 
 Historical note: this records upstream behavior; current fork workflows are documented in [the development guide](../../../../docs/development.md).
 
-English | [中文](2026-08-10-event-directed-pr-review-status.zh.md)
-
 ## Problem
 
 The Issue Project status records who owns the next step of resolving work. Aggregate pull-request review state answers whether GitHub considers the pull request mergeable, but it cannot represent that handoff: an earlier `CHANGES_REQUESTED` review can remain effective after the author fixes the code and requests review again.

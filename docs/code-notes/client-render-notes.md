@@ -1,7 +1,5 @@
 # Client code notes
 
-English | [中文](client-render-notes.zh.md)
-
 Explanation that would otherwise live as a comment beside the line it constrains. Each entry is anchored to a `file:symbol` and states a fact the code cannot show on its own — a renderer invariant, a lifecycle ordering, or a reason a local shape is the only one that works.
 
 These notes are reference material for maintainers reading the owning code; the owning module's JSDoc keeps the contract itself.

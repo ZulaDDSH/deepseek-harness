@@ -2,8 +2,6 @@
 
 Status: proposed
 
-English | [中文](2026-09-06-logical-session-storage-rebuild.zh.md)
-
 ## Problem
 
 Session consumers depend on a concrete event-log class, the live-session registry, the projection registry, and persistence handles. These dependencies mix logical session behavior with publication, storage, and physical-format concerns. A new session or storage implementation would therefore require changes across consumers, the Agent loop, persistence, query, telemetry, and frontend code.
@@ -162,7 +160,7 @@ The proposal preserves the shipped [handle-based persistence decision](../../imp
 - Each later stage has one ownership result, named compatibility limits, focused characterization tests, and an independently revertible commit boundary.
 - All production application components use only `LogicalSession` and `SessionService`; only the service implementation and physical provider packages use `SessionStorage` and its reader or writer roles.
 - The bundled in-memory session implementation and JSONL storage can become replaceable implementations without changes to search, statistics, persistence policy, migration orchestration, session loading, or frontend consumers.
-- Each stage updates its owning Agent Note, subsystem reference, package documentation, generated catalogs, and required bilingual pair in the same PR.
+- Each stage updates its owning Agent Note, subsystem reference, package documentation, generated catalogs in the same PR.
 
 ## Risks
 

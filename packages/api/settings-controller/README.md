@@ -4,8 +4,6 @@ kind: "package-reference"
 ---
 # Settings Controller
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 `@deepseek-ai/dsh-api-settings-controller` exposes generated `ctx.remote.settings`, `ctx.remote.credentials`, and `ctx.remote.authorization` namespaces for browser configuration surfaces. It returns redacted settings and credential metadata, supports settings and credential writes without returning secret values, runs human-guided sign-ins, and opens provider-owned settings or Agent preset locations on the Host desktop. When a provider is absent, the namespace remains registered and returns an actionable configuration error.

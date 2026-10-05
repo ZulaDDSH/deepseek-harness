@@ -2,8 +2,6 @@
 
 Status: proposed
 
-English | [中文](2026-09-18-desktop-work-console-ux.zh.md)
-
 ## Problem
 
 The Electron shell already provides a secure local application window, native title bars, update handling, recovery, and an authenticated Host proxy, but the primary work surface still behaves like a dense browser tree. The current workspace browser makes users infer agent state from small status dots, reveals many row actions only on hover, scrolls long session titles on hover, and swaps the workspace folder glyph for the disclosure chevron on hover. The root layout store does not persist user-selected sidebar or right-panel widths. There is no single keyboard surface for switching among sessions, workspaces, and commands, and desktop attention is not used for agent approvals, questions, completion, or failures.

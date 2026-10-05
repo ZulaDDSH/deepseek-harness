@@ -1,7 +1,5 @@
 # Testing policy
 
-English | [中文](testing.zh.md)
-
 How this repository tests and keeps results meaningful. Commands live in root [AGENTS.md](../AGENTS.md); linked Agent Notes carry the rationale.
 
 ## Tiers

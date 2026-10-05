@@ -5,8 +5,6 @@ kind: "package-bundle"
 
 # @deepseek-ai/dsh-experimental-schedule-bundle
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 This optional bundle inserts the three Schedule rows the shipped Web composition leaves out: `time-context`, `schedule`, and `ui-schedule`. Shipped profiles leave it switched off.

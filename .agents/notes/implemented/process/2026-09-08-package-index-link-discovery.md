@@ -2,11 +2,9 @@
 
 Status: implemented
 
-English | [中文](2026-09-08-package-index-link-discovery.zh.md)
-
 ## Problem
 
-In `verify-md-links`, nested group and package globs cannot match `packages/README.md` or its Chinese counterpart. A broken link in either index escapes validation unless the check also discovers those sources.
+In `verify-md-links`, nested group and package globs cannot match `packages/README.md`. A broken link in that index escapes validation unless the check also discovers that source.
 
 ## Decision
 
@@ -16,7 +14,7 @@ In `verify-md-links`, nested group and package globs cannot match `packages/READ
 
 **Repair individual links only.** This leaves the source-discovery omission in place, so a later broken index link can pass the same check.
 
-**Add a separate package-inventory checker.** Index completeness is a different requirement from link validity. It needs to support the current table formats and bilingual link targets; it does not replace checking links in every discovered source.
+**Add a separate package-inventory checker.** Index completeness is a different requirement from link validity. It needs to support the current table formats; it does not replace checking links in every discovered source.
 
 ## Consequences
 

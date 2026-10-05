@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-workspace-changes
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 This plugin lists changed files, serves bounded comparisons, and provides live Git status and comparisons for registered Workspaces. Turn summaries use Git snapshots and whole-file captures for file-tool edits outside Git coverage. The Host keeps results while the Session lives and announces one `workspace/changes` event. Without Git, only file-tool edits appear; the Web card renders summaries.

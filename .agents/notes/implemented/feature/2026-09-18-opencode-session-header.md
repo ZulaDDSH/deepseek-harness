@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-09-18-opencode-session-header.zh.md)
-
 ## Problem
 
 OpenCode Go requires every model request to carry a stable conversation identity in `x-opencode-session` so its gateways can route the request and keep prompt caching coherent; a request without it fails before inference with a 400 `MissingSessionID`. The harness reaches OpenCode routes through `dsh-llm-pi-ai`, and `@earendil-works/pi-ai` (0.85.1, npm `latest`) never emits that header: its `sessionId` option only produces provider-native cache-affinity fields, and `sendSessionAffinityHeaders` defaults off for OpenCode routes. The value the provider asks for was already on the request as `GenerateOptions.sessionId` — the agent loop stamps the durable `Session.id` on ordinary, title, and compaction calls — but no adapter mapped it to the header OpenCode documents, so OpenCode Go was unusable from the harness.

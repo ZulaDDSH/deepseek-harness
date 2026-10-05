@@ -4,8 +4,6 @@ description: "Issue policy enforcement, Project access, and lifecycle events for
 
 # Issue management
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 The policy and lifecycle modules remain available for local use and are covered by keyless tests. This fork does not install the upstream Issue policy or lifecycle workflows, so PR validation never needs a GitHub App token or a GitHub Project.

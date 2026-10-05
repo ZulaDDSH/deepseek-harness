@@ -4,8 +4,6 @@
 
 `packages/client/ui-conversation/src/client/apply.ts:apply` registers the desktop folder and Session connector menu actions through the existing command registry. Folder selections retain their captured Session binding and use the existing reference grammar. `packages/api/session-controller/src/agent.ts:ApiSessionAgentController.installMcpSelection` refreshes inherited tool restrictions when the tool registry changes, removes disabled namespaces from schemas and server sections, and guards shared resource tools using their requested server. `packages/client/ui-plugin-manager/src/client/index.ts:apply` contributes profile management navigation to the Session command menu.
 
-English | [中文](deepseek-harness.zh.md)
-
 ## Workflow repository targeting
 
 `.github/issue-management/github.mjs:repositoryTarget` resolves GitHub API requests to the repository that launched the workflow when `DSH_ISSUE_REPOSITORY` is present; local policy tests retain the canonical project fallback. Automated pull requests do not need Project lifecycle work or Cloudflare previews, so the corresponding workflows skip those external integrations for bot-authored pull requests.

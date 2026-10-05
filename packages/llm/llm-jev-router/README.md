@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-llm-jev-router
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Use this package when an Agent step should ask TypeSafe Jev to choose from an explicit allowlist of DSH provider/model routes. It is disabled by default, preserves the existing route when disabled or when fail-open handling admits a Jev failure, and stores its API key through DSH credentials rather than settings text. Jev remains a separate decision request and does not become a normal DSH model provider.

@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-09-12-maintained-repository-references.zh.md)
-
 ## Problem
 
 Historical evidence needs recognizable release, PR, and measured-run identities. Maintained files also serve the public source home, while native publishing uses the repository identity supplied by its workflow. Concrete commit references and deployment-specific organization URLs do not express that distinction.
@@ -18,7 +16,7 @@ Native source manifests identify the public source home. During workflow packing
 
 ## Alternatives considered
 
-**Reject every hexadecimal string.** Persistence schemas and bilingual pairing legitimately use hashes. Git object-type verification separates commit references from these values.
+**Reject every hexadecimal string.** Persistence schemas legitimately use hashes. Git object-type verification separates commit references from these values.
 
 **Check only new diff lines.** The policy applies to every maintained file, including existing references. A complete scan also catches staged and untracked additions before publication.
 

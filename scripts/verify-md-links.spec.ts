@@ -34,14 +34,14 @@ describe('Markdown source discovery', () => {
   it('rejects broken links in both top-level package indexes', () => {
     const root = layout({
       'packages/README.md': '[removed group](removed/README.md)\n',
-      'packages/README.zh.md': '[removed group](removed/README.zh.md)\n',
+      'packages/README.extra.md': '[removed group](removed/README.extra.md)\n',
     })
     const sources = markdownLinkSourcePaths(root)
     const violations = sources.flatMap(file => findViolations(join(root, file), anchorCache(), root))
     expect(violations.map(({ file, reason }) => ({ file, reason })).sort((a, b) => a.file.localeCompare(b.file)))
       .toEqual([
+        { file: join('packages', 'README.extra.md'), reason: 'target' },
         { file: join('packages', 'README.md'), reason: 'target' },
-        { file: join('packages', 'README.zh.md'), reason: 'target' },
       ])
   })
 
