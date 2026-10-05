@@ -8,6 +8,10 @@ pre-commit:
       glob: '.agents/notes/archived/**'
       run: node_modules/.bin/tsx scripts/verify-archived-agent-notes.ts
 
+    - name: English-only documentation (staged)
+      glob: '*.{md,markdown,yaml,yml,html,png}'
+      run: node_modules/.bin/tsx scripts/verify-english-only-docs.ts {staged_files}
+
     - name: lint (staged)
       glob: '*.{ts,tsx,mts,cts,mjs}'
       exclude:
@@ -36,6 +40,10 @@ pre-merge-commit:
     - name: archived agent notes
       glob: '.agents/notes/archived/**'
       run: node_modules/.bin/tsx scripts/verify-archived-agent-notes.ts
+
+    - name: English-only documentation (staged)
+      glob: '*.{md,markdown,yaml,yml,html,png}'
+      run: node_modules/.bin/tsx scripts/verify-english-only-docs.ts {staged_files}
 
 pre-push:
   jobs:
