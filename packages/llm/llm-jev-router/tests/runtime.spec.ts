@@ -168,6 +168,14 @@ describe('Jev routing lifecycle', () => {
       .toEqual([{ turn: 1, step: 1, error: expect.stringContaining('offline') as string }])
   })
 
+  it('records a stopped turn when the router fails closed', async () => {
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>(() => Promise.reject(new Error('offline'))))
+    const stopped = await mount({ failOpen: false })
+    expect(await stopped.preStep()).toEqual({ kind: 'reject' })
+    expect(stopped.agent.session.snapshotEvents().filter(event => event.type === 'jev/decision').map(event => event.data))
+      .toEqual([{ turn: 1, step: 1, error: expect.stringContaining('offline') as string, rejected: true }])
+  })
+
   it('falls back to the Agent route only when it names both provider and model', async () => {
     answer({ answers: { route: { choice: 'small', confidence: 1 } } })
     const { agent, preStep, request } = await mount()

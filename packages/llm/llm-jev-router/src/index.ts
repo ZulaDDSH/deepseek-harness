@@ -458,9 +458,12 @@ export function apply(ctx: Context, initial: RuntimeConfig): void {
       })
       perAgent.set(payload.turn, route === undefined ? {} : { route })
     } catch (error) {
-      ctx.logger.warn('jev-router: Jev decision failed; preserving the configured model route')
+      ctx.logger.warn(config.failOpen
+        ? 'jev-router: Jev decision failed; preserving the configured model route'
+        : 'jev-router: Jev decision failed; rejecting the turn')
       payload.agent.session.append('jev/decision', {
         turn: payload.turn, step: payload.step, error: String(error),
+        ...config.failOpen ? {} : { rejected: true },
       })
       ctx.logger.warn(error)
       perAgent.set(payload.turn, {})

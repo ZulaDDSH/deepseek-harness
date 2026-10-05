@@ -10332,7 +10332,7 @@
       "kind": "event",
       "event": "jev/decision",
       "surface": false,
-      "digest": "67e3254d4c1681544ea248f66723bc83de41f0dfae84598b91b1bc46838fe663",
+      "digest": "96bc55e52033bf9462b9aa0df7f3f2f48ff8965804e638edfc54064afe8a2f1f",
       "schema": {
         "root": 0,
         "nodes": [
@@ -10346,7 +10346,7 @@
               },
               {
                 "name": "ignorable",
-                "type": 4,
+                "type": 5,
                 "optional": true
               },
               {
@@ -10361,7 +10361,7 @@
               },
               {
                 "name": "type",
-                "type": 5,
+                "type": 6,
                 "optional": false
               }
             ],
@@ -10396,6 +10396,11 @@
                 "optional": true
               },
               {
+                "name": "rejected",
+                "type": 4,
+                "optional": true
+              },
+              {
                 "name": "route",
                 "type": 2,
                 "optional": true
@@ -10420,6 +10425,10 @@
           {
             "kind": "primitive",
             "type": "number"
+          },
+          {
+            "kind": "primitive",
+            "type": "boolean"
           },
           {
             "kind": "literal",
@@ -23492,11 +23501,6 @@
       ]
     },
     {
-      "digest": "67e3254d4c1681544ea248f66723bc83de41f0dfae84598b91b1bc46838fe663",
-      "names": [],
-      "sources": []
-    },
-    {
       "digest": "68141cbe3994a5ffcd064c07c75996538437fd9dbf77ce8a2927e89ec577fabe",
       "names": [],
       "sources": []
@@ -24094,15 +24098,6 @@
       "sources": []
     },
     {
-      "digest": "9099d4beadcc089cc6bb57f23b414f1d113c9465e7958fa3b1e67807fdec547a",
-      "names": [
-        "packages/llm/llm-jev-router/src/types.ts#JevDecisionRecord"
-      ],
-      "sources": [
-        "packages/llm/llm-jev-router/src/types.ts:11"
-      ]
-    },
-    {
       "digest": "930a6567a10bb62ddd157bd8abdf4b182810c8c3b49d91309b3b009a5fed9731",
       "names": [],
       "sources": [
@@ -24164,6 +24159,11 @@
     },
     {
       "digest": "95c0e88fcf0bafb2087f912ad9e2369de6ae6530cc0c4c2772c96205b57f7f60",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "96bc55e52033bf9462b9aa0df7f3f2f48ff8965804e638edfc54064afe8a2f1f",
       "names": [],
       "sources": []
     },
@@ -25356,6 +25356,15 @@
       ],
       "sources": [
         "packages/api/session-controller/src/types.ts:112"
+      ]
+    },
+    {
+      "digest": "f101a2a0034486143b9c8e8bf87078f85a4b279595077f99e99d7ac379f01f8c",
+      "names": [
+        "packages/llm/llm-jev-router/src/types.ts#JevDecisionRecord"
+      ],
+      "sources": [
+        "packages/llm/llm-jev-router/src/types.ts:11"
       ]
     },
     {

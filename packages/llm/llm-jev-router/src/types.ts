@@ -18,6 +18,8 @@ export interface JevDecisionRecord {
   readonly provider?: string
   readonly model?: string
   readonly error?: string
+  /** True when the router stopped the turn instead of keeping the chat model. */
+  readonly rejected?: boolean
 }
 
 declare module '@deepseek-ai/dsh-session-projection/types' {

@@ -6,7 +6,7 @@
       "kind": "event",
       "event": "jev/decision",
       "surface": false,
-      "digest": "67e3254d4c1681544ea248f66723bc83de41f0dfae84598b91b1bc46838fe663",
+      "digest": "96bc55e52033bf9462b9aa0df7f3f2f48ff8965804e638edfc54064afe8a2f1f",
       "schema": {
         "root": 0,
         "nodes": [
@@ -20,7 +20,7 @@
               },
               {
                 "name": "ignorable",
-                "type": 4,
+                "type": 5,
                 "optional": true
               },
               {
@@ -35,7 +35,7 @@
               },
               {
                 "name": "type",
-                "type": 5,
+                "type": 6,
                 "optional": false
               }
             ],
@@ -70,6 +70,11 @@
                 "optional": true
               },
               {
+                "name": "rejected",
+                "type": 4,
+                "optional": true
+              },
+              {
                 "name": "route",
                 "type": 2,
                 "optional": true
@@ -94,6 +99,10 @@
           {
             "kind": "primitive",
             "type": "number"
+          },
+          {
+            "kind": "primitive",
+            "type": "boolean"
           },
           {
             "kind": "literal",

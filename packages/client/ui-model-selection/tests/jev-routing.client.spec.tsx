@@ -58,7 +58,7 @@ it('names the routed model on the button and explains the decision in a panel', 
   expect(panel()).toBe([
     en['routing.running'], 'anthropic / claude-opus-5',
     en['routing.selected'], 'deepseek / flash',
-    en['routing.decision'], 'Jev picked route deep (anthropic / claude-opus-5) with 92% confidence.',
+    en['routing.decision'], 'Jev chose deep at 92%; the turn ran anthropic / claude-opus-5.',
   ].join(''))
   fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
   expect(screen.queryByRole('dialog')).toBeNull()
@@ -90,10 +90,22 @@ it('explains a routed run with no decision yet and an unknown selection', () => 
   expect(panel()).toContain(en['routing.none'])
 })
 
-it('reports a missing route name as empty', () => {
+it('says the turn stopped when Jev failed closed instead of keeping the chat model', () => {
+  mount(projected(null, chosen), { turn: 1, step: 1, error: 'offline', rejected: true })
+  fireEvent.click(screen.getByRole('button', { name: en['routing.button'] }))
+  expect(panel()).toContain('The last decision failed, so the turn stopped: offline')
+})
+
+it('reports a legacy fallback record without reading its missing route', () => {
+  mount(projected(routedTo, chosen), { turn: 1, step: 1, choice: 'small', confidence: 0.01, provider: 'target', model: 'safe' })
+  fireEvent.click(screen.getByRole('button', { name: 'Jev: claude-opus-5' }))
+  expect(panel()).toContain('Jev chose small at 1%; the turn ran target / safe.')
+})
+
+it('reports a legacy record without a route or a pick', () => {
   mount(projected(routedTo, chosen), { turn: 1, step: 1, confidence: 1, ...routedTo })
   fireEvent.click(screen.getByRole('button', { name: 'Jev: claude-opus-5' }))
-  expect(panel()).toContain('Jev picked route  (anthropic / claude-opus-5) with 100% confidence.')
+  expect(panel()).toContain('Jev chose  at 100%; the turn ran anthropic / claude-opus-5.')
 })
 
 it('shows nothing known before any request has run', () => {

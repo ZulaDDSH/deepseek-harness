@@ -9,7 +9,7 @@ kind: persistence-change
 
 ## 概述
 
-`jev/decision` 事件新增可选属性 `route`：路由器实际应用的路由 ID，即 Jev 的选择，或在 Jev 把握不足时使用的回退路由。该更改新增可选的事件体属性，因此属于同版本更改。
+`jev/decision` 事件新增两个可选属性：`route`，即路由器实际应用的路由 ID，也就是 Jev 的选择，或在 Jev 把握不足时使用的回退路由；以及 `rejected`，标记路由器停止该轮而不是保留聊天模型。两者都是可选的事件体属性，因此属于同版本更改。
 
 ## 目录
 
@@ -28,19 +28,19 @@ baseline: false
 changes:
   - root: "event:jev/decision"
     previous: "2026-10-03-hook-overrides-and-jev-decisions"
-    after: "67e3254d4c1681544ea248f66723bc83de41f0dfae84598b91b1bc46838fe663"
+    after: "96bc55e52033bf9462b9aa0df7f3f2f48ff8965804e638edfc54064afe8a2f1f"
     decision: same-version
 ```
 
 <a id="compatibility"></a>
 ## 兼容性
 
-现有 `jev/decision` 记录不含 `route`，仍然有效；`jevDecision` 投影与输入框路由面板会把缺失的 `route` 视为 Jev 自己的选择，这正是这些记录的写入方式。该事件仅写入日志，从不进入模型历史，因此忽略该属性的旧读取器重放会话的结果不变。
+现有 `jev/decision` 记录仍然有效。在 `route` 出现之前写入的记录不含该属性，其中的 `provider`/`model` 可能记录实际运行的回退路由，而 `choice` 是 Jev 提出但被路由器否决的选择，因此读取方不得把缺失的 `route` 当作实际应用的路由 ID。在 `rejected` 出现之前写入的记录不含该属性，缺失表示路由器保留了聊天模型，这正是那些记录的写入方式。该事件仅写入日志，从不进入模型历史，因此忽略这两个属性的旧读取器重放会话的结果不变。
 
 <a id="verification"></a>
 ## 验证
 
-`pnpm exec vitest run packages/llm/llm-jev-router` 通过 49 个测试，包括有把握的选择、回退路由和保留聊天模型的记录。`pnpm exec vitest run packages/client/ui-model-selection` 以 100% 覆盖率通过 72 个测试，包括回退说明。重新生成后 `pnpm run verify-persistence-catalog` 通过。
+pnpm exec vitest run packages/llm/llm-jev-router 通过 52 个测试，包括路由器在 fail closed 时停止轮次的记录。pnpm exec vitest run packages/client/ui-model-selection 以 100% 覆盖率通过 78 个测试，包括停止轮次与旧版回退的文案。重新生成后 `pnpm run verify-persistence-catalog` 通过。
 
 <a id="dev-note"></a>
 ## 开发备注

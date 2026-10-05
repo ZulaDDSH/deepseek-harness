@@ -9,8 +9,8 @@
   en: e7c80d1de4d328b4
   zh: d9f368c27fd9f998
 /session-persistence-event-catalog/persistence-type-fingerprints:
-  en: 7eb1e62a81ae345a
-  zh: b467071b1de8d126
+  en: 5729eb5a8fdca4ed
+  zh: b19fe3bbadf9f63f
 /session-persistence-event-catalog/event-envelope:
   en: 7ebb1a2e0dd1f916
   zh: 8946f415dda5c1b8
@@ -1050,11 +1050,11 @@
   en: a3087ab7bebe9371
   zh: abf6afc2f9f5b692
 /session-persistence-event-catalog/resolved-persistence-types/inboxtarget:
-  en: 4b0d016b6ffda9e3
-  zh: 500ceb305d2395b8
+  en: 2e06ca6fcdc0be74
+  zh: 730fe69d757d2e16
 /session-persistence-event-catalog/resolved-persistence-types/jevdecisionrecord:
-  en: d7b1c8fab46855da
-  zh: f0309ddfbeca36b2
+  en: 3cd76c8871d650ac
+  zh: 68b787d61fc6e390
 /session-persistence-event-catalog/resolved-persistence-types/jsonvalue:
   en: c239aa9c90226c35
   zh: 3561e77832c7c8b5
@@ -1950,11 +1950,11 @@
   en: 8258663c6d7e6e5e
   zh: c792d8e230ee8b94
 /session-persistence-event-catalog/resolved-persistence-types/type-image-offload:
-  en: c177a43d3fb40356
-  zh: 7f91af24c0e1728e
+  en: 0e9178b0dd3dd15b
+  zh: bd3c6735ef688f32
 /session-persistence-event-catalog/resolved-persistence-types/type-jev-decision:
-  en: 1a4c4d643f334dbb
-  zh: 1df4d49312efb536
+  en: a461fcc55e185b05
+  zh: ee949a963c999b54
 /session-persistence-event-catalog/resolved-persistence-types/type-llm-retry:
   en: 6d026baeac30a0f1
   zh: 55131683e3d5ed27
