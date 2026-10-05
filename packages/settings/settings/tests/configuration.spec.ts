@@ -354,3 +354,20 @@ it('describes an entry whose required field only the profile supplies, and repor
   const failures = (): unknown[] => restored.logger.buffer.filter(message => message.type === 'error').map((message): unknown => message.args[0])
   await vi.waitFor(() => { expect(failures()).toContainEqual(expect.objectContaining({ message: 'refresh failed' })) })
 })
+
+it('imports legacy Jev settings into the mounted router entry', async () => {
+  const { ctx, home, profile, start } = await fixture()
+  await ctx.fiber.dispose()
+  const bundlePatch = join(profile.dir, 'node_modules', 'test-bundle', 'cordis.patch.yml')
+  const bundle = parse(readFileSync(bundlePatch, 'utf8')) as { insert: object[] }[]
+  bundle[0]!.insert.push({ id: 'llm-jev-router', name: 'cordis:probe', config: { ordinary: 'router' } })
+  writeFileSync(bundlePatch, JSON.stringify(bundle))
+  writeFileSync(join(home, 'settings.yaml'), 'jev-router:\n  count: 9\n')
+  const restored = await start()
+  await vi.waitFor(() => {
+    expect(restored.settings.describe().find(row => row.ns === 'llm-jev-router')!.value).toMatchObject({ count: 9 })
+  })
+  expect(parse(readFileSync(profile.patchPath, 'utf8'))).toContainEqual({
+    id: 'llm-jev-router', name: 'cordis:probe', config: { ordinary: 'router', count: 9 },
+  })
+})

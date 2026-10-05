@@ -109,7 +109,7 @@ describe('ProviderQuotaAction popover', () => {
     const props = {
       useProviders: (select: (value: unknown) => unknown) => select([{ id: 'deepseek', name: 'DeepSeek' }]),
       useState: (select: (value: unknown) => unknown) => select({ status: 'ready' as const, results: [] }),
-      useProjection: () => ({ uncachedInputTokens: 100, outputTokens: 25, cacheReadTokens: 50, cacheWriteTokens: 5 }),
+      useProjection: (key: string) => key === 'tokenUsage' ? { uncachedInputTokens: 100, outputTokens: 25, cacheReadTokens: 50, cacheWriteTokens: 5 } : undefined,
       refresh: vi.fn(async () => {}),
       t: translate,
     } as ProviderQuotaActionProps
@@ -136,4 +136,21 @@ describe('ProviderQuotaAction popover', () => {
     expect(view.getByText('Anthropic')).toBeDefined()
     expect(view.getByText('Usage reporting is not available for this provider')).toBeDefined()
   })
+  it('shows real model token counts separately from shared account quotas', () => {
+    const view = renderPopover([], undefined, { useProjection: (key: string) => key === 'modelUsage' ? [
+      { provider: 'anthropic', model: 'claude-sonnet-5-5', usage: { uncachedInputTokens: 100, outputTokens: 25, cacheReadTokens: 50, cacheWriteTokens: 5 } },
+    ] : undefined })
+    expect(view.getByText('anthropic / claude-sonnet-5-5: 180 tokens')).toBeDefined()
+    expect(view.getByText(en.accountQuota)).toBeDefined()
+  })
+  it('puts the selected model provider account first without duplicating it', () => {
+    const view = renderPopover([
+      { providerId: 'opencode-go', providerName: 'OpenCode Go', configured: true, ok: true },
+      { providerId: 'openai-codex', providerName: 'OpenAI Codex', configured: true, ok: true },
+    ], undefined, { useProjection: (key: string) => key === 'modelSelection' ? { next: { provider: 'openai-codex', model: 'gpt-6.1-sol' } } : undefined })
+    const names = Array.from(view.getByRole('dialog').querySelectorAll('section > header')).map(header => header.textContent)
+    expect(names).toEqual([en.accountQuota, 'OpenAI Codex', 'OpenCode Go'])
+    expect(view.getAllByText('OpenAI Codex')).toHaveLength(1)
+  })
+
 })

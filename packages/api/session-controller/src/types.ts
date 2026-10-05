@@ -7,7 +7,7 @@ import type {
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { LlmAttemptId, MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { TextBlock } from '@deepseek-ai/dsh-llm'
-import type { SessionId, SessionSeqCursor } from '@deepseek-ai/dsh-session/types'
+import type { SessionId, SessionSeq, SessionSeqCursor } from '@deepseek-ai/dsh-session/types'
 import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
@@ -22,6 +22,8 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
     modelSelection: ModelSelectionProjectionState
     /** Durable MCP connector selection for one Session. */
     mcpSelection: McpSelectionProjectionState
+    /** Durable per-Session hook enable/disable overrides. */
+    hookOverrides: HookOverridesProjection
   }
   interface SessionProjectionMap {
     /** Persisted facts used to summarize a Session without activating it. */
@@ -32,6 +34,8 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
     modelSelection: ModelSelectionProjection
     /** Client view of durable MCP connector selection. */
     mcpSelection: McpSelectionProjection
+    /** Client view of per-Session hook overrides. */
+    hookOverrides: HookOverridesProjection
   }
 }
 
@@ -44,6 +48,8 @@ declare module '@deepseek-ai/dsh-session/types' {
     'model/selection': ModelSelection
     /** Complete connector selection requested for subsequent MCP tool calls. */
     'mcp/selection': McpSelection
+    /** Complete per-Session hook overrides. Log-only: it never enters model history. */
+    'hooks/session-overrides': HookOverrides
   }
 }
 
@@ -114,6 +120,12 @@ export interface ModelSelectionProjectionState {
   /** Selection the latest recorded model request used. */
   readonly lastUsed: ModelSelection | null
   /**
+   * Seq of the `request/header` that recorded {@link lastUsed}. It outlives the
+   * turn that wrote it, so consumers compare it against a turn boundary to tell
+   * which turn ran the model.
+   */
+  readonly lastUsedSeq: SessionSeq | null
+  /**
    * Model the user selected for this Session, kept until they select another.
    * A request that runs something else — a router deciding the route, a
    * fallback — records `lastUsed` without displacing this.
@@ -125,6 +137,8 @@ export interface ModelSelectionProjectionState {
 export interface ModelSelectionProjection {
   /** Selection consumed by the latest recorded model request. */
   readonly lastUsed: ModelSelection | null
+  /** Seq of the `request/header` that recorded {@link lastUsed}; identifies its turn. */
+  readonly lastUsedSeq: SessionSeq | null
   /** Selection the next request should use, falling back to {@link lastUsed}. */
   readonly next: ModelSelection | null
 }
@@ -331,6 +345,38 @@ export interface SessionSelectModelRequest extends ModelSelection {
 /** Accepted model selection after Host resolution. */
 export interface SessionSelectModelValue {
   readonly selected: ModelSelection
+}
+
+/** Per-Session hook overrides keyed by `hookKey`; true enables, false disables. */
+export interface HookOverrides {
+  readonly overrides: Readonly<Record<string, boolean>>
+}
+
+/** Host fold state and client view of per-Session hook overrides. */
+export interface HookOverridesProjection {
+  readonly current: HookOverrides | null
+}
+
+/** One loaded hook command and its global enablement. */
+export interface SessionHookRow {
+  readonly key: string
+  readonly dialect: string
+  readonly event: string
+  readonly matcher?: string
+  readonly command: string
+  readonly globallyDisabled: boolean
+  readonly description?: string
+}
+
+/** Hooks loaded by mounted bridges. */
+export interface SessionHookCatalog {
+  readonly hooks: readonly SessionHookRow[]
+}
+
+/** Session-local hook override request. */
+export interface SessionSetHookOverridesRequest {
+  readonly sessionId: SessionId
+  readonly overrides: Readonly<Record<string, boolean>>
 }
 
 /** MCP connector namespaces available to one Session. */

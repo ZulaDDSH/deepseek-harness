@@ -6,7 +6,7 @@
  * @module
  */
 
-import type { Transport } from '@modelcontextprotocol/client'
+import type { AuthProvider, Transport } from '@modelcontextprotocol/client'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
@@ -17,8 +17,10 @@ import type { Config } from './index.ts'
  * `DSH_*` names dropped), plus the spec's explicit env. The MCP SDK owns the
  * actual spawn, so this transport shares the scrub definition rather than the
  * spawn path.
+ * @param extra - explicit provider environment overrides.
+ * @returns complete scrubbed environment passed to the child.
  */
-function buildChildEnv(extra: Record<string, string>): Record<string, string> {
+export function buildChildEnv(extra: Record<string, string>): Record<string, string> {
   return { ...scrubbedParentEnv(), ...extra }
 }
 
@@ -66,21 +68,26 @@ export function resolveHttpHeaders(
  * Create an MCP transport from the resolved plugin config.
  *
  * @param config - Resolved plugin config discriminated on `transport`.
+ * @param environment - complete stdio environment snapshot, when supplied.
+ * @param authProvider - OAuth bearer source for a Streamable HTTP connection, when sign-in is offered.
  * @returns A connected-ready MCP Transport (stdio or Streamable HTTP).
  */
-export function createTransport(config: Config): Transport {
+export function createTransport(config: Config, environment?: Record<string, string>, authProvider?: AuthProvider): Transport {
   switch (config.transport) {
     case 'stdio':
       return new StdioClientTransport({
         command: config.command,
         args: config.args,
-        env: buildChildEnv(config.env),
+        env: environment ?? buildChildEnv(config.env),
         cwd: config.cwd,
       })
     case 'streamable-http':
       return new StreamableHTTPClientTransport(
         new URL(config.url),
-        { requestInit: { headers: resolveHttpHeaders(config, { required: true }) } },
+        {
+          requestInit: { headers: resolveHttpHeaders(config, { required: true }) },
+          ...authProvider === undefined ? {} : { authProvider },
+        },
       )
   }
 }

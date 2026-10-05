@@ -11,7 +11,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { createScope } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { SessionSeq, type SessionId } from '@deepseek-ai/dsh-session/types'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { RemoteError, TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
@@ -100,7 +100,7 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
           ? {}
           : { reasoningEffort: payload.reasoningEffort },
       }
-      projections.get(payload.sessionId)?.set({ lastUsed: null, next: selected })
+      projections.get(payload.sessionId)?.set({ lastUsed: null, lastUsedSeq: null, next: selected })
       return Promise.resolve({ ok: true as const, value: { selected } })
     },
   }
@@ -164,6 +164,7 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
     scopes.set(id, handle.ctx)
     const projection = createSnapshotStore<ModelSelectionProjection | undefined>({
       lastUsed: null,
+      lastUsedSeq: null,
       next: null,
     })
     projections.set(id, projection)
@@ -187,6 +188,7 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
       return ui
     },
     seat: () => seats.get('conversation.input.model')!,
+    routedSeat: () => seats.get('conversation.input.right'),
     hostCurrent: () => selected,
     rejectSelection: () => {
       selectionFailure = new RemoteError('session/writer-held', 'writer held', { sessionId: sid('owned') })
@@ -223,6 +225,7 @@ describe('ui-model-selection dual entry', () => {
     expect(b.seat().inject).toBeTypeOf('function')
     // Copy rides the standard locale seat.
     expect(b.seat().locale).toBe('model')
+    expect(b.routedSeat()?.locale).toBe('model')
   })
 
   it('localizes built-in descriptions and preserves external provider descriptions', async () => {
@@ -385,6 +388,7 @@ describe('ui-model-selection dual entry', () => {
     b.remote.emit('settings/document-updated', ['llm-deepseek', 1])
     b.setProjected(sid('s1'), {
       lastUsed: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+      lastUsedSeq: SessionSeq(1),
       next: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
     })
     expect(face.directory.getSnapshot()).toMatchObject({
@@ -443,7 +447,7 @@ describe('ui-model-selection dual entry', () => {
       b.mint('existing')
       const existing = b.ctx.modelDirectories.directoryFor(sid('existing'))
       await existing.load()
-      b.setProjected(sid('existing'), { lastUsed: null,
+      b.setProjected(sid('existing'), { lastUsed: null, lastUsedSeq: null,
         next: { provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'high' } })
       b.setRoutable(false)
       b.remote.emit('settings/document-updated', ['llm-deepseek', 1])
@@ -492,7 +496,7 @@ describe('ui-model-selection dual entry', () => {
     b.mint('s1')
     const face = b.seat().inject!(sid('s1'))
     const intended = { provider: 'deepseek-official', model: 'unlisted' }
-    b.setProjected(sid('s1'), { lastUsed: intended, next: intended })
+    b.setProjected(sid('s1'), { lastUsed: intended, lastUsedSeq: SessionSeq(1), next: intended })
     await vi.waitFor(() => { expect(face.directory.getSnapshot().status).toBe('ready') })
     expect(face.directory.getSnapshot().current).toEqual(intended)
     expect(b.blockOf('s1')).toBeUndefined()

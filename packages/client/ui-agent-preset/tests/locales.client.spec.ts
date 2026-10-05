@@ -9,6 +9,8 @@ describe('preset display copy', () => {
   it.each([
     ['standard', 'presetStandardName', 'presetStandardDescription'],
     ['ptc', 'presetPtcName', 'presetPtcDescription'],
+    ['lean', 'presetLeanName', 'presetLeanDescription'],
+    ['economy', 'presetEconomyName', 'presetEconomyDescription'],
     ['minimal', 'presetMinimalName', 'presetMinimalDescription'],
     ['cordis', 'presetCordisName', 'presetCordisDescription'],
   ] as const)('localizes the shipped %s preset in English and Chinese', (id, nameKey, descriptionKey) => {

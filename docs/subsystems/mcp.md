@@ -117,6 +117,62 @@ MCP prompt templates, human-input elicitation, task-based execution, and resourc
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxknowledge--knowledgerouter"></a>
+
+### `ctx.knowledge` — `KnowledgeRouter`
+
+Bounded routing over MCP-backed knowledge providers.
+
+Every method reads the live tool registry, so a provider that is disabled, absent, or filtered out reports as unavailable instead of failing a query.
+
+```ts cordis-catalog
+/**
+ * Write one validated finding to the learned-knowledge provider.
+ *
+ * This is the only path that persists knowledge and it never runs
+ * automatically. A delegated worker is refused here, in the operation that
+ * persists, so no caller can promote a worker's own answer.
+ *
+ * @param write - the validated finding and its source references.
+ * @param signal - caller cancellation.
+ * @param agent - the calling agent, whose authority decides whether the write is allowed.
+ * @returns The written outcome and whether reflection ran.
+ * @throws when the caller is a delegated worker, when write-back is not configured, or when the provider command fails.
+ */
+async learn(write: LearningWrite, signal: AbortSignal, agent?: Agent): Promise<LearningResult>
+
+/**
+ * Report every supported provider's configuration and live connection state.
+ * @param agent - caller whose scope the registry is read in; omitted reads the global view.
+ * @returns One status per supported provider.
+ */
+status(agent?: ScopeKey): ProviderStatus[]
+
+/**
+ * Decide which providers a task warrants.
+ * @param task - the task text to classify.
+ * @returns Provider identities to query; empty when no cue matches.
+ */
+route(task: string): KnowledgeProviderName[]
+
+/**
+ * Retrieve a bounded knowledge packet for one task.
+ *
+ * Providers that are disabled, unconfigured, or missing their query tool are
+ * reported as unavailable rather than raising, so a dead provider never fails
+ * the caller.
+ *
+ * @param task - the task text to route and query.
+ * @param options - explicit providers, caller source references, and cancellation.
+ * @returns The bounded packet, including which providers answered.
+ */
+async retrieve(task: string, options: RetrieveOptions): Promise<KnowledgePacket>
+```
+
+Types: [Agent](core.md) · [ScopeKey](scope.md)
+
+Source: [`packages/knowledge/knowledge-router/src/index.ts`](../../packages/knowledge/knowledge-router/src/index.ts)
+
 <a id="ctxmcpresources--mcpresourceruntime"></a>
 
 ### `ctx.mcpResources` — `McpResourceRuntime`
@@ -134,4 +190,86 @@ register(server: string, provider: McpResourceProvider): () => void
 ```
 
 Source: [`packages/mcp/mcp-resources/src/index.ts`](../../packages/mcp/mcp-resources/src/index.ts)
+
+<a id="ctxmemoryworkspace--memoryworkspace"></a>
+
+### `ctx.memoryWorkspace` — `MemoryWorkspace`
+
+Authenticated GUI operations; provider calls remain Host-owned.
+
+```ts cordis-catalog
+/**
+ * Read the complete local provider inventory without modifying it.
+ * @returns every stored table and record count across projects and statuses.
+ */
+@Remote async inventory(): Promise<MemorixTable[]>
+
+/**
+ * Browse or search a provider table with bounded pagination.
+ * @param table - table from inventory.
+ * @param offset - nonnegative row offset.
+ * @param query - literal substring matched against every column.
+ * @returns one complete page and total matching count.
+ */
+@Remote async page(table: string, offset: number, query: string): Promise<MemorixPage>
+
+/**
+ * Rebuild complete active Memorix documents with the Graphify adapter and load its bounded viewer.
+ * @returns the official Graphify viewer and its graph source path.
+ */
+@Remote graph(): Promise<MemoryGraph>
+
+/**
+ * Retain an uploaded document and import all chunks through Memorix.
+ * @param filename - source filename displayed with the memory.
+ * @param data - canonical base64 encoding of complete original bytes.
+ * @returns verified chunk counts, original path and an explicit partial-failure message.
+ */
+@Remote importDocument(filename: string, data: string): Promise<MemoryImportResult>
+```
+
+Source: [`packages/client/ui-memory-workspace/src/index.ts`](../../packages/client/ui-memory-workspace/src/index.ts)
+
+<a id="mcp-events"></a>
+
+### `mcp/*` events
+
+<a id="mcphuman-operations--waterfall"></a>
+
+#### `mcp/human-operations` — waterfall
+
+Resolve one global provider for a Host-owned human operation.
+
+```ts cordis-catalog
+/**
+ * Resolve one global provider for a Host-owned human operation.
+ * @mode waterfall
+ * @param server - configured server name.
+ * @param next - delegation to other configured providers.
+ */
+'mcp/human-operations'(server: string, next: () => Promise<McpHumanOperations | undefined>): Promise<McpHumanOperations | undefined>
+```
+
+Source: [`packages/mcp/mcp-client/src/human-operations.ts`](../../packages/mcp/mcp-client/src/human-operations.ts)
+
+<a id="mcp-client-events"></a>
+
+### `mcp-client/*` events
+
+<a id="mcp-clientinventory--emit"></a>
+
+#### `mcp-client/inventory` — emit
+
+A listener is asking for the connection state of the configured MCP servers; each server appends its report.
+
+```ts cordis-catalog
+/**
+ * A listener is asking for the connection state of the configured MCP servers; each server appends its report.
+ * @mode emit
+ * @param reports Collected reports, one per configured server.
+ */
+'mcp-client/inventory'(reports: McpConnectionReport[]): void
+```
+
+Source: [`packages/mcp/mcp-client/src/status.ts`](../../packages/mcp/mcp-client/src/status.ts)
 <!-- END GENERATED cordis-surface -->

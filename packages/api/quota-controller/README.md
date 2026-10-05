@@ -23,7 +23,7 @@ Use this package when a browser surface needs normalized provider quota or balan
 
 Mount the package in a Host composition that also provides `ctx.credentials` and the Remote gateway. `listProviders()` reports providers with a resolvable credential and connected model providers, while `fetch(providerId)` returns normalized quota state and never returns the credential itself. Concurrent reads share one pending request; completed and failed requests release it so later reads can retry.
 
-The built-in providers read DeepSeek account credits and OpenCode Go rolling quota windows. Deployment code can supply additional `QuotaProvider` entries through `QuotaControllerInternals`.
+The built-in providers read DeepSeek account credits and OpenCode Go rolling quota windows. Deployment code can supply additional `QuotaProvider` entries through `QuotaControllerInternals`. Providers with their own authentication register a `QuotaSource` through `registerSource()` and retain its disposer through a Cordis effect; the source resolves and refreshes its own credentials.
 
 -----
 

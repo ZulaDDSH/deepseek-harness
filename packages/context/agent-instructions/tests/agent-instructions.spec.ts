@@ -1056,6 +1056,127 @@ describe('workspace context request injection', () => {
     expect(AgentInstructions.inject).toEqual(['sessionProjections'])
   })
 
+  it('prepends the end-of-turn rule when enabled', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'repo rule')
+      const ctx = new Context()
+      await ctx.plugin(LocalFileSystem, { cwd: '/' })
+      if (ctx.get('sessionProjections') === undefined) await ctx.plugin(SessionProjectionRegistry)
+      ctx.sessionProjections.register(turnBoundaryProjectionDefinition)
+      await ctx.plugin(AgentInstructions, { dshHome: home, maxBytes: 65536, endOfTurnRule: true })
+      const agent = await stubAgent(root)
+
+      await composeBaselinePrefix(ctx, agent)
+
+      const text = derivedText(agent)
+      expect(text).toContain('# End-of-Turn Response Rule')
+      expect(text).toContain('lead with the result')
+      expect(text).toContain('Do not sacrifice important technical facts for brevity.')
+      expect(text.indexOf('# End-of-Turn Response Rule')).toBeLessThan(text.indexOf('Instructions from: AGENTS.md'))
+      expect(text.match(/<\/system-reminder>/g)).toHaveLength(1)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('omits the end-of-turn rule when a composition disables it', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'repo rule')
+      const ctx = new Context()
+      await mountAgentInstructions(ctx, { dshHome: home, maxBytes: 65536, endOfTurnRule: false })
+      const agent = await stubAgent(root)
+
+      await composeBaselinePrefix(ctx, agent)
+
+      expect(derivedText(agent)).not.toContain('End-of-Turn Response Rule')
+      expect(derivedText(agent)).toContain('Instructions from: AGENTS.md')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('injects an end-of-turn-only baseline when no workspace instruction file exists', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      const ctx = new Context()
+      await ctx.plugin(LocalFileSystem, { cwd: '/' })
+      if (ctx.get('sessionProjections') === undefined) await ctx.plugin(SessionProjectionRegistry)
+      ctx.sessionProjections.register(turnBoundaryProjectionDefinition)
+      await ctx.plugin(AgentInstructions, { dshHome: home, maxBytes: 65536, endOfTurnRule: true })
+      const agent = await stubAgent(root)
+
+      await composeBaselinePrefix(ctx, agent)
+
+      const text = derivedText(agent)
+      expect(text).toContain('# End-of-Turn Response Rule')
+      expect(text).not.toContain('Instructions from:')
+      const baseline = baselineEvents(agent)[0]
+      expect(baseline?.type === 'user/message' && baseline.data.source.kind === 'agent-instructions'
+        ? baseline.data.source.changes
+        : undefined).toEqual([])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('never records the end-of-turn rule as a reconcilable scope change', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'repo rule')
+      const ctx = new Context()
+      await ctx.plugin(LocalFileSystem, { cwd: '/' })
+      if (ctx.get('sessionProjections') === undefined) await ctx.plugin(SessionProjectionRegistry)
+      ctx.sessionProjections.register(turnBoundaryProjectionDefinition)
+      await ctx.plugin(AgentInstructions, { dshHome: home, maxBytes: 65536, endOfTurnRule: true })
+      const agent = await stubAgent(root)
+
+      await composeBaselinePrefix(ctx, agent)
+
+      const recorded = baselineEvents(agent).flatMap(event =>
+        event.type === 'user/message' && event.data.source.kind === 'agent-instructions'
+          ? event.data.source.changes
+          : [])
+      expect(recorded.map(change => change.path)).toEqual(['AGENTS.md'])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps the end-of-turn rule inside the baseline byte budget', async () => {
+    const rendered = renderAgentInstructions([], { maxBytes: 65536, endOfTurnRule: true })
+
+    expect(rendered.text).toContain('# End-of-Turn Response Rule')
+    expect(Buffer.byteLength(rendered.text, 'utf8')).toBeLessThanOrEqual(65536)
+    expect(rendered.omitted).toEqual([])
+    expect(rendered.truncated).toEqual([])
+  })
+
+  it('drops the end-of-turn rule first when the budget cannot hold it and a file', async () => {
+    const rendered = renderAgentInstructions(
+      [{ absolutePath: '/repo/AGENTS.md', displayPath: 'AGENTS.md', content: 'repo rule' }],
+      { maxBytes: 400, endOfTurnRule: true },
+    )
+
+    expect(rendered.text).toContain('Instructions from: AGENTS.md')
+    expect(rendered.text).toContain('repo rule')
+    expect(rendered.text).not.toContain('# End-of-Turn Response Rule')
+    expect(Buffer.byteLength(rendered.text, 'utf8')).toBeLessThanOrEqual(400)
+  })
+
   it('rejects a file-touch projection when the turn boundary unit is absent', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionProjectionRegistry)

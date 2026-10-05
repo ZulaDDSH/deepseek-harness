@@ -21,6 +21,8 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client'
 // through the owning package's client-safe types subpath).
 import type {} from '@deepseek-ai/dsh-plugin-manager/types'
 import { PluginManagerPage } from './PluginManagerPage.tsx'
+import { McpServersSection, type McpServersSectionInjected } from './McpServersSection.tsx'
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { PluginRefreshToast, type PluginRefreshToastFace } from './PluginRefreshToast.tsx'
 import { PluginsPanelIcon } from './PluginsPanelIcon.tsx'
 import { configLedgerSource } from './config-ledger.ts'
@@ -75,6 +77,15 @@ export const inject = ['slots', 'locale', 'remote', 'remote.pluginManager', 'rem
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-plugin-manager: dictionaries')
   const t = ctx.locale.bind(NS)
+  ctx.inject(['commandUi'], (scope) => {
+    const commands = scope.get('commandUi') as {
+      register(entry: { name: string; label(): string; available(): boolean; ui: { kind: 'action'; run(): void } }): () => void
+    }
+    scope.effect(() => commands.register({
+      name: 'plugins', label: () => t('panel'), available: () => true,
+      ui: { kind: 'action', run: () => { ctx.layout.selectPanel(PANEL_ID) } },
+    }), 'ui-plugin-manager: composer navigation')
+  })
   const controller = new PluginManagerController(ctx)
   ctx.effect(() => () => { controller.dispose() }, 'ui-plugin-manager: controller')
   // The Host says when what is installed, enabled, or composed changed — from
@@ -136,6 +147,43 @@ export function apply(ctx: ClientContext): void {
     })
     yield () => { void disposeNavigation() }
   })
+  type ChangeAnswer = { ok: boolean; value?: { application: string; error?: { code: string } }; error?: { message: string } }
+  const changed = async (call: Promise<ChangeAnswer>): Promise<void> => {
+    const result = await call
+    if (!result.ok) throw new Error(result.error?.message ?? 'request failed')
+    if (result.value?.application === 'failed') throw new Error(result.value.error?.code ?? 'failed')
+  }
+  const mcp: McpServersSectionInjected = {
+    listMcpServers: async () => {
+      const result = await ctx.remote.pluginManager.listMcpServers()
+      if (!result.ok) throw new Error(result.error.message)
+      return result.value
+    },
+    discoverMcpServers: async () => {
+      const result = await ctx.remote.pluginManager.discoverMcpServers()
+      if (!result.ok) throw new Error(result.error.message)
+      return result.value
+    },
+    addMcpServer: config => changed(ctx.remote.pluginManager.addMcpServer(config)),
+    removeMcpServer: entryId => changed(ctx.remote.pluginManager.removeMcpServer(entryId as never)),
+    setMcpServerEnabled: (entryId, enabled) => changed(ctx.remote.pluginManager.setPluginEnabled(entryId as never, enabled)),
+    signInMcpServer: async (authKey, onNotice, signal) => {
+      const authorization = ctx.get('remote.authorization') as NonNullable<ClientContext['remote']['authorization']> | undefined
+      if (authorization === undefined) throw new Error('sign-in is not available on this host')
+      try {
+        for await (const item of authorization.begin(authKey, undefined, signal)) {
+          if (item.type === 'notice') onNotice({ message: item.message, ...item.url === undefined ? {} : { url: item.url } })
+        }
+      } catch (error: unknown) {
+        if (!signal.aborted) throw error
+      }
+    },
+  }
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section', id: 'mcp', order: 60, label: () => t('mcpNav'), locale: NS,
+    inject: () => mcp,
+  }, McpServersSection))
+
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
     name: 'sidebar.panellist',
     id: PANEL_ID,

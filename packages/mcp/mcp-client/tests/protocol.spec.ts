@@ -1,6 +1,7 @@
 import { z } from 'zod'
 /** Real SDK negotiation, subscription, and cancellation through the connection supervisor. */
 
+import type * as TransportModule from '../src/transport.ts'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { InMemoryTransport, type Transport } from '@modelcontextprotocol/client'
@@ -10,11 +11,12 @@ import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import McpResources from '@deepseek-ai/dsh-mcp-resources'
-import { startConnection, resolveReconnectPolicy } from '../src/connection.ts'
+import { startConnection } from '../src/connection.ts'
+import { resolveReconnectPolicy } from '../src/reconnect-policy.ts'
 import type { Config } from '../src/index.ts'
 
 const { mockTransport } = vi.hoisted(() => ({ mockTransport: vi.fn<() => Transport>() }))
-vi.mock('../src/transport.ts', () => ({ createTransport: mockTransport }))
+vi.mock('../src/transport.ts', async importOriginal => ({ ...await importOriginal<typeof TransportModule>(), createTransport: mockTransport }))
 
 const config: Config = {
   transport: 'stdio', serverName: 'fixture', command: 'fixture', args: [], env: {}, cwd: '',

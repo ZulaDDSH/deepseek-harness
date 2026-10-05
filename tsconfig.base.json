@@ -28,6 +28,8 @@
     // not declaration path aliases, keep each package/vendor source compiled
     // under its own tsconfig boundary.
     "paths": {
+      "@deepseek-ai/dsh-knowledge-router/types": ["./packages/knowledge/knowledge-router/src/types.ts"],
+      "@deepseek-ai/dsh-knowledge-router/memorix-types": ["./packages/knowledge/knowledge-router/src/memorix-types.ts"],
       "@deepseek-ai/dsh-client-product-analytics": ["./packages/client/product-analytics/src/index.ts"],
       "@deepseek-ai/dsh-client-product-analytics/types": ["./packages/client/product-analytics/src/events.ts"],
       "@deepseek-ai/dsh-client-product-analytics/client": ["./packages/client/product-analytics/src/client/index.ts"],
@@ -117,6 +119,7 @@
       "@deepseek-ai/dsh-typert-registry/types": ["./packages/typert/registry/src/types.ts"],
       "@deepseek-ai/dsh-typert-generator": ["./packages/typert/generator/src/index.ts"],
       "@deepseek-ai/dsh-attachment/types": ["./packages/attachment/attachment/src/types.ts"],
+      "@deepseek-ai/dsh-hook-protocol/inventory": ["./packages/hooks/hook-protocol/src/inventory.ts"],
       "@deepseek-ai/dsh-session/types": ["./packages/core/session/src/types.ts"],
       "@deepseek-ai/dsh-session/chunk-rows": ["./packages/core/session/src/chunk-rows.ts"],
       "@deepseek-ai/dsh-session/surface": ["./packages/core/session/src/surface.ts"],
@@ -306,6 +309,8 @@
       "@deepseek-ai/dsh-client-ui-provider-quota": ["./packages/client/ui-provider-quota/src"],
       "@deepseek-ai/dsh-client-ui-provider-quota/client": ["./packages/client/ui-provider-quota/src/client"],
       "@deepseek-ai/dsh-client-ui-plugin-manager": ["./packages/client/ui-plugin-manager/src"],
+      "@deepseek-ai/dsh-client-ui-memory-workspace": ["./packages/client/ui-memory-workspace/src"],
+      "@deepseek-ai/dsh-client-ui-memory-workspace/types": ["./packages/client/ui-memory-workspace/src/types.ts"],
       "@deepseek-ai/dsh-client-ui-settings-plugin-inventory": ["./packages/client/ui-settings-plugin-inventory/src"],
       "@deepseek-ai/dsh-client-locale": ["./packages/client/locale/src"],
       "@deepseek-ai/dsh-client-web/injections": ["./packages/client/web/src/apply-injections.ts"],
@@ -406,6 +411,7 @@
       "@deepseek-ai/dsh-jobs/invariant": ["./packages/jobs/jobs/src/invariant.ts"],
       "@deepseek-ai/dsh-jobs-local": ["./packages/jobs/jobs-local/src"],
       "@deepseek-ai/dsh-knowledge-policy": ["./packages/knowledge/knowledge-policy/src"],
+      "@deepseek-ai/dsh-knowledge-router": ["./packages/knowledge/knowledge-router/src"],
       "@deepseek-ai/dsh-knowledge-source-git": ["./packages/knowledge/knowledge-source-git/src"],
       "@deepseek-ai/dsh-launch-environment": ["./packages/util/launch-environment/src"],
       "@deepseek-ai/dsh-lazy-require": ["./packages/util/lazy-require/src"],

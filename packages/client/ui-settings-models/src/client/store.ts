@@ -9,7 +9,7 @@
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {
-  CredentialInfo, LlmConfigurableProvider, LlmProviderInfo, SettingsNamespaceView,
+  CredentialInfo, ModelCatalog, LlmConfigurableProvider, LlmProviderInfo, SettingsNamespaceView,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
@@ -105,6 +105,8 @@ export interface ModelsSettingsState {
   rows: readonly ProviderRow[]
   /** Namespace views by ns, for the editor's schema/layers/secrets. */
   namespaces: ReadonlyMap<string, SettingsNamespaceView>
+  /** Host model catalog groups; empty when the catalog read fails. */
+  catalog?: ModelCatalog['groups']
 }
 
 /**
@@ -221,12 +223,10 @@ export class ModelsSettingsStore {
         credential: undefined,
       }
     })
-    if (rows.some(row => row.entry.provider === 'deepseek-account')) {
-      const catalog = await this.ctx.remote.session.modelCatalog()
-      for (const row of rows) {
-        if (row.entry.provider === 'deepseek-account') row.accountAvailable = catalog.ok
-          && catalog.value.groups.some(group => group.id === 'deepseek-account' && group.models.length > 0)
-      }
+    const catalog = await this.ctx.remote.session.modelCatalog()
+    for (const row of rows) {
+      if (row.entry.provider === 'deepseek-account') row.accountAvailable = catalog.ok
+        && catalog.value.groups.some(group => group.id === 'deepseek-account' && group.models.length > 0)
     }
     const refs = [...new Set(rows.filter(row => row.entry.provider !== 'deepseek-account').map(row => row.apiKeyEnv ?? deriveKeyRef(row.entry.provider)))]
     let credentials: Record<string, CredentialInfo> = {}
@@ -256,6 +256,7 @@ export class ModelsSettingsStore {
         }
       })
       s.namespaces = namespaces
+      s.catalog = catalog.ok ? catalog.value.groups : []
     })
   }
 

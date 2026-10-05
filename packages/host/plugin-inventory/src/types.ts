@@ -1,5 +1,6 @@
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { PluginLocalizedMeta } from '@deepseek-ai/dsh-package-manifest'
+import type { HookInventoryReport } from '@deepseek-ai/dsh-hook-protocol/inventory'
 
 /** Stable Loader-tree identity of one configured plugin entry. */
 export type PluginEntryId = Branded<'PluginEntryId'>
@@ -64,6 +65,8 @@ export interface AgentPresetPluginGroup {
 
 /** Point-in-time inventory returned by the plugin inventory Remote. */
 export interface PluginInventorySnapshot {
+  /** Loaded hook bridge reports; command matching remains event-dependent. */
+  readonly hooks?: readonly HookInventoryReport[]
   /** Whether this Host exposes persistent current-profile management. */
   readonly managementAvailable?: boolean
   readonly entries: readonly PluginInventoryEntry[]

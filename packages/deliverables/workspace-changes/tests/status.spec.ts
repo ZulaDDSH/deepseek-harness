@@ -22,6 +22,19 @@ afterEach(async () => {
 })
 
 describe('current workspace status', () => {
+  it('counts a repository without HEAD when Git reports an ambiguous revision', async () => {
+    const root = await scratchDir('dsh-status-unborn-', cleanups)
+    git(root, 'init', '-q')
+    await writeFile(join(root, 'file.txt'), 'hello\n')
+    const { ctx, git: command } = await runner()
+    cleanups.push(() => ctx.fiber.dispose())
+    const run = command.run.bind(command)
+    vi.spyOn(command, 'run').mockImplementation((args, options) => args.includes('HEAD')
+      ? Promise.resolve({ exitCode: 128, stdout: '', stderr: "fatal: ambiguous argument 'HEAD': unknown revision or path not in the working tree.", truncated: false })
+      : run(args, options))
+    expect(await readWorkspaceStatus(command, root, root, 20, signal)).toMatchObject({ added: 1, deleted: 0 })
+  })
+
   it.each([
     ['unterminated', '?? file'], ['short', 'x\0'], ['separator', '??xfile\0'], ['rename', 'R  file\0'],
   ])('rejects %s Git status output', async (_label, output) => {
@@ -97,7 +110,9 @@ describe('current workspace status', () => {
     cleanups.push(() => ctx.fiber.dispose())
     const repositoryRoot = await resolveRepositoryRoot(command, root, signal)
     expect(repositoryRoot).not.toBeNull()
+    const run = vi.spyOn(command, 'run')
     const status = await readWorkspaceStatus(command, repositoryRoot!, root, 20, signal)
+    expect(run.mock.calls.filter(([args]) => args[0] === 'diff' && !args.includes('--no-index'))).toHaveLength(1)
 
     expect(status.branch).toBe('main')
     expect(status.total).toBe(4)
@@ -105,7 +120,7 @@ describe('current workspace status', () => {
     expect(status.files.find(file => file.path === 'changed.txt')).toMatchObject({ index: ' ', worktree: 'M', added: 1, deleted: 0 })
     expect(status.files.find(file => file.path === 'new.txt')).toMatchObject({ index: '?', worktree: '?', added: 1, deleted: 0 })
     expect(status.files.find(file => file.path === 'removed.txt')).toMatchObject({ index: ' ', worktree: 'D', added: 0, deleted: 1 })
-    expect(status.files.find(file => file.path === 'moved.txt')).toMatchObject({ oldPath: 'renamed.txt' })
+    expect(status.files.find(file => file.path === 'moved.txt')).toMatchObject({ oldPath: 'renamed.txt', added: 1, deleted: 0 })
     expect(status.added).toBe(3)
     expect(status.deleted).toBe(1)
   })

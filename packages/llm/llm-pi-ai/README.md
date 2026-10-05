@@ -25,6 +25,10 @@ kind: "package-reference"
 
 Mount this plugin when a composition routes model requests through pi-ai's provider catalogs or through gateways that pi-ai's installed catalog does not describe. The `providers` dictionary is the whole configuration surface: each key is the provider route name a request selects with `GenerateOptions.provider`.
 
+Pinned catalog display names omit “latest”; user-configured names are preserved. When the quota controller is mounted, the Codex route reports account limits using its inference OAuth account and serialized token refresh. The provider validates window durations and reset timestamps; unavailable data remains an error rather than zero usage. The ChatGPT usage endpoint is an internal backend API and may change.
+
+The offline catalog includes Claude Opus 5.5 and Sonnet 5.5 on `anthropic`, and GPT-6.1 Sol on `openai` and `openai-codex`. Existing catalog models remain available.
+
 The adapter accepts the LLM service's [request-only user inputs](../llm/README.md#use-this-package) alongside durable history. User identity and attribution do not enter pi-ai content; assistant replay metadata and tool-call correlation remain attached to durable messages.
 
 ### When to choose it

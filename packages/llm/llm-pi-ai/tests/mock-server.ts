@@ -9,14 +9,17 @@ export interface MockServer {
   /** Header names as the client wrote them, before Node lowercases them. */
   rawHeaderNames: string[][]
   readonly closedResponses: number
-  responseClosed: Promise<void>
+  responseClosed: Promise<boolean>
 }
 
 const servers: Server[] = []
 
 /** Close every server opened since the last call; run from each spec's afterEach. */
 export async function closeMockServers(): Promise<void> {
-  await Promise.all(servers.splice(0).map(server => new Promise(resolve => server.close(resolve))))
+  await Promise.all(servers.splice(0).map(server => new Promise((resolve) => {
+    server.close(resolve)
+    server.closeAllConnections()
+  })))
 }
 
 /** A minimal complete text generation in pi-ai's chat-completions shape. */
@@ -33,6 +36,7 @@ export async function mockServer(script: {
   events?: string[]
   body?: string
   delayMs?: number
+  holdOpen?: boolean
   headers?: Record<string, string>
 }[]): Promise<MockServer> {
   const paths: string[] = []
@@ -40,11 +44,11 @@ export async function mockServer(script: {
   const headers: IncomingMessage['headers'][] = []
   const rawHeaderNames: string[][] = []
   let closedResponses = 0
-  const responseClosed = Promise.withResolvers<undefined>()
+  const responseClosed = Promise.withResolvers<boolean>()
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
     response.on('close', () => {
       closedResponses += 1
-      responseClosed.resolve(undefined)
+      responseClosed.resolve(!response.writableFinished)
     })
     let body = ''
     request.on('data', (chunk: Buffer) => { body += chunk.toString('utf8') })
@@ -65,6 +69,7 @@ export async function mockServer(script: {
         return
       }
       response.writeHead(200, { 'content-type': 'text/event-stream' })
+      if (behavior.holdOpen === true) { response.flushHeaders(); return }
       let index = 0
       const writeNext = (): void => {
         const event = behavior.events?.[index++]

@@ -15,6 +15,7 @@ The knowledge group contributes shared-knowledge policy to the system prompt and
 |---|---|
 | [`knowledge-policy`](knowledge-policy/README.md) | Registers the shared-knowledge system-prompt section. |
 | [`knowledge-source-git`](knowledge-source-git/README.md) | Reads and searches Git-backed knowledge records. |
+| [knowledge-router](knowledge-router/README.md) | Routes bounded queries to configured MCP providers. |
 
 ## Related documentation
 

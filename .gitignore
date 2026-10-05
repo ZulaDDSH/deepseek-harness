@@ -47,6 +47,7 @@ worktrees/
 .typert-*/
 native/system/test/bin/
 
+graphify-out/
 # English-only fork: do not track translated documentation artifacts.
 *.zh.md
 *.i18n.yaml

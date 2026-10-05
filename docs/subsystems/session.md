@@ -831,6 +831,19 @@ inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionInspectio
 @Remote('listMcpConnectors') listMcpConnectors(): McpConnectorCatalog
 
 /**
+ * List hooks loaded by mounted hook bridges.
+ * @returns every loaded hook with its global enablement.
+ */
+@Remote('listHooks') listHooks(): SessionHookCatalog
+
+/**
+ * Replace the hook overrides of one Session.
+ * @param request - Session identity and the complete override map.
+ * @returns the stored overrides.
+ */
+@Remote('setHookOverrides') setHookOverrides(request: SessionSetHookOverridesRequest): Promise<HookOverrides>
+
+/**
  * Select MCP connector namespaces for one Session.
  * @param request - Session identity and selected connector namespaces.
  * @returns the normalized Session selection.

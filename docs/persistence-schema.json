@@ -10154,6 +10154,90 @@
       }
     },
     {
+      "key": "event:hooks/session-overrides",
+      "kind": "event",
+      "event": "hooks/session-overrides",
+      "surface": false,
+      "digest": "8f1df624af4d2a5d9aa39342beb3d354c8147388e80ba7a0cf9b6aa7d1cb0f5e",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "data",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "ignorable",
+                "type": 5,
+                "optional": true
+              },
+              {
+                "name": "seq",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "time",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "type",
+                "type": 7,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "overrides",
+                "type": 2,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [],
+            "indices": [
+              {
+                "key": 3,
+                "value": 4
+              }
+            ]
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
+            "kind": "primitive",
+            "type": "boolean"
+          },
+          {
+            "kind": "literal",
+            "value": true
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          },
+          {
+            "kind": "literal",
+            "value": "hooks/session-overrides"
+          }
+        ]
+      }
+    },
+    {
       "key": "event:image/offload",
       "kind": "event",
       "event": "image/offload",
@@ -10239,6 +10323,106 @@
           {
             "kind": "literal",
             "value": "image/offload"
+          }
+        ]
+      }
+    },
+    {
+      "key": "event:jev/decision",
+      "kind": "event",
+      "event": "jev/decision",
+      "surface": false,
+      "digest": "06f9dc0f3520fd54d8bb07d330acf0d089e87898429952c991c18803eddaf7f8",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "data",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "ignorable",
+                "type": 4,
+                "optional": true
+              },
+              {
+                "name": "seq",
+                "type": 3,
+                "optional": false
+              },
+              {
+                "name": "time",
+                "type": 3,
+                "optional": false
+              },
+              {
+                "name": "type",
+                "type": 5,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "choice",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "confidence",
+                "type": 3,
+                "optional": true
+              },
+              {
+                "name": "error",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "model",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "provider",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "step",
+                "type": 3,
+                "optional": false
+              },
+              {
+                "name": "turn",
+                "type": 3,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          },
+          {
+            "kind": "literal",
+            "value": true
+          },
+          {
+            "kind": "literal",
+            "value": "jev/decision"
           }
         ]
       }
@@ -21801,6 +21985,11 @@
       ]
     },
     {
+      "digest": "06f9dc0f3520fd54d8bb07d330acf0d089e87898429952c991c18803eddaf7f8",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "07e1a58c58b593f507b8e7f25723bb0aa42baae6e00f5ecfddf28cb1e64d3235",
       "names": [
         "packages/session/session-title/src/types.ts#SessionTitleModelIdentity",
@@ -21987,6 +22176,15 @@
       "digest": "12a0cfa619ac4a5fc6c3e8e359c8dae15769edc61497a575935c78d5842f8e42",
       "names": [],
       "sources": []
+    },
+    {
+      "digest": "12cb8c094c08420f70cb16ebac2114462df5558735c289a9faed4e4013e150b6",
+      "names": [
+        "packages/api/session-controller/src/types.ts#HookOverrides"
+      ],
+      "sources": [
+        "packages/api/session-controller/src/types.ts:343"
+      ]
     },
     {
       "digest": "12d5808fac1996b9b3c2afa806e03022252ba2d7b88f835862ae1896591f60c7",
@@ -22836,6 +23034,11 @@
       ]
     },
     {
+      "digest": "4b31b0e4f80a08aaa4c7e622fddb55ef5afc18516b03a0ed8727d5e483b2ea4f",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "4b7ddaf3710b88ff9b8df66304f5f97bf03688fd19730eedc2e9535203c820ea",
       "names": [],
       "sources": []
@@ -22875,7 +23078,7 @@
         "packages/workflow/workflow/src/types.ts#WorkflowRunId"
       ],
       "sources": [
-        "packages/api/session-controller/src/types.ts:442",
+        "packages/api/session-controller/src/types.ts:480",
         "packages/attachment/attachment/src/brand.ts:6",
         "packages/compaction/compaction/src/brand.ts:4",
         "packages/core/session/src/types.ts:20",
@@ -23333,7 +23536,7 @@
       "digest": "6a4f72e2e179e17b922f2a9392c0e1c8f8c707f32494372454850a3eb184a6e7",
       "names": [],
       "sources": [
-        "packages/api/session-controller/src/types.ts:447"
+        "packages/api/session-controller/src/types.ts:485"
       ]
     },
     {
@@ -23371,6 +23574,11 @@
     },
     {
       "digest": "6c1cccb433ddc153facb380c7dda956237ba5c31f8a532a69142dc277890cc9b",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "6c40c18a58ccdb11c7982342c40ad9db8857b3026b5e07b3d8a1bb95b4bf0cf9",
       "names": [],
       "sources": []
     },
@@ -23686,7 +23894,7 @@
         "packages/context/agent-instructions/src/render.ts#AgentInstructionChange"
       ],
       "sources": [
-        "packages/context/agent-instructions/src/render.ts:47"
+        "packages/context/agent-instructions/src/render.ts:48"
       ]
     },
     {
@@ -23854,6 +24062,11 @@
       ]
     },
     {
+      "digest": "8f1df624af4d2a5d9aa39342beb3d354c8147388e80ba7a0cf9b6aa7d1cb0f5e",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "8f324cea3916c0517261e88167def8efb3a9994c1135e23d40ed9fd48f8c7bd4",
       "names": [],
       "sources": []
@@ -23903,6 +24116,11 @@
     },
     {
       "digest": "93c33d9687613293f8c95d46c4d922fe9ceae83b84c384beff5c3315abe005f2",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "93c9d307f39e233847329a9379762b668f02a03686f6147aa51c6e634da28189",
       "names": [],
       "sources": []
     },
@@ -24153,6 +24371,15 @@
       "digest": "a6567ccb2e530606b775371eb4fa31468d72084339968e8b0440a516a23b39dc",
       "names": [],
       "sources": []
+    },
+    {
+      "digest": "a667acf5cb25728d4fa3d93539a459d639bb35ff0b6e5d1975af9ec7310fe4dd",
+      "names": [
+        "packages/llm/llm-jev-router/src/index.ts#JevDecisionRecord"
+      ],
+      "sources": [
+        "packages/llm/llm-jev-router/src/index.ts:350"
+      ]
     },
     {
       "digest": "a6b41f5bede8094d7bf635be5d69b1bd7a25e006ca9cf9415bceb9322f1a7feb",
@@ -24794,7 +25021,7 @@
         "packages/api/session-controller/src/types.ts#McpSelection"
       ],
       "sources": [
-        "packages/api/session-controller/src/types.ts:133"
+        "packages/api/session-controller/src/types.ts:139"
       ]
     },
     {
@@ -25123,7 +25350,7 @@
         "packages/api/session-controller/src/types.ts#ModelSelection"
       ],
       "sources": [
-        "packages/api/session-controller/src/types.ts:106"
+        "packages/api/session-controller/src/types.ts:112"
       ]
     },
     {

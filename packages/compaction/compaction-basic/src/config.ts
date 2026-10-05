@@ -24,6 +24,7 @@ const DEFAULT_RETAIN_RATIO = 0.16
 
 /** Fields shared by top-level defaults and exact-target overrides. */
 const POLICY_CONFIG_KEYS = [
+  'maxContextWindow',
   'thresholdRatio',
   'headroomTokens',
   'retainRatio',
@@ -96,6 +97,7 @@ export function resolveConfig(config: BasicCompactionConfig = {}): ResolvedConfi
   }
 
   return deepFreeze({
+    maxContextWindow: config.maxContextWindow,
     thresholdRatio,
     headroomTokens,
     ...retention,
@@ -127,6 +129,7 @@ export function resolveTargetPolicy(
     : { retainTokens: config.retainTokens }
   return deepFreeze({
     target: { provider: target.provider, model: target.model },
+    maxContextWindow: override?.maxContextWindow ?? config.maxContextWindow,
     thresholdRatio: override?.thresholdRatio ?? config.thresholdRatio,
     headroomTokens: override?.headroomTokens ?? config.headroomTokens,
     ...resolveRetention(override ?? {}, inheritedRetention),
@@ -169,6 +172,7 @@ export function resolveCompactSpec(
       + 'must be a non-negative integer',
     )
   }
+  contextWindow = Math.min(contextWindow, policy.maxContextWindow ?? contextWindow)
   const messageBudgetTokens = contextWindow - reservedCompletionTokens
   if (messageBudgetTokens <= 0) {
     throw new TargetPressureConfigError(
@@ -278,6 +282,9 @@ function validatePolicy(
   config: CompactionPolicyConfig | Record<string, unknown>,
   name: string,
 ): void {
+  if (config.maxContextWindow !== undefined) {
+    assertPositiveInteger(`${name}.maxContextWindow`, config.maxContextWindow)
+  }
   const thresholdRatio = config.thresholdRatio
   const headroomTokens = config.headroomTokens
   const retainRatio = config.retainRatio

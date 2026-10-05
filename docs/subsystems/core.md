@@ -1100,4 +1100,25 @@ One session committed a different agent preset to its durable log. Consumers inv
 ```
 
 Source: [`packages/preset/agent-preset-registry/src/types.ts`](../../packages/preset/agent-preset-registry/src/types.ts)
+
+<a id="hooks-events"></a>
+
+### `hooks/*` events
+
+<a id="hooksinventory--emit"></a>
+
+#### `hooks/inventory` — emit
+
+Collect configuration snapshots from currently mounted hook bridges.
+
+```ts cordis-catalog
+/**
+ * Collect configuration snapshots from currently mounted hook bridges.
+ * @mode emit
+ * @param reports Mutable destination for loaded bridge reports.
+ */
+'hooks/inventory'(reports: HookInventoryReport[]): void
+```
+
+Source: [`packages/hooks/hook-protocol/src/inventory.ts`](../../packages/hooks/hook-protocol/src/inventory.ts)
 <!-- END GENERATED cordis-surface -->

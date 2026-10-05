@@ -102,6 +102,8 @@ When a server connection drops — for example a local server process crashes �
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
+Root-scoped servers also publish Host-owned human operations for authenticated GUI services. Calls use the current connection, discovered tool filters, JSON-schema validation, configured deadlines and caller cancellation. Agent-scoped servers are excluded. This does not add a generic browser tool-call endpoint or change model execution policy.
+
 <details>
 <summary>Implementation internals — click to expand</summary>
 
@@ -120,7 +122,8 @@ This section explains the design decisions behind the bridge and points at the c
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `Config` schema, `serverName` reservation, activation await |
-| [`src/connection.ts`](src/connection.ts) | Connection supervisor: client generations, reconnect policy, attempt budget, disposal |
+| [`src/connection.ts`](src/connection.ts) | Connection supervisor: client generations, attempt budget, sign-in state, disposal |
+| [`src/reconnect-policy.ts`](src/reconnect-policy.ts) | Reconnect config, its defaults, and the resolve step that validates them |
 | [`src/server-context.ts`](src/server-context.ts) | Resource-provider registration and literal server instructions |
 | [`src/tool-filter.ts`](src/tool-filter.ts) | Static raw-name allow/deny resolution for discovered tools |
 | [`src/tools.ts`](src/tools.ts) | Tool bridge: discovery, filtering, naming, registration swap, execution, image projection |

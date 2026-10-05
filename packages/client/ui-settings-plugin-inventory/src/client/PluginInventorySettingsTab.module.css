@@ -9,6 +9,13 @@
   color: var(--dsw-alias-label-primary);
 }
 
+.hookCommand {
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .status,
 .failure p {
   margin: 0;

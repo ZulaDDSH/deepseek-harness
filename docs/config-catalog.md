@@ -71,6 +71,8 @@ export interface Config {
   projectRootMarkers?: string[]
   /** UTF-8 byte cap for one rendered baseline or dynamic batch; non-positive or non-finite disables loading. */
   maxBytes: number
+  /** Prepend the fixed response rule; default false. */
+  endOfTurnRule?: boolean
   /** Maximum UTF-8 bytes read from one instruction file; larger files are ignored. */
   maxSourceBytes?: number
   /**
@@ -299,7 +301,7 @@ export interface QuotaWindow {
 ## `@deepseek-ai/dsh-api-session-controller`
 
 - `inject`: `agentDefaultModel` · `agents` · `attachments` · `fileUploads` · `fs` · `llm` · `sessions` · `sessionProjections` · `sessionQuery` · `typert` · `workspaceRegistry`
-- `source`: [`packages/api/session-controller/src/index.ts:83`](../packages/api/session-controller/src/index.ts)
+- `source`: [`packages/api/session-controller/src/index.ts:88`](../packages/api/session-controller/src/index.ts)
 
 ```ts config-catalog
 /** Session Controller deployment policy. */
@@ -606,6 +608,42 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-shortcuts -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-memory-workspace -->
+<a id="deepseek-aidsh-client-ui-memory-workspace"></a>
+
+## `@deepseek-ai/dsh-client-ui-memory-workspace`
+
+- `source`: [`packages/client/ui-memory-workspace/src/index.ts:24`](../packages/client/ui-memory-workspace/src/index.ts)
+
+```ts config-catalog
+/** Local storage selections and upload limits. */
+export interface Config {
+  /** Connected MCP server name. */
+  memorixServer: string
+  /** Explicit database override; empty derives it from the provider. */
+  databasePath: string
+  /** Derived document graph path; empty uses the import directory. */
+  graphPath: string
+  /** Graphify executable or a launcher such as uv. */
+  graphifyCommand: string
+  /** Launcher arguments preceding Graphify's own arguments. */
+  graphifyArgs: string[]
+  /** Directory retaining original uploaded files. */
+  importDirectory: string
+  /** Maximum records returned by one browse request. */
+  pageSize: number
+  /** Maximum original upload size. */
+  maxDocumentBytes: number
+  /** Maximum complete extracted text length. */
+  maxDocumentCharacters: number
+  /** Maximum Unicode code points stored in one observation. */
+  chunkCharacters: number
+  /** Maximum complete Graphify export size. */
+  maxGraphBytes: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-ui-memory-workspace -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-plugin-manager -->
 <a id="deepseek-aidsh-client-ui-plugin-manager"></a>
 
@@ -754,7 +792,7 @@ export type ThemePreference = typeof THEME_PREFERENCES[number]
 ## `@deepseek-ai/dsh-compaction-basic`
 
 - `inject`: `llm` · `tokenMeter` · `sessions`
-- `source`: [`packages/compaction/compaction-basic/src/types.ts:40`](../packages/compaction/compaction-basic/src/types.ts)
+- `source`: [`packages/compaction/compaction-basic/src/types.ts:42`](../packages/compaction/compaction-basic/src/types.ts)
 
 ```ts config-catalog
 /** Basic compaction configuration with an optional exact-target policy table. */
@@ -767,6 +805,8 @@ export interface BasicCompactionConfig extends CompactionPolicyConfig {
 
 /** Policy fields shared by the default policy and exact model overrides. */
 export interface CompactionPolicyConfig {
+  /** Optional positive token cap on the adapter context window used for compaction budgets. */
+  maxContextWindow?: number
   /** Window fraction for pressure; capped at context window minus reserved output and `headroomTokens`. Defaults to `0.8`. */
   thresholdRatio?: number
   /** Additional pressure headroom beyond the routed output reservation. Non-negative integer; defaults to `65536`. */
@@ -1401,7 +1441,8 @@ export interface HmrConfig extends ChokidarOptions {
 ## `@deepseek-ai/dsh-hooks-claude-code`
 
 - `inject`: `shell` · `sessionProjections`
-- `source`: [`packages/hooks/hooks-claude-code/src/index.ts:51`](../packages/hooks/hooks-claude-code/src/index.ts)
+- `refs`: `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/hooks/hooks-claude-code/src/index.ts:57`](../packages/hooks/hooks-claude-code/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: where the CC hook config lives + substitution roots. */
@@ -1430,6 +1471,10 @@ export interface Config {
   defaultTimeoutMs?: number
   /** Character cap for the `hook/result` event's persisted stderr summary. */
   stderrSummaryMaxChars?: number
+  /** {@link hookKey} values of the only commands that run; edited live from Settings. */
+  enabledHooks?: Volatile<string[]>
+  /** User-written descriptions keyed by {@link hookKey}; edited live from Settings. */
+  hookDescriptions?: Volatile<Record<string, string>>
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-hooks-claude-code -->
@@ -1440,7 +1485,8 @@ export interface Config {
 ## `@deepseek-ai/dsh-hooks-codex`
 
 - `inject`: `shell` · `sessionProjections`
-- `source`: [`packages/hooks/hooks-codex/src/index.ts:50`](../packages/hooks/hooks-codex/src/index.ts)
+- `refs`: `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/hooks/hooks-codex/src/index.ts:56`](../packages/hooks/hooks-codex/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: where the Codex hooks.json lives + the model name for payloads. */
@@ -1458,6 +1504,10 @@ export interface Config {
   defaultTimeoutMs?: number
   /** Character cap for the `hook/result` event's persisted stderr summary. */
   stderrSummaryMaxChars?: number
+  /** {@link hookKey} values of the only commands that run; edited live from Settings. */
+  enabledHooks?: Volatile<string[]>
+  /** User-written descriptions keyed by {@link hookKey}; edited live from Settings. */
+  hookDescriptions?: Volatile<Record<string, string>>
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-hooks-codex -->
@@ -1526,6 +1576,32 @@ export interface Config {
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-host-open-in-app -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-host-plugin-inventory -->
+<a id="deepseek-aidsh-host-plugin-inventory"></a>
+
+## `@deepseek-ai/dsh-host-plugin-inventory`
+
+- `inject`: `loader`
+- `refs`: [`HookInventoryReport`](../packages/hooks/hook-protocol/src/index.ts)
+- `source`: [`packages/host/plugin-inventory/src/index.ts:27`](../packages/host/plugin-inventory/src/index.ts)
+
+```ts config-catalog
+/** External hook files shown by the inventory. */
+export interface Config {
+  /** Read-only Codex and Claude configuration sources. */
+  externalHookSources: readonly HookFileSource[]
+}
+
+/** External application's JSON hook file. */
+export interface HookFileSource {
+  /** Application owning the hook configuration. */
+  readonly dialect: HookInventoryReport['dialect']
+  /** Local JSON configuration file path. */
+  readonly source: string
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-host-plugin-inventory -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-host-product-telemetry-otel -->
 <a id="deepseek-aidsh-host-product-telemetry-otel"></a>
@@ -1657,6 +1733,88 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-knowledge-policy -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-knowledge-router -->
+<a id="deepseek-aidsh-knowledge-router"></a>
+
+## `@deepseek-ai/dsh-knowledge-router`
+
+- `inject`: `tools`
+- `source`: [`packages/knowledge/knowledge-router/src/index.ts:107`](../packages/knowledge/knowledge-router/src/index.ts)
+
+```ts config-catalog
+/** Plugin configuration. */
+export interface Config {
+  /** Automatic-retrieval mode; defaults to `off`. */
+  mode?: KnowledgeMode
+  /** GitNexus provider settings. */
+  gitnexus?: GitnexusConfig
+  /** Graphify provider settings. */
+  graphify?: GraphifyConfig
+  /** Learned-knowledge write-back settings. */
+  learning?: LearningSettings
+  /** Assisted-mode delegation settings. */
+  delegation?: DelegationSettings
+  /** Maximum UTF-8 bytes of one assembled packet; defaults to 4096. */
+  maxPacketBytes?: number
+}
+
+/** Deployment-selected automatic-retrieval mode. */
+export type KnowledgeMode = 'off' | 'manual' | 'assisted'
+
+/** GitNexus enablement plus its retrieval bounds. */
+export interface GitnexusConfig extends ProviderConfig {
+  /** Maximum process groups the provider returns; defaults to 5. */
+  limit?: number
+  /** Maximum symbols per returned process; defaults to 10. */
+  maxSymbols?: number
+}
+
+/** Graphify enablement plus its retrieval bounds. */
+export interface GraphifyConfig extends ProviderConfig {
+  /** Installed CLI launcher; omitted leaves the chat command unregistered. */
+  cli?: GraphifyCommandConfig
+  /** Graph traversal depth the provider searches; defaults to 1. */
+  depth?: number
+  /** Token budget the provider applies to its own output; defaults to 1500. */
+  tokenBudget?: number
+}
+
+/** Learned-knowledge write-back settings. */
+export interface LearningSettings {
+  /** Whether the write-back tool is registered; defaults to false. */
+  enabled?: boolean
+  /** The Graphify executable name or path; defaults to `graphify`. */
+  command?: string
+  /** Graphify work-memory directory; omitted uses Graphify's own default. */
+  memoryDir?: string
+  /** Whether to run `reflect` after a successful write; defaults to true. */
+  reflect?: boolean
+}
+
+/** Assisted-mode delegation settings. */
+export interface DelegationSettings {
+  /** The `ctx.subagents` provider used for a knowledge-carrying worker; defaults to `spawn`. */
+  provider?: string
+}
+
+/** One provider's enablement and MCP client server name. */
+export interface ProviderConfig {
+  /** Whether this provider participates; defaults to false. */
+  enabled?: boolean
+  /** MCP client `serverName`; defaults to the provider's own name. */
+  serverName?: string
+}
+
+/** Executable and optional launcher arguments for Graphify. */
+export interface GraphifyCommandConfig {
+  /** Executable path or PATH name. */
+  command: string
+  /** Arguments preceding the Graphify subcommand. */
+  args: string[]
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-knowledge-router -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-llm-deepseek-account -->
 <a id="deepseek-aidsh-llm-deepseek-account"></a>
 
@@ -1696,9 +1854,13 @@ export interface Config extends ProtocolConfig {
 ## `@deepseek-ai/dsh-llm-jev-router`
 
 - `inject`: `llm`
-- `source`: [`packages/llm/llm-jev-router/src/index.ts:45`](../packages/llm/llm-jev-router/src/index.ts)
+- `refs`: `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/llm/llm-jev-router/src/index.ts:74`](../packages/llm/llm-jev-router/src/index.ts)
 
 ```ts config-catalog
+/** Live Jev settings retained by the router. */
+export type RuntimeConfig = Volatile<Config>
+
 /** Jev router settings. */
 export interface Config {
   /** Enable automatic routing. */
@@ -1720,7 +1882,7 @@ export interface Config {
   /** Preserve the base route when Jev fails. */
   failOpen: boolean
   /** Allow-listed destination routes. */
-  routes: JevRoute[]
+  routes: readonly JevRoute[]
 }
 
 /** Allow-listed DSH destination selected by Jev. */
@@ -2168,7 +2330,7 @@ export interface LspLocalServerConfig {
 ## `@deepseek-ai/dsh-mcp-client`
 
 - `inject`: `tools`
-- `source`: [`packages/mcp/mcp-client/src/index.ts:121`](../packages/mcp/mcp-client/src/index.ts)
+- `source`: [`packages/mcp/mcp-client/src/index.ts:128`](../packages/mcp/mcp-client/src/index.ts)
 
 ```ts config-catalog
 /** Configuration for one stdio or Streamable HTTP MCP server. */
@@ -2424,7 +2586,7 @@ export interface PlanModeConfig {
 ## `@deepseek-ai/dsh-plugin-manager`
 
 - `inject`: `loader` · `profileContext`
-- `source`: [`packages/boot/plugin-manager/src/index.ts:40`](../packages/boot/plugin-manager/src/index.ts)
+- `source`: [`packages/boot/plugin-manager/src/index.ts:45`](../packages/boot/plugin-manager/src/index.ts)
 
 ```ts config-catalog
 /** The pnpm executable, registries, and limits for diagnostics, lookups and connection checks. */
@@ -3697,6 +3859,8 @@ export interface Config {
 ```ts config-catalog
 /** Plugin config (all optional — `Config` supplies the defaults). */
 export interface Config {
+  /** Model-visible tools to register; defaults to all tools in this plugin. */
+  enabledTools?: ('read' | 'write' | 'edit' | 'read_image')[]
   /** Default and maximum number of lines returned by one `read` call. */
   readLimit?: number
   /** Maximum characters returned for a single line before truncation. */
@@ -3720,6 +3884,8 @@ export interface Config {
 ```ts config-catalog
 /** Plugin config; over-cap glob sampling is an explicit deployment choice and the remaining fields have defaults. */
 export interface Config {
+  /** Model-visible tools to register; defaults to all tools in this plugin. */
+  enabledTools?: ('glob' | 'grep')[]
   /** Whether an over-cap `glob` page is sampled across top-level entries instead of taking the modification-time head. */
   sampleOverCapGlobResults: boolean
   /** Max paths one `glob` call retains inline; later paths go to the formatted spill file. */
@@ -4573,7 +4739,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 | `@deepseek-ai/dsh-goal-round-driver` | `agents` · `goals` · `sessions` | [`packages/goal/goal-round-driver/src/index.ts`](../packages/goal/goal-round-driver/src/index.ts) |
 | `@deepseek-ai/dsh-host-directory-picker-auto` | `webServer` · `loader` | [`packages/host/directory-picker-auto/src/index.ts`](../packages/host/directory-picker-auto/src/index.ts) |
 | `@deepseek-ai/dsh-host-directory-picker-native` | — | [`packages/host/directory-picker-native/src/index.ts`](../packages/host/directory-picker-native/src/index.ts) |
-| `@deepseek-ai/dsh-host-plugin-inventory` | `loader` | [`packages/host/plugin-inventory/src/index.ts`](../packages/host/plugin-inventory/src/index.ts) |
 | `@deepseek-ai/dsh-llm` | — | [`packages/llm/llm/src/index.ts`](../packages/llm/llm/src/index.ts) |
 | `@deepseek-ai/dsh-lsp` | — | [`packages/lsp/lsp/src/index.ts`](../packages/lsp/lsp/src/index.ts) |
 | `@deepseek-ai/dsh-mcp-resources` | `tools` | [`packages/mcp/mcp-resources/src/index.ts`](../packages/mcp/mcp-resources/src/index.ts) |

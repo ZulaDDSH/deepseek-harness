@@ -25,7 +25,7 @@ Desktop product events use the optional [product analytics service](../product-a
 <a id="use-this-package"></a>
 ## Use this package
 
-Saving credentials or a custom provider preserves the selected model. The user can select an available model from the composer.
+Open **Settings → Jev** for the router's credential, enablement, policy and editable provider/model routes. It shares the Models editor and live settings snapshot. Saving credentials or a custom provider preserves the selected base model; the composer can select an available model.
 
 DeepSeek Account appears first and DeepSeek second in the provider list; third-party providers retain their directory order.
 

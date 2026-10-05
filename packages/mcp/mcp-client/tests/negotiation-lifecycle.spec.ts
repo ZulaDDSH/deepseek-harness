@@ -1,4 +1,5 @@
 /** Real SDK probe ownership, failed negotiation recovery, and subprocess quiescence. */
+import type * as TransportModule from '../src/transport.ts'
 import { once } from 'node:events'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
@@ -11,11 +12,12 @@ import { StreamableHTTPClientTransport, type Transport } from '@modelcontextprot
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
-import { startConnection, resolveReconnectPolicy } from '../src/connection.ts'
+import { startConnection } from '../src/connection.ts'
+import { resolveReconnectPolicy } from '../src/reconnect-policy.ts'
 import type { Config } from '../src/index.ts'
 
 const { mockTransport } = vi.hoisted(() => ({ mockTransport: vi.fn<() => Transport>() }))
-vi.mock('../src/transport.ts', () => ({ createTransport: mockTransport }))
+vi.mock('../src/transport.ts', async importOriginal => ({ ...await importOriginal<typeof TransportModule>(), createTransport: mockTransport }))
 
 const config: Config = {
   transport: 'stdio', serverName: 'fixture', command: 'fixture', args: [], env: {}, cwd: '',

@@ -26,6 +26,8 @@ import { ApiSessionList } from './list.ts'
 import { buildModelCatalog, hasProviderApiKey } from './catalog.ts'
 import { installModelSelectionProjection } from './model-selection-projection.ts'
 import { installMcpSelectionProjection } from './mcp-selection-projection.ts'
+import { installHookOverridesProjection } from './hook-overrides-projection.ts'
+import type { HookInventoryReport } from '@deepseek-ai/dsh-hook-protocol'
 import { SessionSkillCatalog } from './skill-catalog.ts'
 import { SessionMediaReferences } from './media-references.ts'
 import { ArchivedSessionGate } from './archived-session-gate.ts'
@@ -56,6 +58,9 @@ import type {
   SessionSearchRequest,
   SessionSearchValue,
   McpConnectorCatalog,
+  SessionHookCatalog,
+  SessionSetHookOverridesRequest,
+  HookOverrides,
   SessionSelectMcpRequest,
   SessionSelectMcpValue,
   SessionSelectModelRequest,
@@ -140,6 +145,7 @@ export class SessionController extends TypertRemoteService {
     super(ctx, 'sessionController', { namespace: 'session' })
     installModelSelectionProjection(ctx)
     installMcpSelectionProjection(ctx)
+    installHookOverridesProjection(ctx)
     this.agents = new ApiSessionAgentController(ctx)
     this.commands = new SessionCommandController(ctx, this.agents, process.cwd())
     ctx.effect(() => ctx.fileUploads.registerAgentResolver(async (sessionId) => {
@@ -287,6 +293,33 @@ export class SessionController extends TypertRemoteService {
   @Remote('listMcpConnectors')
   listMcpConnectors(): McpConnectorCatalog {
     return { connectorIds: this.agents.listMcpConnectorIds() }
+  }
+
+  /**
+   * List hooks loaded by mounted hook bridges.
+   * @returns every loaded hook with its global enablement.
+   */
+  @Remote('listHooks')
+  listHooks(): SessionHookCatalog {
+    const reports: HookInventoryReport[] = []
+    this.ctx.emit('hooks/inventory', reports)
+    return {
+      hooks: reports.filter(report => report.status === 'loaded').flatMap(report => report.handlers.map(handler => ({
+        key: handler.key, dialect: report.dialect, event: handler.event, command: handler.command,
+        globallyDisabled: handler.disabled === true, ...handler.matcher === undefined ? {} : { matcher: handler.matcher },
+        ...handler.description === undefined ? {} : { description: handler.description },
+      }))),
+    }
+  }
+
+  /**
+   * Replace the hook overrides of one Session.
+   * @param request - Session identity and the complete override map.
+   * @returns the stored overrides.
+   */
+  @Remote('setHookOverrides')
+  setHookOverrides(request: SessionSetHookOverridesRequest): Promise<HookOverrides> {
+    return this.commands.setHookOverrides(request)
   }
 
   /**
