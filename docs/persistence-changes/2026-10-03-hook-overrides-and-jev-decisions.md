@@ -5,8 +5,6 @@ kind: persistence-change
 
 # 2026-10-03-hook-overrides-and-jev-decisions
 
-English | [中文](2026-10-03-hook-overrides-and-jev-decisions.zh.md)
-
 ## Summary
 
 Adds two log-only Session events: hooks/session-overrides records the complete per-Session hook enable/disable map, and jev/decision records each Jev routing outcome (choice, confidence, applied route or error).

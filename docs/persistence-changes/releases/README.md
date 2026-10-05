@@ -79,7 +79,7 @@ Digests describe normalized reconstructed types, not verbatim source text or rep
 <a id="verification"></a>
 ## Verification
 
-All 26 snapshots passed canonical-graph, root-digest, and reachable-type-digest validation. The release-archive check reads only the manifest, records, and snapshots in this tree, without Git, network access, or old-version checkouts; it validates manifest coverage, predecessors, before/after values, snapshot type completeness, and bilingual machine declarations.
+All 26 snapshots passed canonical-graph, root-digest, and reachable-type-digest validation. The release-archive check reads only the manifest, records, and snapshots in this tree, without Git, network access, or old-version checkouts; it validates manifest coverage, predecessors, before/after values, snapshot type completeness, and machine declarations.
 
 ```sh
 pnpm run verify-persistence-releases

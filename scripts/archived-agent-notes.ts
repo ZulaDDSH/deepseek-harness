@@ -1,4 +1,4 @@
-/** Pure archive-format, triplet, and immutable-manifest helpers. */
+/** Pure archive-format and immutable-manifest helpers. */
 
 import { createHash } from 'node:crypto'
 import { basename } from 'node:path'
@@ -13,14 +13,6 @@ export interface ArchiveManifest {
 /** Hash one archived artifact independently of the repository's Git object format. */
 function archiveContentHash(content: Buffer): string {
   return `sha256:${createHash('sha256').update(content).digest('hex')}`
-}
-
-/** Compute the SHA-1 Git blob id used by bilingual consistency sidecars. */
-export function gitBlobHash(content: Buffer): string {
-  const hash = createHash('sha1')
-  hash.update(`blob ${content.byteLength}\0`)
-  hash.update(content)
-  return hash.digest('hex')
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -53,33 +45,33 @@ export function renderArchiveManifest(files: Readonly<Record<string, string>>): 
   }, null, 2)}\n`
 }
 
-// Exact seals for the authorized Figma-link removal and its bilingual sidecar.
+// Exact seal for the authorized Figma-link removal.
 const figmaLinkRemovals = [
   {
     path: 'feature/2026-08-10-durable-workflow-runs-in-chat.md',
     before: 'sha256:f9f5290cd880908d17b1080ae5776f22e182f5253471f90cf8bead418b33b502',
     after: 'sha256:6018de4a89ca99d6cbfd618aff1c8136b23d8e4854a30f7b12a602f0417cbdc2',
   },
-  {
-    path: 'feature/2026-08-10-durable-workflow-runs-in-chat.zh.md',
-    before: 'sha256:f4ffd2700bc9c2a0cc4b9d90f84e1d0a576939e2e6f0b130c5b142fd8cd518b0',
-    after: 'sha256:0080859221773122022d5880efa3d52f29c0872b52d63e170250d94f214ff37a',
-  },
-  {
-    path: 'feature/2026-08-10-durable-workflow-runs-in-chat.i18n.yaml',
-    before: 'sha256:0db3c21a3c8785e56d5d7b90df990b158069cd1cea664e62fc4786c6d7588450',
-    after: 'sha256:03eadb60c8ba4fde262cd61e3f911d8cd68ea4a58f57adeb8dd7bb9a97d08ca2',
-  },
 ]
 
-/** Reject sealed changes except the exact authorized Figma-link removal hashes. */
+/** Suffixes of the translated documentation artifacts this fork retired. */
+const RETIRED_TRANSLATION_SUFFIXES = ['.zh.md', '.i18n.yaml']
+
+/**
+ * Reject sealed changes except the exact authorized Figma-link removal hashes.
+ *
+ * An English-only fork retires the translated artifacts an upstream baseline
+ * sealed, so a baseline entry with one of {@link RETIRED_TRANSLATION_SUFFIXES}
+ * is a retirement rather than a broken seal. Every surviving artifact stays
+ * sealed.
+ */
 export function validateArchiveManifestExtension(
   baseline: ArchiveManifest,
   current: ArchiveManifest,
 ): string[] {
   const errors: string[] = []
   for (const [path, expected] of Object.entries(baseline.files)) {
-    if (path.endsWith('.zh.md') || path.endsWith('.i18n.yaml')) continue
+    if (RETIRED_TRANSLATION_SUFFIXES.some(suffix => path.endsWith(suffix))) continue
     const actual = current.files[path]
     if (actual === undefined) errors.push(`${path}: sealed manifest entry is missing`)
     else if (actual !== expected && !figmaLinkRemovals.some(change =>
@@ -120,6 +112,10 @@ export function validateArchiveArtifacts(artifacts: ReadonlyMap<string, Buffer>)
     const match = /^([^/]+)\/(\d{4}-\d{2}-\d{2}-.+\.md)$/.exec(path)
     if (match?.[1] === undefined || match[2] === undefined) {
       errors.push(`${path}: expected {kind}/yyyy-mm-dd-topic.md`)
+      continue
+    }
+    if (RETIRED_TRANSLATION_SUFFIXES.some(suffix => path.endsWith(suffix))) {
+      errors.push(`${path}: translated artifacts do not belong in the English-only archive; expected {kind}/yyyy-mm-dd-topic.md`)
       continue
     }
     if (!(AGENT_NOTE_CLASSES as readonly string[]).includes(match[1])) {

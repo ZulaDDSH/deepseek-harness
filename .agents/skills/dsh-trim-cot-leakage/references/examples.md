@@ -182,7 +182,7 @@ Working-language fragments and session separators are transcription residue. The
 
 **Fixed in both files:** `// Update this before returning.`
 
-Correct the block once and copy that byte-exact fence into both language files. Translating the code comment differently in the Chinese counterpart breaks the pairing contract even when both comments are individually fluent.
+Correct the block once in the owning English page; that fence is the single copy readers see.
 
 ## Behavior-visible candidates
 

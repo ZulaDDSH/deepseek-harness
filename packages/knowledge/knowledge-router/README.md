@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-knowledge-router
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Retrieve bounded knowledge from configured GitNexus and Graphify MCP servers. Manual mode exposes retrieval; assisted mode also delegates tasks with retrieved packets. Providers and learning writes require explicit enablement. Memorix remains a separate MCP integration.

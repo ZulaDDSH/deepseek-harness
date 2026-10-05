@@ -3,7 +3,7 @@
  * stays valid, the consolidated `dsh-doc` skill carries no stale copied
  * website values or prototype-era language, and the kind system maps each
  * label to exactly one skill template. Session release records match the
- * writer bound, bilingual counterpart, and evidence links. These run in `pnpm run test` and
+ * writer bound and evidence links. These run in `pnpm run test` and
  * `pnpm run test:docs` to guard the standard between heavier corpus gates.
  * @module scripts/doc-standard.spec
  */
@@ -17,11 +17,8 @@ import { readCurrentSessionFormatVersion } from './gen-session-format-catalog.ts
 const root = resolve(import.meta.dirname, '..')
 const PACKAGE_README_GLOBS = [
   'packages/README.md',
-  'packages/README.zh.md',
   'packages/*/README.md',
-  'packages/*/README.zh.md',
   'packages/*/*/README.md',
-  'packages/*/*/README.zh.md',
 ] as const
 
 function packageReadmes(): string[] {
@@ -148,11 +145,8 @@ function packageReadmeMetadataErrors(file: string, metadata: Record<string, unkn
   return errors
 }
 
-function packageReadmeStructureErrors(file: string, source: string): string[] {
-  const chinese = file.endsWith('.zh.md')
-  const required = chinese
-    ? [[/^## 概述$/m, '概述'], [/^## 目录$/m, '目录'], [/^#{2,3} 开发备注$/m, '开发备注']] as const
-    : [[/^## Summary$/m, 'Summary'], [/^## Table of Contents$/m, 'Table of Contents'], [/^#{2,3} Dev Note$/m, 'Dev Note']] as const
+function packageReadmeStructureErrors(source: string): string[] {
+  const required = [[/^## Summary$/m, 'Summary'], [/^## Table of Contents$/m, 'Table of Contents'], [/^#{2,3} Dev Note$/m, 'Dev Note']] as const
   return required.flatMap(([pattern, label]) => pattern.test(source) ? [] : [`missing ${label}`])
 }
 
@@ -300,7 +294,7 @@ describe('dsh-doc skill consolidation', () => {
   it('carries no prototype-era language', () => {
     const files = [
       '.agents/skills/dsh-doc/SKILL.md',
-      '.agents/skills/dsh-doc/references/metadata-links-i18n.md',
+      '.agents/skills/dsh-doc/references/metadata-links.md',
       '.agents/skills/dsh-doc/references/structure-hierarchy.md',
       '.agents/skills/dsh-doc/references/style.md',
       '.agents/skills/dsh-doc/references/review.md',
@@ -397,7 +391,7 @@ describe('dsh-doc skill consolidation', () => {
   it('keeps every package README on the summary, contents, and Dev Note skeleton', () => {
     for (const file of packageReadmes().filter(file => file.split('/').length === 4)) {
       const source = readFileSync(resolve(root, file), 'utf8')
-      expect(packageReadmeStructureErrors(file, source), file).toEqual([])
+      expect(packageReadmeStructureErrors(source), file).toEqual([])
     }
   })
 

@@ -54,13 +54,12 @@ Run the smallest focused checks while iterating, then the standing documentation
 
 ```sh
 pnpm run test:docs
-pnpm run verify-translation-pairing --write <pair>
 pnpm run doc-sync
 pnpm run lint
 git diff --check
 ```
 
-Also run the repository's skill-invocation metadata check for skill changes and compare English/Chinese physical line counts for a line-aligned pair. Re-read the final diff once for factual completeness and once for brevity, navigation, and ownership.
+Also run the repository's skill-invocation metadata check for skill changes. Re-read the final diff once for factual completeness and once for brevity, navigation, and ownership.
 
 ## Dev Note
 

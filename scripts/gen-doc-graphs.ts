@@ -19,7 +19,7 @@ import {
 } from './package-graph.ts'
 import {
   renderGeneratedRegion,
-} from './translation-pairing.ts'
+} from './generated-regions.ts'
 import { TypeScriptProject } from './ts-project.ts'
 
 const root = resolve(import.meta.dirname, '..')

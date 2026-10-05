@@ -26,9 +26,9 @@ export default {
           import('./mermaid-viewer.ts'), import('./image-viewer.ts'), import('./media-viewer.ts'),
         ])
         if (disposed) return
-        media = new MediaViewer(document, () => lang.value)
-        viewer = installMermaidViewer(document, () => lang.value, media)
-        images = new ImageViewer(document, () => lang.value, media)
+        media = new MediaViewer(document)
+        viewer = installMermaidViewer(document, media)
+        images = new ImageViewer(document, media)
       })
       watch([() => route.path, lang, isDark], () => {
         viewer?.refresh()

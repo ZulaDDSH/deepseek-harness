@@ -8,7 +8,7 @@ import {
   graphNodeId as nodeId,
   type PackageGraphNode,
 } from './package-graph.ts'
-import { renderGeneratedRegion } from './translation-pairing.ts'
+import { renderGeneratedRegion } from './generated-regions.ts'
 
 const root = resolve(import.meta.dirname, '..')
 const SOURCE = 'docs/module-graph.md'

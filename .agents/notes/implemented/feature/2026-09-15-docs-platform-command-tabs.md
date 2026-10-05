@@ -24,6 +24,6 @@ The theme adds a visible keyboard focus outline to native radio labels and displ
 
 SPA readers see one command version per step while MPA, repository, and raw-Markdown readers retain both. Windows readers select PowerShell in each group. Existing platform links still reach the corresponding step, although the platform names leave the page outline.
 
-Verification covers command preservation, bilingual pairing, projected and raw Markdown, and actual browser switching, copying, keyboard focus, search, themes, and narrow layouts. Framework-owned interaction is exercised on the running site; session replay is inapplicable to this documentation-only presentation.
+Verification covers command preservation, projected and raw Markdown, and actual browser switching, copying, keyboard focus, search, themes, and narrow layouts. Framework-owned interaction is exercised on the running site; session replay is inapplicable to this documentation-only presentation.
 
 The focused renderer regression checks radio ownership when local search duplicates a section. The adapter depends on VitePress's native tab-strip markup and fails the build if that markup changes; a framework upgrade must retain the search isolation and browser checks.

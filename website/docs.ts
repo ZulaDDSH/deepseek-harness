@@ -462,7 +462,7 @@ export const docsPages: DocsPage[] = [
  */
 export function orderedPages(locale: DocsLocale, collection: DocsSidebar): DocsPage[] {
   return docsPages
-    .filter(page => page.locale === locale && page.sidebar === collection)
+    .filter(page => page.sidebar === collection)
     .sort((left, right) => (
       sectionSpec(locale, left.section).index - sectionSpec(locale, right.section).index
       || left.order - right.order

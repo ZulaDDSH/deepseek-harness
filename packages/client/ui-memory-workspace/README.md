@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-client-ui-memory-workspace
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 The Memory sidebar panel browses the local Memorix store, imports documents through the connected provider, and displays Graphify’s own generated HTML viewer. It is disabled in the shipped Web composition until explicitly enabled.

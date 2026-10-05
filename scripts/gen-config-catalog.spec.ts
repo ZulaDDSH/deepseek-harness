@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { collectConfigCatalog, render, type CatalogEntry } from './gen-config-catalog.ts'
-import { generatedRegions } from './translation-pairing.ts'
+import { generatedRegions } from './generated-regions.ts'
 
 const roots: string[] = []
 const sharedSchema = `

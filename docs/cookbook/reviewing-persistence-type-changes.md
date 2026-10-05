@@ -6,7 +6,7 @@ description: "Generate, acknowledge, and verify Session persistence-type changes
 
 ## Summary
 
-Use this tutorial after changing a declared Session persistence type in a contributor checkout with dependencies installed. Supply a bilingual compatibility explanation, then let one command classify the change and generate its records. The [record reference](../persistence-changes/README.md) explains the files and automatic rules. All comparison inputs live in the checkout; no base branch or network access is required.
+Use this tutorial after changing a declared Session persistence type in a contributor checkout with dependencies installed. Supply a compatibility explanation, then let one command classify the change and generate its records. The [record reference](../persistence-changes/README.md) explains the files and automatic rules. All comparison inputs live in the checkout; no base branch or network access is required.
 
 ## Table of Contents
 
@@ -79,9 +79,9 @@ Select the changed owner's behavior checks through the [testing policy](../testi
 pnpm run doc-sync
 ```
 
-`doc-sync` checks persistence inventory and catalog freshness, the complete history, and bilingual pairing. A recording command's `ok: true` does not replace these checks or the owner's behavior and migration tests. JSON failures retain `ok: false`, a diagnostic `code`, and exit code 1. Structured changes include stable kinds and per-root before/after digests, so automation need not parse descriptions.
+`doc-sync` checks persistence inventory and catalog freshness, and the complete history. A recording command's `ok: true` does not replace these checks or the owner's behavior and migration tests. JSON failures retain `ok: false`, a diagnostic `code`, and exit code 1. Structured changes include stable kinds and per-root before/after digests, so automation need not parse descriptions.
 
-Record generation owns its catalog and record pairs; edits to a package README or other bilingual page still follow their normal pairing workflow. Review and stage the intended diff, then commit and push normally. The staged lint, pairing, and whitespace hooks and the pre-push Host/Client typecheck still apply.
+Record generation owns its catalog and record pairs. Review and stage the intended diff, then commit and push normally. The staged lint and whitespace hooks and the pre-push Host/Client typecheck still apply.
 
 <a id="competing-records"></a>
 ## Update an unaccepted record
