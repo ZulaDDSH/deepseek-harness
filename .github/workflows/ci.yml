@@ -609,7 +609,7 @@ jobs:
           apps/web/tests/ptc-round.e2e.ts apps/web/tests/question-composer.e2e.ts
           apps/web/tests/steering.e2e.ts apps/web/tests/turn-tail-actions.e2e.ts
           apps/web/tests/web-search-round.e2e.ts
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: refreshed-web-snapshots
