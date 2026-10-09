@@ -334,13 +334,37 @@
   color: var(--dsw-alias-menu-icon);
 }
 
-.routed {
-  align-self: center;
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.routing {
+  position: fixed;
+  z-index: 1100;
+  width: max-content;
+  max-width: min(360px, calc(100vw - 24px));
+  padding: 10px 12px;
+}
+
+.routingList {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 12px;
+  margin: 0;
   font-size: 13px;
   line-height: 20px;
-  color: var(--dsw-alias-label-caption);
+}
+
+.routingList dt {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.routingList dd {
+  margin: 0;
+  color: var(--dsw-alias-label-primary);
+  overflow-wrap: anywhere;
+}
+
+.filters {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 2px 2px 4px;
 }

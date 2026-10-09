@@ -33,8 +33,8 @@ interface OtlpCapture {
 }
 
 const PROMPT = 'Reply with the single word LIGHTHOUSE and stop.'
-/* The mock route runs its turn on a model other than the selected one, so only it shows the routed-model label. */
-const ROUTED_MODEL_LINE = /^\s*- status "This turn is running .*\n/m
+/* The mock route runs its turn on a model other than the selected one, so only it shows the Jev routing button. */
+const ROUTED_MODEL_LINE = /^\s*- 'button "Jev: .*\n/m
 
 describe.each(MODE === 'record' ? ['deepseek-official'] : ['deepseek-official', 'feedback-mock'])('web e2e: feedback release for %s', (provider) => {
   const official = provider === 'deepseek-official'

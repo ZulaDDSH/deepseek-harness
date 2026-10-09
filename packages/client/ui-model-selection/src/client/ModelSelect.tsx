@@ -19,7 +19,7 @@
  * shows a spinner in place of its chevron, and each row whose value that
  * selection carries shows one in place of its check mark.
  */
-import { MenuSurface } from '@deepseek-ai/dsh-client-ui-primitives'
+import { MenuSurface, Pill } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore,
   type CSSProperties, type KeyboardEvent, type FocusEvent,
@@ -73,6 +73,7 @@ export function ModelSelect(
   const [open, setOpen] = useState(false)
   const [pane, setPane] = useState<Pane>('root')
   const [search, setSearch] = useState('')
+  const [providerFilter, setProviderFilter] = useState<string | null>(null)
   const favoriteIds = useSyncExternalStore(
     fn => favorites.subscribe(fn),
     () => favorites.getSnapshot(),
@@ -114,6 +115,13 @@ export function ModelSelect(
       || choice.model.name.toLocaleLowerCase().includes(query)
       || choice.model.id.toLocaleLowerCase().includes(query)
       || choice.group.name.toLocaleLowerCase().includes(query)
+    if (providerFilter !== null) {
+      return groups.filter(group => group.id === providerFilter).map(group => ({
+        key: group.id,
+        name: group.name,
+        models: choices.filter(choice => choice.group.id === group.id && matches(choice)),
+      })).filter(group => group.models.length > 0)
+    }
     const favorites = choices.filter(choice => favoriteSet.has(choice.key) && matches(choice))
     const providerGroups = groups.map(group => ({
       key: group.id,
@@ -124,7 +132,7 @@ export function ModelSelect(
     return favorites.length === 0
       ? providerGroups
       : [{ key: 'favorites', name: t('favorites.title'), models: favorites }, ...providerGroups]
-  }, [choices, favoriteSet, search, groups, t])
+  }, [choices, favoriteSet, search, groups, t, providerFilter])
   const visibleChoices = visibleGroups.flatMap(group => group.models)
   const selectedIndex = state.current === null
     ? -1
@@ -227,6 +235,7 @@ export function ModelSelect(
 
   const show = (): void => {
     setSearch('')
+    setProviderFilter(null)
     triggerRef.current?.focus()
     if (state.current === null) paneFocus.current = 'drill'
     setPane(state.current === null ? 'model' : 'root')
@@ -457,6 +466,22 @@ export function ModelSelect(
                 value={search}
                 onChange={(event) => { setSearch(event.currentTarget.value) }}
               />
+              {groups.length > 1 && (
+                <div className={css.filters} role="group" aria-label={t('filter.aria')}>
+                  {[{ id: null, name: t('filter.all') }, ...groups.map(group => ({
+                    id: group.id, name: group.id === 'deepseek-account' ? t('provider.account') : group.name,
+                  }))].map(filter => (
+                    <Pill
+                      key={filter.id ?? ''}
+                      active={providerFilter === filter.id}
+                      aria-pressed={providerFilter === filter.id}
+                      onClick={() => { setProviderFilter(filter.id) }}
+                    >
+                      {filter.name}
+                    </Pill>
+                  ))}
+                </div>
+              )}
               {state.status === 'loading' && (
                 <div className={css.status}>{t('status.loading')}</div>
               )}

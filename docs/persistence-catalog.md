@@ -43,7 +43,7 @@ The [format references](persistence-changes/historical-formats/README.md) cover 
 | `event:hook/result` | event | `e75916628f3f10c2d50658bd143052a46285fbf1a9a700ba54947614603d26b4` | [`{ type: "hook/result" }`](#persistence-type-sha256-e75916628f3f10c2d50658bd143052a46285fbf1a9a700ba54947614603d26b4) |
 | `event:hooks/session-overrides` | event | `8f1df624af4d2a5d9aa39342beb3d354c8147388e80ba7a0cf9b6aa7d1cb0f5e` | [`{ type: "hooks/session-overrides" }`](#persistence-type-sha256-8f1df624af4d2a5d9aa39342beb3d354c8147388e80ba7a0cf9b6aa7d1cb0f5e) |
 | `event:image/offload` | event | `b222069eea2d768065161c1147b1f2c78c1b54328c84b3586ae5c8f91b8ed35e` | [`{ type: "image/offload" }`](#persistence-type-sha256-b222069eea2d768065161c1147b1f2c78c1b54328c84b3586ae5c8f91b8ed35e) |
-| `event:jev/decision` | event | `06f9dc0f3520fd54d8bb07d330acf0d089e87898429952c991c18803eddaf7f8` | [`{ type: "jev/decision" }`](#persistence-type-sha256-06f9dc0f3520fd54d8bb07d330acf0d089e87898429952c991c18803eddaf7f8) |
+| `event:jev/decision` | event | `96bc55e52033bf9462b9aa0df7f3f2f48ff8965804e638edfc54064afe8a2f1f` | [`{ type: "jev/decision" }`](#persistence-type-sha256-96bc55e52033bf9462b9aa0df7f3f2f48ff8965804e638edfc54064afe8a2f1f) |
 | `event:llm/retry` | event | `525254db03b1d1e6b74cf55aced52817568331ac1f96c0818728910b6692e336` | [`{ type: "llm/retry" }`](#persistence-type-sha256-525254db03b1d1e6b74cf55aced52817568331ac1f96c0818728910b6692e336) |
 | `event:llm/retry-started` | event | `48e5c9861f16ac07e78cb7b5ae9dabdf7bb85c58baed5a51b4ad275050ea58e3` | [`{ type: "llm/retry-started" }`](#persistence-type-sha256-48e5c9861f16ac07e78cb7b5ae9dabdf7bb85c58baed5a51b4ad275050ea58e3) |
 | `event:mcp/selection` | event | `1ccb7116650e66089c8d2958f212e08a2311cdd8db1978f9d8fe05509032ecac` | [`{ type: "mcp/selection" }`](#persistence-type-sha256-1ccb7116650e66089c8d2958f212e08a2311cdd8db1978f9d8fe05509032ecac) |
@@ -651,7 +651,7 @@ Source: [`packages/compaction/compaction-image-offload/src/projection.ts:25`](..
 'jev/decision': JevDecisionRecord
 ```
 
-Source: [`packages/llm/llm-jev-router/src/index.ts:363`](../packages/llm/llm-jev-router/src/index.ts)
+Source: [`packages/llm/llm-jev-router/src/index.ts:356`](../packages/llm/llm-jev-router/src/index.ts)
 
 ### `llm/*`
 
@@ -3719,17 +3719,17 @@ One of:
 - `"next-step"`
 - `"next-turn"`
 
-<a id="persistence-type-sha256-a667acf5cb25728d4fa3d93539a459d639bb35ff0b6e5d1975af9ec7310fe4dd"></a>
+<a id="persistence-type-sha256-f101a2a0034486143b9c8e8bf87078f85a4b279595077f99e99d7ac379f01f8c"></a>
 
 <a id="persistence-type-jevdecisionrecord"></a>
 
-<a id="persistence-type-packagesllmllm-jev-routersrcindextsjevdecisionrecord"></a>
+<a id="persistence-type-packagesllmllm-jev-routersrctypestsjevdecisionrecord"></a>
 
 ### `JevDecisionRecord`
 
-SHA-256: `a667acf5cb25728d4fa3d93539a459d639bb35ff0b6e5d1975af9ec7310fe4dd`
+SHA-256: `f101a2a0034486143b9c8e8bf87078f85a4b279595077f99e99d7ac379f01f8c`
 
-Sources: [`packages/llm/llm-jev-router/src/index.ts:350`](../packages/llm/llm-jev-router/src/index.ts)
+Sources: [`packages/llm/llm-jev-router/src/types.ts:11`](../packages/llm/llm-jev-router/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -3738,6 +3738,8 @@ Sources: [`packages/llm/llm-jev-router/src/index.ts:350`](../packages/llm/llm-je
 | `error` | optional | `string` |
 | `model` | optional | `string` |
 | `provider` | optional | `string` |
+| `rejected` | optional | `boolean` |
+| `route` | optional | `string` |
 | `step` | required | `number` |
 | `turn` | required | `number` |
 
@@ -8143,17 +8145,17 @@ SHA-256: `b222069eea2d768065161c1147b1f2c78c1b54328c84b3586ae5c8f91b8ed35e`
 | `time` | required | `number` |
 | `type` | required | `"image/offload"` |
 
-<a id="persistence-type-sha256-06f9dc0f3520fd54d8bb07d330acf0d089e87898429952c991c18803eddaf7f8"></a>
+<a id="persistence-type-sha256-96bc55e52033bf9462b9aa0df7f3f2f48ff8965804e638edfc54064afe8a2f1f"></a>
 
 <a id="persistence-type-eventjevdecision"></a>
 
 ### `{ type: "jev/decision" }`
 
-SHA-256: `06f9dc0f3520fd54d8bb07d330acf0d089e87898429952c991c18803eddaf7f8`
+SHA-256: `96bc55e52033bf9462b9aa0df7f3f2f48ff8965804e638edfc54064afe8a2f1f`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`JevDecisionRecord`](#persistence-type-sha256-a667acf5cb25728d4fa3d93539a459d639bb35ff0b6e5d1975af9ec7310fe4dd) |
+| `data` | required | [`JevDecisionRecord`](#persistence-type-sha256-f101a2a0034486143b9c8e8bf87078f85a4b279595077f99e99d7ac379f01f8c) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `time` | required | `number` |
