@@ -394,6 +394,51 @@ describe('ModelSelect search and favorites', () => {
     fireEvent.change(search, { target: { value: '' } })
     fireEvent.click(screen.getByRole('button', { name: '收藏 Pro' }))
     expect(screen.getAllByRole('menuitemradio').map(row => row.textContent)).toEqual(['Pro', 'Flash'])
+    expect(screen.queryByRole('group', { name: '按提供方筛选' })).toBeNull()
+  })
+
+  it('filters the model list to one provider, keeping its favorites, until the menu reopens', () => {
+    const groups = [
+      { id: 'deepseek-account', name: 'Account', models: [{ id: 'acct', name: 'Acct' }] },
+      { id: 'anthropic', name: 'Claude', models: [{ id: 'opus', name: 'Opus' }, { id: 'sonnet', name: 'Sonnet' }] },
+      { id: 'opencode', name: 'OpenCode', models: [{ id: 'grok', name: 'Grok' }] },
+    ]
+    const directory = createSnapshotStore(state({ groups, current: { provider: 'anthropic', model: 'opus' } }))
+    const favorites = createSnapshotStore<string[]>(['opencode/grok'])
+    render(<ModelSelect
+      locked={false} favorites={favorites} toggleFavorite={vi.fn()} available directory={directory}
+      load={vi.fn()} select={vi.fn().mockResolvedValue({ ok: true, value: undefined })} t={t}
+    />)
+    const rows = () => screen.getAllByRole('menuitemradio').map(row => row.textContent)
+    const chip = (name: string) => screen.getByRole('button', { name })
+
+    fireEvent.click(screen.getByRole('button', { name: /选择模型/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /模型/ }))
+    expect(screen.getByRole('group', { name: '按提供方筛选' })).toBeTruthy()
+    expect(rows()).toEqual(['Grok', 'Acct', 'Opus', 'Sonnet'])
+    expect(chip('全部').getAttribute('aria-pressed')).toBe('true')
+
+    fireEvent.click(chip('Claude'))
+    expect(chip('Claude').getAttribute('aria-pressed')).toBe('true')
+    expect(chip('全部').getAttribute('aria-pressed')).toBe('false')
+    expect(rows()).toEqual(['Opus', 'Sonnet'])
+    fireEvent.change(screen.getByRole('searchbox', { name: '筛选模型' }), { target: { value: 'son' } })
+    expect(rows()).toEqual(['Sonnet'])
+    fireEvent.change(screen.getByRole('searchbox', { name: '筛选模型' }), { target: { value: '' } })
+
+    fireEvent.click(chip('OpenCode'))
+    expect(rows()).toEqual(['Grok'])
+    fireEvent.click(chip('DeepSeek 账号'))
+    expect(rows()).toEqual(['Acct'])
+    fireEvent.click(chip('全部'))
+    expect(rows()).toEqual(['Grok', 'Acct', 'Opus', 'Sonnet'])
+
+    fireEvent.click(chip('Claude'))
+    fireEvent.click(screen.getByRole('button', { name: /选择模型/ }))
+    expect(screen.queryByRole('group', { name: '按提供方筛选' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /选择模型/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /模型/ }))
+    expect(rows()).toEqual(['Grok', 'Acct', 'Opus', 'Sonnet'])
   })
 })
 

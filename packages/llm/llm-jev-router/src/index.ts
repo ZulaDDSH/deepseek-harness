@@ -7,7 +7,9 @@ import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
+import { jevDecisionProjection } from './projection.ts'
 import { applyRoute, installAgentRequestRouting, selectedRoute } from './request-routing.ts'
+import type { JevDecisionRecord } from './types.ts'
 
 export const name = 'llm-jev-router'
 export const inject = ['llm']
@@ -346,16 +348,7 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/** One Jev routing outcome recorded for inspection. */
-export interface JevDecisionRecord {
-  readonly turn: number
-  readonly step: number
-  readonly choice?: string
-  readonly confidence?: number
-  readonly provider?: string
-  readonly model?: string
-  readonly error?: string
-}
+export type { JevDecisionRecord } from './types.ts'
 
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
@@ -432,6 +425,7 @@ export function apply(ctx: Context, initial: RuntimeConfig): void {
     return launchEnvironmentOf(ctx).get(config.apiKeyEnv)?.value
   })
   new JevRouter(ctx, current, client, states)
+  ctx.inject(['sessionProjections'], (inner) => { inner.sessionProjections.register(jevDecisionProjection) })
   ctx.llm.registerConfigurableProviders([{
     provider: 'jev-router',
     displayName: 'TypeSafe / Jev',
@@ -460,13 +454,15 @@ export function apply(ctx: Context, initial: RuntimeConfig): void {
       const route = selectedRoute(decision, config)
       payload.agent.session.append('jev/decision', {
         turn: payload.turn, step: payload.step, choice: decision.route, confidence: decision.confidence,
-        ...route === undefined ? {} : { provider: route.provider, model: route.model },
+        ...route === undefined ? {} : { route: route.id, provider: route.provider, model: route.model },
       })
       perAgent.set(payload.turn, route === undefined ? {} : { route })
     } catch (error) {
-      ctx.logger.warn('jev-router: Jev decision failed; preserving the configured model route')
+      ctx.logger.warn(config.failOpen
+        ? 'jev-router: Jev decision failed; preserving the configured model route'
+        : 'jev-router: Jev decision failed; rejecting the turn')
       payload.agent.session.append('jev/decision', {
-        turn: payload.turn, step: payload.step, error: String(error),
+        turn: payload.turn, step: payload.step, error: String(error), rejected: !config.failOpen,
       })
       ctx.logger.warn(error)
       perAgent.set(payload.turn, {})
