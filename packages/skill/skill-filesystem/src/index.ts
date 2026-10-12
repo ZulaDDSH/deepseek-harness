@@ -35,9 +35,11 @@ import {
 
 const PROJECT_DSH_RANK = 100
 const PROJECT_AGENTS_RANK = 200
+const PROJECT_CLAUDE_RANK = 230
 const CUSTOM_RANK = 300
 const USER_DSH_RANK = 400
 const USER_AGENTS_RANK = 500
+const USER_CLAUDE_RANK = 550
 const DEFAULT_WATCH_STABILITY_THRESHOLD_MS = 200
 const DEFAULT_WATCH_POLL_INTERVAL_MS = 100
 const DEFAULT_WATCH_MAX_PROJECTS = 128
@@ -55,6 +57,8 @@ export interface Config {
   dshHome?: string
   /** Shared agent config root. Defaults to `$DSH_AGENTS_HOME` or `~/.agents`. */
   agentsHome?: string
+  /** Claude Code config root. Defaults to `$CLAUDE_CONFIG_DIR` or `~/.claude`. */
+  claudeHome?: string
   /** Additional skill roots scanned after project roots and before user roots. */
   customSkillDirs?: string[]
   /** Whether host-local skill roots are watched for catalog changes. */
@@ -78,6 +82,7 @@ export const Config: Schema<Config> = z.object({
   includeDefaultRoots: z.boolean().default(true),
   dshHome: z.string(),
   agentsHome: z.string(),
+  claudeHome: z.string(),
   customSkillDirs: z.array(z.string()).default([]),
   watch: z.boolean().default(true),
   watchUsePolling: z.boolean().default(false),
@@ -119,6 +124,7 @@ interface ParsedSkill extends SkillText {
 interface LocalLocator {
   path: string
   directory: string
+  bundleName?: string
 }
 
 interface ResolvedWatchConfig {
@@ -152,6 +158,7 @@ export class FileSystemSkillProvider implements SkillProvider {
   private readonly includeDefaultRoots: boolean
   private readonly dshHome: string
   private readonly agentsHome: string
+  private readonly claudeHome: string
   private readonly customSkillDirs: string[]
   private readonly watchManager: SkillWatchManager
   private readonly bundledSkillDir: string | undefined
@@ -166,6 +173,7 @@ export class FileSystemSkillProvider implements SkillProvider {
     this.includeDefaultRoots = config.includeDefaultRoots ?? true
     this.dshHome = resolveDshHome(config.dshHome)
     this.agentsHome = resolve(config.agentsHome ?? process.env.DSH_AGENTS_HOME ?? join(homedir(), '.agents'))
+    this.claudeHome = resolve(config.claudeHome ?? process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'))
     this.customSkillDirs = (config.customSkillDirs ?? []).map(root => resolve(root))
     this.watchManager = new SkillWatchManager(ctx, control.invalidate, resolveWatchConfig(config))
     control.signal.addEventListener('abort', () => { void this.dispose() }, { once: true })
@@ -209,7 +217,7 @@ export class FileSystemSkillProvider implements SkillProvider {
    */
   async get(candidate: SkillCandidate, options: SkillLookupOptions): Promise<SkillDefinition | undefined> {
     const locator = candidate.locator as LocalLocator
-    const parsed = await parseSkillFile(locator.path, this.ctx, options.signal, candidate.source === 'bundled')
+    const parsed = await parseSkillFile(locator.path, this.ctx, options.signal, candidate.source === 'bundled', locator.bundleName)
     if (parsed === undefined) return undefined
     return {
       name: parsed.name,
@@ -249,6 +257,7 @@ export class FileSystemSkillProvider implements SkillProvider {
       roots.push(
         { path: join(projectRoot, '.dsh/skills'), source: 'project-dsh', rank: PROJECT_DSH_RANK, projectRoot },
         { path: join(projectRoot, '.agents/skills'), source: 'project-agents', rank: PROJECT_AGENTS_RANK, projectRoot },
+        { path: join(projectRoot, '.claude/skills'), source: 'project-claude', rank: PROJECT_CLAUDE_RANK, projectRoot },
       )
     }
     roots.push(...this.customSkillDirs.map(path => ({ path, source: 'custom' as const, rank: CUSTOM_RANK })))
@@ -256,6 +265,7 @@ export class FileSystemSkillProvider implements SkillProvider {
       roots.push(
         { path: join(this.dshHome, 'skills'), source: 'user-dsh', rank: USER_DSH_RANK, skipSystem: true },
         { path: join(this.agentsHome, 'skills'), source: 'user-agents', rank: USER_AGENTS_RANK },
+        { path: join(this.claudeHome, 'skills'), source: 'user-claude', rank: USER_CLAUDE_RANK },
       )
     }
     if (this.bundledSkillDir !== undefined) {
@@ -725,13 +735,13 @@ async function discoverRoot(root: SkillRoot, ctx: Context, provider: string): Pr
   const entries = await listSkillRootEntries(root, ctx)
   for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
     if (root.skipSystem && entry.name === '.system') continue
-    const locator = entry.type === 'directory'
-      ? { path: join(entry.path, 'SKILL.md'), directory: entry.path }
+    const locator: LocalLocator | undefined = entry.type === 'directory'
+      ? { path: join(entry.path, 'SKILL.md'), directory: entry.path, bundleName: entry.name }
       : entry.type === 'file' && entry.name.endsWith('.md')
         ? { path: entry.path, directory: root.path }
         : undefined
     if (locator === undefined) continue
-    const parsed = await parseSkillFile(locator.path, ctx, undefined, root.trustedHost === true)
+    const parsed = await parseSkillFile(locator.path, ctx, undefined, root.trustedHost === true, locator.bundleName)
     if (parsed === undefined) continue
     skills.push({
       name: parsed.name,
@@ -794,7 +804,13 @@ async function listSkillRootEntriesFromNode(root: SkillRoot, ctx: Context): Prom
   return result
 }
 
-async function parseSkillFile(path: string, ctx: Context, signal?: AbortSignal, trustedHost = false): Promise<ParsedSkill | undefined> {
+async function parseSkillFile(
+  path: string,
+  ctx: Context,
+  signal?: AbortSignal,
+  trustedHost = false,
+  bundleName?: string,
+): Promise<ParsedSkill | undefined> {
   const raw = await readSkillText(ctx, path, signal, trustedHost)
   signal?.throwIfAborted()
   if (raw === undefined) {
@@ -811,7 +827,7 @@ async function parseSkillFile(path: string, ctx: Context, signal?: AbortSignal, 
     ctx.logger.warn(`skill file ${path} ignored: missing YAML frontmatter`)
     return undefined
   }
-  const name = stringField(parsed.data, 'name')
+  const name = stringField(parsed.data, 'name') ?? bundleName
   const description = stringField(parsed.data, 'description')
   if (name === undefined || description === undefined) {
     ctx.logger.warn(`skill file ${path} ignored: frontmatter requires name and description`)
@@ -828,10 +844,11 @@ async function parseSkillFile(path: string, ctx: Context, signal?: AbortSignal, 
     ctx.logger.warn(`skill file ${path} ignored: invalid invocation frontmatter: ${errorMessage(error)}`)
     return undefined
   }
+  const whenToUse = stringField(parsed.data, 'whenToUse') ?? stringField(parsed.data, 'when_to_use')
   return {
     name,
     description,
-    ...optionalString(parsed.data, 'whenToUse'),
+    ...whenToUse === undefined ? {} : { whenToUse },
     invocation,
     ...optionalMetadata(parsed.data),
     path: raw.path,
@@ -990,11 +1007,6 @@ async function pathExistsInNode(path: string): Promise<boolean> {
 function stringField(data: Record<string, unknown>, key: string): string | undefined {
   const value = data[key]
   return typeof value === 'string' && value.length > 0 ? value : undefined
-}
-
-function optionalString(data: Record<string, unknown>, key: string): { [K in typeof key]?: string } {
-  const value = data[key]
-  return typeof value === 'string' && value.length > 0 ? { [key]: value } : {}
 }
 
 function parseInvocationPolicy(data: Record<string, unknown>): SkillInvocationPolicy {

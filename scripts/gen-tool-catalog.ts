@@ -521,10 +521,8 @@ const TOOL_PACKAGES: ToolPackage[] = [
     async mount(ctx) {
       await ctx.plugin(AgentRegistry)
       await ctx.plugin(SkillRegistry)
-      await ctx.plugin(SkillFileSystem, {
-        dshHome: resolve(root, '.tmp/tool-catalog/.dsh'),
-        agentsHome: resolve(root, '.tmp/tool-catalog/.agents'),
-      })
+      const home = (name: string) => resolve(root, '.tmp/tool-catalog', name)
+      await ctx.plugin(SkillFileSystem, { dshHome: home('.dsh'), agentsHome: home('.agents'), claudeHome: home('.claude') })
       await ctx.plugin(ToolSkill)
     },
   },

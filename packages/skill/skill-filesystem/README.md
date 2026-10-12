@@ -7,7 +7,7 @@ kind: "package-reference"
 
 ## Summary
 
-Agents can use local skills from the repository, a custom directory, or the user's agent configuration: author a skill as a directory bundle with a `SKILL.md` or a flat `<name>.md` file under any scanned root, and it appears in the session catalog. The provider discovers the project, custom, and user roots, parses each skill's YAML frontmatter, and watches the directories, so new, renamed, or deleted skills reach agents without a restart. Choose it when skills live on disk — the registry (`dsh-skill`) accepts any provider, and another provider can supply skills from elsewhere.
+Agents can use local skills from the repository, a custom directory, or the user's agent configuration: author a skill as a directory bundle with a `SKILL.md` or a flat `<name>.md` file under any scanned root, and it appears in the session catalog. The provider discovers the project, custom, user, and Claude Code (`.claude/skills`) roots, parses each skill's YAML frontmatter, and watches the directories, so new, renamed, or deleted skills reach agents without a restart. Choose it when skills live on disk — the registry (`dsh-skill`) accepts any provider, and another provider can supply skills from elsewhere.
 
 ## Table of Contents
 
@@ -31,7 +31,7 @@ Use this provider when skills live on disk — in the repository, a custom direc
 
 ### Skill format
 
-A skill is either a directory bundle `<name>/SKILL.md` or a flat file `<name>.md` at the top level of a scanned root; nested `**/SKILL.md` files are deliberately not discovered. The file starts with YAML frontmatter: required `name` and `description`, plus optional `whenToUse`, `metadata`, `disable-model-invocation`, and `user-invocable`.
+A skill is either a directory bundle `<name>/SKILL.md` or a flat file `<name>.md` at the top level of a scanned root; nested `**/SKILL.md` files are deliberately not discovered. The file starts with YAML frontmatter: required `description`, `name` (required for flat files; a bundle without `name` takes its directory name), plus optional `whenToUse`, `metadata`, `disable-model-invocation`, and `user-invocable`. Claude Code `SKILL.md` frontmatter is accepted with its `disable-model-invocation` and `user-invocable` meaning intact, and its `when_to_use` is read as `whenToUse` when `whenToUse` is absent; Claude-only keys such as `allowed-tools`, `argument-hint`, and `model` are ignored.
 
 `disable-model-invocation: true` keeps the skill out of model-facing catalogs and loaders; `user-invocable: false` keeps it out of human-facing commands, and omitted fields default to permitting their surface. The two keys accept YAML booleans plus the case-insensitive `true`/`false`, `yes`/`no`, `on`/`off`, and `1`/`0` forms; a rejected spelling or a non-boolean value drops the whole skill with a warning rather than silently permitting a surface.
 
@@ -47,9 +47,13 @@ Default roots are scanned in this provider's rank order:
 |---|---|---|
 | 100 | `project-dsh` | `<projectRoot>/.dsh/skills` |
 | 200 | `project-agents` | `<projectRoot>/.agents/skills` |
+| 230 | `project-claude` | `<projectRoot>/.claude/skills` |
 | 300 | `custom` | `Config.customSkillDirs` |
 | 400 | `user-dsh` | `<dshHome>/skills` |
 | 500 | `user-agents` | `<agentsHome>/skills` |
+| 550 | `user-claude` | `<claudeHome>/skills` |
+
+Within each scope `.dsh` beats `.agents`, which beats `.claude`; project roots outrank runtime skills (rank 250), and user roots outrank the bundled root (rank 600).
 
 The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. The user DSH root skips its `.system` child. `includeDefaultRoots: false` omits the project and user rows plus the `$DSH_BUNDLED_SKILL_DIR` default so an isolated provider sees only its own configured roots; `bundledSkillDir` adds a bundled root at rank 600.
 
@@ -68,6 +72,7 @@ Load the plugin alongside the skill registry; it requires `ctx.skills`.
 | `includeDefaultRoots` | `true` | Include project and user roots around `customSkillDirs` |
 | `dshHome` | `$DSH_HOME` or `~/.dsh` | Harness config root; its `skills` subdirectory is scanned |
 | `agentsHome` | `$DSH_AGENTS_HOME` or `~/.agents` | Shared agent config root scanned for compatible skills |
+| `claudeHome` | `$CLAUDE_CONFIG_DIR` or `~/.claude` | Claude Code config root; its `skills` subdirectory is scanned |
 | `customSkillDirs` | `[]` | Additional local skill roots, after project roots and before user roots |
 | `watch` | `true` | Watch local roots and invalidate the provider when the catalog may have changed |
 | `bundledSkillDir` | — | Bundled skill root scanned at rank 600 when configured |
@@ -105,7 +110,7 @@ The provider is built on two separations. First, catalog versus body: discovery 
 
 ### Discovery flow
 
-Discovery resolves the root list for the lookup cwd, asks the watch manager to attach to each root, then scans each root's direct entries: directory bundles resolve `<name>/SKILL.md`, flat files resolve `<name>.md`. Each file is parsed for frontmatter — `name` must be kebab-case, `description` is required, and the invocation keys resolve through the strict boolean grammar — and candidates carry the root's source label and rank so the registry can merge them with other providers. Confirmed missing paths are valid empty state; malformed or non-text entries warn and skip.
+Discovery resolves the root list for the lookup cwd, asks the watch manager to attach to each root, then scans each root's direct entries: directory bundles resolve `<name>/SKILL.md`, flat files resolve `<name>.md`. Each file is parsed for frontmatter — `name` (or the directory name for a bundle without `name`) must be kebab-case, `description` is required, and the invocation keys resolve through the strict boolean grammar — and candidates carry the root's source label and rank so the registry can merge them with other providers. Confirmed missing paths are valid empty state; malformed or non-text entries warn and skip.
 
 ### Watching and invalidation
 

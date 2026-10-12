@@ -226,8 +226,8 @@ async function realHarness(
   })
   const parent = {
     id: 'real-parent',
-    session: { header: { cwd: instance.workspace } },
-  } as unknown as Agent
+    session: { header: { cwd: instance.workspace }, requestHeader: () => undefined },
+  } as Agent
   return {
     harness: {
       ctx,
@@ -429,12 +429,12 @@ describe('real Claude Agent SDK 0.3.296 and its distributed Claude Code 2.1.296 
     })
     const safeParent = {
       id: 'safe-parent',
-      session: { header: { cwd: safeInstance.workspace } },
-    } as unknown as Agent
+      session: { header: { cwd: safeInstance.workspace }, requestHeader: () => undefined },
+    } as Agent
     const bypassParent = {
       id: 'bypass-parent',
-      session: { header: { cwd: bypassInstance.workspace } },
-    } as unknown as Agent
+      session: { header: { cwd: bypassInstance.workspace }, requestHeader: () => undefined },
+    } as Agent
     const safeController = new AbortController()
 
     const [safeRun, bypassRun] = await Promise.all([
@@ -574,6 +574,38 @@ describe('real Claude Agent SDK 0.3.296 and its distributed Claude Code 2.1.296 
     expect(fixture.requests).toHaveLength(2)
     expect(JSON.stringify(fixture.requests[1]?.body.messages))
       .toContain('ExitPlanMode is disabled for this session')
+    await run.dispose()
+    await expectQuiescent(harness.handles)
+  })
+
+  it('lets the default dontAsk child run a project .claude/skills skill through the Skill tool', async () => {
+    const { harness, fixture } = await realHarness({
+      kind: 'tool-use',
+      toolName: 'Skill',
+      input: { skill: 'fixture-skill' },
+      finalText: 'skill done',
+    })
+    const skillDir = join(harness.workspace, '.claude', 'skills', 'fixture-skill')
+    mkdirSync(skillDir, { recursive: true })
+    writeFileSync(join(skillDir, 'SKILL.md'), [
+      '---',
+      'name: fixture-skill',
+      'description: Fixture skill for the Skill tool gate',
+      'allowed-tools: Read',
+      '---',
+      '',
+      'SKILL_BODY_SENTINEL',
+      '',
+    ].join('\n'))
+    const run = await startRequest(harness, 'Use the fixture skill.')
+    await expect(run.result).resolves.toEqual({
+      output: [{ type: 'text', text: 'skill done' }],
+      stopReason: 'completed',
+    })
+    expect(fixture.requests).toHaveLength(2)
+    expect(fixture.requests[0]?.body.tools)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ name: 'Skill' })]))
+    expect(JSON.stringify(fixture.requests[1]?.body.messages)).toContain('SKILL_BODY_SENTINEL')
     await run.dispose()
     await expectQuiescent(harness.handles)
   })
