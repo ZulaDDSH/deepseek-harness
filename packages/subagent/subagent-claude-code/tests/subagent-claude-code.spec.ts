@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import type {
+  AgentDefinition,
   Options,
   Query,
   SDKMessage,
@@ -58,8 +59,8 @@ type QueryFactory = (params: {
 
 const queryMock = vi.hoisted(() => vi.fn<QueryFactory>())
 
-const CLAUDE_AGENT_SDK_VERSION = '0.3.263'
-const CLAUDE_CODE_VERSION = '2.1.263'
+const CLAUDE_AGENT_SDK_VERSION = '0.3.296'
+const CLAUDE_CODE_VERSION = '2.1.296'
 const CLAUDE_PLATFORM_PACKAGES = [
   '@anthropic-ai/claude-agent-sdk-darwin-arm64',
   '@anthropic-ai/claude-agent-sdk-darwin-x64',
@@ -580,6 +581,53 @@ describe('task admission and package contracts', () => {
     }
   })
 
+  it('accepts ultracode and fixed native custom agent definitions', () => {
+    expect(claudeCode.Config({}).ultracode).toBe(false)
+    expect(claudeCode.Config({}).agents).toBeUndefined()
+    expect(claudeCode.Config({ ultracode: true }).ultracode).toBe(true)
+    expect(() => claudeCode.Config({ ultracode: 'yes' } as never)).toThrow()
+
+    const agents = {
+      reviewer: {
+        description: 'Reviews',
+        prompt: 'You review.',
+        criticalSystemReminder_EXPERIMENTAL: 'Stay read-only.',
+        tools: ['Read'],
+        disallowedTools: ['Bash'],
+        model: 'sonnet',
+        mcpServers: ['github', { local: { type: 'stdio', command: 'srv' } }],
+        skills: ['lint'],
+        initialPrompt: '/review',
+        maxTurns: 5,
+        autoCompactWindow: 200000,
+        background: true,
+        omitClaudeMd: true,
+        memory: 'project',
+        effort: 'xhigh',
+        permissionMode: 'acceptEdits',
+        observer: 'watcher',
+        observerMessage: 'note',
+      },
+    } satisfies Record<string, AgentDefinition>
+    expect(claudeCode.Config({ agents }).agents).toStrictEqual(agents)
+    expect(claudeCode.Config({
+      agents: { helper: { description: 'Helps', prompt: 'Help.', effort: 3 } },
+    }).agents?.helper?.effort).toBe(3)
+    expect(claudeCode.Config({
+      agents: { minimal: { description: 'd', prompt: 'p' } },
+    }).agents?.minimal).toStrictEqual({ description: 'd', prompt: 'p' })
+    for (const invalid of [
+      { description: 'Reviews' },
+      { prompt: 'You review.' },
+      { description: 'Reviews', prompt: 'You review.', memory: 'global' },
+      { description: 'Reviews', prompt: 'You review.', permissionMode: 'default' },
+      { description: 'Reviews', prompt: 'You review.', maxTurns: 0 },
+      { description: 'Reviews', prompt: 'You review.', autoCompactWindow: 0 },
+    ]) {
+      expect(() => claudeCode.Config({ agents: { reviewer: invalid } } as never)).toThrow()
+    }
+  })
+
   it('resolves the safe permission default when apply is called directly', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionProjectionRegistry)
@@ -624,6 +672,8 @@ describe('task admission and package contracts', () => {
         HOME: '/private/tmp/dsh-claude-code-unit-home',
       },
       permissionMode: 'auto',
+      ultracode: true,
+      agents: { helper: { description: 'Helps', prompt: 'Help.' } },
       disposeGraceMs: 29,
     })
 
@@ -705,6 +755,11 @@ describe('task admission and package contracts', () => {
     expect(queryMock.mock.calls[1]?.[0].options.permissionMode).toBe('auto')
     expect(queryMock.mock.calls[1]?.[0].options.model)
       .toBe('claude-diagnostic-model')
+    expect(queryMock.mock.calls[1]?.[0].options.settings)
+      .toEqual({ ultracode: true, enableWorkflows: true })
+    expect(queryMock.mock.calls[1]?.[0].options.agents).toStrictEqual({
+      helper: { description: 'Helps', prompt: 'Help.' },
+    })
     expect(spawn).toHaveBeenCalledWith(expect.objectContaining({
       cwd: process.cwd(),
       graceMs: 29,
@@ -888,6 +943,9 @@ describe('query options and result mapping', () => {
     expect(options.env).not.toHaveProperty('HOST_SECRET_TOKEN')
     expect(options.env).not.toHaveProperty('DSH_INTERNAL')
     expect(options).not.toHaveProperty('settingSources')
+    expect(options).not.toHaveProperty('settings')
+    expect(options).not.toHaveProperty('allowedTools')
+    expect(options).not.toHaveProperty('agents')
 
     const callbackSignal = new AbortController().signal
     await expect(options.canUseTool!(
@@ -962,6 +1020,54 @@ describe('query options and result mapping', () => {
       }
     },
   )
+
+  it('maps ultracode and native agents into SDK options', () => {
+    const agents = { helper: { description: 'Helps', prompt: 'Help.' } }
+    const spec: ClaudeCodeRunSpec = {
+      cwd: '/workspace',
+      permissionMode: 'dontAsk',
+      env: {},
+      disposeGraceMs: 17,
+      spawn: () => fakeChild().handle,
+      ultracode: true,
+      agents,
+    }
+    const options = claudeQueryOptions(spec, new AbortController(), () => {}, () => {})
+    expect(options.settings).toEqual({ ultracode: true, enableWorkflows: true })
+    expect(options.allowedTools).toEqual(['Workflow'])
+    expect(options.agents).toBe(agents)
+    expect(options.disallowedTools).toEqual(['AskUserQuestion'])
+    expect(options.canUseTool).toBeTypeOf('function')
+
+    const acceptEdits = claudeQueryOptions(
+      { ...spec, permissionMode: 'acceptEdits' },
+      new AbortController(),
+      () => {},
+      () => {},
+    )
+    expect(acceptEdits.allowedTools).toEqual(['Workflow'])
+
+    for (const permissionMode of ['auto', 'plan', 'bypassPermissions'] as const) {
+      const gated = claudeQueryOptions(
+        { ...spec, permissionMode },
+        new AbortController(),
+        () => {},
+        () => {},
+      )
+      expect(gated.settings).toEqual({ ultracode: true, enableWorkflows: true })
+      expect(gated).not.toHaveProperty('allowedTools')
+    }
+
+    const withoutUltracode = claudeQueryOptions(
+      { ...spec, ultracode: false },
+      new AbortController(),
+      () => {},
+      () => {},
+    )
+    expect(withoutUltracode).not.toHaveProperty('settings')
+    expect(withoutUltracode).not.toHaveProperty('allowedTools')
+    expect(withoutUltracode.agents).toBe(agents)
+  })
 
   it('disallows ExitPlanMode before native plan-mode allow rules', () => {
     const child = fakeChild()

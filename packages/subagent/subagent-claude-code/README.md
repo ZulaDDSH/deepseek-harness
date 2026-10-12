@@ -7,7 +7,7 @@ kind: "package-bundle"
 
 ## Summary
 
-Install this Profile Bundle when a delegated task should run as a fresh, unattended Claude Code session in the parent workspace. Each run accepts one self-contained text task and returns the final answer or a safe failure diagnostic; reasoning, tool traffic, stderr, usage, and workspace diffs stay out of the parent Session. Native Claude settings and authentication remain authoritative, while Profile configuration selects the model, environment, and `permissionMode`. The platform-pinned runtime starts on demand and never falls back to the host `claude` executable. Choose it when isolation and genuine Claude Code behavior matter more than continuation or prompts.
+Install this Profile Bundle when a delegated task should run as a fresh, unattended Claude Code session in the parent workspace. Each run accepts one self-contained text task and returns the final answer or a safe failure diagnostic; reasoning, tool traffic, stderr, usage, and workspace diffs stay out of the parent Session. Native Claude settings and authentication remain authoritative, while Profile configuration selects the model, environment, `permissionMode`, ultracode, and `agents`. The platform-pinned runtime starts on demand and never falls back to the host `claude` executable. Choose it when isolation and genuine Claude Code behavior matter more than continuation or prompts.
 
 ## Table of Contents
 
@@ -45,6 +45,8 @@ Removing the package withdraws the provider and its private runtime closure on t
 | `model` | native Claude settings | Optional non-empty model name fixed for every run from this provider instance; omission sends no SDK override |
 | `env` | `{}` | Explicit SDK/CLI environment layered over the credential-scrubbed parent environment |
 | `permissionMode` | `dontAsk` | Native non-interactive permission policy fixed for every run from this provider instance |
+| `ultracode` | `false` | Turns on native ultracode for every run: sends flag settings `ultracode` and `enableWorkflows`, and pre-approves the `Workflow` tool only in `dontAsk` and `acceptEdits` modes. In `auto`, `plan`, and `bypassPermissions` the Workflow launch stays under native permission handling. Each pre-approved run makes the SDK emit a `CLAUDE_SDK_CAN_USE_TOOL_SHADOWED` process warning on host stderr |
+| `agents` | none | Native custom subagents (`Options.agents`, the current SDK AgentDefinition fields, including `criticalSystemReminder_EXPERIMENTAL`) that each run's Agent tool and workflows can invoke; omitted optional fields stay omitted so the SDK applies its own defaults, and agent `permissionMode` accepts the five provider modes but not `default` |
 | `disposeGraceMs` | `3000` | Grace between the shared managed-range owner's termination tiers |
 
 | `permissionMode` value | Native behavior |
@@ -98,7 +100,7 @@ This section explains how the provider drives a real Claude Code CLI and where t
 ### Design concept
 
 - **One fresh query per run.** Every run has an independent SDK query, cancellation controller, CLI process, and non-persisted product session; there is no continuation, resume, or pooling.
-- **Native settings are authoritative.** The provider deliberately omits the SDK `settingSources` option, so Claude Code reads the host's normal user, project, and local settings; an optional `model` and the required `permissionMode` are the only query-level overrides.
+- **Native settings are authoritative.** The provider deliberately omits the SDK `settingSources` option, so Claude Code reads the host's normal user, project, and local settings; an optional `model`, the required `permissionMode`, and the optional `ultracode` and `agents` are the only query-level overrides.
 - **Unattended by design.** `AskUserQuestion` is disabled and permission prompts are denied except in bypass mode, so the query never waits for a user interface.
 
 ### Source map
@@ -176,7 +178,9 @@ These limits define when this provider is a poor fit or needs special operationa
 - **The SDK platform payload is required at delegation time** — installs that omit optional dependencies, unsupported platforms, and missing or damaged payloads fail at the first query; there is no host-CLI fallback.
 - **No human interaction path** — `AskUserQuestion` is disabled, permission prompts are denied, MCP elicitation is declined, and blocking dialogs fail closed instead of suspending.
 - **Assistant payload is final text only** — reasoning, intermediate messages, tool traffic, usage, stderr, and workspace diffs remain product-local.
-- **No optional shared capabilities** — `agentOptions`, output schemas, child personas, tool filtering, and harness depth enforcement are rejected by the shared service for this provider.
+- **Ultracode and custom agents run inside the one child** — only the SDK's final result reaches the parent, cancellation or disposal terminates the child's process tree, and ultracode needs a Claude account or plan with Workflows that managed settings do not disable, plus a model that supports ultracode; token use can be much higher.
+- **Agent `permissionMode` is operator-owned** — a Profile-fixed agent can set `acceptEdits` or `bypassPermissions` even when the provider runs `dontAsk` or `plan`, so configure agent modes with the same care as the provider mode.
+- **No optional shared capabilities** — `agentOptions`, output schemas, child personas, tool filtering, and harness depth enforcement are rejected by the shared service for this provider; Profile-fixed native `agents` are a separate Claude Code setting and stay available.
 - **No wall-clock timeout or side-effect rollback** — the caller cancels long work, and files or external systems changed before cancellation are not restored.
 
 <a id="dev-note"></a>
@@ -188,7 +192,7 @@ These limits define when this provider is a poor fit or needs special operationa
 This Dev Note is working context for maintainers: open questions and undecided directions. It is explicitly non-authoritative — shipped behavior and limits live in the sections above and in the package code.
 
 - **Payload size disclosure** — the current darwin-arm64 platform payload packs to about 92 MB and unpacks to about 325 MB; these are disclosure numbers, not installation thresholds.
-- **Version-pinned protocol** — the runtime dependency is pinned to Agent SDK 0.3.263; upgrading pins a new SDK version and requires re-running the keyless real-product and loader-composition evidence.
+- **Version-pinned protocol** — the runtime dependency is pinned to Agent SDK 0.3.296; upgrading pins a new SDK version and requires re-running the keyless real-product and loader-composition evidence.
 
 </details>
 

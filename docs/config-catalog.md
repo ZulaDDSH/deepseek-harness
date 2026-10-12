@@ -3496,7 +3496,8 @@ export type PermissionPolicy = 'allow' | 'reject'
 ## `@deepseek-ai/dsh-subagent-claude-code`
 
 - `inject`: `subagents` · `subprocess`
-- `source`: [`packages/subagent/subagent-claude-code/src/index.ts:38`](../packages/subagent/subagent-claude-code/src/index.ts)
+- `refs`: `AgentDefinition` (`@anthropic-ai/claude-agent-sdk`)
+- `source`: [`packages/subagent/subagent-claude-code/src/index.ts:39`](../packages/subagent/subagent-claude-code/src/index.ts)
 
 ```ts config-catalog
 /** Deployment-owned model, permission, environment, and process-release settings. */
@@ -3517,6 +3518,15 @@ export interface Config {
    * `bypassPermissions` explicitly skips permission checks.
    */
   permissionMode?: ClaudeCodePermissionMode
+  /**
+   * Turns on native ultracode (standing Workflow-tool orchestration with
+   * workflows enabled) for every run; defaults to `false`. Workflow is
+   * pre-approved only in `dontAsk` and `acceptEdits` modes. Requires a Claude
+   * account or plan with workflows and a model that supports ultracode.
+   */
+  ultracode?: boolean
+  /** Native custom subagents, keyed by agent name, that each run can invoke through Claude Code's Agent tool. */
+  agents?: Record<string, AgentDefinition>
   /** Grace in milliseconds between Claude Code managed-range termination tiers. */
   disposeGraceMs?: number
 }

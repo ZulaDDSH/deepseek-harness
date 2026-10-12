@@ -6,6 +6,7 @@
  * @module @deepseek-ai/dsh-subagent-claude-code
  */
 
+import type { AgentDefinition } from '@anthropic-ai/claude-agent-sdk'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -52,9 +53,40 @@ export interface Config {
    * `bypassPermissions` explicitly skips permission checks.
    */
   permissionMode?: ClaudeCodePermissionMode
+  /**
+   * Turns on native ultracode (standing Workflow-tool orchestration with
+   * workflows enabled) for every run; defaults to `false`. Workflow is
+   * pre-approved only in `dontAsk` and `acceptEdits` modes. Requires a Claude
+   * account or plan with workflows and a model that supports ultracode.
+   */
+  ultracode?: boolean
+  /** Native custom subagents, keyed by agent name, that each run can invoke through Claude Code's Agent tool. */
+  agents?: Record<string, AgentDefinition>
   /** Grace in milliseconds between Claude Code managed-range termination tiers. */
   disposeGraceMs?: number
 }
+
+// Omitted fields must stay absent: schemastery's [] and {} defaults would reach the SDK as real values.
+const agentDefinitionSchema = z.object({
+  description: z.string().min(1).required(),
+  prompt: z.string().min(1).required(),
+  criticalSystemReminder_EXPERIMENTAL: z.string(),
+  tools: z.array(z.string()).default(undefined as never),
+  disallowedTools: z.array(z.string()).default(undefined as never),
+  model: z.string().min(1),
+  mcpServers: z.array(z.union([z.string(), z.dict(z.any())])).default(undefined as never),
+  skills: z.array(z.string()).default(undefined as never),
+  initialPrompt: z.string(),
+  maxTurns: z.natural().min(1),
+  autoCompactWindow: z.natural().min(1),
+  background: z.boolean(),
+  omitClaudeMd: z.boolean(),
+  memory: z.union(['user', 'project', 'local']),
+  effort: z.union([z.union(['low', 'medium', 'high', 'xhigh', 'max']), z.number()]),
+  permissionMode: z.union([...CLAUDE_CODE_PERMISSION_MODES]),
+  observer: z.string(),
+  observerMessage: z.string(),
+})
 
 export const Config: z<Config> = z.object({
   providerName: z.string().min(1).default(DEFAULT_PROVIDER_NAME),
@@ -62,10 +94,12 @@ export const Config: z<Config> = z.object({
   env: z.dict(z.string()).default({}),
   permissionMode: z.union([...CLAUDE_CODE_PERMISSION_MODES])
     .default(DEFAULT_CLAUDE_CODE_PERMISSION_MODE),
+  ultracode: z.boolean().default(false),
+  agents: z.dict(agentDefinitionSchema).default(undefined as never) as z<Record<string, AgentDefinition>>,
   disposeGraceMs: z.number().default(DEFAULT_DISPOSE_GRACE_MS),
 })
 
-type ResolvedConfig = Omit<Required<Config>, 'model'> & Pick<Config, 'model'>
+type ResolvedConfig = Omit<Required<Config>, 'model' | 'agents'> & Pick<Config, 'model' | 'agents'>
 /* jscpd:ignore-end */
 
 /* jscpd:ignore-start -- Cordis registration and shared-seam plumbing mirror
@@ -111,6 +145,8 @@ class ClaudeCodeProvider implements SubagentProvider {
       cwd,
       ...this.config.model === undefined ? {} : { model: this.config.model },
       permissionMode: this.config.permissionMode,
+      ultracode: this.config.ultracode,
+      ...this.config.agents === undefined ? {} : { agents: this.config.agents },
       env: this.config.env,
       disposeGraceMs: this.config.disposeGraceMs,
       spawn: spawnSpec => this.ctx.subprocess.spawn(spawnSpec),
@@ -128,7 +164,7 @@ class ClaudeCodeProvider implements SubagentProvider {
 /**
  * Register one Profile-named Claude Code provider.
  * @param ctx - context carrying shared subagent and subprocess services.
- * @param config - registry name, optional model, permission mode, child environment, and disposal grace.
+ * @param config - registry name, optional model, permission mode, ultracode, native custom agents, child environment, and disposal grace.
  */
 export function apply(ctx: Context, config: Config): void {
   const resolved: ResolvedConfig = {
@@ -136,6 +172,8 @@ export function apply(ctx: Context, config: Config): void {
     ...config.model === undefined ? {} : { model: config.model },
     env: config.env as Record<string, string>,
     permissionMode: config.permissionMode ?? DEFAULT_CLAUDE_CODE_PERMISSION_MODE,
+    ultracode: config.ultracode ?? false,
+    ...config.agents === undefined ? {} : { agents: config.agents },
     disposeGraceMs: config.disposeGraceMs as number,
   }
   assertPositiveFinite(

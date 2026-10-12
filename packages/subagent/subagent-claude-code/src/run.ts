@@ -9,6 +9,7 @@
 import { randomUUID } from 'node:crypto'
 import {
   query as officialQuery,
+  type AgentDefinition,
   type Options,
   type Query,
   type SDKMessage,
@@ -154,6 +155,10 @@ export interface ClaudeCodeRunSpec {
   readonly model?: string
   /** Profile-selected native non-interactive permission mode. */
   readonly permissionMode: ClaudeCodePermissionMode
+  /** Turns on native ultracode; pre-approves the Workflow tool only in dontAsk and acceptEdits modes. */
+  readonly ultracode?: boolean
+  /** Profile-fixed native custom subagents for the Agent tool. */
+  readonly agents?: Record<string, AgentDefinition>
   /** Explicit deployment/test environment layered after shared scrubbing. */
   readonly env: Record<string, string>
   /** Subprocess termination grace passed to the shared managed-range owner. */
@@ -332,6 +337,13 @@ export function claudeQueryOptions(
       ? ['AskUserQuestion', 'ExitPlanMode']
       : ['AskUserQuestion'],
     permissionMode: spec.permissionMode,
+    ...spec.ultracode === true
+      ? { settings: { ultracode: true, enableWorkflows: true } }
+      : {},
+    ...spec.ultracode === true && ['dontAsk', 'acceptEdits'].includes(spec.permissionMode)
+      ? { allowedTools: ['Workflow'] }
+      : {},
+    ...spec.agents === undefined ? {} : { agents: spec.agents },
     ...spec.permissionMode === 'bypassPermissions'
       ? { allowDangerouslySkipPermissions: true }
       : {
