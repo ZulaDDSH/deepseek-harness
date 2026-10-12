@@ -1,6 +1,7 @@
 # Agent Note: Desktop welcome window material
 
 Status: implemented
+Archived: 2026-10-12
 
 ## Problem
 

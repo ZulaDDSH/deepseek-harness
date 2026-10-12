@@ -7,8 +7,10 @@ import { chromium } from 'playwright'
 import { expect, it } from 'vitest'
 import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
 import yaml from 'js-yaml'
-import { WELCOME_NOTICE_VERSION, launchWebScaffold, watchConsole } from './scaffold.ts'
+import { launchWebScaffold, watchConsole } from './scaffold.ts'
 import { ZH_BROWSER_LOCALE } from './support.ts'
+
+const WELCOME_NOTICE_VERSION = '2026-09-28.1'
 
 it('imports settings.yaml into the profile once and applies the imported values', async () => {
   const harnessHome = mkdtempSync(join(tmpdir(), 'dsh-settings-import-'))
@@ -18,7 +20,7 @@ it('imports settings.yaml into the profile once and applies the imported values'
     'ui-onboarding:', `  welcomeNoticeVersion: '${WELCOME_NOTICE_VERSION}'`,
     '',
   ].join('\n'))
-  const scaffold = await launchWebScaffold({ harnessHome, welcomeNoticePending: true })
+  const scaffold = await launchWebScaffold({ harnessHome })
   const browser = await chromium.launch()
   try {
     const patchPath = join(harnessHome, 'profiles', 'scaffold', 'cordis.patch.yml')

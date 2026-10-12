@@ -7,7 +7,7 @@ kind: "package-reference"
 
 ## Summary
 
-This package lets web-client features expose editable preferences backed by the Host settings document without implementing their own transport or schema handling. Each feature gets namespace-scoped reads and writes, atomic multi-field updates, schema validation, and protection against silently overwriting concurrent changes. It also provides the standard extension points for settings chrome, pages, header actions, plugin tabs, and onboarding while rendering no interface itself. Any preference-owning feature can use it without depending on a presentation package; a separate package provides the settings shell.
+This package lets web-client features expose editable preferences backed by the Host settings document without implementing their own transport or schema handling. Each feature gets namespace-scoped reads and writes, atomic multi-field updates, schema validation, and protection against silently overwriting concurrent changes. It also provides the standard extension points for settings chrome, pages, header actions, plugin tabs while rendering no interface itself. Any preference-owning feature can use it without depending on a presentation package; a separate package provides the settings shell.
 
 ## Table of Contents
 
@@ -37,7 +37,7 @@ A page that edits a namespace another plugin owns registers through `ctx.configF
 
 ### Filling the settings slots
 
-A settings surface registers into the slot types this package declares. The shell (`sidebar.settings` occupant, navigation, chrome) lives in ui-settings-general; feature pages register `settings.section` contributions; the Plugins section hosts `settings.plugins.tab` pages; onboarding steps register `settings.onboarding`. Cross-namespace surfaces (schema introspection, the served-namespace directory, `hasDocument`) read the same mirror through `ctx.configForms.describe()`.
+A settings surface registers into the slot types this package declares. The shell (`sidebar.settings` occupant, navigation, chrome) lives in ui-settings-general; feature pages register `settings.section` contributions; the Plugins section hosts `settings.plugins.tab` pages. Cross-namespace surfaces (schema introspection, the served-namespace directory, `hasDocument`) read the same mirror through `ctx.configForms.describe()`.
 
 ### Observable success and failures
 
@@ -76,10 +76,10 @@ The provider owns one controller per Host entry, including its subscription and 
 
 These pages cover the settings surface family and the durable seam behind it.
 
-- [ui-settings-general](../ui-settings-general/README.md) — the settings shell: trigger chrome, navigation, General section, onboarding projection.
+- [ui-settings-general](../ui-settings-general/README.md) — the settings shell: trigger chrome, navigation, General section.
 - [ui-settings-plugins](../ui-settings-plugins/README.md) — the Built-in plugins section shell around the inventory tab.
 - [ui-settings-shell](../ui-settings-shell/README.md), [ui-settings-agent-loop](../ui-settings-agent-loop/README.md), [ui-settings-subagent](../ui-settings-subagent/README.md), [ui-settings-web-search](../ui-settings-web-search/README.md) — the official configuration pages on the Plugins page, each following its namespaces through `whileServed`.
-- [ui-settings-models](../ui-settings-models/README.md) — the Models page and DeepSeek onboarding over this base.
+- [ui-settings-models](../ui-settings-models/README.md) — the Models page over this base.
 - [settings](../../settings/README.md) — the durable user-settings seam and its file provider.
 - [ui-sidebar](../ui-sidebar/README.md) — the sidebar shell whose bottom seat hosts the settings trigger.
 

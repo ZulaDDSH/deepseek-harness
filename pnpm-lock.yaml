@@ -606,9 +606,6 @@ importers:
       '@deepseek-ai/dsh-client-shortcuts':
         specifier: workspace:*
         version: link:../../packages/client/shortcuts
-      '@deepseek-ai/dsh-client-ui-primitives':
-        specifier: workspace:*
-        version: link:../../packages/client/ui-primitives
       '@deepseek-ai/dsh-client-ui-settings-general':
         specifier: workspace:*
         version: link:../../packages/client/ui-settings-general
@@ -4927,9 +4924,6 @@ importers:
       '@deepseek-ai/dsh-client-locale':
         specifier: workspace:*
         version: link:../locale
-      '@deepseek-ai/dsh-client-product-analytics':
-        specifier: workspace:*
-        version: link:../product-analytics
       '@deepseek-ai/dsh-client-store':
         specifier: workspace:*
         version: link:../store
@@ -4951,9 +4945,6 @@ importers:
       '@deepseek-ai/dsh-client-ui-settings':
         specifier: workspace:*
         version: link:../ui-settings
-      '@deepseek-ai/dsh-client-ui-settings-models':
-        specifier: workspace:*
-        version: link:../ui-settings-models
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: workspace:*
         version: link:../ui-slots
@@ -5063,9 +5054,6 @@ importers:
       '@deepseek-ai/dsh-client-ui-renderer':
         specifier: workspace:*
         version: link:../ui-renderer
-      '@deepseek-ai/dsh-client-ui-session':
-        specifier: workspace:*
-        version: link:../ui-session
       '@deepseek-ai/dsh-client-ui-settings':
         specifier: workspace:*
         version: link:../ui-settings
@@ -5118,9 +5106,6 @@ importers:
       '@deepseek-ai/dsh-client-locale':
         specifier: workspace:*
         version: link:../locale
-      '@deepseek-ai/dsh-client-product-analytics':
-        specifier: workspace:*
-        version: link:../product-analytics
       '@deepseek-ai/dsh-client-store':
         specifier: workspace:*
         version: link:../store
@@ -5139,9 +5124,6 @@ importers:
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: workspace:*
         version: link:../ui-slots
-      '@deepseek-ai/dsh-host-webserver':
-        specifier: workspace:*
-        version: link:../../host/webserver
       '@deepseek-ai/dsh-remote-mock':
         specifier: workspace:*
         version: link:../../test-support/remote-mock
@@ -12733,6 +12715,9 @@ importers:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:*
         version: link:../../core/agent
+      '@deepseek-ai/dsh-api-session-controller':
+        specifier: workspace:*
+        version: link:../../api/session-controller
       '@deepseek-ai/dsh-app-boot':
         specifier: workspace:*
         version: link:../../boot/app-boot

@@ -22,6 +22,11 @@ it('injects configured contact options and removes the listener on disposal', as
   expect(table).toEqual([])
 })
 
+it('keeps retired onboarding keys in a legacy document', () => {
+  const legacy = { version: 1, step: 'done', completion: 'skipped', usage: 'compact', developerTools: false }
+  expect(Config(legacy as never)).toMatchObject(legacy)
+})
+
 it('hides the generated account form and releases its policy on disposal', async () => {
   const ctx = new Context()
   onTestFinished(() => ctx.fiber.dispose())

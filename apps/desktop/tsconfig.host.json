@@ -32,8 +32,5 @@
     {
       "path": "../../packages/client/product-analytics/tsconfig.host.json"
     }
-  ],
-  "exclude": [
-    "src/client"
   ]
 }

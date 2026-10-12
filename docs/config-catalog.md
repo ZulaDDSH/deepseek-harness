@@ -301,7 +301,7 @@ export interface QuotaWindow {
 ## `@deepseek-ai/dsh-api-session-controller`
 
 - `inject`: `agentDefaultModel` · `agents` · `attachments` · `fileUploads` · `fs` · `llm` · `sessions` · `sessionProjections` · `sessionQuery` · `typert` · `workspaceRegistry`
-- `source`: [`packages/api/session-controller/src/index.ts:88`](../packages/api/session-controller/src/index.ts)
+- `source`: [`packages/api/session-controller/src/index.ts:91`](../packages/api/session-controller/src/index.ts)
 
 ```ts config-catalog
 /** Session Controller deployment policy. */
@@ -669,27 +669,11 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-client-ui-settings-account`
 
-- `refs`: `Volatile` (`@deepseek-ai/cordis`)
-- `source`: [`packages/client/ui-settings-account/src/index.ts:9`](../packages/client/ui-settings-account/src/index.ts)
+- `source`: [`packages/client/ui-settings-account/src/index.ts:8`](../packages/client/ui-settings-account/src/index.ts)
 
 ```ts config-catalog
-/** Public contact options and live device-local onboarding progress. */
-export interface Config extends ContactConfig {
-  /** Onboarding progress format version. */
-  version: Volatile<1>
-  /** Last accepted onboarding page. */
-  step: Volatile<OnboardingStep>
-  /** Selected work scenario. */
-  purpose?: Volatile<OnboardingPurpose | null | undefined>
-  /** Selected transcript detail. */
-  process?: Volatile<OnboardingProcess | null | undefined>
-  /** Completion reason, absent until completion. */
-  completion?: Volatile<'completed' | 'skipped' | 'api-key' | null | undefined>
-  /** Selected usage detail. */
-  usage: Volatile<'compact' | 'detailed'>
-  /** Selected developer-tool visibility. */
-  developerTools: Volatile<boolean>
-}
+/** Public contact and bonus notice options. */
+export type Config = ContactConfig
 
 /** Questionnaire destination and bonus notice timings shared by Host and Client. */
 export interface ContactConfig {
@@ -702,33 +686,8 @@ export interface ContactConfig {
   /** Ceiling for the acknowledgement retry backoff. */
   bonusAckRetryMaxDelayMs: number
 }
-
-/** Persisted steps; a native top-up page leaves the durable step at credit. */
-export type OnboardingStep = 'welcome' | 'credit' | 'purpose' | 'process' | 'done'
-
-/** Work scenarios offered by the desktop introduction. */
-export type OnboardingPurpose = 'office' | 'development' | 'both'
-
-/** Work-detail mode applied to Chat when onboarding completes. */
-export type OnboardingProcess = 'compact' | 'standard' | 'detailed'
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-ui-settings-account -->
-
-<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-settings-models -->
-<a id="deepseek-aidsh-client-ui-settings-models"></a>
-
-## `@deepseek-ai/dsh-client-ui-settings-models`
-
-- `source`: [`packages/client/ui-settings-models/src/onboarding-config.ts:6`](../packages/client/ui-settings-models/src/onboarding-config.ts)
-
-```ts config-catalog
-/** Onboarding options after schema defaults are applied. */
-export interface Config {
-  /** Offer the browser API-key step when no native shell owns credential onboarding. */
-  credentialOnboarding: boolean
-}
-```
-<!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-ui-settings-models -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-sidebar-documentpreview -->
 <a id="deepseek-aidsh-client-ui-sidebar-documentpreview"></a>
@@ -3192,7 +3151,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-skill-filesystem`
 
 - `inject`: `skills`
-- `source`: [`packages/skill/skill-filesystem/src/index.ts:49`](../packages/skill/skill-filesystem/src/index.ts)
+- `source`: [`packages/skill/skill-filesystem/src/index.ts:51`](../packages/skill/skill-filesystem/src/index.ts)
 
 ```ts config-catalog
 /** Local filesystem skill provider configuration. */
@@ -3205,6 +3164,8 @@ export interface Config {
   dshHome?: string
   /** Shared agent config root. Defaults to `$DSH_AGENTS_HOME` or `~/.agents`. */
   agentsHome?: string
+  /** Claude Code config root. Defaults to `$CLAUDE_CONFIG_DIR` or `~/.claude`. */
+  claudeHome?: string
   /** Additional skill roots scanned after project roots and before user roots. */
   customSkillDirs?: string[]
   /** Whether host-local skill roots are watched for catalog changes. */
@@ -3495,9 +3456,9 @@ export type PermissionPolicy = 'allow' | 'reject'
 
 ## `@deepseek-ai/dsh-subagent-claude-code`
 
-- `inject`: `subagents` · `subprocess`
+- `inject`: `subagents` · `subprocess` · `sessionProjections`
 - `refs`: `AgentDefinition` (`@anthropic-ai/claude-agent-sdk`)
-- `source`: [`packages/subagent/subagent-claude-code/src/index.ts:39`](../packages/subagent/subagent-claude-code/src/index.ts)
+- `source`: [`packages/subagent/subagent-claude-code/src/index.ts:48`](../packages/subagent/subagent-claude-code/src/index.ts)
 
 ```ts config-catalog
 /** Deployment-owned model, permission, environment, and process-release settings. */
@@ -3519,10 +3480,11 @@ export interface Config {
    */
   permissionMode?: ClaudeCodePermissionMode
   /**
-   * Turns on native ultracode (standing Workflow-tool orchestration with
-   * workflows enabled) for every run; defaults to `false`. Workflow is
-   * pre-approved only in `dontAsk` and `acceptEdits` modes. Requires a Claude
-   * account or plan with workflows and a model that supports ultracode.
+   * Profile default for native ultracode (standing Workflow-tool orchestration
+   * with workflows enabled); the delegating Session's Ultracode toggle
+   * overrides it for that run. Defaults to `false`. Workflow is pre-approved
+   * only in `dontAsk` and `acceptEdits` modes. Requires a Claude account or
+   * plan with workflows and a model that supports ultracode.
    */
   ultracode?: boolean
   /** Native custom subagents, keyed by agent name, that each run can invoke through Claude Code's Agent tool. */
@@ -4712,6 +4674,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 | `@deepseek-ai/dsh-client-ui-settings` | — | [`packages/client/ui-settings/src/index.ts`](../packages/client/ui-settings/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings-agent-loop` | — | [`packages/client/ui-settings-agent-loop/src/index.ts`](../packages/client/ui-settings-agent-loop/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings-general` | — | [`packages/client/ui-settings-general/src/index.ts`](../packages/client/ui-settings-general/src/index.ts) |
+| `@deepseek-ai/dsh-client-ui-settings-models` | — | [`packages/client/ui-settings-models/src/index.ts`](../packages/client/ui-settings-models/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings-plugin-inventory` | — | [`packages/client/ui-settings-plugin-inventory/src/index.ts`](../packages/client/ui-settings-plugin-inventory/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings-plugins` | — | [`packages/client/ui-settings-plugins/src/index.ts`](../packages/client/ui-settings-plugins/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings-session-log` | — | [`packages/client/ui-settings-session-log/src/index.ts`](../packages/client/ui-settings-session-log/src/index.ts) |

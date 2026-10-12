@@ -4,7 +4,7 @@ import WebSocket from 'ws'
 import { parseRemoteStreamServerMessage, REMOTE_STREAM_MUX_PATH } from '@deepseek-ai/dsh-api-gateway/stream-protocol'
 import type { AccountClientMetadata, AccountView, SignInAttemptId } from '@deepseek-ai/dsh-deepseek-account/types'
 
-/** Authenticated unary caller shared with native onboarding. */
+/** Authenticated unary caller shared with native account operations. */
 export type AccountInvoke = (request: { namespace: string; method: string; args: Record<string, unknown> }) => Promise<unknown>
 
 /** Decode the UI-safe state received across HTTP or WebSocket. @param value - wire value. @returns account projection. */

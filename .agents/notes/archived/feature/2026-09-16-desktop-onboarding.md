@@ -1,6 +1,7 @@
 # Agent Note: Device-local Desktop onboarding
 
 Status: implemented
+Archived: 2026-10-12
 
 ## Problem
 

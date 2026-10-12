@@ -5,12 +5,9 @@
  * close label, sections) arrives from registrants through slots; accessible
  * names resolve from localized content (trigger: shell locale; dialog:
  * aria-labelledby the title node; close: visually-hidden slot text). Modal
- * open state and the active section id belong to the declared owner store;
- * the onboarding coordinator mounts exactly one ordered registrant while the
- * sessions-derived empty-Hero fact is active. Visible dialog chrome belongs
- * to the step, so a mounted-but-deciding step paints nothing here.
+ * open state and the active section id belong to the declared owner store.
  */
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import {
@@ -111,14 +108,12 @@ function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }: PanelP
  */
 export function SettingsRoot(props: SettingsRootComponentProps) {
   const {
-    wide, reconnect, useConnectionState, useSections, useOnboardingSteps, useSessions, renderSlot, t,
+    wide, reconnect, useConnectionState, useSections, renderSlot, t,
     useDesktopUpdate, openDesktopUpdate, useStore, actions, useShortcuts,
   } = props
   const { open, activeId } = useStore(state => state)
   const shortcut = useShortcuts(rows => rows.find(row => row.id === 'settings.open'))
   const { close, openSection } = actions
-  const [requestedOnboarding, setRequestedOnboarding] = useState<string | undefined>()
-  const [completedOnboarding, setCompletedOnboarding] = useState<ReadonlySet<string>>(() => new Set())
   const [showRecovery, setShowRecovery] = useState(false)
   const [holdConnecting, setHoldConnecting] = useState(false)
   const connectingShownAt = useRef<number | undefined>(undefined)
@@ -130,33 +125,6 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
   const desktopUpdate = useDesktopUpdate(state => state)
   const connectionState = useConnectionState(state => state)
   const previousConnectionState = useRef(connectionState)
-  const onboardingSteps = useOnboardingSteps(s => s)
-  const onboardingActive = useSessions((state) => {
-    const main = Object.values(state.byId)
-      .find(session => (session.retainedBy.mainView ?? 0) > 0)
-    return state.phase === 'ready' && (main === undefined || main.blank)
-  })
-  const onboardingStep = requestedOnboarding !== undefined
-    ? onboardingSteps.find(step => step.id === requestedOnboarding)
-    : onboardingActive
-      ? onboardingSteps.find(step => !completedOnboarding.has(step.id))
-      : undefined
-
-  useEffect(() => {
-    if (onboardingActive) return
-    setCompletedOnboarding(new Set())
-  }, [onboardingActive])
-
-  const onboardingStepSeen = useRef(onboardingStep)
-  // An onboarding step owns the viewport and marks `#root` inert. The panel portals
-  // beside `#root`, outside that mark, so a step that appears while the panel is open
-  // takes the panel down rather than leaving it focusable behind the onboarding mask.
-  useEffect(() => {
-    const appeared = onboardingStepSeen.current === undefined && onboardingStep !== undefined
-    onboardingStepSeen.current = onboardingStep
-    if (appeared && open) close()
-  }, [onboardingStep, open, close])
-
   useLayoutEffect(() => {
     const previous = previousConnectionState.current
     previousConnectionState.current = connectionState
@@ -194,14 +162,6 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
     }
   }, [connectionState])
 
-  const completeOnboardingStep = useCallback((id: string) => {
-    setRequestedOnboarding(undefined)
-    setCompletedOnboarding((previous) => {
-      if (previous.has(id)) return previous
-      return new Set([...previous, id])
-    })
-  }, [])
-
   let connectionIndicator: ConnectionIndicatorState | undefined
   if (connectionState === 'connecting' || holdConnecting) {
     connectionIndicator = 'connecting'
@@ -215,9 +175,8 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
     <>
       <div className={clsx(css.triggerRow, !wide && css.railRow)}>
         {renderSlot('settings.launcher', {
-          wide, settingsOpen: open, openSettings: actions.open,
+          wide, settingsOpen: open, openSettings: actions.open, openSection,
           ...(shortcut?.keys.length ? { settingsShortcut: { keys: shortcut.keys, aria: shortcut.aria } } : {}),
-          openOnboarding: (id) => { close(); setRequestedOnboarding(id) },
         }, { fallback: <Tooltip disabled={open} label={t('trigger')} shortcutKeys={shortcut?.keys}>
           <button
             type="button"
@@ -252,15 +211,6 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
           onClose={close}
         />
       )}
-      {/* Dialog chrome and `#root` inert ownership live inside each step's
-          visible branch. A step still deciding (private facts loading)
-          renders null, so nothing paints or blocks while it decides. */}
-      {onboardingStep !== undefined && renderSlot('settings.onboarding', {
-        stepId: onboardingStep.id,
-        explicit: requestedOnboarding !== undefined,
-        complete: () => { completeOnboardingStep(onboardingStep.id) },
-        openSection,
-      }, { only: onboardingStep.id })}
     </>
   )
 }

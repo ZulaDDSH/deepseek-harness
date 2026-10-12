@@ -33,11 +33,11 @@ it('disabled collection does not read identity or submit an event', async () => 
 
 it('reuses login identity and copies only approved common fields', async () => {
   const b = await setup(true)
-  await b.ctx.productAnalytics.report({ eventName: 'auth_page_click', timestamp: 100, attributes: { button_name: 'sign_in' } })
+  await b.ctx.productAnalytics.report({ eventName: 'sidebar_menu_click', timestamp: 100, attributes: { menu_name: 'plugin' } })
   expect(b.getDeviceIdentity).toHaveBeenCalledWith()
   expect(b.emit).toHaveBeenCalledExactlyOnceWith({
-    eventName: 'auth_page_click', body: 'auth_page_click', timestamp: 100,
-    attributes: { button_name: 'sign_in', device_id: 'login-device', user_id: 'user-1', app_version: 'test-version', os_version: expect.any(String) as string },
+    eventName: 'sidebar_menu_click', body: 'sidebar_menu_click', timestamp: 100,
+    attributes: { menu_name: 'plugin', device_id: 'login-device', user_id: 'user-1', app_version: 'test-version', os_version: expect.any(String) as string },
   })
   expect(JSON.stringify(b.emit.mock.calls)).not.toContain('private-')
 })
@@ -80,10 +80,10 @@ it('writes the selected event through the real exporter to an isolated collector
   await ctx.plugin(OTel)
   const exporter = await ctx.plugin(ProductTelemetry, TelemetryConfig({ endpoint: `http://127.0.0.1:${address.port}/v1/logs`, serviceName: 'test', serviceVersion: '1', compression: 'none' }))
   await ctx.plugin(Analytics, { enabled: true })
-  await ctx.productAnalytics.report({ eventName: 'api_key_save_click', timestamp: 1_800_000_000_000, attributes: {} })
+  await ctx.productAnalytics.report({ eventName: 'desktop_app_launch', timestamp: 1_800_000_000_000, attributes: {} })
   await exporter.dispose()
   expect(captures).toHaveLength(1)
-  expect(JSON.parse(captures[0]!)).toMatchObject({ resourceLogs: [{ scopeLogs: [{ logRecords: [{ eventName: 'api_key_save_click', timeUnixNano: '1800000000000000000' }] }] }] })
+  expect(JSON.parse(captures[0]!)).toMatchObject({ resourceLogs: [{ scopeLogs: [{ logRecords: [{ eventName: 'desktop_app_launch', timeUnixNano: '1800000000000000000' }] }] }] })
   expect(captures[0]).not.toContain('device_id')
   expect(captures[0]).not.toContain('app_version')
 })
@@ -130,7 +130,7 @@ it('streams live policy changes and rejects intake disabled during identity look
   expect(await iterator.next()).toEqual({ value: true, done: false })
   const identity = Promise.withResolvers<undefined>()
   b.getDeviceIdentity.mockReturnValueOnce(identity.promise)
-  const report = b.ctx.productAnalytics.report({ eventName: 'auth_page_view', timestamp: 1, attributes: {} })
+  const report = b.ctx.productAnalytics.report({ eventName: 'desktop_app_launch', timestamp: 1, attributes: {} })
   const next = iterator.next()
   // Loader commits the stable Config reference before publishing this notification.
   const { updateVolatile, createVolatile } = await import('../../../../vendor/cosmokit/src/volatile.ts')

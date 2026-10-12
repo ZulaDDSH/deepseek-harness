@@ -124,7 +124,6 @@ root
 │     ├─ settings.header
 │     ├─ settings.action
 │     ├─ settings.close
-│     ├─ settings.onboarding
 │     └─ settings.section
 │        ├─ settings.general.item
 │        ├─ settings.models.provider-card

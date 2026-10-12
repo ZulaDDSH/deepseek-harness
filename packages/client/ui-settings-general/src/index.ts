@@ -1,4 +1,4 @@
-/** Welcome acknowledgement stored in the plugin configuration. */
+/** Retired welcome acknowledgement, kept so earlier configurations still load. */
 import type {} from '@deepseek-ai/dsh-settings'
 
 import type { Volatile, Context } from '@deepseek-ai/cordis'
@@ -7,11 +7,11 @@ import z from '@deepseek-ai/schemastery'
 
 /** Runtime preferences projected to the browser. */
 export interface Config {
-  /** Last acknowledged welcome notice version. */
+  /** Last welcome notice version an earlier install acknowledged; no current code reads it. */
   welcomeNoticeVersion: Volatile<string | undefined>
 }
 
-/** Live welcome preference. */
+/** Live retired welcome preference. */
 export const Config = z.object({
   welcomeNoticeVersion: z.string().volatile(),
 })

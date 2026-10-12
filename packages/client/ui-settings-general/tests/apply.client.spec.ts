@@ -101,9 +101,8 @@ describe('ui-settings-general apply', () => {
     // The nav label is a locale-following thunk; owners resolve at read time.
     expect(generalLabel(c)).toBe('通用设置')
     expect(c.ctx.slots.spec('settings.general.item')).toEqual({ kind: 'list', scope: 'root' })
-    // The shared developer-tool control belongs to General; onboarding remains feature-owned.
+    // The shared developer-tool control belongs to General.
     expect(c.ctx.slots.entries('settings.general.item').filter(row => row.locale === NS).map(row => row.options.id)).toEqual(['developer-tools', 'current-version'])
-    expect(c.ctx.slots.entries('settings.onboarding').filter(row => row.locale === NS)).toEqual([])
     const developerRow = c.ctx.slots.entries('settings.general.item').find(row => row.options.id === 'developer-tools')!
     const developer = (developerRow.inject as unknown as () => DeveloperToolsRowInjected)()
     expect(developer.hooks.developerTools).toBe(c.ctx.configForms.developerTools.enabled)

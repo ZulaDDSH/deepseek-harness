@@ -33,7 +33,7 @@ function operationsOf(state: Omit<AccountView, 'links'>, details?: Partial<Accou
       theme: { getSnapshot: () => themeOf('light'), subscribe: () => () => {} },
     },
     hasRunningAccountTasks: vi.fn(async () => false),
-    contactUs: vi.fn(), showLogin: vi.fn(), setOnboarding: vi.fn(),
+    contactUs: vi.fn(), showLogin: vi.fn(),
     bonusNoticeShown: vi.fn(), bonusNoticeDismissed: vi.fn(),
     refreshAccount: vi.fn(() => Promise.resolve()),
     start: vi.fn(() => Promise.resolve()), cancel: vi.fn(() => Promise.resolve()), signOut: vi.fn(() => Promise.resolve()),
@@ -93,7 +93,7 @@ async function accountMenu(operations: AccountSectionInjected, snapshot: () => A
   return <AccountMenu {...({} as GlobalStandardProps)} {...operations}
     settingsOpen={settingsOpen} useAccount={selector => selector(snapshot())} wide
     useTheme={selector => selector(operations.hooks.theme.getSnapshot())}
-    openOnboarding={() => {}} openSettings={() => {}} t={key => en[key as AccountKey]} />
+    openSection={() => {}} openSettings={() => {}} t={key => en[key as AccountKey]} />
 }
 
 it.each([en, zh])('renders account cards without inventing profile or balance data', async (copy) => {
@@ -126,7 +126,7 @@ it.each([en, zh].flatMap(copy => ([false, true, 'unknown'] as const).map(running
   render(<AccountMenu {...({} as GlobalStandardProps)} {...operations} settingsOpen={false} signOut={signOut}
     hasRunningAccountTasks={async () => { if (running === 'unknown') throw new Error('offline'); return running }}
     useAccount={selector => selector(operations.hooks.account.getSnapshot())}
-    useTheme={selector => selector(operations.hooks.theme.getSnapshot())} wide openOnboarding={() => {}} openSettings={openSettings}
+    useTheme={selector => selector(operations.hooks.theme.getSnapshot())} wide openSection={() => {}} openSettings={openSettings}
     t={key => key in copy ? copy[key as AccountKey] : key} />)
   fireEvent.click(screen.getByRole('button', { name: copy.menu }))
   expect(screen.getAllByRole('menuitem').map(item => item.textContent)).toEqual([copy.settings, copy.contactUs, copy.signOut])
@@ -155,7 +155,7 @@ it.each([en, zh])('updates the Settings menu keycaps and accessible combination 
     useAccount: selector => selector(operations.hooks.account.getSnapshot()),
     useTheme: selector => selector(operations.hooks.theme.getSnapshot()),
     openSettings: vi.fn(() => { expect(document.activeElement).toBe(screen.getByRole('button', { name: copy.menu })) }),
-    openOnboarding: vi.fn(),
+    openSection: vi.fn(),
     t: key => key in copy ? copy[key as AccountKey] : key,
   }
   const view = render(<AccountMenu {...props} settingsShortcut={{ keys: ['⌘', ','], aria: 'Meta+,' }} />)
@@ -181,7 +181,7 @@ it.each([en, zh])('offers settings, contact and sign-in from the signed-out acco
   const { AccountMenu } = await import('../src/client/AccountMenu.tsx')
   render(<AccountMenu {...({} as GlobalStandardProps)} {...operations} settingsOpen={false}
     useAccount={selector => selector(operations.hooks.account.getSnapshot())}
-    useTheme={selector => selector(operations.hooks.theme.getSnapshot())} wide openOnboarding={() => {}} openSettings={openSettings}
+    useTheme={selector => selector(operations.hooks.theme.getSnapshot())} wide openSection={() => {}} openSettings={openSettings}
     t={key => key in copy ? copy[key as AccountKey] : key} />)
   const trigger = screen.getByRole('button', { name: copy.menu })
   expect(trigger.textContent).toBe(copy.more)
@@ -209,7 +209,7 @@ it('reports a failed start in the login dialog, not as a sidebar alert', async (
   })
   const view = render(<AccountMenu {...({} as GlobalStandardProps)} {...operations} settingsOpen={false} start={start}
     useAccount={selector => selector(snapshot)} useTheme={selector => selector(operations.hooks.theme.getSnapshot())}
-    wide openOnboarding={() => {}} openSettings={() => {}}
+    wide openSection={() => {}} openSettings={() => {}}
     t={key => key in en ? en[key as AccountKey] : key} />)
   fireEvent.click(screen.getByRole('button', { name: en.menu }))
   await act(async () => { fireEvent.click(screen.getByRole('menuitem', { name: en.signIn })) })
@@ -217,7 +217,7 @@ it('reports a failed start in the login dialog, not as a sidebar alert', async (
   expect(screen.queryByRole('alert')).toBeNull()
   view.rerender(<AccountMenu {...({} as GlobalStandardProps)} {...operations} settingsOpen={false} start={start}
     useAccount={selector => selector(snapshot)} useTheme={selector => selector(operations.hooks.theme.getSnapshot())}
-    wide openOnboarding={() => {}} openSettings={() => {}}
+    wide openSection={() => {}} openSettings={() => {}}
     t={key => key in en ? en[key as AccountKey] : key} />)
   expect(screen.getByRole('dialog').textContent).toContain(en.failed)
   expect(screen.queryByRole('alert')).toBeNull()
@@ -235,7 +235,7 @@ it('keeps the confirmation dialog open after a failed sign-out', async () => {
     signOut={signOut}
     useAccount={selector => selector(operations.hooks.account.getSnapshot())}
     useTheme={selector => selector(operations.hooks.theme.getSnapshot())} wide
-    openOnboarding={() => {}} openSettings={() => {}} t={key => key in en ? en[key as AccountKey] : key} />)
+    openSection={() => {}} openSettings={() => {}} t={key => key in en ? en[key as AccountKey] : key} />)
   fireEvent.click(screen.getByRole('button', { name: en.menu }))
   await act(async () => { fireEvent.click(screen.getByRole('menuitem', { name: en.signOut })) })
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: en.signOut })) })
@@ -396,7 +396,7 @@ it.each([
   render(<AccountMenu {...({} as GlobalStandardProps)} {...operations} settingsOpen={false}
     useAccount={selector => selector(operations.hooks.account.getSnapshot())}
     useTheme={selector => selector(operations.hooks.theme.getSnapshot())}
-    wide openSettings={() => {}} openOnboarding={() => {}} t={key => en[key as AccountKey]} />)
+    wide openSettings={() => {}} openSection={() => {}} t={key => en[key as AccountKey]} />)
   expect(screen.getByRole('button', { name: en.menu }).textContent).toBe(expected)
 })
 
@@ -408,7 +408,7 @@ it('shows the profile image in settings and the sidebar, with independent load-e
   render(<AccountMenu {...({} as GlobalStandardProps)} {...operations} settingsOpen={false}
     useAccount={selector => selector(operations.hooks.account.getSnapshot())}
     useTheme={selector => selector(operations.hooks.theme.getSnapshot())}
-    wide openSettings={() => {}} openOnboarding={() => {}} t={key => en[key as AccountKey]} />)
+    wide openSettings={() => {}} openSection={() => {}} t={key => en[key as AccountKey]} />)
   const images = document.querySelectorAll('img')
   expect(images).toHaveLength(2)
   for (const image of images) {
@@ -480,7 +480,7 @@ it.each([en, zh])('shows a localized toast when the account credential expires',
   const element = <AccountMenu {...({} as GlobalStandardProps)} {...operations}
     settingsOpen={false} subscribeSessionExpired={(listener) => { expire = listener; return unsubscribe }}
     useAccount={selector => selector(operations.hooks.account.getSnapshot())}
-    useTheme={selector => selector(operations.hooks.theme.getSnapshot())} wide openOnboarding={() => {}} openSettings={() => {}}
+    useTheme={selector => selector(operations.hooks.theme.getSnapshot())} wide openSection={() => {}} openSettings={() => {}}
     t={key => key in copy ? copy[key as AccountKey] : key} />
   const view = render(element)
   expect(screen.queryByRole('alert')).toBeNull()
@@ -570,13 +570,13 @@ it('reports a rejected settings login and disables login while initial state is 
   expect(screen.getByRole('status').textContent).toBe(en.failed)
 })
 
-it('dismisses a collapsed menu and hands its login dialog to the API-key onboarding step', async () => {
+it('dismisses a collapsed menu and hands its login dialog to Settings Models for an API key', async () => {
   const operations = mount({ status: 'credential-stored', attempt: null }, en, { profile: { status: 'failed' } })
   cleanup()
   const { AccountMenu } = await import('../src/client/AccountMenu.tsx')
-  const openOnboarding = vi.fn()
+  const openSection = vi.fn()
   let snapshot = operations.hooks.account.getSnapshot()
-  const props = { ...({} as GlobalStandardProps), ...operations, wide: false, settingsOpen: false, openSettings: vi.fn(), openOnboarding,
+  const props = { ...({} as GlobalStandardProps), ...operations, wide: false, settingsOpen: false, openSettings: vi.fn(), openSection,
     useAccount: <T,>(select: (value: AccountSnapshot) => T) => select(snapshot),
     useTheme: <T,>(select: (value: ThemeSnapshot) => T) => select(operations.hooks.theme.getSnapshot()),
     t: (key: string) => en[key as AccountKey] }
@@ -590,8 +590,8 @@ it('dismisses a collapsed menu and hands its login dialog to the API-key onboard
   fireEvent.click(screen.getByRole('button', { name: en.close }))
   expect(operations.showLogin).toHaveBeenLastCalledWith(false)
   fireEvent.click(screen.getByRole('button', { name: en.addApiKey }))
-  expect(openOnboarding).toHaveBeenCalledExactlyOnceWith('deepseek-official')
-  snapshot = { ...snapshot, onboarding: true }
+  expect(openSection).toHaveBeenCalledExactlyOnceWith('models')
+  snapshot = { ...snapshot, loginVisible: false }
   view.rerender(<AccountMenu {...props} />)
   expect(screen.queryByRole('dialog')).toBeNull()
 })
@@ -690,7 +690,7 @@ it.each([en, zh])('shows live model sign-in guidance without replaying it after 
   const element = <AccountMenu {...({} as GlobalStandardProps)} {...operations}
     settingsOpen={false}
     useAccount={selector => selector(operations.hooks.account.getSnapshot())}
-    useTheme={selector => selector(operations.hooks.theme.getSnapshot())} wide openOnboarding={() => {}} openSettings={() => {}}
+    useTheme={selector => selector(operations.hooks.theme.getSnapshot())} wide openSection={() => {}} openSettings={() => {}}
     t={key => key in copy ? copy[key as AccountKey] : key} />
   const view = render(element)
   expect(screen.queryByRole('alert')).toBeNull()
