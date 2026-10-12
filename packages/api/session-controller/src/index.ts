@@ -27,6 +27,7 @@ import { buildModelCatalog, hasProviderApiKey } from './catalog.ts'
 import { installModelSelectionProjection } from './model-selection-projection.ts'
 import { installMcpSelectionProjection } from './mcp-selection-projection.ts'
 import { installHookOverridesProjection } from './hook-overrides-projection.ts'
+import { installRunOptionsProjection } from './run-options-projection.ts'
 import type { HookInventoryReport } from '@deepseek-ai/dsh-hook-protocol'
 import { SessionSkillCatalog } from './skill-catalog.ts'
 import { SessionMediaReferences } from './media-references.ts'
@@ -68,6 +69,8 @@ import type {
   SessionProjectionsRequest,
   SessionProjectionsValue,
   SessionProjectionValues,
+  SessionSetRunOptionsRequest,
+  SessionRunOptions,
   SessionUpdateQueueRequest,
   SessionUpdateQueueValue,
 } from './types.ts'
@@ -146,6 +149,7 @@ export class SessionController extends TypertRemoteService {
     installModelSelectionProjection(ctx)
     installMcpSelectionProjection(ctx)
     installHookOverridesProjection(ctx)
+    installRunOptionsProjection(ctx)
     this.agents = new ApiSessionAgentController(ctx)
     this.commands = new SessionCommandController(ctx, this.agents, process.cwd())
     ctx.effect(() => ctx.fileUploads.registerAgentResolver(async (sessionId) => {
@@ -320,6 +324,16 @@ export class SessionController extends TypertRemoteService {
   @Remote('setHookOverrides')
   setHookOverrides(request: SessionSetHookOverridesRequest): Promise<HookOverrides> {
     return this.commands.setHookOverrides(request)
+  }
+
+  /**
+   * Replace the Claude Code fast-mode and ultracode toggles of one Session.
+   * @param request - Session identity and the toggles to store.
+   * @returns the stored toggles.
+   */
+  @Remote('setRunOptions')
+  setRunOptions(request: SessionSetRunOptionsRequest): Promise<SessionRunOptions> {
+    return this.commands.setRunOptions(request)
   }
 
   /**

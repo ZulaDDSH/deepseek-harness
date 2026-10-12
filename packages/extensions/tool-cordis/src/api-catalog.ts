@@ -2119,6 +2119,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the stored overrides.',
       },
       {
+        signature: '@Remote(\'setRunOptions\') setRunOptions(request: SessionSetRunOptionsRequest): Promise<SessionRunOptions>',
+        description: 'Replace the Claude Code fast-mode and ultracode toggles of one Session.',
+        parameters: [{ name: 'request', description: 'Session identity and the toggles to store.' }],
+        returns: 'the stored toggles.',
+      },
+      {
         signature: '@Remote(\'selectMcp\') selectMcp(request: SessionSelectMcpRequest): Promise<SessionSelectMcpValue>',
         description: 'Select MCP connector namespaces for one Session.',
         parameters: [{ name: 'request', description: 'Session identity and selected connector namespaces.' }],
@@ -6181,10 +6187,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface OfficeToPdfResult {\n    readonly pdf: Uint8Array;\n    readonly missingFonts: string[];\n    readonly cacheKey: OfficeToPdfKey;\n    readonly generation: OfficeToPdfGeneration;\n}',
   },
   {
-    name: 'OnboardingPage',
-    declaration: 'export type OnboardingPage = \'onboarding_welcome\' | \'onboarding_recharge\' | \'onboarding_use_case\' | \'onboarding_process\';',
-  },
-  {
     name: 'OneShotScheduleRecord',
     declaration: 'export type OneShotScheduleRecord = AfterScheduleRecord | AtScheduleRecord;',
   },
@@ -6338,7 +6340,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ProductEventMap',
-    declaration: 'export interface ProductEventMap {\n    desktop_app_launch: Record<string, never>;\n    auth_page_view: Record<string, never>;\n    auth_page_click: {\n        button_name: \'sign_in\' | \'api-key\';\n    };\n    api_key_save_click: Record<string, never>;\n    onboarding_page_view: {\n        page_name: OnboardingPage;\n    };\n    onboarding_page_click: {\n        page_name: OnboardingPage;\n        button_name: \'next\' | \'back\' | \'skip\' | \'charge\' | \'later\' | \'continue\';\n        selected_content?: \'office\' | \'code\' | \'code_office\' | \'focus_result\' | \'key_detail\' | \'full_process\';\n    };\n    onboarding_popup_view: {\n        popup_name: \'skip_charge\' | \'skip_setting\';\n    };\n    onboarding_popup_click: {\n        popup_name: \'skip_charge\' | \'skip_setting\';\n        button_name: \'charge\' | \'know\' | \'enter\' | \'setting\' | \'close\';\n    };\n    desktop_upgrade_click: Record<string, never>;\n    desktop_upgrade_download_result: {\n        is_success: boolean;\n        error_reason?: string;\n    };\n    desktop_upgrade_install_restart_click: Record<string, never>;\n    send_button_click: {\n        session_id?: SessionId;\n        model_name?: string;\n        thinking_effort?: string;\n        run_mode: \'plan\' | \'goal\' | \'default\';\n        msg_type: \'default\' | \'steer\' | \'queue\';\n    };\n    model_switch: {\n        session_id?: SessionId;\n        switch_from: string;\n        switch_to: string;\n    };\n    thinking_level_switch: {\n        session_id?: SessionId;\n        switch_from: string;\n        switch_to: str /* …truncated — full shape in source */',
+    declaration: 'export interface ProductEventMap {\n    desktop_app_launch: Record<string, never>;\n    desktop_upgrade_click: Record<string, never>;\n    desktop_upgrade_download_result: {\n        is_success: boolean;\n        error_reason?: string;\n    };\n    desktop_upgrade_install_restart_click: Record<string, never>;\n    send_button_click: {\n        session_id?: SessionId;\n        model_name?: string;\n        thinking_effort?: string;\n        run_mode: \'plan\' | \'goal\' | \'default\';\n        msg_type: \'default\' | \'steer\' | \'queue\';\n    };\n    model_switch: {\n        session_id?: SessionId;\n        switch_from: string;\n        switch_to: string;\n    };\n    thinking_level_switch: {\n        session_id?: SessionId;\n        switch_from: string;\n        switch_to: string;\n        model_name: string;\n    };\n    context_compression: {\n        session_id: SessionId;\n        trigger_type: \'auto\' | \'manual\';\n    };\n    branch_session_click: {\n        session_id: SessionId;\n        parent_session_id: SessionId;\n        parent_message_id?: MessageId;\n        click_position: \'footer\' | \'sidebar\';\n    };\n    sidebar_menu_click: {\n        menu_name: \'plugin\' | \'cron\';\n    };\n    plugin_toggle: {\n        plugin_name: string;\n        plugin_type: \'plugin\' | \'bundle\';\n        is_enabled: boolean;\n        is_builtin: boolean;\n    };\n    plugin_add_button_click: Record<string, never>;\n    plugin_install_click: {\n        input_value: string;\n    };\n    install_plugin_result: {\n        input_value: string;\n        i /* …truncated — full shape in source */',
   },
   {
     name: 'ProductTelemetryRecord',
@@ -7157,6 +7159,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionResultRange {\n    from?: number;\n    to?: number;\n}',
   },
   {
+    name: 'SessionRunOptions',
+    declaration: 'export interface SessionRunOptions {\n    readonly fastMode?: boolean | undefined;\n    readonly ultracode?: boolean | undefined;\n}',
+  },
+  {
     name: 'SessionSearchCursor',
     declaration: 'export type SessionSearchCursor = Branded<\'SessionSearchCursor\'>;',
   },
@@ -7211,6 +7217,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionSetHookOverridesRequest',
     declaration: 'export interface SessionSetHookOverridesRequest {\n    readonly sessionId: SessionId;\n    readonly overrides: Readonly<Record<string, boolean>>;\n}',
+  },
+  {
+    name: 'SessionSetRunOptionsRequest',
+    declaration: 'export interface SessionSetRunOptionsRequest extends SessionRunOptions {\n    readonly sessionId: SessionId;\n}',
   },
   {
     name: 'SessionStartSource',

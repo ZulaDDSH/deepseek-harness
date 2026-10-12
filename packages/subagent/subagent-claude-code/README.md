@@ -45,7 +45,7 @@ Removing the package withdraws the provider and its private runtime closure on t
 | `model` | native Claude settings | Optional non-empty model name fixed for every run from this provider instance; omission sends no SDK override |
 | `env` | `{}` | Explicit SDK/CLI environment layered over the credential-scrubbed parent environment |
 | `permissionMode` | `dontAsk` | Native non-interactive permission policy fixed for every run from this provider instance |
-| `ultracode` | `false` | Turns on native ultracode for every run: sends flag settings `ultracode` and `enableWorkflows`, and pre-approves the `Workflow` tool only in `dontAsk` and `acceptEdits` modes. In `auto`, `plan`, and `bypassPermissions` the Workflow launch stays under native permission handling. Each pre-approved run makes the SDK emit a `CLAUDE_SDK_CAN_USE_TOOL_SHADOWED` process warning on host stderr |
+| `ultracode` | `false` | Profile default for native ultracode; the delegating Session's Ultracode toggle overrides it for that run. When on, sends flag settings `ultracode` and `enableWorkflows`, and pre-approves the `Workflow` tool only in `dontAsk` and `acceptEdits` modes. In `auto`, `plan`, and `bypassPermissions` the Workflow launch stays under native permission handling. Each pre-approved run makes the SDK emit a `CLAUDE_SDK_CAN_USE_TOOL_SHADOWED` process warning on host stderr |
 | `agents` | none | Native custom subagents (`Options.agents`, the current SDK AgentDefinition fields, including `criticalSystemReminder_EXPERIMENTAL`) that each run's Agent tool and workflows can invoke; omitted optional fields stay omitted so the SDK applies its own defaults, and agent `permissionMode` accepts the five provider modes but not `default` |
 | `disposeGraceMs` | `3000` | Grace between the shared managed-range owner's termination tiers |
 
@@ -57,7 +57,11 @@ Removing the package withdraws the provider and its private runtime closure on t
 | `plan` | Run in native planning mode, deny execution approval, and return the completed plan as the final answer |
 | `bypassPermissions` | Explicitly set the SDK's dangerous confirmation and bypass permission checks |
 
-The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-subagent-claude-code) is the exhaustive source for every accepted field and its JSDoc. A configured `model` passes unchanged to every query from that provider instance; omission leaves native model selection in force. Credential-shaped ambient variables are removed before the explicit `env` overlay, so an API key intended for the child must be supplied there. The provider omits the SDK `settingSources` option, so Claude Code reads the host's normal user, project, and local settings relative to the parent Session cwd. It does not copy or filter those files, create or modify login state, inspect `PATH`, or fall back to a host `claude` executable.
+The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-subagent-claude-code) is the exhaustive source for every accepted field and its JSDoc. Each run's `effort` is the delegating Session's current reasoning effort when it is a native level (`low`, `medium`, `high`, `xhigh`, or `max`); other route effort IDs are omitted. The Session's fast-mode toggle is sent as flag setting `fastMode` when set. A configured `model` passes unchanged to every query from that provider instance; omission leaves native model selection in force. Credential-shaped ambient variables are removed before the explicit `env` overlay, so an API key intended for the child must be supplied there. The provider omits the SDK `settingSources` option, so Claude Code reads the host's normal user, project, and local settings relative to the parent Session cwd. It does not copy or filter those files, create or modify login state, inspect `PATH`, or fall back to a host `claude` executable.
+
+### Skills
+
+Because the provider omits `settingSources`, the child discovers native Claude Code skills from `<cwd>/.claude/skills`, `~/.claude/skills` (or `$CLAUDE_CONFIG_DIR/skills`), and plugins. Runs in `dontAsk` and `acceptEdits` pass the SDK option `skills: 'all'`, which enables every discovered project, user, and plugin skill and pre-approves the `Skill` tool the same way ultracode pre-approves `Workflow`; like that pre-approval, it makes the SDK emit a `CLAUDE_SDK_CAN_USE_TOOL_SHADOWED` process warning on host stderr. Without it, the CLI denies `Skill` calls in `dontAsk`. Project `.claude` skills belong to the project settings scope the provider already loads, and a skill's `allowed-tools` frontmatter can pre-approve tools while that skill runs unless managed settings disable it. `auto` and `plan` do not pass `skills`, so a `Skill` request there takes native permission handling, and the unattended callback denies any request that reaches it.
 
 ### Exposing the tool
 
@@ -100,7 +104,7 @@ This section explains how the provider drives a real Claude Code CLI and where t
 ### Design concept
 
 - **One fresh query per run.** Every run has an independent SDK query, cancellation controller, CLI process, and non-persisted product session; there is no continuation, resume, or pooling.
-- **Native settings are authoritative.** The provider deliberately omits the SDK `settingSources` option, so Claude Code reads the host's normal user, project, and local settings; an optional `model`, the required `permissionMode`, and the optional `ultracode` and `agents` are the only query-level overrides.
+- **Native settings are authoritative.** The provider deliberately omits the SDK `settingSources` option, so Claude Code reads the host's normal user, project, and local settings; an optional `model`, the required `permissionMode`, the optional `agents`, and the delegating Session's effort, fast-mode, and ultracode choices are the only query-level overrides.
 - **Unattended by design.** `AskUserQuestion` is disabled and permission prompts are denied except in bypass mode, so the query never waits for a user interface.
 
 ### Source map
@@ -182,6 +186,7 @@ These limits define when this provider is a poor fit or needs special operationa
 - **Agent `permissionMode` is operator-owned** — a Profile-fixed agent can set `acceptEdits` or `bypassPermissions` even when the provider runs `dontAsk` or `plan`, so configure agent modes with the same care as the provider mode.
 - **No optional shared capabilities** — `agentOptions`, output schemas, child personas, tool filtering, and harness depth enforcement are rejected by the shared service for this provider; Profile-fixed native `agents` are a separate Claude Code setting and stay available.
 - **No wall-clock timeout or side-effect rollback** — the caller cancels long work, and files or external systems changed before cancellation are not restored.
+- **DSH-only skills are invisible to the child** — skills that exist only in DSH roots (`.dsh/skills`, `.agents/skills`, custom or bundled roots) are not visible to the Claude Code child, which reads only the native Claude Code skill locations.
 
 <a id="dev-note"></a>
 ### Dev Note

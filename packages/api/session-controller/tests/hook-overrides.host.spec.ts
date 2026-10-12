@@ -65,3 +65,24 @@ it('lists loaded bridge hooks and records per-Session overrides in the projectio
     .resolves.toEqual({ overrides: { k1: true, k2: false } })
   expect(ctx.sessionProjections.stateOf(agent.session, 'hookOverrides')).toEqual({ current: { overrides: { k1: true, k2: false } } })
 })
+
+it('records per-Session Claude Code run toggles in the runOptions projection', async () => {
+  const ctx = new Context()
+  roots.push(ctx)
+  await ctx.plugin(TypertRegistry)
+  await ctx.plugin(SessionStore)
+  await ctx.plugin(AgentRegistry)
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRuntime)
+  const controller = createSessionTestController(ctx, {
+    defaultModelSelection: () => ({ provider: 'fixture', model: 'fixture-model' }), cwd: '/workspace',
+  })
+  const agent = agentUnder(ctx, 'run-options')
+  await ctx.agents.register(agent)
+  expect(ctx.sessionProjections.stateOf(agent.session, 'runOptions')).toEqual({ current: null })
+  agent.session.append('mcp/selection', { connectorIds: [] })
+  expect(ctx.sessionProjections.stateOf(agent.session, 'runOptions')).toEqual({ current: null })
+  await expect(controller.setRunOptions({ sessionId: agent.id, fastMode: true, ultracode: false }))
+    .resolves.toEqual({ fastMode: true, ultracode: false })
+  expect(ctx.sessionProjections.stateOf(agent.session, 'runOptions')).toEqual({ current: { fastMode: true, ultracode: false } })
+})

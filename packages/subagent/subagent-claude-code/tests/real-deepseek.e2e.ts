@@ -128,8 +128,8 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)(
       const nonce = `DSH_CLAUDE_DEEPSEEK_${randomUUID()}`
       const parent = {
         id: 'deepseek-e2e-parent',
-        session: { header: { cwd: workspace } },
-      } as unknown as Agent
+        session: { header: { cwd: workspace }, requestHeader: () => undefined },
+      } as Agent
       const run = await ctx.subagents.start('claude-code', {
         prompt: [{
           type: 'text',

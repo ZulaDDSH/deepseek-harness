@@ -79,8 +79,8 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async importOriginal => ({
 
 const fakeParent = {
   id: 'parent',
-  session: { header: { cwd: process.cwd() } },
-} as unknown as Agent
+  session: { header: { cwd: process.cwd() }, requestHeader: () => undefined },
+} as Agent
 
 function request(
   prompt: ContentBlock[] = [{ type: 'text', text: 'do the task' }],
@@ -771,10 +771,52 @@ describe('task admission and package contracts', () => {
     await ctx.fiber.dispose()
   })
 
+  it('takes fast mode, ultracode and a native effort from the delegating Session', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(SubagentRuntime)
+    await ctx.plugin(LocalSubprocessRuntime)
+    vi.spyOn(ctx.subprocess, 'spawn').mockImplementation(() => fakeChild().handle)
+    vi.spyOn(ctx.subprocess, 'resolveExecutable').mockResolvedValue('/host/bin/claude')
+    await ctx.plugin(claudeCode, { ultracode: true, disposeGraceMs: 29 })
+    const stateOf = vi.spyOn(ctx.sessionProjections, 'stateOf')
+      .mockReturnValue({ current: { fastMode: true, ultracode: false } })
+    const parentWithEffort = (reasoningEffort: string) => ({
+      id: 'parent-with-run-options',
+      options: {},
+      session: {
+        header: { cwd: process.cwd() },
+        requestHeader: () => ({ config: { provider: 'p', model: 'm', reasoningEffort } }),
+      },
+    } as Agent)
+
+    const first = await ctx.subagents.start('claude-code', {
+      ...request(),
+      parent: parentWithEffort('high'),
+    })
+    const firstOptions = queryMock.mock.calls[0]?.[0].options
+    expect(firstOptions?.effort).toBe('high')
+    expect(firstOptions?.settings).toEqual({ fastMode: true })
+    expect(firstOptions).not.toHaveProperty('allowedTools')
+    await first.dispose()
+
+    stateOf.mockReturnValue(undefined)
+    const second = await ctx.subagents.start('claude-code', {
+      ...request(),
+      parent: parentWithEffort('deepseek-think-max'),
+    })
+    const secondOptions = queryMock.mock.calls[1]?.[0].options
+    expect(secondOptions).not.toHaveProperty('effort')
+    expect(secondOptions?.settings).toEqual({ ultracode: true, enableWorkflows: true })
+    expect(secondOptions?.allowedTools).toEqual(['Workflow'])
+    await second.dispose()
+    await ctx.fiber.dispose()
+  })
+
   it('keeps the Loader namespace shape', () => {
     expect('default' in claudeCode).toBe(false)
     expect(claudeCode.name).toBe('subagent-claude-code')
-    expect(claudeCode.inject).toEqual(['subagents', 'subprocess'])
+    expect(claudeCode.inject).toEqual(['subagents', 'subprocess', 'sessionProjections'])
     const loader = Object.create(Loader.prototype) as Loader
     expect(loader.unwrapExports(claudeCode)).toBe(claudeCode)
   })
@@ -945,6 +987,7 @@ describe('query options and result mapping', () => {
     expect(options).not.toHaveProperty('settingSources')
     expect(options).not.toHaveProperty('settings')
     expect(options).not.toHaveProperty('allowedTools')
+    expect(options.skills).toBe('all')
     expect(options).not.toHaveProperty('agents')
 
     const callbackSignal = new AbortController().signal
@@ -1011,6 +1054,12 @@ describe('query options and result mapping', () => {
       expect(options.disallowedTools).toEqual(permissionMode === 'plan'
         ? ['AskUserQuestion', 'ExitPlanMode']
         : ['AskUserQuestion'])
+      expect(options).not.toHaveProperty('settingSources')
+      if (['dontAsk', 'acceptEdits'].includes(permissionMode)) {
+        expect(options.skills).toBe('all')
+      } else {
+        expect(options).not.toHaveProperty('skills')
+      }
       if (permissionMode === 'bypassPermissions') {
         expect(options.allowDangerouslySkipPermissions).toBe(true)
         expect(options).not.toHaveProperty('canUseTool')
@@ -1067,6 +1116,24 @@ describe('query options and result mapping', () => {
     expect(withoutUltracode).not.toHaveProperty('settings')
     expect(withoutUltracode).not.toHaveProperty('allowedTools')
     expect(withoutUltracode.agents).toBe(agents)
+
+    const withRunOptions = claudeQueryOptions(
+      { ...spec, fastMode: true, effort: 'xhigh' },
+      new AbortController(),
+      () => {},
+      () => {},
+    )
+    expect(withRunOptions.settings).toEqual({ ultracode: true, enableWorkflows: true, fastMode: true })
+    expect(withRunOptions.effort).toBe('xhigh')
+
+    const fastOff = claudeQueryOptions(
+      { ...spec, ultracode: false, fastMode: false },
+      new AbortController(),
+      () => {},
+      () => {},
+    )
+    expect(fastOff.settings).toEqual({ fastMode: false })
+    expect(fastOff).not.toHaveProperty('effort')
   })
 
   it('disallows ExitPlanMode before native plan-mode allow rules', () => {

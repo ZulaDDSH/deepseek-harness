@@ -1,0 +1,81 @@
+{
+  "formatVersion": 2,
+  "roots": [
+    {
+      "key": "event:session/run-options",
+      "kind": "event",
+      "event": "session/run-options",
+      "surface": false,
+      "digest": "0bf87fdace9d0bd797594ab660e895ad3073359cfb4f3ad3a70129a29b507471",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "data",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "ignorable",
+                "type": 3,
+                "optional": true
+              },
+              {
+                "name": "seq",
+                "type": 4,
+                "optional": false
+              },
+              {
+                "name": "time",
+                "type": 4,
+                "optional": false
+              },
+              {
+                "name": "type",
+                "type": 5,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "fastMode",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "ultracode",
+                "type": 2,
+                "optional": true
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "boolean"
+          },
+          {
+            "kind": "literal",
+            "value": true
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          },
+          {
+            "kind": "literal",
+            "value": "session/run-options"
+          }
+        ]
+      }
+    }
+  ],
+  "types": []
+}

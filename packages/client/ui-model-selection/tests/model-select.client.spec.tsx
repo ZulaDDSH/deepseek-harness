@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ModelSelection } from '@deepseek-ai/dsh-api-remotes/client'
+import type { SessionRunOptions, SessionRunOptionsProjection } from '@deepseek-ai/dsh-api-session-controller/types'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ComponentProps } from 'react'
 import type { ModelDirectoryState } from '../src/client/directory.ts'
@@ -717,4 +718,42 @@ it('restores the account model name after login without changing the saved route
   act(() => { directory.update((snapshot) => { snapshot.groups = groups; snapshot.routable = true }) })
   expect(screen.getByRole('button', { name: /选择模型，当前/ }).textContent).toBe('DeepSeek FlashHigh')
   expect(directory.getSnapshot().current).toEqual(selected)
+})
+
+it('toggles the Claude Code run options through root menu checkboxes', async () => {
+  const runOptions = createSnapshotStore<SessionRunOptionsProjection | undefined>({ current: { fastMode: true } })
+  const setRunOptions = vi.fn(async (options: SessionRunOptions) => ({ ok: true as const, value: options }))
+  render(<ModelSelect
+    locked={false} favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()} available
+    directory={createSnapshotStore(state())} load={vi.fn()} select={vi.fn()}
+    runOptions={runOptions} setRunOptions={setRunOptions} t={t} />)
+  fireEvent.click(screen.getByRole('button', { name: /选择模型，当前/ }))
+  expect(screen.getByRole('menuitemcheckbox', { name: '快速模式 (Claude Code)' }).getAttribute('aria-checked')).toBe('true')
+  expect(screen.getByRole('menuitemcheckbox', { name: 'Ultracode (Claude Code)' }).getAttribute('aria-checked')).toBe('false')
+  fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Ultracode (Claude Code)' }))
+  await waitFor(() => { expect(setRunOptions).toHaveBeenCalledWith({ fastMode: true, ultracode: true }) })
+})
+
+it('announces a rejected run-option write in the toast', async () => {
+  const runOptions = createSnapshotStore<SessionRunOptionsProjection | undefined>({ current: {} })
+  const setRunOptions = vi.fn(async () => ({
+    ok: false as const,
+    error: new RemoteError('session/model-unavailable', 'run options rejected', { provider: 'deepseek-official', model: 'deepseek-v4-pro' }),
+  }))
+  render(<ModelSelect
+    locked={false} favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()} available
+    directory={createSnapshotStore(state())} load={vi.fn()} select={vi.fn()}
+    runOptions={runOptions} setRunOptions={setRunOptions} t={t} />)
+  fireEvent.click(screen.getByRole('button', { name: /选择模型，当前/ }))
+  fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Ultracode (Claude Code)' }))
+  const toast = await screen.findByRole('alert')
+  expect(toast.textContent).toBe('模型操作失败：session/model-unavailable: run options rejected')
+})
+
+it('omits the run option checkboxes without a Session run-options face', () => {
+  render(<ModelSelect
+    locked={false} favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()} available
+    directory={createSnapshotStore(state())} load={vi.fn()} select={vi.fn()} t={t} />)
+  fireEvent.click(screen.getByRole('button', { name: /选择模型，当前/ }))
+  expect(screen.queryAllByRole('menuitemcheckbox')).toHaveLength(0)
 })

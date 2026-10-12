@@ -49,7 +49,9 @@ import type {
   SessionRenameValue,
   SessionSelectMcpRequest,
   SessionSetHookOverridesRequest,
+  SessionSetRunOptionsRequest,
   HookOverrides,
+  SessionRunOptions,
   SessionSelectMcpValue,
   SessionSelectModelRequest,
   SessionSelectModelValue,
@@ -156,6 +158,21 @@ export class SessionCommandController {
     const agent = await this.resolveAgent(request.sessionId)
     const value = { overrides: { ...request.overrides } }
     agent.session.append('hooks/session-overrides', value)
+    return value
+  }
+
+  /**
+   * Persist the Claude Code fast-mode and ultracode toggles of one Session.
+   * @param request - Session identity and the toggles to store.
+   * @returns the stored toggles.
+   */
+  async setRunOptions(request: SessionSetRunOptionsRequest): Promise<SessionRunOptions> {
+    const agent = await this.resolveAgent(request.sessionId)
+    const value: SessionRunOptions = {
+      ...request.fastMode === undefined ? {} : { fastMode: request.fastMode },
+      ...request.ultracode === undefined ? {} : { ultracode: request.ultracode },
+    }
+    agent.session.append('session/run-options', value)
     return value
   }
 

@@ -6,13 +6,17 @@
  * @module @deepseek-ai/dsh-subagent-claude-code
  */
 
-import type { AgentDefinition } from '@anthropic-ai/claude-agent-sdk'
+import type { AgentDefinition, EffortLevel } from '@anthropic-ai/claude-agent-sdk'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+// Type-only: make `ctx.sessionProjections` resolve and the per-Session `runOptions` key typed.
+import type {} from '@deepseek-ai/dsh-session-projection'
+import type {} from '@deepseek-ai/dsh-api-session-controller'
 import {
   assertPositiveFinite,
   NO_START_CAPABILITIES,
+  parentAgentOptionsForDelegation,
   resolveChildCwd,
   type ResolvedSubagentStartRequest,
   type SubagentCapabilities,
@@ -29,9 +33,14 @@ import {
 } from './run.ts'
 
 export const name = 'subagent-claude-code'
-export const inject = ['subagents', 'subprocess']
+export const inject = ['subagents', 'subprocess', 'sessionProjections']
 
 const DEFAULT_PROVIDER_NAME = 'claude-code'
+const SDK_EFFORT_LEVELS: readonly EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max']
+
+function isSdkEffort(value: string | undefined): value is EffortLevel {
+  return SDK_EFFORT_LEVELS.some(level => level === value)
+}
 
 /* jscpd:ignore-start -- sibling product providers intentionally expose
  * overlapping deployment-owned fields without adding a shared config owner. */
@@ -54,10 +63,11 @@ export interface Config {
    */
   permissionMode?: ClaudeCodePermissionMode
   /**
-   * Turns on native ultracode (standing Workflow-tool orchestration with
-   * workflows enabled) for every run; defaults to `false`. Workflow is
-   * pre-approved only in `dontAsk` and `acceptEdits` modes. Requires a Claude
-   * account or plan with workflows and a model that supports ultracode.
+   * Profile default for native ultracode (standing Workflow-tool orchestration
+   * with workflows enabled); the delegating Session's Ultracode toggle
+   * overrides it for that run. Defaults to `false`. Workflow is pre-approved
+   * only in `dontAsk` and `acceptEdits` modes. Requires a Claude account or
+   * plan with workflows and a model that supports ultracode.
    */
   ultracode?: boolean
   /** Native custom subagents, keyed by agent name, that each run can invoke through Claude Code's Agent tool. */
@@ -141,11 +151,15 @@ class ClaudeCodeProvider implements SubagentProvider {
       )
       throw failure
     }
+    const effort = parentAgentOptionsForDelegation(request.parent).reasoningEffort
+    const runOptions = this.ctx.sessionProjections.stateOf(request.parent.session, 'runOptions')?.current
     const spec: ClaudeCodeRunSpec = {
       cwd,
       ...this.config.model === undefined ? {} : { model: this.config.model },
       permissionMode: this.config.permissionMode,
-      ultracode: this.config.ultracode,
+      ultracode: runOptions?.ultracode ?? this.config.ultracode,
+      ...runOptions?.fastMode === undefined ? {} : { fastMode: runOptions.fastMode },
+      ...isSdkEffort(effort) ? { effort } : {},
       ...this.config.agents === undefined ? {} : { agents: this.config.agents },
       env: this.config.env,
       disposeGraceMs: this.config.disposeGraceMs,

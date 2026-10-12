@@ -11,8 +11,9 @@
  * history outside the direct-parent continuation path.
  */
 // Type-only: the carrier types, the forwarded Host-event face and the ctx.remote merge.
-import type { ModelSelection } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { ModelSelection, SessionRunOptionsProjection } from '@deepseek-ai/dsh-api-session-controller/types'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
+import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { CommandUiContract, SelectOption } from '@deepseek-ai/dsh-client-ui-commands/client'
 // Type-only: pulls the ui-conversation SlotMap merge (the input.model seat).
@@ -208,6 +209,10 @@ export function apply(ctx: ClientContext): void {
           },
           select: (selection: ModelSelection) => available
             ? directory.select(selection)
+            : Promise.resolve(undefined),
+          runOptions: sessions.binding(sessionId)?.session.projections.faceOf('runOptions') as ObservableSnapshot<SessionRunOptionsProjection | undefined> | undefined,
+          setRunOptions: options => available
+            ? scope.remote.session.setRunOptions({ sessionId, ...options })
             : Promise.resolve(undefined),
         }
       },

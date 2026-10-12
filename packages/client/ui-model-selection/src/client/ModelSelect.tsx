@@ -27,6 +27,7 @@ import {
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import type { ModelReasoningEffort, ModelSelection } from '@deepseek-ai/dsh-api-remotes/client'
+import type { SessionRunOptions } from '@deepseek-ai/dsh-api-session-controller/types'
 import {
   IconCheckOutlineRegular, IconChevronDownOutlineRegular, IconChevronRightOutlineRegular,
   IconDataOutlineRegular, IconWarningOutlineRegular, StateDot, Toast,
@@ -63,7 +64,7 @@ const MEASURE_STYLE: CSSProperties = { visibility: 'hidden', left: 0, top: 0 }
  * @returns the trigger and, while open, the two-level menu.
  */
 export function ModelSelect(
-  { locked, available, directory, load, select, favorites, toggleFavorite, t }:
+  { locked, available, directory, load, select, favorites, toggleFavorite, runOptions, setRunOptions, t }:
   ModelSelectInjected & { locked: boolean } & PropsLocale<'model'>,
 ) {
   const state = useSyncExternalStore(
@@ -79,6 +80,11 @@ export function ModelSelect(
     () => favorites.getSnapshot(),
   )
   const favoriteSet = useMemo(() => new Set(favoriteIds), [favoriteIds])
+  const runOptionsSnapshot = useSyncExternalStore(
+    fn => runOptions?.subscribe(fn) ?? (() => {}),
+    () => runOptions?.getSnapshot(),
+  )
+  const runOptionsCurrent: SessionRunOptions = runOptionsSnapshot?.current ?? {}
   // The in-menu error strip serves catalog loads (its Retry re-runs the
   // load); a rejected SELECTION announces through the transient toast
   // instead, so the strip renders only while the latest failure-capable
@@ -323,19 +329,29 @@ export function ModelSelect(
     close()
   }
 
-  const settleSelection = (result: Awaited<ReturnType<ModelSelectInjected['select']>>): void => {
-    if (result === undefined) return
-    if (result.ok) {
-      if (rootRef.current !== null) close(true)
-      return
-    }
-    const { error } = result
+  const announce = (error: { readonly code: string; readonly message: string }): void => {
     toastSeq.current += 1
     setToast({
       seq: toastSeq.current,
       text: error.code === 'session/writer-held'
         ? t('error.sessionInUse')
         : t('error.action', { message: `${error.code}: ${error.message}` }),
+    })
+  }
+
+  const settleSelection = (result: Awaited<ReturnType<ModelSelectInjected['select']>>): void => {
+    if (result === undefined) return
+    if (result.ok) {
+      if (rootRef.current !== null) close(true)
+      return
+    }
+    announce(result.error)
+  }
+
+  const toggleRunOption = (key: 'fastMode' | 'ultracode'): void => {
+    if (setRunOptions === undefined) return
+    void setRunOptions({ ...runOptionsCurrent, [key]: !runOptionsCurrent[key] }).then((result) => {
+      if (result !== undefined && !result.ok) announce(result.error)
     })
   }
 
@@ -452,6 +468,36 @@ export function ModelSelect(
                   <span className={css.cellValue}>{effortLabel}</span>
                   <IconChevronRightOutlineRegular className={css.cellChevron} />
                 </button>
+              )}
+              {setRunOptions !== undefined && (
+                <>
+                  <button
+                    ref={itemRef()}
+                    type="button"
+                    role="menuitemcheckbox"
+                    aria-checked={runOptionsCurrent.fastMode === true}
+                    className={css.cell}
+                    onClick={() => { toggleRunOption('fastMode') }}
+                  >
+                    <span className={css.cellLabel}>{t('menu.fastMode')}</span>
+                    <span className={css.check}>
+                      {runOptionsCurrent.fastMode === true && <IconCheckOutlineRegular />}
+                    </span>
+                  </button>
+                  <button
+                    ref={itemRef()}
+                    type="button"
+                    role="menuitemcheckbox"
+                    aria-checked={runOptionsCurrent.ultracode === true}
+                    className={css.cell}
+                    onClick={() => { toggleRunOption('ultracode') }}
+                  >
+                    <span className={css.cellLabel}>{t('menu.ultracode')}</span>
+                    <span className={css.check}>
+                      {runOptionsCurrent.ultracode === true && <IconCheckOutlineRegular />}
+                    </span>
+                  </button>
+                </>
               )}
             </>
           )}

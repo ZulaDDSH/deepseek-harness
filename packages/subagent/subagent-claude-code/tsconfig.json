@@ -22,6 +22,12 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../session/session-projection"
+    },
+    {
+      "path": "../../api/session-controller/tsconfig.host.json"
+    },
+    {
       "path": "../subagent"
     },
     {

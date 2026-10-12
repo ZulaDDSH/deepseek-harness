@@ -115,3 +115,9 @@ Reference: `packages/api/settings-controller/src/request.ts:settingsRequest.pars
 ## Provider filters in the model picker
 
 `packages/client/ui-model-selection/src/client/ModelSelect.tsx:ModelSelect` shows a row of provider chips ("All" plus one per provider group) under the model search when more than one provider is loaded. Choosing a provider narrows `visibleGroups` to that group, including its favorited models, so the Favorites section is shown only under "All"; the search still applies inside the chosen provider. The filter resets to "All" each time the picker opens. The chips are the shared `Pill` primitive. Their row is `flex: 0 0 auto`: the menu card is a height-capped column, and a shrinkable row was squeezed under its content and overlapped the first group heading.
+
+## Claude Code run options
+
+`packages/api/session-controller/src/run-options-projection.ts:installRunOptionsProjection` folds the log-only `session/run-options` event into the `runOptions` projection. `SessionController.setRunOptions` (through `SessionCommandController.setRunOptions`) appends the complete `fastMode` and `ultracode` toggles, copying only fields that are set; an omitted field keeps the Profile default. The composer model seat's root menu in `packages/client/ui-model-selection/src/client/ModelSelect.tsx:ModelSelect` writes them.
+
+`packages/subagent/subagent-claude-code/src/index.ts:ClaudeCodeProvider.start` reads the delegating Session's `runOptions` projection on each run. A Session `ultracode` value overrides the Profile `ultracode` default, `fastMode` is sent as flag setting `fastMode` only when the Session set it, and the in-flight request header's reasoning effort becomes `Options.effort` only when it is a native SDK level (`low`, `medium`, `high`, `xhigh`, `max`). Other route effort IDs are dropped so Claude settings decide.

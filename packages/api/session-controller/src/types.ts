@@ -24,6 +24,8 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
     mcpSelection: McpSelectionProjectionState
     /** Durable per-Session hook enable/disable overrides. */
     hookOverrides: HookOverridesProjection
+    /** Durable per-Session Claude Code fast-mode and ultracode toggles. */
+    runOptions: SessionRunOptionsProjection
   }
   interface SessionProjectionMap {
     /** Persisted facts used to summarize a Session without activating it. */
@@ -36,6 +38,8 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
     mcpSelection: McpSelectionProjection
     /** Client view of per-Session hook overrides. */
     hookOverrides: HookOverridesProjection
+    /** Client view of per-Session Claude Code fast-mode and ultracode toggles. */
+    runOptions: SessionRunOptionsProjection
   }
 }
 
@@ -50,6 +54,8 @@ declare module '@deepseek-ai/dsh-session/types' {
     'mcp/selection': McpSelection
     /** Complete per-Session hook overrides. Log-only: it never enters model history. */
     'hooks/session-overrides': HookOverrides
+    /** Complete per-Session Claude Code run toggles. Log-only. */
+    'session/run-options': SessionRunOptions
   }
 }
 
@@ -355,6 +361,24 @@ export interface HookOverrides {
 /** Host fold state and client view of per-Session hook overrides. */
 export interface HookOverridesProjection {
   readonly current: HookOverrides | null
+}
+
+/** Per-Session Claude Code run toggles; an omitted field keeps the Profile default. */
+export interface SessionRunOptions {
+  /** Native fast mode for delegated Claude Code runs. */
+  readonly fastMode?: boolean | undefined
+  /** Native ultracode for delegated Claude Code runs; overrides the Profile default. */
+  readonly ultracode?: boolean | undefined
+}
+
+/** Host fold state and client view of per-Session Claude Code run toggles. */
+export interface SessionRunOptionsProjection {
+  readonly current: SessionRunOptions | null
+}
+
+/** Session-local Claude Code run toggle request. */
+export interface SessionSetRunOptionsRequest extends SessionRunOptions {
+  readonly sessionId: SessionId
 }
 
 /** One loaded hook command and its global enablement. */

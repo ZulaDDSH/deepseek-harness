@@ -11899,6 +11899,81 @@
       }
     },
     {
+      "key": "event:session/run-options",
+      "kind": "event",
+      "event": "session/run-options",
+      "surface": false,
+      "digest": "0bf87fdace9d0bd797594ab660e895ad3073359cfb4f3ad3a70129a29b507471",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "data",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "ignorable",
+                "type": 3,
+                "optional": true
+              },
+              {
+                "name": "seq",
+                "type": 4,
+                "optional": false
+              },
+              {
+                "name": "time",
+                "type": 4,
+                "optional": false
+              },
+              {
+                "name": "type",
+                "type": 5,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "fastMode",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "ultracode",
+                "type": 2,
+                "optional": true
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "boolean"
+          },
+          {
+            "kind": "literal",
+            "value": true
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          },
+          {
+            "kind": "literal",
+            "value": "session/run-options"
+          }
+        ]
+      }
+    },
+    {
       "key": "event:session/title",
       "kind": "event",
       "event": "session/title",
@@ -22081,6 +22156,11 @@
       "sources": []
     },
     {
+      "digest": "0bf87fdace9d0bd797594ab660e895ad3073359cfb4f3ad3a70129a29b507471",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "0c4205180f75b9ee1e0d878bd9a9851628b5dc18448486389d9c5fdc3f1ccda3",
       "schema": {
         "root": 0,
@@ -22192,7 +22272,7 @@
         "packages/api/session-controller/src/types.ts#HookOverrides"
       ],
       "sources": [
-        "packages/api/session-controller/src/types.ts:351"
+        "packages/api/session-controller/src/types.ts:357"
       ]
     },
     {
@@ -23087,7 +23167,7 @@
         "packages/workflow/workflow/src/types.ts#WorkflowRunId"
       ],
       "sources": [
-        "packages/api/session-controller/src/types.ts:488",
+        "packages/api/session-controller/src/types.ts:512",
         "packages/attachment/attachment/src/brand.ts:6",
         "packages/compaction/compaction/src/brand.ts:4",
         "packages/core/session/src/types.ts:20",
@@ -23160,6 +23240,11 @@
     },
     {
       "digest": "4fb59762612c3e3ac3a3bd4f84c9c148d3c3893bd422ba2b201cc039fabd49bc",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "5041e4210398f92fe4e20d8a37379ee8665b3651ec59719d52597d05d815a838",
       "names": [],
       "sources": []
     },
@@ -23545,7 +23630,7 @@
       "digest": "6a4f72e2e179e17b922f2a9392c0e1c8f8c707f32494372454850a3eb184a6e7",
       "names": [],
       "sources": [
-        "packages/api/session-controller/src/types.ts:493"
+        "packages/api/session-controller/src/types.ts:517"
       ]
     },
     {
@@ -25026,7 +25111,7 @@
         "packages/api/session-controller/src/types.ts#McpSelection"
       ],
       "sources": [
-        "packages/api/session-controller/src/types.ts:147"
+        "packages/api/session-controller/src/types.ts:153"
       ]
     },
     {
@@ -25257,6 +25342,15 @@
       "sources": []
     },
     {
+      "digest": "e7e402a7b4c2f70391bb3238a87ac7d146df4a306d94db9e3521869cbd1c27c6",
+      "names": [
+        "packages/api/session-controller/src/types.ts#SessionRunOptions"
+      ],
+      "sources": [
+        "packages/api/session-controller/src/types.ts:367"
+      ]
+    },
+    {
       "digest": "e7e8f1318170b8284f16ab45a557afd4675c96071c0f2a456636481dab20b427",
       "names": [],
       "sources": []
@@ -25355,7 +25449,7 @@
         "packages/api/session-controller/src/types.ts#ModelSelection"
       ],
       "sources": [
-        "packages/api/session-controller/src/types.ts:112"
+        "packages/api/session-controller/src/types.ts:118"
       ]
     },
     {

@@ -844,6 +844,13 @@ inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionInspectio
 @Remote('setHookOverrides') setHookOverrides(request: SessionSetHookOverridesRequest): Promise<HookOverrides>
 
 /**
+ * Replace the Claude Code fast-mode and ultracode toggles of one Session.
+ * @param request - Session identity and the toggles to store.
+ * @returns the stored toggles.
+ */
+@Remote('setRunOptions') setRunOptions(request: SessionSetRunOptionsRequest): Promise<SessionRunOptions>
+
+/**
  * Select MCP connector namespaces for one Session.
  * @param request - Session identity and selected connector namespaces.
  * @returns the normalized Session selection.

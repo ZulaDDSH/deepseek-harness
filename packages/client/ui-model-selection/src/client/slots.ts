@@ -6,7 +6,8 @@
  */
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { ModelSelection } from '@deepseek-ai/dsh-api-remotes/client'
-import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import type { SessionRunOptions, SessionRunOptionsProjection } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { ObservableSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ModelDirectoryState } from './directory.ts'
 
 /** Injected business face of the composer model seat. */
@@ -25,4 +26,12 @@ export interface ModelSelectInjected {
    * @returns the Host outcome, or undefined when this Session cannot select a model.
    */
   select: (selection: ModelSelection) => Promise<RemoteResult<void> | undefined>
+  /** This Session's Claude Code fast-mode and ultracode toggles; omitted when the Session has none. */
+  runOptions?: ObservableSnapshot<SessionRunOptionsProjection | undefined> | undefined
+  /**
+   * Replace this Session's Claude Code fast-mode and ultracode toggles.
+   * @param options - the complete toggles to store.
+   * @returns the Host outcome, or undefined when this Session cannot change them.
+   */
+  setRunOptions?: ((options: SessionRunOptions) => Promise<RemoteResult<SessionRunOptions> | undefined>) | undefined
 }

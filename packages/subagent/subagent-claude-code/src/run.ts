@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto'
 import {
   query as officialQuery,
   type AgentDefinition,
+  type EffortLevel,
   type Options,
   type Query,
   type SDKMessage,
@@ -157,6 +158,10 @@ export interface ClaudeCodeRunSpec {
   readonly permissionMode: ClaudeCodePermissionMode
   /** Turns on native ultracode; pre-approves the Workflow tool only in dontAsk and acceptEdits modes. */
   readonly ultracode?: boolean
+  /** Native fast mode for this run; omitted leaves Claude settings in force. */
+  readonly fastMode?: boolean
+  /** Native reasoning effort for this run; omitted leaves Claude settings in force. */
+  readonly effort?: EffortLevel
   /** Profile-fixed native custom subagents for the Agent tool. */
   readonly agents?: Record<string, AgentDefinition>
   /** Explicit deployment/test environment layered after shared scrubbing. */
@@ -327,22 +332,26 @@ export function claudeQueryOptions(
   ) => void,
   captureDiagnostic: (diagnostic: string) => void,
 ): Options {
+  const settings = {
+    ...spec.ultracode === true ? { ultracode: true, enableWorkflows: true } : {},
+    ...spec.fastMode === undefined ? {} : { fastMode: spec.fastMode },
+  }
   return {
     abortController: controller,
     cwd: spec.cwd,
     ...spec.model === undefined ? {} : { model: spec.model },
+    ...spec.effort === undefined ? {} : { effort: spec.effort },
     env: { ...scrubbedParentEnv(), ...spec.env },
     persistSession: false,
     disallowedTools: spec.permissionMode === 'plan'
       ? ['AskUserQuestion', 'ExitPlanMode']
       : ['AskUserQuestion'],
     permissionMode: spec.permissionMode,
-    ...spec.ultracode === true
-      ? { settings: { ultracode: true, enableWorkflows: true } }
-      : {},
+    ...Object.keys(settings).length === 0 ? {} : { settings },
     ...spec.ultracode === true && ['dontAsk', 'acceptEdits'].includes(spec.permissionMode)
       ? { allowedTools: ['Workflow'] }
       : {},
+    ...['dontAsk', 'acceptEdits'].includes(spec.permissionMode) ? { skills: 'all' as const } : {},
     ...spec.agents === undefined ? {} : { agents: spec.agents },
     ...spec.permissionMode === 'bypassPermissions'
       ? { allowDangerouslySkipPermissions: true }
