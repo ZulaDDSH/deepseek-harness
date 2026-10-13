@@ -9,6 +9,10 @@ export const en = {
   detail: 'Record details', empty: 'No records', imported: 'Document chunks saved', total: 'Total',
   source: 'Source',
   graphMissing: 'Graphify maps complete saved document imports. Upload documents into Memorix, then refresh to see their headings and explicit links.',
+  view: 'Show', viewAll: 'All records', viewMemories: 'Saved memories', viewDocuments: 'Imported documents',
+  noMatch: 'No records match', selectRecord: 'Select a record to read all of its fields.', of: 'of',
+  graphBuilding: 'Building the context graph with Graphify…',
+  setupHint: 'The Memory panel needs a Memorix MCP client named memorix (running memorix serve) and ui-memory-workspace in your Cordis config. Check the connection in MCP settings, then refresh.',
 }
 /** Keys in the memory workspace dictionary. */
 export type MemoryWorkspaceKey = keyof typeof en
@@ -23,6 +27,10 @@ export const zh: Record<MemoryWorkspaceKey, string> = {
   detail: '记录详情', empty: '没有记录', imported: '已保存的文档片段', total: '总数',
   source: '来源',
   graphMissing: 'Graphify 映射完整保存的文档导入。将文档上传到 Memorix，然后刷新以查看标题与明确链接。',
+  view: '显示', viewAll: '所有记录', viewMemories: '已保存的记忆', viewDocuments: '已导入的文档',
+  noMatch: '没有匹配的记录', selectRecord: '选择一条记录以查看其全部字段。', of: '/',
+  graphBuilding: '正在用 Graphify 生成上下文图谱…',
+  setupHint: '记忆面板需要一个名为 memorix 的 Memorix MCP 客户端（运行 memorix serve），并在 Cordis 配置中启用 ui-memory-workspace。请在 MCP 设置中检查连接，然后刷新。',
 }
 /** Registered memory workspace locale namespace. */
 export const NS = 'memoryWorkspace'

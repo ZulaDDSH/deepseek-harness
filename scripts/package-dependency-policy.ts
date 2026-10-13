@@ -58,7 +58,7 @@ const SAFE_HOST_DEPENDENCY_EXPORTS = {
 const PEER_REQUIRED_HOST_EXPORTS = {
   '@deepseek-ai/dsh-tools': ['defineTool'],
   '@deepseek-ai/dsh-office-to-pdf': ['OfficeSourceKey'],
-  '@deepseek-ai/dsh-knowledge-router': ['memorixInventory', 'memorixPage', 'memorixStoredChunk'],
+  '@deepseek-ai/dsh-knowledge-router': ['memorixInventory', 'memorixPage', 'memorixRecent', 'memorixStoredChunk', 'registeredToolName'],
   '@deepseek-ai/dsh-home-paths': ['dshHomePath'],
   '@deepseek-ai/dsh-native-command': ['runNativeCommand'],
   '@deepseek-ai/dsh-client-connection': ['OperatorPeer'],

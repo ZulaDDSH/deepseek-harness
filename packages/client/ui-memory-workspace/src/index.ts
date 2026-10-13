@@ -10,12 +10,14 @@ import z from '@deepseek-ai/schemastery'
 import { z as schema } from 'zod'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { memorixInventory, memorixPage, memorixStoredChunk } from '@deepseek-ai/dsh-knowledge-router'
-import type { MemorixPage, MemorixTable } from '@deepseek-ai/dsh-knowledge-router/memorix-types'
-import type { McpHumanOperations } from '@deepseek-ai/dsh-mcp-client'
+import type { MemorixPage, MemorixTable, MemorixView } from '@deepseek-ai/dsh-knowledge-router/memorix-types'
+import type { McpConnectionReport, McpHumanOperations } from '@deepseek-ai/dsh-mcp-client'
 import type {} from '@deepseek-ai/dsh-mcp-client'
 import type { MemoryGraph, MemoryImportResult } from './types.ts'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { documentText } from './document-text.ts'
+import { MemoryAutomation } from './automation.ts'
+import { storeObservation } from './store.ts'
 import { runNativeCommand } from '@deepseek-ai/dsh-native-command'
 
 declare module '@deepseek-ai/cordis' { interface Context { memoryWorkspace: MemoryWorkspace } }
@@ -44,6 +46,16 @@ export interface Config {
   chunkCharacters: number
   /** Maximum complete Graphify export size. */
   maxGraphBytes: number
+  /** Save a rolling session digest and compaction summaries to Memorix without a model call. */
+  autoSave: boolean
+  /** Quiet period after a completed turn before its digest is written. */
+  autoSaveDelayMs: number
+  /** Surface recent digests of the same workspace when a session starts. */
+  recall: boolean
+  /** Tell agents when and how to store durable memories while the Memorix store tool is available. */
+  policy: boolean
+  /** Maximum characters of one saved digest or of the recalled context. */
+  memoryCharacters: number
 }
 
 /** Authenticated GUI operations; provider calls remain Host-owned. */
@@ -59,11 +71,17 @@ export default class MemoryWorkspace extends TypertRemoteService {
     maxDocumentCharacters: z.natural().min(1).default(2_000_000),
     chunkCharacters: z.natural().min(1).default(4800),
     maxGraphBytes: z.natural().min(1).default(16 * 1024 * 1024),
+    autoSave: z.boolean().default(true),
+    autoSaveDelayMs: z.natural().min(1).default(20_000),
+    recall: z.boolean().default(true),
+    policy: z.boolean().default(true),
+    memoryCharacters: z.natural().min(200).default(3000),
   })
 
   private readonly lifetime = new AbortController()
   private readonly pending = new Set<Promise<unknown>>()
   private graphQueue: Promise<unknown> = Promise.resolve()
+  private readonly automation: MemoryAutomation
 
   constructor(ctx: Context, private readonly config: Config) {
     super(ctx, 'memoryWorkspace')
@@ -93,7 +111,17 @@ export default class MemoryWorkspace extends TypertRemoteService {
         },
       }))
     })
+    this.automation = new MemoryAutomation(ctx, config, {
+      signal: this.lifetime.signal,
+      provider: () => this.provider(),
+      database: provider => this.database(provider),
+      track: (pending) => {
+        this.pending.add(pending)
+        void pending.then(() => this.pending.delete(pending), () => this.pending.delete(pending))
+      },
+    })
     ctx.effect(() => async () => {
+      await this.automation.close()
       this.lifetime.abort()
       await Promise.allSettled(this.pending)
     })
@@ -101,13 +129,19 @@ export default class MemoryWorkspace extends TypertRemoteService {
 
   private async provider(): Promise<McpHumanOperations> {
     this.lifetime.signal.throwIfAborted()
-    const provider = await this.ctx.waterfall('mcp/human-operations', this.config.memorixServer, () => Promise.resolve(undefined))
-    if (provider === undefined) throw new Error('Memorix is not connected in this profile')
-    return provider
+    const server = this.config.memorixServer
+    const provider = await this.ctx.waterfall('mcp/human-operations', server, () => Promise.resolve(undefined))
+    if (provider !== undefined) return provider
+    const reports: McpConnectionReport[] = []
+    this.ctx.emit('mcp-client/inventory', reports)
+    const report = reports.find(item => item.serverName === server)
+    throw new Error(report === undefined
+      ? `Memorix is not connected: no MCP client named "${server}" is mounted in this profile. Add an @deepseek-ai/dsh-mcp-client entry with serverName: ${server} that runs "memorix serve", or set memorixServer on ui-memory-workspace to the serverName of your Memorix client (see docs/user/guide/mcp-memory.md).`
+      : `Memorix is not connected: the MCP client "${server}" is ${report.state}${report.error === undefined ? '' : ` (${report.error})`} and is not available to the Memory panel. Mount it globally rather than under one agent, then reload the profile.`)
   }
 
   private database(provider: McpHumanOperations): string {
-    if (!provider.local && this.config.databasePath === '') throw new Error('Remote Memorix requires an explicit local database path for browsing')
+    if (!provider.local && this.config.databasePath === '') throw new Error('Remote Memorix requires an explicit local database path for browsing: set databasePath on ui-memory-workspace to the memorix.db file')
     return this.config.databasePath || resolve(provider.cwd || process.cwd(),
       provider.env.MEMORIX_DATA_DIR || join(homedir(), '.memorix', 'data'), 'memorix.db')
   }
@@ -124,16 +158,17 @@ export default class MemoryWorkspace extends TypertRemoteService {
    * @param table - table from inventory.
    * @param offset - nonnegative row offset.
    * @param query - literal substring matched against every column.
-   * @returns one complete page and total matching count.
+   * @param view - observation filter: all rows, saved memories only or imported document chunks only.
+   * @returns one complete page, newest record first, and the total matching count.
    */
   @Remote
-  async page(table: string, offset: number, query: string): Promise<MemorixPage> {
-    return memorixPage(this.database(await this.provider()), { table, offset, query, limit: this.config.pageSize })
+  async page(table: string, offset: number, query: string, view: MemorixView): Promise<MemorixPage> {
+    return memorixPage(this.database(await this.provider()), { table, offset, query, view, limit: this.config.pageSize })
   }
 
   /**
    * Rebuild complete active Memorix documents with the Graphify adapter and load its bounded viewer.
-   * @returns the official Graphify viewer and its graph source path.
+   * @returns the official Graphify viewer, its graph source path and the imported document count; no Graphify run when the count is 0.
    */
   @Remote
   graph(): Promise<MemoryGraph> {
@@ -148,26 +183,36 @@ export default class MemoryWorkspace extends TypertRemoteService {
     const provider = await this.provider()
     const path = resolve(this.config.graphPath || join(this.config.importDirectory, 'graphify-out', 'graph.json'))
     const database = this.database(provider)
-    memorixInventory(database)
-    await runNativeCommand(this.config.graphifyCommand, [...this.config.graphifyArgs,
-      'memorix', '--database', database, '--graph', path], this.lifetime.signal, 'hidden')
-    await this.readExport(path)
-    return { path, html: new TextDecoder('utf-8', { fatal: true }).decode(await this.readExport(join(dirname(path), 'graph.html'))) }
+    const documents = memorixPage(database, { table: 'observations', offset: 0, limit: 1, query: '', view: 'documents' }).total
+    if (documents === 0) return { path, html: '', documents }
+    try {
+      await runNativeCommand(this.config.graphifyCommand, [...this.config.graphifyArgs,
+        'memorix', '--database', database, '--graph', path], this.lifetime.signal, 'hidden')
+    } catch (error) { throw this.graphifyFailure(error) }
+    await this.readExport(path, false)
+    return { path, html: new TextDecoder('utf-8', { fatal: true }).decode(await this.readExport(join(dirname(path), 'graph.html'), true)), documents }
   }
 
-  private async readExport(path: string): Promise<Buffer> {
-    const file = await open(path, 'r')
+  private graphifyFailure(error: unknown): unknown {
+    if (this.lifetime.signal.aborted || !(error instanceof Error)) return error
+    const setup = 'Set graphifyCommand on ui-memory-workspace to the Python interpreter that has Graphify installed and graphifyArgs to ["<path>/scripts/graphify-native.py"] (docs/user/guide/mcp-memory.md).'
+    if ('code' in error && error.code === 'ENOENT') {
+      return new Error(`Graphify could not start: "${this.config.graphifyCommand}" was not found. ${setup}`, { cause: error })
+    }
+    const stderr = 'stderr' in error && typeof error.stderr === 'string' ? error.stderr.trim() : ''
+    return new Error(`Graphify failed: ${(stderr || error.message).slice(-600)}\n${setup}`, { cause: error })
+  }
+
+  private async readExport(path: string, content: boolean): Promise<Buffer> {
+    const file = await open(path, 'r').catch((error: unknown) => {
+      throw new Error(`Graphify finished but wrote no file at ${path}; check graphPath and that graphifyArgs runs the memorix adapter.`, { cause: error })
+    })
     try {
-      const buffer = Buffer.alloc(this.config.maxGraphBytes + 1)
-      let length = 0
-      while (length < buffer.length) {
-        this.lifetime.signal.throwIfAborted()
-        const result = await file.read(buffer, length, buffer.length - length, null)
-        if (result.bytesRead === 0) break
-        length += result.bytesRead
-      }
-      if (length > this.config.maxGraphBytes) throw new Error('Graphify export exceeds the configured byte limit')
-      return buffer.subarray(0, length)
+      if ((await file.stat()).size > this.config.maxGraphBytes) throw new Error('Graphify export exceeds the configured byte limit; raise maxGraphBytes on ui-memory-workspace')
+      if (!content) return Buffer.alloc(0)
+      const bytes = await file.readFile({ signal: this.lifetime.signal })
+      if (bytes.byteLength > this.config.maxGraphBytes) throw new Error('Graphify export exceeds the configured byte limit; raise maxGraphBytes on ui-memory-workspace')
+      return bytes
     } finally { await file.close() }
   }
 
@@ -212,20 +257,11 @@ export default class MemoryWorkspace extends TypertRemoteService {
       const narrative = characters.slice(index * this.config.chunkCharacters, (index + 1) * this.config.chunkCharacters).join('')
       try {
         signal.throwIfAborted()
-        const outcome = schema.object({
-          isError: schema.boolean().optional(),
-          content: schema.array(schema.object({ type: schema.string(), text: schema.string().optional() })),
-        }).parse(
-          await provider.call('memorix_store', {
-            entityName: `document:${hash}`, type: 'discovery', title: `${basename(filename)} (${index + 1}/${total})`,
-            narrative, topicKey, filesModified: [originalPath],
-          }, signal))
-        if (outcome.isError === true) throw new Error('Memorix rejected this document chunk')
-        const acknowledgement = outcome.content.filter(item => item.type === 'text').map(item => item.text ?? '').join('\n')
-        const stored = new RegExp('\\[(?:OK|UPDATED)\\] (?:Stored|Updated) observation #(\\d+) [^\\n]*\\n'
-          + 'Entity: [^\\n]*? \\| Project: ([^|\\n]+) \\| Topic:').exec(acknowledgement)
-        if (stored === null
-          || !memorixStoredChunk(this.database(provider), Number(stored[1]), String(stored[2]).trim(), topicKey, narrative)) {
+        const stored = await storeObservation(provider, {
+          entityName: `document:${hash}`, type: 'discovery', title: `${basename(filename)} (${index + 1}/${total})`,
+          narrative, topicKey, filesModified: [originalPath],
+        }, signal, 'document chunk')
+        if (!memorixStoredChunk(this.database(provider), stored.id, stored.project, topicKey, narrative)) {
           throw new Error('Memorix did not persist the complete document chunk')
         }
         result.completed++

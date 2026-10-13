@@ -209,13 +209,14 @@ Authenticated GUI operations; provider calls remain Host-owned.
  * @param table - table from inventory.
  * @param offset - nonnegative row offset.
  * @param query - literal substring matched against every column.
- * @returns one complete page and total matching count.
+ * @param view - observation filter: all rows, saved memories only or imported document chunks only.
+ * @returns one complete page, newest record first, and the total matching count.
  */
-@Remote async page(table: string, offset: number, query: string): Promise<MemorixPage>
+@Remote async page(table: string, offset: number, query: string, view: MemorixView): Promise<MemorixPage>
 
 /**
  * Rebuild complete active Memorix documents with the Graphify adapter and load its bounded viewer.
- * @returns the official Graphify viewer and its graph source path.
+ * @returns the official Graphify viewer, its graph source path and the imported document count; no Graphify run when the count is 0.
  */
 @Remote graph(): Promise<MemoryGraph>
 

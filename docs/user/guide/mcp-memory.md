@@ -41,6 +41,23 @@ dsh web --patch "$PWD/apps/cli/config/examples/mcp-memory/memorix.cordis.yml"
 
 Memorix works in local heuristic mode without an LLM or embedding service. Configure optional providers in Memorix's own `~/.memorix/config.toml` or project `memorix.toml`. The example keeps Memorix's Git-project identity from the DSH working directory and uses Memorix's own `~/.memorix/data` default. Set `MEMORIX_DATA_DIR` before starting DSH to override it.
 
+### Memory panel and automatic memory (Memorix)
+
+The shipped web composition lists `ui-memory-workspace` as disabled. Enable it beside the Memorix client above to get the **Memory** panel and to make agents use Memorix without being asked. It needs a `dsh-mcp-client` row with `serverName: memorix` (or set `memorixServer` to your name) that runs `memorix serve`. The panel reads `memorix.db` from the `MEMORIX_DATA_DIR` in that client's `env`, or `~/.memorix/data` by default; set `databasePath` on the `ui-memory-workspace` row if the file is elsewhere or the client is remote. Memorix creates the file when the first memory is stored, so a brand-new install reports "Memorix database not found" until then. Every panel error names the setting to change.
+
+```yaml
+- id: ui-memory-workspace
+  disabled: false
+  config:
+    autoSave: true          # save a session digest after each completed turn (default true)
+    autoSaveDelayMs: 20000  # quiet period before saving
+    recall: true            # add the newest digests from earlier sessions at session start
+    policy: true            # tell the agent when to search and store memory
+    memoryCharacters: 3000  # size limit of one digest and of recalled context
+```
+
+Digests are stored as Memorix observations on the entity `dsh-workspace:<folder>-<hash>`, so `memorix_search` finds them and the panel lists them under **Saved memories**. They contain the request and final answer only, drop obvious secrets, and never fail a turn; failures appear in the Host log as `memory-workspace: automatic memory save failed`, and a session-start recall that cannot read the database appears as `memory-workspace: automatic memory recall failed`. Set `autoSave`, `recall` or `policy` to `false` to switch a part off.
+
 ### MCP Reference Memory
 
 ```sh
