@@ -301,7 +301,7 @@ export interface QuotaWindow {
 ## `@deepseek-ai/dsh-api-session-controller`
 
 - `inject`: `agentDefaultModel` · `agents` · `attachments` · `fileUploads` · `fs` · `llm` · `sessions` · `sessionProjections` · `sessionQuery` · `typert` · `workspaceRegistry`
-- `source`: [`packages/api/session-controller/src/index.ts:91`](../packages/api/session-controller/src/index.ts)
+- `source`: [`packages/api/session-controller/src/index.ts:90`](../packages/api/session-controller/src/index.ts)
 
 ```ts config-catalog
 /** Session Controller deployment policy. */
@@ -613,7 +613,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-client-ui-memory-workspace`
 
-- `source`: [`packages/client/ui-memory-workspace/src/index.ts:24`](../packages/client/ui-memory-workspace/src/index.ts)
+- `source`: [`packages/client/ui-memory-workspace/src/index.ts:26`](../packages/client/ui-memory-workspace/src/index.ts)
 
 ```ts config-catalog
 /** Local storage selections and upload limits. */
@@ -640,6 +640,16 @@ export interface Config {
   chunkCharacters: number
   /** Maximum complete Graphify export size. */
   maxGraphBytes: number
+  /** Save a rolling session digest and compaction summaries to Memorix without a model call. */
+  autoSave: boolean
+  /** Quiet period after a completed turn before its digest is written. */
+  autoSaveDelayMs: number
+  /** Surface recent digests of the same workspace when a session starts. */
+  recall: boolean
+  /** Tell agents when and how to store durable memories while the Memorix store tool is available. */
+  policy: boolean
+  /** Maximum characters of one saved digest or of the recalled context. */
+  memoryCharacters: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-ui-memory-workspace -->
@@ -3151,7 +3161,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-skill-filesystem`
 
 - `inject`: `skills`
-- `source`: [`packages/skill/skill-filesystem/src/index.ts:51`](../packages/skill/skill-filesystem/src/index.ts)
+- `source`: [`packages/skill/skill-filesystem/src/index.ts:45`](../packages/skill/skill-filesystem/src/index.ts)
 
 ```ts config-catalog
 /** Local filesystem skill provider configuration. */
@@ -3166,6 +3176,16 @@ export interface Config {
   agentsHome?: string
   /** Claude Code config root. Defaults to `$CLAUDE_CONFIG_DIR` or `~/.claude`. */
   claudeHome?: string
+  /** OpenAI Codex config root. Defaults to `$CODEX_HOME` or `~/.codex`. */
+  codexHome?: string
+  /** OpenCode config root. Defaults to `$XDG_CONFIG_HOME/opencode` or `~/.config/opencode`. */
+  opencodeHome?: string
+  /** Gemini CLI config root. Defaults to `.gemini` under `$GEMINI_CLI_HOME` or the home directory. */
+  geminiHome?: string
+  /** Cursor config root. Defaults to `~/.cursor`. */
+  cursorHome?: string
+  /** GitHub Copilot CLI config root. Defaults to `$COPILOT_HOME` or `~/.copilot`. */
+  copilotHome?: string
   /** Additional skill roots scanned after project roots and before user roots. */
   customSkillDirs?: string[]
   /** Whether host-local skill roots are watched for catalog changes. */
@@ -3458,7 +3478,7 @@ export type PermissionPolicy = 'allow' | 'reject'
 
 - `inject`: `subagents` · `subprocess` · `sessionProjections`
 - `refs`: `AgentDefinition` (`@anthropic-ai/claude-agent-sdk`)
-- `source`: [`packages/subagent/subagent-claude-code/src/index.ts:48`](../packages/subagent/subagent-claude-code/src/index.ts)
+- `source`: [`packages/subagent/subagent-claude-code/src/index.ts:43`](../packages/subagent/subagent-claude-code/src/index.ts)
 
 ```ts config-catalog
 /** Deployment-owned model, permission, environment, and process-release settings. */
@@ -3482,9 +3502,11 @@ export interface Config {
   /**
    * Profile default for native ultracode (standing Workflow-tool orchestration
    * with workflows enabled); the delegating Session's Ultracode toggle
-   * overrides it for that run. Defaults to `false`. Workflow is pre-approved
-   * only in `dontAsk` and `acceptEdits` modes. Requires a Claude account or
-   * plan with workflows and a model that supports ultracode.
+   * overrides it for that run. A resolved `false` is sent as flag setting
+   * `ultracode: false`; when neither sets it, native Claude settings decide.
+   * Workflow is pre-approved only in `dontAsk` and `acceptEdits` modes.
+   * Requires a Claude account or plan with workflows and a model that
+   * supports ultracode.
    */
   ultracode?: boolean
   /** Native custom subagents, keyed by agent name, that each run can invoke through Claude Code's Agent tool. */
@@ -3628,7 +3650,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-system-prompt`
 
-- `source`: [`packages/core/system-prompt/src/index.ts:248`](../packages/core/system-prompt/src/index.ts)
+- `source`: [`packages/core/system-prompt/src/index.ts:249`](../packages/core/system-prompt/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: the deployment-authored fragment of the system prompt (see {@link Config.personaPrefix} for its contract). */
