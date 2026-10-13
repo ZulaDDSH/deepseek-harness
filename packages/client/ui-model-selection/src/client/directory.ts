@@ -20,6 +20,8 @@ export interface ModelDirectoryState {
   current: ModelSelection | null
   /** Saved effort caption retained when the selected model is unavailable. */
   retainedEffort?: string
+  /** Saved model's last advertised catalog name, retained when the model leaves the catalog. */
+  retainedName?: string
   /** Whether the current selection is present in the available catalog; null while unresolved. */
   routable: boolean | null
   /** Successfully loaded provider groups (last good load). */
@@ -163,10 +165,12 @@ export class ModelDirectory {
     const effort = intended?.reasoningEffort ?? reasoning?.defaultEffort
     const retainedEffort = effort === undefined ? undefined
       : reasoning?.efforts.find(level => level.id === effort)?.name ?? effort
+    const retainedName = intended === undefined ? undefined : this.catalog.nameFor(intended)
     if (catalog.status !== 'ready' || catalog.value === null || projected === undefined) {
       this.store.set({
         current: catalog.value === null ? null : this.store.getSnapshot().current,
         ...retainedEffort === undefined ? {} : { retainedEffort },
+        ...retainedName === undefined ? {} : { retainedName },
         routable: null,
         groups: catalog.value?.groups ?? [],
         failures: catalog.value?.failures ?? [],
@@ -182,6 +186,7 @@ export class ModelDirectory {
     this.store.set({
       current: selection,
       ...retainedEffort === undefined ? {} : { retainedEffort },
+      ...retainedName === undefined ? {} : { retainedName },
       routable,
       groups: catalog.value.groups,
       failures: catalog.value.failures,

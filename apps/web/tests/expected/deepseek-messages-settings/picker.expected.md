@@ -6,3 +6,10 @@
     - button "收藏 Messages Flash"
     - menuitemradio "DeepSeek-V4-Pro"
     - button "收藏 DeepSeek-V4-Pro"
+  - text: 推理等级
+  - radiogroup "推理等级":
+    - radio "Off"
+    - radio "Low"
+    - radio "High" [checked]
+    - radio "Max"
+  - text: 已保存到此会话

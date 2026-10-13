@@ -844,9 +844,9 @@ inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionInspectio
 @Remote('setHookOverrides') setHookOverrides(request: SessionSetHookOverridesRequest): Promise<HookOverrides>
 
 /**
- * Replace the Claude Code fast-mode and ultracode toggles of one Session.
- * @param request - Session identity and the toggles to store.
- * @returns the stored toggles.
+ * Replace the Claude Code run options (fast mode, ultracode, effort) of one Session.
+ * @param request - Session identity and the run options to store.
+ * @returns the stored run options.
  */
 @Remote('setRunOptions') setRunOptions(request: SessionSetRunOptionsRequest): Promise<SessionRunOptions>
 

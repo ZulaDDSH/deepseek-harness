@@ -34,6 +34,7 @@ import {
   hasApiSessionSubagentOwner,
   inspectApiSession,
 } from './agent.ts'
+import { SESSION_RUN_OPTION_EFFORTS } from './types.ts'
 import type {
   SessionAttachmentRequest,
   SessionAttachmentValue,
@@ -162,15 +163,23 @@ export class SessionCommandController {
   }
 
   /**
-   * Persist the Claude Code fast-mode and ultracode toggles of one Session.
-   * @param request - Session identity and the toggles to store.
-   * @returns the stored toggles.
+   * Persist the Claude Code run options (fast mode, ultracode, effort) of one Session.
+   * @param request - Session identity and the run options to store.
+   * @returns the stored run options.
    */
   async setRunOptions(request: SessionSetRunOptionsRequest): Promise<SessionRunOptions> {
+    const { fastMode, ultracode, effort } = request
+    if ((fastMode !== undefined && typeof fastMode !== 'boolean') || (ultracode !== undefined && typeof ultracode !== 'boolean')) {
+      throw new RemoteError('gateway/bad-request', 'fastMode and ultracode must be booleans', {})
+    }
+    if (effort !== undefined && !SESSION_RUN_OPTION_EFFORTS.includes(effort)) {
+      throw new RemoteError('gateway/bad-request', `effort must be one of ${SESSION_RUN_OPTION_EFFORTS.join(', ')}`, {})
+    }
     const agent = await this.resolveAgent(request.sessionId)
     const value: SessionRunOptions = {
       ...request.fastMode === undefined ? {} : { fastMode: request.fastMode },
       ...request.ultracode === undefined ? {} : { ultracode: request.ultracode },
+      ...request.effort === undefined ? {} : { effort: request.effort },
     }
     agent.session.append('session/run-options', value)
     return value

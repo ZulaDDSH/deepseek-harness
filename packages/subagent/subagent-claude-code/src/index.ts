@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh-subagent-claude-code
  */
 
-import type { AgentDefinition, EffortLevel } from '@anthropic-ai/claude-agent-sdk'
+import type { AgentDefinition } from '@anthropic-ai/claude-agent-sdk'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -16,7 +16,6 @@ import type {} from '@deepseek-ai/dsh-api-session-controller'
 import {
   assertPositiveFinite,
   NO_START_CAPABILITIES,
-  parentAgentOptionsForDelegation,
   resolveChildCwd,
   type ResolvedSubagentStartRequest,
   type SubagentCapabilities,
@@ -31,16 +30,12 @@ import {
   type ClaudeCodePermissionMode,
   type ClaudeCodeRunSpec,
 } from './run.ts'
+import { runOptionsProjection } from './run-options-projection.ts'
 
 export const name = 'subagent-claude-code'
 export const inject = ['subagents', 'subprocess', 'sessionProjections']
 
 const DEFAULT_PROVIDER_NAME = 'claude-code'
-const SDK_EFFORT_LEVELS: readonly EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max']
-
-function isSdkEffort(value: string | undefined): value is EffortLevel {
-  return SDK_EFFORT_LEVELS.some(level => level === value)
-}
 
 /* jscpd:ignore-start -- sibling product providers intentionally expose
  * overlapping deployment-owned fields without adding a shared config owner. */
@@ -65,9 +60,11 @@ export interface Config {
   /**
    * Profile default for native ultracode (standing Workflow-tool orchestration
    * with workflows enabled); the delegating Session's Ultracode toggle
-   * overrides it for that run. Defaults to `false`. Workflow is pre-approved
-   * only in `dontAsk` and `acceptEdits` modes. Requires a Claude account or
-   * plan with workflows and a model that supports ultracode.
+   * overrides it for that run. A resolved `false` is sent as flag setting
+   * `ultracode: false`; when neither sets it, native Claude settings decide.
+   * Workflow is pre-approved only in `dontAsk` and `acceptEdits` modes.
+   * Requires a Claude account or plan with workflows and a model that
+   * supports ultracode.
    */
   ultracode?: boolean
   /** Native custom subagents, keyed by agent name, that each run can invoke through Claude Code's Agent tool. */
@@ -75,6 +72,43 @@ export interface Config {
   /** Grace in milliseconds between Claude Code managed-range termination tiers. */
   disposeGraceMs?: number
 }
+
+// schemastery runs a transform callback on the stripped result and on the raw input; the raw pass sees unknown keys.
+function exactObject(fields: Record<string, z>) {
+  const known = new Set(Object.keys(fields))
+  return z.transform(z.object(fields), (value) => {
+    for (const key of Object.keys(value)) {
+      if (!known.has(key)) throw new Error(`unknown key "${key}"; expected ${[...known].join(', ')}`)
+    }
+    return value
+  })
+}
+
+const mcpRemoteServerFields = {
+  url: z.string().min(1).required(),
+  headers: z.dict(z.string()).default(undefined as never),
+  tools: z.array(exactObject({
+    name: z.string().min(1).required(),
+    permission_policy: z.union(['always_allow', 'always_ask', 'always_deny']).default(undefined as never),
+    org_max_permission: z.union(['allow', 'ask', 'blocked']).default(undefined as never),
+  })).default(undefined as never),
+  timeout: z.number(),
+  alwaysLoad: z.boolean(),
+}
+
+// `sdk` servers are rejected: this provider registers no in-process MCP servers for them to name.
+const mcpServerSchema = z.union([
+  exactObject({
+    type: z.const('stdio'),
+    command: z.string().min(1).required(),
+    args: z.array(z.string()).default(undefined as never),
+    env: z.dict(z.string()).default(undefined as never),
+    timeout: z.number(),
+    alwaysLoad: z.boolean(),
+  }),
+  exactObject({ type: z.const('sse').required(), ...mcpRemoteServerFields }),
+  exactObject({ type: z.const('http').required(), ...mcpRemoteServerFields }),
+])
 
 // Omitted fields must stay absent: schemastery's [] and {} defaults would reach the SDK as real values.
 const agentDefinitionSchema = z.object({
@@ -84,7 +118,7 @@ const agentDefinitionSchema = z.object({
   tools: z.array(z.string()).default(undefined as never),
   disallowedTools: z.array(z.string()).default(undefined as never),
   model: z.string().min(1),
-  mcpServers: z.array(z.union([z.string(), z.dict(z.any())])).default(undefined as never),
+  mcpServers: z.array(z.union([z.string().min(1), z.dict(mcpServerSchema)])).default(undefined as never),
   skills: z.array(z.string()).default(undefined as never),
   initialPrompt: z.string(),
   maxTurns: z.natural().min(1),
@@ -104,12 +138,12 @@ export const Config: z<Config> = z.object({
   env: z.dict(z.string()).default({}),
   permissionMode: z.union([...CLAUDE_CODE_PERMISSION_MODES])
     .default(DEFAULT_CLAUDE_CODE_PERMISSION_MODE),
-  ultracode: z.boolean().default(false),
+  ultracode: z.boolean(),
   agents: z.dict(agentDefinitionSchema).default(undefined as never) as z<Record<string, AgentDefinition>>,
   disposeGraceMs: z.number().default(DEFAULT_DISPOSE_GRACE_MS),
 })
 
-type ResolvedConfig = Omit<Required<Config>, 'model' | 'agents'> & Pick<Config, 'model' | 'agents'>
+type ResolvedConfig = Omit<Required<Config>, 'model' | 'ultracode' | 'agents'> & Pick<Config, 'model' | 'ultracode' | 'agents'>
 /* jscpd:ignore-end */
 
 /* jscpd:ignore-start -- Cordis registration and shared-seam plumbing mirror
@@ -151,15 +185,15 @@ class ClaudeCodeProvider implements SubagentProvider {
       )
       throw failure
     }
-    const effort = parentAgentOptionsForDelegation(request.parent).reasoningEffort
     const runOptions = this.ctx.sessionProjections.stateOf(request.parent.session, 'runOptions')?.current
+    const ultracode = runOptions?.ultracode ?? this.config.ultracode
     const spec: ClaudeCodeRunSpec = {
       cwd,
       ...this.config.model === undefined ? {} : { model: this.config.model },
       permissionMode: this.config.permissionMode,
-      ultracode: runOptions?.ultracode ?? this.config.ultracode,
+      ...ultracode === undefined ? {} : { ultracode },
       ...runOptions?.fastMode === undefined ? {} : { fastMode: runOptions.fastMode },
-      ...isSdkEffort(effort) ? { effort } : {},
+      ...runOptions?.effort === undefined ? {} : { effort: runOptions.effort },
       ...this.config.agents === undefined ? {} : { agents: this.config.agents },
       env: this.config.env,
       disposeGraceMs: this.config.disposeGraceMs,
@@ -186,7 +220,7 @@ export function apply(ctx: Context, config: Config): void {
     ...config.model === undefined ? {} : { model: config.model },
     env: config.env as Record<string, string>,
     permissionMode: config.permissionMode ?? DEFAULT_CLAUDE_CODE_PERMISSION_MODE,
-    ultracode: config.ultracode ?? false,
+    ...config.ultracode === undefined ? {} : { ultracode: config.ultracode },
     ...config.agents === undefined ? {} : { agents: config.agents },
     disposeGraceMs: config.disposeGraceMs as number,
   }
@@ -200,6 +234,7 @@ export function apply(ctx: Context, config: Config): void {
       `subagent-claude-code: disposeGraceMs must be no greater than ${MAX_TIMER_DELAY_MS}`,
     )
   }
+  ctx.sessionProjections.register(runOptionsProjection)
   ctx.subagents.registerProvider(new ClaudeCodeProvider(
     resolved.providerName,
     ctx,

@@ -66,7 +66,7 @@ it('lists loaded bridge hooks and records per-Session overrides in the projectio
   expect(ctx.sessionProjections.stateOf(agent.session, 'hookOverrides')).toEqual({ current: { overrides: { k1: true, k2: false } } })
 })
 
-it('records per-Session Claude Code run toggles in the runOptions projection', async () => {
+it('stores per-Session Claude Code run options without owning their projection', async () => {
   const ctx = new Context()
   roots.push(ctx)
   await ctx.plugin(TypertRegistry)
@@ -79,10 +79,9 @@ it('records per-Session Claude Code run toggles in the runOptions projection', a
   })
   const agent = agentUnder(ctx, 'run-options')
   await ctx.agents.register(agent)
-  expect(ctx.sessionProjections.stateOf(agent.session, 'runOptions')).toEqual({ current: null })
-  agent.session.append('mcp/selection', { connectorIds: [] })
-  expect(ctx.sessionProjections.stateOf(agent.session, 'runOptions')).toEqual({ current: null })
-  await expect(controller.setRunOptions({ sessionId: agent.id, fastMode: true, ultracode: false }))
-    .resolves.toEqual({ fastMode: true, ultracode: false })
-  expect(ctx.sessionProjections.stateOf(agent.session, 'runOptions')).toEqual({ current: { fastMode: true, ultracode: false } })
+  await expect(controller.setRunOptions({ sessionId: agent.id, fastMode: true, ultracode: false, effort: 'max' }))
+    .resolves.toEqual({ fastMode: true, ultracode: false, effort: 'max' })
+  expect(ctx.sessionProjections.stateOf(agent.session, 'runOptions')).toBeUndefined()
+  await expect(controller.setRunOptions({ sessionId: agent.id, effort: 'banana' } as never)).rejects.toMatchObject({ code: 'gateway/bad-request' })
+  await expect(controller.setRunOptions({ sessionId: agent.id, fastMode: 'yes' } as never)).rejects.toMatchObject({ code: 'gateway/bad-request' })
 })

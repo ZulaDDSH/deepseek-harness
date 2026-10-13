@@ -56,7 +56,7 @@ The [format references](persistence-changes/historical-formats/README.md) cover 
 | `event:schedule/change` | event | `a0a2e5c42e1c929445ecd1cd70f49be6b66441894ec72c08e8ae332821d4a3cb` | [`{ type: "schedule/change" }`](#persistence-type-sha256-a0a2e5c42e1c929445ecd1cd70f49be6b66441894ec72c08e8ae332821d4a3cb) |
 | `event:session-log-deepseek/delivery-accepted` | event | `d63b8b8ffad9c02fd80c43a17df4f240c1fe8118ecca9de34f9d5871838ab5b9` | [`{ type: "session-log-deepseek/delivery-accepted" }`](#persistence-type-sha256-d63b8b8ffad9c02fd80c43a17df4f240c1fe8118ecca9de34f9d5871838ab5b9) |
 | `event:session/end-seed` | event | `5e6db6e24948d4a853c71cb9fabd252ad051ce93d4672c1266cf837c1c17b84e` | [`{ type: "session/end-seed" }`](#persistence-type-sha256-5e6db6e24948d4a853c71cb9fabd252ad051ce93d4672c1266cf837c1c17b84e) |
-| `event:session/run-options` | event | `0bf87fdace9d0bd797594ab660e895ad3073359cfb4f3ad3a70129a29b507471` | [`{ type: "session/run-options" }`](#persistence-type-sha256-0bf87fdace9d0bd797594ab660e895ad3073359cfb4f3ad3a70129a29b507471) |
+| `event:session/run-options` | event | `2134d708b7e49b6f48beb0ca7692ee7e7ec209e797748725d032c5362db9edd8` | [`{ type: "session/run-options" }`](#persistence-type-sha256-2134d708b7e49b6f48beb0ca7692ee7e7ec209e797748725d032c5362db9edd8) |
 | `event:session/title` | event | `1b912703e2d64f91c99c675b8f805b01076c8325b905c1218ad81ef0b24909d5` | [`{ type: "session/title" }`](#persistence-type-sha256-1b912703e2d64f91c99c675b8f805b01076c8325b905c1218ad81ef0b24909d5) |
 | `event:session/title-llm-request` | event | `fa8f7d3ebf08a76c7f7a8b0781873c4d819b964da5dbb52cd3cdfa5da34f452d` | [`{ type: "session/title-llm-request" }`](#persistence-type-sha256-fa8f7d3ebf08a76c7f7a8b0781873c4d819b964da5dbb52cd3cdfa5da34f452d) |
 | `event:step/end` | event | `e0a787e6ec76c7c94fecbc501b489164ab0293db05bc947914077ad01e674f05` | [`{ type: "step/end" }`](#persistence-type-sha256-e0a787e6ec76c7c94fecbc501b489164ab0293db05bc947914077ad01e674f05) |
@@ -861,7 +861,7 @@ Source: [`packages/core/session/src/types.ts:427`](../packages/core/session/src/
 #### `session/run-options` — log-only
 
 ```ts persistence-catalog
-/** Complete per-Session Claude Code run toggles. Log-only. */
+/** Complete per-Session Claude Code run options (fast mode, ultracode, effort). Log-only. */
 'session/run-options': SessionRunOptions
 ```
 
@@ -1875,6 +1875,14 @@ SHA-256: `237c004c73b6b288246816e0d7fde16e09c63a47aa3b1227383d7afe58666163`
 
 `"goal/change"`
 
+<a id="persistence-type-sha256-437a1c86fb6f66449be77a2b71773ab83865d2d8ee7b82a8db1c08936000a004"></a>
+
+### `"high"`
+
+SHA-256: `437a1c86fb6f66449be77a2b71773ab83865d2d8ee7b82a8db1c08936000a004`
+
+`"high"`
+
 <a id="persistence-type-sha256-dbdafceb9a900183cccc80596498d386f3bf7bddead2b8cfde68453aa4739edc"></a>
 
 ### `"hook"`
@@ -2057,6 +2065,22 @@ SHA-256: `4ae007ed190a72c92138b22d059b83208079c7551ca13fb59ae8cf5e23693964`
 
 `"llm/retry-started"`
 
+<a id="persistence-type-sha256-65f6a6e8bdce83766d022927b3a9ba4d05876b4aaa7e0c5f13648801e9286634"></a>
+
+### `"low"`
+
+SHA-256: `65f6a6e8bdce83766d022927b3a9ba4d05876b4aaa7e0c5f13648801e9286634`
+
+`"low"`
+
+<a id="persistence-type-sha256-05053387afaf98f89ac4ca0f9814db74deaf13b9fd5d5ca38fc882b12e411c16"></a>
+
+### `"max"`
+
+SHA-256: `05053387afaf98f89ac4ca0f9814db74deaf13b9fd5d5ca38fc882b12e411c16`
+
+`"max"`
+
 <a id="persistence-type-sha256-68141cbe3994a5ffcd064c07c75996538437fd9dbf77ce8a2927e89ec577fabe"></a>
 
 ### `"max-tokens"`
@@ -2072,6 +2096,14 @@ SHA-256: `68141cbe3994a5ffcd064c07c75996538437fd9dbf77ce8a2927e89ec577fabe`
 SHA-256: `9f3bc8cde7db1974d897382b1cb60bf7b7dddbfe2184872a9f9ea1a04934d7b5`
 
 `"mcp/selection"`
+
+<a id="persistence-type-sha256-8bb188be8ccbc2bd027b5d91bf7932180a7cf3d58832c026d01819f3d2623a39"></a>
+
+### `"medium"`
+
+SHA-256: `8bb188be8ccbc2bd027b5d91bf7932180a7cf3d58832c026d01819f3d2623a39`
+
+`"medium"`
 
 <a id="persistence-type-sha256-2765e9119edf5816ac1ab4c95c5ee32c90403f3742962eff11544f7752d59d2e"></a>
 
@@ -2960,6 +2992,14 @@ SHA-256: `a3edd1efd1fef21b72c55e213c8a8b24196b091abde2b89db52be0b2aaae3cfa`
 SHA-256: `8e8155594e07812356b67d732196dda894b0f9c91a5969d51612cf490b0a016d`
 
 `"workspace/changes"`
+
+<a id="persistence-type-sha256-963de05e8412d454640c4a372b278ef39ba57c7ae9c23c80c239f27447a5762d"></a>
+
+### `"xhigh"`
+
+SHA-256: `963de05e8412d454640c4a372b278ef39ba57c7ae9c23c80c239f27447a5762d`
+
+`"xhigh"`
 
 <a id="persistence-type-sha256-93d38436347f67c9022aacbc4472e283d722bcab8eb73fc376aaf7b6a6b9fb35"></a>
 
@@ -4555,7 +4595,7 @@ Sources: [`packages/context/session-reference/src/types.ts:13`](../packages/cont
 | `references` | required | [`{ capturedFormatVersion?, capturedThroughSeq, compacted, inputIndex, … }[]`](#persistence-type-sha256-df843efd87c78cf8de98f8e0d0216956cd568d0d0e56a22c853663e274aa1a18) |
 | `version` | required | `1` |
 
-<a id="persistence-type-sha256-e7e402a7b4c2f70391bb3238a87ac7d146df4a306d94db9e3521869cbd1c27c6"></a>
+<a id="persistence-type-sha256-784d0d351ada818e0b0ea5a3302ec5f278b40903e7f721095a12394740006703"></a>
 
 <a id="persistence-type-packagesapisession-controllersrctypestssessionrunoptions"></a>
 
@@ -4563,12 +4603,13 @@ Sources: [`packages/context/session-reference/src/types.ts:13`](../packages/cont
 
 ### `SessionRunOptions`
 
-SHA-256: `e7e402a7b4c2f70391bb3238a87ac7d146df4a306d94db9e3521869cbd1c27c6`
+SHA-256: `784d0d351ada818e0b0ea5a3302ec5f278b40903e7f721095a12394740006703`
 
-Sources: [`packages/api/session-controller/src/types.ts:367`](../packages/api/session-controller/src/types.ts)
+Sources: [`packages/api/session-controller/src/types.ts:370`](../packages/api/session-controller/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
+| `effort` | optional | [`union (5 variants)`](#persistence-type-sha256-352eb0b4cc4d1473d7f39d4674327a99a93a229f687f70d90978a5acd4462ebe) |
 | `fastMode` | optional | `boolean` |
 | `ultracode` | optional | `boolean` |
 
@@ -5477,7 +5518,7 @@ Array of `number`.
 
 SHA-256: `4cd48f3e5108bd6ebedf7301c3638839b8b2b9db8dbd493974177fbdeb91a01b`
 
-Sources: [`packages/api/session-controller/src/types.ts:512`](../packages/api/session-controller/src/types.ts) · [`packages/attachment/attachment/src/brand.ts:6`](../packages/attachment/attachment/src/brand.ts) · [`packages/compaction/compaction/src/brand.ts:4`](../packages/compaction/compaction/src/brand.ts) · [`packages/core/session/src/types.ts:20`](../packages/core/session/src/types.ts) · [`packages/experimental/agent-team/src/types.ts:20`](../packages/experimental/agent-team/src/types.ts) · [`packages/experimental/agent-team/src/types.ts:32`](../packages/experimental/agent-team/src/types.ts) · [`packages/experimental/agent-team/src/types.ts:8`](../packages/experimental/agent-team/src/types.ts) · [`packages/feedback/message-feedback/src/types.ts:14`](../packages/feedback/message-feedback/src/types.ts) · [`packages/goal/goal/src/types.ts:17`](../packages/goal/goal/src/types.ts) · [`packages/interaction/commands/src/brand.ts:31`](../packages/interaction/commands/src/brand.ts) · [`packages/interaction/user-approval/src/types.ts:17`](../packages/interaction/user-approval/src/types.ts) · [`packages/llm/llm-retry/src/brand.ts:4`](../packages/llm/llm-retry/src/brand.ts) · [`packages/llm/llm/src/brand.ts:16`](../packages/llm/llm/src/brand.ts) · [`packages/llm/llm/src/brand.ts:31`](../packages/llm/llm/src/brand.ts) · [`packages/llm/llm/src/brand.ts:43`](../packages/llm/llm/src/brand.ts) · [`packages/llm/llm/src/brand.ts:67`](../packages/llm/llm/src/brand.ts) · [`packages/schedule/schedule/src/types.ts:14`](../packages/schedule/schedule/src/types.ts) · [`packages/session/session-title/src/index.ts:42`](../packages/session/session-title/src/index.ts) · [`packages/session/session-title/src/types.ts:17`](../packages/session/session-title/src/types.ts) · [`packages/webhook/webhook/src/brand.ts:12`](../packages/webhook/webhook/src/brand.ts) · [`packages/webhook/webhook/src/brand.ts:6`](../packages/webhook/webhook/src/brand.ts) · [`packages/webhook/webhook/src/brand.ts:9`](../packages/webhook/webhook/src/brand.ts) · [`packages/workflow/workflow/src/types.ts:13`](../packages/workflow/workflow/src/types.ts)
+Sources: [`packages/api/session-controller/src/types.ts:517`](../packages/api/session-controller/src/types.ts) · [`packages/attachment/attachment/src/brand.ts:6`](../packages/attachment/attachment/src/brand.ts) · [`packages/compaction/compaction/src/brand.ts:4`](../packages/compaction/compaction/src/brand.ts) · [`packages/core/session/src/types.ts:20`](../packages/core/session/src/types.ts) · [`packages/experimental/agent-team/src/types.ts:20`](../packages/experimental/agent-team/src/types.ts) · [`packages/experimental/agent-team/src/types.ts:32`](../packages/experimental/agent-team/src/types.ts) · [`packages/experimental/agent-team/src/types.ts:8`](../packages/experimental/agent-team/src/types.ts) · [`packages/feedback/message-feedback/src/types.ts:14`](../packages/feedback/message-feedback/src/types.ts) · [`packages/goal/goal/src/types.ts:17`](../packages/goal/goal/src/types.ts) · [`packages/interaction/commands/src/brand.ts:31`](../packages/interaction/commands/src/brand.ts) · [`packages/interaction/user-approval/src/types.ts:17`](../packages/interaction/user-approval/src/types.ts) · [`packages/llm/llm-retry/src/brand.ts:4`](../packages/llm/llm-retry/src/brand.ts) · [`packages/llm/llm/src/brand.ts:16`](../packages/llm/llm/src/brand.ts) · [`packages/llm/llm/src/brand.ts:31`](../packages/llm/llm/src/brand.ts) · [`packages/llm/llm/src/brand.ts:43`](../packages/llm/llm/src/brand.ts) · [`packages/llm/llm/src/brand.ts:67`](../packages/llm/llm/src/brand.ts) · [`packages/schedule/schedule/src/types.ts:14`](../packages/schedule/schedule/src/types.ts) · [`packages/session/session-title/src/index.ts:42`](../packages/session/session-title/src/index.ts) · [`packages/session/session-title/src/types.ts:17`](../packages/session/session-title/src/types.ts) · [`packages/webhook/webhook/src/brand.ts:12`](../packages/webhook/webhook/src/brand.ts) · [`packages/webhook/webhook/src/brand.ts:6`](../packages/webhook/webhook/src/brand.ts) · [`packages/webhook/webhook/src/brand.ts:9`](../packages/webhook/webhook/src/brand.ts) · [`packages/workflow/workflow/src/types.ts:13`](../packages/workflow/workflow/src/types.ts)
 
 `string`
 
@@ -5597,6 +5638,20 @@ One of:
 - `"completed"`
 - `"in_progress"`
 - `"pending"`
+
+<a id="persistence-type-sha256-352eb0b4cc4d1473d7f39d4674327a99a93a229f687f70d90978a5acd4462ebe"></a>
+
+### `union (5 variants)`
+
+SHA-256: `352eb0b4cc4d1473d7f39d4674327a99a93a229f687f70d90978a5acd4462ebe`
+
+One of:
+
+- `"high"`
+- `"low"`
+- `"max"`
+- `"medium"`
+- `"xhigh"`
 
 <a id="persistence-type-sha256-62e6a429ff3f390a46ac39fb468692032f42936ca0db19b53454184189401379"></a>
 
@@ -7410,7 +7465,7 @@ Sources: [`packages/core/tools/src/index.ts:34`](../packages/core/tools/src/inde
 
 SHA-256: `6a4f72e2e179e17b922f2a9392c0e1c8f8c707f32494372454850a3eb184a6e7`
 
-Sources: [`packages/api/session-controller/src/types.ts:517`](../packages/api/session-controller/src/types.ts)
+Sources: [`packages/api/session-controller/src/types.ts:522`](../packages/api/session-controller/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -8420,17 +8475,17 @@ SHA-256: `5e6db6e24948d4a853c71cb9fabd252ad051ce93d4672c1266cf837c1c17b84e`
 | `time` | required | `number` |
 | `type` | required | `"session/end-seed"` |
 
-<a id="persistence-type-sha256-0bf87fdace9d0bd797594ab660e895ad3073359cfb4f3ad3a70129a29b507471"></a>
+<a id="persistence-type-sha256-2134d708b7e49b6f48beb0ca7692ee7e7ec209e797748725d032c5362db9edd8"></a>
 
 <a id="persistence-type-eventsessionrun-options"></a>
 
 ### `{ type: "session/run-options" }`
 
-SHA-256: `0bf87fdace9d0bd797594ab660e895ad3073359cfb4f3ad3a70129a29b507471`
+SHA-256: `2134d708b7e49b6f48beb0ca7692ee7e7ec209e797748725d032c5362db9edd8`
 
 | Property | Presence | Type |
 |---|---|---|
-| `data` | required | [`SessionRunOptions`](#persistence-type-sha256-e7e402a7b4c2f70391bb3238a87ac7d146df4a306d94db9e3521869cbd1c27c6) |
+| `data` | required | [`SessionRunOptions`](#persistence-type-sha256-784d0d351ada818e0b0ea5a3302ec5f278b40903e7f721095a12394740006703) |
 | `ignorable` | optional | `true` |
 | `seq` | required | `number` |
 | `time` | required | `number` |

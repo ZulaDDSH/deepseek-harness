@@ -21,7 +21,6 @@
     "src/model-selection-projection.ts",
     "src/mcp-selection-projection.ts",
     "src/hook-overrides-projection.ts",
-    "src/run-options-projection.ts",
     "src/archived-session-gate.ts",
     "src/skill-catalog.ts"
   ],

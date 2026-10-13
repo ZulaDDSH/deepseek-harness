@@ -156,7 +156,11 @@ export interface ClaudeCodeRunSpec {
   readonly model?: string
   /** Profile-selected native non-interactive permission mode. */
   readonly permissionMode: ClaudeCodePermissionMode
-  /** Turns on native ultracode; pre-approves the Workflow tool only in dontAsk and acceptEdits modes. */
+  /**
+   * `true` turns on native ultracode and pre-approves the Workflow tool only in
+   * dontAsk and acceptEdits modes; `false` turns it off over native settings;
+   * omitted leaves Claude settings in force.
+   */
   readonly ultracode?: boolean
   /** Native fast mode for this run; omitted leaves Claude settings in force. */
   readonly fastMode?: boolean
@@ -333,7 +337,7 @@ export function claudeQueryOptions(
   captureDiagnostic: (diagnostic: string) => void,
 ): Options {
   const settings = {
-    ...spec.ultracode === true ? { ultracode: true, enableWorkflows: true } : {},
+    ...spec.ultracode === undefined ? {} : spec.ultracode ? { ultracode: true, enableWorkflows: true } : { ultracode: false },
     ...spec.fastMode === undefined ? {} : { fastMode: spec.fastMode },
   }
   return {

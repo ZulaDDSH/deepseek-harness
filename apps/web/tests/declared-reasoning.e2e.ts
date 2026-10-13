@@ -73,24 +73,18 @@ describe.skipIf(MODE === 'record').each([
     const trigger = page.getByRole('button', { name: /^选择模型/ })
     await trigger.waitFor({ timeout: 15_000 })
     await trigger.click()
-    await page.getByRole('menuitem', { name: /推理等级/ }).click()
 
     // Declared levels, nothing else: the provider-default entry (the route
     // configures no `reasoning`), then Off/High/Max — minimal, low, medium,
     // and xhigh were not declared and must not be offered.
-    const levels = page.getByRole('menuitemradio')
+    const levels = page.getByRole('radiogroup', { name: '推理等级' }).getByRole('radio')
     await expect.poll(async () => levels.allTextContents(), { timeout: 10_000 })
       .toEqual(['Default', 'Off', 'High', 'Max'])
     const snapshot = await captureStableAria(page, '[role="menu"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
 
-    // Keyboard: the clicked cell unmounts with its pane, so the drilled pane's
-    // checked row takes the focus it left behind. ↑↓ walk the rows from there
-    // and Tab settles the focused one exactly as Enter would.
-    await expect.poll(
-      () => levels.nth(0).evaluate(element => element === document.activeElement),
-      { timeout: 10_000 },
-    ).toBe(true)
+    // Keyboard: ↑↓ walk the effort levels and Tab settles the focused one exactly as Enter would.
+    await levels.nth(0).focus()
     await page.keyboard.press('ArrowDown')
     await expect.poll(
       () => levels.nth(1).evaluate(element => element === document.activeElement),
@@ -105,7 +99,7 @@ describe.skipIf(MODE === 'record').each([
     // Settling with Tab is the same gesture that saves the default selection, so
     // the effort lands in the Agent default Settings section beside provider/model.
     await page.keyboard.press('Tab')
-    await expect.poll(() => levels.count(), { timeout: 10_000 }).toBe(0)
+    await expect.poll(() => page.getByRole('menu').count(), { timeout: 10_000 }).toBe(0)
     await expect.poll(
       async () => readFile(join(scaffold.harnessHome, 'profiles', 'scaffold', 'cordis.patch.yml'), 'utf8'),
       { timeout: 10_000 },
@@ -113,47 +107,27 @@ describe.skipIf(MODE === 'record').each([
     await expect.poll(() => trigger.getAttribute('aria-label'), { timeout: 10_000 })
       .toBe('选择模型，当前 Acme Think，推理等级 High')
 
-    // Reopening the drilled pane parks the keyboard on the level in use, and
-    // Shift+Tab walks back out like Escape: to the drilled cell, then closed.
     await trigger.click()
-    await page.getByRole('menuitem', { name: /推理等级/ }).click()
-    const high = page.getByRole('menuitemradio', { name: 'High' })
-    await expect.poll(
-      () => high.evaluate(element => element === document.activeElement),
-      { timeout: 10_000 },
-    ).toBe(true)
-    await page.keyboard.press('Shift+Tab')
-    await expect.poll(
-      () => page.getByRole('menuitem', { name: /推理等级/ })
-        .evaluate(element => element === document.activeElement),
-      { timeout: 10_000 },
-    ).toBe(true)
+    const high = page.getByRole('radio', { name: 'High' })
+    await high.focus()
     await page.keyboard.press('Shift+Tab')
     await expect.poll(() => page.getByRole('menu').count(), { timeout: 10_000 }).toBe(0)
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
-  it('opens from the pointer with keyboard focus and closes from the trigger in every pane', async () => {
+  it('opens from the pointer with keyboard focus and closes from the trigger', async () => {
     onTestFailed(() => saveFailureShot(page, `web-e2e-model-trigger-${engine.name()}`))
     const trigger = page.getByRole('button', { name: /^选择模型/ })
     const menu = page.getByRole('menu')
-    for (const pane of ['root', 'model', 'effort']) {
-      await page.locator('[data-composer-input][contenteditable="true"]').focus()
-      await trigger.click()
-      await expect.poll(() => trigger.evaluate(element => element === document.activeElement)).toBe(true)
-      if (pane === 'root') {
-        await page.keyboard.press('ArrowDown')
-        await expect.poll(() => page.getByRole('menuitem', { name: /^模型/ })
-          .evaluate(element => element === document.activeElement)).toBe(true)
-      } else {
-        await page.getByRole('menuitem', { name: pane === 'model' ? /^模型/ : /推理等级/ }).click()
-        await expect.poll(() => page.locator('[role="menuitemradio"][aria-checked="true"]')
-          .evaluate(element => element === document.activeElement)).toBe(true)
-      }
-      await trigger.click()
-      await menu.waitFor({ state: 'detached' })
-      await expect.poll(() => trigger.evaluate(element => element === document.activeElement)).toBe(true)
-    }
+    await page.locator('[data-composer-input][contenteditable="true"]').focus()
+    await trigger.click()
+    await expect.poll(() => trigger.evaluate(element => element === document.activeElement)).toBe(true)
+    await page.keyboard.press('ArrowDown')
+    await expect.poll(() => page.getByRole('menuitemradio').first()
+      .evaluate(element => element === document.activeElement)).toBe(true)
+    await trigger.click()
+    await menu.waitFor({ state: 'detached' })
+    await expect.poll(() => trigger.evaluate(element => element === document.activeElement)).toBe(true)
     expect(tripwire.pageErrors).toEqual([])
   })
 
@@ -168,7 +142,7 @@ describe.skipIf(MODE === 'record').each([
     const trigger = page.getByRole('button', { name: /^选择模型/ })
     const menu = page.getByRole('menu')
     await trigger.click()
-    await page.getByRole('menuitem', { name: /^模型/ }).click()
+    await page.keyboard.press('Tab')
     const current = page.getByRole('menuitemradio', { name: 'Acme Think', exact: true })
     const target = page.getByRole('menuitemradio', { name: 'Acme Swift', exact: true })
     await expect.poll(() => current.evaluate(element => element === document.activeElement)).toBe(true)
@@ -188,11 +162,9 @@ describe.skipIf(MODE === 'record').each([
     await page.keyboard.press('ArrowDown')
     await expect.poll(() => target.evaluate(element => element === document.activeElement)).toBe(true)
     await page.keyboard.press('Escape')
-    await page.keyboard.press('Shift+Tab')
     await menu.waitFor({ state: 'detached' })
 
     await trigger.click()
-    await page.getByRole('menuitem', { name: /^模型/ }).click()
     await target.getByText('Acme Swift', { exact: true }).click()
     await menu.waitFor({ state: 'detached' })
     expect(selections).toBe(1)
@@ -200,8 +172,7 @@ describe.skipIf(MODE === 'record').each([
       .toBe('acme-swift')
 
     await trigger.click()
-    await page.getByRole('menuitem', { name: /推理等级/ }).click()
-    await page.getByRole('menuitemradio', { name: 'Max', exact: true }).click()
+    await page.getByRole('radio', { name: 'Max', exact: true }).click()
     await menu.waitFor({ state: 'detached' })
     expect(selections).toBe(2)
     await expect.poll(() => scaffold.ctx.agentDefaultModel.currentSelection().reasoningEffort, { timeout: 10_000 })
@@ -220,7 +191,7 @@ describe.skipIf(MODE === 'record').each([
       })
     }, { times: 1 })
     await trigger.click()
-    await page.getByRole('menuitem', { name: /^模型/ }).click()
+    await page.keyboard.press('Tab')
     await expect.poll(() => target.evaluate(element => element === document.activeElement)).toBe(true)
     await current.click()
     await page.getByRole('alert').waitFor()
@@ -232,11 +203,9 @@ describe.skipIf(MODE === 'record').each([
     await page.keyboard.press('ArrowUp')
     await expect.poll(() => current.evaluate(element => element === document.activeElement)).toBe(true)
     await page.keyboard.press('Escape')
-    await page.keyboard.press('Escape')
     await menu.waitFor({ state: 'detached' })
 
     await trigger.click()
-    await page.getByRole('menuitem', { name: /^模型/ }).click()
     await page.locator('[data-composer-input][contenteditable="true"]').focus()
     await menu.waitFor({ state: 'detached' })
     await trigger.click()

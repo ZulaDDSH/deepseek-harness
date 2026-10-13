@@ -16,3 +16,10 @@
     - button "收藏 Acme Think"
     - menuitemradio "Acme Swift" [checked]
     - button "收藏 Acme Swift"
+  - text: 推理等级
+  - radiogroup "推理等级":
+    - radio "Default"
+    - radio "Off"
+    - radio "High"
+    - radio "Max" [checked]
+  - text: 已保存到此会话

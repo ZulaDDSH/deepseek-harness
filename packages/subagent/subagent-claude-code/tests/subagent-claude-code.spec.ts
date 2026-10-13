@@ -25,6 +25,7 @@ import {
 } from 'vitest'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { SessionLogOffset, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type {
@@ -34,7 +35,9 @@ import type {
 } from '@deepseek-ai/dsh-subprocess'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+import { SESSION_RUN_OPTION_EFFORTS } from '@deepseek-ai/dsh-api-session-controller/types'
 import * as claudeCode from '../src/index.ts'
+import { runOptionsProjection } from '../src/run-options-projection.ts'
 import {
   claudeSpawnSpec,
   ManagedClaudeCodeProcess,
@@ -79,7 +82,13 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async importOriginal => ({
 
 const fakeParent = {
   id: 'parent',
-  session: { header: { cwd: process.cwd() }, requestHeader: () => undefined },
+  session: {
+    header: { cwd: process.cwd() },
+    requestHeader: () => undefined,
+    inheritedEventCount: SessionLogOffset(0),
+    seq: SessionLogOffset(0),
+    snapshotEvents: (): readonly SessionEvent[] => [],
+  },
 } as Agent
 
 function request(
@@ -582,9 +591,10 @@ describe('task admission and package contracts', () => {
   })
 
   it('accepts ultracode and fixed native custom agent definitions', () => {
-    expect(claudeCode.Config({}).ultracode).toBe(false)
+    expect(claudeCode.Config({})).not.toHaveProperty('ultracode')
     expect(claudeCode.Config({}).agents).toBeUndefined()
     expect(claudeCode.Config({ ultracode: true }).ultracode).toBe(true)
+    expect(claudeCode.Config({ ultracode: false }).ultracode).toBe(false)
     expect(() => claudeCode.Config({ ultracode: 'yes' } as never)).toThrow()
 
     const agents = {
@@ -628,6 +638,39 @@ describe('task admission and package contracts', () => {
     }
   })
 
+  it('validates custom-agent MCP server definitions at load', () => {
+    const servers = (mcpServers: unknown) => claudeCode.Config({
+      agents: { a: { description: 'd', prompt: 'p', mcpServers } },
+    } as never).agents?.a?.mcpServers
+    for (const valid of [
+      ['github'],
+      [{ local: { type: 'stdio', command: 'srv' } }],
+      [{ bare: { command: 'c', args: ['--x'], env: { A: 'b' }, timeout: 5000, alwaysLoad: true } }],
+      [{ remote: { type: 'http', url: 'https://mcp.example', headers: { a: 'b' }, tools: [{ name: 't', permission_policy: 'always_allow', org_max_permission: 'ask' }] } }],
+      [{ bare_tool: { type: 'http', url: 'https://mcp.example', tools: [{ name: 't' }] } }],
+      [{ events: { type: 'sse', url: 'https://sse.example' } }],
+    ]) {
+      expect(servers(valid)).toStrictEqual(valid)
+    }
+    for (const invalid of [
+      [{ x: { type: 'sdk', name: 'n' } }],
+      [{ x: { url: 'https://x' } }],
+      [{ x: { type: 'http' } }],
+      [{ x: { command: '' } }],
+      [{ x: { type: 'stdio', command: 'c', args: 'a' } }],
+      [{ x: { type: 'sse', url: 'u', headers: { a: 1 } } }],
+      [{ x: { type: 'http', url: 'u', tools: [{ name: 't', permission_policy: 'nope' }] } }],
+      [{ x: { type: 'http', url: 'u', header: { a: 'b' } } }],
+      [{ x: { command: 'c', alwaysload: true } }],
+      [{ x: { type: 'sse', url: 'u', tools: [{ name: 't', permissionPolicy: 'always_allow' }] } }],
+      [{ x: 'srv' }],
+      [''],
+      [3],
+    ]) {
+      expect(() => servers(invalid)).toThrow()
+    }
+  })
+
   it('resolves the safe permission default when apply is called directly', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionProjectionRegistry)
@@ -637,6 +680,7 @@ describe('task admission and package contracts', () => {
     vi.spyOn(ctx.subprocess, 'spawn').mockReturnValue(child.handle)
     queryMock.mockImplementation(({ options }) => {
       expect(options).not.toHaveProperty('model')
+      expect(options).not.toHaveProperty('settings')
       expect(options.permissionMode).toBe(DEFAULT_CLAUDE_CODE_PERMISSION_MODE)
       options.spawnClaudeCodeProcess!(sdkSpawnOptions())
       return queryFrom([success('native model answer')])
@@ -771,16 +815,18 @@ describe('task admission and package contracts', () => {
     await ctx.fiber.dispose()
   })
 
-  it('takes fast mode, ultracode and a native effort from the delegating Session', async () => {
+  it('takes fast mode, ultracode and effort from the Session run options, never from the parent route', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SubagentRuntime)
     await ctx.plugin(LocalSubprocessRuntime)
     vi.spyOn(ctx.subprocess, 'spawn').mockImplementation(() => fakeChild().handle)
     vi.spyOn(ctx.subprocess, 'resolveExecutable').mockResolvedValue('/host/bin/claude')
+    const register = vi.spyOn(ctx.sessionProjections, 'register')
     await ctx.plugin(claudeCode, { ultracode: true, disposeGraceMs: 29 })
+    expect(register).toHaveBeenCalledWith(runOptionsProjection)
     const stateOf = vi.spyOn(ctx.sessionProjections, 'stateOf')
-      .mockReturnValue({ current: { fastMode: true, ultracode: false } })
+      .mockReturnValue({ current: { fastMode: true, ultracode: false, effort: 'max' } })
     const parentWithEffort = (reasoningEffort: string) => ({
       id: 'parent-with-run-options',
       options: {},
@@ -795,15 +841,15 @@ describe('task admission and package contracts', () => {
       parent: parentWithEffort('high'),
     })
     const firstOptions = queryMock.mock.calls[0]?.[0].options
-    expect(firstOptions?.effort).toBe('high')
-    expect(firstOptions?.settings).toEqual({ fastMode: true })
+    expect(firstOptions?.effort).toBe('max')
+    expect(firstOptions?.settings).toEqual({ ultracode: false, fastMode: true })
     expect(firstOptions).not.toHaveProperty('allowedTools')
     await first.dispose()
 
     stateOf.mockReturnValue(undefined)
     const second = await ctx.subagents.start('claude-code', {
       ...request(),
-      parent: parentWithEffort('deepseek-think-max'),
+      parent: parentWithEffort('high'),
     })
     const secondOptions = queryMock.mock.calls[1]?.[0].options
     expect(secondOptions).not.toHaveProperty('effort')
@@ -811,6 +857,17 @@ describe('task admission and package contracts', () => {
     expect(secondOptions?.allowedTools).toEqual(['Workflow'])
     await second.dispose()
     await ctx.fiber.dispose()
+  })
+
+  it('folds session/run-options and rejects unknown efforts', () => {
+    expect(runOptionsProjection.apply(runOptionsProjection.init(), {
+      type: 'session/run-options',
+      data: { fastMode: true, effort: 'xhigh' },
+    } as SessionEvent)).toEqual({ current: { fastMode: true, effort: 'xhigh' } })
+    expect(runOptionsProjection.stateSchema.safeParse({ current: { effort: 'banana' } }).success).toBe(false)
+    for (const effort of SESSION_RUN_OPTION_EFFORTS) {
+      expect(runOptionsProjection.stateSchema.safeParse({ current: { effort } }).success).toBe(true)
+    }
   })
 
   it('keeps the Loader namespace shape', () => {
@@ -1107,8 +1164,9 @@ describe('query options and result mapping', () => {
       expect(gated).not.toHaveProperty('allowedTools')
     }
 
+    const { ultracode: _ultracode, ...nativeUltracode } = spec
     const withoutUltracode = claudeQueryOptions(
-      { ...spec, ultracode: false },
+      nativeUltracode,
       new AbortController(),
       () => {},
       () => {},
@@ -1116,6 +1174,15 @@ describe('query options and result mapping', () => {
     expect(withoutUltracode).not.toHaveProperty('settings')
     expect(withoutUltracode).not.toHaveProperty('allowedTools')
     expect(withoutUltracode.agents).toBe(agents)
+
+    const ultracodeOff = claudeQueryOptions(
+      { ...spec, ultracode: false },
+      new AbortController(),
+      () => {},
+      () => {},
+    )
+    expect(ultracodeOff.settings).toEqual({ ultracode: false })
+    expect(ultracodeOff).not.toHaveProperty('allowedTools')
 
     const withRunOptions = claudeQueryOptions(
       { ...spec, fastMode: true, effort: 'xhigh' },
@@ -1132,7 +1199,7 @@ describe('query options and result mapping', () => {
       () => {},
       () => {},
     )
-    expect(fastOff.settings).toEqual({ fastMode: false })
+    expect(fastOff.settings).toEqual({ ultracode: false, fastMode: false })
     expect(fastOff).not.toHaveProperty('effort')
   })
 

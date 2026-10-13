@@ -20,6 +20,7 @@ import type {
 import { Context } from '@deepseek-ai/cordis'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { SessionLogOffset, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type {
@@ -35,6 +36,17 @@ import {
   type MessagesBehavior,
   type MessagesFixture,
 } from './messages-fixture.ts'
+
+/** Minimal Session face the runOptions projection fold reads. */
+function fakeSession(cwd: string): Agent['session'] {
+  return {
+    header: { cwd },
+    requestHeader: () => undefined,
+    inheritedEventCount: SessionLogOffset(0),
+    seq: SessionLogOffset(0),
+    snapshotEvents: (): readonly SessionEvent[] => [],
+  } as Agent['session']
+}
 
 const observedSdkMessages = vi.hoisted((): SDKMessage[] => [])
 const sdkTestOverrides = vi.hoisted((): { maxTurns?: number } => ({}))
@@ -226,7 +238,7 @@ async function realHarness(
   })
   const parent = {
     id: 'real-parent',
-    session: { header: { cwd: instance.workspace }, requestHeader: () => undefined },
+    session: fakeSession(instance.workspace),
   } as Agent
   return {
     harness: {
@@ -429,11 +441,11 @@ describe('real Claude Agent SDK 0.3.296 and its distributed Claude Code 2.1.296 
     })
     const safeParent = {
       id: 'safe-parent',
-      session: { header: { cwd: safeInstance.workspace }, requestHeader: () => undefined },
+      session: fakeSession(safeInstance.workspace),
     } as Agent
     const bypassParent = {
       id: 'bypass-parent',
-      session: { header: { cwd: bypassInstance.workspace }, requestHeader: () => undefined },
+      session: fakeSession(bypassInstance.workspace),
     } as Agent
     const safeController = new AbortController()
 

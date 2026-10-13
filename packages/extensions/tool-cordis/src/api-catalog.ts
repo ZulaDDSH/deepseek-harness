@@ -1580,16 +1580,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'every stored table and record count across projects and statuses.',
       },
       {
-        signature: '@Remote async page(table: string, offset: number, query: string): Promise<MemorixPage>',
+        signature: '@Remote async page(table: string, offset: number, query: string, view: MemorixView): Promise<MemorixPage>',
         description: 'Browse or search a provider table with bounded pagination.',
-        parameters: [{ name: 'table', description: 'table from inventory.' }, { name: 'offset', description: 'nonnegative row offset.' }, { name: 'query', description: 'literal substring matched against every column.' }],
-        returns: 'one complete page and total matching count.',
+        parameters: [{ name: 'table', description: 'table from inventory.' }, { name: 'offset', description: 'nonnegative row offset.' }, { name: 'query', description: 'literal substring matched against every column.' }, { name: 'view', description: 'observation filter: all rows, saved memories only or imported document chunks only.' }],
+        returns: 'one complete page, newest record first, and the total matching count.',
       },
       {
         signature: '@Remote graph(): Promise<MemoryGraph>',
         description: 'Rebuild complete active Memorix documents with the Graphify adapter and load its bounded viewer.',
         parameters: [],
-        returns: 'the official Graphify viewer and its graph source path.',
+        returns: 'the official Graphify viewer, its graph source path and the imported document count; no Graphify run when the count is 0.',
       },
       {
         signature: '@Remote importDocument(filename: string, data: string): Promise<MemoryImportResult>',
@@ -2120,9 +2120,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: '@Remote(\'setRunOptions\') setRunOptions(request: SessionSetRunOptionsRequest): Promise<SessionRunOptions>',
-        description: 'Replace the Claude Code fast-mode and ultracode toggles of one Session.',
-        parameters: [{ name: 'request', description: 'Session identity and the toggles to store.' }],
-        returns: 'the stored toggles.',
+        description: 'Replace the Claude Code run options (fast mode, ultracode, effort) of one Session.',
+        parameters: [{ name: 'request', description: 'Session identity and the run options to store.' }],
+        returns: 'the stored run options.',
       },
       {
         signature: '@Remote(\'selectMcp\') selectMcp(request: SessionSelectMcpRequest): Promise<SessionSelectMcpValue>',
@@ -6011,8 +6011,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface MemorixTable {\n    name: string;\n    columns: string[];\n    count: number;\n}',
   },
   {
+    name: 'MemorixView',
+    declaration: 'export type MemorixView = \'all\' | \'memories\' | \'documents\';',
+  },
+  {
     name: 'MemoryGraph',
-    declaration: 'export interface MemoryGraph {\n    html: string;\n    path: string;\n}',
+    declaration: 'export interface MemoryGraph {\n    html: string;\n    path: string;\n    documents: number;\n}',
   },
   {
     name: 'MemoryImportResult',
@@ -7160,7 +7164,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionRunOptions',
-    declaration: 'export interface SessionRunOptions {\n    readonly fastMode?: boolean | undefined;\n    readonly ultracode?: boolean | undefined;\n}',
+    declaration: 'export interface SessionRunOptions {\n    readonly fastMode?: boolean | undefined;\n    readonly ultracode?: boolean | undefined;\n    readonly effort?: (typeof SESSION_RUN_OPTION_EFFORTS)[number] | undefined;\n}',
   },
   {
     name: 'SessionSearchCursor',

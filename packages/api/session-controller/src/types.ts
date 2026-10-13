@@ -24,7 +24,7 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
     mcpSelection: McpSelectionProjectionState
     /** Durable per-Session hook enable/disable overrides. */
     hookOverrides: HookOverridesProjection
-    /** Durable per-Session Claude Code fast-mode and ultracode toggles. */
+    /** Durable per-Session Claude Code run options; registered only by an installed subagent-claude-code provider. */
     runOptions: SessionRunOptionsProjection
   }
   interface SessionProjectionMap {
@@ -38,7 +38,7 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
     mcpSelection: McpSelectionProjection
     /** Client view of per-Session hook overrides. */
     hookOverrides: HookOverridesProjection
-    /** Client view of per-Session Claude Code fast-mode and ultracode toggles. */
+    /** Client view of per-Session Claude Code run options; absent when no Claude Code provider is installed. */
     runOptions: SessionRunOptionsProjection
   }
 }
@@ -54,7 +54,7 @@ declare module '@deepseek-ai/dsh-session/types' {
     'mcp/selection': McpSelection
     /** Complete per-Session hook overrides. Log-only: it never enters model history. */
     'hooks/session-overrides': HookOverrides
-    /** Complete per-Session Claude Code run toggles. Log-only. */
+    /** Complete per-Session Claude Code run options (fast mode, ultracode, effort). Log-only. */
     'session/run-options': SessionRunOptions
   }
 }
@@ -363,15 +363,20 @@ export interface HookOverridesProjection {
   readonly current: HookOverrides | null
 }
 
-/** Per-Session Claude Code run toggles; an omitted field keeps the Profile default. */
+/** Claude Code native effort levels a Session may select, faster to smarter. */
+export const SESSION_RUN_OPTION_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+
+/** Per-Session Claude Code run options; an omitted field keeps the Profile default or native Claude setting. */
 export interface SessionRunOptions {
   /** Native fast mode for delegated Claude Code runs. */
   readonly fastMode?: boolean | undefined
   /** Native ultracode for delegated Claude Code runs; overrides the Profile default. */
   readonly ultracode?: boolean | undefined
+  /** Native reasoning effort for delegated Claude Code runs; omitted leaves Claude settings in force. */
+  readonly effort?: (typeof SESSION_RUN_OPTION_EFFORTS)[number] | undefined
 }
 
-/** Host fold state and client view of per-Session Claude Code run toggles. */
+/** Host fold state and client view of per-Session Claude Code run options. */
 export interface SessionRunOptionsProjection {
   readonly current: SessionRunOptions | null
 }
