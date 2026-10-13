@@ -1,6 +1,7 @@
 /** Reject Chinese documentation artifacts and the translation machinery that produced them. */
 
 import { execFileSync } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -60,6 +61,24 @@ export function englishOnlyViolations(paths: readonly string[]): EnglishOnlyViol
   })
 }
 
+const LANGUAGE_SWITCHER_LINE = /^(?:English \| \[中文\]\([^)]*\)|\[English\]\([^)]*\) \| 中文)\r?$/mu
+/** Frozen Agent Notes are sealed by hash, so their retired switcher links are left as recorded. */
+const SEALED_ARCHIVE = '.agents/notes/archived/'
+const CJK = /[㐀-鿿＀-￯]/u
+
+/**
+ * Return the English-only violation for one Markdown file's content.
+ * @param path - repository-relative tracked path.
+ * @param content - the file's text.
+ * @returns the violated rule, or undefined when the content is allowed.
+ */
+export function englishOnlyContentViolation(path: string, content: string): string | undefined {
+  if (!path.endsWith('.md') || path.startsWith(SEALED_ARCHIVE)) return undefined
+  if (LANGUAGE_SWITCHER_LINE.test(content)) return 'language switcher linking a Chinese counterpart'
+  if (path.startsWith('.github/') && CJK.test(content)) return 'GitHub template or policy text must be English'
+  return undefined
+}
+
 function trackedFiles(repoRoot: string): string[] {
   const files = execFileSync('git', ['ls-files', '-z'], { cwd: repoRoot, encoding: 'utf8' })
     .split('\0')
@@ -77,7 +96,14 @@ const isMain = invokedPath !== undefined && import.meta.url === pathToFileURL(re
 if (isMain) {
   const named = process.argv.slice(2)
   const paths = named.length > 0 ? named : trackedFiles(root)
-  const violations = englishOnlyViolations(paths)
+  const violations = [
+    ...englishOnlyViolations(paths),
+    ...paths.flatMap((path) => {
+      if (!path.endsWith('.md') || !existsSync(resolve(root, path))) return []
+      const reason = englishOnlyContentViolation(path, readFileSync(resolve(root, path), 'utf8'))
+      return reason === undefined ? [] : [{ path, reason }]
+    }),
+  ]
   if (violations.length === 0) {
     console.log(`verify-english-only-docs: ${String(paths.length)} path(s) carry no translated documentation.`)
   } else {

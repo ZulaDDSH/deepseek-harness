@@ -5,8 +5,6 @@ kind: persistence-change
 
 # 2026-10-04-jev-decision-applied-route
 
-English | [中文](2026-10-04-jev-decision-applied-route.zh.md)
-
 ## Summary
 
 `jev/decision` events gain two optional properties: `route`, the id of the route the router applied, which is Jev's choice or the configured fallback route when Jev was not confident enough, and `rejected`, which states the outcome of a failed decision: true when the router stopped the turn, false when it kept the chat model. Both are optional event-body properties, so the change is same-version.
