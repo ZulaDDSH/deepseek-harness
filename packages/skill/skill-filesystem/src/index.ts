@@ -3,23 +3,23 @@
  *
  * This package is one implementation of the `ctx.skills` provider registry. It
  * discovers directory-bundle and flat Markdown skills from project, custom, and
- * user roots, parses YAML frontmatter, and loads bodies through `ctx.fs` when a
+ * user roots (including the skill directories of Claude Code, Codex, OpenCode,
+ * Gemini CLI, Cursor, GitHub Copilot, and goose), parses YAML frontmatter, and loads bodies through `ctx.fs` when a
  * filesystem service is present.
  *
  * @module @deepseek-ai/dsh-skill-filesystem
  */
 
-import { access, lstat, readdir, readFile, realpath, stat } from 'node:fs/promises'
+import { lstat, readdir, readFile, realpath, stat } from 'node:fs/promises'
 import { unwatchFile, watchFile, type Stats } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import { homedir } from 'node:os'
 import type { Context } from '@deepseek-ai/cordis'
 import chokidar from 'chokidar'
 import z from '@deepseek-ai/schemastery'
 import type Schema from '@deepseek-ai/schemastery'
 import { parse as parseYaml } from 'yaml'
 import type { FileSystem, FsDirEntry, FsTarget } from '@deepseek-ai/dsh-fs'
-import { canonicalizeWatchPath, resolveDshHome } from '@deepseek-ai/dsh-home-paths'
+import { canonicalizeWatchPath } from '@deepseek-ai/dsh-home-paths'
 import {
   BUNDLED_SKILL_RANK,
   isSkillName,
@@ -30,16 +30,10 @@ import {
   type SkillProvider,
   type SkillProviderControl,
   type SkillProviderObservation,
-  type SkillSource,
 } from '@deepseek-ai/dsh-skill'
+import { findProjectRoot, projectSkillRoots, resolveAgentHomes, userSkillRoots, type AgentHomes, type SkillRoot } from './roots.ts'
 
-const PROJECT_DSH_RANK = 100
-const PROJECT_AGENTS_RANK = 200
-const PROJECT_CLAUDE_RANK = 230
 const CUSTOM_RANK = 300
-const USER_DSH_RANK = 400
-const USER_AGENTS_RANK = 500
-const USER_CLAUDE_RANK = 550
 const DEFAULT_WATCH_STABILITY_THRESHOLD_MS = 200
 const DEFAULT_WATCH_POLL_INTERVAL_MS = 100
 const DEFAULT_WATCH_MAX_PROJECTS = 128
@@ -59,6 +53,16 @@ export interface Config {
   agentsHome?: string
   /** Claude Code config root. Defaults to `$CLAUDE_CONFIG_DIR` or `~/.claude`. */
   claudeHome?: string
+  /** OpenAI Codex config root. Defaults to `$CODEX_HOME` or `~/.codex`. */
+  codexHome?: string
+  /** OpenCode config root. Defaults to `$XDG_CONFIG_HOME/opencode` or `~/.config/opencode`. */
+  opencodeHome?: string
+  /** Gemini CLI config root. Defaults to `.gemini` under `$GEMINI_CLI_HOME` or the home directory. */
+  geminiHome?: string
+  /** Cursor config root. Defaults to `~/.cursor`. */
+  cursorHome?: string
+  /** GitHub Copilot CLI config root. Defaults to `$COPILOT_HOME` or `~/.copilot`. */
+  copilotHome?: string
   /** Additional skill roots scanned after project roots and before user roots. */
   customSkillDirs?: string[]
   /** Whether host-local skill roots are watched for catalog changes. */
@@ -83,6 +87,11 @@ export const Config: Schema<Config> = z.object({
   dshHome: z.string(),
   agentsHome: z.string(),
   claudeHome: z.string(),
+  codexHome: z.string(),
+  opencodeHome: z.string(),
+  geminiHome: z.string(),
+  cursorHome: z.string(),
+  copilotHome: z.string(),
   customSkillDirs: z.array(z.string()).default([]),
   watch: z.boolean().default(true),
   watchUsePolling: z.boolean().default(false),
@@ -92,15 +101,6 @@ export const Config: Schema<Config> = z.object({
   watchFollowSymlinks: z.boolean().default(true),
   bundledSkillDir: z.string(),
 })
-
-interface SkillRoot {
-  path: string
-  source: SkillSource
-  rank: number
-  skipSystem?: boolean
-  projectRoot?: string
-  trustedHost?: boolean
-}
 
 interface SkillRootEntry {
   name: string
@@ -156,9 +156,7 @@ export function apply(ctx: Context, config: Config = {}): void {
 export class FileSystemSkillProvider implements SkillProvider {
   readonly name: string
   private readonly includeDefaultRoots: boolean
-  private readonly dshHome: string
-  private readonly agentsHome: string
-  private readonly claudeHome: string
+  private readonly homes: AgentHomes
   private readonly customSkillDirs: string[]
   private readonly watchManager: SkillWatchManager
   private readonly bundledSkillDir: string | undefined
@@ -171,9 +169,7 @@ export class FileSystemSkillProvider implements SkillProvider {
   ) {
     this.name = config.providerName ?? 'filesystem'
     this.includeDefaultRoots = config.includeDefaultRoots ?? true
-    this.dshHome = resolveDshHome(config.dshHome)
-    this.agentsHome = resolve(config.agentsHome ?? process.env.DSH_AGENTS_HOME ?? join(homedir(), '.agents'))
-    this.claudeHome = resolve(config.claudeHome ?? process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'))
+    this.homes = resolveAgentHomes(config)
     this.customSkillDirs = (config.customSkillDirs ?? []).map(root => resolve(root))
     this.watchManager = new SkillWatchManager(ctx, control.invalidate, resolveWatchConfig(config))
     control.signal.addEventListener('abort', () => { void this.dispose() }, { once: true })
@@ -253,21 +249,10 @@ export class FileSystemSkillProvider implements SkillProvider {
   private async roots(cwd: string | undefined): Promise<SkillRoot[]> {
     const roots: SkillRoot[] = []
     if (this.includeDefaultRoots && cwd !== undefined) {
-      const projectRoot = await findProjectRoot(resolve(cwd), optionalFileSystem(this.ctx))
-      roots.push(
-        { path: join(projectRoot, '.dsh/skills'), source: 'project-dsh', rank: PROJECT_DSH_RANK, projectRoot },
-        { path: join(projectRoot, '.agents/skills'), source: 'project-agents', rank: PROJECT_AGENTS_RANK, projectRoot },
-        { path: join(projectRoot, '.claude/skills'), source: 'project-claude', rank: PROJECT_CLAUDE_RANK, projectRoot },
-      )
+      roots.push(...projectSkillRoots(await findProjectRoot(resolve(cwd), optionalFileSystem(this.ctx))))
     }
     roots.push(...this.customSkillDirs.map(path => ({ path, source: 'custom' as const, rank: CUSTOM_RANK })))
-    if (this.includeDefaultRoots) {
-      roots.push(
-        { path: join(this.dshHome, 'skills'), source: 'user-dsh', rank: USER_DSH_RANK, skipSystem: true },
-        { path: join(this.agentsHome, 'skills'), source: 'user-agents', rank: USER_AGENTS_RANK },
-        { path: join(this.claudeHome, 'skills'), source: 'user-claude', rank: USER_CLAUDE_RANK },
-      )
-    }
+    if (this.includeDefaultRoots) roots.push(...userSkillRoots(this.homes))
     if (this.bundledSkillDir !== undefined) {
       roots.push({ path: this.bundledSkillDir, source: 'bundled', rank: BUNDLED_SKILL_RANK, trustedHost: true })
     }
@@ -839,8 +824,10 @@ async function parseSkillFile(
   }
   let invocation
   try {
-    invocation = parseInvocationPolicy(parsed.data)
+    const fallback = await foreignModelInvocable(ctx, path, parsed.data, bundleName !== undefined, signal, trustedHost)
+    invocation = parseInvocationPolicy(parsed.data, fallback)
   } catch (error) {
+    signal?.throwIfAborted()
     ctx.logger.warn(`skill file ${path} ignored: invalid invocation frontmatter: ${errorMessage(error)}`)
     return undefined
   }
@@ -959,64 +946,46 @@ function findClosingFrontmatter(raw: string, start: number): { start: number; bo
   }
 }
 
-async function findProjectRoot(cwd: string, fs: FileSystem | undefined): Promise<string> {
-  let current = cwd
-  while (true) {
-    if (await pathExists(join(current, '.git'), fs)) {
-      return current
-    }
-    const parent = dirname(current)
-    if (parent === current) return cwd
-    current = parent
-  }
-}
-
-async function pathExists(path: string, fs: FileSystem | undefined): Promise<boolean> {
-  if (fs !== undefined) {
-    return await pathExistsInFileSystem(path, fs)
-  }
-  return await pathExistsInNode(path)
-}
-
-async function pathExistsInFileSystem(path: string, fs: FileSystem): Promise<boolean> {
-  let target
-  try {
-    target = await fs.resolve(path)
-  } catch {
-    // A backend may reject or hide this candidate; continue walking upward.
-    return false
-  }
-  try {
-    return await fs.stat(target) !== undefined
-  } catch {
-    // Transient stat failures make only this git-root candidate unusable.
-    return false
-  }
-}
-
-async function pathExistsInNode(path: string): Promise<boolean> {
-  try {
-    await access(path)
-    return true
-  } catch {
-    // Missing host paths are expected while walking toward the filesystem root.
-    return false
-  }
-}
-
 function stringField(data: Record<string, unknown>, key: string): string | undefined {
   const value = data[key]
   return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
-function parseInvocationPolicy(data: Record<string, unknown>): SkillInvocationPolicy {
+/**
+ * Resolve the model-invocation default declared by another agent's skill dialect.
+ * Codex keeps `policy.allow_implicit_invocation` in a bundle's `agents/openai.yaml`;
+ * OpenCode keeps `opencode/autoinvoke` in the `metadata` map. An explicit
+ * `disable-model-invocation` key always wins over this fallback.
+ */
+async function foreignModelInvocable(
+  ctx: Context,
+  skillPath: string,
+  data: Record<string, unknown>,
+  isBundle: boolean,
+  signal: AbortSignal | undefined,
+  trustedHost: boolean,
+): Promise<boolean | undefined> {
+  if (Object.hasOwn(data, 'disable-model-invocation')) return undefined
+  const autoinvoke = optionalMetadata(data).metadata?.['opencode/autoinvoke']
+  if (autoinvoke !== undefined) return frontmatterBoolean({ 'opencode/autoinvoke': autoinvoke }, 'opencode/autoinvoke')
+  if (!isBundle) return undefined
+  const sidecar = await readSkillText(ctx, join(dirname(skillPath), 'agents', 'openai.yaml'), signal, trustedHost)
+  if (sidecar === undefined) return undefined
+  const config: unknown = parseYaml(sidecar.content)
+  if (typeof config !== 'object' || config === null || Array.isArray(config)) return undefined
+  const policy = (config as Record<string, unknown>).policy
+  if (typeof policy !== 'object' || policy === null || Array.isArray(policy)) return undefined
+  return frontmatterBoolean(policy as Record<string, unknown>, 'allow_implicit_invocation')
+}
+
+function parseInvocationPolicy(data: Record<string, unknown>, fallbackModelInvocable?: boolean): SkillInvocationPolicy {
   rejectLegacyInvocationKey(data, 'disableModelInvocation', 'disable-model-invocation')
   rejectLegacyInvocationKey(data, 'modelInvocable', 'disable-model-invocation')
   rejectLegacyInvocationKey(data, 'userInvocable', 'user-invocable')
   const disableModelInvocation = frontmatterBoolean(data, 'disable-model-invocation')
   const userInvocable = frontmatterBoolean(data, 'user-invocable')
   return {
-    modelInvocable: disableModelInvocation !== true,
+    modelInvocable: disableModelInvocation === undefined ? fallbackModelInvocable !== false : !disableModelInvocation,
     userInvocable: userInvocable !== false,
   }
 }

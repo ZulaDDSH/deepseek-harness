@@ -7,7 +7,7 @@ kind: "package-reference"
 
 ## Summary
 
-Agents can use local skills from the repository, a custom directory, or the user's agent configuration: author a skill as a directory bundle with a `SKILL.md` or a flat `<name>.md` file under any scanned root, and it appears in the session catalog. The provider discovers the project, custom, user, and Claude Code (`.claude/skills`) roots, parses each skill's YAML frontmatter, and watches the directories, so new, renamed, or deleted skills reach agents without a restart. Choose it when skills live on disk — the registry (`dsh-skill`) accepts any provider, and another provider can supply skills from elsewhere.
+Agents can use local skills from the repository, a custom directory, or the user's agent configuration: author a skill as a directory bundle with a `SKILL.md` or a flat `<name>.md` file under any scanned root, and it appears in the session catalog. The provider scans the `.dsh`, `.agents`, and `.claude` roots plus those of Codex, OpenCode, Gemini CLI, Cursor, Copilot, and goose, parses frontmatter, and watches the directories, so changes reach agents without a restart. Choose it when skills live on disk.
 
 ## Table of Contents
 
@@ -33,6 +33,8 @@ Use this provider when skills live on disk — in the repository, a custom direc
 
 A skill is either a directory bundle `<name>/SKILL.md` or a flat file `<name>.md` at the top level of a scanned root; nested `**/SKILL.md` files are deliberately not discovered. The file starts with YAML frontmatter: required `description`, `name` (required for flat files; a bundle without `name` takes its directory name), plus optional `whenToUse`, `metadata`, `disable-model-invocation`, and `user-invocable`. Claude Code `SKILL.md` frontmatter is accepted with its `disable-model-invocation` and `user-invocable` meaning intact, and its `when_to_use` is read as `whenToUse` when `whenToUse` is absent; Claude-only keys such as `allowed-tools`, `argument-hint`, and `model` are ignored.
 
+Skills written for the other agent CLIs use the same `SKILL.md` shape and load unchanged, with two invocation dialects honored as a fallback when `disable-model-invocation` is absent: a Codex bundle's `agents/openai.yaml` `policy.allow_implicit_invocation: false` and an OpenCode `metadata` entry `opencode/autoinvoke: "false"` both keep the skill out of model-facing catalogs. An explicit `disable-model-invocation` key always wins, and a non-boolean sidecar or metadata value drops the skill with a warning like the other invocation keys. Edits to `agents/openai.yaml` alone are a bundle resource change, so they reach the catalog on the next `SKILL.md` change or restart.
+
 `disable-model-invocation: true` keeps the skill out of model-facing catalogs and loaders; `user-invocable: false` keeps it out of human-facing commands, and omitted fields default to permitting their surface. The two keys accept YAML booleans plus the case-insensitive `true`/`false`, `yes`/`no`, `on`/`off`, and `1`/`0` forms; a rejected spelling or a non-boolean value drops the whole skill with a warning rather than silently permitting a surface.
 
 Catalog entries and loaded skills expose the resolved instruction-file path, so symlinked directories and flat files can open as regular-file previews. Reload locators and resource bases retain the discovered paths, including symlinks.
@@ -48,14 +50,25 @@ Default roots are scanned in this provider's rank order:
 | 100 | `project-dsh` | `<projectRoot>/.dsh/skills` |
 | 200 | `project-agents` | `<projectRoot>/.agents/skills` |
 | 230 | `project-claude` | `<projectRoot>/.claude/skills` |
+| 232 | `project-codex` | `<projectRoot>/.codex/skills` |
+| 234 | `project-opencode` | `<projectRoot>/.opencode/skills` |
+| 236 | `project-gemini` | `<projectRoot>/.gemini/skills` |
+| 238 | `project-cursor` | `<projectRoot>/.cursor/skills` |
+| 240 | `project-copilot` | `<projectRoot>/.github/skills` |
+| 242 | `project-goose` | `<projectRoot>/.goose/skills` |
 | 300 | `custom` | `Config.customSkillDirs` |
 | 400 | `user-dsh` | `<dshHome>/skills` |
 | 500 | `user-agents` | `<agentsHome>/skills` |
 | 550 | `user-claude` | `<claudeHome>/skills` |
+| 560 | `user-codex` | `<codexHome>/skills` |
+| 565 | `user-opencode` | `<opencodeHome>/skills` |
+| 570 | `user-gemini` | `<geminiHome>/skills` |
+| 575 | `user-cursor` | `<cursorHome>/skills` |
+| 580 | `user-copilot` | `<copilotHome>/skills` |
 
-Within each scope `.dsh` beats `.agents`, which beats `.claude`; project roots outrank runtime skills (rank 250), and user roots outrank the bundled root (rank 600).
+Within each scope `.dsh` beats `.agents`, which beats `.claude`, which beats the other agent CLIs in the order shown (Codex, OpenCode, Gemini CLI, Cursor, Copilot, goose); a skill name found in several roots resolves to the lowest rank, so the same skill installed for two tools appears once. Project roots outrank runtime skills (rank 250), and user roots outrank the bundled root (rank 600).
 
-The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. The user DSH root skips its `.system` child. `includeDefaultRoots: false` omits the project and user rows plus the `$DSH_BUNDLED_SKILL_DIR` default so an isolated provider sees only its own configured roots; `bundledSkillDir` adds a bundled root at rank 600.
+The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. The user DSH root and the Codex root skip their `.system` child, where Codex keeps its bundled skills. Each root exists only where that tool documents it: goose has a project root only, because its user directory is the shared `~/.agents/skills` already scanned above. `includeDefaultRoots: false` omits the project and user rows plus the `$DSH_BUNDLED_SKILL_DIR` default so an isolated provider sees only its own configured roots; `bundledSkillDir` adds a bundled root at rank 600.
 
 ### Mount and configure
 
@@ -73,9 +86,16 @@ Load the plugin alongside the skill registry; it requires `ctx.skills`.
 | `dshHome` | `$DSH_HOME` or `~/.dsh` | Harness config root; its `skills` subdirectory is scanned |
 | `agentsHome` | `$DSH_AGENTS_HOME` or `~/.agents` | Shared agent config root scanned for compatible skills |
 | `claudeHome` | `$CLAUDE_CONFIG_DIR` or `~/.claude` | Claude Code config root; its `skills` subdirectory is scanned |
+| `codexHome` | `$CODEX_HOME` or `~/.codex` | OpenAI Codex config root; its `skills` subdirectory is scanned |
+| `opencodeHome` | `$XDG_CONFIG_HOME/opencode` or `~/.config/opencode` | OpenCode config root; its `skills` subdirectory is scanned |
+| `geminiHome` | `.gemini` under `$GEMINI_CLI_HOME` or the home directory | Gemini CLI config root; its `skills` subdirectory is scanned |
+| `cursorHome` | `~/.cursor` | Cursor config root; its `skills` subdirectory is scanned |
+| `copilotHome` | `$COPILOT_HOME` or `~/.copilot` | GitHub Copilot CLI config root; its `skills` subdirectory is scanned |
 | `customSkillDirs` | `[]` | Additional local skill roots, after project roots and before user roots |
 | `watch` | `true` | Watch local roots and invalidate the provider when the catalog may have changed |
 | `bundledSkillDir` | — | Bundled skill root scanned at rank 600 when configured |
+
+An empty `CODEX_HOME`, `XDG_CONFIG_HOME`, `GEMINI_CLI_HOME` or `COPILOT_HOME` counts as unset and falls back to the default in the table above.
 
 The remaining `watch*` fields tune Chokidar behavior — polling, stability window, interval, project cap, and symlink following. The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-skill-filesystem) is the exhaustive source for every field.
 
@@ -129,6 +149,7 @@ Read these pages when the package-level contract is not enough. They move from t
 - [skill package](../skill/README.md) — the registry this provider registers on.
 - [tool-skill package](../tool-skill/README.md) — how discovered skills reach the session catalog and the model.
 - [home-paths package](../../util/home-paths/README.md) — how `dshHome` and `agentsHome` resolve.
+- [Code notes](../../../docs/code-notes/deepseek-harness.md) — the source documentation for each other-agent root and the pinned-home test convention.
 
 -----
 

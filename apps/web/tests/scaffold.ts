@@ -72,11 +72,7 @@ import {
 import type { SessionFormatEvent } from '@deepseek-ai/dsh-session-format'
 import { sessionFormatCatalog } from '@deepseek-ai/dsh-session-format-catalog'
 import {
-  SESSION_FORMAT_VERSION,
-  SessionId,
-  type Session,
-  type SessionEvent,
-  type SessionHeader,
+  SESSION_FORMAT_VERSION, SessionId, type Session, type SessionEvent, type SessionHeader,
 } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 // Empty type imports carry the webServer/agents/sessionPersistence Context merges.
@@ -85,6 +81,7 @@ import type {} from '@deepseek-ai/dsh-agent'
 import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
 import { startPrefixProxy, type PrefixProxy } from './prefix-proxy.ts'
 import { REPO_ROOT, requireBuilt, requireDist } from './support.ts'
+import { pinSkillRootEnvironment } from './skill-root-environment.ts'
 
 type AppBoot = typeof import('@deepseek-ai/dsh-app-boot')
 let builtAppBoot: AppBoot | undefined
@@ -497,24 +494,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   // the resolved harness home so a scaffold sharing another's home — the
   // cross-port persistence scenario — pins the same roots the settings and
   // credentials rows were configured with.
-  const skillRootEnvironment = {
-    DSH_HOME: harnessHome,
-    DSH_AGENTS_HOME: join(workspaceCwd, '.agents-home'),
-    DSH_BUNDLED_SKILL_DIR: join(workspaceCwd, '.bundled-skills'),
-  }
-  const originalSkillRootEnvironment = Object.fromEntries(
-    Object.keys(skillRootEnvironment).map(key => [key, process.env[key]]),
-  )
-  let skillRootEnvironmentRestored = false
-  const restoreSkillRootEnvironment = (): void => {
-    if (skillRootEnvironmentRestored) return
-    skillRootEnvironmentRestored = true
-    for (const [key, value] of Object.entries(originalSkillRootEnvironment)) {
-      if (value === undefined) Reflect.deleteProperty(process.env, key)
-      else process.env[key] = value
-    }
-  }
-  Object.assign(process.env, skillRootEnvironment)
+  const restoreSkillRootEnvironment = pinSkillRootEnvironment(harnessHome, workspaceCwd)
   let persistenceRoot: string
   try {
     persistenceRoot = await mkdtemp(join(tmpdir(), 'dsh-web-e2e-sessions-'))
@@ -565,13 +545,18 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     { id: 'storage-json', config: { root: join(workspaceCwd, '.dsh-storages') } },
     // First-use initialization must create directories only inside this scaffold's temporary world.
     { id: 'workspace-controller', config: { documentsDirectory: join(workspaceCwd, 'Documents') } },
-    // Skill discovery is model-visible input: pin ~/.dsh, ~/.agents, ~/.claude and the bundled root inside the temp world.
+    // Skill discovery is model-visible input: pin every agent home and the bundled root inside the temp world.
     {
       id: 'skill-filesystem',
       config: {
         dshHome: join(workspaceCwd, '.dsh-home'),
         agentsHome: join(workspaceCwd, '.agents-home'),
         claudeHome: join(workspaceCwd, '.claude-home'),
+        codexHome: join(workspaceCwd, '.codex-home'),
+        opencodeHome: join(workspaceCwd, '.opencode-home'),
+        geminiHome: join(workspaceCwd, '.gemini-home'),
+        cursorHome: join(workspaceCwd, '.cursor-home'),
+        copilotHome: join(workspaceCwd, '.copilot-home'),
         bundledSkillDir: join(workspaceCwd, '.bundled-skills'),
         watch: false,
       },

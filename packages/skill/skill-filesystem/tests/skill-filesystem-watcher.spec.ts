@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
+import { otherAgentHomes } from './helpers.ts'
 
 interface FakeWatcherControl {
   emitter: EventEmitter
@@ -135,7 +136,7 @@ describe('skill-filesystem watcher failures', () => {
     const fiber = await ctx.plugin(SkillFileSystem, {
       dshHome: join(alias, '.dsh'),
       agentsHome: join(alias, '.agents'),
-      claudeHome: join(alias, '.claude'),
+      claudeHome: join(alias, '.claude'), ...otherAgentHomes(alias),
       watch: true,
     })
 
@@ -178,12 +179,12 @@ describe('skill-filesystem watcher failures', () => {
     const fiber = await ctx.plugin(SkillFileSystem, {
       dshHome: join(home, '.dsh'),
       agentsHome: join(home, '.agents'),
-      claudeHome: join(home, '.claude'),
+      claudeHome: join(home, '.claude'), ...otherAgentHomes(home),
       watch: true,
       watchPollIntervalMs: 10,
     })
     expect(await ctx.skills.snapshot()).toEqual({ skills: [], complete: true })
-    expect(watcherHarness.watchFiles).toHaveLength(3)
+    expect(watcherHarness.watchFiles).toHaveLength(8)
     let invalidations = 0
     ctx.on('skills/change', () => { invalidations += 1 })
 
@@ -193,7 +194,7 @@ describe('skill-filesystem watcher failures', () => {
     await settle()
 
     expect(invalidations).toBe(0)
-    expect(watcherHarness.watchFiles).toHaveLength(3)
+    expect(watcherHarness.watchFiles).toHaveLength(8)
     await fiber.dispose()
   })
 
@@ -212,7 +213,7 @@ describe('skill-filesystem watcher failures', () => {
     const fiber = await ctx.plugin(SkillFileSystem, {
       dshHome: join(home, '.dsh'),
       agentsHome: join(home, '.agents'),
-      claudeHome: join(home, '.claude'),
+      claudeHome: join(home, '.claude'), ...otherAgentHomes(home),
       watch: true,
       watchUsePolling: true,
       watchFollowSymlinks: false,
@@ -254,7 +255,7 @@ describe('skill-filesystem watcher failures', () => {
     const fiber = await ctx.plugin(SkillFileSystem, {
       dshHome: join(home, '.dsh'),
       agentsHome: join(home, '.agents'),
-      claudeHome: join(home, '.claude'),
+      claudeHome: join(home, '.claude'), ...otherAgentHomes(home),
       watch: true,
       watchPollIntervalMs: 10,
       watchStabilityThresholdMs: 20,
@@ -302,7 +303,7 @@ describe('skill-filesystem watcher failures', () => {
     const fiber = await ctx.plugin(SkillFileSystem, {
       dshHome: join(home, '.dsh'),
       agentsHome: join(home, '.agents'),
-      claudeHome: join(home, '.claude'),
+      claudeHome: join(home, '.claude'), ...otherAgentHomes(home),
       watch: true,
       watchPollIntervalMs: 10,
       watchStabilityThresholdMs: 20,
@@ -331,7 +332,7 @@ describe('skill-filesystem watcher failures', () => {
     const fiber = await ctx.plugin(SkillFileSystem, {
       dshHome: join(home, '.dsh'),
       agentsHome: join(home, '.agents'),
-      claudeHome: join(home, '.claude'),
+      claudeHome: join(home, '.claude'), ...otherAgentHomes(home),
       watch: true,
       watchPollIntervalMs: 10,
       watchStabilityThresholdMs: 20,
@@ -369,7 +370,7 @@ describe('skill-filesystem watcher failures', () => {
       provider = new SkillFileSystem.FileSystemSkillProvider(ctx, control, {
         dshHome: join(home, '.dsh'),
         agentsHome: join(home, '.agents'),
-        claudeHome: join(home, '.claude'),
+        claudeHome: join(home, '.claude'), ...otherAgentHomes(home),
         watch: true,
         watchPollIntervalMs: 10,
         watchStabilityThresholdMs: 20,
@@ -407,7 +408,7 @@ describe('skill-filesystem watcher failures', () => {
       provider = new SkillFileSystem.FileSystemSkillProvider(ctx, control, {
         dshHome: join(home, '.dsh'),
         agentsHome: join(home, '.agents'),
-        claudeHome: join(home, '.claude'),
+        claudeHome: join(home, '.claude'), ...otherAgentHomes(home),
         watch: true,
         watchPollIntervalMs: 10,
         watchStabilityThresholdMs: 20,
@@ -439,7 +440,7 @@ describe('skill-filesystem watcher failures', () => {
       provider = new SkillFileSystem.FileSystemSkillProvider(ctx, control, {
         dshHome: join(home, '.dsh'),
         agentsHome: join(home, '.agents'),
-        claudeHome: join(home, '.claude'),
+        claudeHome: join(home, '.claude'), ...otherAgentHomes(home),
         watch: true,
         watchPollIntervalMs: 10,
         watchStabilityThresholdMs: 20,

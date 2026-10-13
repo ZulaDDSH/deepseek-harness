@@ -39,6 +39,7 @@
     "tests/voice-setup.e2e.ts",
     "tests/voice-download.e2e.ts",
     "tests/prefix-proxy.ts",
+    "tests/skill-root-environment.ts",
     "tests/auto-review-fixture.ts",
     "tests/scaffold-generation.spec.ts",
     "tests/scaffold-hermetic.e2e.ts",

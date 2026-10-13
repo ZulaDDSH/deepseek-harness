@@ -25,6 +25,7 @@
     "apps/web/tests/voice-setup.e2e.ts",
     "apps/web/tests/voice-download.e2e.ts",
     "apps/web/tests/prefix-proxy.ts",
+    "apps/web/tests/skill-root-environment.ts",
     "apps/web/tests/developer-tools-settings.e2e.ts",
     "apps/web/tests/auto-review-fixture.ts",
     "apps/web/tests/auto-review-approval.e2e.ts",

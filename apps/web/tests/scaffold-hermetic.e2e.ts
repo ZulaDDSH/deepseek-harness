@@ -24,21 +24,37 @@ it('isolates replay skill discovery from every ambient host root', async () => {
   const dshHome = join(ambient, 'dsh-home')
   const agentsHome = join(ambient, 'agents-home')
   const claudeConfig = join(ambient, 'claude-config')
+  const codexHome = join(ambient, 'codex-home')
   const bundled = join(ambient, 'bundled')
+  const geminiCli = join(ambient, 'gemini-cli')
+  const copilotHome = join(ambient, 'copilot-home')
+  const xdgConfig = join(ambient, 'xdg')
   await Promise.all([
     writeSkill(join(dshHome, 'skills'), 'ambient-dsh'),
     writeSkill(join(agentsHome, 'skills'), 'ambient-agents'),
     writeSkill(join(claudeConfig, 'skills'), 'ambient-claude'),
+    writeSkill(join(codexHome, 'skills'), 'ambient-codex'),
+    writeSkill(join(geminiCli, '.gemini', 'skills'), 'ambient-gemini'),
+    writeSkill(join(copilotHome, 'skills'), 'ambient-copilot'),
+    writeSkill(join(xdgConfig, 'opencode', 'skills'), 'ambient-opencode'),
     writeSkill(bundled, 'ambient-bundled'),
   ])
 
   const originalDshHome = process.env.DSH_HOME
   const originalAgentsHome = process.env.DSH_AGENTS_HOME
   const originalClaudeConfig = process.env.CLAUDE_CONFIG_DIR
+  const originalCodexHome = process.env.CODEX_HOME
+  const originalGeminiCli = process.env.GEMINI_CLI_HOME
+  const originalCopilotHome = process.env.COPILOT_HOME
+  const originalXdgConfig = process.env.XDG_CONFIG_HOME
   const originalBundled = process.env.DSH_BUNDLED_SKILL_DIR
   process.env.DSH_HOME = dshHome
   process.env.DSH_AGENTS_HOME = agentsHome
   process.env.CLAUDE_CONFIG_DIR = claudeConfig
+  process.env.CODEX_HOME = codexHome
+  process.env.GEMINI_CLI_HOME = geminiCli
+  process.env.COPILOT_HOME = copilotHome
+  process.env.XDG_CONFIG_HOME = xdgConfig
   process.env.DSH_BUNDLED_SKILL_DIR = bundled
   let scaffold: WebScaffold | undefined
   try {
@@ -59,6 +75,10 @@ it('isolates replay skill discovery from every ambient host root', async () => {
       expect(names).not.toContain('ambient-dsh')
       expect(names).not.toContain('ambient-agents')
       expect(names).not.toContain('ambient-claude')
+      expect(names).not.toContain('ambient-codex')
+      expect(names).not.toContain('ambient-gemini')
+      expect(names).not.toContain('ambient-copilot')
+      expect(names).not.toContain('ambient-opencode')
       expect(names).not.toContain('ambient-bundled')
     } finally {
       await handle.dispose()
@@ -73,6 +93,14 @@ it('isolates replay skill discovery from every ambient host root', async () => {
       else process.env.DSH_AGENTS_HOME = originalAgentsHome
       if (originalClaudeConfig === undefined) delete process.env.CLAUDE_CONFIG_DIR
       else process.env.CLAUDE_CONFIG_DIR = originalClaudeConfig
+      if (originalCodexHome === undefined) delete process.env.CODEX_HOME
+      else process.env.CODEX_HOME = originalCodexHome
+      if (originalGeminiCli === undefined) delete process.env.GEMINI_CLI_HOME
+      else process.env.GEMINI_CLI_HOME = originalGeminiCli
+      if (originalCopilotHome === undefined) delete process.env.COPILOT_HOME
+      else process.env.COPILOT_HOME = originalCopilotHome
+      if (originalXdgConfig === undefined) delete process.env.XDG_CONFIG_HOME
+      else process.env.XDG_CONFIG_HOME = originalXdgConfig
       if (originalBundled === undefined) delete process.env.DSH_BUNDLED_SKILL_DIR
       else process.env.DSH_BUNDLED_SKILL_DIR = originalBundled
       await rm(ambient, { recursive: true, force: true })

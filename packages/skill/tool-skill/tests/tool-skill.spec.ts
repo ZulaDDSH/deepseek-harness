@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { describe, expect, it, onTestFinished } from 'vitest'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from '@deepseek-ai/cordis'
@@ -17,6 +17,15 @@ import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
 import * as toolSkill from '@deepseek-ai/dsh-tool-skill'
 import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 
+/** Pin every config root under the fixture home so tests never read the developer's real agent directories. */
+function allHomes(home: string) {
+  return {
+    dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), claudeHome: join(home, '.claude'),
+    codexHome: join(home, '.codex'), opencodeHome: join(home, '.config/opencode'), geminiHome: join(home, '.gemini'),
+    cursorHome: join(home, '.cursor'), copilotHome: join(home, '.copilot'), watch: false,
+  }
+}
+
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     'dsh-tool-skill': { kind: 'dsh-tool-skill' } & ContextFormed
@@ -33,15 +42,10 @@ function checkpointSource(compactionId: string): CheckpointSource {
 
 const testToolSignal = new AbortController().signal
 
-/** Every temp dir created by this file, removed after each test. */
-const tempDirs: string[] = []
-afterEach(async () => {
-  for (const dir of tempDirs.splice(0)) await rm(dir, { recursive: true, force: true })
-})
-
+/** A temp dir removed when the calling test finishes. */
 async function tempDir(name: string): Promise<string> {
-  const dir = await import('node:fs/promises').then(fs => fs.mkdtemp(join(tmpdir(), `dsh-${name}-`)))
-  tempDirs.push(dir)
+  const dir = await mkdtemp(join(tmpdir(), `dsh-${name}-`))
+  onTestFinished(async () => { await rm(dir, { recursive: true, force: true }) })
   return dir
 }
 
@@ -51,13 +55,18 @@ async function writeSkill(root: string, name: string, description: string, body:
   await writeFile(join(dir, 'SKILL.md'), `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`)
 }
 
-async function setup(home: string, config: toolSkill.Config = {}): Promise<Context> {
+async function skillContext(home: string): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(SkillRegistry)
-  await ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), claudeHome: join(home, '.claude'), watch: false })
+  await ctx.plugin(SkillFileSystem, allHomes(home))
+  return ctx
+}
+
+async function setup(home: string, config: toolSkill.Config = {}): Promise<Context> {
+  const ctx = await skillContext(home)
   await ctx.plugin(toolSkill, config)
   return ctx
 }
@@ -187,13 +196,8 @@ async function mintAgentScope(ctx: Context, subject: string | Agent): Promise<{ 
 
 describe('dsh-tool-skill', () => {
   it('registers the skill tool schema and removes it on dispose', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRuntime)
-    await ctx.plugin(AgentRegistry)
     const home = await tempDir('tool-schema')
-    await ctx.plugin(SkillRegistry)
-    await ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), claudeHome: join(home, '.claude'), watch: false })
+    const ctx = await skillContext(home)
     ctx.skills.register({ name: 'lifecycle-skill', description: 'Lifecycle', source: 'runtime', content: 'body' })
 
     const fiber = await ctx.plugin(toolSkill)
@@ -788,12 +792,7 @@ describe('dsh-tool-skill', () => {
 
   it('validates the catalog description cap', async () => {
     const home = await tempDir('tool-invalid-catalog-cap')
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRuntime)
-    await ctx.plugin(AgentRegistry)
-    await ctx.plugin(SkillRegistry)
-    await ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), claudeHome: join(home, '.claude'), watch: false })
+    const ctx = await skillContext(home)
 
     await expect(ctx.plugin(toolSkill, { catalogDescriptionMaxLength: 2 })).rejects.toThrow('greater than or equal to 3')
   })

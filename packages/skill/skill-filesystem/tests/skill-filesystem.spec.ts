@@ -1,35 +1,11 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { tmpdir } from 'node:os'
 import { Context } from '@deepseek-ai/cordis'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import { FileSystem, FsError, FsVersion, type FsDirEntry, type FsEditOutcome, type FsEditRequest, type FsInfo, type FsPathInfo, type FsTarget, type FsWriteOutcome } from '@deepseek-ai/dsh-fs'
 import * as SkillFileSystem from '../src/index.ts'
-
-/** Every temp dir created by this file, removed after each test. */
-const tempDirs: string[] = []
-afterEach(async () => {
-  for (const dir of tempDirs.splice(0)) await rm(dir, { recursive: true, force: true })
-})
-
-async function tempDir(name: string): Promise<string> {
-  const dir = await import('node:fs/promises').then(fs => fs.mkdtemp(join(tmpdir(), `dsh-${name}-`)))
-  tempDirs.push(dir)
-  return await realpath(dir)
-}
-
-async function writeSkill(root: string, name: string, description: string, body = 'Use the skill.'): Promise<void> {
-  const dir = join(root, name)
-  await mkdir(dir, { recursive: true })
-  await writeFile(join(dir, 'SKILL.md'), `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`)
-}
-
-async function writeFlatSkill(root: string, name: string, description: string, body = 'Flat body.'): Promise<void> {
-  await mkdir(root, { recursive: true })
-  await writeFile(join(root, `${name}.md`), `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`)
-}
-
+import { allHomes, otherAgentHomes, setupLocal, tempDir, writeFlatSkill, writeSkill, writeSkillWithSidecar } from './helpers.ts'
 class TestFileSystem extends FileSystem {
   override watch(): never { throw new Error('Fixture does not support watching') }
   listDirCalls = 0
@@ -149,19 +125,6 @@ class TestFileSystem extends FileSystem {
   override async editText(_target: FsTarget, _request: FsEditRequest): Promise<FsEditOutcome> {
     throw new Error('not needed in skill tests')
   }
-}
-
-async function setupLocal(home: string, config: Partial<SkillFileSystem.Config> = {}): Promise<Context> {
-  const ctx = new Context()
-  await ctx.plugin(SkillRegistry)
-  await ctx.plugin(SkillFileSystem, {
-    dshHome: join(home, '.dsh'),
-    agentsHome: join(home, '.agents'),
-    claudeHome: join(home, '.claude'),
-    watch: false,
-    ...config,
-  })
-  return ctx
 }
 
 async function waitFor<T>(read: () => Promise<T>, accept: (value: T) => boolean): Promise<T> {
@@ -552,7 +515,7 @@ describe('FileSystemSkillProvider', () => {
         }
       })
     }
-    const fiber = ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), claudeHome: join(home, '.claude'), watch: false })
+    const fiber = ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), claudeHome: join(home, '.claude'), ...otherAgentHomes(home), watch: false })
     await fiber
 
     try {
@@ -606,7 +569,7 @@ describe('FileSystemSkillProvider', () => {
       size: 0,
     })
     await ctx.plugin(SkillRegistry)
-    await ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), claudeHome: join(home, '.claude'), watch: false })
+    await ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), claudeHome: join(home, '.claude'), ...otherAgentHomes(home), watch: false })
 
     expect((await ctx.skills.list({ cwd: nestedCwd })).map(skill => [skill.name, skill.source])).toEqual([
       ['backend-root', 'project-agents'],
@@ -625,7 +588,7 @@ describe('FileSystemSkillProvider', () => {
     await bundledCtx.plugin(SkillFileSystem, {
       dshHome: join(home, '.dsh'),
       agentsHome: join(home, '.agents'),
-      claudeHome: join(home, '.claude'),
+      claudeHome: join(home, '.claude'), ...otherAgentHomes(home),
       bundledSkillDir: bundled,
     })
     expect((await bundledCtx.skills.get('bundled-host'))?.source).toBe('bundled')
@@ -639,12 +602,7 @@ describe('FileSystemSkillProvider', () => {
     await ctx.plugin(TestFileSystem)
     const fs = ctx.fs as TestFileSystem
     await ctx.plugin(SkillRegistry)
-    await ctx.plugin(SkillFileSystem, {
-      dshHome: join(home, '.dsh'),
-      agentsHome: join(home, '.agents'),
-      claudeHome: join(home, '.claude'),
-      watch: false,
-    })
+    await ctx.plugin(SkillFileSystem, allHomes(home))
 
     expect(await ctx.skills.snapshot()).toMatchObject({
       skills: [{ name: 'stable-skill' }],
@@ -676,12 +634,7 @@ describe('FileSystemSkillProvider', () => {
     await ctx.plugin(TestFileSystem)
     const fs = ctx.fs as TestFileSystem
     await ctx.plugin(SkillRegistry)
-    await ctx.plugin(SkillFileSystem, {
-      dshHome: join(home, '.dsh'),
-      agentsHome: join(home, '.agents'),
-      claudeHome: join(home, '.claude'),
-      watch: false,
-    })
+    await ctx.plugin(SkillFileSystem, allHomes(home))
     const invalidate = (): void => {
       ctx.emit(
         'fs/observed',
@@ -727,7 +680,7 @@ describe('FileSystemSkillProvider', () => {
     await ctx.plugin(TestFileSystem)
     const fs = ctx.fs as TestFileSystem
     await ctx.plugin(SkillRegistry)
-    await ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), claudeHome: join(home, '.claude'), watch: false })
+    await ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), claudeHome: join(home, '.claude'), ...otherAgentHomes(home), watch: false })
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['abortable-skill'])
 
     fs.statSignals = []
@@ -754,6 +707,37 @@ describe('FileSystemSkillProvider', () => {
     expect(fs.readTextSignals).toEqual([controller.signal])
   })
 
+  it('forwards cancellation while reading a Codex agents/openai.yaml sidecar', async () => {
+    const home = await tempDir('skill-sidecar-abort')
+    await writeSkillWithSidecar(join(home, '.dsh/skills'), 'sidecar-abort', 'policy:\n  allow_implicit_invocation: true\n')
+
+    const ctx = new Context()
+    await ctx.plugin(TestFileSystem)
+    const fs = ctx.fs as TestFileSystem
+    await ctx.plugin(SkillRegistry)
+    await ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), claudeHome: join(home, '.claude'), ...otherAgentHomes(home), watch: false })
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['sidecar-abort'])
+    const warn = vi.spyOn(ctx.logger, 'warn')
+
+    const started = Promise.withResolvers<undefined>()
+    fs.readTextOverride = async (target, signal) => {
+      if (!target.displayPath.endsWith('openai.yaml')) return await readFile(target.displayPath, 'utf8')
+      if (signal === undefined) throw new Error('expected the sidecar lookup signal')
+      started.resolve(undefined)
+      const pending = Promise.withResolvers<string>()
+      signal.addEventListener('abort', () => { pending.reject(signal.reason) }, { once: true })
+      return await pending.promise
+    }
+    const controller = new AbortController()
+    const reason = new Error('turn cancelled')
+    const loading = ctx.skills.get('sidecar-abort', { signal: controller.signal })
+    await started.promise
+    controller.abort(reason)
+
+    await expect(loading).rejects.toBe(reason)
+    expect(warn.mock.calls.some(([message]) => String(message).includes('invalid invocation frontmatter'))).toBe(false)
+  })
+
   it('refreshes additions, metadata changes, deletions, and a recreated missing root', { timeout: 20000 }, async () => {
     const home = await tempDir('skill-watch-home')
     const agentsRoot = join(home, '.agents/skills')
@@ -762,7 +746,7 @@ describe('FileSystemSkillProvider', () => {
     const fiber = await ctx.plugin(SkillFileSystem, {
       dshHome: join(home, '.dsh'),
       agentsHome: join(home, '.agents'),
-      claudeHome: join(home, '.claude'),
+      claudeHome: join(home, '.claude'), ...otherAgentHomes(home),
       watch: true,
       watchStabilityThresholdMs: 20,
       watchPollIntervalMs: 10,
@@ -871,7 +855,7 @@ describe('FileSystemSkillProvider', () => {
     const fiber = await ctx.plugin(SkillFileSystem, {
       dshHome: join(home, '.dsh'),
       agentsHome: join(home, '.agents'),
-      claudeHome: join(home, '.claude'),
+      claudeHome: join(home, '.claude'), ...otherAgentHomes(home),
       customSkillDirs: [join(first, '.agents/skills')],
       watch: true,
       watchMaxProjects: 1,
@@ -894,7 +878,7 @@ describe('FileSystemSkillProvider', () => {
     await noWatch.plugin(SkillFileSystem, {
       dshHome: join(home, '.dsh'),
       agentsHome: join(home, '.agents'),
-      claudeHome: join(home, '.claude'),
+      claudeHome: join(home, '.claude'), ...otherAgentHomes(home),
       watch: false,
       watchMaxProjects: 1,
     })
@@ -914,7 +898,7 @@ describe('FileSystemSkillProvider', () => {
       provider = new SkillFileSystem.FileSystemSkillProvider(ctx, control, {
         dshHome: join(home, '.dsh'),
         agentsHome: join(home, '.agents'),
-        claudeHome: join(home, '.claude'),
+        claudeHome: join(home, '.claude'), ...otherAgentHomes(home),
         customSkillDirs: [nonDirectoryRoot],
         watch: true,
         watchStabilityThresholdMs: 20,
@@ -948,7 +932,7 @@ describe('FileSystemSkillProvider', () => {
     const fiber = await ctx.plugin(SkillFileSystem, {
       dshHome: join(home, '.dsh'),
       agentsHome: join(home, '.agents'),
-      claudeHome: join(home, '.claude'),
+      claudeHome: join(home, '.claude'), ...otherAgentHomes(home),
       watch: true,
       watchFollowSymlinks: true,
       watchStabilityThresholdMs: 20,
@@ -974,80 +958,5 @@ describe('FileSystemSkillProvider', () => {
     await expect(ctx.plugin(SkillFileSystem, { watchMaxProjects: 0 })).rejects.toThrow('watchMaxProjects')
     await expect(ctx.plugin(SkillFileSystem, { watchPollIntervalMs: 1.5 })).rejects.toThrow('watchPollIntervalMs')
     await expect(ctx.plugin(SkillFileSystem, { watchStabilityThresholdMs: 0 })).rejects.toThrow('watchStabilityThresholdMs')
-  })
-
-  it('uses default home root resolution without exposing builtin skills', async () => {
-    const previousDshHome = process.env.DSH_HOME
-    const previousAgentsHome = process.env.DSH_AGENTS_HOME
-    const previousClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR
-    const previousBundledSkillDir = process.env.DSH_BUNDLED_SKILL_DIR
-    const envHome = await tempDir('skill-env-home')
-    try {
-      process.env.DSH_HOME = join(envHome, '.dsh')
-      process.env.DSH_AGENTS_HOME = join(envHome, '.agents')
-      process.env.CLAUDE_CONFIG_DIR = join(envHome, '.claude')
-      const bundled = join(envHome, 'bundled-skills')
-      process.env.DSH_BUNDLED_SKILL_DIR = bundled
-      await writeSkill(join(envHome, '.dsh/skills'), 'env-skill', 'Env skill')
-      await writeSkill(join(envHome, '.claude/skills'), 'env-claude-skill', 'Env Claude skill')
-      await writeSkill(bundled, 'env-bundled-skill', 'Env bundled skill')
-      const ctx = new Context()
-      await ctx.plugin(SkillRegistry)
-      await ctx.plugin(SkillFileSystem, { watch: false })
-      expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['env-bundled-skill', 'env-claude-skill', 'env-skill'])
-      expect((await ctx.skills.get('env-claude-skill'))?.source).toBe('user-claude')
-
-      // Isolated providers see only their explicit roots: the environment
-      // bundled root is a default root, so includeDefaultRoots: false must
-      // drop it — isolated providers never re-claim the app's builtins.
-      const isolated = new Context()
-      await isolated.plugin(SkillRegistry)
-      const customOnly = join(envHome, 'custom-only')
-      await writeSkill(customOnly, 'custom-isolated-skill', 'Custom isolated skill')
-      await isolated.plugin(SkillFileSystem, {
-        providerName: 'isolated',
-        includeDefaultRoots: false,
-        customSkillDirs: [customOnly],
-        watch: false,
-      })
-      expect((await isolated.skills.list()).map(skill => skill.name)).toEqual(['custom-isolated-skill'])
-      await isolated.fiber.dispose()
-
-      process.env.DSH_HOME = join(envHome, 'empty-dsh')
-      delete process.env.DSH_BUNDLED_SKILL_DIR
-      process.env.DSH_AGENTS_HOME = join(envHome, 'empty-agents')
-      process.env.CLAUDE_CONFIG_DIR = join(envHome, 'empty-claude')
-      const empty = new Context()
-      await empty.plugin(SkillRegistry)
-      SkillFileSystem.apply(empty, { watch: false })
-      expect(await empty.skills.list()).toEqual([])
-
-      delete process.env.DSH_AGENTS_HOME
-      expect(new SkillFileSystem.FileSystemSkillProvider(empty, {
-        signal: new AbortController().signal,
-        invalidate() {},
-      }, { dshHome: join(envHome, 'empty-dsh') }).name).toBe('filesystem')
-    } finally {
-      if (previousDshHome === undefined) {
-        delete process.env.DSH_HOME
-      } else {
-        process.env.DSH_HOME = previousDshHome
-      }
-      if (previousAgentsHome === undefined) {
-        delete process.env.DSH_AGENTS_HOME
-      } else {
-        process.env.DSH_AGENTS_HOME = previousAgentsHome
-      }
-      if (previousClaudeConfigDir === undefined) {
-        delete process.env.CLAUDE_CONFIG_DIR
-      } else {
-        process.env.CLAUDE_CONFIG_DIR = previousClaudeConfigDir
-      }
-      if (previousBundledSkillDir === undefined) {
-        delete process.env.DSH_BUNDLED_SKILL_DIR
-      } else {
-        process.env.DSH_BUNDLED_SKILL_DIR = previousBundledSkillDir
-      }
-    }
   })
 })

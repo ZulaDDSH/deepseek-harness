@@ -28,6 +28,11 @@
     dshHome: './.dsh-home'
     agentsHome: './.agents-home'
     claudeHome: './.claude-home'
+    codexHome: './.codex-home'
+    opencodeHome: './.opencode-home'
+    geminiHome: './.gemini-home'
+    cursorHome: './.cursor-home'
+    copilotHome: './.copilot-home'
 
 - id: session-persistence-jsonl
   config:
