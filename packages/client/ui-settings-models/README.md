@@ -31,7 +31,11 @@ Open the Models page from the Settings navigation to see every configured provid
 
 A provider with a stored catalog error remains visible with its diagnostic and edit/delete actions. Add actions are offered only for registered settings namespaces, so an unavailable namespace cannot leave a button that opens no editor. A rejected save leaves the editor open and displays the Host diagnostic.
 
-Models settings and explicit API-key editing are available from Settings → Models without a launch-time prompt.
+Models settings and explicit API-key editing are available from Settings → Models without a launch-time prompt. While the provider directory is first read, the page says so instead of showing an empty list.
+
+### Finding a setting
+
+The Models and Model routing pages register their settings (API key, adding a provider or custom endpoint, and each routing option) with the Settings search, using the labels and one-line descriptions already shown on the page plus English aliases such as relay, proxy and router. The navigation entry that was named Jev reads **Model routing**, and its page heading reads **Model routing (Jev)**.
 
 ### API keys
 
@@ -41,7 +45,7 @@ The primary field on an editor card is a single **API key** input — the page n
 
 ### Editing a provider
 
-The collapsed 自定义设置 fold carries the curated extras: `baseURL` for both families (the deepseek placeholder shows the public endpoint), each adapter's model catalog, and the **display name** and **API protocol** of a pi-ai route the adapter does not ship. Profile `headers` remain deployment configuration in `cordis.patch.yml` or Cordis config and have no Models-page editor. The Provider ID stays fixed: it is the settings key, the name every other namespace and every logged session references, and the stem of a credential reference the page cannot read back to move. Reasoning effort is deliberately not among the editable fields: it is a per-model capability, so a provider-scoped control could only be set to a value some models reject. Each model row edits `id`, optional display `name`, optional `contextWindow`/`maxTokens`, and input types; unrelated model fields survive edits.
+The collapsed **Customized settings** (自定义设置) fold carries the curated extras: `baseURL` for both families (the deepseek placeholder shows the public endpoint), each adapter's model catalog, and the **display name** and **API protocol** of a pi-ai route the adapter does not ship. Profile `headers` remain deployment configuration in `cordis.patch.yml` or Cordis config and have no Models-page editor. The Provider ID stays fixed: it is the settings key, the name every other namespace and every logged session references, and the stem of a credential reference the page cannot read back to move. Reasoning effort is deliberately not among the editable fields: it is a per-model capability, so a provider-scoped control could only be set to a value some models reject. Each model row edits `id`, optional display `name`, optional `contextWindow`/`maxTokens`, and input types; unrelated model fields survive edits.
 
 The DeepSeek card edits the `llm-deepseek` endpoint, credentials, and model catalog. It uses Messages, with the default endpoint placeholder `https://api.deepseek.com/anthropic`.
 

@@ -2,7 +2,8 @@
 
 /** English strings (the key-set source of truth for this pair). */
 export const en = {
-  jevTitle: 'Jev',
+  jevTitle: 'Model routing (Jev)',
+  jevNav: 'Model routing',
   jevHelp: 'Configure automatic model routing and the Jev credential. Routing does not change the selected base model shown in chat.',
   jevLoading: 'Reading Jev configuration…',
   jevUnavailable: 'The Jev router has no editable configuration in this deployment.',
@@ -37,6 +38,7 @@ export const en = {
   credentialMissing: 'API key missing',
   readOnly: 'The settings document is read-only in this deployment.',
   loadFailed: 'Loading the provider directory failed',
+  providersLoading: 'Reading model providers…',
   conflict: 'Someone else changed these settings while this card was open. Close it and reopen to edit the current values.',
   retry: 'Retry',
   keyInput: 'API key',
@@ -165,7 +167,8 @@ export type ModelsKey = keyof typeof en
 
 /** Chinese strings (same keys as {@link en}). */
 export const zh: { [Key in keyof typeof en]: string } = {
-  jevTitle: 'Jev',
+  jevTitle: '模型路由（Jev）',
+  jevNav: '模型路由',
   jevHelp: '配置自动模型路由和 Jev 凭据。路由不会改变聊天中显示的已选基础模型。',
   jevLoading: '正在读取 Jev 配置…',
   jevUnavailable: '此部署中的 Jev 路由器没有可编辑的配置。',
@@ -235,6 +238,7 @@ export const zh: { [Key in keyof typeof en]: string } = {
   credentialMissing: 'API 密钥缺失',
   readOnly: '当前部署的设置文档为只读。',
   loadFailed: '加载提供商目录失败',
+  providersLoading: '正在读取模型提供方…',
   conflict: '这张卡片打开期间，这些设置已被其他地方改动。请关闭后重新打开，在当前值上编辑。',
   retry: '重试',
   keyInput: 'API 密钥',

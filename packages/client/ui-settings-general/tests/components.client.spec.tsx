@@ -2,7 +2,7 @@
 import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { bindSnapshotSelector, RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
+import { bindSnapshotSelector, makeTranslate, RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import type { GeneralSectionComponentProps } from '../src/client/GeneralSection.tsx'
 import { GeneralSection } from '../src/client/GeneralSection.tsx'
 import { CloseLabel, HeaderContent, TriggerContent } from '../src/client/chrome.tsx'
@@ -117,15 +117,39 @@ describe('GeneralSection', () => {
     const renderSlot = vi.fn(
       ((key: string) => <div data-testid={`slot-${key}`} />) as GeneralSectionComponentProps['renderSlot'],
     )
-    const props: GeneralSectionComponentProps = { ...kit, renderSlot, close: vi.fn() }
+    const props: GeneralSectionComponentProps = {
+      ...kit, renderSlot, close: vi.fn(), t: makeTranslate(en),
+      useItems: select => select(ids),
+    }
     const view = render(<GeneralSection {...props} />)
     return { view, renderSlot }
   }
+  let ids: readonly string[] = ['language', 'appearance', 'developer-tools', 'current-version', 'acme-plugin-row']
 
-  it('renders the item slot as the section body', () => {
-    const { renderSlot } = mount()
-    expect(renderSlot).toHaveBeenCalledWith('settings.general.item', {})
-    expect(screen.getByTestId('slot-settings.general.item')).toBeTruthy()
+  it('renders one anchored slot per registered row under plain headings, keeping unknown rows', () => {
+    ids = ['language', 'appearance', 'developer-tools', 'current-version', 'acme-plugin-row']
+    const { renderSlot, view } = mount()
+    expect(renderSlot).toHaveBeenCalledWith('settings.general.item', {}, { only: 'language' })
+    expect(renderSlot).not.toHaveBeenCalledWith('settings.general.item', {})
+    const headings = [...view.container.querySelectorAll('h3')].map(heading => heading.textContent)
+    expect(headings).toEqual(['Preferences', 'Advanced', 'About'])
+    const anchored = [...view.container.querySelectorAll('[data-settings-entry]')].map(node => node.getAttribute('data-settings-entry'))
+    expect(anchored).toEqual(['language', 'appearance', 'developer-tools', 'acme-plugin-row', 'current-version'])
+    expect(screen.getByRole('region', { name: 'Advanced' })).toBeTruthy()
+  })
+
+  it('omits a heading whose rows are not registered', () => {
+    ids = ['shortcuts']
+    const { view } = mount()
+    expect([...view.container.querySelectorAll('h3')].map(heading => heading.textContent)).toEqual(['Conversation and input'])
+  })
+
+  it('renders a shadowed plugin row once', () => {
+    ids = ['acme-plugin-row', 'language', 'acme-plugin-row']
+    const { renderSlot, view } = mount()
+    const anchored = [...view.container.querySelectorAll('[data-settings-entry]')].map(node => node.getAttribute('data-settings-entry'))
+    expect(anchored).toEqual(['language', 'acme-plugin-row'])
+    expect(renderSlot.mock.calls.filter(([, , options]) => JSON.stringify(options) === JSON.stringify({ only: 'acme-plugin-row' }))).toHaveLength(1)
   })
 })
 

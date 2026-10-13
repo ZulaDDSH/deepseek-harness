@@ -40,7 +40,7 @@ const CHILD_NAMES = Object.keys(CHILD_SPECS) as Array<keyof typeof CHILD_SPECS>
  * ui-settings-models, ui-settings-plugins, and ui-agent-preset. A plugin
  * adding a section changes this list.
  */
-const PRODUCT_SECTIONS: readonly string[] = ['general', 'models', 'jev', 'plugins', 'agent-presets', 'mcp', 'hooks']
+const PRODUCT_SECTIONS: readonly string[] = ['general', 'models', 'jev', 'agent-presets', 'mcp', 'hooks', 'plugins']
 describe('ui-settings-general shell', () => {
   it('shares one carrier subscription between both update locations and releases it on unload', async ({ start }) => {
     const initial = Promise.withResolvers<DesktopUpdatePresentation>()
@@ -70,7 +70,7 @@ describe('ui-settings-general shell', () => {
   }, COLD_BOOT_TIMEOUT_MS)
 
   it('declares its services', () => {
-    expect(inject).toEqual(['slots', 'locale', 'connection', 'remote', 'remote.settings', 'configForms', 'shortcuts'])
+    expect(inject).toEqual(['slots', 'locale', 'connection', 'remote', 'remote.settings', 'configForms', 'settingsDirectory', 'shortcuts'])
   })
 
   it('occupies sidebar.settings, declared by ui-sidebar, and declares every child slot', async ({ start }) => {
@@ -101,6 +101,35 @@ describe('ui-settings-general shell', () => {
     expect(sections.getSnapshot()).not.toBe(rows)
     off()
   })
+
+  it('searches the assembled product: General rows that are registered, Models, Jev and MCP settings, and stops listing a package once it unloads', async ({ start }) => {
+    const c = await start()
+    const { search, hooks } = injectedOf(c)
+    const ids = (query: string) => search(query).map(item => item.id)
+    // Keyword aliases are English in both dictionaries, so the query does not depend on the active locale.
+    expect(ids('locale')).toContain('general.language')
+    expect(ids('hotkeys')).toEqual(['general.shortcuts'])
+    expect(ids('wait')).toContain('jev.timeout')
+    expect(ids('stdio')).toContain('mcp.add')
+    expect(ids('relay')).toEqual(['models.custom-api'])
+    // A row whose feature is not registered is not offered (the Link row needs the built-in browser).
+    expect(c.ctx.slots.entries('settings.general.item').some(entry => entry.options.id === 'link-opening')).toBe(ids('sidebar tab').includes('general.link-opening'))
+    expect(search('   ')).toEqual([])
+    // The tick moves when the directory does, and holds still between changes.
+    const tick = hooks.searchTick.getSnapshot()
+    expect(hooks.searchTick.getSnapshot()).toBe(tick)
+    await c.unload('@deepseek-ai/dsh-client-ui-settings-models')
+    await c.flush()
+    expect(hooks.searchTick.getSnapshot()).not.toBe(tick)
+    expect(ids('relay')).toEqual([])
+    expect(ids('locale')).toContain('general.language')
+  }, COLD_BOOT_TIMEOUT_MS)
+
+  it('exposes the Host save status of the shared settings forms', async ({ start }) => {
+    const c = await start()
+    expect(injectedOf(c).hooks.saveStatus).toBe(c.ctx.configForms.saveStatus)
+    expect(injectedOf(c).hooks.saveStatus.getSnapshot()).toEqual({ state: 'idle' })
+  }, COLD_BOOT_TIMEOUT_MS)
 
   it('shows Account first in Desktop while signed in and removes it on sign-out', async ({ start }) => {
     vi.stubGlobal('dshDesktop', {})

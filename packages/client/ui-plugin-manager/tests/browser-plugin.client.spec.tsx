@@ -115,6 +115,24 @@ describe('ui-plugin-manager browser plugin', () => {
     expect(navigation.getSnapshot()).toEqual({ view: { kind: 'package', name: 'dsh-navigation-test' } })
   })
 
+  it('lists the Plugins page and each plugin page in the Settings search and opens them on the Plugins page', async () => {
+    const b = await bench()
+    declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const removeItem = b.slots.register({ name: 'plugins.item', id: 'web-search', order: 40, label: () => 'Web search' } as never, () => null)
+    // Slot notifications batch per microtask, so the directory catches up after the registration.
+    await vi.waitFor(() => { expect(b.ctx.settingsDirectory.search('web search')).toHaveLength(1) })
+    const [hit] = b.ctx.settingsDirectory.search('web search')
+    expect(hit).toMatchObject({ id: 'plugins.item.web-search', section: undefined, label: 'Web search', link: { place: '插件' } })
+    hit!.link!.open()
+    expect(b.selectPanel).toHaveBeenCalledWith(PANEL_ID)
+    const entry = b.slots.entries('main')[0]!
+    assert(entry.store && 'create' in entry.store)
+    expect(entry.store.create().getSnapshot()).toEqual({ view: { kind: 'item', id: 'web-search' } })
+    expect(b.ctx.settingsDirectory.search('插件').map(item => item.id)).toContain('plugins.page')
+    removeItem()
+    await vi.waitFor(() => { expect(b.ctx.settingsDirectory.search('web search')).toEqual([]) })
+  })
   it('shares refresh failures with the overlay after navigation and releases both registrations across reloads', async () => {
     const b = await bench()
     const fiber = b.ctx.plugin({ inject: [...inject], apply })
@@ -175,6 +193,15 @@ describe('ui-plugin-manager browser plugin', () => {
     await expect(face.addMcpServer({ transport: 'stdio', serverName: 'a', command: 'node', args: [], env: {} })).rejects.toThrow('request failed')
   })
 
+  it('finds the MCP import and add entries by the mcp keyword', async () => {
+    const b = await bench()
+    declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    await vi.waitFor(() => {
+      expect(b.ctx.settingsDirectory.search('mcp').map(item => item.id)).toEqual(expect.arrayContaining(['mcp.add', 'mcp.import']))
+    })
+  })
+
   it('signs MCP servers in through the authorization Remote and treats a cancelled stream as settled', async () => {
     const b = await bench()
     declare(b.slots)
@@ -202,7 +229,7 @@ describe('ui-plugin-manager browser plugin', () => {
   })
 
   it('declares only the services the page and its Remote methods use', () => {
-    expect(inject).toEqual(['slots', 'locale', 'remote', 'remote.pluginManager', 'remote.pluginInventory', 'remote.pluginRegistryProbe', 'configForms', 'layout'])
+    expect(inject).toEqual(['slots', 'locale', 'remote', 'remote.pluginManager', 'remote.pluginInventory', 'remote.pluginRegistryProbe', 'configForms', 'settingsDirectory', 'layout'])
   })
 
   it('registers the sidebar entry and its page, which reads the Host only once rendered and follows Host changes', async () => {

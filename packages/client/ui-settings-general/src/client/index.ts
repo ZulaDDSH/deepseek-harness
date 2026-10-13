@@ -20,7 +20,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: pulls ctx.locale into this program.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
-import type { SettingsRootInjected, SettingsSectionRow } from './shell-contract.ts'
+import type { SettingsRootInjected, SettingsSearchTick, SettingsSectionRow } from './shell-contract.ts'
 import type { ShortcutCommandId } from '@deepseek-ai/dsh-client-shortcuts/client'
 import { createSettingsShellStore } from './shell-store.ts'
 import { SettingsRoot } from './SettingsRoot.tsx'
@@ -28,7 +28,8 @@ import { DesktopUpdateBadge } from './DesktopUpdateIndicator.tsx'
 import type { DesktopUpdateBridge } from '../types.ts'
 import { DesktopUpdateSource } from './desktop-update-source.ts'
 import { CloseLabel, HeaderContent, TriggerContent } from './chrome.tsx'
-import { GeneralSection } from './GeneralSection.tsx'
+import { GeneralSection, type GeneralSectionInjected } from './GeneralSection.tsx'
+import { generalSearchEntries } from './search-entries.ts'
 import { CurrentVersionRow } from './CurrentVersionRow.tsx'
 import { DeveloperToolsRow, type DeveloperToolsRowInjected } from './DeveloperToolsRow.tsx'
 import { SettingsDocumentAction } from './SettingsDocumentAction.tsx'
@@ -40,7 +41,7 @@ export type {
   CloseLabelProps, HeaderContentProps, TriggerContentProps,
 } from './chrome.tsx'
 export type {
-  GeneralSectionComponentProps,
+  GeneralRowGroup, GeneralSectionComponentProps, GeneralSectionInjected,
 } from './GeneralSection.tsx'
 export type { SettingsDocumentActionInjected, SettingsDocumentActionProps } from './SettingsDocumentAction.tsx'
 export type { SettingsDocumentState } from './settings-document-store.ts'
@@ -62,7 +63,7 @@ const NS = 'settings'
  * ui-settings' apply, whose activation order relative to this one is NOT
  * constrained; registrations depend on their slots through `slots.inject()`.
  */
-export const inject = ['slots', 'locale', 'connection', 'remote', 'remote.settings', 'configForms', 'shortcuts']
+export const inject = ['slots', 'locale', 'connection', 'remote', 'remote.settings', 'configForms', 'settingsDirectory', 'shortcuts']
 
 /**
  * Register the `settings` dictionaries, the chrome content, and the General
@@ -95,6 +96,10 @@ export function apply(ctx: ClientContext): void {
   // seat, and the nav label is a thunk the owner resolves per render — no
   // locale/change re-registration wiring.
   const t = ctx.locale.bind(NS)
+  ctx.effect(() => ctx.settingsDirectory.register(generalSearchEntries(
+    t,
+    id => ctx.slots.entries('settings.general.item').some(entry => entry.options.id === id),
+  )), 'ui-settings-general: search entries')
   // The shared ConfigForm mirror updates after document commits and reconnects.
   const documentController = ctx.remote.$host.isLoopback
     ? new SettingsDocumentStore(ctx, ctx.configForms.describe())
@@ -114,10 +119,32 @@ export function apply(ctx: ClientContext): void {
   let rowsVersion = -1
   let rowsRevision = -1
   let rows: readonly SettingsSectionRow[] = []
+  let tickKey = ''
+  let tick: SettingsSearchTick = {}
   const shellInjected = (): SettingsRootInjected => ({
     openDesktopUpdate: () => { desktopUpdate.open() },
     reconnect: () => { connection.reconnect() },
+    search: query => ctx.settingsDirectory.search(query),
     hooks: {
+      saveStatus: ctx.configForms.saveStatus,
+      searchTick: {
+        getSnapshot: () => {
+          const key = `${String(ctx.settingsDirectory.getVersion())}:${String(ctx.locale.getSnapshot().revision)}:${String(ctx.slots.getVersion('settings.general.item'))}`
+          if (key !== tickKey) {
+            tickKey = key
+            tick = {}
+          }
+          return tick
+        },
+        subscribe: (listener) => {
+          const offs = [
+            ctx.settingsDirectory.subscribe(listener),
+            ctx.locale.subscribe(listener),
+            ctx.slots.subscribe('settings.general.item', listener),
+          ]
+          return () => { for (const off of offs) off() }
+        },
+      },
       shortcuts: ctx.shortcuts.catalog,
       desktopUpdate: desktopUpdate.store,
       connectionState: connection.state,
@@ -205,12 +232,33 @@ export function apply(ctx: ClientContext): void {
   }
   ctx.slots.inject('settings.close', () =>
     ctx.slots.register({ name: 'settings.close', locale: NS }, CloseLabel))
+  let itemsVersion = -1
+  let items: readonly string[] = []
+  const generalInjected = (): GeneralSectionInjected => ({
+    hooks: {
+      items: {
+        getSnapshot: () => {
+          const version = ctx.slots.getVersion('settings.general.item')
+          if (version !== itemsVersion) {
+            itemsVersion = version
+            items = ctx.slots.entries('settings.general.item')
+              .map(entry => ({ id: entry.options.id ?? '', order: entry.options.order ?? 0 }))
+              .sort((a, b) => a.order - b.order)
+              .map(entry => entry.id)
+          }
+          return items
+        },
+        subscribe: listener => ctx.slots.subscribe('settings.general.item', listener),
+      },
+    },
+  })
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
     id: 'general',
     order: 0,
     label: () => t('general.nav'),
     locale: NS,
+    inject: generalInjected,
     children: { 'settings.general.item': { kind: 'list', scope: 'root' } },
   }, GeneralSection))
 }

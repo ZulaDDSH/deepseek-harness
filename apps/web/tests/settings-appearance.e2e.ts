@@ -26,10 +26,6 @@ function appearance(element: Locator) {
 it('shares settings card materials and control sizes in both palettes', async () => {
   const scaffold = await launchWebScaffold({})
   onTestFinished(() => scaffold.close())
-  await scaffold.ctx.settings.mutate('ui-settings-account', [
-    { op: 'set', path: ['step'], value: 'done' },
-    { op: 'set', path: ['completion'], value: 'completed' },
-  ])
   const account = scaffold.ctx.deepseekAccount
   const state: AccountView = {
     status: 'credential-stored', attempt: null,

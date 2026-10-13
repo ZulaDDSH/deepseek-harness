@@ -35,6 +35,12 @@ Feature adapters use `ctx.configForms.get(entryId)` to obtain accepted values an
 
 A page that edits a namespace another plugin owns registers through `ctx.configForms.whileServed(namespaces, register)`: `register` runs once any listed namespace is in the shared mirror, receives the set of namespaces the Host serves, and returns the registration's disposer, which runs when none of them is served any more or when the disposer `whileServed` returns runs. The caller owns that returned disposer and wraps it in `ctx.effect`; unlike `get`, the service registers nothing on the caller's context. A deployment that never composed the owner therefore shows no trace of the page, and a namespace the Host stops serving withdraws it. The four official pages on the Plugins page ride it, one companion package each.
 
+### Settings search and save status
+
+`ctx.settingsDirectory` is the searchable index of individual settings. A page or row registers entries with `register(entries)`: an `id`, the `section` it lives in, a `label`, an optional one-line `description`, search-only `keywords`, an optional `anchor` (the `data-settings-entry` value the shell scrolls to and focuses), and an optional `when()` that hides the entry while its feature is absent. Label, description and keywords may be locale-following functions. An entry that lives outside the Settings dialog (for example a plugin page on the sidebar Plugins page) sets `link: { place, open }` instead of `section`; registering an entry with both or neither throws, and the shell closes the dialog before calling `open`. A duplicate id throws, and the returned disposer withdraws the entries. `search(query)` requires every word of the query in the label, keywords or description and ranks label matches first; `getVersion()` and `subscribe()` let a view follow changes.
+
+`ctx.configForms.saveStatus` is an observable `{ state: 'idle' | 'saving' | 'saved' | 'failed' }` over every Host write of every shared form. `saved` clears after 2.5 s and `failed` after 8 s; a batch of writes settles to `failed` if any write failed.
+
 ### Filling the settings slots
 
 A settings surface registers into the slot types this package declares. The shell (`sidebar.settings` occupant, navigation, chrome) lives in ui-settings-general; feature pages register `settings.section` contributions; the Plugins section hosts `settings.plugins.tab` pages. Cross-namespace surfaces (schema introspection, the served-namespace directory, `hasDocument`) read the same mirror through `ctx.configForms.describe()`.

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import type { InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ModelsSectionInjected } from './ModelsSection.tsx'
-import { providerCopy, providerModelOptions } from './ModelsSection.tsx'
+import { providerCopy, providerModelOptions } from './provider-rows.ts'
 import { ProviderEditor } from './ProviderEditor.tsx'
 import styles from './ModelsSection.module.css'
 

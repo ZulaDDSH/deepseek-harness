@@ -23,6 +23,7 @@ import { createModelsOperations } from './operations.ts'
 import { createAuthorizationOperations } from './authorization-operations.ts'
 import { createSettingsSchemaOperations } from './schema-operations.ts'
 import { en, zh, type ModelsKey } from './locales.ts'
+import { modelsSearchEntries } from './search-entries.ts'
 
 export type { ModelsSectionInjected, ModelsSectionProps } from './ModelsSection.tsx'
 export type { ModelsFooterOwnerProps, ProviderCardExtrasOwnerProps } from './slot-contract.ts'
@@ -60,7 +61,7 @@ export function refreshIfLoaded(controller: ModelsSettingsStore): void {
  */
 export const inject = [
   'slots', 'locale', 'remote', 'remote.credentials', 'remote.llm', 'remote.settings', 'remote.session',
-  'configForms', 'settingsSchema',
+  'configForms', 'settingsSchema', 'settingsDirectory',
 ]
 
 /**
@@ -71,6 +72,7 @@ export const inject = [
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-settings-models: copy dictionaries')
+  ctx.effect(() => ctx.settingsDirectory.register(modelsSearchEntries(ctx.locale.bind(NS))), 'ui-settings-models: search entries')
 
   const schema = createSettingsSchemaOperations(ctx.settingsSchema)
   // Bound once here, where the Remote namespaces are declared in this plugin's
@@ -130,6 +132,6 @@ export function apply(ctx: ClientContext): void {
     },
   }, ModelsSection))
   ctx.slots.inject('settings.section', () => ctx.slots.register({
-    name: 'settings.section', id: 'jev', order: 11, label: () => t('jevTitle'), inject: injected,
+    name: 'settings.section', id: 'jev', order: 11, label: () => t('jevNav'), inject: injected,
   }, JevSettingsSection))
 }

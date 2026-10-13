@@ -11,6 +11,7 @@ import type {} from '@deepseek-ai/dsh-settings/types'
 import { SettingsSchemaService } from './schema.ts'
 import { ConfigForms } from './config-form.ts'
 import { SettingsDescribeMirror } from './settings-mirror.ts'
+import { SettingsDirectory } from './settings-directory.ts'
 
 export type {
   SettingsLauncherOwnerProps, SettingsGeneralItemOwnerProps, SettingsHeaderOwnerProps,
@@ -19,6 +20,11 @@ export type {
 export type { ConfigForms } from './config-form.ts'
 export type { ConfigForm, ConfigFormSnapshot } from './config-form-types.ts'
 export type { SettingsSchemaService } from './schema.ts'
+export type {
+  SettingsDirectory, SettingsDirectoryEntry, SettingsDirectoryItem, SettingsDirectoryLink,
+  SettingsDirectoryText,
+} from './settings-directory.ts'
+export type { SettingsSaveStatus } from './save-status.ts'
 export type { SchemaNode } from './schema.ts'
 export type {
   SettingsDescribeFace, SettingsDescribeView, SettingsMirrorSnapshot,
@@ -51,4 +57,5 @@ export function apply(ctx: Context): void {
     return () => { for (const dispose of disposers) dispose() }
   }, 'ui-settings: describe mirror invalidations')
   new ConfigForms(ctx, { mirror, schema, persistence })
+  new SettingsDirectory(ctx)
 }

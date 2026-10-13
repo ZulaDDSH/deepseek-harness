@@ -543,6 +543,26 @@ describe('ConfigForms.get', () => {
     expect(theme.getSnapshot()).toMatchObject({ revision: 1 })
   })
 
+  it('announces every Host write of every shared form through saveStatus', async () => {
+    const describeCall = vi.fn().mockResolvedValue(described({ preference: 'dark' }, 1))
+    const mutate = vi.fn()
+      .mockResolvedValueOnce(ok(view({ preference: 'light' }, 2)))
+      .mockResolvedValueOnce(rejected())
+    const mirror = new SettingsDescribeMirror(ctxWith({ describe: describeCall }))
+    const ctx = new Context()
+    new TestRemote(ctx, { settings: { describe: describeCall, mutate } })
+    await ctx.plugin(ConfigForms, { mirror, schema: settingsSchema, persistence: 'host' }).await()
+    const form = ctx.configForms.get<UiTestSettings>('ui-test')
+    const { saveStatus } = ctx.configForms
+    expect(saveStatus.getSnapshot().state).toBe('idle')
+    const first = form.set('preference', 'light')
+    expect(saveStatus.getSnapshot().state).toBe('saving')
+    await first
+    expect(saveStatus.getSnapshot().state).toBe('saved')
+    await form.set('preference', 'dark')
+    expect(saveStatus.getSnapshot().state).toBe('failed')
+  })
+
   it('binds a remote browser in memory mode without starting a settings read', async () => {
     const describeCall = vi.fn()
     const mirror = new SettingsDescribeMirror(ctxWith({ describe: describeCall }), 'memory')

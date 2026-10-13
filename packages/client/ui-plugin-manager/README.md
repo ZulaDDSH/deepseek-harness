@@ -35,6 +35,12 @@ The first list read shows a short Official-heading placeholder and four skeleton
 
 The **Refresh** button shows its tooltip after 500 ms of hovering or keyboard focus. During a manual refresh, the button shows a spinner and stays disabled until all pending reads settle and at least 400 ms have elapsed, preventing a brief spinner flash; repeated refresh requests are ignored and the existing list remains visible. Success shows no toast. With a loaded list, a failed manual refresh keeps the cached content and shows a failure toast, including after leaving Plugins; select **Refresh** again to retry. Before any successful list read, failures show an in-place message with **Retry**. Background reads do not show the refresh spinner.
 
+### MCP servers in Settings
+
+**Settings → MCP servers** registers its settings with the Settings search (the server list, import, and adding a server). The add form marks the name and the command or address as required, and shows beside the field when the name is already taken or the address does not start with http:// or https://; the Add button stays disabled until the form is valid. The two connection types are labeled **Local command (stdio)** and **Remote URL (HTTP)**.
+
+The Plugins page also registers itself and every official plugin page (`plugins.item`) with the Settings search, by title, so searching Settings for a plugin such as Web search or Shell offers it; choosing the result closes Settings and opens that page here. Field-level words inside a plugin page are not indexed yet.
+
 ### Installing a bundle
 
 On first use, when pnpm uses the unconfigured official npm registry and npmmirror is offered, the Host probes both registries in parallel. The first successful HTTPS ping response selects the initial source. The dialog preserves remembered choices, manual selections, explicit manager configuration, and custom or unknown pnpm registries. An install clicked during initial probing waits for that bounded operation; a late result cannot overwrite a manual choice or reopen a closed dialog.
@@ -152,6 +158,7 @@ These limits define the reach of the management view; they are current package c
 - **No version picker** — the spec is typed as pnpm accepts it; the page neither lists registry versions nor offers upgrades.
 - **The registry choice is this browser's** — it lives in `localStorage`, so another browser applies its own initial recommendation; the `dsh plugin` command and the agent tool use the Host's configured registry.
 - **Every registry read runs pnpm** — opening the dialog, the check, and the install each ask pnpm what its own configuration names; a machine without pnpm reads it as unknown and is offered no fallback.
+- **Plugin search is by title** — field-level words inside a plugin page are not indexed yet.
 
 <a id="dev-note"></a>
 ### Dev Note

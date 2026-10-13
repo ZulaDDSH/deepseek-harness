@@ -25,7 +25,7 @@ import { McpServersSection, type McpServersSectionInjected } from './McpServersS
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { PluginRefreshToast, type PluginRefreshToastFace } from './PluginRefreshToast.tsx'
 import { PluginsPanelIcon } from './PluginsPanelIcon.tsx'
-import { configLedgerSource } from './config-ledger.ts'
+import { configLedgerSource, type ConfigLedger } from './config-ledger.ts'
 import { PluginManagerController } from './manager-store.ts'
 import { en, zh, type PluginManagerLocaleKey } from './locales.ts'
 import { createNavigationStore } from './navigation-store.ts'
@@ -67,7 +67,7 @@ export const NS = 'pluginManager'
 export const PANEL_ID = 'plugins' as MainPanelId
 
 /** Services required by the sidebar registration and the Remote methods; the inventory says whether the Host manages a profile. */
-export const inject = ['slots', 'locale', 'remote', 'remote.pluginManager', 'remote.pluginInventory', 'remote.pluginRegistryProbe', 'configForms', 'layout']
+export const inject = ['slots', 'locale', 'remote', 'remote.pluginManager', 'remote.pluginInventory', 'remote.pluginRegistryProbe', 'configForms', 'settingsDirectory', 'layout']
 
 /**
  * Contribute the Plugins entry to the sidebar with the management page it
@@ -146,6 +146,27 @@ export function apply(ctx: ClientContext): void {
       },
     })
     yield () => { void disposeNavigation() }
+    let published: ConfigLedger | undefined
+    let withdraw = (): void => {}
+    const publishSearch = (): void => {
+      const ledger = configLedger.getSnapshot()
+      if (ledger === published) return
+      published = ledger
+      withdraw()
+      withdraw = ctx.settingsDirectory.register([
+        {
+          id: 'plugins.page', label: () => t('panel'), description: () => t('searchPageDescription'), keywords: () => t('searchPageKeywords'),
+          link: { place: () => t('panel'), open: () => { ctx.layout.selectPanel(PANEL_ID); instance.actions.setView({ kind: 'list' }) } },
+        },
+        ...ledger.items.map(item => ({
+          id: `plugins.item.${item.id}`, label: item.label, description: () => t('searchItemDescription'), keywords: () => t('searchItemKeywords'),
+          link: { place: () => t('panel'), open: () => { ctx.layout.selectPanel(PANEL_ID); instance.actions.setView({ kind: 'item', id: item.id }) } },
+        })),
+      ])
+    }
+    publishSearch()
+    const stopSearch = configLedger.subscribe(publishSearch)
+    yield () => { stopSearch(); withdraw() }
   })
   type ChangeAnswer = { ok: boolean; value?: { application: string; error?: { code: string } }; error?: { message: string } }
   const changed = async (call: Promise<ChangeAnswer>): Promise<void> => {
@@ -179,6 +200,11 @@ export function apply(ctx: ClientContext): void {
       }
     },
   }
+  ctx.effect(() => ctx.settingsDirectory.register([
+    { id: 'mcp.servers', section: 'mcp', label: () => t('mcpYourServers'), description: () => t('mcpHelp'), keywords: 'model context protocol tools connectors enable disable' },
+    { id: 'mcp.import', section: 'mcp', label: () => t('mcpImportTitle'), description: () => t('mcpImportFind'), keywords: 'mcp claude desktop claude code codex copy existing' },
+    { id: 'mcp.add', section: 'mcp', label: () => t('mcpAddTitle'), keywords: 'mcp stdio http command url headers environment new connect' },
+  ]), 'ui-plugin-manager: MCP search entries')
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section', id: 'mcp', order: 60, label: () => t('mcpNav'), locale: NS,
     inject: () => mcp,

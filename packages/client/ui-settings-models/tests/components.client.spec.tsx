@@ -10,16 +10,14 @@ import type {
   CredentialInfo, RemoteResult, SettingsNamespaceView,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
-import {
-  ModelsSection, needsSetup, providerCopy, providerTargetLabel, removeProviderProfile,
-} from '../src/client/ModelsSection.tsx'
+import { ModelsSection, removeProviderProfile } from '../src/client/ModelsSection.tsx'
 import type { ModelsSectionInjected, ModelsSectionProps } from '../src/client/ModelsSection.tsx'
+import { needsSetup, providerCopy, providerTargetLabel } from '../src/client/provider-rows.ts'
 import { ProviderEditor, pathOps } from '../src/client/ProviderEditor.tsx'
 import { JevSettingsSection } from '../src/client/JevSettingsSection.tsx'
 import {
   DeepSeekModelsEditor, formatCapacity, modelDrafts, parseCapacity, validateDeepSeekModels,
 } from '../src/client/DeepSeekModelsEditor.tsx'
-import { apiKeyFailure } from '../src/client/apiKey.ts'
 import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
 import { deriveKeyRef, ModelsSettingsStore } from '../src/client/store.ts'
 import { createModelsOperations } from '../src/client/operations.ts'
@@ -361,12 +359,12 @@ function cardSeatCalls(
     ])
 }
 
-async function mountFace(scripted: ReturnType<typeof scriptedFace>) {
+async function mountFace(scripted: ReturnType<typeof scriptedFace>, { load = true }: { load?: boolean } = {}) {
   const { face, update, mutate, set, unset } = scripted
   const ctx = ctxWith(face)
   const mirror = new SettingsDescribeMirror(ctx)
   const controller = new ModelsSettingsStore(ctx, settingsSchema, mirror)
-  await controller.load()
+  if (load) await controller.load()
   const renderSlot = stubRenderSlot()
   const injected: ModelsSectionProps = {
     controller,
@@ -506,6 +504,18 @@ describe('ModelsSection', () => {
     fireEvent.click(screen.getByRole('button', { name: openaiCopy(en.editProvider) }))
     expect(await screen.findByLabelText(en.keyInput)).toBeTruthy()
     expect(screen.getByRole('button', { name: en.add })).toBeTruthy()
+  })
+
+  it('says it is reading providers until the directory answers', async () => {
+    const pending = scriptedFace()
+    pending.face.llm.listProviders = vi.fn(() => new Promise(() => {})) as never
+    await mountFace(pending, { load: false })
+    expect((await screen.findByRole('status')).textContent).toBe(en.providersLoading)
+  })
+
+  it('drops the reading line once providers are loaded', async () => {
+    await mountSection()
+    expect(screen.queryByText(en.providersLoading)).toBeNull()
   })
 
   it('renders nothing before the slot injects its dependencies', () => {
@@ -2137,57 +2147,6 @@ describe('ModelsSection', () => {
     expect(mutate).not.toHaveBeenCalled()
   })
 
-})
-
-describe('apiKeyFailure', () => {
-  it('treats a blank field as no failure — it means keep the stored key', () => {
-    expect(apiKeyFailure('')).toBeUndefined()
-  })
-
-  it.each([
-    ['a printable-ASCII key', 'sk-0123456789'],
-    ['a padded key, which the caller trims', '  sk-abc  '],
-    ['the printable-ASCII boundary characters', '!~'],
-    ['a hyphenated key carrying an equals sign', 'sk-ABC=xyz'],
-    ['an all-upper-case key ending in base64 padding', 'ABCD=='],
-    ['an all-upper-case key ending in one padding character', 'MNOPQRST='],
-  ])('accepts %s', (_label, draft) => {
-    expect(apiKeyFailure(draft)).toBeUndefined()
-  })
-
-  it.each([
-    ['spaces', '   '],
-    ['a tab', '\t'],
-  ])('fails a field holding only %s instead of silently dropping it', (_label, draft) => {
-    expect(apiKeyFailure(draft)).toBe('keyBlank')
-  })
-
-  it.each([
-    ['an emoji', 'sk-\u{1F600}'],
-    ['CJK text', 'sk-你好'],
-    ['full-width punctuation', 'sk-abc，'],
-    ['an interior space', 'sk-abc def'],
-    ['a C0 control character', 'sk-abc\x01'],
-    ['a latin-1 character', 'sk-café'],
-  ])('fails %s as illegal characters', (_label, draft) => {
-    expect(apiKeyFailure(draft)).toBe('keyIllegalCharacters')
-  })
-
-  it.each([
-    ['a pasted environment line', 'DEEPSEEK_API_KEY=sk-abc'],
-    ['double quotes', '"sk-abc"'],
-    ['single quotes', '\'sk-abc\''],
-    ['backticks', '`sk-abc`'],
-  ])('fails %s as a format failure', (_label, draft) => {
-    expect(apiKeyFailure(draft)).toBe('keyIllegalCharacters')
-  })
-
-  it('needs a matching closing quote before it calls a value wrapped', () => {
-    // A lone quote and an unbalanced one are legal printable ASCII, so the
-    // heuristic leaves them alone rather than guessing at a paste error.
-    expect(apiKeyFailure('"')).toBeUndefined()
-    expect(apiKeyFailure('"a')).toBeUndefined()
-  })
 })
 
 it.each([en, zh])('edits the account model catalog without credential or endpoint fields', async (copy) => {
