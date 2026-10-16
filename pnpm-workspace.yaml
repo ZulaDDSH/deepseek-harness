@@ -15,7 +15,6 @@ packages:
   - python/sdk-runtime
 
 overrides:
-  'extract-zip>yauzl': '3.4.0'
   '@deepseek-ai/libreoffice-kit>fflate': '0.8.3'
   'proxy-addr@<2.0.8': '^2.0.8'
   'source-map-js@<1.2.2': '^1.2.2'
