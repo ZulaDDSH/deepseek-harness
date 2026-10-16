@@ -19,6 +19,8 @@ export interface ChatPresentationPolicy {
   readonly liveProcessDetail: boolean
   /** Whether a settled reasoning row previews its first line beside the Think title. */
   readonly settledReasoningPreview: boolean
+  /** Whether reasoning rows inside a process group render. */
+  readonly groupedReasoningRows: boolean
 }
 
 const POLICIES: Readonly<Record<TranscriptViewMode, ChatPresentationPolicy>> = {
@@ -28,6 +30,7 @@ const POLICIES: Readonly<Record<TranscriptViewMode, ChatPresentationPolicy>> = {
     stepGrouping: 'collapsed',
     liveProcessDetail: false,
     settledReasoningPreview: false,
+    groupedReasoningRows: false,
   },
   standard: {
     mode: 'standard',
@@ -35,6 +38,7 @@ const POLICIES: Readonly<Record<TranscriptViewMode, ChatPresentationPolicy>> = {
     stepGrouping: 'collapsed',
     liveProcessDetail: true,
     settledReasoningPreview: true,
+    groupedReasoningRows: false,
   },
   detailed: {
     mode: 'detailed',
@@ -42,6 +46,7 @@ const POLICIES: Readonly<Record<TranscriptViewMode, ChatPresentationPolicy>> = {
     stepGrouping: 'history',
     liveProcessDetail: true,
     settledReasoningPreview: true,
+    groupedReasoningRows: true,
   },
   verbose: {
     mode: 'verbose',
@@ -49,6 +54,7 @@ const POLICIES: Readonly<Record<TranscriptViewMode, ChatPresentationPolicy>> = {
     stepGrouping: 'none',
     liveProcessDetail: false,
     settledReasoningPreview: true,
+    groupedReasoningRows: true,
   },
 }
 
