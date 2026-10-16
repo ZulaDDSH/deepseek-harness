@@ -14,6 +14,8 @@ import { NS } from './locales.ts'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-token-meter/client'
 import css from './SubagentHeaderLineage.module.css'
+import { activityDuration, formatDuration, formatExactDuration, formatTokens, tokenTotal } from './catalog-format.ts'
+import { ClearedFooter, useClearedView } from './ClearedSubagents.tsx'
 
 type SubagentCatalogSnapshot = Omit<SessionProjectionSnapshot, 'values' | 'state'> & {
   state: 'loading' | 'ready' | 'error'
@@ -51,117 +53,6 @@ function treeItems(root: HTMLDivElement | null): HTMLElement[] {
   return root === null
     ? []
     : Array.from(root.querySelectorAll<HTMLElement>('[role="treeitem"]:not([aria-disabled="true"])'))
-}
-
-/** Compact token count shared in shape with the conversation stats strip. */
-function formatTokens(value: number, t: TranslateNS<typeof NS>): string {
-  const scaled = (next: number): string => next >= 100
-    ? String(Math.round(next))
-    : String(Math.round(next * 10) / 10)
-  if (value < 1_000) return String(value)
-  if (value < 1_000_000) return t('tokens.thousand', { value: scaled(value / 1_000) })
-  return t('tokens.million', { value: scaled(value / 1_000_000) })
-}
-
-/** Sum the four disjoint durable provider-usage buckets. */
-function tokenTotal(
-  usage: SessionProjectionMap['tokenUsage'] | undefined,
-): number | undefined {
-  return usage === undefined
-    ? undefined
-    : usage.uncachedInputTokens + usage.outputTokens
-      + usage.cacheReadTokens + usage.cacheWriteTokens
-}
-
-/** Exact whole-second active-turn duration for one catalog row. */
-function activityDuration(
-  summary: SessionSummary | undefined,
-  activity: 'running' | 'inactive',
-  now: number,
-): number | undefined {
-  if (summary === undefined) return undefined
-  const timing: SessionProjectionMap['subagentTiming'] | undefined
-    = summary.projectionValues?.subagentTiming
-  if (timing === undefined) return undefined
-  if (timing.active === undefined) return timing.settledMs
-  const end = activity === 'running'
-    ? now
-    : timing.active.through
-  return timing.settledMs + Math.max(0, end - timing.active.since)
-}
-
-interface DurationParts {
-  seconds: number
-  minutes: number
-  hours: number
-  days: number
-  totalMinutes: number
-  totalHours: number
-}
-
-function splitDuration(ms: number): DurationParts {
-  const totalSeconds = Math.floor(Math.max(0, ms) / 1_000)
-  const totalMinutes = Math.floor(totalSeconds / 60)
-  const totalHours = Math.floor(totalMinutes / 60)
-  return {
-    seconds: totalSeconds % 60,
-    minutes: totalMinutes % 60,
-    hours: totalHours % 24,
-    days: Math.floor(totalHours / 24),
-    totalMinutes,
-    totalHours,
-  }
-}
-
-/** Format a duration with decreasing visual precision at larger scales. */
-function formatDuration(ms: number, t: TranslateNS<typeof NS>): string {
-  const { seconds, minutes, hours, days, totalMinutes, totalHours } = splitDuration(ms)
-  if (days >= 365) {
-    const years = Math.floor(days / 365)
-    const months = Math.floor((days % 365) / 30)
-    return months === 0
-      ? t('duration.years', { years })
-      : t('duration.yearsMonths', { years, months })
-  }
-  if (days >= 30) {
-    const months = Math.floor(days / 30)
-    const remainingDays = days % 30
-    return remainingDays === 0
-      ? t('duration.months', { months })
-      : t('duration.monthsDays', { months, days: remainingDays })
-  }
-  if (days > 0) {
-    return hours === 0
-      ? t('duration.days', { days })
-      : t('duration.daysHours', { days, hours })
-  }
-  if (totalHours > 0) {
-    return t('duration.hours', {
-      hours: totalHours,
-      minutes: String(minutes).padStart(2, '0'),
-      seconds: String(seconds).padStart(2, '0'),
-    })
-  }
-  if (totalMinutes > 0) {
-    return t('duration.minutes', {
-      minutes: totalMinutes,
-      seconds: String(seconds).padStart(2, '0'),
-    })
-  }
-  return t('duration.seconds', { seconds })
-}
-
-/** Preserve exact whole seconds for hover and accessible naming. */
-function formatExactDuration(ms: number, t: TranslateNS<typeof NS>): string {
-  const { seconds, minutes, hours, days } = splitDuration(ms)
-  return days === 0
-    ? formatDuration(ms, t)
-    : t('duration.exactDays', {
-      days,
-      hours: String(hours).padStart(2, '0'),
-      minutes: String(minutes).padStart(2, '0'),
-      seconds: String(seconds).padStart(2, '0'),
-    })
 }
 
 function SubagentSwitcherIcon() {
@@ -461,6 +352,7 @@ function CatalogDropdown({
     })),
   }])), [projections, summaries, statuses])
   const catalog = catalogs[rootSessionId]
+  const cleared = useClearedView(rootSessionId, catalog?.entries ?? [], currentSessionId)
   const [open, setOpen] = useState(false)
   const [menuPosition, setMenuPosition] = useState<CSSProperties>()
   const [expanded, setExpanded] = useState<ReadonlySet<SessionId>>(() => new Set())
@@ -478,11 +370,11 @@ function CatalogDropdown({
     ? currentEntry.label ?? currentEntry.id
     : displayTitle
   const directChildren = catalog?.entries ?? []
-  const directCount = directChildren.length
+  const directCount = directChildren.length - cleared.hiddenCount
   const runningCount = directChildren.filter(entry => entry.activity === 'running').length
   const totalCountKey = directCount === 1 ? 'count.total.one' : 'count.total.other'
   const runningCountKey = runningCount === 1 ? 'count.running.one' : 'count.running.other'
-  const presentedCatalog: SubagentCatalogSnapshot | undefined = catalog ?? (variant === 'switcher'
+  const presentedCatalog: SubagentCatalogSnapshot | undefined = catalog !== undefined ? { ...catalog, entries: cleared.visible } : (variant === 'switcher'
     ? { entries: [], state: 'loading', error: null }
     : undefined)
 
@@ -723,6 +615,7 @@ function CatalogDropdown({
               t={t}
             />
           </div>
+          <ClearedFooter view={cleared} t={t} />
         </div>
       ), document.body)}
     </div>
