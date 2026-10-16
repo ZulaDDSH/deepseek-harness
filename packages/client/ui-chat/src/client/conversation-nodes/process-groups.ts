@@ -27,11 +27,16 @@ function reply(node: ChatNode): boolean {
   return node.kind === 'assistant-step' && hasAssistantReplyContent(node.data.blocks)
 }
 
+function sameTargets(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index])
+}
+
 function sameSummary(left: ProcessActivitySummary, right: ProcessActivitySummary): boolean {
   return left.running === right.running && left.runningDetail === right.runningDetail
-    && left.preparing === right.preparing
+    && left.preparing === right.preparing && left.added === right.added && left.removed === right.removed
     && left.counts.length === right.counts.length && left.counts.every((value, index) =>
-    value.kind === right.counts[index]?.kind && value.count === right.counts[index].count)
+    value.kind === right.counts[index]?.kind && value.count === right.counts[index].count
+    && sameTargets(value.targets, right.counts[index].targets))
 }
 
 function sameMembers(left: readonly NodeReference[], right: readonly NodeReference[]): boolean {
@@ -59,7 +64,7 @@ class ProcessGroup {
   snapshot: GroupSnapshot<ProcessGroupData>
 
   constructor(readonly key: GroupKey, readonly turn: number, readonly members: readonly NodeReference[]) {
-    this.snapshot = { key, members, data: { turn, closed: false, summary: { counts: [], running: undefined, runningDetail: '' } } }
+    this.snapshot = { key, members, data: { turn, closed: false, summary: { counts: [], running: undefined, runningDetail: '', added: 0, removed: 0 } } }
   }
 
   refresh(input: ProcessInput, closed: boolean): void {
@@ -67,7 +72,9 @@ class ProcessGroup {
     const unchanged = nodes.length === this.nodes.length && nodes.every((node, index) => node === this.nodes[index])
     const previous = this.snapshot.data
     const activity = unchanged && previous.closed === closed ? previous.summary : processActivity(nodes)
-    const summary = closed ? { counts: activity.counts, running: undefined, runningDetail: '' } : activity
+    const summary = closed
+      ? { counts: activity.counts, running: undefined, runningDetail: '', added: activity.added, removed: activity.removed }
+      : activity
     this.nodes = nodes
     if (previous.closed !== closed || !sameSummary(previous.summary, summary)) {
       this.snapshot = {
