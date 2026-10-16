@@ -1,6 +1,6 @@
 /** Pure Subagent Setup draft helpers: catalog defaults and role choice encoding. */
-import {
-  subagentSetupSchema, type SubagentRoleRoute, type SubagentRoleSetting, type SubagentSetup, type SubagentSetupRole,
+import type {
+  SubagentRoleRoute, SubagentRoleSetting, SubagentSetup, SubagentSetupRole,
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import { SUBAGENT_SETUP_ROLES } from './contract.ts'
 import type { ModelCatalogModel, ModelProviderGroup, SessionRunOptions } from '@deepseek-ai/dsh-api-session-controller/types'
@@ -156,11 +156,20 @@ export function claudeRolesMissingModel(setup: SubagentSetup): readonly Subagent
 }
 
 /**
- * Accept a stored global default only when the Host's strict schema accepts it and no Claude Code role lacks a model.
+ * Accept a stored global default only when it is shaped like a Subagent Setup and no Claude Code role lacks a model.
  * @param value - the value read from the global settings section.
- * @returns the setup, or undefined when the stored value is absent, fails the schema, or leaves a Claude Code role without a model.
+ * @returns the setup, or undefined when the stored value is absent, not shaped like one, or leaves a Claude Code role without a model.
  */
 export function subagentSetupOrUndefined(value: unknown): SubagentSetup | undefined {
-  const parsed = subagentSetupSchema.safeParse(value)
-  return parsed.success && claudeRolesMissingModel(parsed.data).length === 0 ? parsed.data : undefined
+  if (typeof value !== 'object' || value === null) return undefined
+  const candidate = value as Partial<SubagentSetup>
+  if (typeof candidate.enabled !== 'boolean' || typeof candidate.reviewRounds !== 'number'
+    || typeof candidate.roles !== 'object' || candidate.roles === null) return undefined
+  const blankClaudeModel = Object.values(candidate.roles).some((setting: unknown) => {
+    const route: unknown = typeof setting === 'object' && setting !== null ? Reflect.get(setting, 'route') : undefined
+    if (typeof route !== 'object' || route === null || Reflect.get(route, 'backend') !== 'claude-cli') return false
+    const model: unknown = Reflect.get(route, 'model')
+    return typeof model !== 'string' || model.trim() === ''
+  })
+  return blankClaudeModel ? undefined : candidate as SubagentSetup
 }
