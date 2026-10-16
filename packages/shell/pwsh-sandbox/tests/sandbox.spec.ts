@@ -7,7 +7,7 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
@@ -275,10 +275,22 @@ describe.skipIf(!pwshAvailable())('SandboxPwshExecutor', () => {
     const call = calls[0]
     expect(call?.policy).toEqual(RO)
     // The confined argv is the pwsh invocation, ready for a runner prefix.
-    expect(call?.argv[0]).toMatch(/pwsh(\.exe)?$/u)
+    expect(call?.argv[0]).toMatch(/(pwsh|powershell)(\.exe)?$/u)
     expect(call?.argv).toContain('-NonInteractive')
-    expect(call?.argv.at(-1)).toContain('echo wrapped')
+    if (process.platform === 'win32') {
+      expect(call?.argv.at(-1)).toMatch(/command\.ps1$/u)
+      expect(call?.argv.join('\n')).not.toContain('echo wrapped')
+    } else {
+      expect(call?.argv.at(-1)).toMatch(/echo wrapped$/u)
+    }
     expect(result.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'full' })
+  }, 30_000)
+
+  it.runIf(process.platform === 'win32')('removes the script file when confinement refuses the launch', async () => {
+    const { executor, calls } = await setup(() => { throw new Error('confine refused') })
+    await expect(run(executor, executor.resolve({ command: 'echo refused', sandboxPolicy: RO }))).rejects.toThrow('confine refused')
+    expect(calls).toHaveLength(1)
+    expect(existsSync(calls[0]!.argv.at(-1)!)).toBe(false)
   }, 30_000)
 
   it('advertises the deployment default mode and stamps the deployment policy when none rides the request', async () => {

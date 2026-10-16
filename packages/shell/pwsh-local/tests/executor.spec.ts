@@ -9,22 +9,30 @@
  * writes CRLF on Windows, so exact text assertions normalize line endings.
  */
 
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { PwshLocalExecutor, ENCODING_PREAMBLE, candidatePwshPaths, resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local'
+import { PwshLocalExecutor, ENCODING_PREAMBLE, EXIT_STATUS_EPILOGUE, candidatePwshPaths, resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import SubprocessRuntime from '@deepseek-ai/dsh-subprocess'
-import type { SubprocessHandle, SubprocessOutcome, SubprocessOutputReader, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+import type { SubprocessHandle, SubprocessOutcome, SubprocessOutputReader } from '@deepseek-ai/dsh-subprocess'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+import { CapturingSubprocessRuntime } from './capturing-subprocess.ts'
 import type { ShellExecSpec, ShellExecution, ShellProcess, ShellRunResult } from '@deepseek-ai/dsh-shell'
 
 /** Historical foreground shorthand over the unified execute() seam. */
 async function run(x: { execute(spec: ShellExecSpec): Promise<ShellExecution> }, spec: ShellExecSpec): Promise<ShellRunResult> {
   return (await x.execute(spec)).result()
+}
+
+/** Run `act` with `process.platform` stubbed, restoring the real value afterwards. */
+function onPlatform<T>(platform: NodeJS.Platform, act: () => T): T {
+  const real = Object.getOwnPropertyDescriptor(process, 'platform')!
+  Object.defineProperty(process, 'platform', { value: platform })
+  try { return act() } finally { Object.defineProperty(process, 'platform', real) }
 }
 
 /** Historical background shorthand: execute with no deadline armed. */
@@ -197,50 +205,23 @@ describe('resolvePwshPath and candidatePwshPaths (pure, every platform)', () => 
 })
 
 describe('spawn construction (pure, every platform)', () => {
-  /** A subprocess service that records spawn specs and settles instantly. */
-  class CapturingSubprocessRuntime extends SubprocessRuntime {
-    async terminalEnvironment() { return { platform: 'posix' as const } }
-    specs: SubprocessSpawnSpec[] = []
-    done: Promise<SubprocessOutcome> = Promise.resolve({ exitCode: 0, signal: null })
-    stderrText = ''
-    override async resolveExecutable(command: string): Promise<string> { return command }
-    override spawnTerminal(): Promise<never> { throw new Error('pwsh spawns pipes, never terminals') }
-    private readonly stdoutReader: SubprocessOutputReader = {
-      readFrom: () => ({ text: '', lossy: false, nextOffset: 0 }),
-    }
-    private readonly stderrReader: SubprocessOutputReader = {
-      readFrom: offset => ({
-        text: this.stderrText.slice(offset),
-        lossy: false,
-        nextOffset: this.stderrText.length,
-      }),
-    }
-    override spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
-      this.specs.push(spec)
-      return {
-        control: undefined,
-        stdin: undefined,
-        stdout: undefined,
-        stderr: undefined,
-        collected: { stdout: this.stdoutReader, stderr: this.stderrReader },
-        done: this.done,
-        terminate: () => {},
-        waitForExit: async () => true,
-      }
-    }
-  }
-
-  it('runs every command as ONE argv element under the UTF-8 encoding preamble', async () => {
+  it('runs a win32 command from a BOM script file under the UTF-8 encoding preamble, never on the command line', async () => {
     const ctx = createContext()
     const subprocess = new CapturingSubprocessRuntime(ctx)
     await ctx.plugin(PwshLocalExecutor)
-    await run(ctx.shell, ctx.shell.resolve({ command: 'Write-Output 你好' }))
-    expect(subprocess.specs).toHaveLength(1)
-    const { argv } = subprocess.specs[0]!
-    expect(argv.slice(0, 5)).toEqual([expect.any(String), '-NoLogo', '-NoProfile', '-NonInteractive', '-Command'])
-    expect(argv[5]).toBe(`${ENCODING_PREAMBLE}Write-Output 你好`)
-    expect(ENCODING_PREAMBLE).toContain('[Console]::OutputEncoding')
-    expect(ENCODING_PREAMBLE).toContain('$OutputEncoding')
+    await onPlatform('win32', () => run(ctx.shell, ctx.shell.resolve({ command: 'Write-Output 你好' })))
+    expect(subprocess.specs[0]!.argv.slice(0, 7)).toEqual([expect.any(String), '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File'])
+    expect(subprocess.specs[0]!.argv.join('\n')).not.toContain('Write-Output')
+    expect(subprocess.scripts).toEqual([Buffer.from(`\uFEFF${ENCODING_PREAMBLE}Write-Output 你好${EXIT_STATUS_EPILOGUE}`)])
+  })
+
+  it('keeps the -Command argv off Windows', async () => {
+    const ctx = createContext()
+    const subprocess = new CapturingSubprocessRuntime(ctx)
+    await ctx.plugin(PwshLocalExecutor)
+    await onPlatform('linux', () => run(ctx.shell, ctx.shell.resolve({ command: 'Write-Output 你好' })))
+    expect(subprocess.specs[0]!.argv).toEqual([expect.any(String), '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', `${ENCODING_PREAMBLE}Write-Output 你好`])
+    expect(subprocess.scripts).toEqual([])
   })
 
   it('reports both unread stderr and an asynchronous provider rejection exactly once', async () => {
@@ -250,13 +231,14 @@ describe('spawn construction (pure, every platform)', () => {
     subprocess.stderrText = 'target stderr'
     subprocess.done = Promise.reject(new Error('provider lost the direct outcome'))
 
-    const proc = (await start(ctx.shell, ctx.shell.resolve({ command: 'Write-Output maybe-ran' })))
+    const proc = (await onPlatform('win32', () => start(ctx.shell, ctx.shell.resolve({ command: 'Write-Output maybe-ran' }))))
     await expect(proc.done).resolves.toBeUndefined()
     expect(proc.status).toBe('killed')
     const output = proc.readOutput().delta
     expect(output).toContain('target stderr')
     expect(output).toContain('subprocess failed before reporting an outcome:')
     expect(output).not.toContain('spawn failed:')
+    expect(existsSync(subprocess.specs[0]!.argv.at(-1)!)).toBe(false)
     expect(proc.readOutput().delta).toBe('')
   })
 
