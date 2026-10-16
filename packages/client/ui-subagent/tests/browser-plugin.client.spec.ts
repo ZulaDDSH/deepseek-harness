@@ -209,9 +209,8 @@ describe('apply', () => {
     expect(select(owner(null))).toBeNull()
     expect(select(owner({ address: { ...address, mode: 'one-shot' }, parentAvailable: true })))
       .toEqual({ reason: 'one-shot' })
-    // One-shot stays read-only even while running: it has no stop action.
-    expect(select(owner({ address: { ...address, mode: 'one-shot' }, parentAvailable: true }, true)))
-      .toEqual({ reason: 'one-shot' })
+    // A RUNNING one-shot yields the default composer, which carries steer, queue and Stop.
+    expect(select(owner({ address: { ...address, mode: 'one-shot' }, parentAvailable: true }, true))).toBeNull()
     expect(select(owner({ address: { ...address, mode: 'unknown' }, parentAvailable: true })))
       .toEqual({ reason: 'unknown' })
     expect(select(owner({ address }))).toBeNull()

@@ -130,7 +130,7 @@ export const InputBar = memo(function InputBar({
 
   // A continuable child without its live parent cannot accept human input,
   // but its independent Stop below stays available while it runs.
-  const continuable = subagent?.address.mode === 'continuable'
+  const continuable = subagent?.address.mode === 'continuable' || (subagent?.address.mode === 'one-shot' && running)
   const parentOffline = continuable && subagent.parentAvailable !== true
   // Running input stays free; locked = session removed, the
   // inert no-workspace state, the machine faces absent (no session), or a
@@ -151,7 +151,8 @@ export const InputBar = memo(function InputBar({
   const workspaceTrigger = inert && !removed && onRequestWorkspace !== undefined
   const editorDisabled = removed || (locked && !workspaceTrigger)
   const editable = live && !locked && !machineBusy
-  const steeringAvailable = subagent === null || subagent.address.mode === 'continuable'
+  const steeringAvailable = subagent === null || continuable
+  const busyEnterMode = subagent?.address.mode === 'one-shot' ? 'steer' : busyEnter
   const canSteerQueue = !locked && !machineBusy && !commandMenuOpen && empty && running && steeringAvailable
     && input.queue.length > 0
 
@@ -245,11 +246,11 @@ export const InputBar = memo(function InputBar({
   // The keymap handlers read live bar state through this ref so the editor
   // registration survives re-renders without re-arming per keystroke.
   const gate = useRef({
-    locked, machineBusy, canSteerQueue, running, steeringAvailable, busyEnter,
+    locked, machineBusy, canSteerQueue, running, steeringAvailable, busyEnter: busyEnterMode,
     intakeFiles, uploadsPending, showToast, t, canAcceptDrop,
   })
   gate.current = {
-    locked, machineBusy, canSteerQueue, running, steeringAvailable, busyEnter,
+    locked, machineBusy, canSteerQueue, running, steeringAvailable, busyEnter: busyEnterMode,
     intakeFiles, uploadsPending, showToast, t, canAcceptDrop,
   }
 
@@ -304,7 +305,7 @@ export const InputBar = memo(function InputBar({
   // Disabled native buttons may omit mouseleave; their tooltip must close from state.
   const primaryDisabled = primaryStops ? stop === undefined : empty || disabled || machineBusy || uploadsPending
   const interruptible = running && continuable
-  const primarySubmitMode = resolveSubmitMode(busyEnter, running, 'enter', steeringAvailable)
+  const primarySubmitMode = resolveSubmitMode(busyEnterMode, running, 'enter', steeringAvailable)
   const plainMessageDraft = !empty && input?.phase === 'plain' && !draft.trimStart().startsWith('/')
   const primaryLabel = primaryStops
     ? t('input.stop')

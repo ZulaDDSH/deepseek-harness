@@ -1132,9 +1132,27 @@ describe('running and lock semantics', () => {
     expect(stop).toHaveBeenCalledTimes(1)
   })
 
-  it('running one-shot subagent never exposes Stop', () => {
-    const { button, interruptButton, stop } = bench({
-      running: true,
+  it('running one-shot subagent submits as steer and exposes Stop', () => {
+    const subagent = {
+      address: {
+        parentSessionId: 'parent' as SessionId,
+        childSessionId: SID,
+        mode: 'one-shot' as const,
+      },
+      parentAvailable: true,
+    }
+    const { textarea, interruptButton, stop, sink } = bench({ running: true, draft: '运行中', subagent })
+    expect(textarea.getAttribute('aria-disabled')).not.toBe('true')
+    expect(interruptButton?.disabled).toBe(false)
+    fireEvent.click(interruptButton!)
+    expect(stop).toHaveBeenCalledTimes(1)
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+    expect(sink).toHaveBeenCalledWith('运行中', [], 'steer', expect.any(AbortSignal))
+  })
+
+  it('idle one-shot subagent exposes no Stop', () => {
+    const { interruptButton, stop } = bench({
+      running: false,
       draft: '不可停止',
       subagent: {
         address: {
@@ -1145,7 +1163,6 @@ describe('running and lock semantics', () => {
         parentAvailable: true,
       },
     })
-    expect(button.getAttribute('aria-label')).toBe('发送消息')
     expect(interruptButton).toBeNull()
     expect(stop).not.toHaveBeenCalled()
   })
