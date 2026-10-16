@@ -90,6 +90,7 @@ it('validates a Subagent Setup at the write boundary', () => {
     { ...setup, reviewRounds: 1.5 },
     { ...setup, roles: { boss: { mode: 'jev' } } },
     { ...setup, roles: { coder: { mode: 'fixed', route: { backend: 'claude-cli', model: 'opus', reasoningEffort: 'turbo' } } } },
+    { ...setup, roles: { coder: { mode: 'fixed', route: { backend: 'claude-cli', model: '  ' } } } },
     { ...setup, roles: { coder: { mode: 'fixed', route: { backend: 'llm', provider: '', model: 'm' } } } },
     { ...setup, roles: { coder: { mode: 'fixed', route: { provider: 'fixture', model: 'm' } } } },
     { ...setup, extra: true },

@@ -88,7 +88,7 @@ const GroupMembers = memo(function GroupMembers({ members, ...props }: SeatProps
     {...member.groupPart === undefined ? {} : { groupPart: member.groupPart }} />)
 })
 
-const ProcessGroupHeader = memo(function ProcessGroupHeader({ groupKey, useChatGroup, usePresentation, t, open, bodyId, toggle }: {
+export const ProcessGroupHeader = memo(function ProcessGroupHeader({ groupKey, useChatGroup, usePresentation, t, open, bodyId, toggle }: {
   readonly groupKey: GroupKey
   readonly useChatGroup: ChatViewSlotProps['useChatGroup']
   readonly usePresentation: ChatViewSlotProps['usePresentation']
@@ -123,6 +123,12 @@ const ProcessGroupHeader = memo(function ProcessGroupHeader({ groupKey, useChatG
       <TextShimmer active={!data.closed}>
         <TextShimmer className={css.label}>{title}</TextShimmer>
       </TextShimmer>
+      {data.closed && data.summary.added + data.summary.removed > 0 && (
+        <span className={css.diffStat}>
+          <span className={css.diffAdded}>+{data.summary.added}</span>
+          <span className={css.diffRemoved}>−{data.summary.removed}</span>
+        </span>
+      )}
     </button>
   )
 })

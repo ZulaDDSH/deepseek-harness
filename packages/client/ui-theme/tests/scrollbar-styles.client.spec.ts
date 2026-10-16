@@ -490,7 +490,7 @@ describe('elevated surface rebinds', () => {
     expect(elevatedSurfaces).toContain('--dsw-alias-bg-layer-2')
     expect(elevatedSurfaces).toContain('--dsw-alias-bg-layer-3')
     expect(elevatedSurfaces).toContain('--dsw-specific-menu')
-    expect(elevatedSurfaces).toContain('--dsw-specific-input-major')
+    expect(elevatedSurfaces).not.toContain('--dsw-specific-input-major')
     expect(elevatedSurfaces).toContain('--dsw-specific-tip')
     // Base surfaces stay out, or every scroll container would be in scope and
     // the check would say nothing.

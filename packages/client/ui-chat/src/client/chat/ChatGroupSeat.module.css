@@ -86,6 +86,21 @@
   white-space: nowrap;
 }
 
+.diffStat {
+  flex: none;
+  display: inline-flex;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.diffAdded {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.diffRemoved {
+  color: var(--dsw-alias-state-error-primary);
+}
+
 .fadeTop {
   mask-image: linear-gradient(to bottom, transparent 0, #000 24px, #000 100%);
 }

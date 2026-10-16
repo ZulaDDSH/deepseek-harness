@@ -10,13 +10,13 @@ afterEach(cleanup)
 
 describe('Chat presentation policy', () => {
   it.each([
-    ['compact', true, 'collapsed', false, false],
-    ['standard', true, 'collapsed', true, true],
-    ['detailed', true, 'history', true, true],
-    ['verbose', false, 'none', true, false],
-  ] as const)('maps %s to stable presentation capabilities', (mode, foldCompletedTurns, stepGrouping, settledReasoningPreview, liveProcessDetail) => {
+    ['compact', true, 'collapsed', false, false, false],
+    ['standard', true, 'collapsed', true, true, false],
+    ['detailed', true, 'history', true, true, true],
+    ['verbose', false, 'none', true, false, true],
+  ] as const)('maps %s to stable presentation capabilities', (mode, foldCompletedTurns, stepGrouping, settledReasoningPreview, liveProcessDetail, groupedReasoningRows) => {
     const policy = presentationPolicyFor(mode)
-    expect(policy).toEqual({ mode, foldCompletedTurns, stepGrouping, settledReasoningPreview, liveProcessDetail })
+    expect(policy).toEqual({ mode, foldCompletedTurns, stepGrouping, settledReasoningPreview, liveProcessDetail, groupedReasoningRows })
     expect(presentationPolicyFor(mode)).toBe(policy)
   })
 
