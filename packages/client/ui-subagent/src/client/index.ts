@@ -49,7 +49,7 @@ function selectReadOnlySubagent(owner: ComposerChainProps): SubagentReadOnlyMatc
   const subagent = owner.session?.subagent
   if (subagent === undefined || subagent === null) return null
   if (subagent.address.mode === 'unknown') return { reason: 'unknown' }
-  if (subagent.address.mode === 'one-shot') return { reason: 'one-shot' }
+  if (subagent.address.mode === 'one-shot' && owner.session?.running !== true) return { reason: 'one-shot' }
   // Until a Host summary establishes parent availability, keep the normal
   // disabled composer instead of claiming that the parent is offline.
   if (subagent.parentAvailable !== false) return null

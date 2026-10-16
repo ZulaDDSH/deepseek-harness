@@ -1051,6 +1051,76 @@ describe('continuable image Queue prompts', () => {
     expect(resolve).not.toHaveBeenCalled()
     await drainManager(ctx)
   })
+
+  it('refuses an image steer to a running one-shot child whose model declines image input', async () => {
+    const release = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('one shot'), gate: release.promise }])
+    const { ctx, parent } = await setupWith(adapter)
+    parkParent(ctx, parent)
+    const run = await ctx.subagents.start('spawn', {
+      label: 'one-shot work',
+      prompt: message('one-shot work'),
+      parent,
+      signal: testSignal,
+    })
+    try {
+      await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+      vi.spyOn(ctx.llm, 'resolveModelInfo').mockResolvedValue({ inputModalities: ['text'] } as never)
+      await expect(continuationManager(ctx).steerPrompt(parent, run.id, [imageBlock], { kind: 'user' }, testSignal))
+        .rejects.toMatchObject({ code: 'MODEL_DOES_NOT_SUPPORT_IMAGES' })
+    } finally {
+      release.resolve(undefined)
+      await run.result
+      await run.dispose()
+    }
+  })
+
+  it('accepts an image steer to a running one-shot child whose model accepts image input', async () => {
+    const release = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('one shot'), gate: release.promise }])
+    const { ctx, parent } = await setupWith(adapter)
+    parkParent(ctx, parent)
+    const run = await ctx.subagents.start('spawn', {
+      label: 'one-shot work',
+      prompt: message('one-shot work'),
+      parent,
+      signal: testSignal,
+    })
+    try {
+      await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+      vi.spyOn(ctx.llm, 'resolveModelInfo').mockResolvedValue({ inputModalities: ['text', 'image'] } as never)
+      const messageId = await continuationManager(ctx)
+        .steerPrompt(parent, run.id, [imageBlock], { kind: 'user' }, testSignal)
+      expect(messageId).toBeTypeOf('string')
+    } finally {
+      release.resolve(undefined)
+      await run.result
+      await run.dispose()
+    }
+  })
+
+  it('refuses an image steer whose capability read outlives its one-shot run', async () => {
+    const release = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('one shot'), gate: release.promise }])
+    const { ctx, parent } = await setupWith(adapter)
+    parkParent(ctx, parent)
+    const run = await ctx.subagents.start('spawn', {
+      label: 'one-shot work',
+      prompt: message('one-shot work'),
+      parent,
+      signal: testSignal,
+    })
+    const capability = Promise.withResolvers<{ inputModalities: string[] }>()
+    const resolve = vi.spyOn(ctx.llm, 'resolveModelInfo').mockReturnValueOnce(capability.promise as never)
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+    const delivery = continuationManager(ctx).steerPrompt(parent, run.id, [imageBlock], { kind: 'user' }, testSignal)
+    await vi.waitFor(() => { expect(resolve).toHaveBeenCalled() })
+    release.resolve(undefined)
+    await run.result
+    capability.resolve({ inputModalities: ['text', 'image'] })
+    await expect(delivery).rejects.toMatchObject({ code: 'NOT_RESUMABLE' })
+    await run.dispose()
+  })
 })
 
 describe('direct-child Queue residency routing', () => {
@@ -1238,6 +1308,179 @@ describe('direct-child Queue residency routing', () => {
       message: `subagent "${oneShotId}" has no supported continuation state and cannot be resumed; choose a different target`,
     })
     expect(String(rejection)).not.toContain('send_message')
+  })
+
+  it('accepts a human steer while a one-shot child is running', async () => {
+    const release = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([
+      { chunks: textResponse('one shot'), gate: release.promise },
+    ])
+    const { ctx, parent } = await setupWith(adapter)
+    parkParent(ctx, parent)
+    const run = await ctx.subagents.start('spawn', {
+      label: 'one-shot work',
+      prompt: message('one-shot work'),
+      parent,
+      signal: testSignal,
+    })
+    try {
+      await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+      const receipt = await humanPrompt(ctx, parent, run.id, 'mid-run steer', 'steer')
+      expect(receipt.messageId).toBeTypeOf('string')
+    } finally {
+      release.resolve(undefined)
+      await run.result
+      await run.dispose()
+    }
+  })
+
+  it('consumes a human queued message inside the running one-shot turn and starts no turn after it', async () => {
+    const release = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([
+      { chunks: textResponse('one shot'), gate: release.promise },
+      { chunks: textResponse('after queued') },
+    ])
+    const { ctx, parent } = await setupWith(adapter)
+    parkParent(ctx, parent)
+    const run = await ctx.subagents.start('spawn', {
+      label: 'one-shot work',
+      prompt: message('one-shot work'),
+      parent,
+      signal: testSignal,
+    })
+    try {
+      await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+      const receipt = await humanPrompt(ctx, parent, run.id, 'mid-run queue', 'queue')
+      expect(receipt.messageId).toBeTypeOf('string')
+    } finally {
+      release.resolve(undefined)
+    }
+    expect((await run.result).output).toEqual(message('after queued'))
+    await run.localAgent!.whenIdle()
+    expect(adapter.requests).toHaveLength(2)
+    expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('mid-run queue')
+    await run.dispose()
+  })
+
+  it('rejects a human message to a one-shot whose driver is idle before its result settles', async () => {
+    const release = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('one shot'), gate: release.promise }])
+    const { ctx, parent } = await setupWith(adapter)
+    parkParent(ctx, parent)
+    const run = await ctx.subagents.start('spawn', {
+      label: 'one-shot work',
+      prompt: message('one-shot work'),
+      parent,
+      signal: testSignal,
+    })
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+    const idle = vi.spyOn(run.localAgent!, 'status', 'get').mockReturnValue('idle')
+    try {
+      const rejection: unknown = await continuationManager(ctx)
+        .queuePrompt(parent, run.id, message('after end'), { kind: 'user' }, testSignal)
+        .catch((error: unknown) => error)
+      expect(rejection).toMatchObject({ code: 'NOT_RESUMABLE' })
+      expect(String(rejection)).toContain('has ended its turn')
+    } finally {
+      idle.mockRestore()
+      release.resolve(undefined)
+    }
+    await run.result
+    expect(adapter.requests).toHaveLength(1)
+    await run.dispose()
+  })
+
+  it('rejects a human steer once the one-shot run has settled', async () => {
+    const { ctx, parent } = await setup([textResponse('one shot')])
+    const run = await ctx.subagents.start('spawn', {
+      label: 'one-shot work',
+      prompt: message('one-shot work'),
+      parent,
+      signal: testSignal,
+    })
+    await run.result
+    await expect(continuationManager(ctx).steerPrompt(parent, run.id, message('too late'), { kind: 'user' }, testSignal))
+      .rejects.toMatchObject({ code: 'NOT_RESUMABLE' })
+    await run.dispose()
+  })
+
+  it('refuses a running one-shot child to a non-parent for delivery and interrupt', async () => {
+    const release = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('one shot'), gate: release.promise }])
+    const { ctx, parent } = await setupWith(adapter)
+    parkParent(ctx, parent)
+    const run = await ctx.subagents.start('spawn', {
+      label: 'one-shot work',
+      prompt: message('one-shot work'),
+      parent,
+      signal: testSignal,
+    })
+    const stranger = await ctx.agentLoop.create(SessionId('stranger'), { provider: 'mock', model: 'mock' })
+    const cancelSpy = vi.spyOn(run.localAgent!, 'cancel')
+    try {
+      await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+      await expect(continuationManager(ctx).steerPrompt(stranger, run.id, message('not mine'), { kind: 'user' }, testSignal))
+        .rejects.toThrow(/belongs to another parent session/)
+      expect(() => { ctx.subagents.interrupt(run.id, { kind: 'user', parentSessionId: stranger.id }) })
+        .toThrow(/belongs to another parent session/)
+      expect(() => { ctx.subagents.interrupt(run.id, { kind: 'ancestor', agent: stranger }) })
+        .toThrow(/is not a live descendant/)
+      expect(cancelSpy).not.toHaveBeenCalled()
+    } finally {
+      release.resolve(undefined)
+      await run.result
+      await run.dispose()
+    }
+  })
+
+  it('interrupts a running one-shot child from its exact live ancestor and refuses self or stale callers', async () => {
+    const release = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('one shot'), gate: release.promise }])
+    const { ctx, parent } = await setupWith(adapter)
+    parkParent(ctx, parent)
+    const run = await ctx.subagents.start('spawn', {
+      label: 'one-shot work',
+      prompt: message('one-shot work'),
+      parent,
+      signal: testSignal,
+    })
+    const oneShot = run.localAgent!
+    const cancelSpy = vi.spyOn(oneShot, 'cancel')
+    try {
+      await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+      expect(() => { ctx.subagents.interrupt(run.id, { kind: 'ancestor', agent: oneShot }) })
+        .toThrow(/cannot interrupt itself/)
+      expect(() => { ctx.subagents.interrupt(run.id, { kind: 'ancestor', agent: { id: parent.id } as never }) })
+        .toThrow(/requires the exact live ancestor agent/)
+      expect(cancelSpy).not.toHaveBeenCalled()
+      ctx.subagents.interrupt(run.id, { kind: 'ancestor', agent: parent })
+      expect(cancelSpy).toHaveBeenCalledWith({ kind: 'parent' }, { keepInbox: true })
+    } finally {
+      release.resolve(undefined)
+    }
+    expect((await run.result).stopReason).toBe('aborted')
+    await run.dispose()
+  })
+
+  it('stops a running one-shot child through the human interrupt address', async () => {
+    const release = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('one shot'), gate: release.promise }])
+    const { ctx, parent } = await setupWith(adapter)
+    parkParent(ctx, parent)
+    const run = await ctx.subagents.start('spawn', {
+      label: 'one-shot work',
+      prompt: message('one-shot work'),
+      parent,
+      signal: testSignal,
+    })
+    try {
+      await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+      expect(ctx.subagents.interruptByParent(run.id, parent.id, 'continuable')).toEqual({ accepted: true })
+    } finally {
+      release.resolve(undefined)
+    }
+    expect((await run.result).stopReason).toBe('aborted')
+    await run.dispose()
   })
 
   it('reports an unknown child id as unavailable', async () => {
@@ -3772,8 +4015,10 @@ describe('SubagentRuntime.interrupt', () => {
     await waitNoActivation(ctx, siblingStart.childId)
   })
 
-  it('accepts absent and one-shot ids as no-ops without touching the one-shot Agent', async () => {
-    const { ctx, parent } = await setup([textResponse('one shot')])
+  it('accepts absent ids as no-ops and cancels a one-shot only while it runs', async () => {
+    const release = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('one shot'), gate: release.promise }])
+    const { ctx, parent } = await setupWith(adapter)
     ctx.subagents.interrupt(SessionId('missing'), { kind: 'user', parentSessionId: parent.id })
     ctx.subagents.interrupt(SessionId('missing'), { kind: 'ancestor', agent: parent })
 
@@ -3785,10 +4030,14 @@ describe('SubagentRuntime.interrupt', () => {
     })
     const oneShot = run.localAgent!
     const cancelSpy = vi.spyOn(oneShot, 'cancel')
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
     ctx.subagents.interrupt(run.id, { kind: 'user', parentSessionId: parent.id })
+    expect(cancelSpy).toHaveBeenCalledTimes(1)
+    expect(cancelSpy).toHaveBeenCalledWith({ kind: 'user' }, { keepInbox: true })
+    release.resolve(undefined)
+    expect((await run.result).stopReason).toBe('aborted')
     ctx.subagents.interrupt(run.id, { kind: 'ancestor', agent: parent })
-    expect(cancelSpy).not.toHaveBeenCalled()
-    await run.result
+    expect(cancelSpy).toHaveBeenCalledTimes(1)
     await run.dispose()
   })
 

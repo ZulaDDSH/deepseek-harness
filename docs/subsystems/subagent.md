@@ -546,9 +546,9 @@ async sendMessage( sender: Agent, targetId: SessionId, content: ContentBlock[], 
  * until it observes the signal. Unclaimed pending inbox work, the Activation,
  * and published descendants are preserved; claimed work is not requeued.
  * Once the interrupted driver is idle, a waking send resumes the parked FIFO
- * queue. An absent target — including a one-shot or unknown id —
- * is an accepted no-op, as is a manager-less composition, which cannot own a
- * live Activation.
+ * queue. A live one-shot run is cancelled under the same authority; an absent
+ * target, including a settled one-shot or unknown id, is an accepted no-op, as
+ * is a manager-less composition, which cannot own a live Activation.
  * @param targetSessionId - the durable child session id to interrupt.
  * @param authority - the human parent address or exact live ancestor Agent.
  * @throws {SubagentError} `UNAUTHORIZED` when the authority does not own the

@@ -20,7 +20,7 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import { ReasoningEffortId, contentHasImage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
 import { SessionLogOffset } from '@deepseek-ai/dsh-session'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionObservation, SessionQueryEngine } from '@deepseek-ai/dsh-session-query'
 import {
@@ -81,6 +81,7 @@ interface ContinuationHost {
  */
 export class SubagentContinuationManager {
   private readonly activations: ContinuableActivationRegistry
+  private readonly oneShots = new Map<SessionId, Agent>()
 
   constructor(
     private readonly ctx: Context,
@@ -102,6 +103,19 @@ export class SubagentContinuationManager {
    */
   reserveOneShotSlot(parent: Agent): () => void {
     return this.activations.reserveSlot(parent).release
+  }
+
+  /**
+   * Make one live in-process one-shot run addressable until its result settles.
+   * @param agent - the run's live child Agent.
+   * @param result - the run's result; its settlement, fulfilled or rejected, ends tracking.
+   */
+  trackOneShot(agent: Agent, result: Promise<unknown>): void {
+    this.oneShots.set(agent.id, agent)
+    const untrack = (): void => {
+      this.oneShots.delete(agent.id)
+    }
+    void result.then(untrack, untrack)
   }
 
   /**
@@ -309,7 +323,12 @@ export class SubagentContinuationManager {
     while (true) {
       const live = await this.activations.locks.run(childId, async () => {
         const activation = this.activations.get(childId)
-        if (activation === undefined) return this.coldResume(parent, childId, content, options)
+        if (activation === undefined) {
+          const oneShot = this.oneShots.get(childId)
+          return oneShot === undefined
+            ? this.coldResume(parent, childId, content, options)
+            : this.deliverOneShot(oneShot, parent, content, options)
+        }
         const disposal = activation.inbox.closing
         /* v8 ignore next 3 -- the send-versus-dispose cutoff needs a delivery to
          * observe the transaction inside the same critical section that opened it. */
@@ -335,6 +354,28 @@ export class SubagentContinuationManager {
     }
   }
 
+  private async deliverOneShot(
+    agent: Agent,
+    parent: Agent,
+    content: ContentBlock[],
+    options: ChildDeliveryOptions,
+  ): Promise<MessageId | undefined> {
+    this.activations.authorizeLineage(parent, agent.id, agent.session.header.parentSession)
+    if (contentHasImage(content)) {
+      await this.assertImageCapable(agent, options.signal)
+      if (this.oneShots.get(agent.id) !== agent) return undefined
+    }
+    if (agent.status === 'idle') {
+      throw new SubagentError(
+        `subagent "${agent.id}" has ended its turn; the message was not delivered`,
+        'NOT_RESUMABLE',
+      )
+    }
+    const message = this.buildMessage(content, options, parent)
+    agent.send(message, 'next-step', false)
+    return message.id
+  }
+
   /**
    * Interrupt one live continuable child's current turn. Admission is
    * synchronous and the cancellation effect is asynchronous. An absent or
@@ -343,7 +384,48 @@ export class SubagentContinuationManager {
    * @param authority - the human parent address or exact live ancestor Agent.
    */
   interrupt(targetSessionId: SessionId, authority: SubagentInterruptAuthority): void {
-    this.activations.interrupt(targetSessionId, authority)
+    const oneShot = this.oneShots.get(targetSessionId)
+    if (oneShot === undefined) {
+      this.activations.interrupt(targetSessionId, authority)
+      return
+    }
+    this.interruptOneShot(oneShot, authority)
+  }
+
+  private interruptOneShot(oneShot: Agent, authority: SubagentInterruptAuthority): void {
+    if (authority.kind === 'user') {
+      if (oneShot.session.header.parentSession !== authority.parentSessionId) {
+        throw new SubagentError(`subagent "${oneShot.id}" belongs to another parent session`, 'UNAUTHORIZED')
+      }
+      oneShot.cancel({ kind: 'user' }, { keepInbox: true })
+      return
+    }
+    const caller = authority.agent
+    if (this.ctx.agents.get(caller.id) !== caller) {
+      throw new SubagentError(
+        `interrupting "${oneShot.id}" requires the exact live ancestor agent`,
+        'UNAUTHORIZED',
+      )
+    }
+    if (caller.id === oneShot.id) {
+      throw new SubagentError(`agent "${caller.id}" cannot interrupt itself`, 'UNAUTHORIZED')
+    }
+    if (!this.isLiveAncestor(oneShot, caller)) {
+      throw new SubagentError(
+        `subagent "${oneShot.id}" is not a live descendant of agent "${caller.id}"`,
+        'UNAUTHORIZED',
+      )
+    }
+    oneShot.cancel({ kind: 'parent' }, { keepInbox: true })
+  }
+
+  private isLiveAncestor(agent: Agent, ancestor: Agent): boolean {
+    let parentSession = agent.session.header.parentSession
+    while (parentSession !== undefined) {
+      if (parentSession === ancestor.id) return true
+      parentSession = this.ctx.agents.get(parentSession)?.session.header.parentSession
+    }
+    return false
   }
 
   /** Deliver one resident continuable child's message to its live direct parent. */
@@ -504,16 +586,23 @@ export class SubagentContinuationManager {
     options: ChildDeliveryOptions,
     parent: Agent,
   ): MessageId {
-    const message = options.source === undefined
-      ? createAgentMessage(parent, content)
-      : createUserMessage({ content, source: options.source })
     return this.activations.submitAdmitted(
       activation,
-      message,
+      this.buildMessage(content, options, parent),
       options.delivery,
       parent,
       options.signal,
     )
+  }
+
+  private buildMessage(
+    content: ContentBlock[],
+    options: ChildDeliveryOptions,
+    parent: Agent,
+  ): UserMessage {
+    return options.source === undefined
+      ? createAgentMessage(parent, content)
+      : createUserMessage({ content, source: options.source })
   }
 
   /** Refuse image content for a child whose fixed model accepts text only. */
