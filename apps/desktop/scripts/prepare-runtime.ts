@@ -7,7 +7,7 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { parseArgs } from 'node:util'
 import { downloadArtifact } from '@electron/get'
-import extractZip from 'extract-zip'
+import { extractZip } from '../../../scripts/release/unzip.ts'
 import { resolveDesktopBuildTarget, resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
 import { preparePrimaryRuntime } from './prepare-primary-runtime.ts'
 
