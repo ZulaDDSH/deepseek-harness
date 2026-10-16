@@ -206,6 +206,7 @@ export function SignInCard(props: SignInCardProps): ReactNode {
   // The warning is about a stored record, so it waits for a grant this borrowed flow produced.
   const borrowed = entry.kind === 'grant' ? entry.borrowedFrom : undefined
   const running = phase.status === 'running'
+  const granted = entry.kind === 'grant' && phase.status === 'idle'
   const notices = phase.status === 'running' ? phase.notices : []
   const begin = (): void => {
     if (entry.borrowedFrom === undefined) {
@@ -223,7 +224,7 @@ export function SignInCard(props: SignInCardProps): ReactNode {
           {entry.configured ? t('signedIn') : t('signedOut')}
         </span>
       </div>
-      <p className={styles['signInHint']}>{t('signInDescription')}</p>
+      <p className={styles['signInHint']}>{t(granted ? 'signedInDescription' : 'signInDescription')}</p>
       {borrowed === undefined ? null : (
         <div className={styles['signInNotice']}>
           <span>{t('borrowedWarning', { app: borrowed, provider: displayName })}</span>
@@ -349,7 +350,9 @@ export function SignInCard(props: SignInCardProps): ReactNode {
           ) : (
             <>
               <button type="button" className={styles['primaryButton']} onClick={begin}>
-                {phase.status === 'failed' || phase.status === 'cancelled' ? t('signInRetry') : t('signIn')}
+                {phase.status === 'failed' || phase.status === 'cancelled'
+                  ? t('signInRetry')
+                  : t(granted ? 'signInAgain' : 'signIn')}
               </button>
               {entry.borrowedFrom === undefined ? null : <span className={styles['signInHint']}>{t('borrowedTag')}</span>}
             </>

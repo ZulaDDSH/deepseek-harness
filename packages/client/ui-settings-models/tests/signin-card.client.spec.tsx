@@ -359,6 +359,21 @@ describe('the borrowed-login warning', () => {
     expect(await screen.findByRole('button', { name: en.signIn })).toBeTruthy()
     expect(screen.queryByText(warning)).toBeNull()
   })
+
+  it('stops asking for the browser once a sign-in is stored', async () => {
+    render(
+      <SignInCard
+        provider="openai-codex"
+        displayName="OpenAI Codex"
+        operations={surface({ configured: true, entry: { kind: 'grant' } })}
+        t={t}
+      />,
+    )
+
+    expect(await screen.findByRole('button', { name: en.signInAgain })).toBeTruthy()
+    expect(screen.getByText(en.signedInDescription)).toBeTruthy()
+    expect(screen.queryByText(en.signInDescription)).toBeNull()
+  })
 })
 
 describe('the borrowed-login confirmation', () => {
