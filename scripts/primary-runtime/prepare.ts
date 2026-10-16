@@ -8,9 +8,9 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
-import extractZip from 'extract-zip'
 import { x as extractTar } from 'tar'
 import { parsePrimaryRuntime, workspaceDependencyPaths, type PrimaryRuntimeManifest } from '../../packages/skill/tool-workspace-dependencies/src/index.ts'
+import { extractZip } from '../release/unzip.ts'
 import lock from './lock.json' with { type: 'json' }
 
 /**
