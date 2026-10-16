@@ -395,6 +395,17 @@ describe('MarkdownText', () => {
     expect(container.querySelector('a')).toBeNull()
   })
 
+  it('keeps KaTeX trust off when Object.prototype carries an inherited trust flag', () => {
+    Reflect.set(Object.prototype, 'trust', true)
+    try {
+      const { container } = render(<MarkdownText text={'$\\href{javascript:alert(1)}{x}$'} />)
+
+      expect(container.querySelector('a')).toBeNull()
+    } finally {
+      Reflect.deleteProperty(Object.prototype, 'trust')
+    }
+  })
+
   it('renders common TeX delimiters and same-line tagged display blocks after the reply settles', () => {
     const source = [
       'Inline dollar $\\theta$ and backslash \\(\\frac{1}{5}\\).',

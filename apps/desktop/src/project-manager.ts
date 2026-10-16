@@ -32,6 +32,7 @@ const CORE_BUILD_PACKAGE = '@deepseek-ai/dsh-subprocess-local'
 const WEB_PROFILE = PROFILE_TEMPLATES.web as ProfileTemplate
 const WORKSPACE_SETTINGS = 'nodeLinker: hoisted\nautoInstallPeers: false\n'
 const OPTIONAL_EXCLUSIONS = "ignoredOptionalDependencies:\n  - '@lancedb/lancedb'\n  - better-sqlite3\n"
+const RUNTIME_SECURITY_OVERRIDES: Readonly<Record<string, string>> = { '@deepseek-ai/libreoffice-kit>fflate': '0.8.3' }
 function writeJson(path: string, value: unknown): void {
   writeFileSync(path, `${JSON.stringify(value, undefined, 2)}\n`, { mode: 0o600 })
 }
@@ -145,7 +146,7 @@ export function createRuntimeProjectMetadata(projectDir: string, release: Deskto
   writeJson(join(projectDir, 'package.json'), manifest)
   writeFileSync(
     join(projectDir, 'pnpm-workspace.yaml'),
-    workspaceFile(desktopCorePackageOverrides(packageSet)),
+    workspaceFile({ ...desktopCorePackageOverrides(packageSet), ...RUNTIME_SECURITY_OVERRIDES }),
     { mode: 0o600 },
   )
 }

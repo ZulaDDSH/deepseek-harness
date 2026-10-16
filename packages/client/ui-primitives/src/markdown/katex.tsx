@@ -66,10 +66,10 @@ function domToReact(node: ChildNode, key: number): ReactNode {
 export function renderTexToReact(value: string, displayMode: boolean): ReactNode {
   let html: string
   try {
-    html = katex.renderToString(value, { displayMode, throwOnError: true })
+    html = katex.renderToString(value, { displayMode, throwOnError: true, trust: false })
   } catch (error) {
     try {
-      html = katex.renderToString(value, { displayMode, strict: 'ignore', throwOnError: false })
+      html = katex.renderToString(value, { displayMode, strict: 'ignore', throwOnError: false, trust: false })
     } catch {
       // KaTeX renders ParseErrors itself under throwOnError: false; only its
       // internal errors reach here, so mirror rehype-katex's manual span.
