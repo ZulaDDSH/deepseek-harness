@@ -315,4 +315,25 @@ describe('ReasoningRow', () => {
       ),
     ).not.toBeNull()
   })
+
+  it.each([
+    ['compact', false],
+    ['standard', false],
+    ['detailed', true],
+    ['verbose', true],
+  ] as const)('shows process-group reasoning rows in %s only when the mode keeps them', (mode, shown) => {
+    const store = createSnapshotStore<TranscriptViewMode>(mode)
+    const view = render(
+      <AssistantMarkdown useDisclosure={useDisclosure}
+        usePresentation={bindSnapshotSelector(derivePresentationPolicy(store))}
+        t={t}
+        groupPart="reasoning"
+        blocks={[{ kind: 'reasoning', text: 'Inspect the session' }, { kind: 'text', text: 'Answer' }]}
+        streaming={false}
+        renderMessageImages={renderMessageImages}
+      />,
+    )
+    expect(view.container.querySelector('[data-variant="think"]') !== null).toBe(shown)
+    expect(view.queryByText('Answer')).toBeNull()
+  })
 })
