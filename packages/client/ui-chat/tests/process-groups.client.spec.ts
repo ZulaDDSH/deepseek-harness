@@ -6,7 +6,12 @@ import type { ChatNode } from '../src/client/contract/chat-nodes.ts'
 import { ChatSnapshotBuilder } from '../src/client/conversation-nodes/chat-snapshot-builder.ts'
 import { ProcessState } from '../src/client/conversation-nodes/process-groups.ts'
 import { ConversationGroupStore } from '../../ui-conversation/src/client/conversation/group-store.ts'
-import type { ProcessGroupData } from '../src/client/contract/process-groups.ts'
+import type { ProcessActivitySummary, ProcessGroupData } from '../src/client/contract/process-groups.ts'
+import { processTitle } from '../src/client/chat/step-process.ts'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { en, zh } from '../src/client/locale.ts'
+import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 
 const turn: TurnLocation = {
   turn: 1, status: 'open', steps: [], end: undefined,
@@ -48,6 +53,18 @@ function separator(seq: number, inTurn: boolean): ChatNode<'user'> | ChatNode<'s
   return inTurn ? { ...user, kind: 'steering', data: { ...user.data, kind: 'steering', messageId: 'steer' as MessageId } } : user
 }
 
+function startedTool(key: string, seq: number, name: string, args: object): ChatNode<'tool-call'> {
+  return { ...tool(key, seq, name), data: { root: { phase: 'start' as const, callId: key, name, argsRaw: JSON.stringify(args), turn: 1, step: 1, time: seq, subCalls: [] } } }
+}
+
+function settledTool(key: string, seq: number, name: string, args: object, meta?: unknown, isError = false): ChatNode<'tool-call'> {
+  return {
+    key, id: key, kind: 'tool-call', target: 'chat', anchorSeq: seq,
+    location: { kind: 'turn', turn }, visibility: 'visible',
+    data: { root: { kind: 'tool-result', callId: key, seq, time: seq, callTime: seq, call: { name, argsRaw: JSON.stringify(args) }, content: [], isError, meta, subCalls: [] } },
+  }
+}
+
 function harness(nodes: ChatNode[], currentTimeline = timeline) {
   const builder = new ChatSnapshotBuilder()
   const state = new ProcessState()
@@ -81,7 +98,7 @@ describe('Definition-owned Chat process groups', () => {
     h.commit()
     expect(source.getSnapshot()?.data).toEqual({
       turn: 1, closed: true,
-      summary: { counts: [{ kind: 'write', count: 1 }], running: undefined, runningDetail: '' },
+      summary: { counts: [{ kind: 'write', count: 1, targets: [] }], running: undefined, runningDetail: '', added: 0, removed: 0 },
     })
   })
 
@@ -100,11 +117,11 @@ describe('Definition-owned Chat process groups', () => {
     if (group.kind !== 'group') throw new Error('expected group')
     const source = h.store.groupSource(group.key)
     expect(source.getSnapshot()?.data.summary).toEqual({
-      counts: [{ kind, count: 1 }], running: kind, preparing: true, runningDetail: kind === 'tools' ? name : '',
+      counts: [{ kind, count: 1, targets: [] }], running: kind, preparing: true, runningDetail: kind === 'tools' ? name : '', added: 0, removed: 0,
     })
     h.builder.apply({ upserts: [started], timeline })
     h.commit()
-    expect(source.getSnapshot()?.data.summary).toEqual({ counts: [{ kind, count: 1 }], running: kind, runningDetail: 'pwd' })
+    expect(source.getSnapshot()?.data.summary).toEqual({ counts: [{ kind, count: 1, targets: [] }], running: kind, runningDetail: 'pwd', added: 0, removed: 0 })
     const settled: ChatNode<'tool-call'> = {
       ...started,
       data: { root: {
@@ -114,7 +131,7 @@ describe('Definition-owned Chat process groups', () => {
     }
     h.builder.apply({ upserts: [settled], timeline })
     h.commit()
-    expect(source.getSnapshot()?.data.summary).toEqual({ counts: [{ kind, count: 1 }], running: undefined, runningDetail: '' })
+    expect(source.getSnapshot()?.data.summary).toEqual({ counts: [{ kind, count: 1, targets: [] }], running: undefined, runningDetail: '', added: 0, removed: 0 })
   })
 
   it('retains a group through repeated prepends and a later append', () => {
@@ -286,12 +303,12 @@ describe('Definition-owned Chat process groups', () => {
     if (first.kind !== 'group' || last.kind !== 'group') throw new Error('expected groups')
     const lastSnapshot = h.store.groupSource(last.key).getSnapshot()
     expect(h.store.groupSource(first.key).getSnapshot()?.data.summary.counts).toEqual([
-      { kind: 'commands', count: 2 }, { kind: 'read', count: 1 },
+      { kind: 'commands', count: 2, targets: [] }, { kind: 'read', count: 1, targets: [] },
     ])
     h.builder.apply({ upserts: [{ ...c, visibility: 'hidden' }], timeline })
     h.commit()
     expect(h.store.groupSource(first.key).getSnapshot()?.data.summary.counts).toEqual([
-      { kind: 'read', count: 1 }, { kind: 'commands', count: 1 },
+      { kind: 'read', count: 1, targets: [] }, { kind: 'commands', count: 1, targets: [] },
     ])
     expect(h.store.groupSource(last.key).getSnapshot()).toBe(lastSnapshot)
   })
@@ -382,5 +399,61 @@ describe('Definition-owned Chat process groups', () => {
     h.builder.apply({ upserts: [], timeline: { turnOrder: [1], turns: new Map([[1, ended]]) }, changedTurns: [1] })
     expect(h.commit()?.entries).toBeUndefined()
     expect(source.getSnapshot()?.data.closed).toBe(true)
+  })
+
+  it('names distinct file targets per category and totals write and edit line changes', () => {
+    const h = harness([
+      settledTool('write', 2, 'write', { file_path: 'src/new.ts', content: 'a\nb' }, { diffs: [{ path: 'src/new.ts', oldText: null, newText: 'a\nb' }] }),
+      startedTool('edit', 3, 'edit', { file_path: 'C:\\repo\\locales.ts', old_string: 'x', new_string: 'y\nz' }),
+      settledTool('failed', 4, 'edit', { file_path: 'broken.ts', old_string: 'p', new_string: 'q' }, undefined, true),
+      settledTool('read', 5, 'read', { file_path: 'src/notes.md' }),
+      settledTool('again', 6, 'read', { file_path: 'other/notes.md' }),
+    ])
+    const group = h.store.entries[0]!
+    if (group.kind !== 'group') throw new Error('expected group')
+    const summary = h.store.groupSource(group.key).getSnapshot()?.data.summary
+    expect(summary?.counts).toEqual([
+      { kind: 'edit', count: 2, targets: ['locales.ts', 'broken.ts'] },
+      { kind: 'read', count: 2, targets: ['notes.md'] },
+      { kind: 'write', count: 1, targets: ['new.ts'] },
+    ])
+    expect(summary).toMatchObject({ added: 4, removed: 1 })
+  })
+})
+
+describe('Chat process group titles', () => {
+  const englishTitle = makeTranslate(en, commonEn)
+  const chineseTitle = makeTranslate(zh, commonZh)
+  const summary = (counts: ProcessActivitySummary['counts']): ProcessActivitySummary => ({
+    counts, running: undefined, runningDetail: '', added: 0, removed: 0,
+  })
+
+  it.each<[string, ProcessActivitySummary['counts'], string]>([
+    ['one file', [{ kind: 'read', count: 1, targets: ['SubagentHeaderLineage.tsx'] }], 'Read SubagentHeaderLineage.tsx'],
+    ['one created file', [{ kind: 'write', count: 1, targets: ['catalog-format.ts'] }], 'Created catalog-format.ts'],
+    ['counted files and a category', [
+      { kind: 'read', count: 3, targets: ['a.ts', 'b.ts', 'c.ts'] }, { kind: 'search', count: 1, targets: [] },
+    ], 'Read 3 files, searched code'],
+    ['mixed categories', [
+      { kind: 'commands', count: 4, targets: [] }, { kind: 'read', count: 1, targets: ['SubagentHeaderLineage.tsx'] },
+    ], 'Ran 4 commands, read SubagentHeaderLineage.tsx'],
+    ['more than three categories', [
+      { kind: 'read', count: 2, targets: [] }, { kind: 'commands', count: 2, targets: [] },
+      { kind: 'search', count: 1, targets: [] }, { kind: 'write', count: 1, targets: ['x.ts'] },
+    ], 'Read 2 files, ran 2 commands, searched code, etc.'],
+    ['no categories', [], 'Analysis completed'],
+    ['one file read repeatedly', [{ kind: 'read', count: 3, targets: ['notes.md'] }], 'Read notes.md'],
+    ['one tool call', [{ kind: 'tools', count: 1, targets: [] }], 'Used a tool'],
+    ['repeated tool calls', [{ kind: 'tools', count: 2, targets: [] }], 'Called 2 tools'],
+  ])('titles %s', (_name, counts, expected) => {
+    expect(processTitle(summary(counts), englishTitle)).toBe(expected)
+  })
+
+  it('joins Chinese categories with its own separators and counts', () => {
+    expect(processTitle(summary([{ kind: 'read', count: 3, targets: [] }, { kind: 'search', count: 1, targets: [] }]), chineseTitle))
+      .toBe('读取了 3 个文件并搜索了代码')
+    expect(processTitle(summary([
+      { kind: 'read', count: 1, targets: ['a.ts'] }, { kind: 'commands', count: 2, targets: [] }, { kind: 'search', count: 1, targets: [] },
+    ]), chineseTitle)).toBe('读取了 a.ts，执行了 2 条命令，搜索了代码')
   })
 })

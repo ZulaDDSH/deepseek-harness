@@ -113,6 +113,7 @@ Settings → General → Work details offers four modes for choosing how much to
 | Process-group header | Category summary | Summary and live task detail | Hidden in running Turns; retained in historical Turns | Hidden |
 | Process-group body | Initially collapsed | Initially collapsed | Directly visible without a group-level height cap in running Turns; manual disclosure in historical Turns | Directly visible without a group-level height cap in running and historical Turns |
 | Settled reasoning preview | Hidden | First line | First line | First line |
+| Reasoning rows inside process groups | Hidden | Hidden | Shown | Shown |
 | Individual reasoning and tool bodies | Manual expansion | Manual expansion | Manual expansion | Manual expansion |
 | Eligible completed Turn | Initially collapsed | Initially collapsed | Initially collapsed | Always open; duration/status header cannot collapse it |
 
@@ -128,36 +129,38 @@ Reading a default does not automatically save configuration. When the user chang
 
 ### Group-title rules
 
-A closed group's header names the first three categories from its ranked summary, without displaying counts. A group without categories uses the thinking label. A running header names its live tool category, otherwise thinking; Standard appends live detail. Live titles remain visible for at least 150ms, retaining only the newest pending title.
+A closed group's header names the first three categories from its ranked summary. A category with one call and one file target names that file; any other category states its count. A closed group that wrote or edited files shows its added and removed line totals after the title, in the success and error state colors. Its per-file targets are the distinct basenames of `file_path` in first-call order. A group without categories uses the thinking label. A running header names its live tool category, otherwise thinking; Standard appends live detail. Live titles remain visible for at least 150ms, retaining only the newest pending title.
 
 All three stages share the tool-name classification below. A preparing Tool node uses its category's preparation label: read files for `read`, read images for `read_image`, write files for `write`, edit files for `edit` and `apply_patch`, and update the plan for `todo_write` and goal tools. Only the generic “Preparing tool calls” category appends the wire tool name in Standard mode; other categories omit it. It contributes one call without parsing arguments and renders one non-expandable row. A named live delta can create this node; historical calls start directly from tool/call without replaying preparation.
 
 The labels below describe recorded activity, not successful outcomes. For example, a failed read still participates in the “Read files” category.
 
-| Category | Running label | Closed label |
-|---|---|---|
-| No live category / no counted categories | Analyzing the request | Analysis completed |
-| `read` | Reading files | Read files |
-| `readImage` | Reading images | Read images |
-| `search` | Searching code | Searched code |
-| `write` | Writing files | Wrote files |
-| `edit` | Editing files | Edited files |
-| `commands` | Running commands | Ran commands |
-| `code` | Running code | Ran code |
-| `webSearch` | Searching the web | Searched the web |
-| `webFetch` | Visiting web pages | Visited web pages |
-| `subagents` | Coordinating subagents | Coordinated subagents |
-| `plan` | Updating the plan | Updated the plan |
-| `questions` | Waiting for your action | Asked questions |
-| `tools` | Calling tools | Called tools |
+| Category | Running label | Closed label: one call | Closed label: counted |
+|---|---|---|---|
+| No live category / no counted categories | Analyzing the request | Analysis completed | Analysis completed |
+| `read` | Reading files | Read `{file}` | Read `{count}` files |
+| `readImage` | Reading images | Viewed `{file}` | Viewed `{count}` images |
+| `search` | Searching code | Searched code | Searched code `{count}` times |
+| `write` | Writing files | Created `{file}` | Wrote `{count}` files |
+| `edit` | Editing files | Edited `{file}` | Edited `{count}` files |
+| `commands` | Running commands | Ran a command | Ran `{count}` commands |
+| `code` | Running code | Ran code | Ran code `{count}` times |
+| `webSearch` | Searching the web | Searched the web | Searched the web `{count}` times |
+| `webFetch` | Visiting web pages | Visited a web page | Visited `{count}` web pages |
+| `subagents` | Coordinating subagents | Used a subagent | Used `{count}` subagents |
+| `plan` | Updating the plan | Updated the plan | Updated the plan |
+| `questions` | Waiting for your action | Asked a question | Asked `{count}` questions |
+| `tools` | Calling tools | Used a tool | Called `{count}` tools |
+
+A single file-category call without a usable `file_path` uses the generic labels “Read files”, “Read images”, “Wrote files”, and “Edited files”.
 
 | Group state | Title composition |
 |---|---|
 | Not closed, with a running tool | Use the live category, not the highest-count category. Standard appends nonempty detail with ` · `; Compact omits detail. |
 | Not closed, without a running tool | Use the analysis label even when completed-tool counts are nonzero. Standard may append running reasoning detail. |
 | Closed, zero categories | Use the completed-analysis label. |
-| Closed, one category | Use its closed label without a count. |
-| Closed, two categories | Join ranked labels with “and”. Chinese removes the second leading `已` only when both labels start with it. |
+| Closed, one category | Use its one-call or counted closed label. |
+| Closed, two categories | Join ranked labels with a comma; Chinese joins with `并` and removes the second leading `已` only when both labels start with it. |
 | Closed, three categories | Join all three ranked labels with commas. |
 | Closed, more than three categories | Show the first three labels followed by “etc.” (`等` in Chinese). |
 

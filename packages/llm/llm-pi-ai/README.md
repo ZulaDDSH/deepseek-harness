@@ -114,6 +114,8 @@ A model can declare selectable request modes under `modes`. The selector adds an
 
 For self-hosted Chat Completions endpoints, `thinkingTokenBudgetField` selects the reasoning-budget parameter, and `vllmPriority` sets an integer scheduler priority when the server enables priority scheduling. Template arguments accept `$var: thinking.budget`. `openai-responses` gateways can set `supportsMaxOutputTokens: false` to omit `max_output_tokens`; Azure and Codex transports ignore this shared compatibility field. These controls are opt-in; catalog-owned Anthropic effort and fallback capabilities are not configurable switches.
 
+A call with no level keeps the provider default: adaptive Anthropic models send adaptive thinking with no effort field (so the model default applies), manual-budget Anthropic models send no thinking field, OpenAI Responses sends no `reasoning` field, Codex keeps `reasoning` with only its summary, and DeepSeek chat-completions routes send no `thinking` field. An explicit `off` still sends the provider's off value. Adaptive Anthropic models send the requested level as `output_config.effort`, including Claude 5.5, whose mid-conversation effort is set to the same level. Anthropic has no `minimal` level, and Codex maps it to `low`, so neither offers it.
+
 ### Change configuration at runtime
 
 Each operation captures the current `providers` Config reference. New or changed provider profiles are validated before form persistence; unchanged catalog failures remain editable. Route-set or retry-policy changes update registration atomically, preserving previous routes if another adapter owns a requested route.

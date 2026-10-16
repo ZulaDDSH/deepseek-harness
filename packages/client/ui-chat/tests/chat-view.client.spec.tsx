@@ -656,7 +656,7 @@ describe('ChatView', () => {
     if (outside === undefined || inside === undefined) throw new Error('expected two Nodes')
     const key = 'process' as GroupKey
     const groupStore = new ConversationGroupStore<ProcessGroupData>()
-    const record = { key, data: { turn: 1, closed: false, summary: { counts: [], running: undefined, runningDetail: '' } }, members: [inside] }
+    const record = { key, data: { turn: 1, closed: false, summary: { counts: [], running: undefined, runningDetail: '', added: 0, removed: 0 } }, members: [inside] }
     groupStore.prepareAndInstall({
       entries: [outside, { kind: 'group', key }],
       groups: { kind: 'replace', snapshots: [record] },
@@ -781,7 +781,7 @@ describe('ChatView', () => {
     const groups = new ConversationGroupStore<ProcessGroupData>()
     const group: GroupSnapshot<ProcessGroupData> = {
       key, members: [{ kind: 'node', key: snapshot.order[0] as NodeKey }],
-      data: { turn: 1, closed, summary: { counts: [], running: undefined, runningDetail: '' } },
+      data: { turn: 1, closed, summary: { counts: [], running: undefined, runningDetail: '', added: 0, removed: 0 } },
     }
     groups.prepareAndInstall({
       entries: [{ kind: 'group', key }],
@@ -908,7 +908,7 @@ describe('ChatView', () => {
       key: `settled-${index}` as GroupKey,
       data: {
         turn: 1, closed: index < 40,
-        summary: { counts: [], running: index < 40 ? undefined : 'commands', runningDetail: index < 40 ? '' : 'pwd' },
+        summary: { counts: [], running: index < 40 ? undefined : 'commands', runningDetail: index < 40 ? '' : 'pwd', added: 0, removed: 0 },
       },
       members: [{ kind: 'node', key: nodeKey as NodeKey }],
     }))
@@ -954,7 +954,7 @@ describe('ChatView', () => {
     const groupStore = new ConversationGroupStore<ProcessGroupData>()
     groupStore.prepareAndInstall({
       entries: [{ kind: 'group', key }, { kind: 'node', key: nodeKey, groupPart: 'response' }],
-      groups: { kind: 'replace', snapshots: [{ key, data: { turn: 1, closed: false, summary: { counts: [], running: undefined, runningDetail: '' } }, members: [{ kind: 'node', key: nodeKey, groupPart: 'reasoning' }] }] },
+      groups: { kind: 'replace', snapshots: [{ key, data: { turn: 1, closed: false, summary: { counts: [], running: undefined, runningDetail: '', added: 0, removed: 0 } }, members: [{ kind: 'node', key: nodeKey, groupPart: 'reasoning' }] }] },
     }, id => snapshot.nodes.get(id))
     h.setGrouped(groupStore)
     h.setNodeRenderer(((slot: string, owner: object) => {
@@ -979,7 +979,7 @@ describe('ChatView', () => {
     const groups = new ConversationGroupStore<ProcessGroupData>()
     groups.prepareAndInstall({
       entries: [{ kind: 'group', key }],
-      groups: { kind: 'replace', snapshots: [{ key, data: { turn: 1, closed: false, summary: { counts: [], running: undefined, runningDetail: '' } }, members }] },
+      groups: { kind: 'replace', snapshots: [{ key, data: { turn: 1, closed: false, summary: { counts: [], running: undefined, runningDetail: '', added: 0, removed: 0 } }, members }] },
     }, id => snapshot.nodes.get(id))
     groups.publish()
     h.setGrouped(groups)

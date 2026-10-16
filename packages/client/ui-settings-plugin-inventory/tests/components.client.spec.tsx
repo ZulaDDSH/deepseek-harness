@@ -675,7 +675,7 @@ it('shows current-page sync errors and retries without re-reading Host inventory
 })
 
 describe('Hooks settings', () => {
-  it('hides external configuration that Harness does not control', async () => {
+  it('lists external configuration read-only and shows its read failures', async () => {
     const list = vi.fn<PluginInventorySettingsTabInjected['list']>().mockResolvedValue({ entries: [], hooks: [{
       dialect: 'claude-code', source: '/settings.json', status: 'configured',
       handlers: [{ event: 'SubagentStart', command: 'external-policy', key: 'k0' }], skipped: [],
@@ -683,9 +683,11 @@ describe('Hooks settings', () => {
       dialect: 'codex', source: '/broken-hooks.json', status: 'failed', handlers: [], skipped: [], error: 'Invalid hook JSON',
     }] })
     render(<HooksSettingsSection {...props(list)} setEnabledHooks={vi.fn()} setHookDescriptions={vi.fn()} close={() => {}} />)
-    expect(await screen.findByText(en.hooksEmpty)).toBeTruthy()
-    expect(screen.queryByText('external-policy')).toBeNull()
-    expect(screen.queryByText('Invalid hook JSON')).toBeNull()
+    expect(await screen.findByText('/settings.json')).toBeTruthy()
+    expect(screen.getByText('external-policy')).toBeTruthy()
+    expect(screen.getByText(en.hooksConfigured)).toBeTruthy()
+    expect(screen.getByText('Invalid hook JSON')).toBeTruthy()
+    expect(screen.queryByRole('switch')).toBeNull()
   })
   it('shows loaded hooks by script name and refreshes load diagnostics', async () => {
     const list = vi.fn<PluginInventorySettingsTabInjected['list']>().mockResolvedValue({ entries: [], hooks: [{
@@ -714,7 +716,7 @@ describe('Hooks settings', () => {
     const list = vi.fn<PluginInventorySettingsTabInjected['list']>().mockResolvedValue(snapshot())
     const setHookDescriptions = vi.fn(async () => {})
     render(<HooksSettingsSection {...props(list)} setEnabledHooks={vi.fn()} setHookDescriptions={setHookDescriptions} close={() => {}} />)
-    fireEvent.click(await screen.findByRole('button', { name: en.hooksDescriptionAdd }))
+    fireEvent.click((await screen.findAllByRole('button', { name: en.hooksDescriptionEdit }))[0]!)
     fireEvent.change(screen.getByRole('textbox', { name: `${en.hooksDescription}: one` }), { target: { value: ' Blocks risky tools ' } })
     fireEvent.click(screen.getByRole('button', { name: en.hooksDescriptionSave }))
     await waitFor(() => { expect(setHookDescriptions).toHaveBeenCalledWith('hooks-1', { k3: 'other', k1: 'Blocks risky tools', k2: 'Blocks risky tools' }) })

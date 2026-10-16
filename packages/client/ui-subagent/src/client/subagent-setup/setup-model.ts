@@ -144,14 +144,32 @@ export function withoutSubagentSetup(options: SessionRunOptions): SessionRunOpti
 }
 
 /**
- * Accept a stored global default only when its top-level shape is a Subagent Setup; the Host validates the full schema on read.
+ * Name the roles fixed to Claude Code whose model is empty or blank, in display order.
+ * @param setup - the setup to check.
+ * @returns the roles that run on Claude Code without a model; empty when every Claude Code role names one.
+ */
+export function claudeRolesMissingModel(setup: SubagentSetup): readonly SubagentSetupRole[] {
+  return SUBAGENT_SETUP_ROLES.filter((role) => {
+    const setting = setup.roles[role]
+    return setting?.mode === 'fixed' && setting.route.backend === 'claude-cli' && setting.route.model.trim() === ''
+  })
+}
+
+/**
+ * Accept a stored global default only when it is shaped like a Subagent Setup and no Claude Code role lacks a model.
  * @param value - the value read from the global settings section.
- * @returns the setup, or undefined when the stored value is absent or not shaped like one.
+ * @returns the setup, or undefined when the stored value is absent, not shaped like one, or leaves a Claude Code role without a model.
  */
 export function subagentSetupOrUndefined(value: unknown): SubagentSetup | undefined {
   if (typeof value !== 'object' || value === null) return undefined
   const candidate = value as Partial<SubagentSetup>
-  return typeof candidate.enabled === 'boolean' && typeof candidate.reviewRounds === 'number' && typeof candidate.roles === 'object'
-    ? candidate as SubagentSetup
-    : undefined
+  if (typeof candidate.enabled !== 'boolean' || typeof candidate.reviewRounds !== 'number'
+    || typeof candidate.roles !== 'object' || candidate.roles === null) return undefined
+  const blankClaudeModel = Object.values(candidate.roles).some((setting: unknown) => {
+    const route: unknown = typeof setting === 'object' && setting !== null ? Reflect.get(setting, 'route') : undefined
+    if (typeof route !== 'object' || route === null || Reflect.get(route, 'backend') !== 'claude-cli') return false
+    const model: unknown = Reflect.get(route, 'model')
+    return typeof model !== 'string' || model.trim() === ''
+  })
+  return blankClaudeModel ? undefined : candidate as SubagentSetup
 }

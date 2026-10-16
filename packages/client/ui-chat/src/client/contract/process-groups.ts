@@ -2,13 +2,17 @@
 export type ProcessActivity = 'read' | 'readImage' | 'search' | 'write' | 'edit' | 'commands' | 'code'
   | 'webSearch' | 'webFetch' | 'subagents' | 'plan' | 'questions' | 'tools'
 
-/** Distinct-call category ranking and the current live task detail. */
+/** Distinct-call category ranking with file targets, line totals, and the current live task detail. */
 export interface ProcessActivitySummary {
-  readonly counts: readonly { readonly kind: ProcessActivity; readonly count: number }[]
+  readonly counts: readonly { readonly kind: ProcessActivity; readonly count: number; readonly targets: readonly string[] }[]
   readonly running: ProcessActivity | undefined
   readonly runningDetail: string
   /** Present only while the selected live activity has not reached tool/call. */
   readonly preparing?: true
+  /** Lines added by write and edit calls in the group. */
+  readonly added: number
+  /** Lines removed by write and edit calls in the group. */
+  readonly removed: number
 }
 
 /** Presentation facts for one group between independent replies or input. */
