@@ -10,6 +10,7 @@ import { defaultRolesFor, withRole } from '../src/client/subagent-setup/setup-mo
 import { subagentWorkflowPrompt } from '../src/client/subagent-setup/contract.ts'
 import { createClaudeServedFlag } from '../src/client/subagent-setup/global-setup.ts'
 import { en, zh } from '../src/client/locales.ts'
+import css from '../src/client/subagent-setup/SubagentSetup.module.css'
 
 afterEach(() => {
   cleanup()
@@ -50,9 +51,16 @@ function renderSetup(options: {
   catalog?: ModelCatalog
   global?: SubagentSetup
   mode?: 'session' | 'global'
+  rejectSave?: boolean
 } = {}) {
-  const saveRunOptions = vi.fn(async (_options: SessionRunOptions) => undefined)
-  const saveGlobal = vi.fn(async (_setup: SubagentSetup) => undefined)
+  const saveRunOptions = vi.fn(async (_options: SessionRunOptions) => {
+    if (options.rejectSave === true) throw new Error('disk full')
+    return undefined
+  })
+  const saveGlobal = vi.fn(async (_setup: SubagentSetup) => {
+    if (options.rejectSave === true) throw new Error('disk full')
+    return undefined
+  })
   const loadCatalog = vi.fn(async () => options.catalog ?? catalog)
   const projection = { current: options.current === undefined ? null : options.current }
   const claudeCode = options.claude === true ? { available: true } : undefined
@@ -252,6 +260,37 @@ describe('SubagentSetupView', () => {
     const setup: SubagentSetup = { enabled: true, reviewRounds: 1, roles: { orchestrator: { mode: 'jev' } } }
     renderSetup({ current: { subagentSetup: setup } })
     expect(screen.getByText(subagentPolicyText(setup))).toBeTruthy()
+  })
+
+  it('names the Claude Code role without a model in a red alert and disables both saves', () => {
+    renderSetup({
+      claude: true,
+      current: { subagentSetup: { enabled: true, reviewRounds: 2, roles: { coder: { mode: 'fixed', route: { backend: 'claude-cli', model: '' } } } } },
+    })
+    fireEvent.click(screen.getByRole('switch', { name: en['setup.enable'] }))
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toBe(t('setup.claudeModelMissing', { roles: en['role.coder'] }))
+    expect(alert.className).toBe(css.error)
+    expect(screen.getByRole('button', { name: en['setup.save'] }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('button', { name: en['setup.saveGlobal'] }).hasAttribute('disabled')).toBe(true)
+  })
+
+  it('re-enables the controls and shows the error when a save rejects', async () => {
+    renderSetup({ current: {}, rejectSave: true })
+    fireEvent.click(screen.getByRole('switch', { name: en['setup.enable'] }))
+    fireEvent.click(screen.getByRole('button', { name: en['setup.save'] }))
+    expect(await screen.findByText(t('setup.saveError', { message: 'disk full' }))).toBeTruthy()
+    expect(screen.getByRole('switch', { name: en['setup.enable'] }).closest('fieldset')?.disabled).toBe(false)
+    expect(screen.getByRole('button', { name: en['setup.save'] }).hasAttribute('disabled')).toBe(false)
+  })
+
+  it('ignores a stored global default whose Claude Code role has no model', () => {
+    renderSetup({
+      claude: true,
+      global: { enabled: true, reviewRounds: 4, roles: { coder: { mode: 'fixed', route: { backend: 'claude-cli', model: '' } } } },
+    })
+    expect(screen.getByRole('switch', { name: en['setup.enable'] }).getAttribute('aria-checked')).toBe('false')
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 })
 

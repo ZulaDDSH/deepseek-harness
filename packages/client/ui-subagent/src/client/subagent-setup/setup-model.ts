@@ -1,6 +1,6 @@
 /** Pure Subagent Setup draft helpers: catalog defaults and role choice encoding. */
-import type {
-  SubagentRoleRoute, SubagentRoleSetting, SubagentSetup, SubagentSetupRole,
+import {
+  subagentSetupSchema, type SubagentRoleRoute, type SubagentRoleSetting, type SubagentSetup, type SubagentSetupRole,
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import { SUBAGENT_SETUP_ROLES } from './contract.ts'
 import type { ModelCatalogModel, ModelProviderGroup, SessionRunOptions } from '@deepseek-ai/dsh-api-session-controller/types'
@@ -144,14 +144,23 @@ export function withoutSubagentSetup(options: SessionRunOptions): SessionRunOpti
 }
 
 /**
- * Accept a stored global default only when its top-level shape is a Subagent Setup; the Host validates the full schema on read.
+ * Name the roles fixed to Claude Code whose model is empty or blank, in display order.
+ * @param setup - the setup to check.
+ * @returns the roles that run on Claude Code without a model; empty when every Claude Code role names one.
+ */
+export function claudeRolesMissingModel(setup: SubagentSetup): readonly SubagentSetupRole[] {
+  return SUBAGENT_SETUP_ROLES.filter((role) => {
+    const setting = setup.roles[role]
+    return setting?.mode === 'fixed' && setting.route.backend === 'claude-cli' && setting.route.model.trim() === ''
+  })
+}
+
+/**
+ * Accept a stored global default only when the Host's strict schema accepts it and no Claude Code role lacks a model.
  * @param value - the value read from the global settings section.
- * @returns the setup, or undefined when the stored value is absent or not shaped like one.
+ * @returns the setup, or undefined when the stored value is absent, fails the schema, or leaves a Claude Code role without a model.
  */
 export function subagentSetupOrUndefined(value: unknown): SubagentSetup | undefined {
-  if (typeof value !== 'object' || value === null) return undefined
-  const candidate = value as Partial<SubagentSetup>
-  return typeof candidate.enabled === 'boolean' && typeof candidate.reviewRounds === 'number' && typeof candidate.roles === 'object'
-    ? candidate as SubagentSetup
-    : undefined
+  const parsed = subagentSetupSchema.safeParse(value)
+  return parsed.success && claudeRolesMissingModel(parsed.data).length === 0 ? parsed.data : undefined
 }

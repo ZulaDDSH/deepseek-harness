@@ -54,6 +54,11 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+.error {
+  margin: 0;
+  color: var(--dsw-alias-state-error-primary);
+}
+
 .preview {
   display: flex;
   flex-direction: column;
