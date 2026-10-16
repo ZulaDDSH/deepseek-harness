@@ -66,6 +66,7 @@ import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { toPiContext } from './context.ts'
 import { createModels, getSupportedThinkingLevels } from './models.ts'
+import { shapeReasoningPayload } from './reasoning-payload.ts'
 import { toStreamChunks } from './stream.ts'
 
 /** One resolution's frozen view: the profiles and the collection built from them. */
@@ -445,9 +446,10 @@ export class PiAiAdapter extends LlmAdapter {
         ...options.temperature === undefined ? {} : { temperature: options.temperature },
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
         ...sessionId === undefined ? {} : { sessionId },
-        ...mode === undefined ? {} : {
-          onPayload: body => ({ ...(body as Record<string, unknown>), service_tier: mode.serviceTier }),
-        },
+        onPayload: body => shapeReasoningPayload(model, reasoning, {
+          ...(body as Record<string, unknown>),
+          ...mode === undefined ? {} : { service_tier: mode.serviceTier },
+        }),
         signal: watchdog.signal,
         onResponse: (response) => { this.config.onResponseHeaders?.({ provider: options.provider, headers: response.headers }) },
         // Profile headers are deployment-owned; attribution names are

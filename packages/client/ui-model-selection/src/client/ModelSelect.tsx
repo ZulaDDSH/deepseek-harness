@@ -477,7 +477,7 @@ export function ModelSelect(
         {(fastOn || ultracodeOn) && (
           <span className={css.triggerTags}>
             {fastOn && <Tag tone="neutral" className={css.triggerTag}>{t('trigger.fast')}</Tag>}
-            {ultracodeOn && <Tag tone="neutral" className={css.triggerTag}>{t('trigger.ultracode')}</Tag>}
+            {ultracodeOn && <Tag tone="neutral" className={css.triggerTag}>{effortLabel === undefined ? t('trigger.ultracode') : t('trigger.ultracodeEffort', { effort: effortLabel })}</Tag>}
           </span>
         )}
         {busy

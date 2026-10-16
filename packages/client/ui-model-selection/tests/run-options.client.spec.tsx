@@ -86,7 +86,7 @@ it('shows the Ultracode level and trigger tag for a model that supports it, and 
   const { trigger } = renderSeat(false, { ultracode: true, fastMode: true }, vi.fn(), true)
   expect(trigger.textContent).toContain(en['trigger.ultracode'])
   expect(trigger.textContent).not.toContain(en['trigger.fast'])
-  expect(trigger.textContent).not.toContain('Low')
+  expect(trigger.textContent).toContain(en['trigger.ultracodeEffort'].replace('{effort}', 'Low'))
   fireEvent.click(trigger)
   expect(screen.getByRole('radio', { name: en['runOptions.ultracode'] }).getAttribute('aria-checked')).toBe('true')
   expect(screen.queryByRole('switch')).toBeNull()
