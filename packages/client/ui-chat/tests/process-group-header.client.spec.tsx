@@ -8,6 +8,7 @@ import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts
 import type { TranscriptViewMode } from '../src/chat-settings.ts'
 import { ProcessGroupHeader } from '../src/client/chat/ChatGroupSeat.tsx'
 import type { ProcessGroupData } from '../src/client/contract/process-groups.ts'
+import type { ChatViewSlotProps } from '../src/client/contract/slots.ts'
 import { en } from '../src/client/locale.ts'
 import { derivePresentationPolicy } from '../src/client/presentation-policy.ts'
 
@@ -21,7 +22,7 @@ function renderHeader(data: ProcessGroupData) {
   const useGroup = bindSnapshotSelector(group)
   return render(
     <ProcessGroupHeader groupKey={'g' as GroupKey}
-      useChatGroup={(_key, select) => useGroup(snapshot => select(snapshot))}
+      useChatGroup={((_key: string, select: (value: GroupSnapshot<ProcessGroupData> | undefined) => unknown) => useGroup(select)) as ChatViewSlotProps['useChatGroup']}
       usePresentation={bindSnapshotSelector(derivePresentationPolicy(mode))}
       t={t} open={false} bodyId="body" toggle={() => {}} />,
   )

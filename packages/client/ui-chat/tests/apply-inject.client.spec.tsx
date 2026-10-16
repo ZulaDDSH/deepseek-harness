@@ -144,7 +144,7 @@ describe('Chat inject API', () => {
         buildGroups: () => ({
           entries: [{ kind: 'group', key }],
           groups: { kind: 'replace', snapshots: [{
-            key, data: { turn: 1, closed: true, summary: { counts: [], running: undefined, runningDetail: '' } }, members: [],
+            key, data: { turn: 1, closed: true, summary: { counts: [], running: undefined, runningDetail: '', added: 0, removed: 0 } }, members: [],
           }] },
         }),
       })
