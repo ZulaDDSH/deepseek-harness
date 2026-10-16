@@ -62,6 +62,8 @@ export function getSupportedThinkingLevels(model: Model<Api>): ModelThinkingLeve
     const mapped = model.thinkingLevelMap?.[level]
     if (mapped === null) return false
     if (level === 'xhigh' || level === 'max') return mapped !== undefined
+    // Anthropic: effort has no minimal level; Codex maps minimal to low.
+    if (level === 'minimal') return model.api !== 'anthropic-messages' && mapped !== 'low'
     return true
   })
 }
