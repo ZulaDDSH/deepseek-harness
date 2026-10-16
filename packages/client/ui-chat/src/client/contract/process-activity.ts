@@ -1,4 +1,5 @@
 /** Tool-category and live-detail interpretation owned by Chat grouping. */
+import { diffTotals, type DiffHunk } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ProcessActivity, ProcessActivitySummary } from './process-groups.ts'
 import type { ChatNode } from './chat-nodes.ts'
 import { isRunningTool } from './chat-nodes.ts'
@@ -97,18 +98,72 @@ export function liveToolDetail(name: string, argsRaw: string): string {
   return normalizeLiveToolDetail(name)
 }
 
+type ToolArgs = Record<string, unknown>
+
+const FILE_KINDS = new Set<ProcessActivity>(['read', 'readImage', 'write', 'edit'])
+
+function objectArgs(argsRaw: string): ToolArgs {
+  try {
+    const args: unknown = JSON.parse(argsRaw)
+    return args !== null && typeof args === 'object' && !Array.isArray(args) ? args as ToolArgs : {}
+  } catch (_error: unknown) {
+    return {}
+  }
+}
+
+function fileName(args: ToolArgs): string | undefined {
+  const path: unknown = Reflect.get(args, 'file_path')
+  if (typeof path !== 'string') return undefined
+  const name = path.split(/[\\/]/).pop() ?? ''
+  return name === '' ? undefined : name
+}
+
+function isDiffHunk(value: unknown): value is DiffHunk {
+  if (typeof value !== 'object' || value === null) return false
+  const path: unknown = Reflect.get(value, 'path')
+  const oldText: unknown = Reflect.get(value, 'oldText')
+  const newText: unknown = Reflect.get(value, 'newText')
+  return typeof path === 'string' && (oldText === null || typeof oldText === 'string') && typeof newText === 'string'
+}
+
+function appliedHunks(meta: unknown): DiffHunk[] | undefined {
+  const diffs: unknown = typeof meta === 'object' && meta !== null ? Reflect.get(meta, 'diffs') : undefined
+  return Array.isArray(diffs) && diffs.length > 0 && diffs.every(isDiffHunk) ? diffs : undefined
+}
+
+function intendedHunks(kind: 'write' | 'edit', args: ToolArgs): DiffHunk[] {
+  const path: unknown = Reflect.get(args, 'file_path')
+  if (typeof path !== 'string') return []
+  if (kind === 'write') {
+    const content: unknown = Reflect.get(args, 'content')
+    return typeof content === 'string' ? [{ path, oldText: null, newText: content }] : []
+  }
+  const oldText: unknown = Reflect.get(args, 'old_string')
+  const newText: unknown = Reflect.get(args, 'new_string')
+  return typeof oldText === 'string' && typeof newText === 'string' ? [{ path, oldText, newText }] : []
+}
+
+function changedHunks(kind: ProcessActivity, tool: ToolCallBlock, args: ToolArgs): DiffHunk[] {
+  if (kind !== 'write' && kind !== 'edit') return []
+  if (isRunningTool(tool)) return intendedHunks(kind, args)
+  if (tool.isError) return []
+  return appliedHunks(tool.meta) ?? intendedHunks(kind, args)
+}
+
 /**
- * Rank categories by distinct call count, breaking ties by first appearance.
+ * Rank categories by distinct call count, breaking ties by first appearance, and total the file work.
  * @param nodes - process members, including recursive tools.
- * @returns all ranked categories and the latest running tool category and bounded task detail.
+ * @returns ranked categories with file targets, line totals, and the latest running tool category and bounded detail.
  */
 export function processActivity(nodes: readonly ChatNode[]): ProcessActivitySummary {
-  const counts = new Map<ProcessActivity, number>()
+  const tallies = new Map<ProcessActivity, { count: number; targets: string[] }>()
   const seen = new Set<string>()
   let running: ProcessActivity | undefined
   let runningDetail = ''
   let runningTime = -Infinity
   let preparing: boolean | undefined
+  let added = 0
+  let removed = 0
   const visit = (tool: ToolCallBlock): void => {
     if (seen.has(tool.callId)) return
     seen.add(tool.callId)
@@ -123,7 +178,15 @@ export function processActivity(nodes: readonly ChatNode[]): ProcessActivitySumm
           : liveToolDetail(tool.name, tool.argsRaw)
         runningTime = tool.time
       }
-      counts.set(kind, (counts.get(kind) ?? 0) + 1)
+      const args = 'argsRaw' in call ? objectArgs(call.argsRaw) : {}
+      const tally = tallies.get(kind) ?? { count: 0, targets: [] }
+      tallies.set(kind, tally)
+      tally.count++
+      const target = FILE_KINDS.has(kind) ? fileName(args) : undefined
+      if (target !== undefined && !tally.targets.includes(target)) tally.targets.push(target)
+      const totals = diffTotals(changedHunks(kind, tool, args))
+      added += totals.added
+      removed += totals.removed
     }
     for (const child of tool.subCalls) visit(child)
   }
@@ -132,9 +195,13 @@ export function processActivity(nodes: readonly ChatNode[]): ProcessActivitySumm
   }
   if (running === undefined) runningDetail = liveReasoningDetail(nodes)
   return {
-    counts: [...counts].map(([kind, count]) => ({ kind, count })).sort((a, b) => b.count - a.count),
+    counts: [...tallies]
+      .map(([kind, { count, targets }]) => ({ kind, count, targets }))
+      .sort((a, b) => b.count - a.count),
     running,
     runningDetail,
     ...preparing ? { preparing: true } : {},
+    added,
+    removed,
   }
 }

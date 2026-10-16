@@ -9,7 +9,8 @@ import type { AgentOptions } from '@deepseek-ai/dsh-agent'
 
 const MODEL_ALIASES: readonly string[] = ['sonnet', 'opus', 'haiku', 'fable', 'best', 'sonnet[1m]', 'opus[1m]', 'fable[1m]', 'opusplan']
 const MODEL_ID = /^claude-(?:opus|sonnet|haiku|fable)-\d+(?:-\d+)?(?:-\d{8})?$/
-const EFFORT_LEVELS: readonly EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max']
+/** Claude Code effort levels a child run may name. */
+export const EFFORT_LEVELS: readonly EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
 /** Model and effort that one child run sets when its start request names them. */
 export interface ClaudeRunSelection {

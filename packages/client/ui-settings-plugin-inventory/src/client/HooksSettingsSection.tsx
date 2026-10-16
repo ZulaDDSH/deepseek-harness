@@ -2,10 +2,22 @@ import { useEffect, useState } from 'react'
 import type { PluginInventorySnapshot } from '@deepseek-ai/dsh-api-remotes/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { PluginInventorySettingsTabInjected } from './PluginInventorySettingsTab.tsx'
+import type { PluginInventoryLocaleKey } from './locales.ts'
 import { Button, IconSearchOutlineRegular, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
-import css from './PluginInventorySettingsTab.module.css'
+import css from './HooksSettingsSection.module.css'
 
 type HookInventoryReport = NonNullable<PluginInventorySnapshot['hooks']>[number]
+type HookHandler = HookInventoryReport['handlers'][number]
+
+interface HookRow {
+  readonly id: string
+  readonly command: string
+  readonly name: string
+  readonly keys: readonly string[]
+  readonly handlers: readonly HookHandler[]
+  readonly on: boolean
+  readonly description: string | undefined
+}
 
 export interface HooksSettingsSectionInjected extends Pick<PluginInventorySettingsTabInjected, 'list'> {
   setEnabledHooks: (entryId: string, keys: readonly string[]) => Promise<void>
@@ -16,6 +28,17 @@ export type HooksSettingsSectionProps = PropsRuntime<'settings.section'>
   & PropsLocale<'settings.pluginInventory'>
   & InjectFace<HooksSettingsSectionInjected>
 
+const DIALECT_LABEL: Record<HookInventoryReport['dialect'], PluginInventoryLocaleKey> = {
+  codex: 'hooksDialectCodex',
+  'claude-code': 'hooksDialectClaudeCode',
+}
+
+const MATCHERS_SHOWN = 3
+
+/** Name a hook command by its script file's base name, else by its first word.
+ * @param command The hook command line as configured.
+ * @returns The name shown on the hook row.
+ */
 export function hookName(command: string): string {
   const words = command.split(/\s+/).map(word => word.replaceAll('"', '').replaceAll("'", ''))
   const [first = ''] = words
@@ -23,28 +46,32 @@ export function hookName(command: string): string {
   return script.replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '')
 }
 
-type HookHandler = HookInventoryReport['handlers'][number]
-
-function eventLabel(handler: HookHandler): string {
-  return handler.matcher === undefined ? handler.event : `${handler.event} (${handler.matcher})`
+function matcherOf(handler: HookHandler): string | undefined {
+  return handler.matcher === undefined || handler.matcher === '' ? undefined : handler.matcher
 }
 
-function groupByScript(handlers: HookInventoryReport['handlers']): [string, HookInventoryReport['handlers']][] {
+function matcherNames(matchers: readonly string[]): string[] {
+  return [...new Set(matchers.flatMap(matcher => matcher.split('|').map(name => name.trim()).filter(name => name.length > 0)))]
+}
+
+function groupByCommand(handlers: readonly HookHandler[]): [string, HookHandler[]][] {
   const groups = new Map<string, HookHandler[]>()
-  for (const handler of handlers) {
-    const name = hookName(handler.command)
-    groups.set(name, [...groups.get(name) ?? [], handler])
-  }
+  for (const handler of handlers) groups.set(handler.command, [...groups.get(handler.command) ?? [], handler])
   return [...groups]
 }
 
+/** Settings → Hooks: one card per hook source. Bridge-loaded commands get switches; external files are read-only.
+ * @param props Locale, the inventory reader and the enable and description writers.
+ * @returns The Hooks settings section.
+ */
 export function HooksSettingsSection({ t, list, setEnabledHooks, setHookDescriptions }: HooksSettingsSectionProps) {
   const [snapshot, setSnapshot] = useState<PluginInventorySnapshot>()
   const [failed, setFailed] = useState(false)
-  const [writeFailed, setWriteFailed] = useState<string>()
-  const [busy, setBusy] = useState(false)
+  const [saving, setSaving] = useState<string>()
+  const [failure, setFailure] = useState<{ entryId: string; message: string }>()
   const [revision, setRevision] = useState(0)
   const [editing, setEditing] = useState<{ id: string; draft: string }>()
+  const [expanded, setExpanded] = useState<readonly string[]>([])
   const [query, setQuery] = useState('')
   useEffect(() => {
     let current = true
@@ -52,17 +79,17 @@ export function HooksSettingsSection({ t, list, setEnabledHooks, setHookDescript
     void list().then((value) => { if (current) setSnapshot(value) }, () => { if (current) setFailed(true) })
     return () => { current = false }
   }, [list, revision])
-  const save = (operation: Promise<void>): void => {
-    setBusy(true)
-    setWriteFailed(undefined)
+  const save = (entryId: string, operation: Promise<void>): void => {
+    setSaving(entryId)
+    setFailure(undefined)
     void operation
-      .catch((error: unknown) => { setWriteFailed(error instanceof Error ? error.message : String(error)) })
+      .catch((error: unknown) => { setFailure({ entryId, message: error instanceof Error ? error.message : String(error) }) })
       .finally(() => {
-        setBusy(false)
+        setSaving(undefined)
         setRevision(value => value + 1)
       })
   }
-  const write = (entryId: string, enabled: readonly string[]): void => { save(setEnabledHooks(entryId, enabled)) }
+  const write = (entryId: string, enabled: readonly string[]): void => { save(entryId, setEnabledHooks(entryId, enabled)) }
   const describe = (entryId: string, report: HookInventoryReport, keys: readonly string[], text: string): void => {
     const descriptions: Record<string, string> = {}
     for (const handler of report.handlers) {
@@ -70,89 +97,137 @@ export function HooksSettingsSection({ t, list, setEnabledHooks, setHookDescript
     }
     if (text.trim().length > 0) for (const key of keys) descriptions[key] = text.trim()
     setEditing(undefined)
-    save(setHookDescriptions(entryId, descriptions))
+    save(entryId, setHookDescriptions(entryId, descriptions))
   }
-  const enabledOf = (report: HookInventoryReport): string[] =>
-    report.handlers.filter(handler => handler.disabled !== true).map(handler => handler.key)
-  const controlled = (snapshot?.hooks ?? []).flatMap(report =>
-    report.settingsNs === undefined ? [] : [{ report, entryId: report.settingsNs }])
+  const toggleDetails = (id: string): void => {
+    setExpanded(ids => ids.includes(id) ? ids.filter(item => item !== id) : [...ids, id])
+  }
+  const reports = snapshot?.hooks ?? []
   const needle = query.trim().toLowerCase()
   const searching = needle.length > 0
-  const matches = (report: HookInventoryReport, name: string, handlers: readonly HookHandler[]): boolean =>
-    !searching || [report.source, report.dialect, name, ...handlers.flatMap(handler =>
-      [eventLabel(handler), handler.command, handler.description ?? ''])].join('\n').toLowerCase().includes(needle)
-  const visible = controlled
-    .map(item => ({
-      ...item,
-      groups: groupByScript(item.report.handlers).filter(([name, handlers]) => matches(item.report, name, handlers)),
-    }))
-    .filter(item => !searching || item.groups.length > 0)
-  return <section className={css.section}>
-    <h2>{t('hooksTitle')}</h2>
-    <p>{t('hooksHelp')}</p>
-    <Button variant="outline" onClick={() => { setRevision(value => value + 1) }}>{t('hooksRefresh')}</Button>
-    {writeFailed === undefined ? null : <p role="alert">{t('hooksWriteFailed')}: {writeFailed}</p>}
-    {failed ? <p role="alert">{t('error')}</p> : snapshot === undefined ? <p>{t('loading')}</p> : <>
-      {controlled.length === 0 ? <p>{t('hooksEmpty')}</p> : <label className={css.search}>
+  const enabledOf = (report: HookInventoryReport): string[] =>
+    report.handlers.filter(handler => handler.disabled !== true).map(handler => handler.key)
+  const rowsOf = (report: HookInventoryReport): HookRow[] => groupByCommand(report.handlers).map(([command, handlers]) => ({
+    id: JSON.stringify([report.dialect, report.source, report.settingsNs ?? null, command]),
+    command,
+    name: hookName(command),
+    keys: handlers.map(handler => handler.key),
+    handlers,
+    on: handlers.every(handler => handler.disabled !== true),
+    description: handlers.find(handler => handler.description !== undefined)?.description,
+  }))
+  const matches = (report: HookInventoryReport, row: HookRow): boolean => !searching
+    || [report.source, report.dialect, row.name, ...row.handlers.flatMap(handler =>
+      [handler.event, matcherOf(handler) ?? '', handler.command, handler.description ?? ''])].join('\n').toLowerCase().includes(needle)
+  const visible = reports.map((report) => {
+    const all = rowsOf(report)
+    return { report, all, rows: all.filter(row => matches(report, row)) }
+  }).filter(({ rows }) => !searching || rows.length > 0)
+  return <section className={css.page}>
+    <header className={css.header}>
+      <div className={css.heading}>
+        <h2 className={css.title}>{t('hooksTitle')}</h2>
+        <p className={css.help}>{t('hooksHelp')}</p>
+      </div>
+      <Button variant="ghost" size="sm" onClick={() => { setRevision(value => value + 1) }}>{t('hooksRefresh')}</Button>
+    </header>
+    {failed ? <p role="alert" className={css.error}>{t('error')}</p> : snapshot === undefined ? <p className={css.muted}>{t('loading')}</p> : <>
+      {reports.length === 0 ? <p className={css.muted}>{t('hooksEmpty')}</p> : <label className={css.search}>
         <IconSearchOutlineRegular aria-hidden="true" />
         <input
           type="search"
+          className={css.field}
           value={query}
           placeholder={t('hooksSearch')}
           aria-label={t('hooksSearch')}
           onChange={(event) => { setQuery(event.currentTarget.value) }}
         />
       </label>}
-      {controlled.length > 0 && visible.length === 0 ? <p>{t('hooksEmptySearch')}</p> : null}
-      {visible.map(({ report, entryId, groups }, index) => {
-        return <article key={index}>
-          <h3>{report.dialect}</h3>
-          <p className={css.hint}><code className={css.hookCommand}>{report.source}</code></p>
-          {report.error === undefined ? null : <p role="alert">{report.error}</p>}
-          {report.handlers.length > 0 && !searching ? <p>
-            <Button variant="outline" disabled={busy} onClick={() => { write(entryId, report.handlers.map(handler => handler.key)) }}>
-              {t('hooksEnableAll')}
-            </Button>
-            {' '}
-            <Button variant="outline" disabled={busy} onClick={() => { write(entryId, []) }}>{t('hooksDisableAll')}</Button>
-          </p> : null}
-          <ul>{groups.map(([name, handlers]) => {
-            const keys = handlers.map(handler => handler.key)
-            const on = handlers.every(handler => handler.disabled !== true)
-            const description = handlers.find(handler => handler.description !== undefined)?.description
-            const id = `${report.dialect}/${name}`
-            return <li key={name} title={[...new Set(handlers.map(handler => handler.command))].join('\n')}>
-              <Switch
-                checked={on}
-                disabled={busy}
-                label={`${t('hooksToggle')}: ${name}`}
+      {reports.length > 0 && visible.length === 0 ? <p className={css.muted}>{t('hooksEmptySearch')}</p> : null}
+      {visible.map(({ report, all, rows }) => {
+        const entryId = report.settingsNs
+        const enabledCount = all.filter(row => row.on).length
+        const statusText = report.status === 'failed' ? t('hooksFailed') : entryId === undefined ? t('hooksConfigured') : undefined
+        return <article key={JSON.stringify([report.dialect, report.source, entryId ?? null])} className={css.card}>
+          <header className={css.cardHeader}>
+            <div className={css.cardTitle}>
+              <div className={css.nameLine}>
+                <h3 className={css.cardName}>{t(DIALECT_LABEL[report.dialect])}</h3>
+                {entryId === undefined || all.length === 0 ? null : <span className={css.count}>{t('hooksCount', { on: enabledCount, total: all.length })}</span>}
+              </div>
+              <span className={css.source} title={report.source}>{report.source}</span>
+            </div>
+            <div className={css.cardActions}>
+              {entryId !== undefined && saving === entryId ? <span role="status" className={css.muted}>{t('hooksSaving')}</span> : null}
+              {entryId === undefined || all.length === 0 || searching ? null : <>
+                <Button variant="ghost" size="sm" disabled={saving !== undefined} onClick={() => { write(entryId, all.flatMap(row => row.keys)) }}>
+                  {t('hooksEnableAll')}
+                </Button>
+                <Button variant="ghost" size="sm" disabled={saving !== undefined} onClick={() => { write(entryId, []) }}>
+                  {t('hooksDisableAll')}
+                </Button>
+              </>}
+            </div>
+          </header>
+          {statusText === undefined ? null : <p className={css.muted}>{statusText}</p>}
+          {report.error === undefined ? null : <p role="alert" className={css.error}>{report.error}</p>}
+          {entryId !== undefined && failure?.entryId === entryId ? <p role="alert" className={css.error}>{t('hooksWriteFailed')}: {failure.message}</p> : null}
+          {report.skipped.length === 0 ? null : <p className={css.muted}>{t('hooksSkipped')}: {report.skipped.join(', ')}</p>}
+          {rows.length === 0 && report.error === undefined && !searching ? <p className={css.muted}>{t('hooksNone')}</p> : null}
+          {rows.map((row) => {
+            const isOpen = expanded.includes(row.id)
+            const matchers = [...new Set(row.handlers.flatMap(handler => matcherOf(handler) ?? []))]
+            const names = matcherNames(matchers)
+            const matcherText = [...names.slice(0, MATCHERS_SHOWN), ...names.length > MATCHERS_SHOWN
+              ? [t('hooksMoreMatchers', { count: names.length - MATCHERS_SHOWN })] : []].join(', ')
+            const events = [...new Set(row.handlers.map(handler => handler.event))]
+            const editor = editing?.id === row.id && entryId !== undefined
+            return <div key={row.id} className={css.row} data-readonly={entryId === undefined || undefined}>
+              {entryId === undefined ? null : <Switch
+                className={css.switch}
+                checked={row.on}
+                disabled={saving !== undefined}
+                label={`${t('hooksToggle')}: ${row.name}`}
                 onChange={(next) => {
-                  const others = enabledOf(report).filter(key => !keys.includes(key))
-                  write(entryId, next ? [...others, ...keys] : others)
+                  const others = enabledOf(report).filter(key => !row.keys.includes(key))
+                  write(entryId, next ? [...others, ...row.keys] : others)
                 }}
-              />
-              {' '}<strong>{name}</strong> — <small>{[...new Set(handlers.map(eventLabel))].join(', ')}</small>
-              {[...new Set(handlers.map(handler => handler.command))].map(command =>
-                <p key={command} className={css.hint}><code className={css.hookCommand}>{command}</code></p>)}
-              {editing?.id === id
-                ? <form onSubmit={(event) => { event.preventDefault(); describe(entryId, report, keys, editing.draft) }}>
+              />}
+              <div className={css.rowBody}>
+                <div className={css.rowHead}>
+                  <span className={css.name} title={row.command}>{row.name}</span>
+                  <Button variant="ghost" size="sm" aria-expanded={isOpen} onClick={() => { toggleDetails(row.id) }}>{t('hooksDetails')}</Button>
+                </div>
+                {editor ? <form className={css.editor} onSubmit={(event) => {
+                  event.preventDefault()
+                  describe(entryId, report, row.keys, editing.draft)
+                }}>
                   <input
-                    aria-label={`${t('hooksDescription')}: ${name}`}
+                    className={css.field}
+                    aria-label={`${t('hooksDescription')}: ${row.name}`}
                     value={editing.draft}
                     placeholder={t('hooksDescriptionPlaceholder')}
-                    onChange={(event) => { setEditing({ id, draft: event.target.value }) }}
+                    onChange={(event) => { setEditing({ id: row.id, draft: event.target.value }) }}
                   />
-                  {' '}<Button type="submit" disabled={busy}>{t('hooksDescriptionSave')}</Button>
-                  {' '}<Button variant="outline" onClick={() => { setEditing(undefined) }}>{t('hooksDescriptionCancel')}</Button>
-                </form>
-                : <div>
-                  {description === undefined ? null : <span>{description} </span>}
-                  <Button variant="outline" onClick={() => { setEditing({ id, draft: description ?? '' }) }}>
-                    {t(description === undefined ? 'hooksDescriptionAdd' : 'hooksDescriptionEdit')}
-                  </Button>
+                  <Button type="submit" size="sm" variant="primary" disabled={saving !== undefined}>{t('hooksDescriptionSave')}</Button>
+                  <Button size="sm" variant="ghost" onClick={() => { setEditing(undefined) }}>{t('hooksDescriptionCancel')}</Button>
+                </form> : entryId === undefined && row.description === undefined ? null : <div className={css.describe}>
+                  <span className={row.description === undefined ? css.muted : css.text}>{row.description ?? t('hooksNoDescription')}</span>
+                  {entryId === undefined ? null : <Button variant="ghost" size="sm" onClick={() => { setEditing({ id: row.id, draft: row.description ?? '' }) }}>
+                    {t('hooksDescriptionEdit')}
+                  </Button>}
                 </div>}
-            </li>
-          })}</ul>
+                <div className={css.tags}>
+                  {events.map(event => <span key={event} className={css.chip}>{event}</span>)}
+                </div>
+                {names.length === 0 ? null : <p className={css.matcher} title={matchers.join('\n')}>{matcherText}</p>}
+                {isOpen ? <div className={css.details}>
+                  <pre className={css.command}>{row.command}</pre>
+                  {matchers.length === 0 ? null : <p className={css.muted}>{t('hooksMatcher')}: {matchers.join(', ')}</p>}
+                </div> : null}
+              </div>
+            </div>
+          })}
         </article>
       })}
     </>}

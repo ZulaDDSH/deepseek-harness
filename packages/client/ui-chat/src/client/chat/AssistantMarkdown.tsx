@@ -58,6 +58,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
   // Stable per locale revision (t identity changes on switch): a fresh object
   // per render would rebuild MarkdownText's component table every chunk.
   const labels = useMemo(() => markdownLabels(t), [t])
+  const groupedReasoning = usePresentation(policy => policy.groupedReasoningRows)
   // MarkdownText memoizes its vocabulary; keep its identity stable across renders.
   const pathImages = useMemo<MarkdownPathImages>(() => {
     return { resolve: value => localPathMediaUrl(document.baseURI, value) }
@@ -74,7 +75,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i]
     if (block === undefined) continue
-    if (groupPart === 'reasoning' && block.kind !== 'reasoning') continue
+    if (groupPart === 'reasoning' && (block.kind !== 'reasoning' || !groupedReasoning)) continue
     if (groupPart === 'response' && block.kind === 'reasoning') continue
     switch (block.kind) {
       case 'text':
