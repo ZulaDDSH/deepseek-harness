@@ -120,7 +120,7 @@ function validatePwshArgs(args: PwshToolArgs): void {
 /* jscpd:ignore-end */
 
 function pwshDescription(windowsSandbox: boolean): string {
-  const base = 'Execute a PowerShell command (`pwsh -Command`) and return its stdout/stderr. '
+  const base = 'Execute a PowerShell command (`pwsh -Command`; on Windows from a temporary script file) and return its stdout/stderr. '
     + 'Each call runs in a fresh pwsh process; pass `workdir` instead of using `cd`. Paths use native Windows form (`C:\\...`); read environment '
     + 'variables with `$env:NAME`. '
     + 'Managed `$env:DSH_*` variables expose current harness environment facts. '

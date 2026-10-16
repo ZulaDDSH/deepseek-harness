@@ -1,14 +1,14 @@
 /**
  * Local PowerShell Service Provider for the bash capability seam. Each command runs
- * as `pwsh -NoLogo -NoProfile -NonInteractive -Command <command>` in a managed
- * process spawned through `ctx.subprocess`; the executor owns command
+ * as `pwsh -NoLogo -NoProfile -NonInteractive -Command <command>` (on Windows, `-File <script>`)
+ * in a managed process spawned through `ctx.subprocess`; the executor owns command
  * defaulting, deadlines and cause classification, the model-friendly terminal
  * environment, and the model-facing stdout/stderr merge for background reads.
  *
- * The command string is passed as ONE argv element to `-Command`: PowerShell
- * itself parses the text, and no intermediate shell exists, so there is no
- * shell-quoting layer to escape (the `bash -c` string domain has no
- * equivalent here). Native Win32 paths (`C:\...`) pass through unchanged.
+ * Off Windows the command is one `-Command` argv element. PowerShell parses the
+ * text itself and no intermediate shell exists, so there is no shell-quoting layer
+ * to escape (the `bash -c` string domain has no equivalent here). Native Win32 paths
+ * (`C:\...`) pass through unchanged.
  *
  * @module @deepseek-ai/dsh-pwsh-local
  */
@@ -23,6 +23,9 @@ import type { CollectedOutput, ShellExecRequest, ShellExecSpec, ShellExecution, 
 import type { SubprocessCollect, SubprocessHandle, SubprocessOutputReader, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { clampTimeout, deadline, MAX_TIMER_DELAY_MS, timeoutOf } from '@deepseek-ai/dsh-timeout'
 /* jscpd:ignore-end */
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { resolvePwshPath } from './resolve.ts'
 
 /* jscpd:ignore-start -- deliberate call-for-call mirror of dsh-bash-local (Agent Note: pwsh-tool-and-executor). */
@@ -47,6 +50,9 @@ export const ENV_OVERRIDES = {
  */
 export const ENCODING_PREAMBLE =
   '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [System.Text.UTF8Encoding]::new($false); '
+
+/** Exit-status statements appended after each command in its script file. */
+export const EXIT_STATUS_EPILOGUE = '\nif (-not $?) { exit $(if ($LASTEXITCODE) { $LASTEXITCODE } else { 1 }) }'
 
 /** Default SIGTERM→SIGKILL grace period (the `graceMs` config). */
 const DEFAULT_GRACE_MS = 3_000
@@ -139,6 +145,9 @@ export class PwshLocalExecutor extends ShellExecutor {
   /** The pwsh executable resolved from the current config. */
   private resolvedPwshPath: string
 
+  /** Script directories of executions not yet settled, keyed by the spec that owns them. */
+  private readonly scriptDirectories = new Map<ShellExecSpec, string>()
+
   /** The pwsh executable every command runs through; a changed declared path is probed again on the next read. */
   get pwshPath(): string {
     const declared = this.config.pwshPath.get()
@@ -188,10 +197,33 @@ export class PwshLocalExecutor extends ShellExecutor {
    * The pwsh invocation argv for one resolved spec — the argv-level seam a
    * confining subclass wraps through `ctx.sandbox.confine` (the pwsh twin of
    * `dsh-bash-local`'s `executeArgv` hook; see
-   * `@deepseek-ai/dsh-pwsh-sandbox`).
+   * `@deepseek-ai/dsh-pwsh-sandbox`). On Windows the command is written to a script
+   * file this argv names; {@link executeArgv} removes it once the execution settles.
    */
   protected argv(spec: ShellExecSpec): string[] {
-    return [this.pwshPath, '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', `${ENCODING_PREAMBLE}${spec.command}`]
+    if (process.platform !== 'win32') return [this.pwshPath, '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', `${ENCODING_PREAMBLE}${spec.command}`]
+    const directory = mkdtempSync(join(tmpdir(), 'dsh-pwsh-'))
+    const script = join(directory, 'command.ps1')
+    try {
+      writeFileSync(script, `\uFEFF${ENCODING_PREAMBLE}${spec.command}${EXIT_STATUS_EPILOGUE}`, 'utf8')
+    } catch (error) {
+      rmSync(directory, { recursive: true, force: true })
+      throw error
+    }
+    this.scriptDirectories.set(spec, directory)
+    return [this.pwshPath, '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script]
+  }
+
+  /** Remove one execution's script directory; cleanup never rejects the settled execution. */
+  private removeScript(spec: ShellExecSpec): void {
+    const directory = this.scriptDirectories.get(spec)
+    if (directory === undefined) return
+    this.scriptDirectories.delete(spec)
+    try {
+      rmSync(directory, { recursive: true, force: true })
+    } catch {
+      return
+    }
   }
 
   /** Map one resolved spec plus its argv onto a fully-specified subprocess spawn. */
@@ -286,6 +318,7 @@ export class PwshLocalExecutor extends ShellExecutor {
       } catch (error) {
         if (!classify().timedOut) {
           disarm()
+          this.removeScript(spec)
           throw error
         }
         preparationTimedOut = true
@@ -382,7 +415,7 @@ export class PwshLocalExecutor extends ShellExecutor {
         providerFailure = { error, note: `subprocess failed before reporting an outcome: ${detail}` }
         this.onProcessDone(proc, providerFailure.note, true, error)
         disarm()
-      }),
+      }).finally(() => { this.removeScript(spec) }),
       readOutput: (): ShellProcessRead => {
         const out = collected.stdout.readFrom(stdoutOffset)
         const err = collected.stderr.readFrom(stderrOffset)
