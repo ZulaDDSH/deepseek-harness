@@ -126,7 +126,7 @@
 
 .formRow {
   display: grid;
-  grid-template-columns: 1fr 180px;
+  grid-template-columns: 1fr 200px;
   gap: 12px;
 }
 
@@ -141,6 +141,22 @@
   line-height: 18px;
   font-weight: 500;
   color: var(--dsw-alias-label-secondary);
+}
+
+.required {
+  margin-left: 6px;
+  font-weight: 400;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.fieldError {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.input[aria-invalid='true'] {
+  border-color: var(--dsw-alias-state-error-primary);
 }
 
 .input {

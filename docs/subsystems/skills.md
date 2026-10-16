@@ -67,12 +67,27 @@ The shipped local provider scans roots in rank order:
 |---|---|---|
 | 100 | `project-dsh` | `<projectRoot>/.dsh/skills` |
 | 200 | `project-agents` | `<projectRoot>/.agents/skills` |
+| 230 | `project-claude` | `<projectRoot>/.claude/skills` |
+| 232 | `project-codex` | `<projectRoot>/.codex/skills` |
+| 234 | `project-opencode` | `<projectRoot>/.opencode/skills` |
+| 236 | `project-gemini` | `<projectRoot>/.gemini/skills` |
+| 238 | `project-cursor` | `<projectRoot>/.cursor/skills` |
+| 240 | `project-copilot` | `<projectRoot>/.github/skills` |
+| 242 | `project-goose` | `<projectRoot>/.goose/skills` |
 | 300 | `custom` | `Config.customSkillDirs` |
 | 400 | `user-dsh` | `<dshHome>/skills` |
 | 500 | `user-agents` | `<agentsHome>/skills` |
+| 550 | `user-claude` | `<claudeHome>/skills` |
+| 560 | `user-codex` | `<codexHome>/skills` |
+| 565 | `user-opencode` | `<opencodeHome>/skills` |
+| 570 | `user-gemini` | `<geminiHome>/skills` |
+| 575 | `user-cursor` | `<cursorHome>/skills` |
+| 580 | `user-copilot` | `<copilotHome>/skills` |
 | 600 | `bundled` | `Config.bundledSkillDir` when configured |
 
-The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. When `ctx.fs` is available, the git-root walk probes `.git` through the filesystem service so remote or sandboxed workspaces do not fall back to the host filesystem boundary. The user DSH root skips its `.system` child. The local provider does not synthesize built-in system skills; deployments supply packaged skills through configured bundled roots or dedicated providers.
+Within each scope `.dsh` beats `.agents`, which beats `.claude`, which beats the other agent CLIs (Codex, OpenCode, Gemini CLI, Cursor, GitHub Copilot, goose, in that order). A skill name found in several roots resolves to the lowest rank. Project roots outrank runtime skills (rank 250), and user roots outrank the bundled root.
+
+The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. When `ctx.fs` is available, the git-root walk probes `.git` through the filesystem service so remote or sandboxed workspaces do not fall back to the host filesystem boundary. The user DSH root and the Codex root skip their `.system` child (Codex's bundled system skills). The local provider does not synthesize built-in system skills; deployments supply packaged skills through configured bundled roots or dedicated providers.
 
 `dsh-skill-badge` registers one immutable `bundled` candidate at `BUNDLED_SKILL_RANK` and exposes its packaged asset directory through `resourceBase`. The shipped CLI declares the plugin disabled, so enabling its composition row is an explicit opt-in.
 
@@ -212,7 +227,7 @@ interface SkillViewOptions extends SkillLookupOptions {
 }
 ```
 
-The registry owns only its discovery-cache bound. The local provider owns filesystem roots (`dshHome`, `agentsHome`, `customSkillDirs`, and optional `bundledSkillDir`/`DSH_BUNDLED_SKILL_DIR`) plus watcher enablement, polling, stability, symlink, and project-capacity controls. The consumer owns its catalog description bound. Exact defaults and validation are in the generated [config catalog](../config-catalog.md).
+The registry owns only its discovery-cache bound. The local provider owns filesystem roots (`dshHome`, `agentsHome`, `claudeHome`, `codexHome`, `opencodeHome`, `geminiHome`, `cursorHome`, `copilotHome`, `customSkillDirs`, and optional `bundledSkillDir`/`DSH_BUNDLED_SKILL_DIR`) plus watcher enablement, polling, stability, symlink, and project-capacity controls. The consumer owns its catalog description bound. Exact defaults and validation are in the generated [config catalog](../config-catalog.md).
 
 ```ts type-equiv
 /** Skill registry configuration. */

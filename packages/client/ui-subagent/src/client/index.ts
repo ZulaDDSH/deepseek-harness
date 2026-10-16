@@ -7,13 +7,22 @@ import { SubagentCatalogAction, SubagentHeaderLineage, type SubagentCatalogInjec
 import {
   SubagentReadOnlyComposer, type SubagentReadOnlyMatch,
 } from './SubagentReadOnlyComposer.tsx'
+import {
+  SubagentSetupView, type SetupSource, type SubagentSetupViewInjected,
+} from './subagent-setup/SubagentSetupView.tsx'
+import {
+  CLAUDE_CODE_NS, GLOBAL_SETUP_NS, createClaudeServedFlag, globalSetupSource, writeGlobalSetup, type GlobalSetupSection,
+} from './subagent-setup/global-setup.ts'
 import { registerSidebarChat, subagentChatAddress } from './sidebar-chat/index.tsx'
+import type { SubagentSetup } from '@deepseek-ai/dsh-api-session-controller/client'
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
+import { subagentSearchEntries } from './subagent-setup/search-entries.ts'
 import { en, NS, zh, type SubagentKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -31,7 +40,9 @@ export type {
 } from './SubagentReadOnlyComposer.tsx'
 
 /** Required services for subagent presentation and navigation. */
-export const inject = ['sessions', 'uiWorkspace', 'slots', 'locale', 'sidebarRight']
+export const inject = ['sessions', 'uiWorkspace', 'slots', 'locale', 'sidebarRight', 'remote', 'remote.session', 'configForms', 'settingsDirectory']
+
+const NO_SOURCE: SetupSource<unknown> = { getSnapshot: () => undefined, subscribe: () => () => {} }
 
 /** Claim the composer for one-shot history or an unavailable continuation owner. */
 function selectReadOnlySubagent(owner: ComposerChainProps): SubagentReadOnlyMatch | null {
@@ -54,6 +65,7 @@ function selectReadOnlySubagent(owner: ComposerChainProps): SubagentReadOnlyMatc
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-subagent: dictionaries')
+  const t = ctx.locale.bind(NS)
   ctx.inject(['resources', 'sidebarRightTabs'], (scope) => {
     registerSidebarChat(scope, ctx.locale.bind(NS))
   })
@@ -101,4 +113,65 @@ export function apply(ctx: ClientContext): void {
       select: selectReadOnlySubagent,
     }, SubagentReadOnlyComposer),
   )
+  const globalScope = ctx.configForms.get<GlobalSetupSection>(GLOBAL_SETUP_NS)
+  const claudeServed = createClaudeServedFlag()
+  ctx.effect(() => ctx.configForms.whileServed([CLAUDE_CODE_NS], () => {
+    claudeServed.set(true)
+    return () => { claudeServed.set(false) }
+  }), 'ui-subagent: Claude Code availability')
+  const loadCatalog = async () => {
+    const response = await ctx.remote.session.modelCatalog()
+    return response.ok ? response.value : undefined
+  }
+  const saveGlobal = async (setup: SubagentSetup): Promise<string | undefined> => (
+    await writeGlobalSetup(globalScope, setup) ? undefined : t('global.saveError')
+  )
+  ctx.slots.inject('conversation.view', () => ctx.slots.register({
+    name: 'conversation.view',
+    id: 'subagent-setup',
+    order: 20,
+    locale: NS,
+    label: () => t('setup.tab'),
+    inject: (sessionId: SessionId): SubagentSetupViewInjected => {
+      const binding = ctx.sessions.binding(sessionId)
+      if (binding === undefined) throw new Error(`ui-subagent: session "${sessionId}" is unavailable`)
+      return {
+        hooks: {
+          runOptions: binding.session.projections.faceOf('runOptions'),
+          claudeCode: binding.session.projections.faceOf('claudeCodeRunOptions'),
+          globalSetup: globalSetupSource(globalScope),
+        },
+        mode: 'session',
+        child: ctx.sessions.subagentAddress(sessionId) !== undefined,
+        loadCatalog,
+        saveRunOptions: async (options) => {
+          const response = await ctx.remote.session.setRunOptions({ sessionId, ...options })
+          return response.ok ? undefined : response.error.message
+        },
+        saveGlobal,
+      }
+    },
+  }, SubagentSetupView))
+  ctx.effect(() => ctx.configForms.whileServed([GLOBAL_SETUP_NS], () => {
+    const disposeSection = ctx.slots.inject('settings.section', () => ctx.slots.register({
+      name: 'settings.section',
+      id: 'subagent-setup',
+      order: 21,
+      label: () => t('global.title'),
+      locale: NS,
+      inject: (): SubagentSetupViewInjected => ({
+        hooks: { runOptions: NO_SOURCE, claudeCode: claudeServed, globalSetup: globalSetupSource(globalScope) },
+        mode: 'global',
+        child: false,
+        loadCatalog,
+        saveRunOptions: () => Promise.resolve(undefined),
+        saveGlobal,
+      }),
+    }, SubagentSetupView))
+    const disposeSearch = ctx.settingsDirectory.register(subagentSearchEntries(t))
+    return () => {
+      disposeSearch()
+      disposeSection()
+    }
+  }), 'ui-subagent: global defaults section')
 }

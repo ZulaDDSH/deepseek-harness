@@ -57,6 +57,8 @@ export interface SignInCardProps {
   refresh?: number
   /** Reports that a credential was stored, so the page can refresh its rows. */
   onSignedIn?: () => void
+  /** Moves the human to the route's API-key field, offered by the borrowed-login warning. */
+  onUseApiKey?: () => void
 }
 
 /**
@@ -65,13 +67,14 @@ export interface SignInCardProps {
  * @returns the sign-in card, or nothing when this route offers no flow.
  */
 export function SignInCard(props: SignInCardProps): ReactNode {
-  const { provider, displayName, operations, t, refresh, onSignedIn } = props
+  const { provider, displayName, operations, t, refresh, onSignedIn, onUseApiKey } = props
   const [entry, setEntry] = useState<AuthorizationEntryView | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [phase, setPhase] = useState<SignInPhase>({ status: 'idle' })
   const [question, setQuestion] = useState<OpenQuestion | null>(null)
   const [answerFailure, setAnswerFailure] = useState<string | undefined>(undefined)
   const [draft, setDraft] = useState('')
+  const [confirming, setConfirming] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const mountedRef = useRef(true)
   /** Set when Cancel is pressed before the attempt's capability is known. */
@@ -200,9 +203,17 @@ export function SignInCard(props: SignInCardProps): ReactNode {
   // A route with no registered flow authenticates through its API key, which
   // the surrounding editor already offers.
   if (entry === null) return null
-
+  // The warning is about a stored record, so it waits for a grant this borrowed flow produced.
+  const borrowed = entry.kind === 'grant' ? entry.borrowedFrom : undefined
   const running = phase.status === 'running'
   const notices = phase.status === 'running' ? phase.notices : []
+  const begin = (): void => {
+    if (entry.borrowedFrom === undefined) {
+      void start(entry.methods[0]?.id ?? '')
+      return
+    }
+    setConfirming(true)
+  }
 
   return (
     <div className={styles['signInCard']}>
@@ -213,6 +224,26 @@ export function SignInCard(props: SignInCardProps): ReactNode {
         </span>
       </div>
       <p className={styles['signInHint']}>{t('signInDescription')}</p>
+      {borrowed === undefined ? null : (
+        <div className={styles['signInNotice']}>
+          <span>{t('borrowedWarning', { app: borrowed, provider: displayName })}</span>
+          <div className={styles['signInActions']}>
+            {onUseApiKey === undefined ? null : (
+              <button type="button" className={styles['secondaryButton']} onClick={onUseApiKey}>
+                {t('borrowedUseApiKey')}
+              </button>
+            )}
+            <button
+              type="button"
+              className={styles['secondaryButton']}
+              disabled={running}
+              onClick={() => { setConfirming(true) }}
+            >
+              {t('borrowedSignInAnyway')}
+            </button>
+          </div>
+        </div>
+      )}
 
       {notices.map((notice, index) => (
         <div key={`${String(index)}:${notice.message}:${notice.code ?? ''}`} className={styles['signInNotice']}>
@@ -274,26 +305,58 @@ export function SignInCard(props: SignInCardProps): ReactNode {
       ) : null}
       {phase.status === 'cancelled' ? <p className={styles['signInHint']}>{t('signInCancelled')}</p> : null}
 
-      <div className={styles['signInActions']}>
-        {running ? (
-          <button
-            type="button"
-            className={styles['secondaryButton']}
-            onClick={() => { void cancel(phase.attempt) }}
-          >
-            {t('signInCancel')}
-          </button>
-        ) : (
-          <button
-            type="button"
-            className={styles['primaryButton']}
-            onClick={() => { void start(entry.methods[0]?.id ?? '') }}
-          >
-            {phase.status === 'failed' || phase.status === 'cancelled' ? t('signInRetry') : t('signIn')}
-          </button>
-        )}
-        {running ? <span className={styles['signInHint']}>{t('signingIn')}</span> : null}
-      </div>
+      {confirming && !running ? (
+        <div className={styles['signInNotice']}>
+          <span>{t('borrowedConfirm', { app: entry.borrowedFrom ?? '', provider: displayName })}</span>
+          <div className={styles['signInActions']}>
+            <button
+              type="button"
+              className={styles['primaryButton']}
+              onClick={() => {
+                setConfirming(false)
+                void start(entry.methods[0]?.id ?? '')
+              }}
+            >
+              {t('borrowedSignInAnyway')}
+            </button>
+            {onUseApiKey === undefined ? null : (
+              <button
+                type="button"
+                className={styles['secondaryButton']}
+                onClick={() => {
+                  setConfirming(false)
+                  onUseApiKey()
+                }}
+              >
+                {t('borrowedUseApiKey')}
+              </button>
+            )}
+            <button type="button" className={styles['secondaryButton']} onClick={() => { setConfirming(false) }}>
+              {t('signInCancel')}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className={styles['signInActions']}>
+          {running ? (
+            <button
+              type="button"
+              className={styles['secondaryButton']}
+              onClick={() => { void cancel(phase.attempt) }}
+            >
+              {t('signInCancel')}
+            </button>
+          ) : (
+            <>
+              <button type="button" className={styles['primaryButton']} onClick={begin}>
+                {phase.status === 'failed' || phase.status === 'cancelled' ? t('signInRetry') : t('signIn')}
+              </button>
+              {entry.borrowedFrom === undefined ? null : <span className={styles['signInHint']}>{t('borrowedTag')}</span>}
+            </>
+          )}
+          {running ? <span className={styles['signInHint']}>{t('signingIn')}</span> : null}
+        </div>
+      )}
     </div>
   )
 }

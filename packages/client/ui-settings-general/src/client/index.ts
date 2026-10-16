@@ -1,8 +1,8 @@
 /**
  * Settings shell and ownerless-copy plugin, browser half: renders the
- * `sidebar.settings` occupant — panel chrome, section navigation, and the
- * onboarding stage — and registers everything on the Settings pages that
- * belongs to no single feature: the trigger/header chrome content,
+ * `sidebar.settings` occupant — panel chrome and section navigation, and
+ * registers everything on the Settings pages that belongs to no
+ * single feature: the trigger/header chrome content,
  * local-document action, General section, and `settings` dictionaries.
  * Feature-owned rows and sections stay with their features.
  * Export discipline: packages/client/AGENTS.md.
@@ -20,10 +20,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: pulls ctx.locale into this program.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
-import type {} from '@deepseek-ai/dsh-client-ui-session/client'
-import type {
-  SettingsOnboardingStep, SettingsRootInjected, SettingsSectionRow,
-} from './shell-contract.ts'
+import type { SettingsRootInjected, SettingsSearchTick, SettingsSectionRow } from './shell-contract.ts'
 import type { ShortcutCommandId } from '@deepseek-ai/dsh-client-shortcuts/client'
 import { createSettingsShellStore } from './shell-store.ts'
 import { SettingsRoot } from './SettingsRoot.tsx'
@@ -31,9 +28,12 @@ import { DesktopUpdateBadge } from './DesktopUpdateIndicator.tsx'
 import type { DesktopUpdateBridge } from '../types.ts'
 import { DesktopUpdateSource } from './desktop-update-source.ts'
 import { CloseLabel, HeaderContent, TriggerContent } from './chrome.tsx'
-import { GeneralSection } from './GeneralSection.tsx'
+import { GeneralSection, type GeneralSectionInjected } from './GeneralSection.tsx'
+import { generalSearchEntries } from './search-entries.ts'
 import { CurrentVersionRow } from './CurrentVersionRow.tsx'
 import { DeveloperToolsRow, type DeveloperToolsRowInjected } from './DeveloperToolsRow.tsx'
+import { SessionSearchRow, type SessionSearchRowInjected } from './SessionSearchRow.tsx'
+import { ChatMemoryRow, type ChatMemoryRowInjected } from './ChatMemoryRow.tsx'
 import { SettingsDocumentAction } from './SettingsDocumentAction.tsx'
 import type { SettingsDocumentActionInjected } from './SettingsDocumentAction.tsx'
 import { SettingsDocumentStore } from './settings-document-store.ts'
@@ -43,7 +43,7 @@ export type {
   CloseLabelProps, HeaderContentProps, TriggerContentProps,
 } from './chrome.tsx'
 export type {
-  GeneralSectionComponentProps,
+  GeneralRowGroup, GeneralSectionComponentProps, GeneralSectionInjected,
 } from './GeneralSection.tsx'
 export type { SettingsDocumentActionInjected, SettingsDocumentActionProps } from './SettingsDocumentAction.tsx'
 export type { SettingsDocumentState } from './settings-document-store.ts'
@@ -59,13 +59,16 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Dictionary namespace owned by this plugin (shell chrome + General copy). */
 const NS = 'settings'
+/** Host settings namespace of the session-query index; the row exists only while the Host serves it. */
+const SESSION_QUERY_NS = 'session-query-sqlite'
+const MEMORY_NS = 'ui-memory-workspace'
 
 /**
  * Required services (cordis fiber inject). The target slots are declared by
  * ui-settings' apply, whose activation order relative to this one is NOT
  * constrained; registrations depend on their slots through `slots.inject()`.
  */
-export const inject = ['slots', 'locale', 'connection', 'remote', 'remote.settings', 'configForms', 'shortcuts']
+export const inject = ['slots', 'locale', 'connection', 'remote', 'remote.settings', 'configForms', 'settingsDirectory', 'shortcuts']
 
 /**
  * Register the `settings` dictionaries, the chrome content, and the General
@@ -80,6 +83,34 @@ export function apply(ctx: ClientContext): void {
       setEnabled: enabled => ctx.configForms.developerTools.setEnabled(enabled),
     }),
   }, DeveloperToolsRow))
+  const sessionSearch = ctx.configForms.get<{ contentSearch: boolean }>(SESSION_QUERY_NS)
+  ctx.effect(() => ctx.configForms.whileServed([SESSION_QUERY_NS], () => ctx.slots.inject('settings.general.item', () =>
+    ctx.slots.register({
+      name: 'settings.general.item', id: 'session-search', order: 16, locale: NS,
+      inject: (): SessionSearchRowInjected => ({
+        hooks: { contentSearch: {
+          getSnapshot: () => sessionSearch.getSnapshot().value?.contentSearch ?? true,
+          subscribe: listener => sessionSearch.subscribe(listener),
+        } },
+        setEnabled: async (enabled) => {
+          if (!await sessionSearch.set('contentSearch', enabled)) throw new Error('Session search setting was not saved')
+        },
+      }),
+    }, SessionSearchRow))), 'ui-settings-general: session search row')
+  const chatMemory = ctx.configForms.get<{ chatMemory: boolean }>(MEMORY_NS)
+  ctx.effect(() => ctx.configForms.whileServed([MEMORY_NS], () => ctx.slots.inject('settings.general.item', () =>
+    ctx.slots.register({
+      name: 'settings.general.item', id: 'chat-memory', order: 17, locale: NS,
+      inject: (): ChatMemoryRowInjected => ({
+        hooks: { chatMemory: {
+          getSnapshot: () => chatMemory.getSnapshot().value?.chatMemory ?? true,
+          subscribe: listener => chatMemory.subscribe(listener),
+        } },
+        setEnabled: async (enabled) => {
+          if (!await chatMemory.set('chatMemory', enabled)) throw new Error('Chat memory setting was not saved')
+        },
+      }),
+    }, ChatMemoryRow))), 'ui-settings-general: chat memory row')
   // Version information follows the core preferences.
   ctx.slots.inject('settings.general.item', () => ctx.slots.register({
     name: 'settings.general.item', id: 'current-version', order: 100, locale: NS,
@@ -98,6 +129,10 @@ export function apply(ctx: ClientContext): void {
   // seat, and the nav label is a thunk the owner resolves per render — no
   // locale/change re-registration wiring.
   const t = ctx.locale.bind(NS)
+  ctx.effect(() => ctx.settingsDirectory.register(generalSearchEntries(
+    t,
+    id => ctx.slots.entries('settings.general.item').some(entry => entry.options.id === id),
+  )), 'ui-settings-general: search entries')
   // The shared ConfigForm mirror updates after document commits and reconnects.
   const documentController = ctx.remote.$host.isLoopback
     ? new SettingsDocumentStore(ctx, ctx.configForms.describe())
@@ -117,12 +152,32 @@ export function apply(ctx: ClientContext): void {
   let rowsVersion = -1
   let rowsRevision = -1
   let rows: readonly SettingsSectionRow[] = []
-  let onboardingVersion = -1
-  let onboardingSteps: readonly SettingsOnboardingStep[] = []
+  let tickKey = ''
+  let tick: SettingsSearchTick = {}
   const shellInjected = (): SettingsRootInjected => ({
     openDesktopUpdate: () => { desktopUpdate.open() },
     reconnect: () => { connection.reconnect() },
+    search: query => ctx.settingsDirectory.search(query),
     hooks: {
+      saveStatus: ctx.configForms.saveStatus,
+      searchTick: {
+        getSnapshot: () => {
+          const key = `${String(ctx.settingsDirectory.getVersion())}:${String(ctx.locale.getSnapshot().revision)}:${String(ctx.slots.getVersion('settings.general.item'))}`
+          if (key !== tickKey) {
+            tickKey = key
+            tick = {}
+          }
+          return tick
+        },
+        subscribe: (listener) => {
+          const offs = [
+            ctx.settingsDirectory.subscribe(listener),
+            ctx.locale.subscribe(listener),
+            ctx.slots.subscribe('settings.general.item', listener),
+          ]
+          return () => { for (const off of offs) off() }
+        },
+      },
       shortcuts: ctx.shortcuts.catalog,
       desktopUpdate: desktopUpdate.store,
       connectionState: connection.state,
@@ -152,23 +207,6 @@ export function apply(ctx: ClientContext): void {
             offLocale()
           }
         },
-      },
-      onboardingSteps: {
-        getSnapshot: () => {
-          const version = ctx.slots.getVersion('settings.onboarding')
-          if (version !== onboardingVersion) {
-            onboardingVersion = version
-            onboardingSteps = ctx.slots.entries('settings.onboarding')
-              .map(e => ({
-                /* v8 ignore next -- list-slot registration requires id */
-                id: e.options.id ?? '',
-                order: e.options.order ?? 0,
-              }))
-              .sort((a, b) => a.order - b.order)
-          }
-          return onboardingSteps
-        },
-        subscribe: listener => ctx.slots.subscribe('settings.onboarding', listener),
       },
     },
   })
@@ -206,7 +244,6 @@ export function apply(ctx: ClientContext): void {
         'settings.action': { kind: 'list', scope: 'root' },
         'settings.close': { kind: 'single', scope: 'root' },
         'settings.section': { kind: 'list', scope: 'root' },
-        'settings.onboarding': { kind: 'list', scope: 'root' },
       },
       inject: shellInjected,
     }, SettingsRoot)
@@ -228,12 +265,33 @@ export function apply(ctx: ClientContext): void {
   }
   ctx.slots.inject('settings.close', () =>
     ctx.slots.register({ name: 'settings.close', locale: NS }, CloseLabel))
+  let itemsVersion = -1
+  let items: readonly string[] = []
+  const generalInjected = (): GeneralSectionInjected => ({
+    hooks: {
+      items: {
+        getSnapshot: () => {
+          const version = ctx.slots.getVersion('settings.general.item')
+          if (version !== itemsVersion) {
+            itemsVersion = version
+            items = ctx.slots.entries('settings.general.item')
+              .map(entry => ({ id: entry.options.id ?? '', order: entry.options.order ?? 0 }))
+              .sort((a, b) => a.order - b.order)
+              .map(entry => entry.id)
+          }
+          return items
+        },
+        subscribe: listener => ctx.slots.subscribe('settings.general.item', listener),
+      },
+    },
+  })
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
     id: 'general',
     order: 0,
     label: () => t('general.nav'),
     locale: NS,
+    inject: generalInjected,
     children: { 'settings.general.item': { kind: 'list', scope: 'root' } },
   }, GeneralSection))
 }

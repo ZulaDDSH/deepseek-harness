@@ -7,7 +7,7 @@ kind: "package-reference"
 
 ## Summary
 
-Use `dsh-tool-fs-search` to give models `glob` file discovery and `grep` content search over a local workspace. Searches need no host `rg` installation or filesystem provider, return workdir-relative results, and include hidden and ignored files while excluding VCS metadata. Configurable caps bound inline output; with an optional spill store, capped results remain fully recoverable. Choose the sibling `dsh-tool-fs` package for reading, writing, or editing files.
+Use `dsh-tool-fs-search` to give models `glob` file discovery and `grep` content search over a local workspace. Searches need no host `rg` installation or filesystem provider, return workdir-relative results, and include hidden files while excluding VCS metadata. Ignore files and `node_modules` are respected unless a `glob` call sets `includeIgnored: true`. Configurable caps bound inline output; with an optional spill store, capped results remain fully recoverable. Choose the sibling `dsh-tool-fs` package for reading, writing, or editing files.
 
 ## Table of Contents
 
@@ -45,7 +45,7 @@ A subprocess backend, then the tools; the spill backend is optional and makes ca
 
 | Tool | Arguments | Behavior |
 |---|---|---|
-| `glob` | `pattern`, `path?` | Finds files whose paths match a glob pattern, including hidden and ignored files but excluding VCS metadata; a pattern with no `/` matches basenames at any depth, so `*` matches the whole tree; complete results stay modification-time ordered |
+| `glob` | `pattern`, `path?`, `includeIgnored?` | Finds files whose paths match a glob pattern, including hidden files; files excluded by ignore files (`.gitignore`, `.ignore`) and `node_modules` are skipped unless `includeIgnored: true`, and VCS metadata is always excluded; a pattern with no `/` matches basenames at any depth, so `*` matches the whole tree; complete results stay modification-time ordered |
 | `grep` | `pattern`, `path?`, `include?` | Searches file contents with a ripgrep regex and returns matches grouped by file as `Line N: <preview>`; `include` is one positive glob filter, with comma-separated lists and negated values rejected up front |
 
 Routine budgets stay out of the model-facing schema: a model that needs surrounding context reads the matched file with `read`, and one that needs later results follows the returned spill locator's retrieval hint.
@@ -209,6 +209,8 @@ These limits define when the search tools are a poor fit or need special operati
 - **The packaged binary is fixed at dependency version** — Node deployments use the version selected by `@vscode/ripgrep`; Python single-file runtimes copy that target-native version into the required `-rg` sidecar. An unsupported platform or a corrupted installation fails with `SEARCH_FAILED`, while the Python runtime package rejects a missing sidecar before launch. Remote or virtual filesystems need a co-located workspace or another search consumer.
 - **The schemas expose one bounded page** — offset pagination, case-mode switches, alternate output modes, and provider-backed discovery remain outside this package; capped complete output requires a spill backend.
 - **Sampling, when enabled, groups by first path segment beneath the search root only** — an over-cap `glob` page balances across those top-level entries, so a result concentrated deeper is still shown unevenly below that level; recursive balancing is deferred.
+- **A `glob` that hits the tool timeout returns `SEARCH_ABORTED` without partial paths** — ripgrep's output is only returned once the process exits, so narrow `path` or `pattern` to finish within the budget.
+- **A `glob` `path` inside an ignored directory is searched** — ignore rules apply only to entries beneath the search root, so `path: "node_modules"` lists that tree even without `includeIgnored`.
 
 <a id="dev-note"></a>
 ### Dev Note

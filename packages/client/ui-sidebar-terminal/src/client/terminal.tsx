@@ -70,7 +70,7 @@ export function TerminalBody({ useTabInfo, useTerminal, useTheme, view, t }: Ter
 }
 
 /* oxlint-disable typescript/no-non-null-assertion -- React sets the DOM ref, then these effects initialize and use the emulator. */
-function TerminalScreen({ state, model, visible, label, theme }: {
+export function TerminalScreen({ state, model, visible, label, theme }: {
   state: TerminalViewState
   model: TerminalView
   visible: boolean
@@ -158,3 +158,5 @@ function fitScreen(xterm: Terminal, fit: FitAddon, state: TerminalViewState, mod
   xterm.resize(cols, rows)
   model.resize(cols, rows)
 }
+
+export { CliTerminalPane } from './CliTerminalPane.tsx'

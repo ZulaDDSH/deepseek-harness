@@ -7,7 +7,7 @@ kind: "package-bundle"
 
 ## Summary
 
-Install this Profile Bundle when a delegated task should run as a fresh, unattended Claude Code session in the parent workspace. Each run accepts one self-contained text task and returns the final answer or a safe failure diagnostic; reasoning, tool traffic, stderr, usage, and workspace diffs stay out of the parent Session. Native Claude settings and authentication remain authoritative, while Profile configuration selects the model, environment, and `permissionMode`. The platform-pinned runtime starts on demand and never falls back to the host `claude` executable. Choose it when isolation and genuine Claude Code behavior matter more than continuation or prompts.
+Install this Profile Bundle when a delegated task should run as a fresh, unattended Claude Code session in the parent workspace. Each run accepts one self-contained text task and returns the final answer or a safe failure diagnostic; reasoning, tool traffic, stderr, usage, and workspace diffs stay out of the parent Session. Native Claude settings and authentication remain authoritative, while Profile configuration selects the model, environment, `permissionMode`, ultracode, and `agents`. The platform-pinned runtime starts on demand and never falls back to the host `claude` executable. Choose it when isolation and genuine Claude Code behavior matter more than continuation or prompts.
 
 ## Table of Contents
 
@@ -45,7 +45,12 @@ Removing the package withdraws the provider and its private runtime closure on t
 | `model` | native Claude settings | Optional non-empty model name fixed for every run from this provider instance; omission sends no SDK override |
 | `env` | `{}` | Explicit SDK/CLI environment layered over the credential-scrubbed parent environment |
 | `permissionMode` | `dontAsk` | Native non-interactive permission policy fixed for every run from this provider instance |
+| `ultracode` | native Claude settings | Profile default for native ultracode, sent only to a run whose model is a current Claude 5 family model (Opus, Sonnet, Haiku, or Fable 5.x: the aliases `opus`, `sonnet`, `haiku`, `fable` with or without `[1m]`, the full ids such as `claude-opus-5-5`, and their dated ids) (a run on any other model, or on one Claude Code picks itself, sends no ultracode setting); the delegating Session's Ultracode level overrides it for that run, and that run option comes from the nearest Session in the parent chain (up to 8 hops) that has one. When the resolved value is on, sends flag settings `ultracode` and `enableWorkflows` and pre-approves the `Workflow` tool only in `dontAsk` and `acceptEdits` modes. In `auto`, `plan`, and `bypassPermissions` the Workflow launch stays under native permission handling. When it is off, sends flag setting `ultracode: false` so native settings cannot turn it on; when neither the Session nor the Profile sets it, nothing is sent and native settings decide. Each pre-approved run makes the SDK emit a `CLAUDE_SDK_CAN_USE_TOOL_SHADOWED` process warning on host stderr |
+| `agents` | none | Native custom subagents (`Options.agents`, the current SDK AgentDefinition fields, including `criticalSystemReminder_EXPERIMENTAL`) that each run's Agent tool and workflows can invoke; omitted optional fields stay omitted so the SDK applies its own defaults, and agent `permissionMode` accepts the five provider modes but not `default`; each agent's `mcpServers` entries are server-name strings or records of SDK `stdio`, `sse`, or `http` definitions, validated at load, and SDK in-process `sdk` entries are rejected because the provider registers no in-process servers |
 | `disposeGraceMs` | `3000` | Grace between the shared managed-range owner's termination tiers |
+| `timeoutMs` | none | Optional wall-clock limit in milliseconds for each published run; on expiry the run is cancelled and settles as an error with category `limit` and detail `exceeded timeoutMs (N ms)`. It does not bound SDK or CLI startup |
+| `maxTurns` | SDK default | Optional positive integer passed as the SDK `maxTurns` option; reaching it settles the run as an error with category `limit` |
+| `maxBudgetUsd` | SDK default | Optional positive finite USD spend limit passed as the SDK `maxBudgetUsd` option; reaching it settles the run as an error with category `limit` |
 
 | `permissionMode` value | Native behavior |
 |---|---|
@@ -55,7 +60,13 @@ Removing the package withdraws the provider and its private runtime closure on t
 | `plan` | Run in native planning mode, deny execution approval, and return the completed plan as the final answer |
 | `bypassPermissions` | Explicitly set the SDK's dangerous confirmation and bypass permission checks |
 
-The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-subagent-claude-code) is the exhaustive source for every accepted field and its JSDoc. A configured `model` passes unchanged to every query from that provider instance; omission leaves native model selection in force. Credential-shaped ambient variables are removed before the explicit `env` overlay, so an API key intended for the child must be supplied there. The provider omits the SDK `settingSources` option, so Claude Code reads the host's normal user, project, and local settings relative to the parent Session cwd. It does not copy or filter those files, create or modify login state, inspect `PATH`, or fall back to a host `claude` executable.
+The delegating parent Session's file sandbox also narrows the mode for every run. A read-only parent runs the child in `plan`. A workspace-write parent downgrades `bypassPermissions` and `auto` to `acceptEdits`, including the modes of Profile `agents`. A danger-full-access parent keeps the configured mode. The narrowing is logged on the Host and appended to failure diagnostics as a safe fact that names the configured and effective modes. A Profile agent narrowed on its own, with the provider mode unchanged, is named in the same note, for example `agent helper permission mode narrowed from bypassPermissions to acceptEdits`.
+
+The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-subagent-claude-code) is the exhaustive source for every accepted field and its JSDoc. Each run's `effort` is the delegating Session's Claude Code effort run option (`low`, `medium`, `high`, `xhigh`, or `max`) when set; otherwise it is omitted and Claude settings decide. The provider registers the `claudeCodeRunOptions` presence key, so clients show the Claude Code run controls only while a Claude Code provider is installed; the per-Session `runOptions` projection they read is registered by `dsh-api-session-controller` for every Session. The Session's fast-mode toggle is sent as flag setting `fastMode` when set. A configured `model` passes unchanged to every query from that provider instance; omission leaves native model selection in force. Credential-shaped ambient variables are removed before the explicit `env` overlay, so an API key intended for the child must be supplied there. The provider omits the SDK `settingSources` option, so Claude Code reads the host's normal user, project, and local settings relative to the parent Session cwd. It does not copy or filter those files, create or modify login state, inspect `PATH`, or fall back to a host `claude` executable.
+
+### Skills
+
+Because the provider omits `settingSources`, the child discovers native Claude Code skills from `<cwd>/.claude/skills`, `~/.claude/skills` (or `$CLAUDE_CONFIG_DIR/skills`), and plugins. Runs in `dontAsk` and `acceptEdits` pass the SDK option `skills: 'all'`, which enables every discovered project, user, and plugin skill and pre-approves the `Skill` tool the same way ultracode pre-approves `Workflow`; like that pre-approval, it makes the SDK emit a `CLAUDE_SDK_CAN_USE_TOOL_SHADOWED` process warning on host stderr. Without it, the CLI denies `Skill` calls in `dontAsk`. Project `.claude` skills belong to the project settings scope the provider already loads, and a skill's `allowed-tools` frontmatter can pre-approve tools while that skill runs unless managed settings disable it. `auto` and `plan` do not pass `skills`, so a `Skill` request there takes native permission handling, and the unattended callback denies any request that reaches it.
 
 ### Exposing the tool
 
@@ -98,7 +109,7 @@ This section explains how the provider drives a real Claude Code CLI and where t
 ### Design concept
 
 - **One fresh query per run.** Every run has an independent SDK query, cancellation controller, CLI process, and non-persisted product session; there is no continuation, resume, or pooling.
-- **Native settings are authoritative.** The provider deliberately omits the SDK `settingSources` option, so Claude Code reads the host's normal user, project, and local settings; an optional `model` and the required `permissionMode` are the only query-level overrides.
+- **Native settings are authoritative.** The provider deliberately omits the SDK `settingSources` option, so Claude Code reads the host's normal user, project, and local settings; an optional `model`, the required `permissionMode`, the optional `agents`, and the Claude Code effort, fast-mode, and ultracode run options are the only query-level overrides. Run options come from the nearest Session in the delegating parent's chain, up to 8 parent hops, that has them.
 - **Unattended by design.** `AskUserQuestion` is disabled and permission prompts are denied except in bypass mode, so the query never waits for a user interface.
 
 ### Source map
@@ -112,7 +123,7 @@ This section explains how the provider drives a real Claude Code CLI and where t
 
 ### Run flow
 
-A start accepts only a non-empty sequence of text blocks and derives the child cwd from the parent session. It creates a private `AbortController`, calls the official SDK `query()` with the exact concatenated task, and publishes the run only after the SDK's custom-spawn hook has supplied a live CLI handle owned by the subprocess seam. The provider iterates the complete message stream and accepts only a `result` message with `subtype: "success"`, `is_error: false`, and a nonblank `result`, followed by normal iterator completion. Every other outcome maps to a fixed-category `error` diagnostic naming the lifecycle stage and observed process outcome — the category set lives in [`src/run.ts`](src/run.ts). Local cancellation wins the result race and maps to `aborted` without a failure diagnostic.
+A start accepts only a non-empty sequence of text blocks and derives the child cwd from the parent session. It creates a private `AbortController`, calls the official SDK `query()` with the exact concatenated task, and publishes the run only after the SDK's custom-spawn hook has supplied a live CLI handle owned by the subprocess seam. The provider iterates the complete message stream and accepts only a `result` message with `subtype: "success"`, `is_error: false`, and a nonblank `result`, followed by normal iterator completion. Every other outcome maps to a fixed-category `error` diagnostic naming the lifecycle stage and observed process outcome — the category set lives in [`src/sdk-messages.ts`](src/sdk-messages.ts) and [`src/run.ts`](src/run.ts). Local cancellation wins the result race and maps to `aborted` without a failure diagnostic.
 
 </details>
 
@@ -138,7 +149,7 @@ Read these pages when the package-level contract is not enough. They move from t
 
 #### What the model sees
 
-The Claude Code child receives the standalone text task as one fresh SDK query. Its workspace is the parent Session cwd; the selected provider instance fixes the query's configured model, environment, and non-interactive permission mode, while an omitted model and every other product setting come from native Claude configuration. The executable version comes from the Bundle's pinned SDK platform payload.
+The Claude Code child receives the standalone text task as one fresh SDK query. Its workspace is the parent Session cwd; the selected provider instance fixes the query's environment, non-interactive permission mode, and configured model, unless a Orchestrator & Subagent Setup role route passes a per-run model and effort, which run-selection validates before the run starts. An omitted model and every other product setting come from native Claude configuration. The executable version comes from the Bundle's pinned SDK platform payload.
 
 #### Token effect
 
@@ -152,7 +163,7 @@ Independent of the parent request cache. Reuse depends only on Claude Code's own
 
 #### What the model sees
 
-Through `dsh-tool-subagent`, a foreground call gives the parent the strict final Claude Code answer or an error containing the stop reason and optional safe diagnostic for a non-completed result. That diagnostic can distinguish a coarse action category, lifecycle stage, and observed process outcome without copying raw product text or version-specific subtype names. A background call first returns a Job id; the generic job controls later deliver a completion notice, expose the same final answer or failed status detail through `job_output`, and let `job_kill` request cancellation. Claude Code reasoning, tool activity, intermediate messages, stderr, workspace diffs, usage, product ids, tool inputs, and raw protocol payloads are not copied into the parent Session.
+Through `dsh-tool-subagent`, a foreground call gives the parent the strict final Claude Code answer or an error containing the stop reason and optional safe diagnostic for a non-completed result. That diagnostic can distinguish a coarse action category, lifecycle stage, and observed process outcome without copying raw product text or version-specific subtype names. A background call first returns a Job id; the generic job controls later deliver a completion notice, expose the same final answer or failed status detail through `job_output`, and let `job_kill` request cancellation. Claude Code reasoning, tool activity beyond the advisory progress lines noted under Known Limitations, intermediate messages, stderr, workspace diffs, usage, product ids, tool inputs beyond those progress lines, and raw protocol payloads are not copied into the parent Session.
 
 #### Token effect
 
@@ -169,15 +180,18 @@ Append-only: foreground adds one result after the reusable parent prefix, while 
 
 These limits define when this provider is a poor fit or needs special operational care. They are current package constraints, not a general Claude Code comparison or a task backlog.
 
-- **One fresh query and process per run** — there is no continuation, resume, pooling, progress stream, or product-session persistence.
-- **Static instance selection** — Profile rows fix provider names, optional models, and tool bindings; calls cannot choose or change either a provider or model dynamically, and every exposed tool needs a unique `toolName`.
+- **One fresh query and process per run** — there is no continuation, resume, pooling, or product-session persistence. Only advisory tool-use progress lines (the tool name with its `file_path`, `command`, or `pattern` input) reach a request's `onProgress`, which background jobs show; the shared progress sink rate-limits and truncates them, and they are not part of the final answer.
+- **Static instance selection** — Profile rows fix provider names, optional models, and tool bindings; calls cannot choose a provider or change the model, except that a Orchestrator & Subagent Setup role route passes a per-run model and effort; every exposed tool needs a unique `toolName`.
 - **Host settings are intentionally authoritative** — when `model` is omitted, project and user settings choose it; native settings always retain the remaining tools and behavior, and the provider does not provide a filtered or hermetic production mode.
-- **Authentication and account state remain native** — the Bundle supplies the CLI but does not create an account, log in, or rewrite Claude settings; configuration and authentication failures surface with their lifecycle stage and the safe `unknown` fallback rather than a separate public classification.
+- **Authentication and account state remain native** — the Bundle supplies the CLI but does not create an account, log in, or rewrite Claude settings. Sign-in, organization-policy, account-hold, verification, and cloud-credential failures classify as `access-policy`; billing, rate-limit, and max-output failures as `limit`; overload and server errors as `service`; and model or request errors as `product-error`. When the assistant reports the error code, the diagnostic carries it as `detail`, plus an ISO reset time for a rate limit whose reset the SDK reports. Other configuration failures keep the lifecycle stage and the safe `unknown` fallback.
 - **The SDK platform payload is required at delegation time** — installs that omit optional dependencies, unsupported platforms, and missing or damaged payloads fail at the first query; there is no host-CLI fallback.
 - **No human interaction path** — `AskUserQuestion` is disabled, permission prompts are denied, MCP elicitation is declined, and blocking dialogs fail closed instead of suspending.
 - **Assistant payload is final text only** — reasoning, intermediate messages, tool traffic, usage, stderr, and workspace diffs remain product-local.
-- **No optional shared capabilities** — `agentOptions`, output schemas, child personas, tool filtering, and harness depth enforcement are rejected by the shared service for this provider.
-- **No wall-clock timeout or side-effect rollback** — the caller cancels long work, and files or external systems changed before cancellation are not restored.
+- **Ultracode and custom agents run inside the one child** — only the SDK's final result reaches the parent, cancellation or disposal terminates the child's process tree, and ultracode needs a Claude account or plan with Workflows that managed settings do not disable, plus a model that supports ultracode; token use can be much higher.
+- **Agent `permissionMode` is operator-owned** — a Profile-fixed agent can set `acceptEdits` or `bypassPermissions` even when the provider runs `dontAsk` or `plan`, so configure agent modes with the same care as the provider mode. The parent sandbox clamp covers agent modes as well: under a read-only parent every agent runs in `plan`, and under a workspace-write parent an agent's `bypassPermissions` or `auto` becomes `acceptEdits`. A danger-full-access parent passes agent modes through unchanged.
+- **No optional shared capabilities** — `agentOptions`, output schemas, child personas, tool filtering, and harness depth enforcement are rejected by the shared service for this provider; Profile-fixed native `agents` are a separate Claude Code setting and stay available.
+- **No side-effect rollback** — the caller cancels long work, and files or external systems changed before cancellation are not restored. The optional `timeoutMs` bounds only the published run, not SDK or CLI startup, and it is unset by default.
+- **DSH-only skills are invisible to the child** — skills that exist only in DSH roots (`.dsh/skills`, `.agents/skills`, custom or bundled roots) are not visible to the Claude Code child, which reads only the native Claude Code skill locations.
 
 <a id="dev-note"></a>
 ### Dev Note
@@ -188,7 +202,7 @@ These limits define when this provider is a poor fit or needs special operationa
 This Dev Note is working context for maintainers: open questions and undecided directions. It is explicitly non-authoritative — shipped behavior and limits live in the sections above and in the package code.
 
 - **Payload size disclosure** — the current darwin-arm64 platform payload packs to about 92 MB and unpacks to about 325 MB; these are disclosure numbers, not installation thresholds.
-- **Version-pinned protocol** — the runtime dependency is pinned to Agent SDK 0.3.263; upgrading pins a new SDK version and requires re-running the keyless real-product and loader-composition evidence.
+- **Version-pinned protocol** — the runtime dependency is pinned to Agent SDK 0.3.296; upgrading pins a new SDK version and requires re-running the keyless real-product and loader-composition evidence.
 
 </details>
 

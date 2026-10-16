@@ -112,12 +112,16 @@ function systemHead(session: Session, headSeq: SessionSeq): SessionEvent<'system
  * @param session - session supplying authoritative current surface positions.
  * @param measurement - unified pressure and surface measurement from the conversation meter.
  * @param retainTokens - minimum recent tail budget retained verbatim.
+ * @param maxPrefixTokens - optional limit on the summarizer prefix (system head, off-surface overhead
+ *   such as tools, and the span); the span end moves back to the latest balanced cut that fits, or
+ *   the result is `null`.
  * @returns the inclusive positional seq range to compact, or `null`.
  */
 export function selectCompactableRange(
   session: Session,
   measurement: TokenMeasurement,
   retainTokens: number,
+  maxPrefixTokens?: number,
 ): { start: SessionSeq; end: SessionSeq } | null {
   const pricedNodes = measurement.nodes
   if (pricedNodes.length === 0) return null
@@ -147,10 +151,28 @@ export function selectCompactableRange(
   }
   if (keepFromIdx <= firstIdx) return null
 
+  let endIdx = keepFromIdx
+  if (maxPrefixTokens !== undefined) {
+    // oxlint-disable-next-line typescript/no-non-null-assertion
+    const headTokens = firstIdx === 1 ? pricedNodes[0]!.tokens : 0
+    const fixedTokens = Math.max(0, measurement.totalTokens - measurement.surfaceTokens) + headTokens
+    let spanTokens = 0
+    // oxlint-disable-next-line typescript/no-non-null-assertion
+    for (let index = firstIdx; index < endIdx; index += 1) spanTokens += pricedNodes[index]!.tokens
+    while (endIdx > firstIdx
+      // oxlint-disable-next-line typescript/no-non-null-assertion
+      && (fixedTokens + spanTokens > maxPrefixTokens || !toolPairingBalancedBefore(session, surfaceNodes[endIdx]!))) {
+      endIdx -= 1
+      // oxlint-disable-next-line typescript/no-non-null-assertion
+      spanTokens -= pricedNodes[endIdx]!.tokens
+    }
+    if (endIdx <= firstIdx) return null
+  }
+
   // oxlint-disable-next-line typescript/no-non-null-assertion
   const first = surfaceNodes[firstIdx]!
   // oxlint-disable-next-line typescript/no-non-null-assertion
-  const cutoff = surfaceNodes[keepFromIdx - 1]!
+  const cutoff = surfaceNodes[endIdx - 1]!
   return { start: first, end: cutoff }
 }
 

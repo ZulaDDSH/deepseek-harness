@@ -1,14 +1,13 @@
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
-import { PassThrough } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import type {
+  AgentDefinition,
   Options,
   Query,
   SDKMessage,
   SDKPermissionDeniedMessage,
   SDKResultMessage,
-  SpawnOptions,
 } from '@anthropic-ai/claude-agent-sdk'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
@@ -19,11 +18,11 @@ import {
   describe,
   expect,
   it,
-  type Mock,
   vi,
 } from 'vitest'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { SessionLogOffset, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type {
@@ -33,7 +32,18 @@ import type {
 } from '@deepseek-ai/dsh-subprocess'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+import {
+  type ErrorSubtype,
+  type FakeChild,
+  expectedFailureDiagnostic,
+  failure,
+  fakeChild,
+  nextTask,
+  sdkSpawnOptions,
+  success,
+} from './claude-fakes.ts'
 import * as claudeCode from '../src/index.ts'
+import { claudeCodeRunOptionsProjection } from '../src/run-options-projection.ts'
 import {
   claudeSpawnSpec,
   ManagedClaudeCodeProcess,
@@ -58,8 +68,8 @@ type QueryFactory = (params: {
 
 const queryMock = vi.hoisted(() => vi.fn<QueryFactory>())
 
-const CLAUDE_AGENT_SDK_VERSION = '0.3.263'
-const CLAUDE_CODE_VERSION = '2.1.263'
+const CLAUDE_AGENT_SDK_VERSION = '0.3.296'
+const CLAUDE_CODE_VERSION = '2.1.296'
 const CLAUDE_PLATFORM_PACKAGES = [
   '@anthropic-ai/claude-agent-sdk-darwin-arm64',
   '@anthropic-ai/claude-agent-sdk-darwin-x64',
@@ -78,8 +88,14 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async importOriginal => ({
 
 const fakeParent = {
   id: 'parent',
-  session: { header: { cwd: process.cwd() } },
-} as unknown as Agent
+  session: {
+    header: { cwd: process.cwd() },
+    requestHeader: () => undefined,
+    inheritedEventCount: SessionLogOffset(0),
+    seq: SessionLogOffset(0),
+    snapshotEvents: (): readonly SessionEvent[] => [],
+  },
+} as Agent
 
 function request(
   prompt: ContentBlock[] = [{ type: 'text', text: 'do the task' }],
@@ -88,148 +104,10 @@ function request(
   return { prompt, parent: fakeParent, signal }
 }
 
-async function nextTask(): Promise<void> {
-  await new Promise<void>((resolve) => { setImmediate(resolve) })
-}
-
 function errorCause(value: unknown): Error | undefined {
   return value instanceof Error && value.cause instanceof Error
     ? value.cause
     : undefined
-}
-
-interface FakeChildOptions {
-  readonly exitOnTerminate?: boolean
-  readonly waitForExitError?: Error
-  readonly doneError?: Error
-}
-
-interface FakeChild {
-  readonly handle: SubprocessHandle
-  readonly stdin: PassThrough
-  readonly stdout: PassThrough
-  readonly settle: (outcome?: SubprocessOutcome) => void
-  readonly fail: (error: Error) => void
-  readonly terminate: Mock<SubprocessHandle['terminate']>
-  readonly waitForExit: Mock<SubprocessHandle['waitForExit']>
-}
-
-function fakeChild(options: FakeChildOptions = {}): FakeChild {
-  const stdin = new PassThrough()
-  const stdout = new PassThrough()
-  let exited = false
-  let resolveDone!: (outcome: SubprocessOutcome) => void
-  let rejectDone!: (error: Error) => void
-  const done = new Promise<SubprocessOutcome>((resolve, reject) => {
-    resolveDone = resolve
-    rejectDone = reject
-  })
-  // Individual tests deliberately exercise rejected and still-pending handles.
-  void done.catch(() => {})
-  const settle = (
-    outcome: SubprocessOutcome = { exitCode: 0, signal: null },
-  ): void => {
-    if (exited) return
-    exited = true
-    resolveDone(outcome)
-  }
-  const fail = (error: Error): void => {
-    if (exited) return
-    exited = true
-    rejectDone(error)
-  }
-  if (options.doneError !== undefined) fail(options.doneError)
-  const terminate = vi.fn<SubprocessHandle['terminate']>(() => {
-    if (options.exitOnTerminate !== false) settle()
-  })
-  const waitForExit = vi.fn<SubprocessHandle['waitForExit']>(async (signal?: AbortSignal): Promise<boolean> => {
-    if (options.waitForExitError !== undefined) {
-      throw options.waitForExitError
-    }
-    if (exited) return true
-    if (signal === undefined) {
-      await done.catch(() => {})
-      return true
-    }
-    return await new Promise<boolean>((resolve) => {
-      const onAbort = (): void => { resolve(false) }
-      signal.addEventListener('abort', onAbort, { once: true })
-      void done.then(
-        () => {
-          signal.removeEventListener('abort', onAbort)
-          resolve(true)
-        },
-        () => {
-          signal.removeEventListener('abort', onAbort)
-          resolve(true)
-        },
-      )
-    })
-  })
-  const handle: SubprocessHandle = {
-    control: undefined,
-    stdin,
-    stdout,
-    stderr: undefined,
-    collected: {},
-    done,
-    terminate,
-    waitForExit,
-  }
-  return {
-    handle,
-    stdin,
-    stdout,
-    settle,
-    fail,
-    terminate,
-    waitForExit,
-  }
-}
-
-function success(
-  result = 'answer',
-  isError = false,
-): SDKResultMessage {
-  return {
-    type: 'result',
-    subtype: 'success',
-    is_error: isError,
-    result,
-  } as SDKResultMessage
-}
-
-type ErrorSubtype = Exclude<SDKResultMessage['subtype'], 'success'>
-
-function failure(
-  subtype: ErrorSubtype,
-  errors: string[] = ['fixture failure'],
-): SDKResultMessage {
-  return {
-    type: 'result',
-    subtype,
-    is_error: true,
-    errors,
-  } as SDKResultMessage
-}
-
-function expectedFailureDiagnostic(
-  stage: 'query-start' | 'query-run' | 'process' | 'teardown',
-  category: string,
-  outcome?: Partial<SubprocessOutcome>,
-): string {
-  const fields = [
-    'product: Claude Code',
-    `stage: ${stage}`,
-    `category: ${category}`,
-  ]
-  if (outcome?.exitCode !== null && outcome?.exitCode !== undefined) {
-    fields.push(`exit code: ${outcome.exitCode}`)
-  }
-  if (outcome?.signal !== null && outcome?.signal !== undefined) {
-    fields.push(`signal: ${outcome.signal}`)
-  }
-  return `Product subagent failure (${fields.join('; ')})`
 }
 
 function permissionDenied(): SDKPermissionDeniedMessage {
@@ -272,19 +150,6 @@ function waitingQuery(signal: AbortSignal, close = vi.fn()): Query {
     })
   }
   return Object.assign(stream(), { close }) as unknown as Query
-}
-
-function sdkSpawnOptions(
-  overrides: Partial<SpawnOptions> = {},
-): SpawnOptions {
-  return {
-    command: '/sdk/claude',
-    args: ['--output-format', 'stream-json'],
-    cwd: '/workspace',
-    env: { PATH: '/bin', OMITTED: undefined },
-    signal: new AbortController().signal,
-    ...overrides,
-  }
 }
 
 interface FakeRun {
@@ -580,6 +445,88 @@ describe('task admission and package contracts', () => {
     }
   })
 
+  it('accepts ultracode and fixed native custom agent definitions', () => {
+    expect(claudeCode.Config({}).ultracode?.get()).toBeUndefined()
+    expect(claudeCode.Config({}).agents).toBeUndefined()
+    expect(claudeCode.Config({ ultracode: true }).ultracode?.get()).toBe(true)
+    expect(claudeCode.Config({ ultracode: false }).ultracode?.get()).toBe(false)
+    expect(claudeCode.Config.dict?.ultracode?.meta.volatile).toBe(true)
+    expect(() => claudeCode.Config({ ultracode: 'yes' } as never)).toThrow()
+
+    const agents = {
+      reviewer: {
+        description: 'Reviews',
+        prompt: 'You review.',
+        criticalSystemReminder_EXPERIMENTAL: 'Stay read-only.',
+        tools: ['Read'],
+        disallowedTools: ['Bash'],
+        model: 'sonnet',
+        mcpServers: ['github', { local: { type: 'stdio', command: 'srv' } }],
+        skills: ['lint'],
+        initialPrompt: '/review',
+        maxTurns: 5,
+        autoCompactWindow: 200000,
+        background: true,
+        omitClaudeMd: true,
+        memory: 'project',
+        effort: 'xhigh',
+        permissionMode: 'acceptEdits',
+        observer: 'watcher',
+        observerMessage: 'note',
+      },
+    } satisfies Record<string, AgentDefinition>
+    expect(claudeCode.Config({ agents }).agents).toStrictEqual(agents)
+    expect(claudeCode.Config({
+      agents: { helper: { description: 'Helps', prompt: 'Help.', effort: 3 } },
+    }).agents?.helper?.effort).toBe(3)
+    expect(claudeCode.Config({
+      agents: { minimal: { description: 'd', prompt: 'p' } },
+    }).agents?.minimal).toStrictEqual({ description: 'd', prompt: 'p' })
+    for (const invalid of [
+      { description: 'Reviews' },
+      { prompt: 'You review.' },
+      { description: 'Reviews', prompt: 'You review.', memory: 'global' },
+      { description: 'Reviews', prompt: 'You review.', permissionMode: 'default' },
+      { description: 'Reviews', prompt: 'You review.', maxTurns: 0 },
+      { description: 'Reviews', prompt: 'You review.', autoCompactWindow: 0 },
+    ]) {
+      expect(() => claudeCode.Config({ agents: { reviewer: invalid } } as never)).toThrow()
+    }
+  })
+
+  it('validates custom-agent MCP server definitions at load', () => {
+    const servers = (mcpServers: unknown) => claudeCode.Config({
+      agents: { a: { description: 'd', prompt: 'p', mcpServers } },
+    } as never).agents?.a?.mcpServers
+    for (const valid of [
+      ['github'],
+      [{ local: { type: 'stdio', command: 'srv' } }],
+      [{ bare: { command: 'c', args: ['--x'], env: { A: 'b' }, timeout: 5000, alwaysLoad: true } }],
+      [{ remote: { type: 'http', url: 'https://mcp.example', headers: { a: 'b' }, tools: [{ name: 't', permission_policy: 'always_allow', org_max_permission: 'ask' }] } }],
+      [{ bare_tool: { type: 'http', url: 'https://mcp.example', tools: [{ name: 't' }] } }],
+      [{ events: { type: 'sse', url: 'https://sse.example' } }],
+    ]) {
+      expect(servers(valid)).toStrictEqual(valid)
+    }
+    for (const invalid of [
+      [{ x: { type: 'sdk', name: 'n' } }],
+      [{ x: { url: 'https://x' } }],
+      [{ x: { type: 'http' } }],
+      [{ x: { command: '' } }],
+      [{ x: { type: 'stdio', command: 'c', args: 'a' } }],
+      [{ x: { type: 'sse', url: 'u', headers: { a: 1 } } }],
+      [{ x: { type: 'http', url: 'u', tools: [{ name: 't', permission_policy: 'nope' }] } }],
+      [{ x: { type: 'http', url: 'u', header: { a: 'b' } } }],
+      [{ x: { command: 'c', alwaysload: true } }],
+      [{ x: { type: 'sse', url: 'u', tools: [{ name: 't', permissionPolicy: 'always_allow' }] } }],
+      [{ x: 'srv' }],
+      [''],
+      [3],
+    ]) {
+      expect(() => servers(invalid)).toThrow()
+    }
+  })
+
   it('resolves the safe permission default when apply is called directly', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionProjectionRegistry)
@@ -589,6 +536,7 @@ describe('task admission and package contracts', () => {
     vi.spyOn(ctx.subprocess, 'spawn').mockReturnValue(child.handle)
     queryMock.mockImplementation(({ options }) => {
       expect(options).not.toHaveProperty('model')
+      expect(options).not.toHaveProperty('settings')
       expect(options.permissionMode).toBe(DEFAULT_CLAUDE_CODE_PERMISSION_MODE)
       options.spawnClaudeCodeProcess!(sdkSpawnOptions())
       return queryFrom([success('native model answer')])
@@ -624,6 +572,8 @@ describe('task admission and package contracts', () => {
         HOME: '/private/tmp/dsh-claude-code-unit-home',
       },
       permissionMode: 'auto',
+      ultracode: true,
+      agents: { helper: { description: 'Helps', prompt: 'Help.' } },
       disposeGraceMs: 29,
     })
 
@@ -705,6 +655,10 @@ describe('task admission and package contracts', () => {
     expect(queryMock.mock.calls[1]?.[0].options.permissionMode).toBe('auto')
     expect(queryMock.mock.calls[1]?.[0].options.model)
       .toBe('claude-diagnostic-model')
+    expect(queryMock.mock.calls[1]?.[0].options.settings).toBeUndefined()
+    expect(queryMock.mock.calls[1]?.[0].options.agents).toStrictEqual({
+      helper: { description: 'Helps', prompt: 'Help.' },
+    })
     expect(spawn).toHaveBeenCalledWith(expect.objectContaining({
       cwd: process.cwd(),
       graceMs: 29,
@@ -716,10 +670,100 @@ describe('task admission and package contracts', () => {
     await ctx.fiber.dispose()
   })
 
+  it('takes fast mode, ultracode and effort from the Session run options, never from the parent route', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(SubagentRuntime)
+    await ctx.plugin(LocalSubprocessRuntime)
+    vi.spyOn(ctx.subprocess, 'spawn').mockImplementation(() => fakeChild().handle)
+    vi.spyOn(ctx.subprocess, 'resolveExecutable').mockResolvedValue('/host/bin/claude')
+    const register = vi.spyOn(ctx.sessionProjections, 'register')
+    await ctx.plugin(claudeCode, { model: 'claude-opus-5-5', ultracode: true, disposeGraceMs: 29 })
+    expect(register).toHaveBeenCalledWith(claudeCodeRunOptionsProjection)
+    const stateOf = vi.spyOn(ctx.sessionProjections, 'stateOf')
+      .mockReturnValue({ current: { fastMode: true, ultracode: false, effort: 'max' } })
+    const parentWithEffort = (reasoningEffort: string) => ({
+      id: 'parent-with-run-options',
+      options: {},
+      session: {
+        header: { cwd: process.cwd() },
+        requestHeader: () => ({ config: { provider: 'p', model: 'claude-opus-5-5', reasoningEffort } }),
+      },
+    } as Agent)
+
+    const first = await ctx.subagents.start('claude-code', {
+      ...request(),
+      parent: parentWithEffort('high'),
+    })
+    const firstOptions = queryMock.mock.calls[0]?.[0].options
+    expect(firstOptions?.effort).toBe('max')
+    expect(firstOptions?.settings).toEqual({ ultracode: false, fastMode: true })
+    expect(firstOptions).not.toHaveProperty('allowedTools')
+    await first.dispose()
+
+    stateOf.mockReturnValue(undefined)
+    const second = await ctx.subagents.start('claude-code', {
+      ...request(),
+      parent: parentWithEffort('high'),
+    })
+    const secondOptions = queryMock.mock.calls[1]?.[0].options
+    expect(secondOptions).not.toHaveProperty('effort')
+    expect(secondOptions?.settings).toEqual({ ultracode: true, enableWorkflows: true })
+    expect(secondOptions?.allowedTools).toEqual(['Workflow'])
+    await second.dispose()
+    await ctx.fiber.dispose()
+  })
+
+  it('sends Ultracode only to runs whose model is a Claude 5 family model', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(SubagentRuntime)
+    await ctx.plugin(LocalSubprocessRuntime)
+    vi.spyOn(ctx.subprocess, 'spawn').mockImplementation(() => fakeChild().handle)
+    vi.spyOn(ctx.subprocess, 'resolveExecutable').mockResolvedValue('/host/bin/claude')
+    vi.spyOn(ctx.sessionProjections, 'stateOf').mockReturnValue({ current: { ultracode: true } })
+    await ctx.plugin(claudeCode, { model: 'claude-sonnet-4', ultracode: true, disposeGraceMs: 29 })
+    const sonnet = await ctx.subagents.start('claude-code', request())
+    expect(queryMock.mock.calls[0]?.[0].options.settings).toBeUndefined()
+    await sonnet.dispose()
+    for (const model of ['opus[1m]', 'claude-sonnet-5-5', 'haiku', 'claude-haiku-5-5-20261001']) {
+      const run = await ctx.subagents.start('claude-code', { ...request(), agentOptions: { model } })
+      expect(queryMock.mock.calls.at(-1)?.[0].options.settings).toEqual({ ultracode: true, enableWorkflows: true })
+      await run.dispose()
+    }
+    const other = await ctx.subagents.start('claude-code', { ...request(), agentOptions: { model: 'claude-opus-4-5' } })
+    expect(queryMock.mock.calls.at(-1)?.[0].options.settings).toBeUndefined()
+    await other.dispose()
+    await ctx.fiber.dispose()
+  })
+
+  it('ignores a stored Ultracode flag when the delegating Session model does not support it', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(SubagentRuntime)
+    await ctx.plugin(LocalSubprocessRuntime)
+    vi.spyOn(ctx.subprocess, 'spawn').mockImplementation(() => fakeChild().handle)
+    vi.spyOn(ctx.subprocess, 'resolveExecutable').mockResolvedValue('/host/bin/claude')
+    vi.spyOn(ctx.sessionProjections, 'stateOf').mockReturnValue({ current: { ultracode: true } })
+    await ctx.plugin(claudeCode, { model: 'claude-opus-5-5', disposeGraceMs: 29 })
+    const parentOn = (model: string) => ({
+      id: 'parent',
+      options: {},
+      session: { header: { cwd: process.cwd() }, requestHeader: () => ({ config: { provider: 'p', model } }) },
+    } as Agent)
+    const stale = await ctx.subagents.start('claude-code', { ...request(), parent: parentOn('deepseek-v4-pro') })
+    expect(queryMock.mock.calls.at(-1)?.[0].options.settings).toBeUndefined()
+    await stale.dispose()
+    const live = await ctx.subagents.start('claude-code', { ...request(), parent: parentOn('claude-opus-5-5') })
+    expect(queryMock.mock.calls.at(-1)?.[0].options.settings).toEqual({ ultracode: true, enableWorkflows: true })
+    await live.dispose()
+    await ctx.fiber.dispose()
+  })
+
   it('keeps the Loader namespace shape', () => {
     expect('default' in claudeCode).toBe(false)
     expect(claudeCode.name).toBe('subagent-claude-code')
-    expect(claudeCode.inject).toEqual(['subagents', 'subprocess'])
+    expect(claudeCode.inject).toEqual(['subagents', 'subprocess', 'sessionProjections'])
     const loader = Object.create(Loader.prototype) as Loader
     expect(loader.unwrapExports(claudeCode)).toBe(claudeCode)
   })
@@ -888,6 +932,10 @@ describe('query options and result mapping', () => {
     expect(options.env).not.toHaveProperty('HOST_SECRET_TOKEN')
     expect(options.env).not.toHaveProperty('DSH_INTERNAL')
     expect(options).not.toHaveProperty('settingSources')
+    expect(options).not.toHaveProperty('settings')
+    expect(options).not.toHaveProperty('allowedTools')
+    expect(options.skills).toBe('all')
+    expect(options).not.toHaveProperty('agents')
 
     const callbackSignal = new AbortController().signal
     await expect(options.canUseTool!(
@@ -953,6 +1001,12 @@ describe('query options and result mapping', () => {
       expect(options.disallowedTools).toEqual(permissionMode === 'plan'
         ? ['AskUserQuestion', 'ExitPlanMode']
         : ['AskUserQuestion'])
+      expect(options).not.toHaveProperty('settingSources')
+      if (['dontAsk', 'acceptEdits'].includes(permissionMode)) {
+        expect(options.skills).toBe('all')
+      } else {
+        expect(options).not.toHaveProperty('skills')
+      }
       if (permissionMode === 'bypassPermissions') {
         expect(options.allowDangerouslySkipPermissions).toBe(true)
         expect(options).not.toHaveProperty('canUseTool')
@@ -962,6 +1016,82 @@ describe('query options and result mapping', () => {
       }
     },
   )
+
+  it('maps ultracode and native agents into SDK options', () => {
+    const agents = { helper: { description: 'Helps', prompt: 'Help.' } }
+    const spec: ClaudeCodeRunSpec = {
+      cwd: '/workspace',
+      permissionMode: 'dontAsk',
+      env: {},
+      disposeGraceMs: 17,
+      spawn: () => fakeChild().handle,
+      ultracode: true,
+      agents,
+    }
+    const options = claudeQueryOptions(spec, new AbortController(), () => {}, () => {})
+    expect(options.settings).toEqual({ ultracode: true, enableWorkflows: true })
+    expect(options.allowedTools).toEqual(['Workflow'])
+    expect(options.agents).toBe(agents)
+    expect(options.disallowedTools).toEqual(['AskUserQuestion'])
+    expect(options.canUseTool).toBeTypeOf('function')
+
+    const acceptEdits = claudeQueryOptions(
+      { ...spec, permissionMode: 'acceptEdits' },
+      new AbortController(),
+      () => {},
+      () => {},
+    )
+    expect(acceptEdits.allowedTools).toEqual(['Workflow'])
+
+    for (const permissionMode of ['auto', 'plan', 'bypassPermissions'] as const) {
+      const gated = claudeQueryOptions(
+        { ...spec, permissionMode },
+        new AbortController(),
+        () => {},
+        () => {},
+      )
+      expect(gated.settings).toEqual({ ultracode: true, enableWorkflows: true })
+      expect(gated).not.toHaveProperty('allowedTools')
+    }
+
+    const { ultracode: _ultracode, ...nativeUltracode } = spec
+    const withoutUltracode = claudeQueryOptions(
+      nativeUltracode,
+      new AbortController(),
+      () => {},
+      () => {},
+    )
+    expect(withoutUltracode).not.toHaveProperty('settings')
+    expect(withoutUltracode).not.toHaveProperty('allowedTools')
+    expect(withoutUltracode.agents).toBe(agents)
+
+    const ultracodeOff = claudeQueryOptions(
+      { ...spec, ultracode: false },
+      new AbortController(),
+      () => {},
+      () => {},
+    )
+    expect(ultracodeOff.settings).toEqual({ ultracode: false })
+    expect(ultracodeOff).not.toHaveProperty('allowedTools')
+
+    const withRunOptions = claudeQueryOptions(
+      { ...spec, fastMode: true, effort: 'xhigh' },
+      new AbortController(),
+      () => {},
+      () => {},
+    )
+    expect(withRunOptions.settings).toEqual({ ultracode: true, enableWorkflows: true, fastMode: true })
+    expect(withRunOptions.effort).toBe('xhigh')
+
+    const fastOff = claudeQueryOptions(
+      { ...spec, ultracode: false, fastMode: false },
+      new AbortController(),
+      () => {},
+      () => {},
+    )
+    expect(fastOff.settings).toEqual({ ultracode: false, fastMode: false })
+    expect(fastOff).not.toHaveProperty('effort')
+  })
 
   it('disallows ExitPlanMode before native plan-mode allow rules', () => {
     const child = fakeChild()

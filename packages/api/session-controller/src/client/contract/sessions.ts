@@ -6,7 +6,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { CliTerminalProfileId, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { AgentContext } from '../scope.ts'
@@ -87,6 +87,7 @@ export interface ISessions {
     workspaceId?: WorkspaceId
     cwd?: string
     sessionId?: SessionId
+    cliProfile?: CliTerminalProfileId
   }): Promise<SessionId>
   /**
    * Resolve an already discovered direct-parent address without opening it.

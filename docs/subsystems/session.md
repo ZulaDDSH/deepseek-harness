@@ -23,6 +23,8 @@ interface UserMessage extends MessageBase {
  * compact raw streams so persistence stores one durable settlement per attempt.
  */
 interface SessionEventMap {
+  /** CLI terminal profile the Session hosts. */
+  'session/cli-terminal': { profile: CliTerminalProfileId }
   /**
    * Opens turn `turn` before the loop claims queued input or runs pre-step.
    * Rejection, empty input, cancellation, or failure may close it with no
@@ -780,6 +782,18 @@ Host service backing the generated `ctx.remote.session` namespace.
 
 ```ts cordis-catalog
 /**
+ * Provider routes whose named API-key reference has no configured credential, for Host-side route preflight.
+ * @returns provider route ids that cannot authenticate; empty when credentials cannot be read.
+ */
+missingCredentialProviders(): Promise<readonly string[]>
+
+/**
+ * The global default Orchestrator & Subagent Setup, which a Session without its own setup inherits.
+ * @returns the stored default, or undefined when none is set or the stored value fails {@link subagentSetupSchema}.
+ */
+defaultSubagentSetup(): SubagentSetup | undefined
+
+/**
  * Resolve or resume one ordinary Session for another Host API domain.
  * @param sessionId - Session identity whose Agent owns the operation.
  * @returns the live Agent or the stable Session-domain failure.
@@ -842,6 +856,13 @@ inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionInspectio
  * @returns the stored overrides.
  */
 @Remote('setHookOverrides') setHookOverrides(request: SessionSetHookOverridesRequest): Promise<HookOverrides>
+
+/**
+ * Replace the run options (ultracode, plus fast mode and effort for Claude Code runs) of one Session.
+ * @param request - Session identity and the run options to store.
+ * @returns the stored run options.
+ */
+@Remote('setRunOptions') setRunOptions(request: SessionSetRunOptionsRequest): Promise<SessionRunOptions>
 
 /**
  * Select MCP connector namespaces for one Session.
@@ -970,7 +991,7 @@ workspaceDesktop(): { name: string; available: boolean; fileManager: 'finder' | 
 @Remote({ mode: 'stream' }) control(signal: AbortSignal): AsyncIterable<SessionControlFrame>
 ```
 
-Types: [SessionId](core.md) · [SessionInspection](persistence.md) · [SessionSearchRequest](session-query.md)
+Types: [SessionId](core.md) · [SessionInspection](persistence.md) · [SessionSearchRequest](session-query.md) · [SubagentSetup](subagent.md)
 
 Source: [`packages/api/session-controller/src/index.ts`](../../packages/api/session-controller/src/index.ts)
 

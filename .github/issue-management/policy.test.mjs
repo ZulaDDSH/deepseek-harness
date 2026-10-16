@@ -96,12 +96,7 @@ const projectGraphqlData = ({
 
 const mockGraphql = (t, resolve) => {
   const requests = []
-  const previousToken = process.env.GH_TOKEN
-  process.env.GH_TOKEN = 'test-token'
-  t.after(() => {
-    if (previousToken === undefined) delete process.env.GH_TOKEN
-    else process.env.GH_TOKEN = previousToken
-  })
+  useGhToken(t, 'test-token')
   t.mock.method(globalThis, 'fetch', async (url, options) => {
     assert.equal(url, 'https://api.github.com/graphql')
     assert.equal(options.headers.Authorization, 'Bearer test-token')
@@ -214,7 +209,7 @@ test('structures the pull request template around motivation, changes, and testi
   assert.doesNotMatch(source, /^### /m)
   assert.match(
     source,
-    /<!-- 高层次说明命令[^\n]+ -->\n<!-- 高层次说明用户[^\n]+ -->/,
+    /<!-- Describe at a high level any change to commands[^\n]+ -->\n<!-- Describe at a high level any change to behavior[^\n]+ -->/,
   )
   assert.match(source, /- <!-- [^\n]+ -->\n\n  <details>\n  <summary>Proof<\/summary>/)
   assert.equal(source.match(/<details>/g)?.length, 1)
@@ -256,13 +251,17 @@ test('reserves PR kind and legacy labels for pull requests', () => {
   assert.deepEqual(validateIssue({ ...legalIssue, labels: ['area/web', 'source/member'] }), [])
 })
 
-test('removes reserved labels from Issues before validation', async (t) => {
-  const previousToken = process.env.GH_TOKEN
-  process.env.GH_TOKEN = 'test-token'
+const useGhToken = (t, token) => {
+  const previous = process.env.GH_TOKEN
+  process.env.GH_TOKEN = token
   t.after(() => {
-    if (previousToken === undefined) delete process.env.GH_TOKEN
-    else process.env.GH_TOKEN = previousToken
+    if (previous === undefined) delete process.env.GH_TOKEN
+    else process.env.GH_TOKEN = previous
   })
+}
+
+test('removes reserved labels from Issues before validation', async (t) => {
+  useGhToken(t, 'test-token')
   const requests = []
   t.mock.method(globalThis, 'fetch', async (url, options) => {
     requests.push({ url, method: options.method })
@@ -296,12 +295,7 @@ test('removes reserved labels from Issues before validation', async (t) => {
 })
 
 test('deletes a stale audit comment after repairing its only violation', async (t) => {
-  const previousToken = process.env.GH_TOKEN
-  process.env.GH_TOKEN = 'test-token'
-  t.after(() => {
-    if (previousToken === undefined) delete process.env.GH_TOKEN
-    else process.env.GH_TOKEN = previousToken
-  })
+  useGhToken(t, 'test-token')
   const requests = []
   t.mock.method(globalThis, 'fetch', async (url, options) => {
     requests.push({ url, method: options.method ?? 'GET' })

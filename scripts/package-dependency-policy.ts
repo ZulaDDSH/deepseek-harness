@@ -58,7 +58,7 @@ const SAFE_HOST_DEPENDENCY_EXPORTS = {
 const PEER_REQUIRED_HOST_EXPORTS = {
   '@deepseek-ai/dsh-tools': ['defineTool'],
   '@deepseek-ai/dsh-office-to-pdf': ['OfficeSourceKey'],
-  '@deepseek-ai/dsh-knowledge-router': ['memorixInventory', 'memorixPage', 'memorixStoredChunk'],
+  '@deepseek-ai/dsh-knowledge-router': ['memorixInventory', 'memorixObservations', 'memorixPage', 'memorixRecent', 'memorixStoredChunk', 'registeredToolName'],
   '@deepseek-ai/dsh-home-paths': ['dshHomePath'],
   '@deepseek-ai/dsh-native-command': ['runNativeCommand'],
   '@deepseek-ai/dsh-client-connection': ['OperatorPeer'],
@@ -66,6 +66,7 @@ const PEER_REQUIRED_HOST_EXPORTS = {
   '@deepseek-ai/dsh-scope': ['carrierKeyOf', 'createScope', 'scopeOf', 'scopeTarget'],
   '@deepseek-ai/dsh-session': ['SESSION_FORMAT_VERSION'],
   '@deepseek-ai/dsh-session-persistence': ['SessionPersistenceNotFoundError'],
+  '@deepseek-ai/dsh-agent': ['cliTerminalProfileOf'],
 } as const satisfies HostDependencyExports
 
 /** Exact import specifier to reviewed runtime exports. */

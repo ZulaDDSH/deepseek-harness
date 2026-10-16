@@ -20,6 +20,7 @@ import type {
 import { Context } from '@deepseek-ai/cordis'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { SessionLogOffset, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type {
@@ -35,6 +36,17 @@ import {
   type MessagesBehavior,
   type MessagesFixture,
 } from './messages-fixture.ts'
+
+/** Minimal Session face the runOptions projection fold reads. */
+function fakeSession(cwd: string): Agent['session'] {
+  return {
+    header: { cwd },
+    requestHeader: () => undefined,
+    inheritedEventCount: SessionLogOffset(0),
+    seq: SessionLogOffset(0),
+    snapshotEvents: (): readonly SessionEvent[] => [],
+  } as Agent['session']
+}
 
 const observedSdkMessages = vi.hoisted((): SDKMessage[] => [])
 const sdkTestOverrides = vi.hoisted((): { maxTurns?: number } => ({}))
@@ -211,6 +223,7 @@ async function realHarness(
   behavior: MessagesBehavior,
   permissionMode?: ClaudeCodePermissionMode,
   nativeAllow: readonly string[] = [],
+  extra: Partial<Omit<claudeCode.Config, 'ultracode'>> & { ultracode?: boolean } = {},
 ): Promise<{
   readonly harness: RealHarness
   readonly fixture: MessagesFixture
@@ -220,12 +233,13 @@ async function realHarness(
   await ctx.plugin(claudeCode, {
     env: instance.env,
     ...permissionMode === undefined ? {} : { permissionMode },
+    ...extra,
     disposeGraceMs: 3_000,
   })
   const parent = {
     id: 'real-parent',
-    session: { header: { cwd: instance.workspace } },
-  } as unknown as Agent
+    session: fakeSession(instance.workspace),
+  } as Agent
   return {
     harness: {
       ctx,
@@ -286,7 +300,7 @@ function startRequest(
   })
 }
 
-describe('real Claude Agent SDK 0.3.263 and its distributed Claude Code 2.1.263 fixture', {
+describe('real Claude Agent SDK 0.3.296 and its distributed Claude Code 2.1.296 fixture', {
   timeout: 60_000,
 }, () => {
   it('inherits host settings and sends the exact task and fake key to local Messages', async () => {
@@ -296,13 +310,13 @@ describe('real Claude Agent SDK 0.3.263 and its distributed Claude Code 2.1.263 
       kind: 'complete',
       text: sentinel,
     })
-    expect(sdkPackage.version).toBe('0.3.263')
-    expect(sdkPackage.claudeCodeVersion).toBe('2.1.263')
-    expect(sdkPackage.optionalDependencies[platformPackage]).toBe('0.3.263')
+    expect(sdkPackage.version).toBe('0.3.296')
+    expect(sdkPackage.claudeCodeVersion).toBe('2.1.296')
+    expect(sdkPackage.optionalDependencies[platformPackage]).toBe('0.3.296')
     const version = await execFileAsync(claudeBin, ['--version'], {
       env: { ...process.env, ...harness.env },
     })
-    expect(version.stdout.trim()).toBe('2.1.263 (Claude Code)')
+    expect(version.stdout.trim()).toBe('2.1.296 (Claude Code)')
 
     const run = await startRequest(harness, task)
     await expect(run.result).resolves.toEqual({
@@ -315,7 +329,7 @@ describe('real Claude Agent SDK 0.3.263 and its distributed Claude Code 2.1.263 
       (message): message is SDKSystemMessage =>
         message.type === 'system' && message.subtype === 'init',
     )
-    expect(initMessage?.claude_code_version).toBe('2.1.263')
+    expect(initMessage?.claude_code_version).toBe('2.1.296')
     const spawnedExecutable = harness.spawnSpecs[0]?.argv[0]
     expect(spawnedExecutable).toBeDefined()
     expect(process.platform === 'win32'
@@ -344,6 +358,31 @@ describe('real Claude Agent SDK 0.3.263 and its distributed Claude Code 2.1.263 
         && typeof block.text === 'string')
       .map(block => block.text)
     expect(messageTexts.filter(text => text.includes(task))).toEqual([task])
+    await expectQuiescent(harness.handles)
+  })
+
+  it('starts the real CLI with ultracode and a fixed custom agent and completes', async () => {
+    const sentinel = 'REAL_CLAUDE_CODE_ULTRACODE_SENTINEL'
+    const { harness, fixture } = await realHarness(
+      { kind: 'complete', text: sentinel },
+      undefined,
+      [],
+      {
+        model: 'claude-opus-5-5',
+        ultracode: true,
+        agents: { helper: { description: 'Helps', prompt: 'Help.' } },
+      },
+    )
+    const run = await startRequest(harness, 'Return the fixture sentinel exactly.')
+    await expect(run.result).resolves.toEqual({
+      output: [{ type: 'text', text: sentinel }],
+      stopReason: 'completed',
+    })
+    await run.dispose()
+    expect(fixture.requests).toHaveLength(1)
+    const requestText = JSON.stringify(fixture.requests[0]?.body)
+    expect(requestText).toContain('Ultracode is on:')
+    expect(requestText).toContain('Helps')
     await expectQuiescent(harness.handles)
   })
 
@@ -403,12 +442,12 @@ describe('real Claude Agent SDK 0.3.263 and its distributed Claude Code 2.1.263 
     })
     const safeParent = {
       id: 'safe-parent',
-      session: { header: { cwd: safeInstance.workspace } },
-    } as unknown as Agent
+      session: fakeSession(safeInstance.workspace),
+    } as Agent
     const bypassParent = {
       id: 'bypass-parent',
-      session: { header: { cwd: bypassInstance.workspace } },
-    } as unknown as Agent
+      session: fakeSession(bypassInstance.workspace),
+    } as Agent
     const safeController = new AbortController()
 
     const [safeRun, bypassRun] = await Promise.all([
@@ -548,6 +587,38 @@ describe('real Claude Agent SDK 0.3.263 and its distributed Claude Code 2.1.263 
     expect(fixture.requests).toHaveLength(2)
     expect(JSON.stringify(fixture.requests[1]?.body.messages))
       .toContain('ExitPlanMode is disabled for this session')
+    await run.dispose()
+    await expectQuiescent(harness.handles)
+  })
+
+  it('lets the default dontAsk child run a project .claude/skills skill through the Skill tool', async () => {
+    const { harness, fixture } = await realHarness({
+      kind: 'tool-use',
+      toolName: 'Skill',
+      input: { skill: 'fixture-skill' },
+      finalText: 'skill done',
+    })
+    const skillDir = join(harness.workspace, '.claude', 'skills', 'fixture-skill')
+    mkdirSync(skillDir, { recursive: true })
+    writeFileSync(join(skillDir, 'SKILL.md'), [
+      '---',
+      'name: fixture-skill',
+      'description: Fixture skill for the Skill tool gate',
+      'allowed-tools: Read',
+      '---',
+      '',
+      'SKILL_BODY_SENTINEL',
+      '',
+    ].join('\n'))
+    const run = await startRequest(harness, 'Use the fixture skill.')
+    await expect(run.result).resolves.toEqual({
+      output: [{ type: 'text', text: 'skill done' }],
+      stopReason: 'completed',
+    })
+    expect(fixture.requests).toHaveLength(2)
+    expect(fixture.requests[0]?.body.tools)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ name: 'Skill' })]))
+    expect(JSON.stringify(fixture.requests[1]?.body.messages)).toContain('SKILL_BODY_SENTINEL')
     await run.dispose()
     await expectQuiescent(harness.handles)
   })

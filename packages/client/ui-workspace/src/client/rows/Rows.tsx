@@ -31,8 +31,9 @@ import { WORKSPACE_APPEARANCE_COLORS, WORKSPACE_COLORS, WORKSPACE_ICONS } from '
 import type { WorkspaceAppearance, WorkspaceColor, WorkspaceIcon } from '../appearance.ts'
 import type { ChatSection } from '../stores.ts'
 import type { SectionNode } from '../sections.ts'
-import type { GroupNode, SearchResultNode, SessionNode } from '../tree.ts'
+import type { GroupAttention, GroupNode, SearchResultNode, SessionNode } from '../tree.ts'
 import { WORKSPACE_ICON_GLYPHS } from './WorkspaceIcons.ts'
+import { GroupAttentionDot } from './GroupAttention.tsx'
 import { SessionStatusDots, sessionStatuses } from './SessionStatus.tsx'
 import css from './Rows.module.css'
 
@@ -538,16 +539,19 @@ function rowHalf(e: { clientY: number; currentTarget: HTMLElement }): 'before' |
  * @param props.actions - real-Workspace menu verbs; absent for the ungrouped bucket.
  * @param props.appearance - the Workspace's chosen color and icon.
  * @param props.drag - optional workspace-row drag wiring.
+ * @param props.attention - folded attention to mark on a collapsed row.
  * @param props.home - host account home for POSIX hover-path abbreviation.
  * @param props.newShortcut - the New Session binding shown on the create button's tooltip.
  * @param props.t - the browser root's locale seat.
  * @returns the row element.
  */
 export function ProjectRowItem({
-  group, containsCurrentDescendant = false, onToggle, onCreate, actions, appearance, drag, home, newShortcut, t,
+  group, containsCurrentDescendant = false, onToggle, onCreate, actions, appearance, drag, attention, home, newShortcut, t,
 }: {
   group: GroupNode
   newShortcut?: ShortcutCatalogEntry | undefined
+  /** Folded attention for a collapsed row; absent when nothing folded needs the user. */
+  attention?: GroupAttention | undefined
   containsCurrentDescendant?: boolean
   onToggle: () => void
   onCreate: () => void
@@ -585,6 +589,16 @@ export function ProjectRowItem({
     { id: 'rename', label: t('rename'), icon: <IconEditOutlineRegular /> },
     { id: 'delete', label: t('delete.workspace'), icon: <IconTrashOutlineRegular />, danger: true },
   ]
+  const selectWorkspaceMenuRow = (id: string): void => {
+    if (actions === undefined) return
+    // Unknown ids leave before the dispatch: a future menu row must
+    // not inherit the destructive branch as an else fallback.
+    if (id === 'appearance') actions.appearance()
+    else if (id.startsWith('appearance.color.')) actions.appearanceColor(workspaceColorOf(id))
+    else if (id.startsWith('appearance.icon.')) actions.appearanceIcon(workspaceIconOf(id))
+    else if (id === 'rename') actions.rename()
+    else actions.delete()
+  }
   const ownRow = (
     <div
       className={clsx(css.projectRow, menuOpen && css.menuOpen)}
@@ -623,22 +637,14 @@ export function ProjectRowItem({
       <span className={css.projectText}>
         <span className={css.title}>{label}</span>
       </span>
+      {attention !== undefined && <GroupAttentionDot attention={attention} t={t} />}
       <span className={css.rowActions}>
         {actions !== undefined && (
           <Menu
             open={menuOpen}
             onClose={() => { setMenuOpen(false) }}
             items={workspaceMenuItems}
-            onSelect={(id) => {
-              setMenuOpen(false)
-              // Unknown ids leave before the dispatch: a future menu row must
-              // not inherit the destructive branch as an else fallback.
-              if (id === 'appearance') actions.appearance()
-              else if (id.startsWith('appearance.color.')) actions.appearanceColor(workspaceColorOf(id))
-              else if (id.startsWith('appearance.icon.')) actions.appearanceIcon(workspaceIconOf(id))
-              else if (id === 'rename') actions.rename()
-              else actions.delete()
-            }}
+            onSelect={(id) => { setMenuOpen(false); selectWorkspaceMenuRow(id) }}
             portal
             closeOnPointerLeave
             anchor={(
@@ -670,14 +676,7 @@ export function ProjectRowItem({
           open
           onClose={() => { setContextMenu(null) }}
           items={workspaceMenuItems}
-          onSelect={(id) => {
-            setContextMenu(null)
-            if (id === 'appearance') actions.appearance()
-            else if (id.startsWith('appearance.color.')) actions.appearanceColor(workspaceColorOf(id))
-            else if (id.startsWith('appearance.icon.')) actions.appearanceIcon(workspaceIconOf(id))
-            else if (id === 'rename') actions.rename()
-            else actions.delete()
-          }}
+          onSelect={(id) => { setContextMenu(null); selectWorkspaceMenuRow(id) }}
           portal
           getAnchorRect={() => DOMRect.fromRect({ x: contextMenu.x, y: contextMenu.y })}
           anchor={<span className={css.contextAnchor} />}

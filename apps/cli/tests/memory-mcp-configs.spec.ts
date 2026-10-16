@@ -40,7 +40,7 @@ const examples: ExampleContract[] = [
     id: 'memory-memorix',
     serverName: 'memorix',
     transport: 'stdio',
-    pin: '1.3.0',
+    pin: '1.9.10',
   },
   {
     file: 'mcp-reference-memory.cordis.yml',

@@ -31,8 +31,13 @@ afterEach(async () => {
 async function temporary(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), 'dsh-memory-workspace-'))
   directories.push(directory)
+  vi.stubEnv('DSH_HOME', join(directory, 'dsh'))
   return directory
 }
+
+const BOUND = { content: [{ type: 'text', text: 'Session bound' }] }
+const bindingFirst = (call: McpHumanOperations['call']): McpHumanOperations['call'] =>
+  (name, args, signal) => name === 'memorix_session_start' ? Promise.resolve(BOUND) : call(name, args, signal)
 
 function createDatabase(directory: string): DatabaseSync {
   const db = new DatabaseSync(join(directory, 'memorix.db'))
@@ -45,7 +50,13 @@ function createDatabase(directory: string): DatabaseSync {
   return db
 }
 
-async function connect(config: Partial<Config>, provider?: McpHumanOperations): Promise<Context> {
+function addDocument(directory: string): void {
+  const db = new DatabaseSync(join(directory, 'memorix.db'))
+  db.prepare('INSERT INTO observations(title, narrative, topicKey) VALUES (?, ?, ?)').run('guide.md (1/1)', 'text', 'document:abc:part:1')
+  db.close()
+}
+
+async function connect(config: Partial<Omit<Config, 'chatMemory'>>, provider?: McpHumanOperations): Promise<Context> {
   const ctx = new Context()
   roots.push(ctx)
   if (provider !== undefined) registerHumanOperations(ctx, 'memorix', provider)
@@ -63,15 +74,20 @@ function refused(reason: string): Promise<never> {
   return settled.promise
 }
 
-async function setup(persist = true): Promise<{ ctx: Context; directory: string }> {
+async function setup(persist = true): Promise<{ ctx: Context; directory: string; bindings: unknown[] }> {
   const directory = await temporary()
   const db = createDatabase(directory)
   const ctx = new Context()
   roots.push(ctx)
+  const bindings: unknown[] = []
   ctx.effect(() => () => { db.close() })
   registerHumanOperations(ctx, 'memorix', {
     local: true, cwd: directory, env: { MEMORIX_DATA_DIR: directory },
     call: async (name, args) => {
+      if (name === 'memorix_session_start') {
+        bindings.push(args.projectRoot)
+        return BOUND
+      }
       expect(name).toBe('memorix_store')
       if (persist) db.prepare('INSERT INTO observations(title, narrative, topicKey) VALUES (?, ?, ?) ON CONFLICT(topicKey) DO UPDATE SET narrative=excluded.narrative').run(
         z.string().parse(args.title), z.string().parse(args.narrative), z.string().parse(args.topicKey))
@@ -80,12 +96,12 @@ async function setup(persist = true): Promise<{ ctx: Context; directory: string 
     },
   })
   await ctx.plugin(MemoryWorkspace, { chunkCharacters: 3, importDirectory: join(directory, 'documents') })
-  return { ctx, directory }
+  return { ctx, directory, bindings }
 }
 
 describe('Memory workspace', () => {
   it('imports a workspace-relative file through the registered agent tool and honors cancellation', async () => {
-    const { ctx, directory } = await setup()
+    const { ctx, directory, bindings } = await setup()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(LocalFileSystem)
@@ -111,7 +127,9 @@ describe('Memory workspace', () => {
       ]
     `)
     expect(saved).toMatchObject({ filename: 'guide.md', completed: 4, total: 4, error: null })
-    expect((await ctx.memoryWorkspace.page('observations', 0, '')).total).toBe(4)
+    expect(bindings).toEqual([expect.stringContaining(join(directory, 'dsh', 'memorix-roots'))])
+    expect(bindings[0]).not.toBe(join(directory, 'dsh', 'memorix-roots', 'documents'))
+    expect((await ctx.memoryWorkspace.page('observations', 0, '', 'all')).total).toBe(4)
     const aborted = AbortSignal.abort()
     await expect(tool!.execute({ path: 'guide.md' }, { ...exec, signal: aborted })).rejects.toThrow()
     const unowned = { ...exec }
@@ -120,14 +138,30 @@ describe('Memory workspace', () => {
   })
 
   it('uses the connected provider storage and verifies every document chunk and retry', async () => {
-    const { ctx } = await setup()
+    const { ctx, directory, bindings } = await setup()
     const text = 'full😀 document'
     const result = await ctx.memoryWorkspace.importDocument('../guide.md', Buffer.from(text).toString('base64'))
     expect(result).toMatchObject({ completed: 5, total: 5, error: null })
+    expect(bindings).toEqual([join(directory, 'dsh', 'memorix-roots', 'documents')])
+    expect(await readFile(join(directory, 'dsh', 'memorix-roots', 'documents', '.git', 'HEAD'), 'utf8')).toBe('ref: refs/heads/main\n')
     expect(await readFile(result.originalPath, 'utf8')).toBe(text)
-    expect((await ctx.memoryWorkspace.page('observations', 0, '')).total).toBe(5)
+    expect((await ctx.memoryWorkspace.page('observations', 0, '', 'all')).total).toBe(5)
     expect((await ctx.memoryWorkspace.importDocument('guide.md', Buffer.from(text).toString('base64'))).completed).toBe(5)
-    expect((await ctx.memoryWorkspace.page('observations', 0, '')).total).toBe(5)
+    expect((await ctx.memoryWorkspace.page('observations', 0, '', 'all')).total).toBe(5)
+  })
+
+  it('reports a failed project binding as the import error instead of storing into another project', async () => {
+    const directory = await temporary()
+    const stored: string[] = []
+    const ctx = await connect({ importDirectory: join(directory, 'documents') }, localProvider(directory, async (name) => {
+      if (name === 'memorix_session_start') return { isError: true, content: [{ type: 'text', text: 'No git repository found' }] }
+      stored.push(name)
+      return {}
+    }))
+    expect(await ctx.memoryWorkspace.importDocument('note.md', encode('note'))).toMatchObject({
+      completed: 0, total: 1, error: 'Memorix rejected this workspace binding: No git repository found',
+    })
+    expect(stored).toEqual([])
   })
 
   it('reports a failed read-back without claiming import success', async () => {
@@ -141,6 +175,7 @@ describe('Memory workspace', () => {
     const { ctx, directory } = await setup()
     const graphPath = join(directory, 'graph.json')
     await writeFile(graphPath, JSON.stringify({ nodes: [{ id: 'a', label: 'Guide', source_file: 'guide.md' }, { id: 'b' }], links: [{ source: 'a', target: 'b', relation: 'references' }] }))
+    addDocument(directory)
     const graphCtx = new Context()
     roots.push(graphCtx)
     registerHumanOperations(graphCtx, 'memorix', { local: true, cwd: directory, env: { MEMORIX_DATA_DIR: directory }, call: async () => ({}) })
@@ -167,6 +202,59 @@ describe('Memory workspace provider access', () => {
     await expect(remote.memoryWorkspace.inventory()).rejects.toThrow('explicit local database path')
   })
 
+  it('tells the user which client to mount, or what state a mounted but unavailable client is in', async () => {
+    const missing = await connect({ memorixServer: 'notes' })
+    await expect(missing.memoryWorkspace.page('observations', 0, '', 'all')).rejects.toThrow(
+      /Memorix is not connected: no MCP client named "notes".*serverName: notes.*memorixServer on ui-memory-workspace/)
+    const unavailable = await connect({})
+    unavailable.on('mcp-client/inventory', (reports) => { reports.push({ serverName: 'memorix', state: 'failed', toolCount: 0, error: 'spawn ENOENT' }) })
+    await expect(unavailable.memoryWorkspace.inventory()).rejects.toThrow(/"memorix" is failed \(spawn ENOENT\).*Mount it globally/)
+  })
+
+  it('reports an absent local database with the path and the setting that changes it', async () => {
+    const directory = await temporary()
+    const ctx = await connect({}, localProvider(directory))
+    await expect(ctx.memoryWorkspace.inventory()).rejects.toThrow(`Memorix database not found at ${join(directory, 'memorix.db')}`)
+  })
+
+  it('filters the browser by saved memories and imported documents', async () => {
+    const directory = await temporary()
+    const db = createDatabase(directory)
+    db.prepare('INSERT INTO observations(title, narrative, topicKey) VALUES (?, ?, ?)').run('guide (1/1)', 'text', 'document:abc:part:1')
+    db.prepare('INSERT INTO observations(title, narrative, topicKey) VALUES (?, ?, ?)').run('decision', 'use sqlite', 'decisions/db')
+    db.close()
+    const ctx = await connect({}, localProvider(directory))
+    expect((await ctx.memoryWorkspace.page('observations', 0, '', 'memories')).rows.map(row => row.title)).toEqual(['decision'])
+    expect((await ctx.memoryWorkspace.page('observations', 0, '', 'documents')).rows.map(row => row.title)).toEqual(['guide (1/1)'])
+    expect((await ctx.memoryWorkspace.page('observations', 0, '', 'all')).total).toBe(2)
+  })
+
+  it('names the Graphify setting when the launcher is missing or the adapter fails', async () => {
+    const directory = await temporary()
+    createDatabase(directory).close()
+    addDocument(directory)
+    const ctx = await connect({ graphifyCommand: 'graphify-missing' }, localProvider(directory))
+    vi.mocked(runNativeCommand).mockRejectedValueOnce(Object.assign(new Error('spawn graphify-missing ENOENT'), { code: 'ENOENT' }))
+    const failure = ctx.memoryWorkspace.graph()
+    await expect(failure).rejects.toThrow(/Graphify could not start: "graphify-missing" was not found.*graphifyCommand.*graphifyArgs/)
+    vi.mocked(runNativeCommand).mockRejectedValueOnce(Object.assign(new Error('Command failed'), { stderr: 'usage: graphify [-h]\nerror: argument command: invalid choice: memorix' }))
+    await expect(ctx.memoryWorkspace.graph()).rejects.toThrow('Graphify failed: usage: graphify [-h]\nerror: argument command: invalid choice: memorix\nSet graphifyCommand')
+  })
+
+  it('does not allocate the configured export limit to read a small export', async () => {
+    const directory = await temporary()
+    createDatabase(directory).close()
+    addDocument(directory)
+    const graphPath = join(directory, 'graph.json')
+    await writeFile(graphPath, '{}')
+    await writeFile(join(directory, 'graph.html'), '<html>small</html>')
+    const ctx = await connect({ graphPath, maxGraphBytes: 4 * 1024 * 1024 * 1024 }, localProvider(directory))
+    const allocate = vi.spyOn(Buffer, 'alloc')
+    expect((await ctx.memoryWorkspace.graph()).html).toBe('<html>small</html>')
+    expect(allocate.mock.calls.every(([size]) => size < 1024 * 1024)).toBe(true)
+    allocate.mockRestore()
+  })
+
   it('browses an explicit database for a remote provider', async () => {
     const directory = await temporary()
     createDatabase(directory).close()
@@ -188,6 +276,7 @@ describe('Memory workspace provider access', () => {
   it('serves the default graph location and recovers after a failed rebuild', async () => {
     const directory = await temporary()
     createDatabase(directory).close()
+    addDocument(directory)
     const imports = join(directory, 'imports')
     const ctx = await connect({ importDirectory: imports }, localProvider(directory))
     await expect(ctx.memoryWorkspace.graph()).rejects.toThrow()
@@ -195,7 +284,16 @@ describe('Memory workspace provider access', () => {
     await mkdir(output, { recursive: true })
     await writeFile(join(output, 'graph.json'), '{}')
     await writeFile(join(output, 'graph.html'), '<html></html>')
-    expect(await ctx.memoryWorkspace.graph()).toEqual({ path: resolve(output, 'graph.json'), html: '<html></html>' })
+    expect(await ctx.memoryWorkspace.graph()).toEqual({ path: resolve(output, 'graph.json'), html: '<html></html>', documents: 1 })
+  })
+
+  it('returns an empty graph without running Graphify while no document is imported', async () => {
+    const directory = await temporary()
+    createDatabase(directory).close()
+    const ctx = await connect({ graphifyCommand: 'graphify-missing', importDirectory: join(directory, 'imports') }, localProvider(directory))
+    vi.mocked(runNativeCommand).mockClear()
+    expect(await ctx.memoryWorkspace.graph()).toEqual({ path: resolve(directory, 'imports', 'graphify-out', 'graph.json'), html: '', documents: 0 })
+    expect(runNativeCommand).not.toHaveBeenCalled()
   })
 })
 
@@ -224,7 +322,7 @@ describe('Memory workspace import safeguards', () => {
     ['a non-Error rejection', () => refused('refused'), 'Document import failed'],
   ])('reports %s without claiming success', async (_name, call, error) => {
     const directory = await temporary()
-    const ctx = await connect({ importDirectory: join(directory, 'documents') }, localProvider(directory, call))
+    const ctx = await connect({ importDirectory: join(directory, 'documents') }, localProvider(directory, bindingFirst(call)))
     expect(await ctx.memoryWorkspace.importDocument('note.md', encode('note'))).toMatchObject({ completed: 0, total: 1, error })
   })
 })

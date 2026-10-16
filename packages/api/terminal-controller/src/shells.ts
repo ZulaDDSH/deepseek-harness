@@ -3,6 +3,23 @@ import { SubprocessExecutableNotFoundError, type SubprocessRuntime } from '@deep
 import type { TerminalShell } from './types.ts'
 
 /**
+ * Check whether a CLI command resolves on the execution environment's PATH.
+ * @param subprocess - target execution provider.
+ * @param command - program name from a CLI terminal profile.
+ * @param signal - check cancellation.
+ * @returns true when the executable resolves; false for a confirmed lookup miss.
+ */
+export async function executableInstalled(subprocess: SubprocessRuntime, command: string, signal: AbortSignal): Promise<boolean> {
+  try {
+    await subprocess.resolveExecutable(command, undefined, signal)
+    return true
+  } catch (error) {
+    if (error instanceof SubprocessExecutableNotFoundError) return false
+    throw error
+  }
+}
+
+/**
  * Resolve the configured shell or the execution environment's default shell.
  * @param subprocess - target execution provider.
  * @param configured - optional profile overriding the environment's default shell.

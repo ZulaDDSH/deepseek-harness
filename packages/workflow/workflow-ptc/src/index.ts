@@ -13,6 +13,7 @@ import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import z from '@deepseek-ai/schemastery'
 import WorkflowEngine, { WorkflowError, WorkflowRunId } from '@deepseek-ai/dsh-workflow'
 import type { WorkflowRun, WorkflowRunInfo, WorkflowStartRequest } from '@deepseek-ai/dsh-workflow'
+import { CLAUDE_CLI_PROVIDER } from '@deepseek-ai/dsh-tool-subagent'
 import { PtcWorkflowRun } from './host.ts'
 import { validateMeta } from './meta.ts'
 import type { WorkerInit, WorkerLimits } from './types.ts'
@@ -32,6 +33,8 @@ export type {
 export interface Config {
   /** The `ctx.subagents` provider children run on (default `spawn`). */
   provider?: string
+  /** Provider that runs Claude-subscription roles; keep it equal to the subagent tool's `claudeCliProvider` (default `claude-code`). */
+  claudeCliProvider?: string
   /** Concurrent `agent()` ceiling; `0` (the default) auto-resolves to `min(16, max(1, cores - 2))`. */
   maxConcurrentAgents?: number
   /** Total `agent()` calls one run may start — the runaway-loop backstop (default 1000). */
@@ -104,6 +107,7 @@ class PtcWorkflowEngine extends WorkflowEngine {
 
   static Config: z<Config> = z.object({
     provider: z.string().default('spawn'),
+    claudeCliProvider: z.string().min(1).default(CLAUDE_CLI_PROVIDER),
     maxConcurrentAgents: z.natural().default(0),
     maxTotalAgents: z.natural().min(1).default(1000),
     maxItemsPerCall: z.natural().min(1).default(4096),
@@ -137,10 +141,14 @@ class PtcWorkflowEngine extends WorkflowEngine {
     const maxTotalAgents = resolveMaxTotalAgents(request.maxTotalAgents, this.config.maxTotalAgents)
     const id = WorkflowRunId(randomUUID())
     const info: WorkflowRunInfo = { id, meta }
+    // Captured service handles keep a holder-owned run usable after engine unload.
+    const runCtx = this.ctx
+    const subagents = runCtx.subagents
+    const configuredConcurrency = this.config.maxConcurrentAgents === 0
+      ? Math.min(16, Math.max(1, availableParallelism() - 2))
+      : this.config.maxConcurrentAgents
     const limits: WorkerLimits = {
-      maxConcurrentAgents: this.config.maxConcurrentAgents === 0
-        ? Math.min(16, Math.max(1, availableParallelism() - 2))
-        : this.config.maxConcurrentAgents,
+      maxConcurrentAgents: Math.min(configuredConcurrency, subagents.activeSubagentLimit()),
       maxTotalAgents,
       maxItemsPerCall: this.config.maxItemsPerCall,
       syncTimeoutMs: this.config.syncTimeoutMs,
@@ -151,9 +159,6 @@ class PtcWorkflowEngine extends WorkflowEngine {
       ...request.args !== undefined ? { args: structuredClone(request.args) } : {},
       limits,
     }
-    // Captured service handles keep a holder-owned run usable after engine unload.
-    const runCtx = this.ctx
-    const subagents = runCtx.subagents
     const run = new PtcWorkflowRun(
       runCtx,
       subagents,
@@ -163,6 +168,7 @@ class PtcWorkflowEngine extends WorkflowEngine {
       request.parent,
       init,
       subagentProvider,
+      this.config.claudeCliProvider,
       runCtx.sandboxPolicy.resolve({ session: request.parent.session }),
       {
         phase: (title) => { this.emitWorkflowEvent('workflow/phase', info, title) },

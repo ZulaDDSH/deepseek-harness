@@ -35,6 +35,7 @@ export function WebRow({ toolName, block, inspect, useDisclosure, t }: WebRowPro
       web={web}
       href={webFetchHref(block)}
       state={model.state}
+      startedAt={model.startedAt}
       inspect={inspect}
     />
   )

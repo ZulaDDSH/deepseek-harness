@@ -138,13 +138,18 @@ export class AuthorizationController extends TypertRemoteService {
   async list(): Promise<AuthorizationEntryView[]> {
     const authorization = this.service()
     const entries = authorization.list()
-    return Promise.all(entries.map(async entry => ({
-      key: entry.key,
-      label: entry.label,
-      methods: entry.methods.map(method => ({ id: method.id, label: method.label })),
-      inFlight: entry.inFlight,
-      configured: (await this.ctx.get('credentials')?.describeRecord(entry.key))?.configured ?? false,
-    })))
+    return Promise.all(entries.map(async (entry) => {
+      const stored = await this.ctx.get('credentials')?.describeRecord(entry.key)
+      return {
+        key: entry.key,
+        label: entry.label,
+        methods: entry.methods.map(method => ({ id: method.id, label: method.label })),
+        inFlight: entry.inFlight,
+        configured: stored?.configured ?? false,
+        ...stored?.kind === undefined ? {} : { kind: stored.kind },
+        ...entry.borrowedFrom === undefined ? {} : { borrowedFrom: entry.borrowedFrom },
+      }
+    }))
   }
 
   /**

@@ -8,7 +8,7 @@ describe('quota provider registry', () => {
   it('uses the native fetch implementation and falls back to numeric CNY credit', async () => {
     const fetcher = vi.fn(async () => Response.json({ balance_infos: [{ currency: 'CNY', total_balance: 3 }] }))
     vi.stubGlobal('fetch', fetcher)
-    await expect(createQuotaProviderRegistry().get('deepseek')?.fetch(credential))
+    await expect(createQuotaProviderRegistry().get('deepseek-official')?.fetch(credential))
       .resolves.toMatchObject({ ok: true, windows: { credits: { valueLabel: '¥3.00' } } })
     fetcher.mockResolvedValueOnce(Response.json({ usage: { rolling: { percent: 110 }, weekly: { percent: -10 } } }))
     await expect(createQuotaProviderRegistry().get('opencode-go')?.fetch(credential))
@@ -18,7 +18,7 @@ describe('quota provider registry', () => {
   it.each([{}, { balance_infos: [] }, { balance_infos: [{ currency: 'EUR', total_balance: 1 }] },
     ...['', 'not-money', null].map(total_balance => ({ balance_infos: [{ currency: 'USD', total_balance }] })),
   ])('reports unparseable DeepSeek balance %j', async (payload) => {
-    await expect(createQuotaProviderRegistry().get('deepseek')?.fetch(credential, async () => Response.json(payload)))
+    await expect(createQuotaProviderRegistry().get('deepseek-official')?.fetch(credential, async () => Response.json(payload)))
       .resolves.toMatchObject({ ok: false, error: 'DeepSeek quota data could not be parsed' })
   })
 
@@ -35,7 +35,7 @@ describe('quota provider registry', () => {
     }))).resolves.toMatchObject({ ok: true, windows: { '5h': { usedPercent: null, resetAt: Date.parse('2026-09-18T12:00:00Z') } } })
   })
 
-  it.each(['deepseek', 'opencode-go'])('reports HTTP and transport failures for %s', async (id) => {
+  it.each(['deepseek-official', 'opencode-go'])('reports HTTP and transport failures for %s', async (id) => {
     const provider = createQuotaProviderRegistry().get(id)
     for (const status of [401, 403, 500]) {
       const result = await provider?.fetch(credential, async () => new Response('', { status }))
@@ -50,12 +50,12 @@ describe('quota provider registry', () => {
 
   it('includes the built-in DeepSeek and OpenCode Go providers', () => {
     const registry = createQuotaProviderRegistry()
-    expect([...registry.keys()]).toEqual(['deepseek', 'opencode-go'])
+    expect([...registry.keys()]).toEqual(['deepseek-official', 'opencode-go'])
   })
 
   it('normalizes DeepSeek balance into a credits window', async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ balance_infos: [{ currency: 'USD', total_balance: '12.5' }] }), { status: 200 }))
-    const provider = createQuotaProviderRegistry().get('deepseek')
+    const provider = createQuotaProviderRegistry().get('deepseek-official')
     expect(provider).toBeDefined()
     const result = await provider?.fetch(credential, fetcher)
     expect(result).toMatchObject({ ok: true, windows: { credits: { valueLabel: '$12.50' } } })

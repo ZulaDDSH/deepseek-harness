@@ -81,7 +81,7 @@ afterEach(async () => {
 })
 
 describe('pi-ai login flows', () => {
-  it('offers one flow per installed provider, with the methods that provider ships', async () => {
+  it('offers one flow per installed provider, with every method that provider ships', async () => {
     const ctx = await harness()
     const offered = ctx.authorization.list()
 
@@ -96,6 +96,33 @@ describe('pi-ai login flows', () => {
     // through its own prompt rather than leaving it to the settings form.
     expect(offered.find(entry => entry.key === recordKeyFor('deepseek'))?.methods.map(one => one.id))
       .toEqual(['api-key'])
+  })
+
+  it('names the other product behind each borrowed login and no other', async () => {
+    const ctx = await harness()
+    const offered = ctx.authorization.list()
+
+    expect(offered.find(entry => entry.key === CODEX)?.borrowedFrom).toBe('Codex')
+    expect(offered.find(entry => entry.key === recordKeyFor('anthropic'))?.borrowedFrom).toBe('Claude Code')
+    expect(offered.find(entry => entry.key === recordKeyFor('github-copilot'))?.borrowedFrom)
+      .toBe('GitHub Copilot Chat')
+    expect(offered.find(entry => entry.key === recordKeyFor('kimi-coding'))?.borrowedFrom).toBe('Kimi Code')
+    expect(offered.find(entry => entry.key === recordKeyFor('xai'))?.borrowedFrom).toBe('Grok CLI')
+    expect(offered.find(entry => entry.key === recordKeyFor('openai'))?.borrowedFrom).toBeUndefined()
+  })
+
+  it('offers xAI its OAuth method alongside its API key login', async () => {
+    const ctx = await harness()
+    expect(ctx.authorization.list().find(entry => entry.key === recordKeyFor('xai'))?.methods.map(one => one.id))
+      .toEqual(['oauth', 'api-key'])
+  })
+
+  it('keeps a stored borrowed-login credential readable through the store', async () => {
+    const ctx = await harness()
+    const granted: Credential = { type: 'oauth', access: 'at', refresh: 'rt', expires: 1 }
+    await credentialStoreFrom(ctx).modify('openai-codex', () => Promise.resolve(granted))
+
+    await expect(credentialStoreFrom(ctx).read('openai-codex')).resolves.toEqual(granted)
   })
 
   it('runs the pi-ai auth type the chosen method names', async () => {

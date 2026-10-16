@@ -353,13 +353,9 @@ vi.mock('../src/platform-view.ts', async importOriginal => ({
 }))
 vi.mock('../src/welcome-backend.ts', () => ({
   connectDesktopWelcome: async () => ({
-    analyticsEnabled: async () => harness.analyticsEnabled,
-    report: harness.analytics,
-    readLocalePreference: async () => null,
-    read: async (): Promise<unknown> => (await harness.hosts.at(-1)!.fetch()).json() as Promise<unknown>,
-    save: async () => ({ ok: true }),
-    account: { watch: harness.watchAccount, state: async () => ({ status: 'signed-out', attempt: null }) },
-  }),
+    analyticsEnabled: async () => harness.analyticsEnabled, report: harness.analytics,
+    readLocalePreference: async () => (await (await harness.hosts.at(-1)!.fetch()).json() as { localePreference: string }).localePreference,
+    account: { watch: harness.watchAccount, state: async () => ({ status: 'signed-out', attempt: null }) } }),
 }))
 
 function invoke(channel: string, origin = channel === DESKTOP_IPC.boot ? 'app' : 'shell', ...args: unknown[]): unknown {
@@ -919,37 +915,10 @@ describe('desktop main startup', () => {
     expect(callback).toHaveBeenLastCalledWith({})
   })
 
-  it('shares login key discovery with onboarding and rejects foreign renderers', async () => {
+  it('opens the workspace directly for a signed-out account without a configured key', async () => {
     await readyForUpdate()
-    const window = harness.windows[0]!
-    const handler = harness.handlers.get(DESKTOP_IPC.onboardingApiKey)!
-    const event = { sender: window.webContents, senderFrame: window.webContents.mainFrame }
-    await vi.waitFor(async () => { expect(await handler(event)).toBe(true) })
-    harness.hosts.at(-1)!.fetch.mockResolvedValueOnce(Response.json({ hasApiKey: false }))
-    await expect(handler(event)).resolves.toBe(false)
-    await expect(handler({ ...event, sender: {} })).rejects.toThrow()
-  })
-
-  it('enlarges only an active onboarding window and keeps its size after completion', async () => {
-    await import('../src/main.ts')
-    await harness.preparing.promise
-    const window = harness.windows[0]!
-    const listener = harness.ipcOn.mock.calls.find(([channel]) => channel === DESKTOP_IPC.onboardingActive)![1]
-    const event = { sender: window.webContents, senderFrame: window.webContents.mainFrame }
-    expect(window.setMinimumSize).not.toHaveBeenCalled()
-    listener({ ...event, sender: {} }, true)
-    listener(event, 'true')
-    expect(window.setMinimumSize).not.toHaveBeenCalled()
-    listener(event, true)
-    expect(window.setMinimumSize).toHaveBeenLastCalledWith(960, 600)
-    expect(window.setSize).toHaveBeenLastCalledWith(960, 700)
-    window.setSize.mockClear()
-    window.getBounds.mockReturnValue({ x: 0, y: 0, width: 1200, height: 800 })
-    listener(event, true)
-    expect(window.setSize).not.toHaveBeenCalled()
-    listener(event, false)
-    expect(window.setMinimumSize).toHaveBeenLastCalledWith(520, 600)
-    expect(window.setSize).not.toHaveBeenCalled()
+    expect(harness.windows).toHaveLength(1)
+    expect(harness.windows[0]!.urls).toEqual(['dsh-app://app/'])
   })
 
   it('registers the window-owned directory picker during startup and rejects foreign callers', async () => {

@@ -72,11 +72,7 @@ import {
 import type { SessionFormatEvent } from '@deepseek-ai/dsh-session-format'
 import { sessionFormatCatalog } from '@deepseek-ai/dsh-session-format-catalog'
 import {
-  SESSION_FORMAT_VERSION,
-  SessionId,
-  type Session,
-  type SessionEvent,
-  type SessionHeader,
+  SESSION_FORMAT_VERSION, SessionId, type Session, type SessionEvent, type SessionHeader,
 } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 // Empty type imports carry the webServer/agents/sessionPersistence Context merges.
@@ -85,6 +81,7 @@ import type {} from '@deepseek-ai/dsh-agent'
 import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
 import { startPrefixProxy, type PrefixProxy } from './prefix-proxy.ts'
 import { REPO_ROOT, requireBuilt, requireDist } from './support.ts'
+import { pinSkillRootEnvironment } from './skill-root-environment.ts'
 
 type AppBoot = typeof import('@deepseek-ai/dsh-app-boot')
 let builtAppBoot: AppBoot | undefined
@@ -101,26 +98,8 @@ function appBoot(): AppBoot {
   return builtAppBoot
 }
 
-// Host-side web e2e cannot import a browser package: doing so would pull that
-// package's complete TS project into this graph. Mirrored from
-// packages/client/ui-settings-models/src/onboarding-copy.ts; drift makes the
-// default pre-acknowledgement stop suppressing the notice and fails loudly.
-// import {
-//   WELCOME_NOTICE_ACK_FIELD, WELCOME_NOTICE_SETTINGS_NAMESPACE,
-//   WELCOME_NOTICE_VERSION, WELCOME_NOTICE_COPY,
-// } from '@deepseek-ai/dsh-client-ui-settings-models'
-export const WELCOME_NOTICE_SETTINGS_NAMESPACE = 'ui-settings-general'
 /** The installed bundle carrying the scaffold's deployment defaults; the plugin manager lists it beside fixture bundles. */
 export const SCAFFOLD_DEFAULTS_BUNDLE = 'dsh-web-scaffold-defaults'
-export const WELCOME_NOTICE_ACK_FIELD = 'welcomeNoticeVersion'
-export const WELCOME_NOTICE_VERSION = '2026-09-28.1'
-export const WELCOME_NOTICE_COPY = {
-  zh: {
-    title: '预览版说明',
-    body: 'DeepSeek Harness 目前的 0.2 版本仍处于预览阶段，还有许多地方需要持续改进和打磨，希望听取广大开发者和用户的反馈建议。现在，新的桌面端面向广泛用户，开发者相关的进阶功能可在配置中开启使用。预计 DeepSeek Harness 的产品功能以及插件 API 都会继续快速迭代、持续演化，并逐渐趋于稳定。\n\n我们期待与全球用户和开发者一起，在开源、可复用、可组合的基础设施之上，共同探索智能上限。欢迎大家用 DeepSeek Harness 将想法变成现实，与社区一起丰富插件生态。',
-    continueLabel: '继续',
-  },
-} as const
 
 /** Snapshot mode for the lane, from $DSH_SNAPSHOT (same vocabulary as the other snapshot suites). */
 export type WebSnapshotMode = 'replay' | 'record' | 'refresh'
@@ -395,8 +374,6 @@ export interface LaunchOptions {
    * keyless first-run configuration lane; the default disables the adapter.
    */
   deepSeekMissingCredential?: boolean
-  /** Leave the current welcome notice pending; ordinary scenarios pre-acknowledge it before browser boot. */
-  welcomeNoticePending?: boolean
   /** Leave first-use Workspace initialization eligible; ordinary scenarios start after the default was removed. */
   firstUse?: boolean
   /**
@@ -517,24 +494,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   // the resolved harness home so a scaffold sharing another's home — the
   // cross-port persistence scenario — pins the same roots the settings and
   // credentials rows were configured with.
-  const skillRootEnvironment = {
-    DSH_HOME: harnessHome,
-    DSH_AGENTS_HOME: join(workspaceCwd, '.agents-home'),
-    DSH_BUNDLED_SKILL_DIR: join(workspaceCwd, '.bundled-skills'),
-  }
-  const originalSkillRootEnvironment = Object.fromEntries(
-    Object.keys(skillRootEnvironment).map(key => [key, process.env[key]]),
-  )
-  let skillRootEnvironmentRestored = false
-  const restoreSkillRootEnvironment = (): void => {
-    if (skillRootEnvironmentRestored) return
-    skillRootEnvironmentRestored = true
-    for (const [key, value] of Object.entries(originalSkillRootEnvironment)) {
-      if (value === undefined) Reflect.deleteProperty(process.env, key)
-      else process.env[key] = value
-    }
-  }
-  Object.assign(process.env, skillRootEnvironment)
+  const restoreSkillRootEnvironment = pinSkillRootEnvironment(harnessHome, workspaceCwd)
   let persistenceRoot: string
   try {
     persistenceRoot = await mkdtemp(join(tmpdir(), 'dsh-web-e2e-sessions-'))
@@ -574,10 +534,8 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     ...extraOverlayPatches,
     { id: 'agent-preset-registry', config: { default: 'standard' } },
     { id: 'session-persistence-jsonl', config: { root: persistenceRoot } },
-    // Content search is enabled here although the shipped bundles default it
-    // off (`openAt: never`, pinned by apps/cli/tests/lazy-search-startup):
-    // the seeded-session scenarios navigate by content search, and these e2e
-    // runs are the assembled coverage for the opt-in search path.
+    // Content search is on here: the base default is off (`openAt: never`) and the web bundle
+    // defers it to the first search (pinned by lazy-search-startup); these e2e runs cover that path.
     { id: 'session-query-sqlite', config: { path: ':memory:', openAt: 'first-search' } },
     // storage-json's yml root is anchored to the real $DSH_HOME; pin the row
     // to an absolute temp root (removed with the workspace at close) so tests
@@ -585,15 +543,18 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     { id: 'storage-json', config: { root: join(workspaceCwd, '.dsh-storages') } },
     // First-use initialization must create directories only inside this scaffold's temporary world.
     { id: 'workspace-controller', config: { documentsDirectory: join(workspaceCwd, 'Documents') } },
-    // Skill discovery is model-visible input. Pin every host-level root inside
-    // the owned temp world so ~/.dsh, ~/.agents, and a bundled-root env setting
-    // cannot change replay requests or conversation goldens. Project roots stay
-    // enabled against the same empty temp workspace, preserving the real seam.
+    // Skill discovery is model-visible input: pin every agent home and the bundled root inside the temp world.
     {
       id: 'skill-filesystem',
       config: {
         dshHome: join(workspaceCwd, '.dsh-home'),
         agentsHome: join(workspaceCwd, '.agents-home'),
+        claudeHome: join(workspaceCwd, '.claude-home'),
+        codexHome: join(workspaceCwd, '.codex-home'),
+        opencodeHome: join(workspaceCwd, '.opencode-home'),
+        geminiHome: join(workspaceCwd, '.gemini-home'),
+        cursorHome: join(workspaceCwd, '.cursor-home'),
+        copilotHome: join(workspaceCwd, '.copilot-home'),
         bundledSkillDir: join(workspaceCwd, '.bundled-skills'),
         watch: false,
       },
@@ -805,11 +766,6 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     await auditStartupEntries(ctx, 'web e2e scaffold')
     if (options.developerTools !== undefined) {
       await ctx.settings.update('ui-settings', { enabled: options.developerTools })
-    }
-    if (options.welcomeNoticePending !== true) {
-      await ctx.settings.mutate(WELCOME_NOTICE_SETTINGS_NAMESPACE, [{
-        op: 'set', path: [WELCOME_NOTICE_ACK_FIELD], value: WELCOME_NOTICE_VERSION,
-      }])
     }
     if (options.firstUse !== true && ctx.workspaceRegistry.list().length === 0) {
       const initial = await ctx.workspaceRegistry.initializeDefault(async () => workspaceCwd)

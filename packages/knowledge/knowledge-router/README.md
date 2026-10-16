@@ -66,7 +66,7 @@ Nested provider calls retain their enclosing execution. Assisted workers obey th
 | [src/graphify-learn.ts](src/graphify-learn.ts) | Learning and freshness commands. |
 
 
-`memorixInventory` and `memorixPage` open the configured Memorix 1.3.0 SQLite database read-only. They enumerate every table across projects, visibility scopes and statuses, search literal text, and paginate records in row order. They reject unsupported migration inventories and never initialize, migrate or modify provider storage. These are local human browsing APIs, not model retrieval tools.
+`memorixInventory` and `memorixPage` open the configured Memorix 1.3.0 SQLite database read-only. They enumerate every table across projects, visibility scopes and statuses, search literal text, and paginate records newest first. `memorixPage` takes a `view` (`all`, `memories` or `documents`) that splits agent memories from imported `document:` chunks on tables with a `topicKey` column. A missing database file, a file without Memorix migrations and a migration mismatch fail with messages naming the path, the missing or unrecognized migrations and the `MEMORIX_DATA_DIR` or `databasePath` setting to change. They never initialize, migrate or modify provider storage. `memorixRecent` returns the newest active observations of one entity before a time, excluding a topic prefix, for session-start recall. `memorixStoredChunk` verifies an acknowledged write. These are local APIs for the Memory panel and automatic memory, not model retrieval tools.
 
 No runtime invariant companion is published: packets derive from registry and provider results without independently maintained state.
 

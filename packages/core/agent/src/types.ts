@@ -7,7 +7,7 @@
 import type { UserMessage } from '@deepseek-ai/dsh-llm/types'
 // Type-only: the Workspace registry's archive-admission family map this registry merges `turn` into.
 import type {} from '@deepseek-ai/dsh-workspace/types'
-import type { OptionalSessionSeq, SessionId, SessionSeq } from '@deepseek-ai/dsh-session/types'
+import type { CliTerminalProfileId, OptionalSessionSeq, SessionId, SessionSeq } from '@deepseek-ai/dsh-session/types'
 import type { TypertContext, TypertLookup } from '@deepseek-ai/dsh-typert-protocol'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 
@@ -84,6 +84,11 @@ export interface TurnBoundaryProjection {
   readonly lastStepBoundary: { readonly kind: 'start' | 'end'; readonly seq: SessionSeq } | null
   /** Turn number of the latest `turn/start`; 0 before the first turn. */
   readonly lastTurn: number
+}
+
+/** CLI terminal profile a Session hosts, or null for an ordinary Session; registered by `dsh-agent-loop`. */
+export interface CliTerminalProjection {
+  readonly profile: CliTerminalProfileId | null
 }
 
 declare module '@deepseek-ai/dsh-session/types' {

@@ -7,7 +7,7 @@ kind: "package-reference"
 
 ## Summary
 
-This package lets web-client features expose editable preferences backed by the Host settings document without implementing their own transport or schema handling. Each feature gets namespace-scoped reads and writes, atomic multi-field updates, schema validation, and protection against silently overwriting concurrent changes. It also provides the standard extension points for settings chrome, pages, header actions, plugin tabs, and onboarding while rendering no interface itself. Any preference-owning feature can use it without depending on a presentation package; a separate package provides the settings shell.
+This package lets web-client features expose editable preferences backed by the Host settings document without implementing their own transport or schema handling. Each feature gets namespace-scoped reads and writes, atomic multi-field updates, schema validation, and protection against silently overwriting concurrent changes. It also provides the standard extension points for settings chrome, pages, header actions, plugin tabs while rendering no interface itself. Any preference-owning feature can use it without depending on a presentation package; a separate package provides the settings shell.
 
 ## Table of Contents
 
@@ -35,9 +35,15 @@ Feature adapters use `ctx.configForms.get(entryId)` to obtain accepted values an
 
 A page that edits a namespace another plugin owns registers through `ctx.configForms.whileServed(namespaces, register)`: `register` runs once any listed namespace is in the shared mirror, receives the set of namespaces the Host serves, and returns the registration's disposer, which runs when none of them is served any more or when the disposer `whileServed` returns runs. The caller owns that returned disposer and wraps it in `ctx.effect`; unlike `get`, the service registers nothing on the caller's context. A deployment that never composed the owner therefore shows no trace of the page, and a namespace the Host stops serving withdraws it. The four official pages on the Plugins page ride it, one companion package each.
 
+### Settings search and save status
+
+`ctx.settingsDirectory` is the searchable index of individual settings. A page or row registers entries with `register(entries)`: an `id`, the `section` it lives in, a `label`, an optional one-line `description`, search-only `keywords`, an optional `anchor` (the `data-settings-entry` value the shell scrolls to and focuses), and an optional `when()` that hides the entry while its feature is absent. Label, description and keywords may be locale-following functions. An entry that lives outside the Settings dialog (for example a plugin page on the sidebar Plugins page) sets `link: { place, open }` instead of `section`; registering an entry with both or neither throws, and the shell closes the dialog before calling `open`. A duplicate id throws, and the returned disposer withdraws the entries. `search(query)` requires every word of the query in the label, keywords or description and ranks label matches first; `getVersion()` and `subscribe()` let a view follow changes.
+
+`ctx.configForms.saveStatus` is an observable `{ state: 'idle' | 'saving' | 'saved' | 'failed' }` over every Host write of every shared form. `saved` clears after 2.5 s and `failed` after 8 s; a batch of writes settles to `failed` if any write failed.
+
 ### Filling the settings slots
 
-A settings surface registers into the slot types this package declares. The shell (`sidebar.settings` occupant, navigation, chrome) lives in ui-settings-general; feature pages register `settings.section` contributions; the Plugins section hosts `settings.plugins.tab` pages; onboarding steps register `settings.onboarding`. Cross-namespace surfaces (schema introspection, the served-namespace directory, `hasDocument`) read the same mirror through `ctx.configForms.describe()`.
+A settings surface registers into the slot types this package declares. The shell (`sidebar.settings` occupant, navigation, chrome) lives in ui-settings-general; feature pages register `settings.section` contributions; the Plugins section hosts `settings.plugins.tab` pages. Cross-namespace surfaces (schema introspection, the served-namespace directory, `hasDocument`) read the same mirror through `ctx.configForms.describe()`.
 
 ### Observable success and failures
 
@@ -76,10 +82,10 @@ The provider owns one controller per Host entry, including its subscription and 
 
 These pages cover the settings surface family and the durable seam behind it.
 
-- [ui-settings-general](../ui-settings-general/README.md) — the settings shell: trigger chrome, navigation, General section, onboarding projection.
+- [ui-settings-general](../ui-settings-general/README.md) — the settings shell: trigger chrome, navigation, General section.
 - [ui-settings-plugins](../ui-settings-plugins/README.md) — the Built-in plugins section shell around the inventory tab.
 - [ui-settings-shell](../ui-settings-shell/README.md), [ui-settings-agent-loop](../ui-settings-agent-loop/README.md), [ui-settings-subagent](../ui-settings-subagent/README.md), [ui-settings-web-search](../ui-settings-web-search/README.md) — the official configuration pages on the Plugins page, each following its namespaces through `whileServed`.
-- [ui-settings-models](../ui-settings-models/README.md) — the Models page and DeepSeek onboarding over this base.
+- [ui-settings-models](../ui-settings-models/README.md) — the Models page over this base.
 - [settings](../../settings/README.md) — the durable user-settings seam and its file provider.
 - [ui-sidebar](../ui-sidebar/README.md) — the sidebar shell whose bottom seat hosts the settings trigger.
 

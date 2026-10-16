@@ -107,6 +107,12 @@ export interface PiAiAdapterOptions {
    * conversion because its stored replay state is unusable by this build.
    */
   onReplayDegrade?: (detail: { provider: string; model: string; reason: string }) => void
+  /** The response headers of each provider HTTP response, with the route that sent it. */
+  onResponseHeaders?: (detail: { provider: string; headers: Readonly<Record<string, string>> }) => void
+  /** The message of each failed provider request, with the route it was sent to. */
+  onRequestFailure?: (detail: { provider: string; message: string }) => void
+  /** Observe a successful response whose provider-reported input exceeded the catalog `contextWindow`. */
+  onUsageAboveWindow?: (detail: { provider: string; model: string; contextWindow: number; inputTokens: number }) => void
 }
 
 /** The two auth injectables a pi-ai collection is built with. */
@@ -443,11 +449,20 @@ export class PiAiAdapter extends LlmAdapter {
           onPayload: body => ({ ...(body as Record<string, unknown>), service_tier: mode.serviceTier }),
         },
         signal: watchdog.signal,
+        onResponse: (response) => { this.config.onResponseHeaders?.({ provider: options.provider, headers: response.headers }) },
         // Profile headers are deployment-owned; attribution names are
         // Harness-owned and therefore win collisions.
         headers: withOpencodeSession(requestHeaders(profile.headers), model, sessionId),
       })
-      const iterator = toStreamChunks(events, model.contextWindow, options.signal, model.id)[Symbol.asyncIterator]()
+      const onUsageAboveWindow = (inputTokens: number): void => {
+        this.config.onUsageAboveWindow?.({
+          provider: options.provider,
+          model: options.model,
+          contextWindow: model.contextWindow,
+          inputTokens,
+        })
+      }
+      const iterator = toStreamChunks(events, model.contextWindow, options.signal, model.id, onUsageAboveWindow)[Symbol.asyncIterator]()
       let exhausted = false
       try {
         while (true) {
@@ -457,6 +472,9 @@ export class PiAiAdapter extends LlmAdapter {
           if (result.done) {
             exhausted = true
             return
+          }
+          if (result.value.type === 'finish' && result.value.reason.kind === 'error') {
+            this.config.onRequestFailure?.({ provider: options.provider, message: result.value.reason.failure.message })
           }
           yield result.value
         }
@@ -477,6 +495,7 @@ export class PiAiAdapter extends LlmAdapter {
       if (options.signal?.aborted) {
         throw new LlmError('pi-ai request aborted by caller', 'ABORTED', { cause: error })
       }
+      if (error instanceof Error) this.config.onRequestFailure?.({ provider: options.provider, message: error.message })
       throw error
     } finally {
       consumer.abort('pi-ai stream consumer stopped')

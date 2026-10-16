@@ -6,6 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime, { userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
+import { catalogModels } from '../src/catalog.ts'
 import { discoverModels } from '../src/discovery.ts'
 
 const servers: Server[] = []
@@ -91,7 +92,7 @@ describe('catalog-route model discovery', () => {
     // pi-ai's own registry is the authority for its own providers, and it
     // carries what a listing endpoint would not disclose.
     expect(models.map(model => model.id).sort())
-      .toEqual(getBuiltinModels('deepseek').map(model => model.id).sort())
+      .toEqual([...catalogModels('deepseek').keys()].sort())
     expect(models.every(model => (model.contextWindow ?? 0) > 0 && (model.maxTokens ?? 0) > 0)).toBe(true)
     expect(server.paths).toEqual([])
   })

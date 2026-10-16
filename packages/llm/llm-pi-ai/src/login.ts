@@ -17,6 +17,18 @@ import type { PiAiAuthInjection } from './adapter.ts'
 import { createModels } from './models.ts'
 
 /**
+ * Catalog providers whose OAuth login borrows another product's app identity,
+ * keyed by provider id and valued by the product the sign-in confirmation names.
+ */
+const BORROWED_APP_LOGINS: ReadonlyMap<string, string> = new Map([
+  ['anthropic', 'Claude Code'],
+  ['openai-codex', 'Codex'],
+  ['github-copilot', 'GitHub Copilot Chat'],
+  ['kimi-coding', 'Kimi Code'],
+  ['xai', 'Grok CLI'],
+])
+
+/**
  * The login methods one catalog provider offers.
  *
  * A method appears only when pi-ai can actually run it: `oauth` always carries
@@ -29,7 +41,9 @@ import { createModels } from './models.ts'
 function loginMethods(provider: Provider | undefined): AuthorizationMethod[] {
   const methods: AuthorizationMethod[] = []
   const oauth = provider?.auth.oauth
-  if (oauth !== undefined) methods.push({ id: 'oauth', label: oauth.loginLabel ?? oauth.name })
+  if (provider !== undefined && oauth !== undefined) {
+    methods.push({ id: 'oauth', label: oauth.loginLabel ?? oauth.name })
+  }
   const apiKey = provider?.auth.apiKey
   if (apiKey?.login !== undefined) methods.push({ id: 'api-key', label: apiKey.name })
   return methods
@@ -135,10 +149,12 @@ export function registerPiAiFlows(ctx: Context, auth: PiAiAuthInjection): void {
         providerId)
       continue
     }
+    const borrowedFrom = BORROWED_APP_LOGINS.get(providerId)
     ctx.authorization.registerFlow({
       key: recordKeyFor(providerId),
       label: provider.name,
       methods: [first, ...rest],
+      ...borrowedFrom === undefined ? {} : { borrowedFrom },
       async run(session) {
         // A collection of its own, holding only the provider being signed
         // into: login is not serving requests, and the credential it produces

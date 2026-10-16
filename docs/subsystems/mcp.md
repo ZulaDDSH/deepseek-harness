@@ -199,6 +199,18 @@ Authenticated GUI operations; provider calls remain Host-owned.
 
 ```ts cordis-catalog
 /**
+ * Report the chat-memory switch, whether Memorix is ready, starting or unavailable, and the latest save and recall outcomes.
+ * @returns the live status the Memory page shows; a connection failure is text, not an error.
+ */
+@Remote async status(): Promise<MemoryStatus>
+
+/**
+ * Ask the Memorix client to try connecting again with a fresh retry budget; nothing happens while it is connected or still starting.
+ * @returns the status right after the request.
+ */
+@Remote async retry(): Promise<MemoryStatus>
+
+/**
  * Read the complete local provider inventory without modifying it.
  * @returns every stored table and record count across projects and statuses.
  */
@@ -209,13 +221,14 @@ Authenticated GUI operations; provider calls remain Host-owned.
  * @param table - table from inventory.
  * @param offset - nonnegative row offset.
  * @param query - literal substring matched against every column.
- * @returns one complete page and total matching count.
+ * @param view - observation filter: all rows, saved memories only or imported document chunks only.
+ * @returns one complete page, newest record first, and the total matching count.
  */
-@Remote async page(table: string, offset: number, query: string): Promise<MemorixPage>
+@Remote async page(table: string, offset: number, query: string, view: MemorixView): Promise<MemorixPage>
 
 /**
  * Rebuild complete active Memorix documents with the Graphify adapter and load its bounded viewer.
- * @returns the official Graphify viewer and its graph source path.
+ * @returns the official Graphify viewer, its graph source path and the imported document count; no Graphify run when the count is 0.
  */
 @Remote graph(): Promise<MemoryGraph>
 
@@ -223,9 +236,10 @@ Authenticated GUI operations; provider calls remain Host-owned.
  * Retain an uploaded document and import all chunks through Memorix.
  * @param filename - source filename displayed with the memory.
  * @param data - canonical base64 encoding of complete original bytes.
+ * @param signal - caller lifetime; extraction and chunk import stop when it aborts.
  * @returns verified chunk counts, original path and an explicit partial-failure message.
  */
-@Remote importDocument(filename: string, data: string): Promise<MemoryImportResult>
+@Remote importDocument(filename: string, data: string, signal?: AbortSignal): Promise<MemoryImportResult>
 ```
 
 Source: [`packages/client/ui-memory-workspace/src/index.ts`](../../packages/client/ui-memory-workspace/src/index.ts)
@@ -269,6 +283,24 @@ A listener is asking for the connection state of the configured MCP servers; eac
  * @param reports Collected reports, one per configured server.
  */
 'mcp-client/inventory'(reports: McpConnectionReport[]): void
+```
+
+Source: [`packages/mcp/mcp-client/src/status.ts`](../../packages/mcp/mcp-client/src/status.ts)
+
+<a id="mcp-clientreconnect--emit"></a>
+
+#### `mcp-client/reconnect` — emit
+
+A configuration surface asks one MCP server to try connecting again with a fresh retry budget. Nothing happens while that server is connected, connecting or waiting for sign-in.
+
+```ts cordis-catalog
+/**
+ * A configuration surface asks one MCP server to try connecting again with a fresh retry budget.
+ * Nothing happens while that server is connected, connecting or waiting for sign-in.
+ * @mode emit
+ * @param serverName The configured server to reconnect.
+ */
+'mcp-client/reconnect'(serverName: string): void
 ```
 
 Source: [`packages/mcp/mcp-client/src/status.ts`](../../packages/mcp/mcp-client/src/status.ts)

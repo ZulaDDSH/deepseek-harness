@@ -22,6 +22,7 @@ import { foldConsumedWork } from '@deepseek-ai/dsh-agent'
 import { SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionId, SessionLogOffset as SessionLogOffsetType } from '@deepseek-ai/dsh-session'
 import { finalAssistantOutput } from './assistant-output.ts'
+import { failureDiagnosticOf } from './failure-diagnostic.ts'
 import { SubagentRunId } from './types.ts'
 import type { SubagentResult, SubagentRun, SubagentRunEndInfo, SubagentRunInfo } from './types.ts'
 
@@ -34,6 +35,8 @@ export interface ActivationTerminal {
   readonly stopReason: SubagentResult['stopReason']
   /** The epoch's final assistant content, absent when it produced none or failed. */
   readonly output?: readonly ContentBlock[]
+  /** The failure message of an epoch whose last turn ended in error, absent otherwise. */
+  readonly diagnostic?: string
 }
 
 /**
@@ -201,9 +204,11 @@ export function createActivationObserver(
       // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
       const own = child.session.snapshotEvents(boundary)
       const output = finalAssistantOutput(own)
+      const diagnostic = failureDiagnosticOf(own)
       captured = {
         stopReason: epochStopReason(own),
         ...output === undefined ? {} : { output },
+        ...diagnostic === undefined ? {} : { diagnostic },
       }
     },
     terminal,

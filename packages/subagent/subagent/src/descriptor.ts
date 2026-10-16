@@ -55,6 +55,7 @@ interface SubagentDescriptorBase {
   readonly mode: 'one-shot' | 'continuable'
   /** The `ctx.subagents` provider name that established the child. */
   readonly provider: string
+  readonly routePinned?: true
 }
 
 /** A session-backed subagent that cannot be cold-resumed after its run. */
@@ -96,6 +97,7 @@ interface SubagentDescriptorInputBase {
   readonly mode: 'one-shot' | 'continuable'
   /** The `ctx.subagents` provider name that will establish the child. */
   readonly provider: string
+  readonly routePinned?: true
 }
 
 /** Input for a one-shot child's durable identity. */
@@ -132,6 +134,7 @@ const DESCRIPTOR_BASE_KEYS = [
   'mode',
   'provider',
   'label',
+  'routePinned',
 ] as const
 const ONE_SHOT_DESCRIPTOR_KEYS = new Set(DESCRIPTOR_BASE_KEYS)
 const CONTINUABLE_DESCRIPTOR_KEYS = new Set([
@@ -222,6 +225,10 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
   if (typeof provider !== 'string') {
     throw new Error('persisted subagent descriptor provider must be a string')
   }
+  const routePinned = value['routePinned']
+  if (routePinned !== undefined && routePinned !== true) {
+    throw new Error('persisted subagent descriptor routePinned must be true when present')
+  }
   if (mode === 'one-shot') {
     const label = optionalString(value, 'label')
     return {
@@ -229,6 +236,7 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
       mode,
       provider,
       ...label !== undefined ? { label } : {},
+      ...routePinned === true ? { routePinned } : {},
     }
   }
   const label = value['label']
@@ -252,6 +260,7 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
     ...agentReasoningEffort !== undefined ? { agentReasoningEffort } : {},
     ...persona !== undefined ? { persona } : {},
     ...toolFilter !== undefined ? { toolFilter } : {},
+    ...routePinned === true ? { routePinned } : {},
   }
 }
 
@@ -283,12 +292,14 @@ export function snapshotSubagentDescriptor(input: SubagentDescriptorInput): Suba
       mode: input.mode,
       provider: input.provider,
       ...input.label !== undefined ? { label: input.label } : {},
+      ...input.routePinned === true ? { routePinned: true } : {},
     }
     : {
       version: SUBAGENT_DESCRIPTOR_VERSION,
       mode: input.mode,
       provider: input.provider,
       label: input.label,
+      ...input.routePinned === true ? { routePinned: true } : {},
       ...input.agentProvider !== undefined ? { agentProvider: input.agentProvider } : {},
       ...input.agentModel !== undefined ? { agentModel: input.agentModel } : {},
       ...input.agentReasoningEffort !== undefined ? { agentReasoningEffort: input.agentReasoningEffort } : {},

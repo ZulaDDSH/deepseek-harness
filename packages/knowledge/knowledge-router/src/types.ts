@@ -94,4 +94,4 @@ export interface RetrieveOptions {
   readonly signal: AbortSignal
 }
 
-export type { MemorixCell, MemorixPage, MemorixTable } from './memorix-types.ts'
+export type { MemorixCell, MemorixObservationRecord, MemorixPage, MemorixRecentObservation, MemorixTable, MemorixView } from './memorix-types.ts'

@@ -38,7 +38,7 @@ Choose `dsh-hooks-claude-code` or `dsh-hooks-codex` when you have existing Claud
 - **Attach context** — a hook can return extra text that the model sees in the next request.
 - **Run on chosen moments** — a hook config selects which events it fires on by name or pattern; an absent, empty, or `'*'` pattern means every event of that kind.
 - **Fail without stopping the run** — any exit code other than 2 is a non-blocking failure: the action proceeds and the failure is logged, and a hook that cannot be started at all is treated the same way.
-- **Ask the run to stop** — a hook can request that the run halt (`{"continue": false}`); the request is recorded but has no run-level effect (see Known Limitations).
+- **Ask the run to stop** — a hook can request a halt (`{"continue": false}`); the bridge cancels the agent's active turn and keeps queued prompts for later (see Known Limitations).
 
 ### What you see when hooks run
 
@@ -62,6 +62,8 @@ This section explains the design decisions behind the library and points at the 
 
 The library is a chain of single-purpose steps, one function each: validate the matcher pattern, run the command through the `dsh-shell` executor, decode the outcome, merge every matched hook's outcome into one most-restrictive result, and record the durable `hook/*` event pair. The matcher's `mode` parameter is the single axis the dialects differ on — `claude-code` interprets a pattern as literal alternatives or a regex, `codex` always as an unanchored regex. Every step degrades to a contained outcome instead of throwing, so a hook can never crash the calling turn: an invalid regex is a non-match, an executor rejection becomes a `HookOutput` with no exit code, exit 2 blocks with stderr as the reason, and every other failure stays non-blocking. Merging applies `deny > ask > allow` precedence, keeps the first `continue: false` stop sticky, and accumulates context in hook order. Detached runs are tracked so `fiber.dispose()` reaches quiescence, and the invariant companion rejects `hook/*` records outside an open turn. The steps live in [`src/matcher.ts`](src/matcher.ts), [`src/runner.ts`](src/runner.ts), [`src/codec.ts`](src/codec.ts), [`src/merge.ts`](src/merge.ts), [`src/events.ts`](src/events.ts), [`src/detached.ts`](src/detached.ts), and [`src/invariant.ts`](src/invariant.ts).
 
+Tool-name subjects also match under the dialect's reference name: `matchesHookSubject` tests the DSH tool name and then its `hookToolName` alias. The claude-code dialect maps `bash` to `Bash`, `pwsh` to `PowerShell`, `read`, `write`, `edit`, `glob`, `grep`, `web_fetch` and `web_search` to their capitalized Claude names, and the codex dialect maps `bash` and `pwsh` to `Bash`. `str_replace_editor` has no alias (see Known Limitations), and names outside the table pass through unchanged. A per-turn cap on Stop-hook continuations lives in [`src/stop-guard.ts`](src/stop-guard.ts).
+
 ### `hook/*` session events
 
 The `hook/invoked` and `hook/result` events are declaration-merged into `SessionEventMap` as log-only records: like `compaction/*`, they are not surface events and carry no `surfaceOp`. A `hook/result` pairs with its `hook/invoked` by `handlerId`, and `appendHookResult` owns the decision rule. Payloads and per-event JSDoc live in the generated [persistence log event catalog](../../../docs/persistence-catalog.md).
@@ -82,7 +84,8 @@ The [hook-protocol-lib Agent Note](../../../.agents/notes/archived/feature/2026-
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Public exports of every primitive and event helper |
-| [`src/matcher.ts`](src/matcher.ts) | Match-all sentinels, literal-vs-regex mode, validation and runtime matching |
+| [`src/matcher.ts`](src/matcher.ts) | Match-all sentinels, literal-vs-regex mode, validation, runtime matching, and dialect tool-name aliases (`hookToolName`, `matchesHookSubject`) |
+| [`src/stop-guard.ts`](src/stop-guard.ts) | Per-turn cap on Stop-hook forced continuations and the `stop_hook_active` flag |
 | [`src/runner.ts`](src/runner.ts) | `runHook` execution through `ctx.shell` and `DEFAULT_HOOK_TIMEOUT_MS` |
 | [`src/codec.ts`](src/codec.ts) | Exit-code and structured-stdout decoding into `HookOutput` |
 | [`src/merge.ts`](src/merge.ts) | Most-restrictive merge and the `MergedHookOutcome` type |
@@ -125,7 +128,8 @@ No direct invalidation; the named consumers own any request-prefix changes.
 These limits describe what hooks cannot do through the shared engine yet. They are current package constraints, not a task backlog.
 
 - **`HookOutput.updatedInput` is parsed but not honored** — input rewrite is a deferred consistency-design problem ([the pre-tool-input-rewrite Agent Note](../../../.agents/notes/proposed/feature/2026-06-30-pre-tool-input-rewrite.md)); a bridge logs and warns when a hook sets it.
-- **A folded halt has no run-level effect** — `mergeHookOutputs` folds `continue: false` into a sticky `stop`, but the interception points have no hard-halt primitive, so a bridge records the halt and keeps the hook's per-point effect.
+- **A halt cancels only the active turn** — `mergeHookOutputs` folds `continue: false` into a sticky `stop`, and the bridges honor it by cancelling the agent's active phase with a `hook` cancel cause while keeping its queued inbox. A halt never ends the session, and it does not discard queued prompts.
+- **`str_replace_editor` has no dialect alias** — its single `command` argument routes several actions through one tool name, so it cannot map to one Claude Code or Codex tool. Hooks match it by its DSH name only.
 - **Only the command-hook shape runs** — the protocol executes `{ type: 'command', command, timeout? }`; a bridge parses-and-skips the other shapes its dialect defines (`http`, `mcp_tool`, `prompt`, `agent`).
 
 <a id="dev-note"></a>
@@ -138,6 +142,6 @@ This Dev Note is working context for maintainers: open questions and directions 
 
 #### Future: run-level halt
 
-A hook that asks to halt the whole run (`continue: false`) is folded into `MergedHookOutcome.stop` but not applied anywhere: the interception points lack a hard-halt primitive, and mid-turn requests record the halt in `hook/result` instead. A run-level halt mechanism would let the bridges honor it; no design exists yet.
+A hook that asks to halt (`continue: false`) is folded into `MergedHookOutcome.stop`, and the bridge cancels the active turn through `Agent.cancel`, so the halt is scoped to that turn. A session-level halt that also ends the session has no design yet.
 
 </details>

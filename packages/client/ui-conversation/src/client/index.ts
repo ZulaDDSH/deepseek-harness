@@ -24,6 +24,7 @@ export type {
   ConversationViewSnapshotMap, ConversationViewSnapshotStore, StepLocation, TurnLocation,
 } from './contract/conversation.ts'
 export { EMPTY_CONVERSATION_SNAPSHOT, conversationPhase } from './contract/snapshot.ts'
+export { SUBAGENT_SETUP_VIEW_ID } from './view-selection.ts'
 export type {
   ConversationPhase, ConversationSnapshot,
 } from './contract/snapshot.ts'

@@ -87,20 +87,21 @@ async function uploadHarness(origin?: 'subagent'): Promise<{
     listProviders: () => [{ id: 'fixture', name: 'Fixture' }],
     resolveModelInfo: () => Promise.resolve({ provider: 'fixture', id: 'fixture-model', name: 'Fixture' }),
   } as never)
-  const selection: ModelSelectionRef = {
+  const selection = {
     current: { provider: 'fixture', model: 'fixture-model' },
     assembled: undefined,
-  }
-  const agents = {
+  } satisfies ModelSelectionRef
+  const agents: Partial<ApiSessionAgentController> = {
     resolveAgent: () => Promise.resolve({ agent }),
+    refuseCliSession: (value: Agent) => value,
     selectionFor: () => selection,
     serializeImageAdmission: <Value>(_agent: Agent, operation: () => Promise<Value>) => operation(),
-  } as unknown as ApiSessionAgentController
+  }
   const uploads = new FileUploads(ctx)
   if (uploadRoute === undefined) throw new Error('file upload route was not registered')
   return {
     ctx,
-    controller: new SessionCommandController(ctx, agents, '/workspace'),
+    controller: new SessionCommandController(ctx, agents as ApiSessionAgentController, '/workspace'),
     uploads,
     agent,
     followup,

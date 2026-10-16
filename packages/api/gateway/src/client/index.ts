@@ -5,7 +5,8 @@
  */
 
 import { Service } from '@deepseek-ai/cordis'
-import { RemoteError, isRemoteUplinkItem, remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
+import z from '@deepseek-ai/schemastery'
+import { RemoteError, isRemoteUplinkItem } from '@deepseek-ai/dsh-typert-protocol'
 export type { TypertGatewayFaultDetails } from '../remote-error-codes.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type {
@@ -15,7 +16,6 @@ import type {
   InvocationDescriptor,
   TypertClientEventListener,
   TypertClientRemote,
-  RemoteFailure,
   RemoteResult,
   RemoteStreamHandle,
   TypertCodec,
@@ -33,7 +33,9 @@ import {
   RemoteStream,
   type RemoteStreamOptions,
 } from './remote-stream.ts'
+import { cancelledFailure, carrierFailure, deadlineFailure, rebuiltFailure, withdrawn } from './failures.ts'
 
+export { cancelledFailure, carrierFailure, isRemoteFailure } from './failures.ts'
 export { RemoteStreamCarrierError } from './stream-client.ts'
 export { RemoteJournalStream } from './journal-stream.ts'
 export type {
@@ -133,12 +135,24 @@ declare module '@deepseek-ai/cordis' {
 /** Required Client services: the Typert registry and the existing Connection carrier. */
 export const inject = ['typert', 'connection']
 
+/** Client Remote face configuration. */
+export interface Config {
+  /** Deadline in ms for a unary call whose method declares no AbortSignal parameter. Default: 30000. */
+  unaryDeadlineMs?: number
+}
+
+/** Validated Client Remote face configuration. */
+export const Config: z<Config> = z.object({
+  unaryDeadlineMs: z.natural().min(1).max(2_147_483_647).default(30_000),
+})
+
 /**
  * Install the typed Client Remote service.
  * @param ctx - Client Cordis root.
+ * @param config - validated Client Remote face configuration.
  */
-export function apply(ctx: Context): void {
-  new ClientRemoteService(ctx)
+export function apply(ctx: Context, config: Config = Config({})): void {
+  new ClientRemoteService(ctx, config.unaryDeadlineMs ?? 30_000)
 }
 
 class ClientRemoteService extends Service implements ClientRemote {
@@ -150,7 +164,7 @@ class ClientRemoteService extends Service implements ClientRemote {
   private readonly events: ClientRemoteEvents
   private mutations = Promise.resolve()
 
-  constructor(ctx: Context) {
+  constructor(ctx: Context, private readonly unaryDeadlineMs: number) {
     super(ctx, 'remote')
     this.ownerCtx = ctx
     const connection = ctx.get('connection') as ConnectionHandle
@@ -441,8 +455,12 @@ class ClientRemoteService extends Service implements ClientRemote {
     const prepared = this.prepareInvocation(descriptor, projection, token, callerCtx, values, boundIdentity)
     const connection = this.ownerCtx.get('connection') as ConnectionHandle | undefined
     if (connection === undefined) throw new Error(`client api: ${endpoint} has no active Connection`)
+    const deadline = descriptor.cancellation === undefined ? new AbortController() : undefined
+    const timer = deadline === undefined ? undefined : setTimeout(() => { deadline.abort() }, this.unaryDeadlineMs)
     try {
-      const result = await connection.rpc.call('/api', endpoint, { args: prepared.args }, prepared.signal)
+      const signal = deadline === undefined ? prepared.signal : AbortSignal.any([prepared.signal, deadline.signal])
+      const call = connection.rpc.call('/api', endpoint, { args: prepared.args }, signal)
+      const result = deadline === undefined ? await call : await Promise.race([call, rejectOnAbort(deadline.signal)])
       if (!mountActive(token)) return withdrawn(endpoint)
       prepared.signal.throwIfAborted()
       if (!result.ok) return { ok: false, error: rebuiltFailure(result.error) }
@@ -456,7 +474,10 @@ class ClientRemoteService extends Service implements ClientRemote {
       // cancellation even when the local throw wins the race against the wire
       // round-trip, so it gets the same code the Host would have produced.
       if (prepared.signal.aborted) return cancelledFailure(endpoint, error)
+      if (deadline?.signal.aborted === true) return deadlineFailure(endpoint, this.unaryDeadlineMs)
       return carrierFailure(endpoint, error)
+    } finally {
+      clearTimeout(timer)
     }
   }
 
@@ -761,6 +782,12 @@ function mountActive(token: MountToken): boolean {
   return token.active
 }
 
+function rejectOnAbort(signal: AbortSignal): Promise<never> {
+  return new Promise((_, reject) => {
+    signal.addEventListener('abort', () => { reject(new Error('client api: Remote call signal aborted')) }, { once: true })
+  })
+}
+
 function scopedProjection(descriptor: InvocationDescriptor): ScopedProjection | undefined {
   if (descriptor.invocation.kind === 'context') {
     return {
@@ -802,60 +829,6 @@ function requireStrictCodec(codec: TypertCodec, endpoint: string, field: string)
   if (codec.mode !== 'strict') {
     throw new Error(`client api: generated Remote ${endpoint} field ${JSON.stringify(field)} has no strict codec`)
   }
-}
-
-/** The namespace retired before or during the call, so no request outcome exists. */
-function withdrawn(endpoint: string): Extract<RemoteResult<never>, { readonly ok: false }> {
-  return internalFailure(`client api: Remote method ${endpoint} is no longer mounted`)
-}
-
-/**
- * The error branch a carrier throw (offline, transport fault) folds into: `gateway/internal` naming the endpoint and
- * the thrown message. Exported so a stand-in for this face folds identically.
- * @param endpoint - `<namespace>/<method>` that was called.
- * @param error - what the carrier threw.
- * @returns the failed result.
- */
-export function carrierFailure(endpoint: string, error: unknown): Extract<RemoteResult<never>, { readonly ok: false }> {
-  return internalFailure(`client api: ${endpoint} failed: ${error instanceof Error ? error.message : String(error)}`)
-}
-
-/**
- * The error branch a call aborted by its caller folds into: `gateway/cancelled` with the carrier's throw as `cause`.
- * @param endpoint - `<namespace>/<method>` that was called.
- * @param cause - what the carrier threw when the signal aborted.
- * @returns the failed result.
- */
-export function cancelledFailure(endpoint: string, cause: unknown): Extract<RemoteResult<never>, { readonly ok: false }> {
-  return {
-    ok: false,
-    error: new RemoteError('gateway/cancelled', `client api: Remote invocation "${endpoint}" was aborted`, {}, { cause }),
-  }
-}
-
-function internalFailure(message: string): Extract<RemoteResult<never>, { readonly ok: false }> {
-  return { ok: false, error: new RemoteError('gateway/internal', message, {}) }
-}
-
-/**
- * Whether a caught value is a Remote failure this face delivered or threw.
- * The one consumer-facing discrimination point: marked instances carry their
- * Host code; anything else is a local fault the caller should let crash.
- * @param error - a caught value.
- * @returns true when the value narrows to RemoteFailure.
- */
-export function isRemoteFailure(error: unknown): error is RemoteFailure {
-  return remoteErrorOf(error) !== undefined
-}
-
-/**
- * Rebuild the wire failure as a local RemoteError instance so the error branch
- * carries a real Error and `throw result.error` keeps throw semantics. The code
- * is passed through verbatim without runtime validation: a code outside this
- * Client's merged map still surfaces as-is, so a newer Host stays readable.
- */
-function rebuiltFailure(error: { code: string; message: string; details: object }): RemoteFailure {
-  return new RemoteError(error.code as never, error.message, error.details as never)
 }
 
 type MarkedConnectionStreamFailure = Error & {

@@ -7,6 +7,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { ReasoningEffortId, type LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-session-projection'
+import { orchestratorSelectionOf } from '@deepseek-ai/dsh-api-session-controller/setup-resolver'
 import type { Config, JevDecision, JevRoute } from './index.ts'
 
 /** The Jev route that applies to one Agent turn, or `undefined` when Jev selected none. */
@@ -44,7 +45,8 @@ export function applyRoute(config: LlmCallConfig, route: JevRoute): LlmCallConfi
  * a previous turn used, or `base` when that model is already the base route.
  */
 function unrouted(ctx: Context, agent: Agent, base: LlmCallConfig): LlmCallConfig {
-  const selected = ctx.get('sessionProjections')?.stateOf(agent.session, 'modelSelection')?.selected
+  const selected = orchestratorSelectionOf(ctx, agent.session)
+    ?? ctx.get('sessionProjections')?.stateOf(agent.session, 'modelSelection')?.selected
   const fallback = selected ?? (agent.options.provider !== undefined && agent.options.model !== undefined
     ? {
       provider: agent.options.provider, model: agent.options.model,

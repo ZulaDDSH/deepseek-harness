@@ -21,6 +21,10 @@
     "src/model-selection-projection.ts",
     "src/mcp-selection-projection.ts",
     "src/hook-overrides-projection.ts",
+    "src/list-metadata.ts",
+    "src/run-options.ts",
+    "src/setup-resolver.ts",
+    "src/subagent-setup.ts",
     "src/archived-session-gate.ts",
     "src/skill-catalog.ts"
   ],

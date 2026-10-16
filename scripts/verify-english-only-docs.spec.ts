@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { englishOnlyViolation, englishOnlyViolations } from './verify-english-only-docs.ts'
+import { englishOnlyContentViolation, englishOnlyViolation, englishOnlyViolations } from './verify-english-only-docs.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -52,11 +53,25 @@ describe('English-only documentation policy', () => {
     ])
   })
 
+  it('blocks a language switcher and Chinese GitHub templates but allows Chinese UI strings in other docs', () => {
+    expect(englishOnlyContentViolation('docs/a.md', '# A\n\nEnglish | [中文](a.zh.md)\n')).toBeDefined()
+    expect(englishOnlyContentViolation('docs/a.md', '[English](a.md) | 中文\n')).toBeDefined()
+    expect(englishOnlyContentViolation('.agents/notes/archived/feature/2026-01-01-a.md', 'English | [中文](a.zh.md)\n')).toBeUndefined()
+    expect(englishOnlyContentViolation('.github/ISSUE_TEMPLATE/bug.md', '<!-- 简要说明 -->')).toBeDefined()
+    expect(englishOnlyContentViolation('.github/ISSUE_TEMPLATE/bug.md', '<!-- Describe the bug. -->')).toBeUndefined()
+    expect(englishOnlyContentViolation('packages/client/locale/README.md', "label: '日本語'")).toBeUndefined()
+    expect(englishOnlyContentViolation('.github/review-ownership/requirements.txt', '中文')).toBeUndefined()
+  })
+
   it('finds no violation in the shipped tracked corpus', () => {
     const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' })
       .split('\0')
       .filter(file => file !== '')
     expect(tracked.length).toBeGreaterThan(0)
     expect(englishOnlyViolations(tracked)).toEqual([])
+    const contentViolations = tracked.filter(file => file.endsWith('.md')
+      && existsSync(resolve(root, file))
+      && englishOnlyContentViolation(file, readFileSync(resolve(root, file), 'utf8')) !== undefined)
+    expect(contentViolations).toEqual([])
   })
 })

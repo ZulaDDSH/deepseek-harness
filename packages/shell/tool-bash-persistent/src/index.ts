@@ -18,7 +18,7 @@ const LOST_PREFIX_MESSAGE = '<response clipped><NOTE>The beginning of this comma
 const SHELL_RESET_MESSAGE = 'The persistent bash shell was reset; the next bash call starts from the workspace with a fresh current directory and environment.'
 // Status trailer for a command that never reported an exit code; settled
 // commands append `[Command finished with exit code N]` instead (see renderCaptured).
-const TIMEOUT_STATUS_MARKER = '[Command timed out or OOM]'
+const TIMEOUT_STATUS_MARKER = '[Command timed out]'
 const TIMEOUT_CODE = 'PERSISTENT_BASH_TIMEOUT'
 // One page is enough to find a just-emitted completion marker; the full
 // scrollback is assembled only when a command settles or needs partial output.
@@ -354,8 +354,7 @@ async function executeCommand(
       )
       await shells.reset(owner, 'persistent bash command timed out')
       return [
-        // TODO: Report a timeout only; this signal does not establish an OOM.
-        `Your command timed out after ${Math.round(timedOut.timeoutMs / 1000)} seconds or experienced an OOM error. Below is partial output:`,
+        `Your command timed out after ${Math.round(timedOut.timeoutMs / 1000)} seconds. Below is partial output; run long-running commands in the background and poll their output instead:`,
         appendStatusMarker(partial, TIMEOUT_STATUS_MARKER),
         SHELL_RESET_MESSAGE,
       ].join('\n')

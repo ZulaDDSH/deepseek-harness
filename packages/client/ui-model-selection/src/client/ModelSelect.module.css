@@ -43,23 +43,27 @@
 }
 
 .triggerLabel {
-  min-width: 0;
+  min-width: 6ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* Effort value beside the model name (mock's 'High': same 13/20/400, caption
-   tone). Adaptive priority: the huge shrink factor makes the effort absorb
-   all deficit first — it ellipsizes away to nothing before the model name
-   loses a single pixel, and the chevron stays snug throughout. */
 .triggerEffort {
-  flex-shrink: 1000;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex: 0 0 auto;
   white-space: nowrap;
   color: var(--dsw-alias-label-caption);
+}
+
+.triggerTags {
+  display: var(--dsh-composer-model-text-display, flex);
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.triggerTag {
+  flex: 0 0 auto;
 }
 
 /* The Models glyph replaces the text when the composer row cannot fit it. */
@@ -68,10 +72,20 @@
   flex: 0 0 auto;
 }
 
+.triggerWarning {
+  flex: 0 0 auto;
+  color: var(--dsw-alias-state-warn-label);
+}
+
+.trigger[data-unavailable] .triggerLabel {
+  color: var(--dsw-alias-state-warn-label);
+}
+
 /* The composer measures expanded row demand and owns these display variables.
    Outside a composer, the trigger retains its text. */
 .triggerLabel,
-.triggerEffort {
+.triggerEffort,
+.triggerTag {
   display: var(--dsh-composer-model-text-display, block);
 }
 
@@ -93,14 +107,10 @@
   z-index: 1100;
   display: flex;
   flex-direction: column;
-  /* Let the visible pane's rows set the card width, but keep pathological ids
-     and narrow screens inside a bounded card where ellipsis remains. */
-  width: max-content;
-  min-width: min(240px, calc(100vw - 32px));
-  max-width: min(420px, calc(100vw - 32px));
-  max-height: min(360px, calc(100vh - 96px));
+  width: min(580px, calc(100vw - 32px));
+  max-height: min(440px, calc(100vh - 96px));
   overflow: hidden;
-  padding: 4px;
+  padding: 0;
   /* Surface tokens match the Menu primitive card (ui-primitives
    * Menu.module.css) so every dropdown reads as the same material. */
   border: 0;
@@ -114,6 +124,56 @@
      styles/scrollbar.css for the rebinding contract). */
   --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+.body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 6px;
+}
+
+.side {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 0 0 240px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 12px 12px;
+  border-left: 0.5px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+@media (max-width: 560px) {
+  .menu {
+    max-height: calc(100vh - 96px);
+  }
+
+  .body {
+    flex-direction: column;
+  }
+
+  .groups {
+    min-height: 180px;
+  }
+
+  .side {
+    flex: 0 1 auto;
+    gap: 12px;
+    padding: 10px 12px;
+    border-top: 0.5px solid var(--dsw-alias-border-l2);
+    border-left: 0;
+  }
 }
 
 .status,
@@ -157,16 +217,17 @@
 
 .search {
   box-sizing: border-box;
-  width: calc(100% - 4px);
-  margin: 2px;
-  padding: 7px 9px;
-  border: 0.5px solid var(--dsw-alias-border-inverted);
+  width: 100%;
+  margin: 0 0 6px;
+  padding: 6px 10px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: var(--dsw-radius-sm);
   outline: none;
   background: transparent;
   color: var(--dsw-alias-label-primary);
   font: inherit;
   font-size: 13px;
+  line-height: 20px;
 }
 
 .search:focus {
@@ -174,29 +235,21 @@
 }
 
 .groups {
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
 }
 
 .group + .group {
-  margin-top: 3px;
+  margin-top: 6px;
 }
 
 .groupTitle {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  padding: 4px 7px 2px;
-  background: var(--dsw-specific-menu);
+  padding: 6px 8px 2px;
   color: var(--dsw-alias-label-tertiary);
   font-size: 11px;
   line-height: 16px;
   font-weight: 500;
-}
-
-.optionRow {
-  display: flex;
-  align-items: stretch;
 }
 
 .option {
@@ -207,10 +260,10 @@
   flex: 1;
   width: auto;
   min-width: 0;
-  min-height: 34px;
-  padding: 5px 7px;
+  min-height: 32px;
+  padding: 6px 8px;
   border: none;
-  border-radius: var(--dsw-radius-md);
+  border-radius: var(--dsw-radius-sm);
   outline: none;
   background: transparent;
   color: inherit;
@@ -218,16 +271,22 @@
   cursor: pointer;
 }
 
-.option:hover:not(:disabled),
-.option:focus-visible,
-.optionRow:hover .option:not(:disabled) {
+.optionRow {
+  display: flex;
+  align-items: stretch;
+  border-radius: var(--dsw-radius-sm);
+}
+
+.optionRow:hover,
+.optionRow:focus-within {
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .favorite {
   display: grid;
   place-items: center;
-  flex: 0 0 34px;
+  flex: 0 0 32px;
+  opacity: 0;
   border: 0;
   border-radius: var(--dsw-radius-sm);
   outline: none;
@@ -237,10 +296,24 @@
 }
 
 .favorite:hover:not(:disabled),
-.favorite:focus-visible,
+.favorite:focus-visible {
+  color: var(--dsw-alias-label-primary);
+}
+
 .favorite[aria-pressed='true'] {
   color: var(--dsw-alias-label-primary);
-  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.optionRow:hover .favorite,
+.optionRow:focus-within .favorite,
+.favorite[aria-pressed='true'] {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .favorite {
+    opacity: 1;
+  }
 }
 
 .favorite:disabled {
@@ -259,6 +332,10 @@
   cursor: default;
 }
 
+.selected:disabled {
+  color: var(--dsw-alias-label-primary);
+}
+
 .optionCopy {
   display: flex;
   flex: 1;
@@ -271,9 +348,22 @@
   color: inherit;
   font-size: 13px;
   line-height: 18px;
-  font-weight: 500;
+  font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.modelMeta {
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selected .modelName {
+  font-weight: 500;
 }
 
 .check {
@@ -288,50 +378,144 @@
   height: 14px;
 }
 
-/* Two-level root cells use the same compact rhythm as the model rows. */
-.cell {
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.divided {
+  padding-top: 16px;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.sectionLabel {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 500;
+}
+
+.note {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.subagentNotice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.subagentLink {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.effort {
+  display: grid;
+  grid-template-columns: repeat(var(--effort-cols), minmax(0, 1fr));
+  gap: 2px;
+  padding: 2px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+}
+
+.segment {
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 6px;
-  width: auto;
-  min-width: 100%;
-  height: 34px;
-  padding: 0 8px;
-  border: none;
-  border-radius: var(--dsw-radius-md);
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: calc(var(--dsw-radius-sm) - 2px);
+  outline: none;
   background: transparent;
-  color: var(--dsw-alias-label-primary);
-  font-size: 13px;
-  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
   cursor: pointer;
-  text-align: left;
 }
 
-.cell:hover {
+.segment:hover:not(:disabled):not([aria-checked='true']) {
+  color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
-.cellLabel {
-  flex: 0 0 auto;
-  white-space: nowrap;
+.segment[aria-checked='true'] {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-button-ghost-active-fill);
+  box-shadow: inset 0 0 0 0.5px var(--dsw-alias-button-ghost-active-border);
+  font-weight: 500;
 }
 
-.cellValue {
-  flex: 1 1 auto;
+.segment:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: -2px;
+}
+
+.segment:disabled {
+  color: var(--dsw-alias-label-dimmed);
+  cursor: default;
+}
+
+.segmentLabel {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  text-align: right;
-  color: var(--dsw-alias-label-tertiary);
 }
 
-.cellChevron {
-  flex: 0 0 auto;
-  width: 12px;
-  height: 12px;
-  color: var(--dsw-alias-menu-icon);
+.scale {
+  display: flex;
+  justify-content: space-between;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.toggleCopy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.toggleName {
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.caption {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.footnote {
+  margin-top: auto;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
 }
 
 .routing {
@@ -342,11 +526,18 @@
   padding: 10px 12px;
 }
 
+.routingNote {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}
+
 .routingList {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 6px 12px;
-  margin: 0;
+  margin: 0 0 8px;
   font-size: 13px;
   line-height: 20px;
 }
@@ -364,7 +555,17 @@
 .filters {
   flex: 0 0 auto;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 4px;
-  margin: 2px 2px 4px;
+  margin: 0 0 6px;
+  padding-bottom: 4px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-padding-inline: 6px;
+}
+
+.filters > .chip {
+  flex: 0 0 auto;
+  border-radius: var(--dsw-radius-sm);
+  corner-shape: var(--dsw-corner-shape);
 }

@@ -1,5 +1,8 @@
 /** Provider quota header dictionaries. */
 
+import type { SettingsFormLabels } from '@deepseek-ai/dsh-client-ui-primitives'
+
+/** Locale namespace of the provider quota client. */
 export const NS = 'provider-quota'
 
 /** Simplified Chinese provider quota dictionary. */
@@ -17,10 +20,56 @@ export const zh = {
   sessionTotal: '本会话：{tokens} 个 token',
   'window.5h': '5 小时',
   'window.weekly': '每周',
+  'window.weekly-opus': '每周 Opus',
+  'window.weekly-sonnet': '每周 Sonnet',
   'window.monthly': '每月',
+  'window.overage': '额外用量',
   'window.credits': '余额',
   used: '已用 {percent}%',
   reset: '{time} 重置',
+  resetWhen: '（{time} 重置）',
+  asOf: '截至 {time}',
+  awaitingUsage: '首次 {provider} 请求后显示用量。',
+  notSetUp: '未设置：{providers}',
+  setUpHint: '在 设置 > 模型 中设置',
+  billingUsing: '当前计费：{source}',
+  billingApi: '{provider} API 额度',
+  billingSubscription: '{provider} 订阅',
+  inUseForRequests: '当前用于请求',
+  apiLimitUntil: 'API 额度：已达支出上限，{time} 恢复',
+  apiLimitNoDate: 'API 额度：已达支出上限',
+  apiLimitMismatch: '该上限属于 API 计费，但当前计费设为 {provider} 订阅。此登录可能按 API 额度计费。',
+  subscriptionUnavailable: '订阅用量暂不可用：{message}',
+  switchToApi: '切换到 {provider} API 额度',
+  switchToSubscription: '切回 {provider} 订阅',
+  addKeyToSwitch: '在 设置 > 模型 中为 {provider} 添加 API 密钥后可切换。',
+  consoleLink: '在 {provider} 控制台查看额度余额',
+  notNow: '暂不',
+  pickModel: '选择其他模型',
+  'span.5h': '5 小时窗口',
+  'span.weekly': '每周窗口',
+  'span.weekly-opus': '每周 Opus 窗口',
+  'span.weekly-sonnet': '每周 Sonnet 窗口',
+  'span.monthly': '每月窗口',
+  'span.overage': '额外用量上限',
+  'span.credits': '余额',
+  promptNear: '{provider} 的{window}已用 {percent}%{when}。',
+  promptNearSwitch: '你的 {provider} 订阅的{window}已用 {percent}%{when}。切换到 {provider} API 额度？',
+  promptHard: '{provider} 的{window}已达上限{when}。',
+  promptHardSwitch: '你的 {provider} 订阅的{window}已达上限{when}。切换到 {provider} API 额度？',
+  promptBack: '你的 {provider} 用量窗口已重置。切回 {provider} 订阅？',
+  usageSettingsTitle: '用量提醒',
+  usageSettingsDescription: '订阅用量窗口接近上限时，在输入框上方提醒。',
+  nearLimitLabel: '提醒阈值（已用百分比）',
+  nearLimitHint: '订阅用量窗口达到该比例时提醒；留空使用默认值。',
+  nearLimitInvalid: '请填 {min} 到 {max} 之间的整数。',
+  overridden: '已覆盖',
+  resetDefault: '恢复默认',
+  formUnavailable: '该插件当前未加载，暂时无法配置。',
+  formReadOnly: '本部署的设置为只读。',
+  formSaveFailed: '本部署没有接受这些值，已保留供你修改。',
+  formSave: '保存',
+  formSaving: '保存中…',
 } as const
 
 /** English provider quota dictionary. */
@@ -38,11 +87,66 @@ export const en: Record<keyof typeof zh, string> = {
   sessionTotal: 'This session: {tokens} tokens',
   'window.5h': '5 hours',
   'window.weekly': 'Weekly',
+  'window.weekly-opus': 'Weekly (Opus)',
+  'window.weekly-sonnet': 'Weekly (Sonnet)',
   'window.monthly': 'Monthly',
+  'window.overage': 'Extra usage',
   'window.credits': 'Credits',
   used: '{percent}% used',
   reset: 'Resets {time}',
+  resetWhen: ' (resets {time})',
+  asOf: 'As of {time}',
+  awaitingUsage: 'Usage appears after your first {provider} request.',
+  notSetUp: 'Not set up: {providers}',
+  setUpHint: 'Set up in Settings > Models',
+  billingUsing: 'Billing: {source}',
+  billingApi: '{provider} API credits',
+  billingSubscription: '{provider} subscription',
+  inUseForRequests: 'Used for requests',
+  apiLimitUntil: 'API credits: spending limit reached until {time}',
+  apiLimitNoDate: 'API credits: spending limit reached',
+  apiLimitMismatch: 'This limit applies to API billing, but billing is set to your {provider} subscription. The sign-in may be charged to API credits.',
+  subscriptionUnavailable: 'Subscription usage unavailable: {message}',
+  switchToApi: 'Switch to {provider} API credits',
+  switchToSubscription: 'Switch back to your {provider} subscription',
+  addKeyToSwitch: 'Add an API key for {provider} in Settings > Models to switch.',
+  consoleLink: 'View {provider} credit balance',
+  notNow: 'Not now',
+  pickModel: 'Pick another model',
+  'span.5h': 'the five-hour window',
+  'span.weekly': 'the weekly window',
+  'span.weekly-opus': 'the weekly Opus window',
+  'span.weekly-sonnet': 'the weekly Sonnet window',
+  'span.monthly': 'the monthly window',
+  'span.overage': 'the extra usage limit',
+  'span.credits': 'the balance',
+  promptNear: '{provider} is {percent}% used for {window}{when}.',
+  promptNearSwitch: 'Your {provider} subscription is {percent}% used for {window}{when}. Switch to {provider} API credits?',
+  promptHard: '{provider} reached its limit for {window}{when}.',
+  promptHardSwitch: 'Your {provider} subscription reached its limit for {window}{when}. Switch to {provider} API credits?',
+  promptBack: 'Your {provider} usage window has reset. Switch back to your {provider} subscription?',
+  usageSettingsTitle: 'Usage warnings',
+  usageSettingsDescription: 'Warn above the composer when a subscription usage window nears its limit.',
+  nearLimitLabel: 'Warn at (% used)',
+  nearLimitHint: 'A subscription window warns once it reaches this share of its limit; blank uses the default.',
+  nearLimitInvalid: 'Enter a whole number from {min} to {max}.',
+  overridden: 'Overridden',
+  resetDefault: 'Reset to default',
+  formUnavailable: 'This plugin is not loaded, so it cannot be configured right now.',
+  formReadOnly: 'This deployment stores settings read-only.',
+  formSaveFailed: 'The deployment did not accept these values; they were left for you to correct.',
+  formSave: 'Save',
+  formSaving: 'Saving…',
 }
 
 /** Translation keys owned by the provider quota surface. */
 export type ProviderQuotaKey = keyof typeof zh
+
+/**
+ * The settings form's chrome labels, bound to this dictionary.
+ * @param t - translator for this dictionary.
+ * @returns the labels the shared settings form renders.
+ */
+export function formLabels(t: (key: ProviderQuotaKey) => string): SettingsFormLabels {
+  return { unavailable: t('formUnavailable'), readOnly: t('formReadOnly'), saveFailed: t('formSaveFailed'), save: t('formSave'), saving: t('formSaving') }
+}

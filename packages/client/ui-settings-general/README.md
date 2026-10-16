@@ -1,5 +1,5 @@
 ---
-description: "Settings shell, ownerless copy, and durable product-onboarding namespace for the dsh web client: the General section, trigger chrome, and onboarding ledger projection."
+description: "Settings shell and ownerless copy for the dsh web client: the General section, trigger chrome, and section navigation."
 kind: "package-reference"
 ---
 
@@ -7,7 +7,7 @@ kind: "package-reference"
 
 ## Summary
 
-Use this package to give the dsh web client a Settings panel, connection-recovery control, feature-contributed navigation, and sequential first-run onboarding. Users can open it from the sidebar, retry a failed connection immediately, and access a local configuration file when the Host makes one available on a loopback browser. Feature packages supply their own settings rows, sections, and onboarding steps; this package supplies their shared presentation and the Coding Tools switch without adding onboarding copy.
+Use this package to give the dsh web client a Settings panel, connection-recovery control, feature-contributed navigation. Users can open it from the sidebar, retry a failed connection immediately, and access a local configuration file when the Host makes one available on a loopback browser. Feature packages supply their own settings rows and sections; this package supplies their shared presentation and the Coding Tools switch.
 
 ## Table of Contents
 
@@ -25,7 +25,7 @@ The Settings panel uses a shared 800 × 800 layout, bounded by the viewport. Lon
 <a id="use-this-package"></a>
 ## Use this package
 
-Users reach the shell through the sidebar's bottom Settings control; feature plugins contribute their pages and onboarding steps through the slot ledgers this shell projects. In both the expanded sidebar and collapsed rail, the control exposes the localized Settings label as its accessible name. A pale-yellow **Disconnected** action beside Settings indicates browser offline suspension; its permanent retry glyph marks the retry action, which the Chinese outage copy also names (连接异常，刷新重试). Every recovery attempt shows the shared ongoing loader beside **Reconnecting** with one to three dots advancing every 500ms, and an attempt stays visible for at least 800ms so brief retries do not flicker. Selecting either yellow state starts an immediate retry; press feedback stays within the warning palette. Recovery changes the region to pale-green **Connected** for two seconds from the moment the green pill becomes visible. The pill fades in on appearance, fades out over 150ms on removal, and sizes to its current label. Initial startup and uninterrupted healthy operation remain silent. The shell renders the modal panel, the navigation built from `settings.section` entries, and exactly one mounted onboarding step at a time.
+Users reach the shell through the sidebar's bottom Settings control; feature plugins contribute their pages through the slot ledgers this shell projects. In both the expanded sidebar and collapsed rail, the control exposes the localized Settings label as its accessible name. A pale-yellow **Disconnected** action beside Settings indicates browser offline suspension; its permanent retry glyph marks the retry action, which the Chinese outage copy also names (连接异常，刷新重试, "Connection error, refresh to retry"). Every recovery attempt shows the shared ongoing loader beside **Reconnecting** with one to three dots advancing every 500ms, and an attempt stays visible for at least 800ms so brief retries do not flicker. Selecting either yellow state starts an immediate retry; press feedback stays within the warning palette. Recovery changes the region to pale-green **Connected** for two seconds from the moment the green pill becomes visible. The pill fades in on appearance, fades out over 150ms on removal, and sizes to its current label. Initial startup and uninterrupted healthy operation remain silent. The shell renders the modal panel, the navigation built from `settings.section` entries.
 
 Settings uses the [frame’s shared overlay inset](../ui-layout/README.md#window-chrome-seat) and keeps at least 24px of viewport margin. Its mask leaves the Windows caption unpainted; the full-viewport layer still blocks background clicks.
 
@@ -43,15 +43,18 @@ The Coding Tools switch controls the shared `ui-settings.enabled` preference des
 
 The General section holds the built-in Coding Tools and Current version rows alongside rows registered into `settings.general.item` by feature packages. Each registrant owns its row copy and behavior. The Appearance row, for example, lives in ui-theme.
 
+### Finding and saving settings
+
+The Settings title block holds a search field (`/` focuses it from anywhere outside a text field). Typing lists the matching pages and individual settings, with the page each one lives in; choosing a result, or pressing Enter for the best one, opens the page, scrolls the setting into view, highlights it briefly and moves focus to its first control. `Escape` clears the query first and closes the dialog second. Settings register their searchable label, description and keywords with [ui-settings](../ui-settings/README.md#use-this-package)' `settingsDirectory`; this package registers the General rows, and a row whose feature is not loaded is not offered. A result that lives outside Settings, such as a plugin's page on the sidebar Plugins page, shows that page's name and closes Settings to open it.
+
+Navigation is grouped under plain headings: Account and General first, then **AI models** (Models, Model routing), **Agent** (Agent presets, MCP servers, Hooks, Built-in plugins), and **More** for any section a plugin adds that the shell does not know. The up, down, left, right, Home and End keys move through the pages. The General page groups its rows under Preferences, Conversation and input, Advanced, Privacy and About; rows registered by other plugins and unknown to the shell appear under Advanced.
+
+The header shows a live save status (Saving, Saved, or a retry message) driven by every Host write of the shared settings forms. Below 640px wide the panel becomes a single column: the page list turns into a horizontally scrolling strip above the content and the content uses the full width. Pages that write through their own Host calls (Models, Model routing and Hooks) are not counted and show their own feedback.
+
 ### Opening the configuration file
 
 On a loopback browser, the shell renders **Open configuration file** only when the Host confirms that a provider-owned local document can be prepared. The action opens that document in the native text editor (bypassing the browser file association on macOS). Remote browsers never register the action and never issue the privileged settings read.
 
-### Onboarding steps
-
-The onboarding ledger projects in ascending order and mounts exactly one step at a time. Registrants own durable completion, capability readiness, copy, mutations, and their visible wrapper, so independently registered flows cannot stack and the shell does not become a second configuration fact source. Visible steps own their dialog chrome and app-root `inert` lifecycle.
-
------
 
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
@@ -65,7 +68,7 @@ The shell owns the chrome and the projections; it contributes the Coding Tools a
 
 ### Ledger projections
 
-The navigation is a projection of the `settings.section` ledger; nav labels may be locale-following thunks, resolved through `resolveSlotLabel` and re-rendered on the section ledger bump or the locale revision (an optional `ctx.get('locale')` read; no hard locale dependency). The onboarding ledger projects in ascending order; the active registrant receives its id, `complete()`, and an `openSection(id)` callback, and completing or skipping transfers ownership to the next entry.
+The navigation is a projection of the `settings.section` ledger; nav labels may be locale-following thunks, resolved through `resolveSlotLabel` and re-rendered on the section ledger bump or the locale revision (an optional `ctx.get('locale')` read; no hard locale dependency).
 
 ### Connection recovery
 
@@ -77,7 +80,7 @@ On a loopback page, the Client loads the provider's `hasDocument` capability thr
 
 ### Host half
 
-The Host half declares `welcomeNoticeVersion` as a volatile field of the `ui-settings-general` entry Config. The welcome step contributed by ui-settings-models reads and writes its `welcomeNoticeVersion` through the existing public settings boundary; the shell itself remains policy-free.
+The Host half still declares `welcomeNoticeVersion` as a volatile field of the `ui-settings-general` entry Config so configurations written by earlier installs keep loading; no current code reads or writes it, and the shell itself remains policy-free.
 
 </details>
 
@@ -90,7 +93,7 @@ These pages cover the settings surface family and the composition model.
 
 - [ui-settings](../ui-settings/README.md) — the domain base whose slot types and scope service this shell builds on.
 - [ui-sidebar](../ui-sidebar/README.md) — the sidebar shell hosting the `sidebar.settings` seat.
-- [ui-settings-models](../ui-settings-models/README.md) — the feature package contributing the DeepSeek onboarding step.
+- [ui-settings-models](../ui-settings-models/README.md) — the feature package contributing the Models page.
 - [settings](../../settings/README.md) — the durable user-settings seam and its file provider.
 - [Slot system standard](../../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md) — the composition model behind the ledgers.
 
@@ -125,4 +128,4 @@ None.
 
 </details>
 
-**Runtime invariant:** No companion is published. The settings seam validates and publishes the durable onboarding section, while slot conflicts fail loud in the slot core. The local document action is browser state over typed RPC responses and is covered by store/component tests rather than a Cordis runtime relationship.
+**Runtime invariant:** No companion is published. The settings seam validates and publishes the durable General section, while slot conflicts fail loud in the slot core. The local document action is browser state over typed RPC responses and is covered by store/component tests rather than a Cordis runtime relationship.

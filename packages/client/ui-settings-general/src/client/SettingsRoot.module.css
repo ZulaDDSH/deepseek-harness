@@ -106,15 +106,15 @@
   outline: none;
 }
 
-/* Nav rail (figma .Setting-nav 501:29958): 188 wide, pad (12,22,12,0),
-   gap 18, no own fill — the panel white shows through. */
-.nav {
+/* Rail (figma .Setting-nav 501:29958): 188 wide, pad (12,22,12,0), gap 14; only the page list scrolls. */
+.rail {
   flex: none;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 14px;
   width: 188px;
-  padding: 22px 12px 0;
+  min-height: 0;
+  padding: 22px 12px 12px;
   box-sizing: border-box;
 }
 
@@ -127,12 +127,27 @@
   color: var(--dsw-alias-label-primary);
 }
 
+/* Page list: groups separated by their headings. */
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 /* Cell stack (figma 501:29961): gap 4. */
-.navList {
+.navGroup {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  overflow-y: auto;
+}
+
+.navGroupTitle {
+  padding: 0 12px 2px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
 }
 
 /* Nav cell (figma .Setting-nav-cell 501:29962): 164x40, r12, pad
@@ -160,6 +175,12 @@
   background: var(--dsw-specific-sidebar-nav-item-hover);
 }
 
+.navCell:focus-visible,
+.close:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: -1px;
+}
+
 .navCell.active {
   background: var(--dsw-specific-sidebar-nav-item-active);
 }
@@ -180,6 +201,7 @@
 .content {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -203,6 +225,34 @@
   justify-content: flex-end;
   gap: 8px;
   margin-left: auto;
+}
+
+/* Live region stays mounted so each change is announced. */
+.saveStatus {
+  min-width: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.saveStatus[data-state='failed'] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+/* A setting reached from search flashes once so the eye finds it. */
+:global([data-settings-flash]) {
+  animation: settings-flash 1.6s ease-out;
+}
+
+@keyframes settings-flash {
+  from { background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 18%, transparent); }
+  to { background: transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :global([data-settings-flash]) {
+    animation-duration: 0.01ms;
+  }
 }
 
 /* Compact close control. */
@@ -246,3 +296,72 @@
    ui-web base.css's `body > :not(#root)` subtraction covers it wherever it
    overlaps a chrome row's drag — including above every column, which an in-root
    overlay could not promise once a chrome row declares drag itself. */
+
+/* Below 640px the rail stacks above the content and the page list becomes a horizontal strip. */
+@media (max-width: 640px) {
+  .panel {
+    flex-direction: column;
+    width: calc(100vw - 16px);
+    max-width: none;
+    height: min(800px, calc(100vh - 2 * max(8px, var(--dsh-frame-overlay-top, 8px))));
+  }
+
+  .rail {
+    width: 100%;
+    gap: 10px;
+    padding: 14px 12px 8px;
+  }
+
+  .navTitle {
+    padding: 0 40px 0 4px;
+  }
+
+  .nav {
+    flex-direction: row;
+    gap: 4px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 2px;
+    scrollbar-width: thin;
+  }
+
+  .navGroup {
+    flex: none;
+    flex-direction: row;
+  }
+
+  .navGroupTitle {
+    display: none;
+  }
+
+  .navCell {
+    flex: none;
+    height: 36px;
+    padding: 6px 12px 6px 10px;
+    white-space: nowrap;
+  }
+
+  .header {
+    height: auto;
+    min-height: 0;
+    padding: 0;
+  }
+
+  .actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    margin: 0;
+    padding: 0 16px 6px;
+  }
+
+  .close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 1;
+  }
+
+  .options {
+    padding: 0 16px 16px;
+  }
+}

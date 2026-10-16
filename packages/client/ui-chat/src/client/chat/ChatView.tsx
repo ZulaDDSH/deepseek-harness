@@ -101,7 +101,7 @@ const ChatNodeList = memo(function ChatNodeList({ entries, useChatGroup, pending
 export function ChatView({
   useSession, useChat, useChatNode, useChatNodeProcess, useChatGroup, useConversation, useSessions, useStore, actions, renderSlot,
   sessionId, openFile, openSkill, openExternalLink, loadOlder, loadThrough, loadImage, inspectCall, chatScroll, forkAt, fileMentions,
-  usePresentation, useProjection, t,
+  usePresentation, useProjection, useSessionStatus, stop, t,
 }: ChatViewSlotProps) {
   const order = useChat(s => s.order)
   const groupedEntries = useConversation(snapshot => snapshot.views.grouped('chat')?.entries)
@@ -127,6 +127,8 @@ export function ChatView({
     [turnNavigationItems, turnOutline],
   )
   const inbox = useProjection('inbox') as unknown as InboxState | undefined
+  const openStep = useProjection('sessionStats', stats => stats === undefined ? undefined : stats.steps + 1)
+  const awaitingUser = useSessionStatus(statuses => statuses.get(sessionId)?.pendingInteraction !== undefined)
   // Workspace root off the session list row: path summaries display relative to it.
   const cwd = useSessions(s => s.byId[sessionId]?.cwd)
   const fileImages = useMemo(() => ({
@@ -277,7 +279,16 @@ export function ChatView({
                 t={t}
               />
             </MarkdownDelegateProvider>
-            {running && <RunningStatus startTime={runningStartTime} t={t} />}
+            {running && (
+              <RunningStatus
+                startTime={runningStartTime}
+                step={openStep}
+                useChat={useChat}
+                awaitingUser={awaitingUser}
+                onStop={stop}
+                t={t}
+              />
+            )}
             {/* No pending placeholders: questions (ui-user-questions) and approvals
                 (ApprovalPanel) both take over the composer, so a flow card would
                 double-render the same wait. */}

@@ -56,13 +56,15 @@
  */
 import type {} from '@deepseek-ai/dsh-api-quota-controller'
 import { createCodexQuotaSource } from './codex-quota.ts'
+import { CLAUDE_ROUTE, claudeObservationsFromHeaders, createClaudeQuotaSource, createClaudeUsage } from './claude-quota.ts'
 import type {} from '@deepseek-ai/dsh-settings'
 
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 
 import type { Context } from '@deepseek-ai/cordis'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
-import { assertUsableApiKey, LlmError, resolveImageAttachmentAccess } from '@deepseek-ai/dsh-llm'
+import { assertUsableApiKey, LlmError, providerUsageLimitOf, resolveImageAttachmentAccess } from '@deepseek-ai/dsh-llm'
 import type { AdapterRegistrationHandle, DirectoryRegistrationHandle, LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-fs'
 import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
@@ -211,13 +213,30 @@ export function apply(ctx: Context, config: Config): void {
   // through `ctx` per call, so they stay correct across the collection rebuilds
   // a configuration change causes, and a sign-in survives one.
   const auth = { credentials: credentialStoreFrom(ctx), authContext: authContextFrom(ctx) }
+  const claudeUsage = createClaudeUsage()
+  ctx.on('llm/rate-limit-observed', (observation) => { claudeUsage.observe(observation) })
   ctx.inject(['quotaController'], (quota) => {
     quota.effect(() => quota.quotaController.registerSource(createCodexQuotaSource(auth, () => profiles().has('openai-codex'))))
+    quota.effect(() => quota.quotaController.registerSource(createClaudeQuotaSource({
+      usage: claudeUsage,
+      auth,
+      apiKeyEnv: () => profiles().get(CLAUDE_ROUTE)?.apiKeyEnv,
+      keyStored: async ref => (await ctx.get('credentials')?.resolve(credentialRef(ref))) !== undefined,
+      settingsNs,
+    })))
   })
+  const windowWarnedRoutes = new Set<string>()
   const adapter = new PiAiAdapter({
     profiles,
     resolveApiKey,
     auth,
+    onResponseHeaders: ({ provider, headers }) => {
+      for (const observation of claudeObservationsFromHeaders(provider, headers, Date.now())) claudeUsage.observe(observation)
+    },
+    onRequestFailure: ({ provider, message }) => {
+      const limit = provider === CLAUDE_ROUTE ? providerUsageLimitOf(message) : undefined
+      if (limit !== undefined) claudeUsage.observeApiLimit({ resetAt: limit.regainAt ?? null, observedAt: Date.now() })
+    },
     resolveAttachments: () => ctx.get('attachments'),
     resolveImageAccess: (attachments, ref) => resolveImageAttachmentAccess(
       attachments,
@@ -228,6 +247,15 @@ export function apply(ctx: Context, config: Config): void {
       ctx.logger.warn(
         `llm-pi-ai: unusable replay state on assistant history for route "${provider}/${model}";`
         + ` sending that message as provider-neutral content (${reason})`,
+      )
+    },
+    onUsageAboveWindow: ({ provider, model, contextWindow, inputTokens }) => {
+      const route = `${provider}/${model}`
+      if (windowWarnedRoutes.has(route)) return
+      windowWarnedRoutes.add(route)
+      ctx.logger.warn(
+        `llm-pi-ai: route "${route}" accepted ${inputTokens} input tokens, above its catalog contextWindow ${contextWindow};`
+        + ' raise contextWindow for that model so compaction budgets match the provider',
       )
     },
   })

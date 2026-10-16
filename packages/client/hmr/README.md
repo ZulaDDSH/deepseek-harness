@@ -57,7 +57,7 @@ This section explains how the reload chain is built; observable behavior is cove
 
 ### Design concept
 
-The Host half watches each package's stamped entry artifact and serves `/plugins/events`. It forwards existing graph-change and rebuilt notifications; every new connection receives the current full graph. A graph describes the browser’s desired entries and carries no Host cleanup-completion guarantee. Host activation and cleanup remain owned by the Host lifecycle. The entry's mtime, ctime, and size identify the revision without hashing its contents; unchanged metadata requires no content read. Host restarts over unchanged artifacts keep the same revisions, so reconnecting the graph stream does not replace browser plugins. The browser half delegates both frame kinds to Client Modules, which serializes entry changes and waits for browser resource cleanup.
+The Host half watches each package's stamped entry artifact and serves `/plugins/events`. It forwards existing graph-change and rebuilt notifications; every new connection receives the current full graph. A graph describes the browser’s desired entries and carries no Host cleanup-completion guarantee. Host activation and cleanup remain owned by the Host lifecycle. The entry's mtime, ctime, and size identify the revision without hashing its contents; unchanged metadata requires no content read. Host restarts over unchanged artifacts keep the same revisions, so reconnecting the graph stream does not replace browser plugins. The browser half delegates both frame kinds to Client Modules, which serializes entry changes and waits for browser resource cleanup. One tab per browser profile holds the `/plugins/events` connection (Web Locks leader) and relays frames to the other tabs over a BroadcastChannel, which keeps Chromium's six HTTP/1.1 sockets per host free for RPC.
 
 ### The browser swap
 
@@ -76,7 +76,7 @@ Download failures leave the running plugin active. After the old fiber is torn d
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Node half: bundle stat-poll, `rebuilt` reporting, `/plugins/events` SSE channel |
-| [`src/client/index.ts`](src/client/index.ts) | Browser half: SSE subscription and delegation to the shared entry controller |
+| [`src/client/index.ts`](src/client/index.ts) | Browser half: leader-tab SSE subscription shared to other tabs over BroadcastChannel, and delegation to the shared entry controller |
 | [`src/events.ts`](src/events.ts) | Shared frame types (`graph` / `rebuilt`) and the endpoint constant |
 
 </details>
@@ -114,6 +114,7 @@ These limits define what the reload driver does not preserve or restore. They ar
 - **Reload is coarse by design** — a fresh fiber and fresh components; React state inside the reloaded plugin is lost while the data layer (connection/runtime fibers, Session objects) is untouched. react-refresh-grade state preservation conflicts with re-executing the bundle and is deliberately out.
 - **No failure rollback** — after the old fiber is torn down, a failed replacement does not restore the previous bundle.
 - **Web transport only** — Electron installation and backend restart handling do not use this SSE path. Entry reconciliation itself is transport-independent.
+- **One connection per tab in non-secure contexts** — pages served over plain HTTP (for example LAN access) have no `navigator.locks`, so each tab opens its own `/plugins/events` connection instead of sharing the leader's.
 
 <a id="dev-note"></a>
 ### Dev Note

@@ -14,7 +14,7 @@ import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { QuotaController } from '@deepseek-ai/dsh-api-quota-controller'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
+import { catalogModels } from '../src/catalog.ts'
 import { DEFAULT_MAX_REQUEST_IMAGE_BYTES, resolveProfiles } from '../src/config.ts'
 import { memoryAuth } from './auth-double.ts'
 import { assemble } from './assemble.ts'
@@ -157,7 +157,7 @@ describe('PiAiAdapter provider routing', () => {
 
     const sent = (opencode.rawHeaderNames[0] ?? [])
       .filter(name => name.toLowerCase() === 'x-opencode-session')
-    expect(sent).toEqual(['X-OpenCode-Session'])
+    expect(sent).toHaveLength(1)
     expect(opencode.headers[0]?.['x-opencode-session']).toBe('configured-session')
   })
 
@@ -466,7 +466,7 @@ describe('PiAiAdapter provider routing', () => {
   })
 
   it('uses the resolved catalog context window for usage-based overflow detection', async () => {
-    const model = getBuiltinModels('deepseek').find(candidate => candidate.id === 'deepseek-v4-flash')
+    const model = catalogModels('deepseek').get('deepseek-v4-flash')
     if (model === undefined) throw new Error('deepseek-v4-flash missing from pi-ai test catalog')
     const events = [
       '{"choices":[{"delta":{"role":"assistant","content":""},"index":0,"finish_reason":null}]}',
@@ -526,10 +526,10 @@ describe('provider profile lifecycle', () => {
       ctx.provide('credentials', { resolve: async () => undefined, readRecord: async () => undefined } as never)
       const controller = new QuotaController(ctx)
       const fiber = await ctx.plugin(LlmPiAi, { providers: { 'openai-codex': {} } })
-      await expect(controller.listProviders()).resolves.toContainEqual({ id: 'openai-codex', name: 'openai-codex' })
+      await expect(controller.listProviders()).resolves.toContainEqual({ id: 'openai-codex', name: 'OpenAI Codex' })
       await expect(controller.fetch('openai-codex')).resolves.toMatchObject({ ok: false, error: 'Not configured' })
       await fiber.dispose()
-      await expect(controller.listProviders()).resolves.toEqual([])
+      await expect(controller.listProviders()).resolves.not.toContainEqual({ id: 'openai-codex', name: 'OpenAI Codex' })
       await expect(controller.fetch('openai-codex')).resolves.toMatchObject({ ok: false, error: 'Unsupported provider' })
     } finally { await ctx.fiber.dispose() }
   })

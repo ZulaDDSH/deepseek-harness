@@ -17,6 +17,7 @@ import {
 } from '../models/terminal-card-model.ts'
 import { formatToolBody, toolRowModel, toolTitleKey, type ToolRowState } from '../models/tool-call-model.ts'
 import { PreparingToolRow } from '../components/PreparingToolRow.tsx'
+import { ElapsedClock } from '../components/ElapsedClock.tsx'
 import { CONVERSATION_NS as NS } from '../../locale.ts'
 import css from './bash-sample.module.css'
 
@@ -120,6 +121,7 @@ const StartedBashRow = memo(function StartedBashRow({ toolName, block, sessionId
             <TextShimmer>{settlementLine ?? normalSummary}</TextShimmer>
           </span>
         </TextShimmer>
+        {running && model.startedAt !== undefined && <ElapsedClock since={model.startedAt} />}
       </div>
       {open && (
         <div className={css.bodyWrap}>

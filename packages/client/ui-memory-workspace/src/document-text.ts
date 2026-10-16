@@ -32,8 +32,9 @@ export async function documentText(ctx: Context, filename: string, bytes: Uint8A
         } },
     }, signal)).pdf
   } else {
-    if (!['txt', 'md', 'csv', 'json', 'log'].includes(extension)) throw new Error('Unsupported document format')
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+    if (!['txt', 'md', 'csv', 'json', 'log'].includes(extension)) throw new Error(`Unsupported document format ".${extension}"; upload TXT, Markdown, CSV, JSON, log, PDF or Office files`)
+    try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes) }
+    catch { throw new Error(`${filename} is not valid UTF-8 text; save it as UTF-8 and upload it again`) }
   }
   const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs')
   const loading = getDocument({ data: Uint8Array.from(pdf), useSystemFonts: false, stopAtErrors: true })

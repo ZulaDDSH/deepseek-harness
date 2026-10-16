@@ -20,15 +20,24 @@ export class ModelCatalogDirectory {
     error: null,
   })
 
-  private readonly reasoning = new Map<string, ModelProviderGroup['models'][number]['reasoning']>()
+  private readonly models = new Map<string, ModelProviderGroup['models'][number]>()
 
   /**
-   * Read the last advertised reasoning metadata, including unavailable models.
+   * Read the reasoning metadata cached from the last advertised catalog, including unavailable models.
    * @param selection - provider and model whose effort is displayed.
    * @returns reasoning metadata observed during this Host generation.
    */
   reasoningFor(selection: ModelSelection): ModelProviderGroup['models'][number]['reasoning'] {
-    return this.reasoning.get(JSON.stringify([selection.provider, selection.model]))
+    return this.models.get(JSON.stringify([selection.provider, selection.model]))?.reasoning
+  }
+
+  /**
+   * Last advertised display name for one exact model this Host generation, including unavailable models.
+   * @param selection - provider and model.
+   * @returns the catalog name, if seen.
+   */
+  nameFor(selection: ModelSelection): string | undefined {
+    return this.models.get(JSON.stringify([selection.provider, selection.model]))?.name
   }
 
   private generation = 0
@@ -60,7 +69,7 @@ export class ModelCatalogDirectory {
       if (generation === this.generation) {
         for (const group of response.value.groups) {
           for (const model of group.models) {
-            this.reasoning.set(JSON.stringify([group.id, model.id]), model.reasoning)
+            this.models.set(JSON.stringify([group.id, model.id]), model)
           }
         }
         this.store.set({ value: response.value, status: 'ready', error: null })
@@ -100,7 +109,7 @@ export class ModelCatalogDirectory {
 
   /** Clear Host-specific values and load the replacement Host generation. */
   resetGeneration(): void {
-    this.reasoning.clear()
+    this.models.clear()
     this.invalidate(true)
     void this.load().catch(() => { /* the selector exposes the shared error */ })
   }

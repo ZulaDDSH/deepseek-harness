@@ -53,6 +53,7 @@ export function readFamilyRow(
       errorSummary={model.errorSummary}
       {...card}
       state={model.state}
+      startedAt={model.startedAt}
       filePath={model.filePath}
       onOpenFile={openFile}
       inspect={inspect}

@@ -124,7 +124,7 @@ Work details uses the Host setting `ui-chat.transcriptView`. The client reads it
 - Legacy `normal` and `expanded` values display as `detailed`, without automatically rewriting the saved values on disk.
 - When the setting is missing, `null`, or invalid, Desktop uses `standard` and non-Desktop Web uses `detailed`. Each client also uses its default before Host settings arrive; invalid values in other settings still fail validation.
 
-Reading a default does not automatically save configuration. When the user changes modes, the selected value is saved through Host settings; memory mode does not write to disk. Desktop onboarding writes preferences according to its rules when completed or skipped.
+Reading a default does not automatically save configuration. When the user changes modes, the selected value is saved through Host settings; memory mode does not write to disk.
 
 ### Group-title rules
 
@@ -176,7 +176,7 @@ Switching modes retains manually opened groups and inner disclosures. It changes
 <a id="process-grouping"></a>
 ## Process grouping
 
-[process-groups.ts](process-groups.ts) groups visible Chat content; [process-activity.ts](process-activity.ts) summarizes the activity inside each group. Both follow the rules below.
+[process-groups.ts](process-groups.ts) groups visible Chat content; [process-activity.ts](../contract/process-activity.ts) summarizes the activity inside each group. Both follow the rules below.
 
 A group collects adjacent process content within one Turn. Step-number changes alone do not split it. All four modes use the same grouping result. A group's `closed` flag means its content segment has ended, not that its UI disclosure is collapsed.
 
@@ -214,7 +214,7 @@ Replies and independent separators close preceding groups immediately, even whil
 <a id="activity-summaries"></a>
 ## Activity summaries
 
-[process-activity.ts](process-activity.ts) derives one group's category counts and live detail from its member Nodes. It does not decide membership or presentation text.
+[process-activity.ts](../contract/process-activity.ts) derives one group's category counts and live detail from its member Nodes. It does not decide membership or presentation text.
 
 ### Category counts
 

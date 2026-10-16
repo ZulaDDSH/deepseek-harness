@@ -8,7 +8,7 @@ import type { ChatConversationViewNode, ChatNode } from '../contract/chat-nodes.
 import type { ProcessActivitySummary, ProcessGroupData } from '../contract/process-groups.ts'
 import { hasAssistantReplyContent } from '../contract/assistant-content.ts'
 import { isVisibleChatNode } from '../contract/chat-visibility.ts'
-import { processActivity } from './process-activity.ts'
+import { processActivity } from '../contract/process-activity.ts'
 
 const INDEPENDENT = new Set(['user', 'steering', 'turn-trigger', 'model-retry', 'turn-error', 'turn-max-tokens', 'turn-tail'])
 type ProcessInput = ConversationGroupInput<ChatConversationViewNode>

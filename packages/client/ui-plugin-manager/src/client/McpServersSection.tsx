@@ -41,6 +41,15 @@ function parseHeaders(text: string): Record<string, string> {
     .filter(([name]) => name.length > 0))
 }
 
+function isHttpUrl(text: string): boolean {
+  try {
+    const { protocol } = new URL(text)
+    return protocol === 'http:' || protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
 function stateOf(server: McpServerRow): StateDotState {
   if (!server.enabled) return 'idle'
   if (server.phase === 'failed') return 'error'
@@ -116,7 +125,11 @@ export function McpServersSection(props: McpServersSectionProps) {
       setDraft(EMPTY_DRAFT)
     })
   }
-  const canAdd = draft.name.trim().length > 0 && (draft.transport === 'stdio' ? draft.command.trim().length > 0 : draft.url.trim().length > 0)
+  const name = draft.name.trim()
+  const nameTaken = name.length > 0 && servers?.some(server => server.serverName === name) === true
+  const urlInvalid = draft.transport === 'streamable-http' && draft.url.trim().length > 0 && !isHttpUrl(draft.url.trim())
+  const canAdd = name.length > 0 && !nameTaken && !urlInvalid
+    && (draft.transport === 'stdio' ? draft.command.trim().length > 0 : draft.url.trim().length > 0)
   const sourceLabel = (source: McpServerCandidate['source']): string =>
     t(source === 'claude-desktop' ? 'mcpSourceClaudeDesktop' : source === 'claude-code' ? 'mcpSourceClaudeCode' : 'mcpSourceCodex')
   const phaseLabel = (server: McpServerRow): string => {
@@ -132,8 +145,15 @@ export function McpServersSection(props: McpServersSectionProps) {
       default: return connection.toolCount === 1 ? t('mcpConnectedOne') : t('mcpConnectedMany', { count: String(connection.toolCount) })
     }
   }
-  const field = (label: Parameters<typeof t>[0], control: ReactNode): ReactNode =>
-    <label className={css.field}><span className={css.fieldLabel}>{t(label)}</span>{control}</label>
+  const field = (label: Parameters<typeof t>[0], control: ReactNode, opts: { required?: boolean; error?: string } = {}): ReactNode =>
+    <label className={css.field}>
+      <span className={css.fieldLabel}>
+        {t(label)}
+        {opts.required === true ? <span className={css.required}>{t('mcpRequired')}</span> : null}
+      </span>
+      {control}
+      {opts.error === undefined ? null : <span className={css.fieldError} role="alert">{opts.error}</span>}
+    </label>
   return <section className={css.section}>
     <h2 className={css.title}>{t('mcpTitle')}</h2>
     <p className={css.intro}>{t('mcpHelp')}</p>
@@ -221,8 +241,9 @@ export function McpServersSection(props: McpServersSectionProps) {
     <div className={css.groupHead}><h3 className={css.groupTitle}>{t('mcpAddTitle')}</h3></div>
     <form className={`${css.card} ${css.form}`} onSubmit={(event) => { event.preventDefault(); if (canAdd) add() }}>
       <div className={css.formRow}>
-        {field('mcpName', <input className={css.input} aria-label={t('mcpName')} value={draft.name}
-          onChange={(event) => { setDraft({ ...draft, name: event.target.value }) }} />)}
+        {field('mcpName', <input className={css.input} aria-label={t('mcpName')} aria-required="true" aria-invalid={nameTaken || undefined}
+          value={draft.name} onChange={(event) => { setDraft({ ...draft, name: event.target.value }) }} />,
+        { required: true, ...nameTaken ? { error: t('mcpNameTaken', { name }) } : {} })}
         {field('mcpTransport', <select className={`${css.input} ${css.select}`} aria-label={t('mcpTransport')} value={draft.transport}
           onChange={(event) => { setDraft({ ...draft, transport: event.target.value as McpServerConfig['transport'] }) }}>
           <option value="stdio">{t('mcpTransportStdio')}</option>
@@ -231,16 +252,18 @@ export function McpServersSection(props: McpServersSectionProps) {
       </div>
       {draft.transport === 'stdio'
         ? <>
-          {field('mcpCommand', <input className={css.input} aria-label={t('mcpCommand')} placeholder={t('mcpCommandPlaceholder')} value={draft.command}
-            onChange={(event) => { setDraft({ ...draft, command: event.target.value }) }} />)}
+          {field('mcpCommand', <input className={css.input} aria-label={t('mcpCommand')} aria-required="true" placeholder={t('mcpCommandPlaceholder')}
+            value={draft.command} onChange={(event) => { setDraft({ ...draft, command: event.target.value }) }} />, { required: true })}
           {field('mcpArgs', <input className={css.input} aria-label={t('mcpArgs')} placeholder={t('mcpArgsPlaceholder')} value={draft.args}
             onChange={(event) => { setDraft({ ...draft, args: event.target.value }) }} />)}
           {field('mcpEnv', <textarea className={`${css.input} ${css.textarea}`} aria-label={t('mcpEnv')} placeholder={t('mcpEnvPlaceholder')}
             value={draft.env} onChange={(event) => { setDraft({ ...draft, env: event.target.value }) }} />)}
         </>
         : <>
-          {field('mcpUrl', <input className={css.input} aria-label={t('mcpUrl')} placeholder={t('mcpUrlPlaceholder')} value={draft.url}
-            onChange={(event) => { setDraft({ ...draft, url: event.target.value }) }} />)}
+          {field('mcpUrl', <input className={css.input} aria-label={t('mcpUrl')} aria-required="true" aria-invalid={urlInvalid || undefined}
+            placeholder={t('mcpUrlPlaceholder')} value={draft.url}
+            onChange={(event) => { setDraft({ ...draft, url: event.target.value }) }} />,
+          { required: true, ...urlInvalid ? { error: t('mcpUrlInvalid') } : {} })}
           {field('mcpHeaders', <textarea className={`${css.input} ${css.textarea}`} aria-label={t('mcpHeaders')} placeholder={t('mcpHeadersPlaceholder')}
             value={draft.headers} onChange={(event) => { setDraft({ ...draft, headers: event.target.value }) }} />)}
           <p className={css.intro}>{t('mcpHeadersHint')}</p>

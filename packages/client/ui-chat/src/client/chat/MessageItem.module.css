@@ -289,6 +289,17 @@
   color: var(--dsw-alias-label-secondary);
 }
 
+.turnErrorDetails {
+  margin-top: 4px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.turnErrorRaw {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  font: var(--dsw-font-markdown-code-block-small);
+}
+
 .turnErrorCode {
   color: var(--dsw-alias-label-tertiary);
   font: var(--dsw-font-markdown-code-block-small);
@@ -298,6 +309,12 @@
   margin-right: 6px;
   color: var(--dsw-alias-state-warn-primary);
   font-weight: 600;
+}
+
+.turnEndActions {
+  margin-top: 6px;
+  display: flex;
+  gap: 8px;
 }
 
 .attachmentRow {

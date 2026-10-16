@@ -1,4 +1,4 @@
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -376,6 +376,121 @@ describe('hooks-claude-code bridge — SubagentStart / SubagentStop (observe)', 
     // so the drained continuation must NOT have logged a failure.
     expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('SubagentStart hook failed'))
   })
+})
+
+describe('hooks-claude-code bridge — tool aliases and run control', () => {
+  /** A fresh temp dir for one test; removed by the file's afterEach. */
+  function sandbox(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-hooks-claude-'))
+    dirs.push(dir)
+    return dir
+  }
+  /** Write an executable bash hook at `dir/name` and return its absolute path. */
+  function hookScript(dir: string, name: string, body: string): string {
+    const path = join(dir, name)
+    writeFileSync(path, `#!/usr/bin/env bash\n${body}\n`)
+    chmodSync(path, 0o755)
+    return path
+  }
+
+  it('a Claude Code tool-name matcher fires on the DSH tool it names', async () => {
+    const dir = sandbox()
+    const payload = join(dir, 'payload')
+    const deny = hookScript(dir, 'deny.sh', 'echo "no shell" >&2\nexit 2')
+    const capture = hookScript(dir, 'capture.sh', `cat > "${payload}"\nexit 2`)
+    writeFileSync(join(dir, 'hooks.json'), JSON.stringify({ hooks: { PreToolUse: [
+      { matcher: 'Bash', hooks: [{ type: 'command', command: deny }] },
+      { matcher: 'Write|Edit', hooks: [{ type: 'command', command: capture }] },
+    ] } }))
+
+    const adapter = new MockAdapter([
+      toolCallResponse('c1', 'bash', { command: 'ls' }),
+      toolCallResponse('c2', 'write', { file_path: 'a.txt', content: 'x' }),
+      textResponse('done'),
+    ])
+    const ctx = await harness(dir, adapter)
+    let bashRan = false
+    let writeRan = false
+    ctx.tools.register(defineContentToolFixture({ name: 'bash', description: 'b', parameters: { command: { type: 'string' } }, async execute() { bashRan = true; return [{ type: 'text', text: 'ran' }] } }))
+    ctx.tools.register(defineContentToolFixture({ name: 'write', description: 'w', parameters: { file_path: { type: 'string' }, content: { type: 'string' } }, async execute() { writeRan = true; return [{ type: 'text', text: 'ran' }] } }))
+    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'edit' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    expect(bashRan).toBe(false)
+    expect(writeRan).toBe(false)
+    // The capture hook saw the Claude Code tool name and the unchanged argument keys.
+    expect(JSON.parse(readFileSync(payload, 'utf8'))).toMatchObject({ tool_name: 'Write', tool_input: { file_path: 'a.txt' } })
+  }, 15_000)
+
+  it('an always-blocking Stop hook forces at most maxForcedStops continuations and reports stop_hook_active', async () => {
+    const dir = sandbox()
+    const payloads = join(dir, 'payloads')
+    const stop = hookScript(dir, 'stop.sh', `cat >> "${payloads}"\necho "keep going" >&2\nexit 2`)
+    writeFileSync(join(dir, 'hooks.json'), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: stop }] }] } }))
+
+    const adapter = new MockAdapter([textResponse('1'), textResponse('2'), textResponse('3'), textResponse('4'), textResponse('5')])
+    const warn = vi.fn()
+    const ctx = await harness(dir, adapter, (ctx) => { ctx.logger.warn = warn as never })
+    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    // Three forced continuations, then the fourth Stop block lets the turn end.
+    expect(adapter.requests).toHaveLength(4)
+    const flags = readFileSync(payloads, 'utf8').split('\n').filter(line => line.length > 0)
+      .map(line => JSON.parse(line) as { stop_hook_active: boolean }).map(p => p.stop_hook_active)
+    expect(flags).toEqual([false, true, true, true])
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('Stop hook blocked 3 times'))
+  }, 15_000)
+
+  it('a Stop block with {"continue":false} halts instead of steering', async () => {
+    const dir = sandbox()
+    const stop = hookScript(dir, 'stop.sh', 'echo \'{"decision":"block","reason":"more","continue":false,"stopReason":"halt"}\'')
+    writeFileSync(join(dir, 'hooks.json'), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: stop }] }] } }))
+
+    const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
+    const ctx = await harness(dir, adapter)
+    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    // No steer: the second model step never runs, and the turn ends on the hook halt.
+    expect(adapter.requests).toHaveLength(1)
+    const turnEnd = events(agent).findLast(e => e.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted', reason: { kind: 'hook', reason: 'halt' } })
+  }, 15_000)
+
+  it('a {"continue":false} UserPromptSubmit hook halts before any model call', async () => {
+    const dir = sandbox()
+    const halt = hookScript(dir, 'halt.sh', 'echo \'{"continue":false}\'')
+    writeFileSync(join(dir, 'hooks.json'), JSON.stringify({ hooks: { UserPromptSubmit: [{ hooks: [{ type: 'command', command: halt }] }] } }))
+
+    const adapter = new MockAdapter([textResponse('should not run')])
+    const ctx = await harness(dir, adapter)
+    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(0)
+    const result = events(agent).find(e => e.type === 'hook/result')
+    expect(result?.type === 'hook/result' && result.data.decision).toBe('stop')
+  }, 15_000)
+
+  it('a no-agent direct call is denied by a {"continue":false} PreToolUse hook', async () => {
+    const dir = sandbox()
+    const halt = hookScript(dir, 'halt.sh', 'echo \'{"continue":false}\'')
+    writeFileSync(join(dir, 'hooks.json'), JSON.stringify({ hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: halt }] }] } }))
+
+    const ctx = await harness(dir, new MockAdapter([]))
+    let ran = false
+    ctx.tools.register(defineContentToolFixture({ name: 'echo', description: 'e', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
+    const result = await ctx.tools.execute({ signal: new AbortController().signal, callId: ToolCallId('c1'), name: 'echo', arguments: {} })
+
+    expect(ran).toBe(false)
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('blocked by PreToolUse hook')
+  }, 15_000)
 })
 
 describe('hooks-claude-code bridge — load resilience', () => {

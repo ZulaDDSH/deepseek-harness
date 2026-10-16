@@ -191,6 +191,7 @@ export function AskQuestionRow({ toolName, block, inspect, useDisclosure, t }: A
       output={transcript === null ? model.output : null}
       askQuestion={transcript}
       state={state}
+      startedAt={model.startedAt}
       inspect={inspect}
     />
   )

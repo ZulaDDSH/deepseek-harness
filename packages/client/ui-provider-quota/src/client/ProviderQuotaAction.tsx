@@ -1,24 +1,30 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { IconDataOutlineRegular, IconRefreshOutlineMedium, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconDataOutlineRegular, IconRefreshOutlineMedium, Tooltip, useDismissOnOutsidePointer } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { PropsLocale, PropsRuntime, InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
-import type { QuotaResult, QuotaWindow, QuotaWindowId } from '@deepseek-ai/dsh-api-quota-controller/types'
+import type { QuotaBillingSwitch, QuotaProviderView, QuotaResult, QuotaWindow, QuotaWindowId } from '@deepseek-ai/dsh-api-quota-controller/types'
 import type { TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
 import { NS, type ProviderQuotaKey } from './locales.ts'
 import css from './ProviderQuotaAction.module.css'
 
+/** Writes one provider's billing choice and reports the refusal, if any. */
+export type SwitchBilling = (billing: QuotaBillingSwitch, target: 'api' | 'subscription', providerId: string, resetAt?: number) => Promise<string | undefined>
+
 export interface ProviderQuotaActionInjected {
   hooks: {
-    providers: ObservableSnapshot<readonly { readonly id: string; readonly name: string }[] | null>
+    providers: ObservableSnapshot<readonly QuotaProviderView[] | null>
     state: ObservableSnapshot<{ readonly status: 'idle' | 'loading' | 'ready' | 'error'; readonly results: readonly QuotaResult[]; readonly message?: string }>
   }
   refresh: () => Promise<void>
+  switchBilling: SwitchBilling
 }
 
 export type ProviderQuotaActionProps = PropsRuntime<'conversation.session.header.utilities'> & PropsLocale<typeof NS> & InjectFace<ProviderQuotaActionInjected>
 
-const WINDOWS: readonly QuotaWindowId[] = ['5h', 'weekly', 'monthly', 'credits']
+type Translate = (key: ProviderQuotaKey, params?: Record<string, string>) => string
+
+const WINDOWS: readonly QuotaWindowId[] = ['5h', 'weekly', 'weekly-opus', 'weekly-sonnet', 'monthly', 'overage', 'credits']
 
 /** Rounded used percentage, or null when the provider reported none. */
 function usedPercent(window: QuotaWindow): number | null {
@@ -33,10 +39,15 @@ function windowTone(used: number | null): 'ok' | 'warn' | 'error' {
   return 'ok'
 }
 
+/** An instant in the browser's locale and time zone. */
+export function instantLabel(at: number): string {
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(at)
+}
+
 /** Reset instant in the browser's locale and time zone; absent when the provider reported none. */
-function resetLabel(resetAt: number | null): string | undefined {
+export function resetLabel(resetAt: number | null): string | undefined {
   if (resetAt === null || !Number.isFinite(resetAt)) return undefined
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(resetAt)
+  return instantLabel(resetAt)
 }
 
 function sessionTokenLabel(usage: TokenUsageProjection): string {
@@ -48,7 +59,7 @@ function sessionTokenLabel(usage: TokenUsageProjection): string {
 function WindowRow({ id, window, t }: {
   window: QuotaWindow
   id: QuotaWindowId
-  t: (key: ProviderQuotaKey, params?: Record<string, string>) => string
+  t: Translate
 }): ReactNode {
   const percent = usedPercent(window)
   const tone = windowTone(percent)
@@ -70,26 +81,93 @@ function WindowRow({ id, window, t }: {
   )
 }
 
-/** One provider: its windows, or the failure the fetch reported. */
-function ProviderSection({ result, t }: {
+/** The billing choice of one provider, with the switch that flips it. */
+function BillingLine({ result, switchBilling, t }: {
   result: QuotaResult
-  t: (key: ProviderQuotaKey, params?: Record<string, string>) => string
+  switchBilling: SwitchBilling
+  t: Translate
+}): ReactNode {
+  const [refusal, setRefusal] = useState<string | undefined>(undefined)
+  const billing = result.billing
+  if (billing === undefined) return null
+  const option = billing.switch
+  const target = billing.active === 'api' ? 'subscription' : 'api'
+  return (
+    <div className={css.billing}>
+      <span className={css.reset}>{t('billingUsing', { source: t(billing.active === 'api' ? 'billingApi' : 'billingSubscription', { provider: result.providerName }) })}</span>
+      {option === undefined ? null
+        : billing.active === 'subscription' && !option.apiKeyStored ? <span className={css.reset}>{t('addKeyToSwitch', { provider: result.providerName })}</span>
+          : <button type="button" className={css.switch} onClick={() => {
+            void switchBilling(option, target, result.providerId).then(setRefusal)
+          }}
+          >{t(target === 'api' ? 'switchToApi' : 'switchToSubscription', { provider: result.providerName })}</button>}
+      {refusal !== undefined && <span className={`${css.providerMessage} ${css.error}`}>{refusal}</span>}
+    </div>
+  )
+}
+
+/** One billing source's heading, marked when requests bill to it. */
+function SourceHeading({ label, active, t }: { label: string; active: boolean; t: Translate }): ReactNode {
+  return (
+    <div className={css.windowLine}>
+      <span className={css.windowLabel}>{label}</span>
+      {active && <span className={css.reset}>{t('inUseForRequests')}</span>}
+    </div>
+  )
+}
+
+/** The API spending limit a request hit, with the date access returns when the provider named one. */
+function ApiLimitLine({ result, t }: { result: QuotaResult; t: Translate }): ReactNode {
+  const limit = result.apiLimit
+  if (limit === undefined) return null
+  const until = resetLabel(limit.resetAt)
+  return (
+    <>
+      <span className={`${css.providerMessage} ${css.error}`}>{until === undefined ? t('apiLimitNoDate') : t('apiLimitUntil', { time: until })}</span>
+      {result.billing?.active === 'subscription' && <span className={css.reset}>{t('apiLimitMismatch', { provider: result.providerName })}</span>}
+    </>
+  )
+}
+
+/** One provider: its windows, or the failure the fetch reported. */
+function ProviderSection({ result, t, switchBilling }: {
+  result: QuotaResult
+  t: Translate
+  switchBilling: SwitchBilling
 }): ReactNode {
   const rows = result.ok ? WINDOWS.flatMap((id) => {
     const window = result.windows?.[id]
     return window === undefined ? [] : [<WindowRow key={id} id={id} window={window} t={t} />]
   }) : []
+  const message = result.ok && result.awaitingUsage === true
+    ? t('awaitingUsage', { provider: result.providerName })
+    : result.subscriptionError !== undefined ? t('subscriptionUnavailable', { message: result.subscriptionError }) : result.error ?? t('unavailable')
+  const billing = result.billing
+  const showSubscription = billing?.switch !== undefined
   return (
     <section className={css.provider}>
       <header className={css.providerName}>{result.providerName}</header>
-      {rows.length > 0 ? rows : <p className={css.providerMessage}>{result.error ?? t('unavailable')}</p>}
+      {showSubscription && <SourceHeading label={t('billingSubscription', { provider: result.providerName })} active={billing.active === 'subscription'} t={t} />}
+      {rows.length > 0 ? rows : <p className={css.providerMessage}>{message}</p>}
+      {rows.length > 0 && result.subscriptionError !== undefined && <span className={css.reset}>{t('subscriptionUnavailable', { message: result.subscriptionError })}</span>}
+      {result.asOf !== undefined && <span className={css.reset}>{t('asOf', { time: instantLabel(result.asOf) })}</span>}
+      {billing !== undefined && (billing.active === 'api' || result.apiLimit !== undefined) && (
+        <>
+          <SourceHeading label={t('billingApi', { provider: result.providerName })} active={billing.active === 'api'} t={t} />
+          <ApiLimitLine result={result} t={t} />
+        </>
+      )}
+      <BillingLine result={result} switchBilling={switchBilling} t={t} />
+      {result.billing?.active === 'api' && result.billing.consoleUrl !== undefined && (
+        <a className={css.link} href={result.billing.consoleUrl} target="_blank" rel="noreferrer">{t('consoleLink', { provider: result.providerName })}</a>
+      )}
     </section>
   )
 }
 
 /**
  * Session-header quota trigger and its per-provider window popover.
- * @param props - the injected providers/state hooks, refresh command, and locale seat.
+ * @param props - the injected providers/state hooks, refresh command, billing switch, and locale seat.
  * @returns the database-icon trigger and, while open, the usage popover.
  */
 export function ProviderQuotaAction(props: ProviderQuotaActionProps): React.JSX.Element {
@@ -100,16 +178,35 @@ export function ProviderQuotaAction(props: ProviderQuotaActionProps): React.JSX.
   const modelUsage = props.useProjection('modelUsage')
   const selection = props.useProjection('modelSelection')?.next
   const selectedResult = state.results.find(result => result.providerId === selection?.provider)
+  const ordered = selectedResult === undefined
+    ? state.results
+    : [selectedResult, ...state.results.filter(result => result !== selectedResult)]
+  const signedIn = ordered.filter(result => result.configured)
+  const notSetUp = ordered.filter(result => !result.configured)
   const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLSpanElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  useDismissOnOutsidePointer(rootRef, open, setOpen)
+  useEffect(() => {
+    if (!open) return
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      event.preventDefault()
+      setOpen(false)
+      triggerRef.current?.focus()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => { document.removeEventListener('keydown', onKeyDown) }
+  }, [open])
   const toggle = (): void => {
     const next = !open
     setOpen(next)
     if (next && state.status !== 'loading') void props.refresh()
   }
   return (
-    <span className={css.root}>
+    <span ref={rootRef} className={css.root}>
       <Tooltip label={props.t('title')}>
-        <button type="button" className={css.trigger} aria-label={props.t('title')} aria-expanded={open} onClick={toggle}>
+        <button ref={triggerRef} type="button" className={css.trigger} aria-label={props.t('title')} aria-expanded={open} onClick={toggle}>
           <IconDataOutlineRegular size={16} />
           {state.status === 'loading' && <span className={css.dot} aria-hidden />}
         </button>
@@ -127,14 +224,19 @@ export function ProviderQuotaAction(props: ProviderQuotaActionProps): React.JSX.
         <section className={css.provider}>
           <header className={css.providerName}>{props.t('accountQuota')}</header><p>{props.t('sharedQuota')}</p>
         </section>
-        {selectedResult !== undefined && <ProviderSection result={selectedResult} t={props.t} />}
         {providers === null || state.status === 'loading' ? <p>{props.t('loading')}</p>
           : state.status === 'error' ? <p>{props.t('error', { message: state.message ?? props.t('unavailable') })}</p>
             : providers.length === 0 ? <p>{props.t('empty')}</p>
               : state.results.length === 0 ? <p>{props.t('unavailable')}</p>
-                : state.results.filter(result => result !== selectedResult).map(result => (
-                  <ProviderSection key={result.providerId} result={result} t={props.t} />
-                ))}
+                : <>
+                  {signedIn.map(result => (
+                    <ProviderSection key={result.providerId} result={result} t={props.t} switchBilling={props.switchBilling} />
+                  ))}
+                  {notSetUp.length > 0 && <p className={css.notSetUp}>
+                    {props.t('notSetUp', { providers: notSetUp.map(result => result.providerName).join(', ') })}
+                    <span className={css.reset}> {props.t('setUpHint')}</span>
+                  </p>}
+                </>}
       </div>}
     </span>
   )

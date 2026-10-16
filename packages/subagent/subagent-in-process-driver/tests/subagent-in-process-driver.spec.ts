@@ -353,6 +353,31 @@ describe('startInProcessRun', () => {
     await run.dispose()
   })
 
+  it('reports the message of a failed first turn as the run diagnostic', async () => {
+    const { parent } = await setup([[
+      { type: 'finish', reason: { kind: 'error', failure: { message: 'no API key for route', code: 'MISSING_CREDENTIAL' } } },
+    ]])
+    const run = await startInProcessRun(request(parent), {})
+
+    await expect(run.result).resolves.toEqual({ output: [], stopReason: 'error', diagnostic: 'no API key for route' })
+    await run.dispose()
+  })
+
+  it('masks credential-shaped text and never splits a surrogate pair in the diagnostic', async () => {
+    const message = `401 Bearer sk-abcdef123456 {"api_key": "hunter2"} ${'😀'.repeat(600)}`
+    const { parent } = await setup([[
+      { type: 'finish', reason: { kind: 'error', failure: { message, code: 'PROVIDER_ERROR' } } },
+    ]])
+    const run = await startInProcessRun(request(parent), {})
+
+    const result = await run.result
+    expect(result.diagnostic).toContain('401 [redacted] {"api_key": "[redacted]"} ')
+    expect(result.diagnostic).not.toMatch(/hunter2|sk-abcdef/)
+    expect(new TextEncoder().encode(result.diagnostic ?? '').byteLength).toBeLessThanOrEqual(4096)
+    expect(result.diagnostic).not.toMatch(/[\uD800-\uDBFF]$/)
+    await run.dispose()
+  })
+
   it('uses the request signal after publication and dispose as cancellation paths', async () => {
     const { parent, adapter } = await setup(['hang', 'hang'])
     const controller = new AbortController()

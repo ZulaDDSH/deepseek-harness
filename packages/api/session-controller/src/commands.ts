@@ -12,7 +12,7 @@ import type {
 import type { FileUploadReceiptId } from '@deepseek-ai/dsh-client-file-upload/types'
 import type {} from '@deepseek-ai/dsh-client-file-upload'
 import {
-  ReasoningEffortId, assistantStreamChunks, createUserMessage, freezeMessage,
+  ReasoningEffortId, assistantStreamChunks, createUserMessage, freezeMessage, ultracodeSupported,
 } from '@deepseek-ai/dsh-llm'
 import type { MessageSource } from '@deepseek-ai/dsh-llm'
 import { buildForkSeed } from '@deepseek-ai/dsh-session/fork'
@@ -34,6 +34,7 @@ import {
   hasApiSessionSubagentOwner,
   inspectApiSession,
 } from './agent.ts'
+import { runOptionsValue, sessionModelOf } from './run-options.ts'
 import type {
   SessionAttachmentRequest,
   SessionAttachmentValue,
@@ -49,7 +50,9 @@ import type {
   SessionRenameValue,
   SessionSelectMcpRequest,
   SessionSetHookOverridesRequest,
+  SessionSetRunOptionsRequest,
   HookOverrides,
+  SessionRunOptions,
   SessionSelectMcpValue,
   SessionSelectModelRequest,
   SessionSelectModelValue,
@@ -128,6 +131,7 @@ export class SessionCommandController {
         cwd,
         request.sessionId !== undefined,
         request.agentPreset,
+        request.cliProfile,
       )
     } catch (error) {
       this.rejectCreation(sessionId, error)
@@ -156,6 +160,23 @@ export class SessionCommandController {
     const agent = await this.resolveAgent(request.sessionId)
     const value = { overrides: { ...request.overrides } }
     agent.session.append('hooks/session-overrides', value)
+    return value
+  }
+
+  /**
+   * Replace the run options (ultracode, plus fast mode and effort for Claude Code runs) of one Session.
+   * @param request - Session identity and the run options to store.
+   * @returns the stored run options.
+   */
+  async setRunOptions(request: SessionSetRunOptionsRequest): Promise<SessionRunOptions> {
+    const value = runOptionsValue(request)
+    const agent = await this.resolveAgent(request.sessionId)
+    const stored = this.ctx.sessionProjections.stateOf(agent.session, 'runOptions')?.current
+    const { model } = sessionModelOf(this.ctx, agent.session)
+    if (value.ultracode === true && stored?.ultracode !== true && !ultracodeSupported(model)) {
+      throw new RemoteError('gateway/bad-request', `Ultracode is not available for the Session's model "${model}"`, {})
+    }
+    agent.session.append('session/run-options', value)
     return value
   }
 
@@ -200,6 +221,10 @@ export class SessionCommandController {
             : { reasoningEffort: resolved.reasoningEffort }),
         }
         this.agents.selectModel(agent, selected)
+        const stored = this.ctx.sessionProjections.stateOf(agent.session, 'runOptions')?.current
+        if (stored?.ultracode === true && !ultracodeSupported(selected.model)) {
+          agent.session.append('session/run-options', { ...stored, ultracode: false })
+        }
         void this.ctx.agentDefaultModel.saveSelection(selected).catch((error: unknown) => {
           this.ctx.logger.warn(
             `session-controller: model selection changed for the Session but the default was not saved: ${String(error)}`,
@@ -358,7 +383,7 @@ export class SessionCommandController {
         { value: request.clientTimeZone },
       )
     }
-    const agent = await this.resolveAgent(request.sessionId)
+    const agent = this.agents.refuseCliSession(await this.resolveAgent(request.sessionId))
     if (hasPromptRequest(agent, request.requestId)) return { accepted: true }
     const source: MessageSource = {
       kind: 'user',

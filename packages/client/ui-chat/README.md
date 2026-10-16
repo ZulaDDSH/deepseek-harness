@@ -23,6 +23,7 @@ File-mention providers receive the viewed Session ID with the closing-turn owner
 - [Grouped rendering](#grouped-rendering)
 - [Scroll ownership](#scroll-ownership)
 - [Model Experience](#model-experience)
+- [Approval detail](#approval-detail)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 - [Dev Note](#dev-note)
 
@@ -50,6 +51,8 @@ When an Assistant attempt retires without a visible message, Chat hides its alre
 A slash command returning nonempty result text activates Chat even before the first model turn, so its result is visible from a new session. Commands without result text retain the starter layout.
 
 Generic command rows retain the ordinary command glyph in every lifecycle state; failure remains explicit through the row state and summary. Every terminal Turn failure renders its inline red-dot row; a quota failure's row states the neutral `message.failure.quota` copy instead of the provider message. The transient notice for a newly appended `QUOTA` or `ACCOUNT_QUOTA` comes from this package's frame-wide entry in `shell.overlay`, which outlives the Chat panel: it offers the one live notice to the `shell.quota-notice` chain and falls back to its own warning Toast, while an entry that claims the code replaces that fallback. Only Sessions this Client has bound and materialized publish; quota failures in Sessions it never opened do not. A newer notice replaces the current one unless a claiming entry retains it with `keepOpen()`: that call returns a release the caller owns and must run on unmount, any live hold keeps the claiming entry mounted and drops later notices, and releasing resumes later notices without replaying the dropped ones. The fallback Toast has no deferral of its own: while the Desktop account's opaque native Platform page covers the document, it still runs underneath and its display timer may elapse unseen, dismissing the notice itself, so only the persistent failure row remains. A release drops only its own hold, so one that runs after a dismissal or a newer hold leaves that newer hold intact. Dismissal and sign-out clear every hold, and dropped notices are not queued while their persistent failure rows still render. History replacement and pagination never publish a notice. Intermediate retries do not create a terminal row; output-token limits use the amber warning dot.
+
+Failure copy names the credential cause without naming a provider, because turn-error nodes carry none: `AUTH` says the provider rejected the credentials, `MISSING_CREDENTIAL` and `INVALID_CREDENTIAL` point to Settings, and `RATE_LIMIT` asks the user to wait before retrying. On the newest Turn while the Session is idle, a failed Turn offers Retry and an output-token-limited Turn offers Continue. Both go through the composer: the action sets the draft (Retry re-sends the Turn's first user message text, Continue sends `continue`) and submits it, so the echo and command path match typed input. Both are disabled while the composer holds a draft or attachments, so a draft is never overwritten. Retry is hidden for `ACCOUNT_SIGNED_OUT` and `ACCOUNT_SIGN_IN_REQUIRED`, which re-sending cannot fix.
 
 -----
 
@@ -144,6 +147,11 @@ Active-Turn highlighting is approximate: `readVisibleTurn` binary-searches the c
 
 -----
 
+<a id="approval-detail"></a>
+## Approval detail
+
+The approval detail shows the correlated running Tool call's command. A write shows its path and first 40 content lines, an edit shows its path with `-` removed and `+` added lines, run_code shows its source, and other calls show their pretty-printed arguments capped at 4 KB. Content past 40 lines and arguments past the cap end with `…`. A call with no correlated start, or with no arguments, shows no detail.
+
 <a id="model-experience"></a>
 ## Model Experience
 
@@ -164,6 +172,7 @@ None; Chat presentation does not assemble or mutate provider requests.
 
 - **The transcript reflects the loaded Session window** — older transcript nodes become available only after Session Controller loads the preceding event page. Turn navigation is wider than the window: the rail merges the loaded Turns with the host `turnOutline` projection, so every started Turn gets a fixed-pitch mark (10px apart; a ladder taller than the frame scrolls inside it with gradient fades), and activating an unloaded mark pages history through the Turn's `turn/start` seq before landing on its row. Without the projection (assemblies not mounting `dsh-session-turn-outline`) the rail falls back to loaded Turns only.
 - **Rail previews are card-sized** — one prompt line (50 characters) and up to three response lines (120), on loaded and unloaded Turns alike; an unloaded Turn's response arrives from the outline only once the Turn settled, so an open Turn previews its prompt (or just the Turn number) until then.
+- **Turn actions resend text only** — Retry re-sends only the Turn's first user message text, never its attachments; the button's tooltip says so. Turn-error and max-tokens nodes carry no provider or model, so the credential copy stays generic.
 
 
 <a id="dev-note"></a>

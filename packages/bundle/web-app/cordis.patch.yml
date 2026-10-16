@@ -19,15 +19,15 @@
     personaPrefix: >-
       You are a coding agent powered by the {{model}} model.
 
-# Full-text session search is opt-in (the base row's `openAt: never`). This
-# restatement keeps the Web values on one ephemeral in-memory index; a
-# deployment enabling content search overrides `openAt` to `first-search` in a
-# later patch layer, which defers the node:sqlite import and in-memory handle
-# to the first search so Node 22 startup stays quiet.
+# Full-text session search is on for the browser surface. `first-search`
+# defers the node:sqlite import to the first search, so startup stays quiet.
+# The derived index reconciles from the session logs on every search; one
+# file per profile because a derived-index path has exactly one owning
+# process (Desktop and Web share the Harness home).
 - id: session-query-sqlite
   config:
-    path: ':memory:'
-    openAt: never
+    path: !!js "dshHomePath('cache', 'session-query', (ctx.get('profileContext')?.name ?? 'web') + '.sqlite')"
+    openAt: first-search
 
 - id: tools
   config:
@@ -300,13 +300,30 @@
     - id: ui-settings-models
       name: '@deepseek-ai/dsh-client-ui-settings-models'
 
+    # Memory page and automatic chat memory over the `memorix` MCP client below.
+    # The Memorix server ships with this bundle (pinned `memorix` dependency) and
+    # runs under the Host's own Node, so no global install or PATH lookup is needed.
+    - id: memorix-launch
+      name: '@deepseek-ai/dsh-web-app/memorix'
+
+    - id: memory-memorix
+      name: '@deepseek-ai/dsh-mcp-client'
+      inject: [memorixLaunch]
+      config:
+        serverName: memorix
+        transport: stdio
+        command: !!js ctx.memorixLaunch.command
+        args: !!js ctx.memorixLaunch.args
+        env:
+          MEMORIX_SQLITE_DRIVER: node
+          ELECTRON_RUN_AS_NODE: '1'
+
+    - id: ui-memory-workspace
+      name: '@deepseek-ai/dsh-client-ui-memory-workspace'
+
     # Plugin management: the sidebar Plugins page installs, enables, disables,
     # and removes the profile's bundles through the `pluginManager` Remote.
     # Without a profile-backed Host it reports itself unavailable.
-    - id: ui-memory-workspace
-      name: '@deepseek-ai/dsh-client-ui-memory-workspace'
-      disabled: true
-
     - id: ui-plugin-manager
       name: '@deepseek-ai/dsh-client-ui-plugin-manager'
 
@@ -482,6 +499,9 @@
 # agent, so one host instance serves every session exactly as before presets.
 
 - id: tool-jobs
+  disabled: true
+
+- id: tool-watch
   disabled: true
 
 - id: tool-fs

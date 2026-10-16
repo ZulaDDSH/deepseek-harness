@@ -36,7 +36,10 @@ import {
   type HookInventoryReport,
   DEFAULT_HOOK_TIMEOUT_MS,
   DEFAULT_STDERR_SUMMARY_MAX_CHARS,
-  matchesMatcher,
+  createStopLoopGuard,
+  DEFAULT_MAX_FORCED_STOPS,
+  hookToolName,
+  matchesHookSubject,
   mergeHookOutputs,
   runHook,
   type HookOutput,
@@ -79,6 +82,8 @@ export interface Config {
   defaultTimeoutMs?: number
   /** Character cap for the `hook/result` event's persisted stderr summary. */
   stderrSummaryMaxChars?: number
+  /** Stop-hook forced continuations allowed per turn before the turn is let end. */
+  maxForcedStops?: number
   /** {@link hookKey} values of the only commands that run; edited live from Settings. */
   enabledHooks?: Volatile<string[]>
   /** User-written descriptions keyed by {@link hookKey}; edited live from Settings. */
@@ -91,6 +96,7 @@ export const Config = z.object({
   projectDir: z.string(),
   defaultTimeoutMs: z.number().default(DEFAULT_HOOK_TIMEOUT_MS),
   stderrSummaryMaxChars: z.number().default(DEFAULT_STDERR_SUMMARY_MAX_CHARS),
+  maxForcedStops: z.number().default(DEFAULT_MAX_FORCED_STOPS),
   enabledHooks: z.array(z.string()).default([]).volatile(),
   hookDescriptions: z.dict(z.string()).default({}).volatile(),
 })
@@ -115,6 +121,8 @@ export function apply(ctx: Context, config: Config): void {
   // Validate before config parsing so a bad value cannot be hidden by its early return.
   const stderrSummaryMaxChars = config.stderrSummaryMaxChars ?? DEFAULT_STDERR_SUMMARY_MAX_CHARS
   assertPositiveInteger('stderrSummaryMaxChars', stderrSummaryMaxChars)
+  const maxForcedStops = config.maxForcedStops ?? DEFAULT_MAX_FORCED_STOPS
+  assertPositiveInteger('maxForcedStops', maxForcedStops)
   const defaultTimeoutMs = config.defaultTimeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS
   // Parse once at load. A read or parse failure logs and registers nothing.
   let parsed: ClaudeCodeHookConfig = {}
@@ -148,6 +156,8 @@ export function apply(ctx: Context, config: Config): void {
     ctx.logger.warn(`hooks-claude-code: could not load hook config "${config.configPath}": ${String(error)} — no hooks registered`)
     return
   }
+
+  const stopGuard = createStopLoopGuard(maxForcedStops)
 
   // Emit-shaped points run detached, so track their chains; disposal aborts
   // active hooks and drains continuations before resolving.
@@ -187,7 +197,7 @@ export function apply(ctx: Context, config: Config): void {
     const overrides = opts.agent === undefined ? undefined
       : ctx.sessionProjections.stateOf(opts.agent.session, 'hookOverrides')?.current?.overrides
     for (const group of groups) {
-      if (!matchesMatcher(group.matcher, matchQuery, 'claude-code')) continue
+      if (!matchesHookSubject(group.matcher, matchQuery, 'claude-code')) continue
       for (const hook of group.hooks) {
         if (!hookEnabled(hookKey(point, group.matcher, hook.command), enabled, overrides)) continue
         const handlerId = nextHandlerId(point)
@@ -221,10 +231,11 @@ export function apply(ctx: Context, config: Config): void {
         }
       }
     }
-    return mergeHookOutputs(outputs)
+    const merged = mergeHookOutputs(outputs)
+    // Keep queued input so a halted turn does not discard the user's next prompt.
+    if (merged.stop) opts.agent?.cancel({ kind: 'hook', reason: merged.stopReason ?? `stopped by ${point} hook` }, { keepInbox: true })
+    return merged
   }
-
-  // TODO(hook-continue-false): `merged.stop` is logged but needs a run-level halt mechanism.
 
   /** Build additional model context from hook output, or return undefined when empty. */
   function contextFrom(merged: MergedHookOutcome): UserMessage | undefined {
@@ -239,6 +250,7 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   ctx.on('agent/created', async ({ agent, source, signal }) => {
+    if ((ctx.sessionProjections.stateOf(agent.session, 'cliTerminal')?.profile ?? null) !== null) return
     const ownerSignal = signal === undefined ? detached.signal : AbortSignal.any([signal, detached.signal])
     const run = runPoint('SessionStart', source, sessionStartPayload(agent, source), { agent, signal: ownerSignal })
       .then((merged) => {
@@ -258,9 +270,7 @@ export function apply(ctx: Context, config: Config): void {
     if (messages.length === 0) return next()
     const content = messages.flatMap(message => message.content)
     const merged = await runPoint('UserPromptSubmit', '', promptPayload(agent, content), { agent, turn, signal })
-    if (merged.decision === 'deny') {
-      return { kind: 'reject' }
-    }
+    if (merged.decision === 'deny' || merged.stop) return { kind: 'reject' }
     // Delegate so later listeners may still rewrite or reject, then prepend our
     // context only to a downstream enter decision.
     const downstream = await next()
@@ -276,7 +286,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> => {
     const turn = lastTurn(ctx, exec.agent)
     const merged = await runPoint('PreToolUse', exec.name, preToolPayload(exec), { ...exec.agent ? { agent: exec.agent } : {}, turn, signal: exec.signal })
-    if (merged.decision === 'deny') return { kind: 'deny', reason: merged.reason ?? 'blocked by PreToolUse hook' }
+    if (merged.decision === 'deny' || merged.stop) return { kind: 'deny', reason: merged.reason ?? merged.stopReason ?? 'blocked by PreToolUse hook' }
     if (merged.decision === 'ask') return { kind: 'ask', ...merged.reason !== undefined ? { reason: merged.reason } : {} }
     return next()
   })
@@ -302,16 +312,16 @@ export function apply(ctx: Context, config: Config): void {
     }
   })
 
-  // A blocking Stop hook steers at the stopping boundary, which makes the
-  // machine observe pending input and run another step.
-  // TODO(stop-loop-guard): cap consecutive forced continuations; hooks must self-limit meanwhile.
+  // A blocking Stop hook steers at the stopping boundary so the machine runs another step.
   ctx.on('agent/turn-stopping', async ({ agent, turn, signal }): Promise<void> => {
-    const merged = await runPoint('Stop', '', stopPayload(agent), { agent, turn, signal })
-    if (merged.decision === 'deny') {
-      // A blocking Stop hook forces continuation.
-      const text = merged.reason ?? 'continue: blocked by Stop hook'
-      agent.steer(createUserMessage({ content: [{ type: 'text', text }], source: CONTEXT_SOURCE }))
+    const merged = await runPoint('Stop', '', stopPayload(agent, stopGuard.active(agent, turn)), { agent, turn, signal })
+    if (merged.decision !== 'deny' || merged.stop) return
+    if (!stopGuard.admit(agent, turn)) {
+      ctx.logger.warn(`hooks-claude-code: Stop hook blocked ${maxForcedStops} times this turn; letting the turn end`)
+      return
     }
+    const text = merged.reason ?? 'continue: blocked by Stop hook'
+    agent.steer(createUserMessage({ content: [{ type: 'text', text }], source: CONTEXT_SOURCE }))
   })
 
   // SubagentStart may inject child context; SubagentStop only observes. Both
@@ -374,13 +384,13 @@ function promptPayload(agent: Agent, content: ContentBlock[]): Record<string, un
   return { ...base(agent, 'UserPromptSubmit'), prompt: blocksToText(content) }
 }
 function preToolPayload(exec: ToolExecution): Record<string, unknown> {
-  return { ...base(exec.agent, 'PreToolUse'), tool_name: exec.name, tool_input: exec.arguments, tool_use_id: exec.callId }
+  return { ...base(exec.agent, 'PreToolUse'), tool_name: hookToolName(exec.name, 'claude-code'), tool_input: exec.arguments, tool_use_id: exec.callId }
 }
 function postToolPayload(exec: ToolExecution, result: ToolExecutionResult): Record<string, unknown> {
-  return { ...base(exec.agent, 'PostToolUse'), tool_name: exec.name, tool_input: exec.arguments, tool_use_id: exec.callId, tool_response: blocksToText(result.content) }
+  return { ...base(exec.agent, 'PostToolUse'), tool_name: hookToolName(exec.name, 'claude-code'), tool_input: exec.arguments, tool_use_id: exec.callId, tool_response: blocksToText(result.content) }
 }
-function stopPayload(agent: Agent): Record<string, unknown> {
-  return { ...base(agent, 'Stop'), stop_hook_active: false }
+function stopPayload(agent: Agent, active: boolean): Record<string, unknown> {
+  return { ...base(agent, 'Stop'), stop_hook_active: active }
 }
 /**
  * Build a SubagentStart/SubagentStop payload from the CC base (the child's

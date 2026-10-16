@@ -10332,7 +10332,7 @@
       "kind": "event",
       "event": "jev/decision",
       "surface": false,
-      "digest": "96bc55e52033bf9462b9aa0df7f3f2f48ff8965804e638edfc54064afe8a2f1f",
+      "digest": "f1f8d4b139695db9bb91a290ae04a839479564c93897f9c1e3f42a73525c8d84",
       "schema": {
         "root": 0,
         "nodes": [
@@ -10414,6 +10414,11 @@
                 "name": "turn",
                 "type": 3,
                 "optional": false
+              },
+              {
+                "name": "unroutable",
+                "type": 4,
+                "optional": true
               }
             ],
             "indices": []
@@ -11833,6 +11838,92 @@
       }
     },
     {
+      "key": "event:session/cli-terminal",
+      "kind": "event",
+      "event": "session/cli-terminal",
+      "surface": false,
+      "digest": "ff56d607f708d05e5bb71db059bb0594209239fc89f5f1498a6865df7a53ddb7",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "data",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "ignorable",
+                "type": 6,
+                "optional": true
+              },
+              {
+                "name": "seq",
+                "type": 7,
+                "optional": false
+              },
+              {
+                "name": "time",
+                "type": 7,
+                "optional": false
+              },
+              {
+                "name": "type",
+                "type": 8,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "profile",
+                "type": 2,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "union",
+            "types": [
+              3,
+              4,
+              5
+            ]
+          },
+          {
+            "kind": "literal",
+            "value": "cursor-cli"
+          },
+          {
+            "kind": "literal",
+            "value": "gemini-cli"
+          },
+          {
+            "kind": "literal",
+            "value": "grok-cli"
+          },
+          {
+            "kind": "literal",
+            "value": true
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          },
+          {
+            "kind": "literal",
+            "value": "session/cli-terminal"
+          }
+        ]
+      }
+    },
+    {
       "key": "event:session/end-seed",
       "kind": "event",
       "event": "session/end-seed",
@@ -11894,6 +11985,367 @@
           {
             "kind": "literal",
             "value": "session/end-seed"
+          }
+        ]
+      }
+    },
+    {
+      "key": "event:session/run-options",
+      "kind": "event",
+      "event": "session/run-options",
+      "surface": false,
+      "digest": "89f9a82d1d223cdafd9e472d036debc99cb68c4eb374f50c5d70ed83ea4eefa6",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "data",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "ignorable",
+                "type": 34,
+                "optional": true
+              },
+              {
+                "name": "seq",
+                "type": 11,
+                "optional": false
+              },
+              {
+                "name": "time",
+                "type": 11,
+                "optional": false
+              },
+              {
+                "name": "type",
+                "type": 35,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "effort",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "fastMode",
+                "type": 8,
+                "optional": true
+              },
+              {
+                "name": "subagentSetup",
+                "type": 9,
+                "optional": true
+              },
+              {
+                "name": "ultracode",
+                "type": 8,
+                "optional": true
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "union",
+            "types": [
+              3,
+              4,
+              5,
+              6,
+              7
+            ]
+          },
+          {
+            "kind": "literal",
+            "value": "max"
+          },
+          {
+            "kind": "literal",
+            "value": "medium"
+          },
+          {
+            "kind": "literal",
+            "value": "high"
+          },
+          {
+            "kind": "literal",
+            "value": "low"
+          },
+          {
+            "kind": "literal",
+            "value": "xhigh"
+          },
+          {
+            "kind": "primitive",
+            "type": "boolean"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "enabled",
+                "type": 8,
+                "optional": false
+              },
+              {
+                "name": "gsd",
+                "type": 10,
+                "optional": true
+              },
+              {
+                "name": "reviewRounds",
+                "type": 11,
+                "optional": false
+              },
+              {
+                "name": "roles",
+                "type": 22,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "checkRounds",
+                "type": 11,
+                "optional": false
+              },
+              {
+                "name": "enabled",
+                "type": 8,
+                "optional": false
+              },
+              {
+                "name": "gates",
+                "type": 12,
+                "optional": false
+              },
+              {
+                "name": "parallelWaves",
+                "type": 8,
+                "optional": false
+              },
+              {
+                "name": "planAuthor",
+                "type": 16,
+                "optional": false
+              },
+              {
+                "name": "planning",
+                "type": 19,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          },
+          {
+            "kind": "union",
+            "types": [
+              13,
+              14,
+              15
+            ]
+          },
+          {
+            "kind": "literal",
+            "value": "auto"
+          },
+          {
+            "kind": "literal",
+            "value": "every-step"
+          },
+          {
+            "kind": "literal",
+            "value": "plan-and-ship"
+          },
+          {
+            "kind": "union",
+            "types": [
+              17,
+              18
+            ]
+          },
+          {
+            "kind": "literal",
+            "value": "orchestrator"
+          },
+          {
+            "kind": "literal",
+            "value": "researcher"
+          },
+          {
+            "kind": "union",
+            "types": [
+              20,
+              21
+            ]
+          },
+          {
+            "kind": "literal",
+            "value": "commit"
+          },
+          {
+            "kind": "literal",
+            "value": "local"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "coder",
+                "type": 23,
+                "optional": true
+              },
+              {
+                "name": "orchestrator",
+                "type": 23,
+                "optional": true
+              },
+              {
+                "name": "researcher",
+                "type": 23,
+                "optional": true
+              },
+              {
+                "name": "reviewer",
+                "type": 23,
+                "optional": true
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "union",
+            "types": [
+              24,
+              32
+            ]
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "mode",
+                "type": 25,
+                "optional": false
+              },
+              {
+                "name": "route",
+                "type": 26,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "fixed"
+          },
+          {
+            "kind": "union",
+            "types": [
+              27,
+              30
+            ]
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "backend",
+                "type": 28,
+                "optional": false
+              },
+              {
+                "name": "model",
+                "type": 29,
+                "optional": false
+              },
+              {
+                "name": "provider",
+                "type": 29,
+                "optional": false
+              },
+              {
+                "name": "reasoningEffort",
+                "type": 29,
+                "optional": true
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "llm"
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "backend",
+                "type": 31,
+                "optional": false
+              },
+              {
+                "name": "model",
+                "type": 29,
+                "optional": false
+              },
+              {
+                "name": "reasoningEffort",
+                "type": 2,
+                "optional": true
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "claude-cli"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "mode",
+                "type": 33,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "literal",
+            "value": "jev"
+          },
+          {
+            "kind": "literal",
+            "value": true
+          },
+          {
+            "kind": "literal",
+            "value": "session/run-options"
           }
         ]
       }
@@ -15381,7 +15833,7 @@
       "kind": "event",
       "event": "subagent/descriptor",
       "surface": false,
-      "digest": "b79ada42962cad0190a9d465805260567621fa3a4abd757eb31e6016b52d5ab5",
+      "digest": "6b4761bd56f4dd4fd6ed66e48f8e726b710cea8377db667112caacff439af52f",
       "schema": {
         "root": 0,
         "nodes": [
@@ -15395,17 +15847,17 @@
               },
               {
                 "name": "ignorable",
-                "type": 10,
+                "type": 5,
                 "optional": true
               },
               {
                 "name": "seq",
-                "type": 7,
+                "type": 8,
                 "optional": false
               },
               {
                 "name": "time",
-                "type": 7,
+                "type": 8,
                 "optional": false
               },
               {
@@ -15420,7 +15872,7 @@
             "kind": "union",
             "types": [
               2,
-              8
+              9
             ]
           },
           {
@@ -15462,13 +15914,18 @@
                 "optional": false
               },
               {
-                "name": "toolFilter",
+                "name": "routePinned",
                 "type": 5,
                 "optional": true
               },
               {
+                "name": "toolFilter",
+                "type": 6,
+                "optional": true
+              },
+              {
                 "name": "version",
-                "type": 7,
+                "type": 8,
                 "optional": false
               }
             ],
@@ -15483,16 +15940,20 @@
             "value": "continuable"
           },
           {
+            "kind": "literal",
+            "value": true
+          },
+          {
             "kind": "object",
             "properties": [
               {
                 "name": "allow",
-                "type": 6,
+                "type": 7,
                 "optional": true
               },
               {
                 "name": "deny",
-                "type": 6,
+                "type": 7,
                 "optional": true
               }
             ],
@@ -15516,7 +15977,7 @@
               },
               {
                 "name": "mode",
-                "type": 9,
+                "type": 10,
                 "optional": false
               },
               {
@@ -15525,8 +15986,13 @@
                 "optional": false
               },
               {
+                "name": "routePinned",
+                "type": 5,
+                "optional": true
+              },
+              {
                 "name": "version",
-                "type": 7,
+                "type": 8,
                 "optional": false
               }
             ],
@@ -15535,10 +16001,6 @@
           {
             "kind": "literal",
             "value": "one-shot"
-          },
-          {
-            "kind": "literal",
-            "value": true
           },
           {
             "kind": "literal",
@@ -21964,6 +22426,11 @@
       ]
     },
     {
+      "digest": "0272df259c961422f8e1ff2f2dcb947cf9d57eb8ace89aa270f72c2d843e340f",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "02b2c23f2d94b028c9588a8faace3fce1217405db346da3389368b495457bf79",
       "names": [],
       "sources": [
@@ -21972,6 +22439,11 @@
     },
     {
       "digest": "0341d4c3dfcd53253cdc1e789d9130d3cd848b6f8b0706bf92f313a68b39ff23",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "05053387afaf98f89ac4ca0f9814db74deaf13b9fd5d5ca38fc882b12e411c16",
       "names": [],
       "sources": []
     },
@@ -22015,6 +22487,11 @@
       "sources": []
     },
     {
+      "digest": "085c87cc2cbb7966a377d81a259196db1c76f8941c07bee06e07ab052cebbe75",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "09655b34d7f3cf1e9005974de2357de2d4a60deea165d16dac1eadaa6ec539a8",
       "names": [],
       "sources": []
@@ -22051,7 +22528,7 @@
         "packages/llm/llm/src/types.ts#ReplayEnvelope"
       ],
       "sources": [
-        "packages/llm/llm/src/types.ts:430"
+        "packages/llm/llm/src/types.ts:455"
       ]
     },
     {
@@ -22192,7 +22669,7 @@
         "packages/api/session-controller/src/types.ts#HookOverrides"
       ],
       "sources": [
-        "packages/api/session-controller/src/types.ts:351"
+        "packages/api/session-controller/src/types.ts:361"
       ]
     },
     {
@@ -22201,7 +22678,7 @@
         "packages/llm/llm/src/types.ts#ImageBlock"
       ],
       "sources": [
-        "packages/llm/llm/src/types.ts:79"
+        "packages/llm/llm/src/types.ts:104"
       ]
     },
     {
@@ -22270,7 +22747,7 @@
       "digest": "17d1afb770d9941936130996da00dc86782cfef731d8d6526162c301256a4ac3",
       "names": [],
       "sources": [
-        "packages/core/session/src/types.ts:427"
+        "packages/core/session/src/types.ts:429"
       ]
     },
     {
@@ -22361,7 +22838,7 @@
       "digest": "1ccb56061942f5ccb0d30c9e4f2883b9d115ff906560029de637b61d3cde896d",
       "names": [],
       "sources": [
-        "packages/core/session/src/types.ts:341"
+        "packages/core/session/src/types.ts:343"
       ]
     },
     {
@@ -22387,7 +22864,7 @@
       "digest": "1d76406cbb2ddadb0dbbb51e9d8bc6cf678fed455cf8eb512f36f7c86d37a62f",
       "names": [],
       "sources": [
-        "packages/llm/llm/src/types.ts:157"
+        "packages/llm/llm/src/types.ts:182"
       ]
     },
     {
@@ -22494,6 +22971,11 @@
       "sources": []
     },
     {
+      "digest": "22c7f4b3e6008ebef7092af4a1377513bd3cd9f2bba7060996e14c5aa75834d5",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "234142ee4f996f38cc9fa3b8b3e3de29b03c9aefe5ebf6c224eddd564505aa85",
       "names": [],
       "sources": []
@@ -22558,10 +23040,17 @@
       "sources": []
     },
     {
+      "digest": "27c6a24670a70561fa9fdd7dd49e04822131bc77877f4750badbdf5f6de94a2c",
+      "names": [],
+      "sources": [
+        "packages/api/session-controller/src/subagent-setup.ts:37"
+      ]
+    },
+    {
       "digest": "287211846beea1eccb5f9acee00d20388a38fcb2e95858fa2332d6f58529379a",
       "names": [],
       "sources": [
-        "packages/llm/llm/src/types.ts:158"
+        "packages/llm/llm/src/types.ts:183"
       ]
     },
     {
@@ -22593,7 +23082,7 @@
       "digest": "2abb711460e6238d851c30f3e4bdd87a2aa1887ee70575b3d3b7b25610673095",
       "names": [],
       "sources": [
-        "packages/llm/llm/src/types.ts:455"
+        "packages/llm/llm/src/types.ts:480"
       ]
     },
     {
@@ -22679,6 +23168,13 @@
       ]
     },
     {
+      "digest": "30fde5ff0723746794e7a8a508fddd2570e379d9973d6a6f5b8e95523d2696f5",
+      "names": [],
+      "sources": [
+        "packages/api/session-controller/src/subagent-setup.ts:51"
+      ]
+    },
+    {
       "digest": "312aee2f0c42aabbae6cc60d92d596d8453c0aeb061c5868d1755a69ef49e69a",
       "names": [],
       "sources": []
@@ -22707,6 +23203,11 @@
       "sources": []
     },
     {
+      "digest": "3325dffa5d99f59d0d4845d6b37fca9973877f266a3b11af9b22aa43fcabeb9d",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "33341aac09312300de5a178e6cc6f6544a4876f7f710cfea55eda473c8d329ef",
       "names": [
         "packages/llm/llm/src/assistant-stream.ts#AssistantStreamRecord"
@@ -22721,7 +23222,7 @@
         "packages/core/session/src/types.ts#SurfaceOp"
       ],
       "sources": [
-        "packages/core/session/src/types.ts:462"
+        "packages/core/session/src/types.ts:464"
       ]
     },
     {
@@ -22731,6 +23232,11 @@
     },
     {
       "digest": "35203ba7ad5ef6f97d556b85df20ae98f04f09c65748cecdf8eefdb8b6405ffc",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "352eb0b4cc4d1473d7f39d4674327a99a93a229f687f70d90978a5acd4462ebe",
       "names": [],
       "sources": []
     },
@@ -22750,6 +23256,16 @@
       "sources": [
         "packages/llm/llm-retry/src/types.ts:30"
       ]
+    },
+    {
+      "digest": "37636b5ad6e3c6fce97077fef143db428126c725ffda3d4ce994e19fbbd5b996",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "37754fa5ccea9aa18bcd31a960af027770bdaadbdded927360422f702215a798",
+      "names": [],
+      "sources": []
     },
     {
       "digest": "378f90f9f6022a0991928a1eaf7991094ea1920fe89a9248358a1da106e1a970",
@@ -22774,6 +23290,11 @@
       ]
     },
     {
+      "digest": "38b1d3b9f12fa6178f703b81cd7e7f5990104dc84690d1bd7d04f8afebf52eab",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "390eed1028aba02774f14408647acec10ec5516e97d4f15ecde2b9989d5a69f2",
       "names": [
         "packages/feedback/message-feedback/src/types.ts#MessageFeedbackRating"
@@ -22783,9 +23304,28 @@
       ]
     },
     {
+      "digest": "3a036f0eb6a9598702cb0eb8eddc39cf49cd4b25083ed73016f7adb3bb90a0c1",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "3a575eb6a5302989d9f10d220c74655e65de23a4dab157917780c0ee2343dd3c",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "3abae7324356f155cb42450c00b806d134ec93bd6439d2063b8d724162d58604",
       "names": [],
       "sources": []
+    },
+    {
+      "digest": "3afda39c78c513d78db56327ac640c34adfef919c9ad5271c9e59c6c75af8bf4",
+      "names": [
+        "packages/subagent/subagent/src/descriptor.ts#SubagentDescriptorData"
+      ],
+      "sources": [
+        "packages/subagent/subagent/src/descriptor.ts:90"
+      ]
     },
     {
       "digest": "3b04790e08b35241ffa0d38f6d7e4f8788aa921341f6c0d7574a329397c59408",
@@ -22825,7 +23365,7 @@
       "digest": "3bec87f9e6ab3da03346f49923d3c51621debc0159df68605e543c3b2a026f90",
       "names": [],
       "sources": [
-        "packages/llm/llm/src/types.ts:453"
+        "packages/llm/llm/src/types.ts:478"
       ]
     },
     {
@@ -22844,7 +23384,16 @@
         "packages/core/tools/src/index.ts#ToolRestriction"
       ],
       "sources": [
-        "packages/core/tools/src/index.ts:701"
+        "packages/core/tools/src/index.ts:679"
+      ]
+    },
+    {
+      "digest": "3d00dec3bb032ccbbc239e7ff370da503a7935396bc6310601879062e099bdf6",
+      "names": [
+        "packages/api/session-controller/src/types.ts#SessionRunOptions"
+      ],
+      "sources": [
+        "packages/api/session-controller/src/types.ts:374"
       ]
     },
     {
@@ -22858,6 +23407,11 @@
     },
     {
       "digest": "3e0eff5946255ff05d88a10839c60305135801f97794ea48d409f8503303317e",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "3e1c2c020bf3a5784ddf52208a753c367f4a56efe1aa40a32bd6e753b9c26d16",
       "names": [],
       "sources": []
     },
@@ -22927,12 +23481,17 @@
       "sources": []
     },
     {
+      "digest": "437a1c86fb6f66449be77a2b71773ab83865d2d8ee7b82a8db1c08936000a004",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "43e311235aa537df1bacdd92d144df8a952337a76e9ac892cdf670f1a797bad8",
       "names": [
         "packages/llm/llm/src/types.ts#ToolRemovalBlock"
       ],
       "sources": [
-        "packages/llm/llm/src/types.ts:127"
+        "packages/llm/llm/src/types.ts:152"
       ]
     },
     {
@@ -22975,7 +23534,7 @@
         "packages/llm/llm/src/types.ts#StreamChunk"
       ],
       "sources": [
-        "packages/llm/llm/src/types.ts:452"
+        "packages/llm/llm/src/types.ts:477"
       ]
     },
     {
@@ -23004,6 +23563,15 @@
       "digest": "49dab019d00e8c26f27ad2ccff7b604d69e323ae4d17e0d2a7b6b8a830b1ade2",
       "names": [],
       "sources": []
+    },
+    {
+      "digest": "4a314b49f8ef37d1a275d4a5f1a46d00046d58526e4ba1c1e5962538f9430269",
+      "names": [
+        "packages/subagent/subagent/src/descriptor.ts#ContinuableSubagentDescriptorData"
+      ],
+      "sources": [
+        "packages/subagent/subagent/src/descriptor.ts:73"
+      ]
     },
     {
       "digest": "4a9bef9f27a942520cc2279ca7dd3082556e4bff543f66b5c0333e1bbed1cd86",
@@ -23087,7 +23655,7 @@
         "packages/workflow/workflow/src/types.ts#WorkflowRunId"
       ],
       "sources": [
-        "packages/api/session-controller/src/types.ts:488",
+        "packages/api/session-controller/src/types.ts:522",
         "packages/attachment/attachment/src/brand.ts:6",
         "packages/compaction/compaction/src/brand.ts:4",
         "packages/core/session/src/types.ts:20",
@@ -23128,7 +23696,7 @@
         "packages/llm/llm/src/types.ts#TextBlock"
       ],
       "sources": [
-        "packages/llm/llm/src/types.ts:62",
+        "packages/llm/llm/src/types.ts:87",
         "packages/web/web-search-deepseek/src/provider.ts:66"
       ]
     },
@@ -23164,6 +23732,11 @@
       "sources": []
     },
     {
+      "digest": "5041e4210398f92fe4e20d8a37379ee8665b3651ec59719d52597d05d815a838",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "50cf02d875f8a1f1411f4a6fbcffab9120ccef5f74a47331fbf29480e5f68f48",
       "names": [],
       "sources": []
@@ -23182,7 +23755,7 @@
       "digest": "51c78ccc9023ce6642d07fb9a10cbf942ff7e313d5b304ddc77218df71da708f",
       "names": [],
       "sources": [
-        "packages/core/session/src/types.ts:311"
+        "packages/core/session/src/types.ts:313"
       ]
     },
     {
@@ -23215,7 +23788,7 @@
       "digest": "5302e763151277614b97e77f00e3b326694c6c1247b916a20503c344dc970777",
       "names": [],
       "sources": [
-        "packages/core/session/src/types.ts:375"
+        "packages/core/session/src/types.ts:377"
       ]
     },
     {
@@ -23236,7 +23809,7 @@
       "digest": "54f9276a1617d7c12594722c89cfe864bcbe4517e9a6f9c98bab14f199a135e0",
       "names": [],
       "sources": [
-        "packages/core/session/src/types.ts:355"
+        "packages/core/session/src/types.ts:357"
       ]
     },
     {
@@ -23287,7 +23860,7 @@
         "packages/llm/llm/src/types.ts#FinishReason"
       ],
       "sources": [
-        "packages/llm/llm/src/types.ts:165"
+        "packages/llm/llm/src/types.ts:190"
       ]
     },
     {
@@ -23390,7 +23963,7 @@
         "packages/llm/llm/src/types.ts#LlmFailure"
       ],
       "sources": [
-        "packages/llm/llm/src/types.ts:41"
+        "packages/llm/llm/src/types.ts:66"
       ]
     },
     {
@@ -23399,12 +23972,12 @@
       "sources": []
     },
     {
-      "digest": "5f758f3de5f00c18968a7c6d347083aac5c9ae13f6a79c78f6611b23c4973564",
+      "digest": "5fa20e06137440070ac9665594781605966b4c0173c658dfe1da243d7ecf2cc7",
       "names": [
-        "packages/subagent/subagent/src/descriptor.ts#OneShotSubagentDescriptorData"
+        "packages/api/session-controller/src/subagent-setup.ts#SubagentSetup"
       ],
       "sources": [
-        "packages/subagent/subagent/src/descriptor.ts:61"
+        "packages/api/session-controller/src/subagent-setup.ts:55"
       ]
     },
     {
@@ -23423,6 +23996,11 @@
       "sources": []
     },
     {
+      "digest": "62458c1f6c5e65dcf46c1d1b45997b87a2ee8dc73ae8423314baed38f21ec166",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "6292bcbedaa97feaec5b48a03bb8144b581b93309d9d6c905f26da7a6a7a0a4f",
       "names": [],
       "sources": []
@@ -23436,15 +24014,6 @@
       "digest": "62ecb62dc0fe1b5e70217f8a80c39256a40ee3a1917be14e5ca899d20c35f7fd",
       "names": [],
       "sources": []
-    },
-    {
-      "digest": "6487b10ba7542f3c447b1e41a1c6a590b7bfafe0b9b66b49f34028da85bb970f",
-      "names": [
-        "packages/subagent/subagent/src/descriptor.ts#ContinuableSubagentDescriptorData"
-      ],
-      "sources": [
-        "packages/subagent/subagent/src/descriptor.ts:72"
-      ]
     },
     {
       "digest": "64ea5653002834c44f29bea4620e9c42aeb6024ae5b1d58d69f95158006b2586",
@@ -23474,12 +24043,17 @@
       ]
     },
     {
+      "digest": "65f6a6e8bdce83766d022927b3a9ba4d05876b4aaa7e0c5f13648801e9286634",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "66ba70f6f068da443f969a0b947a013c3addd776b9b60a0a393759c19825e9a2",
       "names": [
         "packages/llm/llm/src/types.ts#ToolSchema"
       ],
       "sources": [
-        "packages/llm/llm/src/types.ts:473"
+        "packages/llm/llm/src/types.ts:498"
       ]
     },
     {
@@ -23533,7 +24107,7 @@
       "digest": "693f4952fb5565da96c06bace8924b098ac2fbc915fde0ff8019701183abc057",
       "names": [],
       "sources": [
-        "packages/llm/llm/src/types.ts:161"
+        "packages/llm/llm/src/types.ts:186"
       ]
     },
     {
@@ -23545,7 +24119,7 @@
       "digest": "6a4f72e2e179e17b922f2a9392c0e1c8f8c707f32494372454850a3eb184a6e7",
       "names": [],
       "sources": [
-        "packages/api/session-controller/src/types.ts:493"
+        "packages/api/session-controller/src/types.ts:527"
       ]
     },
     {
@@ -23555,6 +24129,11 @@
     },
     {
       "digest": "6b23ed9ce1b397e602788dbe033693bf97642a69e23fcab1cc45bf6f13b6d619",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "6b4761bd56f4dd4fd6ed66e48f8e726b710cea8377db667112caacff439af52f",
       "names": [],
       "sources": []
     },
@@ -23571,7 +24150,7 @@
       "digest": "6bc8e51124d0874bc89e1d0ceff381a9c3cd0fc240667d69f841ce4f60f65fe5",
       "names": [],
       "sources": [
-        "packages/core/session/src/types.ts:330"
+        "packages/core/session/src/types.ts:332"
       ]
     },
     {
@@ -23744,6 +24323,13 @@
       ]
     },
     {
+      "digest": "79ed678c293ff55cc76a0140fcbe272942ab04d6556af36da811bad5d7e794e4",
+      "names": [],
+      "sources": [
+        "packages/api/session-controller/src/subagent-setup.ts:42"
+      ]
+    },
+    {
       "digest": "7a651f3b672c52fb615f22c0ce9cb3cc5b22aad92e6bbeefb0808fd7b9233a50",
       "names": [],
       "sources": []
@@ -23791,7 +24377,7 @@
         "packages/llm/llm/src/types.ts#ContentBlockType"
       ],
       "sources": [
-        "packages/llm/llm/src/types.ts:148"
+        "packages/llm/llm/src/types.ts:173"
       ]
     },
     {
@@ -23838,7 +24424,7 @@
         "packages/llm/llm/src/types.ts#ContentBlock"
       ],
       "sources": [
-        "packages/llm/llm/src/types.ts:150"
+        "packages/llm/llm/src/types.ts:175"
       ]
     },
     {
@@ -23862,7 +24448,7 @@
         "packages/llm/llm/src/types.ts#ReasoningBlock"
       ],
       "sources": [
-        "packages/llm/llm/src/types.ts:68"
+        "packages/llm/llm/src/types.ts:93"
       ]
     },
     {
@@ -23950,15 +24536,6 @@
       "sources": []
     },
     {
-      "digest": "86d1d0e9cfebb240421187e3dc37fb71cc38a1501885cf32f8f9adef7b0a2bde",
-      "names": [
-        "packages/subagent/subagent/src/descriptor.ts#SubagentDescriptorData"
-      ],
-      "sources": [
-        "packages/subagent/subagent/src/descriptor.ts:89"
-      ]
-    },
-    {
       "digest": "86e1e384495ee09ac2d60c9db3610f1f1fddac2d248f6f1d6000e78054680219",
       "names": [
         "packages/llm/llm/src/message.ts#ContextSnapshotSection"
@@ -23986,8 +24563,13 @@
       "digest": "88a610b831be6d92612a464be5c7d0b88ec24d97bd299837bf74bf7672183c9a",
       "names": [],
       "sources": [
-        "packages/llm/llm/src/types.ts:456"
+        "packages/llm/llm/src/types.ts:481"
       ]
+    },
+    {
+      "digest": "89f9a82d1d223cdafd9e472d036debc99cb68c4eb374f50c5d70ed83ea4eefa6",
+      "names": [],
+      "sources": []
     },
     {
       "digest": "8a046b52331959aa3394680d6acbe09b8a5447c6b61375f263445bfcef19b7f1",
@@ -24019,6 +24601,11 @@
       "sources": []
     },
     {
+      "digest": "8bb188be8ccbc2bd027b5d91bf7932180a7cf3d58832c026d01819f3d2623a39",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "8bb8c3751a6ce64b61aba1ec7ae798c00a5803c4d868a0430873216c6569ed52",
       "names": [],
       "sources": [
@@ -24041,10 +24628,19 @@
       "sources": []
     },
     {
+      "digest": "8d54d8fa23dd93a66f1230fb667c86f99f1022d36e5de43f9fbf081e069a9606",
+      "names": [
+        "packages/llm/llm-jev-router/src/types.ts#JevDecisionRecord"
+      ],
+      "sources": [
+        "packages/llm/llm-jev-router/src/types.ts:11"
+      ]
+    },
+    {
       "digest": "8e31bb958e9b015e6f8407eaade32217068159e816f3cc99c3ad76eb889732e0",
       "names": [],
       "sources": [
-        "packages/llm/llm/src/types.ts:160"
+        "packages/llm/llm/src/types.ts:185"
       ]
     },
     {
@@ -24053,7 +24649,7 @@
         "packages/llm/llm/src/types.ts#ToolAdditionBlock"
       ],
       "sources": [
-        "packages/llm/llm/src/types.ts:115"
+        "packages/llm/llm/src/types.ts:140"
       ]
     },
     {
@@ -24089,13 +24685,20 @@
       "digest": "8fcb0b44a575e998665c053643d1ab04c82f39253ebd190ac0c975b78e40b543",
       "names": [],
       "sources": [
-        "packages/core/tools/src/index.ts:34"
+        "packages/core/tools/src/index.ts:35"
       ]
     },
     {
       "digest": "904bf499d98be4a3a5f836fcac533b6c4899569b018071e6604e1d32657d00fd",
       "names": [],
       "sources": []
+    },
+    {
+      "digest": "9092674493b7deee5e891b3b9306528b21ec90acc543804c2b635c15f5fe6a24",
+      "names": [],
+      "sources": [
+        "packages/api/session-controller/src/subagent-setup.ts:52"
+      ]
     },
     {
       "digest": "930a6567a10bb62ddd157bd8abdf4b182810c8c3b49d91309b3b009a5fed9731",
@@ -24154,7 +24757,7 @@
       "digest": "95080295115fbd83544520ba247b68a03790131f6a2eac323d388758cb542f65",
       "names": [],
       "sources": [
-        "packages/llm/llm/src/types.ts:454"
+        "packages/llm/llm/src/types.ts:479"
       ]
     },
     {
@@ -24163,9 +24766,18 @@
       "sources": []
     },
     {
-      "digest": "96bc55e52033bf9462b9aa0df7f3f2f48ff8965804e638edfc54064afe8a2f1f",
+      "digest": "963de05e8412d454640c4a372b278ef39ba57c7ae9c23c80c239f27447a5762d",
       "names": [],
       "sources": []
+    },
+    {
+      "digest": "96bc2d8ff29d204a51baba3ab327bc6a372fe4996a768a0f4be497295d6d5c7f",
+      "names": [
+        "packages/api/session-controller/src/subagent-setup.ts#SubagentRoleRoute"
+      ],
+      "sources": [
+        "packages/api/session-controller/src/subagent-setup.ts:36"
+      ]
     },
     {
       "digest": "96bfb916a727cd4445a594df264c523fc039749a31bfed924b8cc7bb308a5bb0",
@@ -24333,6 +24945,11 @@
       "sources": []
     },
     {
+      "digest": "a13e87d9fdc1c2b1bb1d7e23a4053e61b9fc99103777433558cad0ce8c602ca8",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "a15a19ef63cf5d1b711db1d249821dab0cedcd3a9ad09137b47352c93841fd20",
       "names": [],
       "sources": []
@@ -24351,7 +24968,7 @@
       "digest": "a2b49331716ba0a7078b026d145306a70eae64b7313c3e6204bd931e75ec3bb1",
       "names": [],
       "sources": [
-        "packages/llm/llm/src/types.ts:459"
+        "packages/llm/llm/src/types.ts:484"
       ]
     },
     {
@@ -24418,7 +25035,7 @@
       "digest": "a81059ca06999da1e712414520c2c65e491d052fcf9640fae20aa38f0a5dc735",
       "names": [],
       "sources": [
-        "packages/core/session/src/types.ts:383",
+        "packages/core/session/src/types.ts:385",
         "packages/core/tools/src/types.ts:24"
       ]
     },
@@ -24501,7 +25118,7 @@
       "names": [],
       "sources": [
         "packages/core/session/src/types.ts:214",
-        "packages/llm/llm/src/types.ts:159"
+        "packages/llm/llm/src/types.ts:184"
       ]
     },
     {
@@ -24513,7 +25130,7 @@
       "digest": "ad0c38a0adb82a94c925456df41586d9b5f9202fca18593eae2213d4445b4585",
       "names": [],
       "sources": [
-        "packages/core/session/src/types.ts:390"
+        "packages/core/session/src/types.ts:392"
       ]
     },
     {
@@ -24608,6 +25225,11 @@
       "sources": []
     },
     {
+      "digest": "b174ddd21711dd22b184b330bbe3c04c9e1a96dd02b1781f9342475dbea4d80b",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "b1ebd5cda47d90d980bb05bffc3f970c51537b9aff15b3bc3d639811727741b1",
       "names": [],
       "sources": [
@@ -24652,6 +25274,20 @@
       "digest": "b38f206d59bad891fa58c89f97a0036987b3defe7685acbd318fa55eb85f9751",
       "names": [],
       "sources": []
+    },
+    {
+      "digest": "b3a4777d4a7e61026161757a7003bcb531a528949a1b7100a458243b03b7a76e",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "b4787f075b190a191692f0f9b575842074cd6b04aea794fcfbbe9ac3c5461eba",
+      "names": [
+        "packages/core/session/src/types.ts#CliTerminalProfileId"
+      ],
+      "sources": [
+        "packages/core/session/src/types.ts:531"
+      ]
     },
     {
       "digest": "b4ec0af39fd52ed971990e42f04e5be3204882e555c409eb330f8238eec21569",
@@ -24729,12 +25365,12 @@
       "sources": []
     },
     {
-      "digest": "b79641a9d25e756636dc0c706fdf3c4583ccb7d4920e009e6e86c0759cf4de4c",
+      "digest": "b782fca980e9246a8b3902f0d0f687ff7dc238d0dfb5697cb65f013491423bb6",
       "names": [],
       "sources": []
     },
     {
-      "digest": "b79ada42962cad0190a9d465805260567621fa3a4abd757eb31e6016b52d5ab5",
+      "digest": "b79641a9d25e756636dc0c706fdf3c4583ccb7d4920e009e6e86c0759cf4de4c",
       "names": [],
       "sources": []
     },
@@ -24822,7 +25458,7 @@
       "digest": "bcf0caf62d964b2fcf5404bd5c909cfa9a21c3f3c96e6b7e36d9e33565223825",
       "names": [],
       "sources": [
-        "packages/core/session/src/types.ts:464"
+        "packages/core/session/src/types.ts:466"
       ]
     },
     {
@@ -24854,12 +25490,17 @@
       ]
     },
     {
+      "digest": "c1c048838e93aa8432d03055450b30da25505c2cfaba1a2569e58c3aa15fea7c",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "c1f0f17b6493b85db6453bb30e01b208d703731b25bc1e68e5d4fc72eea9cdea",
       "names": [
         "packages/llm/llm/src/types.ts#ToolCallBlock"
       ],
       "sources": [
-        "packages/llm/llm/src/types.ts:105"
+        "packages/llm/llm/src/types.ts:130"
       ]
     },
     {
@@ -24912,6 +25553,11 @@
     },
     {
       "digest": "c748fb42c80a120038a8c587af80ec39924803c401364db11c8974d5bf6d0262",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "c89bd775fcf04e6c91bb2376f4f58e028ff5658ab6e644ecc093be31ab35dbdc",
       "names": [],
       "sources": []
     },
@@ -25002,7 +25648,7 @@
       "digest": "d4b739491689cc6bb13d07ffac1a32239875abda364c0d5edd8f74faf5e9c00d",
       "names": [],
       "sources": [
-        "packages/llm/llm/src/types.ts:457"
+        "packages/llm/llm/src/types.ts:482"
       ]
     },
     {
@@ -25026,13 +25672,22 @@
         "packages/api/session-controller/src/types.ts#McpSelection"
       ],
       "sources": [
-        "packages/api/session-controller/src/types.ts:147"
+        "packages/api/session-controller/src/types.ts:152"
       ]
     },
     {
       "digest": "d6e654b88b584fcdf290a56802b1730bc7b9847ae86baa4265ab7769eb48990c",
       "names": [],
       "sources": []
+    },
+    {
+      "digest": "d7783fe2ce2feffbdc51cc1e71607ef023efc91a0cfec3aa5f051918993e694d",
+      "names": [
+        "packages/subagent/subagent/src/descriptor.ts#OneShotSubagentDescriptorData"
+      ],
+      "sources": [
+        "packages/subagent/subagent/src/descriptor.ts:62"
+      ]
     },
     {
       "digest": "d85590a5675c6e2fd8164e5792a6cceac714605b8ac228adae5ee668facb1490",
@@ -25094,7 +25749,7 @@
       "digest": "dc4bd7ac827f4b1f9236f9a157a4b4cc171a0588064a611e43edd95f62c68130",
       "names": [],
       "sources": [
-        "packages/core/agent/src/types.ts:96"
+        "packages/core/agent/src/types.ts:101"
       ]
     },
     {
@@ -25200,14 +25855,14 @@
       "digest": "e481c46af3813e0010558e93f578b2986acd658404cec2d1679e3ac2a6c48654",
       "names": [],
       "sources": [
-        "packages/core/session/src/types.ts:297"
+        "packages/core/session/src/types.ts:299"
       ]
     },
     {
       "digest": "e4c18e294232c3ba6c9f1999f168263cc55956147cfe4121720899be8e52edd1",
       "names": [],
       "sources": [
-        "packages/core/session/src/types.ts:361"
+        "packages/core/session/src/types.ts:363"
       ]
     },
     {
@@ -25233,6 +25888,15 @@
       "digest": "e6411b09c1d982f789bf741ca74e2bea69df56029847f86a6148e722039ee732",
       "names": [],
       "sources": []
+    },
+    {
+      "digest": "e6a92740c011f0a48c98ec5e783cfeaa0e816f5f8ce0cbd94b37d735465f38e7",
+      "names": [
+        "packages/api/session-controller/src/subagent-setup.ts#SubagentGsdSetup"
+      ],
+      "sources": [
+        "packages/api/session-controller/src/subagent-setup.ts:26"
+      ]
     },
     {
       "digest": "e72269f931559e901e5e8fe1cfcbd0669fb795f43cc038ff39fba62f60403c33",
@@ -25262,6 +25926,13 @@
       "sources": []
     },
     {
+      "digest": "e7f17f0f7f3db7e9c3b6bc721e25449e7c4624d7a7127df9dfafcdaec5b4ee55",
+      "names": [],
+      "sources": [
+        "packages/core/session/src/types.ts:283"
+      ]
+    },
+    {
       "digest": "e8de0f457fed5b9ff94dc4950b59ef75fd8ba8af665cc7899485924a62653367",
       "names": [],
       "sources": []
@@ -25284,6 +25955,11 @@
       "sources": [
         "packages/core/session/src/types.ts:196"
       ]
+    },
+    {
+      "digest": "eb186030fcea65ab6bf710fe4d00bbf637396f1603cee182fc7e0426387865b8",
+      "names": [],
+      "sources": []
     },
     {
       "digest": "ebb768d85ec87fb68e42fc14fd7d8535b5ac11791b14d04c6770180f0a719bf8",
@@ -25335,8 +26011,8 @@
       "digest": "ef11a3b7fa2033ae4279545ff8a8a2ee4e301b9b73e5b91654c48e6d08283545",
       "names": [],
       "sources": [
-        "packages/core/session/src/types.ts:299",
-        "packages/core/session/src/types.ts:301"
+        "packages/core/session/src/types.ts:301",
+        "packages/core/session/src/types.ts:303"
       ]
     },
     {
@@ -25355,16 +26031,7 @@
         "packages/api/session-controller/src/types.ts#ModelSelection"
       ],
       "sources": [
-        "packages/api/session-controller/src/types.ts:112"
-      ]
-    },
-    {
-      "digest": "f101a2a0034486143b9c8e8bf87078f85a4b279595077f99e99d7ac379f01f8c",
-      "names": [
-        "packages/llm/llm-jev-router/src/types.ts#JevDecisionRecord"
-      ],
-      "sources": [
-        "packages/llm/llm-jev-router/src/types.ts:11"
+        "packages/api/session-controller/src/types.ts:117"
       ]
     },
     {
@@ -25394,8 +26061,13 @@
       "digest": "f1a96afe7503ac1817de769cd0ba13d9b80111c7034c50106b3344ecc14cc515",
       "names": [],
       "sources": [
-        "packages/llm/llm/src/types.ts:458"
+        "packages/llm/llm/src/types.ts:483"
       ]
+    },
+    {
+      "digest": "f1f8d4b139695db9bb91a290ae04a839479564c93897f9c1e3f42a73525c8d84",
+      "names": [],
+      "sources": []
     },
     {
       "digest": "f230c0b583e23b25ee0a61dbe4c05e95c1e2ae44b27939501eb9e03696f0c278",
@@ -25413,7 +26085,7 @@
         "packages/llm/llm/src/types.ts#FileBlock"
       ],
       "sources": [
-        "packages/llm/llm/src/types.ts:98"
+        "packages/llm/llm/src/types.ts:123"
       ]
     },
     {
@@ -25422,7 +26094,7 @@
         "packages/llm/llm/src/types.ts#SystemPromptUpdate"
       ],
       "sources": [
-        "packages/llm/llm/src/types.ts:396"
+        "packages/llm/llm/src/types.ts:421"
       ]
     },
     {
@@ -25497,7 +26169,7 @@
       "digest": "f90eb4ab2d3897bc20c521a038e3119d581f791ec974b1a0004f63a8ab9e232d",
       "names": [],
       "sources": [
-        "packages/core/session/src/types.ts:288",
+        "packages/core/session/src/types.ts:290",
         "packages/deliverables/workspace-changes/src/types.ts:161"
       ]
     },
@@ -25550,6 +26222,11 @@
       "sources": []
     },
     {
+      "digest": "fbb1c675c6a6b828e11f41d75b46d436240d4433c35476c8e3cdbfbf4d1df31d",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "fbd2c74b346a1595b376139c587fadd23e4a21acc9c0abce342975b6cfc60986",
       "names": [],
       "sources": []
@@ -25584,6 +26261,11 @@
       "sources": []
     },
     {
+      "digest": "fd19da1ed2dcc136c3d7db50ca39f2081aec85c5b1a0199b7708746045faad48",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "fe1a7acdeed4d0f5ab483396eaa5b3dc97263b7c10eb4da2f0028cb01728bfc9",
       "names": [],
       "sources": []
@@ -25599,11 +26281,16 @@
         "packages/llm/llm/src/types.ts#TokenUsage"
       ],
       "sources": [
-        "packages/llm/llm/src/types.ts:175"
+        "packages/llm/llm/src/types.ts:200"
       ]
     },
     {
       "digest": "fee1caf8ab6a65c1bc981f5a1730164490f22a2a89ffa3d0b76f1f432c44c8b5",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "ff56d607f708d05e5bb71db059bb0594209239fc89f5f1498a6865df7a53ddb7",
       "names": [],
       "sources": []
     }

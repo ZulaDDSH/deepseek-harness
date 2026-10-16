@@ -425,7 +425,7 @@ describe('continuable activation capacity', () => {
     }
   })
 
-  it('keeps one-shot runs outside continuable capacity', async () => {
+  it('counts one-shot runs against the parent capacity while a continuable child is resident', async () => {
     const release = Promise.withResolvers<undefined>()
     const adapter = new GatedAdapter([
       { chunks: textResponse('continuable'), gate: release.promise },
@@ -433,18 +433,16 @@ describe('continuable activation capacity', () => {
     ])
     const { ctx, parent } = await setupWith(adapter, { maxActiveSubagents: 1 })
     parkParent(ctx, parent)
+    const oneShot = { parent, prompt: message('one-shot'), signal: testSignal }
     try {
       const child = await ctx.subagents.startContinuable(startSpec(parent))
       await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-      const run = await ctx.subagents.start('spawn', { parent, prompt: message('one-shot'), signal: testSignal })
-      try {
-        expect((await run.result).output).toEqual(message('one-shot'))
-      } finally {
-        await run.dispose()
-      }
-      await expect(ctx.subagents.startContinuable(startSpec(parent))).rejects.toMatchObject({ code: 'ACTIVATION_LIMIT_REACHED' })
+      await expect(ctx.subagents.start('spawn', oneShot)).rejects.toMatchObject({ code: 'ACTIVATION_LIMIT_REACHED' })
       release.resolve(undefined)
       await waitNoActivation(ctx, child.childId)
+      const run = await ctx.subagents.start('spawn', oneShot)
+      expect((await run.result).output).toEqual(message('one-shot'))
+      await run.dispose()
     } finally {
       release.resolve(undefined)
       await ctx.fiber.dispose()
@@ -2838,6 +2836,7 @@ describe('continuable settlement delivery', () => {
     expect(hasUserText(child.events, 'second task')).toBe(false)
     expect(settlementNotices(parent)[0]!.text).toBe(
       `Background subagent ${started.childId} failed before it finished.`
+      + '\nIts failure: ENOSPC: no space left on device'
       + '\nIts closing message:\nthe answer',
     )
   })

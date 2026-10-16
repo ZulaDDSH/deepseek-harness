@@ -7,7 +7,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {
   SettingsNamespaceView, SettingsPathOpView,
 } from '@deepseek-ai/dsh-api-remotes/client'
-import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import { createSnapshotStore, type ObservableSnapshot, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 // Type-only, and deliberately NOT `@deepseek-ai/dsh-api-remotes/client`: this
 // package is reachable from the Host build graph through its feature-package
@@ -28,6 +28,7 @@ import type {} from '@deepseek-ai/dsh-settings/types'
 import type { SettingsSchemaService } from './schema.ts'
 import type { ConfigForm, ConfigFormSnapshot } from './config-form-types.ts'
 import { SettingsDescribeMirror, type SettingsDescribeFace } from './settings-mirror.ts'
+import { SaveStatusTracker, type SettingsSaveStatus } from './save-status.ts'
 
 /** Domain-owned description of one settings namespace consumed by a browser plugin. */
 interface ConfigFormSpec<T> {
@@ -67,6 +68,7 @@ export class ConfigFormController<T> implements ConfigForm<T> {
    * @param mirror - the shared describe mirror this form derives from.
    * @param persistence - client-selected Host persistence; non-loopback pages may remain process-local.
    * @param schema - settings-owned schema operations.
+   * @param saves - tracker announcing this form's Host writes; a private one when the form stands alone.
    */
   constructor(
     private readonly ctx: Context,
@@ -74,6 +76,7 @@ export class ConfigFormController<T> implements ConfigForm<T> {
     private readonly mirror: SettingsDescribeMirror,
     private readonly persistence: 'host' | 'memory',
     private readonly schema: SettingsSchemaService,
+    private readonly saves: SaveStatusTracker = new SaveStatusTracker(),
   ) {
     this.store = createSnapshotStore<ConfigFormSnapshot<T>>({
       status: persistence === 'host' ? 'loading' : 'unavailable',
@@ -180,7 +183,7 @@ export class ConfigFormController<T> implements ConfigForm<T> {
     // The returned task carries its own settlement to the caller; the queue
     // tail is kept fulfilled so one failed subscriber cannot strand later operations.
     this.tail = task.then(() => {}, () => {})
-    return task
+    return this.saves.track(task)
   }
 
   private derive(): void {
@@ -242,6 +245,9 @@ export class ConfigForms extends Service {
   private readonly forms = new Map<string, ConfigFormController<unknown>>()
   /** Shared developer-tool preference owned by this settings provider. */
   readonly developerTools: DeveloperToolsPreference
+  /** Whether the latest Host settings writes are saving, saved or refused, across every form this service owns. */
+  readonly saveStatus: ObservableSnapshot<SettingsSaveStatus>
+  private readonly saves = new SaveStatusTracker()
   private readonly mirror: SettingsDescribeMirror
   private readonly schema: SettingsSchemaService
   private readonly persistence: 'host' | 'memory'
@@ -268,7 +274,9 @@ export class ConfigForms extends Service {
     this.schema = config.schema
     this.persistence = config.persistence
     this.owner = ctx
+    this.saveStatus = this.saves.status
     this.developerTools = new DeveloperToolsPreference(this.get(DEVELOPER_TOOLS_NAMESPACE))
+    ctx.effect(() => () => { this.saves.dispose() }, 'ui-settings: save status')
     ctx.effect(() => async () => {
       await Promise.all([...this.forms.values()].map(form => form.dispose()))
       this.forms.clear()
@@ -294,7 +302,7 @@ export class ConfigForms extends Service {
     const existing = this.forms.get(entryId)
     if (existing !== undefined) return existing as ConfigFormController<T>
     const form = new ConfigFormController<T>(
-      this.owner, { namespace: entryId }, this.mirror, this.persistence, this.schema,
+      this.owner, { namespace: entryId }, this.mirror, this.persistence, this.schema, this.saves,
     )
     this.forms.set(entryId, form)
     void this.mirror.ensure()

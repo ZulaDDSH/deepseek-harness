@@ -5,7 +5,7 @@
  */
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, screen } from '@testing-library/react'
+import { act, screen } from '@testing-library/react'
 import { SlotTestRuntime, stubConfigForm, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import type { SessionLiveEventEntry, SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
@@ -20,8 +20,6 @@ import { apply as applyChat, inject as injectChat } from '@deepseek-ai/dsh-clien
 import { AccountPlatformHost, type AccountPlatformHostInjected } from '../src/client/AccountPlatformHost.tsx'
 import { AccountQuotaNotice, type AccountQuotaNoticeInjected } from '../src/client/AccountQuotaNotice.tsx'
 import { AccountSection, type AccountSectionInjected, type AccountSnapshot } from '../src/client/AccountSection.tsx'
-import { DesktopOnboardingEntry, type DesktopOnboardingInjected } from '../src/client/DesktopOnboardingEntry.tsx'
-import type { DesktopOnboardingState } from '../src/client/onboarding-contract.ts'
 import { createPlatformPages, type PlatformPages } from '../src/client/platform-pages.ts'
 import type { PlatformBridge } from '../src/client/PlatformOverlay.tsx'
 import { en, zh } from '../src/client/locales.ts'
@@ -66,7 +64,7 @@ function sectionOperations(account: AccountSnapshot, pages: PlatformPages): Acco
     refreshAccount: async () => {},
     bonusNoticeShown: () => {}, bonusNoticeDismissed: () => {},
     hasRunningAccountTasks: async () => false,
-    contactUs: () => {}, showLogin: () => {}, setOnboarding: () => {},
+    contactUs: () => {}, showLogin: () => {},
     start: async () => {}, cancel: async () => {}, signOut: async () => {},
   }
 }
@@ -131,11 +129,6 @@ async function bench() {
   }
   const pages = createPlatformPages()
   disposers.push(async () => { pages.dispose() })
-  // The onboarding recharge flow is a third caller of the same page channel.
-  const onboarding = createSnapshotStore<DesktopOnboardingState>({
-    status: 'ready', visible: false, creditFunded: false, error: null,
-    progress: { version: 1, step: 'welcome', purpose: null, process: null, completion: null, usage: 'compact', developerTools: false },
-  })
   let unregisterNotice: (() => void) | undefined
   runtime.ctx.slots.inject('shell.overlay', () => runtime.ctx.slots.register({
     name: 'shell.overlay', id: 'account.platform-page', locale: 'settings.account',
@@ -156,14 +149,6 @@ async function bench() {
     name: 'settings.section', id: 'account', locale: 'settings.account',
     inject: () => sectionOperations(accountSnapshot.getSnapshot(), pages),
   }, AccountSection))
-  runtime.ctx.slots.inject('shell.overlay', () => runtime.ctx.slots.register({
-    name: 'shell.overlay', id: 'desktop-onboarding', locale: 'settings.account',
-    inject: (): DesktopOnboardingInjected => ({
-      hooks: { onboarding, account },
-      openPlatformPage: pages.open,
-      update: async () => true, complete: async () => true, retry: async () => true,
-    }),
-  }, DesktopOnboardingEntry))
   // Retaining the Session subscribes the Chat source, so live failures publish.
   await runtime.sessions.add({ id: SID })
   const reference = runtime.sessions.retain(SID)
@@ -176,7 +161,6 @@ async function bench() {
     pages,
     platform,
     account: accountSnapshot,
-    onboarding,
     /** Drop the claiming account entry the way a higher-priority one would replace it. */
     removeNoticeEntry: () => { unregisterNotice?.(); unregisterNotice = undefined },
   }
@@ -244,37 +228,6 @@ describe('shared Platform page ownership', () => {
     expect(document.activeElement).not.toBe(usage)
     expect(modal.contains(document.activeElement)).toBe(true)
     expect(b.pages.getSnapshot()).toBeNull()
-  })
-
-  it('defers the notice behind the onboarding recharge page and focuses it on return', async () => {
-    const b = await bench()
-    // Onboarding is the third caller of the shared channel, here on the credit
-    // step that offers recharge.
-    await act(async () => {
-      b.onboarding.set({
-        status: 'ready', visible: true, creditFunded: false, error: null,
-        progress: { version: 1, step: 'credit', purpose: null, process: null, completion: null, usage: 'compact', developerTools: false },
-      })
-    })
-    const recharge = screen.getByRole('button', { name: en.onboardingTopUp })
-    act(() => { recharge.focus() })
-    await act(async () => { fireEvent.click(recharge) })
-    // One native owner: onboarding asked the shared channel, so the bridge opens
-    // exactly one page and no second overlay exists.
-    expect(b.platform.open.mock.calls.map(([page]) => page)).toEqual(['top-up'])
-    expect(b.pages.getSnapshot()).toEqual({ page: 'top-up' })
-
-    // A background account failure arriving behind that page is deferred rather
-    // than painted under the opaque native view.
-    await fail(b.runtime, 0, 'ACCOUNT_QUOTA')
-    expect(screen.queryByRole('dialog', { name: en.quotaTitle })).toBeNull()
-
-    // Back closes the shared page and hands focus to the revealed Modal.
-    await act(async () => { screen.getByRole('button', { name: en.backToHarness }).click() })
-    expect(b.pages.getSnapshot()).toBeNull()
-    const modal = screen.getByRole('dialog', { name: en.quotaTitle })
-    expect(document.activeElement).not.toBe(recharge)
-    expect(modal.contains(document.activeElement)).toBe(true)
   })
 
   it('leaves an already-showing settings top-up page intact behind the deferred notice', async () => {

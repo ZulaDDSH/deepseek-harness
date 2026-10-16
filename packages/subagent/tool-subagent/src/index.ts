@@ -32,8 +32,14 @@ import {
   preflightChildLlmRoute,
   requestedAgentOptions,
 } from './model-selection.ts'
-import type { DelegationModelRequest, ModelSelectionPolicy } from './model-selection.ts'
+import type { ModelSelectionPolicy } from './model-selection.ts'
 import { registerListSubagentModels } from './list-models.ts'
+import {
+  CLAUDE_CLI_PROVIDER, DELEGATION_ROLES, assertRoleRouteCredential, assertRolelessToolAllowed, roleRouteFailure, roleRouteOf,
+} from './subagent-roles.ts'
+import type { DelegationRoleRequest } from './subagent-roles.ts'
+
+export { CLAUDE_CLI_PROVIDER, roleRouteOf } from './subagent-roles.ts'
 import type {} from './model-selection-settings.ts'
 import {
   recordSubagentModelSelection,
@@ -101,6 +107,10 @@ export interface Config {
    * the current Host subagent depth setting (default `1`) at each delegation.
    */
   maxDepth?: number | 'provider-managed'
+  /** Accept the `role` argument and run roles from Orchestrator & Subagent Setup (default `false`). */
+  roles?: boolean
+  /** Provider that runs Claude-subscription roles (default `claude-code`). */
+  claudeCliProvider?: string
 }
 
 export const Config: z<Config> = z.object({
@@ -128,6 +138,8 @@ export const Config: z<Config> = z.object({
     deny: z.array(z.string()).default(undefined as unknown as string[]),
   }).default(undefined as unknown as { allow: string[]; deny: string[] }),
   maxDepth: z.union([z.natural().max(Number.MAX_SAFE_INTEGER), z.const('provider-managed' as const)]),
+  roles: z.boolean().default(false),
+  claudeCliProvider: z.string().default(CLAUDE_CLI_PROVIDER),
 })
 
 /** Render text blocks from the canonical JSON block array without trusting arbitrary values. */
@@ -321,6 +333,7 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
   const backgroundEnabled = config.enableRunInBackground !== false
   const continuable = (config.backgroundMode ?? 'one-shot') === 'continuable'
   const toolName = config.toolName ?? 'subagent'
+  const claudeCliProvider = config.claudeCliProvider ?? CLAUDE_CLI_PROVIDER
 
   const modelSelectionCapable = config.modelSelectionSettings === true
   ctx.sessionProjections.register(subagentModelSelectionProjectionDefinition)
@@ -397,6 +410,13 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
             required: true,
             description: wording.promptDescription,
           },
+          ...config.roles === true ? {
+            role: {
+              type: 'string' as const,
+              enum: [...DELEGATION_ROLES],
+              description: 'Run this child on the route Orchestrator & Subagent Setup configures for the role. Required while Orchestrator & Subagent Setup is on; omit provider, model, and reasoning_effort when you pass a role.',
+            },
+          } : {},
           ...modelSelectionEnabled ? {
             provider: {
               type: 'string' as const,
@@ -475,25 +495,31 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
             throw new Error('subagent tool requires a calling agent (exec.agent was undefined)')
           }
 
-          const modelRequest = args as DelegationModelRequest
+          const modelRequest = args as DelegationRoleRequest
+          if (config.roles !== true && config.provider !== 'spawn') assertRolelessToolAllowed(runtimeCtx, parent.session, toolName)
+          const pin = config.roles === true
+            ? roleRouteOf(runtimeCtx, parent.session, modelRequest, claudeCliProvider)
+            : undefined
           const parentOptions = parentAgentOptionsForDelegation(parent)
-          const requiresRoutePreflight = hasDelegationModelRequest(modelRequest)
-            || hasConfiguredLlmSelection(config.agentOptions)
+          const requiresRoutePreflight = pin?.kind === 'llm'
+            || (pin === undefined && (hasDelegationModelRequest(modelRequest) || hasConfiguredLlmSelection(config.agentOptions)))
           const configuredChildAgentOptions = requiresRoutePreflight && providerRouteDefaults !== undefined
             ? { ...providerRouteDefaults, ...config.agentOptions }
             : config.agentOptions
-          const requestedChildAgentOptions = requestedAgentOptions(
+          const requestedChildAgentOptions = pin?.options ?? requestedAgentOptions(
             parentOptions,
             configuredChildAgentOptions,
             modelRequest,
             modelSelectionEnabled,
           )
-          assertAllowedModelSelection(
-            modelSelectionPolicy,
-            parentOptions,
-            requestedChildAgentOptions,
-            modelRequest,
-          )
+          if (pin === undefined) {
+            assertAllowedModelSelection(
+              modelSelectionPolicy,
+              parentOptions,
+              requestedChildAgentOptions,
+              modelRequest,
+            )
+          }
           if (requiresRoutePreflight) {
             const llm = runtimeCtx.get('llm')
             if (llm === undefined) {
@@ -504,14 +530,20 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
               parentOptions,
               requestedChildAgentOptions,
               exec.signal,
-              providerRouteDefaults === undefined,
-            )
+              pin === undefined && providerRouteDefaults === undefined,
+            ).catch((error: unknown) => {
+              throw pin === undefined ? error : roleRouteFailure(modelRequest.role, requestedChildAgentOptions, error, exec.signal)
+            })
+            if (pin?.kind === 'llm') {
+              await assertRoleRouteCredential(runtimeCtx, modelRequest.role, requestedChildAgentOptions, exec.signal)
+            }
             if (runtimeCtx.subagents.getProvider(config.provider) !== subagentProvider) {
               throw new Error(`subagent provider "${config.provider}" changed while resolving the child LLM route; retry the delegation`)
             }
           }
           exec.signal.throwIfAborted()
-          const maxDepth = runtimeCtx.subagents.resolveMaxDepth(config.maxDepth)
+          const claudeCli = pin?.kind === 'claude-cli'
+          const maxDepth = claudeCli ? undefined : runtimeCtx.subagents.resolveMaxDepth(config.maxDepth)
           const request = {
             label: args.description,
             prompt: [{ type: 'text', text: args.prompt }] as ContentBlock[],
@@ -520,11 +552,14 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
             ...config.persona !== undefined ? { persona: config.persona } : {},
             ...config.toolFilter !== undefined ? { toolFilter: config.toolFilter } : {},
             ...maxDepth !== undefined ? { maxDepth } : {},
+            ...pin === undefined ? {} : { routePinned: true as const },
           }
 
-          const runSpec = resolveDelegationRun(args, { backgroundEnabled, continuable })
+          const startProvider = claudeCli ? claudeCliProvider : config.provider
+          const runContinuable = continuable && !claudeCli
+          const runSpec = resolveDelegationRun(args, { backgroundEnabled, continuable: runContinuable })
           if (runSpec.runInBackground) {
-            if (continuable) {
+            if (runContinuable) {
               // Resolves at inbox acceptance: the child owns its own turns from
               // there, so this call neither waits for nor collects a result.
               const started = await runtimeCtx.subagents.startContinuable({
@@ -545,22 +580,25 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
               kind: 'subagent',
               label: args.description,
               owner: parent.id,
-              run: () => {
+              run: (job) => {
                 const controller = new AbortController()
-                const start = runtimeCtx.subagents.start(config.provider, { ...request, signal: controller.signal })
+                const start = runtimeCtx.subagents.start(startProvider, {
+                  ...request,
+                  signal: controller.signal,
+                  onProgress: (line) => { job.updateProgress(line) },
+                })
                 return {
                   cancel: (reason?: string) => {
                     controller.abort(reason ?? 'background subagent task killed')
                   },
                   done: settleStart(start, controller.signal),
-                  // No output sources: the child session owns intermediate detail.
                 }
               },
             })
             return { kind: 'background' as const, jobId: id }
           }
 
-          const run: SubagentRun = await runtimeCtx.subagents.start(config.provider, {
+          const run: SubagentRun = await runtimeCtx.subagents.start(startProvider, {
             ...request,
             signal: exec.signal,
           })

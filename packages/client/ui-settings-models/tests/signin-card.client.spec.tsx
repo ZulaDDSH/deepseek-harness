@@ -45,6 +45,8 @@ function surface(options: {
   answer?: () => Promise<{ kind: 'accepted' } | { kind: 'refused'; message: string }>
   outcome?: 'authorized' | 'cancelled' | { kind: 'failed'; message: string }
   configured?: boolean
+  /** Overrides of the listed flow entry, such as a stored record kind or a withheld method list. */
+  entry?: Partial<typeof ENTRY> & { kind?: 'grant' | 'api-key'; borrowedFrom?: string }
   hold?: boolean
   /** Hold the start item back until this resolves. */
   startGate?: Promise<void>
@@ -87,7 +89,7 @@ function surface(options: {
     releaseLate: () => { releaseLate() },
     list: () => {
       listCalls += 1
-      return Promise.resolve([{ ...ENTRY, configured }])
+      return Promise.resolve([{ ...ENTRY, configured, ...options.entry }])
     },
     begin: async (_key, _method, onItem) => {
       secondQuestion = onItem
@@ -321,5 +323,159 @@ describe('the sign-in card', () => {
     await start(surface({ outcome: { kind: 'failed', message: 'the grant was refused' } }))
 
     expect(await screen.findByText(en.signInFailed.replace('{message}', 'the grant was refused'))).toBeTruthy()
+  })
+})
+
+describe('the borrowed-login warning', () => {
+  const warning = t('borrowedWarning', { app: 'Codex', provider: 'OpenAI Codex' })
+
+  it('names the borrowed app for a stored sign-in and offers the API-key field', async () => {
+    const onUseApiKey = vi.fn()
+    render(
+      <SignInCard
+        provider="openai-codex"
+        displayName="OpenAI Codex"
+        operations={surface({ configured: true, entry: { kind: 'grant', borrowedFrom: 'Codex' } })}
+        t={t}
+        onUseApiKey={onUseApiKey}
+      />,
+    )
+
+    expect(await screen.findByText(warning)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: en.borrowedUseApiKey }))
+    expect(onUseApiKey).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not warn about an API-key record', async () => {
+    render(
+      <SignInCard
+        provider="openai-codex"
+        displayName="OpenAI Codex"
+        operations={surface({ configured: true, entry: { kind: 'api-key', borrowedFrom: 'Codex' } })}
+        t={t}
+      />,
+    )
+
+    expect(await screen.findByRole('button', { name: en.signIn })).toBeTruthy()
+    expect(screen.queryByText(warning)).toBeNull()
+  })
+})
+
+describe('the borrowed-login confirmation', () => {
+  const confirmation = t('borrowedConfirm', { app: 'Codex', provider: 'OpenAI Codex' })
+  const borrowed = (options: Parameters<typeof surface>[0] = {}): ReturnType<typeof surface> =>
+    surface({ ...options, entry: { borrowedFrom: 'Codex', ...options.entry } })
+
+  function renderCard(ops: AuthorizationOperations, onUseApiKey?: () => void): void {
+    render(
+      <SignInCard
+        provider="openai-codex"
+        displayName="OpenAI Codex"
+        operations={ops}
+        t={t}
+        {...onUseApiKey === undefined ? {} : { onUseApiKey }}
+      />,
+    )
+  }
+
+  it('labels a borrowed sign-in and asks for confirmation before it starts', async () => {
+    const ops = borrowed()
+    const begin = vi.spyOn(ops, 'begin')
+    renderCard(ops)
+
+    expect(await screen.findByText(en.borrowedTag)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: en.signIn }))
+
+    expect(await screen.findByText(confirmation)).toBeTruthy()
+    expect(begin).not.toHaveBeenCalled()
+  })
+
+  it('starts the flow only from "Sign in anyway"', async () => {
+    const ops = borrowed()
+    const begin = vi.spyOn(ops, 'begin')
+    renderCard(ops)
+
+    fireEvent.click(await screen.findByRole('button', { name: en.signIn }))
+    fireEvent.click(await screen.findByRole('button', { name: en.borrowedSignInAnyway }))
+
+    await waitFor(() => { expect(begin).toHaveBeenCalledTimes(1) })
+    expect(begin.mock.calls[0]?.[0]).toBe('llm-pi-ai/openai-codex')
+    expect(begin.mock.calls[0]?.[1]).toBe('oauth')
+  })
+
+  it('withdraws the confirmation on cancel without starting the flow', async () => {
+    const ops = borrowed()
+    const begin = vi.spyOn(ops, 'begin')
+    renderCard(ops)
+
+    fireEvent.click(await screen.findByRole('button', { name: en.signIn }))
+    fireEvent.click(await screen.findByRole('button', { name: en.signInCancel }))
+
+    expect(screen.queryByText(confirmation)).toBeNull()
+    expect(screen.getByRole('button', { name: en.signIn })).toBeTruthy()
+    expect(begin).not.toHaveBeenCalled()
+  })
+
+  it('moves to the API-key field from the confirmation without starting the flow', async () => {
+    const ops = borrowed()
+    const begin = vi.spyOn(ops, 'begin')
+    const onUseApiKey = vi.fn()
+    renderCard(ops, onUseApiKey)
+
+    fireEvent.click(await screen.findByRole('button', { name: en.signIn }))
+    fireEvent.click(await screen.findByRole('button', { name: en.borrowedUseApiKey }))
+
+    expect(onUseApiKey).toHaveBeenCalledTimes(1)
+    expect(begin).not.toHaveBeenCalled()
+  })
+
+  it('offers the same confirmation from a stored borrowed login\'s warning', async () => {
+    const ops = borrowed({ configured: true, entry: { kind: 'grant' } })
+    const begin = vi.spyOn(ops, 'begin')
+    renderCard(ops)
+
+    fireEvent.click(await screen.findByRole('button', { name: en.borrowedSignInAnyway }))
+
+    expect(await screen.findByText(confirmation)).toBeTruthy()
+    expect(begin).not.toHaveBeenCalled()
+  })
+
+  it('asks again before a retry after the borrowed sign-in failed', async () => {
+    const ops = borrowed({ outcome: { kind: 'failed', message: 'denied' } })
+    const begin = vi.spyOn(ops, 'begin')
+    renderCard(ops)
+
+    fireEvent.click(await screen.findByRole('button', { name: en.signIn }))
+    fireEvent.click(await screen.findByRole('button', { name: en.borrowedSignInAnyway }))
+    fireEvent.click(await screen.findByRole('button', { name: en.signInRetry }))
+
+    expect(await screen.findByText(confirmation)).toBeTruthy()
+    expect(begin).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not show a stale confirmation after a run opened from the stored-login warning ends', async () => {
+    const ops = borrowed({ configured: true, entry: { kind: 'grant' }, hold: true })
+    renderCard(ops)
+
+    fireEvent.click(await screen.findByRole('button', { name: en.borrowedSignInAnyway }))
+    fireEvent.click(screen.getAllByRole('button', { name: en.borrowedSignInAnyway })[1] as HTMLElement)
+    await screen.findByText(en.signingIn)
+    fireEvent.click(screen.getByRole('button', { name: en.borrowedSignInAnyway }))
+    ops.release()
+
+    await screen.findByText(en.signInCancelled)
+    expect(screen.queryByText(confirmation)).toBeNull()
+  })
+
+  it('starts an ordinary sign-in with no label or confirmation', async () => {
+    const ops = surface()
+    const begin = vi.spyOn(ops, 'begin')
+    renderCard(ops)
+
+    fireEvent.click(await screen.findByRole('button', { name: en.signIn }))
+
+    await waitFor(() => { expect(begin).toHaveBeenCalledTimes(1) })
+    expect(screen.queryByText(en.borrowedTag)).toBeNull()
+    expect(screen.queryByText(confirmation)).toBeNull()
   })
 })

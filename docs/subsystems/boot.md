@@ -172,16 +172,18 @@ Manage profile files and apply their declared reload lifecycle.
  * @param spec One package spec, including local paths relative to the invocation directory.
  * @param options Whether to activate the installed bundle (defaults to true), the request id a cancellation names,
  * the pending build scripts to allow for this profile before pnpm runs, and the registry asked first.
+ * @param signal Ends the caller's wait only; the installation keeps running until it ends or `cancelInstall` stops it.
  * @returns Package-manager diagnostics, the registries asked, and the observed activation outcome.
  */
-@Remote installBundle(spec: string, options?: InstallBundleOptions): Promise<ChangeResult>
+@Remote installBundle(spec: string, options?: InstallBundleOptions, signal?: AbortSignal): Promise<ChangeResult>
 
 /** Recover the result of an active installation without cancelling it.
  * @param requestId The id supplied when installation started.
  * @returns The installation's outcome after it settles, or null if no active request has that id.
  * Completed results are not retained; null establishes neither success nor cancellation.
+ * @param signal Ends the caller's wait only; the installation keeps running.
  */
-@Remote async waitForInstall(requestId: PluginInstallRequestId): Promise<ChangeResult | null>
+@Remote async waitForInstall(requestId: PluginInstallRequestId, signal?: AbortSignal): Promise<ChangeResult | null>
 
 /** Stop an installation this manager owns and wait until its files are back.
  * @param requestId The id the installation was started with.

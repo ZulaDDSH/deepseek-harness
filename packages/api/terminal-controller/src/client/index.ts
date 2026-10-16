@@ -1,12 +1,12 @@
 /** Client terminal model service; views are keyed independently from Host terminal identities. */
 import { Service, type Context } from '@deepseek-ai/cordis'
 import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { CliTerminalProfileId, SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-api-gateway/client'
 import { TerminalView, type TerminalRemote } from './model.ts'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
-import type { TerminalShell, WebTerminalId, WebTerminalInfo } from '../types.ts'
+import type { CliTerminalStatus, TerminalShell, WebTerminalId, WebTerminalInfo } from '../types.ts'
 import { preferredShell, rememberShell } from './shell-preference.ts'
 import { TerminalCloseRequests, type TerminalCloseRequest } from './close-requests.ts'
 import { TerminalWindowHold } from './retention.ts'
@@ -93,6 +93,39 @@ export class ClientTerminals extends Service {
   }
 
   /**
+   * Return the stable model of a Session's CLI terminal, identified by its Session and profile.
+   * @param sessionId - owning CLI terminal Session.
+   * @param profile - CLI terminal profile the Session was created for.
+   * @returns the terminal view that starts or reattaches the profile command.
+   */
+  cliView(sessionId: SessionId, profile: CliTerminalProfileId): TerminalView {
+    let views = this.views.get(sessionId)
+    if (views === undefined) { views = new Map(); this.views.set(sessionId, views) }
+    const key = `cli:${profile}`
+    let view = views.get(key)
+    if (view === undefined) {
+      const id = `cli-${profile}-${sessionId}` as WebTerminalId
+      view = new TerminalView(sessionId, this.remote, this.ctx.remote, id, true, undefined,
+        signal => this.hold(sessionId, id).ready(signal), profile)
+      views.set(key, view)
+      this.reconcileHolds()
+      void view.refresh()
+    }
+    return view
+  }
+
+  /**
+   * Stop a CLI terminal's process through the same owner cleanup as a closed tab. The view stays
+   * registered, so a re-render of its pane cannot start the command again.
+   * @param sessionId - owning CLI terminal Session.
+   * @param profile - CLI terminal profile the Session was created for.
+   */
+  closeCli(sessionId: SessionId, profile: CliTerminalProfileId): void {
+    const view = this.cliView(sessionId, profile)
+    this.cleanup({ sessionId, id: view.id, title: profile }, view)
+  }
+
+  /**
    * Discover available launch choices on demand without allocating a PTY.
    * @param sessionId - target Session.
    * @param signal - the menu request lifetime.
@@ -103,6 +136,18 @@ export class ClientTerminals extends Service {
     if (!result.ok) throw new Error(result.error.message)
     const previous = preferredShell()
     return { shells: result.value, selectedShell: result.value.find(shell => shell.path === previous)?.path ?? result.value[0]?.path }
+  }
+
+  /**
+   * Probe the installed state of each CLI terminal profile in the Session's execution environment.
+   * @param sessionId - Session whose execution environment is probed.
+   * @param signal - request cancellation.
+   * @returns one status per profile, in table order.
+   */
+  async cliProfiles(sessionId: SessionId, signal: AbortSignal): Promise<readonly CliTerminalStatus[]> {
+    const result = await this.remote.cliProfiles(sessionId, signal)
+    if (!result.ok) throw new Error(result.error.message)
+    return result.value
   }
 
   /**

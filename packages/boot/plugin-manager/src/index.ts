@@ -22,6 +22,7 @@ import type { McpConnectionReport } from '@deepseek-ai/dsh-mcp-client'
 import type { ProfileContext, ProfileManifest } from '@deepseek-ai/dsh-app-boot'
 import { bundleManifest, readProfileRegistry, registryArguments, runProfilePnpm, saveManifest, viewProfilePackage } from './operations.ts'
 import { classifyInstallFailure } from './install-failure.ts'
+import { inspectionOf, printedError, refused } from './inspect-result.ts'
 import { InvalidInstallSpecError, parseInstallSpec, type ParsedInstallSpec } from './install-spec.ts'
 import { attributeFailure, normalizeRegistry, NPMMIRROR_REGISTRY, registryPlan } from './registry.ts'
 import { writePluginEnabled } from './patch.ts'
@@ -117,46 +118,9 @@ interface InstallControl {
   result: Promise<ChangeResult | null>
 }
 
-/** A manifest field that is a string, when the manifest carries one. */
-function stringField(manifest: object, field: string): string | undefined {
-  const value = (manifest as Record<string, unknown>)[field]
-  return typeof value === 'string' ? value : undefined
-}
-
 /** The fields of the dsh installation's own manifest the manager reads. */
 interface InstallationManifest {
   dependencies?: Record<string, string>
-}
-
-/** What a package manifest says about the package: identity, one-liner, and whether it is a bundle. */
-function inspectionOf(kind: 'registry' | 'path', manifest: object, registry: Registry): Extract<PluginSpecInspection, { status: 'accepted' }> {
-  const dsh = (manifest as { dsh?: unknown }).dsh
-  const declared = typeof dsh === 'object' && dsh !== null ? dsh as { bundle?: unknown } : undefined
-  const bundle = declared !== undefined && typeof declared.bundle === 'object' && declared.bundle !== null
-  const name = stringField(manifest, 'name')
-  const version = stringField(manifest, 'version')
-  const description = stringField(manifest, 'description')
-  return {
-    status: 'accepted', kind, bundle, registry,
-    ...name === undefined ? {} : { name },
-    ...version === undefined ? {} : { version },
-    ...description === undefined || description === '' ? {} : { description },
-  }
-}
-
-function refused(problem: PluginInspectProblem, reason: string): PluginSpecInspection {
-  return { status: 'refused', problem, reason }
-}
-
-/** The refusal `pnpm view --json` prints on stdout, `{ error: { code, message } }`, as one log line; empty for anything else. */
-function printedError(printed: string): string {
-  let parsed: unknown
-  try { parsed = JSON.parse(printed || 'null') }
-  catch { return '' /* not JSON: nothing pnpm printed as a refusal */ }
-  const error = typeof parsed === 'object' && parsed !== null ? (parsed as { error?: unknown }).error : undefined
-  if (typeof error !== 'object' || error === null) return ''
-  const { code, message } = error as { code?: unknown; message?: unknown }
-  return [code, message].filter((part): part is string => typeof part === 'string').join('  ')
 }
 
 /** The spec's form, for deciding whether a failed attempt was the registry's; a form the parser refuses has no host of its own. */
@@ -168,6 +132,16 @@ function parsedForRegistry(spec: string): ParsedInstallSpec {
     if (!(error instanceof InvalidInstallSpecError)) throw error
     return { kind: 'registry', spec, name: spec }
   }
+}
+
+/** `promise`, rejected instead when `signal` aborts first; the promise itself keeps running for its owner. */
+function untilAborted<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (signal === undefined) return promise
+  const stopped = (): Error => new Error('plugin-manager: the caller stopped waiting for the installation')
+  if (signal.aborted) return Promise.reject(stopped())
+  return Promise.race([promise, new Promise<never>((_, reject) => {
+    signal.addEventListener('abort', () => { reject(stopped()) }, { once: true })
+  })])
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -526,10 +500,11 @@ export class PluginManager extends TypertRemoteService {
    * @param spec One package spec, including local paths relative to the invocation directory.
    * @param options Whether to activate the installed bundle (defaults to true), the request id a cancellation names,
    * the pending build scripts to allow for this profile before pnpm runs, and the registry asked first.
+   * @param signal Ends the caller's wait only; the installation keeps running until it ends or `cancelInstall` stops it.
    * @returns Package-manager diagnostics, the registries asked, and the observed activation outcome.
    */
   @Remote
-  installBundle(spec: string, options?: InstallBundleOptions): Promise<ChangeResult> {
+  installBundle(spec: string, options?: InstallBundleOptions, signal?: AbortSignal): Promise<ChangeResult> {
     const requestId = options?.requestId
     const control: InstallControl = { abort: new AbortController(), phase: 'installing', result: Promise.resolve(null) }
     const stopped = (): boolean => control.abort.signal.aborted || this.abort.signal.aborted
@@ -633,17 +608,19 @@ export class PluginManager extends TypertRemoteService {
       })
     }, { stage: 'install', target: spec, enabled: options?.enabled !== false }, 'install')
     control.result = result
-    return result.finally(() => { if (requestId !== undefined) this.installs.delete(requestId) })
+    return untilAborted(result.finally(() => { if (requestId !== undefined) this.installs.delete(requestId) }), signal)
   }
 
   /** Recover the result of an active installation without cancelling it.
    * @param requestId The id supplied when installation started.
    * @returns The installation's outcome after it settles, or null if no active request has that id.
    * Completed results are not retained; null establishes neither success nor cancellation.
+   * @param signal Ends the caller's wait only; the installation keeps running.
    */
   @Remote
-  async waitForInstall(requestId: PluginInstallRequestId): Promise<ChangeResult | null> {
-    return this.installs.get(requestId)?.result ?? null
+  async waitForInstall(requestId: PluginInstallRequestId, signal?: AbortSignal): Promise<ChangeResult | null> {
+    const active = this.installs.get(requestId)
+    return active === undefined ? null : untilAborted(active.result, signal)
   }
 
   /** Stop an installation this manager owns and wait until its files are back.

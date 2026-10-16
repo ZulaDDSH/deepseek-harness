@@ -55,6 +55,7 @@ export type SubagentIdentityProjection =
      * not from a fork seed's replayed ancestor descriptor.
      */
     seq: SessionSeq
+    routePinned?: true
   }
   | {
     /** A resumable conversation. */
@@ -63,6 +64,7 @@ export type SubagentIdentityProjection =
     label: string
     /** Seq of the folded descriptor event; see the one-shot arm for the own-suffix proof. */
     seq: SessionSeq
+    routePinned?: true
   }
 
 declare module '@deepseek-ai/dsh-session-projection/types' {

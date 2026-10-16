@@ -154,11 +154,12 @@ export function assertDualDshInstallLayout(packageLock: NpmPackageLock): DshInst
     [rootVersion, new Set()],
   ])
   const installed = Object.entries(packageLock.packages)
+  const shipsMemorix = installed.some(([path, manifest]) => packageNameAtPath(path, manifest) === 'memorix')
   let checkedDshEdges = 0
 
   for (const [path, manifest] of installed) {
     const name = packageNameAtPath(path, manifest)
-    if (name === 'react' || name === 'react-dom') {
+    if (name === 'react-dom' || (name === 'react' && !shipsMemorix)) {
       errors.push(`${path}: ${name} is a browser build input, not a dependency of the synthetic DSH-only consumer`)
     }
     if (name === undefined || !isDshPackage(name)) continue

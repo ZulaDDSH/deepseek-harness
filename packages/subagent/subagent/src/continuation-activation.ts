@@ -25,6 +25,7 @@ import type {
   UserMessage,
 } from '@deepseek-ai/dsh-session'
 import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
+import { ActivationPool } from './activation-pool.ts'
 import {
   appendDelegatedPolicyOverrides,
   applyChildComposition,
@@ -36,25 +37,6 @@ import { SubagentError } from './error.ts'
 import { SubagentInbox } from './inbox.ts'
 import type { SubagentDelivery } from './inbox.ts'
 import type { ActivationObserver, ActivationTerminal } from './lifecycle.ts'
-
-/** Process-local slots shared through uninterrupted continuable parent links. */
-class ActivationPool {
-  private readonly slots = new Set<symbol>()
-
-  /** Reserve before reconstruction; the returned release also tolerates unpublished rollback. */
-  reserve(capacity: number): () => void {
-    if (this.slots.size >= capacity) {
-      throw new SubagentError(
-        `subagent limit reached (active child limit: ${capacity}); wait for an existing child to finish `
-        + 'or complete this work with the current agents',
-        'ACTIVATION_LIMIT_REACHED',
-      )
-    }
-    const slot = Symbol()
-    this.slots.add(slot)
-    return () => { this.slots.delete(slot) }
-  }
-}
 
 /**
  * One residency epoch for a reconstructed continuable child Agent. It directly
@@ -485,8 +467,7 @@ export class ContinuableActivationRegistry {
     this.assertAdmitting(inputs.parent)
     inputs.signal.throwIfAborted()
     const lineage = this.liveLineage(inputs.parent)
-    const pool = this.resident.get(inputs.parent.id)?.pool ?? this.rootPool(inputs.parent)
-    const releaseSlot = pool.reserve(this.maxActiveSubagents())
+    const { pool, release: releaseSlot } = this.reserveSlot(inputs.parent)
     const settled = Promise.withResolvers<void>()
     const materialization: Materialization = {
       lineage,
@@ -599,6 +580,16 @@ export class ContinuableActivationRegistry {
       if (members.has(agent) || lineage.includes(root)) return root
     }
     return undefined
+  }
+
+  /**
+   * Reserve one slot in the capacity pool `parent` shares with its continuable lineage.
+   * @param parent - exact live Agent whose pool the new child joins.
+   * @returns the pool and the slot's idempotent release.
+   */
+  reserveSlot(parent: Agent): { readonly pool: ActivationPool; readonly release: () => void } {
+    const pool = this.resident.get(parent.id)?.pool ?? this.rootPool(parent)
+    return { pool, release: pool.reserve(this.maxActiveSubagents()) }
   }
 
   /** Resolve a root's pool once; descendants inherit their resident parent's pool directly. */

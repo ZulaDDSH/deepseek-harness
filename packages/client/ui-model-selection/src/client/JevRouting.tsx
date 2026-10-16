@@ -30,9 +30,12 @@ function decisionText(decision: JevDecisionRecord | null, t: Translate): string 
   const confidence = String(Math.round((decision.confidence ?? 0) * 100))
   if (decision.provider !== undefined && decision.model !== undefined) {
     const applied = { provider: decision.provider, model: decision.model, confidence }
-    if (decision.route === undefined) return t('routing.legacy', { ...applied, choice: decision.choice ?? '' })
+    if (decision.route === undefined) {
+      return decision.choice === undefined ? t('routing.legacyUnnamed', applied) : t('routing.legacy', { ...applied, choice: decision.choice })
+    }
     if (decision.route === decision.choice) return t('routing.routed', { ...applied, route: decision.route })
-    return t('routing.fallback', { ...applied, route: decision.route, choice: decision.choice ?? '' })
+    if (decision.choice === undefined) return t('routing.fallbackUnnamed', { ...applied, route: decision.route })
+    return t('routing.fallback', { ...applied, route: decision.route, choice: decision.choice })
   }
   if (decision.choice === undefined || decision.choice === 'keep') return t('routing.kept', { confidence })
   return t('routing.unsure', { route: decision.choice, confidence })
@@ -96,6 +99,7 @@ export function JevRouting({ useSession, useProjection, t }: Pick<JevRoutingProp
         aria-label={t('routing.title')}
         onKeyDown={closeOnEscape}
       >
+        <p className={css.routingNote}>{t('routing.intro')}</p>
         <dl className={css.routingList}>
           <dt>{t('routing.running')}</dt>
           <dd>{modelName(ranThisTurn ? used : null, t)}</dd>
@@ -104,6 +108,7 @@ export function JevRouting({ useSession, useProjection, t }: Pick<JevRoutingProp
           <dt>{t('routing.decision')}</dt>
           <dd>{decisionText(decision, t)}</dd>
         </dl>
+        <p className={css.routingNote}>{t('routing.off')}</p>
       </MenuSurface>,
       document.body,
     )}

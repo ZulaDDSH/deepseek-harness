@@ -1,19 +1,11 @@
 /** Host Remote owner for credential-backed provider quota usage. */
 
-import { Context } from '@deepseek-ai/cordis'
+import { Context, type Volatile } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type { CredentialProvider } from '@deepseek-ai/dsh-credentials'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { createQuotaProviderRegistry, type QuotaProvider, type QuotaSource } from './providers.ts'
 import type { QuotaProviderView, QuotaResult } from './types.ts'
-
-interface ConnectedProvider {
-  readonly id: string
-  readonly name: string
-}
-
-interface LlmProviderDirectory {
-  listProviders(): readonly ConnectedProvider[]
-}
 
 export type * from './types.ts'
 export { createQuotaProviderRegistry } from './providers.ts'
@@ -29,10 +21,15 @@ export interface QuotaControllerInternals {
   readonly fetch?: typeof fetch
   /** Additional or replacement provider definitions available to the controller. */
   readonly providers?: readonly QuotaProvider[]
+  /** Whole-percent share of a subscription window at which the composer warns; the loader supplies it from the namespace. */
+  readonly nearLimitPercent?: Volatile<number>
 }
 
 /** requires credential-backed provider quota Remote service. */
 export class QuotaController extends TypertRemoteService {
+  static Config = z.object({
+    nearLimitPercent: z.number().step(1).min(50).max(100).default(90).volatile(),
+  })
   private readonly providers: ReadonlyMap<string, QuotaProvider>
   private readonly fetchImpl: typeof fetch
   private readonly sources = new Map<string, QuotaSource>()
@@ -56,26 +53,13 @@ export class QuotaController extends TypertRemoteService {
   }
 
   /**
-   * List providers whose credentials can currently be resolved.
-   * @returns configured providers with available credentials.
+   * List every provider the popover reports on, set up or not; `fetch` says which are configured.
+   * Connected model routes without a usage source are not listed.
+   * @returns built-in providers, then registered sources.
    */
   @Remote
-  async listProviders(): Promise<readonly QuotaProviderView[]> {
-    const configured = await Promise.all([...this.providers.values()].map(async (provider) => {
-      const value = await this.resolveCredential(provider)
-      return value === undefined ? undefined : { id: provider.id, name: provider.name }
-    }))
-    const listed = new Map<string, QuotaProviderView>()
-    for (const provider of configured) {
-      if (provider !== undefined) listed.set(provider.id, provider)
-    }
-    for (const source of this.sources.values()) {
-      if (await source.configured()) listed.set(source.id, { id: source.id, name: source.name })
-    }
-    for (const provider of this.connectedProviders()) {
-      listed.set(provider.id, listed.get(provider.id) ?? provider)
-    }
-    return [...listed.values()]
+  listProviders(): Promise<readonly QuotaProviderView[]> {
+    return Promise.resolve([...this.providers.values(), ...this.sources.values()].map(({ id, name }) => ({ id, name })))
   }
 
   /**
@@ -88,16 +72,9 @@ export class QuotaController extends TypertRemoteService {
     const existing = this.pending.get(providerId)
     if (existing !== undefined) return existing
     const provider = this.providers.get(providerId)
-    const connected = this.connectedProviders().find(candidate => candidate.id === providerId)
     const source = this.sources.get(providerId)
     const operation = source !== undefined ? source.fetch(this.fetchImpl) : provider === undefined
-      ? Promise.resolve({
-        providerId,
-        providerName: connected?.name ?? providerId,
-        configured: false,
-        ok: false,
-        error: connected === undefined ? 'Unsupported provider' : 'Usage reporting is not available for this provider',
-      })
+      ? Promise.resolve({ providerId, providerName: providerId, configured: false, ok: false, error: 'Unsupported provider' })
       : this.fetchProvider(provider)
     this.pending.set(providerId, operation)
     const release = (): void => { this.pending.delete(providerId) }
@@ -107,7 +84,7 @@ export class QuotaController extends TypertRemoteService {
 
   private async fetchProvider(provider: QuotaProvider): Promise<QuotaResult> {
     const credential = await this.resolveCredential(provider)
-    if (credential === undefined) return { providerId: provider.id, providerName: provider.name, configured: false, ok: false, error: 'Not configured' }
+    if (credential === undefined) return { providerId: provider.id, providerName: provider.name, configured: false, ok: false, error: `Set up ${provider.name} in Settings > Models` }
     return provider.fetch(credential, this.fetchImpl)
   }
 
@@ -130,11 +107,6 @@ export class QuotaController extends TypertRemoteService {
     const credentials = this.ctx.get('credentials')
     if (credentials === undefined) throw new RemoteError('gateway/internal', 'credentials service is absent', {})
     return credentials
-  }
-
-  private connectedProviders(): readonly ConnectedProvider[] {
-    const llm = this.ctx.get('llm', false) as LlmProviderDirectory | undefined
-    return llm?.listProviders() ?? []
   }
 }
 

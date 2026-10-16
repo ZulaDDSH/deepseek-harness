@@ -8,6 +8,7 @@ import {
   subagentModelCandidates,
   type SubagentModelSelectionSettings,
 } from '../src/client/subagent-model-selection-card-controller.ts'
+import { ClaudeCodeCardController, type ClaudeCodeSettings } from '../src/client/claude-code-card-controller.ts'
 
 /** Make the stub behave like a Host that accepts every write. */
 function acceptWrites<T>(host: StubConfigForm<T>): void {
@@ -647,5 +648,41 @@ describe('shared Subagent card actions', () => {
     await vi.waitFor(() => { expect(state()).toMatchObject({ saving: false, dirty: false, failed: false }) })
     expect(limits.mutate).toHaveBeenCalledOnce()
     expect(models.mutate).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('ClaudeCodeCardController', () => {
+  it('stages the Ultracode switch and saves it as one revision-fenced mutation', async () => {
+    const host = stubConfigForm<ClaudeCodeSettings>()
+    acceptWrites(host)
+    const controller = new ClaudeCodeCardController(host.scope)
+    host.publish({ status: 'ready', writable: true, value: {}, base: {}, user: {} })
+    const face = controller.inject()
+
+    face.edit('ultracode', 'true')
+    face.save()
+    await vi.waitFor(() => { expect(host.mutate).toHaveBeenCalledWith([{ op: 'set', path: ['ultracode'], value: true }], undefined) })
+
+    expect(face.hooks.claudeCodeCard.getSnapshot()).toMatchObject({
+      dirty: false,
+      ultracode: { text: 'true', overridden: true },
+    })
+  })
+
+  it('clears a stored Ultracode back to the Claude Code default', async () => {
+    const host = stubConfigForm<ClaudeCodeSettings>()
+    acceptWrites(host)
+    const controller = new ClaudeCodeCardController(host.scope)
+    host.publish({ status: 'ready', writable: true, value: { ultracode: true }, base: {}, user: { ultracode: true } })
+    const face = controller.inject()
+
+    face.resetField('ultracode')
+    face.save()
+    await vi.waitFor(() => { expect(host.mutate).toHaveBeenCalledWith([{ op: 'unset', path: ['ultracode'] }], undefined) })
+
+    expect(face.hooks.claudeCodeCard.getSnapshot()).toMatchObject({
+      dirty: false,
+      ultracode: { text: 'false', overridden: false },
+    })
   })
 })

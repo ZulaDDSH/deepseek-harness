@@ -12,6 +12,10 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SubagentResult } from '@deepseek-ai/dsh-subagent'
 import { JsonRpcLineTransport } from '@deepseek-ai/dsh-sdk-protocol'
 import type { CodexPermissionMode } from './run.ts'
+import {
+  codexThreadPermission,
+  type CodexThreadPermission,
+} from './permission.ts'
 
 type JsonObject = Record<string, unknown>
 
@@ -29,17 +33,27 @@ export interface CodexWireFailureFacts {
   readonly httpStatus?: number | undefined
 }
 
-const THREAD_PERMISSION_PARAMS: Readonly<Record<CodexPermissionMode, JsonObject>> = {
-  never: { approvalPolicy: 'never' },
-  'approve-for-me': {
-    approvalPolicy: 'on-request',
-    approvalsReviewer: 'auto_review',
-    sandbox: 'workspace-write',
-  },
-  'dangerously-bypass-approvals-and-sandbox': {
-    approvalPolicy: 'never',
-    sandbox: 'danger-full-access',
-  },
+/** Wire-level options fixed when the run is constructed. */
+export interface CodexWireOptions {
+  /** Precomputed `thread/start` permission fields; defaults to the unclamped mode mapping. */
+  readonly threadPermission?: CodexThreadPermission | undefined
+  /** Advisory command and file-change progress lines for the published run. */
+  readonly onProgress?: ((line: string) => void) | undefined
+}
+
+function codexProgressLine(item: JsonObject): string | undefined {
+  if (item.type === 'commandExecution' && typeof item.command === 'string') {
+    return `Command: ${item.command}`
+  }
+  if (item.type === 'fileChange' && Array.isArray(item.changes)) {
+    const paths = item.changes.flatMap((change: unknown): string[] => {
+      if (change === null || typeof change !== 'object' || Array.isArray(change)) return []
+      const path = (change as JsonObject).path
+      return typeof path === 'string' ? [path] : []
+    })
+    return paths.length === 0 ? undefined : `Edit: ${paths.join(', ')}`
+  }
+  return undefined
 }
 
 function object(value: unknown, label: string): JsonObject {
@@ -225,6 +239,7 @@ export class CodexAppServerWire {
     output: Writable,
     private readonly permissionMode: CodexPermissionMode,
     private readonly model?: string,
+    private readonly options: CodexWireOptions = {},
   ) {
     this.transport = new JsonRpcLineTransport(input, output)
     // Fatal protocol state can arrive after the current guarded operation has
@@ -290,7 +305,7 @@ export class CodexAppServerWire {
       cwd,
       ephemeral: true,
       ...this.model === undefined ? {} : { model: this.model },
-      ...THREAD_PERMISSION_PARAMS[this.permissionMode],
+      ...(this.options.threadPermission ?? codexThreadPermission(this.permissionMode)),
     }, signal), signal), 'thread/start response')
     const thread = object(response.thread, 'thread/start thread')
     const id = string(thread.id, 'thread/start thread id')
@@ -661,6 +676,8 @@ export class CodexAppServerWire {
       if (id !== this.turnId) return
       const item = object(params.item, 'item/completed item')
       if (this.recordDeclinedItem(item, order)) return
+      const progress = codexProgressLine(item)
+      if (progress !== undefined) this.options.onProgress?.(progress)
       if (item.type !== 'agentMessage') return
       const text = typeof item.text === 'string'
         ? item.text

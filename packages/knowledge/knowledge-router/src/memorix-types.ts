@@ -16,3 +16,21 @@ export interface MemorixTable {
   columns: string[]
   count: number
 }
+/** Observation filter for the memory browser: every row, saved memories only, or imported document chunks only. */
+export type MemorixView = 'all' | 'memories' | 'documents'
+/** One saved observation returned for session-start recall. */
+export interface MemorixRecentObservation {
+  title: string
+  narrative: string
+  createdAt: string
+}
+/** One stored observation read back by identifier. */
+export interface MemorixObservationRecord {
+  id: number
+  entityName: string
+  topicKey: string | null
+  title: string
+  narrative: string
+  createdAt: string
+  status: string
+}

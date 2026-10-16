@@ -19,3 +19,6 @@
 .warn { color: var(--dsw-alias-state-warn-primary); }
 .error { color: var(--dsw-alias-state-error-primary); }
 .popover p { margin: 8px 0 2px; color: var(--dsw-alias-label-secondary); }
+.billing { margin-top: 6px; }
+.switch, .link { display: inline-block; margin-top: 4px; padding: 0; border: 0; background: transparent; color: var(--dsw-alias-state-info-primary); font: inherit; cursor: pointer; text-decoration: underline; }
+.notSetUp { margin-top: 12px; }

@@ -1123,6 +1123,26 @@ The provider topology changed: an adapter registered or unregistered routes, or 
 
 Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
 
+<a id="llmrate-limit-observed--emit"></a>
+
+#### `llm/rate-limit-observed` — emit
+
+A provider reported one rate-limit window on a response or stream event: subscription windows from Anthropic response headers, or Claude Agent SDK rate-limit events. Observers keep the latest value per window; publishers do not wait on them.
+
+```ts cordis-catalog
+/**
+ * A provider reported one rate-limit window on a response or stream event:
+ * subscription windows from Anthropic response headers, or Claude Agent SDK
+ * rate-limit events. Observers keep the latest value per window; publishers
+ * do not wait on them.
+ * @mode emit
+ * @param observation - the window as the publisher observed it.
+ */
+'llm/rate-limit-observed'(observation: LlmRateLimitObservation): void
+```
+
+Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
+
 <a id="llmstream--waterfall"></a>
 
 #### `llm/stream` — waterfall

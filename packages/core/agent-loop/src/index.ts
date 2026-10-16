@@ -9,7 +9,6 @@ import type { Volatile } from '@deepseek-ai/cosmokit'
 import { Context, FiberState, Service } from '@deepseek-ai/cordis'
 import { randomUUID } from 'node:crypto'
 import z from '@deepseek-ai/schemastery'
-import { z as zod } from 'zod'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type {
   Agent,
@@ -20,19 +19,18 @@ import type {
   CreateAgentOptions,
   ResumeAgentOptions,
   SessionStartSource,
-  TurnBoundaryProjection,
 } from '@deepseek-ai/dsh-agent'
 import { errorChain, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
-import { interruptedTurnClosers, SessionLogOffset, SessionPreparation, SessionSeq } from '@deepseek-ai/dsh-session'
+import { interruptedTurnClosers, SessionLogOffset, SessionPreparation } from '@deepseek-ai/dsh-session'
 import type { Session, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-session-projection'
-import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import { SessionPersistenceNotFoundError } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionHandle, SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { ReactLoopAgent } from './agent.ts'
 import { inboxProjectionDefinition } from './inbox.ts'
+import { cliTerminalProjectionDefinition, turnBoundaryProjectionDefinition } from './projections.ts'
 import { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from './constants.ts'
 import type {} from './runtime-context.ts'
 
@@ -42,57 +40,6 @@ const INACTIVE_STATES: ReadonlySet<FiberState> = new Set([
   FiberState.DISPOSED,
   FiberState.FAILED,
 ])
-
-const turnBoundaryProjectionSchema: zod.ZodType<TurnBoundaryProjection> = zod.object({
-  openTurnStartSeq: zod.number().int().nonnegative().transform(SessionSeq).nullable(),
-  lastStepStartSeq: zod.number().int().nonnegative().transform(SessionSeq).nullable(),
-  lastStepBoundary: zod.object({
-    kind: zod.union([zod.literal('start'), zod.literal('end')]),
-    seq: zod.number().int().nonnegative().transform(SessionSeq),
-  }).nullable(),
-  lastTurn: zod.number().int().nonnegative(),
-})
-
-/** Host projection of agent turn and step boundaries. */
-export const turnBoundaryProjectionDefinition = {
-  key: 'turnBoundary',
-  stateVersion: 2,
-  stateSchema: turnBoundaryProjectionSchema,
-  init: () => ({
-    openTurnStartSeq: null,
-    lastStepStartSeq: null,
-    lastStepBoundary: null,
-    lastTurn: 0,
-  }),
-  apply: (state, event) => {
-    switch (event.type) {
-      case 'turn/start':
-        return {
-          ...state,
-          openTurnStartSeq: event.seq,
-          lastTurn: event.data.turn,
-        }
-      case 'turn/end':
-        return {
-          ...state,
-          openTurnStartSeq: null,
-        }
-      case 'step/start':
-        return {
-          ...state,
-          lastStepStartSeq: event.seq,
-          lastStepBoundary: { kind: 'start', seq: event.seq },
-        }
-      case 'step/end':
-        return {
-          ...state,
-          lastStepBoundary: { kind: 'end', seq: event.seq },
-        }
-      default:
-        return state
-    }
-  },
-} satisfies ProjectionDefinition<'turnBoundary', TurnBoundaryProjection>
 
 /** Factory-level ownership: live agent teardowns plus config startup work. */
 class FactoryOwnership {
@@ -239,7 +186,7 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-export { DEFAULT_MAX_PARALLEL_TOOL_CALLS }
+export { DEFAULT_MAX_PARALLEL_TOOL_CALLS, turnBoundaryProjectionDefinition }
 
 /**
  * One launcher-selected session identity for a configured agent. `resume`
@@ -362,6 +309,7 @@ export class AgentLoop extends Service implements AgentFactory {
     // Register only after every config validation above has passed, so a
     // rejected constructor leaves no projection unit behind.
     ctx.sessionProjections.register(turnBoundaryProjectionDefinition)
+    ctx.sessionProjections.register(cliTerminalProjectionDefinition)
     ctx.sessionProjections.register(inboxProjectionDefinition)
     this.ownership = new FactoryOwnership(ctx.fiber)
     this.runtime = { ctx }

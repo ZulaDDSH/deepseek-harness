@@ -262,6 +262,14 @@ describe('deriveGroups', () => {
     expect(groups[1]!.sessions.map(session => session.id)).toEqual([sid('loose')])
   })
 
+  it('lists a CLI terminal Session as an ordinary Ungrouped row once it is not blank', () => {
+    const cli: SessionSummary = { ...summary('cli', 5, '/projects/first'), cliProfile: 'gemini-cli' }
+    const groups = deriveGroups(list(cli), [], noRows, noAttention, view([UNGROUPED_KEY]))
+    expect(groups.find(group => group.key === UNGROUPED_KEY)?.sessions.map(session => session.id)).toEqual([sid('cli')])
+    const blankCli: SessionSummary = { ...cli, blank: true }
+    expect(deriveGroups(list(blankCli), [], noRows, noAttention, view([UNGROUPED_KEY])).flatMap(group => group.sessions)).toEqual([])
+  })
+
   it('applies stored Ungrouped order and appends new loose Sessions by recency', () => {
     const sessions = list(summary('one', 3), summary('two', 2), summary('new', 4))
     const groups = deriveGroups(

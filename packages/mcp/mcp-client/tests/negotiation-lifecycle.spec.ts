@@ -131,6 +131,22 @@ describe('SDK negotiation lifecycle', () => {
     expect(handle.warns.filter(line => line.includes('connection failed; retrying'))).toHaveLength(3)
   })
 
+  it('reconnects on request after giving up, with a fresh retry budget, and ignores the request while connecting or disposed', async () => {
+    const handle = await connection(() => new StdioClientTransport({
+      command: join(fixture, 'missing-command'), env: {},
+    }), true)
+    expect((await handle.ready).error).toBeDefined()
+    await vi.waitFor(() => { expect(handle.errors.some(line => line.includes('giving up after 3'))).toBe(true) })
+    expect(handle.transports).toHaveLength(4)
+    expect(handle.reconnect()).toBe(true)
+    expect(handle.reconnect()).toBe(false)
+    await vi.waitFor(() => { expect(handle.errors.filter(line => line.includes('giving up after 3'))).toHaveLength(2) })
+    expect(handle.transports).toHaveLength(8)
+    expect(handle.status().state).toBe('failed')
+    await handle.dispose()
+    expect(handle.reconnect()).toBe(false)
+  })
+
   it('stops retries when a failed probe cannot confirm transport cleanup', async () => {
     const close = vi.fn()
       .mockRejectedValueOnce(new Error('SDK shutdown failed'))

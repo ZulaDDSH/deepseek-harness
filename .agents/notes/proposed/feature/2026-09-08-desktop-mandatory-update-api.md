@@ -86,6 +86,8 @@ This means the current client does not require a mandatory update, not that its 
 }
 ```
 
+The example `show_content` is zh-CN copy: "Please update DeepSeek Harness" / "This version is no longer supported; download and install the new version."
+
 The example URL is a placeholder, not an approved deployment destination. Desktop uses the flattened `data` fields, with no `alt_app` or `biz_data` wrapper. No Desktop has shipped, so no compatibility parser for the earlier nested proposal is required. Mobile `alt_app`, Android links, and iOS app identifiers retain their existing format.
 
 | Field | Requirement |

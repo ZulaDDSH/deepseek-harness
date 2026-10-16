@@ -4,6 +4,7 @@ import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply, inject } from '../src/client/index.ts'
 import { SettingsSchemaService } from '../src/client/schema.ts'
 import { ConfigForms } from '../src/client/config-form.ts'
+import { SettingsDirectory } from '../src/client/settings-directory.ts'
 
 function bench() {
   const describeCall = vi.fn().mockResolvedValue({
@@ -20,6 +21,7 @@ describe('settings domain base plugin', () => {
     await fiber.await()
     expect(ctx.get('configForms')).toBeInstanceOf(ConfigForms)
     expect(ctx.get('settingsSchema')).toBeInstanceOf(SettingsSchemaService)
+    expect(ctx.get('settingsDirectory')).toBeInstanceOf(SettingsDirectory)
     await vi.waitFor(() => { expect(describeCall).toHaveBeenCalledTimes(1) })
   })
 
@@ -40,6 +42,7 @@ describe('settings domain base plugin', () => {
     await fiber.dispose()
     expect(ctx.get('configForms')).toBeUndefined()
     expect(ctx.get('settingsSchema')).toBeUndefined()
+    expect(ctx.get('settingsDirectory')).toBeUndefined()
     remote.emit('settings/document-updated', ['ui-test', 0])
     ctx.emit('connection/reset')
     await Promise.resolve()

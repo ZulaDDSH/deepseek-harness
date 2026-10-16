@@ -83,6 +83,7 @@ import { deliverSubagentPrompt } from './internal.ts'
 export type {} from './catalog.ts'
 export * from './out-of-process.ts'
 export { AssistantOutputFold, finalAssistantOutput } from './assistant-output.ts'
+export { failureDiagnosticOf } from './failure-diagnostic.ts'
 export { SubagentRunId } from './types.ts'
 export type {
   ContinuableCreateRequest,
@@ -133,6 +134,7 @@ export type * from './control-types.ts'
 export type { SubagentDescendantListEntry } from './list-children.ts'
 export type { SubagentRunEndInfo, SubagentRunInfo } from './types.ts'
 export type { SubagentIdentityProjection, SubagentTimingProjection } from './projection-types.ts'
+export type * from './projection.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -190,7 +192,7 @@ interface BrowserPromptSource {
 
 /** Host configuration for continuable subagent capacity. */
 export interface Config {
-  /** Maximum live children sharing uninterrupted continuable parent links; defaults to 8. */
+  /** Maximum live children sharing uninterrupted continuable parent links, counting one-shot runs; defaults to 8. */
   maxActiveSubagents: Volatile<number>
   /** Default delegation depth for tools without an explicit limit; defaults to 1. */
   maxDepth: Volatile<number>
@@ -545,6 +547,14 @@ export class SubagentRuntime extends TypertRemoteService {
   }
 
   /**
+   * The current per-parent live-child capacity (maxActiveSubagents).
+   * @returns the configured limit.
+   */
+  activeSubagentLimit(): number {
+    return this.config.maxActiveSubagents.get()
+  }
+
+  /**
    * Establish a published child on the named provider. Capability and semantic
    * checks run before delegation. Provider ownership lasts until its promise
    * fulfills; a rejection therefore has no run for the caller to dispose and
@@ -552,6 +562,8 @@ export class SubagentRuntime extends TypertRemoteService {
    * failures settle through the returned run.
    * A catalog append failure disposes the run and handles its result rejection;
    * the caller receives the catalog error even if disposal also fails.
+   * A one-shot run occupies one slot of the parent's maxActiveSubagents pool
+   * until its result settles, and start rejects with `ACTIVATION_LIMIT_REACHED` at capacity.
    * @param name - the provider to use.
    * @param request - child label, prompt, parent, signal, and optional capabilities.
    * @returns the published holder-owned run.
@@ -565,9 +577,18 @@ export class SubagentRuntime extends TypertRemoteService {
       mode: 'one-shot',
       provider: name,
       ...request.label !== undefined ? { label: request.label } : {},
+      ...request.routePinned === true ? { routePinned: true } : {},
     })
     const resolved: ResolvedSubagentStartRequest = { ...request, descriptor }
-    const run = await provider.start(resolved)
+    const releaseSlot = this.continuations?.reserveOneShotSlot(request.parent)
+    let run: SubagentRun
+    try {
+      run = await provider.start(resolved)
+    } catch (error: unknown) {
+      releaseSlot?.()
+      throw error
+    }
+    if (releaseSlot !== undefined) void run.result.then(releaseSlot, releaseSlot)
     const child = run.localAgent?.session
     if (child !== undefined) {
       try {

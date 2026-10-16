@@ -1,9 +1,9 @@
 /** Shared projection of the live LLM registry into the browser model catalog. */
 
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
-import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { credentialRef, isCredentialRefName } from '@deepseek-ai/dsh-credentials'
 import type {} from '@deepseek-ai/dsh-settings'
-import type { LlmModelInfo } from '@deepseek-ai/dsh-llm'
+import { ultracodeSupported, type LlmModelInfo } from '@deepseek-ai/dsh-llm'
 import type { Context } from '@deepseek-ai/cordis'
 import type {
   ModelCatalog,
@@ -22,6 +22,7 @@ export async function buildModelCatalog(
   defaultSelection: ModelSelection = ctx.agentDefaultModel.currentSelection(),
 ): Promise<ModelCatalog> {
   const providers = ctx.llm.listProviders()
+  const missing = await missingCredentialProviders(ctx)
   const catalog = await Promise.all(providers.map(async (provider) => {
     try {
       const models = await ctx.llm.listModels(provider.id)
@@ -44,11 +45,17 @@ export async function buildModelCatalog(
           name: model.name,
           ...(model.description === undefined ? {} : { description: model.description }),
           ...(reasoning === undefined ? {} : { reasoning }),
+          ...(ultracodeSupported(model.id) ? { ultracode: true } : {}),
         }
       }))
       return {
         kind: 'group' as const,
-        group: { id: provider.id, name: provider.name, models: entries },
+        group: {
+          id: provider.id,
+          name: provider.name,
+          models: entries,
+          ...missing.includes(provider.id) ? { missingCredential: true } : {},
+        },
       }
     } catch (error) {
       return {
@@ -90,17 +97,15 @@ export async function modelAvailable(ctx: Context, selection: ModelSelection): P
 }
 
 /**
- * Check configured provider API-key references independently of model availability.
- * @param ctx - Host registry, settings, and credential services.
- * @returns whether any API-key provider has a configured credential.
+ * Read the API-key references each configurable provider names in its settings profile.
+ * @param ctx - Host registry and settings.
+ * @returns one entry per provider route with a non-empty `apiKeyEnv`, or undefined without settings.
  */
-export async function hasProviderApiKey(ctx: Context): Promise<boolean> {
+function apiKeyReferencesOf(ctx: Context): readonly { provider: string; ref: string }[] | undefined {
   const settings = ctx.get('settings')
-  const credentials = ctx.get('credentials')
-  if (settings === undefined || credentials === undefined) {
-    throw new RemoteError('session/provider-credentials-unavailable', 'provider credentials are unavailable', {})
-  }
+  if (settings === undefined) return undefined
   const namespaces = settings.describe({ redactSecrets: true })
+  const references: { provider: string; ref: string }[] = []
   for (const provider of ctx.llm.listConfigurableProviders()) {
     if (provider.provider === 'deepseek-account') continue
     let profile = namespaces.find(namespace => namespace.ns === provider.settingsNs)?.value
@@ -109,8 +114,45 @@ export async function hasProviderApiKey(ctx: Context): Promise<boolean> {
     }
     if (typeof profile !== 'object' || profile === null) continue
     const ref: unknown = Reflect.get(profile, 'apiKeyEnv')
-    if (typeof ref === 'string' && ref.length > 0
-      && (await credentials.describe(credentialRef(ref))).configured) return true
+    if (typeof ref === 'string' && ref.length > 0) references.push({ provider: provider.provider, ref })
+  }
+  return references
+}
+
+/**
+ * Check configured provider API-key references independently of model availability.
+ * @param ctx - Host registry, settings, and credential services.
+ * @returns whether any API-key provider has a configured credential.
+ */
+export async function hasProviderApiKey(ctx: Context): Promise<boolean> {
+  const credentials = ctx.get('credentials')
+  const references = credentials === undefined ? undefined : apiKeyReferencesOf(ctx)
+  if (credentials === undefined || references === undefined) {
+    throw new RemoteError('session/provider-credentials-unavailable', 'provider credentials are unavailable', {})
+  }
+  for (const { ref } of references) {
+    if ((await credentials.describe(credentialRef(ref))).configured) return true
   }
   return false
+}
+
+/**
+ * Name the provider routes whose named API-key reference has no configured credential.
+ * @param ctx - Host registry, settings, and credential services.
+ * @returns provider route ids that cannot authenticate; empty when the state cannot be read.
+ */
+export async function missingCredentialProviders(ctx: Context): Promise<readonly string[]> {
+  const credentials = ctx.get('credentials')
+  const references = credentials === undefined ? undefined : apiKeyReferencesOf(ctx)
+  if (credentials === undefined || references === undefined) return []
+  const missing = await Promise.all(references
+    .filter(({ ref }) => isCredentialRefName(ref))
+    .map(async ({ provider, ref }) => {
+      try {
+        return (await credentials.describe(credentialRef(ref))).configured ? undefined : provider
+      } catch {
+        return undefined
+      }
+    }))
+  return missing.filter((provider): provider is string => provider !== undefined)
 }

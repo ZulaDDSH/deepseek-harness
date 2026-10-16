@@ -72,6 +72,7 @@ export function TodoRow({ toolName, block, inspect, useDisclosure, useTodoHistor
       details={diff?.details}
       errorSummary={model.errorSummary}
       state={model.state}
+      startedAt={model.startedAt}
       inspect={inspect}
     />
   )

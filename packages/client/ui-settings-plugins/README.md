@@ -23,7 +23,7 @@ Use the **Built-in plugins** settings section to inspect the plugins this deploy
 <a id="use-this-package"></a>
 ## Use this package
 
-Open **Built-in plugins** in Settings. [ui-settings-plugin-inventory](../ui-settings-plugin-inventory/README.md) contributes the inventory as the section's one tab, shown as the page itself; a second registered tab turns the row into tabs. A deployment whose composition contributes no tab shows the section's empty line.
+Open **Built-in plugins** in Settings. The page is read-only and says so; changing a plugin happens on the sidebar Plugins page. In the Settings navigation it sits last, under the Agent group. [ui-settings-plugin-inventory](../ui-settings-plugin-inventory/README.md) contributes the inventory as the section's one tab, shown as the page itself; a second registered tab turns the row into tabs. A deployment whose composition contributes no tab shows the section's empty line.
 
 To contribute a tab, register into `settings.plugins.tab` with an `id`, an `order`, and a localized `label`; the section renders the entries in order and mounts a tab on its first selection. Feature copy stays in the registering plugin's dictionary.
 

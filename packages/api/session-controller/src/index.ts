@@ -4,7 +4,7 @@ import { hostname } from 'node:os'
 import { resolve } from 'node:path'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-fs'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, type Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { errorChain, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-client-file-upload'
@@ -23,10 +23,12 @@ import { SessionControlController } from './control.ts'
 import { SessionHistoryController } from './history.ts'
 import { SessionFileReferences } from './file-references.ts'
 import { ApiSessionList } from './list.ts'
-import { buildModelCatalog, hasProviderApiKey } from './catalog.ts'
+import { buildModelCatalog, hasProviderApiKey, missingCredentialProviders } from './catalog.ts'
 import { installModelSelectionProjection } from './model-selection-projection.ts'
 import { installMcpSelectionProjection } from './mcp-selection-projection.ts'
 import { installHookOverridesProjection } from './hook-overrides-projection.ts'
+import { installRunOptions } from './run-options.ts'
+import { subagentSetupSchema, type SubagentSetup } from './subagent-setup.ts'
 import type { HookInventoryReport } from '@deepseek-ai/dsh-hook-protocol'
 import { SessionSkillCatalog } from './skill-catalog.ts'
 import { SessionMediaReferences } from './media-references.ts'
@@ -68,6 +70,8 @@ import type {
   SessionProjectionsRequest,
   SessionProjectionsValue,
   SessionProjectionValues,
+  SessionSetRunOptionsRequest,
+  SessionRunOptions,
   SessionUpdateQueueRequest,
   SessionUpdateQueueValue,
 } from './types.ts'
@@ -76,6 +80,7 @@ export type * from './types.ts'
 export { ApiSessionNotFound } from './agent.ts'
 export { SessionFileReferences } from './file-references.ts'
 export { SessionSkillCatalog } from './skill-catalog.ts'
+export { effectiveSubagentSetupOf } from './run-options.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -88,6 +93,8 @@ declare module '@deepseek-ai/cordis' {
 export interface Config {
   /** Override platform desktop-opener detection. */
   readonly nativeOpen?: boolean
+  /** Global default Orchestrator & Subagent Setup for Sessions without their own; unset means subagent mode is off. */
+  readonly subagentSetup?: Volatile<unknown>
 }
 
 /** Host integrations replaceable by direct unit tests. */
@@ -122,9 +129,12 @@ export class SessionController extends TypertRemoteService {
 
   static Config: z<Config> = z.object({
     nativeOpen: z.boolean(),
+    subagentSetup: z.any().volatile(),
   })
 
   private readonly agents: ApiSessionAgentController
+  private readonly subagentSetupDefault: Volatile<unknown> | undefined
+  private warnedSubagentSetup: unknown
   private readonly commands: SessionCommandController
   private readonly controlState: SessionControlController
   private readonly history: SessionHistoryController
@@ -143,9 +153,11 @@ export class SessionController extends TypertRemoteService {
    */
   constructor(ctx: Context, config: Config, internals: SessionControllerInternals = {}) {
     super(ctx, 'sessionController', { namespace: 'session' })
+    this.subagentSetupDefault = config.subagentSetup
     installModelSelectionProjection(ctx)
     installMcpSelectionProjection(ctx)
     installHookOverridesProjection(ctx)
+    installRunOptions(ctx)
     this.agents = new ApiSessionAgentController(ctx)
     this.commands = new SessionCommandController(ctx, this.agents, process.cwd())
     ctx.effect(() => ctx.fileUploads.registerAgentResolver(async (sessionId) => {
@@ -211,6 +223,30 @@ export class SessionController extends TypertRemoteService {
     })
     this.promotions.add(task)
     void task.finally(() => { this.promotions.delete(task) })
+  }
+
+  /**
+   * Provider routes whose named API-key reference has no configured credential, for Host-side route preflight.
+   * @returns provider route ids that cannot authenticate; empty when credentials cannot be read.
+   */
+  missingCredentialProviders(): Promise<readonly string[]> {
+    return missingCredentialProviders(this.ctx)
+  }
+
+  /**
+   * The global default Orchestrator & Subagent Setup, which a Session without its own setup inherits.
+   * @returns the stored default, or undefined when none is set or the stored value fails {@link subagentSetupSchema}.
+   */
+  defaultSubagentSetup(): SubagentSetup | undefined {
+    const stored = this.subagentSetupDefault?.get()
+    if (stored === undefined) return undefined
+    const parsed = subagentSetupSchema.safeParse(stored)
+    if (parsed.success) return parsed.data
+    if (this.warnedSubagentSetup !== stored) {
+      this.warnedSubagentSetup = stored
+      this.ctx.logger.warn('session-controller: stored default Orchestrator & Subagent Setup is invalid and is ignored')
+    }
+    return undefined
   }
 
   /**
@@ -320,6 +356,16 @@ export class SessionController extends TypertRemoteService {
   @Remote('setHookOverrides')
   setHookOverrides(request: SessionSetHookOverridesRequest): Promise<HookOverrides> {
     return this.commands.setHookOverrides(request)
+  }
+
+  /**
+   * Replace the run options (ultracode, plus fast mode and effort for Claude Code runs) of one Session.
+   * @param request - Session identity and the run options to store.
+   * @returns the stored run options.
+   */
+  @Remote('setRunOptions')
+  setRunOptions(request: SessionSetRunOptionsRequest): Promise<SessionRunOptions> {
+    return this.commands.setRunOptions(request)
   }
 
   /**

@@ -6,7 +6,8 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-session'
-import type {} from '@deepseek-ai/dsh-api-session-controller'
+import { orchestratorSelectionOf } from '@deepseek-ai/dsh-api-session-controller/setup-resolver'
+import type {} from '@deepseek-ai/dsh-subagent'
 import { jevDecisionProjection } from './projection.ts'
 import { applyRoute, installAgentRequestRouting, selectedRoute } from './request-routing.ts'
 import type { JevDecisionRecord } from './types.ts'
@@ -409,6 +410,14 @@ export class JevRouter extends Service {
   }
 }
 
+/** Whether a delegation role fixed this Agent's route: a pinned child, or a root whose orchestrator role is fixed. */
+function pinnedByDelegation(ctx: Context, agent: Agent): boolean {
+  const projections = ctx.get('sessionProjections')
+  if (projections === undefined) return false
+  if (projections.stateOf(agent.session, 'subagent')?.identity?.routePinned === true) return true
+  return orchestratorSelectionOf(ctx, agent.session) !== undefined
+}
+
 /** Install Jev routing into the agent waterfalls. */
 export function apply(ctx: Context, initial: RuntimeConfig): void {
   const current = (): Config => {
@@ -440,9 +449,12 @@ export function apply(ctx: Context, initial: RuntimeConfig): void {
     const config = current()
     if (admitted.kind === 'reject' || payload.signal.aborted) return admitted
     if (!config.enabled) return admitted
+    if (pinnedByDelegation(ctx, payload.agent)) return admitted
     hookAgent(payload.agent)
     states.set(payload.agent, stateForMessages(admitted.messages, config.stateMaxChars))
-    if (config.routes.length === 0) return admitted
+    const providers = new Set(ctx.llm.listProviders().map(provider => provider.id))
+    const routable: Config = Object.assign({}, config, { routes: config.routes.filter(route => providers.has(route.provider)) })
+    if (routable.routes.length === 0) return admitted
     let perAgent = decisions.get(payload.agent)
     if (perAgent === undefined) {
       perAgent = new Map()
@@ -450,11 +462,14 @@ export function apply(ctx: Context, initial: RuntimeConfig): void {
     }
     if (perAgent.has(payload.turn)) return admitted
     try {
-      const decision = await client.decide(admitted.messages, config, payload.signal)
-      const route = selectedRoute(decision, config)
+      const decision = await client.decide(admitted.messages, routable, payload.signal)
+      const route = selectedRoute(decision, routable)
+      const unroutable = config.routes.some(candidate => candidate.id === decision.route)
+        && !routable.routes.some(candidate => candidate.id === decision.route)
       payload.agent.session.append('jev/decision', {
         turn: payload.turn, step: payload.step, choice: decision.route, confidence: decision.confidence,
         ...route === undefined ? {} : { route: route.id, provider: route.provider, model: route.model },
+        ...unroutable ? { unroutable: true } : {},
       })
       perAgent.set(payload.turn, route === undefined ? {} : { route })
     } catch (error) {

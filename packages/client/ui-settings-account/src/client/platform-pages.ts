@@ -1,6 +1,6 @@
 /**
  * One native Platform view for the whole account feature. The Account settings
- * page, the frame-wide quota notice, and the desktop onboarding recharge step
+ * page and the frame-wide quota notice
  * request a page here instead of mounting their own container, because the
  * Desktop host owns a single WebContentsView and its `open` destroys whatever
  * was showing before.

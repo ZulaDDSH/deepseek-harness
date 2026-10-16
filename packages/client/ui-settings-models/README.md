@@ -1,11 +1,9 @@
 ---
-description: "Models settings and product-onboarding plugin for the dsh web client: provider rows, API-key management, model lists, and the DeepSeek first-run dialogs."
+description: "Models settings plugin for the dsh web client: provider rows, API-key management, and model lists."
 kind: "package-reference"
 ---
 
 # @deepseek-ai/dsh-client-ui-settings-models
-
-Desktop product events use the optional [product analytics service](../product-analytics/README.md); ordinary Web interactions are excluded.
 
 ## Summary
 
@@ -33,7 +31,11 @@ Open the Models page from the Settings navigation to see every configured provid
 
 A provider with a stored catalog error remains visible with its diagnostic and edit/delete actions. Add actions are offered only for registered settings namespaces, so an unavailable namespace cannot leave a button that opens no editor. A rejected save leaves the editor open and displays the Host diagnostic.
 
-Host configuration `credentialOnboarding` defaults to `true`. The Electron preload marker suppresses automatic credential onboarding and the Web welcome notice; Models settings and explicit API-key editing remain available. The [account plugin](../ui-settings-account/README.md#desktop-onboarding) owns the Desktop introduction. Other native shells can disable only the credential step with `credentialOnboarding: false`. Host publishes this public boolean through `webserver/index-inject`, and Client validates it before registering dialogs. It is page initialization data, not a durable completion marker.
+Models settings and explicit API-key editing are available from Settings → Models without a launch-time prompt. While the provider directory is first read, the page says so instead of showing an empty list.
+
+### Finding a setting
+
+The Models and Model routing pages register their settings (API key, adding a provider or custom endpoint, and each routing option) with the Settings search, using the labels and one-line descriptions already shown on the page plus English aliases such as relay, proxy and router. The navigation entry that was named Jev reads **Model routing**, and its page heading reads **Model routing (Jev)**.
 
 ### API keys
 
@@ -43,7 +45,7 @@ The primary field on an editor card is a single **API key** input — the page n
 
 ### Editing a provider
 
-The collapsed 自定义设置 fold carries the curated extras: `baseURL` for both families (the deepseek placeholder shows the public endpoint), each adapter's model catalog, and the **display name** and **API protocol** of a pi-ai route the adapter does not ship. Profile `headers` remain deployment configuration in `cordis.patch.yml` or Cordis config and have no Models-page editor. The Provider ID stays fixed: it is the settings key, the name every other namespace and every logged session references, and the stem of a credential reference the page cannot read back to move. Reasoning effort is deliberately not among the editable fields: it is a per-model capability, so a provider-scoped control could only be set to a value some models reject. Each model row edits `id`, optional display `name`, optional `contextWindow`/`maxTokens`, and input types; unrelated model fields survive edits.
+The collapsed **Customized settings** (自定义设置) fold carries the curated extras: `baseURL` for both families (the deepseek placeholder shows the public endpoint), each adapter's model catalog, and the **display name** and **API protocol** of a pi-ai route the adapter does not ship. Profile `headers` remain deployment configuration in `cordis.patch.yml` or Cordis config and have no Models-page editor. The Provider ID stays fixed: it is the settings key, the name every other namespace and every logged session references, and the stem of a credential reference the page cannot read back to move. Reasoning effort is deliberately not among the editable fields: it is a per-model capability, so a provider-scoped control could only be set to a value some models reject. Each model row edits `id`, optional display `name`, optional `contextWindow`/`maxTokens`, and input types; unrelated model fields survive edits.
 
 The DeepSeek card edits the `llm-deepseek` endpoint, credentials, and model catalog. It uses Messages, with the default endpoint placeholder `https://api.deepseek.com/anthropic`.
 
@@ -52,10 +54,6 @@ Expand **Customized settings → Model options** to edit each model. Both provid
 ### Adding and deleting providers
 
 **Add model provider** is the one entry to the add card, offered while any editor-backed settings namespace is mounted and enabled while either mode below can proceed. The card opens on a segmented mode switch with a one-line purpose beneath it: **Third-party model provider** carries the dormant-directory provider select over the provider editor — a bare-mounted `llm-pi-ai` offers its whole installed catalog before any route exists — and **Custom model API** carries the create form for a route pi-ai does not ship: a relay, a self-hosted server, or any other OpenAI- or Anthropic-compatible endpoint. A mode is offered only while its namespace is mounted; with one mode the card shows that form alone under the mode's name, and a mode whose namespace has nothing left to adopt or no protocol to declare is disabled with the reason as its hover text. A panel mounts the first time its mode is shown and stays mounted, hidden, while the card is open and its mode stays offered, so switching modes discards neither draft; the switch locks while either panel has a write or an endpoint interrogation in flight, since a switch underneath one would orphan its answer. Each tab controls its panel through ids, and closing either panel forgets the catalog draft's target. The custom form asks for a unique **Provider ID**, an endpoint, a protocol, and at least one uniquely-identified model, because nothing can default those. The protocol picker names each protocol by its product name — OpenAI Chat Completions, OpenAI Responses, Anthropic Messages — while the stored value stays the schema identifier; a protocol the adapter adds before this page names it shows that identifier. The endpoint placeholder follows the selected protocol: OpenAI Chat Completions and Responses show `https://gateway.example/v1`, while Anthropic Messages shows `https://gateway.example` because its SDK appends `/v1/messages`. Changing the protocol preserves any address already entered. The endpoint must be a parseable HTTP or HTTPS URL; localhost, IPv4 and IPv6 literals, and custom ports remain valid. A syntax error blocks both discovery and creation at the field, while a request failure remains a separate provider error. **Fetch available models** asks the `llm/discoverModels` Remote about the endpoint the form shows, so adding a provider is one pass instead of save-then-return; the reply opens a searchable picker rather than being written, and nothing is written until **Add selected**. Each candidate displays its original model id in a monospace font to distinguish models with the same name. Rows stay on one line; hovering reveals the model name, falling back to the full id when no name is supplied. Selection and configuration retain the original model id. Each selected candidate copies its id, display name, context window, output-token cap, and disclosed input types into the editable row when disclosed, while an existing row retains its user-tuned values. Search matches model ids and optional display names without clearing hidden selections. **Select all** adds the visible results, while **Deselect all** clears the entire selection so hidden results cannot be adopted accidentally. A row is deletable only when the user layer alone carries it (removal restores the composition base), and its confirmation dialog names the provider.
-
-### First-run dialogs
-
-After the versioned notice step completes, the DeepSeek step projects first-run readiness from the same joined snapshot. ANY provider the user can already reach ends it without rendering; only a user with none is asked for the official DeepSeek key. Configure later completes only this coordinator pass, and an absent adapter, inactive route, failed join, read-only deployment, or unusable capability completes the step without rendering — Models remains the diagnostic surface.
 
 ### Extension slots
 
@@ -81,10 +79,6 @@ A typed API key is judged on its own field: after trimming, it must be non-empty
 
 Each settings write carries the card's current `revision`, so a concurrent write from another tab or an external `cordis.patch.yml` edit is refused as `settings/conflict`. After settings commit, the card adopts the returned redacted user subtree and revision before storing the credential, so a failed credential stage retries only that stage. On a loaded page, the successful write also updates the shared settings mirror from its response, so an immediate editor reopen sees the committed values without another Host read. Deletion removes a configured, writable credential only when the profile names the page's derived `<ROUTE>_API_KEY` target, then unsets the profile; both operations are idempotent. Once loaded, the page subscribes to forwarded `settings/document-updated`, `credentials/reference-updated`, and `llm/adapters-updated` owner events, plus local `connection/reset`, so external edits converge without polling.
 
-### Onboarding coordinator
-
-The notice step owns its exact copy in `src/client/locales.ts` and its acknowledgement version in `src/onboarding-copy.ts`; on loopback it compares and writes `ui-settings-general.welcomeNoticeVersion` through the shared configuration form, and only an explicit Continue records the current version. Users who acknowledged an earlier version see the current notice again. A non-loopback browser cannot use that Host-only namespace, so acknowledgement is process-local and the notice returns after reload. The DeepSeek step targets `deepseek-official` in `llm-deepseek` and renders the existing `ProviderEditor` in credential-only mode inside the shared onboarding modal; `credentials.set` stays the only secret write, and no provider settings are changed.
-
 </details>
 
 -----
@@ -101,8 +95,6 @@ These pages cover the settings base, the seams this page joins, and the design r
 - [Web config plane](../../../.agents/notes/archived/architecture/2026-07-30-web-config-plane.md) — the hand-written editor's design rationale.
 
 -----
-
-The `settings.models.sign-in` slot lets account login offer a choice before the credential editor; without a contributor the editor renders directly. Closing the account choice completes the whole onboarding step. Explicit reopening from the account menu enters the same editor even when a provider is already configured.
 
 <a id="model-experience"></a>
 ## Model Experience

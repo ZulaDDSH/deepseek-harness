@@ -25,6 +25,10 @@ Mount the client plugin in a web composition that includes the Remote, locale, c
 
 The opaque popover shows providers returned by the Host registry, with the selected provider first. Durable Session usage is grouped by the provider and model that actually ran each request, alongside the Session total. Account limits appear separately because their allowance may be shared across models.
 
+When a subscription window reaches the warning share (the `quota-controller` namespace's `nearLimitPercent`, default 90), the composer dock shows one prompt above the input that names the provider and the window. It offers a switch to the provider's API credits when the route has a billing switch, or "Pick another model" when it does not. "Not now" hides that window's prompt until the window resets. A hard limit reported by a provider's status is offered the same way. The share is edited on the Plugins page under Usage warnings, which appears only while the Host serves the namespace.
+
+Escape closes the popover and returns focus to its trigger; a press outside the control closes it.
+
 -----
 
 <a id="model-experience"></a>
@@ -41,6 +45,7 @@ No direct effect; opening or refreshing the quota surface does not alter model r
 <a id="known-limitations-and-deferred-work"></a>
 
 - Only providers returned by the Host quota registry are shown; unsupported providers are not inferred from model settings.
+- Hard limits come only from a provider's reported status. A window at 100% without a status shows as a near-limit prompt. The overage window ranks as a monthly window because its length is not reported.
 
 <a id="dev-note"></a>
 ### Dev Note

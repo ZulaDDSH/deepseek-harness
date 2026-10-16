@@ -1,4 +1,4 @@
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { ALL_HOOKS } from '@deepseek-ai/dsh-hook-protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -61,6 +61,8 @@ function waitForIdle(_ctx: Context, agent: Agent): Promise<void> {
   return agent.whenIdle()
 }
 function events(agent: Agent): readonly SessionEvent[] { return agent.session.snapshotEvents() }
+type AgentFake = Partial<Omit<Agent, 'session' | 'inbox'>> & { session?: Partial<Agent['session']>; inbox?: Partial<Agent['inbox']> }
+function agentFake(fields: AgentFake): Agent { return fields as Agent }
 
 /** Poll `predicate` until true or the deadline passes (detached hook effects can't be awaited directly). */
 async function waitFor(predicate: () => boolean, timeout = 5000, interval = 10): Promise<void> {
@@ -89,6 +91,28 @@ describe('hooks-codex bridge', () => {
     }))
   })
 
+  it('skips SessionStart hooks for CLI terminal Sessions and still runs them for other Sessions', async () => {
+    const dir = configDir()
+    const capture = script(dir, 'resume.sh', '#!/usr/bin/env bash\necho "resumed context"\n')
+    writeHooks(dir, { SessionStart: [{ matcher: 'resume', hooks: [{ type: 'command', command: capture }] }] })
+    const ctx = await harness(dir, new MockAdapter([]))
+    const cli = ctx.sessions.create(SessionId('cli-resume'))
+    cli.append('session/cli-terminal', { profile: 'grok-cli' })
+    const plain = ctx.sessions.create(SessionId('plain-resume'))
+    const injectCli = vi.fn()
+    const injectPlain = vi.fn()
+    const cliAgent = agentFake({ id: cli.id, session: cli, ctx, inject: injectCli })
+    const plainAgent = agentFake({ id: plain.id, session: plain, ctx, inject: injectPlain })
+
+    ctx.effect(() => ctx.agents.enter(cliAgent, undefined))
+    ctx.effect(() => ctx.agents.enter(plainAgent, undefined))
+    await ctx.agents.announce(cliAgent, 'resume')
+    await ctx.agents.announce(plainAgent, 'resume')
+
+    expect(injectPlain).toHaveBeenCalledTimes(1)
+    expect(injectCli).not.toHaveBeenCalled()
+  })
+
   it('a PreToolUse hook (exit 2) denies a tool the regex matcher matches as a substring', async () => {
     const dir = configDir()
     const deny = script(dir, 'deny.sh', '#!/usr/bin/env bash\necho "codex blocked it" >&2\nexit 2\n')
@@ -112,8 +136,7 @@ describe('hooks-codex bridge', () => {
 
   it('a Stop hook (exit 2) forces the turn to continue with the reason as steering', async () => {
     const dir = configDir()
-    // Stop ignores its malformed matcher field. Block once with a marker;
-    // until the loop guard lands, an always-blocking hook would never finish.
+    // Stop ignores its malformed matcher field. Block once with a marker.
     const marker = join(dir, 'fired')
     const cont = script(dir, 'cont.sh', `#!/usr/bin/env bash\nif [ -e "${marker}" ]; then exit 0; fi\ntouch "${marker}"\necho "keep going: address the goal" >&2\nexit 2\n`)
     writeHooks(dir, { Stop: [{ matcher: '[', hooks: [{ type: 'command', command: cont }] }] })
@@ -262,4 +285,92 @@ describe('hooks-codex bridge', () => {
     expect(unwrapped.inject).toEqual(['shell', 'sessionProjections'])
     expect(typeof unwrapped.apply).toBe('function')
   })
+})
+
+describe('hooks-codex bridge — tool aliases and run control', () => {
+  it('a Codex Bash matcher fires on the DSH pwsh tool and the payload names it Bash', async () => {
+    const dir = configDir()
+    const payload = join(dir, 'payload')
+    const capture = script(dir, 'capture.sh', `#!/usr/bin/env bash\ncat > "${payload}"\nexit 2\n`)
+    writeHooks(dir, { PreToolUse: [{ matcher: '^Bash$', hooks: [{ type: 'command', command: capture }] }] })
+
+    const adapter = new MockAdapter([toolCallResponse('c1', 'pwsh', { command: 'Get-ChildItem' }), textResponse('done')])
+    const ctx = await harness(dir, adapter)
+    let ran = false
+    ctx.tools.register(defineContentToolFixture({ name: 'pwsh', description: 'p', parameters: { command: { type: 'string' } }, async execute() { ran = true; return [{ type: 'text', text: 'ran' }] } }))
+    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'list' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    expect(ran).toBe(false)
+    expect(JSON.parse(readFileSync(payload, 'utf8'))).toMatchObject({ tool_name: 'Bash', tool_input: { command: 'Get-ChildItem' } })
+  }, 15_000)
+
+  it('an always-blocking Stop hook forces at most maxForcedStops continuations and reports stop_hook_active', async () => {
+    const dir = configDir()
+    const payloads = join(dir, 'payloads')
+    // Codex stdin has no trailing newline, so the capture adds one to split the payloads.
+    const stop = script(dir, 'stop.sh', `#!/usr/bin/env bash\ncat >> "${payloads}"\necho >> "${payloads}"\necho "keep going" >&2\nexit 2\n`)
+    writeHooks(dir, { Stop: [{ hooks: [{ type: 'command', command: stop }] }] })
+
+    const adapter = new MockAdapter([textResponse('1'), textResponse('2'), textResponse('3'), textResponse('4'), textResponse('5')])
+    const warn = vi.fn()
+    const ctx = await harness(dir, adapter, (ctx) => { ctx.logger.warn = warn as never })
+    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    // Three forced continuations, then the fourth Stop block lets the turn end.
+    expect(adapter.requests).toHaveLength(4)
+    const flags = readFileSync(payloads, 'utf8').split('\n').filter(line => line.length > 0)
+      .map(line => (JSON.parse(line) as { stop_hook_active: boolean }).stop_hook_active)
+    expect(flags).toEqual([false, true, true, true])
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('Stop hook blocked 3 times'))
+  }, 15_000)
+
+  it('a Stop block with {"continue":false} halts instead of steering', async () => {
+    const dir = configDir()
+    const stop = script(dir, 'stop.sh', '#!/usr/bin/env bash\necho \'{"decision":"block","reason":"more","continue":false,"stopReason":"halt"}\'\n')
+    writeHooks(dir, { Stop: [{ hooks: [{ type: 'command', command: stop }] }] })
+
+    const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
+    const ctx = await harness(dir, adapter)
+    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    // No steer: the second model step never runs, and the turn ends on the hook halt.
+    expect(adapter.requests).toHaveLength(1)
+    const turnEnd = events(agent).findLast(e => e.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted', reason: { kind: 'hook', reason: 'halt' } })
+  }, 15_000)
+
+  it('a {"continue":false} UserPromptSubmit hook halts before any model call', async () => {
+    const dir = configDir()
+    const halt = script(dir, 'halt.sh', '#!/usr/bin/env bash\necho \'{"continue":false}\'\n')
+    writeHooks(dir, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: halt }] }] })
+
+    const adapter = new MockAdapter([textResponse('should not run')])
+    const ctx = await harness(dir, adapter)
+    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(0)
+  }, 15_000)
+
+  it('a no-agent direct call is denied by a {"continue":false} PreToolUse hook', async () => {
+    const dir = configDir()
+    const halt = script(dir, 'halt.sh', '#!/usr/bin/env bash\necho \'{"continue":false}\'\n')
+    writeHooks(dir, { PreToolUse: [{ hooks: [{ type: 'command', command: halt }] }] })
+
+    const ctx = await harness(dir, new MockAdapter([]))
+    let ran = false
+    ctx.tools.register(defineContentToolFixture({ name: 'echo', description: 'e', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
+    const result = await ctx.tools.execute({ signal: new AbortController().signal, callId: ToolCallId('c1'), name: 'echo', arguments: {} })
+
+    expect(ran).toBe(false)
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('blocked by PreToolUse hook')
+  }, 15_000)
 })

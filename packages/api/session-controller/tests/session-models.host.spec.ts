@@ -20,7 +20,7 @@ import SessionStore from '@deepseek-ai/dsh-session'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPromptRequest, SessionRequestId } from '../src/types.ts'
 import { ApiSessionAgentController } from '../src/agent.ts'
-import { buildModelCatalog, hasProviderApiKey } from '../src/catalog.ts'
+import { buildModelCatalog, hasProviderApiKey, missingCredentialProviders } from '../src/catalog.ts'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { createSessionTestController, createSessionTestRemote } from './test-remote.ts'
@@ -366,6 +366,37 @@ describe('Web session model selection', () => {
     } finally { await ctx.fiber.dispose() }
   })
 
+  it('flags a provider whose named key has no credential while keeping its models and routes listed', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    ctx.provide('credentials', { describe: async (ref: string) => ({ configured: ref === 'KEYED_KEY' }) } as never)
+    ctx.provide('settings', { describe: () => [{ ns: 'profiles', value: {
+      providers: {
+        keyed: { apiKeyEnv: 'KEYED_KEY' },
+        unkeyed: {},
+        malformed: { apiKeyEnv: 'not a ref' },
+        unconfigured: { apiKeyEnv: 'UNSET_KEY' },
+      },
+    } }] } as never)
+    const providers = ['keyed', 'unkeyed', 'malformed', 'unconfigured']
+    ctx.effect(() => ctx.llm.registerConfigurableProviders(providers.map(provider => ({
+      provider, displayName: provider, settingsNs: 'profiles', settingsPath: ['providers', provider],
+    }))))
+    for (const provider of providers) {
+      ctx.llm.registerAdapter([provider], new CatalogAdapter(provider, [{ provider, id: `${provider}-model`, name: `${provider} model` }]))
+    }
+    try {
+      const catalog = await buildModelCatalog(ctx, { provider: 'keyed', model: 'keyed-model' })
+      const group = (id: string) => catalog.groups.find(entry => entry.id === id)
+      expect(group('unconfigured')).toMatchObject({ missingCredential: true, models: [{ id: 'unconfigured-model' }] })
+      expect(group('keyed')).not.toHaveProperty('missingCredential')
+      expect(group('unkeyed')).not.toHaveProperty('missingCredential')
+      expect(group('malformed')).not.toHaveProperty('missingCredential')
+      expect(catalog.routableProviders).toEqual(expect.arrayContaining(providers))
+      expect(await missingCredentialProviders(ctx)).toEqual(['unconfigured'])
+    } finally { await ctx.fiber.dispose() }
+  })
+
   it.each(['settings', 'credentials'] as const)('refuses account initialization without %s inspection', async (missing) => {
     const ctx = new Context()
     if (missing !== 'settings') ctx.provide('settings', {} as never)
@@ -483,6 +514,37 @@ describe('Web session model selection', () => {
     expect(catalog.failures).toContainEqual({
       id: 'string-failure', name: 'String Failure', message: 'string catalog failure',
     })
+    await ctx.fiber.dispose()
+  })
+
+  it('marks Ultracode on the Claude 5 family catalog models and clears a stored Ultracode when the model changes', async () => {
+    const { ctx, agent, sessionId } = await harness()
+    ctx.llm.registerAdapter(['anthropic'], new CatalogAdapter('Anthropic', [
+      { provider: 'anthropic', id: 'claude-opus-5-5', name: 'Claude Opus 5.5' },
+      { provider: 'anthropic', id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5' },
+      { provider: 'anthropic', id: 'claude-haiku-5-5', name: 'Claude Haiku 5.5' },
+      { provider: 'anthropic', id: 'claude-sonnet-4', name: 'Claude Sonnet 4' },
+    ]))
+    ctx.llm.registerAdapter(['openai'], new CatalogAdapter('OpenAI', [
+      { provider: 'openai', id: 'gpt-5.5', name: 'GPT 5.5' },
+    ]))
+    const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }), cwd: '/tmp' })
+
+    expect(expectValue(await remote.modelCatalog()).groups.find(group => group.id === 'anthropic')?.models).toEqual([
+      { id: 'claude-opus-5-5', name: 'Claude Opus 5.5', ultracode: true },
+      { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5', ultracode: true },
+      { id: 'claude-haiku-5-5', name: 'Claude Haiku 5.5', ultracode: true },
+      { id: 'claude-sonnet-4', name: 'Claude Sonnet 4' },
+    ])
+    expect(expectValue(await remote.modelCatalog()).groups.find(group => group.id === 'openai')?.models).toEqual([
+      { id: 'gpt-5.5', name: 'GPT 5.5' },
+    ])
+    expectValue(await remote.selectModel(request({ sessionId, provider: 'anthropic', model: 'claude-opus-5-5' })))
+    agent.session.append('session/run-options', { ultracode: true })
+    expectValue(await remote.selectModel(request({ sessionId, provider: 'anthropic', model: 'claude-sonnet-4' })))
+    expect(ctx.sessionProjections.stateOf(agent.session, 'runOptions')).toEqual({ current: { ultracode: false } })
+    expectValue(await remote.selectModel(request({ sessionId, provider: 'anthropic', model: 'claude-opus-5-5' })))
+    expect(ctx.sessionProjections.stateOf(agent.session, 'runOptions')).toEqual({ current: { ultracode: false } })
     await ctx.fiber.dispose()
   })
 

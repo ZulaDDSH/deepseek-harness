@@ -38,6 +38,10 @@
       "types": "./lib/types/assistant-stream.d.ts",
       "default": "./lib/types/assistant-stream.js"
     },
+    "./provider-limit": {
+      "types": "./lib/types/provider-limit.d.ts",
+      "default": "./lib/types/provider-limit.js"
+    },
     "./typert": {
       "types": "./lib/typert.host.d.ts",
       "default": "./lib/typert.host.js"

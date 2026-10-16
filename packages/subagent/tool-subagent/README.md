@@ -123,6 +123,20 @@ Read these pages when the package-level contract is not enough; they move from t
 <a id="model-experience"></a>
 ## Model Experience
 
+### Role argument
+
+#### What the model sees
+
+When `roles` is on, the schema gains an optional `role` enum (`coder`, `reviewer`, `researcher`) that runs the route Orchestrator & Subagent Setup configures for that role. Passing it with provider, model, or reasoning_effort is rejected. The shipped standard, cordis, economy, and ptc presets turn it on, so the property is present even while Setup is off.
+
+#### Token effect
+
+One enum property and its description in the schema of each Session on those presets, whether or not Setup is on.
+
+#### KV Cache effect
+
+The schema changes once when the preset enables the property, which invalidates cached prefix tokens once after the upgrade; it is stable afterward.
+
 ### Tool schema
 
 #### What the model sees
@@ -189,7 +203,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 #### What the model sees
 
-Start returns exactly `started subagent <childId>` in configured continuable mode, or `started background subagent job <id>` in configured one-shot mode. In one-shot mode the generic task surface provides later status, final output, cancellation responses, and notices; failed status detail includes the provider diagnostic when the result supplied one. In continuable mode this tool returns no result of its own: the child's settlement reaches the parent as a service-owned notice, an independently loaded `send_message` tool delivers follow-ups, and the child's transcript by its id is the source of its detailed output.
+Start returns exactly `started subagent <childId>` in configured continuable mode, or `started background subagent job <id>` in configured one-shot mode. In one-shot mode the generic task surface provides later status, final output, cancellation responses, and notices; failed status detail includes the provider diagnostic when the result supplied one. While a one-shot job runs, its job row shows the provider's latest advisory progress line; foreground runs report no progress. In continuable mode this tool returns no result of its own: the child's settlement reaches the parent as a service-owned notice, an independently loaded `send_message` tool delivers follow-ups, and the child's transcript by its id is the source of its detailed output.
 
 #### Token effect
 
@@ -206,10 +220,12 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 These limits define what this tool does not return or enforce; they are current package constraints.
 
-- **Background runs expose no result through this tool** — a one-shot task's final output is collected through the generic task surface, and a continuable child's output stays in its own session, read by its subagent id. The settlement notice states how that child ended and carries nonempty text from its final assistant output, but it is not this call's return value and cannot be awaited here.
+- **Background runs expose no result through this tool** — a one-shot task's final output is collected through the generic task surface, and a continuable child's output stays in its own session, read by its subagent id. The settlement notice states how that child ended and carries nonempty text from its final assistant output, but it is not this call's return value and cannot be awaited here. One-shot background jobs show the provider's latest advisory progress line while they run: Claude Code and Codex report tool and command activity, and in-process providers report none. Foreground runs report no progress.
 - **Duplicate names across waiting one-shot instances are detected late** (`TODO(subagent-dup-toolname)`) — continuable instances reserve their prompt-section name during plugin application, but preventing provider-registration rollback for waiting one-shot instances requires a registry of intended names.
 - **Shipped fork tools cannot select a child LLM route** — they inherit the parent's provider and model to keep the copied conversation prefix eligible for KV Cache reuse. Re-enable selection only when route changes preserve reuse or expose a bounded recomputation cost.
 - **Non-routing child policy is fixed per instance** — another persona, tool filter, or depth cap requires another distinctly named tool. LLM selection requires an enabled per-Session preference and a provider that advertises `agentOptions`; both in-process providers and DSH SDK advertise it, while ACP, Codex, and Claude Code reject it rather than ignore it.
+- **Role names are fixed** — `coder`, `reviewer`, and `researcher` are the only delegation roles; custom roles cannot be renamed or added yet.
+- **Claude role routes need the Claude CLI provider** — `roleRouteOf` rejects a `claude-cli` route when the `claude-code` provider is not installed or takes no per-run model.
 
 <a id="dev-note"></a>
 ### Dev Note

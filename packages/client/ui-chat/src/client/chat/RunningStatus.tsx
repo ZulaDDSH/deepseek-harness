@@ -1,7 +1,9 @@
 /** Running Turn clock isolated from the transcript's render cycle. */
-import { memo, useEffect, useState } from 'react'
+import { memo, useEffect, useMemo, useState } from 'react'
 import { TextShimmer } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
+import { INACTIVITY_HINT_MS, liveActivity } from './live-activity.ts'
+import { RunningActivity } from './RunningActivity.tsx'
 import { formatLiveRunDuration, LIVE_RUN_CLOCK_INTERVAL_MS } from './message-chrome.ts'
 import { RunningWhaleTail } from './RunningWhaleTail.tsx'
 import a11yCss from './accessibility.module.css'
@@ -9,15 +11,27 @@ import css from './ChatView.module.css'
 
 interface RunningStatusProps {
   readonly startTime: number | undefined
+  readonly step?: number | undefined
+  readonly useChat: ChatViewSlotProps['useChat']
+  readonly awaitingUser?: boolean
+  readonly onStop: () => void
   readonly t: ChatViewSlotProps['t']
 }
 
+function useChangedAt(key: unknown): number | undefined {
+  const [seen, setSeen] = useState<{ readonly key: unknown; readonly at: number } | undefined>()
+  useEffect(() => { setSeen({ key, at: Date.now() }) }, [key])
+  return seen !== undefined && Object.is(seen.key, key) ? seen.at : undefined
+}
+
 /**
- * Show live elapsed time after the current Turn's content without announcing ticks.
- * @param props - Current Turn start time and localized copy.
+ * Show live elapsed time, the open step, the in-flight operation, and a Stop hint after a silent stretch.
+ * @param props - Current Turn start time, open step number, Chat selector, pending-interaction flag, Stop action, and localized copy.
  * @returns the blue running indicator; mount only while the Session is running.
  */
-export const RunningStatus = memo(function RunningStatus({ startTime, t }: RunningStatusProps) {
+export const RunningStatus = memo(function RunningStatus({
+  startTime, step, useChat, awaitingUser = false, onStop, t,
+}: RunningStatusProps) {
   const [now, setNow] = useState(Date.now)
   useEffect(() => {
     if (startTime === undefined) return
@@ -25,17 +39,29 @@ export const RunningStatus = memo(function RunningStatus({ startTime, t }: Runni
     const timer = setInterval(() => { setNow(Date.now()) }, LIVE_RUN_CLOCK_INTERVAL_MS)
     return () => { clearInterval(timer) }
   }, [startTime])
-  const label = startTime === undefined ? t('chat.deepDiving') : t('chat.deepDivingFor', {
-    duration: formatLiveRunDuration(Math.max(1000, now - startTime), t),
-  })
+  const elapsed = startTime === undefined ? undefined : formatLiveRunDuration(Math.max(1000, now - startTime), t)
+  const label = elapsed === undefined ? t('chat.deepDiving')
+    : step === undefined ? t('chat.deepDivingFor', { duration: elapsed })
+      : t('chat.deepDivingForStep', { duration: elapsed, step })
+  const legacy = useChat(snapshot => snapshot.legacy)
+  const activity = useMemo(() => liveActivity(legacy), [legacy])
+  const generationSince = useChangedAt(activity.kind === 'generating' ? activity.key : undefined) ?? now
+  const since = activity.kind === 'idle' ? undefined : activity.kind === 'generating' ? generationSince : activity.since
+  const snapshotChangedAt = useChangedAt(legacy) ?? now
+  const interactionChangedAt = useChangedAt(awaitingUser) ?? now
+  const quiet = now - Math.max(snapshotChangedAt, interactionChangedAt)
+  const quietFor = startTime !== undefined && !awaitingUser && quiet >= INACTIVITY_HINT_MS ? quiet : undefined
   return (
     <div className={css.running} data-chat-running>
       <span className={a11yCss.visuallyHidden} role="status" aria-live="polite" aria-atomic="true">{t('chat.deepDiving')}</span>
       <span className={css.runningDivider} aria-hidden="true" />
-      <span className={css.runningContent}>
+      <span className={css.runningContent} data-chat-running-label>
         <RunningWhaleTail />
         <TextShimmer active className={css.runningText}>{label}</TextShimmer>
       </span>
+      {startTime !== undefined && (
+        <RunningActivity activity={activity} since={since} now={now} quietFor={quietFor} onStop={onStop} t={t} />
+      )}
     </div>
   )
 })

@@ -66,6 +66,25 @@ export interface SessionNode {
 /** Session order selected by the Workspace browser. */
 export type SessionOrderBy = 'manual' | 'updated'
 
+/** Folded attention counts for a Workspace row: Sessions failed, awaiting the user, or running. */
+export interface GroupAttention {
+  failed: number
+  pending: number
+  running: number
+}
+
+/**
+ * Sum two attention counts.
+ * @param a - first count, if any.
+ * @param b - second count, if any.
+ * @returns the sum, or undefined when both are absent.
+ */
+export function mergeAttention(a: GroupAttention | undefined, b: GroupAttention | undefined): GroupAttention | undefined {
+  if (a === undefined) return b
+  if (b === undefined) return a
+  return { failed: a.failed + b.failed, pending: a.pending + b.pending, running: a.running + b.running }
+}
+
 /** One workspace group section: header row facts + visible top-level session rows. */
 export interface GroupNode {
   /** Group key: the workspace id or {@link UNGROUPED_KEY}. */
@@ -83,6 +102,8 @@ export interface GroupNode {
   containsCurrent: boolean
   /** Visible session rows (empty while the group is folded). */
   sessions: readonly SessionNode[]
+  /** Attention over every visible member, set only when some member is failed, pending, or running. */
+  attention?: GroupAttention
 }
 
 /** One flat search row combining list metadata with an optional content match. */
@@ -422,6 +443,15 @@ function sessionNode(
   }
 }
 
+/** Attention one visible Session contributes to its Workspace row; precedence matches sessionStatuses. */
+function sessionAttention(node: SessionNode): GroupAttention | undefined {
+  if (node.archived || node.blank) return undefined
+  if (node.failed === true) return { failed: 1, pending: 0, running: 0 }
+  if (node.pendingInteraction !== undefined) return { failed: 0, pending: 1, running: 0 }
+  if (node.running || node.runningSubagentCount > 0) return { failed: 0, pending: 0, running: 1 }
+  return undefined
+}
+
 /**
  * Derive the workspace browser groups with every session as a top-level row.
  *
@@ -455,6 +485,12 @@ export function deriveGroups(
   const groups: GroupNode[] = []
   for (const g of groupByWorkspace(list, workspaces, archived, rowState.archivedFilter, view.ungroupedOrder)) {
     const expanded = expandedGroups.has(g.key)
+    const nodes = sectionMembers(g.sessions, pinned, archived)
+      .map(session => sessionNode(session, list, statuses, pinned, archived))
+    const attention = nodes.reduce<GroupAttention | undefined>(
+      (sum, node) => mergeAttention(sum, sessionAttention(node)),
+      undefined,
+    )
     groups.push({
       key: g.key,
       workspaceId: g.workspaceId,
@@ -464,10 +500,8 @@ export function deriveGroups(
       sessionCount: g.sessions.length,
       expanded,
       containsCurrent: g.key === currentGroup,
-      sessions: expanded
-        ? sectionMembers(g.sessions, pinned, archived)
-          .map(session => sessionNode(session, list, statuses, pinned, archived))
-        : [],
+      sessions: expanded ? nodes : [],
+      ...attention === undefined ? {} : { attention },
     })
   }
   return groups

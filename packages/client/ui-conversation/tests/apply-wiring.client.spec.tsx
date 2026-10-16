@@ -44,7 +44,7 @@ function entry(
 }
 
 describe('target-neutral Conversation apply wiring', () => {
-  it('hides only the Trajectory View while developer tools are disabled and restores it when enabled', async () => {
+  it('keeps the Trajectory View listed whether or not developer tools are enabled', async () => {
     const b = await bench()
     const header = b.runtime.slots.entries('conversation.session.header')[0]!
     const source = (header.inject!() as { hooks: { conversationViews: ObservableSnapshot<readonly ViewTab[]> } }).hooks.conversationViews
@@ -53,7 +53,7 @@ describe('target-neutral Conversation apply wiring', () => {
     }
     await vi.waitFor(() => { expect(source.getSnapshot().map(tab => tab.id)).toEqual(['chat', 'trajectory', 'probe']) })
     b.developerTools.set(false)
-    expect(source.getSnapshot().map(tab => tab.id)).toEqual(['chat', 'probe'])
+    expect(source.getSnapshot().map(tab => tab.id)).toEqual(['chat', 'trajectory', 'probe'])
     b.developerTools.set(true)
     expect(source.getSnapshot().map(tab => tab.id)).toEqual(['chat', 'trajectory', 'probe'])
     await b.runtime.dispose()

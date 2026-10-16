@@ -45,6 +45,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task. |
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`, `ctx.workflowEngine`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents the script children)` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-workspace-dependencies` | `load_workspace_dependencies` | `ctx.tools` | `tool/call`, `tool/result` | - | - |
+| `@deepseek-ai/dsh-tool-watch` | `watch` | `ctx.tools`, `ctx.shell`, `ctx.shellEnv`, `ctx.jobs`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `user/message via agent.followup() or agent.inject() when the watch settles` | - | Waits for an external condition. A host-side poll re-runs one shell command under the session sandbox policy with no model call between checks, then wakes the owner through the job completion path. Inspect and stop a watch with the job tools from `@deepseek-ai/dsh-tool-jobs`. |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`, `web_search` | `ctx.tools`, `ctx.web`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps. |
 
 <a id="deepseek-aidsh-knowledge-router"></a>
@@ -167,7 +168,7 @@ Source: [`packages/knowledge/knowledge-router/src/tool-learn.ts`](../packages/kn
 
 ### `plugin_manager`
 
-List plugins or bundles in the current profile, enable or disable them, install a bundle, or remove an installed bundle. Every action requires danger-full-access permission or approval for this call. Approval does not change the session permission mode. Changes affect every session in this profile. List first to obtain exact identifiers. Package installation can execute allowed build scripts. Live profiles apply changes immediately; startup profiles require restart. Incompatible DSH peer dependencies block installation and activation. Version exemptions risk crashes and data loss: warn the user and obtain explicit permission for the exact plugin and runtime versions before granting one.
+List plugins or bundles in the current profile, enable or disable them, install a bundle, or remove an installed bundle. Listing needs no approval; every change requires danger-full-access permission or approval for this call. Approval does not change the session permission mode. Changes affect every session in this profile. List first to obtain exact identifiers. Package installation can execute allowed build scripts. Live profiles apply changes immediately; startup profiles require restart. Incompatible DSH peer dependencies block installation and activation. Version exemptions risk crashes and data loss: warn the user and obtain explicit permission for the exact plugin and runtime versions before granting one.
 
 ```json
 {
@@ -1179,7 +1180,7 @@ The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-observation-p
 
 ### `glob`
 
-Find files, not directories, whose paths match a glob pattern, including hidden and ignored files. Returns up to 100 paths in modification-time order; a larger result is sampled across top-level entries and reports where the complete list was saved.
+Find files, not directories, whose paths match a glob pattern, including hidden files; files excluded by ignore rules and node_modules are skipped unless includeIgnored is true. Returns up to 100 paths in modification-time order; a larger result is sampled across top-level entries and reports where the complete list was saved.
 
 ```json
 {
@@ -1192,6 +1193,10 @@ Find files, not directories, whose paths match a glob pattern, including hidden 
     "path": {
       "type": "string",
       "description": "Directory to search in. Defaults to the session workspace; a relative path resolves against it."
+    },
+    "includeIgnored": {
+      "type": "boolean",
+      "description": "Also list files excluded by ignore files (.gitignore, .ignore) and node_modules. Defaults to false."
     }
   },
   "required": [
@@ -2781,6 +2786,66 @@ Get absolute paths to bundled Python and library directories, plus bundled Pytho
 ```
 
 Source: [`packages/skill/tool-workspace-dependencies/src/index.ts`](../packages/skill/tool-workspace-dependencies/src/index.ts)
+
+<a id="deepseek-aidsh-tool-watch"></a>
+
+## `@deepseek-ai/dsh-tool-watch`
+
+### `watch`
+
+Wait for an external condition without polling. The host re-runs `command` at a fixed interval, with no model call in between, until `until` holds, `timeout_min` passes, or checks keep failing; then it wakes you with the outcome. Use it for any condition you would otherwise sleep or poll for: CI finishing, a pull request merging, a build or deploy completing, a file appearing, a service becoming reachable. Examples: `gh pr checks 123` with until {"exit_code": 0}; `gh pr view 123 --json state --jq .state` with until {"regex": "MERGED"}; `git ls-remote --exit-code origin my-branch` with until {"exit_code": 0} for a branch appearing; `curl -fsS https://example.com/health` with until {"exit_code": 0} in a POSIX shell. Start the watch, then end your turn; do not sleep or poll yourself. The command runs in the same shell as the shell tool, under this session's sandbox mode, and a watch never widens that mode. Use job_list and job_output to inspect a watch and job_kill to stop it. A watch lasts only while the host process runs.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "command": {
+      "type": "string",
+      "description": "Shell command re-run at every check, in the same shell as the shell tool. Its exit code and stdout are what `until` reads."
+    },
+    "label": {
+      "type": "string",
+      "description": "Short name for this watch, shown in job lists and in the wake-up notice."
+    },
+    "until": {
+      "type": "object",
+      "description": "The firing condition: set exactly one of exit_code, regex, or changed.",
+      "additionalProperties": false,
+      "properties": {
+        "exit_code": {
+          "type": "number",
+          "description": "Fire when a check exits with this code, such as 0 for success."
+        },
+        "regex": {
+          "type": "string",
+          "description": "Fire when a check's stdout matches this JavaScript regular expression (multiline flag)."
+        },
+        "changed": {
+          "type": "boolean",
+          "description": "Fire when a check's stdout differs from the first check's stdout. Only true is valid."
+        }
+      }
+    },
+    "interval_s": {
+      "type": "number",
+      "description": "Seconds from the end of one check to the start of the next: an integer of at least 30 and no longer than the timeout. Defaults to 60."
+    },
+    "timeout_min": {
+      "type": "number",
+      "description": "Minutes before the watch stops without its condition: an integer from 1 to 1440. Defaults to 120."
+    }
+  },
+  "required": [
+    "command",
+    "label",
+    "until"
+  ]
+}
+```
+
+Source: [`packages/jobs/tool-watch/src/index.ts`](../packages/jobs/tool-watch/src/index.ts)
+
+Waits for an external condition. A host-side poll re-runs one shell command under the session sandbox policy with no model call between checks, then wakes the owner through the job completion path. Inspect and stop a watch with the job tools from `@deepseek-ai/dsh-tool-jobs`.
 
 <a id="deepseek-aidsh-tool-web"></a>
 

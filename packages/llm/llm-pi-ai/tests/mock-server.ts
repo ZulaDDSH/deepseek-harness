@@ -68,13 +68,13 @@ export async function mockServer(script: {
         response.end(behavior.body)
         return
       }
-      response.writeHead(200, { 'content-type': 'text/event-stream' })
+      response.writeHead(200, { 'content-type': 'text/event-stream', ...behavior.headers })
       if (behavior.holdOpen === true) { response.flushHeaders(); return }
       let index = 0
       const writeNext = (): void => {
         const event = behavior.events?.[index++]
         if (event === undefined) { response.end(); return }
-        response.write(`data: ${event}\n\n`)
+        response.write(event.startsWith('event:') ? `${event}\n\n` : `data: ${event}\n\n`)
         if (behavior.delayMs === undefined) writeNext()
         else setTimeout(writeNext, behavior.delayMs)
       }

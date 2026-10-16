@@ -7,6 +7,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { contentHasImage, BlockAssembler, LlmError } from '@deepseek-ai/dsh-llm'
 import { deepFreeze } from '@deepseek-ai/dsh-util-values'
+import { estimateContent } from '@deepseek-ai/dsh-token-meter/estimate'
 import type {
   ContentBlock, FinishReason, GenerateOptions, Message, RequestMessage, TokenUsage, ToolSchema,
 } from '@deepseek-ai/dsh-llm'
@@ -66,6 +67,24 @@ const COMPACTION_INSTRUCTION = [
   `- If the conversation already contains a ${SUMMARY_OPEN_TAG} block, it is a PRIOR checkpoint. Do not copy it forward verbatim: preserve still-true facts, drop stale ones, and merge newer information into a single consolidated summary under the same structure.`,
 ].join('\n')
 
+const SUMMARY_PREFIX_SAFETY_RATIO = 0.9
+
+/** Summarizer failure codes worth one identical retry; the same request can succeed on a fresh socket. */
+const TRANSIENT_SUMMARY_CODES: ReadonlySet<string> = new Set(['TRANSPORT', 'TIMEOUT', 'SERVER'])
+
+/**
+ * Largest replayed prefix the default summarizer request can carry inside a target window.
+ * @param contextWindow - effective target window in tokens.
+ * @param maxTokens - generation cap reserved for the summary.
+ * @returns prefix tokens left after the summary cap, a 10% pricing margin, and the instruction;
+ *   `undefined` when the window cannot hold the summary cap at all.
+ */
+export function summaryPrefixLimit(contextWindow: number, maxTokens: number): number | undefined {
+  if (contextWindow <= maxTokens) return undefined
+  return Math.floor((contextWindow - maxTokens) * SUMMARY_PREFIX_SAFETY_RATIO)
+    - estimateContent([{ type: 'text', text: COMPACTION_INSTRUCTION }])
+}
+
 /** Framing that makes the replacement user message established context. */
 const CHECKPOINT_PREAMBLE =
   'This is an automatically generated checkpoint condensing an earlier span of the conversation to free up context. Treat the captured context as established background and build on it without restating it. Continue the task directly from the messages that follow, without acknowledging this checkpoint.'
@@ -110,6 +129,7 @@ export type SummaryResult = {
  * Run the default cache-reusing `ctx.llm.stream()` summarization call: replay
  * the conversation prefix, then append the compaction instruction as the final
  * user message so the provider's warm prefix cache is reused.
+ * One transient TRANSPORT, TIMEOUT, or SERVER failure is retried once.
  * @param ctx - context providing the LLM service.
  * @param config - resolved backend configuration.
  * @param input - replayed conversation prefix (system, tools, and leading messages) to condense.
@@ -141,7 +161,6 @@ export async function summarizeWithLlm(
     )
   }
 
-  const assembler = new BlockAssembler()
   const messages: RequestMessage[] = [
     ...input.messages,
     deepFreeze({
@@ -160,9 +179,13 @@ export async function summarizeWithLlm(
     purpose: 'compaction',
     ...signal === undefined ? {} : { signal },
   }
-  for await (const chunk of ctx.llm.stream(options)) assembler.push(chunk)
-  const error = finishError(assembler.finish)
-  if (error !== undefined) throw error
+  let assembler: BlockAssembler
+  try {
+    assembler = await streamSummary(ctx, options)
+  } catch (error: unknown) {
+    if (signal?.aborted === true || !(error instanceof LlmError) || !TRANSIENT_SUMMARY_CODES.has(error.code)) throw error
+    assembler = await streamSummary(ctx, options)
+  }
 
   const rawOutput = assembler.blocks()
   const summary = summaryText(rawOutput)
@@ -191,6 +214,15 @@ export function frameSummary(summary: readonly ContentBlock[]): ContentBlock[] {
     ...summary,
     { type: 'text', text: SUMMARY_CLOSE_TAG },
   ]
+}
+
+/** Stream one summarizer attempt and fail closed on a non-successful finish. */
+async function streamSummary(ctx: Context, options: GenerateOptions): Promise<BlockAssembler> {
+  const assembler = new BlockAssembler()
+  for await (const chunk of ctx.llm.stream(options)) assembler.push(chunk)
+  const error = finishError(assembler.finish)
+  if (error !== undefined) throw error
+  return assembler
 }
 
 /** Map a terminal summarization finish to its fail-closed error. */

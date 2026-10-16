@@ -14,7 +14,7 @@ import type {
 // into every program that sees this contract.
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 // Type-only: pulls the settings slot declarations the shell renders into.
-import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { SettingsDirectoryItem, SettingsSaveStatus } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { PropsStore } from '@deepseek-ai/dsh-client-store'
 import type { createSettingsShellStore } from './shell-store.ts'
 import type { ShortcutCatalogEntry } from '@deepseek-ai/dsh-client-shortcuts/client'
@@ -27,11 +27,8 @@ export interface SettingsSectionRow {
   label: string
 }
 
-/** One ordered onboarding step projected from a slot registration. */
-export interface SettingsOnboardingStep {
-  id: string
-  order: number
-}
+/** Opaque tick that changes whenever the directory, the locale or the General rows change. */
+export type SettingsSearchTick = object
 
 /**
  * Registrant-private injected share of the settings shell (assembled in
@@ -43,7 +40,13 @@ export type SettingsRootInjected = {
   openDesktopUpdate: () => void
   /** Request a fresh logical generation and physical WebSocket immediately. */
   reconnect: () => void
+  /** Find settings across every page; blank text finds nothing. */
+  search: (query: string) => readonly SettingsDirectoryItem[]
   hooks: {
+    /** Re-renders the search results when the directory or locale moves. */
+    searchTick: HostObservable<SettingsSearchTick>
+    /** Outcome of the latest Host settings writes. */
+    saveStatus: HostObservable<SettingsSaveStatus>
     /** Effective command presentation, shared with the reference. */
     shortcuts: HostObservable<readonly ShortcutCatalogEntry[]>
     /** Shared Electron status for both sidebar locations. */
@@ -52,8 +55,6 @@ export type SettingsRootInjected = {
     connectionState: HostObservable<ConnectionState | undefined>
     /** settings.section ledger projected into ordered nav rows. */
     sections: HostObservable<readonly SettingsSectionRow[]>
-    /** settings.onboarding ledger projected into coordinator order. */
-    onboardingSteps: HostObservable<readonly SettingsOnboardingStep[]>
   }
 }
 
@@ -72,7 +73,6 @@ export type SettingsRootComponentProps =
     | 'settings.action'
     | 'settings.close'
     | 'settings.section'
-    | 'settings.onboarding'
   >
   & InjectFace<SettingsRootInjected>
   & PropsLocale<'settings'>

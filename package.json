@@ -199,7 +199,7 @@
     "demo:inspector": "node --import tsx/esm apps/cli/src/bin.ts web --patch ./packages/experimental/inspector/cordis.source.patch.yml",
     "mock:llm": "node --import tsx packages/test-support/llm-mock-server/src/bin.ts",
     "start:web": "node --import tsx/esm apps/cli/src/bin.ts web",
-    "dev:web": "tsx scripts/dev-web.ts --poll",
+    "dev:web": "tsx scripts/dev-web.ts",
     "postinstall": "node scripts/install-lefthook.mjs"
   },
   "devDependencies": {
@@ -219,6 +219,8 @@
     "@stylistic/eslint-plugin": "^5.10.0",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
     "@types/js-yaml": "^4.0.9",
     "@types/jsdom": "^28.0.3",
     "@types/mdast": "^4.0.4",

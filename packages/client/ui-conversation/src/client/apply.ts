@@ -42,7 +42,7 @@ import { ConversationSession, ConversationSessionHeader } from './skeleton/Conve
 import { InputBar } from './skeleton/InputBar.tsx'
 import { todoDockEntry } from './skeleton/TodoPanel.tsx'
 import { installStopShortcut } from './stop-shortcut.ts'
-import { TRAJECTORY_VIEW_ID, resolveActiveView } from './view-selection.ts'
+import { resolveActiveView } from './view-selection.ts'
 import { en, NS, zh, type ConversationKey } from './locales.ts'
 import { CONVERSATION_SETTINGS_NAMESPACE, type ConversationSettings } from '../submission-settings.ts'
 
@@ -187,7 +187,6 @@ export async function apply(ctx: Context, config: Config = Config({})): Promise<
     for (const entry of slots.entries('conversation.view')) {
       /* v8 ignore next -- list registration validates id at load. */
       if (entry.options.id === undefined) continue
-      if (!ctx.configForms.developerTools.enabled.getSnapshot() && entry.options.id === TRAJECTORY_VIEW_ID) continue
       tabs.push({
         id: entry.options.id,
         label: resolveSlotLabel(entry.options.label) ?? entry.options.id,
@@ -226,9 +225,7 @@ export async function apply(ctx: Context, config: Config = Config({})): Promise<
   ctx.effect(() => {
     const disposeViews = slots.subscribe('conversation.view', refreshViews)
     const disposeLocale = ctx.locale.subscribe(refreshViews)
-    const disposeDeveloperTools = ctx.configForms.developerTools.enabled.subscribe(refreshViews)
     return () => {
-      disposeDeveloperTools()
       disposeLocale()
       disposeViews()
     }
@@ -441,6 +438,7 @@ export async function apply(ctx: Context, config: Config = Config({})): Promise<
       'conversation.hero.brand.mark': { kind: 'single', scope: 'root' },
       'conversation.hero.workspace': { kind: 'single', scope: 'root' },
       'conversation.hero.agentPreset': { kind: 'single', scope: 'session-maybe' },
+      'conversation.cli': { kind: 'single', scope: 'session' },
     },
     slots: {
       views: { scope: 'session' },

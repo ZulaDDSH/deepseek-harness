@@ -2,7 +2,7 @@
 import type { SessionControllerInternals } from '../src/index.ts'
 
 import { SessionLogOffset } from '@deepseek-ai/dsh-session'
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Volatile } from '@deepseek-ai/cordis'
 import type { ModelSelection as AgentModelSelection } from '@deepseek-ai/dsh-agent'
 import type {
   AdmittedPromptContentPart,
@@ -103,6 +103,7 @@ export interface TestSessionRemoteDefaults {
   readonly openFileApplication?: SessionControllerInternals['openFileApplication']
   readonly revealPath?: (path: string, signal: AbortSignal) => Promise<void>
   readonly canOpenPath?: () => boolean
+  readonly subagentSetup?: Volatile<unknown>
 }
 
 const installed = new WeakMap<Context, SessionController>()
@@ -296,6 +297,7 @@ function installControllers(
       ctx,
       {
         ...defaults.nativeOpen === undefined ? {} : { nativeOpen: defaults.nativeOpen },
+        ...defaults.subagentSetup === undefined ? {} : { subagentSetup: defaults.subagentSetup },
       },
       {
         ...defaults.openPath === undefined ? {} : { openPath: defaults.openPath },
