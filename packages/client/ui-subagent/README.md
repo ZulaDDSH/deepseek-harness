@@ -41,6 +41,10 @@ A continuable child with a live parent keeps the ordinary input chrome: typing a
 
 The `@` source remains deliberately separate and inert: candidates are zero-RPC running children from `ctx.sessions.list`, picking one inserts literal `@label ` text, and the codec projects `@label`. It has no command-adjudication hooks and does not resolve labels into continuation addresses.
 
+### The global setup editor
+
+The Orchestrator & Subagent Setup panel is also the global editor in Settings, on the `subagent-setup` page titled "Orchestrator & Subagents" (shown while the Host serves `session-controller`): there it saves the global default, and a session panel can save its draft as the global default or reset to it.
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -104,8 +108,6 @@ Conditional and append-only: the literal `@label` or a human follow-up adds toke
 Append-only. This package never edits earlier request tokens.
 
 ### Orchestrator & Subagent Setup view
-
-The same panel is the global editor in Settings, on the `subagent-setup` page titled "Orchestrator & Subagents" (shown while the Host serves `session-controller`): there it saves the global default, and a session panel can save its draft as the global default or reset to it.
 
 #### What the model sees
 

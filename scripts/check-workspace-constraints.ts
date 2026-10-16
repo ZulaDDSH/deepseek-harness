@@ -194,6 +194,8 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh-experimental-speech-to-text-sensevoice': ['runtime/assets.json'],
   // The isolated Node bootstrap is a separately launched bundle.
   '@deepseek-ai/dsh-ptc-runtime-node': ['lib/process.js'],
+  // cordis.patch.yml loads the bundled Memorix plugin through this separate entry.
+  '@deepseek-ai/dsh-web-app': ['lib/memorix.js'],
   // The Host entry starts its sibling Worker by URL rather than a package export.
   '@deepseek-ai/dsh-experimental-inspector': ['lib/worker.js'],
   // Creator's composition guidance travels with the declaration package.
@@ -209,7 +211,7 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   // also shares its generated FFI code through a hashed runtime chunk.
   '@deepseek-ai/dsh-sandbox-windows-acl': ['lib/runner.js', 'lib/types-*.js', 'assets'],
   '@deepseek-ai/dsh-skill-badge': ['assets'],
-  '@deepseek-ai/dsh-skill-gsd': ['assets'],
+  '@deepseek-ai/dsh-skill-gsd': ['assets', 'NOTICE-GSD.md'],
   '@deepseek-ai/dsh-skill-office': ['assets'],
   '@deepseek-ai/dsh-subprocess': ['lib/control.js'],
   // SSH launches a private helper and shares wire definitions and TLS setup
