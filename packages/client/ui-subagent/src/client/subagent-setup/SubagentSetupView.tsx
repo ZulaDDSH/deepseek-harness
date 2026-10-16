@@ -14,8 +14,8 @@ import { Switch, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { NS } from '../locales.ts'
 import {
-  CLAUDE_CHOICE, DEFAULT_REVIEW_ROUNDS, JEV_CHOICE, NONE_CHOICE, catalogRoutesOf, choiceOf, defaultRolesFor,
-  optionOf, settingOf, subagentSetupOrUndefined, withRole, withoutSubagentSetup,
+  CLAUDE_CHOICE, DEFAULT_REVIEW_ROUNDS, JEV_CHOICE, NONE_CHOICE, catalogRoutesOf, choiceOf, claudeRolesMissingModel,
+  defaultRolesFor, optionOf, settingOf, subagentSetupOrUndefined, withRole, withoutSubagentSetup,
 } from './setup-model.ts'
 import css from './SubagentSetup.module.css'
 
@@ -109,10 +109,8 @@ export function SubagentSetupView({
     : undefined
   const ultracode = projection?.current?.ultracode === true && orchestratorCapable !== false
   const readOnly = child || saving
-  const claudeMissingModel = SUBAGENT_SETUP_ROLES.some((role) => {
-    const setting = setup.roles[role]
-    return setting?.mode === 'fixed' && setting.route.backend === 'claude-cli' && setting.route.model.trim() === ''
-  })
+  const claudeMissingRoles = claudeRolesMissingModel(setup)
+  const claudeMissingModel = claudeMissingRoles.length > 0
   const workflowPrompt = subagentWorkflowPrompt(setup)
 
   const edit = (next: SubagentSetup): void => {
@@ -122,34 +120,27 @@ export function SubagentSetupView({
 
   const setGsd = (patch: Partial<SubagentGsdSetup>): void => { edit({ ...setup, gsd: { ...gsd, ...patch } }) }
 
-  const save = async (): Promise<void> => {
+  const persist = async (write: () => Promise<string | undefined>): Promise<void> => {
     setSaving(true)
     setFailure(undefined)
-    const saveError = mode === 'global'
-      ? await saveGlobal(setup)
-      : await saveRunOptions({ ...(projection?.current ?? {}), subagentSetup: setup })
-    setSaving(false)
-    if (saveError !== undefined) setFailure(t('setup.saveError', { message: saveError }))
-    else setDraft(undefined)
+    try {
+      const saveError = await write()
+      if (saveError !== undefined) setFailure(t('setup.saveError', { message: saveError }))
+      else setDraft(undefined)
+    } catch (error) {
+      setFailure(t('setup.saveError', { message: error instanceof Error ? error.message : String(error) }))
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const saveAsGlobal = async (): Promise<void> => {
-    setSaving(true)
-    setFailure(undefined)
-    const saveError = await saveGlobal(setup)
-    setSaving(false)
-    if (saveError !== undefined) setFailure(t('setup.saveError', { message: saveError }))
-    else setDraft(undefined)
-  }
+  const save = (): Promise<void> => persist(() => mode === 'global'
+    ? saveGlobal(setup)
+    : saveRunOptions({ ...(projection?.current ?? {}), subagentSetup: setup }))
 
-  const resetToGlobal = async (): Promise<void> => {
-    setSaving(true)
-    setFailure(undefined)
-    const saveError = await saveRunOptions(withoutSubagentSetup(projection?.current ?? {}))
-    setSaving(false)
-    if (saveError !== undefined) setFailure(t('setup.saveError', { message: saveError }))
-    else setDraft(undefined)
-  }
+  const saveAsGlobal = (): Promise<void> => persist(() => saveGlobal(setup))
+
+  const resetToGlobal = (): Promise<void> => persist(() => saveRunOptions(withoutSubagentSetup(projection?.current ?? {})))
 
   return (
     <div className={css.root}>
@@ -368,13 +359,17 @@ export function SubagentSetupView({
       </section>
       <div className={css.actions}>
         {dirty && <span className={css.note}>{t('setup.unsaved')}</span>}
-        {claudeMissingModel && <span role="alert" className={css.note}>{t('setup.claudeModelMissing')}</span>}
+        {claudeMissingModel && (
+          <span role="alert" className={css.error}>
+            {t('setup.claudeModelMissing', { roles: claudeMissingRoles.map(role => t(`role.${role}`)).join(', ') })}
+          </span>
+        )}
         {failure !== undefined && <span role="alert" className={css.note}>{failure}</span>}
         <button type="button" disabled={draft === undefined || saving} onClick={() => { setDraft(undefined); setFailure(undefined) }}>
           {t('setup.discard')}
         </button>
         {mode === 'session' && (
-          <button type="button" disabled={readOnly} onClick={() => { void saveAsGlobal() }}>
+          <button type="button" disabled={readOnly || claudeMissingModel} onClick={() => { void saveAsGlobal() }}>
             {t('setup.saveGlobal')}
           </button>
         )}

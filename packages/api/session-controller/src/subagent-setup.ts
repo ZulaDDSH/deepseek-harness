@@ -63,7 +63,7 @@ const effortSchema = z.enum(SESSION_RUN_OPTION_EFFORTS)
 const routeSchema = z.discriminatedUnion('backend', [
   z.object({
     backend: z.literal('claude-cli'),
-    model: z.string().min(1),
+    model: z.string().regex(/\S/),
     reasoningEffort: effortSchema.optional(),
   }).strict(),
   z.object({

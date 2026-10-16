@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
-import { claudeRunSelectionOf } from '../src/run-selection.ts'
+import { SESSION_RUN_OPTION_EFFORTS } from '@deepseek-ai/dsh-api-session-controller/types'
+import { EFFORT_LEVELS, claudeRunSelectionOf } from '../src/run-selection.ts'
 
 describe('claudeRunSelectionOf', () => {
   it('names nothing without agent options', () => {
     expect(claudeRunSelectionOf(undefined)).toEqual({})
+  })
+
+  it('accepts exactly the Session run-option effort levels', () => {
+    expect([...EFFORT_LEVELS]).toEqual([...SESSION_RUN_OPTION_EFFORTS])
   })
 
   it('accepts Claude Code aliases and model ids, with a Claude Code effort level', () => {
