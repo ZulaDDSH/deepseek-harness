@@ -12,6 +12,7 @@ import type { ModelDirectoryState } from '../src/client/directory.ts'
 import { ModelSelect } from '../src/client/ModelSelect.tsx'
 import { en, zh } from '../src/client/locales.ts'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
+const cliStubs = { cliProfiles: vi.fn(async () => []), openCliTerminal: vi.fn(async () => {}) }
 
 // The seat's key domain is model ∪ common; the stub mirrors the real lookup
 // chain: package dictionary, then common vocabulary, then the key.
@@ -24,24 +25,29 @@ const t: ComponentProps<typeof ModelSelect>['t'] = (key, params) => {
     : template.replace(/\{(\w+)\}/g, (match, name: string) => name in params ? String(params[name]) : match)
 }
 
-/** Renderer stand-in for useProjection: serves only runOptions from one store, absent without one. */
+/** Renderer stand-in for useProjection: serves runOptions from one store and the Claude Code capability, absent without the store. */
 function projectionHook(runOptions?: SnapshotStore<SessionRunOptionsProjection | undefined>) {
   return (key: string) => useSyncExternalStore(
     listener => runOptions?.subscribe(listener) ?? (() => {}),
-    () => key === 'runOptions' ? runOptions?.getSnapshot() : undefined,
+    () => key === 'runOptions' ? runOptions?.getSnapshot() : key === 'claudeCodeRunOptions' && runOptions !== undefined ? true : undefined,
   )
 }
 const noProjection = projectionHook()
 
-type SeatProps = Omit<ComponentProps<typeof ModelSelect>, 'useModelDirectory' | 'useModelFavorites'> & {
+type SeatProps = Omit<ComponentProps<typeof ModelSelect>, 'useModelDirectory' | 'useModelFavorites' | 'useGlobalSetup'> & {
   directory: SnapshotStore<ModelDirectoryState>
   favorites: SnapshotStore<string[]>
+  globalSetup?: unknown
 }
 /** Renderer stand-in for the inject hooks compartment: binds the two stores the way the slot renderer does. */
-function Seat({ directory, favorites, ...props }: SeatProps) {
+function Seat({ directory, favorites, globalSetup, ...props }: SeatProps) {
   const useModelDirectory = useMemo(() => bindSnapshotSelector(directory), [directory])
   const useModelFavorites = useMemo(() => bindSnapshotSelector(favorites), [favorites])
-  return <ModelSelect {...props} useModelDirectory={useModelDirectory} useModelFavorites={useModelFavorites} />
+  const globalStore = useMemo(() => createSnapshotStore<unknown>(globalSetup), [globalSetup])
+  const useGlobalSetup = useMemo(() => bindSnapshotSelector(globalStore), [globalStore])
+  return <ModelSelect
+    {...props} useModelDirectory={useModelDirectory} useModelFavorites={useModelFavorites} useGlobalSetup={useGlobalSetup}
+  />
 }
 
 const reasoning = {
@@ -75,6 +81,17 @@ function state(overrides: Partial<ModelDirectoryState> = {}): ModelDirectoryStat
   }
 }
 
+function capableState(): ModelDirectoryState {
+  return state({
+    current: { provider: 'anthropic', model: 'claude-sonnet-5-5' },
+    groups: [{
+      id: 'anthropic',
+      name: 'Anthropic',
+      models: [{ id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5', reasoning, ultracode: true }],
+    }],
+  })
+}
+
 afterEach(cleanup)
 
 describe('ModelSelect reasoning effort', () => {
@@ -88,6 +105,7 @@ describe('ModelSelect reasoning effort', () => {
       locked={false} useProjection={noProjection}
       favorites={createSnapshotStore<string[]>([])}
       toggleFavorite={vi.fn()}
+      {...cliStubs}
       available
       directory={directory}
       load={vi.fn()}
@@ -133,6 +151,7 @@ describe('ModelSelect reasoning effort', () => {
       locked={false} useProjection={noProjection}
       favorites={createSnapshotStore<string[]>([])}
       toggleFavorite={vi.fn()}
+      {...cliStubs}
       available
       directory={directory}
       load={vi.fn()}
@@ -156,6 +175,7 @@ describe('ModelSelect reasoning effort', () => {
       locked={false} useProjection={noProjection}
       favorites={createSnapshotStore<string[]>([])}
       toggleFavorite={vi.fn()}
+      {...cliStubs}
       available
       directory={directory}
       load={vi.fn()}
@@ -176,7 +196,8 @@ describe('ModelSelect reasoning effort', () => {
   it.each(['model', 'provider'])('keeps the saved id and effort when the selected %s disappears', (removed) => {
     const directory = createSnapshotStore(state({ retainedEffort: 'High' }))
     render(<Seat
-      locked={false} useProjection={noProjection} favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()} available
+      locked={false} useProjection={noProjection} favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()}
+      {...cliStubs} available
       directory={directory} load={vi.fn()} select={vi.fn()} t={t} />)
     expect(screen.getByRole('button', { name: /选择模型，当前/ }).textContent).toContain('DeepSeek-V4-Flash')
     act(() => { directory.update((snapshot) => {
@@ -199,6 +220,7 @@ describe('ModelSelect reasoning effort', () => {
       locked={false} useProjection={noProjection}
       favorites={createSnapshotStore<string[]>([])}
       toggleFavorite={vi.fn()}
+      {...cliStubs}
       available
       directory={directory}
       load={vi.fn()}
@@ -237,6 +259,7 @@ describe('ModelSelect reasoning effort', () => {
       locked={false} useProjection={noProjection}
       favorites={createSnapshotStore<string[]>([])}
       toggleFavorite={vi.fn()}
+      {...cliStubs}
       available
       directory={directory}
       load={vi.fn()}
@@ -277,7 +300,8 @@ describe('ModelSelect reasoning effort', () => {
       })
     })
     render(<Seat
-      locked={false} useProjection={noProjection} favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()} available
+      locked={false} useProjection={noProjection} favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()}
+      {...cliStubs} available
       directory={directory} load={vi.fn()} select={select} t={t} />)
     const spinners = () => document.querySelectorAll('[data-state="ongoing"]')
 
@@ -307,7 +331,8 @@ describe('ModelSelect reasoning effort', () => {
       return new Promise<undefined>(() => {})
     })
     render(<Seat
-      locked={false} useProjection={noProjection} favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()} available
+      locked={false} useProjection={noProjection} favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()}
+      {...cliStubs} available
       directory={directory} load={vi.fn()} select={select} t={t} />)
 
     fireEvent.click(screen.getByRole('button', { name: /选择模型|当前/ }))
@@ -327,6 +352,7 @@ describe('ModelSelect reasoning effort', () => {
         locked={false} useProjection={noProjection}
         favorites={createSnapshotStore<string[]>([])}
         toggleFavorite={vi.fn()}
+        {...cliStubs}
         available
         directory={createSnapshotStore(state())}
         load={vi.fn()}
@@ -362,6 +388,7 @@ describe('ModelSelect reasoning effort', () => {
       locked={false} useProjection={noProjection}
       favorites={createSnapshotStore<string[]>([])}
       toggleFavorite={vi.fn()}
+      {...cliStubs}
       available={false}
       directory={createSnapshotStore(state())}
       load={load}
@@ -397,6 +424,7 @@ describe('ModelSelect search and favorites', () => {
       locked={false} useProjection={noProjection}
       favorites={favorites}
       toggleFavorite={toggleFavorite}
+      {...cliStubs}
       available
       directory={directory}
       load={vi.fn()}
@@ -423,7 +451,8 @@ describe('ModelSelect search and favorites', () => {
     const directory = createSnapshotStore(state({ groups, current: { provider: 'anthropic', model: 'opus' } }))
     const favorites = createSnapshotStore<string[]>(['opencode/grok'])
     render(<Seat
-      locked={false} useProjection={noProjection} favorites={favorites} toggleFavorite={vi.fn()} available directory={directory}
+      locked={false} useProjection={noProjection} favorites={favorites} toggleFavorite={vi.fn()}
+      {...cliStubs} available directory={directory}
       load={vi.fn()} select={vi.fn().mockResolvedValue({ ok: true, value: undefined })} t={t}
     />)
     const rows = () => screen.getAllByRole('menuitemradio').map(row => row.textContent)
@@ -464,6 +493,7 @@ describe('ModelSelect keyboard walk', () => {
       locked={false} useProjection={noProjection}
       favorites={createSnapshotStore<string[]>([])}
       toggleFavorite={vi.fn()}
+      {...cliStubs}
       available
       directory={createSnapshotStore(state())}
       load={vi.fn()}
@@ -515,12 +545,13 @@ describe('ModelSelect keyboard walk', () => {
     const runOptions = createSnapshotStore<SessionRunOptionsProjection | undefined>({ current: {} })
     render(<Seat
       locked={false} useProjection={projectionHook(runOptions)} favorites={createSnapshotStore<string[]>([])}
-      toggleFavorite={vi.fn()} available
+      toggleFavorite={vi.fn()}
+      {...cliStubs} available
       directory={createSnapshotStore(state())} load={vi.fn()} select={vi.fn()}
       setRunOptions={vi.fn(async (options: SessionRunOptions) => ({ ok: true as const, value: options }))} t={t} />)
     const trigger = screen.getByRole('button', { name: /选择模型/ })
     fireEvent.click(trigger)
-    const toggle = screen.getByRole('switch', { name: 'Ultracode' })
+    const toggle = screen.getByRole('switch', { name: '快速模式' })
     toggle.focus()
     expect(fireEvent.keyDown(toggle, { key: 'Tab' })).toBe(false)
     expect(screen.queryByRole('menu')).toBeNull()
@@ -532,7 +563,8 @@ describe('ModelSelect keyboard walk', () => {
     const setRunOptions = vi.fn(async (options: SessionRunOptions) => ({ ok: true as const, value: options }))
     render(<Seat
       locked={false} useProjection={projectionHook(runOptions)} favorites={createSnapshotStore<string[]>([])}
-      toggleFavorite={vi.fn()} available
+      toggleFavorite={vi.fn()}
+      {...cliStubs} available
       directory={createSnapshotStore(state())} load={vi.fn()} select={vi.fn()}
       setRunOptions={setRunOptions} t={t} />)
     const trigger = screen.getByRole('button', { name: /选择模型/ })
@@ -562,6 +594,7 @@ describe('ModelSelect keyboard walk', () => {
       locked={false} useProjection={noProjection}
       favorites={createSnapshotStore<string[]>([])}
       toggleFavorite={vi.fn()}
+      {...cliStubs}
       available
       directory={createSnapshotStore(state())}
       load={vi.fn()}
@@ -594,6 +627,7 @@ describe('ModelSelect keyboard walk', () => {
       locked={false} useProjection={noProjection}
       favorites={createSnapshotStore<string[]>([])}
       toggleFavorite={vi.fn()}
+      {...cliStubs}
       available
       directory={directory}
       load={load}
@@ -634,6 +668,7 @@ describe('ModelSelect keyboard walk', () => {
       locked={false} useProjection={noProjection}
       favorites={createSnapshotStore<string[]>([])}
       toggleFavorite={vi.fn()}
+      {...cliStubs}
       available
       directory={createSnapshotStore(state({ current: { provider: 'gone', model: 'gone' } }))}
       load={vi.fn()}
@@ -651,7 +686,8 @@ describe('ModelSelect keyboard walk', () => {
 it('shows the unselected model control with the inherited effort', async () => {
   const directory = createSnapshotStore<ModelDirectoryState>(state({ current: null, routable: false, retainedEffort: 'High' }))
   render(<Seat
-    locked={false} useProjection={noProjection} favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()} available
+    locked={false} useProjection={noProjection} favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()}
+    {...cliStubs} available
     directory={directory} load={vi.fn()} select={vi.fn()} t={t} />)
   const trigger = screen.getByRole('button', { name: '请选择模型' })
   expect(trigger.hasAttribute('disabled')).toBe(false)
@@ -672,7 +708,8 @@ it('places account and official models before third-party models', async () => {
   }))
   const directory = createSnapshotStore<ModelDirectoryState>(state({ current: null, groups }))
   render(<Seat
-    locked={false} useProjection={noProjection} favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()} available
+    locked={false} useProjection={noProjection} favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()}
+    {...cliStubs} available
     directory={directory} load={vi.fn()} select={vi.fn()} t={t} />)
   fireEvent.click(screen.getByRole('button', { name: '请选择模型' }))
   const names = screen.getAllByRole('menuitemradio').map(row => row.textContent)
@@ -689,7 +726,8 @@ it('localizes the built-in DeepSeek row descriptions', () => {
     { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', description: en['option.deepseekV4Flash.description'] },
   ] }]
   render(<Seat locked={false} useProjection={noProjection} favorites={createSnapshotStore<string[]>([])}
-    toggleFavorite={vi.fn()} available
+    toggleFavorite={vi.fn()}
+    {...cliStubs} available
     directory={createSnapshotStore(state({ current: null, groups }))}
     load={vi.fn()} select={vi.fn()} t={t} />)
   fireEvent.click(screen.getByRole('button', { name: zh['trigger.selectAria'] }))
@@ -702,7 +740,8 @@ it.each([en, zh])('localizes the account group while preserving external names',
     models: [{ id: 'model', name: 'Model' }],
   }))
   render(<Seat locked={false} useProjection={noProjection} favorites={createSnapshotStore<string[]>([])}
-    toggleFavorite={vi.fn()} available
+    toggleFavorite={vi.fn()}
+    {...cliStubs} available
     directory={createSnapshotStore(state({ current: null, groups }))}
     load={vi.fn()} select={vi.fn()} t={key => key in copy ? copy[key as keyof typeof copy] : key} />)
   fireEvent.click(screen.getByRole('button', { name: copy['trigger.selectAria'] }))
@@ -717,7 +756,8 @@ it('restores the account model name after login without changing the saved route
   const selected = { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' }
   const directory = createSnapshotStore(state({ current: selected, groups, retainedEffort: 'High' }))
   render(<Seat
-    locked={false} useProjection={noProjection} favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()} available
+    locked={false} useProjection={noProjection} favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()}
+    {...cliStubs} available
     directory={directory} load={vi.fn()} select={vi.fn()} t={t} />)
   expect(screen.getByRole('button', { name: /选择模型，当前/ }).textContent).toBe('DeepSeek FlashHigh')
   act(() => { directory.update((snapshot) => { snapshot.groups = []; snapshot.routable = false }) })
@@ -728,12 +768,13 @@ it('restores the account model name after login without changing the saved route
   expect(directory.getSnapshot().current).toEqual(selected)
 })
 
-it('toggles the Claude Code run options through switches', async () => {
-  const runOptions = createSnapshotStore<SessionRunOptionsProjection | undefined>({ current: { fastMode: true } })
+it('toggles fast mode through its switch and keeps the Ultracode level off a model without it', async () => {
+  const runOptions = createSnapshotStore<SessionRunOptionsProjection | undefined>({ current: { fastMode: true, ultracode: true } })
   const setRunOptions = vi.fn(async (options: SessionRunOptions) => ({ ok: true as const, value: options }))
   render(<Seat
     locked={false} useProjection={projectionHook(runOptions)} favorites={createSnapshotStore<string[]>([])}
-    toggleFavorite={vi.fn()} available
+    toggleFavorite={vi.fn()}
+    {...cliStubs} available
     directory={createSnapshotStore(state())} load={vi.fn()} select={vi.fn()}
     setRunOptions={setRunOptions} t={t} />)
   const trigger = screen.getByRole('button', { name: /选择模型，当前/ })
@@ -742,10 +783,11 @@ it('toggles the Claude Code run options through switches', async () => {
   expect(trigger.getAttribute('aria-label')).toBe(`选择模型，当前 DeepSeek-V4-Flash，推理等级 High，已开启：${zh['trigger.fast']}`)
   fireEvent.click(trigger)
   expect(screen.getByRole('switch', { name: '快速模式' }).getAttribute('aria-checked')).toBe('true')
-  expect(screen.getByRole('switch', { name: 'Ultracode' }).getAttribute('aria-checked')).toBe('false')
+  expect(screen.queryByRole('switch', { name: 'Ultracode' })).toBeNull()
+  expect(screen.queryByRole('radio', { name: 'Ultracode' })).toBeNull()
   expect(screen.getByText(zh['menu.saved'])).toBeTruthy()
-  fireEvent.click(screen.getByRole('switch', { name: 'Ultracode' }))
-  await waitFor(() => { expect(setRunOptions).toHaveBeenCalledWith({ fastMode: true, ultracode: true }) })
+  fireEvent.click(screen.getByRole('switch', { name: '快速模式' }))
+  await waitFor(() => { expect(setRunOptions).toHaveBeenCalledWith({ fastMode: false, ultracode: true }) })
 })
 
 it('announces a rejected run-option write in the toast', async () => {
@@ -756,18 +798,34 @@ it('announces a rejected run-option write in the toast', async () => {
   }))
   render(<Seat
     locked={false} useProjection={projectionHook(runOptions)} favorites={createSnapshotStore<string[]>([])}
-    toggleFavorite={vi.fn()} available
-    directory={createSnapshotStore(state())} load={vi.fn()} select={vi.fn()}
+    toggleFavorite={vi.fn()}
+    {...cliStubs} available
+    directory={createSnapshotStore(capableState())} load={vi.fn()}
+    select={vi.fn(async () => ({ ok: true as const, value: undefined }))}
     setRunOptions={setRunOptions} t={t} />)
   fireEvent.click(screen.getByRole('button', { name: /选择模型，当前/ }))
-  fireEvent.click(screen.getByRole('switch', { name: 'Ultracode' }))
+  fireEvent.click(screen.getByRole('radio', { name: 'Ultracode' }))
   const toast = await screen.findByRole('alert')
   expect(toast.textContent).toBe('模型操作失败：session/model-unavailable: run options rejected')
 })
 
+it('offers Ultracode as the last effort level only for a model that supports it', () => {
+  render(<Seat
+    locked={false} useProjection={projectionHook(createSnapshotStore<SessionRunOptionsProjection | undefined>({ current: {} }))}
+    favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()}
+    {...cliStubs} available
+    directory={createSnapshotStore(capableState())} load={vi.fn()} select={vi.fn()}
+    setRunOptions={vi.fn()} t={t} />)
+  fireEvent.click(screen.getByRole('button', { name: /选择模型，当前/ }))
+  expect(within(screen.getByRole('radiogroup', { name: '推理等级' })).getAllByRole('radio').map(item => item.textContent))
+    .toEqual(['Off', 'High', 'Max', 'Ultracode'])
+  expect(screen.queryByRole('switch', { name: 'Ultracode' })).toBeNull()
+})
+
 it('hides the Claude Code section when the Session has no runOptions projection', () => {
   render(<Seat
-    locked={false} useProjection={noProjection} favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()} available
+    locked={false} useProjection={noProjection} favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()}
+    {...cliStubs} available
     directory={createSnapshotStore(state())} load={vi.fn()} select={vi.fn()} setRunOptions={vi.fn()} t={t} />)
   fireEvent.click(screen.getByRole('button', { name: /选择模型，当前/ }))
   expect(screen.queryAllByRole('switch')).toHaveLength(0)
@@ -779,18 +837,21 @@ it('builds a second run-option write on the first before the projection catches 
   const setRunOptions = vi.fn(async (options: SessionRunOptions) => ({ ok: true as const, value: options }))
   render(<Seat
     locked={false} useProjection={projectionHook(runOptions)} favorites={createSnapshotStore<string[]>([])}
-    toggleFavorite={vi.fn()} available
-    directory={createSnapshotStore(state())} load={vi.fn()} select={vi.fn()}
+    toggleFavorite={vi.fn()}
+    {...cliStubs} available
+    directory={createSnapshotStore(capableState())} load={vi.fn()}
+    select={vi.fn(async () => ({ ok: true as const, value: undefined }))}
     setRunOptions={setRunOptions} t={t} />)
-  fireEvent.click(screen.getByRole('button', { name: /选择模型，当前/ }))
+  const trigger = screen.getByRole('button', { name: /选择模型，当前/ })
+  fireEvent.click(trigger)
   fireEvent.click(screen.getByRole('switch', { name: '快速模式' }))
-  fireEvent.click(screen.getByRole('switch', { name: 'Ultracode' }))
-  expect(screen.getByRole('switch', { name: '快速模式' }).getAttribute('aria-checked')).toBe('true')
+  fireEvent.click(screen.getByRole('radio', { name: 'Ultracode' }))
   await waitFor(() => { expect(setRunOptions).toHaveBeenCalledTimes(2) })
   expect(setRunOptions.mock.calls).toEqual([[{ fastMode: true }], [{ fastMode: true, ultracode: true }]])
-  expect(screen.getByRole('switch', { name: 'Ultracode' }).getAttribute('aria-checked')).toBe('true')
+  await waitFor(() => { expect(screen.queryByRole('menu')).toBeNull() })
   act(() => { runOptions.set({ current: { fastMode: true, ultracode: true } }) })
-  expect(screen.getByRole('switch', { name: 'Ultracode' }).getAttribute('aria-checked')).toBe('true')
+  fireEvent.click(trigger)
+  expect(screen.getByRole('radio', { name: 'Ultracode' }).getAttribute('aria-checked')).toBe('true')
 })
 
 it('sends run-option writes one at a time and voids those queued behind a rejected one', async () => {
@@ -801,19 +862,23 @@ it('sends run-option writes one at a time and voids those queued behind a reject
     .mockImplementation(async options => ({ ok: true as const, value: options }))
   render(<Seat
     locked={false} useProjection={projectionHook(runOptions)} favorites={createSnapshotStore<string[]>([])}
-    toggleFavorite={vi.fn()} available
-    directory={createSnapshotStore(state())} load={vi.fn()} select={vi.fn()}
+    toggleFavorite={vi.fn()}
+    {...cliStubs} available
+    directory={createSnapshotStore(capableState())} load={vi.fn()}
+    select={vi.fn(async () => ({ ok: true as const, value: undefined }))}
     setRunOptions={setRunOptions} t={t} />)
-  fireEvent.click(screen.getByRole('button', { name: /选择模型，当前/ }))
+  const trigger = screen.getByRole('button', { name: /选择模型，当前/ })
+  fireEvent.click(trigger)
   fireEvent.click(screen.getByRole('switch', { name: '快速模式' }))
-  fireEvent.click(screen.getByRole('switch', { name: 'Ultracode' }))
+  fireEvent.click(screen.getByRole('radio', { name: 'Ultracode' }))
   await waitFor(() => { expect(setRunOptions).toHaveBeenCalledTimes(1) })
-  expect(screen.getByRole('switch', { name: 'Ultracode' }).getAttribute('aria-checked')).toBe('true')
   first.resolve({ ok: false, error: new RemoteError('session/writer-held', 'held', { sessionId: SessionId('s1') }) })
   await screen.findByRole('alert')
-  await waitFor(() => { expect(screen.getByRole('switch', { name: 'Ultracode' }).getAttribute('aria-checked')).toBe('false') })
+  await waitFor(() => { expect(screen.queryByRole('menu')).toBeNull() })
+  fireEvent.click(trigger)
   expect(screen.getByRole('switch', { name: '快速模式' }).getAttribute('aria-checked')).toBe('false')
-  fireEvent.click(screen.getByRole('switch', { name: 'Ultracode' }))
+  expect(screen.getByRole('radio', { name: 'Ultracode' }).getAttribute('aria-checked')).toBe('false')
+  fireEvent.click(screen.getByRole('radio', { name: 'Ultracode' }))
   await waitFor(() => { expect(setRunOptions).toHaveBeenCalledTimes(2) })
   expect(setRunOptions.mock.calls).toEqual([[{ fastMode: true }], [{ ultracode: true }]])
 })
@@ -823,7 +888,8 @@ it('writes the Claude Code effort with the other run options and clears it with 
   const setRunOptions = vi.fn(async (options: SessionRunOptions) => ({ ok: true as const, value: options }))
   render(<Seat
     locked={false} useProjection={projectionHook(runOptions)} favorites={createSnapshotStore<string[]>([])}
-    toggleFavorite={vi.fn()} available
+    toggleFavorite={vi.fn()}
+    {...cliStubs} available
     directory={createSnapshotStore(state())} load={vi.fn()} select={vi.fn()}
     setRunOptions={setRunOptions} t={t} />)
   fireEvent.click(screen.getByRole('button', { name: /选择模型，当前/ }))
@@ -842,7 +908,8 @@ it('names an unlisted selection by its last advertised catalog name', () => {
     retainedName: 'Claude Opus 5.5',
   }))
   render(<Seat
-    locked={false} useProjection={noProjection} favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()} available
+    locked={false} useProjection={noProjection} favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()}
+    {...cliStubs} available
     directory={directory} load={vi.fn()} select={vi.fn()} t={t} />)
   expect(screen.getByRole('button', { name: '选择模型，当前 Claude Opus 5.5' }).textContent).toBe('Claude Opus 5.5')
 })
@@ -850,7 +917,8 @@ it('names an unlisted selection by its last advertised catalog name', () => {
 it('shows the bare model id on the trigger and the provider/model in its title when no name is known', () => {
   const directory = createSnapshotStore(state({ current: { provider: 'anthropic', model: 'claude-opus-5-5' } }))
   render(<Seat
-    locked={false} useProjection={noProjection} favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()} available
+    locked={false} useProjection={noProjection} favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()}
+    {...cliStubs} available
     directory={directory} load={vi.fn()} select={vi.fn()} t={t} />)
   const trigger = screen.getByRole('button', { name: '选择模型，当前 anthropic/claude-opus-5-5' })
   expect(trigger.textContent).toBe('claude-opus-5-5')
@@ -864,7 +932,8 @@ it('pins an unlisted selection as a disabled checked row under the current sessi
     retainedName: 'Claude Opus 5.5',
   }))
   render(<Seat
-    locked={false} useProjection={noProjection} favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()} available
+    locked={false} useProjection={noProjection} favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()}
+    {...cliStubs} available
     directory={directory} load={vi.fn()} select={vi.fn()} t={t} />)
   fireEvent.click(screen.getByRole('button', { name: '选择模型，当前 Claude Opus 5.5，不可用' }))
   const row = screen.getByRole('menuitemradio', { name: 'Claude Opus 5.5' })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { matcherDiagnostic, matchesMatcher } from '@deepseek-ai/dsh-hook-protocol'
+import { hookToolName, matcherDiagnostic, matchesHookSubject, matchesMatcher } from '@deepseek-ai/dsh-hook-protocol'
 
 describe('matchesMatcher — match-all sentinels (both dialects)', () => {
   for (const mode of ['claude-code', 'codex'] as const) {
@@ -70,5 +70,28 @@ describe('matcherDiagnostic — parse-time diagnostics', () => {
   it('returns a stable diagnostic for invalid regexes in either dialect', () => {
     expect(matcherDiagnostic('(', 'claude-code')).toBe('invalid claude-code regex matcher "("')
     expect(matcherDiagnostic('[', 'codex')).toBe('invalid codex regex matcher "["')
+  })
+})
+
+describe('hookToolName / matchesHookSubject — DSH tool names under dialect aliases', () => {
+  it('maps DSH built-in tool names to the dialect reference name', () => {
+    expect(hookToolName('bash', 'claude-code')).toBe('Bash')
+    expect(hookToolName('pwsh', 'claude-code')).toBe('PowerShell')
+    expect(hookToolName('write', 'claude-code')).toBe('Write')
+    expect(hookToolName('mcp__gh__get_issue', 'claude-code')).toBe('mcp__gh__get_issue')
+    expect(hookToolName('constructor', 'claude-code')).toBe('constructor')
+    expect(hookToolName('pwsh', 'codex')).toBe('Bash')
+    expect(hookToolName('write', 'codex')).toBe('write')
+  })
+
+  it('matches the literal subject and its dialect alias', () => {
+    expect(matchesHookSubject('Bash', 'bash', 'claude-code')).toBe(true)
+    expect(matchesHookSubject('Write|Edit', 'write', 'claude-code')).toBe(true)
+    expect(matchesHookSubject('Bash|PowerShell|Edit|mcp__.*', 'edit', 'claude-code')).toBe(true)
+    expect(matchesHookSubject('Bash', 'grep', 'claude-code')).toBe(false)
+    expect(matchesHookSubject('bash', 'bash', 'claude-code')).toBe(true)
+    expect(matchesHookSubject('^Bash$', 'pwsh', 'codex')).toBe(true)
+    expect(matchesHookSubject('Bash', 'write', 'codex')).toBe(false)
+    expect(matchesHookSubject('startup', 'startup', 'claude-code')).toBe(true)
   })
 })

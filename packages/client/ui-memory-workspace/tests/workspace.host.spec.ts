@@ -31,8 +31,13 @@ afterEach(async () => {
 async function temporary(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), 'dsh-memory-workspace-'))
   directories.push(directory)
+  vi.stubEnv('DSH_HOME', join(directory, 'dsh'))
   return directory
 }
+
+const BOUND = { content: [{ type: 'text', text: 'Session bound' }] }
+const bindingFirst = (call: McpHumanOperations['call']): McpHumanOperations['call'] =>
+  (name, args, signal) => name === 'memorix_session_start' ? Promise.resolve(BOUND) : call(name, args, signal)
 
 function createDatabase(directory: string): DatabaseSync {
   const db = new DatabaseSync(join(directory, 'memorix.db'))
@@ -51,7 +56,7 @@ function addDocument(directory: string): void {
   db.close()
 }
 
-async function connect(config: Partial<Config>, provider?: McpHumanOperations): Promise<Context> {
+async function connect(config: Partial<Omit<Config, 'chatMemory'>>, provider?: McpHumanOperations): Promise<Context> {
   const ctx = new Context()
   roots.push(ctx)
   if (provider !== undefined) registerHumanOperations(ctx, 'memorix', provider)
@@ -69,15 +74,20 @@ function refused(reason: string): Promise<never> {
   return settled.promise
 }
 
-async function setup(persist = true): Promise<{ ctx: Context; directory: string }> {
+async function setup(persist = true): Promise<{ ctx: Context; directory: string; bindings: unknown[] }> {
   const directory = await temporary()
   const db = createDatabase(directory)
   const ctx = new Context()
   roots.push(ctx)
+  const bindings: unknown[] = []
   ctx.effect(() => () => { db.close() })
   registerHumanOperations(ctx, 'memorix', {
     local: true, cwd: directory, env: { MEMORIX_DATA_DIR: directory },
     call: async (name, args) => {
+      if (name === 'memorix_session_start') {
+        bindings.push(args.projectRoot)
+        return BOUND
+      }
       expect(name).toBe('memorix_store')
       if (persist) db.prepare('INSERT INTO observations(title, narrative, topicKey) VALUES (?, ?, ?) ON CONFLICT(topicKey) DO UPDATE SET narrative=excluded.narrative').run(
         z.string().parse(args.title), z.string().parse(args.narrative), z.string().parse(args.topicKey))
@@ -86,12 +96,12 @@ async function setup(persist = true): Promise<{ ctx: Context; directory: string 
     },
   })
   await ctx.plugin(MemoryWorkspace, { chunkCharacters: 3, importDirectory: join(directory, 'documents') })
-  return { ctx, directory }
+  return { ctx, directory, bindings }
 }
 
 describe('Memory workspace', () => {
   it('imports a workspace-relative file through the registered agent tool and honors cancellation', async () => {
-    const { ctx, directory } = await setup()
+    const { ctx, directory, bindings } = await setup()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(LocalFileSystem)
@@ -117,6 +127,8 @@ describe('Memory workspace', () => {
       ]
     `)
     expect(saved).toMatchObject({ filename: 'guide.md', completed: 4, total: 4, error: null })
+    expect(bindings).toEqual([expect.stringContaining(join(directory, 'dsh', 'memorix-roots'))])
+    expect(bindings[0]).not.toBe(join(directory, 'dsh', 'memorix-roots', 'documents'))
     expect((await ctx.memoryWorkspace.page('observations', 0, '', 'all')).total).toBe(4)
     const aborted = AbortSignal.abort()
     await expect(tool!.execute({ path: 'guide.md' }, { ...exec, signal: aborted })).rejects.toThrow()
@@ -126,14 +138,30 @@ describe('Memory workspace', () => {
   })
 
   it('uses the connected provider storage and verifies every document chunk and retry', async () => {
-    const { ctx } = await setup()
+    const { ctx, directory, bindings } = await setup()
     const text = 'full😀 document'
     const result = await ctx.memoryWorkspace.importDocument('../guide.md', Buffer.from(text).toString('base64'))
     expect(result).toMatchObject({ completed: 5, total: 5, error: null })
+    expect(bindings).toEqual([join(directory, 'dsh', 'memorix-roots', 'documents')])
+    expect(await readFile(join(directory, 'dsh', 'memorix-roots', 'documents', '.git', 'HEAD'), 'utf8')).toBe('ref: refs/heads/main\n')
     expect(await readFile(result.originalPath, 'utf8')).toBe(text)
     expect((await ctx.memoryWorkspace.page('observations', 0, '', 'all')).total).toBe(5)
     expect((await ctx.memoryWorkspace.importDocument('guide.md', Buffer.from(text).toString('base64'))).completed).toBe(5)
     expect((await ctx.memoryWorkspace.page('observations', 0, '', 'all')).total).toBe(5)
+  })
+
+  it('reports a failed project binding as the import error instead of storing into another project', async () => {
+    const directory = await temporary()
+    const stored: string[] = []
+    const ctx = await connect({ importDirectory: join(directory, 'documents') }, localProvider(directory, async (name) => {
+      if (name === 'memorix_session_start') return { isError: true, content: [{ type: 'text', text: 'No git repository found' }] }
+      stored.push(name)
+      return {}
+    }))
+    expect(await ctx.memoryWorkspace.importDocument('note.md', encode('note'))).toMatchObject({
+      completed: 0, total: 1, error: 'Memorix rejected this workspace binding: No git repository found',
+    })
+    expect(stored).toEqual([])
   })
 
   it('reports a failed read-back without claiming import success', async () => {
@@ -294,7 +322,7 @@ describe('Memory workspace import safeguards', () => {
     ['a non-Error rejection', () => refused('refused'), 'Document import failed'],
   ])('reports %s without claiming success', async (_name, call, error) => {
     const directory = await temporary()
-    const ctx = await connect({ importDirectory: join(directory, 'documents') }, localProvider(directory, call))
+    const ctx = await connect({ importDirectory: join(directory, 'documents') }, localProvider(directory, bindingFirst(call)))
     expect(await ctx.memoryWorkspace.importDocument('note.md', encode('note'))).toMatchObject({ completed: 0, total: 1, error })
   })
 })

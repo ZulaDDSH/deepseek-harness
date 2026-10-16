@@ -1,13 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import { createLaunchEnvironmentSnapshot, DSH_LAUNCH_ENVIRONMENT_KEY } from '@deepseek-ai/dsh-launch-environment'
-import LlmRuntime, { createUserMessage, ToolCallId, type LlmCallConfig } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage, LlmAdapter, ToolCallId, type GenerateOptions, type LlmCallConfig, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { JevRouter, apply, createJevClient, selectRelevantGrepMatches, stateForMessages, type Config, type JevClient, type RuntimeConfig } from '../src/index.ts'
 import * as jevPlugin from '../src/index.ts'
 import { createVolatile, updateVolatile } from '../../../../vendor/cosmokit/src/volatile.ts'
 import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import SubagentRuntime, { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
 
 const config = {
   enabled: true, apiKeyEnv: 'JEV_TEST_KEY', endpoint: 'https://jev.example.test/v1', model: 'jev-test',
@@ -18,6 +20,12 @@ const input = createUserMessage({ source: { kind: 'user' }, content: [{ type: 't
 const base: LlmCallConfig = { provider: 'base', model: 'base' }
 const signal = new AbortController().signal
 const contexts: Context[] = []
+
+class TargetAdapter extends LlmAdapter {
+  async * stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
+    throw new Error('not exercised')
+  }
+}
 
 afterEach(async () => {
   for (const ctx of contexts.splice(0)) await ctx.fiber.dispose()
@@ -32,6 +40,7 @@ async function mount(overrides: Partial<Config> = {}, credentials?: Record<strin
     { source: 'process', values: { JEV_TEST_KEY: 'fixture-key' } },
   ]))
   await ctx.plugin(LlmRuntime)
+  ctx.llm.registerAdapter(['target'], new TargetAdapter())
   if (credentials !== undefined) await ctx.plugin(MemoryCredentials, credentials)
   const fiber = await ctx.plugin(jevPlugin, { ...config, ...overrides, routes: [...(overrides.routes ?? config.routes)] })
   const agent = { session: Session.create(SessionId('jev-runtime')), ctx, options: {} } as Agent
@@ -160,6 +169,27 @@ describe('Jev routing lifecycle', () => {
       .toEqual([{ turn: 1, step: 1, ...pick, ...applied }])
   })
 
+  it('never offers or applies a route on an unregistered provider', async () => {
+    const fetchImpl = answer({ answers: { route: { choice: 'ghost', confidence: 1 } } })
+    const routes = [...config.routes, { id: 'ghost', provider: 'ghost', model: 'ghost', description: 'Unregistered' }]
+    const { agent, preStep, request } = await mount({ routes })
+    await preStep()
+    expect(await request()).toBe(base)
+    const [, init] = fetchImpl.mock.calls[0]!
+    const sent = JSON.parse(init?.body as string) as { questions: { route: { criteria: unknown } } }
+    expect(sent.questions.route.criteria).toEqual({ small: 'Routine work' })
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'jev/decision').map(event => event.data))
+      .toEqual([{ turn: 1, step: 1, choice: 'ghost', confidence: 1, unroutable: true }])
+  })
+
+  it('skips Jev when no configured route is registered', async () => {
+    const fetchImpl = answer({ answers: { route: { choice: 'ghost', confidence: 1 } } })
+    const { preStep, request } = await mount({ routes: [{ id: 'ghost', provider: 'ghost', model: 'g', description: 'x' }] })
+    await preStep()
+    expect(fetchImpl).not.toHaveBeenCalled()
+    expect(await request()).toBe(base)
+  })
+
   it('records a decision failure as a jev/decision event', async () => {
     vi.stubGlobal('fetch', vi.fn<typeof fetch>(() => Promise.reject(new Error('offline'))))
     const thrown = await mount()
@@ -196,6 +226,22 @@ describe('Jev routing lifecycle', () => {
     expect(await request(1, signal, previous, 2)).toEqual({ provider: 'chosen', model: 'pick' })
   })
 
+  it('returns an unrouted step to the fixed orchestrator route rather than the Session selection', async () => {
+    answer({ answers: { route: { choice: 'small', confidence: 1 } } })
+    const { ctx, preStep, request } = await mount()
+    let fixed = false
+    const orchestrator = { mode: 'fixed', route: { backend: 'llm', provider: 'target', model: 'pinned' } }
+    ctx.provide('sessionProjections', {
+      stateOf: (_session: Session, key: string) => key === 'runOptions' && fixed
+        ? { current: { subagentSetup: { enabled: true, reviewRounds: 0, roles: { orchestrator } } } }
+        : { selected: { provider: 'chosen', model: 'pick' } },
+    } as never)
+    await preStep()
+    fixed = true
+    await preStep(1, signal, 'enter', 2)
+    expect(await request(1, signal, { provider: 'target', model: 'pinned' }, 2)).toEqual({ provider: 'target', model: 'pinned' })
+  })
+
   it('uses the credential provider rather than falling back to the environment', async () => {
     const fetchImpl = answer({ answers: { route: { choice: 'small', confidence: 1 } } })
     const resolved = await mount({}, { JEV_TEST_KEY: 'provider-fixture-key' })
@@ -214,6 +260,84 @@ describe('Jev routing lifecycle', () => {
     { routes: [config.routes[0]!, config.routes[0]!] }, { fallback: 'missing' },
   ])('refuses invalid deployment settings %j', (overrides) => {
     expect(() => { apply(new Context(), jevPlugin.Config({ ...config, ...overrides })) }).toThrow('jev-router:')
+  })
+})
+
+describe('Jev delegation guard', () => {
+  async function mountWithProjections(stateOf: (session: Session, key: string) => unknown) {
+    const mounted = await mount()
+    await mounted.ctx.plugin(SessionProjectionRegistry)
+    const readOriginal = mounted.ctx.sessionProjections.stateOf.bind(mounted.ctx.sessionProjections)
+    vi.spyOn(mounted.ctx.sessionProjections, 'stateOf').mockImplementation((session, key) =>
+      stateOf(session, key) ?? readOriginal(session, key))
+    return mounted
+  }
+
+  it('leaves a child whose descriptor pins its route on that route', async () => {
+    const fetchImpl = answer({ answers: { route: { choice: 'small', confidence: 1 } } })
+    const { preStep, request } = await mountWithProjections((_session, key) =>
+      key === 'subagent' ? { identity: { mode: 'one-shot', routePinned: true } } : undefined)
+    expect(await preStep()).toEqual({ kind: 'enter', messages: [input] })
+    expect(await request()).toBe(base)
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('leaves the root unrouted when its orchestrator role is fixed', async () => {
+    const fetchImpl = answer({ answers: { route: { choice: 'small', confidence: 1 } } })
+    const { preStep, request } = await mountWithProjections((_session, key) => key === 'runOptions'
+      ? { current: { subagentSetup: { enabled: true, reviewRounds: 0, roles: { orchestrator: { mode: 'fixed', route: { backend: 'llm', provider: 'target', model: 'small' } } } } } }
+      : undefined)
+    await preStep()
+    expect(await request()).toBe(base)
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('still routes a delegated child whose root fixes the orchestrator', async () => {
+    answer({ answers: { route: { choice: 'small', confidence: 1 } } })
+    const root = Session.create(SessionId('jev-root'))
+    const { ctx, agent, preStep, request } = await mountWithProjections((session, key) => session === root && key === 'runOptions'
+      ? { current: { subagentSetup: { enabled: true, reviewRounds: 0, roles: { orchestrator: { mode: 'fixed', route: { backend: 'llm', provider: 'target', model: 'pinned' } } } } } }
+      : undefined)
+    ctx.provide('sessions', { get: () => root } as never)
+    Object.assign(agent, {
+      session: Session.create(SessionId('jev-child'), undefined, {
+        version: SESSION_FORMAT_VERSION, id: SessionId('jev-child'), createdAt: 1, isSeeded: false, cwd: '/workspace',
+        origin: 'subagent', parentSession: root.id,
+      }),
+    })
+    await preStep()
+    expect(await request()).toEqual({ provider: 'target', model: 'small' })
+  })
+
+  it('still routes a child and a root whose roles are Jev-decides', async () => {
+    answer({ answers: { route: { choice: 'small', confidence: 1 } } })
+    const { preStep, request } = await mountWithProjections((_session, key) => key === 'subagent'
+      ? { identity: { mode: 'one-shot' } }
+      : key === 'runOptions' ? { current: { subagentSetup: { enabled: true, reviewRounds: 0, roles: { orchestrator: { mode: 'jev' } } } } } : undefined)
+    await preStep()
+    expect(await request()).toEqual({ provider: 'target', model: 'small' })
+  })
+
+  it.each([
+    ['pins', { routePinned: true }, base],
+    ['does not pin', {}, { provider: 'target', model: 'small' }],
+  ] as const)('reads the descriptor appended after the Jev step and %s the child route', async (_label, pin, expected) => {
+    const fetchImpl = answer({ answers: { route: { choice: 'small', confidence: 1 } } })
+    const { ctx, preStep, request } = await mount()
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(SubagentRuntime)
+    let appended = false
+    ctx.on('agent/pre-step', async (payload, next) => {
+      const decision = await next()
+      if (!appended && decision.kind === 'enter') {
+        appended = true
+        payload.agent.session.append('subagent/descriptor', snapshotSubagentDescriptor({ mode: 'one-shot', provider: 'target', ...pin }))
+      }
+      return decision
+    })
+    expect(await preStep()).toEqual({ kind: 'enter', messages: [input] })
+    expect(await request()).toEqual(expected)
+    expect(fetchImpl).toHaveBeenCalledTimes('routePinned' in pin ? 0 : 1)
   })
 })
 

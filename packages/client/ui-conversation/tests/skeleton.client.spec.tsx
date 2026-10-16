@@ -134,6 +134,8 @@ function mount(
     omitSummaryRow?: boolean
     /** Classify the selected child as a subagent instead of an ordinary fork. */
     summaryOrigin?: 'subagent'
+    /** The selected Session is a CLI terminal Session with this profile. */
+    cliProfile?: 'gemini-cli'
     /** Insert a first-level subagent between the root and selected child. */
     nestedSubagent?: boolean
     /** A composer block another plugin raised for this session. */
@@ -154,6 +156,7 @@ function mount(
     id: SID, displayTitle: 'Child', parentId: options.nestedSubagent === true ? parent : root,
     cwd: '/projects/one', running: false, retainedBy: { mainView: 1 }, blank: options.summaryBlank ?? false, updatedAt: 3,
     ...(options.summaryOrigin === undefined ? {} : { origin: options.summaryOrigin }),
+    ...(options.cliProfile === undefined ? {} : { cliProfile: options.cliProfile }),
   }
   const listed = options.omitSummaryRow !== true
   const sessions = createSnapshotStore<SessionListState>({
@@ -544,7 +547,7 @@ describe('ConversationRoot resident composer', () => {
     expect(host).not.toBeNull()
     expect(header?.getAttribute('aria-hidden')).not.toBe('true')
     expect(b.view.getByTestId('view-conversation.session.header.corner')).toBeTruthy()
-    expect(b.view.queryByRole('tablist')).toBeNull()
+    expect(b.view.getByRole('tablist')).toBeTruthy()
     expect(b.slotCalls).not.toContain('conversation.session.header.utilities')
     expect(b.slotCalls).not.toContain('conversation.session.header.actions')
     expect(b.view.getByText('探索未至之境')).toBeTruthy()
@@ -655,6 +658,14 @@ describe('ConversationRoot resident composer', () => {
     expect(b.view.getByRole('tab', { name: 'New view' }).getAttribute('aria-selected')).toBe('false')
     // The browser drag lane anchors its header tab-strip probe on this marker.
     expect(b.view.getByRole('tablist').hasAttribute('data-conversation-tabs')).toBe(true)
+  })
+
+  it('offers no View tabs for a CLI terminal Session, whose body the CLI pane replaces', () => {
+    const ordinary = mount(sessionSnapshotOf())
+    expect(ordinary.view.getByRole('tablist')).toBeTruthy()
+    ordinary.view.unmount()
+    const cli = mount(sessionSnapshotOf(), undefined, undefined, { cliProfile: 'gemini-cli' })
+    expect(cli.view.queryByRole('tablist')).toBeNull()
   })
 
   it('rolls the pending workspace label back when switching fails', async () => {

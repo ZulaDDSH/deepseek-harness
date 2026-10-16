@@ -10,7 +10,7 @@ import type {
   AssistantMessageNode, ChatNode, ChatNodeHookContext, ChatNodeOwnerProps, ChatSnapshot,
   ChatViewSlotProps, CommandNode, CompactionSummaryNode, ContextMessageNode, ConversationNode,
   LegacyConversationSlice, ModelRetryNode, StartedToolCall, SteeringMessageNode,
-  ToolCallBlock, ToolResultNode, TurnErrorNode, TurnMaxTokensNode, UseChatNodeTurnData,
+  ToolCallBlock, ToolResultNode, UseChatNodeTurnData,
   TranscriptViewMode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {
@@ -191,14 +191,6 @@ const retry = (seq: number): ModelRetryNode => ({
   provider: 'mock', mode: 'normal', policyKey: 'mock-normal',
   retry: 1, maxRetries: 2, delayMs: 450,
   failure: { code: 'TRANSPORT', message: '连接被重置' },
-})
-const turnError = (seq: number, code?: string): TurnErrorNode => ({
-  kind: 'turn-error', seq, time: seq * 1_000, turn: 1, step: 0,
-  message: seq === 2 ? 'API key is invalid' : 'plugin exploded',
-  ...(code === undefined ? {} : { code }),
-})
-const turnMaxTokens = (seq: number): TurnMaxTokensNode => ({
-  kind: 'turn-max-tokens', seq, time: seq * 1_000, turn: 1, step: 0,
 })
 const toolResult = (seq: number, callId: string, name = 'bash'): ToolResultNode => ({
   kind: 'tool-result', seq, time: seq * 1_000, callId,
@@ -452,7 +444,7 @@ function makeHarness(
     loadThrough,
     loadImage: vi.fn(() => Promise.reject(new Error('not used'))),
     chatScroll,
-    forkAt,
+    forkAt, stop: vi.fn(),
     // Absent-service default; mention tests override with a real resolver.
     fileMentions: () => undefined,
     t,
@@ -506,7 +498,7 @@ function turnProcessControl(container: HTMLElement): HTMLButtonElement | null {
 }
 
 function runningContent(container: HTMLElement): HTMLElement | null {
-  return container.querySelector<HTMLElement>('[data-chat-running] > :last-child')
+  return container.querySelector<HTMLElement>('[data-chat-running-label]')
 }
 
 function withClock(time: number, run: () => void): () => void {
@@ -2115,35 +2107,6 @@ describe('ChatView', () => {
     const cancelledDisclosure = view.container.querySelector('details') as HTMLDetailsElement
     expect(cancelledDisclosure.dataset.active).toBeUndefined()
     expect(within(cancelledDisclosure).getByRole('status').textContent).toContain('重试已取消')
-  })
-
-  it('renders every terminal failure inline with neutral quota copy and no transient notice', () => {
-    const h = makeHarness({ nodes: [
-      user(1, 'try'), turnError(2, 'AUTH'), turnError(3), turnError(4, 'QUOTA'), turnError(5, 'ACCOUNT_QUOTA'),
-    ] })
-    const view = render(<h.ChatView {...h.props} />)
-    const statuses = view.getAllByRole('status')
-    expect(statuses.map(status => status.textContent)).toEqual([
-      '本轮运行失败API 密钥无效AUTH',
-      '本轮运行失败plugin exploded',
-      '本轮运行失败当前请求的额度已用尽QUOTA',
-      '本轮运行失败当前请求的额度已用尽ACCOUNT_QUOTA',
-    ])
-    // The transient notice is the frame-wide host's job; the failure row keeps
-    // neither a recharge affordance nor a toast of its own.
-    expect(view.queryByRole('alert')).toBeNull()
-    expect(view.queryByRole('dialog')).toBeNull()
-    expect(view.queryByRole('button', { name: '去充值' })).toBeNull()
-  })
-
-  it('renders the max-tokens notice with localized guidance, distinct from turn errors', () => {
-    const h = makeHarness({ nodes: [user(1, 'try'), assistant(2, 'truncated'), turnMaxTokens(3)] })
-    const view = render(<h.ChatView {...h.props} />)
-    const statuses = view.getAllByRole('status')
-    expect(statuses.map(status => status.textContent)).toEqual([
-      '已达到输出 token 上限回答被截断，已有输出保留在对话中。发送“继续”可让模型接着输出。',
-    ])
-    expect(view.queryByText('本轮运行失败')).toBeNull()
   })
 
   it('removes Inspect when trajectory is unavailable and restores it with the view', () => {

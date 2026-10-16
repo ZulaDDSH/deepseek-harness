@@ -1,16 +1,17 @@
 /** Browser-safe request, result, and lifecycle vocabulary for the Session Remote service. */
 import type { NativeFileApplication } from '@deepseek-ai/dsh-native-command/types'
-
 import type {
   AttachmentIdType, ImageAttachmentLimits, ImageAttachmentRef, ImageMediaType,
 } from '@deepseek-ai/dsh-attachment'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { LlmAttemptId, MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { TextBlock } from '@deepseek-ai/dsh-llm'
-import type { SessionId, SessionSeq, SessionSeqCursor } from '@deepseek-ai/dsh-session/types'
+import type { CliTerminalProfileId, SessionId, SessionSeq, SessionSeqCursor } from '@deepseek-ai/dsh-session/types'
 import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
+import type { SessionListMetadata } from './list-metadata.ts'
+import type { SubagentSetup } from './subagent-setup.ts'
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionStateMap {
@@ -24,8 +25,10 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
     mcpSelection: McpSelectionProjectionState
     /** Durable per-Session hook enable/disable overrides. */
     hookOverrides: HookOverridesProjection
-    /** Durable per-Session Claude Code run options; registered only by an installed subagent-claude-code provider. */
+    /** Durable per-Session run options: Ultracode for every Session, fast mode and effort for Claude Code runs. */
     runOptions: SessionRunOptionsProjection
+    /** Host marker that a subagent-claude-code provider is installed; registered by that provider only. */
+    claudeCodeRunOptions: null
   }
   interface SessionProjectionMap {
     /** Persisted facts used to summarize a Session without activating it. */
@@ -38,8 +41,10 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
     mcpSelection: McpSelectionProjection
     /** Client view of per-Session hook overrides. */
     hookOverrides: HookOverridesProjection
-    /** Client view of per-Session Claude Code run options; absent when no Claude Code provider is installed. */
+    /** Client view of per-Session run options; the Session Controller registers it for every Session. */
     runOptions: SessionRunOptionsProjection
+    /** Client view that a Claude Code provider is installed; absent otherwise, which hides its run controls. */
+    claudeCodeRunOptions: { readonly available: true }
   }
 }
 
@@ -54,18 +59,12 @@ declare module '@deepseek-ai/dsh-session/types' {
     'mcp/selection': McpSelection
     /** Complete per-Session hook overrides. Log-only: it never enters model history. */
     'hooks/session-overrides': HookOverrides
-    /** Complete per-Session Claude Code run options (fast mode, ultracode, effort). Log-only. */
+    /** Complete per-Session run options (ultracode, plus fast mode and effort for Claude Code runs). Log-only. */
     'session/run-options': SessionRunOptions
   }
 }
 
-/** Persisted hints used to summarize a cold Session. */
-export interface SessionListMetadata {
-  /** Whether the folded prefix contains no turn. */
-  readonly blank: boolean
-  /** Latest human-authored prompt time in the folded prefix. */
-  readonly lastPromptAt: number | null
-}
+export type { SessionListMetadata } from './list-metadata.ts'
 
 /**
  * Every available wire value a Session-list row carries as partial, possibly
@@ -186,6 +185,7 @@ export interface ModelCatalogModel {
   readonly name: string
   readonly description?: string
   readonly reasoning?: ModelReasoning
+  readonly ultracode?: boolean
 }
 
 /** One provider and its successfully loaded model catalog. */
@@ -193,6 +193,8 @@ export interface ModelProviderGroup {
   readonly id: string
   readonly name: string
   readonly models: readonly ModelCatalogModel[]
+  /** Present and true when the provider's named API-key reference has no stored or ambient credential. */
+  readonly missingCredential?: boolean
 }
 
 /** One provider whose model catalog lookup failed. */
@@ -229,6 +231,8 @@ export interface SessionSummary {
   readonly updatedAt: number
   readonly running: boolean
   readonly blank: boolean
+  /** CLI terminal profile the Session hosts. */
+  readonly cliProfile?: CliTerminalProfileId
   readonly parentSessionId?: SessionId
   readonly origin?: 'subagent'
   readonly cwd?: string
@@ -335,6 +339,8 @@ export interface SessionCreateRequest {
   readonly cwd?: string
   readonly sessionId?: SessionId
   readonly agentPreset?: string
+  /** Creates a CLI terminal Session for this profile. */
+  readonly cliProfile?: CliTerminalProfileId
 }
 
 /** Session creation response value. */
@@ -366,14 +372,15 @@ export interface HookOverridesProjection {
 /** Claude Code native effort levels a Session may select, faster to smarter. */
 export const SESSION_RUN_OPTION_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 
-/** Per-Session Claude Code run options; an omitted field keeps the Profile default or native Claude setting. */
+/** Per-Session run options; an omitted field keeps the Profile default or native Claude setting. */
 export interface SessionRunOptions {
   /** Native fast mode for delegated Claude Code runs. */
   readonly fastMode?: boolean | undefined
-  /** Native ultracode for delegated Claude Code runs; overrides the Profile default. */
+  /** Ultracode: a standing multi-agent instruction, and native ultracode for Claude Code runs that overrides the Profile. */
   readonly ultracode?: boolean | undefined
   /** Native reasoning effort for delegated Claude Code runs; omitted leaves Claude settings in force. */
   readonly effort?: (typeof SESSION_RUN_OPTION_EFFORTS)[number] | undefined
+  readonly subagentSetup?: SubagentSetup | undefined
 }
 
 /** Host fold state and client view of per-Session Claude Code run options. */

@@ -13,6 +13,7 @@ import {
   assertPositiveFinite,
   NO_START_CAPABILITIES,
   resolveChildCwd,
+  resolveParentSandboxMode,
   type ResolvedSubagentStartRequest,
   type SubagentCapabilities,
   type SubagentProvider,
@@ -26,6 +27,7 @@ import {
   type CodexPermissionMode,
   type CodexRunSpec,
 } from './run.ts'
+import { codexThreadPermission } from './permission.ts'
 
 export const name = 'subagent-codex'
 export const inject = ['subagents', 'subprocess']
@@ -47,6 +49,12 @@ export interface Config {
   permissionMode?: CodexPermissionMode
   /** Grace in milliseconds between app-server managed-range termination tiers. */
   disposeGraceMs?: number
+  /**
+   * Wall-clock limit in milliseconds for one published run. Expiry cancels the
+   * run and settles it as an error with category `limit`; app-server startup
+   * before publication is not bounded by it.
+   */
+  timeoutMs?: number
 }
 
 export const Config: z<Config> = z.object({
@@ -56,9 +64,10 @@ export const Config: z<Config> = z.object({
   permissionMode: z.union([...CODEX_PERMISSION_MODES])
     .default(DEFAULT_CODEX_PERMISSION_MODE),
   disposeGraceMs: z.number().default(DEFAULT_DISPOSE_GRACE_MS),
+  timeoutMs: z.number(),
 })
 
-type ResolvedConfig = Omit<Required<Config>, 'model'> & Pick<Config, 'model'>
+type ResolvedConfig = Omit<Required<Config>, 'model' | 'timeoutMs'> & Pick<Config, 'model' | 'timeoutMs'>
 
 class CodexProvider implements SubagentProvider {
   readonly capabilities: SubagentCapabilities = NO_START_CAPABILITIES
@@ -92,12 +101,25 @@ class CodexProvider implements SubagentProvider {
       }
       throw codexStartupFailure(error)
     }
+    const parentSandbox = resolveParentSandboxMode(this.ctx, request.parent.session)
+    const threadPermission = codexThreadPermission(this.config.permissionMode, parentSandbox)
+    const clamped = JSON.stringify(threadPermission)
+      !== JSON.stringify(codexThreadPermission(this.config.permissionMode))
+    const sandboxNote = clamped && (parentSandbox === 'read-only' || parentSandbox === 'workspace-write')
+      ? `Codex sandbox limited to ${parentSandbox} by the parent session`
+      : undefined
+    if (sandboxNote !== undefined) {
+      this.ctx.logger.info(`subagent-codex "${this.name}": ${sandboxNote}`)
+    }
     const spec: CodexRunSpec = {
       cwd,
       ...this.config.model === undefined ? {} : { model: this.config.model },
       permissionMode: this.config.permissionMode,
+      threadPermission,
+      ...sandboxNote === undefined ? {} : { sandboxNote },
       env: this.config.env,
       disposeGraceMs: this.config.disposeGraceMs,
+      ...this.config.timeoutMs === undefined ? {} : { timeoutMs: this.config.timeoutMs },
       spawn: spawnSpec => this.ctx.subprocess.spawn(spawnSpec),
       onError: (error, stopReason) => {
         this.ctx.logger.warn(
@@ -121,6 +143,7 @@ export function apply(ctx: Context, config: Config): void {
     env: config.env as Record<string, string>,
     permissionMode: config.permissionMode ?? DEFAULT_CODEX_PERMISSION_MODE,
     disposeGraceMs: config.disposeGraceMs as number,
+    ...config.timeoutMs === undefined ? {} : { timeoutMs: config.timeoutMs },
   }
   assertPositiveFinite(
     'subagent-codex',
@@ -131,6 +154,14 @@ export function apply(ctx: Context, config: Config): void {
     throw new Error(
       `subagent-codex: disposeGraceMs must be no greater than ${MAX_TIMER_DELAY_MS}`,
     )
+  }
+  if (resolved.timeoutMs !== undefined) {
+    assertPositiveFinite('subagent-codex', 'timeoutMs', resolved.timeoutMs)
+    if (resolved.timeoutMs > MAX_TIMER_DELAY_MS) {
+      throw new Error(
+        `subagent-codex: timeoutMs must be no greater than ${MAX_TIMER_DELAY_MS}`,
+      )
+    }
   }
   ctx.subagents.registerProvider(new CodexProvider(
     resolved.providerName,

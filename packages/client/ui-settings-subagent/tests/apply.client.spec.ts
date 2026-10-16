@@ -10,6 +10,7 @@ import { apply as settingsApply, inject as settingsInject } from '@deepseek-ai/d
 import { apply, inject, NS } from '../src/client/index.ts'
 import type { SubagentCardFace } from '../src/client/index.ts'
 import { SubagentModelSelectionCardController } from '../src/client/subagent-model-selection-card-controller.ts'
+import type { ClaudeCodeCardFace } from '../src/client/claude-code-card-controller.ts'
 import { apply as hostApply } from '../src/index.ts'
 
 /** One Host view of a served namespace. */
@@ -66,6 +67,21 @@ describe('ui-settings-subagent apply', () => {
     expect(entry.locale).toBe(NS)
     const face = (entry.inject as () => Pick<SubagentCardFace, 'hooks'>)()
     expect(Object.keys(face.hooks).sort()).toEqual(['subagentLimitsCard', 'subagentModelSelectionCard'])
+  })
+
+  it('registers the Claude Code page only while the Host serves its namespace, titled in the active locale', async () => {
+    const { ctx, slots } = await bench(['subagent-claude-code'])
+    declareRoot(slots)
+
+    await ctx.plugin({ inject: [...inject], apply }).await()
+
+    await vi.waitFor(() => { expect(slots.entries('plugins.item')).toHaveLength(1) })
+    const entry = slots.entries('plugins.item')[0]!
+    expect(entry.options).toMatchObject({ id: 'subagent-claude-code', order: 31 })
+    expect(resolveSlotLabel(entry.options.label)).toBe('Claude Code')
+    expect(entry.locale).toBe(NS)
+    const face = (entry.inject as () => Pick<ClaudeCodeCardFace, 'hooks'>)()
+    expect(Object.keys(face.hooks)).toEqual(['claudeCodeCard'])
   })
 
   it('registers the page when only the model namespace is served, and nothing when neither is', async () => {

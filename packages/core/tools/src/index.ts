@@ -24,6 +24,7 @@ import { assertSupportedJsonSchema, validateJsonSchemaValue } from './json-schem
 import type { JsonSchemaNode } from './json-schema.ts'
 import { createRunCodeTool, RUN_CODE_NAME } from './ptc.ts'
 import type { PtcSdkLanguage } from './ptc.ts'
+import { ToolNotFoundError, unknownToolHint } from './unknown-tool.ts'
 import { renderToolsSdk } from './ts-types.ts'
 import type { ToolSdkSchema } from './ts-types.ts'
 import { renderToolsSdkPy } from './py-types.ts'
@@ -102,6 +103,7 @@ export {
 export type { PtcDispatchEventData, PtcDispatchStartEventData } from './types.ts'
 
 export { CodeRunFailedError, RUN_CODE_NAME } from './ptc.ts'
+export { ToolNotFoundError, unknownToolHint } from './unknown-tool.ts'
 export { jsonSchemaToTs, renderToolsSdk } from './ts-types.ts'
 export { jsonSchemaToPy, renderToolsSdkPy } from './py-types.ts'
 export { defineContentToolFixture, type ContentToolFixtureOptions } from './testing.ts'
@@ -500,30 +502,6 @@ export interface ToolFailure {
   message: string
   /** Internal error class/code used by policy and durable diagnostics. */
   info?: ToolErrorInfo
-}
-
-/**
- * Thrown (internally) when the model requests a tool that isn't registered.
- * Extends {@link HarnessError} (`code: 'UNKNOWN_TOOL'`) so an unknown-tool
- * failure is as routable as a tool-thrown one — retry/sandbox/replay code can
- * distinguish it from a tool body's own error.
- */
-export class ToolNotFoundError extends HarnessError {
-  /**
-   * @param toolName - the name the caller asked for.
-   * @param reachableFrom - how the model reaches this tool instead, when the
-   *   name IS visible and only the presentation denies calling it directly.
-   *   Omitted for a name that is registered nowhere.
-   */
-  constructor(toolName: string, reachableFrom?: string) {
-    super(
-      reachableFrom === undefined
-        ? `unknown tool "${toolName}"`
-        : `unknown tool "${toolName}": ${reachableFrom}`,
-      'UNKNOWN_TOOL',
-    )
-    this.name = 'ToolNotFoundError'
-  }
 }
 
 /** Thrown when a tool body or post-policy value violates its declared output. */
@@ -1577,7 +1555,7 @@ export class ToolRuntime extends Service {
     exec.signal = signal
     try {
       const tool = this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined)
-      if (!tool) throw new ToolNotFoundError(exec.name)
+      if (!tool) throw new ToolNotFoundError(exec.name, unknownToolHint(exec.name, this.view(exec.agent).visible.keys()))
       state.bodyInvoked = true
       const returned = await tool.execute(exec.arguments, exec)
       const result = this.createSuccessResult(exec, tool, returned)

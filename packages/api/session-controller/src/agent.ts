@@ -9,13 +9,14 @@ import type {
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { isCliTerminalProfileId, type CliTerminalProfileId, type Session, type SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionInspection } from '@deepseek-ai/dsh-session-persistence'
 import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-typert-registry'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { McpSelection, ModelSelection } from './types.ts'
+import { orchestratorSelectionOf } from './setup-resolver.ts'
 
 /** Cold Session identity absent from persistence. */
 export class ApiSessionNotFound extends Error {}
@@ -244,17 +245,23 @@ export class ApiSessionAgentController {
    * @param cwd - directory the Session must own.
    * @param checkPersistedIdentity - whether to inspect a cold identity before creation.
    * @param presetId - optional Agent preset the Session must own.
+   * @param cliProfile - optional CLI terminal profile recorded once on a newly created Session.
    * @returns the matching live ordinary Agent.
+   * @throws when a CLI profile is unknown or requested with an explicit identity.
    */
   async ensureSession(
     sessionId: SessionId,
     cwd: string,
     checkPersistedIdentity: boolean,
     presetId?: string,
+    cliProfile?: CliTerminalProfileId,
   ): Promise<Agent> {
+    if (cliProfile !== undefined && (checkPersistedIdentity || !isCliTerminalProfileId(cliProfile))) {
+      throw new RemoteError('gateway/bad-request', 'cliProfile needs a known profile and no explicit sessionId', {})
+    }
     let creation = this.creations.get(sessionId)
     if (creation === undefined) {
-      creation = this.createOrAdopt(sessionId, cwd, checkPersistedIdentity, presetId)
+      creation = this.createOrAdopt(sessionId, cwd, checkPersistedIdentity, presetId, cliProfile)
         .catch((error: unknown) => {
           const live = this.ctx.agents.get(sessionId)
           if (live !== undefined) {
@@ -301,8 +308,11 @@ export class ApiSessionAgentController {
       ? undefined
       : agentModelSelection(projectionState.selected)
     const defaultModel = this.ctx.agentDefaultModel
+    const hostCtx = this.ctx
     const selection: InstalledSelection = {
       get current(): AgentModelSelection {
+        const orchestrated = orchestratorSelectionOf(hostCtx, agent.session)
+        if (orchestrated !== undefined) return agentModelSelection(orchestrated)
         if (picked !== undefined) return picked
         const loggedHeader = agent.session.requestHeader()
         if (loggedHeader === undefined) return defaultModel.currentSelection()
@@ -542,6 +552,7 @@ export class ApiSessionAgentController {
     cwd: string,
     checkPersistedIdentity: boolean,
     presetId: string | undefined,
+    cliProfile: CliTerminalProfileId | undefined,
   ): Promise<Agent> {
     const attached = this.ctx.sessions.get(sessionId)
     const live = this.ctx.agents.get(sessionId)
@@ -586,7 +597,7 @@ export class ApiSessionAgentController {
         cwd,
         ...(composition.agentPreset === undefined ? {} : { agentPreset: composition.agentPreset }),
       },
-      setup: composition.setup,
+      setup: cliProfile === undefined ? composition.setup : withCliMarker(composition.setup, cliProfile),
     })).agent
   }
 
@@ -611,6 +622,17 @@ export class ApiSessionAgentController {
     return observation.projections.values.agentPreset ?? undefined
   }
 
+  /**
+   * Refuse turn-starting work on a CLI terminal Session.
+   * @param agent - live ordinary Agent about to receive a prompt.
+   * @returns the same Agent when it is not a CLI terminal Session.
+   * @throws when the Session records a CLI terminal profile.
+   */
+  refuseCliSession(agent: Agent): Agent {
+    if ((this.ctx.sessionProjections.stateOf(agent.session, 'cliTerminal')?.profile ?? null) === null) return agent
+    throw new RemoteError('session/cli-terminal', `session "${agent.session.header.id}" is a CLI terminal and accepts no prompts`, {})
+  }
+
   private assertPresetUnchanged(
     sessionId: SessionId,
     requested: string | undefined,
@@ -628,5 +650,13 @@ function agentModelSelection(selection: ModelSelection): AgentModelSelection {
     ...(selection.reasoningEffort === undefined
       ? {}
       : { reasoningEffort: ReasoningEffortId(selection.reasoningEffort) }),
+  }
+}
+
+function withCliMarker(setup: AgentSetup, profile: CliTerminalProfileId): AgentSetup {
+  return async (agentCtx, agent) => {
+    const commit = await setup(agentCtx, agent)
+    agent.session.append('session/cli-terminal', { profile })
+    return commit
   }
 }

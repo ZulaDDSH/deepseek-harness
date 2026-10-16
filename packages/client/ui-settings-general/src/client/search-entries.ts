@@ -14,6 +14,8 @@ const ROWS = [
   ['performance-usage', 'performance'],
   ['link-opening', 'links'],
   ['developer-tools', 'developerTools'],
+  ['session-search', 'sessionSearch'],
+  ['chat-memory', 'chatMemory'],
   ['shortcuts', 'shortcuts'],
   ['composer-enter', 'composerEnter'],
   ['session-log-deepseek', 'sessionLog'],

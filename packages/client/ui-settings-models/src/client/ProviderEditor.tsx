@@ -21,16 +21,19 @@
  * see instead of rebuilding the whole subtree from a partial descriptor.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type {
   CredentialInfo, SettingsNamespaceView, SettingsPathOpView,
 } from '@deepseek-ai/dsh-api-remotes/client'
+import type { AuthorizationEntryView } from '@deepseek-ai/dsh-api-settings-controller/types'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import {
   DeepSeekModelsEditor, modelDrafts, validateDeepSeekModels,
 } from './DeepSeekModelsEditor.tsx'
 import { apiKeyFailure } from './apiKey.ts'
+import { BillingChoice } from './BillingChoice.tsx'
+import type { ActiveBilling, BillingSource } from './BillingChoice.tsx'
 import { EditorFooter } from './EditorFooter.tsx'
 import { ModelListEditor } from './ModelListEditor.tsx'
 import { SignInCard } from './SignInCard.tsx'
@@ -197,8 +200,11 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   const { namespace, schema, settingsPath, operations, t, authorization } = props
   const [draft, setDraft] = useState<Record<string, unknown>>(() => draftAt(schema, namespace, settingsPath))
   const [keyDraft, setKeyDraft] = useState('')
+  const keyInputRef = useRef<HTMLInputElement>(null)
   const [customFields, setCustomFields] = useState<ReadonlySet<string>>(() => new Set())
   const [keyState, setKeyState] = useState<CredentialInfo | undefined>(undefined)
+  const [flow, setFlow] = useState<AuthorizationEntryView | undefined>(undefined)
+  const [billingPick, setBillingPick] = useState<BillingSource | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   const [listBusy, setListBusy] = useState(false)
   const { onBusyChange } = props
@@ -240,6 +246,16 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
     })
     return () => { stale = true }
   }, [operations, keyRef, accountProvider])
+
+  useEffect(() => {
+    if (authorization === undefined || layout !== 'pi-ai' || props.credentialOnly === true) return
+    let stale = false
+    void authorization.list().then((flows) => {
+      if (stale) return
+      setFlow(flows.find(entry => entry.key.endsWith(`/${props.provider}`)))
+    })
+    return () => { stale = true }
+  }, [authorization, layout, props.credentialOnly, props.provider, props.credentialsRevision])
 
   const stringAt = (source: unknown, key: string): string | undefined => {
     const value = schema.getPath(source, [key])
@@ -283,6 +299,31 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
     ...probeApi === undefined ? {} : { api: probeApi },
     ...keyValue.length === 0 ? {} : { apiKey: keyValue },
   }
+  const billingLocked = stringAt(schema.getPath(namespace.base, settingsPath), 'apiKeyEnv') !== undefined
+  const billingFlow = layout === 'pi-ai' && props.credentialOnly !== true && flow !== undefined
+    && flow.methods.some(method => method.id === 'oauth') && flow.methods.some(method => method.id === 'api-key')
+    ? flow
+    : undefined
+  const billingEditable = billingFlow !== undefined && !billingLocked
+  const savedApi = stringAt(fallback, 'apiKeyEnv') !== undefined
+  const apiKeyAvailable = keyState?.configured === true || keyValue.length > 0
+  const signInKeyStored = billingFlow?.kind === 'api-key'
+  const apiChoiceAvailable = apiKeyAvailable || signInKeyStored
+  const activeBilling: ActiveBilling = savedApi || signInKeyStored
+    ? 'api'
+    : billingFlow?.kind === 'grant' ? 'subscription' : 'signed-out'
+  const billingDefault: BillingSource = activeBilling === 'api' || keyValue.length > 0 ? 'api' : 'subscription'
+  const billingValue: BillingSource = signInKeyStored ? 'api'
+    : billingPick === 'api' && !apiChoiceAvailable ? 'subscription'
+      : billingPick ?? billingDefault
+  const applyBilling = (current: Record<string, unknown>): Record<string, unknown> => {
+    if (billingEditable && billingValue === 'subscription') return schema.deletePath(current, ['apiKeyEnv'])
+    const namesKey = billingEditable ? apiKeyAvailable : layout === 'pi-ai' && keyValue.length > 0
+    return namesKey && stringAt(current, 'apiKeyEnv') === undefined && stringAt(fallback, 'apiKeyEnv') === undefined
+      ? schema.setPath(current, ['apiKeyEnv'], keyRef)
+      : current
+  }
+
   /**
    * The write for this card, or a failure message. Every edit travels as
    * path ops against the STORED section: the draft comes from the redacted
@@ -293,10 +334,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
     const ns = namespace.ns
     // A pi-ai profile names the conventional reference only when this page is
     // about to store a key. Otherwise the provider keeps its native auth path.
-    const next = layout === 'pi-ai' && stringAt(draft, 'apiKeyEnv') === undefined
-      && stringAt(fallback, 'apiKeyEnv') === undefined && keyValue.length > 0
-      ? schema.setPath(draft, ['apiKeyEnv'], keyRef)
-      : draft
+    const next = applyBilling(draft)
     if (props.credentialOnly !== true) {
       // The same checker gates the submit button, so a card cannot reach this
       // with a bad row; it stays because the schema check below would refuse
@@ -437,7 +475,8 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
       ? t('keyEnvLocked')
       : keyState?.configured === true && props.credentialRequired !== true
         ? t('keyStored')
-        : family === 'pi-ai' ? t('keyPlaceholderNative') : t('keyPlaceholder')
+        : family === 'pi-ai' && billingFlow === undefined ? t('keyPlaceholderNative') : t('keyPlaceholder')
+    const keyLabel = billingFlow === undefined ? t('keyInput') : t('keyInputBilling').replace('{provider}', props.displayName)
     /** What both family editors take: the rows, whose layer owns them, and the two writes. */
     const catalogProps = {
       models,
@@ -465,17 +504,30 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
             t={t}
             {...props.credentialsRevision === undefined ? {} : { refresh: props.credentialsRevision }}
             {...props.onCredentialChanged === undefined ? {} : { onSignedIn: props.onCredentialChanged }}
+            onUseApiKey={() => { keyInputRef.current?.focus() }}
+          />
+        )}
+        {billingFlow === undefined ? null : (
+          <BillingChoice
+            value={billingValue}
+            apiAvailable={apiChoiceAvailable}
+            subscriptionAvailable={!signInKeyStored}
+            active={activeBilling}
+            disabled={disabled || billingLocked}
+            onChange={setBillingPick}
+            t={t}
           />
         )}
         <div className={styles['field']}>
-          <span className={styles['fieldLabel']}>{t('keyInput')}</span>
+          <span className={styles['fieldLabel']}>{keyLabel}</span>
           <input
+            ref={keyInputRef}
             className={styles['input']}
             type="password"
             autoComplete="new-password"
             value={keyDraft}
             placeholder={keyPlaceholder}
-            aria-label={t('keyInput')}
+            aria-label={keyLabel}
             aria-invalid={shownKeyFailure !== undefined}
             required={props.credentialRequired === true}
             autoFocus={props.autoFocusCredential === true}

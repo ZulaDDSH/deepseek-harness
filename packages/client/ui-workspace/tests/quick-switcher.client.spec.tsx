@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, createEvent, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { WorkspaceId, WorkspaceSnapshot, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
@@ -26,6 +26,7 @@ function hook<T>(value: T) {
 function summary(id: string, current = false, overrides: Partial<SessionSummary> = {}): SessionSummary {
   return {
     id: sid(id),
+    title: overrides.displayTitle ?? id,
     displayTitle: id,
     running: false,
     blank: false,
@@ -250,5 +251,53 @@ describe('QuickSwitcher', () => {
     await screen.findByRole('dialog', { name: '快速切换' })
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('dialog', { name: '快速切换' })).toBeNull()
+  })
+
+  it('omits blank Sessions and labels unnamed ones Untitled instead of their folder', async () => {
+    mount({
+      useSessions: hook(sessions([
+        summary('blank', false, { blank: true, title: 'Blank' }),
+        summary('unnamed', false, { title: '', displayTitle: 'my-folder', cwd: '/projects/my-folder' }),
+      ])),
+    })
+    openPalette()
+    await screen.findByRole('textbox')
+    expect(screen.queryByText('Blank')).toBeNull()
+    expect(screen.getByText(zh['session.untitled'])).toBeTruthy()
+    expect(screen.queryByText('my-folder')).toBeNull()
+  })
+
+  it('orders Sessions by recency and shows up to 30', async () => {
+    const items = Array.from({ length: 40 }, (_, index) => summary(`s${index}`, false, { updatedAt: index }))
+    mount({
+      useSessions: hook(sessions(items)),
+      useWorkspaces: hook(workspaces([])),
+      quickCommands: vi.fn(async () => []),
+    })
+    openPalette()
+    await screen.findByRole('textbox')
+    const titles = screen.getAllByRole('option').map(option => option.textContent)
+    expect(titles).toHaveLength(30)
+    expect(titles[0]).toBe('s39')
+    expect(screen.queryByText('s9')).toBeNull()
+  })
+
+  it('matches titles as a subsequence', async () => {
+    mount()
+    openPalette()
+    const input = await screen.findByRole('textbox')
+    fireEvent.change(input, { target: { value: 'ctk' } })
+    expect(screen.getByText('Current task')).toBeTruthy()
+    expect(screen.queryByText('Other task')).toBeNull()
+  })
+
+  it('ignores Ctrl/Cmd+K while composing or already consumed', () => {
+    mount()
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true, isComposing: true })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    const consumed = createEvent.keyDown(window, { key: 'k', ctrlKey: true })
+    consumed.preventDefault()
+    fireEvent(window, consumed)
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 })

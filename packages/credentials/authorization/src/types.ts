@@ -88,6 +88,8 @@ export interface AuthorizationEntry {
   methods: readonly AuthorizationMethod[]
   /** Whether an attempt for this key is running right now. */
   inFlight: boolean
+  /** The other product whose identity this sign-in borrows, when it does. */
+  borrowedFrom?: string
 }
 
 declare module '@deepseek-ai/cordis' {

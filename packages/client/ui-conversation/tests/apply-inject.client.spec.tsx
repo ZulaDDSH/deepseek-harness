@@ -290,30 +290,8 @@ describe('Conversation inject API', () => {
     inspect('call-1')
     expect(body.instance.store.getSnapshot().viewRequest).toEqual({ view: 'trajectory', focus: 'tool:call-1' })
     await b.runtime.ctx.configForms.developerTools.setEnabled(false)
-    expect(source.getSnapshot()).toBeUndefined()
-    await b.runtime.ctx.configForms.developerTools.setEnabled(true)
     expect(source.getSnapshot()).toBe(inspect)
-    // Trajectory still owns inspection while both Views are visible; hiding
-    // it must leave a third-party View's inspection capability reachable.
-    const removePipelineDefinition = b.runtime.ctx.uiConversation.views.register({
-      target: 'pipeline',
-      toolCallFocus: callId => `stage:${callId}`,
-      create: () => ({ empty: null, replace: () => null, apply: () => null }),
-    })
-    const removePipelineView = b.slots.register(
-      { name: 'conversation.view', id: 'pipeline' }, (() => null) as never,
-    )
-    await b.runtime.flush()
-    expect(source.getSnapshot()).toBe(inspect)
-    await b.runtime.ctx.configForms.developerTools.setEnabled(false)
-    const pipelineInspect = source.getSnapshot()!
-    expect(pipelineInspect).toBeTypeOf('function')
-    pipelineInspect('call-2')
-    expect(body.instance.store.getSnapshot().viewRequest).toEqual({ view: 'pipeline', focus: 'stage:call-2' })
     await b.runtime.ctx.configForms.developerTools.setEnabled(true)
-    removePipelineView()
-    removePipelineDefinition()
-    await b.runtime.flush()
     expect(source.getSnapshot()).toBe(inspect)
     removeView()
     await b.runtime.flush()

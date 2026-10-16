@@ -223,7 +223,7 @@ async function realHarness(
   behavior: MessagesBehavior,
   permissionMode?: ClaudeCodePermissionMode,
   nativeAllow: readonly string[] = [],
-  extra: Partial<claudeCode.Config> = {},
+  extra: Partial<Omit<claudeCode.Config, 'ultracode'>> & { ultracode?: boolean } = {},
 ): Promise<{
   readonly harness: RealHarness
   readonly fixture: MessagesFixture
@@ -368,6 +368,7 @@ describe('real Claude Agent SDK 0.3.296 and its distributed Claude Code 2.1.296 
       undefined,
       [],
       {
+        model: 'claude-opus-5-5',
         ultracode: true,
         agents: { helper: { description: 'Helps', prompt: 'Help.' } },
       },

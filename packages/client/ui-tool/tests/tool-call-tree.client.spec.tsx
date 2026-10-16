@@ -201,4 +201,12 @@ describe('ToolCallTree', () => {
     expect(view.queryByTestId('keyed-skill')).toBeNull()
     expect(view.getByText('Auto review 已拒绝')).toBeTruthy()
   })
+
+  it('keys every delegation instance under the shared subagent view and keeps its own tool name', () => {
+    type SlotOptions = { fallback?: React.ReactNode; entryKey?: string }
+    const renderSlot = vi.fn((_key: string, _owner: ToolCallOwnerProps, options?: SlotOptions) => options?.fallback ?? null)
+    render(<ToolCallTree {...props(root('c1', { name: 'subagent_codex', argsRaw: '{}' }))} renderSlot={renderSlot as ToolTreeProps['renderSlot']} />)
+    expect(renderSlot.mock.calls[0]?.[1].toolName).toBe('subagent_codex')
+    expect(renderSlot.mock.calls[0]?.[2]?.entryKey).toBe('subagent')
+  })
 })

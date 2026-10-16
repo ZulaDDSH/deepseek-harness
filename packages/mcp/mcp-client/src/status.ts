@@ -18,5 +18,12 @@ declare module '@deepseek-ai/cordis' {
      * @param reports Collected reports, one per configured server.
      */
     'mcp-client/inventory'(reports: McpConnectionReport[]): void
+    /**
+     * A configuration surface asks one MCP server to try connecting again with a fresh retry budget.
+     * Nothing happens while that server is connected, connecting or waiting for sign-in.
+     * @mode emit
+     * @param serverName The configured server to reconnect.
+     */
+    'mcp-client/reconnect'(serverName: string): void
   }
 }

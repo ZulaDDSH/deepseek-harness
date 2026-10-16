@@ -43,14 +43,22 @@ async function fixture(mode: 'read-only' | 'workspace-write' | 'danger-full-acce
   return { ctx, manager, call, fiber }
 }
 
-it.each(['read-only', 'workspace-write'] as const)('denies every management action in %s before accessing the manager', async (mode) => {
+it.each(['read-only', 'workspace-write'] as const)('denies every mutating action in %s before accessing the manager and lists without approval', async (mode) => {
   const { call, manager } = await fixture(mode)
-  for (const action of ['list_plugins', 'list_bundles', 'set_plugin', 'set_bundle', 'install_bundle', 'remove_bundle', 'list_version_exemptions', 'set_version_exemption']) {
-    const result = await call({ action, target: 'bundle', enabled: true })
+  for (const action of ['set_plugin', 'set_bundle', 'install_bundle', 'remove_bundle', 'set_version_exemption']) {
+    const result = await call({ action, target: 'bundle@1.0.0', enabled: true, runtimeVersion: '0.1.7-alpha.1' })
     expect(result.isError).toBe(true)
     expect(JSON.stringify(result.content)).toContain('requires approval, but no approval service is composed')
   }
-  for (const method of Object.values(manager)) expect(method).not.toHaveBeenCalled()
+  for (const action of ['list_plugins', 'list_bundles', 'list_version_exemptions']) {
+    expect((await call({ action })).isError).toBe(false)
+  }
+  for (const method of ['setPluginEnabled', 'setBundleEnabled', 'installBundle', 'removeBundle', 'setVersionExemption'] as const) {
+    expect(manager[method]).not.toHaveBeenCalled()
+  }
+  for (const method of ['listPlugins', 'listBundles', 'listVersionExemptions'] as const) {
+    expect(manager[method]).toHaveBeenCalledTimes(1)
+  }
 })
 
 it('preserves selected bundle load errors in the agent list result', async () => {
@@ -86,13 +94,13 @@ it('checks the calling session on each execution, including after permission is 
   const session = Session.create(id, undefined, { version: SESSION_FORMAT_VERSION, id, createdAt: 0, isSeeded: false })
   const agent = { session } as unknown as Agent
   setSandboxMode(session, 'workspace-write')
-  expect((await call({ action: 'list_plugins' }, agent)).isError).toBe(true)
-  expect(manager.listPlugins).not.toHaveBeenCalled()
+  expect((await call({ action: 'set_plugin', target: 'include:demo', enabled: true }, agent)).isError).toBe(true)
+  expect(manager.setPluginEnabled).not.toHaveBeenCalled()
   setSandboxMode(session, 'danger-full-access')
-  expect((await call({ action: 'list_plugins' }, agent)).isError).toBe(false)
+  expect((await call({ action: 'set_plugin', target: 'include:demo', enabled: true }, agent)).isError).toBe(false)
   setSandboxMode(session, 'read-only')
-  expect((await call({ action: 'list_plugins' }, agent)).isError).toBe(true)
-  expect(manager.listPlugins).toHaveBeenCalledTimes(1)
+  expect((await call({ action: 'set_plugin', target: 'include:demo', enabled: true }, agent)).isError).toBe(true)
+  expect(manager.setPluginEnabled).toHaveBeenCalledTimes(1)
 })
 
 function activeAgent(): Agent {
@@ -102,7 +110,7 @@ function activeAgent(): Agent {
   return { session } as unknown as Agent
 }
 
-it.each(['read-only', 'workspace-write'] as const)('approves each action once in %s without changing session permissions', async (mode) => {
+it.each(['read-only', 'workspace-write'] as const)('prompts once per mutation in %s, never for lists, without changing session permissions', async (mode) => {
   const { ctx, call, manager } = await fixture(mode, 'ask')
   const agent = activeAgent()
   const prompted = vi.fn(async () => 'allowed-once' as const)
@@ -110,21 +118,22 @@ it.each(['read-only', 'workspace-write'] as const)('approves each action once in
   for (const action of ['list_plugins', 'list_bundles', 'set_plugin', 'set_bundle', 'install_bundle', 'remove_bundle', 'list_version_exemptions', 'set_version_exemption']) {
     expect((await call({ action, target: 'bundle@1.0.0', enabled: true, runtimeVersion: '0.1.7-alpha.1', acceptRisk: true }, agent)).isError).toBe(false)
   }
-  expect(prompted).toHaveBeenCalledTimes(8)
+  expect(prompted).toHaveBeenCalledTimes(5)
   for (const method of Object.values(manager)) expect(method).toHaveBeenCalledTimes(1)
   expect(ctx.sandboxPolicy.resolve({ session: agent.session }).mode).toBe(mode)
   const audit = agent.session.snapshotEvents().filter(event => event.type.startsWith('approval/'))
-  expect(audit).toHaveLength(16)
+  expect(audit).toHaveLength(10)
   expect(audit[0]).toMatchObject({ type: 'approval/asked', data: {
     toolName: 'plugin_manager', callId: 'manager-call',
   } })
   const request = audit[0]
   if (request?.type !== 'approval/asked') throw new Error('Expected an approval request')
-  expect(request.data.reason).toContain('"action":"list_plugins"')
+  expect(request.data.reason).toContain('Enable plugin bundle@1.0.0')
+  expect(request.data.reason).not.toContain('{')
   expect(audit[1]).toMatchObject({ type: 'approval/decided', data: { outcome: 'allowed-once' } })
   dispose()
-  expect((await call({ action: 'list_plugins' }, agent)).isError).toBe(true)
-  expect(manager.listPlugins).toHaveBeenCalledTimes(1)
+  expect((await call({ action: 'set_plugin', target: 'x', enabled: true }, agent)).isError).toBe(true)
+  expect(manager.setPluginEnabled).toHaveBeenCalledTimes(1)
 })
 
 it.each(['rejected', 'cancelled', 'unavailable'] as const)('does not mutate the profile when approval is %s', async (outcome) => {

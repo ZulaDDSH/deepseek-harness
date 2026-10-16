@@ -13,7 +13,9 @@ import {
   type EffortLevel,
   type Options,
   type Query,
+  type SDKAssistantMessageError,
   type SDKMessage,
+  type SDKRateLimitInfo,
   type SDKResultMessage,
   type SpawnOptions,
 } from '@anthropic-ai/claude-agent-sdk'
@@ -21,6 +23,8 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import {
+  boundedProgress,
+  runTimeLimit,
   settleRunResult,
   subprocessRunHandle,
   type SubagentResult,
@@ -38,6 +42,14 @@ import {
   claudeSpawnSpec,
   ManagedClaudeCodeProcess,
 } from './process.ts'
+import {
+  assistantErrorCategory,
+  assistantErrorDetail,
+  sdkFailureCategory,
+  toolUseProgressLines,
+  type ClaudeCodeFailureCategory,
+  type SdkFailureContext,
+} from './sdk-messages.ts'
 
 /** Default POSIX grace between subprocess termination tiers. */
 export const DEFAULT_DISPOSE_GRACE_MS = 3_000
@@ -67,16 +79,10 @@ type ClaudeCodeFailureStage =
   | 'process'
   | 'teardown'
 
-type ClaudeCodeFailureCategory =
-  | 'limit'
-  | 'product-error'
-  | 'invalid-result'
-  | 'process'
-  | 'unknown'
-
 interface ClaudeCodeFailureFacts {
   readonly stage: ClaudeCodeFailureStage
   readonly category: ClaudeCodeFailureCategory
+  readonly detail?: string | undefined
   readonly outcome?: SubprocessOutcome | undefined
 }
 
@@ -86,6 +92,9 @@ function failureDiagnostic(facts: ClaudeCodeFailureFacts): string {
     `stage: ${facts.stage}`,
     `category: ${facts.category}`,
   ]
+  if (facts.detail !== undefined) {
+    fields.push(`detail: ${facts.detail}`)
+  }
   const exitCode = facts.outcome?.exitCode
   if (exitCode !== null && exitCode !== undefined) {
     fields.push(`exit code: ${exitCode}`)
@@ -107,21 +116,6 @@ class ClaudeCodeFailure extends Error {
       cause === undefined ? undefined : { cause },
     )
     this.name = 'ClaudeCodeFailure'
-  }
-}
-
-function sdkFailureCategory(
-  subtype: string,
-): ClaudeCodeFailureCategory {
-  switch (subtype) {
-    case 'error_max_turns':
-    case 'error_max_budget_usd':
-    case 'error_max_structured_output_retries':
-      return 'limit'
-    case 'error_during_execution':
-      return 'product-error'
-    default:
-      return 'unknown'
   }
 }
 
@@ -152,6 +146,8 @@ function unattendedDiagnostic(
 export interface ClaudeCodeRunSpec {
   /** Parent Session workspace supplied to the SDK and real CLI. */
   readonly cwd: string
+  /** Receives each rate-limit window the SDK reports for the run. */
+  readonly onRateLimit?: (info: SDKRateLimitInfo) => void
   /** Profile-selected native model; omitted to preserve Claude settings. */
   readonly model?: string
   /** Profile-selected native non-interactive permission mode. */
@@ -168,6 +164,12 @@ export interface ClaudeCodeRunSpec {
   readonly effort?: EffortLevel
   /** Profile-fixed native custom subagents for the Agent tool. */
   readonly agents?: Record<string, AgentDefinition>
+  /** Wall-clock limit in milliseconds for the published run; omitted means no limit. */
+  readonly timeoutMs?: number
+  /** Native turn limit for the SDK `maxTurns` option; omitted leaves it unset. */
+  readonly maxTurns?: number
+  /** Native spend limit in USD for the SDK `maxBudgetUsd` option; omitted leaves it unset. */
+  readonly maxBudgetUsd?: number
   /** Explicit deployment/test environment layered after shared scrubbing. */
   readonly env: Record<string, string>
   /** Subprocess termination grace passed to the shared managed-range owner. */
@@ -176,6 +178,8 @@ export interface ClaudeCodeRunSpec {
   readonly spawn: (spec: SubprocessSpawnSpec) => SubprocessHandle
   /** Host diagnostic sink for a product failure kept outside model-visible text. */
   readonly onError?: (error: Error, stopReason: SubagentStopReason) => void
+  /** Safe fact appended to failure diagnostics when the parent sandbox narrowed the mode. */
+  readonly sandboxNote?: string
 }
 
 function thrown(value: unknown): Error {
@@ -215,22 +219,44 @@ export function textTask(prompt: readonly ContentBlock[]): string {
 /**
  * Strictly derive the only SDK result that can complete a shared run.
  * @param message - an official discriminated result union.
+ * @param observed - assistant error and rate-limit facts seen before the result;
+ * an error category from the subtype wins except over a `limit` subtype.
  * @returns exact final text for a successful, non-error result.
  */
-export function successfulResult(message: SDKResultMessage): string {
+export function successfulResult(
+  message: SDKResultMessage,
+  observed: SdkFailureContext = {},
+): string {
+  const observedCategory = observed.assistantError === undefined
+    ? undefined
+    : assistantErrorCategory(observed.assistantError)
+  const observedDetail = observed.assistantError === undefined
+    ? undefined
+    : assistantErrorDetail(observed.assistantError, observed.resetsAt)
   if (message.subtype !== 'success') {
-    const category = sdkFailureCategory(message.subtype)
-    const detail = category === 'unknown'
+    const subtypeCategory = sdkFailureCategory(message.subtype)
+    const category = subtypeCategory !== 'limit' && observedCategory !== undefined
+      ? observedCategory
+      : subtypeCategory
+    const detail = category === observedCategory ? observedDetail : undefined
+    const errors = subtypeCategory === 'unknown'
       ? undefined
       : message.errors.join('; ')
     throw new ClaudeCodeFailure(
-      { stage: 'query-run', category },
-      detail === undefined || detail.length === 0
+      { stage: 'query-run', category, ...detail === undefined ? {} : { detail } },
+      errors === undefined || errors.length === 0
         ? undefined
-        : new Error(detail),
+        : new Error(errors),
     )
   }
-  if (message.is_error || message.result.trim().length === 0) {
+  if (message.is_error) {
+    throw new ClaudeCodeFailure({
+      stage: 'query-run',
+      category: observedCategory ?? 'invalid-result',
+      ...observedDetail === undefined ? {} : { detail: observedDetail },
+    })
+  }
+  if (message.result.trim().length === 0) {
     throw new ClaudeCodeFailure({
       stage: 'query-run',
       category: 'invalid-result',
@@ -245,27 +271,47 @@ export function successfulResult(message: SDKResultMessage): string {
  * @param query - published official SDK query.
  * @param onPermissionDenied - records a safe fact when the SDK reports native denial.
  * @param onResult - records that the SDK supplied a terminal result message.
+ * @param onProgress - receives advisory tool-use lines from assistant messages.
+ * @param onRateLimit - receives each rate-limit window the SDK reports.
  * @returns the completed shared result.
  */
 export async function consumeClaudeQuery(
   query: AsyncIterable<SDKMessage>,
   onPermissionDenied?: () => void,
   onResult?: () => void,
+  onProgress?: (line: string) => void,
+  onRateLimit?: (info: SDKRateLimitInfo) => void,
 ): Promise<SubagentResult> {
   let answer: string | undefined
+  let assistantError: SDKAssistantMessageError | undefined
+  let resetsAt: number | undefined
   for await (const message of query) {
     if (message.type === 'system' && message.subtype === 'permission_denied') {
       onPermissionDenied?.()
       continue
     }
+    if (message.type === 'assistant') {
+      assistantError = message.error
+      for (const line of toolUseProgressLines(message)) onProgress?.(line)
+      continue
+    }
+    if (message.type === 'rate_limit_event') {
+      resetsAt = message.rate_limit_info.resetsAt ?? resetsAt
+      onRateLimit?.(message.rate_limit_info)
+      continue
+    }
     if (message.type !== 'result') continue
     onResult?.()
-    answer = successfulResult(message)
+    answer = successfulResult(message, { assistantError, resetsAt })
   }
   if (answer === undefined) {
+    const detail = assistantError === undefined
+      ? undefined
+      : assistantErrorDetail(assistantError, resetsAt)
     throw new ClaudeCodeFailure({
       stage: 'query-run',
-      category: 'invalid-result',
+      category: (assistantError === undefined ? undefined : assistantErrorCategory(assistantError)) ?? 'invalid-result',
+      ...detail === undefined ? {} : { detail },
     })
   }
   return {
@@ -357,6 +403,8 @@ export function claudeQueryOptions(
       : {},
     ...['dontAsk', 'acceptEdits'].includes(spec.permissionMode) ? { skills: 'all' as const } : {},
     ...spec.agents === undefined ? {} : { agents: spec.agents },
+    ...spec.maxTurns === undefined ? {} : { maxTurns: spec.maxTurns },
+    ...spec.maxBudgetUsd === undefined ? {} : { maxBudgetUsd: spec.maxBudgetUsd },
     ...spec.permissionMode === 'bypassPermissions'
       ? { allowDangerouslySkipPermissions: true }
       : {
@@ -544,6 +592,12 @@ export async function startClaudeCodeRun(
   const publishedChild = child
   const publishedProcessFailure = childProcessFailure
   let receivedResult = false
+  const progress = boundedProgress(request.onProgress)
+  const limit = runTimeLimit(spec.timeoutMs, requestCancel, () => new ClaudeCodeFailure({
+    stage: 'query-run',
+    category: 'limit',
+    detail: `exceeded timeoutMs (${String(spec.timeoutMs)} ms)`,
+  }))
   const result = settleRunResult({
     attempt: async () => {
       try {
@@ -557,8 +611,9 @@ export async function startClaudeCodeRun(
             ))
           }, () => {
             receivedResult = true
-          }),
+          }, progress, spec.onRateLimit),
           publishedProcessFailure,
+          limit.expired,
         ])
       } catch (error: unknown) {
         const processOutcome = managedProcess?.outcome
@@ -583,11 +638,15 @@ export async function startClaudeCodeRun(
         throw error instanceof ClaudeCodeFailure
           ? error
           : new ClaudeCodeFailure(facts, thrown(error))
+      } finally {
+        limit.clear()
       }
     },
     collectOutput: () => [],
-    collectDiagnostic: () => diagnostic,
-    cancelled: () => controller.signal.aborted,
+    collectDiagnostic: () => diagnostic === undefined || spec.sandboxNote === undefined
+      ? diagnostic
+      : `${diagnostic}\n${spec.sandboxNote}`,
+    cancelled: () => controller.signal.aborted && !limit.timedOut(),
     onError: spec.onError,
     signal: request.signal,
     onAbort,

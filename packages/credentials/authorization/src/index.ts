@@ -122,6 +122,11 @@ export interface AuthorizationFlow {
    */
   readonly methods: readonly [AuthorizationMethod, ...AuthorizationMethod[]]
   /**
+   * The other product whose identity this sign-in borrows, when it does. A
+   * surface warns about a stored record this flow produced.
+   */
+  readonly borrowedFrom?: string
+  /**
    * Run one attempt to obtain and commit the credential.
    * @param session - the chosen method, the cancellation signal, and the interaction callbacks.
    * @returns once the record is committed.
@@ -237,6 +242,7 @@ export class AuthorizationService extends Service {
       label: flow.label,
       methods: flow.methods,
       inFlight: this.running.has(flow.key),
+      ...flow.borrowedFrom === undefined ? {} : { borrowedFrom: flow.borrowedFrom },
     }
   }
 

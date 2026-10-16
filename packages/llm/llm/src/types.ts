@@ -21,7 +21,32 @@ declare module '@deepseek-ai/cordis' {
      * @mode emit
      */
     'llm/adapters-updated'(): void
+    /**
+     * A provider reported one rate-limit window on a response or stream event:
+     * subscription windows from Anthropic response headers, or Claude Agent SDK
+     * rate-limit events. Observers keep the latest value per window; publishers
+     * do not wait on them.
+     * @mode emit
+     * @param observation - the window as the publisher observed it.
+     */
+    'llm/rate-limit-observed'(observation: LlmRateLimitObservation): void
   }
+}
+
+/** One rate-limit window a provider reported, normalized to the publisher's clock. */
+export interface LlmRateLimitObservation {
+  /** Route key the window belongs to, such as `anthropic`. */
+  readonly route: string
+  /** Provider-named window type, such as `five_hour`, `seven_day`, or `overage`. */
+  readonly window: string
+  /** Share of the window consumed as the provider reports it; read as a 0-1 fraction, or as whole percent above 1. */
+  readonly utilization?: number
+  /** Unix epoch milliseconds when the window resets, when reported. */
+  readonly resetAt?: number
+  /** Provider status token for the window, such as `allowed`, `allowed_warning`, or `rejected`. */
+  readonly status?: string
+  /** Unix epoch milliseconds when the publisher observed the value. */
+  readonly observedAt: number
 }
 
 export type {

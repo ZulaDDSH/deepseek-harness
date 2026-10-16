@@ -1,14 +1,15 @@
-/** @module Read-only browsing of the Memorix 1.3.0 SQLite store. */
+/** @module Read-only browsing of the Memorix SQLite store written by memorix 1.3.0 and later. */
 import { existsSync } from 'node:fs'
 import { DatabaseSync, type SQLOutputValue } from 'node:sqlite'
 import { z } from 'zod'
-import type { MemorixCell, MemorixPage, MemorixRecentObservation, MemorixTable, MemorixView } from './types.ts'
+import type { MemorixCell, MemorixObservationRecord, MemorixPage, MemorixRecentObservation, MemorixTable, MemorixView } from './types.ts'
 
-const MIGRATIONS = [
+const REQUIRED_MIGRATIONS = [
   '1.2-code-state-snapshots', '1.2-knowledge-claim-ledger', '1.2-knowledge-workspace',
   '1.2-workflow-inheritance', '1.2.2-observation-admission', '1.2.2-observation-visibility',
   '1.2.7-compaction-checkpoints', '1.3-long-term-memory',
-].sort()
+]
+const OBSERVATION_COLUMNS = ['id', 'entityName', 'projectId', 'topicKey', 'title', 'narrative', 'status', 'createdAt']
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
 const DOCUMENT_TOPIC = "topicKey LIKE 'document:%'"
 const Request = z.object({
@@ -29,14 +30,11 @@ function cell(value: SQLOutputValue): MemorixCell {
 function tables(db: DatabaseSync, only?: string): MemorixTable[] {
   let migrations: string[]
   try { migrations = db.prepare('SELECT id FROM schema_migrations ORDER BY id').all().map(row => String(row.id)) }
-  catch { throw new Error('The file is not a Memorix 1.3.0 database (it has no schema_migrations table)') }
-  if (JSON.stringify(migrations) !== JSON.stringify(MIGRATIONS)) {
-    const missing = MIGRATIONS.filter(id => !migrations.includes(id))
-    const unexpected = migrations.filter(id => !MIGRATIONS.includes(id))
-    throw new Error('Unsupported Memorix schema: this panel reads only the Memorix 1.3.0 database layout'
-      + (missing.length > 0 ? `; missing migrations: ${missing.join(', ')}` : '')
-      + (unexpected.length > 0 ? `; unrecognized migrations: ${unexpected.join(', ')}` : '')
-      + '. Install memorix@1.3.0 or point databasePath at a 1.3.0 database.')
+  catch { throw new Error('The file is not a Memorix database (it has no schema_migrations table)') }
+  const missing = REQUIRED_MIGRATIONS.filter(id => !migrations.includes(id))
+  if (missing.length > 0) {
+    throw new Error(`Unsupported Memorix database: missing schema migrations ${missing.join(', ')}. `
+      + 'Use a database written by a supported Memorix release, or point databasePath at one.')
   }
   const names = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all()
   return names.filter(row => only === undefined || row.name === only).map((row) => {
@@ -45,6 +43,13 @@ function tables(db: DatabaseSync, only?: string): MemorixTable[] {
     const count = z.number().int().nonnegative().parse(db.prepare(`SELECT COUNT(*) AS n FROM "${name}"`).get()?.n)
     return { name, columns, count }
   })
+}
+
+function observations(db: DatabaseSync, columns: readonly string[] = OBSERVATION_COLUMNS): void {
+  const table = tables(db, 'observations')[0]
+  if (table === undefined) throw new Error('Unsupported Memorix database: it has no observations table')
+  const missing = columns.filter(column => !table.columns.includes(column))
+  if (missing.length > 0) throw new Error(`Unsupported Memorix database: the observations table lacks ${missing.join(', ')}`)
 }
 
 function read<T>(path: string, operation: (db: DatabaseSync) => T): T {
@@ -118,7 +123,7 @@ export function memorixPage(path: string, request: {
 export function memorixStoredChunk(path: string, id: number, project: string, topic: string, narrative: string): boolean {
   z.number().int().positive().parse(id)
   return read(path, (db) => {
-    tables(db, 'observations')
+    observations(db, ['id', 'projectId', 'topicKey', 'narrative'])
     const row = db.prepare('SELECT projectId, topicKey, narrative FROM observations WHERE id = ?').get(id)
     return row?.projectId === project && row.topicKey === topic && row.narrative === narrative
   })
@@ -143,7 +148,7 @@ export function memorixRecent(path: string, query: {
     limit: z.number().int().positive(),
   }).parse(query)
   return read(path, (db) => {
-    tables(db, 'observations')
+    observations(db)
     const escaped = input.excludeTopicPrefix.replace(/[\\%_]/g, '\\$&')
     return db.prepare(
       "SELECT title, narrative, createdAt FROM observations WHERE entityName = ? AND status = 'active' AND createdAt < ? "
@@ -151,5 +156,33 @@ export function memorixRecent(path: string, query: {
     ).all(input.entityName, input.before, `${escaped}%`, input.limit).map(row => ({
       title: z.string().parse(row.title), narrative: z.string().parse(row.narrative), createdAt: z.string().parse(row.createdAt),
     }))
+  })
+}
+
+/**
+ * Read the observations with the given identifiers, in the order requested, for recall after a search.
+ * @param path - provider database path.
+ * @param ids - numeric observation identifiers, as a search reports them.
+ * @returns the records that exist, in request order; identifiers without a row are omitted.
+ */
+export function memorixObservations(path: string, ids: readonly number[]): MemorixObservationRecord[] {
+  const input = z.array(z.number().int().positive()).parse(ids)
+  if (input.length === 0) return []
+  return read(path, (db) => {
+    observations(db)
+    const statement = db.prepare('SELECT id, entityName, topicKey, title, narrative, createdAt, status FROM observations WHERE id = ?')
+    return input.flatMap((id) => {
+      const row = statement.get(id)
+      if (row === undefined) return []
+      return [{
+        id,
+        entityName: z.string().parse(row.entityName),
+        topicKey: z.string().nullable().parse(row.topicKey),
+        title: z.string().parse(row.title),
+        narrative: z.string().parse(row.narrative),
+        createdAt: z.string().parse(row.createdAt),
+        status: z.string().parse(row.status),
+      }]
+    })
   })
 }

@@ -25,7 +25,7 @@ class ControlledRuntime extends PtcRuntime {
   run(spec: PtcRunSpec): Promise<PtcRunResult> { return this.execute(spec) }
 }
 
-async function setup(execute?: (bindings: HostBindings, spec: PtcRunSpec) => Promise<PtcRunResult>, language = 'typescript') {
+async function setup(execute?: (bindings: HostBindings, spec: PtcRunSpec) => Promise<PtcRunResult>, language = 'typescript', claudeCliProvider?: string) {
   const ctx = new Context()
   onTestFinished(async () => { await ctx.fiber.dispose() })
   await ctx.plugin(SessionStore)
@@ -47,7 +47,7 @@ async function setup(execute?: (bindings: HostBindings, spec: PtcRunSpec) => Pro
   const runtime = ctx.ptcRuntime as ControlledRuntime
   runtime.language = language
   if (execute !== undefined) runtime.execute = spec => execute(spec.bindings[0]!.functions, spec)
-  await ctx.plugin(PtcWorkflowEngine, { provider: 'stub' })
+  await ctx.plugin(PtcWorkflowEngine, { provider: 'stub', ...claudeCliProvider === undefined ? {} : { claudeCliProvider } })
   const parent = fakeParent(ctx)
   const start = () => ctx.workflowEngine.start({
     script: 'return null', meta: { name: 'host-test', description: 'workflow callbacks' }, parent,
@@ -62,6 +62,8 @@ describe('workflow host callback validation', () => {
     ['startChild', { prompt: 7 }, 'prompt must be a string'],
     ['startChild', { prompt: 'p', provider: 7 }, 'provider must be a string'],
     ['startChild', { prompt: 'p', model: false }, 'model must be a string'],
+    ['startChild', { prompt: 'p', role: 7 }, 'role must be a string'],
+    ['startChild', { prompt: 'p', role: 'orchestrator' }, 'subagent role must be one of coder, reviewer, researcher'],
     ['progress', {}, 'requires an array of events'],
     ['progress', [{ type: 'phase', title: null }], 'phase must be a string'],
     ['progress', [{ type: 'agent-start', info: { seq: 0 } }], 'sequence must be a positive integer'],
@@ -173,6 +175,160 @@ describe('workflow runtime outcomes', () => {
       expect((await handle.result).stopReason).toBe('completed')
     } finally {
       childResult.resolve({ output: [], stopReason: 'aborted' })
+      await handle.dispose()
+    }
+  })
+})
+
+describe('workflow host delegation roles', () => {
+  function mockSetup(ctx: Context, subagentSetup: unknown): void {
+    const readOriginal = ctx.sessionProjections.stateOf.bind(ctx.sessionProjections)
+    vi.spyOn(ctx.sessionProjections, 'stateOf').mockImplementation((session, key) =>
+      key === 'runOptions' ? { current: { subagentSetup } } as never : readOriginal(session, key))
+  }
+
+  it('starts a fixed role child on its route and pins it', async () => {
+    const { ctx, start } = await setup(async (bindings) => {
+      await bindings.startChild!({ prompt: 'p', role: 'coder' })
+      return completed
+    })
+    mockSetup(ctx, { enabled: true, reviewRounds: 0, roles: { coder: { mode: 'fixed', route: { backend: 'llm', provider: 'alpha', model: 'coder-model' } } } })
+    const startSpy = vi.spyOn(ctx.subagents, 'start')
+    const handle = start()
+    try {
+      expect((await handle.result).stopReason).toBe('completed')
+      expect(startSpy).toHaveBeenCalledWith('stub', expect.objectContaining({
+        agentOptions: { provider: 'alpha', model: 'coder-model' },
+        routePinned: true,
+      }))
+    } finally {
+      await handle.dispose()
+    }
+  })
+
+  it('leaves a Jev-decides role child unrouted', async () => {
+    const { ctx, start } = await setup(async (bindings) => {
+      await bindings.startChild!({ prompt: 'p', role: 'reviewer' })
+      return completed
+    })
+    mockSetup(ctx, { enabled: true, reviewRounds: 0, roles: { reviewer: { mode: 'jev' } } })
+    const startSpy = vi.spyOn(ctx.subagents, 'start')
+    const handle = start()
+    try {
+      expect((await handle.result).stopReason).toBe('completed')
+      const request = startSpy.mock.calls[0]?.[1]
+      expect(request).not.toHaveProperty('agentOptions')
+      expect(request).not.toHaveProperty('routePinned')
+    } finally {
+      await handle.dispose()
+    }
+  })
+
+  it('runs a Claude-subscription role child on the Claude provider', async () => {
+    const { ctx, start } = await setup(async (bindings) => {
+      await bindings.startChild!({ prompt: 'p', role: 'coder' })
+      return completed
+    })
+    ctx.subagents.registerProvider({
+      name: 'claude-code',
+      capabilities: { agentOptions: true, outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+      inheritsParentContext: false,
+      start: async () => ({
+        id: SessionId('claude-child'),
+        localAgent: undefined,
+        result: Promise.resolve({ output: [], stopReason: 'completed' }),
+        dispose: () => Promise.resolve(),
+      }),
+    })
+    mockSetup(ctx, { enabled: true, reviewRounds: 0, roles: { coder: { mode: 'fixed', route: { backend: 'claude-cli', model: 'cli-model' } } } })
+    const startSpy = vi.spyOn(ctx.subagents, 'start')
+    const handle = start()
+    try {
+      expect((await handle.result).stopReason).toBe('completed')
+      expect(startSpy).toHaveBeenCalledWith('claude-code', expect.objectContaining({
+        agentOptions: { model: 'cli-model' },
+        routePinned: true,
+      }))
+    } finally {
+      await handle.dispose()
+    }
+  })
+
+  it('runs a Claude-subscription role child on the configured Claude provider name', async () => {
+    const { ctx, start } = await setup(async (bindings) => {
+      await bindings.startChild!({ prompt: 'p', role: 'coder' })
+      return completed
+    }, 'typescript', 'claude-team')
+    ctx.subagents.registerProvider({
+      name: 'claude-team',
+      capabilities: { agentOptions: true, outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+      inheritsParentContext: false,
+      start: async () => ({
+        id: SessionId('claude-team-child'),
+        localAgent: undefined,
+        result: Promise.resolve({ output: [], stopReason: 'completed' }),
+        dispose: () => Promise.resolve(),
+      }),
+    })
+    mockSetup(ctx, { enabled: true, reviewRounds: 0, roles: { coder: { mode: 'fixed', route: { backend: 'claude-cli', model: 'cli-model' } } } })
+    const startSpy = vi.spyOn(ctx.subagents, 'start')
+    const handle = start()
+    try {
+      expect((await handle.result).stopReason).toBe('completed')
+      expect(startSpy).toHaveBeenCalledWith('claude-team', expect.objectContaining({ agentOptions: { model: 'cli-model' }, routePinned: true }))
+    } finally {
+      await handle.dispose()
+    }
+  })
+
+  it('rejects a role-less child while Orchestrator & Subagent Setup configures a role', async () => {
+    const { ctx, start } = await setup(async (bindings) => {
+      await expect(Promise.resolve().then(() => bindings.startChild!({ prompt: 'p', model: 'other-model' })))
+        .rejects.toThrow('must pass role (coder)')
+      await expect(Promise.resolve().then(() => bindings.startChild!({ prompt: 'p' })))
+        .rejects.toThrow('must pass role (coder)')
+      return completed
+    })
+    mockSetup(ctx, { enabled: true, reviewRounds: 0, roles: { coder: { mode: 'jev' } } })
+    const startSpy = vi.spyOn(ctx.subagents, 'start')
+    const handle = start()
+    try {
+      expect((await handle.result).stopReason).toBe('completed')
+      expect(startSpy).not.toHaveBeenCalled()
+    } finally {
+      await handle.dispose()
+    }
+  })
+
+  it('still allows a role-less child when Orchestrator & Subagent Setup configures no delegation role', async () => {
+    const { ctx, start } = await setup(async (bindings) => {
+      await bindings.startChild!({ prompt: 'p' })
+      return completed
+    })
+    mockSetup(ctx, { enabled: true, reviewRounds: 0, roles: { orchestrator: { mode: 'jev' } } })
+    const startSpy = vi.spyOn(ctx.subagents, 'start')
+    const handle = start()
+    try {
+      expect((await handle.result).stopReason).toBe('completed')
+      expect(startSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      await handle.dispose()
+    }
+  })
+
+  it('rejects a role combined with a route, and a role while Orchestrator & Subagent Setup is off', async () => {
+    const { ctx, start } = await setup(async (bindings) => {
+      await expect(Promise.resolve().then(() => bindings.startChild!({ prompt: 'p', role: 'coder', model: 'other-model' })))
+        .rejects.toThrow('omit provider, model, and reasoning_effort')
+      await expect(Promise.resolve().then(() => bindings.startChild!({ prompt: 'p', role: 'coder' })))
+        .rejects.toThrow('needs Orchestrator & Subagent Setup, which is off')
+      return completed
+    })
+    mockSetup(ctx, undefined)
+    const handle = start()
+    try {
+      expect((await handle.result).stopReason).toBe('completed')
+    } finally {
       await handle.dispose()
     }
   })

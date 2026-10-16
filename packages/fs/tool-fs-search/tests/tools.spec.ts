@@ -340,11 +340,8 @@ describe('config validation', () => {
 describe('command construction (plain argv)', () => {
   it('glob: fixed rg --files argv with the pattern and paired VCS excludes', () => {
     expect(buildGlobCommand({ pattern: '**/*.ts' })).toEqual([
-      '--files',
-      '--glob=**/*.ts',
-      '--sort=modified',
-      '--no-ignore',
-      '--hidden',
+      '--files', '--type-add=dshglob:*.ts', '--type=dshglob', '--sort=modified',
+      '--hidden', '--glob=!**/node_modules',
       '--glob=!**/.git', '--glob=!**/.git/**',
       '--glob=!**/.svn', '--glob=!**/.svn/**',
       '--glob=!**/.hg', '--glob=!**/.hg/**',
@@ -352,10 +349,12 @@ describe('command construction (plain argv)', () => {
       '--glob=!**/.jj', '--glob=!**/.jj/**',
       '--glob=!**/.sl', '--glob=!**/.sl/**',
     ])
+    expect(buildGlobCommand({ pattern: '*', includeIgnored: true }).slice(4, 6)).toEqual(['--hidden', '--no-ignore'])
+    expect(['src/**/*.ts', '**/', 'a:b', '!x'].map(pattern => buildGlobCommand({ pattern })[1])).toEqual(['--glob=src/**/*.ts', '--glob=**/', '--glob=a:b', '--glob=!x'])
   })
 
   it('glob: the search root rides behind -- as a plain element', () => {
-    expect(buildGlobCommand({ pattern: '*.md', path: 'docs dir' })).toEqual(['--files', '--glob=*.md', '--sort=modified', '--no-ignore', '--hidden',
+    expect(buildGlobCommand({ pattern: '*.md', path: 'docs dir' })).toEqual(['--files', '--type-add=dshglob:*.md', '--type=dshglob', '--sort=modified', '--hidden', '--glob=!**/node_modules',
       '--glob=!**/.git', '--glob=!**/.git/**',
       '--glob=!**/.svn', '--glob=!**/.svn/**',
       '--glob=!**/.hg', '--glob=!**/.hg/**',
@@ -386,7 +385,7 @@ describe('command construction (plain argv)', () => {
     // The argv vector is handed to rg verbatim: hostile text cannot break out
     // of its argument because there is no shell between the vector and rg.
     expect(buildGrepCommand({ pattern: raw })).toEqual(['--json', `--regexp=${raw}`])
-    expect(buildGlobCommand({ pattern: raw })[1]).toBe(`--glob=${raw}`)
+    expect(buildGlobCommand({ pattern: raw }).filter(element => element.includes(raw))).toHaveLength(1)
   })
 })
 
@@ -760,7 +759,7 @@ describe('glob results', () => {
     subprocess.handler = () => runResult('sub/a.ts\n')
     const result = await call(ctx, 'glob', { pattern: '*.ts', path: 'sub' })
     expect(result.isError).toBe(false)
-    expect(subprocess.spawns[0]?.argv).toEqual([rgPath, '--no-config', '--files', '--glob=*.ts', '--sort=modified', '--no-ignore', '--hidden',
+    expect(subprocess.spawns[0]?.argv).toEqual([rgPath, '--no-config', '--files', '--type-add=dshglob:*.ts', '--type=dshglob', '--sort=modified', '--hidden', '--glob=!**/node_modules',
       '--glob=!**/.git', '--glob=!**/.git/**',
       '--glob=!**/.svn', '--glob=!**/.svn/**',
       '--glob=!**/.hg', '--glob=!**/.hg/**',

@@ -282,6 +282,7 @@ export class SshSubprocessRuntime extends SubprocessRuntime {
   }
 
   override async spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle> {
+    if (spec.inheritEnvironment === true) throw new Error('subprocess-ssh: inherited terminal environments are supported only by the local provider')
     this.lifetime.signal.throwIfAborted()
     const signal = spec.signal === undefined ? this.lifetime.signal : AbortSignal.any([spec.signal, this.lifetime.signal])
     signal.throwIfAborted()

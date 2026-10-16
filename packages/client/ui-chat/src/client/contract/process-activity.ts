@@ -1,10 +1,15 @@
 /** Tool-category and live-detail interpretation owned by Chat grouping. */
-import type { ProcessActivity, ProcessActivitySummary } from '../contract/process-groups.ts'
-import type { ChatNode } from '../contract/chat-nodes.ts'
-import { isRunningTool } from '../contract/chat-nodes.ts'
-import type { ToolCallBlock } from '../contract/snapshot.ts'
+import type { ProcessActivity, ProcessActivitySummary } from './process-groups.ts'
+import type { ChatNode } from './chat-nodes.ts'
+import { isRunningTool } from './chat-nodes.ts'
+import type { ToolCallBlock } from './snapshot.ts'
 
-function activity(name: string): ProcessActivity {
+/**
+ * Map a tool name to the process category that groups and labels it.
+ * @param name - tool name as the model called it.
+ * @returns the process category; unknown names fall back to `tools`.
+ */
+export function activity(name: string): ProcessActivity {
   if (name === 'read') return 'read'
   if (name === 'read_image') return 'readImage'
   if (name === 'grep' || name === 'glob' || name.endsWith('_inspect')) return 'search'
@@ -67,7 +72,13 @@ function liveReasoningDetail(nodes: readonly ChatNode[]): string {
   return ''
 }
 
-function liveToolDetail(name: string, argsRaw: string): string {
+/**
+ * Derive the one-line, length-bounded task detail of a running tool call.
+ * @param name - tool name, used as the fallback detail.
+ * @param argsRaw - raw JSON arguments as streamed so far.
+ * @returns the first recognised task-describing argument, or the tool name.
+ */
+export function liveToolDetail(name: string, argsRaw: string): string {
   let args: unknown
   try {
     args = JSON.parse(argsRaw)

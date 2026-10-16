@@ -270,6 +270,15 @@
   color: var(--dsw-alias-label-caption);
 }
 
+.groupAttention {
+  display: inline-flex;
+  flex: none;
+  width: 16px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+}
+
 /* Archived rows stay in place but read as inactive: titles drop to
    the caption label step (one step above dimmed, which reads as too faint
    over the sidebar fill). Archived search rows drop their meta line to the

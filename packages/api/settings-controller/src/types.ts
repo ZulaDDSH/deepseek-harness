@@ -60,6 +60,10 @@ export interface AuthorizationEntryView {
   readonly inFlight: boolean
   /** Whether a credential is already stored for this key. */
   readonly configured: boolean
+  /** Which kind of record is stored: a sign-in `grant` or a pasted `api-key`; absent while none is stored. */
+  readonly kind?: 'api-key' | 'grant'
+  /** The other product whose identity this sign-in borrows, when it does; absent for a sign-in of its own. */
+  readonly borrowedFrom?: string
 }
 
 /**

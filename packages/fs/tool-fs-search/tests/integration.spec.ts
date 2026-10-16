@@ -98,6 +98,27 @@ describe('search tools over the real subprocess service + the packaged rg', () =
       expect(text(await call('glob', { pattern: '*', path: '.git' }, agent()))).toBe('No files found')
     })
 
+    it('skips ignored files and node_modules by default; includeIgnored lists them', async () => {
+      await writeFile(join(dir, '.gitignore'), 'build/\n.env\n')
+      await writeFile(join(dir, '.env'), 'LOCAL=1\n')
+      await mkdir(join(dir, 'build'), { recursive: true })
+      await writeFile(join(dir, 'build', 'out.ts'), 'export const out = 4\n')
+      await mkdir(join(dir, 'node_modules', 'pkg'), { recursive: true })
+      await writeFile(join(dir, 'node_modules', 'pkg', 'index.ts'), 'export const pkg = 5\n')
+      const ignored = [join('build', 'out.ts'), join('node_modules', 'pkg', 'index.ts'), '.env']
+
+      for (const pattern of ['*', '**/*']) {
+        const defaults = text(await call('glob', { pattern }, agent())).split('\n')
+        for (const path of ignored) expect(defaults).not.toContain(path)
+        expect(defaults).toContain(join('src', 'alpha.ts'))
+        expect(defaults).toContain('.hidden.ts')
+      }
+
+      const everything = text(await call('glob', { pattern: '*', includeIgnored: true }, agent())).split('\n')
+      for (const path of ignored) expect(everything).toContain(path)
+      expect(everything.some(path => path.split(/[\\/]/)[0] === '.git')).toBe(false)
+    })
+
     it('classifies an invalid glob as SEARCH_INVALID_PATTERN', async () => {
       const result = await call('glob', { pattern: '[' }, agent())
       expect(result.isError).toBe(true)

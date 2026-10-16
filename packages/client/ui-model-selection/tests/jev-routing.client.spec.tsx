@@ -56,9 +56,11 @@ it('names the routed model on the button and explains the decision in a panel', 
   fireEvent.click(button)
   expect(button.getAttribute('aria-expanded')).toBe('true')
   expect(panel()).toBe([
+    en['routing.intro'],
     en['routing.running'], 'anthropic / claude-opus-5',
     en['routing.selected'], 'deepseek / flash',
-    en['routing.decision'], 'Jev chose deep at 92%; the turn ran anthropic / claude-opus-5.',
+    en['routing.decision'], 'Jev chose deep (92% sure); this message ran on anthropic / claude-opus-5.',
+    en['routing.off'],
   ].join(''))
   fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
   expect(screen.queryByRole('dialog')).toBeNull()
@@ -71,22 +73,22 @@ it('names the routed model on the button and explains the decision in a panel', 
 })
 
 it.each([
-  [{ turn: 1, step: 1, choice: 'keep', confidence: 0.95 }, 'Kept the chat model (95% confidence).'],
-  [{ turn: 1, step: 1, confidence: 0.5 }, 'Kept the chat model (50% confidence).'],
-  [{ turn: 1, step: 1, choice: 'deep', confidence: 0.61 }, 'Kept the chat model: the best match was deep, but only at 61% confidence.'],
-  [{ turn: 1, step: 1, choice: 'deep' }, 'Kept the chat model: the best match was deep, but only at 0% confidence.'],
-  [{ turn: 1, step: 1, choice: 'deep', provider: 'anthropic' }, 'Kept the chat model: the best match was deep, but only at 0% confidence.'],
-])('explains a decision that kept the chat model: %o', (decision, text) => {
+  [{ turn: 1, step: 1, choice: 'keep', confidence: 0.95 }, 'Jev kept your picked model (95% sure).'],
+  [{ turn: 1, step: 1, confidence: 0.5 }, 'Jev kept your picked model (50% sure).'],
+  [{ turn: 1, step: 1, choice: 'deep', confidence: 0.61 }, 'Jev kept your picked model: its best match was deep, but it was only 61% sure.'],
+  [{ turn: 1, step: 1, choice: 'deep' }, 'Jev kept your picked model: its best match was deep, but it was only 0% sure.'],
+  [{ turn: 1, step: 1, choice: 'deep', provider: 'anthropic' }, 'Jev kept your picked model: its best match was deep, but it was only 0% sure.'],
+])('explains a decision that kept the picked model: %o', (decision, text) => {
   mount(projected(chosen, chosen), decision)
   fireEvent.click(screen.getByRole('button', { name: en['routing.button'] }))
   expect(panel()).toContain(text)
 })
 
 it.each([
-  [{ turn: 1, step: 1, error: 'timeout' }, 'The last Jev decision failed: timeout'],
-  [{ turn: 1, step: 1, error: 'timeout', rejected: false }, 'The last decision failed, so the chat model was kept: timeout'],
-  [{ turn: 1, step: 1, error: 'timeout', rejected: true }, 'The last decision failed, so the turn stopped: timeout'],
-])('explains a failed decision without assuming the chat model ran: %o', (decision, text) => {
+  [{ turn: 1, step: 1, error: 'timeout' }, "Jev couldn't decide (timeout). This older record doesn't say whether the turn went on."],
+  [{ turn: 1, step: 1, error: 'timeout', rejected: false }, "Jev couldn't decide (timeout), so your picked model was used."],
+  [{ turn: 1, step: 1, error: 'timeout', rejected: true }, "Jev couldn't decide (timeout), so the turn was stopped."],
+])('explains a failed decision without assuming a model ran: %o', (decision, text) => {
   mount(projected(null, chosen), decision)
   fireEvent.click(screen.getByRole('button', { name: en['routing.button'] }))
   expect(panel()).toContain(text)
@@ -102,13 +104,13 @@ it('explains a routed run with no decision yet and an unknown selection', () => 
 it('reports a legacy fallback record without reading its missing route', () => {
   mount(projected(routedTo, chosen), { turn: 1, step: 1, choice: 'small', confidence: 0.01, provider: 'target', model: 'safe' })
   fireEvent.click(screen.getByRole('button', { name: 'Jev: claude-opus-5' }))
-  expect(panel()).toContain('Jev chose small at 1%; the turn ran target / safe.')
+  expect(panel()).toContain('Jev chose small (1% sure); this message ran on target / safe.')
 })
 
 it('reports a legacy record without a route or a pick', () => {
   mount(projected(routedTo, chosen), { turn: 1, step: 1, confidence: 1, ...routedTo })
   fireEvent.click(screen.getByRole('button', { name: 'Jev: claude-opus-5' }))
-  expect(panel()).toContain('Jev chose  at 100%; the turn ran anthropic / claude-opus-5.')
+  expect(panel()).toContain("Jev's pick wasn't recorded (100% sure); this message ran on anthropic / claude-opus-5.")
 })
 
 it('shows nothing known before any request has run', () => {
@@ -120,19 +122,26 @@ it('shows nothing known before any request has run', () => {
 it('says when the fallback route ran because Jev was not confident enough', () => {
   mount(projected(routedTo, chosen), { turn: 1, step: 1, choice: 'flash', confidence: 0.01, route: 'safe', ...routedTo })
   fireEvent.click(screen.getByRole('button', { name: 'Jev: claude-opus-5' }))
-  expect(panel()).toContain("Jev wasn't confident enough (best match flash at 1%), so the fallback route safe (anthropic / claude-opus-5) was used.")
+  expect(panel()).toContain("Jev wasn't sure enough (best match flash, 1% sure), so it used the fallback route 'safe' (anthropic / claude-opus-5).")
 })
 
 it("names the applied route when it is Jev's pick", () => {
   mount(projected(routedTo, chosen), { turn: 1, step: 1, choice: 'deep', confidence: 0.9, route: 'deep', ...routedTo })
   fireEvent.click(screen.getByRole('button', { name: 'Jev: claude-opus-5' }))
-  expect(panel()).toContain('Jev picked route deep (anthropic / claude-opus-5) with 90% confidence.')
+  expect(panel()).toContain("Chose anthropic / claude-opus-5 for this message using the 'deep' route, 90% sure.")
 })
 
 it('describes a fallback recorded without a best match', () => {
   mount(projected(routedTo, chosen), { turn: 1, step: 1, confidence: 0, route: 'safe', ...routedTo })
   fireEvent.click(screen.getByRole('button', { name: 'Jev: claude-opus-5' }))
-  expect(panel()).toContain('(best match  at 0%), so the fallback route safe')
+  expect(panel()).toContain("Jev wasn't sure enough (0% sure), so it used the fallback route 'safe' (anthropic / claude-opus-5).")
+})
+
+it('introduces Jev and how to turn it off', () => {
+  mount(projected(routedTo, chosen), null)
+  fireEvent.click(screen.getByRole('button', { name: 'Jev: claude-opus-5' }))
+  expect(panel()?.startsWith('Jev is automatic model routing: for each new message it picks the model best suited to that task.')).toBe(true)
+  expect(panel()).toContain('To turn Jev off, go to Settings > AI models > Model routing > Enable Jev routing.')
 })
 
 it('renders nothing once the routed turn ends and Jev has no decision', () => {

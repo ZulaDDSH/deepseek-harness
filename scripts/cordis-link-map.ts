@@ -48,6 +48,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   ModelSelection: 'core.md',
   AllowedModelRoute: 'subagent.md',
   SubagentModelSelectionSettings: 'subagent.md',
+  SubagentSetup: 'subagent.md',
   AgentOptions: 'core.md',
   AgentStatus: 'core.md',
   AssistantStreamFrame: 'core.md',

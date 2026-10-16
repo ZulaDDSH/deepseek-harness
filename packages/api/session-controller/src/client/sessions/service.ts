@@ -1,7 +1,7 @@
 /** Client catalog and source-labelled ownership of exact Session generations. */
 import type { Context, Fiber } from '@deepseek-ai/cordis'
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
-import { SessionSeq, type SessionId } from '@deepseek-ai/dsh-session/types'
+import { SessionSeq, type CliTerminalProfileId, type SessionId } from '@deepseek-ai/dsh-session/types'
 import { workspaceTitleOf } from '@deepseek-ai/dsh-util-workspace-path'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import { SESSION_SEARCH_RESULT_LIMIT } from '../../types.ts'
@@ -31,6 +31,8 @@ export interface SessionSummary {
   displayTitle: string
   cwd?: string
   parentId?: SessionId
+  /** CLI terminal profile the Session hosts. */
+  cliProfile?: CliTerminalProfileId
   /** Coarse durable origin for navigation filtering; not a continuation capability. */
   origin?: 'subagent'
   /** Host running state for `ids` members; a display fallback for other rows. */
@@ -428,7 +430,12 @@ export class ClientSessions implements ISessions {
    * @returns the new session id.
    * @throws {SessionCreateError} with the requested id.
    */
-  async create(opts: { workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId } = {}): Promise<SessionId> {
+  async create(opts: {
+    workspaceId?: WorkspaceId
+    cwd?: string
+    sessionId?: SessionId
+    cliProfile?: CliTerminalProfileId
+  } = {}): Promise<SessionId> {
     const result = await this.manager.create(opts)
     if (!result.ok) throw new SessionCreateError(result.error, opts.sessionId)
     this.projectList()
@@ -627,6 +634,7 @@ export class ClientSessions implements ISessions {
           : { projectionValues: entry.projectionValues }),
         ...(entry.title !== undefined ? { title: entry.title } : {}),
         ...(entry.cwd !== undefined ? { cwd: entry.cwd } : {}),
+        ...(entry.cliProfile !== undefined ? { cliProfile: entry.cliProfile } : {}),
         ...(entry.parentSessionId !== undefined ? { parentId: entry.parentSessionId } : {}),
         ...(entry.origin !== undefined ? { origin: entry.origin } : {}),
       }

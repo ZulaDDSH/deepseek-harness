@@ -26,7 +26,6 @@ import SessionQueryEngine, {
   readColdSessionLog,
 } from '@deepseek-ai/dsh-session-query'
 import type {
-  Config as SessionQueryConfig,
   SessionEventSearchDocument,
   SessionEventSearchHit,
   SessionEventSearchPage,
@@ -38,9 +37,17 @@ import type {
   SessionSearchRequest,
 } from '@deepseek-ai/dsh-session-query'
 import {
-  type JournalMode,
   openSearchDatabase,
+  removeIndexFiles,
 } from './schema.ts'
+import {
+  type Config,
+  type ResolvedConfig,
+  resolveConfig,
+  SESSION_QUERY_SQLITE_DEFAULT_LIMIT,
+  SESSION_QUERY_SQLITE_MAX_LIMIT,
+  SESSION_QUERY_SQLITE_SNIPPET_CHARS,
+} from './config.ts'
 import {
   type NormalizedEventRequest,
   type NormalizedSessionRequest,
@@ -64,6 +71,13 @@ export {
   SESSION_QUERY_SQLITE_SCHEMA_VERSION,
   type JournalMode,
 } from './schema.ts'
+export {
+  SESSION_QUERY_SQLITE_DEFAULT_LIMIT,
+  SESSION_QUERY_SQLITE_MAX_LIMIT,
+  SESSION_QUERY_SQLITE_SNIPPET_CHARS,
+  type Config,
+  type OpenAt,
+} from './config.ts'
 
 /** Boot-context slot for a launcher-owned absolute path to this process's derived query index. */
 export const SESSION_QUERY_SQLITE_PATH_KEY = 'launcherSessionQueryPath'
@@ -75,60 +89,8 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/** Default result page size. */
-export const SESSION_QUERY_SQLITE_DEFAULT_LIMIT = 20
-/** Maximum accepted result page size. */
-export const SESSION_QUERY_SQLITE_MAX_LIMIT = 100
-/** Default maximum snippet length in Unicode code points. */
-export const SESSION_QUERY_SQLITE_SNIPPET_CHARS = 240
-
 // One transient source change gets a retry; repeated churn fails rather than monopolizing the queue.
 const STABLE_OBSERVATION_ATTEMPTS = 2
-
-/** SQLite module/handle opening phase; `never` disables full-text search entirely. */
-export type OpenAt = 'startup' | 'first-search' | 'never'
-
-/** Combined session-query configuration backed by SQLite full-text search. */
-export interface Config extends SessionQueryConfig {
-  /**
-   * Dedicated derived-index path; `:memory:` is supported for ephemeral
-   * indexes. Missing directories and database files are created owner-only on
-   * POSIX filesystems; existing modes are preserved.
-   */
-  path: string
-  /**
-   * Open the SQLite module and handle at service activation or the first
-   * search, or `never` to disable full-text search: the inherited exact
-   * reads, filters, and traces stay available, while `searchSessions` and
-   * `searchEvents` fail with `SESSION_QUERY_SEARCH_DISABLED` and SQLite is
-   * never imported or opened. Defaults to `startup`.
-   */
-  openAt?: OpenAt
-  /** SQLite journal mode. Defaults to `wal`. */
-  journalMode?: JournalMode
-  /** Page size when a request omits `limit`. At most `Number.MAX_SAFE_INTEGER - 1`; defaults to 20. */
-  defaultLimit?: number
-  /** Largest accepted page size. At most `Number.MAX_SAFE_INTEGER - 1`; defaults to 100. */
-  maxLimit?: number
-  /** Maximum snippet length in Unicode code points. Defaults to 240. */
-  snippetChars?: number
-  /** Maximum concurrent persisted-log reads in one inherited batch read. Defaults to 4. */
-  persistedReadConcurrency?: number
-  /** Maximum cold prepared-Session observations the inherited reader retains for reuse. Defaults to 5. */
-  preparedSessionCacheSize?: number
-}
-
-interface ResolvedConfig {
-  path: string
-  openAt: OpenAt
-  journalMode: JournalMode
-  defaultLimit: number
-  maxLimit: number
-  snippetChars: number
-  readWindowMax: number
-  persistedReadConcurrency: number
-  preparedSessionCacheSize: number
-}
 
 interface ObservedSession {
   header: SessionHeader
@@ -203,7 +165,7 @@ interface CursorPayload {
 export class SqliteSessionQueryEngine extends SessionQueryEngine {
   static override inject = ['sessions']
 
-  static Config: z<Config> = z.object({
+  static Config = z.object({
     path: z.string().required(),
     openAt: z.union(['startup', 'first-search', 'never'] as const).default('startup'),
     journalMode: z.union(['wal', 'delete', 'truncate', 'persist'] as const).default('wal'),
@@ -221,6 +183,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       .min(1)
       .max(Number.MAX_SAFE_INTEGER)
       .default(SESSION_QUERY_DEFAULT_PREPARED_SESSION_CACHE_SIZE),
+    contentSearch: z.boolean().default(true).volatile(),
   })
 
   /** Validated and defaulted backend configuration. */
@@ -240,10 +203,10 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
   private readonly _optionalPersistenceFiber: Fiber
 
   constructor(ctx: Context, config: Config) {
-    // The assignment expression resolves before the base constructor can
-    // register `ctx.sessionQuery`; keep that same validated value afterward.
-    super(ctx, config = resolveConfig(config))
-    this.config = config as ResolvedConfig
+    // Resolve before the base constructor can register `ctx.sessionQuery`; keep that same validated value.
+    const resolved: ResolvedConfig = resolveConfig(config)
+    super(ctx, resolved)
+    this.config = resolved
     this._optionalPersistenceFiber = ctx.inject(['sessionPersistence'], (childCtx: Context) => {
       const service = childCtx.sessionPersistence
       const binding = { identity: Symbol(), service }
@@ -262,6 +225,13 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
 
   /** Open eagerly only when activation owns the configured readiness boundary. */
   protected async [Service.init](): Promise<void> {
+    if (!this.config.contentSearch()) {
+      const cleared = await removeIndexFiles(this.config.path).catch(() => false)
+      if (!cleared) {
+        this.ctx.logger.warn(`session-query-sqlite: content search is off; "${this.config.path}" was not removed`)
+      }
+      return
+    }
     if (this.config.openAt === 'startup') await this._ensureReady(undefined)
   }
 
@@ -336,9 +306,9 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
    * node:sqlite, opens the index, or observes sources.
    */
   private _assertSearchEnabled(): void {
-    if (this.config.openAt !== 'never') return
+    if (this.config.openAt !== 'never' && this.config.contentSearch()) return
     throw new SessionQueryError(
-      'session search is disabled: this deployment configures the session-query index with openAt "never"',
+      'session search is disabled: it is turned off in Settings or configured with openAt "never"',
       'SESSION_QUERY_SEARCH_DISABLED',
     )
   }
@@ -1014,68 +984,6 @@ function invalidCursor(cause: unknown): SessionQueryError {
     'session-search cursor is invalid',
     'SESSION_QUERY_INVALID_CURSOR',
     { cause },
-  )
-}
-
-function resolveConfig(config: Config): ResolvedConfig {
-  const resolved: ResolvedConfig = {
-    path: config.path,
-    openAt: config.openAt ?? 'startup',
-    journalMode: config.journalMode ?? 'wal',
-    defaultLimit: config.defaultLimit ?? SESSION_QUERY_SQLITE_DEFAULT_LIMIT,
-    maxLimit: config.maxLimit ?? SESSION_QUERY_SQLITE_MAX_LIMIT,
-    snippetChars: config.snippetChars ?? SESSION_QUERY_SQLITE_SNIPPET_CHARS,
-    readWindowMax: config.readWindowMax ?? SESSION_QUERY_READ_WINDOW_MAX,
-    persistedReadConcurrency: config.persistedReadConcurrency
-      ?? SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY,
-    preparedSessionCacheSize: config.preparedSessionCacheSize
-      ?? SESSION_QUERY_DEFAULT_PREPARED_SESSION_CACHE_SIZE,
-  }
-  if (typeof resolved.path !== 'string' || resolved.path.trim().length === 0) {
-    throw invalidConfig('path must not be blank')
-  }
-  const openPhases: readonly string[] = ['startup', 'first-search', 'never']
-  if (!openPhases.includes(resolved.openAt)) throw invalidConfig('openAt is not supported')
-  assertPageLimit('defaultLimit', resolved.defaultLimit)
-  assertPageLimit('maxLimit', resolved.maxLimit)
-  assertPositiveInteger('snippetChars', resolved.snippetChars)
-  if (!Number.isInteger(resolved.readWindowMax) || resolved.readWindowMax < 0) {
-    throw invalidConfig('readWindowMax must be a non-negative integer')
-  }
-  if (
-    !Number.isSafeInteger(resolved.persistedReadConcurrency)
-    || resolved.persistedReadConcurrency < 1
-  ) {
-    throw invalidConfig('persistedReadConcurrency must be a positive safe integer')
-  }
-  if (
-    !Number.isSafeInteger(resolved.preparedSessionCacheSize)
-    || resolved.preparedSessionCacheSize < 1
-  ) {
-    throw invalidConfig('preparedSessionCacheSize must be a positive safe integer')
-  }
-  if (resolved.defaultLimit > resolved.maxLimit) {
-    throw invalidConfig('defaultLimit must be less than or equal to maxLimit')
-  }
-  const journalModes: readonly string[] = ['wal', 'delete', 'truncate', 'persist']
-  if (!journalModes.includes(resolved.journalMode)) throw invalidConfig('journalMode is not supported')
-  return resolved
-}
-
-function assertPositiveInteger(name: string, value: number): void {
-  if (!Number.isInteger(value) || value < 1) throw invalidConfig(`${name} must be a positive integer`)
-}
-
-function assertPageLimit(name: string, value: number): void {
-  if (!Number.isSafeInteger(value) || value < 1 || value > SQLITE_MAX_PAGE_LIMIT) {
-    throw invalidConfig(`${name} must be an integer between 1 and ${SQLITE_MAX_PAGE_LIMIT}`)
-  }
-}
-
-function invalidConfig(detail: string): SessionQueryError {
-  return new SessionQueryError(
-    `session-search SQLite config: ${detail}`,
-    'SESSION_QUERY_INVALID_CONFIG',
   )
 }
 

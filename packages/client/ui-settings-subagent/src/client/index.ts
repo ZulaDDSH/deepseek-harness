@@ -18,6 +18,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { SubagentCard } from './SubagentCard.tsx'
+import { ClaudeCodeCard } from './ClaudeCodeCard.tsx'
+import { CLAUDE_CODE_NS, ClaudeCodeCardController } from './claude-code-card-controller.ts'
 import { subagentCardFace } from './subagent-card-controller.ts'
 import { SubagentLimitsCardController } from './subagent-limits-card-controller.ts'
 import {
@@ -90,4 +92,14 @@ export function apply(ctx: ClientContext): void {
     locale: NS,
     inject: () => subagentCardFace(limitsFace, modelsFace),
   }, SubagentCard))), 'ui-settings-subagent: page')
+  const claudeCode = new ClaudeCodeCardController(ctx.configForms.get(CLAUDE_CODE_NS))
+  ctx.effect(() => () => { claudeCode.dispose() }, 'ui-settings-subagent: claude code form subscription')
+  ctx.effect(() => ctx.configForms.whileServed([CLAUDE_CODE_NS], () => ctx.slots.inject('plugins.item', () => ctx.slots.register({
+    name: 'plugins.item',
+    id: 'subagent-claude-code',
+    order: 31,
+    label: () => t('claudeCodeTitle'),
+    locale: NS,
+    inject: () => claudeCode.inject(),
+  }, ClaudeCodeCard))), 'ui-settings-subagent: claude code page')
 }

@@ -7,9 +7,9 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ShortcutCatalogEntry } from '@deepseek-ai/dsh-client-shortcuts/client'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
 import type { WorkspaceAppearance } from '../appearance.ts'
-import type { GroupNode, SessionNode, SessionRowState } from '../tree.ts'
+import type { GroupAttention, GroupNode, SessionNode, SessionRowState } from '../tree.ts'
 import {
-  deriveGroups, owningGroupKey, owningParentFolder, UNGROUPED_KEY,
+  deriveGroups, mergeAttention, owningGroupKey, owningParentFolder, UNGROUPED_KEY,
 } from '../tree.ts'
 import { sessionDragOrder, type SessionDragState, useNativeDragAcceptance } from './drag.ts'
 import { AnimatedRows } from './AnimatedRows.tsx'
@@ -247,6 +247,12 @@ export function SessionTree({
     }
     return children
   }, [groups, parents])
+  // A collapsed row stands for its whole folded subtree: its own Sessions plus descendant Workspaces.
+  const subtreeAttention = (group: GroupNode): GroupAttention | undefined =>
+    (childrenByParent.get(group.key) ?? []).reduce<GroupAttention | undefined>(
+      (sum, child) => mergeAttention(sum, subtreeAttention(child)),
+      group.attention,
+    )
   const rootGroups = childrenByParent.get(undefined) ?? []
   const workspaceDropAtListStart = rootGroups[0]?.workspaceId !== undefined
     && workspaceDrag?.over?.id === rootGroups[0].workspaceId
@@ -351,6 +357,7 @@ export function SessionTree({
             }
           }}
           drag={workspaceDragProps}
+          attention={group.expanded ? undefined : subtreeAttention(group)}
           actions={workspaceId === undefined
             ? undefined
             : {

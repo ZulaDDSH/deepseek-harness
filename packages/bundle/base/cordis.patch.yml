@@ -150,9 +150,9 @@
     # ctx.sessionQuery mounted — exact reads, titles, and lineage traces
     # (session export, subagent-fork Workspace inheritance) stay available —
     # while search calls fail with SESSION_QUERY_SEARCH_DISABLED and SQLite is
-    # never opened; the Web sidebar search matches titles and workspace names
-    # only. Deployments enabling content search override `openAt` to
-    # `first-search` or `startup` in a later patch layer (profile
+    # never opened. The dsh-web-app bundle overrides this row to `first-search`
+    # with a durable per-profile index under the Harness `cache` directory;
+    # other deployments can do the same in a later patch layer (profile
     # cordis.patch.yml or a --patch overlay), typically with a durable `path`.
     - id: session-query-sqlite
       name: '@deepseek-ai/dsh-session-query-sqlite'
@@ -283,6 +283,9 @@
     - id: tool-jobs
       name: '@deepseek-ai/dsh-tool-jobs'
 
+    - id: tool-watch
+      name: '@deepseek-ai/dsh-tool-watch'
+
     - id: fs-observation-policy
       name: '@deepseek-ai/dsh-fs-observation-policy'
 
@@ -308,6 +311,9 @@
     - id: skill-badge
       name: '@deepseek-ai/dsh-skill-badge'
       disabled: true
+
+    - id: skill-gsd
+      name: '@deepseek-ai/dsh-skill-gsd'
 
     - id: tool-skill
       name: '@deepseek-ai/dsh-tool-skill'

@@ -9,18 +9,21 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
+import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { PluginArtworkTerminal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { TerminalGuide, type TerminalGuideInjected } from './TerminalGuide.tsx'
 import { LazyTerminalBody } from './LazyTerminalBody.tsx'
+import { LazyCliTerminalPane } from './LazyCliTerminalPane.tsx'
 import { TerminalTitle } from './TerminalTitle.tsx'
 // import { TerminalRecovery, type TerminalRecoveryInjected } from './TerminalRecovery.tsx'
 // import { TerminalCleanup, type TerminalCleanupInjected } from './TerminalCleanup.tsx'
-import type { TerminalBodyInjected, TerminalInjected } from './face.ts'
+import type { CliTerminalInjected, TerminalBodyInjected, TerminalInjected } from './face.ts'
 import { en, zh } from './locales.ts'
 
 /** Services needed by the terminal's two sidebar seats. */
-export const inject = ['slots', 'locale', 'sidebarRight', 'sidebarRightTabs', 'webTerminals', 'theme', 'shortcuts']
+export const inject = ['slots', 'locale', 'sidebarRight', 'sidebarRightTabs', 'webTerminals', 'theme', 'shortcuts', 'uiWorkspace']
 
 /**
  * Register the terminal type, observable views and background process cleanup.
@@ -99,6 +102,19 @@ export function apply(ctx: Context): void {
   ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register(
     { name: 'sidebar.right.pane.tab.title', key: id, locale: namespace, inject }, TerminalTitle,
   )), 'ui-sidebar-terminal.title')
+  ctx.effect(() => ctx.slots.inject('conversation.cli', () => ctx.slots.register({
+    name: 'conversation.cli', locale: namespace,
+    inject: (sessionId: SessionId): CliTerminalInjected => ({
+      cli: profile => ctx.webTerminals.cliView(sessionId, profile),
+      close: (profile) => {
+        ctx.webTerminals.closeCli(sessionId, profile)
+        ctx.uiWorkspace.archiveSession(sessionId, { stopActivity: true })
+          .then(() => { ctx.uiWorkspace.startSession() })
+          .catch((reason: unknown) => { console.warn('CLI session close rejected:', reason) })
+      },
+      hooks: { theme },
+    }),
+  }, LazyCliTerminalPane)), 'ui-sidebar-terminal.cli')
   // ctx.effect(() => ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
   //   name: 'conversation.session.header.actions', id, locale: namespace,
   //   inject: (sessionId): TerminalRecoveryInjected => ({

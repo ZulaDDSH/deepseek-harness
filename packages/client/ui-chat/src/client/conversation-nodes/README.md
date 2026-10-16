@@ -176,7 +176,7 @@ Switching modes retains manually opened groups and inner disclosures. It changes
 <a id="process-grouping"></a>
 ## Process grouping
 
-[process-groups.ts](process-groups.ts) groups visible Chat content; [process-activity.ts](process-activity.ts) summarizes the activity inside each group. Both follow the rules below.
+[process-groups.ts](process-groups.ts) groups visible Chat content; [process-activity.ts](../contract/process-activity.ts) summarizes the activity inside each group. Both follow the rules below.
 
 A group collects adjacent process content within one Turn. Step-number changes alone do not split it. All four modes use the same grouping result. A group's `closed` flag means its content segment has ended, not that its UI disclosure is collapsed.
 
@@ -214,7 +214,7 @@ Replies and independent separators close preceding groups immediately, even whil
 <a id="activity-summaries"></a>
 ## Activity summaries
 
-[process-activity.ts](process-activity.ts) derives one group's category counts and live detail from its member Nodes. It does not decide membership or presentation text.
+[process-activity.ts](../contract/process-activity.ts) derives one group's category counts and live detail from its member Nodes. It does not decide membership or presentation text.
 
 ### Category counts
 

@@ -235,7 +235,6 @@
     "e9ce9370ab27e1dbff54a0ae9a250b10f0314069d41fef58c1822652747be8ff": 1
   },
   "packages/api/session-controller/tests/commands-upload-file.host.spec.ts": {
-    "ecd545e1cc141b29fc9da1988bc3ceab4135f376c0c4d12aaa1a1ab67e2d4b05": 1,
     "ff123c922407e6cb6d42b06534e1e7fb2da129cb09dc6a82d801b8d536540341": 1
   },
   "packages/api/session-controller/tests/control-queue.host.spec.ts": {
@@ -419,9 +418,6 @@
   "packages/client/file-upload/tests/file-upload-http.host.spec.ts": {
     "12a2d457945d43a02ab415318a8f6744ef620abd1fe272e12a164fa4ff476289": 1,
     "37d0e226122b7a3a4253e22583da5c77cc3690554dc959c74bf570589f3224fd": 1
-  },
-  "packages/client/hmr/src/client/index.ts": {
-    "c680fd791fbbade1ee77c9fff0289e5106cacf1574ea0ccd5d2a218e62a44262": 1
   },
   "packages/client/hmr/tests/node-half.client.spec.ts": {
     "46197efe57255c9d92d64476470c89d0602c7333bf98ad75509bf43c1b357a3b": 1
@@ -1910,7 +1906,7 @@
     "89b33a57a7c77261a02116dd015c08d9e6a5b1efb5ba0ebf49bc68a21e7f120a": 2
   },
   "packages/subagent/subagent/src/projection.ts": {
-    "0cd01f87cd1ae24b558cfe5427d45cc016b499579e5ddd3eab125517339b7c71": 1
+    "a396aee603a1db786bbba5a9055f142abdc1551a6248c888d8abe0dd30ea59d2": 1
   },
   "packages/subagent/subagent/tests/assistant-output.spec.ts": {
     "120a0abb7d737528475c728dd74afab470b668b57e8f5c98d7d4144101547823": 1,
@@ -2208,10 +2204,6 @@
   "scripts/benchmark-npm-resolution.ts": {
     "f30cc8d63e02fd6608c2c80f9564bfc17f171581770ba2df4b1a62a8869a3105": 1
   },
-  "scripts/gen-tool-catalog.ts": {
-    "86969c58d27d2ec65c0607b449bbb5ab4644717f0627729a5a193937d51f419e": 1,
-    "ebe146aded1e6f3e71f166a7f88720e560b336bbb92d19cea0b2bdab58c46f8a": 1
-  },
   "scripts/persistence-changes.ts": {
     "2c01874686204d2e1723ae4a9c54f15c98a53cc1e88682b0b432f79f91dd28ac": 3,
     "eff6e18c764150f86c2db750beb6df4dc99d4ae44bbd9c745d092afda3f45982": 1
@@ -2236,6 +2228,10 @@
   },
   "scripts/test-invariants.spec.ts": {
     "1d25e54371f9bac32d21541bfe094eb3eb3bfc39e010982c9f25bb8b0f3bea14": 1
+  },
+  "scripts/tool-catalog-manifest.ts": {
+    "86969c58d27d2ec65c0607b449bbb5ab4644717f0627729a5a193937d51f419e": 1,
+    "ebe146aded1e6f3e71f166a7f88720e560b336bbb92d19cea0b2bdab58c46f8a": 1
   },
   "snapshots/sdk/sdk.snapshot.ts": {
     "782d52268c631008e0fec08f76f87751765690287d5acdfae45021a754900290": 1

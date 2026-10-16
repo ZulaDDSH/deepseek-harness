@@ -95,6 +95,16 @@ export class SubagentContinuationManager {
   }
 
   /**
+   * Reserve one capacity slot for a one-shot run started by `parent`.
+   * @param parent - exact live delegating Agent.
+   * @returns the slot's idempotent release.
+   * @throws {SubagentError} `ACTIVATION_LIMIT_REACHED` at capacity.
+   */
+  reserveOneShotSlot(parent: Agent): () => void {
+    return this.activations.reserveSlot(parent).release
+  }
+
+  /**
    * Start one continuable background child and resolve at initial inbox acceptance.
    * Every earlier failure disposes any created handle and rolls back Activation
    * and parent ownership without returning either id.
@@ -125,6 +135,7 @@ export class SubagentContinuationManager {
       ...agentReasoningEffort !== undefined ? { agentReasoningEffort } : {},
       ...request.persona !== undefined ? { persona: request.persona } : {},
       ...request.toolFilter !== undefined ? { toolFilter: request.toolFilter } : {},
+      ...request.routePinned === true ? { routePinned: true } : {},
     })
     // Capture before the first await: a later parent switch belongs to the
     // parent's future, not to this child.

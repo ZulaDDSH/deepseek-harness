@@ -32,6 +32,8 @@ import { GeneralSection, type GeneralSectionInjected } from './GeneralSection.ts
 import { generalSearchEntries } from './search-entries.ts'
 import { CurrentVersionRow } from './CurrentVersionRow.tsx'
 import { DeveloperToolsRow, type DeveloperToolsRowInjected } from './DeveloperToolsRow.tsx'
+import { SessionSearchRow, type SessionSearchRowInjected } from './SessionSearchRow.tsx'
+import { ChatMemoryRow, type ChatMemoryRowInjected } from './ChatMemoryRow.tsx'
 import { SettingsDocumentAction } from './SettingsDocumentAction.tsx'
 import type { SettingsDocumentActionInjected } from './SettingsDocumentAction.tsx'
 import { SettingsDocumentStore } from './settings-document-store.ts'
@@ -57,6 +59,9 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Dictionary namespace owned by this plugin (shell chrome + General copy). */
 const NS = 'settings'
+/** Host settings namespace of the session-query index; the row exists only while the Host serves it. */
+const SESSION_QUERY_NS = 'session-query-sqlite'
+const MEMORY_NS = 'ui-memory-workspace'
 
 /**
  * Required services (cordis fiber inject). The target slots are declared by
@@ -78,6 +83,34 @@ export function apply(ctx: ClientContext): void {
       setEnabled: enabled => ctx.configForms.developerTools.setEnabled(enabled),
     }),
   }, DeveloperToolsRow))
+  const sessionSearch = ctx.configForms.get<{ contentSearch: boolean }>(SESSION_QUERY_NS)
+  ctx.effect(() => ctx.configForms.whileServed([SESSION_QUERY_NS], () => ctx.slots.inject('settings.general.item', () =>
+    ctx.slots.register({
+      name: 'settings.general.item', id: 'session-search', order: 16, locale: NS,
+      inject: (): SessionSearchRowInjected => ({
+        hooks: { contentSearch: {
+          getSnapshot: () => sessionSearch.getSnapshot().value?.contentSearch ?? true,
+          subscribe: listener => sessionSearch.subscribe(listener),
+        } },
+        setEnabled: async (enabled) => {
+          if (!await sessionSearch.set('contentSearch', enabled)) throw new Error('Session search setting was not saved')
+        },
+      }),
+    }, SessionSearchRow))), 'ui-settings-general: session search row')
+  const chatMemory = ctx.configForms.get<{ chatMemory: boolean }>(MEMORY_NS)
+  ctx.effect(() => ctx.configForms.whileServed([MEMORY_NS], () => ctx.slots.inject('settings.general.item', () =>
+    ctx.slots.register({
+      name: 'settings.general.item', id: 'chat-memory', order: 17, locale: NS,
+      inject: (): ChatMemoryRowInjected => ({
+        hooks: { chatMemory: {
+          getSnapshot: () => chatMemory.getSnapshot().value?.chatMemory ?? true,
+          subscribe: listener => chatMemory.subscribe(listener),
+        } },
+        setEnabled: async (enabled) => {
+          if (!await chatMemory.set('chatMemory', enabled)) throw new Error('Chat memory setting was not saved')
+        },
+      }),
+    }, ChatMemoryRow))), 'ui-settings-general: chat memory row')
   // Version information follows the core preferences.
   ctx.slots.inject('settings.general.item', () => ctx.slots.register({
     name: 'settings.general.item', id: 'current-version', order: 100, locale: NS,

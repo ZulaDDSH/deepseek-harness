@@ -9,6 +9,8 @@ import { CloseLabel, HeaderContent, TriggerContent } from '../src/client/chrome.
 import type { TriggerContentProps } from '../src/client/chrome.tsx'
 import { SettingsDocumentAction } from '../src/client/SettingsDocumentAction.tsx'
 import { DeveloperToolsRow } from '../src/client/DeveloperToolsRow.tsx'
+import { SessionSearchRow } from '../src/client/SessionSearchRow.tsx'
+import { ChatMemoryRow } from '../src/client/ChatMemoryRow.tsx'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
 import { SettingsDocumentStore } from '../src/client/settings-document-store.ts'
@@ -246,6 +248,35 @@ it('reports a failed developer-tool write and allows retry', async () => {
   fireEvent.click(toggle)
   await waitFor(() => { expect(toggle.getAttribute('aria-checked')).toBe('true') })
   expect(screen.queryByRole('alert')).toBeNull()
+})
+
+it('toggles session content search and keeps the setting when a write is refused', async () => {
+  const state = createSnapshotStore(true)
+  const setEnabled = vi.fn().mockRejectedValueOnce(new Error('offline')).mockImplementation(async (enabled: boolean) => { state.set(enabled) })
+  render(<SessionSearchRow {...kit} t={t} useContentSearch={bindSnapshotSelector(state)} setEnabled={setEnabled} />)
+  const toggle = screen.getByRole('switch', { name: 'Search session contents' })
+  expect(toggle.getAttribute('aria-checked')).toBe('true')
+  fireEvent.click(toggle)
+  expect((await screen.findByRole('alert')).textContent).toBe('Could not save. Please try again.')
+  expect(toggle.getAttribute('aria-checked')).toBe('true')
+  fireEvent.click(toggle)
+  await waitFor(() => { expect(toggle.getAttribute('aria-checked')).toBe('false') })
+  expect(setEnabled).toHaveBeenLastCalledWith(false)
+  expect(screen.queryByRole('alert')).toBeNull()
+})
+
+it('toggles chat memory and keeps the setting when a write is refused', async () => {
+  const state = createSnapshotStore(true)
+  const setEnabled = vi.fn().mockRejectedValueOnce(new Error('offline')).mockImplementation(async (enabled: boolean) => { state.set(enabled) })
+  render(<ChatMemoryRow {...kit} t={t} useChatMemory={bindSnapshotSelector(state)} setEnabled={setEnabled} />)
+  const toggle = screen.getByRole('switch', { name: 'Memory: save chats and recall them' })
+  expect(toggle.getAttribute('aria-checked')).toBe('true')
+  fireEvent.click(toggle)
+  expect((await screen.findByRole('alert')).textContent).toBe('Could not save. Please try again.')
+  expect(toggle.getAttribute('aria-checked')).toBe('true')
+  fireEvent.click(toggle)
+  await waitFor(() => { expect(toggle.getAttribute('aria-checked')).toBe('false') })
+  expect(setEnabled).toHaveBeenLastCalledWith(false)
 })
 
 describe('current version', () => {

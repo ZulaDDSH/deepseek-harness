@@ -4,8 +4,11 @@ import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
+import type {} from '@deepseek-ai/dsh-session-projection'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
-import { discoverShells, resolveShell } from './shells.ts'
+import { discoverShells, executableInstalled, resolveShell } from './shells.ts'
+import { CLI_TERMINAL_PROFILES, cliStartupArgv, cliTerminalProfile, type CliTerminalProfile, type CliTerminalProfileId } from './cli-profiles.ts'
+import type { CliTerminalStatus } from './types.ts'
 import { BrowserTerminal } from './terminal.ts'
 import { TerminalRetention } from './retention.ts'
 import type {
@@ -136,6 +139,22 @@ export class TerminalController extends TypertRemoteService {
   }
 
   /**
+   * Report which CLI terminal profiles resolve in the Session's execution environment.
+   * @param agent - Session owner supplied by the Gateway.
+   * @param signal - request cancellation.
+   * @returns one status per profile, in table order.
+   */
+  @Remote
+  cliProfiles(agent: Agent, signal: AbortSignal): Promise<CliTerminalStatus[]> {
+    signal.throwIfAborted()
+    const { subprocess } = this.execution(agent)
+    if (!subprocess.inheritsUserEnvironment) return Promise.resolve([])
+    return Promise.all(CLI_TERMINAL_PROFILES.map(async profile => ({
+      profile: profile.id, installed: await executableInstalled(subprocess, profile.command, signal), installUrl: profile.installUrl,
+    })))
+  }
+
+  /**
    * List retained terminals without resolving or activating an Agent.
    * @param sessionId - displayed Session identity, including offline history.
    * @returns terminals retained for this Host lifetime.
@@ -159,6 +178,7 @@ export class TerminalController extends TypertRemoteService {
     this.lifetime.signal.throwIfAborted()
     if (!/^[\w-]{1,128}$/u.test(request.id)) throw new Error('Invalid terminal identity')
     this.dimensions(request.cols, request.rows)
+    if (request.cli !== undefined && request.shellPath !== undefined) throw new Error('A CLI terminal runs in the default shell and accepts no shell path')
     const owner = this.owner(agent)
     owner.lifetime.signal.throwIfAborted()
     this.requireOpen(owner, request.id)
@@ -283,6 +303,12 @@ export class TerminalController extends TypertRemoteService {
     }
   }
 
+  private cliLaunch(agent: Agent, id: CliTerminalProfileId): CliTerminalProfile {
+    const profile = cliTerminalProfile(id)
+    if (this.ctx.get('sessionProjections')?.stateOf(agent.session, 'cliTerminal')?.profile !== id) throw new RemoteError('terminal/cli-session-mismatch', 'This Session was not created for the requested CLI terminal', {})
+    return profile
+  }
+
   private owner(agent: Agent): OwnedSession {
     let owner = this.owners.get(agent.id)
     if (owner === undefined) {
@@ -343,15 +369,29 @@ export class TerminalController extends TypertRemoteService {
       ? await resolveShell(subprocess, this.config.shell, signal)
       : (await this.shells(agent, signal)).find(candidate => candidate.path === request.shellPath)
     if (shell === undefined) throw new Error('Selected shell is not available in this execution environment')
-    const handle = await subprocess.spawnTerminal({
-      argv: [shell.path, ...shell.args], cwd: environment.cwd, cols: request.cols, rows: request.rows,
-      terminalType: 'xterm-256color', env: { DSH_SESSION_ID: agent.id },
-      shellActivity: true,
-      graceMs: this.config.disposeGraceMs, signal,
-    })
+    const cli = request.cli === undefined ? undefined : this.cliLaunch(agent, request.cli)
+    if (cli !== undefined && !subprocess.inheritsUserEnvironment) throw new Error('A CLI terminal runs only in a local execution environment')
+    const cliInfo = cli === undefined ? undefined : {
+      profile: cli.id, command: cli.command, installed: await executableInstalled(subprocess, cli.command, signal),
+      installUrl: cli.installUrl,
+    }
+    const handle = await subprocess.spawnTerminal(cli === undefined
+      ? {
+        argv: [shell.path, ...shell.args], cwd: environment.cwd, cols: request.cols, rows: request.rows,
+        terminalType: 'xterm-256color', env: { DSH_SESSION_ID: agent.id },
+        shellActivity: true,
+        graceMs: this.config.disposeGraceMs, signal,
+      }
+      : {
+        argv: cliStartupArgv(shell.path, cli), cwd: environment.cwd, cols: request.cols, rows: request.rows,
+        terminalType: 'xterm-256color', inheritEnvironment: true,
+        shellActivity: false,
+        graceMs: this.config.disposeGraceMs, signal,
+      })
     const info: WebTerminalInfo = {
-      id: request.id, shell, title: shell.name, cwd: environment.cwd,
+      id: request.id, shell, title: cli?.command ?? shell.name, cwd: environment.cwd,
       cols: request.cols, rows: request.rows, state: 'running', exitCode: null,
+      ...cliInfo === undefined ? {} : { cli: cliInfo },
     }
     try {
       signal.throwIfAborted()

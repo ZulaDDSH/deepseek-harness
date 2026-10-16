@@ -203,7 +203,7 @@ class TestPersistence extends SessionPersistence {
   }
 }
 
-async function liveContext(config: ConstructorParameters<typeof SqliteSessionQueryEngine>[1] = { path: ':memory:' }): Promise<Context> {
+async function liveContext(config: object = { path: ':memory:' }): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
@@ -226,7 +226,7 @@ describe('SQLite session search', () => {
     })
     expect(configured.openAt).toBe('first-search')
     expect(configured.persistedReadConcurrency).toBe(configuredValue)
-    const configuredCtx = await liveContext(configured)
+    const configuredCtx = await liveContext({ path: ':memory:', openAt: 'first-search', persistedReadConcurrency: configuredValue })
     expect((configuredCtx.sessionQuery as SqliteSessionQueryEngine).config.persistedReadConcurrency)
       .toBe(configuredValue)
 

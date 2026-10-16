@@ -127,6 +127,7 @@ describe('the authorization Remote namespace a configuration surface calls', () 
     await ctx.credentials.modifyRecord(CODEX, () => Promise.resolve({ kind: 'grant', payload: { token: 't' } }))
 
     expect((await controller.list())[0]?.configured).toBe(true)
+    expect((await controller.list())[0]?.kind).toBe('grant')
   })
 
   it('runs the flow and reports authorized once it commits', async () => {

@@ -31,12 +31,15 @@ import type { ModelKey } from './locales.ts'
 import type { ModelSelectInjected } from './slots.ts'
 import { descriptionOf } from './descriptions.ts'
 import css from './ModelSelect.module.css'
+import { CliTerminalEntries } from './CliTerminalEntries.tsx'
+import { subagentLockOf } from './subagent-lock.ts'
 
 /** One dynamic effort row; undefined means preserve the provider default. */
 interface EffortChoice {
   key: string
   effort: string | undefined
   label: string
+  ultracode?: boolean
 }
 
 const ROW_SELECTOR = '[role="menuitemradio"], [role="radio"], [role="switch"]'
@@ -80,7 +83,8 @@ const CLAUDE_EFFORTS = [
  * @returns the trigger and, while open, the popover.
  */
 export function ModelSelect(
-  { locked, useProjection, available, useModelDirectory, load, select, useModelFavorites, toggleFavorite, setRunOptions, t }:
+  { locked, useProjection, available, useModelDirectory, load, select, useModelFavorites, toggleFavorite, setRunOptions, openCliTerminal,
+    cliProfiles, openSubagentSetup, useGlobalSetup, t }:
   Pick<PropsRuntime<'conversation.input.model'>, 'locked' | 'useProjection'> & InjectFace<ModelSelectInjected> & PropsLocale<'model'>,
 ) {
   const state = useModelDirectory(snapshot => snapshot)
@@ -90,6 +94,10 @@ export function ModelSelect(
   const favoriteIds = useModelFavorites(ids => ids)
   const favoriteSet = useMemo(() => new Set(favoriteIds), [favoriteIds])
   const projectedRunOptions = useProjection('runOptions')
+  const claudeCodeRunOptions = useProjection('claudeCodeRunOptions', capability => capability !== undefined)
+  const globalSetup = useGlobalSetup(value => value)
+  const { on: subagentSetupOn, effortLocked, route: drivenRoute } = subagentLockOf(projectedRunOptions?.current?.subagentSetup, globalSetup)
+  const runOptionsWritable = setRunOptions !== undefined && projectedRunOptions !== undefined
   const latestRunOptions = useRef(projectedRunOptions)
   useEffect(() => { latestRunOptions.current = projectedRunOptions }, [projectedRunOptions])
   const [runOptionsDraft, setRunOptionsDraft] = useState<{
@@ -156,14 +164,15 @@ export function ModelSelect(
       : [{ key: 'favorites', name: t('favorites.title'), models: favorites }, ...providerGroups]
   }, [choices, favoriteSet, search, groups, t, providerFilter])
   const visibleChoices = visibleGroups.flatMap(group => group.models)
-  const selectedIndex = state.current === null
+  const shown = drivenRoute ?? state.current
+  const selectedIndex = shown === null
     ? -1
-    : choices.findIndex(c => c.selection.provider === state.current?.provider && c.selection.model === state.current.model)
+    : choices.findIndex(c => c.selection.provider === shown.provider && c.selection.model === shown.model)
   const currentChoice = choices[selectedIndex]
   const reasoning = currentChoice?.model.reasoning
-  const effectiveEffort = state.current?.reasoningEffort ?? reasoning?.defaultEffort
+  const effectiveEffort = shown?.reasoningEffort ?? reasoning?.defaultEffort
   const effortLabel = reasoning === undefined
-    ? state.retainedEffort
+    ? drivenRoute === undefined ? state.retainedEffort : drivenRoute.reasoningEffort
     : effectiveEffort === undefined
       ? t('effort.providerDefault')
       : reasoning.efforts.find(level => level.id === effectiveEffort)?.name ?? effectiveEffort
@@ -178,7 +187,11 @@ export function ModelSelect(
         effort: effort.id,
         label: effort.name,
       })),
-    ], [reasoning, t])
+      ...currentChoice?.model.ultracode === true && runOptionsWritable
+        ? [{ key: 'ultracode', effort: reasoning.efforts.at(-1)?.id, label: t('runOptions.ultracode'), ultracode: true }]
+        : [],
+    ], [reasoning, currentChoice, runOptionsWritable, t])
+  const ultracodeOn = currentChoice?.model.ultracode === true && runOptionsCurrent.ultracode === true
   const { pending } = state
   const busy = pending !== null
 
@@ -364,12 +377,6 @@ export function ModelSelect(
     writes.queue = writes.queue.then(send, send)
   }
 
-  const toggleRunOption = (key: 'fastMode' | 'ultracode'): void => {
-    writeRunOptions(key === 'fastMode'
-      ? { fastMode: runOptionsCurrent.fastMode !== true }
-      : { ultracode: runOptionsCurrent.ultracode !== true })
-  }
-
   const submit = (selection: ModelSelection): void => {
     lastActionRef.current = 'select'
     // Disabled option rows cannot retain focus while a selection is pending.
@@ -385,52 +392,52 @@ export function ModelSelect(
     submit(selection)
   }
 
-  const chooseEffort = (effort: string | undefined): void => {
+  const chooseEffort = (level: EffortChoice): void => {
     if (state.current === null) return
-    if (effectiveEffort === effort) {
+    const ultracode = level.ultracode === true
+    if (ultracode !== ultracodeOn) writeRunOptions({ ultracode })
+    if (effortLocked || effectiveEffort === level.effort) {
       close(true)
       return
     }
     const selection: ModelSelection = {
       provider: state.current.provider,
       model: state.current.model,
-      ...effort === undefined ? {} : { reasoningEffort: effort },
+      ...level.effort === undefined ? {} : { reasoningEffort: level.effort },
     }
     submit(selection)
   }
 
-  const waiting = state.current === null && state.status === 'loading'
-  const unroutedCurrent = state.current !== null && state.routable === false
-  const modelName = currentChoice?.model.name ?? state.retainedName
+  const waiting = shown === null && state.status === 'loading'
+  const unroutedCurrent = shown !== null && state.routable === false && drivenRoute === undefined
+  const providerListed = shown !== null && state.groups.some(group => group.id === shown.provider)
+  const modelName = currentChoice?.model.name ?? (drivenRoute === undefined ? state.retainedName : undefined)
   const modelLabel = waiting
     ? t('trigger.loading')
-    : state.current === null
+    : shown === null
       ? t('trigger.fallback')
-      : modelName ?? state.current.model
-  const modelTitle = waiting || state.current === null
+      : modelName ?? shown.model
+  const modelTitle = waiting || shown === null
     ? modelLabel
-    : modelName ?? `${state.current.provider}/${state.current.model}`
+    : modelName ?? `${shown.provider}/${shown.model}`
   const triggerLabel = effortLabel === undefined ? modelTitle : `${modelTitle} · ${effortLabel}`
   const baseAria = waiting
     ? t('trigger.loading')
-    : state.current === null
+    : shown === null
       ? t('trigger.selectAria')
-      : effortLabel === undefined
+      : effortLabel === undefined || ultracodeOn
         ? t('trigger.aria', { model: modelTitle })
         : t('trigger.ariaEffort', { model: modelTitle, effort: effortLabel })
   const availabilityAria = unroutedCurrent ? t('trigger.ariaUnavailable', { aria: baseAria }) : baseAria
+  const fastOn = claudeCodeRunOptions && runOptionsCurrent.fastMode === true
   const runOptionNames = [
-    ...runOptionsCurrent.fastMode === true ? [t('trigger.fast')] : [],
-    ...runOptionsCurrent.ultracode === true ? [t('trigger.ultracode')] : [],
+    ...fastOn ? [t('trigger.fast')] : [],
+    ...ultracodeOn ? [t('trigger.ultracode')] : [],
   ]
   const triggerAria = runOptionNames.length === 0
     ? availabilityAria
     : t('trigger.ariaRunOptions', { aria: availabilityAria, options: runOptionNames.join(', ') })
-  const effortsUnknown = currentChoice === undefined && state.current !== null
-  const runOptionRows = [
-    { key: 'fastMode', name: t('runOptions.fastMode'), caption: t('runOptions.fastModeCaption') },
-    { key: 'ultracode', name: t('runOptions.ultracode'), caption: t('runOptions.ultracodeCaption') },
-  ] as const
+  const effortsUnknown = currentChoice === undefined && shown !== null
 
   return (
     <div
@@ -451,7 +458,8 @@ export function ModelSelect(
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? `${id}-menu` : undefined}
-        title={triggerLabel}
+        title={unroutedCurrent ? `${triggerLabel} — ${t(providerListed ? 'trigger.unavailableModelHint' : 'trigger.unavailableHint')}` : triggerLabel}
+        data-unavailable={unroutedCurrent ? '' : undefined}
         aria-busy={busy}
         disabled={locked}
         onClick={() => {
@@ -463,12 +471,13 @@ export function ModelSelect(
         }}
       >
         <IconDataOutlineRegular className={css.triggerIcon} size={16} />
+        {unroutedCurrent && <IconWarningOutlineRegular className={css.triggerWarning} size={14} aria-hidden />}
         <span className={css.triggerLabel}>{modelLabel}</span>
-        {effortLabel !== undefined && <span className={css.triggerEffort}>{effortLabel}</span>}
-        {(runOptionsCurrent.fastMode === true || runOptionsCurrent.ultracode === true) && (
+        {effortLabel !== undefined && !ultracodeOn && <span className={css.triggerEffort}>{effortLabel}</span>}
+        {(fastOn || ultracodeOn) && (
           <span className={css.triggerTags}>
-            {runOptionsCurrent.fastMode === true && <Tag tone="neutral" className={css.triggerTag}>{t('trigger.fast')}</Tag>}
-            {runOptionsCurrent.ultracode === true && <Tag tone="neutral" className={css.triggerTag}>{t('trigger.ultracode')}</Tag>}
+            {fastOn && <Tag tone="neutral" className={css.triggerTag}>{t('trigger.fast')}</Tag>}
+            {ultracodeOn && <Tag tone="neutral" className={css.triggerTag}>{t('trigger.ultracode')}</Tag>}
           </span>
         )}
         {busy
@@ -491,6 +500,12 @@ export function ModelSelect(
         >
           <div className={css.body}>
             <div className={css.list}>
+              {subagentSetupOn && (
+                <div className={css.subagentNotice} role="note">
+                  <span className={css.note}>{t('subagentSetup.notice')}</span>
+                  <button type="button" className={css.subagentLink} onClick={() => { close(); openSubagentSetup?.() }}>{t('subagentSetup.open')}</button>
+                </div>
+              )}
               <input
                 className={css.search}
                 type="search"
@@ -562,7 +577,7 @@ export function ModelSelect(
                     <section role="group" aria-labelledby={headingId} className={css.group} key={group.key}>
                       <div className={css.groupTitle} id={headingId}>{group.key === 'deepseek-account' ? t('provider.account') : group.name}</div>
                       {group.models.map((choice) => {
-                        const selected = state.current?.provider === choice.group.id && state.current.model === choice.model.id
+                        const selected = shown?.provider === choice.group.id && shown.model === choice.model.id
                         const favorite = favoriteSet.has(choice.key)
                         const description = descriptionOf(choice.group.id, choice.model, t)
                         return (
@@ -573,7 +588,7 @@ export function ModelSelect(
                               aria-checked={selected}
                               className={clsx(css.option, selected && css.selected)}
                               title={choice.model.name}
-                              disabled={busy}
+                              disabled={busy || subagentSetupOn}
                               onClick={() => { choose(choice.selection) }}
                             >
                               <span className={css.optionCopy}>
@@ -635,14 +650,14 @@ export function ModelSelect(
                           key={level.key}
                           type="button"
                           role="radio"
-                          aria-checked={effectiveEffort === level.effort}
+                          aria-checked={level.ultracode === true ? ultracodeOn : !ultracodeOn && effectiveEffort === level.effort}
                           className={css.segment}
-                          title={level.label}
-                          disabled={busy}
-                          onClick={() => { chooseEffort(level.effort) }}
+                          title={level.ultracode === true ? t('runOptions.ultracodeCaption') : level.label}
+                          disabled={busy || (effortLocked && level.ultracode !== true)}
+                          onClick={() => { chooseEffort(level) }}
                         >
-                          {pending !== null && pending.provider === state.current?.provider
-                            && pending.model === state.current.model && pending.reasoningEffort === level.effort
+                          {pending !== null && pending.provider === shown?.provider
+                            && pending.model === shown.model && pending.reasoningEffort === level.effort
                             ? <StateDot state="ongoing" />
                             : null}
                           <span className={css.segmentLabel}>{level.label}</span>
@@ -655,22 +670,20 @@ export function ModelSelect(
                     </div>
                   </>}
               </div>
-              {setRunOptions !== undefined && projectedRunOptions !== undefined && (
+              {runOptionsWritable && claudeCodeRunOptions && (
                 <div className={clsx(css.section, css.divided)}>
                   <div className={css.sectionLabel}>{t('runOptions.title')}</div>
-                  {runOptionRows.map(row => (
-                    <div className={css.toggle} key={row.key}>
-                      <span className={css.toggleCopy}>
-                        <span className={css.toggleName}>{row.name}</span>
-                        <span className={css.caption}>{row.caption}</span>
-                      </span>
-                      <Switch
-                        checked={runOptionsCurrent[row.key] === true}
-                        label={row.name}
-                        onChange={() => { toggleRunOption(row.key) }}
-                      />
-                    </div>
-                  ))}
+                  <div className={css.toggle}>
+                    <span className={css.toggleCopy}>
+                      <span className={css.toggleName}>{t('runOptions.fastMode')}</span>
+                      <span className={css.caption}>{t('runOptions.fastModeCaption')}</span>
+                    </span>
+                    <Switch
+                      checked={runOptionsCurrent.fastMode === true}
+                      label={t('runOptions.fastMode')}
+                      onChange={() => { writeRunOptions({ fastMode: runOptionsCurrent.fastMode !== true }) }}
+                    />
+                  </div>
                   <div className={css.toggleName} id={`${id}-claude-effort`}>{t('runOptions.effort')}</div>
                   <div
                     className={css.effort}
@@ -695,6 +708,12 @@ export function ModelSelect(
                   </div>
                 </div>
               )}
+              <CliTerminalEntries t={t} probe={cliProfiles} onPick={(profile) => {
+                setOpen(false)
+                openCliTerminal(profile).catch((error: unknown) => {
+                  announce({ code: 'session/create', message: error instanceof Error ? error.message : String(error) })
+                })
+              }} />
               <div className={css.footnote}>{t('menu.saved')}</div>
             </div>
           </div>

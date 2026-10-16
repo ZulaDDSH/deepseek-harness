@@ -79,7 +79,8 @@ export interface ISession {
   /**
    * Send a prompt into the session.
    * @param content - text plus browser-owned temporary image uploads.
-   * @param mode - 'queue' appends a turn; 'steer' interrupts the running one.
+   * @param mode - 'queue' appends a turn; 'steer' is delivered to the running turn at its next step boundary
+   *   (and ends any long job_output wait early) without stopping the turn or its background jobs.
    * @param signal - optional caller cancellation for the complete admission round-trip.
    * @param requestId - identity from {@link beginSubmission}; a failed identified prompt retires its echo.
    * @returns acceptance, or the business error (also mirrored into snapshot.promptError).

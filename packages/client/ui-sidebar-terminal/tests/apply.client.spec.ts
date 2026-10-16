@@ -16,8 +16,9 @@ import { apply, inject } from '../src/client/index.ts'
 import { apply as hostApply } from '../src/index.ts'
 import { TerminalGuide, type TerminalGuideInjected } from '../src/client/TerminalGuide.tsx'
 import { LazyTerminalBody } from '../src/client/LazyTerminalBody.tsx'
+import { LazyCliTerminalPane } from '../src/client/LazyCliTerminalPane.tsx'
 import { TerminalTitle } from '../src/client/TerminalTitle.tsx'
-import type { TerminalBodyInjected } from '../src/client/face.ts'
+import type { CliTerminalInjected, TerminalBodyInjected } from '../src/client/face.ts'
 import { en, zh } from '../src/client/locales.ts'
 
 vi.mock('@xterm/xterm', () => ({ Terminal: vi.fn() }))
@@ -46,7 +47,7 @@ async function mountPlugin() {
   const terminals = {
     retainTabs: vi.fn(), view: vi.fn(() => model), close: vi.fn(), closeFailures: {}, retryClose: vi.fn(),
     launchShells: vi.fn(async () => ({ shells: [], selectedShell: undefined })), selectShell: vi.fn(),
-    recover: vi.fn(async (_sessionId: SessionId): Promise<WebTerminalInfo[]> => []),
+    recover: vi.fn(async (_sessionId: SessionId): Promise<WebTerminalInfo[]> => []), closeCli: vi.fn(),
   }
   let params: { terminalId: WebTerminalId } | { shellPath: string } | undefined
   const occurrence = vi.fn(() => ({ navigation: { getSnapshot: () => ({ params, address: 'sidebar://terminal/content' }) } }))
@@ -56,6 +57,8 @@ async function mountPlugin() {
   const commandTarget = vi.fn(), openTabFromTarget = vi.fn()
   const commands: ShortcutCommand[] = []
   ctx.provide('webTerminals', terminals as never)
+  const uiWorkspace = { archiveSession: vi.fn(async () => undefined), startSession: vi.fn() }
+  ctx.provide('uiWorkspace', uiWorkspace as never)
   ctx.provide('sidebarRight', {
     tabDomain: { occurrence }, openTabIn, tabsIn, openTabs, commandTarget, openTabFromTarget,
     registerCloseHandler: (kind: string, handler: SidebarRightCloseHandler) => { expect(kind).toBe('terminal'); closeHandler = handler; return () => { closeHandler = undefined } },
@@ -76,7 +79,7 @@ async function mountPlugin() {
   ctx.provide('theme', { getTheme: () => theme } as never)
   const fiber = await ctx.plugin({ inject, apply })
   return {
-    tabs, entries, dictionaries, terminals, model, occurrence, openTabIn, tabsIn, openTabs, theme,
+    tabs, entries, dictionaries, terminals, uiWorkspace, model, occurrence, openTabIn, tabsIn, openTabs, theme,
     commandTarget, openTabFromTarget, commands,
     emitTheme() { ctx.emit('theme/change', theme) },
     get closeHandler() { return closeHandler },
@@ -102,6 +105,7 @@ it('registers terminal views without recovery or cleanup slots, then releases co
       ['sidebar.right.tab.guide.entry', TerminalGuide, 'sidebarTerminal'],
       ['sidebar.right.pane.tab', LazyTerminalBody, 'sidebarTerminal'],
       ['sidebar.right.pane.tab.title', TerminalTitle, 'sidebarTerminal'],
+      ['conversation.cli', LazyCliTerminalPane, 'sidebarTerminal'],
     ])
     const sessionId = 'session' as SessionId
     const launcher = h.entries[0]!.inject(sessionId) as TerminalGuideInjected
@@ -180,4 +184,20 @@ it('retains terminal metadata from dormant layouts and releases its inventory su
   h.openTabs.set([terminal])
   await Promise.resolve()
   expect(h.terminals.retainTabs).toHaveBeenCalledTimes(calls)
+})
+
+it('closes a CLI Session by stopping its terminal, archiving it, then opening a New Session', async () => {
+  const h = await mountPlugin()
+  try {
+    const sessionId = 'cli-session' as SessionId
+    const cliEntry = h.entries.find(entry => entry.name === 'conversation.cli')
+    if (cliEntry === undefined) throw new Error('CLI pane slot was not registered')
+    const face = cliEntry.inject(sessionId) as CliTerminalInjected
+    face.close('gemini-cli')
+    expect(h.terminals.closeCli).toHaveBeenCalledWith(sessionId, 'gemini-cli')
+    expect(h.uiWorkspace.archiveSession).toHaveBeenCalledWith(sessionId, { stopActivity: true })
+    await expect.poll(() => h.uiWorkspace.startSession).toHaveBeenCalledWith()
+    expect(h.terminals.closeCli.mock.invocationCallOrder[0]).toBeLessThan(h.uiWorkspace.archiveSession.mock.invocationCallOrder[0]!)
+    expect(h.uiWorkspace.archiveSession.mock.invocationCallOrder[0]).toBeLessThan(h.uiWorkspace.startSession.mock.invocationCallOrder[0]!)
+  } finally { await h.dispose() }
 })

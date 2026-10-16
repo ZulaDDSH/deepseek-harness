@@ -63,3 +63,32 @@ export function matchesMatcher(matcher: string | undefined, query: string, mode:
   }
   return compileRegex(pattern)?.test(query) ?? false
 }
+
+/** Reference tool names each dialect's hooks match for DSH built-in tools; other names pass through. */
+const HOOK_TOOL_ALIASES: Readonly<Record<MatcherMode, ReadonlyMap<string, string>>> = {
+  'claude-code': new Map([['bash', 'Bash'], ['pwsh', 'PowerShell'], ['read', 'Read'], ['write', 'Write'], ['edit', 'Edit'], ['glob', 'Glob'], ['grep', 'Grep'], ['web_fetch', 'WebFetch'], ['web_search', 'WebSearch']]),
+  codex: new Map([['bash', 'Bash'], ['pwsh', 'Bash']]),
+}
+
+/**
+ * The tool name a dialect's hooks expect for a DSH tool (e.g. `bash` -> `Bash`); unknown names are returned unchanged.
+ * @param name - the DSH tool name.
+ * @param mode - the dialect whose hooks match.
+ * @returns the dialect's tool name, or `name` unchanged.
+ */
+export function hookToolName(name: string, mode: MatcherMode): string {
+  return HOOK_TOOL_ALIASES[mode].get(name) ?? name
+}
+
+/**
+ * {@link matchesMatcher} for a hook subject that also matches under its dialect tool alias.
+ * @param matcher - the configured pattern; absent/empty/`'*'` are the match-all sentinels.
+ * @param subject - the hook subject, normally a DSH tool name.
+ * @param mode - the dialect deciding literal-vs-regex interpretation and the tool alias.
+ * @returns `true` when the pattern selects the subject or its alias.
+ */
+export function matchesHookSubject(matcher: string | undefined, subject: string, mode: MatcherMode): boolean {
+  if (matchesMatcher(matcher, subject, mode)) return true
+  const alias = hookToolName(subject, mode)
+  return alias !== subject && matchesMatcher(matcher, alias, mode)
+}

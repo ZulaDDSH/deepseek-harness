@@ -31,6 +31,9 @@ export type QuickSwitcherProps =
   & InjectFace<QuickSwitcherInjected>
   & PropsLocale<'workspace'>
 
+/** Session rows shown at once; the results surface scrolls. */
+const SESSION_ROW_LIMIT = 30
+
 type SwitcherRow =
   | { key: string; kind: 'session'; title: string; detail?: string; sessionId: SessionId }
   | { key: string; kind: 'workspace'; title: string; detail?: string; workspaceId: WorkspaceId }
@@ -38,6 +41,20 @@ type SwitcherRow =
 
 function includes(text: string | undefined, query: string): boolean {
   return text?.toLocaleLowerCase().includes(query) ?? false
+}
+
+/** Subsequence score of `query` in `text`: contiguous and leading hits score higher; undefined when `query` is not a subsequence. */
+function fuzzyScore(text: string, query: string): number | undefined {
+  const haystack = text.toLocaleLowerCase()
+  let score = 0
+  let next = 0
+  for (const char of query) {
+    const at = haystack.indexOf(char, next)
+    if (at === -1) return undefined
+    score += at === next ? 3 : 1
+    next = at + char.length
+  }
+  return score
 }
 
 function iconFor(kind: SwitcherRow['kind']) {
@@ -70,6 +87,7 @@ export function QuickSwitcher({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.defaultPrevented || event.isComposing) return
       if (event.key.toLocaleLowerCase() !== 'k' || (!event.metaKey && !event.ctrlKey)) return
       event.preventDefault()
       setOpen(value => !value)
@@ -112,18 +130,21 @@ export function QuickSwitcher({
 
   const normalized = query.trim().toLocaleLowerCase()
   const archived = new Set(workspaces.archivedSessionIds)
+  const untitled = t('session.untitled')
   const sessionRows = sessions.ids
     .flatMap((id) => {
       const row = sessions.byId[id]
-      if (row === undefined || archived.has(row.id) || row.origin === 'subagent') return []
-      if (normalized !== '' && !includes(row.displayTitle, normalized) && !includes(row.cwd, normalized)) return []
-      return [row]
+      if (row === undefined || row.blank || archived.has(row.id) || row.origin === 'subagent') return []
+      const title = row.title?.trim() || untitled
+      const score = normalized === '' ? 0 : fuzzyScore(title, normalized) ?? (includes(row.cwd, normalized) ? 0 : undefined)
+      return score === undefined ? [] : [{ row, title, score }]
     })
-    .slice(0, 8)
-    .map((row): SwitcherRow => ({
+    .sort((a, b) => b.score - a.score || b.row.updatedAt - a.row.updatedAt)
+    .slice(0, SESSION_ROW_LIMIT)
+    .map(({ row, title }): SwitcherRow => ({
       key: `session:${row.id}`,
       kind: 'session',
-      title: row.displayTitle,
+      title,
       ...(row.cwd === undefined ? {} : { detail: row.cwd }),
       sessionId: row.id,
     }))

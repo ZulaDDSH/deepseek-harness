@@ -39,7 +39,10 @@ import {
   type HookInventoryReport,
   DEFAULT_HOOK_TIMEOUT_MS,
   DEFAULT_STDERR_SUMMARY_MAX_CHARS,
-  matchesMatcher,
+  createStopLoopGuard,
+  DEFAULT_MAX_FORCED_STOPS,
+  hookToolName,
+  matchesHookSubject,
   mergeHookOutputs,
   runHook,
   type HookOutput,
@@ -67,6 +70,8 @@ export interface Config {
   defaultTimeoutMs?: number
   /** Character cap for the `hook/result` event's persisted stderr summary. */
   stderrSummaryMaxChars?: number
+  /** Stop-hook forced continuations allowed per turn before the turn is let end. */
+  maxForcedStops?: number
   /** {@link hookKey} values of the only commands that run; edited live from Settings. */
   enabledHooks?: Volatile<string[]>
   /** User-written descriptions keyed by {@link hookKey}; edited live from Settings. */
@@ -78,6 +83,7 @@ export const Config = z.object({
   model: z.string().default(''),
   defaultTimeoutMs: z.number().default(DEFAULT_HOOK_TIMEOUT_MS),
   stderrSummaryMaxChars: z.number().default(DEFAULT_STDERR_SUMMARY_MAX_CHARS),
+  maxForcedStops: z.number().default(DEFAULT_MAX_FORCED_STOPS),
   enabledHooks: z.array(z.string()).default([]).volatile(),
   hookDescriptions: z.dict(z.string()).default({}).volatile(),
 })
@@ -100,6 +106,8 @@ export function apply(ctx: Context, config: Config): void {
   // Validate before config parsing so a bad value cannot be hidden by its early return.
   const stderrSummaryMaxChars = config.stderrSummaryMaxChars ?? DEFAULT_STDERR_SUMMARY_MAX_CHARS
   assertPositiveInteger('stderrSummaryMaxChars', stderrSummaryMaxChars)
+  const maxForcedStops = config.maxForcedStops ?? DEFAULT_MAX_FORCED_STOPS
+  assertPositiveInteger('maxForcedStops', maxForcedStops)
   const defaultTimeoutMs = config.defaultTimeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS
   let parsed: CodexHookConfig = {}
   let inventory: HookInventoryReport = {
@@ -131,6 +139,7 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   const model = config.model ?? ''
+  const stopGuard = createStopLoopGuard(maxForcedStops)
 
   // SessionStart is the one emit-shaped (detached) point Codex has: track its
   // run chains so disposal aborts a still-running hook process and drains the
@@ -165,7 +174,7 @@ export function apply(ctx: Context, config: Config): void {
       : ctx.sessionProjections.stateOf(opts.agent.session, 'hookOverrides')?.current?.overrides
     for (const group of groups) {
       // Codex always interprets matchers as regexes; it has no literal fast path.
-      if (!matchesMatcher(group.matcher, matchQuery, 'codex')) continue
+      if (!matchesHookSubject(group.matcher, matchQuery, 'codex')) continue
       for (const hook of group.hooks) {
         if (!hookEnabled(hookKey(point, group.matcher, hook.command), enabled, overrides)) continue
         const handlerId = nextHandlerId(point)
@@ -204,10 +213,11 @@ export function apply(ctx: Context, config: Config): void {
         }
       }
     }
-    return mergeHookOutputs(outputs)
+    const merged = mergeHookOutputs(outputs)
+    // Keep queued input so a halted turn does not discard the user's next prompt.
+    if (merged.stop) opts.agent?.cancel({ kind: 'hook', reason: merged.stopReason ?? `stopped by ${point} hook` }, { keepInbox: true })
+    return merged
   }
-
-  // TODO(hook-continue-false): `merged.stop` is logged but needs a run-level halt mechanism.
 
   function contextFrom(merged: MergedHookOutcome): UserMessage | undefined {
     if (merged.additionalContext.length === 0) return undefined
@@ -221,6 +231,7 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   ctx.on('agent/created', async ({ agent, source, signal }) => {
+    if ((ctx.sessionProjections.stateOf(agent.session, 'cliTerminal')?.profile ?? null) !== null) return
     const ownerSignal = signal === undefined ? detached.signal : AbortSignal.any([signal, detached.signal])
     const run = runPoint('SessionStart', source, { ...base(agent, 'SessionStart', model), source }, { agent, plainStdoutAsContext: true, signal: ownerSignal })
       .then((merged) => {
@@ -245,9 +256,7 @@ export function apply(ctx: Context, config: Config): void {
       agent, turn, plainStdoutAsContext: true, signal,
     })
     /* jscpd:ignore-start */
-    if (merged.decision === 'deny') {
-      return { kind: 'reject' }
-    }
+    if (merged.decision === 'deny' || merged.stop) return { kind: 'reject' }
     // Context alone is not a veto: DELEGATE so a later pre-step listener can
     // still reject/rewrite, then fold our context onto its decision.
     const downstream = await next()
@@ -264,7 +273,7 @@ export function apply(ctx: Context, config: Config): void {
     const turn = lastTurn(ctx, exec.agent)
     const merged = await runPoint('PreToolUse', exec.name, preToolPayload(ctx, exec, model), { ...exec.agent ? { agent: exec.agent } : {}, turn, signal: exec.signal })
     /* jscpd:ignore-end */
-    if (merged.decision === 'deny') return { kind: 'deny', reason: merged.reason ?? 'blocked by PreToolUse hook' }
+    if (merged.decision === 'deny' || merged.stop) return { kind: 'deny', reason: merged.reason ?? merged.stopReason ?? 'blocked by PreToolUse hook' }
     return next()
   })
 
@@ -290,21 +299,18 @@ export function apply(ctx: Context, config: Config): void {
     }
   })
 
-  // A blocking Stop hook steers at the stopping boundary, which makes the
-  // machine observe pending input and run another step.
-  // TODO(stop-loop-guard): Codex supplies `stop_hook_active` so a Stop hook can
-  // avoid continuing the same turn indefinitely. It is always false here, so an
-  // unconditionally blocking hook force-continues every step until it self-limits.
+  // A blocking Stop hook steers at the stopping boundary so the machine runs another step.
   ctx.on('agent/turn-stopping', async ({ agent, turn, signal }): Promise<void> => {
-    const merged = await runPoint('Stop', '', { ...turnBase(ctx, agent, 'Stop', model), stop_hook_active: false, last_assistant_message: null }, { agent, turn, signal })
+    const merged = await runPoint('Stop', '', { ...turnBase(ctx, agent, 'Stop', model), stop_hook_active: stopGuard.active(agent, turn), last_assistant_message: null }, { agent, turn, signal })
     /* jscpd:ignore-end */
-    if (merged.decision === 'deny') {
-      // A blocking Stop hook forces continuation; a block with no reason (exit 2,
-      // empty stderr) still forces it — fall back to a generic steering line
-      // rather than letting the turn stop.
-      const text = merged.reason ?? 'continue: blocked by Stop hook'
-      agent.steer(createUserMessage({ content: [{ type: 'text', text }], source: CONTEXT_SOURCE }))
+    if (merged.decision !== 'deny' || merged.stop) return
+    if (!stopGuard.admit(agent, turn)) {
+      ctx.logger.warn(`hooks-codex: Stop hook blocked ${maxForcedStops} times this turn; letting the turn end`)
+      return
     }
+    // A block with no reason still forces continuation, so it gets a generic steering line.
+    const text = merged.reason ?? 'continue: blocked by Stop hook'
+    agent.steer(createUserMessage({ content: [{ type: 'text', text }], source: CONTEXT_SOURCE }))
   })
 }
 
@@ -354,13 +360,10 @@ function commandOf(args: unknown): string {
 }
 
 function preToolPayload(ctx: Context, exec: ToolExecution, model: string): Record<string, unknown> {
-  // `tool_name` is the REAL tool name (matching the `exec.name` matcher subject);
-  // a hardcoded constant would disagree with what the matcher tests and make a
-  // config's tool matcher never fire. `tool_input` keeps Codex's `{ command }`
-  // shape (its shell payload), derived from the call's `command` arg when present.
-  return { ...turnBase(ctx, exec.agent, 'PreToolUse', model), tool_name: exec.name, tool_input: { command: commandOf(exec.arguments) }, tool_use_id: exec.callId }
+  // tool_name is the dialect name, so a matcher on either name agrees with the payload.
+  return { ...turnBase(ctx, exec.agent, 'PreToolUse', model), tool_name: hookToolName(exec.name, 'codex'), tool_input: { command: commandOf(exec.arguments) }, tool_use_id: exec.callId }
 }
 
 function postToolPayload(ctx: Context, exec: ToolExecution, result: ToolExecutionResult, model: string): Record<string, unknown> {
-  return { ...turnBase(ctx, exec.agent, 'PostToolUse', model), tool_name: exec.name, tool_input: { command: commandOf(exec.arguments) }, tool_use_id: exec.callId, tool_response: blocksToText(result.content) }
+  return { ...turnBase(ctx, exec.agent, 'PostToolUse', model), tool_name: hookToolName(exec.name, 'codex'), tool_input: { command: commandOf(exec.arguments) }, tool_use_id: exec.callId, tool_response: blocksToText(result.content) }
 }

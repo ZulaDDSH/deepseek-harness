@@ -15,6 +15,8 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import {
+  boundedProgress,
+  runTimeLimit,
   settleRunResult,
   subprocessRunHandle,
   type SubagentResult,
@@ -82,6 +84,7 @@ interface CodexFailureFacts {
   readonly category: CodexFailureCategory
   readonly httpStatus?: number | undefined
   readonly outcome?: SubprocessOutcome | undefined
+  readonly detail?: string | undefined
 }
 
 function failureDiagnostic(facts: CodexFailureFacts): string {
@@ -92,6 +95,9 @@ function failureDiagnostic(facts: CodexFailureFacts): string {
   ]
   if (facts.httpStatus !== undefined) {
     fields.push(`HTTP status: ${facts.httpStatus}`)
+  }
+  if (facts.detail !== undefined) {
+    fields.push(`detail: ${facts.detail}`)
   }
   const processFields = [
     ['exit code', facts.outcome?.exitCode],
@@ -148,10 +154,16 @@ export interface CodexRunSpec {
   readonly env: Record<string, string>
   /** Subprocess termination grace passed to the shared managed-range owner. */
   readonly disposeGraceMs: number
+  /** Wall-clock limit for the published run only; omitted for none. */
+  readonly timeoutMs?: number
   /** Shared subprocess service spawn operation. */
   readonly spawn: (spec: SubprocessSpawnSpec) => SubprocessHandle
   /** Diagnostic sink for a post-publication error flattened into a result. */
   readonly onError?: (error: Error, stopReason: SubagentStopReason) => void
+  /** `thread/start` permission fields already clamped to the parent sandbox; omitted for the unclamped mode mapping. */
+  readonly threadPermission?: Readonly<Record<string, unknown>>
+  /** Parent-sandbox clamp line appended to the run's failure diagnostic. */
+  readonly sandboxNote?: string
 }
 
 function thrown(value: unknown): Error {
@@ -252,6 +264,10 @@ export async function startCodexRun(
     child.stdin as NonNullable<SubprocessHandle['stdin']>,
     spec.permissionMode,
     spec.model,
+    {
+      threadPermission: spec.threadPermission,
+      onProgress: boundedProgress(request.onProgress),
+    },
   )
   const onStderr = (chunk: Buffer | string): void => {
     const bytes = typeof chunk === 'string' ? Buffer.from(chunk) : chunk
@@ -361,6 +377,7 @@ export async function startCodexRun(
     diagnostic = permission === undefined
       ? failure
       : `${failure}\n${permission}`
+    if (spec.sandboxNote !== undefined) diagnostic = `${diagnostic}\n${spec.sandboxNote}`
     return diagnostic
   }
   const withProcessOutcome = (facts: CodexFailureFacts): CodexFailureFacts => {
@@ -377,12 +394,22 @@ export async function startCodexRun(
       throw error
     },
   )
+  const limit = runTimeLimit(
+    spec.timeoutMs,
+    requestCancel,
+    () => new CodexRunFailure({
+      stage: 'turn',
+      category: 'limit',
+      detail: `exceeded timeoutMs (${String(spec.timeoutMs)} ms)`,
+    }),
+  )
   const result: Promise<SubagentResult> = settleRunResult({
     attempt: async () => {
       try {
         const terminal = await Promise.race([
           wire.runTurn(texts, runAbort.signal),
           publishedProcessFailure,
+          limit.expired,
         ])
         if (terminal.stopReason === 'completed') return terminal
         // Let stderr already queued with the terminal frame reach the Host
@@ -418,11 +445,13 @@ export async function startCodexRun(
         throw error instanceof CodexRunFailure
           ? error
           : new CodexRunFailure(facts, thrown(error))
+      } finally {
+        limit.clear()
       }
     },
     collectOutput,
     collectDiagnostic: () => diagnostic,
-    cancelled: () => runAbort.signal.aborted,
+    cancelled: () => runAbort.signal.aborted && !limit.timedOut(),
     onError: spec.onError,
     signal: request.signal,
     onAbort,

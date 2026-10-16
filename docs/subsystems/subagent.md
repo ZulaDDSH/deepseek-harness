@@ -72,6 +72,7 @@ interface SubagentStartRequest {
    * before initializing the separate child runtime.
    */
   readonly agentOptions?: AgentOptions
+  readonly routePinned?: true
   /**
    * Object-rooted JSON Schema within `assertObjectJsonSchema`'s enforced subset. Start rejects
    * unsupported schemas or providers without the capability. Data must be plain host-realm JSON;
@@ -101,6 +102,12 @@ interface SubagentStartRequest {
    * persona (strict `{{…}}` interpolation against the registered variables).
    */
   readonly persona?: string
+  /**
+   * Optional advisory sink for short live progress lines such as `Edit: src/a.ts`.
+   * Providers that observe child tool activity may call it; others ignore it.
+   * It needs no capability and never affects the result.
+   */
+  readonly onProgress?: (line: string) => void
 }
 ```
 
@@ -461,6 +468,12 @@ The spawn and fork backends create an ordinary one-shot agent through `parent.ct
 
 `SubagentCatalogEntry` describes a direct child with complete or unknown-mode discovery information; `SubagentCatalogState` is the host-only projection state. `listChildren()` owns a live-preferred parent observation without opening child logs. Browser consumers read `subagentCatalog` through the shared Session projection store and combine membership with Session-list activity. `SubagentCatalogRow` belongs to recursive catalog listing. [The parent-catalog decision](../../.agents/notes/implemented/architecture/2026-09-01-parent-owned-subagent-catalog.md) owns the persistent facts and read semantics.
 
+## Role routes and Orchestrator & Subagent Setup
+
+The Orchestrator & Subagent Setup that governs a Session fixes the route of the `coder`, `reviewer`, and `researcher` roles or leaves one to Jev. The setup is the Session's own `subagentSetup` in its `runOptions` projection, else the nearest ancestor's, else the global default that `SessionController.defaultSubagentSetup` reads from the `session-controller` settings entry (`effectiveSubagentSetupOf`). The model passes only `role`, and a call without one is rejected while the setup configures a role. `tool-subagent` resolves it with `roleRouteOf`, and the workflow host applies the same resolution to `agent()` calls. A role-routed child starts with `routePinned`, which the Jev router reads from the identity projection to skip that child. When the governing setup fixes the orchestrator, the Jev router also skips the top-level Session's own agent, so the model chosen in Setup is not overridden; a delegated child is skipped only through its own `routePinned`.
+
+A `claude-cli` route runs on the `claude-code` provider with a per-run model and effort, both validated before the run starts. The `role` argument is enabled by `roles: true` on the `subagent` row of the standard, cordis, economy, and ptc presets.
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>
@@ -654,6 +667,12 @@ getProvider(name: string): SubagentProvider | undefined
 list(): string[]
 
 /**
+ * The current per-parent live-child capacity (maxActiveSubagents).
+ * @returns the configured limit.
+ */
+activeSubagentLimit(): number
+
+/**
  * Establish a published child on the named provider. Capability and semantic
  * checks run before delegation. Provider ownership lasts until its promise
  * fulfills; a rejection therefore has no run for the caller to dispose and
@@ -661,6 +680,8 @@ list(): string[]
  * failures settle through the returned run.
  * A catalog append failure disposes the run and handles its result rejection;
  * the caller receives the catalog error even if disposal also fails.
+ * A one-shot run occupies one slot of the parent's maxActiveSubagents pool
+ * until its result settles, and start rejects with `ACTIVATION_LIMIT_REACHED` at capacity.
  * @param name - the provider to use.
  * @param request - child label, prompt, parent, signal, and optional capabilities.
  * @returns the published holder-owned run.

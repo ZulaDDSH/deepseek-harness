@@ -89,7 +89,7 @@ function parseOpenCodeWindows(payload: unknown): Partial<Record<'5h' | 'weekly' 
 
 function createDeepSeek(): QuotaProvider {
   return {
-    id: 'deepseek',
+    id: 'deepseek-official',
     name: 'DeepSeek',
     credentialRef: 'DEEPSEEK_API_KEY' as CredentialRef,
     credentialKey: credentialKey('llm-pi-ai', 'deepseek'),
@@ -107,7 +107,7 @@ function createDeepSeek(): QuotaProvider {
         if (value === null) throw new Error('DeepSeek quota data could not be parsed')
         const symbol = balance?.currency === 'CNY' ? '¥' : '$'
         return {
-          providerId: 'deepseek', providerName: 'DeepSeek', configured: true, ok: true,
+          providerId: 'deepseek-official', providerName: 'DeepSeek', configured: true, ok: true,
           windows: { credits: { usedPercent: null, resetAt: null, valueLabel: `${symbol}${value.toFixed(2)}` } },
         }
       } catch (error) {

@@ -32,6 +32,7 @@ declare module '@deepseek-ai/dsh-workspace/types' {
 export interface JobKindMap {
   bash: 'bash'
   subagent: 'subagent'
+  watch: 'watch'
 }
 
 /** The merge-extensible union of registered producer kind names. */

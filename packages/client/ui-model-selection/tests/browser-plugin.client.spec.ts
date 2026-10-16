@@ -153,6 +153,10 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
       ? { parentSessionId: sid('parent'), childSessionId: id, mode: 'continuable' as const }
       : undefined,
   })
+  ctx.provide('uiWorkspace', { openSession: vi.fn() } as never)
+  ctx.provide('webTerminals', { cliProfiles: vi.fn(async () => []) } as never)
+  ctx.provide('uiConversation', { binding: () => ({ activate: vi.fn() }) } as never)
+  ctx.provide('configForms', { get: () => ({ getSnapshot: () => ({ value: undefined }), subscribe: () => () => {} }) } as never)
   const track = vi.fn()
   ctx.provide('productAnalytics', { enabled: true, track } as never)
   const fiber = ctx.plugin({ inject: [...inject], apply })

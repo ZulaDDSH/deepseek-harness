@@ -13,7 +13,7 @@ interface GroupSpec {
 const GROUPS: readonly GroupSpec[] = [
   { id: 'app', labelKey: undefined, sections: ['account', 'general'] },
   { id: 'models', labelKey: 'group.models', sections: ['models', 'jev'] },
-  { id: 'agent', labelKey: 'group.agent', sections: ['agent-presets', 'mcp', 'hooks', 'plugins'] },
+  { id: 'agent', labelKey: 'group.agent', sections: ['agent-presets', 'subagent-setup', 'mcp', 'hooks', 'plugins'] },
 ]
 
 /** One navigation block: an optional heading and its pages. */

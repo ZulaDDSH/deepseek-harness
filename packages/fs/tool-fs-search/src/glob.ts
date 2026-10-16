@@ -26,7 +26,7 @@ export const GLOB_MAX_RESULTS = 100
 
 /**
  * Directory names ripgrep must never descend into for a discovery listing: VCS
- * metadata stores. `--no-ignore --hidden` would otherwise surface them in every
+ * metadata stores. `--hidden` would otherwise surface them in every
  * broad search. Each name is excluded with TWO negated `--glob`s (see
  * {@link buildGlobCommand}): an any-depth directory glob that matches — and
  * prunes — the directory during traversal, and a contents glob that still
@@ -58,6 +58,7 @@ export interface GlobToolCaps {
 export interface GlobInput {
   pattern: string
   path?: string
+  includeIgnored?: boolean
 }
 
 /**
@@ -68,10 +69,27 @@ export interface GlobInput {
  * @param args - the schema-validated `glob` arguments.
  * @returns the accepted input, unchanged.
  */
-export function parseGlobArgs(args: { pattern: string; path?: string }): GlobInput {
+export function parseGlobArgs(args: { pattern: string; path?: string; includeIgnored?: boolean }): GlobInput {
   if (args.pattern.trim().length === 0) throw new Error('pattern must be a non-empty string')
   if (args.path !== undefined && args.path.trim().length === 0) throw new Error('path must be a non-empty string when given')
-  return { pattern: args.pattern, ...args.path !== undefined ? { path: args.path } : {} }
+  return {
+    pattern: args.pattern,
+    ...args.path !== undefined ? { path: args.path } : {},
+    ...args.includeIgnored === true ? { includeIgnored: true } : {},
+  }
+}
+
+/**
+ * The ripgrep argv element(s) for the model's pattern: a file-name type filter
+ * when the pattern has no separator after any leading `**\/`, else an override.
+ *
+ * @param pattern - the raw `glob` pattern.
+ * @returns the argv elements that select the pattern's files.
+ */
+function patternFilter(pattern: string): string[] {
+  const base = pattern.replace(/^(?:\*\*\/)+/, '')
+  if (base.length === 0 || base.includes('/') || base.includes(':') || base.startsWith('!')) return [`--glob=${pattern}`]
+  return [`--type-add=dshglob:${base}`, '--type=dshglob']
 }
 
 /**
@@ -79,9 +97,11 @@ export function parseGlobArgs(args: { pattern: string; path?: string }): GlobInp
  * model-controlled value ({@link GlobInput.pattern}, {@link GlobInput.path})
  * is a plain argv element — no shell layer exists, so no quoting applies; the
  * search root rides behind `--` so a leading-dash path can never be parsed as
- * a flag. `--sort=modified` orders by modification time, `--no-ignore
- * --hidden` searches ignored and hidden files, and
- * {@link GLOB_VCS_EXCLUDES} keeps VCS metadata out.
+ * a flag. `--sort=modified` orders by modification time and `--hidden`
+ * includes hidden files. Ignore files (`.gitignore`, `.ignore`) and
+ * `node_modules` are respected unless {@link GlobInput.includeIgnored} drops
+ * the ignore rules with `--no-ignore`. {@link GLOB_VCS_EXCLUDES} keeps VCS
+ * metadata out in every mode. The pattern goes through {@link patternFilter}.
  *
  * @param input - the validated arguments.
  * @returns the complete ripgrep argument vector (excluding the binary itself).
@@ -89,10 +109,10 @@ export function parseGlobArgs(args: { pattern: string; path?: string }): GlobInp
 export function buildGlobCommand(input: GlobInput): string[] {
   const parts = [
     '--files',
-    `--glob=${input.pattern}`,
+    ...patternFilter(input.pattern),
     '--sort=modified',
-    '--no-ignore',
     '--hidden',
+    ...input.includeIgnored === true ? ['--no-ignore'] : ['--glob=!**/node_modules'],
     // Two negated globs per VCS name: the bare form prunes the directory
     // during traversal; the /** form still excludes the contents when the
     // search root is AT or INSIDE the directory (where the bare form,
@@ -305,7 +325,7 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
   const overCapDescription = caps.sampleOverCapGlobResults ? 'is sampled across top-level entries' : 'keeps the first paths'
   const tool = defineTool({
     name: 'glob',
-    description: 'Find files, not directories, whose paths match a glob pattern, including hidden and ignored files. '
+    description: 'Find files, not directories, whose paths match a glob pattern, including hidden files; files excluded by ignore rules and node_modules are skipped unless includeIgnored is true. '
       + `Returns up to ${caps.maxResults} paths in modification-time order; a larger result ${overCapDescription} `
       + 'and reports where the complete list was saved.',
     parameters: {
@@ -316,6 +336,7 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
           + 'A pattern with no "/" matches the basename at any depth, so "*" and "*.ts" both search the whole tree; include a separator to anchor the depth.',
       },
       path: { type: 'string', description: 'Directory to search in. Defaults to the session workspace; a relative path resolves against it.' },
+      includeIgnored: { type: 'boolean', description: 'Also list files excluded by ignore files (.gitignore, .ignore) and node_modules. Defaults to false.' },
     },
     timeoutMs: caps.timeoutMs,
     output: {

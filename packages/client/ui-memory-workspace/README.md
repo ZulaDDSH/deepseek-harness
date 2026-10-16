@@ -7,7 +7,7 @@ kind: "package-reference"
 
 ## Summary
 
-The Memory sidebar panel browses the local Memorix store, imports documents through the connected provider, and displays Graphify’s own generated HTML viewer. It is disabled in the shipped Web composition until explicitly enabled.
+The Memory sidebar panel browses the local Memorix store, imports documents through the connected provider, and displays Graphify’s own generated HTML viewer. The shipped Web composition enables it beside the `memory-memorix` MCP client, and it saves finished chat turns to Memorix and recalls them in later chats.
 
 ## Table of Contents
 
@@ -32,15 +32,16 @@ The **Context graph** tab rebuilds complete active document imports from the con
 
 ### Automatic memory
 
-When the Memorix store tool is visible to the model, three things happen without any model cooperation. Each has a switch in the `ui-memory-workspace` row:
+When the Memorix store tool is visible to the model, three things happen without any model cooperation. Each has a switch in the `ui-memory-workspace` row, and the **Memory: save chats and recall them** Settings row switches saves and recall together:
 
 | Setting | Default | Effect |
 |---|---|---|
+| `chatMemory` | `true` | Master switch for saves and recall. A volatile setting, so the Settings toggle takes effect without a restart. |
 | `policy` | `true` | A `memory:policy` system-prompt section tells the agent to search memory before dependent work and to call the store tool for decisions, preferences, hidden project facts and verified outcomes. It is empty while the store tool is not visible. |
-| `autoSave` | `true` | After a completed turn, once `autoSaveDelayMs` (default 20000) passes without another turn, the harness upserts one bounded session digest through `memorix_store`. Compaction summaries are saved immediately. Digests skip subagents and interrupted turns, remove obvious secrets, hold at most `memoryCharacters` (default 3000) and are skipped when unchanged. Every write is read back from the database where a local path is known. |
-| `recall` | `true` | At session start the newest three digests from earlier sessions in the same workspace are added to the system prompt, bounded by `memoryCharacters`. |
+| `autoSave` | `true` | Each finished turn is written as its own observation through `memorix_store`, with topic key `dsh-session:<session>:<segment>:turn:<n>`. The record holds the user request and the final answer, clipped to `memoryCharacters` (default 3000), with provider tokens, GitHub PATs, Google API keys, AWS keys, PEM private keys, JWTs, URL credentials and assignments to secret-looking names redacted. Tool output is excluded. Compaction summaries are saved as checkpoints. Subagent and interrupted turns, and CLI terminal sessions, are skipped. |
+| `recall` | `true` | On a session's first user message, `memorix_search` (scope `project`, status `active`) runs before the first model step within a 3 second budget. The best matches are added under `memory:recall` and labelled possibly stale. When the search fails, times out or finds nothing, the newest three notes from earlier chats in the workspace are used instead. |
 
-Failures never interrupt a turn. The first occurrence of each distinct failure is logged at warning level as `memory-workspace: automatic memory save failed: ...`, or as `memory-workspace: automatic memory recall failed: ...` when session-start recall cannot read the database; repeats log at info level. Disposing the session or the plugin flushes pending digests (five second limit). Digests use entity `dsh-workspace:<folder>-<hash>` and topic key `dsh-session:<session>:<segment>`, so they are searchable with `memorix_search` and visible under **Saved memories**.
+Failures never interrupt a turn. Each failure is recorded with its time, and the Memory page shows the latest save or recall failure. The first occurrence of each distinct failure is logged at warning level as `memory-workspace: automatic memory save failed: ...` or `memory-workspace: automatic memory recall failed: ...`; repeats log at info level. Saves use entity `dsh-workspace:<folder>-<hash>`, so they are searchable with `memorix_search` and visible under **Saved memories**. The plugin waits up to five seconds for queued saves when it is disposed.
 
 -----
 
@@ -77,7 +78,7 @@ Memorix provider configuration owns subsequent retrieval and its request effects
 
 #### What the model sees
 
-A short `memory:policy` section (about 200 tokens) in the system prompt while the Memorix store tool is visible, plus at most `memoryCharacters` of recalled digests under the `memory:recall` runtime context. Automatic saves are invisible to the model.
+A short `memory:policy` section (about 200 tokens) in the system prompt while the Memorix store tool is visible, plus at most `memoryCharacters` of recalled notes under the `memory:recall` runtime context. Automatic saves are invisible to the model.
 
 #### Token effect
 
@@ -85,13 +86,15 @@ The policy and recall text are added to every request of the session. Set `polic
 
 #### KV Cache effect
 
-The policy section is constant while the Memorix store tool stays visible. It appears when the tool first becomes visible, which changes the system prompt once. Recall is read once when the session's agent is created and sits in runtime context after the stable prompt, so it stays fixed for the session. Provider retrieval keeps its own request effects.
+The policy section is constant while the Memorix store tool stays visible. It appears when the tool first becomes visible, which changes the system prompt once. Recall is computed once, before the session's first model step, and sits in runtime context after the stable prompt, so it stays fixed for the session. Provider retrieval keeps its own request effects.
 
 ## Known Limitations and Deferred Work
 
-- Only the Memorix 1.3.0 migration inventory is supported; unsupported databases fail explicitly and are never migrated. Uploads accept UTF-8 text, PDF text layers and Office documents through the existing Office conversion provider. Scanned documents require OCR; this panel does not perform OCR. Byte and extracted-character limits reject oversized documents without truncation.
-- Automatic digests summarize the user request and the final assistant answer of each turn, not tool output, and replace themselves in place within a session segment. They rely on the model-facing store tool being registered; with only a remote Memorix provider they are acknowledged but cannot be read back. Recall only reads a local database.
+- Memorix 1.9.10 is the pinned version; the panel reads the tables that version creates and fails explicitly on a database missing a required migration. It never migrates a database. Uploads accept UTF-8 text, PDF text layers and Office documents through the existing Office conversion provider. Scanned documents require OCR; this panel does not perform OCR. Byte and extracted-character limits reject oversized documents without truncation.
+- Automatic turn records rely on the model-facing store tool being registered; with only a remote Memorix provider they are acknowledged but cannot be read back, and recall only reads a local database. The web composition ships Memorix 1.9.10, so no install step exists; when the packaged server fails to start, the Memory page shows the error with a Retry button and chats run unchanged. Memorix binds a session to a Git project, so a workspace outside any Git repository is saved under an empty repository DSH keeps in `$DSH_HOME/memorix-roots`; document uploads use the `documents` project there.
 - The Context graph's upload-hint check counts every document chunk, archived and partial imports included, so a store holding only those still runs Graphify (which then receives no active documents) instead of showing the hint.
+- The digest secret scrub is pattern-based. It can over-redact assignments such as `max_tokens=4096`, and it can miss credential formats it does not list.
+- `importDocument` declares a trailing `AbortSignal`, so the Client applies no unary deadline to an upload that is still extracting or importing. The upload panel passes no signal, so a slow import runs until it finishes or the Host lifetime ends, and the panel cannot cancel it.
 - Graphify and the supplied adapter must be installed. The derived graph rebuilds when opened or refreshed; uploads remain successful if later graph generation fails. Local browsing includes private and team records owned by the local user and is intended for an authenticated personal Host.
 
 <a id="dev-note"></a>

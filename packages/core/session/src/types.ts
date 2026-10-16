@@ -279,6 +279,8 @@ export type RequestHeaderReason = 'initial' | 'resume' | 'change' | 'series'
  * compact raw streams so persistence stores one durable settlement per attempt.
  */
 export interface SessionEventMap {
+  /** CLI terminal profile the Session hosts. */
+  'session/cli-terminal': { profile: CliTerminalProfileId }
   /**
    * Opens turn `turn` before the loop claims queued input or runs pre-step.
    * Rejection, empty input, cancellation, or failure may close it with no
@@ -519,5 +521,27 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
   interface RemoteErrorDetailsMap {
     /** The named Session does not exist; produced by every layer that resolves a SessionId. */
     'session/not-found': { readonly sessionId: SessionId }
+  }
+}
+
+/** CLI terminal profile identities. */
+export const CLI_TERMINAL_PROFILE_IDS = ['gemini-cli', 'grok-cli', 'cursor-cli'] as const
+
+/** Identity of one CLI terminal profile. */
+export type CliTerminalProfileId = (typeof CLI_TERMINAL_PROFILE_IDS)[number]
+
+/**
+ * Admit an untrusted string as a CLI terminal profile identity.
+ * @param value - candidate identity from a request or persisted event.
+ * @returns true when the value names a profile in {@link CLI_TERMINAL_PROFILE_IDS}.
+ */
+export function isCliTerminalProfileId(value: unknown): value is CliTerminalProfileId {
+  return typeof value === 'string' && (CLI_TERMINAL_PROFILE_IDS as readonly string[]).includes(value)
+}
+
+declare module '@deepseek-ai/dsh-typert-protocol' {
+  interface RemoteErrorDetailsMap {
+    /** CLI terminal profile the Session hosts. */
+    'session/cli-terminal': Record<string, never>
   }
 }

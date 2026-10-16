@@ -13,7 +13,9 @@ export type {
   MatcherGroup,
   MatcherMode,
 } from './types.ts'
-export { matcherDiagnostic, matchesMatcher } from './matcher.ts'
+export { hookToolName, matcherDiagnostic, matchesHookSubject, matchesMatcher } from './matcher.ts'
+export { createStopLoopGuard, DEFAULT_MAX_FORCED_STOPS } from './stop-guard.ts'
+export type { StopLoopGuard } from './stop-guard.ts'
 export { parseHookOutput } from './codec.ts'
 export { DEFAULT_HOOK_TIMEOUT_MS, runHook } from './runner.ts'
 export type { RunHookOptions, RunHookResult } from './runner.ts'

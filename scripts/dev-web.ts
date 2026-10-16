@@ -24,10 +24,11 @@
  * watcher is incremental over the previous stage's output and none of them
  * bootstraps a missing tree. `--no-serve` keeps only the watchers, for a
  * `dsh web` started elsewhere. `--poll` switches the source watchers to polling
- * (default 500ms): network mounts (weka) deliver no inotify events, so native
- * watching sees the initial build only and never a source change. Polling has
- * to reach tsc too — a native-watching tsc never re-emits `lib/types`, which
- * strands the other two stages on stale input.
+ * (default 500ms) and is opt-in: it costs steady CPU while idle, so use it only
+ * for network mounts (weka) that deliver no inotify events, where native watching
+ * sees the initial build only and never a source change. Polling has to reach
+ * tsc too — a native-watching tsc never re-emits `lib/types`, which strands the
+ * other two stages on stale input.
  *
  * Shutdown: Ctrl+C reaches every stage through the terminal's process group, so
  * the script only waits for them and escalates survivors; SIGTERM is addressed
@@ -92,6 +93,16 @@ export interface DevWebArguments {
 
 /** Polling interval selected by a bare `--poll`. */
 const DEFAULT_POLL_INTERVAL = 500
+
+/**
+ * One-line cost notice for polled source watching.
+ * @param pollInterval - selected polling interval, or undefined for native watching.
+ * @returns the notice, or undefined when watching natively.
+ */
+export function pollNotice(pollInterval: number | undefined): string | undefined {
+  if (pollInterval === undefined) return undefined
+  return `dev-web: --poll re-stats every watched source each ${String(pollInterval)}ms and keeps CPU busy while idle; drop --poll on a local disk (native watching) and keep it only for network mounts that deliver no file events.`
+}
 
 /**
  * Parse the script's command line. `--skip-build`, `--no-serve`, and `--poll[=ms]`
@@ -339,6 +350,8 @@ if (isMain) {
     console.error('dev-web: usage: pnpm run dev:web [--skip-build] [--no-serve] [--poll[=ms]] [dsh web arguments]')
     process.exit(1)
   }
+  const notice = pollNotice(options.pollInterval)
+  if (notice !== undefined) console.warn(notice)
 
   // Shutdown is requested once, by a terminal signal or by a stage exiting on
   // its own; `signal` stays unset for SIGINT because the terminal's process

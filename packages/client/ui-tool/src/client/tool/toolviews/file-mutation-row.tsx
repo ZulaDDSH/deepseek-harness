@@ -43,6 +43,7 @@ function StartedFileMutationRow({ toolName, block, cwd, home, openFile, inspect,
       errorSummary={model.errorSummary}
       diff={diff}
       state={model.state}
+      startedAt={model.startedAt}
       filePath={model.filePath}
       onOpenFile={openFile}
       inspect={inspect}

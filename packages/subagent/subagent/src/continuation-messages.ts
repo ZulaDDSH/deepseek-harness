@@ -143,9 +143,13 @@ export function createSettlementMessage(
   const closingText = (terminal.output ?? []).flatMap(block =>
     block.type === 'text' && block.text.length > 0 ? [block] : [],
   )
+  const failure = terminal.diagnostic === undefined
+    ? []
+    : [{ type: 'text' as const, text: `Its failure: ${terminal.diagnostic}` }]
   return createUserMessage({
     content: [
       { type: 'text' as const, text: summary },
+      ...failure,
       ...closingText.length === 0
         ? [{ type: 'text' as const, text: 'It left no closing message.' }]
         : [{ type: 'text' as const, text: 'Its closing message:' }, ...closingText],

@@ -246,6 +246,14 @@ Typed Remote control of transient Session-owned terminal processes.
 @Remote shells(agent: Agent, signal: AbortSignal): Promise<TerminalShell[]>
 
 /**
+ * Report which CLI terminal profiles resolve in the Session's execution environment.
+ * @param agent - Session owner supplied by the Gateway.
+ * @param signal - request cancellation.
+ * @returns one status per profile, in table order.
+ */
+@Remote cliProfiles(agent: Agent, signal: AbortSignal): Promise<CliTerminalStatus[]>
+
+/**
  * List retained terminals without resolving or activating an Agent.
  * @param sessionId - displayed Session identity, including offline history.
  * @returns terminals retained for this Host lifetime.

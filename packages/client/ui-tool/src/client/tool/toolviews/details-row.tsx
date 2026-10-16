@@ -65,6 +65,7 @@ export function DetailsRow({ toolName, block, cwd, home, openFile, inspect, useD
       output={model.output}
       errorSummary={model.errorSummary}
       state={model.state}
+      startedAt={model.startedAt}
       inspect={inspect}
       onOpenFile={openFile}
     />

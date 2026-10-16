@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import type { ConversationSessionSlotProps } from '../contract/slots.ts'
 import { conversationPhase } from '../contract/snapshot.ts'
-import { resolveActiveView } from '../view-selection.ts'
+import { DEFAULT_VIEW_ID, resolveActiveView } from '../view-selection.ts'
 import css from './ConversationRoot.module.css'
 
 /**
@@ -32,7 +32,8 @@ export function DefaultConversationViews({
     // the machine mirror, not this seed effect.
   }, [inputActions])
 
-  if (session.blank && conversationPhase(session, conversation) === 'blank') return null
+  const blank = session.blank && conversationPhase(session, conversation) === 'blank'
+  if (blank && (active === undefined || active.id === DEFAULT_VIEW_ID)) return null
   const viewId = view ?? active?.id
   return (
     <div className={css.viewArea}>

@@ -17,6 +17,8 @@ export interface JevDecisionRecord {
   readonly route?: string
   readonly provider?: string
   readonly model?: string
+  /** Jev named a configured route whose provider is not registered in this composition; the base route was kept. */
+  readonly unroutable?: boolean
   readonly error?: string
   /**
    * Whether the router stopped the turn instead of keeping the chat model.

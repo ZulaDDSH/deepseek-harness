@@ -24,6 +24,7 @@ import {
 } from '../models/tool-call-model.ts'
 import type { WebCardModelProps } from '../models/web-card-model.ts'
 import { AskQuestionCard } from './AskQuestionCard.tsx'
+import { ElapsedClock } from './ElapsedClock.tsx'
 import { ToolDetails, type ToolDetailsModel } from './ToolDetails.tsx'
 import css from './ToolRow.module.css'
 
@@ -77,6 +78,8 @@ export interface ToolRowProps {
   /** Read-only fields/list card derived from a successful recorded result. */
   details?: ToolDetailsModel | null | undefined
   state: ToolRowState
+  /** Epoch ms when the in-flight stage began; a running or preparing row shows its elapsed clock from it. */
+  startedAt?: number | undefined
   /**
    * Filesystem path from tool args; when set with onOpenFile, the summary
    * renders as a hover-underline link that opens the host default app.
@@ -139,6 +142,7 @@ export const ToolRow = memo(function ToolRow({
   web,
   details,
   state,
+  startedAt,
   filePath,
   filePathLine,
   onOpenFile,
@@ -248,8 +252,9 @@ export const ToolRow = memo(function ToolRow({
       {suffix !== null && (
         <TextShimmer className={clsx(css.summarySuffix, suffix === diffStat && css.diffStat)}>{suffix}</TextShimmer>
       )}
+      {running && startedAt !== undefined && <ElapsedClock since={startedAt} />}
     </>
-  ), [diffStat, summaryLinkKeyDown, linkHref, openFile, running, state, suffix, summaryText])
+  ), [diffStat, summaryLinkKeyDown, linkHref, openFile, running, startedAt, state, suffix, summaryText])
   const expandedContent = useMemo(() => open ? (
     <div className={clsx(css.bodyWrap, detailsBody !== null && css.detailsBodyWrap)}>
       {askQuestionBody !== null

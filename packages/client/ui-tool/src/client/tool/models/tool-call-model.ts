@@ -121,6 +121,27 @@ const TOOL_TITLE_KEYS: Record<string, ToolTitleKey> = {
 }
 
 /**
+ * Presentation key a configured tool instance renders under.
+ * @param toolName - wire tool name.
+ * @returns `subagent` for every `subagent_<provider>` delegation instance; the name itself otherwise.
+ */
+export function toolViewKey(toolName: string): string {
+  if (Object.hasOwn(TOOL_TITLE_KEYS, toolName) || toolName.endsWith('_inspect')) return toolName
+  return toolName.startsWith('subagent_') ? 'subagent' : toolName
+}
+
+/**
+ * Delegation provider named by a `subagent_<provider>` tool instance.
+ * @param toolName - wire tool name.
+ * @returns provider id such as `claude-code`, or undefined for the default `subagent` tool and other tools.
+ */
+export function subagentProvider(toolName: string): string | undefined {
+  return toolName !== 'subagent' && toolViewKey(toolName) === 'subagent'
+    ? toolName.slice('subagent_'.length).replaceAll('_', '-')
+    : undefined
+}
+
+/**
  * Classify a tool name into its row variant.
  * @param toolName - wire tool name.
  * @returns matching variant, others when unknown.
@@ -135,7 +156,7 @@ export function classifyTool(toolName: string): ToolRowVariant {
  * @returns the localized title key.
  */
 export function toolTitleKey(toolName: string): ToolTitleKey {
-  return TOOL_TITLE_KEYS[toolName] ?? VARIANT_TITLE_KEYS[classifyTool(toolName)]
+  return TOOL_TITLE_KEYS[toolViewKey(toolName)] ?? VARIANT_TITLE_KEYS[classifyTool(toolName)]
 }
 
 /** Everything ToolRow needs, derived once from the frozen slice. */
@@ -159,6 +180,8 @@ export interface ToolRowModel {
   /** Structured Auto-review denial identity; null for every ordinary result. */
   autoReviewDenial: AutoReviewDenial | null
   state: ToolRowState
+  /** Epoch ms when the in-flight stage began; undefined once settled. */
+  startedAt: number | undefined
 }
 
 function deriveAutoReviewDenial(block: ToolCallBlock): AutoReviewDenial | null {
@@ -308,5 +331,6 @@ export function toolRowModel(toolName: string, block: ToolCallBlock, cwd?: strin
     errorSummary,
     autoReviewDenial: deriveAutoReviewDenial(block),
     state,
+    startedAt: done ? undefined : block.time,
   }
 }

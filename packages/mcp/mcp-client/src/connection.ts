@@ -87,6 +87,12 @@ export interface ConnectionHandle extends ServerContext {
    * unregister every tool this server still owns.
    */
   dispose(): Promise<void>
+  /**
+   * Start a fresh connection attempt with a new retry budget when the server is down
+   * (waiting out a backoff, or after giving up) and not waiting for sign-in.
+   * @returns whether an attempt was started; false while connected, connecting, signing in, or disposed.
+   */
+  reconnect(): boolean
 }
 
 /**
@@ -447,6 +453,16 @@ export function startConnection(
 
   return {
     ready,
+    reconnect(): boolean {
+      if (disposed || client !== undefined || authRequired) return false
+      if (reconnectTimer !== undefined) {
+        clearTimeout(reconnectTimer)
+        reconnectTimer = undefined
+      }
+      failedAttempts = 0
+      settling = connectGeneration(false)
+      return true
+    },
     status: () => ({
       state: connectedAt !== undefined ? 'connected' : authRequired ? 'auth-required' : lastError !== undefined ? 'failed' : 'connecting',
       toolCount: disposers.size,

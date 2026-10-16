@@ -80,8 +80,9 @@ The kept matches become part of the grep tool result, so the transcript prefix t
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- Route descriptions and provider/model identifiers are configuration-owned and must match routes available in the active DSH composition; the plugin does not discover or add missing routes automatically.
+- Route descriptions and provider/model identifiers are configuration-owned. Routes whose provider is not registered in the active composition are withheld from Jev and never applied, and a decision naming one records `unroutable: true`. Model ids are not checked against provider catalogs, which are advisory.
 - Fail-open behavior preserves the base route when Jev fails, so deployments that require routing to succeed must explicitly set `failOpen: false`.
+- Pinned agents bypass Jev: an agent whose identity carries `routePinned`, or whose top-level Session's enabled Orchestrator & Subagent Setup (its own, an ancestor's, or the global default) fixes the orchestrator, is admitted without a Jev request. A role set to Jev-decides is routed as usual.
 
 <a id="dev-note"></a>
 ### Dev Note

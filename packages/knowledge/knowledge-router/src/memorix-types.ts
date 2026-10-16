@@ -24,3 +24,13 @@ export interface MemorixRecentObservation {
   narrative: string
   createdAt: string
 }
+/** One stored observation read back by identifier. */
+export interface MemorixObservationRecord {
+  id: number
+  entityName: string
+  topicKey: string | null
+  title: string
+  narrative: string
+  createdAt: string
+  status: string
+}

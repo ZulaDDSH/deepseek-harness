@@ -8,7 +8,7 @@
           - id: persona
             name: '@deepseek-ai/dsh-persona'
             config:
-              prefix: You are a focused software engineer assistant.
+              prefix: You are a focused software engineer assistant.{{ultracode_policy}}
               complete: true
               includeRuntimeContext: false
           - id: agent-instructions

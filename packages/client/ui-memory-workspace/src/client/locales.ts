@@ -4,7 +4,7 @@ export const en = {
   refresh: 'Refresh', search: 'Search all records', previous: 'Previous', next: 'Next',
   loading: 'Loading…', upload: 'Upload documents', importing: 'Importing into Memorix…',
   importInfo: 'Extracted text is stored as Memorix memories. The original file is retained locally. Partial imports can be retried.',
-  textFormats: 'Documents: TXT, Markdown, CSV, JSON, logs, PDF and Office',
+  dropHint: 'Choose files or drop them here', textFormats: 'Documents: TXT, Markdown, CSV, JSON, logs, PDF and Office',
   allScope: 'Local store: all projects, statuses and visibility scopes. These records are shown to you, not automatically sent to a model.',
   detail: 'Record details', empty: 'No records', imported: 'Document chunks saved', total: 'Total',
   source: 'Source',
@@ -13,6 +13,16 @@ export const en = {
   noMatch: 'No records match', selectRecord: 'Select a record to read all of its fields.', of: 'of',
   graphBuilding: 'Building the context graph with Graphify…',
   setupHint: 'The Memory panel needs a Memorix MCP client named memorix (running memorix serve) and ui-memory-workspace in your Cordis config. Check the connection in MCP settings, then refresh.',
+  chatMemory: 'Chat memory', chatOn: 'On: finished chats are saved and related chats are recalled', chatOff: 'Off: chats are neither saved nor recalled',
+  ready: 'Memorix is ready', settingUp: 'Setting up Memorix…', unavailable: 'Memorix failed to start', retry: 'Retry',
+  unavailableHint: 'Memorix ships with DSH and starts with it, so there is nothing to install. Chats keep working without it. Select Retry to start it again; if it keeps failing, the Host log has the cause. An existing Memorix database is copied once to a .dsh-pre-1.9.10.bak file beside it before this version first opens it. The chat memory switch in Settings > General turns saving and recall off.',
+  lastSaved: 'Last chat saved', lastRecalled: 'Last recall', never: 'Not yet', saveFailed: 'Chat save failed', recallFailed: 'Recall failed', at: 'at',
+  dateLocale: 'en-US', collection: 'Memory collection',
+  'field.id': 'ID', 'field.title': 'Title', 'field.name': 'Name', 'field.type': 'Type', 'field.entityName': 'Entity',
+  'field.narrative': 'Narrative', 'field.facts': 'Facts', 'field.concepts': 'Concepts', 'field.filesModified': 'Files modified',
+  'field.commandsRun': 'Commands run', 'field.project': 'Project', 'field.projectId': 'Project', 'field.originProjectId': 'Origin project',
+  'field.status': 'Status', 'field.state': 'State', 'field.topicKey': 'Topic key', 'field.source': 'Source', 'field.sessionId': 'Session',
+  'field.createdAt': 'Created', 'field.updatedAt': 'Updated',
 }
 /** Keys in the memory workspace dictionary. */
 export type MemoryWorkspaceKey = keyof typeof en
@@ -22,7 +32,7 @@ export const zh: Record<MemoryWorkspaceKey, string> = {
   refresh: '刷新', search: '搜索所有记录', previous: '上一页', next: '下一页',
   loading: '正在加载…', upload: '上传文档', importing: '正在导入 Memorix…',
   importInfo: '提取的文本将存为 Memorix 记忆，原始文件保留在本地。部分导入失败时可以重试。',
-  textFormats: '文档：TXT、Markdown、CSV、JSON、日志、PDF 和 Office',
+  dropHint: '选择文件或将其拖放到此处', textFormats: '文档：TXT、Markdown、CSV、JSON、日志、PDF 和 Office',
   allScope: '本地存储：所有项目、状态与可见范围。这些记录仅向你展示，不会自动发送给模型。',
   detail: '记录详情', empty: '没有记录', imported: '已保存的文档片段', total: '总数',
   source: '来源',
@@ -31,6 +41,16 @@ export const zh: Record<MemoryWorkspaceKey, string> = {
   noMatch: '没有匹配的记录', selectRecord: '选择一条记录以查看其全部字段。', of: '/',
   graphBuilding: '正在用 Graphify 生成上下文图谱…',
   setupHint: '记忆面板需要一个名为 memorix 的 Memorix MCP 客户端（运行 memorix serve），并在 Cordis 配置中启用 ui-memory-workspace。请在 MCP 设置中检查连接，然后刷新。',
+  chatMemory: '聊天记忆', chatOn: '已开启：完成的聊天会被保存，相关聊天会被回忆', chatOff: '已关闭：聊天既不保存，也不回忆',
+  ready: 'Memorix 已就绪', settingUp: '正在设置 Memorix…', unavailable: 'Memorix 启动失败', retry: '重试',
+  unavailableHint: 'Memorix 随 DSH 一起提供并自动启动，无需安装；没有它聊天也能正常使用。点击“重试”可再次启动；如果持续失败，请查看 Host 日志了解原因。此版本首次打开已有的 Memorix 数据库前，会先在其旁边复制一份 .dsh-pre-1.9.10.bak 备份。在设置 > 通用中关闭“记忆：保存聊天并回忆”即可停止保存和回忆。',
+  lastSaved: '最近一次保存', lastRecalled: '最近一次回忆', never: '尚无', saveFailed: '聊天保存失败', recallFailed: '回忆失败', at: '时间',
+  dateLocale: 'zh-CN', collection: '记忆集合',
+  'field.id': 'ID', 'field.title': '标题', 'field.name': '名称', 'field.type': '类型', 'field.entityName': '实体',
+  'field.narrative': '叙述', 'field.facts': '事实', 'field.concepts': '概念', 'field.filesModified': '修改的文件',
+  'field.commandsRun': '执行的命令', 'field.project': '项目', 'field.projectId': '项目', 'field.originProjectId': '来源项目',
+  'field.status': '状态', 'field.state': '状态', 'field.topicKey': '主题键', 'field.source': '来源', 'field.sessionId': '会话',
+  'field.createdAt': '创建时间', 'field.updatedAt': '更新时间',
 }
 /** Registered memory workspace locale namespace. */
 export const NS = 'memoryWorkspace'

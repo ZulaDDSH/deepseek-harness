@@ -1,5 +1,6 @@
 /** Entity lists and receipts for agent, job, terminal, and language-server tools. */
 import type { ToolDetailsModel } from '../components/ToolDetails.tsx'
+import { subagentProvider, toolViewKey } from './tool-call-model.ts'
 import {
   detailBadge, detailList, detailRecord, inspectionItems,
   type DetailItem, type DetailTranslate,
@@ -110,7 +111,7 @@ export function controlDetails(
   name: string, args: Record<string, unknown>, text: string, json: unknown, t: DetailTranslate,
 ): ToolDetailsModel | null {
   const target = arg(args, 'target') || arg(args, 'agent_id') || arg(args, 'sessionId') || arg(args, 'job_id')
-  switch (name) {
+  switch (toolViewKey(name)) {
     case 'list_agents': return agentList(text, json, t)
     case 'job_list': return jobList(text, t)
     case 'terminal_list': return terminalList(text, t)
@@ -145,9 +146,11 @@ export function controlDetails(
       if (detailRecord(json.noProgress) && typeof json.noProgress.message === 'string') return detailList([{ title: t('detail.wait.noProgress'), description: json.noProgress.message, fields: [] }], t('detail.wait.noProgress'), t)
       return receipt(t('detail.wait.title'), { label: t(json.timedOut ? 'detail.wait.timeout' : 'detail.wait.changed'), tone: 'neutral' }, t)
     case 'subagent': {
+      const provider = subagentProvider(name)
+      const providerFields = provider === undefined ? [] : [{ label: t('detail.field.provider'), value: provider }]
       const started = /^started (background subagent job|subagent) (\S+)$/u.exec(text)
-      if (started !== null) return receipt(arg(args, 'prompt'), { label: t('detail.receipt.started'), tone: 'info' }, t, [{ label: t(started[1] === 'subagent' ? 'detail.field.agent' : 'detail.field.job'), value: started[2] ?? '' }])
-      return detailList([{ title: t('detail.agent.reply'), markdown: text, fields: [], groups: [{ label: t('detail.field.task'), items: [{ description: arg(args, 'prompt'), fields: [] }] }] }], t('detail.agent.reply'), t)
+      if (started !== null) return receipt(arg(args, 'prompt'), { label: t('detail.receipt.started'), tone: 'info' }, t, [{ label: t(started[1] === 'subagent' ? 'detail.field.agent' : 'detail.field.job'), value: started[2] ?? '' }, ...providerFields])
+      return detailList([{ title: t('detail.agent.reply'), markdown: text, fields: providerFields, groups: [{ label: t('detail.field.task'), items: [{ description: arg(args, 'prompt'), fields: [] }] }] }], t('detail.agent.reply'), t)
     }
     case 'list_subagent_models': {
       const items = text.split('\n').map((line) => {

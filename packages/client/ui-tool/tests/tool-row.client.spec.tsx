@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useDisclosure } from '@deepseek-ai/dsh-client-ui-chat/src/client/chat/use-disclosure.ts'
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 
 import type { StartedToolCall, ToolResultNode } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
@@ -11,6 +11,7 @@ import {
   classifyTool, formatToolBody, resultText, toolRowModel,
 } from '../src/client/tool/models/tool-call-model.ts'
 import { ToolRow } from '../src/client/tool/components/ToolRow.tsx'
+import { ElapsedClock } from '../src/client/tool/components/ElapsedClock.tsx'
 import { GenericToolCard, type GenericToolCardProps } from '../src/client/tool/toolviews/GenericToolCard.tsx'
 import { zh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
 
@@ -595,5 +596,53 @@ describe('GenericToolCard', () => {
     ))).toBe(false)
     expect(view.queryByText('Tool execution rejected by user')).toBeNull()
     expect(view.queryByText(/"path"/)).toBeNull()
+  })
+})
+
+describe('running elapsed clock', () => {
+  beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(5_000) })
+  afterEach(() => { vi.useRealTimers() })
+
+  it('dates a running call from its start and a settled call not at all', () => {
+    expect(toolRowModel('bash', running()).startedAt).toBe(1_000)
+    expect(toolRowModel('bash', result()).startedAt).toBeUndefined()
+  })
+
+  it('ticks m:ss and rolls into h:mm:ss', () => {
+    const view = render(<ElapsedClock since={1_000} />)
+    expect(view.container.textContent).toBe('0:04')
+    act(() => { vi.advanceTimersByTime(1_000) })
+    expect(view.container.textContent).toBe('0:05')
+    view.unmount()
+    expect(render(<ElapsedClock since={Date.now() - 3_725_000} />).container.textContent).toBe('1:02:05')
+  })
+
+  it('drives every mounted clock from one shared interval and releases it on the last unmount', () => {
+    expect(vi.getTimerCount()).toBe(0)
+    const view = render(<>{[1_000, 2_000, 3_000, 4_000].map(since => <ElapsedClock key={since} since={since} />)}</>)
+    expect(vi.getTimerCount()).toBe(1)
+    act(() => { vi.advanceTimersByTime(2_000) })
+    expect([...view.container.querySelectorAll('span')].map(clock => clock.textContent)).toEqual(['0:06', '0:05', '0:04', '0:03'])
+    view.unmount()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('shows the elapsed time on a running tool row and keeps ticking', () => {
+    const block = running({ name: 'custom_tool', argsRaw: '{"note":"x"}' })
+    const view = render(
+      <GenericToolCard
+        loadImage={vi.fn(() => Promise.reject(new Error('not used')))}
+        useDisclosure={useDisclosure}
+        callId="c1"
+        toolName="custom_tool"
+        phase="start"
+        block={block}
+        openFile={vi.fn()}
+        t={t}
+      />,
+    )
+    expect(view.container.textContent).toContain('0:04')
+    act(() => { vi.advanceTimersByTime(1_000) })
+    expect(view.container.textContent).toContain('0:05')
   })
 })

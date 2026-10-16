@@ -9,7 +9,9 @@ import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { AssistantMessageEventStream } from '@earendil-works/pi-ai/utils/event-stream'
+import { normalizeContext } from '@earendil-works/pi-ai/utils/transcript'
 import type { Api, Model, OpenAICompletionsCompat, Provider } from '@earendil-works/pi-ai'
+import { catalogModels } from '../src/catalog.ts'
 import { resolveProfiles } from '../src/config.ts'
 import { createModels, createProvider, getSupportedThinkingLevels } from '../src/models.ts'
 import { buildProvider, supportedProtocols } from '../src/provider.ts'
@@ -362,7 +364,7 @@ describe('hand-declared providers', () => {
       auth: { apiKey: { name: 'Local', resolve: () => Promise.resolve({ auth: {}, source: 'Local' }) } },
       api: { stream, streamSimple },
     })
-    const context = { messages: [] }
+    const context = normalizeContext({ messages: [] })
 
     expect(provider.stream(model, context)).toBe(direct)
     expect(provider.streamSimple(model, context)).toBe(simple)
@@ -444,7 +446,7 @@ describe('catalog routes with per-model configuration', () => {
 
     const listed = await ctx.llm.listModels('deepseek')
     expect(listed.map(model => model.id).sort())
-      .toEqual(getBuiltinModels('deepseek').map(model => model.id).sort())
+      .toEqual([...catalogModels('deepseek').keys()].sort())
   })
 
   it('overrides one catalog model field and defaults the rest from the catalog', async () => {
@@ -545,7 +547,7 @@ describe('catalog routes with per-model configuration', () => {
     if (built === undefined) throw new Error('the deepseek route built no provider')
     const [model] = built.getModels()
     if (model === undefined) throw new Error('the deepseek route resolved no models')
-    const context = { messages: [{ role: 'user' as const, content: 'hi', timestamp: 0 }] }
+    const context = normalizeContext({ messages: [{ role: 'user' as const, content: 'hi', timestamp: 0 }] })
 
     // `stream` is interface-required and unused by the harness adapter, which
     // only calls `streamSimple`; both must still reach the catalog provider.
@@ -731,7 +733,7 @@ describe('modelOverrides', () => {
   }
 
   it('reshapes one catalog model while the rest of the catalog keeps serving', () => {
-    const catalogSize = getBuiltinModels('deepseek').length
+    const catalogSize = catalogModels('deepseek').size
     const target = deepseekModel()
     const resolved = resolveProfiles({
       deepseek: {
@@ -758,7 +760,7 @@ describe('modelOverrides', () => {
     expect(resolved.get('deepseek')?.configuredMaxTokens.get(target.id)).toBe(4096)
     // A sibling the overrides do not name is byte-identical to the catalog.
     const sibling = models.find(model => model.id !== target.id)
-    expect(sibling?.maxTokens).toBe(getBuiltinModels('deepseek').find(model => model.id === sibling?.id)?.maxTokens)
+    expect(sibling?.maxTokens).toBe(catalogModels('deepseek').get(sibling?.id ?? '')?.maxTokens)
   })
 
   it('refuses every override that lands nowhere instead of skipping it', () => {
@@ -1077,7 +1079,7 @@ describe('compat switches', () => {
   it('serves the Responses compat type on every protocol pi-ai gives it to', () => {
     // pi-ai types azure-openai-responses and openai-codex-responses with the
     // same OpenAIResponsesCompat, so a switch settable on one is settable on all.
-    for (const route of ['azure-openai-responses', 'openai-codex']) {
+    for (const route of ['azure', 'openai-codex']) {
       const models = modelsOf({ [route]: { compat: { supportsDeveloperRole: false } } }, route)
       const [first] = [...models.values()]
       expect((first?.compat as { supportsDeveloperRole?: boolean }).supportsDeveloperRole).toBe(false)
@@ -1449,14 +1451,24 @@ describe('catalog supplement', () => {
     expect(models.find(model => model.id === id)).toMatchObject({ api, contextWindow })
   })
 
+  it('serves deepseek-v4-flash, which the pinned pi-ai catalog dropped, at its 0.85.1 entry', () => {
+    const models = resolveProfiles({ deepseek: { apiKeyEnv: KEY_ENV } }).get('deepseek')?.piProvider?.getModels() ?? []
+    expect(models.find(model => model.id === 'deepseek-v4-flash')).toMatchObject({
+      api: 'openai-completions', baseUrl: 'https://api.deepseek.com', contextWindow: 1_000_000, maxTokens: 384_000,
+      cost: { input: 0.14, output: 0.28 },
+    })
+  })
+
   it('serves a model the pinned pi-ai catalog does not ship and keeps the installed ids', async () => {
     const ctx = await harness({ providers: { 'opencode-go': { apiKeyEnv: KEY_ENV } } })
 
     const listed = await ctx.llm.listModels('opencode-go')
     const ids = listed.map(model => model.id)
     expect(ids).toContain('deepseek-v4.1-flash')
+    expect(ids).toContain('gemini-4-argon-contributor')
     // The pinned catalog already describes this one; the supplement only fills ids it lacks.
-    expect(ids).toContain('deepseek-v4-flash')
+    expect(ids).toContain('glm-5.2')
+    expect(ids).not.toContain('deepseek-v4-flash')
     expect(listed.find(model => model.id === 'deepseek-v4.1-flash'))
       .toMatchObject({ name: 'DeepSeek V4.1 Flash', inputModalities: ['text', 'image'] })
   })
@@ -1467,7 +1479,7 @@ describe('catalog supplement', () => {
     ['longcat-2.5-preview-free', 'openai-completions', 1_000_000, 131_072, 0],
     ['mimo-v2.6-flash', 'openai-completions', 1_048_576, 131_072, 0.14],
     ['mimo-v2.6-pro', 'openai-completions', 1_048_576, 131_072, 0.435],
-    ['space-bunny-free', 'openai-completions', 1_048_576, 524_288, 0],
+    ['space-bunny', 'openai-completions', 1_048_576, 524_288, 0.15],
   ])('offers opencode-go model %s with its protocol, limits and price', async (id, api, contextWindow, maxTokens, input) => {
     const ctx = await harness({ providers: { 'opencode-go': { apiKeyEnv: KEY_ENV } } })
     expect(await ctx.llm.listModels('opencode-go')).toEqual(expect.arrayContaining([
@@ -1475,13 +1487,65 @@ describe('catalog supplement', () => {
     ]))
     const models = resolveProfiles({ 'opencode-go': { apiKeyEnv: KEY_ENV } }).get('opencode-go')?.piProvider?.getModels() ?? []
     expect(models.find(model => model.id === id)).toMatchObject({
-      api, contextWindow, maxTokens, baseUrl: 'https://opencode.ai/zen/go/v1', cost: { input },
+      api, contextWindow, maxTokens, baseUrl: 'https://opencode.ai/inference/go/v1', cost: { input },
     })
   })
 
   it('materializes the supplemented model with the route protocol and endpoint', () => {
     const models = resolveProfiles({ 'opencode-go': { apiKeyEnv: KEY_ENV } }).get('opencode-go')?.piProvider?.getModels() ?? []
-    expect(models.find(model => model.id === 'deepseek-v4.1-flash'))
-      .toMatchObject({ api: 'openai-completions', baseUrl: 'https://opencode.ai/zen/go/v1', contextWindow: 1_000_000 })
+    expect(models.find(model => model.id === 'cat-jam-free'))
+      .toMatchObject({ api: 'openai-completions', baseUrl: 'https://opencode.ai/inference/go/v1', contextWindow: 262_144 })
+  })
+
+  it('serves the Go claude-haiku-5-5 over the Anthropic endpoint of its route', async () => {
+    const ctx = await harness({ providers: { 'opencode-go': { apiKeyEnv: KEY_ENV } } })
+    expect(await ctx.llm.listModels('opencode-go')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'claude-haiku-5-5', inputModalities: ['text', 'image'] }),
+    ]))
+    const models = resolveProfiles({ 'opencode-go': { apiKeyEnv: KEY_ENV } }).get('opencode-go')?.piProvider?.getModels() ?? []
+    expect(models.find(model => model.id === 'claude-haiku-5-5')).toMatchObject({
+      api: 'anthropic-messages', baseUrl: 'https://opencode.ai/inference/go', contextWindow: 1_000_000, maxTokens: 128_000,
+      cost: { input: 0.1, cacheWrite: 0.125 },
+    })
+  })
+
+  it('serves an OpenCode Zen model the pinned catalog lacks and hides a retired one', async () => {
+    const ctx = await harness({ providers: { opencode: { apiKeyEnv: KEY_ENV } } })
+    const ids = (await ctx.llm.listModels('opencode')).map(model => model.id)
+    expect(ids).toContain('gpt-6-sol')
+    expect(ids).not.toContain('claude-sonnet-4')
+    const models = resolveProfiles({ opencode: { apiKeyEnv: KEY_ENV } }).get('opencode')?.piProvider?.getModels() ?? []
+    expect(models.find(model => model.id === 'gpt-6-sol')).toMatchObject({
+      api: 'openai-responses', baseUrl: 'https://opencode.ai/inference/v1', contextWindow: 1_050_000, cost: { input: 2, output: 10 },
+    })
+  })
+
+  it('serves a Go model over the protocol the OpenCode docs name', () => {
+    const models = resolveProfiles({ 'opencode-go': { apiKeyEnv: KEY_ENV } }).get('opencode-go')?.piProvider?.getModels() ?? []
+    expect(models.find(model => model.id === 'minimax-m2.7'))
+      .toMatchObject({ api: 'anthropic-messages', baseUrl: 'https://opencode.ai/inference/go', cost: { cacheWrite: 0.375 } })
+  })
+
+  it('drops the OpenAI-protocol compat of a model repointed to the Anthropic endpoint', () => {
+    expect(getBuiltinModels('opencode-go').find(model => model.id === 'minimax-m2.7')?.compat).toBeDefined()
+    expect(catalogModels('opencode-go').get('minimax-m2.7')?.compat).toBeUndefined()
+    expect(catalogModels('opencode').get('minimax-m2.7')?.compat).toBeDefined()
+  })
+
+  it('serves an installed model at the price the OpenCode docs list', () => {
+    const models = resolveProfiles({ 'opencode-go': { apiKeyEnv: KEY_ENV } }).get('opencode-go')?.piProvider?.getModels() ?? []
+    expect(models.find(model => model.id === 'glm-5.3-flash'))
+      .toMatchObject({ cost: { input: 0.15, output: 0.5, cacheRead: 0.03 } })
+  })
+
+  it('keeps a modelOverrides entry and a route api over a corrected model', () => {
+    const overridden = resolveProfiles({
+      'opencode-go': { apiKeyEnv: KEY_ENV, modelOverrides: { 'minimax-m2.7': { contextWindow: 123_456 } } },
+    }).get('opencode-go')?.piProvider?.getModels() ?? []
+    expect(overridden.find(model => model.id === 'minimax-m2.7'))
+      .toMatchObject({ api: 'anthropic-messages', contextWindow: 123_456 })
+    const routed = resolveProfiles({ 'opencode-go': { apiKeyEnv: KEY_ENV, api: 'openai-completions' } })
+      .get('opencode-go')?.piProvider?.getModels() ?? []
+    expect(routed.find(model => model.id === 'minimax-m2.7')).toMatchObject({ api: 'openai-completions' })
   })
 })

@@ -14,6 +14,7 @@ Types shared by long-running producers, `ctx.jobs`, and job controls. The [seam 
 interface JobKindMap {
   bash: 'bash'
   subagent: 'subagent'
+  watch: 'watch'
 }
 ```
 

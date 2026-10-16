@@ -2,7 +2,7 @@
 // The input order is authoritative; lineage only makes each child adjacent to its parent.
 // Orphaned lineage degrades to root level; cycles fail soft and emit as roots.
 
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { CliTerminalProfileId, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
 import type { SessionSummary } from '../../types.ts'
 
@@ -28,6 +28,8 @@ export interface SessionListEntry {
   /** Coarse durable origin for navigation filtering; not a continuation capability. */
   origin?: 'subagent'
   cwd?: string
+  /** CLI terminal profile the Session hosts, when it is a CLI terminal Session. */
+  cliProfile?: CliTerminalProfileId
   /** Current host-computed projection values for list consumers. */
   projectionValues?: Readonly<Partial<SessionProjectionMap>>
   /** Lineage indent depth: root = 0; the UI just multiplies by the indent width. */

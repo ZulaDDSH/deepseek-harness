@@ -224,6 +224,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   ctx.on('mcp-client/inventory', (reports) => {
     reports.push({ serverName: config.serverName, ...connection.status(), ...auth === undefined ? {} : { authKey: auth.key } })
   })
+  ctx.on('mcp-client/reconnect', (serverName) => {
+    if (serverName === config.serverName) connection.reconnect()
+  })
   registerServerContext(ctx, config.serverName, connection)
   let stopping: Promise<void> | undefined
   const dispose = (): Promise<void> => stopping ??= connection.dispose()

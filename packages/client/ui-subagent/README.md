@@ -103,6 +103,22 @@ Conditional and append-only: the literal `@label` or a human follow-up adds toke
 
 Append-only. This package never edits earlier request tokens.
 
+### Orchestrator & Subagent Setup view
+
+The same panel is the global editor in Settings, on the `subagent-setup` page titled "Orchestrator & Subagents" (shown while the Host serves `session-controller`): there it saves the global default, and a session panel can save its draft as the global default or reset to it.
+
+#### What the model sees
+
+Nothing from this package. The Setup panel writes run options; the policy text that reaches the model is added by `session-controller`, and only while the setup is enabled.
+
+#### Token effect
+
+Zero from this package.
+
+#### KV Cache effect
+
+None from this package. Saving a changed setup changes the policy section that `session-controller` owns.
+
 ## Known Limitations and Deferred Work
 
 <a id="known-limitations-and-deferred-work"></a>
@@ -112,6 +128,8 @@ These limits define what the catalog can show and what `@` references mean; they
 
 - **Non-completed inactive outcomes remain grouped** — the catalog distinguishes a latest normal completion from other inactive states, but does not distinguish failure, cancellation, refusal, token exhaustion, or a child with no closed turn; the UI exposes no Activation identity, and stopping is limited to the composer's current-turn Stop for a running continuable child.
 - **`@` references remain display-title text** — duplicate or renamed labels are ambiguous, so they intentionally do not acquire continuation semantics.
+- **Setup roles are fixed** — the panel edits only `orchestrator`, `coder`, `reviewer`, and `researcher`; custom roles cannot be renamed or added yet.
+- **Jev decisions are not listed per role** — the panel marks the roles Jev controls, but the existing Jev popover shows only the latest decision record.
 
 <a id="dev-note"></a>
 ### Dev Note

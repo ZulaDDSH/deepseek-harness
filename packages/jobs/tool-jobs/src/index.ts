@@ -188,6 +188,8 @@ function readBody(read: JobRead): { text: string; job: PublicJobSnapshot } {
   return { text, job: publicJob(read.job) }
 }
 
+const STEER_NOTE = '(wait ended early: a new message from the user arrived; the background job was not stopped)'
+
 export function apply(ctx: Context, config: Config): void {
   const waitDefault = config.waitTimeoutMs ?? 30_000
   const waitCap = config.maxWaitTimeoutMs ?? 600_000
@@ -307,6 +309,40 @@ export function apply(ctx: Context, config: Config): void {
     owner.inject(message)
   })
 
+  const steers = new WeakMap<Agent, Set<string>>()
+  const steeredWaits = new WeakMap<Agent, Set<AbortController>>()
+  ctx.on('agent/inbox/inserted', ({ agent, message }) => {
+    if (message.source.kind !== 'user' || !agent.inbox.nextStep.some(candidate => candidate.id === message.id)) return
+    const pending = steers.get(agent) ?? new Set<string>()
+    pending.add(message.id)
+    steers.set(agent, pending)
+    for (const wait of steeredWaits.get(agent) ?? []) wait.abort()
+  })
+  ctx.on('agent/inbox/claimed', ({ agent, message }) => { steers.get(agent)?.delete(message.id) })
+  ctx.on('agent/inbox/discarded', ({ agent, message }) => { steers.get(agent)?.delete(message.id) })
+
+  async function awaitJob(id: JobId, timeoutMs: number, exec: ToolExecution): Promise<boolean> {
+    const { agent } = exec
+    if (agent === undefined) {
+      await ctx.jobs.wait(id, timeoutMs, undefined, exec.signal)
+      return false
+    }
+    if ((steers.get(agent)?.size ?? 0) > 0) return true
+    const steer = new AbortController()
+    const waits = steeredWaits.get(agent) ?? new Set<AbortController>()
+    waits.add(steer)
+    steeredWaits.set(agent, waits)
+    try {
+      await ctx.jobs.wait(id, timeoutMs, agent.id, AbortSignal.any([exec.signal, steer.signal]))
+      return false
+    } catch (error: unknown) {
+      if (exec.signal.aborted || !steer.signal.aborted) throw error
+      return true
+    } finally {
+      waits.delete(steer)
+    }
+  }
+
   ctx.tools.register(defineTool({
     name: 'job_output',
     description: 'Read a background job: output since the previous read for stream jobs, or the result of a finished final-output job.',
@@ -336,14 +372,17 @@ export function apply(ctx: Context, config: Config): void {
     async execute(args, exec) {
       const id = validateJobId(args.job_id)
       const jobs = ctx.jobs
+      let steered = false
       if (args.wait === true) {
         // A settlement that releases this wait is reported `awaited`, so the
         // notice listener above skips it: this result carries the terminal
         // state. A timed-out or aborted wait has left the registry's waiter
         // set before any later settlement, which then notifies as usual.
-        await jobs.wait(id, Math.min(args.timeout_ms ?? waitDefault, waitCap), exec.agent?.id, exec.signal)
+        steered = await awaitJob(id, Math.min(args.timeout_ms ?? waitDefault, waitCap), exec)
       }
-      return readBody(jobs.read(id, exec.agent?.id))
+      const body = readBody(jobs.read(id, exec.agent?.id))
+      if (!steered) return body
+      return { ...body, text: `${body.text}${body.text.length > 0 && !body.text.endsWith('\n') ? '\n' : ''}${STEER_NOTE}` }
     },
     presentCall: args => presentJobCall(`Read output from background job ${args.job_id}`, 'read', args.job_id),
   }))

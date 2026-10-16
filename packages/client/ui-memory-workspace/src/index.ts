@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import { basename, dirname, extname, join, resolve } from 'node:path'
 import { readFile, mkdir, writeFile, open } from 'node:fs/promises'
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Volatile } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-fs'
 import z from '@deepseek-ai/schemastery'
@@ -13,7 +13,7 @@ import { memorixInventory, memorixPage, memorixStoredChunk } from '@deepseek-ai/
 import type { MemorixPage, MemorixTable, MemorixView } from '@deepseek-ai/dsh-knowledge-router/memorix-types'
 import type { McpConnectionReport, McpHumanOperations } from '@deepseek-ai/dsh-mcp-client'
 import type {} from '@deepseek-ai/dsh-mcp-client'
-import type { MemoryGraph, MemoryImportResult } from './types.ts'
+import type { MemoryGraph, MemoryImportResult, MemoryStatus } from './types.ts'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { documentText } from './document-text.ts'
 import { MemoryAutomation } from './automation.ts'
@@ -46,11 +46,11 @@ export interface Config {
   chunkCharacters: number
   /** Maximum complete Graphify export size. */
   maxGraphBytes: number
-  /** Save a rolling session digest and compaction summaries to Memorix without a model call. */
+  /** Master switch for chat saves and recall; the Settings toggle changes it without a restart. */
+  chatMemory?: Volatile<boolean>
+  /** Save each finished chat turn and compaction summaries to Memorix without a model call. */
   autoSave: boolean
-  /** Quiet period after a completed turn before its digest is written. */
-  autoSaveDelayMs: number
-  /** Surface recent digests of the same workspace when a session starts. */
+  /** Search earlier chats for the first message of each session and inject the matches. */
   recall: boolean
   /** Tell agents when and how to store durable memories while the Memorix store tool is available. */
   policy: boolean
@@ -60,7 +60,7 @@ export interface Config {
 
 /** Authenticated GUI operations; provider calls remain Host-owned. */
 export default class MemoryWorkspace extends TypertRemoteService {
-  static Config: z<Partial<Config>, Config> = z.object({
+  static Config = z.object({
     memorixServer: z.string().min(1).default('memorix'),
     databasePath: z.string().default(''), graphPath: z.string().default(''),
     graphifyCommand: z.string().min(1).default('graphify'),
@@ -71,8 +71,8 @@ export default class MemoryWorkspace extends TypertRemoteService {
     maxDocumentCharacters: z.natural().min(1).default(2_000_000),
     chunkCharacters: z.natural().min(1).default(4800),
     maxGraphBytes: z.natural().min(1).default(16 * 1024 * 1024),
+    chatMemory: z.boolean().default(true).volatile(),
     autoSave: z.boolean().default(true),
-    autoSaveDelayMs: z.natural().min(1).default(20_000),
     recall: z.boolean().default(true),
     policy: z.boolean().default(true),
     memoryCharacters: z.natural().min(200).default(3000),
@@ -103,7 +103,7 @@ export default class MemoryWorkspace extends TypertRemoteService {
             const target = await inner.fs.resolve(args.path, { cwd, signal })
             const bytes = await inner.fs.readBytes(target, signal, config.maxDocumentBytes)
             signal.throwIfAborted()
-            const result = await this.importBytes(basename(args.path), Buffer.from(bytes).toString('base64'), signal)
+            const result = await this.importBytes(basename(args.path), Buffer.from(bytes).toString('base64'), signal, cwd)
             return JSON.stringify(result)
           })()
           this.pending.add(pending)
@@ -111,7 +111,7 @@ export default class MemoryWorkspace extends TypertRemoteService {
         },
       }))
     })
-    this.automation = new MemoryAutomation(ctx, config, {
+    this.automation = new MemoryAutomation(ctx, { ...config, chatMemory: () => config.chatMemory?.get() ?? true }, {
       signal: this.lifetime.signal,
       provider: () => this.provider(),
       database: provider => this.database(provider),
@@ -140,10 +140,46 @@ export default class MemoryWorkspace extends TypertRemoteService {
       : `Memorix is not connected: the MCP client "${server}" is ${report.state}${report.error === undefined ? '' : ` (${report.error})`} and is not available to the Memory panel. Mount it globally rather than under one agent, then reload the profile.`)
   }
 
+  private async connectionStatus(): Promise<Pick<MemoryStatus, 'server' | 'connection'>> {
+    try { await this.provider() } catch (error) {
+      return { server: 'unavailable', connection: error instanceof Error ? error.message : String(error) }
+    }
+    const server = this.config.memorixServer
+    const reports: McpConnectionReport[] = []
+    this.ctx.emit('mcp-client/inventory', reports)
+    const report = reports.find(item => item.serverName === server)
+    if (report === undefined || report.state === 'connected') return { server: 'ready' }
+    if (report.state === 'connecting') return { server: 'starting' }
+    return { server: 'unavailable', connection: `Memorix is not connected: the MCP client "${server}" is ${report.state}${report.error === undefined ? '' : ` (${report.error})`}.` }
+  }
+
   private database(provider: McpHumanOperations): string {
     if (!provider.local && this.config.databasePath === '') throw new Error('Remote Memorix requires an explicit local database path for browsing: set databasePath on ui-memory-workspace to the memorix.db file')
     return this.config.databasePath || resolve(provider.cwd || process.cwd(),
       provider.env.MEMORIX_DATA_DIR || join(homedir(), '.memorix', 'data'), 'memorix.db')
+  }
+
+  /**
+   * Report the chat-memory switch, whether Memorix is ready, starting or unavailable, and the latest save and recall outcomes.
+   * @returns the live status the Memory page shows; a connection failure is text, not an error.
+   */
+  @Remote
+  async status(): Promise<MemoryStatus> {
+    return {
+      ...this.automation.snapshot(),
+      chatMemory: this.config.chatMemory?.get() ?? true,
+      ...await this.connectionStatus(),
+    }
+  }
+
+  /**
+   * Ask the Memorix client to try connecting again with a fresh retry budget; nothing happens while it is connected or still starting.
+   * @returns the status right after the request.
+   */
+  @Remote
+  async retry(): Promise<MemoryStatus> {
+    this.ctx.emit('mcp-client/reconnect', this.config.memorixServer)
+    return this.status()
   }
 
   /**
@@ -220,17 +256,19 @@ export default class MemoryWorkspace extends TypertRemoteService {
    * Retain an uploaded document and import all chunks through Memorix.
    * @param filename - source filename displayed with the memory.
    * @param data - canonical base64 encoding of complete original bytes.
+   * @param signal - caller lifetime; extraction and chunk import stop when it aborts.
    * @returns verified chunk counts, original path and an explicit partial-failure message.
    */
   @Remote
-  importDocument(filename: string, data: string): Promise<MemoryImportResult> {
-    const pending = this.importBytes(filename, data)
+  importDocument(filename: string, data: string, signal?: AbortSignal): Promise<MemoryImportResult> {
+    const lifetime = signal === undefined ? this.lifetime.signal : AbortSignal.any([this.lifetime.signal, signal])
+    const pending = this.importBytes(filename, data, lifetime)
     this.pending.add(pending)
     void pending.then(() => this.pending.delete(pending), () => this.pending.delete(pending))
     return pending
   }
 
-  private async importBytes(filename: string, data: string, signal = this.lifetime.signal): Promise<MemoryImportResult> {
+  private async importBytes(filename: string, data: string, signal = this.lifetime.signal, cwd?: string): Promise<MemoryImportResult> {
     schema.string().min(1).max(255).parse(filename)
     schema.string().max(Math.ceil(this.config.maxDocumentBytes / 3) * 4).parse(data)
     const bytes = Buffer.from(data, 'base64')
@@ -257,10 +295,10 @@ export default class MemoryWorkspace extends TypertRemoteService {
       const narrative = characters.slice(index * this.config.chunkCharacters, (index + 1) * this.config.chunkCharacters).join('')
       try {
         signal.throwIfAborted()
-        const stored = await storeObservation(provider, {
+        const stored = await this.automation.inProject(provider, cwd, signal, () => storeObservation(provider, {
           entityName: `document:${hash}`, type: 'discovery', title: `${basename(filename)} (${index + 1}/${total})`,
           narrative, topicKey, filesModified: [originalPath],
-        }, signal, 'document chunk')
+        }, signal, 'document chunk'))
         if (!memorixStoredChunk(this.database(provider), stored.id, stored.project, topicKey, narrative)) {
           throw new Error('Memorix did not persist the complete document chunk')
         }

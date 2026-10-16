@@ -25,6 +25,7 @@ import {
   assertSubagentMaxDepth,
   captureDelegatedPolicyOverrides,
   childSessionMeta,
+  failureDiagnosticOf,
   finalAssistantOutput,
   resolveChildAgentOptions,
   resolveChildDepth,
@@ -234,5 +235,6 @@ function readResult(
     }
     if (stopReason === 'completed') return { output, stopReason: cancelled ? 'aborted' : 'error' }
   }
-  return { output, stopReason }
+  const diagnostic = stopReason === 'error' ? failureDiagnosticOf(own) : undefined
+  return { output, stopReason, ...diagnostic === undefined ? {} : { diagnostic } }
 }

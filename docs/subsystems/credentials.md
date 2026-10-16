@@ -432,10 +432,11 @@ requires credential-backed provider quota Remote service.
 registerSource(source: QuotaSource): () => void
 
 /**
- * List providers whose credentials can currently be resolved.
- * @returns configured providers with available credentials.
+ * List every provider the popover reports on, set up or not; `fetch` says which are configured.
+ * Connected model routes without a usage source are not listed.
+ * @returns built-in providers, then registered sources.
  */
-@Remote async listProviders(): Promise<readonly QuotaProviderView[]>
+@Remote listProviders(): Promise<readonly QuotaProviderView[]>
 
 /**
  * Fetch quota state for one provider, coalescing concurrent requests.

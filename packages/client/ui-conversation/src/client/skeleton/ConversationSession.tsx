@@ -63,7 +63,8 @@ export function ConversationSessionHeader({
   const selectedId = useStore(s => s.view)
   const active = resolveActiveView(tabs, selectedId)
   const ancestry = useSessions(s => deriveAncestry(s, sessionId), equalBreadcrumbs)
-  const showTabs = !hideChrome && tabs.length > 1
+  const cliProfile = useSessions(s => s.byId[sessionId]?.cliProfile)
+  const showTabs = tabs.length > 1 && cliProfile === undefined
   return (
     <>
       <div className={css.titleRow}>

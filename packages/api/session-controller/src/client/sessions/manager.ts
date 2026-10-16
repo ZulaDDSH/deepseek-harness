@@ -1,7 +1,7 @@
 /** Host catalog, durable projection caches, and explicitly retained Client instances. */
 
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
-import { SessionSeq, type SessionId, type SessionSeqCursor } from '@deepseek-ai/dsh-session/types'
+import { SessionSeq, type CliTerminalProfileId, type SessionId, type SessionSeqCursor } from '@deepseek-ai/dsh-session/types'
 import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type {
@@ -490,17 +490,20 @@ export class SessionManager {
       workspaceId?: WorkspaceId
       cwd?: string
       sessionId?: SessionId
+      cliProfile?: CliTerminalProfileId
     } = {},
   ): Promise<RemoteResult<{ sessionId: SessionId }>> {
     const shared = opts.sessionId === undefined ? {} : { sessionId: opts.sessionId }
+    const cli = opts.cliProfile === undefined ? {} : { cliProfile: opts.cliProfile }
     const payload = opts.workspaceId !== undefined
-      ? { workspaceId: opts.workspaceId, ...shared }
-      : { ...(opts.cwd === undefined ? {} : { cwd: opts.cwd }), ...shared }
+      ? { workspaceId: opts.workspaceId, ...shared, ...cli }
+      : { ...(opts.cwd === undefined ? {} : { cwd: opts.cwd }), ...shared, ...cli }
     const result = await this.remote.session.create(payload)
     if (result.ok) {
       this.recordMutation({ kind: 'placeholder', summary: { agentAvailable: true,
         sessionId: result.value.sessionId, updatedAt: Date.now(), running: false, blank: true,
         ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
+        ...cli,
       } })
     } else {
       const publishedSessionId = workspaceAttachSessionId(result.error)

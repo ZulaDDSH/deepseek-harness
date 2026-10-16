@@ -20,6 +20,8 @@ export type SubagentSettingsLocaleKey =
   | 'subagentModelSelectionPartial' | 'subagentModelSelectionUnavailable'
   | 'subagentModelSelectionUnavailableGroup' | 'subagentModelSelectionEmpty'
   | 'subagentModelSelectionRequired' | 'subagentModelSelectionConflict' | 'subagentModelSelectionOff'
+  | 'claudeCodeTitle' | 'claudeCodeDescription'
+  | 'ultracodeLabel' | 'ultracodeHint' | 'ultracodeUnset'
 
 /** English copy. */
 export const en: Record<SubagentSettingsLocaleKey, string> = {
@@ -58,6 +60,11 @@ export const en: Record<SubagentSettingsLocaleKey, string> = {
   subagentModelSelectionRequired: 'Select at least one model before saving.',
   subagentModelSelectionConflict: 'Settings changed elsewhere. Discard your draft and try again.',
   subagentModelSelectionOff: 'Subagents use configured defaults or inherit the parent agent\'s model. Saved model choices are retained.',
+  claudeCodeTitle: 'Claude Code',
+  claudeCodeDescription: 'Set the default behavior of Claude Code subagents.',
+  ultracodeLabel: 'Ultracode',
+  ultracodeHint: 'Let Claude CLI orchestrate multi-agent Workflows by default on runs of current Claude 5 family models only. A session\'s Ultracode effort level in the model picker overrides it.',
+  ultracodeUnset: 'Not set: Claude Code\'s own settings decide.',
 }
 
 /** Simplified Chinese copy. */
@@ -97,6 +104,11 @@ export const zh: Record<SubagentSettingsLocaleKey, string> = {
   subagentModelSelectionRequired: '保存前请至少选择一个模型。',
   subagentModelSelectionConflict: '设置已在其他位置更新。请放弃修改后重试。',
   subagentModelSelectionOff: '关闭后，子智能体使用配置的默认模型或继承父 Agent 的模型；已选模型会保留。',
+  claudeCodeTitle: 'Claude Code',
+  claudeCodeDescription: '设置 Claude Code 子智能体的默认行为。',
+  ultracodeLabel: 'Ultracode',
+  ultracodeHint: '默认让 Claude CLI 在当前 Claude 5 系列模型的运行中编排多代理工作流。会话在模型选择器的推理强度中选择的 Ultracode 等级会覆盖此默认值。',
+  ultracodeUnset: '未设置：由 Claude Code 自身的设置决定。',
 }
 
 /**

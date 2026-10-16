@@ -46,12 +46,15 @@ Removing the package withdraws the provider and its private runtime closure on t
 | `env` | `{}` | Explicit child environment layered over the credential-scrubbed parent environment |
 | `permissionMode` | `never` | Native non-interactive approval and sandbox mode fixed for every thread from this provider instance |
 | `disposeGraceMs` | `3000` | Grace between the shared managed-range owner's termination tiers |
+| `timeoutMs` | none | Optional wall-clock limit in milliseconds for each published run; on expiry the run is cancelled and settles as an error with category `limit` and detail `exceeded timeoutMs (N ms)`. It does not bound app-server startup |
 
 | `permissionMode` value | `thread/start` fields | Native behavior |
 |---|---|---|
 | `never` | `approvalPolicy: never`; sandbox omitted | Never ask for approval; execution failures return to the model under the native sandbox |
 | `approve-for-me` | `approvalPolicy: on-request`, `approvalsReviewer: auto_review`, `sandbox: workspace-write` | Route permission requests through Codex automatic review without a human |
 | `dangerously-bypass-approvals-and-sandbox` | `approvalPolicy: never`, `sandbox: danger-full-access` | Skip approval and sandbox enforcement; this value must be selected explicitly |
+
+A delegating parent Session's file sandbox clamps the table before `thread/start`. Under a `read-only` parent every mode runs with `approvalPolicy: never` and `sandbox: read-only`, with no reviewer, so `approve-for-me` cannot approve an escalation out of the sandbox. Under a `workspace-write` parent every allowed mode runs with `approvalPolicy: never` and `sandbox: workspace-write`, with no reviewer, so no automatic approver can approve an escalation out of the workspace. The bypass mode is refused before the app-server starts with `PARENT_SANDBOX_MISMATCH` under any parent that is not `danger-full-access`. A run whose clamp changes the `thread/start` fields appends `Codex sandbox limited to <parent sandbox> by the parent session` to its failure diagnostic; a clamp that changes nothing adds no note. `danger-full-access` or an absent sandbox policy keeps the table above unchanged.
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-subagent-codex) is the exhaustive source for every accepted field and its JSDoc. A configured `model` passes unchanged on each ephemeral `thread/start`; omission leaves native model selection in force. The provider does not discover models, rewrite aliases, select `modelProvider` or `serviceTier`, or set a fallback. Credential-shaped ambient variables are removed before the explicit `env` overlay, so an API key intended for the child must be supplied there.
 
@@ -96,7 +99,7 @@ This section explains how the provider drives a real Codex app-server and where 
 ### Design concept
 
 - **One fresh process, thread, and turn per run.** Every run spawns a fresh app-server, creates one ephemeral thread, and executes exactly one turn; there is no continuation, resume, or pooling.
-- **Native configuration is authoritative.** Codex configuration and authentication stay native through the parent cwd, `HOME`, and `CODEX_HOME`; the provider overrides only the optional model and the thread's approval, reviewer, and sandbox fields.
+- **Native configuration is authoritative.** Codex configuration and authentication stay native through the parent cwd, `HOME`, and `CODEX_HOME`; the provider overrides only the optional model and the thread's approval, reviewer, and sandbox fields, and the parent Session's file sandbox can only narrow those sandbox fields.
 - **Unattended by design.** Approval, user-input, and MCP requests are answered or declined without a human; unknown server requests fail the run.
 
 ### Source map
@@ -106,11 +109,12 @@ This section explains how the provider drives a real Codex app-server and where 
 | [`src/index.ts`](src/index.ts) | Plugin entry: config schema, provider registration |
 | [`src/run.ts`](src/run.ts) | The run lifecycle, turn execution, result selection, and diagnostics |
 | [`src/wire.ts`](src/wire.ts) | The minimal app-server JSON-RPC wire implementation |
+| [`src/permission.ts`](src/permission.ts) | Parent-sandbox clamp of the Profile mode into `thread/start` permission fields |
 | [`cordis.patch.yml`](cordis.patch.yml) | The Profile patch layer that registers the dormant provider |
 
 ### Run flow
 
-A start accepts only a non-empty sequence of text blocks and derives the child cwd from the parent session. It spawns the fixed command through the subprocess seam, performs the `initialize` → `initialized` handshake, maps the Profile-selected mode and optional model into official `thread/start` fields beside `{ cwd, ephemeral: true }`, and publishes the run only after Codex returns a valid ephemeral thread. The published result starts exactly one turn, accepts only notifications for that run's thread and turn, and waits for the authoritative `turn/completed` terminal. The latest `agentMessage` with `phase: "final_answer"` wins; when Codex emits no explicit final phase, the latest message with `phase: null` is the compatibility fallback. A successful turn with no nonblank answer settles as an error. Failed turns use the coarse categories `limit`, `access-policy`, `service`, `transport`, `product-error`, `invalid-result`, or `unknown`; an early app-server exit uses `process`, and applicable connection and stream failures retain a numeric `httpStatusCode`.
+A start accepts only a non-empty sequence of text blocks and derives the child cwd from the parent session. It spawns the fixed command through the subprocess seam, performs the `initialize` → `initialized` handshake, maps the Profile-selected mode, clamped to the parent sandbox, and optional model into official `thread/start` fields beside `{ cwd, ephemeral: true }`, and publishes the run only after Codex returns a valid ephemeral thread. The published result starts exactly one turn, accepts only notifications for that run's thread and turn, and waits for the authoritative `turn/completed` terminal. The latest `agentMessage` with `phase: "final_answer"` wins; when Codex emits no explicit final phase, the latest message with `phase: null` is the compatibility fallback. A successful turn with no nonblank answer settles as an error. Failed turns use the coarse categories `limit`, `access-policy`, `service`, `transport`, `product-error`, `invalid-result`, or `unknown`; an early app-server exit uses `process`, and applicable connection and stream failures retain a numeric `httpStatusCode`.
 
 </details>
 
@@ -167,7 +171,7 @@ Append-only: foreground adds one result after the reusable parent prefix, while 
 
 These limits define when this provider is a poor fit or needs special operational care. They are current package constraints, not a general Codex comparison or a task backlog.
 
-- **One fresh process, thread, and turn per run** — there is no continuation, resume, pooling, progress stream, or product-session persistence.
+- **One fresh process, thread, and turn per run** — there is no continuation, resume, pooling, or product-session persistence. Only advisory command and file-change progress lines (`Command: …` and `Edit: …`) reach a request's `onProgress`; they are not part of the final answer.
 - **Static instance selection** — Profile rows fix provider names, optional models, and tool bindings; calls cannot choose or change either a provider or model dynamically, and every exposed tool needs a unique `toolName`.
 - **Authentication and account state remain native** — the Bundle supplies the CLI but does not create an account, log in, trust a project, or rewrite Codex settings; configuration and authentication failures surface with their lifecycle stage and the safe `unknown` fallback rather than a separate public taxonomy.
 - **The native platform payload is required at delegation time** — installs that omit optional dependencies, unsupported platforms, and missing or damaged payloads fail at the first run; there is no host-CLI fallback.
@@ -176,7 +180,7 @@ These limits define when this provider is a poor fit or needs special operationa
 - **Assistant payload is final text only** — a failed run may additionally expose the separate safe diagnostic; reasoning, commentary, intermediate messages, tool traffic, usage, raw stderr, and workspace diffs remain outside the parent Session, while generic Job ids, notices, and status come from the shared job runtime.
 - **Skills are discovered natively, not forwarded** — the Codex child reads its own roots: `.agents/skills` from the workspace up to the repository root, the project `.codex/skills`, `~/.agents/skills`, and `$CODEX_HOME/skills`. The app-server's `skills/extraRoots/set` only adds whole directories, and Codex keeps same-name skills side by side, so this provider does not forward the harness registry; skills that exist only in harness roots such as `.dsh/skills`, or as flat `<name>.md` files, are invisible to the child.
 - **No optional shared capabilities** — `agentOptions`, output schemas, child personas, tool filtering, and harness depth enforcement are rejected by the shared service for this provider.
-- **No wall-clock timeout or side-effect rollback** — the caller cancels long work, and files or external systems changed before cancellation are not restored.
+- **No side-effect rollback** — the caller cancels long work, and files or external systems changed before cancellation are not restored. The optional `timeoutMs` bounds only the published run, not app-server startup, and it is unset by default.
 
 <a id="dev-note"></a>
 ### Dev Note

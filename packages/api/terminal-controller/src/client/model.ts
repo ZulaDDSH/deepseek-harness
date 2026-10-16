@@ -5,7 +5,7 @@ import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client
 import { RemoteStreamCarrierError, type ClientRemote, type RemoteStream } from '@deepseek-ai/dsh-api-gateway/client'
 import { RemoteError, remoteErrorOf, type RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-api-terminal-controller/remote'
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { CliTerminalProfileId, SessionId } from '@deepseek-ai/dsh-session/types'
 import type {
   TerminalAttachmentId, TerminalEnvironment, TerminalFrame,
   WebTerminalId, WebTerminalInfo,
@@ -71,6 +71,7 @@ export class TerminalView {
    * @param createWhenMissing - allow allocation only for a new tab, never a listed terminal.
    * @param shellPath - explicit shell chosen at the guide; omission uses the remembered available shell.
    * @param retain - window hold acknowledgement required before output attachment.
+   * @param cli - CLI terminal profile whose command the Host starts instead of a shell.
    */
   constructor(
     private readonly sessionId: SessionId,
@@ -80,6 +81,7 @@ export class TerminalView {
     private readonly createWhenMissing = true,
     private readonly shellPath?: string,
     private readonly retain?: (signal: AbortSignal) => Promise<void>,
+    private readonly cli?: CliTerminalProfileId,
   ) {}
 
   /**
@@ -116,7 +118,7 @@ export class TerminalView {
       if (info !== undefined) this.adopt(info)
       else if (this.createWhenMissing) {
         let path = this.shellPath
-        if (path === undefined) {
+        if (path === undefined && this.cli === undefined) {
           const shells = valueOf(await this.remote.shells(this.sessionId, this.lifetime.signal))
           const previous = preferredShell()
           path = shells.find(shell => shell.path === previous)?.path ?? shells[0]?.path
@@ -137,6 +139,7 @@ export class TerminalView {
     this.creation = (async () => {
       const info = valueOf(await this.remote.create(this.sessionId, {
         id: this.id, ...shellPath === undefined ? {} : { shellPath },
+        ...this.cli === undefined ? {} : { cli: this.cli },
         cols: Math.min(80, environment.maxCols), rows: Math.min(24, environment.maxRows),
       }, this.lifetime.signal))
       if (!this.lifetime.signal.aborted) {

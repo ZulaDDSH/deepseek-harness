@@ -152,6 +152,9 @@ export class ReactLoopAgent implements Agent {
   }
 
   send(message: UserMessage, target: InboxTarget, wakeup: boolean): void {
+    if (wakeup && (this.loopCtx.sessionProjections.stateOf(this.session, 'cliTerminal')?.profile ?? null) !== null) {
+      throw new Error(`agent "${this.id}" hosts a CLI terminal and starts no turns`)
+    }
     // Waking input cannot join an aborted activity, so it starts the next turn.
     // Captured before the insertion so a reentrant cancel from a splice observer cannot reclassify it.
     const wakingAfterAbort = wakeup && this.phase.kind !== 'idle' && this.phase.abort.signal.aborted

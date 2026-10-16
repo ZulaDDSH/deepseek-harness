@@ -72,6 +72,15 @@
   flex: 0 0 auto;
 }
 
+.triggerWarning {
+  flex: 0 0 auto;
+  color: var(--dsw-alias-state-warn-label);
+}
+
+.trigger[data-unavailable] .triggerLabel {
+  color: var(--dsw-alias-state-warn-label);
+}
+
 /* The composer measures expanded row demand and owns these display variables.
    Outside a composer, the trigger retains its text. */
 .triggerLabel,
@@ -393,6 +402,24 @@
   line-height: 18px;
 }
 
+.subagentNotice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.subagentLink {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .effort {
   display: grid;
   grid-template-columns: repeat(var(--effort-cols), minmax(0, 1fr));
@@ -499,11 +526,18 @@
   padding: 10px 12px;
 }
 
+.routingNote {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}
+
 .routingList {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 6px 12px;
-  margin: 0;
+  margin: 0 0 8px;
   font-size: 13px;
   line-height: 20px;
 }
