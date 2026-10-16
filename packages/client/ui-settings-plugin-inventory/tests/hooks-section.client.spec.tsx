@@ -89,8 +89,11 @@ describe('HooksSettingsSection search and location', () => {
     render(<HooksSettingsSection {...sectionProps(async () => searchable)} />)
     expect(await screen.findByText('/home/me/.codex/hooks.json')).toBeTruthy()
     expect(screen.getByText('/home/me/.claude/settings.json')).toBeTruthy()
+    expect(screen.getByText('PreToolUse')).toBeTruthy()
+    expect(screen.getByText('Write')).toBeTruthy()
+    expect(screen.queryByText('node "/h/guard.mjs"')).toBeNull()
+    fireEvent.click(screen.getAllByRole('button', { name: en.hooksDetails })[0]!)
     expect(screen.getByText('node "/h/guard.mjs"')).toBeTruthy()
-    expect(screen.getByText('PreToolUse (Write)')).toBeTruthy()
   })
 
   it.each([
@@ -133,5 +136,76 @@ describe('HooksSettingsSection search and location', () => {
     render(<HooksSettingsSection {...sectionProps(async () => empty)} />)
     expect(await screen.findByText(en.hooksEmpty)).toBeTruthy()
     expect(screen.queryByRole('searchbox')).toBeNull()
+  })
+})
+
+describe('HooksSettingsSection audit regressions', () => {
+  it('shows external commands, read failures and skipped entries as read-only sources', async () => {
+    const external: Snapshot = {
+      entries: [],
+      hooks: [
+        {
+          dialect: 'claude-code', source: '/home/me/.claude/settings.json', status: 'configured', skipped: ['Stop: http'],
+          handlers: [{ event: 'Stop', command: 'node "/h/notify.mjs"', key: 'x1' }],
+        },
+        { dialect: 'codex', source: '/home/me/.codex/hooks.json', status: 'failed', handlers: [], skipped: [], error: 'Invalid hook JSON' },
+      ],
+    }
+    render(<HooksSettingsSection {...sectionProps(async () => external)} />)
+    expect(await screen.findByText('/home/me/.claude/settings.json')).toBeTruthy()
+    expect(screen.getByText(en.hooksConfigured)).toBeTruthy()
+    expect(screen.getByRole('alert').textContent).toBe('Invalid hook JSON')
+    expect(screen.queryByRole('switch')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: en.hooksDetails }))
+    expect(screen.getByText('node "/h/notify.mjs"')).toBeTruthy()
+    expect(screen.getByText(/Stop: http/)).toBeTruthy()
+  })
+
+  it('gives each distinct command its own switch', async () => {
+    const separate: Snapshot = {
+      entries: [],
+      hooks: [{
+        dialect: 'claude-code', source: '/home/me/.claude/settings.json', status: 'loaded', settingsNs: 'hooks-claude', skipped: [],
+        handlers: [
+          { event: 'PreToolUse', matcher: 'Bash', command: 'npx prettier --check', key: 'p1' },
+          { event: 'Stop', command: 'npx eslint .', key: 'e1' },
+        ],
+      }],
+    }
+    render(<HooksSettingsSection {...sectionProps(async () => separate)} />)
+    await screen.findAllByRole('switch')
+    expect(screen.getAllByRole('switch')).toHaveLength(2)
+  })
+
+  it('opens the description editor for one bridge only when two bridges share a dialect and hook name', async () => {
+    const shared: Snapshot = {
+      entries: [],
+      hooks: [
+        {
+          dialect: 'codex', source: '/a/hooks.json', status: 'loaded', settingsNs: 'hooks-a', skipped: [],
+          handlers: [{ event: 'Stop', command: 'node "/a/guard.mjs"', key: 'a1', description: 'Blocks writes' }],
+        },
+        {
+          dialect: 'codex', source: '/b/hooks.json', status: 'loaded', settingsNs: 'hooks-b', skipped: [],
+          handlers: [{ event: 'Stop', command: 'node "/b/guard.mjs"', key: 'b1', description: 'Blocks writes' }],
+        },
+      ],
+    }
+    render(<HooksSettingsSection {...sectionProps(async () => shared)} />)
+    fireEvent.click((await screen.findAllByRole('button', { name: en.hooksDescriptionEdit }))[0]!)
+    expect(screen.getAllByLabelText(`${en.hooksDescription}: guard`)).toHaveLength(1)
+  })
+
+  it('does not print an empty matcher as an empty parenthesis', async () => {
+    const empty: Snapshot = {
+      entries: [],
+      hooks: [{
+        dialect: 'claude-code', source: '/s.json', status: 'loaded', settingsNs: 'hooks-c', skipped: [],
+        handlers: [{ event: 'Stop', matcher: '', command: 'node "/h/x.mjs"', key: 'z1' }],
+      }],
+    }
+    render(<HooksSettingsSection {...sectionProps(async () => empty)} />)
+    await screen.findByRole('switch')
+    expect(screen.queryByText(/\(\)/)).toBeNull()
   })
 })

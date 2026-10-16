@@ -23,7 +23,7 @@ The **Plugin list** tab lets Web users inspect plugins without changing their co
 <a id="use-this-package"></a>
 ## Use this package
 
-Open **Settings → Hooks** to inspect Codex and Claude command configuration alongside loaded Harness bridges. External files show configured commands and event matchers without enabling them in Harness. Refresh rereads external files and collects current bridge reports; loaded commands run only when their event and matcher apply. The page reports read failures and parser skips but does not claim execution or inspect Git hooks.
+Open **Settings → Hooks** to inspect Codex and Claude command configuration alongside loaded Harness bridges. The page has one card per source, with the file path and a count of enabled hooks. Each hook row shows its name, description, event chips and matcher; **Details** reveals the full command and matcher. Loaded bridge hooks have a switch and can be described, and **Enable all** and **Disable all** act on the card's source. External files show configured commands and event matchers read-only, without a switch, and the page reports their read failures and parser skips. Refresh rereads external files and collects current bridge reports; loaded commands run only when their event and matcher apply. The page does not claim execution or inspect Git hooks.
 
 Open the Plugins section in Settings and select the **Plugin list** tab to inspect the Host's plugin inventory. The tab reads no Remote during plugin activation — selecting it for the first time mounts the component and lazily calls `ctx.remote.pluginInventory.list()` through `api-remotes`.
 
