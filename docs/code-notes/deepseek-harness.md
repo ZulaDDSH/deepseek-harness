@@ -770,6 +770,21 @@ Open, not changed: the ACP bridge (`packages/acp/acp/src/model-control.ts`) and 
 
 `packages/client/ui-primitives/src/markdown/katex.tsx:renderTexToReact`: both `katex.renderToString` calls pass `trust: false` explicitly. KaTeX reads each option as `options[prop]` with no own-property check (`src/Settings.ts` `applySetting`), so an inherited `Object.prototype.trust = true` (GHSA-238p-pmpm-9mq7, prototype pollution) would enable `\href{javascript:...}` links when the key is omitted. The regression test is the `inherited trust flag` case in `packages/client/ui-primitives/tests/markdown.client.spec.tsx`.
 
+## Hooks settings page
+
+`packages/client/ui-settings-plugin-inventory/src/client/HooksSettingsSection.tsx:HooksSettingsSection`: one card per report in the snapshot. Bridge reports (those with `settingsNs`) get switches and the bulk and description controls. External reports (Codex and Claude settings files, no `settingsNs`) render read-only, with their status, read error, skipped entries and commands. The README promised external commands and read failures on this page, and `packages/host/plugin-inventory/src/index.ts:readPluginInventory` already returns them, but the page dropped every report without `settingsNs`. An earlier test asserted the hiding; it now asserts the README behaviour. To restore hiding, filter external reports in `visible` and update the README and that test together.
+
+`packages/client/ui-settings-plugin-inventory/src/client/HooksSettingsSection.tsx:groupByCommand`: rows group by the exact command string, not by `hookName`. Grouping by script name merged unrelated commands (`npx prettier --check` and `npx eslint .` both named `npx`) under one switch, so one toggle disabled both. Each row's keys are every handler of that command, across events and matchers, which is what its switch writes.
+
+`packages/client/ui-settings-plugin-inventory/src/client/HooksSettingsSection.tsx:HooksSettingsSection`: the row id, the editor state and the details state key on dialect, source, `settingsNs` and command. The description editor used to key on dialect and name, so two bridges of one dialect that loaded a hook with the same name opened the editor in both.
+
+`packages/client/ui-settings-plugin-inventory/src/client/HooksSettingsSection.tsx:matcherOf`: an empty matcher is the match-all sentinel (`packages/hooks/hook-protocol/src/matcher.ts:matchesMatcher`), so it is not printed as `()`.
+
+`packages/client/ui-settings-plugin-inventory/src/client/HooksSettingsSection.tsx:HooksSettingsSection`: the matcher line shows the first three `|` alternatives and `+N more`; the full matcher is in the row's `title` and in Details. The count and the matcher summary are display only. Matching uses the configured pattern (`matchesHookSubject`).
+
+`packages/hooks/hooks-codex/src/index.ts:apply` and `packages/hooks/hooks-claude-code/src/index.ts:apply`: the bridge reads `enabledHooks` and `hookDescriptions` through their Volatile references on every dispatch (`enabledHooks()` inside `runPoint`), so a switch takes effect on the next matching event without a restart. A Settings write (`packages/settings/settings/src/index.ts:mutate`, which writes through `configEditor.edit`) reaches those references through `vendor/loader/src/config/entry.ts:_commitVolatile`, which updates volatile values in place for an active fiber. Verified by reading the code; no end-to-end test drives a live toggle through the loader.
+
+`packages/host/plugin-inventory/src/index.ts:readPluginInventory`: each `list` call emits `hooks/inventory` and rereads the external files (`packages/host/plugin-inventory/src/hook-files.ts:readHookFiles`, no cache), so Refresh shows the current file and bridge state. A bridge report wins over an external file with the same dialect and source.
 ## Subagent Setup save errors, global default checks and role effort
 
 `packages/client/ui-subagent/src/client/subagent-setup/SubagentSetupView.tsx:persist` clears `saving` in a `finally`, so a rejected Host write re-enables the Subagent Setup controls and shows `setup.saveError`. `save`, `saveAsGlobal` and `resetToGlobal` all write through it. Covered by `packages/client/ui-subagent/tests/subagent-setup.client.spec.tsx` (the rejected-save test).
