@@ -504,6 +504,21 @@ describe('PiAiAdapter provider routing', () => {
     await expect(server.responseClosed).resolves.toBe(true)
     expect(server.closedResponses).toBe(1)
   })
+
+  it('keeps a stalled Anthropic stream on the TIMEOUT code', async () => {
+    const server = await mockServer([{ holdOpen: true }])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: { anthropic: { apiKeyEnv: 'PI_TEST_KEY', baseURL: server.url, streamIdleTimeoutMs: 20 } },
+    })
+
+    const result = await assemble(ctx, { provider: 'anthropic', model: 'claude-haiku-4-5', messages: [] })
+    expect(result.finish).toEqual({
+      kind: 'error',
+      failure: { message: 'pi-ai stream idle timeout after 20ms', code: 'TIMEOUT' },
+    })
+  })
 })
 
 describe('provider profile lifecycle', () => {

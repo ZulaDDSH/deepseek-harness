@@ -925,3 +925,22 @@ Open, not changed: the ACP bridge (`packages/acp/acp/src/model-control.ts`) and 
 `packages/client/ui-settings-plugin-inventory/src/client/HooksSettingsSection.tsx:HooksSettingsSection`: the skipped line now uses the `hooksNotSupported` label ("Not supported") in place of "Reported skipped hooks". It lists `agent` and SessionStart prompt entries, which have no switch.
 
 `packages/host/plugin-inventory/src/hook-files.ts:handlerText`: for a claude-code file, a prompt hook is a handler on every event except SessionStart, matching the bridge. Codex files still skip prompt hooks.
+
+## Compaction ends with "This operation was aborted"
+
+`packages/client/connection/src/http-bridge.ts:bridge`: `/api` RPC calls are one buffered HTTP POST held open until the Host method settles. The bridge aborts the handler's signal when the response closes before `end()`, so a dropped connection cancels the running command. The reason is now named ("client connection closed before the response completed") instead of the default DOMException, which surfaced as "This operation was aborted".
+
+`packages/interaction/commands/src/index.ts:withAbort`: a command whose UI request signal aborts rejects with that reason; `settleThrown` writes it as the `command/done` error text. `packages/compaction/compaction-basic/src/index.ts:compactNow` rethrows the same reason from `operationSignal.throwIfAborted()`, so `compaction/end` carries it too.
+
+Ruled out by controlled runs (`packages/llm/llm-pi-ai/tests/adapter.spec.ts`, pi-ai Anthropic route with scripted stalls):
+
+- `packages/util/timeout/src/index.ts:idleWatchdog` with `packages/llm/llm-pi-ai/src/adapter.ts:PiAiAdapter` stream idle: a silent provider after headers or before headers yields `TIMEOUT` "pi-ai stream idle timeout after Nms", with or without a caller signal. It cannot produce the observed text.
+- `packages/llm/llm-pi-ai/src/config.ts` profile `timeoutMs` (SDK request timeout): fires before headers only and yields "Request timed out." (`TIMEOUT`), not the observed text.
+- Node `http.Server` `requestTimeout` (300000 by default): it kills a request whose body is still incomplete (ECONNRESET), but a fully read POST awaiting its response is not cut. `bridge` reads the body before dispatch, so this default does not close the command connection.
+- Repository timers: no 300-second socket or request timer exists in repository code on the command path. The 300-second deadline is undici's default, which the forwarder below no longer uses. `packages/api/gateway/src/client/index.ts:invoke` has a 30-second unary deadline only for methods without a cancellation signal, and the observed failure is not that deadline's text.
+
+Cause: the Electron main process forwards every `/api` request from the renderer with Node's global `fetch` (undici). `apps/desktop/src/web-document.ts:forwardWebRequest` previously relied on it, and undici's default headers deadline (300 000 ms) aborted the connection while the Host held the command's buffered response open. Measured with the real transport: global `fetch` rejected with `UND_ERR_HEADERS_TIMEOUT` at 306.5 s against a 330 s Host, and through the old `forwardWebRequest` at 314.8 s; `node:http` returned 200 at 330 s. The bridge then saw the response close and aborted the command.
+
+Fix: `apps/desktop/src/web-document.ts:requestHost` issues the Host request with `node:http`, which has no default headers or body deadline, so no client timeout cuts a long command. Undici is not a dependency of `apps/desktop`, so an undici `Agent` with zero timeouts was not available without adding one. `node:http` also keeps the renderer's cancellation: aborting `request.signal` destroys the outgoing request, before or after headers. The forwarder removes `accept-encoding` from forwarded requests so the Host answers identity-coded bytes, which are relayed unchanged; `apps/desktop/src/web-document.ts:forwardWebRequest` no longer withholds `content-encoding` or `content-length` for that reason.
+
+Other main-process calls to the Host are short and keep their own deadlines: `apps/desktop/src/web-document.ts:authenticateWebHost` (a 303 exchange) and `apps/desktop/src/main.ts` welcome backend (`net.fetch`, analytics with a 1 s deadline). `packages/util/http-proxy/src/install.ts:createPolicyDispatcher` installs an undici global dispatcher with the same default deadlines; the desktop main process does not call it, and it applies to Node-side `fetch` callers, not to the renderer's Host route.

@@ -73,6 +73,7 @@ describe('HTTP bridge abort', () => {
     response.emit('close')
     await pending
     expect(carrierSignal?.aborted).toBe(true)
+    expect(carrierSignal?.reason).toEqual(new Error('client connection closed before the response completed'))
   })
 
   it.each(['write', 'backpressure'])('finishes a multipart response without further writes when the client closes during %s', async (phase) => {
