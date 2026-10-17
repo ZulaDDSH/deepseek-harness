@@ -35,6 +35,7 @@ import {
 import type { ModelSelectionPolicy } from './model-selection.ts'
 import { registerListSubagentModels } from './list-models.ts'
 import { cannotDelegate, restrictAtDepthLimit } from './depth-limit.ts'
+import { mcpParameter, scopedToolFilter, scopesMcp } from './mcp-scope.ts'
 import {
   CLAUDE_CLI_PROVIDER, DELEGATION_ROLES, assertRoleRouteCredential, assertRolelessToolAllowed, roleRouteFailure, roleRouteOf,
 } from './subagent-roles.ts'
@@ -443,6 +444,7 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
                 : 'Run as a background job and return its id (collect with job_output, stop with job_kill). Defaults to false.',
             },
           } : {},
+          ...mcpParameter(subagentProvider),
         },
         output: {
           schema: {
@@ -548,7 +550,7 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
             parent,
             ...requestedChildAgentOptions !== undefined ? { agentOptions: requestedChildAgentOptions } : {},
             ...config.persona !== undefined ? { persona: config.persona } : {},
-            ...config.toolFilter !== undefined ? { toolFilter: config.toolFilter } : {},
+            ...scopedToolFilter(runtimeCtx, config.toolFilter, !claudeCli && scopesMcp(subagentProvider), args),
             ...maxDepth !== undefined ? { maxDepth } : {},
             ...pin === undefined ? {} : { routePinned: true as const },
           }

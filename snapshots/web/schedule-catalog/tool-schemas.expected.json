@@ -716,6 +716,13 @@
           "run_in_background": {
             "type": "boolean",
             "description": "Whether to run in the background and return a durable subagent id immediately. Defaults to true. Set false to wait for the result when your next action depends on it."
+          },
+          "mcp": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "MCP servers the child may use: the `<server>` part of `mcp__<server>__<tool>` names. Omit to give the child no MCP tools, which keeps it much cheaper; name only the servers the task needs."
           }
         },
         "required": [

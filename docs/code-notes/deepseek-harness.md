@@ -1010,3 +1010,11 @@ Other main-process calls to the Host are short and keep their own deadlines: `ap
 `apps/desktop/scripts/electron-builder-config.mjs:createElectronBuilderConfig` (its `**/*.{node,dylib,dll,so,exe}` unpack pattern) already keeps the win32 Cua Driver files outside the asar: `cua_driver_node_runtime.node` and `cua_driver_sdk.dll` in `@trycua/cua-driver-win32-x64-msvc`. The native provider is loaded in-process by `packages/experimental/computer-use-cua-driver-native/src/index.ts:apply`, so these files must be real files, not asar entries.
 
 `scripts/optional-bundles.spec.ts:bundle`: the computer-use test pins the two inserted row ids and names, so a patch that drops either row or a service mount fails before the Plugins page is reached.
+
+## Subagent MCP scoping
+
+`packages/subagent/tool-subagent/src/mcp-scope.ts:scopedToolFilter`: a fresh child no longer inherits every MCP tool. The `subagent` tool takes an optional `mcp` list of server names; every global `mcp__<server>__*` tool from any other server is added to the request's `toolFilter.deny`, merged with the deployment's configured filter. Omitting `mcp` denies all MCP tools. Measured on a real install, ~209 tools made a child's first request 44–66K tokens, most of it MCP schemas resent on every step.
+
+`packages/subagent/tool-subagent/src/mcp-scope.ts:scopesMcp`: scoping applies only when the provider has the `toolFilter` capability and does not inherit the parent context. A forked child (`subagent_fork`) keeps the parent's tool list, because changing tools would invalidate the cached prefix it reuses. The claude-cli route (`packages/subagent/tool-subagent/src/index.ts`, `claudeCli`) is skipped too; it runs its own tool set.
+
+Known ceiling: the deny list is computed once when the child starts. A server that connects later is not denied, and continuing a child after a denied server is removed fails in `tools.restrict` with an unknown-tool error (`packages/subagent/subagent/src/child-agent.ts`, `composition.toolFilter`).

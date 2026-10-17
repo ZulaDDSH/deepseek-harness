@@ -2174,6 +2174,13 @@ Delegate a self-contained task to a subagent (a separate agent that works in its
     "run_in_background": {
       "type": "boolean",
       "description": "Run as a background job and return its id (collect with job_output, stop with job_kill). Defaults to false."
+    },
+    "mcp": {
+      "type": "array",
+      "description": "MCP servers the child may use: the `<server>` part of `mcp__<server>__<tool>` names. Omit to give the child no MCP tools, which keeps it much cheaper; name only the servers the task needs.",
+      "items": {
+        "type": "string"
+      }
     }
   },
   "required": [
