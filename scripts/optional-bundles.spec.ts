@@ -76,6 +76,19 @@ describe('optional bundles', () => {
     ])
   })
 
+  it('offers the native computer-use provider and adds its service and provider rows the shipped Web composition leaves out', () => {
+    const name = '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native'
+    expect(OPTIONAL_BUNDLES).toContain(name)
+    const { patches } = bundle(name)
+    const computerUseRows = (entries: ReturnType<typeof composeEntries>) =>
+      entries.filter(entry => ['computer-use', 'computer-use-cua-driver-native'].includes(entry.id))
+    expect(computerUseRows(composeEntries(shipped))).toEqual([])
+    expect(computerUseRows(composeEntries([...shipped, patches]))).toEqual([
+      { id: 'computer-use', name: '@deepseek-ai/dsh-computer-use' },
+      { id: 'computer-use-cua-driver-native', name: '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native' },
+    ])
+  })
+
   it.each(OPTIONAL_BUNDLES)('%s resolves a title, description, and icon in both shipped languages', (name) => {
     const meta = readPluginMeta(name, pathToFileURL(`${bundle(name).dir}/package.json`).href)
     expect(meta?.error).toBeUndefined()
