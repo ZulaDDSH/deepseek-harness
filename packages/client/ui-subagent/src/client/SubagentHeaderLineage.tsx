@@ -140,7 +140,9 @@ function CatalogRows({
           : completed
             ? t('activity.completed')
             : t('activity.inactive')
-        const secondary = [summary?.title, mode, activity]
+        const selection = summary?.projectionValues?.modelSelection
+        const model = (selection?.lastUsed ?? selection?.next)?.model
+        const secondary = [summary?.title, model, mode, activity]
           .filter(value => value !== undefined)
           .join(' · ')
         const totalTokens = tokenTotal(summary?.projectionValues?.tokenUsage)

@@ -580,7 +580,18 @@ describe('SubagentHeaderLineage', () => {
           tokenUsage: id in usageById
             ? usageById[id as keyof typeof usageById]
             : undefined,
-          ...(id === 'running' ? { contextPressure: { pressureTokens: 1_500, projectedTokens: 1_800 } } : {}),
+          ...(id === 'running'
+            ? {
+              contextPressure: { pressureTokens: 1_500, projectedTokens: 1_800 },
+              modelSelection: {
+                lastUsed: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+                lastUsedSeq: null,
+                next: { provider: 'deepseek', model: 'deepseek-v4-pro' },
+              },
+            }
+            : id === 'finished'
+              ? { modelSelection: { lastUsed: null, lastUsedSeq: null, next: { provider: 'x', model: 'queued-model' } } }
+              : {}),
         },
       }]
     })) as Record<SessionId, SessionSummary>
@@ -590,7 +601,9 @@ describe('SubagentHeaderLineage', () => {
     expect(within(trigger).getByText('9 个子智能体')).toBeTruthy()
     hoverCatalog(trigger)
 
-    const runningRow = screen.getByRole('treeitem', { name: /running.*上下文 1\.8K · 1分10秒/ })
+    const runningRow = screen.getByRole('treeitem', { name: /running.*deepseek-v4-flash · 可继续.*上下文 1\.8K · 1分10秒/ })
+    expect(runningRow.getAttribute('aria-label')).not.toContain('deepseek-v4-pro')
+    expect(screen.getByRole('treeitem', { name: /finished.*queued-model · 可继续/ })).toBeTruthy()
     const runningMetrics = within(runningRow)
     const tokenMetric = runningMetrics.getByText('上下文 1.8K')
     expect(tokenMetric.getAttribute('title')).toBe('所有请求累计：4.6K tok')
