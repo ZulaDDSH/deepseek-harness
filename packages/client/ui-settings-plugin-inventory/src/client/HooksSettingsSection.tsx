@@ -172,7 +172,7 @@ export function HooksSettingsSection({ t, list, setEnabledHooks, setHookDescript
           {statusText === undefined ? null : <p className={css.muted}>{statusText}</p>}
           {report.error === undefined ? null : <p role="alert" className={css.error}>{report.error}</p>}
           {entryId !== undefined && failure?.entryId === entryId ? <p role="alert" className={css.error}>{t('hooksWriteFailed')}: {failure.message}</p> : null}
-          {report.skipped.length === 0 ? null : <p className={css.muted}>{t('hooksSkipped')}: {report.skipped.join(', ')}</p>}
+          {report.skipped.length === 0 ? null : <p className={css.muted}>{t('hooksNotSupported')}: {report.skipped.join(', ')}</p>}
           {rows.length === 0 && report.error === undefined && !searching ? <p className={css.muted}>{t('hooksNone')}</p> : null}
           {rows.map((row) => {
             const isOpen = expanded.includes(row.id)

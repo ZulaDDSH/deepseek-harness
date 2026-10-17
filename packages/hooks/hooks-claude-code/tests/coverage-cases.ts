@@ -103,7 +103,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       sh(d, 'h.sh', `#!/usr/bin/env bash\ntouch "${marker}"\n`)
       const path = hooks(d, {
         PreToolUse: [{ hooks: [
-          { type: 'prompt', prompt: 'skipme' }, // skipped → warn loop
+          { type: 'agent', prompt: 'skipme' }, // skipped → warn loop
           { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/h.sh' }, // substituted
         ] }],
       })

@@ -15,6 +15,12 @@ function object(value: unknown): Record<string, unknown> | undefined {
     ? value as Record<string, unknown> : undefined
 }
 
+function handlerText(dialect: HookFileSource['dialect'], event: string, hook: Record<string, unknown>): string | undefined {
+  if (typeof hook.command === 'string') return hook.command
+  return dialect === 'claude-code' && event !== 'SessionStart' && hook.type === 'prompt' && typeof hook.prompt === 'string'
+    ? hook.prompt : undefined
+}
+
 /** Read configured command metadata from external application settings.
  * @param sources JSON sources selected by the Host configuration.
  * @returns Existing sources, their commands and safe read or parse diagnostics.
@@ -40,8 +46,9 @@ export async function readHookFiles(sources: readonly HookFileSource[]): Promise
           for (const candidateHook of group.hooks) {
             const hook = object(candidateHook)
             if (hook === undefined) continue
-            if (typeof hook.command === 'string') handlers.push({
-              event, command: hook.command, key: hookKey(event, typeof group.matcher === 'string' ? group.matcher : undefined, hook.command),
+            const text = handlerText(source.dialect, event, hook)
+            if (text !== undefined) handlers.push({
+              event, command: text, key: hookKey(event, typeof group.matcher === 'string' ? group.matcher : undefined, text),
               ...typeof group.matcher === 'string' ? { matcher: group.matcher } : {},
             })
             else skipped.push(`${event}: ${typeof hook.type === 'string' ? hook.type : 'missing command'}`)
