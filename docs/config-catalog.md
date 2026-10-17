@@ -1313,8 +1313,8 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-experimental-tool-agent-team`
 
-- `inject`: `agents` · `agentTeams` · `tools` · `systemPrompt`
-- `source`: [`packages/experimental/tool-agent-team/src/index.ts:17`](../packages/experimental/tool-agent-team/src/index.ts)
+- `inject`: `agents` · `agentTeams` · `subagents` · `tools` · `systemPrompt`
+- `source`: [`packages/experimental/tool-agent-team/src/index.ts:20`](../packages/experimental/tool-agent-team/src/index.ts)
 
 ```ts config-catalog
 /** Tool routing configuration. */
@@ -1457,7 +1457,7 @@ export interface HmrConfig extends ChokidarOptions {
 
 - `inject`: `shell` · `sessionProjections`
 - `refs`: `Volatile` (`@deepseek-ai/cordis`)
-- `source`: [`packages/hooks/hooks-claude-code/src/index.ts:62`](../packages/hooks/hooks-claude-code/src/index.ts)
+- `source`: [`packages/hooks/hooks-claude-code/src/index.ts:63`](../packages/hooks/hooks-claude-code/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: where the CC hook config lives + substitution roots. */
@@ -1503,7 +1503,7 @@ export interface Config {
 
 - `inject`: `shell` · `sessionProjections`
 - `refs`: `Volatile` (`@deepseek-ai/cordis`)
-- `source`: [`packages/hooks/hooks-codex/src/index.ts:59`](../packages/hooks/hooks-codex/src/index.ts)
+- `source`: [`packages/hooks/hooks-codex/src/index.ts:60`](../packages/hooks/hooks-codex/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: where the Codex hooks.json lives + the model name for payloads. */

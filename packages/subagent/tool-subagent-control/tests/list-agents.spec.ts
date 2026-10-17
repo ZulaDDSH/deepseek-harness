@@ -13,7 +13,7 @@ import type { SubagentCatalogEntry } from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'
-import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import * as tool from '../src/list-agents.ts'
 import { parkParent } from './park-parent.ts'
 import { TestSessionQuery } from './test-session-query.ts'
@@ -79,6 +79,18 @@ async function setup(script: ConstructorParameters<typeof MockAdapter>[0]) {
 
 function text(result: { content: readonly { type: string; text?: string }[] }): string {
   return result.content.filter(block => block.type === 'text').map(block => block.text).join('')
+}
+
+/** Pin the wall-clock idle figure, which varies with test timing. */
+function withIdle(value: string): string {
+  return value.replace(/idle \d+s/gu, 'idle Ns')
+}
+
+/** A tool call whose arguments string is sent verbatim, so a test can stream non-object or malformed JSON. */
+function rawToolCall(callId: string, name: string, argumentsJson: string): StreamChunk[] {
+  return toolCallResponse(callId, name, {}).map(chunk => chunk.type === 'block-end' && chunk.block.type === 'tool-call'
+    ? { ...chunk, block: { ...chunk.block, arguments: argumentsJson } }
+    : chunk)
 }
 
 let calls = 0
@@ -177,8 +189,8 @@ describe('dsh-tool-subagent-control/list-agents', () => {
     vi.spyOn(ctx.agents, 'get').mockImplementation(id => agents.get(id) as never)
     const result = await callTool(ctx, 'list_agents', {}, parent)
     expect(result.isError).toBe(false)
-    expect(text(result)).toBe(
-      `${started.childId} [inactive] — real child\n`
+    expect(withIdle(text(result))).toBe(
+      `${started.childId} [inactive] — real child (steps 1, idle Ns)\n`
       + 'running-child [running] — still working\n'
       + 'waiting-child [inactive] — waiting on descendants',
     )
@@ -214,7 +226,53 @@ describe('dsh-tool-subagent-control/list-agents', () => {
     await waitNoActivation(ctx, started.childId)
     const result = await callTool(ctx, 'list_agents', {}, parent)
     expect(result.isError).toBe(false)
-    expect(text(result)).toBe(`${started.childId} [inactive] — summarize the doc`)
+    expect(withIdle(text(result))).toBe(`${started.childId} [inactive] — summarize the doc (steps 1, idle Ns)`)
+  })
+
+  it('renders the step count and last tool call with its description from the child log', async () => {
+    const { ctx, parent } = await setup([
+      toolCallResponse('list-progress-1', 'missing_tool', { description: 'scan the logs' }),
+      textResponse('done'),
+    ])
+    const started = await ctx.subagents.startContinuable({
+      provider: 'spawn',
+      label: 'scan the logs',
+      request: { prompt: [{ type: 'text', text: 'scan' }], parent },
+      signal: testToolSignal,
+    })
+    await waitNoActivation(ctx, started.childId)
+    const result = await callTool(ctx, 'list_agents', {}, parent)
+    expect(withIdle(text(result))).toBe(
+      `${started.childId} [inactive] — scan the logs (steps 2, last tool missing_tool "scan the logs", idle Ns)`,
+    )
+  })
+
+  it('renders a last tool call without a description for empty or malformed arguments', async () => {
+    const { ctx, parent } = await setup([
+      rawToolCall('list-progress-2', 'missing_tool', '{}'),
+      textResponse('done'),
+      rawToolCall('list-progress-3', 'missing_tool', '{'),
+      textResponse('done'),
+    ])
+    const first = await ctx.subagents.startContinuable({
+      provider: 'spawn',
+      label: 'first',
+      request: { prompt: [{ type: 'text', text: 'first task' }], parent },
+      signal: testToolSignal,
+    })
+    await waitNoActivation(ctx, first.childId)
+    const second = await ctx.subagents.startContinuable({
+      provider: 'spawn',
+      label: 'second',
+      request: { prompt: [{ type: 'text', text: 'second task' }], parent },
+      signal: testToolSignal,
+    })
+    await waitNoActivation(ctx, second.childId)
+    const result = await callTool(ctx, 'list_agents', {}, parent)
+    expect(withIdle(text(result))).toBe(
+      `${first.childId} [inactive] — first (steps 2, last tool missing_tool, idle Ns)\n`
+      + `${second.childId} [inactive] — second (steps 2, last tool missing_tool, idle Ns)`,
+    )
   })
 
   it('describes inactive as turn availability and pins the status vocabulary', async () => {
@@ -289,9 +347,9 @@ describe('dsh-tool-subagent-control/list-agents', () => {
 
     const result = await callTool(ctx, 'list_agents', { scope: 'descendants' }, parent)
     expect(result.isError).toBe(false)
-    expect(text(result)).toBe(
-      `${started.childId} [inactive] parent=${parent.id} depth=1 — waiting branch\n`
-      + `${grandchild.childId} [running] parent=${started.childId} depth=2 — nested leaf`,
+    expect(withIdle(text(result))).toBe(
+      `${started.childId} [inactive] parent=${parent.id} depth=1 — waiting branch (steps 1, idle Ns)\n`
+      + `${grandchild.childId} [running] parent=${started.childId} depth=2 — nested leaf (steps 1, idle Ns)`,
     )
 
     releaseGrandchild.resolve(undefined)

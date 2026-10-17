@@ -269,6 +269,9 @@ importers:
       '@deepseek-ai/dsh-compaction-tool-result-pruner':
         specifier: workspace:*
         version: link:../../packages/compaction/compaction-tool-result-pruner
+      '@deepseek-ai/dsh-computer-use':
+        specifier: workspace:*
+        version: link:../../packages/computer-use/computer-use
       '@deepseek-ai/dsh-cordis-client-runner':
         specifier: workspace:*
         version: link:../../packages/extensions/cordis-client-runner
@@ -278,6 +281,9 @@ importers:
       '@deepseek-ai/dsh-experimental-auto-review':
         specifier: workspace:*
         version: link:../../packages/experimental/auto-review
+      '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native':
+        specifier: workspace:*
+        version: link:../../packages/experimental/computer-use-cua-driver-native
       '@deepseek-ai/dsh-experimental-schedule-bundle':
         specifier: workspace:*
         version: link:../../packages/experimental/schedule-bundle
@@ -8282,6 +8288,9 @@ importers:
 
   packages/experimental/tool-agent-team:
     dependencies:
+      '@deepseek-ai/dsh-tool-subagent-control':
+        specifier: workspace:*
+        version: link:../../subagent/tool-subagent-control
       '@deepseek-ai/schemastery':
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
@@ -8334,9 +8343,6 @@ importers:
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:*
         version: link:../../core/system-prompt
-      '@deepseek-ai/dsh-tool-subagent-control':
-        specifier: workspace:*
-        version: link:../../subagent/tool-subagent-control
       '@deepseek-ai/dsh-tools':
         specifier: workspace:*
         version: link:../../core/tools
@@ -9230,6 +9236,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:*
         version: link:../../llm/llm
+      '@deepseek-ai/dsh-sandbox-policy':
+        specifier: workspace:*
+        version: link:../../sandbox/sandbox-policy
       '@deepseek-ai/dsh-session':
         specifier: workspace:*
         version: link:../../core/session
@@ -9285,6 +9294,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:*
         version: link:../../llm/llm
+      '@deepseek-ai/dsh-sandbox-policy':
+        specifier: workspace:*
+        version: link:../../sandbox/sandbox-policy
       '@deepseek-ai/dsh-session':
         specifier: workspace:*
         version: link:../../core/session
@@ -11930,6 +11942,9 @@ importers:
       '@deepseek-ai/cordis':
         specifier: workspace:~
         version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-hook-protocol':
+        specifier: workspace:*
+        version: link:../../hooks/hook-protocol
       '@deepseek-ai/dsh-pwsh-local':
         specifier: workspace:*
         version: link:../pwsh-local

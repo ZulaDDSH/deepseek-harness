@@ -271,7 +271,7 @@ A local one-shot provider appends the descriptor inside the child's initial turn
 
 ## Durable enumeration: `listChildren()`, `listDescendants()`, and their entries
 
-The model-facing `list_agents` adapter reports current activity as `running` or `inactive`. These values do not describe task completion or guarantee that `send_message` will succeed.
+The model-facing `list_agents` adapter reports current activity as `running` or `inactive`. These values do not describe task completion or guarantee that `send_message` will succeed. Each child row also carries `progress` (step count, last tool call with its `description` argument, and idle time) read from the child's observed log; `listChildren()` itself still reads no child logs.
 
 `SubagentRuntime.listChildren(parentSessionId, signal?)` reads the parent's `subagentCatalog` view through a live-preferred Session observation and releases that observation on success or failure. It returns direct-child entries in parent event order without reading child logs or enumerating the Session corpus. Query failures propagate; a missing catalog projection fails explicitly. Browser rows derive membership from the shared projection store and add activity from Session status; the control stream pushes complete catalog updates. `listDescendants()` recursively reads those catalogs and derives `hasChildren` from each child catalog. [The parent-catalog Agent Note](../../.agents/notes/implemented/architecture/2026-09-01-parent-owned-subagent-catalog.md) owns creation, fork isolation, ordering, and persistence costs.
 

@@ -937,3 +937,76 @@ Open, not changed: the ACP bridge (`packages/acp/acp/src/model-control.ts`) and 
 `packages/api/session-controller/src/run-options.ts:installRunOptions`: the subagent policy and the Ultracode instruction are added only for a top-level Session (`header.origin !== 'subagent'`). Children inherit the Subagent Setup through `effectiveSubagentSetupOf`, so without this gate every child would be told to run its own review through a subagent it cannot start.
 
 `packages/api/session-controller/src/subagent-setup.ts:subagentPolicyText`: the policy states that subagents cannot start subagents and describes the orchestrator-run review loop: start a reviewer, send its findings to the coder with `send_message` (or a new coder run), and repeat for at most the configured rounds. A configured `maxDepth` above 1 lets a depth-one child keep the delegation tool, but children still do not receive this text, so the orchestrator stays the only reviewer. The client copy in `packages/client/ui-subagent/src/client/subagent-setup/contract.ts:subagentPolicyPrompt` must match it; `packages/client/ui-subagent/tests/subagent-setup-contract.client.spec.ts` pins them together.
+## Hook runs and the sandbox policy
+
+`packages/hooks/hook-protocol/src/runner.ts:runHook`: the request carries `sandboxPolicy` only when the bridge passes one, so a caller outside the bridges keeps the executor's deployment default. Before this change neither bridge passed a policy, so every sandboxed hook ran under the executor's deployment default whatever the session had approved.
+
+`packages/hooks/hooks-codex/src/index.ts:runPoint` and `packages/hooks/hooks-claude-code/src/index.ts:runPoint`: each run resolves the policy with `SandboxPolicyService.resolve({ session })` when the agent is known, the same call the tool layer makes (`packages/fs/tool-fs/src/sandbox.ts`), and passes it to `runHook`. The service is read only when `ctx.shell.sandboxMode` is defined, so an executor without a sandbox never resolves it.
+
+`packages/sandbox/sandbox-policy/src/index.ts:SandboxPolicyService.resolve`: the mode is the explicit request mode, else the session's last `sandbox/mode` override (`overrideOf`), else the deployment `defaultMode`. A call without a session takes the deployment mode, which is how the hook runs reached the confined path.
+
+`packages/bundle/base/cordis.patch.yml`: the shipped deployment default is `workspace-write`, read from `DSH_PERMISSION_MODE` when set. A session that approved `danger-full-access` carries that as its `sandbox/mode` override, which its hooks did not see before this change.
+
+`packages/shell/pwsh-sandbox/src/index.ts:SandboxPwshExecutor.resolve`: a request's own policy wins, and without one the executor stamps the deployment policy. Hook runs took that branch.
+
+`packages/sandbox/sandbox-local/src/index.ts:windowsAclRunnerArgv`: a policy without a `sessionId` takes the agentless branch, with no per-session write SIDs. A session-bearing policy gets its workspace and temp write SIDs, so a hook that now carries the session gets the same grants as that session's own commands.
+
+`packages/sandbox/sandbox-windows-acl/src/token.ts:createRestrictedToken`: a workspace-write run uses a WRITE_RESTRICTED token. A confined child can still read and write its workspace, but libuv's named-pipe stdio is opened with write access that no restricting SID is granted, so the open fails with ERROR_ACCESS_DENIED and Node reports `spawn EPERM`. The runner spec states this as the documented no-output-redirection boundary of WRITE_RESTRICTED tokens and pins piped capture as `pipe:DENIED` (`packages/sandbox/sandbox-windows-acl/tests/runner.spec.ts`).
+
+`packages/sandbox/sandbox-windows-acl/src/token.ts:setTokenDefaultDaclGrant`: gives objects that take the token default DACL, such as anonymous stdio pipes and sync objects, a full-access ACE for the restricting SID it is passed: the temp write SID, else the workspace write SID, else the world SID (`packages/sandbox/sandbox-windows-acl/src/index.ts:AclSandbox.init`). It does not reach libuv's named-pipe stdio, which takes the Win32 default template instead (see the `createRestrictedToken` note above).
+
+`packages/hooks/hook-protocol/src/codec.ts:parseHookOutput`: fail-open stays. Only exit 2 blocks, and a run that cannot start reaches this function with no exit code and its message on stderr (the `runHook` catch). That is the silent failure: the action proceeded and the failure was recorded only as `hook/result` stderr. Failing closed would turn every broken hook into a blocked tool call, a product decision, so it is not changed here.
+
+`packages/shell/pwsh-sandbox/tests/hook-run.e2e.ts`: the reproduction. A hook `node parent.mjs <kind>` runs through `runHook` and `SandboxPwshExecutor`. Under the deployment default a piped child fails with EPERM while an inherited-stdio child succeeds; under `danger-full-access` piped children succeed, and aborting ends the grandchild tree.
+
+`packages/hooks/hook-protocol/src/runner.ts:runHook`: trade-off. A `danger-full-access` session now runs its hooks unconfined, the authority its own shell commands already have (`SandboxPwshExecutor.execute` runs that mode unconfined), and hooks are user-configured commands. A `read-only` or `workspace-write` session now confines its hooks to that mode with the session cwd as the write root, so a read-only session's hook that writes a file fails, as a non-blocking failure, which is intended. Still open: under `workspace-write` a hook whose own children need piped stdio still fails with EPERM and fails open.
+## Compaction ends with "This operation was aborted"
+
+`packages/client/connection/src/http-bridge.ts:bridge`: `/api` RPC calls are one buffered HTTP POST held open until the Host method settles. The bridge aborts the handler's signal when the response closes before `end()`, so a dropped connection cancels the running command. The reason is now named ("client connection closed before the response completed") instead of the default DOMException, which surfaced as "This operation was aborted".
+
+`packages/interaction/commands/src/index.ts:withAbort`: a command whose UI request signal aborts rejects with that reason; `settleThrown` writes it as the `command/done` error text. `packages/compaction/compaction-basic/src/index.ts:compactNow` rethrows the same reason from `operationSignal.throwIfAborted()`, so `compaction/end` carries it too.
+
+Ruled out by controlled runs (`packages/llm/llm-pi-ai/tests/adapter.spec.ts`, pi-ai Anthropic route with scripted stalls):
+
+- `packages/util/timeout/src/index.ts:idleWatchdog` with `packages/llm/llm-pi-ai/src/adapter.ts:PiAiAdapter` stream idle: a silent provider after headers or before headers yields `TIMEOUT` "pi-ai stream idle timeout after Nms", with or without a caller signal. It cannot produce the observed text.
+- `packages/llm/llm-pi-ai/src/config.ts` profile `timeoutMs` (SDK request timeout): fires before headers only and yields "Request timed out." (`TIMEOUT`), not the observed text.
+- Node `http.Server` `requestTimeout` (300000 by default): it kills a request whose body is still incomplete (ECONNRESET), but a fully read POST awaiting its response is not cut. `bridge` reads the body before dispatch, so this default does not close the command connection.
+- Repository timers: no 300-second socket or request timer exists in repository code on the command path. The 300-second deadline is undici's default, which the forwarder below no longer uses. `packages/api/gateway/src/client/index.ts:invoke` has a 30-second unary deadline only for methods without a cancellation signal, and the observed failure is not that deadline's text.
+
+Cause: the Electron main process forwards every `/api` request from the renderer with Node's global `fetch` (undici). `apps/desktop/src/web-document.ts:forwardWebRequest` previously relied on it, and undici's default headers deadline (300 000 ms) aborted the connection while the Host held the command's buffered response open. Measured with the real transport: global `fetch` rejected with `UND_ERR_HEADERS_TIMEOUT` at 306.5 s against a 330 s Host, and through the old `forwardWebRequest` at 314.8 s; `node:http` returned 200 at 330 s. The bridge then saw the response close and aborted the command.
+
+Fix: `apps/desktop/src/web-document.ts:requestHost` issues the Host request with `node:http`, which has no default headers or body deadline, so no client timeout cuts a long command. Undici is not a dependency of `apps/desktop`, so an undici `Agent` with zero timeouts was not available without adding one. `node:http` also keeps the renderer's cancellation: aborting `request.signal` destroys the outgoing request, before or after headers. The forwarder removes `accept-encoding` from forwarded requests so the Host answers identity-coded bytes, which are relayed unchanged; `apps/desktop/src/web-document.ts:forwardWebRequest` no longer withholds `content-encoding` or `content-length` for that reason.
+
+Other main-process calls to the Host are short and keep their own deadlines: `apps/desktop/src/web-document.ts:authenticateWebHost` (a 303 exchange) and `apps/desktop/src/main.ts` welcome backend (`net.fetch`, analytics with a 1 s deadline). `packages/util/http-proxy/src/install.ts:createPolicyDispatcher` installs an undici global dispatcher with the same default deadlines; the desktop main process does not call it, and it applies to Node-side `fetch` callers, not to the renderer's Host route.
+## Lead subagent control
+
+`packages/experimental/tool-agent-team/src/index.ts:ownSubagents`: inside Team scopes the scoped `send_message`, `interrupt_agent`, and `list_agents` shadow the global control names, so a Lead could not reach a subagent it started. Non-member targets now resolve through the caller's direct continuable children, excluding roster members: a teammate is also a continuable child of the Lead, and a teammate id must not bypass the mailbox.
+
+`packages/experimental/tool-agent-team/src/index.ts:isMemberTarget`: any name that matches a roster row, including provisioning and failed members, keeps the team path, so existing team errors and behavior are unchanged for team targets.
+
+`packages/experimental/tool-agent-team/src/index.ts:unknownTarget`: an id that is neither a member nor a direct subagent fails with a message that names both kinds; a silent no-op would be wrong because the service accepts unknown interrupt ids as no-ops.
+
+`packages/experimental/tool-agent-team/src/index.ts:send_message`: a subagent send returns `status: 'accepted'` because `ctx.subagents.sendMessage()` resolves only after inbox acceptance. The service keeps the adjacency and authority checks; the team tool passes the exact live caller as sender.
+
+`packages/experimental/tool-agent-team/src/index.ts:interrupt_agent`: a subagent interrupt uses the same `{ kind: 'ancestor', agent: caller }` authority as the global tool, and a teammate caller may interrupt its own subagents. The Lead-only restriction still applies to roster teammates.
+
+`packages/subagent/tool-subagent-control/src/list-agents.ts:listContinuableChildren`: the Team tools see direct children only, because team scope shadows the global `interrupt_agent` that reaches deeper descendants. A Lead therefore cannot stop a grandchild through Team tools; the global tool remains the only route, and that route is unavailable inside Team scopes.
+
+`packages/subagent/tool-subagent-control/src/list-agents.ts:observeProgress`: progress is best effort. A child whose log cannot be observed (missing session or query failure) keeps its row without `progress`, so one unreadable child does not hide the others. Abort still propagates through `signal.throwIfAborted()`. The read uses `sessionQuery.observeSession()` with projections disabled, so no session file is parsed.
+
+`packages/subagent/tool-subagent-control/src/list-agents.ts:summarizeProgress`: `steps` counts `step/start` events over the child's whole log, not per turn. `idleMs` is measured from the last logged event, so a child in a long model call reports growing idle time until its next event.
+
+`packages/experimental/tool-agent-team/src/index.ts:wait_agent`: running subagents do not wake team activity, because the `agent/status` edge is notified only for roster members in `packages/experimental/agent-team/src/index.ts:TeamService`. A subagent's completion reaches the Lead as an inbox notice after the wait returns, so waiting would only stall the Lead until its timeout. The no-progress reply therefore names the running subagents instead of claiming nothing is running.
+
+`packages/experimental/tool-agent-team/src/index.ts:send_message`: the Team `send_message` is not marked as the adjacent-Agent messaging tool. The continuation guidance check in `packages/subagent/subagent/src/continuation.ts:startContinuable` reads the child's own tool scope, where Team tools are absent, so the `isAdjacentAgentSendMessageTool` contract is unchanged.
+
+`scripts/tool-catalog-manifest.ts:mount`: the Team catalog entry mounts `SubagentRuntime` before the Team plugin, because the Team plugin now injects `subagents`; without it the plugin stays pending during schema harvest.
+## Desktop computer use
+
+`packages/boot/app-boot/src/profile.ts:OPTIONAL_BUNDLES`: the native Cua Driver provider is listed beside the other optional bundles, so the Desktop and Web Plugins page offers it switched off. This admits a native closure into every dsh installation, reversing the computer-use exclusion in the 2026-09-21 optional-bundle record for the native provider only; the MCP provider stays an explicit composition, because it needs a separately installed executable.
+
+`packages/experimental/computer-use-cua-driver-native/cordis.patch.yml`: the bundle inserts the shared `computer-use` service and the provider row. The provider's peer dependency on that service must resolve from the installation, so `apps/cli/package.json` lists both packages as runtime dependencies. The Desktop closure is rooted at dsh and the private Host, so the same runtime dependency puts the provider and its platform binary in the Desktop runtime.
+
+`apps/desktop/scripts/electron-builder-config.mjs:createElectronBuilderConfig` (its `**/*.{node,dylib,dll,so,exe}` unpack pattern) already keeps the win32 Cua Driver files outside the asar: `cua_driver_node_runtime.node` and `cua_driver_sdk.dll` in `@trycua/cua-driver-win32-x64-msvc`. The native provider is loaded in-process by `packages/experimental/computer-use-cua-driver-native/src/index.ts:apply`, so these files must be real files, not asar entries.
+
+`scripts/optional-bundles.spec.ts:bundle`: the computer-use test pins the two inserted row ids and names, so a patch that drops either row or a service mount fails before the Plugins page is reached.

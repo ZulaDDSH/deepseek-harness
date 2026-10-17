@@ -177,13 +177,13 @@
     },
     {
       "name": "interrupt_agent",
-      "description": "Interrupt one teammate's current turn while preserving its pending inbox. Team Lead only.",
+      "description": "Interrupt one teammate's current turn while preserving its pending inbox (Team Lead only), or stop a direct subagent you started. Subagents it started keep running.",
       "parameters": {
         "type": "object",
         "properties": {
           "target": {
             "type": "string",
-            "description": "Teammate target returned by spawn_teammate or list_agents."
+            "description": "Teammate target returned by spawn_teammate or list_agents, or the id of a subagent you started from list_agents."
           }
         },
         "required": [
@@ -245,7 +245,7 @@
     },
     {
       "name": "list_agents",
-      "description": "List the Lead and every durable teammate with an addressable target and current availability. inactive means no turn is executing, not a task result. provisioning and failed describe member creation.",
+      "description": "List the Lead, every durable teammate, and each direct subagent you started, with an addressable target and current availability. inactive means no turn is executing, not a task result. provisioning and failed describe member creation. A subagent row shows its progress: step count, last tool call, and idle time; use interrupt_agent to stop a running one.",
       "parameters": {
         "type": "object",
         "properties": {}
@@ -293,13 +293,13 @@
     },
     {
       "name": "send_message",
-      "description": "Send one durable message to another Team member. A running target receives it at the nearest step boundary; an inactive target starts or resumes a turn.",
+      "description": "Send one durable message to another Team member, or to a direct subagent you started. A running target receives it at the nearest step boundary; an inactive target starts or resumes a turn.",
       "parameters": {
         "type": "object",
         "properties": {
           "target": {
             "type": "string",
-            "description": "Member target returned by spawn_teammate or list_agents, including lead."
+            "description": "Member target returned by spawn_teammate or list_agents, including lead; or the id of a subagent you started from list_agents."
           },
           "message": {
             "type": "string",
