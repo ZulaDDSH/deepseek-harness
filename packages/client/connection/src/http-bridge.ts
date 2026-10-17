@@ -45,7 +45,7 @@ export async function bridge(
   // streaming response right after open. ServerResponse 'close' fires on connection teardown;
   // writableEnded distinguishes a normal end() from the client going away.
   res.on('close', () => {
-    if (!res.writableEnded) abort.abort()
+    if (!res.writableEnded) abort.abort(new Error('client connection closed before the response completed'))
   })
   /* v8 ignore next 2 -- node:http always sets url/method on server requests. */
   const url = new URL(req.url ?? '/', 'http://dsh.internal')
