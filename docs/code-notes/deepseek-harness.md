@@ -949,3 +949,12 @@ Open, not changed: the ACP bridge (`packages/acp/acp/src/model-control.ts`) and 
 `packages/experimental/tool-agent-team/src/index.ts:send_message`: the Team `send_message` is not marked as the adjacent-Agent messaging tool. The continuation guidance check in `packages/subagent/subagent/src/continuation.ts:startContinuable` reads the child's own tool scope, where Team tools are absent, so the `isAdjacentAgentSendMessageTool` contract is unchanged.
 
 `scripts/tool-catalog-manifest.ts:mount`: the Team catalog entry mounts `SubagentRuntime` before the Team plugin, because the Team plugin now injects `subagents`; without it the plugin stays pending during schema harvest.
+## Desktop computer use
+
+`packages/boot/app-boot/src/profile.ts:OPTIONAL_BUNDLES`: the native Cua Driver provider is listed beside the other optional bundles, so the Desktop and Web Plugins page offers it switched off. This admits a native closure into every dsh installation, reversing the computer-use exclusion in the 2026-09-21 optional-bundle record for the native provider only; the MCP provider stays an explicit composition, because it needs a separately installed executable.
+
+`packages/experimental/computer-use-cua-driver-native/cordis.patch.yml`: the bundle inserts the shared `computer-use` service and the provider row. The provider's peer dependency on that service must resolve from the installation, so `apps/cli/package.json` lists both packages as runtime dependencies. The Desktop closure is rooted at dsh and the private Host, so the same runtime dependency puts the provider and its platform binary in the Desktop runtime.
+
+`apps/desktop/scripts/electron-builder-config.mjs:createElectronBuilderConfig` (its `**/*.{node,dylib,dll,so,exe}` unpack pattern) already keeps the win32 Cua Driver files outside the asar: `cua_driver_node_runtime.node` and `cua_driver_sdk.dll` in `@trycua/cua-driver-win32-x64-msvc`. The native provider is loaded in-process by `packages/experimental/computer-use-cua-driver-native/src/index.ts:apply`, so these files must be real files, not asar entries.
+
+`scripts/optional-bundles.spec.ts:bundle`: the computer-use test pins the two inserted row ids and names, so a patch that drops either row or a service mount fails before the Plugins page is reached.

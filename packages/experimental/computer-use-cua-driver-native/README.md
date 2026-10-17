@@ -1,13 +1,13 @@
 ---
 description: "Run Cua Driver computer-use tools from its native npm SDK, with durable screenshots and explicit host desktop permissions."
-kind: "package-reference"
+kind: "package-bundle"
 ---
 
 # @deepseek-ai/dsh-experimental-computer-use-cua-driver-native
 
 ## Summary
 
-Use Cua Driver to inspect and operate desktop windows without installing its separate CLI or application. The native npm dependency runs inside the DSH host and exposes Cua Driver's own tools. Screenshots reach image-capable models through durable attachments. This published experimental package requires the launching host's desktop permissions and remains an explicit composition choice.
+Use Cua Driver to inspect and operate desktop windows without installing its separate CLI or application. The native npm dependency runs inside the DSH host and exposes Cua Driver's own tools. Screenshots reach image-capable models through durable attachments. This published experimental package requires the launching host's desktop permissions. The dsh installation ships it as an optional bundle, switched off until a person turns it on from the Plugins page.
 
 ## Table of Contents
 
@@ -23,9 +23,17 @@ Use Cua Driver to inspect and operate desktop windows without installing its sep
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount the provider in a composition that already supplies the tool registry and system prompt.
+### Install into a profile
 
-### Minimal configuration
+The dsh installation ships this layer switched off. In the Desktop app or the Web application, open the Plugins page and switch on Computer Use (Cua Driver) in the Official group. Reconciliation then adds the `computer-use` service row from [dsh-computer-use](../../computer-use/computer-use/README.md) and this provider's `computer-use-cua-driver-native` row after the base and Web layers, as declared in [cordis.patch.yml](cordis.patch.yml).
+
+### What you get
+
+The enabled layer adds the shared computer-use service and this provider. The provider registers the `cua_driver_native__` tools and its guidance, which are described under Model Experience.
+
+### Manual composition
+
+A composition that does not use the Plugins page can list the two rows itself. The composition must supply the tool registry and system prompt.
 
 ```yaml
 - name: '@deepseek-ai/dsh-computer-use'
@@ -60,6 +68,7 @@ The provider reserves the shared computer-use registration before loading native
 
 | File | Role |
 |---|---|
+| [cordis.patch.yml](cordis.patch.yml) | Bundle patch inserting the computer-use service and this provider's row |
 | [src/index.ts](src/index.ts) | Native runtime ownership, catalog validation, tool registration, and provider guidance |
 | — | No runtime invariant companion is published; resource ownership has no independently observed state to compare. |
 
@@ -126,6 +135,7 @@ An unchanged catalog preserves its tool-definition prefix. Tool results append t
 The package preserves the upstream driver's platform and application limits.
 
 - **Host permissions and graphics session** — npm installation does not grant desktop access or create a graphical session.
+- **Shared installation** — the optional bundle is a dependency of the dsh installation, so every installation downloads this native closure whether or not the layer is switched on.
 - **Native cursor overlay** — a headless macOS Node host can receive `facility_unavailable` for overlay operations while screenshots and background input remain usable.
 - **Shared desktop** — the provider does not reserve windows or complete workflows for a Session. Other callers and applications can change the same desktop between calls.
 - **Cancellation** — an aborted call can have delivered input already; inspect fresh state before retrying. The provider waits for SDK shutdown during unload but does not promise native action rollback.
