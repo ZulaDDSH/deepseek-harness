@@ -36,6 +36,7 @@ patchedDependencies:
   '@electron/osx-sign@1.3.3': 280e7b2816caf01423097d24e79107a66afeb563a348630ce9928ae8499a5861
   '@fortune-sheet/core@1.0.4': 8791a230763dbf853fd65d627c68c31de37209992851377855e16cf08ea70532
   '@fortune-sheet/react@1.0.4': 2932e52e79afcd4ced08cfa123b5eded786c85043da32f622f3e80af6fc96c37
+  '@ubjs/node@0.31.0-3': 6d8ea912afa686bcf8638b027407745966d9ac00d6e80adf9ebd0b82981ca5bb
   '@yao-pkg/pkg@6.21.0': 75891fc22b277c145cafeab83e41baf4a70f5b8fe6dc0801c6a0b922d7ee88c7
   exceljs@4.4.0: c1bf8ac8f319dab382f08e3a669b715e691d46c703ac5a4163eb383fbedd1d48
   node-pty@1.2.0-beta.15: b40ae545608897914bd25fb009c97eeac478c34e8a910298ddcb01b746534bb0
@@ -25048,7 +25049,7 @@ snapshots:
   '@trycua/cua-driver@0.28.0':
     dependencies:
       '@ubjs/core': 0.31.0-3
-      '@ubjs/node': 0.31.0-3
+      '@ubjs/node': 0.31.0-3(patch_hash=6d8ea912afa686bcf8638b027407745966d9ac00d6e80adf9ebd0b82981ca5bb)
     optionalDependencies:
       '@trycua/cua-driver-darwin-arm64': 0.28.0
       '@trycua/cua-driver-darwin-x64': 0.28.0
@@ -25438,7 +25439,7 @@ snapshots:
   '@ubjs/node-win32-x64-msvc@0.31.0-3':
     optional: true
 
-  '@ubjs/node@0.31.0-3':
+  '@ubjs/node@0.31.0-3(patch_hash=6d8ea912afa686bcf8638b027407745966d9ac00d6e80adf9ebd0b82981ca5bb)':
     optionalDependencies:
       '@ubjs/node-darwin-arm64': 0.31.0-3
       '@ubjs/node-darwin-x64': 0.31.0-3
