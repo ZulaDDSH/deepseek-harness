@@ -22,10 +22,12 @@
  */
 
 import { createHash } from 'node:crypto'
-import { mkdirSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import type { Dirent } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { Win32Error } from '@deepseek-ai/dsh-win32-process'
 
-import { allocOverlapped, allocPtrSlot, decodePtr, decodeUint8At, decodeUint16At, decodeUint32At, getTempPath, isInvalidHandle, isNullPtr, ptrAddress, sameSidAt, throwLastError, throwWin32 } from './ffi.ts'
+import { allocOverlapped, allocPtrSlot, allocUint32, decodePtr, decodeUint8At, decodeUint16At, decodeUint32, decodeUint32At, getTempPath, isInvalidHandle, isNullPtr, ptrAddress, sameSidAt, throwLastError, throwWin32 } from './ffi.ts'
 import type { NativePtr, Win32Bindings } from './ffi.ts'
 import * as abi from './win32-abi.ts'
 
@@ -225,6 +227,7 @@ type LabelEdit = { kind: 'apply'; acl: NativePtr } | { kind: 'clear' } | { kind:
  * @param labelEdit - the label change to apply alongside the DACL.
  * @param descriptor - the descriptor allocation owning `oldAcl`.
  * @param label - the caller's name for error details.
+ * @param linked - the multiply-linked files restored right after the apply.
  */
 function mergeAndApply(
   api: Win32Bindings,
@@ -234,6 +237,7 @@ function mergeAndApply(
   labelEdit: LabelEdit,
   descriptor: NativePtr | null,
   label: string,
+  linked: LinkedFile[],
 ): void {
   const newAclSlot = allocPtrSlot()
   const mergeResult = api.setEntriesInAclW(entries.length / abi.EXPLICIT_ACCESS_W_SIZE, entries, oldAcl, newAclSlot)
@@ -257,12 +261,16 @@ function mergeAndApply(
     labelEdit.kind === 'keep' ? abi.DACL_SECURITY_INFORMATION : abi.DACL_SECURITY_INFORMATION | abi.LABEL_SECURITY_INFORMATION,
     null, null, newAcl, labelEdit.kind === 'apply' ? labelEdit.acl : null,
   )
+  const restoreFailures = restoreLinkedFiles(api, linked)
   const freedNew = api.localFree(newAcl)
   const freedLabel = labelEdit.kind === 'apply' ? api.localFree(labelEdit.acl) : null
   if (applyResult !== abi.ERROR_SUCCESS) throwWin32(api, 'SetNamedSecurityInfoW', applyResult, `${label}(${path})`)
   if (freedDescriptor !== null && !isNullPtr(freedDescriptor)) throwLastError(api, 'LocalFree', `${label}(${path}) descriptor`)
   if (!isNullPtr(freedNew)) throwLastError(api, 'LocalFree', `${label}(${path}) new ACL`)
   if (freedLabel !== null && !isNullPtr(freedLabel)) throwLastError(api, 'LocalFree', `${label}(${path}) label ACL`)
+  if (restoreFailures.length > 0) {
+    throw new Error(`${label}(${path}): ${restoreFailures.length} linked file(s) not restored: ${restoreFailures.map(failure => failure.message).join('; ')}`)
+  }
 }
 
 /**
@@ -350,6 +358,140 @@ function hasForeignGrant(oldAcl: NativePtr, sidPtr: NativePtr): boolean {
   return false
 }
 
+interface LinkedFile {
+  path: string
+  target: Buffer
+}
+
+/**
+ * The completion-marker path for a granted directory: its lock file with a `.linked` suffix.
+ * @param api - the binding table.
+ * @param path - the granted directory (absolute).
+ * @returns the marker file path.
+ */
+export function linkedMarkerPath(api: Win32Bindings, path: string): string {
+  return lockFilePath(api, path).replace(/\.lock$/u, '.linked')
+}
+
+function multiLinkFiles(directory: string, found: string[]): string[] {
+  let entries: Dirent[]
+  try {
+    entries = readdirSync(directory, { withFileTypes: true })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    return found
+  }
+  for (const entry of entries) {
+    if (entry.isSymbolicLink()) continue
+    const child = join(directory, entry.name)
+    if (entry.isDirectory()) multiLinkFiles(child, found)
+    else if (entry.isFile() && lstatSync(child).nlink > 1) found.push(child)
+  }
+  return found
+}
+
+function linkedClean(api: Win32Bindings, path: string): boolean {
+  const marker = linkedMarkerPath(api, path)
+  if (existsSync(marker)) return true
+  if (multiLinkFiles(path, []).length > 0) return false
+  writeFileSync(marker, '')
+  return true
+}
+
+function sidBytesOf(api: Win32Bindings, sidPtr: NativePtr): Buffer {
+  const length = api.getLengthSid(sidPtr)
+  if (length === 0) throwLastError(api, 'GetLengthSid', 'capability SID')
+  const bytes = Buffer.alloc(length)
+  for (let index = 0; index < length; index++) bytes[index] = decodeUint8At(sidPtr, index)
+  return bytes
+}
+
+function aclEntries(descriptor: Buffer, aclOffset: number): Buffer[] {
+  const aclEnd = aclOffset + descriptor.readUInt16LE(aclOffset + 2)
+  const entries: Buffer[] = []
+  let offset = aclOffset + abi.ACL_HEADER_SIZE
+  for (let index = 0; index < descriptor.readUInt16LE(aclOffset + 4); index++) {
+    const size = descriptor.readUInt16LE(offset + 2)
+    if (size < 8 || offset + size > aclEnd) throw new Error('malformed ACL in a multiply-linked file descriptor')
+    entries.push(descriptor.subarray(offset, offset + size))
+    offset += size
+  }
+  return entries
+}
+
+function isCapabilityStamp(ace: Buffer, capabilitySid: Buffer): boolean {
+  return ace.readUInt8(0) === abi.ACCESS_ALLOWED_ACE_TYPE && (ace.readUInt8(1) & abi.INHERITED_ACE) !== 0
+    && ace.readUInt32LE(4) === abi.GRANT_MASK && ace.subarray(8).equals(capabilitySid)
+}
+
+function isLowLabelStamp(ace: Buffer): boolean {
+  const sid = ace.subarray(8)
+  return ace.readUInt8(0) === abi.SYSTEM_MANDATORY_LABEL_ACE_TYPE && (ace.readUInt8(1) & abi.INHERITED_ACE) !== 0
+    && sid.length === 12 && sid.readUInt8(0) === 1 && sid.readUInt8(1) === 1
+    && sid.readUIntBE(2, 6) === abi.SECURITY_MANDATORY_LABEL_AUTHORITY
+    && sid.readUInt32LE(8) === abi.SECURITY_MANDATORY_LOW_RID
+}
+
+function buildAcl(revision: number, entries: Buffer[]): Buffer {
+  const body = Buffer.concat(entries)
+  const header = Buffer.alloc(abi.ACL_HEADER_SIZE)
+  header.writeUInt8(revision, 0)
+  header.writeUInt16LE(abi.ACL_HEADER_SIZE + body.length, 2)
+  header.writeUInt16LE(entries.length, 4)
+  return Buffer.concat([header, body])
+}
+
+function buildDescriptor(control: number, dacl: Buffer | null, sacl: Buffer | null): Buffer {
+  const header = Buffer.alloc(20)
+  header.writeUInt8(1, 0)
+  header.writeUInt16LE((control & ~(abi.SE_DACL_PRESENT | abi.SE_SACL_PRESENT))
+    | (dacl === null ? 0 : abi.SE_DACL_PRESENT) | (sacl === null ? 0 : abi.SE_SACL_PRESENT), 2)
+  header.writeUInt32LE(sacl === null ? 0 : 20 + (dacl?.length ?? 0), 12)
+  header.writeUInt32LE(dacl === null ? 0 : 20, 16)
+  return Buffer.concat([header, dacl ?? Buffer.alloc(0), sacl ?? Buffer.alloc(0)])
+}
+
+function stripStamp(descriptor: Buffer, capabilitySid: Buffer, path: string): Buffer | null {
+  const daclOffset = descriptor.readUInt32LE(16)
+  const saclOffset = descriptor.readUInt32LE(12)
+  const dacl = daclOffset === 0 ? [] : aclEntries(descriptor, daclOffset)
+  const sacl = saclOffset === 0 ? [] : aclEntries(descriptor, saclOffset)
+  const keptDacl = dacl.filter(ace => !isCapabilityStamp(ace, capabilitySid))
+  const keptSacl = sacl.filter(ace => !isLowLabelStamp(ace))
+  if (keptDacl.length === dacl.length && keptSacl.length === sacl.length) return null
+  if (dacl.length > 0 && keptDacl.length === 0) throw new Error(`${path}: removing the sandbox stamp would leave an empty DACL`)
+  return buildDescriptor(
+    descriptor.readUInt16LE(2),
+    daclOffset === 0 ? null : buildAcl(descriptor.readUInt8(daclOffset), keptDacl),
+    keptSacl.length === 0 ? null : buildAcl(descriptor.readUInt8(saclOffset), keptSacl),
+  )
+}
+
+function snapshotLinkedFiles(api: Win32Bindings, root: string, sidPtr: NativePtr): LinkedFile[] {
+  const paths = multiLinkFiles(root, [])
+  if (paths.length === 0) return []
+  const capabilitySid = sidBytesOf(api, sidPtr)
+  const scratch = Buffer.alloc(abi.SECURITY_DESCRIPTOR_SCRATCH_BYTES)
+  const needed = allocUint32()
+  return paths.map((path) => {
+    if (api.getFileSecurityW(path, abi.DACL_SECURITY_INFORMATION | abi.LABEL_SECURITY_INFORMATION, scratch, scratch.length, needed) === 0) {
+      throwWin32(api, 'GetFileSecurityW', api.getLastError(), path)
+    }
+    const descriptor = Buffer.from(scratch.subarray(0, decodeUint32(needed)))
+    return { path, target: stripStamp(descriptor, capabilitySid, path) ?? descriptor }
+  })
+}
+
+function restoreLinkedFiles(api: Win32Bindings, linked: LinkedFile[]): Win32Error[] {
+  const failures: Win32Error[] = []
+  for (const file of linked) {
+    if (api.setFileSecurityW(file.path, abi.DACL_SECURITY_INFORMATION | abi.LABEL_SECURITY_INFORMATION, file.target) === 0) {
+      failures.push(new Win32Error('SetFileSecurityW', api.getLastError(), file.path))
+    }
+  }
+  return failures
+}
+
 /**
  * Grant `GRANT_MASK` (Write+Delete, displays as "Modify") to the capability SID
  * on `path`, deny the world SID the ambient `FILE_DELETE_CHILD` right, and
@@ -361,7 +503,8 @@ function hasForeignGrant(oldAcl: NativePtr, sidPtr: NativePtr): boolean {
  * DELETE is no longer deletable through its parent's rights.
  *
  * Idempotent: the exact ACE, deny, and label together SKIP the
- * SetNamedSecurityInfoW apply, which would otherwise re-propagate the
+ * SetNamedSecurityInfoW apply once {@link linkedClean} confirms no
+ * multiply-linked file needs repair; the apply would otherwise re-propagate the
  * identical descriptor across the whole tree (eager inheritance; minutes on
  * large workspaces). Otherwise read-merge-write, so pre-existing explicit ACEs
  * survive (same shape as {@link revokeWrite}). Runs under the per-path lock.
@@ -385,7 +528,7 @@ export function grantWrite(
     const { oldAcl, labelAcl, descriptor } = readCurrentSecurity(api, path)
     if (oldAcl !== null && labelAcl !== null
       && hasExactGrant(oldAcl, sidPtr) && hasExactDeny(oldAcl, worldSidPtr)
-      && hasExactLabel(labelAcl, lowLabelSidPtr)) {
+      && hasExactLabel(labelAcl, lowLabelSidPtr) && linkedClean(api, path)) {
       // The exact ACE, deny, and label stand: releasing the descriptor is the whole operation.
       if (descriptor !== null) {
         const freed = api.localFree(descriptor)
@@ -393,12 +536,16 @@ export function grantWrite(
       }
       return
     }
+    const marker = linkedMarkerPath(api, path)
+    let linked: LinkedFile[]
     let label: NativePtr
     try {
+      linked = snapshotLinkedFiles(api, path, sidPtr)
+      rmSync(marker, { force: true })
       label = buildLowLabelAcl(api, lowLabelSidPtr)
     } catch (error) {
       // The read already owns a descriptor allocation; release it before the
-      // label failure propagates.
+      // snapshot or label failure propagates.
       if (descriptor !== null) api.localFree(descriptor)
       throw error
     }
@@ -408,8 +555,9 @@ export function grantWrite(
         buildExplicitAccess(worldSidPtr, abi.DENY_ACCESS, abi.FILE_DELETE_CHILD, abi.CONTAINER_INHERIT_ACE),
         buildExplicitAccess(sidPtr, abi.GRANT_ACCESS, abi.GRANT_MASK),
       ]),
-      oldAcl, { kind: 'apply', acl: label }, descriptor, 'grantWrite',
+      oldAcl, { kind: 'apply', acl: label }, descriptor, 'grantWrite', linked,
     )
+    writeFileSync(marker, '')
   })
 }
 
@@ -438,10 +586,17 @@ export function revokeWrite(api: Win32Bindings, path: string, sidPtr: NativePtr)
       }
       return false
     }
+    let linked: LinkedFile[]
+    try {
+      linked = snapshotLinkedFiles(api, path, sidPtr)
+    } catch (error) {
+      if (descriptor !== null) api.localFree(descriptor)
+      throw error
+    }
     mergeAndApply(
       api, path, buildExplicitAccess(sidPtr, abi.REVOKE_ACCESS, 0), oldAcl,
       hasForeignGrant(oldAcl, sidPtr) ? { kind: 'keep' } : { kind: 'clear' },
-      descriptor, 'revokeWrite',
+      descriptor, 'revokeWrite', linked,
     )
     return true
   })
