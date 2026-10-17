@@ -32,6 +32,17 @@ export function tokenTotal(
 }
 
 /**
+ * Current context size, the same figure the conversation context meter uses.
+ * @param pressure - the child's context-pressure projection, when known.
+ * @returns prompt-side tokens for the next request, or undefined.
+ */
+export function contextTokens(
+  pressure: SessionProjectionMap['contextPressure'] | undefined,
+): number | undefined {
+  return pressure?.projectedTokens ?? pressure?.pressureTokens
+}
+
+/**
  * Exact whole-second active-turn duration for one catalog row.
  * @param summary - the child's Session summary.
  * @param activity - whether the child runs now.
