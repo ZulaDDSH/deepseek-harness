@@ -7,11 +7,14 @@ import { TeamTaskId } from '@deepseek-ai/dsh-experimental-agent-team'
 import type { TeamMemberView } from '@deepseek-ai/dsh-experimental-agent-team'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { InferValue, ValueSchemaSpec } from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-subagent'
+import { listContinuableChildren, PROGRESS_VALUE_SCHEMA, withProgress } from '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+import type { ListAgentsChild } from '@deepseek-ai/dsh-tool-subagent-control/list-agents'
 
 /** Cordis plugin name. */
 export const name = 'tool-agent-team'
 /** Services required by the Team tool plugin. */
-export const inject = ['agents', 'agentTeams', 'tools', 'systemPrompt']
+export const inject = ['agents', 'agentTeams', 'subagents', 'tools', 'systemPrompt']
 
 /** Tool routing configuration. */
 export interface Config {
@@ -49,13 +52,14 @@ const MEMBER_VIEW_SCHEMA = {
   additionalProperties: false,
   properties: {
     target: { type: 'string', required: true },
-    role: { type: 'string', required: true, enum: ['lead', 'teammate'] },
+    role: { type: 'string', required: true, enum: ['lead', 'teammate', 'subagent'] },
     status: { type: 'string', required: true, enum: ['running', 'inactive', 'provisioning', 'failed'] },
     description: { type: 'string' },
     provider: { type: 'string' },
     context: { type: 'string', enum: ['fresh', 'fork'] },
     model: { type: 'string' },
     diagnostics: { type: 'array', required: true, items: { type: 'string' } },
+    progress: PROGRESS_VALUE_SCHEMA,
   },
 } as const
 
@@ -63,6 +67,40 @@ const MEMBER_VIEW_SCHEMA = {
 function modelMember(member: TeamMemberView): InferValue<typeof MEMBER_VIEW_SCHEMA> {
   const { id: _id, name, ...details } = member
   return { target: name, ...details }
+}
+
+/** Expose a subagent by its session id, with its label as description. */
+function modelSubagent(child: ListAgentsChild): InferValue<typeof MEMBER_VIEW_SCHEMA> {
+  return {
+    target: child.id,
+    role: 'subagent',
+    status: child.status,
+    description: child.label,
+    diagnostics: [],
+    ...child.progress === undefined ? {} : { progress: child.progress },
+  }
+}
+
+/** Whether a target names a Team member, which keeps the roster and mailbox path. */
+function isMemberTarget(members: readonly TeamMemberView[], target: string): boolean {
+  return members.some(member => member.name === target.trim())
+}
+
+/** The caller's direct continuable subagents, excluding Team roster members. */
+async function ownSubagents(ctx: Context, caller: Agent, signal: AbortSignal): Promise<ListAgentsChild[]> {
+  const members = new Set(ctx.agentTeams.listMembers(caller).map(member => member.id))
+  return (await listContinuableChildren(ctx, caller, signal)).filter(child => !members.has(child.id))
+}
+
+/** Fail a target that is neither a Team member nor a subagent the caller started. */
+function unknownTarget(target: string): Error {
+  return new Error(`"${target}" is not a Team member or a subagent you started; use list_agents to find valid targets`)
+}
+
+/** Explain a no-progress wait, naming running subagents that wait_agent does not observe. */
+function noProgressMessage(runningSubagents: number): string {
+  if (runningSubagents === 0) return NO_ACTIVE_PEER_MESSAGE
+  return `${NO_ACTIVE_PEER_MESSAGE} ${runningSubagents} subagent(s) you started are still running. They report back by notification; wait_agent does not observe them.`
 }
 
 /** One shared task, matching the public `TeamTaskView`. */
@@ -214,28 +252,42 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
 
     register(scoped.tools.register(defineTool({
       name: 'send_message',
-      description: 'Send one durable message to another Team member. A running target receives it at the nearest step boundary; an inactive target starts or resumes a turn.',
+      description: 'Send one durable message to another Team member, or to a direct subagent you started. A running target receives it at the nearest step boundary; an inactive target starts or resumes a turn.',
       parameters: {
-        target: { type: 'string', required: true, description: 'Member target returned by spawn_teammate or list_agents, including lead.' },
+        target: { type: 'string', required: true, description: 'Member target returned by spawn_teammate or list_agents, including lead; or the id of a subagent you started from list_agents.' },
         message: { type: 'string', required: true, description: 'Self-contained message for the target.' },
       },
       output: jsonOutput(SEND_VALUE_SCHEMA),
-      execute(args, exec) {
-        return ctx.agentTeams.sendMessage(callingAgent(exec.agent, 'send_message'), {
-          target: args.target,
-          content: [{ type: 'text', text: args.message }],
-          signal: exec.signal,
-        })
+      async execute(args, exec) {
+        const caller = callingAgent(exec.agent, 'send_message')
+        if (isMemberTarget(ctx.agentTeams.listMembers(caller), args.target)) {
+          return await ctx.agentTeams.sendMessage(caller, {
+            target: args.target,
+            content: [{ type: 'text', text: args.message }],
+            signal: exec.signal,
+          })
+        }
+        const child = (await ownSubagents(ctx, caller, exec.signal)).find(row => row.id === args.target)
+        if (child === undefined) throw unknownTarget(args.target)
+        const messageId = await ctx.subagents.sendMessage(
+          caller,
+          child.id,
+          [{ type: 'text', text: args.message }],
+          { signal: exec.signal },
+        )
+        return { messageId, status: 'accepted' as const }
       },
     })))
 
     register(scoped.tools.register(defineTool({
       name: 'list_agents',
-      description: 'List the Lead and every durable teammate with an addressable target and current availability. inactive means no turn is executing, not a task result. provisioning and failed describe member creation.',
+      description: 'List the Lead, every durable teammate, and each direct subagent you started, with an addressable target and current availability. inactive means no turn is executing, not a task result. provisioning and failed describe member creation. A subagent row shows its progress: step count, last tool call, and idle time; use interrupt_agent to stop a running one.',
       parameters: {},
       output: jsonOutput(MEMBER_LIST_VALUE_SCHEMA),
-      execute(_args, exec) {
-        return Promise.resolve(ctx.agentTeams.listMembers(callingAgent(exec.agent, 'list_agents')).map(modelMember))
+      async execute(_args, exec) {
+        const caller = callingAgent(exec.agent, 'list_agents')
+        const subagents = await withProgress(ctx, await ownSubagents(ctx, caller, exec.signal), exec.signal)
+        return [...ctx.agentTeams.listMembers(caller).map(modelMember), ...subagents.map(modelSubagent)]
       },
     })))
 
@@ -262,11 +314,13 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
         const hasActivePeer = ctx.agentTeams.listMembers(caller).some(member =>
           member.id !== caller.id && ACTIVE_WAIT_STATUSES.has(member.status))
         if (!hasActivePeer) {
+          const runningSubagents = (await ownSubagents(ctx, caller, exec.signal))
+            .filter(child => child.status === 'running').length
           return {
             timedOut: false,
             noProgress: {
               reason: 'no-active-peer' as const,
-              message: NO_ACTIVE_PEER_MESSAGE,
+              message: noProgressMessage(runningSubagents),
             },
           }
         }
@@ -276,13 +330,20 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
 
     register(scoped.tools.register(defineTool({
       name: 'interrupt_agent',
-      description: 'Interrupt one teammate\'s current turn while preserving its pending inbox. Team Lead only.',
+      description: 'Interrupt one teammate\'s current turn while preserving its pending inbox (Team Lead only), or stop a direct subagent you started. Subagents it started keep running.',
       parameters: {
-        target: { type: 'string', required: true, description: 'Teammate target returned by spawn_teammate or list_agents.' },
+        target: { type: 'string', required: true, description: 'Teammate target returned by spawn_teammate or list_agents, or the id of a subagent you started from list_agents.' },
       },
       output: jsonOutput(INTERRUPT_VALUE_SCHEMA),
-      execute(args, exec) {
-        return Promise.resolve(ctx.agentTeams.interrupt(callingAgent(exec.agent, 'interrupt_agent'), args.target))
+      async execute(args, exec) {
+        const caller = callingAgent(exec.agent, 'interrupt_agent')
+        if (isMemberTarget(ctx.agentTeams.listMembers(caller), args.target)) {
+          return ctx.agentTeams.interrupt(caller, args.target)
+        }
+        const child = (await ownSubagents(ctx, caller, exec.signal)).find(row => row.id === args.target)
+        if (child === undefined) throw unknownTarget(args.target)
+        ctx.subagents.interrupt(child.id, { kind: 'ancestor', agent: caller })
+        return { previousStatus: child.status }
       },
     })))
 

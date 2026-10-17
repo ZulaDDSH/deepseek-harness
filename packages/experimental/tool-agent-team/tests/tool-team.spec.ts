@@ -172,6 +172,10 @@ describe('dsh-tool-team', () => {
   it.each(['running', 'inactive'] as const)('returns interrupted %s status', async (previousStatus) => {
     const { ctx, lead } = await setup([])
     const interrupt = vi.spyOn(ctx.agentTeams, 'interrupt').mockReturnValue({ previousStatus })
+    vi.spyOn(ctx.agentTeams, 'listMembers').mockReturnValue([{
+      id: SessionId('reviewer-session'), name: 'reviewer', role: 'teammate', status: previousStatus,
+      description: 'review changes', diagnostics: [],
+    }])
     const result = await execute(ctx, lead, 'interrupt_agent', { target: 'reviewer' })
     expect(JSON.parse(text(result))).toEqual({ previousStatus })
     expect(interrupt).toHaveBeenCalledWith(lead, 'reviewer')
@@ -208,6 +212,94 @@ describe('dsh-tool-team', () => {
     const stored = await execute(ctx, lead, 'list_agents', {})
     expect(JSON.parse(text(stored))).toContainEqual(expect.objectContaining({ target: member.target, status: 'inactive' }))
     expect(ctx.agentTeams.listMembers(lead)[1]).toMatchObject({ id: childId, name: member.target, status: 'inactive' })
+  })
+
+  it('delivers send_message and interrupts through interrupt_agent for a direct subagent id', async () => {
+    const { ctx, lead } = await setup(['hang'])
+    const started = await ctx.subagents.startContinuable({
+      provider: 'spawn',
+      label: 'scan the logs',
+      request: { prompt: [{ type: 'text', text: 'scan' }], parent: lead },
+      signal: SIGNAL,
+    })
+    const child = await waitRunning(ctx, started.childId)
+    const send = vi.spyOn(ctx.subagents, 'sendMessage')
+    const sent = await execute(ctx, lead, 'send_message', { target: started.childId, message: 'narrow the window' })
+    expect(sent.isError).toBe(false)
+    expect(JSON.parse(text(sent))).toEqual({ messageId: expect.any(String) as string, status: 'accepted' })
+    expect(send).toHaveBeenCalledWith(lead, started.childId, [{ type: 'text', text: 'narrow the window' }], { signal: SIGNAL })
+    const interrupted = await execute(ctx, lead, 'interrupt_agent', { target: started.childId })
+    expect(interrupted.isError).toBe(false)
+    expect(JSON.parse(text(interrupted))).toEqual({ previousStatus: 'running' })
+    await vi.waitFor(() => { expect(child.status).toBe('idle') }, { timeout: 5_000 })
+  })
+
+  it('lists direct subagents with their progress and fails unknown targets naming both kinds', async () => {
+    const { ctx, lead } = await setup([
+      toolCallResponse('team-progress-1', 'missing_tool', { description: 'scan the logs' }),
+      'hang',
+    ])
+    const started = await ctx.subagents.startContinuable({
+      provider: 'spawn',
+      label: 'scan the logs',
+      request: { prompt: [{ type: 'text', text: 'scan' }], parent: lead },
+      signal: SIGNAL,
+    })
+    const child = await waitRunning(ctx, started.childId)
+    const row = await vi.waitFor(async () => {
+      const listed = JSON.parse(text(await execute(ctx, lead, 'list_agents', {}))) as Array<{ target: string; progress?: { steps: number } }>
+      const found = listed.find(entry => entry.target === started.childId)
+      expect(found?.progress?.steps).toBe(2)
+      return found
+    }, { timeout: 5_000 })
+    expect(row).toEqual({
+      target: started.childId,
+      role: 'subagent',
+      status: 'running',
+      description: 'scan the logs',
+      diagnostics: [],
+      progress: {
+        steps: 2,
+        lastTool: { name: 'missing_tool', description: 'scan the logs' },
+        idleMs: expect.any(Number) as number,
+      },
+    })
+    const unknown = await execute(ctx, lead, 'send_message', { target: 'nobody', message: 'hello' })
+    expect(unknown.isError).toBe(true)
+    expect(text(unknown)).toContain('is not a Team member or a subagent you started')
+    const missing = await execute(ctx, lead, 'interrupt_agent', { target: 'nobody' })
+    expect(missing.isError).toBe(true)
+    expect(text(missing)).toContain('is not a Team member or a subagent you started')
+    const ghost = SessionId('ghost-subagent')
+    vi.spyOn(ctx.subagents, 'listChildren').mockResolvedValueOnce([
+      { id: ghost, createdAt: 1, label: 'ghost', mode: 'continuable' },
+    ])
+    expect(JSON.parse(text(await execute(ctx, lead, 'list_agents', {})))).toContainEqual({
+      target: ghost, role: 'subagent', status: 'inactive', description: 'ghost', diagnostics: [],
+    })
+    await execute(ctx, lead, 'interrupt_agent', { target: started.childId })
+    await vi.waitFor(() => { expect(child.status).toBe('idle') }, { timeout: 5_000 })
+  })
+
+  it('tells wait_agent about running subagents it cannot observe instead of claiming nothing runs', async () => {
+    const { ctx, lead } = await setup(['hang'])
+    const started = await ctx.subagents.startContinuable({
+      provider: 'spawn',
+      label: 'scan the logs',
+      request: { prompt: [{ type: 'text', text: 'scan' }], parent: lead },
+      signal: SIGNAL,
+    })
+    const child = await waitRunning(ctx, started.childId)
+    const waited = await execute(ctx, lead, 'wait_agent', { timeout_ms: 3_600_000 })
+    expect(JSON.parse(text(waited))).toEqual({
+      timedOut: false,
+      noProgress: {
+        reason: 'no-active-peer',
+        message: expect.stringContaining('1 subagent(s) you started are still running') as string,
+      },
+    })
+    await execute(ctx, lead, 'interrupt_agent', { target: started.childId })
+    await vi.waitFor(() => { expect(child.status).toBe('idle') }, { timeout: 5_000 })
   })
 
   it('installs the complete scoped schema and shared-checkout policy for roots and teammates', async () => {
@@ -716,7 +808,7 @@ describe('dsh-tool-team', () => {
     expect(text(result)).toContain('unknown tool "list_agents"')
     expect('default' in toolTeam).toBe(false)
     expect(toolTeam.name).toBe('tool-agent-team')
-    expect(toolTeam.inject).toEqual(['agents', 'agentTeams', 'tools', 'systemPrompt'])
+    expect(toolTeam.inject).toEqual(['agents', 'agentTeams', 'subagents', 'tools', 'systemPrompt'])
   })
 
   it('uses configured fresh and fork provider names', async () => {
