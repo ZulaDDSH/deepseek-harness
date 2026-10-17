@@ -926,6 +926,29 @@ Open, not changed: the ACP bridge (`packages/acp/acp/src/model-control.ts`) and 
 
 `packages/host/plugin-inventory/src/hook-files.ts:handlerText`: for a claude-code file, a prompt hook is a handler on every event except SessionStart, matching the bridge. Codex files still skip prompt hooks.
 
+## Lead subagent control
+
+`packages/experimental/tool-agent-team/src/index.ts:ownSubagents`: inside Team scopes the scoped `send_message`, `interrupt_agent`, and `list_agents` shadow the global control names, so a Lead could not reach a subagent it started. Non-member targets now resolve through the caller's direct continuable children, excluding roster members: a teammate is also a continuable child of the Lead, and a teammate id must not bypass the mailbox.
+
+`packages/experimental/tool-agent-team/src/index.ts:isMemberTarget`: any name that matches a roster row, including provisioning and failed members, keeps the team path, so existing team errors and behavior are unchanged for team targets.
+
+`packages/experimental/tool-agent-team/src/index.ts:unknownTarget`: an id that is neither a member nor a direct subagent fails with a message that names both kinds; a silent no-op would be wrong because the service accepts unknown interrupt ids as no-ops.
+
+`packages/experimental/tool-agent-team/src/index.ts:send_message`: a subagent send returns `status: 'accepted'` because `ctx.subagents.sendMessage()` resolves only after inbox acceptance. The service keeps the adjacency and authority checks; the team tool passes the exact live caller as sender.
+
+`packages/experimental/tool-agent-team/src/index.ts:interrupt_agent`: a subagent interrupt uses the same `{ kind: 'ancestor', agent: caller }` authority as the global tool, and a teammate caller may interrupt its own subagents. The Lead-only restriction still applies to roster teammates.
+
+`packages/subagent/tool-subagent-control/src/list-agents.ts:listContinuableChildren`: the Team tools see direct children only, because team scope shadows the global `interrupt_agent` that reaches deeper descendants. A Lead therefore cannot stop a grandchild through Team tools; the global tool remains the only route, and that route is unavailable inside Team scopes.
+
+`packages/subagent/tool-subagent-control/src/list-agents.ts:observeProgress`: progress is best effort. A child whose log cannot be observed (missing session or query failure) keeps its row without `progress`, so one unreadable child does not hide the others. Abort still propagates through `signal.throwIfAborted()`. The read uses `sessionQuery.observeSession()` with projections disabled, so no session file is parsed.
+
+`packages/subagent/tool-subagent-control/src/list-agents.ts:summarizeProgress`: `steps` counts `step/start` events over the child's whole log, not per turn. `idleMs` is measured from the last logged event, so a child in a long model call reports growing idle time until its next event.
+
+`packages/experimental/tool-agent-team/src/index.ts:wait_agent`: running subagents do not wake team activity, because the `agent/status` edge is notified only for roster members in `packages/experimental/agent-team/src/index.ts:TeamService`. A subagent's completion reaches the Lead as an inbox notice after the wait returns, so waiting would only stall the Lead until its timeout. The no-progress reply therefore names the running subagents instead of claiming nothing is running.
+
+`packages/experimental/tool-agent-team/src/index.ts:send_message`: the Team `send_message` is not marked as the adjacent-Agent messaging tool. The continuation guidance check in `packages/subagent/subagent/src/continuation.ts:startContinuable` reads the child's own tool scope, where Team tools are absent, so the `isAdjacentAgentSendMessageTool` contract is unchanged.
+
+`scripts/tool-catalog-manifest.ts:mount`: the Team catalog entry mounts `SubagentRuntime` before the Team plugin, because the Team plugin now injects `subagents`; without it the plugin stays pending during schema harvest.
 ## Desktop computer use
 
 `packages/boot/app-boot/src/profile.ts:OPTIONAL_BUNDLES`: the native Cua Driver provider is listed beside the other optional bundles, so the Desktop and Web Plugins page offers it switched off. This admits a native closure into every dsh installation, reversing the computer-use exclusion in the 2026-09-21 optional-bundle record for the native provider only; the MCP provider stays an explicit composition, because it needs a separately installed executable.

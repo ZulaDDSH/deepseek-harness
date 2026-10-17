@@ -1313,8 +1313,8 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-experimental-tool-agent-team`
 
-- `inject`: `agents` · `agentTeams` · `tools` · `systemPrompt`
-- `source`: [`packages/experimental/tool-agent-team/src/index.ts:17`](../packages/experimental/tool-agent-team/src/index.ts)
+- `inject`: `agents` · `agentTeams` · `subagents` · `tools` · `systemPrompt`
+- `source`: [`packages/experimental/tool-agent-team/src/index.ts:20`](../packages/experimental/tool-agent-team/src/index.ts)
 
 ```ts config-catalog
 /** Tool routing configuration. */
