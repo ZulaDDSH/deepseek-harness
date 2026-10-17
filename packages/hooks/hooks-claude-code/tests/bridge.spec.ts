@@ -12,6 +12,8 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
+import { SandboxPolicyService, setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
+import { ShellExecutor, type ShellExecRequest, type ShellExecSpec, type ShellExecution, type ShellRunResult } from '@deepseek-ai/dsh-shell'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import SubagentRuntime, { SubagentRunId } from '@deepseek-ai/dsh-subagent'
 import * as HooksClaude from '@deepseek-ai/dsh-hooks-claude-code'
@@ -585,5 +587,66 @@ describe('hooks-claude-code bridge — load resilience', () => {
     expect(unwrapped.name).toBe('hooks-claude-code')
     expect(unwrapped.inject).toEqual(['shell', 'sessionProjections'])
     expect(typeof unwrapped.apply).toBe('function')
+  })
+})
+
+class RecordingShell extends ShellExecutor {
+  readonly specs: ShellExecSpec[] = []
+
+  override get sandboxMode() {
+    return 'workspace-write' as const
+  }
+
+  resolve(request: ShellExecRequest): ShellExecSpec {
+    return {
+      command: request.command,
+      workdir: request.workdir ?? process.cwd(),
+      stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
+      timeoutMs: request.timeoutMs ?? 1000,
+      onExpiry: request.onExpiry ?? 'kill',
+      ...request.signal ? { signal: request.signal } : {},
+      ...request.stdin !== undefined ? { stdin: request.stdin } : {},
+      sandboxPolicy: request.sandboxPolicy,
+    }
+  }
+
+  async execute(spec: ShellExecSpec): Promise<ShellExecution> {
+    this.specs.push(spec)
+    const silent = { readFrom: (from: number) => ({ text: '', nextOffset: from, lossy: false }) }
+    const run: ShellRunResult = {
+      exitCode: 0, signal: null, timedOut: false, aborted: false, timeoutMs: spec.timeoutMs,
+      stdout: { text: '', truncated: false }, stderr: { text: '', truncated: false },
+    }
+    return {
+      status: 'completed',
+      exitCode: 0,
+      signal: null,
+      done: Promise.resolve(),
+      readOutput: () => ({ delta: '', lossy: false }),
+      observed: { stdout: silent, stderr: silent },
+      kill: () => false,
+      result: () => Promise.resolve(run),
+    }
+  }
+}
+
+describe('hooks-claude-code bridge — sandbox policy', () => {
+  it('a hook run for a session carries that session sandbox policy, not the deployment default', async () => {
+    const dir = writeConfig({ UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'policy-probe' }] }] })
+
+    const ctx = new Context()
+    await mountAgentLoopTestDependencies(ctx)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(SandboxPolicyService, { mode: 'workspace-write', workspaceRoot: dir })
+    await ctx.plugin(RecordingShell)
+    await ctx.plugin(HooksClaude, { configPath: join(dir, 'hooks.json'), enabledHooks: [ALL_HOOKS] })
+    ctx.llm.registerAdapter(['mock'], new MockAdapter([textResponse('ok')]))
+    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    setSandboxMode(agent.session, 'danger-full-access')
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    const spec = (ctx.shell as RecordingShell).specs.find(candidate => candidate.command === 'policy-probe')
+    expect(spec?.sandboxPolicy).toEqual(expect.objectContaining({ mode: 'danger-full-access', sessionId: agent.session.id }))
   })
 })

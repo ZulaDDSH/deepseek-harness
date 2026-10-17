@@ -13,6 +13,7 @@ import type { Context, Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent, PreStepDecision, TurnBoundaryProjection } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-session-projection'
+import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -160,6 +161,7 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   const stopGuard = createStopLoopGuard(maxForcedStops)
+  const sandboxPolicyService = ctx.shell.sandboxMode === undefined ? undefined : ctx.get('sandboxPolicy')
 
   // Emit-shaped points run detached, so track their chains; disposal aborts
   // active hooks and drains continuations before resolving.
@@ -195,6 +197,7 @@ export function apply(ctx: Context, config: Config): void {
     // workspace (the same dir the hook runs in).
     const projectDir = config.projectDir ?? workdir
     const hookEnv = projectDir !== undefined ? { CLAUDE_PROJECT_DIR: projectDir } : undefined
+    const sandboxPolicy = sandboxPolicyService?.resolve(opts.agent === undefined ? {} : { session: opts.agent.session })
     const enabled = enabledHooks()
     const overrides = opts.agent === undefined ? undefined
       : ctx.sessionProjections.stateOf(opts.agent.session, 'hookOverrides')?.current?.overrides
@@ -217,6 +220,7 @@ export function apply(ctx: Context, config: Config): void {
             defaultTimeoutMs,
             ...hookEnv ? { env: hookEnv } : {},
             ...workdir !== undefined ? { cwd: workdir } : {},
+            ...sandboxPolicy !== undefined ? { sandboxPolicy } : {},
             signal: opts.signal,
             trailingNewline: true,
             // Discard a `hookSpecificOutput` block whose `hookEventName` names a

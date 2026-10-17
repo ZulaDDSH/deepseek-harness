@@ -925,3 +925,27 @@ Open, not changed: the ACP bridge (`packages/acp/acp/src/model-control.ts`) and 
 `packages/client/ui-settings-plugin-inventory/src/client/HooksSettingsSection.tsx:HooksSettingsSection`: the skipped line now uses the `hooksNotSupported` label ("Not supported") in place of "Reported skipped hooks". It lists `agent` and SessionStart prompt entries, which have no switch.
 
 `packages/host/plugin-inventory/src/hook-files.ts:handlerText`: for a claude-code file, a prompt hook is a handler on every event except SessionStart, matching the bridge. Codex files still skip prompt hooks.
+
+## Hook runs and the sandbox policy
+
+`packages/hooks/hook-protocol/src/runner.ts:runHook`: the request carries `sandboxPolicy` only when the bridge passes one, so a caller outside the bridges keeps the executor's deployment default. Before this change neither bridge passed a policy, so every sandboxed hook ran under the executor's deployment default whatever the session had approved.
+
+`packages/hooks/hooks-codex/src/index.ts:runPoint` and `packages/hooks/hooks-claude-code/src/index.ts:runPoint`: each run resolves the policy with `SandboxPolicyService.resolve({ session })` when the agent is known, the same call the tool layer makes (`packages/fs/tool-fs/src/sandbox.ts`), and passes it to `runHook`. The service is read only when `ctx.shell.sandboxMode` is defined, so an executor without a sandbox never resolves it.
+
+`packages/sandbox/sandbox-policy/src/index.ts:SandboxPolicyService.resolve`: the mode is the explicit request mode, else the session's last `sandbox/mode` override (`overrideOf`), else the deployment `defaultMode`. A call without a session takes the deployment mode, which is how the hook runs reached the confined path.
+
+`packages/bundle/base/cordis.patch.yml`: the shipped deployment default is `workspace-write`, read from `DSH_PERMISSION_MODE` when set. A session that approved `danger-full-access` carries that as its `sandbox/mode` override, which its hooks did not see before this change.
+
+`packages/shell/pwsh-sandbox/src/index.ts:SandboxPwshExecutor.resolve`: a request's own policy wins, and without one the executor stamps the deployment policy. Hook runs took that branch.
+
+`packages/sandbox/sandbox-local/src/index.ts:windowsAclRunnerArgv`: a policy without a `sessionId` takes the agentless branch, with no per-session write SIDs. A session-bearing policy gets its workspace and temp write SIDs, so a hook that now carries the session gets the same grants as that session's own commands.
+
+`packages/sandbox/sandbox-windows-acl/src/token.ts:createRestrictedToken`: a workspace-write run uses a WRITE_RESTRICTED token. A confined child can still read and write its workspace, but libuv's named-pipe stdio is opened with write access that no restricting SID is granted, so the open fails with ERROR_ACCESS_DENIED and Node reports `spawn EPERM`. The runner spec states this as the documented no-output-redirection boundary of WRITE_RESTRICTED tokens and pins piped capture as `pipe:DENIED` (`packages/sandbox/sandbox-windows-acl/tests/runner.spec.ts`).
+
+`packages/sandbox/sandbox-windows-acl/src/token.ts:setTokenDefaultDaclGrant`: gives objects that take the token default DACL, such as anonymous stdio pipes and sync objects, a full-access ACE for the restricting SID it is passed: the temp write SID, else the workspace write SID, else the world SID (`packages/sandbox/sandbox-windows-acl/src/index.ts:AclSandbox.init`). It does not reach libuv's named-pipe stdio, which takes the Win32 default template instead (see the `createRestrictedToken` note above).
+
+`packages/hooks/hook-protocol/src/codec.ts:parseHookOutput`: fail-open stays. Only exit 2 blocks, and a run that cannot start reaches this function with no exit code and its message on stderr (the `runHook` catch). That is the silent failure: the action proceeded and the failure was recorded only as `hook/result` stderr. Failing closed would turn every broken hook into a blocked tool call, a product decision, so it is not changed here.
+
+`packages/shell/pwsh-sandbox/tests/hook-run.e2e.ts`: the reproduction. A hook `node parent.mjs <kind>` runs through `runHook` and `SandboxPwshExecutor`. Under the deployment default a piped child fails with EPERM while an inherited-stdio child succeeds; under `danger-full-access` piped children succeed, and aborting ends the grandchild tree.
+
+`packages/hooks/hook-protocol/src/runner.ts:runHook`: trade-off. A `danger-full-access` session now runs its hooks unconfined, the authority its own shell commands already have (`SandboxPwshExecutor.execute` runs that mode unconfined), and hooks are user-configured commands. A `read-only` or `workspace-write` session now confines its hooks to that mode with the session cwd as the write root, so a read-only session's hook that writes a file fails, as a non-blocking failure, which is intended. Still open: under `workspace-write` a hook whose own children need piped stdio still fails with EPERM and fails open.

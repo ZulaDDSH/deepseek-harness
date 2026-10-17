@@ -16,6 +16,7 @@ import type { Context, Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-session-projection'
+import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -140,6 +141,7 @@ export function apply(ctx: Context, config: Config): void {
 
   const model = config.model ?? ''
   const stopGuard = createStopLoopGuard(maxForcedStops)
+  const sandboxPolicyService = ctx.shell.sandboxMode === undefined ? undefined : ctx.get('sandboxPolicy')
 
   // SessionStart is the one emit-shaped (detached) point Codex has: track its
   // run chains so disposal aborts a still-running hook process and drains the
@@ -169,6 +171,7 @@ export function apply(ctx: Context, config: Config): void {
     // Run hooks in the agent's session workspace so relative paths address the
     // user's project rather than the server launch directory.
     const workdir = opts.agent?.session.header.cwd
+    const sandboxPolicy = sandboxPolicyService?.resolve(opts.agent === undefined ? {} : { session: opts.agent.session })
     const enabled = enabledHooks()
     const overrides = opts.agent === undefined ? undefined
       : ctx.sessionProjections.stateOf(opts.agent.session, 'hookOverrides')?.current?.overrides
@@ -189,6 +192,7 @@ export function apply(ctx: Context, config: Config): void {
           payload,
           defaultTimeoutMs,
           ...workdir !== undefined ? { cwd: workdir } : {},
+          ...sandboxPolicy !== undefined ? { sandboxPolicy } : {},
           signal: opts.signal,
           trailingNewline: false, // Codex writes stdin without a trailing newline.
           // Discard a `hookSpecificOutput` block naming a different event.
