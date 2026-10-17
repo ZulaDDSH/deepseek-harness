@@ -925,3 +925,13 @@ Open, not changed: the ACP bridge (`packages/acp/acp/src/model-control.ts`) and 
 `packages/client/ui-settings-plugin-inventory/src/client/HooksSettingsSection.tsx:HooksSettingsSection`: the skipped line now uses the `hooksNotSupported` label ("Not supported") in place of "Reported skipped hooks". It lists `agent` and SessionStart prompt entries, which have no switch.
 
 `packages/host/plugin-inventory/src/hook-files.ts:handlerText`: for a claude-code file, a prompt hook is a handler on every event except SessionStart, matching the bridge. Codex files still skip prompt hooks.
+
+## Desktop computer use
+
+`packages/boot/app-boot/src/profile.ts:OPTIONAL_BUNDLES`: the native Cua Driver provider is listed beside the other optional bundles, so the Desktop and Web Plugins page offers it switched off. This admits a native closure into every dsh installation, reversing the computer-use exclusion in the 2026-09-21 optional-bundle record for the native provider only; the MCP provider stays an explicit composition, because it needs a separately installed executable.
+
+`packages/experimental/computer-use-cua-driver-native/cordis.patch.yml`: the bundle inserts the shared `computer-use` service and the provider row. The provider's peer dependency on that service must resolve from the installation, so `apps/cli/package.json` lists both packages as runtime dependencies. The Desktop closure is rooted at dsh and the private Host, so the same runtime dependency puts the provider and its platform binary in the Desktop runtime.
+
+`apps/desktop/scripts/electron-builder-config.mjs:createElectronBuilderConfig` (its `**/*.{node,dylib,dll,so,exe}` unpack pattern) already keeps the win32 Cua Driver files outside the asar: `cua_driver_node_runtime.node` and `cua_driver_sdk.dll` in `@trycua/cua-driver-win32-x64-msvc`. The native provider is loaded in-process by `packages/experimental/computer-use-cua-driver-native/src/index.ts:apply`, so these files must be real files, not asar entries.
+
+`scripts/optional-bundles.spec.ts:bundle`: the computer-use test pins the two inserted row ids and names, so a patch that drops either row or a service mount fails before the Plugins page is reached.
