@@ -34,6 +34,7 @@ import {
 } from './model-selection.ts'
 import type { ModelSelectionPolicy } from './model-selection.ts'
 import { registerListSubagentModels } from './list-models.ts'
+import { cannotDelegate, restrictAtDepthLimit } from './depth-limit.ts'
 import {
   CLAUDE_CLI_PROVIDER, DELEGATION_ROLES, assertRoleRouteCredential, assertRolelessToolAllowed, roleRouteFailure, roleRouteOf,
 } from './subagent-roles.ts'
@@ -97,14 +98,11 @@ export interface Config {
     deny?: string[]
   }
   /**
-   * Maximum child depth: a non-negative safe integer (`0` forbids delegation),
-   * or `'provider-managed'` to send no cap. A numeric cap
-   * requires the provider's `depthLimit` capability (mount fails loud
-   * otherwise). The provider checks the calling agent's current depth at every
-   * start; the tool remains model-visible so runtime policy owns rejection.
-   * `'provider-managed'` is for an out-of-process provider whose recursion
-   * budget belongs to the child runtime or its own deployment. Omission reads
-   * the current Host subagent depth setting (default `1`) at each delegation.
+   * Maximum child depth: a non-negative safe integer (`0` forbids delegation), or
+   * `'provider-managed'` for no cap. A numeric cap needs the `depthLimit` capability
+   * and hides the tool from agents whose child would exceed it; the provider still
+   * checks every start. `'provider-managed'` leaves the budget to an out-of-process
+   * provider. Omission reads the Host subagent depth setting (default `1`) per delegation.
    */
   maxDepth?: number | 'provider-managed'
   /** Accept the `role` argument and run roles from Orchestrator & Subagent Setup (default `false`). */
@@ -644,6 +642,7 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
   }
 
   if (config.modelSelectionSettings !== true) {
+    restrictAtDepthLimit(ctx, toolName, config.maxDepth)
     install(ctx, undefined)
     return
   }
@@ -703,7 +702,7 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
   const installScoped = (candidate: Agent): ReturnType<Context['inject']> | undefined => {
     const existing = scopedInstalls.get(candidate)
     if (existing !== undefined) return existing
-    if (installing.has(candidate)) return
+    if (installing.has(candidate) || cannotDelegate(ctx, config.maxDepth, candidate)) return
     // Reserve before the injected fiber runs: tool registration emits
     // `tools/change` synchronously, which re-enters the reconciliation below.
     installing.add(candidate)

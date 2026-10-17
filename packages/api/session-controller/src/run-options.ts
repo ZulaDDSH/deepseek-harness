@@ -89,6 +89,7 @@ export function installRunOptions(ctx: Context): void {
   ctx.sessionProjections.register(runOptionsProjection)
   ctx.inject(['systemPrompt'], ({ systemPrompt }) => {
     const ultracodeOn = (context: AssembleContext): boolean => context.agent !== undefined
+      && context.agent.session.header.origin !== 'subagent'
       && ultracodeActive(ctx, context.agent.session)
     systemPrompt.section({
       name: 'session:ultracode',
@@ -98,7 +99,7 @@ export function installRunOptions(ctx: Context): void {
     // Constraint: a complete persona keeps no section, so its prefix must reference {{ultracode_policy}}.
     systemPrompt.variable('ultracode_policy', context => ultracodeOn(context) ? `\n\n${ULTRACODE_INSTRUCTION}` : '')
     const subagentPolicyFor = (context: AssembleContext): string => {
-      if (context.agent === undefined) return ''
+      if (context.agent === undefined || context.agent.session.header.origin === 'subagent') return ''
       const setup = effectiveSubagentSetupOf(ctx, context.agent.session)
       if (setup === undefined || !setup.enabled || ctx.get('tools')?.get('subagent', context.scope) === undefined) return ''
       return subagentPolicyText(setup)

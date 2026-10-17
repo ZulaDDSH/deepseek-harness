@@ -926,6 +926,17 @@ Open, not changed: the ACP bridge (`packages/acp/acp/src/model-control.ts`) and 
 
 `packages/host/plugin-inventory/src/hook-files.ts:handlerText`: for a claude-code file, a prompt hook is a handler on every event except SessionStart, matching the bridge. Codex files still skip prompt hooks.
 
+## Delegation depth visibility
+
+`packages/subagent/tool-subagent/src/depth-limit.ts:restrictAtDepthLimit`: an inherited delegation tool (the default composition, for example `subagent_fork`) is masked on each child created below its composition, on `agent/created`, when the child's depth plus one exceeds the cap that `ctx.subagents.resolveMaxDepth` returns. `tools.restrict` masks only inherited names, and it also covers the PTC SDK, which enumerates the same registry view. The decision is taken at creation and is not revisited when the Host depth setting changes; the provider's depth check at each start still rejects a call.
+
+`packages/subagent/tool-subagent/src/index.ts:apply`: the standing composition with `modelSelectionSettings` installs the tool into each agent's own layer, where `tools.restrict` cannot mask it, because restrictions name inherited names only. `installScoped` therefore skips a child at the cap, which also drops its continuable prompt section and the model list.
+
+`packages/subagent/tool-subagent/src/depth-limit.ts:cannotDelegate`: a `maxDepth: 'provider-managed'` tool has no cap here, so it never hides anything. Claude Code roles are uncapped in `execute` as well, but the hide happens before a route is chosen, so a depth-one child loses claude-cli reviewer routes along with in-process ones.
+
+`packages/api/session-controller/src/run-options.ts:installRunOptions`: the subagent policy and the Ultracode instruction are added only for a top-level Session (`header.origin !== 'subagent'`). Children inherit the Subagent Setup through `effectiveSubagentSetupOf`, so without this gate every child would be told to run its own review through a subagent it cannot start.
+
+`packages/api/session-controller/src/subagent-setup.ts:subagentPolicyText`: the policy states that subagents cannot start subagents and describes the orchestrator-run review loop: start a reviewer, send its findings to the coder with `send_message` (or a new coder run), and repeat for at most the configured rounds. A configured `maxDepth` above 1 lets a depth-one child keep the delegation tool, but children still do not receive this text, so the orchestrator stays the only reviewer. The client copy in `packages/client/ui-subagent/src/client/subagent-setup/contract.ts:subagentPolicyPrompt` must match it; `packages/client/ui-subagent/tests/subagent-setup-contract.client.spec.ts` pins them together.
 ## Hook runs and the sandbox policy
 
 `packages/hooks/hook-protocol/src/runner.ts:runHook`: the request carries `sandboxPolicy` only when the bridge passes one, so a caller outside the bridges keeps the executor's deployment default. Before this change neither bridge passed a policy, so every sandboxed hook ran under the executor's deployment default whatever the session had approved.

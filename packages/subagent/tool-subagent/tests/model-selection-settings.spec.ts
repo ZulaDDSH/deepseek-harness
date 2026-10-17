@@ -62,7 +62,7 @@ async function boot(withPreset = true): Promise<Context> {
 
 /** Create one Agent joined to the test's standing preset. */
 async function createAgent(ctx: Context, id: string, options: {
-  meta?: { parentSession: SessionId; origin: 'subagent' }
+  meta?: { parentSession: SessionId; origin: 'subagent'; delegationDepth?: number }
   seed?: readonly SessionEvent[]
 } = {}) {
   const preset = modelSelectionPresets.get(ctx)
@@ -392,6 +392,18 @@ describe('SubagentModelSelectionConfig', () => {
     }).toThrow('requires a scoped preset Context')
 
     await withoutAgent.fiber.dispose()
+  })
+
+  it('withholds the standing delegation tool from a child at the default depth cap', async () => {
+    const ctx = await boot()
+    const parent = await createAgent(ctx, 'cap-parent')
+    const child = await createAgent(ctx, 'cap-child', {
+      meta: { parentSession: parent.id, origin: 'subagent', delegationDepth: 1 },
+    })
+    expect(ctx.tools.get('subagent', parent)).toBeDefined()
+    expect(ctx.tools.get('subagent', child)).toBeUndefined()
+    expect(ctx.tools.schemas(child).map(schema => schema.name)).not.toContain('subagent')
+    await ctx.fiber.dispose()
   })
 
   it('requires the Session registry when a child inherits its parent policy', async () => {
