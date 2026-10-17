@@ -3456,7 +3456,7 @@ export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 ## `@deepseek-ai/dsh-subagent`
 
 - `refs`: `Volatile` (`@deepseek-ai/cordis`)
-- `source`: [`packages/subagent/subagent/src/index.ts:194`](../packages/subagent/subagent/src/index.ts)
+- `source`: [`packages/subagent/subagent/src/index.ts:195`](../packages/subagent/subagent/src/index.ts)
 
 ```ts config-catalog
 /** Host configuration for continuable subagent capacity. */
@@ -3465,6 +3465,8 @@ export interface Config {
   maxActiveSubagents: Volatile<number>
   /** Default delegation depth for tools without an explicit limit; defaults to 1. */
   maxDepth: Volatile<number>
+  /** Steps in one child turn before the child is told to wrap up and report; 0 turns it off; defaults to 40. */
+  stepBudget: Volatile<number>
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-subagent -->
