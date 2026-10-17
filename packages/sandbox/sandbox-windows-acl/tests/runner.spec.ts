@@ -614,11 +614,7 @@ TryOpen 'DIRECTORY' '${child}'
     }
   }, 30_000)
 
-  it('partial boundary: a workspace hard link lets the grant reach an external file object', () => {
-    // NTFS ACLs belong to the file object, not one pathname. Propagating the
-    // workspace write-SID ACE through an existing hard-link alias therefore
-    // grants the external alias too. pnpm workspaces commonly contain hard
-    // links, so rejecting every multiply-linked file is not a viable profile.
+  it('a workspace hard link does not reach the external file object', () => {
     const hardlinkWorkspace = join(scratchRoot, 'hardlink-workspace')
     const hardlinkTemp = join(scratchRoot, 'hardlink-temp')
     const externalFile = join(scratchRoot, 'hardlink-target.txt')
@@ -628,13 +624,12 @@ TryOpen 'DIRECTORY' '${child}'
     writeFileSync(externalFile, 'original')
     linkSync(externalFile, workspaceLink)
     const result = runRunner([
-      // This workspace has not been granted before the alias exists: the first
-      // recursive materialization reaches the shared file security descriptor.
       '--workspace', hardlinkWorkspace, '--temp', hardlinkTemp, '--mode', 'workspace-write',
       '--', process.execPath, '-e', "require('node:fs').writeFileSync(process.argv[1], 'mutated')", workspaceLink,
     ])
-    expect(result.status, `stderr: ${result.stderr}`).toBe(0)
-    expect(readFileSync(externalFile, 'utf8')).toBe('mutated')
+    expect(result.status, `stderr: ${result.stderr}`).not.toBe(0)
+    expect(result.stderr).toMatch(/EPERM|EACCES/u)
+    expect(readFileSync(externalFile, 'utf8')).toBe('original')
   }, 30_000)
 
   it('runner-side failure: signature on stderr and exit 127, the command never runs', () => {
