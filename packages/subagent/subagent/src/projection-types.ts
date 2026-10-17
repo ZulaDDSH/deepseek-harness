@@ -36,6 +36,29 @@ export interface SubagentTimingProjection {
   lastTurnCompleted?: boolean
 }
 
+/** One tool call a subagent has issued, as shown on its catalog row. */
+export interface SubagentToolActivity {
+  readonly callId: string
+  readonly name: string
+  /** Command, path, pattern, or URL the call acts on; empty when no argument says. */
+  readonly detail: string
+  readonly since: number
+}
+
+/** Live step count, the tool call awaiting a result, and the latest finished call of a subagent's open or last turn. */
+export interface SubagentActivityProjection {
+  readonly steps: number
+  readonly running?: SubagentToolActivity
+  readonly last?: {
+    readonly name: string
+    readonly detail: string
+    readonly isError: boolean
+    /** First line of the call's text result, bounded. */
+    readonly summary: string
+    readonly time: number
+  }
+}
+
 /**
  * Durable identity of one descriptor-backed subagent session: lifecycle mode
  * plus creation label, folded last-wins from `subagent/descriptor` events.
@@ -73,6 +96,8 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
     subagentCatalog: SubagentCatalogEntry[]
     /** Active-turn duration and latest closed-turn completion for a descriptor-backed subagent session. */
     subagentTiming: SubagentTimingProjection
+    /** Tool call in flight, latest finished call, and step count for a subagent session. */
+    subagentActivity: SubagentActivityProjection
     /**
      * Identity of a descriptor-backed subagent session. `null` ⟺ no valid
      * descriptor (missing, malformed, or unrecognized-version — deliberately

@@ -588,9 +588,16 @@ describe('SubagentHeaderLineage', () => {
                 lastUsedSeq: null,
                 next: { provider: 'deepseek', model: 'deepseek-v4-pro' },
               },
+              subagentActivity: { steps: 7, running: { callId: 'c1', name: 'bash', detail: 'git diff 0533a03c', since: 0 } },
             }
             : id === 'finished'
-              ? { modelSelection: { lastUsed: null, lastUsedSeq: null, next: { provider: 'x', model: 'queued-model' } } }
+              ? {
+                modelSelection: { lastUsed: null, lastUsedSeq: null, next: { provider: 'x', model: 'queued-model' } },
+                subagentActivity: {
+                  steps: 3,
+                  last: { name: 'read', detail: 'a.cs', isError: true, summary: 'ENOENT', time: 1 },
+                },
+              }
               : {}),
         },
       }]
@@ -603,7 +610,9 @@ describe('SubagentHeaderLineage', () => {
 
     const runningRow = screen.getByRole('treeitem', { name: /running.*deepseek-v4-flash · 可继续.*上下文 1\.8K · 1分10秒/ })
     expect(runningRow.getAttribute('aria-label')).not.toContain('deepseek-v4-pro')
+    expect(within(runningRow).getByText('正在：bash: git diff 0533a03c · 第 7 步')).toBeTruthy()
     expect(screen.getByRole('treeitem', { name: /finished.*queued-model · 可继续/ })).toBeTruthy()
+    expect(screen.getByText('上一步失败：read: a.cs → ENOENT')).toBeTruthy()
     const runningMetrics = within(runningRow)
     const tokenMetric = runningMetrics.getByText('上下文 1.8K')
     expect(tokenMetric.getAttribute('title')).toBe('所有请求累计：4.6K tok')

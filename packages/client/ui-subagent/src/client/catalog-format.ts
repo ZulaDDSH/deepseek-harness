@@ -148,3 +148,32 @@ export function formatExactDuration(ms: number, t: TranslateNS<typeof NS>): stri
       seconds: String(seconds).padStart(2, '0'),
     })
 }
+
+function toolTarget(tool: { readonly name: string; readonly detail: string }): string {
+  return tool.detail === '' ? tool.name : `${tool.name}: ${tool.detail}`
+}
+
+/**
+ * One line saying what a subagent is doing now, or what it last did.
+ * @param activity - the child's activity projection, when known.
+ * @param running - whether the child runs now.
+ * @param t - translator.
+ * @returns the tool and its key argument with the step count, the last result once idle, or undefined.
+ */
+export function liveActivityLine(
+  activity: SessionProjectionMap['subagentActivity'] | undefined,
+  running: boolean,
+  t: TranslateNS<typeof NS>,
+): string | undefined {
+  if (activity === undefined) return undefined
+  if (running) {
+    if (activity.running !== undefined) {
+      return t('live.running', { target: toolTarget(activity.running), steps: activity.steps })
+    }
+    return activity.steps === 0 ? undefined : t('live.thinking', { steps: activity.steps })
+  }
+  const { last } = activity
+  if (last === undefined) return undefined
+  const line = t(last.isError ? 'live.lastFailed' : 'live.last', { target: toolTarget(last) })
+  return last.summary === '' ? line : `${line} → ${last.summary}`
+}

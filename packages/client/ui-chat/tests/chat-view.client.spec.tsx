@@ -735,7 +735,7 @@ describe('ChatView', () => {
 
     for (const mode of ['standard', 'detailed', 'compact', 'detailed'] as const) {
       act(() => { h.setTranscriptView(mode) })
-      expect(bodies.map(body => body.hasAttribute('hidden'))).toEqual([false, true, mode !== 'detailed'])
+      expect(bodies.map(body => body.hasAttribute('hidden'))).toEqual([false, true, mode === 'compact'])
       expect(headers.map(header => header.closest('[hidden]') !== null)).toEqual([false, false, mode === 'detailed'])
       expect([...view.container.querySelectorAll('[data-chat-group-key]')]).toEqual(roots)
     }
@@ -2423,7 +2423,7 @@ describe('ChatView', () => {
     })
     const view = render(<h.ChatView {...h.props} />)
     expect(turnProcessControl(view.container)).toBeNull()
-    expect(runningContent(view.container)?.textContent).toMatch(/^深度求索中，用时 \d+秒\.\.\.$/)
+    expect(runningContent(view.container)?.textContent).toMatch(/^正在撰写回复 · 0秒 · 已生成约 4 词元 · 共 \d+秒$/)
     const processRow = view.getByText('inspect').closest('[data-chat-flow-kind="assistant-step"]') as HTMLElement
     expect(processRow.getAttribute('hidden')).toBeNull()
 
@@ -3172,7 +3172,7 @@ describe('ChatView', () => {
     expect(h.toolOwners[0]?.block).toMatchObject({ callId: 'r1', argsRaw: '{"command":"cmd-r1"}' })
     expect(view.getByRole('status').textContent).toBe('深度求索中...')
     expect(turnProcessControl(view.container)).toBeNull()
-    expect(runningContent(view.container)?.textContent).toMatch(/^深度求索中，用时 \d+秒\.\.\.$/)
+    expect(runningContent(view.container)?.textContent).toMatch(/^正在运行命令：cmd-r1 · 1秒 · 共 \d+秒$/)
   }))
 
   it('keeps the Tool renderer mounted when a running call settles into log order', () => {

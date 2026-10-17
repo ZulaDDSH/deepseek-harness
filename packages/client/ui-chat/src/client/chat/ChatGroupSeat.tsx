@@ -1,5 +1,5 @@
 /** Stable process container; display policy changes visibility, never member parents. */
-import { memo, useCallback, useEffect, useId, useRef, useState, type ComponentProps, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react'
 import {
   IconAgentPresetOutlineRegular, IconApiOutlineRegular, IconBrowseOutlineRegular, IconChevronDownOutlineRegular,
   IconChevronUpOutlineRegular, IconCodeOutlineRegular, IconEditOutlineRegular, IconGlobeOutlineRegular,
@@ -139,7 +139,9 @@ export const ChatGroupSeat = memo(function ChatGroupSeat({ groupKey, useChatGrou
   const turn = useChatGroup(groupKey, group => group?.data.turn)
   const closed = useChatGroup(groupKey, group => group?.data.closed)
   const foldCompleted = props.usePresentation(policy => policy.foldCompletedTurns)
-  const { expanded: open, setExpanded: setOpen } = useDisclosure()
+  const { expanded, setExpanded: setOpen } = useDisclosure()
+  const [dismissed, setDismissed] = useState(false)
+  const showLive = props.usePresentation(policy => policy.liveProcessDetail)
   const firstKey = members?.[0]?.key ?? ''
   const presentation = props.useChatNodeProcess(firstKey)
   const turnLocation = props.useChatNode(firstKey, (node) => {
@@ -148,6 +150,8 @@ export const ChatGroupSeat = memo(function ChatGroupSeat({ groupKey, useChatGrou
   })
   const grouped = props.usePresentation(policy => policy.stepGrouping === 'collapsed'
     || (policy.stepGrouping === 'history' && turnLocation?.status !== 'open'))
+  const autoOpen = closed === false && showLive && grouped && !dismissed
+  const open = expanded || autoOpen
   const reason = turnLocation?.end?.data.reason.kind
   const alwaysOpen = presentation?.turnClosed === false || presentation?.hasInterleavedInput === true
     || reason === 'aborted' || reason === 'error'
@@ -169,9 +173,11 @@ export const ChatGroupSeat = memo(function ChatGroupSeat({ groupKey, useChatGrou
   const contentRef = useRef<HTMLDivElement>(null)
   const bodyId = useId()
   const { edges, events, initialize } = useProcessScroll(bodyRef, contentRef, open, grouped)
+  useLayoutEffect(() => { if (autoOpen) initialize('bottom') }, [autoOpen, initialize])
   const toggle = useCallback(() => {
     if (!open) initialize(closed === false ? 'bottom' : 'top')
     setOpen(!open)
+    setDismissed(open)
   }, [closed, initialize, open, setOpen])
   if (members === undefined) return null
   const classes = [css.body, !grouped ? css.expandedBody : '',

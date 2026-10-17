@@ -15,7 +15,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-token-meter/client'
 import css from './SubagentHeaderLineage.module.css'
 import {
-  activityDuration, contextTokens, formatDuration, formatExactDuration, formatTokens, tokenTotal,
+  activityDuration, contextTokens, formatDuration, formatExactDuration, formatTokens, liveActivityLine, tokenTotal,
 } from './catalog-format.ts'
 import { ClearedFooter, useClearedView } from './ClearedSubagents.tsx'
 
@@ -145,6 +145,11 @@ function CatalogRows({
         const secondary = [summary?.title, model, mode, activity]
           .filter(value => value !== undefined)
           .join(' · ')
+        const liveLine = liveActivityLine(
+          summary?.projectionValues?.subagentActivity,
+          entry.activity === 'running',
+          t,
+        )
         const totalTokens = tokenTotal(summary?.projectionValues?.tokenUsage)
         const context = contextTokens(summary?.projectionValues?.contextPressure)
         const durationMs = activityDuration(
@@ -208,7 +213,7 @@ function CatalogRows({
               tabIndex={0}
               aria-level={level}
               aria-current={isCurrent || undefined}
-              aria-label={[label, secondary, metrics].filter(value => value !== '').join(' ')}
+              aria-label={[label, secondary, liveLine, metrics].filter(value => value !== undefined && value !== '').join(' ')}
               {...knownLeaf ? {} : { 'aria-expanded': isExpanded }}
               className={css.row}
               onClick={open}
@@ -234,6 +239,9 @@ function CatalogRows({
                 <span className={css.content}>
                   <span className={`${css.label} ${isCurrent ? css.currentLabel : ''}`}>{label}</span>
                   <span className={css.summary}>{secondary}</span>
+                  {liveLine !== undefined && (
+                    <span className={css.liveLine} title={liveLine} data-subagent-live-activity>{liveLine}</span>
+                  )}
                 </span>
                 {metrics !== '' && (
                   <span className={css.metrics}>

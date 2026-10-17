@@ -3,7 +3,7 @@ import { memo, useEffect, useMemo, useState } from 'react'
 import { TextShimmer } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
 import { INACTIVITY_HINT_MS, liveActivity } from './live-activity.ts'
-import { RunningActivity } from './RunningActivity.tsx'
+import { activityText, RunningActivity } from './RunningActivity.tsx'
 import { formatLiveRunDuration, LIVE_RUN_CLOCK_INTERVAL_MS } from './message-chrome.ts'
 import { RunningWhaleTail } from './RunningWhaleTail.tsx'
 import a11yCss from './accessibility.module.css'
@@ -40,9 +40,6 @@ export const RunningStatus = memo(function RunningStatus({
     return () => { clearInterval(timer) }
   }, [startTime])
   const elapsed = startTime === undefined ? undefined : formatLiveRunDuration(Math.max(1000, now - startTime), t)
-  const label = elapsed === undefined ? t('chat.deepDiving')
-    : step === undefined ? t('chat.deepDivingFor', { duration: elapsed })
-      : t('chat.deepDivingForStep', { duration: elapsed, step })
   const legacy = useChat(snapshot => snapshot.legacy)
   const activity = useMemo(() => liveActivity(legacy), [legacy])
   const generationSince = useChangedAt(activity.kind === 'generating' ? activity.key : undefined) ?? now
@@ -50,6 +47,14 @@ export const RunningStatus = memo(function RunningStatus({
   const snapshotChangedAt = useChangedAt(legacy) ?? now
   const interactionChangedAt = useChangedAt(awaitingUser) ?? now
   const quiet = now - Math.max(snapshotChangedAt, interactionChangedAt)
+  const operation = startTime === undefined || since === undefined ? undefined
+    : activityText(activity, formatLiveRunDuration(Math.max(0, now - since), t), t)
+  const label = operation !== undefined && elapsed !== undefined
+    ? step === undefined ? t('chat.live.withTurn', { text: operation, duration: elapsed })
+      : t('chat.live.withTurnStep', { text: operation, duration: elapsed, step })
+    : operation ?? (elapsed === undefined ? t('chat.deepDiving')
+      : step === undefined ? t('chat.deepDivingFor', { duration: elapsed })
+        : t('chat.deepDivingForStep', { duration: elapsed, step }))
   const quietFor = startTime !== undefined && !awaitingUser && quiet >= INACTIVITY_HINT_MS ? quiet : undefined
   return (
     <div className={css.running} data-chat-running>
@@ -59,9 +64,7 @@ export const RunningStatus = memo(function RunningStatus({
         <RunningWhaleTail />
         <TextShimmer active className={css.runningText}>{label}</TextShimmer>
       </span>
-      {startTime !== undefined && (
-        <RunningActivity activity={activity} since={since} now={now} quietFor={quietFor} onStop={onStop} t={t} />
-      )}
+      <RunningActivity quietFor={quietFor} onStop={onStop} t={t} />
     </div>
   )
 })

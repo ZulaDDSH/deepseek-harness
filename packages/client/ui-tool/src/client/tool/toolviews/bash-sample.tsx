@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, type KeyboardEvent } from 'react'
+import { memo, useCallback, useMemo, useState, type KeyboardEvent } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import clsx from 'clsx'
 import {
@@ -60,14 +60,20 @@ const StartedBashRow = memo(function StartedBashRow({ toolName, block, sessionId
     ? 'error'
     : model.state
   const status = stateStatus(state, t)
-  const { expanded, toggle: toggleExpand } = useDisclosure()
+  const { expanded, setExpanded } = useDisclosure()
+  const [dismissed, setDismissed] = useState(false)
   // Failures, persistent-shell results, and spill previews use a generic body;
   // background acknowledgements and malformed calls remain collapsed.
   const genericBody = terminal === null
     && (model.state === 'error' || isSettledPersistentShellCall(block) || isSpilledShellCall(block))
     && (model.bodyRaw !== null || model.output !== null)
   const expandable = terminal !== null || genericBody
-  const open = expanded && expandable
+  const running = state === 'running'
+  const open = (expanded || (running && !dismissed)) && expandable
+  const toggleExpand = useCallback(() => {
+    setExpanded(!open)
+    setDismissed(open)
+  }, [open, setExpanded])
   const body = useMemo(
     () => open && genericBody && model.bodyRaw !== null
       ? formatToolBody(model.variant, model.bodyRaw)
@@ -78,7 +84,6 @@ const StartedBashRow = memo(function StartedBashRow({ toolName, block, sessionId
   const settlementLine = state === 'error'
     ? model.errorSummary ?? normalSummary
     : state === 'stopped' ? t('bash.stopped') : null
-  const running = state === 'running'
   const toggleFromKeyboard = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
     if (!expandable || (event.key !== 'Enter' && event.key !== ' ')) return
     event.preventDefault()
