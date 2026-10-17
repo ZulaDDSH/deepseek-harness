@@ -209,3 +209,31 @@ describe('HooksSettingsSection audit regressions', () => {
     expect(screen.queryByText(/\(\)/)).toBeNull()
   })
 })
+
+describe('HooksSettingsSection prompt and agent hooks', () => {
+  it('shows an enabled claude-code prompt hook as an active switch and lists agent hooks as not supported', async () => {
+    const prompts: Snapshot = {
+      entries: [],
+      hooks: [{
+        dialect: 'claude-code', source: '/home/me/.claude/settings.json', status: 'loaded', settingsNs: 'hooks-claude', skipped: ['PreToolUse: agent'],
+        handlers: [{ event: 'PreToolUse', matcher: 'Write', command: 'Is this safe? $ARGUMENTS', key: 'p1' }],
+      }],
+    }
+    render(<HooksSettingsSection {...sectionProps(async () => prompts)} />)
+    expect((await screen.findByRole('switch')).getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByText(`${en.hooksNotSupported}: PreToolUse: agent`)).toBeTruthy()
+  })
+
+  it('lists an agent-only config as not supported with no switch', async () => {
+    const agentOnly: Snapshot = {
+      entries: [],
+      hooks: [{
+        dialect: 'claude-code', source: '/home/me/.claude/settings.json', status: 'loaded', settingsNs: 'hooks-claude', skipped: ['Stop: agent'],
+        handlers: [],
+      }],
+    }
+    render(<HooksSettingsSection {...sectionProps(async () => agentOnly)} />)
+    expect(await screen.findByText(`${en.hooksNotSupported}: Stop: agent`)).toBeTruthy()
+    expect(screen.queryByRole('switch')).toBeNull()
+  })
+})

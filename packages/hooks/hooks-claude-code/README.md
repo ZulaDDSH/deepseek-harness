@@ -7,7 +7,7 @@ kind: "package-reference"
 
 ## Summary
 
-`dsh-hooks-claude-code` runs command hooks from your existing Claude Code `hooks.json` or settings file during agent runs, without requiring a rewrite. Supported hooks can run when sessions, prompts, tools, stops, or subagents reach matching moments. They can block prompts or tool calls with model-visible reasons, add conversation context, or force another model turn. Choose this package to reuse Claude Code command hooks in the harness; use a native plugin for behavior that has no Claude Code equivalent.
+`dsh-hooks-claude-code` runs command and prompt hooks from your existing Claude Code `hooks.json` or settings file during agent runs, without requiring a rewrite. Supported hooks can run when sessions, prompts, tools, stops, or subagents reach matching moments. They can block prompts or tool calls with model-visible reasons, add conversation context, or force another model turn. Choose this package to reuse Claude Code command hooks in the harness; use a native plugin for behavior that has no Claude Code equivalent.
 
 ## Table of Contents
 
@@ -29,7 +29,7 @@ Mount this package, point `configPath` at your hook config, and the hooks you al
 
 ### When to choose it
 
-Use it when you own a Claude Code `hooks.json` (or a settings file whose `hooks` key holds the config) and its command hooks should gate prompts, tools, and turns. Skip it for behavior with no Claude Code equivalent: a native plugin has the full harness API, while this bridge runs only the reference tool's command-hook subset.
+Use it when you own a Claude Code `hooks.json` (or a settings file whose `hooks` key holds the config) and its command hooks should gate prompts, tools, and turns. Skip it for behavior with no Claude Code equivalent: a native plugin has the full harness API, while this bridge runs only the reference tool's command and prompt hook subset.
 
 ### Smallest working setup
 
@@ -101,7 +101,7 @@ The three emit points (`SessionStart`, `SubagentStart`, `SubagentStop`) run deta
 
 ### Design philosophy
 
-- **A compatibility adapter, not a power tool.** The bridge exists to run the explicitly supported command-hook subset of an existing Claude Code config; bespoke behavior belongs in a native plugin on the same extension points.
+- **A compatibility adapter, not a power tool.** The bridge exists to run the explicitly supported command and prompt hook subset of an existing Claude Code config; bespoke behavior belongs in a native plugin on the same extension points.
 - **Adding context is not a veto.** A context-only hook delegates via `next()` before folding its message into a downstream enter decision, so a later `agent/pre-step` or `tools/post-execute` listener can still reject or rewrite.
 - **Containment at every failure.** Config read/parse failures and invalid matchers register nothing; a throwing detached inject is caught and logged instead of breaking session boot or the loop.
 - **Dispose reaches quiescence.** Detached runs are tracked and drained on disposal so no hook process or late callback outlives the fiber.
@@ -180,7 +180,7 @@ These limits describe what your Claude Code hooks cannot do through this bridge 
 - **`SubagentStart` and `SubagentStop` are partial** — both report a constant `agent_type` of `general-purpose` and use the child session id where Claude Code reports the parent session. Start context is best-effort and can only reach a live in-process child; stop is observe-only and cannot block the subagent or feed it context. Stop omits `agent_transcript_path`, `last_assistant_message`, `background_tasks`, and `session_crons` and always reports `stop_hook_active: false`.
 - **`Stop` is partial** — blocking forces another model turn. `stop_hook_active` is `true` once this turn has been force-continued, and a turn ends after `maxForcedStops` forced continuations with a warning. `last_assistant_message`, `background_tasks`, and `session_crons` are omitted.
 - **Common payload and output fields are partial** — mapped event payloads omit `prompt_id`, `permission_mode`, and `effort` where Claude Code would provide them, and `transcript_path` is never populated: it is always the empty string, because the persistence seam exposes no artifact paths and the default Zstandard-compressed session log is not readable by hook scripts. `systemMessage` is logged + warned but not surfaced; `suppressOutput` and `terminalSequence` are not applied. `{"continue": false}` cancels the active turn with a `hook` cause and keeps queued input: it denies the tool at `PreToolUse` (using `stopReason` as the reason when no other reason is given), rejects the prompt at `UserPromptSubmit`, and ends a `Stop` turn without steering. It is a no-op for `SessionStart`, which runs before the turn starts. For `SubagentStart` and `SubagentStop`, `{"continue": false}` cancels the child subagent's active turn only if it is running when the detached hook finishes.
-- **Handler and config support is partial** — only shell-form command handlers run. `http`, `mcp_tool`, `prompt`, and `agent` handlers are skipped; command-handler options such as `args`, `async`, `asyncRewake`, `shell`, `if`, `once`, and `statusMessage` are not honored. Matching handlers run serially and are not deduplicated, whereas Claude Code runs them in parallel and deduplicates identical handlers. One process-level `configPath` is parsed once at load; Claude Code's layered project, user, plugin, and policy discovery and live reload are not implemented.
+- **Handler and config support is partial** — command handlers and `prompt` handlers run. A `prompt` handler asks the calling agent's provider and model, or the hook's `model` when it resolves on that provider, for a `{"ok": ...}` verdict. It times out after 30 seconds by default and fails open on a timeout or error, and it does not run on SessionStart. `http`, `mcp_tool`, and `agent` handlers are skipped. Command-handler options such as `args`, `async`, `asyncRewake`, `shell`, `if`, `once`, and `statusMessage` are not honored. Matching handlers run serially, prompt handlers included, and are not deduplicated, whereas Claude Code runs them in parallel and deduplicates identical handlers. One process-level `configPath` is parsed once at load; Claude Code's layered project, user, plugin, and policy discovery and live reload are not implemented.
 
 <a id="dev-note"></a>
 ### Dev Note

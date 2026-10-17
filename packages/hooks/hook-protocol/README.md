@@ -7,7 +7,7 @@ kind: "package-library"
 
 ## Summary
 
-`dsh-hook-protocol` makes both bridges handle your hooks identically: it defines what a hook can do and what happens when it runs. You never install or configure it yourself — choose `dsh-hooks-claude-code` or `dsh-hooks-codex`, point it at your existing `hooks.json`, and these rules apply to your hooks. Through either bridge, a hook can block a prompt or tool call with a message the model sees, attach extra context to the conversation, or ask the run to stop. Only command hooks run; `http`, `mcp_tool`, `prompt`, and `agent` handlers are skipped with a warning.
+`dsh-hook-protocol` makes both bridges handle your hooks identically: it defines what a hook can do and what happens when it runs. You never install or configure it yourself — choose `dsh-hooks-claude-code` or `dsh-hooks-codex`, point it at your existing `hooks.json`, and these rules apply to your hooks. Through either bridge, a hook can block a prompt or tool call with a message the model sees, attach extra context to the conversation, or ask the run to stop. Command hooks run; `prompt` handlers run in the Claude Code bridge only. `http`, `mcp_tool`, and `agent` handlers are skipped with a warning.
 
 ## Table of Contents
 
@@ -46,7 +46,7 @@ Choose `dsh-hooks-claude-code` or `dsh-hooks-codex` when you have existing Claud
 - When a hook attaches context, the model sees that text in its next request.
 - A hook that fails — a bad command, a crash, or any exit other than 2 — is logged and does not stop the agent.
 - If the hook config cannot be read or parsed, the bridge logs a warning and no hooks run; the agent still starts.
-- Configs that mix hook types still work: `http`, `mcp_tool`, `prompt`, and `agent` handlers are skipped with a warning, and their command hooks run.
+- Configs that mix hook types still work: `http`, `mcp_tool`, and `agent` handlers are skipped with a warning, `prompt` handlers are skipped with a warning by the Codex bridge only, and their command hooks run.
 
 -----
 
@@ -130,7 +130,7 @@ These limits describe what hooks cannot do through the shared engine yet. They a
 - **`HookOutput.updatedInput` is parsed but not honored** — input rewrite is a deferred consistency-design problem ([the pre-tool-input-rewrite Agent Note](../../../.agents/notes/proposed/feature/2026-06-30-pre-tool-input-rewrite.md)); a bridge logs and warns when a hook sets it.
 - **A halt cancels only the active turn** — `mergeHookOutputs` folds `continue: false` into a sticky `stop`, and the bridges honor it by cancelling the agent's active phase with a `hook` cancel cause while keeping its queued inbox. A halt never ends the session, and it does not discard queued prompts.
 - **`str_replace_editor` has no dialect alias** — its single `command` argument routes several actions through one tool name, so it cannot map to one Claude Code or Codex tool. Hooks match it by its DSH name only.
-- **Only the command-hook shape runs** — the protocol executes `{ type: 'command', command, timeout? }`; a bridge parses-and-skips the other shapes its dialect defines (`http`, `mcp_tool`, `prompt`, `agent`).
+- **Only the command-hook shape runs** — the protocol executes `{ type: 'command', command, timeout? }`; a bridge parses-and-skips the other shapes it does not run (`http`, `mcp_tool`, `agent`, and `prompt` in the Codex bridge). The Claude Code bridge runs `prompt` handlers itself, through a model call.
 
 <a id="dev-note"></a>
 ### Dev Note

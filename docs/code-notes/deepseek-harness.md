@@ -895,3 +895,33 @@ Open, not changed: the ACP bridge (`packages/acp/acp/src/model-control.ts`) and 
 `packages/shell/tool-pwsh/src/index.ts:pwshDescription`: the model-facing description names the temporary script file on Windows, mirrored in `packages/shell/tool-pwsh/README.md` and the pwsh-local and pwsh-sandbox READMEs.
 
 `packages/api/terminal-controller/src/cli-profiles.ts:cliStartupArgv`: the interactive terminal startup still passes `profile.command` through `-Command`. It is an interactive profile command, not agent text, so it is outside this change.
+
+## Claude Code prompt hooks
+
+`packages/hooks/hooks-claude-code/src/prompt.ts:askModel`: a prompt hook is one tool-less model call through `ctx.llm.stream` with `temperature: 0`. It is not an agent step, so it writes no session event, runs no tool and fires no tool hooks, and a hook cannot re-enter itself.
+
+`packages/hooks/hooks-claude-code/src/index.ts:promptRoute`: the model is the hook's `model` when that model resolves on the route's provider, and otherwise the calling agent's model with a warning. The route comes from the session's last request header, falling back to the agent's options. DSH has no background or small-model setting, so there is no third tier. A missing provider or model fails open.
+
+`packages/hooks/hooks-claude-code/src/index.ts:evaluatePrompt`: each call runs under `AbortSignal.timeout` (the hook's `timeout` in seconds, else `PROMPT_HOOK_TIMEOUT_MS`, 30 s) combined with the caller's signal. A timeout reports `timed out after N ms`, any other failure reports its message, and both log a warning and allow the action.
+
+`packages/hooks/hooks-claude-code/src/index.ts:evaluatePrompt`: when the model call fails, the failed record has no `exitCode`, carries the message in `stderr`, and records `decision: 'pass'`. That is the protocol's shape for a run that could not produce output, so the record reads as a passing hook with a message rather than a new failure state.
+
+`packages/hooks/hooks-claude-code/src/prompt.ts:readReply`: a reply counts only when its stream ends with a terminal `finish` of kind `stop`. An `error` or `aborted` finish, `max-tokens`, any other finish kind, and a stream with no finish each fail open with the reason in the record.
+
+`packages/hooks/hooks-claude-code/src/prompt.ts:parseVerdict`: the verdict is the first JSON object in the reply, found by a string-aware brace scan, so prose around it does not break parsing. `ok` must be a boolean. `impossible` counts only when it is `true`.
+
+`packages/hooks/hooks-claude-code/src/prompt.ts:verdictOutput`: an `ok:false` verdict always denies (`decision: 'deny'`, reason as `reason`). It also sets `continue: false` with the reason as `stopReason`, which ends the turn through the existing cancel path, for UserPromptSubmit, for PreToolUse and PostToolUse unless `continueOnBlock` is true, and for Stop when `impossible` is true. Stop without `impossible` steers, and SubagentStart and SubagentStop only observe, as command hooks do.
+
+`packages/hooks/hooks-claude-code/src/prompt.ts:promptRequestText`: the hook input JSON replaces every `$ARGUMENTS` token. A prompt with no token gets the JSON appended after a blank line. Where Claude Code places the input for a prompt without the token is from memory of its documentation, not checked against it.
+
+`packages/hooks/hooks-claude-code/src/index.ts:runPoint`: prompt hooks use the command hook key, `hookKey(point, matcher, prompt)`, so `enabledHooks` and Settings address them the same way. A prompt hook that is not enabled is never evaluated, so it makes no model call. Prompt hooks run one at a time in config order, as command hooks do; Claude Code runs them in parallel.
+
+`packages/hooks/hooks-claude-code/src/index.ts:commandGroups`: the inventory shows a prompt hook under its prompt text as its command, so the existing description and switch path handles it. Settings names the row with `hookName`, which takes the first word of the prompt, so the full prompt is only in the row title and details.
+
+`packages/hooks/hooks-claude-code/src/index.ts:evaluatePrompt`: `llm` is not in `inject`, so the bridge loads and runs command hooks in a deployment without the model service. Prompt hooks read it with `ctx.get('llm')`, and a missing service throws inside the same try, so the hook fails open with a warning. The guard test `packages/hooks/hooks-claude-code/tests/bridge.spec.ts` pins the two-item `inject` list.
+
+`packages/hooks/hooks-claude-code/src/config.ts:parseClaudeCodeConfig`: prompt hooks parse on every event except SessionStart, where they are skipped and reported. A prompt hook with no string `prompt` is dropped silently, as a command hook with no string `command` is. `agent` hooks stay skipped and are reported.
+
+`packages/client/ui-settings-plugin-inventory/src/client/HooksSettingsSection.tsx:HooksSettingsSection`: the skipped line now uses the `hooksNotSupported` label ("Not supported") in place of "Reported skipped hooks". It lists `agent` and SessionStart prompt entries, which have no switch.
+
+`packages/host/plugin-inventory/src/hook-files.ts:handlerText`: for a claude-code file, a prompt hook is a handler on every event except SessionStart, matching the bridge. Codex files still skip prompt hooks.

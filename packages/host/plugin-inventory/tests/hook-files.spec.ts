@@ -57,3 +57,24 @@ it('reports unusable roots and unreadable files without leaking their content', 
   expect(await readHookFiles([source])).toEqual(failed('Invalid hook JSON'))
   expect(await readHookFiles([{ ...source, source: root }])).toEqual([{ ...failed('Cannot read hook configuration')[0], source: root }])
 })
+
+it('lists claude-code prompt hooks as handlers on events the bridge runs and skips the rest', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'hook-inventory-'))
+  onTestFinished(async () => { await rm(root, { recursive: true, force: true }) })
+  const claude = { dialect: 'claude-code' as const, source: join(root, 'settings.json') }
+  const codex = { dialect: 'codex' as const, source: join(root, 'hooks.json') }
+  await writeFile(claude.source, JSON.stringify({ hooks: {
+    PreToolUse: [{ matcher: 'Write', hooks: [{ type: 'prompt', prompt: 'is $ARGUMENTS safe?' }, { type: 'prompt' }] }],
+    SessionStart: [{ hooks: [{ type: 'prompt', prompt: 'hello' }] }],
+    Stop: [{ hooks: [{ type: 'agent', prompt: 'verify' }] }],
+  } }))
+  await writeFile(codex.source, JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'prompt', prompt: 'codex prompt' }] }] } }))
+  expect(await readHookFiles([claude, codex])).toEqual([
+    {
+      ...claude, status: 'configured', handlers: [
+        { event: 'PreToolUse', matcher: 'Write', command: 'is $ARGUMENTS safe?', key: hookKey('PreToolUse', 'Write', 'is $ARGUMENTS safe?') },
+      ], skipped: ['PreToolUse: prompt', 'SessionStart: prompt', 'Stop: agent'],
+    },
+    { ...codex, status: 'configured', handlers: [], skipped: ['Stop: prompt'] },
+  ])
+})

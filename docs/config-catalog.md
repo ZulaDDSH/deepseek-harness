@@ -1457,7 +1457,7 @@ export interface HmrConfig extends ChokidarOptions {
 
 - `inject`: `shell` · `sessionProjections`
 - `refs`: `Volatile` (`@deepseek-ai/cordis`)
-- `source`: [`packages/hooks/hooks-claude-code/src/index.ts:60`](../packages/hooks/hooks-claude-code/src/index.ts)
+- `source`: [`packages/hooks/hooks-claude-code/src/index.ts:62`](../packages/hooks/hooks-claude-code/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: where the CC hook config lives + substitution roots. */
@@ -1488,7 +1488,7 @@ export interface Config {
   stderrSummaryMaxChars?: number
   /** Stop-hook forced continuations allowed per turn before the turn is let end. */
   maxForcedStops?: number
-  /** {@link hookKey} values of the only commands that run; edited live from Settings. */
+  /** {@link hookKey} values of the only hooks that run; edited live from Settings. */
   enabledHooks?: Volatile<string[]>
   /** User-written descriptions keyed by {@link hookKey}; edited live from Settings. */
   hookDescriptions?: Volatile<Record<string, string>>
