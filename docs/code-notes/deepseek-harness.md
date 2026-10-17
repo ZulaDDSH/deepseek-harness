@@ -1011,6 +1011,13 @@ Other main-process calls to the Host are short and keep their own deadlines: `ap
 
 `scripts/optional-bundles.spec.ts:bundle`: the computer-use test pins the two inserted row ids and names, so a patch that drops either row or a service mount fails before the Plugins page is reached.
 
+## Subagent MCP scoping
+
+`packages/subagent/tool-subagent/src/mcp-scope.ts:scopedToolFilter`: a fresh child no longer inherits every MCP tool. The `subagent` tool takes an optional `mcp` list of server names; every global `mcp__<server>__*` tool from any other server is added to the request's `toolFilter.deny`, merged with the deployment's configured filter. Omitting `mcp` denies all MCP tools. Measured on a real install, ~209 tools made a child's first request 44–66K tokens, most of it MCP schemas resent on every step.
+
+`packages/subagent/tool-subagent/src/mcp-scope.ts:scopesMcp`: scoping applies only when the provider has the `toolFilter` capability and does not inherit the parent context. A forked child (`subagent_fork`) keeps the parent's tool list, because changing tools would invalidate the cached prefix it reuses. The claude-cli route (`packages/subagent/tool-subagent/src/index.ts`, `claudeCli`) is skipped too; it runs its own tool set.
+
+Known ceiling: the deny list is computed once when the child starts. A server that connects later is not denied, and continuing a child after a denied server is removed fails in `tools.restrict` with an unknown-tool error (`packages/subagent/subagent/src/child-agent.ts`, `composition.toolFilter`).
 ## Subagent step budget
 
 `packages/subagent/subagent/src/step-budget.ts:installStepBudget`: when a delegated child (`delegationDepthOf(agent) > 0`) reaches step `stepBudget` of one turn (default 40, set on `SubagentRuntime.Config`; 0 turns it off), a notice user message is appended to that step. It reuses the `repeat-tool-reminder` source kind with `form: 'notice'`, because Session format 4 is finalized and a new kind would need format 5 (`scripts/persistence-changes.ts`). It tells the child to wrap up and report what is finished and what is left. Every step resends the child's whole history, so long runs get expensive: on a real install, DeepSeek children averaged 63 requests and 159K context, and 119 went past 60 requests. This is only a nudge, and later steps are not rejected. It fires once per turn, so a continued child gets a fresh budget on each `send_message`. The claude-cli route has its own hard cap, `maxTurns` (`packages/subagent/subagent-claude-code/src/index.ts:Config`).

@@ -184,6 +184,8 @@ interface ToolArgsMap {
     prompt: string;
     /** Defaults to true. Set false only when your next action depends on the result. */
     run_in_background?: boolean;
+    /** MCP servers the child may use: the `<server>` part of `mcp__<server>__<tool>` names. Omit to give the child no MCP tools, which keeps it much cheaper; name only the servers the task needs. */
+    mcp?: string[];
   } & Record<string, JsonValue>;
   /** Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn). Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive its result, not its intermediate steps. This call waits for the subagent and returns its result. */
   subagent_fork: {
