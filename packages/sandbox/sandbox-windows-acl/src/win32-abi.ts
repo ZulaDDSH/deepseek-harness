@@ -53,6 +53,16 @@ export const SYSTEM_MANDATORY_LABEL_ACE_TYPE = 0x11
  * the path the write-restricted pass-2 intersection does not reach.
  */
 export const SYSTEM_MANDATORY_LABEL_NO_WRITE_UP = 0x00000001
+/** SECURITY_DESCRIPTOR_CONTROL bit: the DACL is present. */
+export const SE_DACL_PRESENT = 0x0004
+/** SECURITY_DESCRIPTOR_CONTROL bit: the SACL is present. */
+export const SE_SACL_PRESENT = 0x0010
+/** Relative identifier of the Low mandatory level (S-1-16-4096). */
+export const SECURITY_MANDATORY_LOW_RID = 0x1000
+/** Identifier authority value of mandatory label SIDs (the last byte of {0,0,0,0,0,16}). */
+export const SECURITY_MANDATORY_LABEL_AUTHORITY = 16
+/** Scratch bytes for one GetFileSecurityW read. */
+export const SECURITY_DESCRIPTOR_SCRATCH_BYTES = 65536
 /** TOKEN_INFORMATION_CLASS value for the token's integrity level. */
 export const TokenIntegrityLevel = 25
 /** Group attribute marking the integrity SID of a TOKEN_MANDATORY_LABEL. */
