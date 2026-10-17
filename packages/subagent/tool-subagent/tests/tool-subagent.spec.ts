@@ -6,7 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { ToolCallId, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { TOOL_ABORTED_BEFORE_DISPATCH, defineTool } from '@deepseek-ai/dsh-tools'
 import { assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -95,6 +95,7 @@ describe('dsh-tool-subagent', () => {
     const props = (schema!.parameters as { properties?: Record<string, unknown> }).properties ?? {}
     expect(Object.keys(props).sort()).toEqual([
       'description',
+      'mcp',
       'prompt',
     ])
     expect(schema!.description).not.toContain('job_output')
@@ -751,6 +752,47 @@ describe('dsh-tool-subagent', () => {
     await callSubagent(ctx, { description: 'd', prompt: 'p' })
     expect(seen?.toolFilter).toEqual({ deny: ['subagent'] })
     expect(seen?.toolFilter).not.toHaveProperty('allow')
+  })
+
+  it.each([
+    { label: 'no mcp arg denies every MCP server', mcp: undefined, toolFilter: true, deny: ['subagent', 'mcp__blender__look', 'mcp__forgejo__list'] },
+    { label: 'a named server stays visible', mcp: ['blender'], toolFilter: true, deny: ['subagent', 'mcp__forgejo__list'] },
+    { label: 'a provider without toolFilter leaves MCP tools alone', mcp: undefined, toolFilter: false, deny: undefined },
+    { label: 'a forked child keeps the parent tools', mcp: undefined, toolFilter: true, inherits: true, deny: ['subagent'] },
+  ])('scopes child MCP tools: $label', async ({ mcp, toolFilter, inherits, deny }) => {
+    let seen: SubagentStartRequest | undefined
+    const ctx = await projectedContext()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(SubagentRuntime)
+    for (const name of ['mcp__blender__look', 'mcp__forgejo__list', 'mcp_plain']) {
+      ctx.tools.register(defineTool({
+        name,
+        description: name,
+        parameters: {},
+        output: { schema: { type: 'object', additionalProperties: false, properties: {} }, render: () => [] },
+        execute: () => Promise.resolve({}),
+      }))
+    }
+    ctx.subagents.registerProvider({
+      name: 'capture-mcp',
+      capabilities: { agentOptions: false, outputSchema: false, depthLimit: false, toolFilter, persona: false },
+      inheritsParentContext: inherits === true,
+      start: async (request) => {
+        seen = request
+        return {
+          id: SessionId('capture-mcp-child'),
+          localAgent: undefined,
+          result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' as const }),
+          dispose: async () => {},
+        }
+      },
+    })
+    await ctx.plugin(tool, { provider: 'capture-mcp', ...toolFilter ? { toolFilter: { deny: ['subagent'] } } : {}, maxDepth: 'provider-managed' })
+    const params = ctx.tools.schemas().find(schema => schema.name === 'subagent')?.parameters as { properties: Record<string, { type?: string }> }
+    expect(params.properties.mcp?.type).toBe(toolFilter && inherits !== true ? 'array' : undefined)
+    await callSubagent(ctx, { description: 'd', prompt: 'p', ...mcp ? { mcp } : {} })
+    expect(seen?.toolFilter?.deny).toEqual(deny)
   })
 
   it('an omitted agentOptions does not materialize an empty object onto the request', async () => {
