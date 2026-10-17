@@ -188,7 +188,7 @@ export function ModelSelect(
         label: effort.name,
       })),
       ...currentChoice?.model.ultracode === true && runOptionsWritable
-        ? [{ key: 'ultracode', effort: reasoning.efforts.at(-1)?.id, label: t('runOptions.ultracode'), ultracode: true }]
+        ? [{ key: 'ultracode', effort: (reasoning.efforts.find(level => level.id === 'xhigh') ?? reasoning.efforts.at(-1))?.id, label: t('runOptions.ultracode'), ultracode: true }]
         : [],
     ], [reasoning, currentChoice, runOptionsWritable, t])
   const ultracodeOn = currentChoice?.model.ultracode === true && runOptionsCurrent.ultracode === true
