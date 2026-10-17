@@ -822,6 +822,27 @@ it('offers Ultracode as the last effort level only for a model that supports it'
   expect(screen.queryByRole('switch', { name: 'Ultracode' })).toBeNull()
 })
 
+it('selects the XHigh effort with Ultracode, as Claude Code does, not the top Max level', async () => {
+  const xhighReasoning = {
+    efforts: [{ id: 'high', name: 'High' }, { id: 'xhigh', name: 'XHigh' }, { id: 'max', name: 'Max' }],
+    defaultEffort: 'high',
+  }
+  const directory = createSnapshotStore<ModelDirectoryState>(state({
+    current: { provider: 'anthropic', model: 'claude-opus-5-5' },
+    groups: [{ id: 'anthropic', name: 'Anthropic', models: [{ id: 'claude-opus-5-5', name: 'Claude Opus 5.5', reasoning: xhighReasoning, ultracode: true }] }],
+  }))
+  const select = vi.fn(async (selection: ModelSelection) => ({ ok: true as const, value: selection as unknown as undefined }))
+  render(<Seat
+    locked={false} useProjection={projectionHook(createSnapshotStore<SessionRunOptionsProjection | undefined>({ current: {} }))}
+    favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()}
+    {...cliStubs} available
+    directory={directory} load={vi.fn()} select={select}
+    setRunOptions={vi.fn(async (options: SessionRunOptions) => ({ ok: true as const, value: options }))} t={t} />)
+  fireEvent.click(screen.getByRole('button', { name: /选择模型，当前/ }))
+  fireEvent.click(screen.getByRole('radio', { name: 'Ultracode' }))
+  await waitFor(() => { expect(select).toHaveBeenCalledWith({ provider: 'anthropic', model: 'claude-opus-5-5', reasoningEffort: 'xhigh' }) })
+})
+
 it('hides the Claude Code section when the Session has no runOptions projection', () => {
   render(<Seat
     locked={false} useProjection={noProjection} favorites={createSnapshotStore<string[]>([])} toggleFavorite={vi.fn()}
