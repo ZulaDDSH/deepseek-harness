@@ -2695,7 +2695,7 @@ export interface LaunchConfig {
 
 - `inject`: `subprocess`
 - `refs`: `Volatile` (`@deepseek-ai/cordis`)
-- `source`: [`packages/shell/pwsh-local/src/index.ts:58`](../packages/shell/pwsh-local/src/index.ts)
+- `source`: [`packages/shell/pwsh-local/src/index.ts:64`](../packages/shell/pwsh-local/src/index.ts)
 
 ```ts config-catalog
 /** Validated plugin configuration with live command budgets. */
