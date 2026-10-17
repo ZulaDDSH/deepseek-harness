@@ -14,7 +14,9 @@ import { NS } from './locales.ts'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-token-meter/client'
 import css from './SubagentHeaderLineage.module.css'
-import { activityDuration, formatDuration, formatExactDuration, formatTokens, tokenTotal } from './catalog-format.ts'
+import {
+  activityDuration, contextTokens, formatDuration, formatExactDuration, formatTokens, tokenTotal,
+} from './catalog-format.ts'
 import { ClearedFooter, useClearedView } from './ClearedSubagents.tsx'
 
 type SubagentCatalogSnapshot = Omit<SessionProjectionSnapshot, 'values' | 'state'> & {
@@ -142,14 +144,17 @@ function CatalogRows({
           .filter(value => value !== undefined)
           .join(' · ')
         const totalTokens = tokenTotal(summary?.projectionValues?.tokenUsage)
+        const context = contextTokens(summary?.projectionValues?.contextPressure)
         const durationMs = activityDuration(
           summary,
           entry.activity,
           now,
         )
-        const tokenMetric = totalTokens === undefined
-          ? undefined
-          : t('tokens.total', { value: formatTokens(totalTokens, t) })
+        const tokenMetric = context !== undefined
+          ? t('tokens.context', { value: formatTokens(context, t) })
+          : totalTokens === undefined
+            ? undefined
+            : t('tokens.total', { value: formatTokens(totalTokens, t) })
         const durationMetric = durationMs === undefined
           ? undefined
           : {
@@ -230,7 +235,16 @@ function CatalogRows({
                 </span>
                 {metrics !== '' && (
                   <span className={css.metrics}>
-                    {tokenMetric !== undefined && <span className={css.metricToken}>{tokenMetric}</span>}
+                    {tokenMetric !== undefined && (
+                      <span
+                        className={css.metricToken}
+                        title={totalTokens === undefined
+                          ? undefined
+                          : t('tokens.totalTitle', { value: formatTokens(totalTokens, t) })}
+                      >
+                        {tokenMetric}
+                      </span>
+                    )}
                     {durationMetric !== undefined && (
                       <span
                         className={css.metricDuration}
