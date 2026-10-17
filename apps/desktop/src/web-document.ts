@@ -1,6 +1,10 @@
 /** Local Web document and authenticated HTTP forwarding for the application window. */
 import { readFile } from 'node:fs/promises'
+import { request as httpRequest, type IncomingMessage } from 'node:http'
 import { extname, resolve, sep } from 'node:path'
+import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
+import type { ReadableStream as NodeWebReadableStream } from 'node:stream/web'
 
 const MIME: Readonly<Record<string, string>> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -50,16 +54,18 @@ export async function authenticateWebHost(url: string): Promise<string> {
 }
 
 /**
- * Response headers not relayed to the renderer. `set-cookie` would hand the
- * Host's authentication cookie to the page's cookie jar, which the shell owns
- * instead; the rest describe the Node `fetch` connection (its encoding, length,
- * and hop-by-hop transport), which Chromium never sees.
+ * Response headers not relayed to the renderer: `set-cookie` would hand the
+ * Host's authentication cookie to the page, which the shell owns instead; the
+ * rest are hop-by-hop fields of the Host connection.
  */
 const WITHHELD_RESPONSE_HEADERS = [
   'set-cookie',
-  'content-encoding', 'content-length',
   'transfer-encoding', 'connection', 'keep-alive', 'te', 'trailer', 'upgrade', 'proxy-authenticate', 'proxy-authorization',
 ]
+
+const WITHHELD_REQUEST_HEADERS = ['host', 'origin', 'cookie', 'sec-fetch-site', 'accept-encoding']
+
+const NULL_BODY_STATUSES: readonly number[] = [204, 205, 304]
 
 /** Host routes whose responses carry immutable cache headers keyed by a per-process revision. */
 const PLUGIN_BUNDLE_PATH = /^\/plugins\//u
@@ -82,12 +88,53 @@ export async function forwardWebRequest(request: Request, host: string, cookie: 
   target.pathname = source.pathname
   target.search = source.search
   const headers = new Headers(request.headers)
-  for (const name of ['host', 'origin', 'cookie', 'sec-fetch-site']) headers.delete(name)
+  for (const name of WITHHELD_REQUEST_HEADERS) headers.delete(name)
   headers.set('cookie', cookie)
-  const init = { method: request.method, headers, body: request.body, signal: request.signal, duplex: 'half', redirect: 'manual' as const }
-  const response = await fetch(target, init)
-  const outgoing = new Headers(response.headers)
+  const upstream = await requestHost(target, request.method, headers, request.body, request.signal)
+  const outgoing = new Headers()
+  for (let index = 0; index < upstream.rawHeaders.length; index += 2) {
+    outgoing.append(upstream.rawHeaders[index] ?? '', upstream.rawHeaders[index + 1] ?? '')
+  }
   for (const name of WITHHELD_RESPONSE_HEADERS) outgoing.delete(name)
   if (PLUGIN_BUNDLE_PATH.test(source.pathname)) outgoing.set('cache-control', 'no-store')
-  return new Response(response.body, { status: response.status, headers: outgoing })
+  const status = upstream.statusCode ?? 502
+  if (request.method === 'HEAD' || NULL_BODY_STATUSES.includes(status)) {
+    upstream.resume()
+    return new Response(null, { status, headers: outgoing })
+  }
+  return new Response(Readable.toWeb(upstream) as ReadableStream<Uint8Array>, { status, headers: outgoing })
+}
+
+/** The renderer's abort reason as an Error, so a torn-down request always rejects with one. */
+function abortError(signal: AbortSignal): Error {
+  return signal.reason instanceof Error ? signal.reason : new Error('Host request aborted')
+}
+
+/**
+ * Open one Host request; aborting `signal` destroys it before or after headers.
+ * @param target - Host URL carrying the forwarded path and query.
+ * @param method - Request method.
+ * @param headers - Forwarded request headers.
+ * @param body - Upload stream, or null for a bodyless request.
+ * @param signal - Renderer cancellation for this request.
+ * @returns the Host response message once its headers arrive.
+ */
+function requestHost(
+  target: URL,
+  method: string,
+  headers: Headers,
+  body: ReadableStream<Uint8Array> | null,
+  signal: AbortSignal,
+): Promise<IncomingMessage> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(abortError(signal))
+      return
+    }
+    const outgoing = httpRequest(target, { method, headers: Object.fromEntries(headers) }, resolve)
+    outgoing.on('error', reject)
+    signal.addEventListener('abort', () => { outgoing.destroy(abortError(signal)) }, { once: true })
+    if (body === null) outgoing.end()
+    else pipeline(Readable.fromWeb(body as NodeWebReadableStream<Uint8Array>), outgoing).catch(reject)
+  })
 }

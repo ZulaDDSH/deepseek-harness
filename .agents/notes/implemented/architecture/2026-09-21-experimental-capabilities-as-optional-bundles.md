@@ -21,3 +21,5 @@ An optional bundle is a runtime dependency of the installation, so its dependenc
 ## Consequences
 
 The Official group carries four optional-bundle entries, each tagged experimental by its experimental name. The runtime dependency closure of the installation is unchanged. A browser-use or computer-use provider still needs its Service Definition and the provider in a profile patch or composition.
+
+Superseded for the native computer-use provider by `2026-10-16-native-computer-use-as-optional-bundle.md`.
