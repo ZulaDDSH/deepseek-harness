@@ -1447,7 +1447,7 @@ describe('catalog supplement', () => {
       expect.objectContaining({ id, inputModalities: ['text', 'image'] }),
     ]))
     const models = resolveProfiles({ [provider]: { apiKeyEnv: KEY_ENV } }).get(provider)?.piProvider?.getModels() ?? []
-    const contextWindow = { anthropic: 1_000_000, openai: 1_050_000, 'openai-codex': 272_000 }[provider]
+    const contextWindow = { anthropic: 1_000_000, openai: 1_050_000, 'openai-codex': 500_000 }[provider]
     expect(models.find(model => model.id === id)).toMatchObject({ api, contextWindow })
   })
 
@@ -1520,32 +1520,17 @@ describe('catalog supplement', () => {
     })
   })
 
-  it('serves a Go model over the protocol the OpenCode docs name', () => {
-    const models = resolveProfiles({ 'opencode-go': { apiKeyEnv: KEY_ENV } }).get('opencode-go')?.piProvider?.getModels() ?? []
-    expect(models.find(model => model.id === 'minimax-m2.7'))
-      .toMatchObject({ api: 'anthropic-messages', baseUrl: 'https://opencode.ai/inference/go', cost: { cacheWrite: 0.375 } })
-  })
-
-  it('drops the OpenAI-protocol compat of a model repointed to the Anthropic endpoint', () => {
-    expect(getBuiltinModels('opencode-go').find(model => model.id === 'minimax-m2.7')?.compat).toBeDefined()
-    expect(catalogModels('opencode-go').get('minimax-m2.7')?.compat).toBeUndefined()
-    expect(catalogModels('opencode').get('minimax-m2.7')?.compat).toBeDefined()
-  })
-
   it('serves an installed model at the price the OpenCode docs list', () => {
     const models = resolveProfiles({ 'opencode-go': { apiKeyEnv: KEY_ENV } }).get('opencode-go')?.piProvider?.getModels() ?? []
     expect(models.find(model => model.id === 'glm-5.3-flash'))
       .toMatchObject({ cost: { input: 0.15, output: 0.5, cacheRead: 0.03 } })
   })
 
-  it('keeps a modelOverrides entry and a route api over a corrected model', () => {
+  it('keeps a modelOverrides entry over a corrected model', () => {
     const overridden = resolveProfiles({
-      'opencode-go': { apiKeyEnv: KEY_ENV, modelOverrides: { 'minimax-m2.7': { contextWindow: 123_456 } } },
-    }).get('opencode-go')?.piProvider?.getModels() ?? []
-    expect(overridden.find(model => model.id === 'minimax-m2.7'))
-      .toMatchObject({ api: 'anthropic-messages', contextWindow: 123_456 })
-    const routed = resolveProfiles({ 'opencode-go': { apiKeyEnv: KEY_ENV, api: 'openai-completions' } })
-      .get('opencode-go')?.piProvider?.getModels() ?? []
-    expect(routed.find(model => model.id === 'minimax-m2.7')).toMatchObject({ api: 'openai-completions' })
+      opencode: { apiKeyEnv: KEY_ENV, modelOverrides: { 'kimi-k2.5': { contextWindow: 123_456 } } },
+    }).get('opencode')?.piProvider?.getModels() ?? []
+    expect(overridden.find(model => model.id === 'kimi-k2.5'))
+      .toMatchObject({ cost: { cacheRead: 0.1 }, contextWindow: 123_456 })
   })
 })

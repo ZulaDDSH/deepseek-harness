@@ -15,9 +15,6 @@ const CORRECTIONS: Readonly<Record<string, Readonly<Record<string, Correction>>>
   openai: {
     'gpt-6.1-sol': { contextWindow: 1_050_000 },
   },
-  'opencode-go': {
-    'minimax-m2.7': { api: 'anthropic-messages', baseUrl: 'https://opencode.ai/zen/go' },
-  },
   opencode: {
     'gpt-5.6-terra': { cost: { input: 2, output: 12, cacheRead: 0.2, cacheWrite: 2.5, tiers: [{ inputTokensAbove: 272_000, input: 4, output: 18, cacheRead: 0.4, cacheWrite: 5 }] } },
     'deepseek-v4-pro': { cost: { output: 3.48 } },
@@ -26,8 +23,7 @@ const CORRECTIONS: Readonly<Record<string, Readonly<Record<string, Correction>>>
 }
 
 const RETIRED: Readonly<Record<string, readonly string[]>> = {
-  'opencode-go': ['deepseek-v4-flash', 'deepseek-v4-flash-vision-exp'],
-  opencode: ['claude-sonnet-4', 'deepseek-v4-flash-vision-exp', 'ling-3.0-flash-fin-free'],
+  opencode: ['claude-sonnet-4', 'deepseek-v4-flash-vision-exp'],
 }
 
 const ZEN_BASE = /^https:\/\/opencode\.ai\/zen(?=\/|$)/
