@@ -171,14 +171,15 @@ it('renders the subagent policy once in the system prompt beside a default (non-
   expect(rendered.split(subagentPolicyText(setup))).toHaveLength(2)
 })
 
-it('inherits the policy from the top-level Session for a child Session without its own setup', async () => {
+it('withholds the policy from a child Session that inherits the setup, since only the top-level orchestrator runs it', async () => {
   const { ctx, controller } = await setupRoot(true)
   const parent = agentUnder(ctx, 'policy-parent')
   await ctx.agents.register(parent)
   await controller.setRunOptions({ sessionId: parent.id, subagentSetup: setup })
+  expect(await policyText(ctx, parent)).toBe(subagentPolicyText(setup))
   const child = agentUnder(ctx, 'policy-child', { origin: 'subagent', parentSession: parent.id })
   await ctx.agents.register(child)
-  expect(await policyText(ctx, child)).toBe(subagentPolicyText(setup))
+  expect(await policyText(ctx, child)).toBe('')
 })
 
 it('describes only configured roles and the review rounds', () => {
@@ -203,7 +204,9 @@ it('tells the orchestrator to plan, delegate, parallelize and not implement itse
   expect(full).toContain('Delegate research and log reading to a researcher.')
   expect(full).toContain('Run independent work in parallel.')
   expect(full).toContain('Every subagent call must pass role')
-  expect(full).toContain('Have a reviewer check every code change')
+  expect(full).toContain('Subagents cannot start subagents, so you start every subagent yourself.')
+  expect(full).toContain('After a coder returns a code change, start a reviewer (role reviewer) on it, send its findings to the coder with send_message')
+  expect(full).toContain('repeat for at most 2 review rounds before you report.')
   const noCoder = subagentPolicyText({ ...setup, roles: { reviewer: { mode: 'jev' } } })
   expect(noCoder).not.toContain('do not make code changes yourself')
   expect(noCoder).not.toContain('researcher')

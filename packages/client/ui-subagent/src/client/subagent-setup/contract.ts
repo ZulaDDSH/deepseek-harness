@@ -33,9 +33,10 @@ export function subagentPolicyPrompt(setup: SubagentSetup): string {
   if (has('researcher')) parts.push('Delegate research and log reading to a researcher.')
   parts.push('Run independent work in parallel.')
   parts.push(`Every subagent call must pass role as one of: ${configured.map(([role, purpose]) => `${role} (${purpose})`).join(', ')}. A call without one is rejected, and other delegation tools run on your own model, so do not use them for this work.`)
+  parts.push('Subagents cannot start subagents, so you start every subagent yourself.')
   if (setup.reviewRounds === 0) parts.push('Do not run review rounds unless the user asks.')
   else if (has('reviewer')) {
-    parts.push(`Have a reviewer check every code change and have the findings fixed, for at most ${setup.reviewRounds} review round${setup.reviewRounds === 1 ? '' : 's'} before you report.`)
+    parts.push(`After a coder returns a code change, start a reviewer (role reviewer) on it, send its findings to the coder with send_message (or to a new coder run once the coder has finished), and repeat for at most ${setup.reviewRounds} review round${setup.reviewRounds === 1 ? '' : 's'} before you report.`)
   }
   return parts.join(' ')
 }

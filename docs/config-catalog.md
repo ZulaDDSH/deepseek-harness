@@ -4200,7 +4200,7 @@ export interface Config {
 
 - `inject`: `tools` · `subagents` · `systemPrompt` · `sessionProjections`
 - `refs`: [`AgentOptions`](subsystems/core.md)
-- `source`: [`packages/subagent/tool-subagent/src/index.ts:54`](../packages/subagent/tool-subagent/src/index.ts)
+- `source`: [`packages/subagent/tool-subagent/src/index.ts:55`](../packages/subagent/tool-subagent/src/index.ts)
 
 ```ts config-catalog
 /** Config: which registered provider this tool delegates to, plus child defaults. */
@@ -4250,14 +4250,11 @@ export interface Config {
     deny?: string[]
   }
   /**
-   * Maximum child depth: a non-negative safe integer (`0` forbids delegation),
-   * or `'provider-managed'` to send no cap. A numeric cap
-   * requires the provider's `depthLimit` capability (mount fails loud
-   * otherwise). The provider checks the calling agent's current depth at every
-   * start; the tool remains model-visible so runtime policy owns rejection.
-   * `'provider-managed'` is for an out-of-process provider whose recursion
-   * budget belongs to the child runtime or its own deployment. Omission reads
-   * the current Host subagent depth setting (default `1`) at each delegation.
+   * Maximum child depth: a non-negative safe integer (`0` forbids delegation), or
+   * `'provider-managed'` for no cap. A numeric cap needs the `depthLimit` capability
+   * and hides the tool from agents whose child would exceed it; the provider still
+   * checks every start. `'provider-managed'` leaves the budget to an out-of-process
+   * provider. Omission reads the Host subagent depth setting (default `1`) per delegation.
    */
   maxDepth?: number | 'provider-managed'
   /** Accept the `role` argument and run roles from Orchestrator & Subagent Setup (default `false`). */
