@@ -20,10 +20,11 @@ function fold(events: SessionEvent[]) {
 }
 
 describe('subagent activity projection', () => {
-  it('names the key argument of a call', () => {
-    expect(describeToolCall(JSON.stringify({ command: 'git  diff\n--cached', timeout: 5 }))).toBe('git diff --cached')
-    expect(describeToolCall('{"pattern":"TODO","path":"src"}')).toBe('TODO')
-    expect(describeToolCall('not json')).toBe('')
+  it('names the key argument of a call, or the tool when no argument says what it does', () => {
+    expect(describeToolCall('bash', JSON.stringify({ command: 'git  diff\n--cached', timeout: 5 }))).toBe('git diff --cached')
+    expect(describeToolCall('grep', '{"pattern":"TODO","path":"src"}')).toBe('TODO')
+    expect(describeToolCall('bash', 'not json')).toBe('bash')
+    expect(describeToolCall('todo_write', '{"items":[]}')).toBe('todo_write')
   })
 
   it('shows the running call, then the finished call with a result summary and the step count', () => {

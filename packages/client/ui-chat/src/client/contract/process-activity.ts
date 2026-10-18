@@ -1,9 +1,12 @@
 /** Tool-category and live-detail interpretation owned by Chat grouping. */
 import { diffTotals, type DiffHunk } from '@deepseek-ai/dsh-client-ui-primitives'
+import { liveToolDetail, normalizeLiveToolDetail } from '@deepseek-ai/dsh-util-values'
 import type { ProcessActivity, ProcessActivitySummary } from './process-groups.ts'
 import type { ChatNode } from './chat-nodes.ts'
 import { isRunningTool } from './chat-nodes.ts'
 import type { ToolCallBlock } from './snapshot.ts'
+
+export { liveToolDetail }
 
 /**
  * Map a tool name to the process category that groups and labels it.
@@ -26,36 +29,6 @@ export function activity(name: string): ProcessActivity {
   return 'tools'
 }
 
-const LIVE_TOOL_DETAIL_MAX_CHARS = 160
-const LIVE_TOOL_DETAIL_SEGMENTER = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
-const LIVE_TOOL_DETAIL_KEYS = [
-  'title', 'description', 'objective', 'task', 'task_name', 'name', 'question', 'questions', 'prompt', 'message',
-  'command', 'cmd', 'queries', 'query', 'pattern', 'url', 'uri', 'file_path', 'path', 'target', 'action', 'status',
-] as const
-
-function normalizeLiveToolDetail(value: unknown): string {
-  const text = typeof value === 'string'
-    ? value
-    : Array.isArray(value) && value.every(item => typeof item === 'string')
-      ? value.join(', ')
-      : ''
-  const normalized = text.replace(/\s+/g, ' ').trim()
-  const chars = Array.from(LIVE_TOOL_DETAIL_SEGMENTER.segment(normalized), part => part.segment)
-  return chars.length <= LIVE_TOOL_DETAIL_MAX_CHARS
-    ? normalized
-    : `${chars.slice(0, LIVE_TOOL_DETAIL_MAX_CHARS - 1).join('').trimEnd()}…`
-}
-
-function questionDetail(value: unknown): string {
-  if (!Array.isArray(value)) return ''
-  for (const item of value) {
-    if (item === null || typeof item !== 'object') continue
-    const detail = normalizeLiveToolDetail(Reflect.get(item, 'question'))
-    if (detail !== '') return detail
-  }
-  return ''
-}
-
 function liveReasoningDetail(nodes: readonly ChatNode[]): string {
   for (let nodeIndex = nodes.length - 1; nodeIndex >= 0; nodeIndex--) {
     const node = nodes[nodeIndex]
@@ -71,31 +44,6 @@ function liveReasoningDetail(nodes: readonly ChatNode[]): string {
     }
   }
   return ''
-}
-
-/**
- * Derive the one-line, length-bounded task detail of a running tool call.
- * @param name - tool name, used as the fallback detail.
- * @param argsRaw - raw JSON arguments as streamed so far.
- * @returns the first recognised task-describing argument, or the tool name.
- */
-export function liveToolDetail(name: string, argsRaw: string): string {
-  let args: unknown
-  try {
-    args = JSON.parse(argsRaw)
-  } catch (_error: unknown) {
-    // Partial or free-form arguments have no safe one-line task detail.
-    return normalizeLiveToolDetail(name)
-  }
-  if (args === null || typeof args !== 'object') return normalizeLiveToolDetail(name)
-  for (const key of LIVE_TOOL_DETAIL_KEYS) {
-    if (key in args) {
-      const value: unknown = Reflect.get(args, key)
-      const detail = key === 'questions' ? questionDetail(value) : normalizeLiveToolDetail(value)
-      if (detail !== '') return detail
-    }
-  }
-  return normalizeLiveToolDetail(name)
 }
 
 type ToolArgs = Record<string, unknown>

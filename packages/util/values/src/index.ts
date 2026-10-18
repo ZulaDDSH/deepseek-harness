@@ -14,6 +14,65 @@ export function assertNever(value: never, context?: string): never {
   throw new Error(`unreachable variant${context ? ` in ${context}` : ''}: ${rendered}`)
 }
 
+const LIVE_TOOL_DETAIL_MAX_CHARS = 160
+const LIVE_TOOL_DETAIL_SEGMENTER = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+const LIVE_TOOL_DETAIL_KEYS = [
+  'title', 'description', 'objective', 'task', 'task_name', 'name', 'question', 'questions', 'prompt', 'message',
+  'command', 'cmd', 'queries', 'query', 'pattern', 'url', 'uri', 'file_path', 'path', 'target', 'action', 'status',
+] as const
+
+/**
+ * Flatten a streamed value to one line of at most 160 graphemes, ending in an ellipsis when cut.
+ * @param value - text, or an array of strings joined with commas; any other value yields empty text.
+ * @returns the normalized, length-bounded line; empty when the value has no text.
+ */
+export function normalizeLiveToolDetail(value: unknown): string {
+  const text = typeof value === 'string'
+    ? value
+    : Array.isArray(value) && value.every(item => typeof item === 'string')
+      ? value.join(', ')
+      : ''
+  const normalized = text.replace(/\s+/g, ' ').trim()
+  const chars = Array.from(LIVE_TOOL_DETAIL_SEGMENTER.segment(normalized), part => part.segment)
+  return chars.length <= LIVE_TOOL_DETAIL_MAX_CHARS
+    ? normalized
+    : `${chars.slice(0, LIVE_TOOL_DETAIL_MAX_CHARS - 1).join('').trimEnd()}…`
+}
+
+function questionDetail(value: unknown): string {
+  if (!Array.isArray(value)) return ''
+  for (const item of value) {
+    if (item === null || typeof item !== 'object') continue
+    const detail = normalizeLiveToolDetail(Reflect.get(item, 'question'))
+    if (detail !== '') return detail
+  }
+  return ''
+}
+
+/**
+ * Derive the one-line, length-bounded task detail of a running tool call.
+ * @param name - tool name, used as the fallback detail.
+ * @param argsRaw - raw JSON arguments as streamed so far.
+ * @returns the first recognised task-describing argument, or the tool name.
+ */
+export function liveToolDetail(name: string, argsRaw: string): string {
+  let args: unknown
+  try {
+    args = JSON.parse(argsRaw)
+  } catch (_error: unknown) {
+    return normalizeLiveToolDetail(name)
+  }
+  if (args === null || typeof args !== 'object') return normalizeLiveToolDetail(name)
+  for (const key of LIVE_TOOL_DETAIL_KEYS) {
+    if (key in args) {
+      const value: unknown = Reflect.get(args, key)
+      const detail = key === 'questions' ? questionDetail(value) : normalizeLiveToolDetail(value)
+      if (detail !== '') return detail
+    }
+  }
+  return normalizeLiveToolDetail(name)
+}
+
 /** Whether a realm-owned intrinsic prototype has a native constructor matching this engine's representation. */
 function hasIntrinsicConstructor(prototype: object, name: 'Array' | 'Object'): boolean {
   const descriptor = Object.getOwnPropertyDescriptor(prototype, 'constructor')

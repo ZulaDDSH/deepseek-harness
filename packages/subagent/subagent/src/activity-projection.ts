@@ -6,13 +6,11 @@
 
 import { z } from 'zod'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
+import { liveToolDetail } from '@deepseek-ai/dsh-util-values'
 import type { SubagentActivityProjection, SubagentToolActivity } from './projection-types.ts'
 
 const MAX_TEXT = 120
 const MAX_RUNNING = 8
-const DETAIL_KEYS = [
-  'command', 'cmd', 'pattern', 'query', 'queries', 'url', 'file_path', 'path', 'description', 'task', 'prompt', 'name',
-] as const
 
 function oneLine(value: unknown): string {
   const text = typeof value === 'string' ? value
@@ -23,21 +21,12 @@ function oneLine(value: unknown): string {
 
 /**
  * Pick the argument that says what a tool call is doing.
+ * @param name - tool name, the fallback detail.
  * @param args - raw JSON arguments of the call.
- * @returns the first recognised command, path, pattern, or URL on one line; empty when none applies.
+ * @returns the shared one-line detail of the call; the tool name when no argument applies.
  */
-export function describeToolCall(args: string): string {
-  try {
-    const parsed: unknown = JSON.parse(args)
-    if (parsed === null || typeof parsed !== 'object') return ''
-    for (const key of DETAIL_KEYS) {
-      const detail = oneLine(Reflect.get(parsed, key))
-      if (detail !== '') return detail
-    }
-  } catch {
-    // Streamed or free-form arguments have no safe one-line description.
-  }
-  return ''
+export function describeToolCall(name: string, args: string): string {
+  return liveToolDetail(name, args)
 }
 
 interface ActivityState {
@@ -92,7 +81,7 @@ export const subagentActivityProjectionDefinition = {
       case 'tool/call': {
         const call = {
           callId: event.data.callId, name: event.data.name,
-          detail: describeToolCall(event.data.arguments), since: event.time,
+          detail: describeToolCall(event.data.name, event.data.arguments), since: event.time,
         }
         return { ...state, running: [...state.running, call].slice(-MAX_RUNNING) }
       }

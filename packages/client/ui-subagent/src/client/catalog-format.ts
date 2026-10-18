@@ -150,7 +150,7 @@ export function formatExactDuration(ms: number, t: TranslateNS<typeof NS>): stri
 }
 
 function toolTarget(tool: { readonly name: string; readonly detail: string }): string {
-  return tool.detail === '' ? tool.name : `${tool.name}: ${tool.detail}`
+  return tool.detail === '' || tool.detail === tool.name ? tool.name : `${tool.name}: ${tool.detail}`
 }
 
 /**
