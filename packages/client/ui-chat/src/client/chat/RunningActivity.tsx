@@ -1,4 +1,4 @@
-/** Live operation line and quiet-Turn Stop hint under the running indicator. */
+/** Live operation text and the quiet-Turn Stop hint for the running indicator. */
 import { memo } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
@@ -9,7 +9,14 @@ import css from './ChatView.module.css'
 
 type Translate = ChatViewSlotProps['t']
 
-function activityText(activity: LiveActivity, duration: string, t: Translate): string | undefined {
+/**
+ * Name the in-flight operation with its key argument and how long it has run.
+ * @param activity - the operation derived from the Chat legacy slice.
+ * @param duration - formatted time the operation has been running.
+ * @param t - Chat namespace translator.
+ * @returns one line such as "Running commands: pnpm test · 3s", or nothing when idle.
+ */
+export function activityText(activity: LiveActivity, duration: string, t: Translate): string | undefined {
   switch (activity.kind) {
     case 'idle':
       return undefined
@@ -34,35 +41,24 @@ function activityText(activity: LiveActivity, duration: string, t: Translate): s
 }
 
 interface RunningActivityProps {
-  readonly activity: LiveActivity
-  readonly since: number | undefined
-  readonly now: number
   readonly quietFor: number | undefined
   readonly onStop: () => void
   readonly t: Translate
 }
 
 /**
- * Name the in-flight operation and offer Stop once the Turn has been silent.
- * @param props - live activity, its start, the clock, silence duration, Stop action, and copy.
- * @returns the detail line and hint, or nothing when neither applies.
+ * Offer Stop once the Turn has been silent.
+ * @param props - silence duration, Stop action, and copy.
+ * @returns the hint, or nothing when the Turn is not quiet.
  */
-export const RunningActivity = memo(function RunningActivity({
-  activity, since, now, quietFor, onStop, t,
-}: RunningActivityProps) {
-  const text = since === undefined ? undefined
-    : activityText(activity, formatLiveRunDuration(Math.max(0, now - since), t), t)
-  const quiet = quietFor === undefined ? undefined : formatLiveRunDuration(quietFor, t)
-  if (text === undefined && quiet === undefined) return null
+export const RunningActivity = memo(function RunningActivity({ quietFor, onStop, t }: RunningActivityProps) {
+  if (quietFor === undefined) return null
   return (
     <div className={css.runningActivity} data-chat-running-activity>
-      {text !== undefined && <span className={css.runningActivityText}>{text}</span>}
-      {quiet !== undefined && (
-        <span className={css.runningStuck} data-chat-running-stuck>
-          <span>{t('chat.live.stuck', { duration: quiet })}</span>
-          <Button size="sm" variant="outline" onClick={onStop}>{t('chat.live.stop')}</Button>
-        </span>
-      )}
+      <span className={css.runningStuck} data-chat-running-stuck>
+        <span>{t('chat.live.stuck', { duration: formatLiveRunDuration(quietFor, t) })}</span>
+        <Button size="sm" variant="outline" onClick={onStop}>{t('chat.live.stop')}</Button>
+      </span>
     </div>
   )
 })

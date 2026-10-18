@@ -33,7 +33,6 @@ function statusHarness(startTime?: number, useChat = chatHook(), onStop = vi.fn(
   return {
     ...view,
     content: () => view.container.querySelector('[data-chat-running-label]'),
-    line: () => view.container.querySelector('[data-chat-running-activity]'),
     hint: () => view.container.querySelector('[data-chat-running-stuck]'),
     set: (nextStartTime?: number, nextChat = useChat, nextAwaitingUser = awaitingUser) => {
       view.rerender(
@@ -101,36 +100,36 @@ describe('RunningStatus', () => {
     const view = statusHarness(1_000, chatHook({
       runningCalls: [startedCall('job_output', '{"job_id":"job_9","wait":true}', 4_000)],
     }))
-    expect(view.line()?.textContent).toBe('正在等待后台任务 job_9 · 1秒')
+    expect(view.content()?.textContent).toContain('正在等待后台任务 job_9 · 1秒')
     act(() => { vi.advanceTimersByTime(3_000) })
-    expect(view.line()?.textContent).toBe('正在等待后台任务 job_9 · 4秒')
+    expect(view.content()?.textContent).toContain('正在等待后台任务 job_9 · 4秒')
   })
 
   it('labels a job read without a wait as reading its output', () => {
     const view = statusHarness(1_000, chatHook({
       runningCalls: [startedCall('job_output', '{"job_id":"job_9"}', 4_000)],
     }))
-    expect(view.line()?.textContent).toBe('正在读取后台任务 job_9 的输出 · 1秒')
+    expect(view.content()?.textContent).toContain('正在读取后台任务 job_9 的输出 · 1秒')
   })
 
   it('counts streamed text as an approximate token figure while it grows', () => {
     const partial: PartialAssistant = { turn: 1, step: 1, blocks: [{ kind: 'text', text: 'a'.repeat(2_400) }] }
     const view = statusHarness(1_000, chatHook({ partial }))
-    expect(view.line()?.textContent).toBe('正在撰写回复 · 0秒 · 已生成约 600 词元')
+    expect(view.content()?.textContent).toContain('正在撰写回复 · 0秒 · 已生成约 600 词元')
     act(() => { vi.advanceTimersByTime(2_000) })
-    expect(view.line()?.textContent).toBe('正在撰写回复 · 2秒 · 已生成约 600 词元')
+    expect(view.content()?.textContent).toContain('正在撰写回复 · 2秒 · 已生成约 600 词元')
   })
 
   it('counts reasoning as thinking with its token figure', () => {
     const partial: PartialAssistant = { turn: 1, step: 1, blocks: [{ kind: 'reasoning', text: 'b'.repeat(400) }] }
     const view = statusHarness(1_000, chatHook({ partial }))
-    expect(view.line()?.textContent).toBe('正在思考 · 0秒 · 已生成约 100 词元')
+    expect(view.content()?.textContent).toContain('正在思考 · 0秒 · 已生成约 100 词元')
   })
 
   it('shows thinking without a token figure before any output arrives', () => {
     const partial: PartialAssistant = { turn: 1, step: 1, blocks: [] }
     const view = statusHarness(1_000, chatHook({ partial }))
-    expect(view.line()?.textContent).toBe('正在思考 · 0秒')
+    expect(view.content()?.textContent).toContain('正在思考 · 0秒')
   })
 
   it('offers Stop after two silent minutes without stopping the Turn itself', () => {
@@ -149,7 +148,7 @@ describe('RunningStatus', () => {
     const chat = chatHook({ runningCalls: [startedCall('ask_user_question', '{}', 4_000)] })
     const view = statusHarness(1_000, chat, vi.fn(), true)
     act(() => { vi.advanceTimersByTime(130_000) })
-    expect(view.line()?.textContent).toContain('等待你的操作')
+    expect(view.content()?.textContent).toContain('等待你的操作')
     expect(view.hint()).toBeNull()
   })
 
@@ -173,11 +172,11 @@ describe('RunningStatus', () => {
         <RunningStatus startTime={1_000} useChat={chatHook({ partial })} onStop={vi.fn()} t={t} />
       </StrictMode>,
     )
-    const line = () => view.container.querySelector('[data-chat-running-activity]')
+    const line = () => view.container.querySelector('[data-chat-running-label]')
     const hint = () => view.container.querySelector('[data-chat-running-stuck]')
-    expect(line()?.textContent).toBe('正在撰写回复 · 0秒 · 已生成约 10 词元')
+    expect(line()?.textContent).toContain('正在撰写回复 · 0秒 · 已生成约 10 词元')
     act(() => { vi.advanceTimersByTime(3_000) })
-    expect(line()?.textContent).toBe('正在撰写回复 · 3秒 · 已生成约 10 词元')
+    expect(line()?.textContent).toContain('正在撰写回复 · 3秒 · 已生成约 10 词元')
     act(() => { vi.advanceTimersByTime(116_000) })
     expect(hint()).toBeNull()
     act(() => { vi.advanceTimersByTime(1_000) })
@@ -191,8 +190,8 @@ describe('RunningStatus', () => {
   it('reads in English with the quiet-Turn hint and a Stop action', () => {
     const chat = chatHook({ runningCalls: [startedCall('bash', '{"command":"pnpm test"}', 4_000)] })
     const view = render(<RunningStatus startTime={1_000} step={3} useChat={chat} onStop={vi.fn()} t={tEn} />)
-    expect(view.container.querySelector('[data-chat-running-label]')?.textContent).toMatch(/^Deep diving for \d+s, step 3\.\.\.$/)
-    expect(view.container.querySelector('[data-chat-running-activity]')?.textContent).toBe('Running commands: pnpm test · 1s')
+    expect(view.container.querySelector('[data-chat-running-label]')?.textContent)
+      .toMatch(/^Running commands: pnpm test · 1s · step 3 · \d+s total$/)
     act(() => { vi.advanceTimersByTime(120_000) })
     expect(view.container.querySelector('[data-chat-running-stuck]')?.textContent)
       .toBe('No activity for 2m 0s. The model or a tool may be stuck; you can stop this turn.Stop')
@@ -203,12 +202,12 @@ describe('RunningStatus', () => {
     const job = render(<RunningStatus startTime={1_000} useChat={chatHook({
       runningCalls: [startedCall('job_output', '{"job_id":"job_9","wait":true}', 4_000)],
     })} onStop={vi.fn()} t={tEn} />)
-    expect(job.container.querySelector('[data-chat-running-activity]')?.textContent).toBe('Waiting on background job job_9 · 1s')
+    expect(job.container.querySelector('[data-chat-running-label]')?.textContent).toContain('Waiting on background job job_9 · 1s')
     job.unmount()
     const thinking = render(<RunningStatus startTime={1_000} useChat={chatHook({
       partial: { turn: 1, step: 1, blocks: [{ kind: 'reasoning', text: 'b'.repeat(400) }] },
     })} onStop={vi.fn()} t={tEn} />)
-    expect(thinking.container.querySelector('[data-chat-running-activity]')?.textContent).toBe('Thinking · 0s · about 100 tokens so far')
+    expect(thinking.container.querySelector('[data-chat-running-label]')?.textContent).toContain('Thinking · 0s · about 100 tokens so far')
   })
 
   it('restarts the silence clock when the Chat snapshot changes', () => {
@@ -221,14 +220,13 @@ describe('RunningStatus', () => {
     expect(view.hint()).not.toBeNull()
   })
 
-  it('drops the live line and its clock when the Turn ends', () => {
+  it('replaces the concrete activity with the plain clock when the Turn ends', () => {
     const view = statusHarness(1_000, chatHook({
       runningCalls: [startedCall('bash', '{"command":"ls"}', 4_000)],
     }))
-    expect(view.line()).not.toBeNull()
+    expect(view.content()?.textContent).toContain('命令')
     expect(vi.getTimerCount()).toBe(1)
     view.set()
-    expect(view.line()).toBeNull()
     expect(view.content()?.textContent).toBe('深度求索中...')
     expect(vi.getTimerCount()).toBe(0)
   })

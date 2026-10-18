@@ -7,7 +7,7 @@ kind: "package-library"
 
 ## Summary
 
-`dsh-util-values` gives runtime packages one implementation for lossless JSON values, immutable object graphs, structural JSON equality, and exhaustive closed-union failures. Callers can validate untrusted values, detach a JSON snapshot, freeze a published value, compare JSON-compatible data, or terminate an unreachable branch without importing a capability package. The helpers hold no shared registry, constructor identity, or mutable module state.
+`dsh-util-values` gives runtime packages one implementation for lossless JSON values, immutable object graphs, structural JSON equality, and exhaustive closed-union failures, and one-line tool-call detail. Callers can validate untrusted values, detach a JSON snapshot, freeze a published value, compare JSON-compatible data, or terminate an unreachable branch without importing a capability package. The helpers hold no shared registry, constructor identity, or mutable module state.
 
 ## Table of Contents
 
@@ -44,6 +44,10 @@ const snapshot = snapshotJsonValue(input) as JsonValue
 ### Close a discriminated union
 
 Use `assertNever(value, context?)` in the default branch of a closed discriminated union. A newly added variant then fails TypeScript compilation at every exhaustive switch, while a runtime value that escaped its declared type throws with the optional context label.
+
+### Describe a streamed tool call
+
+`liveToolDetail(name, argsRaw)` parses streamed JSON tool arguments and returns the first task-describing value (title, description, command, path, query, and similar keys) as one line of at most 160 graphemes, ending in an ellipsis when cut. It falls back to the tool name when the arguments do not parse or name nothing usable. `normalizeLiveToolDetail(value)` applies the same flattening to one text value.
 
 -----
 

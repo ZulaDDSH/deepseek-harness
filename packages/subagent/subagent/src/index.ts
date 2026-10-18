@@ -76,6 +76,7 @@ import { listChildren as listSubagentChildren, listDescendants as listSubagentDe
 import type { SubagentDescendantListEntry } from './list-children.ts'
 import { installSubagentArchiveAdmission } from './archive-admission.ts'
 import { snapshotSubagentDescriptor } from './descriptor.ts'
+import { subagentActivityProjectionDefinition } from './activity-projection.ts'
 import { subagentIdentityProjectionDefinition, subagentTimingProjectionDefinition } from './projection.ts'
 import { establishCatalogChild, subagentCatalogProjectionDefinition } from './catalog.ts'
 import type { SubagentCatalogEntry } from './projection-types.ts'
@@ -134,7 +135,9 @@ export type { AgentMessageSource, SubagentSettledMessageSource } from './continu
 export type * from './control-types.ts'
 export type { SubagentDescendantListEntry } from './list-children.ts'
 export type { SubagentRunEndInfo, SubagentRunInfo } from './types.ts'
-export type { SubagentIdentityProjection, SubagentTimingProjection } from './projection-types.ts'
+export type {
+  SubagentActivityProjection, SubagentIdentityProjection, SubagentTimingProjection, SubagentToolActivity,
+} from './projection-types.ts'
 export type * from './projection.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -236,6 +239,7 @@ export class SubagentRuntime extends TypertRemoteService {
       projections.register(subagentCatalogProjectionDefinition)
       projections.register(subagentTimingProjectionDefinition)
       projections.register(subagentIdentityProjectionDefinition)
+      projections.register(subagentActivityProjectionDefinition)
     })
     // Archive admission: this runtime is the owner that knows which live
     // children descend from a Session and how a parent stops them.

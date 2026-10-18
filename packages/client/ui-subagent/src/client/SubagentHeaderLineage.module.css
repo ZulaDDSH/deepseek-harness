@@ -223,7 +223,8 @@
 }
 
 .label,
-.summary {
+.summary,
+.liveLine {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -239,6 +240,7 @@
 }
 
 .summary,
+.liveLine,
 .metrics {
   color: var(--dsw-alias-label-tertiary);
   font-size: 10px;
