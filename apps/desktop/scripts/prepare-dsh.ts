@@ -2,7 +2,7 @@
 
 import { packagingStep } from './packaging-step.mjs'
 import { spawn } from 'node:child_process'
-import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join, relative, resolve } from 'node:path'
 import { desktopNodeEnvironment } from '../src/node-environment.ts'
@@ -48,6 +48,19 @@ function manifestVersion(path: string, subject: string): string {
   const manifest = JSON.parse(readFileSync(path, 'utf8')) as { version?: unknown }
   if (typeof manifest.version !== 'string') throw new Error(`desktop runtime: ${subject} has no version`)
   return manifest.version
+}
+
+const RUNTIME_PATCHES: Readonly<Record<string, string>> = { '@ubjs/node@0.31.0-3': '@ubjs__node@0.31.0-3.patch' }
+
+function stageRuntimePatches(): void {
+  mkdirSync(join(BUILD_ROOT, 'patches'), { recursive: true })
+  const entries = Object.entries(RUNTIME_PATCHES).map(([dependency, file]) => {
+    copyFileSync(resolve(APP_ROOT, '..', '..', 'patches', file), join(BUILD_ROOT, 'patches', file))
+    return `  ${JSON.stringify(dependency)}: ${JSON.stringify(`patches/${file}`)}
+`
+  })
+  appendFileSync(join(BUILD_ROOT, 'pnpm-workspace.yaml'), `patchedDependencies:
+${entries.join('')}`)
 }
 
 function desktopRelease(): DesktopRelease {
@@ -121,6 +134,7 @@ async function main(): Promise<void> {
       copyFileSync(join(PACKAGE_SET_ROOT, DESKTOP_PACKAGE_SET_FILE), join(BUILD_ROOT, DESKTOP_PACKAGE_SET_FILE))
       cpSync(join(PACKAGE_SET_ROOT, DESKTOP_PACKAGES_DIR), join(BUILD_ROOT, DESKTOP_PACKAGES_DIR), { recursive: true })
       createRuntimeProjectMetadata(BUILD_ROOT, release)
+      stageRuntimePatches()
     })
     await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:lockfile', () => runPnpm(['install', '--lockfile-only']))
     verifyDesktopCoreLockfile(

@@ -32,7 +32,7 @@
             - text: deepseek-flash
           - textbox "显示名称 1":
             - /placeholder: 显示名称
-            - text: DeepSeek-V41-Flash
+            - text: DeepSeek-V41-Flash-1017
           - button "模型选项 1"
           - button "删除模型 1"
           - textbox "模型 ID 2":
