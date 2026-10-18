@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type {
   ModelCatalog, ModelProviderGroup, SessionRunOptions,
 } from '@deepseek-ai/dsh-api-session-controller/types'
@@ -246,8 +246,9 @@ describe('SubagentSetupView', () => {
       },
     })
     expect(await screen.findByText(t('row.noCredential', { model: 'billed-model' }))).toBeTruthy()
-    expect(screen.queryByRole('option', { name: 'Provider B' })).toBeNull()
+    fireEvent.click(screen.getByRole('combobox', { name: en['role.reviewer'] }))
     expect(screen.queryByRole('option', { name: 'Billed Model' })).toBeNull()
+    expect(screen.getByRole('option', { name: 'Quick Flash' })).toBeTruthy()
   })
 
   it('locks every control on a child session and names the top-level session', () => {
@@ -407,9 +408,11 @@ describe('GSD workflow and global defaults in the Orchestrator & Subagent Setup 
     flag.set(true)
     expect(seen).toEqual([{ available: true }, undefined])
     renderSetup({ mode: 'global', claude: true })
+    fireEvent.click(screen.getByRole('combobox', { name: en['role.coder'] }))
     expect(screen.getAllByRole('option', { name: en['choice.claude'] }).length).toBeGreaterThan(0)
     cleanup()
     renderSetup({ mode: 'global', claude: false })
+    fireEvent.click(screen.getByRole('combobox', { name: en['role.coder'] }))
     expect(screen.queryAllByRole('option', { name: en['choice.claude'] })).toEqual([])
   })
 
@@ -427,5 +430,97 @@ describe('GSD workflow and global defaults in the Orchestrator & Subagent Setup 
     for (const word of ['编排器', '子代理', 'GSD', '默认', '编码者', '审查者', '研究者']) {
       expect(zh['search.keywords']).toContain(word)
     }
+  })
+})
+
+describe('searchable role model picker', () => {
+  const multi: ModelCatalog = {
+    default: { provider: 'provider-a', model: 'quick-flash' },
+    routableProviders: ['provider-a', 'provider-b'],
+    groups: [...groups, { id: 'provider-b', name: 'Provider B', models: [{ id: 'sonnet-x', name: 'Sonnet Ten' }] }],
+    failures: [],
+  }
+  const open = async (role: string) => {
+    await screen.findAllByRole('combobox')
+    fireEvent.click(screen.getByRole('combobox', { name: role }))
+    return screen.getByPlaceholderText(en['picker.search'])
+  }
+
+  it('filters the options by model name, model id or provider name', async () => {
+    renderSetup({ catalog: multi })
+    const box = await open(en['role.coder'])
+    fireEvent.change(box, { target: { value: 'sonnet' } })
+    expect(within(screen.getByRole('listbox')).getAllByRole('option').map(option => option.textContent)).toEqual(['Sonnet Ten'])
+    fireEvent.change(box, { target: { value: 'provider a' } })
+    expect(within(screen.getByRole('listbox')).getAllByRole('option').map(option => option.textContent)).toEqual(['Quick Flash', 'Deep Reasoner'])
+    fireEvent.change(box, { target: { value: 'nothing-here' } })
+    expect(within(screen.getByRole('listbox')).queryAllByRole('option')).toEqual([])
+    expect(screen.getByText(en['picker.empty'])).toBeTruthy()
+  })
+
+  it('picks with the keyboard and writes the same role shape as before', async () => {
+    const { saveRunOptions } = renderSetup({ catalog: multi, current: {} })
+    const box = await open(en['role.coder'])
+    fireEvent.change(box, { target: { value: 'deep' } })
+    fireEvent.keyDown(box, { key: 'ArrowDown' })
+    fireEvent.keyDown(box, { key: 'Enter' })
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(screen.getByRole('combobox', { name: en['role.coder'] }).textContent).toContain('Deep Reasoner')
+    fireEvent.click(screen.getByRole('button', { name: en['setup.save'] }))
+    await waitFor(() => { expect(saveRunOptions).toHaveBeenCalledTimes(1) })
+    expect(saveRunOptions.mock.calls[0]?.[0].subagentSetup?.roles.coder).toEqual({
+      mode: 'fixed',
+      route: { backend: 'llm', provider: 'provider-a', model: 'deep-reasoner' },
+    })
+  })
+
+  it('closes on Escape without changing the choice', async () => {
+    renderSetup({ catalog: multi, current: {} })
+    const box = await open(en['role.coder'])
+    fireEvent.keyDown(box, { key: 'Escape' })
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(screen.getByRole('button', { name: en['setup.save'] }).hasAttribute('disabled')).toBe(true)
+  })
+
+  it('keeps provider, model and effort for each role in one row', async () => {
+    renderSetup({
+      current: {
+        subagentSetup: {
+          enabled: true,
+          reviewRounds: 0,
+          roles: { reviewer: { mode: 'fixed', route: { backend: 'llm', provider: 'provider-a', model: 'deep-reasoner', reasoningEffort: 'high' } } },
+        },
+      },
+    })
+    const effort = await screen.findByLabelText(t('row.effort', { role: en['role.reviewer'] }))
+    const row = screen.getByRole('combobox', { name: en['role.reviewer'] }).closest(`.${css.row}`)
+    expect(row?.contains(effort)).toBe(true)
+    expect(row?.textContent).toContain('Provider A')
+  })
+})
+
+describe('settings filter', () => {
+  it('shows only the rows that match and says so when none do', () => {
+    renderSetup({ mode: 'global' })
+    const filter = screen.getByRole('searchbox', { name: en['filter.settings'] })
+    fireEvent.change(filter, { target: { value: 'review' } })
+    expect(screen.getByRole('combobox', { name: en['role.reviewer'] })).toBeTruthy()
+    expect(screen.queryByRole('combobox', { name: en['role.coder'] })).toBeNull()
+    expect(screen.getByText(en['setup.rounds'])).toBeTruthy()
+    expect(screen.queryByText(en['gsd.group'])).toBeNull()
+    fireEvent.change(filter, { target: { value: 'zzz' } })
+    expect(screen.getByText(t('filter.settingsEmpty', { query: 'zzz' }))).toBeTruthy()
+    fireEvent.change(filter, { target: { value: 'gsd' } })
+    expect(screen.getByText(en['gsd.group'])).toBeTruthy()
+    expect(screen.getByLabelText(en['gsd.gates'])).toBeTruthy()
+  })
+
+  it('keeps unsaved edits while rows are filtered out', () => {
+    renderSetup({ mode: 'global' })
+    fireEvent.click(screen.getByRole('switch', { name: en['setup.enable'] }))
+    fireEvent.change(screen.getByRole('searchbox', { name: en['filter.settings'] }), { target: { value: 'coder' } })
+    expect(screen.queryByRole('switch', { name: en['setup.enable'] })).toBeNull()
+    fireEvent.change(screen.getByRole('searchbox', { name: en['filter.settings'] }), { target: { value: '' } })
+    expect(screen.getByRole('switch', { name: en['setup.enable'] }).getAttribute('aria-checked')).toBe('true')
   })
 })
