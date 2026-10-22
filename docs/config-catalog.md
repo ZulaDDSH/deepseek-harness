@@ -344,7 +344,7 @@ export interface QuotaBillingSwitch {
 
 - `inject`: `agentDefaultModel` · `agents` · `attachments` · `fileUploads` · `fs` · `llm` · `sessions` · `sessionProjections` · `sessionQuery` · `typert` · `workspaceRegistry`
 - `refs`: `Volatile` (`@deepseek-ai/cordis`)
-- `source`: [`packages/api/session-controller/src/index.ts:93`](../packages/api/session-controller/src/index.ts)
+- `source`: [`packages/api/session-controller/src/index.ts:95`](../packages/api/session-controller/src/index.ts)
 
 ```ts config-catalog
 /** Session Controller deployment policy. */
@@ -4053,14 +4053,15 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-master-control`
 
 - `inject`: `tools` · `agents`
-- `source`: [`packages/subagent/tool-master-control/src/index.ts:13`](../packages/subagent/tool-master-control/src/index.ts)
+- `source`: [`packages/subagent/tool-master-control/src/index.ts:20`](../packages/subagent/tool-master-control/src/index.ts)
 
 ```ts config-catalog
+/** Master control configuration specifying managed session enrollment. */
 export interface Config {
   /** When true, every loaded session other than the caller is enrolled. */
-  managedAll: boolean
+  managedAll?: boolean
   /** Session ids enrolled when `managedAll` is false. Empty by default. */
-  managed: string[]
+  managed?: string[]
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-master-control -->

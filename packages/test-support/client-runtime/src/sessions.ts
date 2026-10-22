@@ -608,8 +608,8 @@ export class TestSessions implements ISessions {
   }
 
   /**
-   * Install Session creation behavior for navigation tests.
-   * @param impl - implementation that must return an already-added fixture id.
+   * Install Master Control behavior for navigation and import tests.
+   * @param operations - stub implementations for Master Control operations.
    */
   stubMasterControl(operations: Pick<ISessions, 'masterHome' | 'externalChats' | 'importChats'>): void {
     this.masterControlStub = operations
@@ -630,6 +630,10 @@ export class TestSessions implements ISessions {
     return this.masterControlStub.importChats(keys)
   }
 
+  /**
+   * Install Session creation behavior for navigation tests.
+   * @param impl - implementation that must return an already-added fixture id.
+   */
   stubCreate(impl: (opts: Parameters<ISessions['create']>[0]) => Promise<SessionId>): void {
     this.createStub = impl
   }

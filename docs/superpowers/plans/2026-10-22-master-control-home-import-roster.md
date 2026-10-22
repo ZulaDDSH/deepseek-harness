@@ -28,7 +28,7 @@ Automated checks must prove imported text enters derived model history, import d
 
 ## Validation record
 
-Validated locally on 2026-10-22 in `D:/Projects/MyAIGUI/DeepSeekHarness/git/master-home-import-roster`, branch `feat/master-home-import-roster`, based on `980b52198ec2643ed7818636c63bc5f39133d83e`. The implementation is uncommitted and includes the preserved mesh-work baseline; the original checkout was left unchanged.
+Validated locally on 2026-10-22 in `D:/Projects/MyAIGUI/DeepSeekHarness/git/master-home-import-roster`, branch `feat/master-home-import-roster`, based on PR #121 (`feat/master-control`). The implementation is uncommitted and includes the preserved mesh-work baseline; the original checkout was left unchanged.
 
 - Focused host/client/mesh suite: 11 files, 107 tests passed. Import tests cover no model call during import, duplicate preservation, malformed-file isolation, imported model history, and persistence after follow-up and reopen.
 - Chromium scaffold: `apps/web/tests/master-control.e2e.ts` passed with a temporary Claude fixture. It exercised repeated home opening, preview/import/open, workspace grouping, search/status filters, a composer follow-up containing imported user/assistant history, and history after reload. The provider was a MockAdapter.

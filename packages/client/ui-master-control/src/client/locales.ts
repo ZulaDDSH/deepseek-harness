@@ -1,4 +1,5 @@
 
+/** Simplified Chinese dictionary and key-set source of truth. */
 export const zh = {
   importChats: '导入对话…',
   importHelp: '导入用户和助手的文字，然后使用 DSH 继续对话。不导入工具、图片、推理或厂商指令。预览显示前 2,000 个字符，导入包含所有支持的文字。',
@@ -39,6 +40,7 @@ export const zh = {
   'time.years': '{n} 年前',
 }
 
+/** English dictionary, checked against the Chinese key set. */
 export const en: Record<keyof typeof zh, string> = {
   importChats: 'Import chats…',
   importHelp: 'Import user and assistant text, then continue with DSH. Tools, images, reasoning, and vendor instructions are excluded. Preview shows the first 2,000 characters; the complete supported text is imported.',
@@ -79,4 +81,5 @@ export const en: Record<keyof typeof zh, string> = {
   'time.years': '{n}y ago',
 }
 
+/** Master Control dictionary key union. */
 export type MasterControlKey = keyof typeof zh

@@ -16,13 +16,15 @@ export const MC_SEND_WAIT_MS = 120_000
 /** Max chars for `mc_list_sessions` last_reply excerpts. */
 export const LAST_REPLY_MAX = 280
 
+/** Master control configuration specifying managed session enrollment. */
 export interface Config {
   /** When true, every loaded session other than the caller is enrolled. */
-  managedAll: boolean
+  managedAll?: boolean
   /** Session ids enrolled when `managedAll` is false. Empty by default. */
-  managed: string[]
+  managed?: string[]
 }
 
+/** Schema and defaults for master control configuration. */
 export const Config: z<Config> = z.object({
   managedAll: z.boolean().default(false),
   managed: z.array(z.string()).default([]),
@@ -35,7 +37,7 @@ function callerOf(caller: Agent | undefined, tool: string): Agent {
 
 function target(ctx: Context, config: Config, caller: Agent, id: string, tool: string): Agent {
   if (id === caller.id) throw new Error(`${tool}: cannot target the calling session itself`)
-  if (!config.managedAll && !config.managed.includes(id)) {
+  if (!config.managedAll && !(config.managed ?? []).includes(id)) {
     throw new Error(`${tool}: session ${id} is not enrolled under master control`)
   }
   const agent = ctx.agents.get(brandString<SessionId>(id))
@@ -112,7 +114,7 @@ export function apply(ctx: Context, config: Config): void {
     execute(_args, exec) {
       const caller = callerOf(exec.agent, 'mc_list_sessions')
       return Promise.resolve(ctx.agents.list()
-        .filter(a => a.id !== caller.id && (config.managedAll || config.managed.includes(a.id)))
+        .filter(a => a.id !== caller.id && (config.managedAll || (config.managed ?? []).includes(a.id)))
         .map((a) => {
           const last = replyText(a)
           return {

@@ -24,6 +24,7 @@ import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import type { SubagentProvider } from '@deepseek-ai/dsh-subagent'
 import * as ToolSubagentControl from '@deepseek-ai/dsh-tool-subagent-control'
 import * as ToolSubagentListAgents from '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+import * as ToolMasterControl from '@deepseek-ai/dsh-tool-master-control'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
 import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
@@ -546,6 +547,23 @@ export const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'The globally named control tools over continuable background subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while this package registers `send_message` and `interrupt_agent` once, plus `list_agents` from its separately loaded `/list-agents` plugin (whose catalog rows use the sessionProjections and live Agent registries).',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-master-control',
+    dir: 'tool-master-control',
+    source: {
+      mc_interrupt: 'packages/subagent/tool-master-control/src/index.ts',
+      mc_list_sessions: 'packages/subagent/tool-master-control/src/index.ts',
+      mc_send: 'packages/subagent/tool-master-control/src/index.ts',
+    },
+    requires: ['ctx.tools', 'ctx.agents'],
+    writes: ['tool/call', 'tool/result', 'steer or interrupt message delivery into target agent turns'],
+    async mount(ctx) {
+      await ctx.plugin(AgentRegistry)
+      await ctx.plugin(ToolMasterControl, { managedAll: true, managed: [] })
+    },
+    note:
+      'Session control and messaging tools for peer agents: mc_list_sessions, mc_send, and mc_interrupt. Targets must be loaded in ctx.agents and enrolled via managed or managedAll.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-jobs',

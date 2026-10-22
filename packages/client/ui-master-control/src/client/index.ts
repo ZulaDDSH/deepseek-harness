@@ -27,12 +27,19 @@ declare module '@deepseek-ai/dsh-api-session-controller/client' {
   }
 }
 
+/** Dictionary namespace owned by Master Control. */
 export const NS = 'masterControl'
 
+/** The id shared by the sidebar entry and the main panel it opens. */
 export const PANEL_ID = 'master-control' as MainPanelId
 
 export const inject = ['slots', 'locale', 'sessions', 'uiWorkspace', 'workspaces']
 
+/**
+ * Open the dedicated Master Control home session in the current UI workspace.
+ * @param sessions - session service.
+ * @param uiWorkspace - workspace navigation service.
+ */
 export async function openMasterChat(sessions: ISessions, uiWorkspace: UiWorkspace): Promise<void> {
   uiWorkspace.openSession(await sessions.masterHome())
 }
