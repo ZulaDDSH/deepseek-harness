@@ -28,7 +28,7 @@ function list(...rows: SessionSummary[]): SessionListState {
 function props(over: Partial<MasterControlPageProps> & {
   sessions?: SessionListState
   status?: SessionStatusSnapshot
-}): MasterControlPageProps {
+} = {}): MasterControlPageProps {
   const sessions = over.sessions ?? list()
   const status = over.status ?? new Map() as unknown as SessionStatusSnapshot
   return {
@@ -58,7 +58,7 @@ describe('MasterControlPage', () => {
     )
     render(<MasterControlPage {...props({ sessions, open, interrupt })} />)
     expect(screen.getByText('Running job')).toBeTruthy()
-    fireEvent.click(screen.getAllByRole('button', { name: 'Open' })[1]!)
+    fireEvent.click(screen.getAllByRole('button', { name: 'Open' })[0]!)
     expect(open).toHaveBeenCalledWith('run')
     fireEvent.click(screen.getByRole('button', { name: 'Interrupt' }))
     expect(interrupt).toHaveBeenCalledWith('run')

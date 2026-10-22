@@ -11,7 +11,9 @@ export const name = 'tool-master-control'
 export const inject = ['tools', 'agents']
 
 export interface Config {
+  /** When true, every loaded session other than the caller is enrolled. */
   managedAll: boolean
+  /** Session ids enrolled when `managedAll` is false. Empty by default. */
   managed: string[]
 }
 

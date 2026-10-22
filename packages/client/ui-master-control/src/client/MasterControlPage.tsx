@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Button, IconStopFill16, StateDot, relativeTime, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconStopFillRegular, StateDot, relativeTime, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { masterRows, type RowState } from './rows.ts'
 import css from './MasterControlPage.module.css'
@@ -56,7 +56,7 @@ export function MasterControlPage({ useSessions, useSessionStatus, open, interru
                     <td className={css.actions}>
                       <Button size="sm" onClick={() => { open(row.id) }}>{t('open')}</Button>
                       {row.state === 'running' && (
-                        <Button size="sm" icon={<IconStopFill16 />} onClick={() => { interrupt(row.id).catch((error: unknown) => { console.error(error) }) }}>
+                        <Button size="sm" icon={<IconStopFillRegular />} onClick={() => { interrupt(row.id).catch((error: unknown) => { console.error(error) }) }}>
                           {t('interrupt')}
                         </Button>
                       )}
