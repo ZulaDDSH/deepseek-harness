@@ -1,0 +1,67 @@
+/* Master Control page: a centred column holding the session table. */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  box-sizing: border-box;
+  height: 100%;
+  overflow: auto;
+  padding: 28px clamp(24px, 4vw, 48px) 48px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.page > * {
+  width: 100%;
+  max-width: 960px;
+  margin-inline: auto;
+}
+
+.title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 500;
+}
+
+.intro,
+.empty,
+.cwd {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.table {
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.table th {
+  text-align: left;
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  padding: 0 12px 8px 0;
+}
+
+.table td {
+  padding: 10px 12px 10px 0;
+  border-top: 1px solid var(--dsw-alias-border-subtle, rgba(128, 128, 128, 0.2));
+  vertical-align: middle;
+}
+
+.name {
+  font-weight: 500;
+}
+
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}

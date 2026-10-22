@@ -321,6 +321,11 @@
     - id: ui-memory-workspace
       name: '@deepseek-ai/dsh-client-ui-memory-workspace'
 
+    # Master Control: the sidebar panel above Plugins listing every Session
+    # with its live state, an open action, and interrupt for running turns.
+    - id: ui-master-control
+      name: '@deepseek-ai/dsh-client-ui-master-control'
+
     # Plugin management: the sidebar Plugins page installs, enables, disables,
     # and removes the profile's bundles through the `pluginManager` Remote.
     # Without a profile-backed Host it reports itself unavailable.

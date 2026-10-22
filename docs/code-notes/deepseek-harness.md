@@ -1054,3 +1054,26 @@ Known ceiling: the deny list is computed once when the child starts. A server th
 ## Desktop runtime install applies the @ubjs/node patch
 
 `apps/desktop/scripts/prepare-dsh.ts:stageRuntimePatches` copies `patches/@ubjs__node@0.31.0-3.patch` into the disposable runtime project and appends `patchedDependencies` to its `pnpm-workspace.yaml`. The packaged runtime is installed by a separate pnpm project from the packed package set, so the repository's `patchedDependencies` never reached it: build 20261017.3 still resolved `cua_driver_sdk.dll` inside `app.asar` and Computer Use kept failing with os error 126. Verified by running the packaged `DeepSeek Harness.exe` with `ELECTRON_RUN_AS_NODE` and calling `resolveLibPath`.
+
+## packages/client/ui-master-control/src/client/index.ts:apply
+
+Master Control is a global sidebar panel (`PANEL_ID = 'master-control'`) plus a `main` page, registered the same way as `ui-plugin-manager/src/client/index.ts:apply`. Plugins registers at `order: 0` and ties keep registration order, so the entry uses `order: -10` to sit above Plugins regardless of load order. `interrupt` goes through `sessions.using(..., { source: 'masterControl' })` and `session.cancel()`, the same path the workspace operations use; the source label is merged into `SessionReferenceSourceMap` in this file. The page reads sessions through the root hooks `useSessions` and `useSessionStatus`, so no plugin-owned store is needed.
+
+## packages/client/ui-master-control/src/client/rows.ts:masterRows
+
+Rows sort attention, failed, running, idle, each most recent first. State precedence is pending interaction, then unread failure, then running (UI status map first, summary `running` as fallback). Blank New Session placeholders are dropped. Delegated children are listed flat with `child: true`; nesting is left for the master-agent step.
+
+## packages/subagent/tool-master-control/src/index.ts:apply
+
+- `mc_list_sessions`, `mc_send`, `mc_interrupt` exist because `send_message`/`interrupt_agent` only reach adjacent children; the master must reach any enrolled loaded session.
+- Caller guard: `authorize` requires `delegationDepthOf(caller) === 0`, so only a root agent can act as master.
+- Enrollment: `target` rejects ids not in `Config.managed` unless `Config.managedAll`. The shipped `master` preset sets `managedAll: true` so every loaded session is enrolled; selective lists use `managedAll: false` and `managed: [ids]` on that plugin row.
+- `mc_send` uses `Agent.steer` (starts a turn when idle, steers the next step when running) with an `agent-message` relay source so the transcript attributes it to the master.
+- `mc_interrupt` cancels with `{kind:'parent'}`, the closest existing `AgentCancelCause`; the session stays usable.
+- v1 reaches only agents present in `ctx.agents` (loaded); unloaded sessions error with "not loaded".
+
+## packages/bundle/web-app/presets/master.patch.yml
+
+- The `master` preset is the only place `orchestration-policy` and `tool-master-control` are mounted, so only sessions started on it get the root-orchestrator prompt and the `mc_*` tools; other presets are unchanged.
+- It is a trimmed copy of `lean` (read/glob/grep only) plus the delegation tools, because presets have no `extends`.
+

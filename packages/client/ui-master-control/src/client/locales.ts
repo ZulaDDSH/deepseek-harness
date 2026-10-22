@@ -1,0 +1,48 @@
+
+export const zh = {
+  panel: '总控',
+  title: '总控',
+  intro: '查看并管理所有会话',
+  empty: '还没有会话。',
+  loading: '正在读取会话…',
+  'col.session': '会话',
+  'col.status': '状态',
+  'col.updated': '更新',
+  'status.running': '运行中',
+  'status.attention': '需要处理',
+  'status.failed': '失败',
+  'status.idle': '空闲',
+  open: '打开',
+  interrupt: '中断',
+  'time.now': '刚刚',
+  'time.minutes': '{n} 分钟前',
+  'time.hours': '{n} 小时前',
+  'time.days': '{n} 天前',
+  'time.months': '{n} 个月前',
+  'time.years': '{n} 年前',
+}
+
+export const en: Record<keyof typeof zh, string> = {
+  panel: 'Master Control',
+  title: 'Master Control',
+  intro: 'See and manage every session',
+  empty: 'No sessions yet.',
+  loading: 'Reading sessions…',
+  'col.session': 'Session',
+  'col.status': 'Status',
+  'col.updated': 'Updated',
+  'status.running': 'Running',
+  'status.attention': 'Needs attention',
+  'status.failed': 'Failed',
+  'status.idle': 'Idle',
+  open: 'Open',
+  interrupt: 'Interrupt',
+  'time.now': 'now',
+  'time.minutes': '{n}min ago',
+  'time.hours': '{n}h ago',
+  'time.days': '{n}d ago',
+  'time.months': '{n}mo ago',
+  'time.years': '{n}y ago',
+}
+
+export type MasterControlKey = keyof typeof zh
