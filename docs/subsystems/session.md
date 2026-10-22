@@ -766,6 +766,12 @@ The backends that consume this contract are on [persistence.md](persistence.md).
 
 The optional `application` selects a registered file handler without changing the system default; `workspacePathApplications({ path })` returns current handlers, names, icons, and default selection after Host path verification.
 
+## External text history imports
+
+The browser-safe declarations in `packages/api/session-controller/src/types.ts` define discovery and import. `ExternalChatKey` is an opaque source/path identity, and `ExternalChatSource` is `claude` or `codex`. An `ExternalChat` contains its key, source, title, optional cwd, update time, supported-message count, bounded text preview, and optional row error. `ExternalChatCatalog` contains those `items` and a `limited` flag for a bounded discovery result.
+
+`ExternalChatImportRequest.keys` names selected discovery rows. `ExternalChatImportValue.items` contains one `ExternalChatImportResult` per distinct selected key, with an optional DSH session id, duplicate flag, or error. Successful creation is durable before its result is returned. An existing import is preserved; one failing row does not abort other rows. These operations import text into ordinary DSH sessions rather than continuing vendor processes. The [package reference](../../packages/api/session-controller/README.md#master-control-and-text-import) owns discovery limits and supported content.
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>
@@ -823,6 +829,25 @@ inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionInspectio
  * @returns authorized bounded Session search results.
  */
 @Remote('search') search(request: SessionSearchRequest, signal: AbortSignal): Promise<SessionSearchValue>
+
+/**
+ * Resolve the dedicated ungrouped home; concurrent requests share creation.
+ * @returns the durable master session identity.
+ */
+@Remote('masterHome') masterHome(): Promise<SessionCreateValue>
+
+/**
+ * Discover recent supported external chats without importing or running them.
+ * @returns at most 100 rows with supported-text previews and per-file errors.
+ */
+@Remote('externalChats') externalChats(): Promise<ExternalChatCatalog>
+
+/**
+ * Import discovered text histories; preserve existing imports and isolate row failures.
+ * @param request - keys returned by external chat discovery.
+ * @returns per-key outcomes after successful imports reach durable storage.
+ */
+@Remote('importChats') importChats(request: ExternalChatImportRequest): Promise<ExternalChatImportValue>
 
 /**
  * Create or idempotently adopt one ordinary Session.

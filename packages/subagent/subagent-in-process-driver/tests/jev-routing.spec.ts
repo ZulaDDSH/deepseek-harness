@@ -35,7 +35,7 @@ const ROUTES: JevRouter.JevRoute[] = [
   { id: 'second', provider: 'mock', model: SECOND_MODEL, description: 'A later root turn' },
 ]
 
-function jevConfig(): JevRouter.Config {
+function jevConfig() {
   return {
     enabled: true,
     apiKeyEnv: 'TYPESAFE_API_KEY',
@@ -44,9 +44,9 @@ function jevConfig(): JevRouter.Config {
     timeoutMs: 1000,
     minConfidence: 0.5,
     stateMaxChars: 12000,
-    fallback: 'keep',
+    fallback: 'keep' as const,
     failOpen: true,
-    routes: ROUTES,
+    routes: [...ROUTES],
   }
 }
 
@@ -107,7 +107,7 @@ function registerDelegate(ctx: Context, parent: Agent): () => void {
       const run = await startInProcessRun(childRequest(parent), {})
       try {
         const result = await run.result
-        return result.output
+        return [...result.output]
       } finally {
         await run.dispose()
       }

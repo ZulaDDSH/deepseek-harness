@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
@@ -30,17 +30,55 @@ function props(over: Partial<MasterControlPageProps> & {
   status?: SessionStatusSnapshot
 } = {}): MasterControlPageProps {
   const sessions = over.sessions ?? list()
-  const status = over.status ?? new Map() as unknown as SessionStatusSnapshot
+  const status = over.status ?? new Map()
   return {
     useSessions: <S,>(selector: (state: SessionListState) => S): S => selector(sessions),
     useSessionStatus: <S,>(selector: (snapshot: SessionStatusSnapshot) => S): S => selector(status),
+    discover: over.discover ?? vi.fn(async () => ({ items: [], limited: false })),
+    importChats: over.importChats ?? vi.fn(async () => ({ items: [] })),
+    useWorkspaces: (selector: (state: { items: never[] }) => unknown) => selector({ items: [] }),
     open: over.open ?? vi.fn(),
     interrupt: over.interrupt ?? vi.fn(async () => undefined),
+    openMasterChat: over.openMasterChat ?? vi.fn(async () => undefined),
     t: makeTranslate(en),
   } as unknown as MasterControlPageProps
 }
 
 describe('MasterControlPage', () => {
+  it('filters the roster by title or cwd and live state, and hides the home', () => {
+    render(<MasterControlPage {...props({ sessions: list(
+      summary('master-control-home-example'),
+      summary('a', { displayTitle: 'Build client', cwd: 'D:/Alpha', running: true }),
+      summary('b', { displayTitle: 'Review server', cwd: 'D:/Beta' }),
+    ) })} />)
+    expect(screen.queryByText('master-control-home-example')).toBeNull()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search title or folder' }), { target: { value: 'beta' } })
+    expect(screen.getByText('Review server')).toBeTruthy()
+    expect(screen.queryByText('Build client')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Running' }))
+    expect(screen.getByText('No matching sessions.')).toBeTruthy()
+  })
+
+  it('previews selected imports, reports per-row failures, and opens an imported chat', async () => {
+    const open = vi.fn()
+    const importChats = vi.fn(async () => ({ items: [{ key: 'good' as never, sessionId: 'imported-one' as never }, { key: 'bad' as never, error: 'File changed' }] }))
+    render(<MasterControlPage {...props({ open, importChats, discover: async () => ({ limited: true, items: [
+      { key: 'good' as never, source: 'codex', title: 'My chat', updatedAt: 1, messageCount: 2, preview: 'user: Earlier prompt' },
+      { key: 'bad' as never, source: 'claude', title: 'Other chat', updatedAt: 1, messageCount: 1, preview: 'user: Other' },
+    ] }) })} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Import chats…' }))
+    await screen.findByRole('checkbox', { name: 'codex: My chat' })
+    expect(screen.getByText('user: Earlier prompt')).toBeTruthy()
+    fireEvent.click(screen.getByRole('checkbox', { name: 'codex: My chat' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'claude: Other chat' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Import selected' }))
+    await screen.findByText('Other chat: File changed')
+    expect(importChats).toHaveBeenCalledWith(['good', 'bad'])
+    const imported = screen.getByText('My chat: Imported')
+    fireEvent.click(within(imported).getByRole('button', { name: 'Open' }))
+    expect(open).toHaveBeenCalledWith('imported-one')
+  })
+
   it('shows empty copy when ready with no sessions and loading otherwise', () => {
     expect(render(<MasterControlPage {...props()} />).getByText('No sessions yet.')).toBeTruthy()
     cleanup()
@@ -49,15 +87,18 @@ describe('MasterControlPage', () => {
     expect(render(<MasterControlPage {...props({ sessions: loading })} />).getByText('Reading sessions…')).toBeTruthy()
   })
 
-  it('opens a row and interrupts a running turn', async () => {
+  it('opens a row, interrupts a running turn, and opens master chat', async () => {
     const open = vi.fn()
     const interrupt = vi.fn(async () => undefined)
+    const openMasterChat = vi.fn(async () => undefined)
     const sessions = list(
       summary('idle'),
-      summary('run', { running: true, displayTitle: 'Running job' }),
+      summary('run', { running: true, displayTitle: 'Running job', updatedAt: Date.now() + 1 }),
     )
-    render(<MasterControlPage {...props({ sessions, open, interrupt })} />)
+    render(<MasterControlPage {...props({ sessions, open, interrupt, openMasterChat })} />)
     expect(screen.getByText('Running job')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Open master chat' }))
+    expect(openMasterChat).toHaveBeenCalledOnce()
     fireEvent.click(screen.getAllByRole('button', { name: 'Open' })[0]!)
     expect(open).toHaveBeenCalledWith('run')
     fireEvent.click(screen.getByRole('button', { name: 'Interrupt' }))

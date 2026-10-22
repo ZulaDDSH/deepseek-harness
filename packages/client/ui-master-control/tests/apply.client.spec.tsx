@@ -6,7 +6,7 @@ import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
-import { apply, inject, NS, PANEL_ID } from '../src/client/index.ts'
+import { apply, inject, NS, PANEL_ID, openMasterChat } from '../src/client/index.ts'
 import { MasterControlPage } from '../src/client/MasterControlPage.tsx'
 import { MasterControlIcon } from '../src/client/MasterControlIcon.tsx'
 import { apply as hostApply } from '../src/index.ts'
@@ -19,14 +19,29 @@ async function bench() {
   await ctx.plugin(SlotRegistry).await()
   const locale = new LocaleRuntime(ctx)
   ctx.provide('locale', locale)
-  const cancel = vi.fn(async () => ({ ok: true as const, value: undefined }))
-  const using = vi.fn(async (_id: string, _source: unknown, run: (reference: { binding: { session: { cancel: typeof cancel } } }) => Promise<void>) => {
+  type CancelResult =
+    | { ok: true; value: undefined }
+    | { ok: false; error: { code: string; message: string } }
+  const cancel = vi.fn(async (): Promise<CancelResult> => ({ ok: true, value: undefined }))
+  type CancelReference = { binding: { session: { cancel: typeof cancel } } }
+  const using = vi.fn(async (_id: string, _source: unknown, run: (reference: CancelReference) => Promise<void>) => {
     await run({ binding: { session: { cancel } } })
   })
   const openSession = vi.fn()
-  ctx.provide('sessions', { using } as never)
+  const create = vi.fn(async () => 'new-master')
+  const sessionsList = {
+    getSnapshot: () => ({
+      ids: [] as string[],
+      byId: {} as Record<string, { projectionValues?: { agentPreset?: string } }>,
+    }),
+  }
+  const workspacesList = {
+    getSnapshot: () => ({ items: [{ workspaceId: 'w1' }] }),
+  }
+  ctx.provide('sessions', { using, masterHome: create, create, list: sessionsList } as never)
   ctx.provide('uiWorkspace', { openSession } as never)
-  return { ctx, slots: ctx.get('slots') as SlotRegistry, cancel, using, openSession }
+  ctx.provide('workspaces', { list: workspacesList } as never)
+  return { ctx, slots: ctx.get('slots') as SlotRegistry, cancel, using, openSession, create, sessionsList, workspacesList }
 }
 
 function declare(slots: SlotRegistry): () => void {
@@ -45,10 +60,10 @@ describe('ui-master-control apply', () => {
   })
 
   it('declares the services the page and interrupt path use', () => {
-    expect(inject).toEqual(['slots', 'locale', 'sessions', 'uiWorkspace'])
+    expect(inject).toEqual(['slots', 'locale', 'sessions', 'uiWorkspace', 'workspaces'])
   })
 
-  it('registers the sidebar entry above Plugins and injects open/interrupt', async () => {
+  it('registers the sidebar entry above Plugins and injects open/interrupt/openMasterChat', async () => {
     const b = await bench()
     declare(b.slots)
     const fiber = b.ctx.plugin({ inject: [...inject], apply })
@@ -69,18 +84,34 @@ describe('ui-master-control apply', () => {
       useWorkspaces={unread} useResource={unread} />)
     expect(glyph.container.querySelector('svg')?.getAttribute('width')).toBe('18')
 
-    const face = (entry.inject as unknown as () => { open: (id: string) => void; interrupt: (id: string) => Promise<void> })()
+    const face = (entry.inject as unknown as () => {
+      open: (id: string) => void
+      interrupt: (id: string) => Promise<void>
+      openMasterChat: () => Promise<void>
+    })()
     face.open('s1')
     expect(b.openSession).toHaveBeenCalledWith('s1')
     await face.interrupt('s1')
     expect(b.using).toHaveBeenCalledWith('s1', { source: 'masterControl' }, expect.any(Function))
     expect(b.cancel).toHaveBeenCalledOnce()
 
-    b.cancel.mockResolvedValueOnce({ ok: false as const, error: { code: 'busy', message: 'still running' } })
+    b.cancel.mockResolvedValueOnce({ ok: false, error: { code: 'busy', message: 'still running' } })
     await expect(face.interrupt('s2')).rejects.toThrow('masterControl.interrupt failed: busy: still running')
+
+    await face.openMasterChat()
+    expect(b.create).toHaveBeenCalledWith()
+    expect(b.openSession).toHaveBeenCalledWith('new-master')
 
     await fiber.dispose()
     expect(b.slots.entries('main')).toHaveLength(0)
     expect(b.slots.entries('sidebar.panellist')).toHaveLength(0)
+  })
+
+  it('opens only the host-resolved home identity', async () => {
+    const openSession = vi.fn()
+    const masterHome = vi.fn(async () => 'home')
+    await openMasterChat({ masterHome } as never, { openSession } as never)
+    expect(masterHome).toHaveBeenCalledOnce()
+    expect(openSession).toHaveBeenCalledWith('home')
   })
 })

@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-tool-master-control",
-  "description": "mc_list_sessions, mc_send, and mc_interrupt tools letting a root master agent steer and stop other enrolled sessions",
+  "description": "mc_list_sessions, mc_send, and mc_interrupt mesh tools for enrolled peer sessions (status, messaging with optional wait, interrupt)",
   "version": "0.2.0-rc.1",
   "publishConfig": {
     "access": "public"

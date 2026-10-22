@@ -1,38 +1,36 @@
-# Agent Note: Master Control panel, tools, and master preset
+# Agent Note: Master Control panel, mesh tools, and master chat
 
 Status: implemented
 
 ## Problem
 
-A root orchestrator had no first-class way to see every loaded session's live state, open one, or interrupt a running turn from the UI, and no tools that could steer or stop a session that was not an adjacent delegated child. `send_message` and `interrupt_agent` only reach continuations the subagent control tools already know. Operators who wanted a "master" session therefore could not enroll other chats without hand-editing composition rows, and the web client had no panel that surfaced attention, failure, running, and idle across the roster.
+Operators need a Claude-style master chat that assigns work to other sessions, lets those sessions talk peer-to-peer, and can answer “how are they doing?” from live status and replies. The first Master Control ship had a roster panel and fire-and-forget `mc_*` tools on a root-only master preset, which was not enough for mesh messaging or status answers with reply text.
 
 ## Decision
 
-Ship three pieces that share one enrollment contract:
-
-1. **`@deepseek-ai/dsh-client-ui-master-control`** — a global sidebar panel (`order: -10`, above Plugins) and main page that lists every non-blank session through the existing `useSessions` / `useSessionStatus` hooks. Rows sort attention, failed, running, idle (then recency). Open uses `uiWorkspace.openSession`; interrupt uses `sessions.using(..., { source: 'masterControl' })` then `session.cancel()`, throwing when cancel is not ok.
-2. **`@deepseek-ai/dsh-tool-master-control`** — `mc_list_sessions`, `mc_send`, and `mc_interrupt` for a root agent only (`delegationDepthOf(caller) === 0`). Targets must be loaded in `ctx.agents` and enrolled via `Config.managed` or `Config.managedAll`. `mc_send` steers with an `agent-message` relay source; `mc_interrupt` cancels with `{ kind: 'parent' }`.
-3. **`master` agent preset** (`packages/bundle/web-app/presets/master.patch.yml`) — mounts `orchestration-policy`, lean-like read/search tools, delegation tools, and `tool-master-control` with `managedAll: true` so every loaded session is enrolled without hand-editing ids. Selective enrollment remains available by setting `managedAll: false` and `managed: [ids]` on that plugin row.
-
-`orchestration-policy` stays opt-in elsewhere: only the master preset mounts it, so other presets' prompt snapshots are unchanged. The Jev router exposes `enabled` so the policy can state the router-owned route clause when routing is on.
+1. **Mesh `tool-master-control`** — Any agent that mounts the tools can `mc_list_sessions` / `mc_send` / `mc_interrupt` enrolled loaded peers (self-target still forbidden). `mc_send` accepts `wait` (default false); when true it awaits `whenIdle` (120s timeout) and returns `reply` from `finalAssistantOutput`. `mc_list_sessions` includes a truncated `last_reply`. Message prefix is `Agent <id> sent a message:`.
+2. **Presets** — Mount `tool-master-control` with `managedAll: true` on `master`, `standard`, and `lean`. Only `master` mounts `orchestration-policy`.
+3. **Home** — `MasterControlSessions.openHome` resolves one reserved master identity on the host, creates it without workspace membership, assigns a durable Master Control title, and recreates it after archival or deletion. Metadata classifies this home as nonblank so ordinary navigation cannot reuse it as a provisional chat. The normal create operation rejects reserved home and import identities.
+4. **Imports** — `ExternalChats` discovers bounded local Claude/Codex logs and exposes supported-text previews. Imports preserve user/assistant text in balanced ordinary DSH history with an empty protected system head, persist before success, attach matching workspaces, and preserve duplicates. Tools, attachments, reasoning, vendor instructions, and live vendor continuation are excluded.
+5. **Roster** — `groupMasterRows` uses existing workspace membership, orders by recency within groups, filters title/cwd and state, and omits home identities from the worker table.
 
 ## Verification
 
-- `tool-master-control` unit tests cover list/send/interrupt, enrollment rejection, self-target, non-root callers, and unloaded targets.
-- `ui-master-control` client tests cover `apply` registration and interrupt failure, `masterRows` ordering, and the page's open / interrupt / empty / loading paths.
-- `orchestration-policy` unit tests and the in-process driver Jev routing spec cover root-only policy text.
+- `tool-master-control` tests: peer send, wait+reply, enrollment, timeout, list excerpts.
+- Host regressions cover repeated home requests, reserved-id refusal, unrelated master sessions, archival, imported model history, duplicate preservation, failure isolation, and shutdown/reopen through JSONL persistence.
+- Client regressions cover real plugin assembly, import outcomes, groups, and filters. `apps/web/tests/master-control.e2e.ts` exercises the actual Chromium/host/client composition with temporary source logs.
+- The local worktree passes focused tests, full build, host/client typechecks, lint, and documentation checks. Provider transport is mocked in follow-up acceptance; the installed user profile is outside this verification.
 
 ## Alternatives considered
 
 | Rejected | Reason |
 |---|---|
-| Reuse `send_message` / `interrupt_agent` for every session | Those tools only address adjacent subagent continuations; a master must reach arbitrary enrolled loaded sessions |
-| Leave `managed` empty and require hand-edited ids | Blocks out-of-the-box use; `managedAll: true` on the master preset is the enrollment default, with selective lists still available in config |
-| Per-row enroll checkboxes writing Host composition config | Needs a Host write path for live agent composition that does not exist yet; defer until that seam ships |
-| Mount orchestration-policy on every root preset | Would change recorded prompt snapshots for every shipped preset; keep it master-only |
+| Rewrite Master Control into a full chat shell | Reuses the existing conversation UI via master preset; smaller surface |
+| Keep root-only `mc_*` | Blocks peer-to-peer session messaging |
+| Fire-and-forget send only | Master cannot answer “how are they doing?” with reply content without wait/list excerpts |
 
 ## Consequences
 
-- Sessions started on the `master` preset can list, steer, and interrupt any loaded session, and receive the root orchestration policy section.
-- The Master Control panel is available in the web bundle for every profile that loads `ui-master-control`, independent of which preset a session uses.
-- Selective enrollment and a dedicated enroll UI remain config-only until a Host composition write API exists.
+- Standard/lean sessions can message each other and the master through the same tools.
+- Long target turns can hit the 120s wait timeout; callers should use `wait=false` for fire-and-forget.
+- Unloaded sessions still cannot be targeted until opened in the UI.

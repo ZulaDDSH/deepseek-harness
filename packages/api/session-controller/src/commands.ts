@@ -2,6 +2,7 @@
 
 import { modelAvailable } from './catalog.ts'
 import { randomUUID } from 'node:crypto'
+import { homedir } from 'node:os'
 import type { Context } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { Agent, ModelSelection as AgentModelSelection } from '@deepseek-ai/dsh-agent'
@@ -110,6 +111,23 @@ export class SessionCommandController {
    * @returns the Session identity and resolved preset when configured.
    */
   async create(request: SessionCreateRequest): Promise<SessionCreateValue> {
+    if (request.sessionId?.startsWith('master-control-home-') === true
+      || request.sessionId?.startsWith('imported-chat-') === true) {
+      throw new RemoteError('gateway/bad-request', 'Master Control home and imported chat identities are reserved', {})
+    }
+    return this.createSession(request)
+  }
+
+  /**
+   * Create or adopt the reserved master home without workspace membership.
+   * @param sessionId - reserved home identity.
+   * @returns the master session identity and preset.
+   */
+  createMasterHome(sessionId: SessionId): Promise<SessionCreateValue> {
+    return this.createSession({ sessionId, agentPreset: 'master', cwd: homedir() })
+  }
+
+  private async createSession(request: SessionCreateRequest): Promise<SessionCreateValue> {
     if (request.workspaceId !== undefined && request.cwd !== undefined) {
       throw new RemoteError('gateway/bad-request', 'session.create accepts workspaceId or cwd, not both', {})
     }

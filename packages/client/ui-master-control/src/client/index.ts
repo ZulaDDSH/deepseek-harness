@@ -31,7 +31,11 @@ export const NS = 'masterControl'
 
 export const PANEL_ID = 'master-control' as MainPanelId
 
-export const inject = ['slots', 'locale', 'sessions', 'uiWorkspace']
+export const inject = ['slots', 'locale', 'sessions', 'uiWorkspace', 'workspaces']
+
+export async function openMasterChat(sessions: ISessions, uiWorkspace: UiWorkspace): Promise<void> {
+  uiWorkspace.openSession(await sessions.masterHome())
+}
 
 export function apply(ctx: ClientContext): void {
   const sessions = ctx.get('sessions') as ISessions
@@ -46,6 +50,9 @@ export function apply(ctx: ClientContext): void {
         if (!result.ok) throw new Error(`masterControl.interrupt failed: ${result.error.code}: ${result.error.message}`)
       })
     },
+    openMasterChat: () => openMasterChat(sessions, uiWorkspace),
+    discover: () => sessions.externalChats(),
+    importChats: keys => sessions.importChats(keys),
   })
   ctx.slots.inject('main', () => ctx.slots.register({
     name: 'main',

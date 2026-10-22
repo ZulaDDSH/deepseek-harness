@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
-import { masterRows } from '../src/client/rows.ts'
+import { groupMasterRows, masterRows } from '../src/client/rows.ts'
 
 function summary(id: string, over: Partial<SessionSummary> = {}): SessionSummary {
   return {
@@ -20,6 +20,15 @@ function list(...rows: SessionSummary[]): SessionListState {
 }
 
 describe('masterRows', () => {
+  it('uses workspace membership, separates identical labels, and sorts within each group by recency', () => {
+    const rows = masterRows(list(summary('older', { updatedAt: 1, running: true }), summary('newer', { updatedAt: 5 }), summary('loose')), new Map() as never)
+    const groups = groupMasterRows(rows, [
+      { workspaceId: 'a', title: 'Project', path: 'D:/a', sessionIds: ['older', 'newer'] },
+      { workspaceId: 'b', title: 'Project', path: 'D:/b', sessionIds: [] },
+    ] as never, '', 'all')
+    expect(groups.map(group => [group.key, group.rows.map(row => row.id)])).toEqual([['a', ['newer', 'older']], ['', ['loose']]])
+  })
+
   it('drops blank sessions and orders attention, failed, running, idle then recency', () => {
     const state = list(
       summary('idle-old', { updatedAt: 1 }),

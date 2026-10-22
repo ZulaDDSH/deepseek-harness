@@ -320,6 +320,7 @@ export class TestSessions implements ISessions {
 
   /** Replaceable search behavior (see {@link TestSessions.stubSearch}). */
   private searchStub: ((query: string, signal: AbortSignal) => { items: SessionSearchResultItem[]; hasMore: boolean }) | undefined
+  private masterControlStub: Pick<ISessions, 'masterHome' | 'externalChats' | 'importChats'> | undefined
   private createStub: ((opts: Parameters<ISessions['create']>[0]) => Promise<SessionId>) | undefined
 
   /**
@@ -610,6 +611,25 @@ export class TestSessions implements ISessions {
    * Install Session creation behavior for navigation tests.
    * @param impl - implementation that must return an already-added fixture id.
    */
+  stubMasterControl(operations: Pick<ISessions, 'masterHome' | 'externalChats' | 'importChats'>): void {
+    this.masterControlStub = operations
+  }
+
+  masterHome(): ReturnType<ISessions['masterHome']> {
+    if (this.masterControlStub === undefined) return Promise.reject(new Error('test sessions: Master Control is not stubbed'))
+    return this.masterControlStub.masterHome()
+  }
+
+  externalChats(): ReturnType<ISessions['externalChats']> {
+    if (this.masterControlStub === undefined) return Promise.reject(new Error('test sessions: Master Control is not stubbed'))
+    return this.masterControlStub.externalChats()
+  }
+
+  importChats(keys: Parameters<ISessions['importChats']>[0]): ReturnType<ISessions['importChats']> {
+    if (this.masterControlStub === undefined) return Promise.reject(new Error('test sessions: Master Control is not stubbed'))
+    return this.masterControlStub.importChats(keys)
+  }
+
   stubCreate(impl: (opts: Parameters<ISessions['create']>[0]) => Promise<SessionId>): void {
     this.createStub = impl
   }

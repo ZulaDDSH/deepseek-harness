@@ -65,3 +65,11 @@
   gap: 8px;
   justify-content: flex-end;
 }
+
+.filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.group { margin-block: 24px; }
+.group h2 { font-size: 16px; font-weight: 500; }
+.group table { width: 100%; }
+.importer { border: 1px solid var(--dsw-alias-border-subtle); padding: 16px; margin-block: 12px; }
+.importRow { padding-block: 12px; }
+.preview { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; }

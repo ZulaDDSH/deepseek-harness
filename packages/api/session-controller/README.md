@@ -70,6 +70,10 @@ Attachment authorization reads declared content fields of built-in Session event
 
 The controller composes `ArchivedSessionGate` through `ctx.plugin`: it loads once the Agent registry, Session store, and Workspace registry exist and unwinds with the controller. Its `agent/pre-step` listener rejects a step proposed for an archived Session or for a subagent descendant of one — read from the Session header's lineage fields, never a fork — so a late waking delivery ends its turn as `blocked` without a model request; unarchiving lifts the gate for the whole lineage. The work an archived Session still runs is reported and stopped by its owners through the Workspace registry's archive admission ([seam](../../workspace/workspace/README.md)): the running turn by the [Agent registry](../../core/agent/README.md), owned jobs by the [job registry seam](../../jobs/jobs/README.md), subagent descendants by the [Subagent](../../subagent/subagent/README.md) runtime, reminders by the [Schedule](../../schedule/schedule/README.md) plugin; this controller reports nothing itself.
 
+### Master Control and text import
+
+`session.masterHome` serializes home resolution and returns a dedicated master-preset session with a durable title and no workspace attachment. It recreates archived or deleted homes. `session.externalChats` discovers up to 100 recent Claude Code and Codex transcript candidates from bounded local scans, returning supported-text previews and per-file errors. `session.importChats` accepts only discovered keys, creates standard-preset DSH sessions with balanced user/assistant text history, attaches matching workspaces, and flushes before reporting success. Import makes no model request. Stable source/path identities preserve existing duplicates. Files over 16 MiB fail individually; source project directories must exist. Tools, attachments, reasoning, vendor instructions, and live vendor continuation are excluded.
+
 <a id="client-references"></a>
 ## Client references
 
