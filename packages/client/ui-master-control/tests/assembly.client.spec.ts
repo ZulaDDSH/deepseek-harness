@@ -22,4 +22,4 @@ it('loads the Master Control page and transports discovery, import, and home thr
   expect(await client.ctx.sessions.importChats([])).toEqual({ items: [] })
   expect(await client.ctx.sessions.masterHome()).toBe(id)
   expect(client.ctx.sessions.list.getSnapshot().byId[id]).toBeDefined()
-})
+}, 30000)

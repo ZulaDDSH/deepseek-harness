@@ -34,6 +34,7 @@ export function MasterControlPage({
   const [filter, setFilter] = useState<RowState | 'all'>('all')
   const [opening, setOpening] = useState(false)
   const [error, setError] = useState<string>()
+  const [importOpen, setImportOpen] = useState(false)
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
   const groups = useMemo(() => groupMasterRows(rows, workspaces, query, filter), [rows, workspaces, query, filter])
   const now = Date.now()
@@ -78,10 +79,23 @@ export function MasterControlPage({
           }}>
             {t('openMasterChat')}
           </Button>
-          <ImportChats discover={discover} importChats={importChats} open={open} t={t} />
+          <Button size="sm" onClick={() => { setImportOpen(o => !o) }}>
+            {t('importChats')}
+          </Button>
         </div>
       </header>
       {error !== undefined && <p role="alert">{error}</p>}
+
+      {importOpen && (
+        <ImportChats
+          discover={discover}
+          importChats={importChats}
+          open={open}
+          t={t}
+          visible={importOpen}
+          setVisible={setImportOpen}
+        />
+      )}
 
       {rows.length > 0 && (
         <div className={css.statsBar}>

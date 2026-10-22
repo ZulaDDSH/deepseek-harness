@@ -28,8 +28,6 @@
             config:
               maxBytes: 65536
               endOfTurnRule: true
-          - id: orchestration-policy
-            name: '@deepseek-ai/dsh-subagent/orchestration-policy'
           - id: tool-fs
             name: '@deepseek-ai/dsh-tool-fs'
             config:
