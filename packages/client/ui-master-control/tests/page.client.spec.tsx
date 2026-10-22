@@ -36,7 +36,7 @@ function props(over: Partial<MasterControlPageProps> & {
     useSessionStatus: <S,>(selector: (snapshot: SessionStatusSnapshot) => S): S => selector(status),
     discover: over.discover ?? vi.fn(async () => ({ items: [], limited: false })),
     importChats: over.importChats ?? vi.fn(async () => ({ items: [] })),
-    useWorkspaces: (selector: (state: { items: never[] }) => unknown) => selector({ items: [] }),
+    useWorkspaces: over.useWorkspaces ?? ((selector: (state: { items: never[] }) => unknown) => selector({ items: [] })),
     open: over.open ?? vi.fn(),
     interrupt: over.interrupt ?? vi.fn(async () => undefined),
     openMasterChat: over.openMasterChat ?? vi.fn(async () => undefined),
@@ -115,5 +115,40 @@ describe('MasterControlPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Interrupt' }))
     await vi.waitFor(() => { expect(error).toHaveBeenCalled() })
     error.mockRestore()
+  })
+
+  it('collapses and expands workspace cards and supports expand/collapse all', () => {
+    const sessions = list(
+      summary('a', { displayTitle: 'Session Alpha', cwd: 'D:/Alpha' }),
+      summary('b', { displayTitle: 'Session Beta', cwd: 'D:/Beta' }),
+    )
+    const workspaces = {
+      items: [
+        { workspaceId: 'w1', title: 'Alpha', path: 'D:/Alpha', sessionIds: ['a'] },
+        { workspaceId: 'w2', title: 'Beta', path: 'D:/Beta', sessionIds: ['b'] },
+      ],
+    }
+    render(<MasterControlPage {...props({
+      sessions,
+      useWorkspaces: selector => selector(workspaces as never),
+    })} />)
+    expect(screen.getByText('Session Alpha')).toBeTruthy()
+    expect(screen.getByText('Session Beta')).toBeTruthy()
+
+    // Collapse All
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse all' }))
+    expect(screen.queryByText('Session Alpha')).toBeNull()
+    expect(screen.queryByText('Session Beta')).toBeNull()
+
+    // Expand All
+    fireEvent.click(screen.getByRole('button', { name: 'Expand all' }))
+    expect(screen.getByText('Session Alpha')).toBeTruthy()
+    expect(screen.getByText('Session Beta')).toBeTruthy()
+
+    // Toggle specific workspace
+    const alphaHeader = screen.getByRole('button', { name: /Alpha/ })
+    fireEvent.click(alphaHeader)
+    expect(screen.queryByText('Session Alpha')).toBeNull()
+    expect(screen.getByText('Session Beta')).toBeTruthy()
   })
 })
