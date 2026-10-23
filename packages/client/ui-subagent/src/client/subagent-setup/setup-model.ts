@@ -163,8 +163,9 @@ export function claudeRolesMissingModel(setup: SubagentSetup): readonly Subagent
 export function subagentSetupOrUndefined(value: unknown): SubagentSetup | undefined {
   if (typeof value !== 'object' || value === null) return undefined
   const candidate = value as Partial<SubagentSetup>
+  const roles: unknown = Reflect.get(value, 'roles')
   if (typeof candidate.enabled !== 'boolean' || typeof candidate.reviewRounds !== 'number'
-    || typeof candidate.roles !== 'object' || candidate.roles === null) return undefined
+    || typeof roles !== 'object' || roles === null || candidate.roles === undefined) return undefined
   const blankClaudeModel = Object.values(candidate.roles).some((setting: unknown) => {
     const route: unknown = typeof setting === 'object' && setting !== null ? Reflect.get(setting, 'route') : undefined
     if (typeof route !== 'object' || route === null || Reflect.get(route, 'backend') !== 'claude-cli') return false

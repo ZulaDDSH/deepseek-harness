@@ -258,6 +258,7 @@ describe('hooks-claude-code prompt hooks — PreToolUse', () => {
     const tool = registerDanger(ctx)
     const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     const get = ctx.get.bind(ctx)
+    // oxlint-disable-next-line typescript/no-unsafe-return -- Mock implementation delegates to bound Cordis get.
     vi.spyOn(ctx, 'get').mockImplementation((name: string, strict?: boolean) => name === 'llm' ? undefined : get(name, strict))
     ask(agent, 'use danger')
     await agent.whenIdle()

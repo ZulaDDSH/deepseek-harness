@@ -81,6 +81,9 @@ function fakeSessions(ctx: Context): { sessions: ISessions; binding: SessionBind
     [Symbol.dispose]() {},
   }
   const sessions: ISessions = {
+    masterHome: vi.fn(),
+    externalChats: vi.fn(),
+    importChats: vi.fn(),
     list,
     searchResultLimit: 50,
     create: () => Promise.reject(new Error('unused fake Sessions operation')),

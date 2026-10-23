@@ -349,6 +349,48 @@ export interface SessionCreateValue {
   readonly agentPreset?: string
 }
 
+/** Opaque identity of a discovered vendor transcript. */
+export type ExternalChatKey = Branded<'external-chat-key'>
+
+/** Supported vendor transcript formats. */
+export type ExternalChatSource = 'claude' | 'codex'
+
+/** Transcript preview or per-file discovery error. */
+export interface ExternalChat {
+  readonly key: ExternalChatKey
+  readonly source: ExternalChatSource
+  readonly title: string
+  readonly cwd?: string
+  readonly updatedAt: number
+  readonly messageCount: number
+  readonly preview: string
+  readonly error?: string
+}
+
+/** Bounded discovery result with an indicator that candidates were omitted. */
+export interface ExternalChatCatalog {
+  readonly items: readonly ExternalChat[]
+  readonly limited: boolean
+}
+
+/** Selected identities from external transcript discovery. */
+export interface ExternalChatImportRequest {
+  readonly keys: readonly ExternalChatKey[]
+}
+
+/** One imported or existing session, or an isolated import error. */
+export interface ExternalChatImportResult {
+  readonly key: ExternalChatKey
+  readonly sessionId?: SessionId
+  readonly duplicate?: boolean
+  readonly error?: string
+}
+
+/** Outcomes for the selected transcript identities. */
+export interface ExternalChatImportValue {
+  readonly items: readonly ExternalChatImportResult[]
+}
+
 /** Session model-selection request. */
 export interface SessionSelectModelRequest extends ModelSelection {
   readonly sessionId: SessionId
