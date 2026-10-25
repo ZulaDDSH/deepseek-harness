@@ -41,6 +41,16 @@ function codepointCompare(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0
 }
 
+// Constraint: CRLF only when it outnumbers bare LF; other files keep exact matching.
+function fileEol(content: string): '\r\n' | '\n' {
+  const crlf = content.split('\r\n').length - 1
+  return crlf > 0 && crlf >= content.split('\n').length - 1 - crlf ? '\r\n' : '\n'
+}
+
+function withEol(value: string, eol: '\r\n' | '\n'): string {
+  return eol === '\n' ? value : value.replace(/\r?\n/g, eol)
+}
+
 function matchOffsets(content: string, search: string): number[] {
   const offsets: number[] = []
   let offset = 0
@@ -294,7 +304,9 @@ async function replaceInFile(
     throw new FsError(`cannot edit "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
   }
   const before = await ctx.fs.readText(target, exec.signal)
-  const offsets = matchOffsets(before, oldValue)
+  const eol = fileEol(before)
+  const searchValue = withEol(oldValue, eol)
+  const offsets = matchOffsets(before, searchValue)
   const offset = offsets[0]
   if (offset === undefined) {
     throw new FsError(
@@ -313,7 +325,7 @@ async function replaceInFile(
   try {
     outcome = await ctx.fs.writeText(
       target,
-      before.slice(0, offset) + newValue + before.slice(offset + oldValue.length),
+      before.slice(0, offset) + withEol(newValue, eol) + before.slice(offset + searchValue.length),
       intent === undefined
         ? { kind: 'replaceIfVersion', version: info.version }
         : { kind: 'replaceIfVersion', version: intent.version },
@@ -345,6 +357,7 @@ async function insertInFile(
     throw new FsError(`cannot insert into "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
   }
   const before = await ctx.fs.readText(target, exec.signal)
+  const eol = fileEol(before)
   const lines = before.split('\n')
   if (!Number.isInteger(insertLine) || insertLine < 0 || insertLine > lines.length) {
     throw new Error(
@@ -353,7 +366,7 @@ async function insertInFile(
   }
   const after = [
     ...lines.slice(0, insertLine),
-    ...value.split('\n'),
+    ...value.split(/\r?\n/).map(line => eol === '\r\n' ? `${line}\r` : line),
     ...lines.slice(insertLine),
   ].join('\n')
   const expected: FsWriteIntent = intent === undefined

@@ -1106,3 +1106,7 @@ Forwards optional `agentPreset` on the Host create RPC so the UI can open a mast
 `packages/client/ui-workspace/src/client/sections.ts:deriveSections` now takes the registry-global pin and archive sets (the `rowState` that `rows/SectionsList.tsx:SectionsList` already holds) and fronts pinned, unarchived Sessions inside each section and in the ungrouped remainder, keeping each partition's order. Before, only `tree.ts:sectionMembers` (Workspace tree) and `tree.ts:deriveFlat` fronted pins, so with Chat Sections in use the pin marker showed but pinned chats stayed in recency order. Archived Sessions are never fronted, matching the host rule that archive wins over pin.
 
 `apps/web/tests/session-pin.e2e.ts` covers the Workspace tree end to end (pin from the row menu, host registry, reload, unpin). Unpin keeps the Session's slot in Manual order by design (`tree.ts:reconcileManualOrder`).
+
+## packages/fs/tool-str-replace-editor/src/index.ts:fileEol
+
+`str_replace` matched `old_str` with an exact `indexOf`, and models always send `\n`, so any multi-line `old_str` failed on a CRLF file ("did not appear verbatim"). Agents then wrote throwaway Python scripts to patch CRLF files. `fileEol` picks CRLF only when CRLF lines outnumber bare LF lines; `withEol` converts `old_str`, `new_str` and inserted text to that ending, so edits match and never introduce bare LF. LF and mixed-majority-LF files keep the old exact matching.
