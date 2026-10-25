@@ -26,7 +26,7 @@ function useChangedAt(key: unknown): number | undefined {
 }
 
 /**
- * Show live elapsed time, the open step, the in-flight operation, and a Stop hint after a silent stretch.
+ * Name the in-flight operation with the Turn's elapsed time and step, the active task, and a Stop hint after a silent stretch.
  * @param props - Current Turn start time, open step number, Chat selector, pending-interaction flag, Stop action, and localized copy.
  * @returns the blue running indicator; mount only while the Session is running.
  */
@@ -50,19 +50,22 @@ export const RunningStatus = memo(function RunningStatus({
   const quiet = now - Math.max(snapshotChangedAt, interactionChangedAt)
   const operation = startTime === undefined || since === undefined ? undefined
     : activityText(activity, formatLiveRunDuration(Math.max(0, now - since), t), t)
-  const label = elapsed === undefined ? t('chat.deepDiving')
-    : step === undefined ? t('chat.deepDivingFor', { duration: elapsed })
-      : t('chat.deepDivingForStep', { duration: elapsed, step })
+  // The concrete operation leads; the generic Working line covers gaps between operations.
+  const label = operation !== undefined && elapsed !== undefined
+    ? step === undefined ? t('chat.live.withTurn', { text: operation, duration: elapsed })
+      : t('chat.live.withTurnStep', { text: operation, duration: elapsed, step })
+    : operation ?? (elapsed === undefined ? t('chat.live.working')
+      : step === undefined ? t('chat.live.workingFor', { duration: elapsed })
+        : t('chat.live.workingForStep', { duration: elapsed, step }))
   const quietFor = startTime !== undefined && !awaitingUser && quiet >= INACTIVITY_HINT_MS ? quiet : undefined
   return (
     <div className={css.running} data-chat-running>
-      <span className={a11yCss.visuallyHidden} role="status" aria-live="polite" aria-atomic="true">{t('chat.deepDiving')}</span>
+      <span className={a11yCss.visuallyHidden} role="status" aria-live="polite" aria-atomic="true">{t('chat.live.working')}</span>
       <span className={css.runningDivider} aria-hidden="true" />
       <span className={css.runningContent} data-chat-running-label>
         <RunningWhaleTail />
         <span className={css.runningLines}>
           <TextShimmer active className={css.runningText}>{label}</TextShimmer>
-          {operation !== undefined && <span data-chat-running-operation>{operation}</span>}
           {task !== undefined && task !== '' && <span className={css.runningTask} data-chat-running-task title={task}>{t('chat.live.task', { task })}</span>}
         </span>
       </span>
