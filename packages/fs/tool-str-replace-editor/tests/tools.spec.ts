@@ -256,6 +256,36 @@ describe('tool-str-replace-editor', () => {
     expect(await readFile(sample, 'utf8')).toBe('one\nbetween\n\nthree\n')
   })
 
+  it('matches, replaces and inserts in a CRLF file without introducing bare LF', async () => {
+    const { ctx, root, owner } = await setup()
+    const sample = join(root, 'crlf.txt')
+    await writeFile(sample, 'one\r\ntwo\r\nthree\r\n')
+    const base = { file_text: null, insert_line: null, new_str: null, old_str: null, view_range: null }
+
+    expect((await call(ctx, owner, { ...base, command: 'view', path: sample })).isError).toBe(false)
+    expect(text(await call(ctx, owner, {
+      ...base, command: 'str_replace', path: sample, old_str: 'one\ntwo', new_str: 'ONE\nTWO\nextra',
+    }))).toBe(`The file ${sample} has been edited successfully.`)
+    expect(await readFile(sample, 'utf8')).toBe('ONE\r\nTWO\r\nextra\r\nthree\r\n')
+
+    await call(ctx, owner, { ...base, command: 'insert', path: sample, insert_line: 1, new_str: 'a\nb' })
+    expect(await readFile(sample, 'utf8')).toBe('ONE\r\na\r\nb\r\nTWO\r\nextra\r\nthree\r\n')
+  })
+
+  it('keeps exact matching in an LF file', async () => {
+    const { ctx, root, owner } = await setup()
+    const sample = join(root, 'lf.txt')
+    await writeFile(sample, 'one\ntwo\n')
+    const base = { file_text: null, insert_line: null, new_str: null, old_str: null, view_range: null }
+
+    expect((await call(ctx, owner, { ...base, command: 'view', path: sample })).isError).toBe(false)
+    expect((await call(ctx, owner, {
+      ...base, command: 'str_replace', path: sample, old_str: 'one\r\ntwo', new_str: 'x',
+    })).isError).toBe(true)
+    await call(ctx, owner, { ...base, command: 'str_replace', path: sample, old_str: 'one\ntwo', new_str: 'a\nb' })
+    expect(await readFile(sample, 'utf8')).toBe('a\nb\n')
+  })
+
   it('a failed view records absence so create can recover after external deletion', async () => {
     const { ctx, root, owner } = await setup({}, { fsPolicy: true })
     const sample = join(root, 'deleted.txt')
