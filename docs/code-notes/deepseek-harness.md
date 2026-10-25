@@ -1054,3 +1054,9 @@ Known ceiling: the deny list is computed once when the child starts. A server th
 ## Desktop runtime install applies the @ubjs/node patch
 
 `apps/desktop/scripts/prepare-dsh.ts:stageRuntimePatches` copies `patches/@ubjs__node@0.31.0-3.patch` into the disposable runtime project and appends `patchedDependencies` to its `pnpm-workspace.yaml`. The packaged runtime is installed by a separate pnpm project from the packed package set, so the repository's `patchedDependencies` never reached it: build 20261017.3 still resolved `cua_driver_sdk.dll` inside `app.asar` and Computer Use kept failing with os error 126. Verified by running the packaged `DeepSeek Harness.exe` with `ELECTRON_RUN_AS_NODE` and calling `resolveLibPath`.
+
+## Pinned chats lead the Chat Sections pane
+
+`packages/client/ui-workspace/src/client/sections.ts:deriveSections` now takes the registry-global pin and archive sets (the `rowState` that `rows/SectionsList.tsx:SectionsList` already holds) and fronts pinned, unarchived Sessions inside each section and in the ungrouped remainder, keeping each partition's order. Before, only `tree.ts:sectionMembers` (Workspace tree) and `tree.ts:deriveFlat` fronted pins, so with Chat Sections in use the pin marker showed but pinned chats stayed in recency order. Archived Sessions are never fronted, matching the host rule that archive wins over pin.
+
+`apps/web/tests/session-pin.e2e.ts` covers the Workspace tree end to end (pin from the row menu, host registry, reload, unpin). Unpin keeps the Session's slot in Manual order by design (`tree.ts:reconcileManualOrder`).

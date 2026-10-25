@@ -12,7 +12,7 @@
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { ChatSection, ChatSectionsState } from './stores.ts'
-import { reconcileManualOrder } from './tree.ts'
+import { reconcileManualOrder, type SessionRowState } from './tree.ts'
 
 /** One Chat Section projected for rendering. */
 export interface SectionNode {
@@ -61,7 +61,12 @@ export function deriveSections(
   sections: ChatSectionsState,
   visibleSessionIds: readonly SessionId[],
   summaries: SessionListState['byId'],
+  rowState?: Pick<SessionRowState, 'pinnedSessionIds' | 'archivedSessionIds'>,
 ): SectionsProjection {
+  const archived = new Set(rowState?.archivedSessionIds)
+  const pinned = new Set(rowState?.pinnedSessionIds.filter(id => !archived.has(id)))
+  const pinnedFirst = (ids: readonly SessionId[]): SessionId[] =>
+    [...ids.filter(id => pinned.has(id)), ...ids.filter(id => !pinned.has(id))]
   const visible = new Set<string>(visibleSessionIds)
   const memberOf = new Map<string, string>()
   for (const [sessionId, sectionId] of Object.entries(sections.members)) {
@@ -73,7 +78,7 @@ export function deriveSections(
   }
   const nodes: SectionNode[] = sections.sections.map((section: ChatSection) => {
     const members = visibleSessionIds.filter(id => memberOf.get(id) === section.id)
-    const ordered = reconcileManualOrder(members, sections.sectionOrder[section.id], summaries)
+    const ordered = pinnedFirst(reconcileManualOrder(members, sections.sectionOrder[section.id], summaries))
     return {
       id: section.id,
       name: section.name,
@@ -84,6 +89,6 @@ export function deriveSections(
   })
   return {
     sections: nodes,
-    ungroupedSessionIds: visibleSessionIds.filter(id => !memberOf.has(id)),
+    ungroupedSessionIds: pinnedFirst(visibleSessionIds.filter(id => !memberOf.has(id))),
   }
 }
