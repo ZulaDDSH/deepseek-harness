@@ -1,3 +1,4 @@
+import type { ExternalChatCatalog, ExternalChatImportValue, ExternalChatKey } from '../../types.ts'
 /** Client catalog and source-labelled ownership of exact Session generations. */
 import type { Context, Fiber } from '@deepseek-ai/cordis'
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
@@ -254,7 +255,7 @@ export class ClientSessions implements ISessions {
    */
   constructor(
     private readonly rootCtx: Context,
-    remote: SessionRemotes,
+    private readonly remote: SessionRemotes,
   ) {
     this.manager = new SessionManager(remote)
     this.list = createSnapshotStore<SessionListState>({
@@ -279,6 +280,26 @@ export class ClientSessions implements ISessions {
       await managerDisposal
     }, 'session-controller.client.sessions')
     rootCtx.reflect.provide('sessions', this, undefined)
+  }
+
+  async masterHome(): Promise<SessionId> {
+    const result = await this.remote.session.masterHome()
+    if (!result.ok) throw new Error(result.error.message)
+    await this.refresh()
+    return result.value.sessionId
+  }
+
+  async externalChats(): Promise<ExternalChatCatalog> {
+    const result = await this.remote.session.externalChats()
+    if (!result.ok) throw new Error(result.error.message)
+    return result.value
+  }
+
+  async importChats(keys: readonly ExternalChatKey[]): Promise<ExternalChatImportValue> {
+    const result = await this.remote.session.importChats({ keys })
+    if (!result.ok) throw new Error(result.error.message)
+    await this.refresh()
+    return result.value
   }
 
   retain(target: SessionTarget, options: SessionRetainOptions): SessionReference {
@@ -434,6 +455,7 @@ export class ClientSessions implements ISessions {
     workspaceId?: WorkspaceId
     cwd?: string
     sessionId?: SessionId
+    agentPreset?: string
     cliProfile?: CliTerminalProfileId
   } = {}): Promise<SessionId> {
     const result = await this.manager.create(opts)

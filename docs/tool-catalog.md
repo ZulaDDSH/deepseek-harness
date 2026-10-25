@@ -40,6 +40,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-session-query` | `session_event_read`, `session_event_search`, `session_event_trace`, `session_search`, `session_trace` | `ctx.tools`, `ctx.systemPrompt`, `ctx.sessionQuery`, `a calling Agent for workspace authority` | `tool/call`, `tool/result` | - | The five read-only tools hide provider cursors and authorize every result from the immutable calling agent session. The package is opt-in; compositions that need enforced deadlines or bounded inline output also mount the generic timeout or spill policies. |
 | `@deepseek-ai/dsh-tool-subagent` | `list_subagent_models`, `subagent` | `ctx.tools`, `ctx.subagents`, `ctx.systemPrompt`, `ctx.llm for model discovery and selected-route validation` | `tool/call`, `tool/result`, `child session events through the chosen provider` | `subagent`, `subagent_fork` | The registered delegation name is the load-time `toolName` config (default `subagent`); the default schema above has model selection off, while the discovery schema is shown as the fixed companion available in an enabled Session. Web presets sample the Plugins preference for each new top-level Session and preserve that decision for its child Sessions; `subagent_fork` remains fixed-route. Each instance independently controls whether it reads model-selection settings and its background behavior through `modelSelectionSettings`, `backgroundMode`, and `enableRunInBackground`. |
 | `@deepseek-ai/dsh-tool-subagent-control` | `interrupt_agent`, `list_agents`, `send_message` | `ctx.tools`, `ctx.subagents`, `ctx.agents and ctx.sessionProjections (list_agents only)` | `tool/call`, `tool/result`, `child session events through ctx.subagents` | - | The globally named control tools over continuable background subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while this package registers `send_message` and `interrupt_agent` once, plus `list_agents` from its separately loaded `/list-agents` plugin (whose catalog rows use the sessionProjections and live Agent registries). |
+| `@deepseek-ai/dsh-tool-master-control` | `mc_interrupt`, `mc_list_sessions`, `mc_send` | `ctx.tools`, `ctx.agents` | `tool/call`, `tool/result`, `steer or interrupt message delivery into target agent turns` | - | Session control and messaging tools for peer agents: mc_list_sessions, mc_send, and mc_interrupt. Targets must be loaded in ctx.agents and enrolled via managed or managedAll. |
 | `@deepseek-ai/dsh-tool-jobs` | `job_kill`, `job_list`, `job_output` | `ctx.tools`, `ctx.jobs`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `user/message via agent.inject() for background completion notices` | - | The kind-agnostic background-job controller: background bash commands, PTY sends, and subagents are read, listed, and killed through the same three tools. Loading the plugin attaches the controller that arms producers' `ctx.jobs.start()`. |
 | `@deepseek-ai/dsh-experimental-tool-agent-team` | `interrupt_agent`, `list_agents`, `send_message`, `spawn_teammate`, `team_task_create`, `team_task_get`, `team_task_list`, `team_task_update`, `wait_agent` | `ctx.tools`, `ctx.systemPrompt`, `ctx.agentTeams`, `ctx.subagents`, `an exact live Team member Agent` | `tool/call`, `team/member`, `team/message/queued`, `team/message/delivered`, `team/task`, `tool/result` | - | All nine tools are scoped to implicit Team Leads and durable teammates. send_message, interrupt_agent, and list_agents also reach the direct subagents the caller started. The shipped dsh-base bundle keeps the package disabled; the documented Agent Teams profile patch enables it while disabling the legacy continuable-child control names. |
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task. |
@@ -2268,6 +2269,76 @@ Send a message to an agent. A working agent receives it at its next step; an idl
 Source: [`packages/subagent/tool-subagent-control/src/index.ts`](../packages/subagent/tool-subagent-control/src/index.ts)
 
 The globally named control tools over continuable background subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while this package registers `send_message` and `interrupt_agent` once, plus `list_agents` from its separately loaded `/list-agents` plugin (whose catalog rows use the sessionProjections and live Agent registries).
+
+<a id="deepseek-aidsh-tool-master-control"></a>
+
+## `@deepseek-ai/dsh-tool-master-control`
+
+### `mc_interrupt`
+
+Stop the current turn of an enrolled session. The session stays available for later messages.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "The id of the enrolled session."
+    }
+  },
+  "required": [
+    "session_id"
+  ]
+}
+```
+
+Source: [`packages/subagent/tool-master-control/src/index.ts`](../packages/subagent/tool-master-control/src/index.ts)
+
+### `mc_list_sessions`
+
+List enrolled sessions that are currently loaded, with live status (running or idle), working directory, and a short excerpt of each session's last assistant reply when available. Use this to answer how sessions are doing.
+
+```json
+{
+  "type": "object",
+  "properties": {}
+}
+```
+
+Source: [`packages/subagent/tool-master-control/src/index.ts`](../packages/subagent/tool-master-control/src/index.ts)
+
+### `mc_send`
+
+Send a message to an enrolled loaded session (peer or master). A running session receives it at its next step; an idle session starts a turn. Set wait=true to wait until that session goes idle and return the reply produced by the turn that ran the message (capped at 120s). If that turn fails or is cancelled, the result carries a note instead of an earlier reply. Repeated relays to one peer and wait cycles are refused so sessions cannot loop on each other.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "The id of the enrolled session."
+    },
+    "message": {
+      "type": "string",
+      "description": "The message to deliver."
+    },
+    "wait": {
+      "type": "boolean",
+      "description": "When true, wait for the target to become idle and include its reply. Default false."
+    }
+  },
+  "required": [
+    "session_id",
+    "message"
+  ]
+}
+```
+
+Source: [`packages/subagent/tool-master-control/src/index.ts`](../packages/subagent/tool-master-control/src/index.ts)
+
+Session control and messaging tools for peer agents: mc_list_sessions, mc_send, and mc_interrupt. Targets must be loaded in ctx.agents and enrolled via managed or managedAll.
 
 <a id="deepseek-aidsh-tool-jobs"></a>
 

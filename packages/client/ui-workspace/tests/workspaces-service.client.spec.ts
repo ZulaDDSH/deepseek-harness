@@ -133,6 +133,9 @@ interface RetainedSession {
 }
 
 class FakeSessions implements ISessions {
+  declare readonly masterHome: ISessions['masterHome']
+  declare readonly externalChats: ISessions['externalChats']
+  declare readonly importChats: ISessions['importChats']
   readonly list: MutableSource<SessionListState>
   readonly create: ReturnType<typeof vi.fn<ISessions['create']>>
   readonly fork = vi.fn<ISessions['fork']>(async () => sid('forked'))

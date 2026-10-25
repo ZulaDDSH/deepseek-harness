@@ -116,6 +116,9 @@
     },
     {
       "path": "../product-analytics/tsconfig.client.json"
+    },
+    {
+      "path": "../../todo/tool-todo"
     }
   ],
   "exclude": [

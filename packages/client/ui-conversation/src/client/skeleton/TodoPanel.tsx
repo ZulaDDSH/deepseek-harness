@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
-import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // The domain's client-namespace pure-type outlet: one import edge delivers
 // the `todos` projection-key merge (single source, no consumer-side restated
 // declare) and the payload type. Type-only by construction — the outlet is
 // free of host value imports, so no host Context merge enters this program.
 import type { TodoItem } from '@deepseek-ai/dsh-tool-todo/client'
 import {
-  IconChecklistOutlineRegular, IconChevronDownOutlineRegular, IconChevronUpOutlineRegular, StateDot,
+  Button, IconChecklistOutlineRegular, IconChevronDownOutlineRegular, IconChevronUpOutlineRegular, StateDot,
   type StateDotState,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { NS } from '../locales.ts'
@@ -18,6 +19,7 @@ export interface TodoPanelProps {
   todos: readonly TodoItem[]
   /** The dock entry's locale seat, passed down as a plain prop. */
   t: TodoDockProps['t']
+  onCancel?: (content: string | null) => Promise<void>
 }
 
 /** Local exhaustiveness helper — client packages do not depend on `dsh-llm`. */
@@ -62,26 +64,42 @@ function progressLabel(todos: readonly TodoItem[], t: TodoPanelProps['t']): stri
   ].join('\u2002·\u2002')
 }
 
-export function TodoPanel({ todos, t }: TodoPanelProps) {
+export function TodoPanel({ todos, t, onCancel }: TodoPanelProps) {
   const [collapsed, setCollapsed] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+  const cancel = async (content: string | null): Promise<void> => {
+    if (onCancel === undefined || busy) return
+    setBusy(true)
+    setError(undefined)
+    try { await onCancel(content) }
+    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
+    finally { setBusy(false) }
+  }
   if (todos.length === 0) return null
 
   return (
     <section className={css.root} data-testid="todo-panel" aria-label={t('todo.title')}>
       <div className={css.body}>
-        <button
-          type="button"
-          className={css.header}
-          aria-expanded={!collapsed}
-          onClick={() => { setCollapsed(v => !v) }}
-        >
-          <span className={css.lead} aria-hidden><IconChecklistOutlineRegular /></span>
-          <span className={css.title}>{t('todo.title')}</span>
-          <span className={css.progress}>{progressLabel(todos, t)}</span>
-          <span className={css.chevron} aria-hidden>
-            {collapsed ? <IconChevronUpOutlineRegular /> : <IconChevronDownOutlineRegular />}
-          </span>
-        </button>
+        <div className={css.heading}>
+          <button
+            type="button"
+            className={css.header}
+            aria-expanded={!collapsed}
+            onClick={() => { setCollapsed(v => !v) }}
+          >
+            <span className={css.lead} aria-hidden><IconChecklistOutlineRegular /></span>
+            <span className={css.title}>{t('todo.title')}</span>
+            <span className={css.progress}>{progressLabel(todos, t)}</span>
+            <span className={css.chevron} aria-hidden>
+              {collapsed ? <IconChevronUpOutlineRegular /> : <IconChevronDownOutlineRegular />}
+            </span>
+          </button>
+          {onCancel !== undefined && todos.some(item => item.status !== 'completed') && (
+            <Button size="sm" variant="ghost" disabled={busy} title={t('todo.cancelAllHint')} onClick={() => { void cancel(null) }}>{t('todo.cancelAll')}</Button>
+          )}
+        </div>
+        {error !== undefined && <div role="alert">{error}</div>}
         {!collapsed && (
           <ul className={css.list}>
             {todos.map(item => (
@@ -90,6 +108,9 @@ export function TodoPanel({ todos, t }: TodoPanelProps) {
                   <StateDot state={statusDotState(item.status)} />
                 </span>
                 <span className={css.content}>{item.content}</span>
+                {onCancel !== undefined && item.status !== 'completed' && (
+                  <Button size="sm" variant="ghost" disabled={busy} aria-label={t('todo.cancelItem', { content: item.content })} title={t('todo.cancelHint')} onClick={() => { void cancel(item.content) }}>{t('todo.cancel')}</Button>
+                )}
               </li>
             ))}
           </ul>
@@ -100,20 +121,35 @@ export function TodoPanel({ todos, t }: TodoPanelProps) {
 }
 
 /** Props for the projected todo dock. */
-export type TodoDockProps = PropsRuntime<'conversation.input.dock'> & PropsLocale<'conversation'>
+export type TodoDockProps = PropsRuntime<'conversation.input.dock'> & PropsLocale<'conversation'> & InjectFace<TodoDockInjected>
+
+/** Callbacks the todo dock receives from its plugin. */
+export interface TodoDockInjected {
+  cancelTodos: (content: string | null, todos: readonly TodoItem[]) => Promise<void>
+}
 
 /** Renders the current todo projection, or nothing when it is absent. */
-export function TodoDock({ useProjection, t }: TodoDockProps) {
+export function TodoDock({ useProjection, t, cancelTodos }: TodoDockProps) {
   const todos = useProjection('todos')
-  return <TodoPanel todos={todos ?? []} t={t} />
+  return <TodoPanel todos={todos ?? []} t={t} onCancel={content => cancelTodos(content, todos ?? [])} />
 }
 
 /** Registers the projected todo dock. */
 export const todoDockEntry = {
   name: 'conversation-todo-dock',
-  inject: ['slots'],
+  inject: ['slots', 'remote.commands'],
   apply(ctx: Context): void {
     ctx.slots.inject('conversation.input.dock', () =>
-      ctx.slots.register({ name: 'conversation.input.dock', id: 'todo', order: 0, locale: NS }, TodoDock))
+      ctx.slots.register({ name: 'conversation.input.dock', id: 'todo', order: 0, locale: NS,
+        inject: (sessionId: SessionId): TodoDockInjected => ({
+          cancelTodos: async (content, todos) => {
+            const expected = JSON.stringify(todos.map(item => [item.content, item.status]))
+            const reply = await ctx.remote.commands.execute(sessionId, `/cancel-todos ${JSON.stringify({ expected, content })}`, [])
+            if (!reply.ok) throw new Error(reply.error.message)
+            if (reply.value === undefined) throw new Error('To-do cancellation is unavailable for this session.')
+            if (reply.value.result.kind === 'error') throw new Error(reply.value.result.text)
+          },
+        }),
+      }, TodoDock))
   },
 }

@@ -22,6 +22,10 @@
       "types": "./lib/types/internal.d.ts",
       "default": "./lib/types/internal.js"
     },
+    "./orchestration-policy": {
+      "types": "./lib/types/orchestration-policy.d.ts",
+      "default": "./lib/types/orchestration-policy.js"
+    },
     "./invariant": {
       "types": "./lib/types/invariant.d.ts",
       "default": "./lib/invariant.js"

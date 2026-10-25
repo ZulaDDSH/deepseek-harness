@@ -38,6 +38,7 @@
     "presets/standard.patch.yml",
     "presets/ptc.patch.yml",
     "presets/lean.patch.yml",
+    "presets/master.patch.yml",
     "presets/economy.patch.yml",
     "presets/minimal.patch.yml",
     "presets/cordis.patch.yml",
@@ -52,6 +53,7 @@
         "./presets/standard.patch.yml",
         "./presets/ptc.patch.yml",
         "./presets/lean.patch.yml",
+        "./presets/master.patch.yml",
         "./presets/economy.patch.yml",
         "./presets/minimal.patch.yml",
         "./presets/cordis.patch.yml"
@@ -106,6 +108,7 @@
     "@deepseek-ai/dsh-client-ui-settings": "workspace:*",
     "@deepseek-ai/dsh-client-ui-settings-general": "workspace:*",
     "@deepseek-ai/dsh-client-ui-settings-models": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-master-control": "workspace:*",
     "@deepseek-ai/dsh-client-ui-settings-plugin-inventory": "workspace:*",
     "@deepseek-ai/dsh-client-ui-settings-plugins": "workspace:*",
     "@deepseek-ai/dsh-client-ui-settings-shell": "workspace:*",

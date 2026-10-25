@@ -76,6 +76,40 @@ async function waitFor(predicate: () => boolean, timeout = 5000, interval = 10):
 }
 
 describe('hooks-codex bridge', () => {
+  it.each([
+    ['edit', { file_path: 'src/example.ts', old_string: 'before', new_string: 'after' }],
+    ['edit', { file_path: 'src/example.ts', old_string: 'before', new_string: '' }],
+    ['write', { file_path: 'src/example.ts', content: 'after' }],
+    ['apply_patch', { patch: '*** Begin Patch\n*** Update File: src/example.ts\n@@\n-before\n+after\n*** End Patch' }],
+    ['Bash', { command: 'Get-ChildItem', workdir: 'project' }],
+  ] as const)('preserves %s arguments for both tool hook events', async (name, input) => {
+    const dir = configDir()
+    writeHooks(dir, {
+      PreToolUse: [{ hooks: [{ type: 'command', command: 'capture-pre' }] }],
+      PostToolUse: [{ hooks: [{ type: 'command', command: 'capture-post' }] }],
+    })
+    const ctx = new Context()
+    contexts.push(ctx)
+    await mountAgentLoopTestDependencies(ctx)
+    await ctx.plugin(RecordingShell)
+    await ctx.plugin(HooksCodex, { configPath: join(dir, 'hooks.json'), model: 'test-model', enabledHooks: [ALL_HOOKS] })
+    const execute = vi.fn(async () => [{ type: 'text' as const, text: 'ok' }])
+    ctx.tools.register(defineContentToolFixture({ name, description: name, parameters: {
+      file_path: { type: 'string' }, old_string: { type: 'string' }, new_string: { type: 'string' },
+      content: { type: 'string' }, patch: { type: 'string' },
+      command: { type: 'string' }, workdir: { type: 'string' },
+    }, execute }))
+    await ctx.tools.execute({ signal: new AbortController().signal, callId: ToolCallId('c1'), name, arguments: input })
+    expect(execute).toHaveBeenCalledTimes(1)
+    const specs = (ctx.shell as RecordingShell).specs
+    expect(specs).toHaveLength(2)
+    for (const spec of specs) {
+      const payload = JSON.parse(String(spec.stdin)) as { tool_name: string; tool_input: unknown }
+      expect(payload.tool_name).toBe(name)
+      expect(payload.tool_input).toEqual(input)
+    }
+  })
+
   it('awaits a registry-announced resume hook without a creation signal', async () => {
     const dir = configDir()
     const capture = script(dir, 'resume.sh', '#!/usr/bin/env bash\necho "resumed context"\n')

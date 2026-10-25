@@ -490,14 +490,16 @@ export class SessionManager {
       workspaceId?: WorkspaceId
       cwd?: string
       sessionId?: SessionId
+      agentPreset?: string
       cliProfile?: CliTerminalProfileId
     } = {},
   ): Promise<RemoteResult<{ sessionId: SessionId }>> {
     const shared = opts.sessionId === undefined ? {} : { sessionId: opts.sessionId }
     const cli = opts.cliProfile === undefined ? {} : { cliProfile: opts.cliProfile }
+    const preset = opts.agentPreset === undefined ? {} : { agentPreset: opts.agentPreset }
     const payload = opts.workspaceId !== undefined
-      ? { workspaceId: opts.workspaceId, ...shared, ...cli }
-      : { ...(opts.cwd === undefined ? {} : { cwd: opts.cwd }), ...shared, ...cli }
+      ? { workspaceId: opts.workspaceId, ...shared, ...cli, ...preset }
+      : { ...(opts.cwd === undefined ? {} : { cwd: opts.cwd }), ...shared, ...cli, ...preset }
     const result = await this.remote.session.create(payload)
     if (result.ok) {
       this.recordMutation({ kind: 'placeholder', summary: { agentAvailable: true,

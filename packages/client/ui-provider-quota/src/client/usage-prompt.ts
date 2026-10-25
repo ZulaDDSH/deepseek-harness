@@ -47,9 +47,9 @@ export function hardLimited(window: QuotaWindow): boolean {
 const OPEN_KEY_TAIL = '|open'
 
 function isDismissed(dismissed: ReadonlySet<string>, key: string, now: number): boolean {
-  if (!key.endsWith(OPEN_KEY_TAIL)) return dismissed.has(key)
+  const provider = `${key.split('|').slice(0, 2).join('|')}|`
   for (const entry of dismissed) {
-    if (entry.startsWith(`${key}|`) && Number(entry.slice(key.length + 1)) > now) return true
+    if (entry.startsWith(provider) && Number(entry.slice(entry.lastIndexOf('|') + 1)) > now) return true
   }
   return false
 }
@@ -73,6 +73,7 @@ export function usagePrompt(results: readonly QuotaResult[], state: UsagePromptS
     for (const windowId of Object.keys(WINDOW_HOURS) as QuotaWindowId[]) {
       const window = result.windows?.[windowId]
       if (window === undefined) continue
+      if (window.resetAt !== null && window.resetAt <= state.now) continue
       const hard = hardLimited(window)
       if (!hard && (window.usedPercent === null || window.usedPercent < threshold)) continue
       const key = limitKey(result.providerId, windowId, window)

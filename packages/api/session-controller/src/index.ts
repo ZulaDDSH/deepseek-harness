@@ -19,6 +19,8 @@ import {
   type ApiSessionAgentResult,
 } from './agent.ts'
 import { SessionCommandController } from './commands.ts'
+import { MasterControlSessions } from './master-control.ts'
+import type { ExternalChatCatalog, ExternalChatImportRequest, ExternalChatImportValue } from './types.ts'
 import { SessionControlController } from './control.ts'
 import { SessionHistoryController } from './history.ts'
 import { SessionFileReferences } from './file-references.ts'
@@ -135,6 +137,7 @@ export class SessionController extends TypertRemoteService {
   private readonly agents: ApiSessionAgentController
   private readonly subagentSetupDefault: Volatile<unknown> | undefined
   private warnedSubagentSetup: unknown
+  private readonly masterControl: MasterControlSessions
   private readonly commands: SessionCommandController
   private readonly controlState: SessionControlController
   private readonly history: SessionHistoryController
@@ -160,6 +163,7 @@ export class SessionController extends TypertRemoteService {
     installRunOptions(ctx)
     this.agents = new ApiSessionAgentController(ctx)
     this.commands = new SessionCommandController(ctx, this.agents, process.cwd())
+    this.masterControl = new MasterControlSessions(ctx, this.commands)
     ctx.effect(() => ctx.fileUploads.registerAgentResolver(async (sessionId) => {
       const result = await this.agents.resolveAgent(sessionId)
       if ('error' in result) throw result.error
@@ -300,6 +304,34 @@ export class SessionController extends TypertRemoteService {
   @Remote('search')
   search(request: SessionSearchRequest, signal: AbortSignal): Promise<SessionSearchValue> {
     return this.listState.search(request.query, signal)
+  }
+
+  /**
+   * Resolve the dedicated ungrouped home; concurrent requests share creation.
+   * @returns the durable master session identity.
+   */
+  @Remote('masterHome')
+  masterHome(): Promise<SessionCreateValue> {
+    return this.masterControl.openHome()
+  }
+
+  /**
+   * Discover recent supported external chats without importing or running them.
+   * @returns at most 100 rows with supported-text previews and per-file errors.
+   */
+  @Remote('externalChats')
+  externalChats(): Promise<ExternalChatCatalog> {
+    return this.masterControl.external.discover()
+  }
+
+  /**
+   * Import discovered text histories; preserve existing imports and isolate row failures.
+   * @param request - keys returned by external chat discovery.
+   * @returns per-key outcomes after successful imports reach durable storage.
+   */
+  @Remote('importChats')
+  importChats(request: ExternalChatImportRequest): Promise<ExternalChatImportValue> {
+    return this.masterControl.importChats(request.keys)
   }
 
   /**

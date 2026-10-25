@@ -1,3 +1,4 @@
+import type { ExternalChatCatalog, ExternalChatImportValue, ExternalChatKey } from '../../types.ts'
 /**
  * The outward sessions-service face — what `ctx.sessions` exposes to feature
  * packages. Transport entry points and implementation internals stay on
@@ -47,6 +48,22 @@ export interface SessionRetainInfo {
 
 /** The sessions-service face injected as `ctx.sessions`. */
 export interface ISessions {
+  /**
+   * Resolve the dedicated ungrouped Master Control home.
+   * @returns the durable master session identity.
+   */
+  masterHome(): Promise<SessionId>
+  /**
+   * Discover supported external chats without importing or running them.
+   * @returns recent transcript previews and per-file errors.
+   */
+  externalChats(): Promise<ExternalChatCatalog>
+  /**
+   * Import discovered text histories and preserve existing imports.
+   * @param keys - identities returned by external chat discovery.
+   * @returns per-key outcomes after successful imports reach durable storage.
+   */
+  importChats(keys: readonly ExternalChatKey[]): Promise<ExternalChatImportValue>
   /** Host catalog and local reference-source counts; navigation belongs to view owners. */
   readonly list: ObservableSnapshot<SessionListState>
   /**
@@ -87,6 +104,7 @@ export interface ISessions {
     workspaceId?: WorkspaceId
     cwd?: string
     sessionId?: SessionId
+    agentPreset?: string
     cliProfile?: CliTerminalProfileId
   }): Promise<SessionId>
   /**

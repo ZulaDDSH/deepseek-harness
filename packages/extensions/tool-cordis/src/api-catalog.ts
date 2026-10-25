@@ -2113,6 +2113,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'authorized bounded Session search results.',
       },
       {
+        signature: '@Remote(\'masterHome\') masterHome(): Promise<SessionCreateValue>',
+        description: 'Resolve the dedicated ungrouped home; concurrent requests share creation.',
+        parameters: [],
+        returns: 'the durable master session identity.',
+      },
+      {
+        signature: '@Remote(\'externalChats\') externalChats(): Promise<ExternalChatCatalog>',
+        description: 'Discover recent supported external chats without importing or running them.',
+        parameters: [],
+        returns: 'at most 100 rows with supported-text previews and per-file errors.',
+      },
+      {
+        signature: '@Remote(\'importChats\') importChats(request: ExternalChatImportRequest): Promise<ExternalChatImportValue>',
+        description: 'Import discovered text histories; preserve existing imports and isolate row failures.',
+        parameters: [{ name: 'request', description: 'keys returned by external chat discovery.' }],
+        returns: 'per-key outcomes after successful imports reach durable storage.',
+      },
+      {
         signature: '@Remote(\'create\') create(request: SessionCreateRequest): Promise<SessionCreateValue>',
         description: 'Create or idempotently adopt one ordinary Session.',
         parameters: [{ name: 'request', description: 'requested identity, location, and Agent preset.' }],
@@ -5434,6 +5452,34 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'EveryScheduleRecord',
     declaration: 'export interface EveryScheduleRecord {\n    readonly id: ScheduleId;\n    readonly kind: \'every\';\n    readonly title: string;\n    readonly prompt: string;\n    readonly everySeconds: number;\n    readonly scheduledAt: string;\n}',
+  },
+  {
+    name: 'ExternalChat',
+    declaration: 'export interface ExternalChat {\n    readonly key: ExternalChatKey;\n    readonly source: ExternalChatSource;\n    readonly title: string;\n    readonly cwd?: string;\n    readonly updatedAt: number;\n    readonly messageCount: number;\n    readonly preview: string;\n    readonly error?: string;\n}',
+  },
+  {
+    name: 'ExternalChatCatalog',
+    declaration: 'export interface ExternalChatCatalog {\n    readonly items: readonly ExternalChat[];\n    readonly limited: boolean;\n}',
+  },
+  {
+    name: 'ExternalChatImportRequest',
+    declaration: 'export interface ExternalChatImportRequest {\n    readonly keys: readonly ExternalChatKey[];\n}',
+  },
+  {
+    name: 'ExternalChatImportResult',
+    declaration: 'export interface ExternalChatImportResult {\n    readonly key: ExternalChatKey;\n    readonly sessionId?: SessionId;\n    readonly duplicate?: boolean;\n    readonly error?: string;\n}',
+  },
+  {
+    name: 'ExternalChatImportValue',
+    declaration: 'export interface ExternalChatImportValue {\n    readonly items: readonly ExternalChatImportResult[];\n}',
+  },
+  {
+    name: 'ExternalChatKey',
+    declaration: 'export type ExternalChatKey = Branded<\'external-chat-key\'>;',
+  },
+  {
+    name: 'ExternalChatSource',
+    declaration: 'export type ExternalChatSource = \'claude\' | \'codex\';',
   },
   {
     name: 'FeedbackCategory',

@@ -379,6 +379,16 @@ export class JevRouter extends Service {
   }
 
   /**
+   * Whether this router currently owns route selection for admitted steps.
+   * A prompt policy that must not override a routed child reads this through
+   * `ctx.get('jevRouter')`.
+   * @returns the active `enabled` setting.
+   */
+  get enabled(): boolean {
+    return this.config().enabled
+  }
+
+  /**
    * Keep the grep matches Jev ranks most relevant to the Agent's current task.
    * Returns `input.matches` unchanged when routing is disabled, the signal is
    * aborted, fewer than {@link GREP_RELEVANCE_MIN_MATCHES} matches arrive, the

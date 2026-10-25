@@ -43,16 +43,22 @@ function statusHarness(startTime?: number, useChat = chatHook(), onStop = vi.fn(
 }
 
 describe('RunningStatus', () => {
+  it('leads with the actual operation, then the step, Turn time, and active task', () => {
+    const view = render(<RunningStatus startTime={1_000} step={4} task="Fix the importer" useChat={chatHook({ runningCalls: [startedCall('edit', '{"file_path":"src/import.ts"}', 4_000)] })} onStop={vi.fn()} t={tEn} />)
+    expect(view.container.querySelector('[data-chat-running-label]')?.textContent)
+      .toMatch(/^Editing files: src\/import\.ts · \d+s · step 4 · \d+s totalCurrent task: Fix the importer$/)
+    expect(view.container.querySelector('[data-chat-running-task]')?.textContent).toBe('Current task: Fix the importer')
+  })
   it('waits for an open Turn start before allocating its clock', () => {
     const view = statusHarness()
-    expect(view.content()?.textContent).toBe('深度求索中...')
+    expect(view.content()?.textContent).toBe('处理中...')
     expect(vi.getTimerCount()).toBe(0)
     view.set(1_000)
-    expect(view.content()?.textContent).toMatch(/^深度求索中，用时 \d+秒\.\.\.$/)
+    expect(view.content()?.textContent).toMatch(/^处理中 · \d+秒$/)
     expect(view.content()?.querySelectorAll('[data-shimmer="true"]')).toHaveLength(1)
     expect(vi.getTimerCount()).toBe(1)
     view.set()
-    expect(view.content()?.textContent).toBe('深度求索中...')
+    expect(view.content()?.textContent).toBe('处理中...')
     expect(vi.getTimerCount()).toBe(0)
   })
 
@@ -62,37 +68,37 @@ describe('RunningStatus', () => {
     const status = view.getByRole('status')
     const initialText = content?.textContent
     act(() => { vi.advanceTimersByTime(2_000) })
-    expect(content?.textContent).toMatch(/^深度求索中，用时 \d+秒\.\.\.$/)
+    expect(content?.textContent).toMatch(/^处理中 · \d+秒$/)
     expect(content?.textContent).not.toBe(initialText)
     view.set(7_000)
     expect(view.content()).toBe(content)
-    expect(content?.textContent).toMatch(/^深度求索中，用时 \d+秒\.\.\.$/)
+    expect(content?.textContent).toMatch(/^处理中 · \d+秒$/)
     expect(vi.getTimerCount()).toBe(1)
     const nextTurnText = content?.textContent
     act(() => { vi.advanceTimersByTime(2_000) })
-    expect(content?.textContent).toMatch(/^深度求索中，用时 \d+秒\.\.\.$/)
+    expect(content?.textContent).toMatch(/^处理中 · \d+秒$/)
     expect(content?.textContent).not.toBe(nextTurnText)
     expect(view.getByRole('status')).toBe(status)
-    expect(status.textContent).toBe('深度求索中...')
+    expect(status.textContent).toBe('处理中...')
     view.unmount()
     expect(vi.getTimerCount()).toBe(0)
   })
 
   it('keeps the duration nonnegative when the start is ahead of the local clock', () => {
     const view = statusHarness(6_000)
-    expect(view.content()?.textContent).toMatch(/^深度求索中，用时 \d+秒\.\.\.$/)
+    expect(view.content()?.textContent).toMatch(/^处理中 · \d+秒$/)
     expect(view.content()?.textContent).not.toContain('-')
     act(() => { vi.advanceTimersByTime(3_000) })
-    expect(view.content()?.textContent).toMatch(/^深度求索中，用时 \d+秒\.\.\.$/)
+    expect(view.content()?.textContent).toMatch(/^处理中 · \d+秒$/)
     expect(view.content()?.textContent).not.toContain('-')
   })
 
   it('names the open step beside the elapsed time and keeps it while the clock runs', () => {
     const view = render(<RunningStatus startTime={1_000} step={67} useChat={chatHook()} onStop={vi.fn()} t={t} />)
     const content = view.container.querySelector('[data-chat-running-label]')
-    expect(content?.textContent).toMatch(/^深度求索中，用时 \d+秒，第 67 步\.\.\.$/)
+    expect(content?.textContent).toMatch(/^处理中 · 第 67 步 · 共 \d+秒$/)
     act(() => { vi.advanceTimersByTime(2_000) })
-    expect(content?.textContent).toMatch(/^深度求索中，用时 \d+秒，第 67 步\.\.\.$/)
+    expect(content?.textContent).toMatch(/^处理中 · 第 67 步 · 共 \d+秒$/)
     view.unmount()
   })
 
@@ -227,7 +233,7 @@ describe('RunningStatus', () => {
     expect(view.content()?.textContent).toContain('命令')
     expect(vi.getTimerCount()).toBe(1)
     view.set()
-    expect(view.content()?.textContent).toBe('深度求索中...')
+    expect(view.content()?.textContent).toBe('处理中...')
     expect(vi.getTimerCount()).toBe(0)
   })
 })

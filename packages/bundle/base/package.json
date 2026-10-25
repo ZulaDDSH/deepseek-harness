@@ -109,6 +109,7 @@
     "@deepseek-ai/dsh-tool-skill": "workspace:*",
     "@deepseek-ai/dsh-tool-subagent": "workspace:*",
     "@deepseek-ai/dsh-tool-subagent-control": "workspace:*",
+    "@deepseek-ai/dsh-tool-master-control": "workspace:*",
     "@deepseek-ai/dsh-tool-jobs": "workspace:*",
     "@deepseek-ai/dsh-tool-watch": "workspace:*",
     "@deepseek-ai/dsh-tool-todo": "workspace:*",

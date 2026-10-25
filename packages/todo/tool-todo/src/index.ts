@@ -11,6 +11,7 @@ import { z as zod } from 'zod'
 import type { ZodType } from 'zod'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { TodoItem } from './types.ts'
+import { cancelTodos } from './cancel.ts'
 // Type-only: resolves the required ctx.sessionProjections service declaration.
 import type {} from '@deepseek-ai/dsh-session-projection'
 // The `todos` projection-key declaration lives in src/types.ts (its one home);
@@ -115,6 +116,14 @@ const todosProjectionSchema: ZodType<TodoItem[] | null> = zod.union([
  * @param config - deployment's explicit todo policy.
  */
 export function apply(ctx: Context, config: Config): void {
+  ctx.inject(['commands'], (scope) => {
+    scope.commands.register({
+      name: 'cancel-todos',
+      description: 'Cancel selected unfinished to-dos',
+      recordInput: false,
+      handler: invocation => cancelTodos(scope, invocation),
+    })
+  })
   const allowParallel = config.allowParallelInProgress
   // Standing-plan fold: latest whole todo/write list, cleared by the next
   // turn/start (turn/end keeps the finished checklist visible); null before the

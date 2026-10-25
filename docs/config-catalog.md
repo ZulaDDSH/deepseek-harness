@@ -344,7 +344,7 @@ export interface QuotaBillingSwitch {
 
 - `inject`: `agentDefaultModel` · `agents` · `attachments` · `fileUploads` · `fs` · `llm` · `sessions` · `sessionProjections` · `sessionQuery` · `typert` · `workspaceRegistry`
 - `refs`: `Volatile` (`@deepseek-ai/cordis`)
-- `source`: [`packages/api/session-controller/src/index.ts:93`](../packages/api/session-controller/src/index.ts)
+- `source`: [`packages/api/session-controller/src/index.ts:95`](../packages/api/session-controller/src/index.ts)
 
 ```ts config-catalog
 /** Session Controller deployment policy. */
@@ -3456,7 +3456,7 @@ export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 ## `@deepseek-ai/dsh-subagent`
 
 - `refs`: `Volatile` (`@deepseek-ai/cordis`)
-- `source`: [`packages/subagent/subagent/src/index.ts:195`](../packages/subagent/subagent/src/index.ts)
+- `source`: [`packages/subagent/subagent/src/index.ts:198`](../packages/subagent/subagent/src/index.ts)
 
 ```ts config-catalog
 /** Host configuration for continuable subagent capacity. */
@@ -3717,7 +3717,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-system-prompt`
 
-- `source`: [`packages/core/system-prompt/src/index.ts:252`](../packages/core/system-prompt/src/index.ts)
+- `source`: [`packages/core/system-prompt/src/index.ts:253`](../packages/core/system-prompt/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: the deployment-authored fragment of the system prompt (see {@link Config.personaPrefix} for its contract). */
@@ -4047,6 +4047,25 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-lsp -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-master-control -->
+<a id="deepseek-aidsh-tool-master-control"></a>
+
+## `@deepseek-ai/dsh-tool-master-control`
+
+- `inject`: `tools` · `agents`
+- `source`: [`packages/subagent/tool-master-control/src/index.ts:26`](../packages/subagent/tool-master-control/src/index.ts)
+
+```ts config-catalog
+/** Master control configuration specifying managed session enrollment. */
+export interface Config {
+  /** When true, every loaded session other than the caller is enrolled. */
+  managedAll?: boolean
+  /** Session ids enrolled when `managedAll` is false. Empty by default. */
+  managed?: string[]
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-master-control -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-present -->
 <a id="deepseek-aidsh-tool-present"></a>
 
@@ -4292,7 +4311,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-todo`
 
 - `inject`: `tools` · `sessionProjections`
-- `source`: [`packages/todo/tool-todo/src/index.ts:29`](../packages/todo/tool-todo/src/index.ts)
+- `source`: [`packages/todo/tool-todo/src/index.ts:30`](../packages/todo/tool-todo/src/index.ts)
 
 ```ts config-catalog
 /** Model-facing todo tool configuration. */
@@ -4807,6 +4826,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 | `@deepseek-ai/dsh-client-ui-input-trigger` | — | [`packages/client/ui-input-trigger/src/index.ts`](../packages/client/ui-input-trigger/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-jobs` | — | [`packages/client/ui-jobs/src/index.ts`](../packages/client/ui-jobs/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-layout` | — | [`packages/client/ui-layout/src/index.ts`](../packages/client/ui-layout/src/index.ts) |
+| `@deepseek-ai/dsh-client-ui-master-control` | — | [`packages/client/ui-master-control/src/index.ts`](../packages/client/ui-master-control/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-message-feedback` | — | [`packages/client/ui-message-feedback/src/index.ts`](../packages/client/ui-message-feedback/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-model-selection` | — | [`packages/client/ui-model-selection/src/index.ts`](../packages/client/ui-model-selection/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-open-in-app` | — | [`packages/client/ui-open-in-app/src/index.ts`](../packages/client/ui-open-in-app/src/index.ts) |

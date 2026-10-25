@@ -1029,6 +1029,7 @@ Known ceiling: the deny list is computed once when the child starts. A server th
 ## Subagent step budget
 
 `packages/subagent/subagent/src/step-budget.ts:installStepBudget`: when a delegated child (`delegationDepthOf(agent) > 0`) reaches step `stepBudget` of one turn (default 40, set on `SubagentRuntime.Config`; 0 turns it off), a notice user message is appended to that step. It reuses the `repeat-tool-reminder` source kind with `form: 'notice'`, because Session format 4 is finalized and a new kind would need format 5 (`scripts/persistence-changes.ts`). It tells the child to wrap up and report what is finished and what is left. Every step resends the child's whole history, so long runs get expensive: on a real install, DeepSeek children averaged 63 requests and 159K context, and 119 went past 60 requests. This is only a nudge, and later steps are not rejected. It fires once per turn, so a continued child gets a fresh budget on each `send_message`. The claude-cli route has its own hard cap, `maxTurns` (`packages/subagent/subagent-claude-code/src/index.ts:Config`).
+
 `packages/client/ui-subagent/src/client/SubagentHeaderLineage.tsx:CatalogRows` shows each subagent's current context size (`catalog-format.ts:contextTokens`, the figure the chat context meter uses) and puts the summed usage of all its requests in the hover title. The sum adds cache reads for every step, so a reviewer at 40K context passed 500K within a minute and read as runaway usage. Rows without a context sample fall back to the sum. The second line names the model the child last ran (`modelSelection.lastUsed`), else the one queued for its next request, since a router or fallback can run something other than the selection.
 
 `patches/@ubjs__node@0.31.0-3.patch:resolveNpmPackage` (registered in `pnpm-workspace.yaml:patchedDependencies`): `@trycua/cua-driver` finds `cua_driver_sdk.dll` through `@ubjs/node`'s `resolveLibPath`, which resolves the platform package with `require.resolve`. In the packaged Desktop app that path is inside `app.asar`. Electron's patched `fs` makes `existsSync` succeed there, but `LoadLibrary` is not asar-aware, so enabling Computer Use failed with `library open failed ... (os error 126)` even though the DLL sits unpacked in `app.asar.unpacked` (see the `electron-builder-config.mjs:createElectronBuilderConfig` unpack pattern above). The patch returns the `app.asar.unpacked` twin of the path when that file exists, and leaves every other path unchanged. Electron redirects only `require()` of `.node` files, which is why `cua_driver_node_runtime.node` loaded and the DLL did not.
@@ -1039,7 +1040,7 @@ Known ceiling: the deny list is computed once when the child starts. A server th
 
 `packages/client/ui-subagent/src/client/catalog-format.ts:liveActivityLine` renders it as a third line on `SubagentHeaderLineage.tsx:CatalogRows` (`Now: bash: git diff … · step 7` while running, `Last: read: a.cs → result` once idle).
 
-`packages/client/ui-chat/src/client/chat/RunningStatus.tsx:RunningStatus` now leads with the concrete operation from `live-activity.ts:liveActivity` (tool, key argument, time on that operation) followed by the step and total turn time. The "Deep diving" text remains only when no operation is known, such as before the first model output. `RunningActivity.tsx:activityText` is the shared formatter and `RunningActivity` now carries only the quiet-turn Stop hint.
+`packages/client/ui-chat/src/client/chat/RunningStatus.tsx:RunningStatus` now leads with the concrete operation from `live-activity.ts:liveActivity` (tool, key argument, time on that operation) followed by the step and total turn time. A generic "Working" line, with step and total turn time, appears only when no operation is known, such as before the first model output. `RunningActivity.tsx:activityText` is the shared formatter and `RunningActivity` now carries only the quiet-turn Stop hint.
 
 `packages/client/ui-chat/src/client/chat/ChatGroupSeat.tsx:ChatGroupSeat` opens a live process group by itself when the work-details mode shows live detail (`presentation-policy.ts:liveProcessDetail`, so standard and detailed, not compact) and scrolls it to the newest member. A click closes it for the rest of that group's run (`dismissed`). `packages/client/ui-tool/src/client/tool/toolviews/bash-sample.tsx:StartedBashRow` does the same for a running command, so its command line and streaming output show without a click.
 
@@ -1054,6 +1055,51 @@ Known ceiling: the deny list is computed once when the child starts. A server th
 ## Desktop runtime install applies the @ubjs/node patch
 
 `apps/desktop/scripts/prepare-dsh.ts:stageRuntimePatches` copies `patches/@ubjs__node@0.31.0-3.patch` into the disposable runtime project and appends `patchedDependencies` to its `pnpm-workspace.yaml`. The packaged runtime is installed by a separate pnpm project from the packed package set, so the repository's `patchedDependencies` never reached it: build 20261017.3 still resolved `cua_driver_sdk.dll` inside `app.asar` and Computer Use kept failing with os error 126. Verified by running the packaged `DeepSeek Harness.exe` with `ELECTRON_RUN_AS_NODE` and calling `resolveLibPath`.
+
+## packages/client/ui-master-control/src/client/index.ts:apply
+
+Master Control is a global sidebar panel (`PANEL_ID = 'master-control'`) plus a `main` page, registered the same way as `ui-plugin-manager/src/client/index.ts:apply`. Plugins registers at `order: 0` and ties keep registration order, so the entry uses `order: -10` to sit above Plugins regardless of load order. `interrupt` goes through `sessions.using(..., { source: 'masterControl' })` and `session.cancel()`, the same path the workspace operations use; the source label is merged into `SessionReferenceSourceMap` in this file. The page reads sessions through the root hooks `useSessions` and `useSessionStatus`, so no plugin-owned store is needed. `openMasterChat` reuses a session whose projected `agentPreset` is `master`, else `sessions.create({ agentPreset: 'master', workspaceId })` then `uiWorkspace.openSession`.
+
+## packages/client/ui-master-control/src/client/index.ts:openMasterChat
+
+Creates the human chat surface for assigning work and asking status. The roster stays the monitor; conversation lives in a normal session with the `master` preset.
+
+## packages/client/ui-master-control/src/client/rows.ts:masterRows
+
+Rows sort attention, failed, running, idle, each most recent first. State precedence is pending interaction, then unread failure, then running (UI status map first, summary `running` as fallback). Blank New Session placeholders are dropped. Delegated children are listed flat with `child: true`; nesting is left for the master-agent step.
+
+## packages/subagent/tool-master-control/src/index.ts:apply
+
+- `mc_list_sessions`, `mc_send`, `mc_interrupt` mesh tools reach any enrolled loaded peer (not adjacent-child-only like `send_message` / `interrupt_agent`).
+- Any calling agent may use the tools; self-target is rejected. Enrollment: `Config.managed` or `Config.managedAll`.
+- `mc_send` steers with an `agent-message` relay (`Agent <id> sent a message:`). Optional `wait` awaits `whenIdle` (120s cap) and folds the reply only from the turn that claimed the relay, so a failed or cancelled turn yields a `note` instead of an older answer.
+- Relay loops are bounded without shared state: `relayOutcome` reads the target's own log for the claimed relay, `waitCycle` follows each session's unsettled `mc_send` call to refuse a wait that would deadlock, and `recentRelays` caps settled relays to one peer inside `MC_RELAY_WINDOW_MS`.
+- `mc_list_sessions` includes truncated `last_reply` so the master can answer how peers are doing.
+- `mc_interrupt` cancels with `{kind:'parent'}`. Targets must be loaded in `ctx.agents`.
+
+## packages/api/session-controller/src/client/sessions/manager.ts:create
+
+Forwards optional `agentPreset` on the Host create RPC so the UI can open a master-preset session without a separate composition write.
+
+## packages/bundle/web-app/presets/master.patch.yml
+
+- Master mounts `orchestration-policy` plus `tool-master-control` (`managedAll: true`). Only the master preset mounts the mesh tools; `standard` and `lean` omit them, so an ordinary or imported chat cannot message, interrupt, or read other sessions.
+- Master is a trimmed lean-like preset plus delegation; presets have no `extends`.
+
+# Master Control home and external text imports
+
+`packages/api/session-controller/src/master-control.ts:MasterControlSessions` owns serialized host home resolution and import creation. Reserved session identities distinguish the supervising home and imported chats without changing released session header types. Imported history uses ordinary balanced DSH events, reserves an empty protected system head before imported text, and is flushed before success; no imported tools or vendor system instructions execute.
+
+`packages/api/session-controller/src/external-chats.ts:ExternalChats` discovers bounded recent source logs and admits only discovered keys. Text-only previews and imports exclude tool payloads, attachments, reasoning, and vendor configuration. Unsupported or oversized rows report a visible error.
+
+`packages/client/ui-master-control/src/client/rows.ts:groupMasterRows` groups by existing workspace membership and filters before rendering. Home identities are omitted from the worker roster.
+
+`packages/client/ui-master-control/src/client/MasterControlPage.tsx:MasterControlPage` refreshes discovery activity and the roster clock on open and once a minute, but never imports: only `ImportChats` submits the selected keys, so a page visit cannot create sessions.
+
+
+`packages/api/session-controller/src/list.ts:ApiSessionList` initializes reserved master homes as nonblank, so workspace navigation cannot reuse the supervising session as a provisional New Session. Projection state version 2 invalidates older derived metadata while ordinary empty sessions remain blank.
+
+`packages/api/session-controller/src/commands.ts:SessionCommandController.create` refuses explicit reserved home identities on the ordinary create path. Only the internal `createMasterHome` operation admits those identities, preventing an ordinary caller-created master session from becoming the supervising home.
 
 ## Pinned chats lead the Chat Sections pane
 
