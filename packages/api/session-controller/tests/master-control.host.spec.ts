@@ -70,7 +70,7 @@ describe('Master Control home and import', () => {
     const catalog = await b.control.external.discover()
     const result = await b.control.importChats([catalog.items[0]!.key])
     expect(result.items[0]?.error).toBeUndefined()
-    const listing = await b.controller.list({})
+    const listing = await b.controller.list({}, new AbortController().signal)
     expect(listing).toMatchObject({ items: [expect.objectContaining({
       sessionId: result.items[0]!.sessionId, updatedAt: old.getTime(), agentAvailable: false,
     })] })
