@@ -90,8 +90,8 @@ export function SectionsList({
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
   const statuses = useSessionStatus(s => s)
   const projection = useMemo(
-    () => deriveSections(sections, visibleSessionIds, list.byId),
-    [list.byId, sections, visibleSessionIds],
+    () => deriveSections(sections, visibleSessionIds, list.byId, rowState),
+    [list.byId, rowState, sections, visibleSessionIds],
   )
   const nodes = useMemo(
     () => new Map(deriveFlat(list, visibleSessionIds, rowState, statuses).map(node => [node.id as string, node])),

@@ -1100,3 +1100,9 @@ Forwards optional `agentPreset` on the Host create RPC so the UI can open a mast
 `packages/api/session-controller/src/list.ts:ApiSessionList` initializes reserved master homes as nonblank, so workspace navigation cannot reuse the supervising session as a provisional New Session. Projection state version 2 invalidates older derived metadata while ordinary empty sessions remain blank.
 
 `packages/api/session-controller/src/commands.ts:SessionCommandController.create` refuses explicit reserved home identities on the ordinary create path. Only the internal `createMasterHome` operation admits those identities, preventing an ordinary caller-created master session from becoming the supervising home.
+
+## Pinned chats lead the Chat Sections pane
+
+`packages/client/ui-workspace/src/client/sections.ts:deriveSections` now takes the registry-global pin and archive sets (the `rowState` that `rows/SectionsList.tsx:SectionsList` already holds) and fronts pinned, unarchived Sessions inside each section and in the ungrouped remainder, keeping each partition's order. Before, only `tree.ts:sectionMembers` (Workspace tree) and `tree.ts:deriveFlat` fronted pins, so with Chat Sections in use the pin marker showed but pinned chats stayed in recency order. Archived Sessions are never fronted, matching the host rule that archive wins over pin.
+
+`apps/web/tests/session-pin.e2e.ts` covers the Workspace tree end to end (pin from the row menu, host registry, reload, unpin). Unpin keeps the Session's slot in Manual order by design (`tree.ts:reconcileManualOrder`).

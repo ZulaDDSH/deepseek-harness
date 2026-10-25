@@ -28,6 +28,23 @@ function layer(overrides: Partial<ChatSectionsState> = {}): ChatSectionsState {
 
 afterEach(() => { localStorage.clear() })
 
+describe('Chat Sections pinning', () => {
+  it('fronts pinned sessions in sections and the ungrouped remainder, but not archived ones', () => {
+    const sections = layer({
+      sections: [{ id: 's', name: 'S' }],
+      members: { a: 's', b: 's', c: 's' },
+      sectionOrder: { s: ['a', 'b', 'c'] },
+    })
+    const rowState = { pinnedSessionIds: [sid('c'), sid('x')], archivedSessionIds: [sid('x')] }
+    const projection = deriveSections(
+      sections, [sid('a'), sid('b'), sid('c'), sid('x'), sid('y'), sid('z')],
+      summaries([['a', 3], ['b', 2], ['c', 1], ['x', 4], ['y', 5], ['z', 6]]), { ...rowState, pinnedSessionIds: [sid('c'), sid('z'), sid('x')] },
+    )
+    expect(projection.sections[0]!.sessionIds).toEqual([sid('c'), sid('a'), sid('b')])
+    expect(projection.ungroupedSessionIds).toEqual([sid('z'), sid('x'), sid('y')])
+  })
+})
+
 describe('Chat Sections persistence', () => {
   it('rehydrates missing section arrays and reassigns members without saved ordering', () => {
     localStorage.setItem('dsh.workspace.view.v5', JSON.stringify({
