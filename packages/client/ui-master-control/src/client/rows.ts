@@ -13,6 +13,7 @@ export interface MasterRow {
   readonly state: RowState
   readonly updatedAt: number
   readonly child: boolean
+  readonly archived: boolean
 }
 
 const RANK: Record<RowState, number> = { attention: 0, failed: 1, running: 2, idle: 3 }
@@ -21,9 +22,16 @@ const RANK: Record<RowState, number> = { attention: 0, failed: 1, running: 2, id
  * Project and sort session list and status snapshots into master rows.
  * @param list - session list state.
  * @param status - session status snapshot.
+ * @param now - current time in epoch milliseconds, used for idle archiving.
+ * @param archivedSessionIds - sessions the user or idle archiving has archived.
+ * @param activity - latest activity time per session id, in epoch milliseconds.
  * @returns sorted master rows, highest attention first.
  */
-export function masterRows(list: SessionListState, status: SessionStatusSnapshot): MasterRow[] {
+export function masterRows(
+  list: SessionListState, status: SessionStatusSnapshot, now = Date.now(),
+  archivedSessionIds: readonly string[] = [], activity: Readonly<Record<string, number>> = {},
+): MasterRow[] {
+  const archived = new Set(archivedSessionIds)
   const rows: MasterRow[] = []
   for (const id of list.ids) {
     const summary = list.byId[id]
@@ -33,13 +41,15 @@ export function masterRows(list: SessionListState, status: SessionStatusSnapshot
     const state: RowState = s?.pendingInteraction !== undefined
       ? 'attention'
       : s?.failureUnread === true ? 'failed' : running ? 'running' : 'idle'
+    const updatedAt = Math.max(activity[id] ?? 0, summary.updatedAt)
     rows.push({
       id,
       title: summary.displayTitle,
       cwd: summary.cwd,
       state,
-      updatedAt: summary.updatedAt,
+      updatedAt,
       child: summary.parentId !== undefined,
+      archived: archived.has(id) || (state === 'idle' && now - updatedAt >= 7 * 86_400_000),
     })
   }
   return rows.sort((a, b) => RANK[a.state] - RANK[b.state] || b.updatedAt - a.updatedAt)

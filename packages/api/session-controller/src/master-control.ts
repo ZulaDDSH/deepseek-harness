@@ -6,7 +6,6 @@ import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { createAssistantMessage, createSystemMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
-import type { ApiSessionAgentController } from './agent.ts'
 import type { SessionCommandController } from './commands.ts'
 import { ExternalChats, type ExternalTranscript } from './external-chats.ts'
 import type { ExternalChatImportResult, ExternalChatImportValue, ExternalChatKey, SessionCreateValue } from './types.ts'
@@ -40,7 +39,9 @@ export function externalHistory(id: SessionId, transcript: ExternalTranscript, s
     events.push(seed.append('step/end', { turn, step: 1 }))
     events.push(seed.append('turn/end', { turn, reason: { kind: 'completed' } }))
   }
-  return events
+  events.push(seed.append('session/end-seed', {}))
+  const updatedAt = transcript.updatedAt
+  return updatedAt === undefined ? events : events.map(event => ({ ...event, time: Math.floor(updatedAt) }))
 }
 
 /** Host ownership of the dedicated master home and durable text imports. */
@@ -50,8 +51,7 @@ export class MasterControlSessions {
   private home: Promise<SessionCreateValue> | undefined
   private imports: Promise<unknown> = Promise.resolve()
 
-  constructor(private readonly ctx: Context, private readonly agents: ApiSessionAgentController,
-    private readonly commands: SessionCommandController, external = new ExternalChats()) {
+  constructor(private readonly ctx: Context, private readonly commands: SessionCommandController, external = new ExternalChats()) {
     this.external = external
   }
 
@@ -117,21 +117,33 @@ export class MasterControlSessions {
       return { key, sessionId, duplicate: true }
     }
     const transcript = await this.external.read(key)
-    const composition = await this.agents.composeAgent('standard')
     const seed = externalHistory(sessionId, transcript, 'external')
-    const cwd = await realpathNormalize(transcript.cwd ?? homedir())
+    let cwd: string
+    try { cwd = await realpathNormalize(transcript.cwd ?? homedir()) } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') throw error
+      cwd = await realpathNormalize(homedir())
+    }
     if (!(await stat(cwd)).isDirectory()) throw new Error('The source project path is not a directory')
     const titles = this.ctx.get('sessionTitle')
     if (titles === undefined) throw new Error('Session titles are unavailable')
 
-    const { provider, model } = this.ctx.agentDefaultModel.currentSelection()
-    const { agent } = await this.ctx.agents.create({ sessionId, seed,
-      meta: { cwd, agentPreset: 'standard' }, agentOptions: { provider, model }, setup: composition.setup })
-    await this.commands.rename({ sessionId, title: `[Imported] ${transcript.title}` })
-    const workspace = transcript.cwd === undefined ? undefined : this.ctx.workspaceRegistry.list()
-      .find(item => resolve(item.path) === resolve(cwd))
-    if (workspace !== undefined) await workspace.attachSession(sessionId)
-    if (!await this.ctx.sessions.flush(agent.session)) throw new Error('Session persistence is unavailable')
-    return { key, sessionId }
+    const session = this.ctx.sessions.prepare(sessionId, { seed,
+      meta: { cwd, agentPreset: 'standard', ...transcript.updatedAt === undefined ? {} : { createdAt: Math.floor(transcript.updatedAt) } } })
+    const writer = await this.ctx.sessionPersistence.create(session.header)
+    let detach: (() => void) | undefined
+    try {
+      await writer.append(seed)
+      detach = this.ctx.sessions.enter(session)
+      titles.rename(session, `[Imported] ${transcript.title}`)
+      if (!await this.ctx.sessions.flush(session)) throw new Error('Session persistence is unavailable')
+      const workspace = transcript.cwd === undefined ? undefined : this.ctx.workspaceRegistry.list()
+        .find(item => resolve(item.path) === resolve(cwd))
+      if (workspace !== undefined) await workspace.attachSession(sessionId)
+      this.ctx.sessions.announce(session)
+      return { key, sessionId }
+    } finally {
+      try { await writer.close() } finally { detach?.() }
+    }
   }
 }

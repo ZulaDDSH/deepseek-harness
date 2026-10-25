@@ -1,9 +1,15 @@
 
 /** Simplified Chinese dictionary and key-set source of truth. */
 export const zh = {
+  masterConversation: '总控对话',
+  sessionOverview: '会话总览',
+  loadingMaster: '正在连接总控对话…',
+  retryMaster: '重试连接',
+  archiveMenu: '归档 ({n})',
+  activeChats: '活跃对话',
   importChats: '导入对话…',
   importHelp: '导入用户和助手的文字，然后使用 DSH 继续对话。不导入工具、图片、推理或厂商指令。预览显示前 2,000 个字符，导入包含所有支持的文字。',
-  importLimited: '显示扫描范围内最多 100 条最近记录。无法导入超过 16 MiB 的文件。',
+  importLimited: '目录扫描已达到安全限制，请刷新重试。每段对话保留的文字最多为 16 MiB。',
   importEmpty: '未找到外部对话。',
   importSearch: '搜索对话标题、目录或预览…',
   selectAllValid: '全选可用',
@@ -59,9 +65,15 @@ export const zh = {
 
 /** English dictionary, checked against the Chinese key set. */
 export const en: Record<keyof typeof zh, string> = {
+  masterConversation: 'Master conversation',
+  sessionOverview: 'Session overview',
+  loadingMaster: 'Connecting the master conversation…',
+  retryMaster: 'Retry connection',
+  archiveMenu: 'Archive ({n})',
+  activeChats: 'Active chats',
   importChats: 'Import chats…',
   importHelp: 'Import user and assistant text, then continue with DSH. Tools, images, reasoning, and vendor instructions are excluded. Preview shows the first 2,000 characters; the complete supported text is imported.',
-  importLimited: 'Showing up to 100 recent transcripts from a bounded scan. Files over 16 MiB cannot be imported.',
+  importLimited: 'The directory scan reached its safety limit. Refresh to retry. Imported text is limited to 16 MiB per chat.',
   importEmpty: 'No external chats found.',
   importSearch: 'Search chats by title, folder, or preview…',
   selectAllValid: 'Select all valid',

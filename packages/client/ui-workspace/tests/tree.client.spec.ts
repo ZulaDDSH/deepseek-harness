@@ -24,6 +24,15 @@ const list = (...items: SessionSummary[]): SessionListState => ({
   byId: Object.fromEntries(items.map(item => [item.id, item])),
   phase: 'ready', projectionsBySession: {},
 })
+
+it('keeps the reserved master home out of ordinary chat lists in every archive filter', () => {
+  const home = 'master-control-home-test'
+  const sessions = list(summary(home, 10), summary('ordinary', 5))
+  for (const filter of ['default', 'show', 'only'] as const) {
+    expect(visibleSessionIds(sessions, [], filter)).not.toContain(home)
+  }
+  expect(visibleSessionIds(sessions, [], 'show')).toEqual(['ordinary'])
+})
 const catalog = (...ids: string[]): SessionProjectionSnapshot => ({
   values: { subagentCatalog: ids.map(id => ({
     id: sid(id), mode: 'continuable', label: id,

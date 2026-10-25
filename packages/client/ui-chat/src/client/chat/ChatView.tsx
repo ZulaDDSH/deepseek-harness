@@ -19,6 +19,7 @@ import { chatRenderKey } from './render-entry.ts'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import { TurnNavigator } from './TurnNavigator.tsx'
 import { RunningStatus } from './RunningStatus.tsx'
+import type {} from '@deepseek-ai/dsh-tool-todo/client'
 import { mergeTurnRailItems } from './turn-rail-items.ts'
 import { useChatScroll } from './use-chat-scroll.ts'
 import { fileMediaUrl, resolveWorkspacePath } from '@deepseek-ai/dsh-util-workspace-path'
@@ -104,6 +105,7 @@ export function ChatView({
   usePresentation, useProjection, useSessionStatus, stop, t,
 }: ChatViewSlotProps) {
   const order = useChat(s => s.order)
+  const currentTask = useProjection('todos', todos => todos?.filter(item => item.status === 'in_progress').map(item => item.content).join(' · '))
   const groupedEntries = useConversation(snapshot => snapshot.views.grouped('chat')?.entries)
   const entries = useMemo<readonly RenderEntry[]>(() => groupedEntries
     ?? order.map(key => ({ kind: 'node', key: key as NodeKey })), [groupedEntries, order])
@@ -281,6 +283,7 @@ export function ChatView({
             </MarkdownDelegateProvider>
             {running && (
               <RunningStatus
+                task={currentTask}
                 startTime={runningStartTime}
                 step={openStep}
                 useChat={useChat}

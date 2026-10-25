@@ -249,7 +249,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
   })
 
   if (selected.has('result-shape')) describe('hooks-codex coverage — hook result shape and configuration', () => {
-    it('PreToolUse for a tool call WITHOUT a command arg passes an empty command (commandOf non-object/missing arm)', async () => {
+    it('PreToolUse accepts a tool call without a command argument', async () => {
       const d = dir()
       hooks(d, { PreToolUse: [{ hooks: [{ type: 'command', command: sh(d, 'pre.sh', '#!/usr/bin/env bash\ncat >/dev/null\nexit 0\n') }] }] })
       const adapter = new MockAdapter([toolCallResponse('c1', 'Bash', {}), textResponse('done')]) // no command arg
@@ -258,7 +258,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       ctx.tools.register(defineContentToolFixture({ name: 'Bash', description: 'b', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
       const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
-      expect(ran).toBe(true) // clean-exit hook allows; commandOf returned ''
+      expect(ran).toBe(true)
     })
 
     it('a clean exit-0 hook records exitCode 0 and omits stderrSummary', async () => {
@@ -474,10 +474,8 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       expect(events(agent).some(e => e.type === 'user/message' && e.data.source.kind !== 'user' && e.data.content.some(b => b.type === 'text' && b.text.includes('ctx too')))).toBe(true)
     })
 
-    it('commandOf reads a non-string command arg as an empty command', async () => {
+    it('preserves a non-string command argument for the hook to validate', async () => {
       const d = dir()
-      // The tool-call arguments carry `command` as a NUMBER → commandOf's
-      // `typeof command === 'string'` false arm → '' (the payload's tool_input.command).
       const cap = join(d, 'payload')
       hooks(d, { PreToolUse: [{ hooks: [{ type: 'command', command: sh(d, 'cap.sh', `#!/usr/bin/env bash\ncat > "${cap}"\nexit 0\n`) }] }] })
       const adapter = new MockAdapter([toolCallResponse('c1', 'Bash', { command: 7 }), textResponse('done')])
@@ -485,8 +483,8 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       ctx.tools.register(defineContentToolFixture({ name: 'Bash', description: 'b', parameters: { command: { type: 'number' } }, async execute() { return [{ type: 'text', text: 'ok' }] } }))
       const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
-      const payload = JSON.parse(readFileSync(cap, 'utf8')) as { tool_input: { command: string } }
-      expect(payload.tool_input.command).toBe('')
+      const payload = JSON.parse(readFileSync(cap, 'utf8')) as { tool_input: { command: number } }
+      expect(payload.tool_input.command).toBe(7)
     })
 
     it('a no-agent direct PreToolUse run uses process.cwd() and turn 0 (no session to record)', async () => {

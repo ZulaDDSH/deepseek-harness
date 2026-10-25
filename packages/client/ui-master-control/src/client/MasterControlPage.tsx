@@ -1,6 +1,7 @@
 import type { ExternalChatCatalog, ExternalChatImportValue, ExternalChatKey } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
 import { ImportChats } from './ImportChats.tsx'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
   Button, Input, Pill, IconStopFillRegular, StateDot, relativeTime, type StateDotState,
@@ -8,14 +9,15 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { groupMasterRows, masterRows, type RowState } from './rows.ts'
+import { syncMissingChats } from './sync-chats.ts'
 import css from './MasterControlPage.module.css'
 
 export interface MasterControlInjected {
+  acquireMasterChat: (signal: AbortSignal) => Promise<SessionReference>
   discover: () => Promise<ExternalChatCatalog>
   importChats: (keys: readonly ExternalChatKey[]) => Promise<ExternalChatImportValue>
   open: (sessionId: string) => void
   interrupt: (sessionId: string) => Promise<void>
-  openMasterChat: () => Promise<void>
 }
 
 export type MasterControlPageProps =
@@ -24,20 +26,46 @@ export type MasterControlPageProps =
 const DOT: Record<RowState, StateDotState> = { attention: 'warning', failed: 'error', running: 'ongoing', idle: 'idle' }
 
 export function MasterControlPage({
-  useSessions, useSessionStatus, useWorkspaces, open, interrupt, openMasterChat, discover, importChats, t,
+  useSessions, useSessionStatus, useWorkspaces, open, interrupt, discover, importChats, t,
 }: MasterControlPageProps) {
   const list = useSessions(state => state)
   const status = useSessionStatus(snapshot => snapshot)
-  const rows = useMemo(() => masterRows(list, status), [list, status])
+  const archivedIds = useWorkspaces(snapshot => snapshot.archivedSessionIds)
+  const [now, setNow] = useState(Date.now)
+  const [activity, setActivity] = useState<Record<string, number>>({})
+  const allRows = useMemo(() => masterRows(list, status, now, archivedIds, activity), [list, status, now, archivedIds, activity])
+  const [archiveOpen, setArchiveOpen] = useState(false)
+  const rows = allRows.filter(row => row.archived === archiveOpen)
   const workspaces = useWorkspaces(snapshot => snapshot.items)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<RowState | 'all'>('all')
-  const [opening, setOpening] = useState(false)
   const [error, setError] = useState<string>()
   const [importOpen, setImportOpen] = useState(false)
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
   const groups = useMemo(() => groupMasterRows(rows, workspaces, query, filter), [rows, workspaces, query, filter])
-  const now = Date.now()
+  const known = useRef(new Set<string>())
+  for (const id of list.ids) known.current.add(id)
+  useEffect(() => {
+    const controller = new AbortController()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const refresh = async (): Promise<void> => {
+      try {
+        const catalog = await discover()
+        if (controller.signal.aborted) return
+        setActivity(Object.fromEntries(catalog.items.map(chat => [`imported-chat-${chat.key}`, chat.updatedAt])))
+        setNow(Date.now())
+        await syncMissingChats(catalog, known.current, importChats, controller.signal)
+        controller.signal.throwIfAborted()
+        if (catalog.limited) setError(t('importLimited'))
+      } catch (failure) {
+        if (!controller.signal.aborted) setError(String(failure))
+      } finally {
+        if (!controller.signal.aborted) timer = setTimeout(() => { void refresh() }, 60_000)
+      }
+    }
+    if (list.phase === 'ready') void refresh()
+    return () => { controller.abort(); if (timer !== undefined) clearTimeout(timer) }
+  }, [discover, importChats, list.phase, t])
 
   const stats = useMemo(() => {
     let running = 0
@@ -72,12 +100,8 @@ export function MasterControlPage({
           <p className={css.intro}>{t('intro')}</p>
         </div>
         <div className={css.headerActions}>
-          <Button size="sm" disabled={opening} onClick={() => {
-            setOpening(true)
-            setError(undefined)
-            openMasterChat().catch((failure: unknown) => { setError(String(failure)) }).finally(() => { setOpening(false) })
-          }}>
-            {t('openMasterChat')}
+          <Button size="sm" aria-pressed={archiveOpen} onClick={() => { setArchiveOpen(value => !value); setFilter('all') }}>
+            {archiveOpen ? t('activeChats') : t('archiveMenu', { n: allRows.filter(row => row.archived).length })}
           </Button>
           <Button size="sm" onClick={() => { setImportOpen(o => !o) }}>
             {t('importChats')}

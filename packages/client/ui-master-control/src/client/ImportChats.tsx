@@ -54,7 +54,11 @@ export function ImportChats({ discover, importChats, open, t, visible, setVisibl
     setBusy(true)
     setError(undefined)
     try {
-      setResult(await importChats(selected))
+      const items: ExternalChatImportValue['items'][number][] = []
+      for (let offset = 0; offset < selected.length; offset += 100) {
+        items.push(...(await importChats(selected.slice(offset, offset + 100))).items)
+        setResult({ items: [...items] })
+      }
       setSelected([])
     } catch (failure) {
       setError(String(failure))

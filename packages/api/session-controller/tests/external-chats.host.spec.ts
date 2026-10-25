@@ -26,7 +26,7 @@ describe('external text transcripts', () => {
     expect(session.deriveMessages().map(m => [m.role, m.content])).toEqual([
       ['user', [{ type: 'text', text: 'Question' }]], ['assistant', [{ type: 'text', text: 'Answer' }]],
     ])
-    expect(events.at(-1)).toMatchObject({ type: 'turn/end' })
+    expect(events.at(-1)).toMatchObject({ type: 'session/end-seed' })
   })
 
   it('reads Claude string and block messages, title and cwd, excluding sidechains and tool results', () => {

@@ -43,6 +43,12 @@ function statusHarness(startTime?: number, useChat = chatHook(), onStop = vi.fn(
 }
 
 describe('RunningStatus', () => {
+  it('keeps deep-diving time visible beside the actual operation and active task', () => {
+    const view = render(<RunningStatus startTime={1_000} step={4} task="Fix the importer" useChat={chatHook({ runningCalls: [startedCall('edit', '{"file_path":"src/import.ts"}', 4_000)] })} onStop={vi.fn()} t={tEn} />)
+    expect(view.container.querySelector('[data-chat-running-label]')?.textContent).toContain('Deep diving for 4s, step 4')
+    expect(view.container.querySelector('[data-chat-running-operation]')?.textContent).toContain('import.ts')
+    expect(view.container.querySelector('[data-chat-running-task]')?.textContent).toBe('Current task: Fix the importer')
+  })
   it('waits for an open Turn start before allocating its clock', () => {
     const view = statusHarness()
     expect(view.content()?.textContent).toBe('深度求索中...')
@@ -191,7 +197,7 @@ describe('RunningStatus', () => {
     const chat = chatHook({ runningCalls: [startedCall('bash', '{"command":"pnpm test"}', 4_000)] })
     const view = render(<RunningStatus startTime={1_000} step={3} useChat={chat} onStop={vi.fn()} t={tEn} />)
     expect(view.container.querySelector('[data-chat-running-label]')?.textContent)
-      .toMatch(/^Running commands: pnpm test · 1s · step 3 · \d+s total$/)
+      .toMatch(/^Deep diving for \d+s, step 3\.\.\.Running commands: pnpm test · 1s$/)
     act(() => { vi.advanceTimersByTime(120_000) })
     expect(view.container.querySelector('[data-chat-running-stuck]')?.textContent)
       .toBe('No activity for 2m 0s. The model or a tool may be stuck; you can stop this turn.Stop')

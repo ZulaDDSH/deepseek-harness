@@ -43,7 +43,8 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   padding: 0;
   border: none;
   background: transparent;
@@ -116,8 +117,15 @@
 
 /* Figma strip is single-line; long items ellipsize with no inline expand. */
 .content {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }

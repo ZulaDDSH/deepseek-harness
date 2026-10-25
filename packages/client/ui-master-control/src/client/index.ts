@@ -8,7 +8,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type { UiWorkspace } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { MasterControlIcon } from './MasterControlIcon.tsx'
-import { MasterControlPage, type MasterControlInjected } from './MasterControlPage.tsx'
+import type { MasterControlInjected } from './MasterControlPage.tsx'
+import { MasterControlCenter } from './MasterControlCenter.tsx'
 import { en, zh, type MasterControlKey } from './locales.ts'
 
 export type { MasterControlInjected, MasterControlPageProps } from './MasterControlPage.tsx'
@@ -35,21 +36,18 @@ export const PANEL_ID = 'master-control' as MainPanelId
 
 export const inject = ['slots', 'locale', 'sessions', 'uiWorkspace', 'workspaces']
 
-/**
- * Open the dedicated Master Control home session in the current UI workspace.
- * @param sessions - session service.
- * @param uiWorkspace - workspace navigation service.
- */
-export async function openMasterChat(sessions: ISessions, uiWorkspace: UiWorkspace): Promise<void> {
-  uiWorkspace.openSession(await sessions.masterHome())
-}
-
 export function apply(ctx: ClientContext): void {
   const sessions = ctx.get('sessions') as ISessions
   const uiWorkspace = ctx.get('uiWorkspace') as UiWorkspace
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-master-control: dictionaries')
   const t = ctx.locale.bind(NS)
   const injected = (): MasterControlInjected => ({
+    acquireMasterChat: async (signal) => {
+      const id = await sessions.masterHome()
+      signal.throwIfAborted()
+      const reference = sessions.retain(id, { source: 'masterControl', signal })
+      try { await reference.ready; return reference } catch (error) { reference.release(); throw error }
+    },
     open: (id) => { uiWorkspace.openSession(id as SessionId) },
     interrupt: async (id) => {
       await sessions.using(id as SessionId, { source: 'masterControl' }, async (reference) => {
@@ -57,7 +55,6 @@ export function apply(ctx: ClientContext): void {
         if (!result.ok) throw new Error(`masterControl.interrupt failed: ${result.error.code}: ${result.error.message}`)
       })
     },
-    openMasterChat: () => openMasterChat(sessions, uiWorkspace),
     discover: () => sessions.externalChats(),
     importChats: keys => sessions.importChats(keys),
   })
@@ -65,8 +62,9 @@ export function apply(ctx: ClientContext): void {
     name: 'main',
     key: PANEL_ID,
     locale: NS,
+    children: { 'main.conversation': { kind: 'single', scope: 'session-maybe' } },
     inject: injected,
-  }, MasterControlPage))
+  }, MasterControlCenter))
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
     name: 'sidebar.panellist',
     id: PANEL_ID,

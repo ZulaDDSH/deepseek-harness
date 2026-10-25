@@ -97,6 +97,23 @@ describe('usage prompt decisions', () => {
     expect(decide(results, { dismissed, now: NOW + OPEN_WINDOW_HOLD_MS + 1 })).toMatchObject({ kind: 'near-limit' })
   })
 
+  it('suppresses other windows and refreshed reset times for the dismissed provider until reset', () => {
+    const dismissed = withDismissed([], `limit|anthropic|weekly|${RESET}`, NOW)
+    const results = [claude({
+      weekly: { usedPercent: 100, resetAt: RESET + 1000 },
+      'weekly-opus': { usedPercent: 100, resetAt: RESET },
+      '5h': { usedPercent: 100, resetAt: NOW + 3_600_000 },
+    })]
+    expect(decide(results, { dismissed })).toBeUndefined()
+    expect(decide(results, { dismissed, now: RESET + 1 })).toMatchObject({ windowId: 'weekly' })
+    expect(decide([...results, { ...claude({ weekly: { usedPercent: 100, resetAt: RESET } }), providerId: 'another' }], { dismissed }))
+      .toMatchObject({ result: { providerId: 'another' } })
+  })
+
+  it('ignores stale usage windows whose reset has passed', () => {
+    expect(decide([claude({ weekly: { usedPercent: 100, resetAt: NOW - 1 } })])).toBeUndefined()
+  })
+
   it('offers the switch back once the switched window resets, and only once', () => {
     const switched: UsageSwitch = { providerId: 'anthropic', resetAt: RESET }
     const results = [claude({}, apiCredits)]

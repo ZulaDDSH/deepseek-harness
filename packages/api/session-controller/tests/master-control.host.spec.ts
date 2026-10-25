@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, rm, utimes } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -41,7 +41,7 @@ async function harness() {
   ctx.provide('agentPresets', {
     resolve: async (id: string) => ({ id }), mount: async () => undefined,
   } as never)
-  createSessionTestController(ctx, { defaultModelSelection: () => ({ provider: 'mock', model: 'mock' }), cwd: root })
+  const controller = createSessionTestController(ctx, { defaultModelSelection: () => ({ provider: 'mock', model: 'mock' }), cwd: root })
   ctx.sessionProjections.register(agentPresetProjectionDefinition)
   await ctx.plugin(SessionTitleService, { fallbackMaxWords: 5, fallbackMaxBytes: 80, maxTitleBytes: 200 })
   const flush = vi.fn()
@@ -56,11 +56,25 @@ async function harness() {
     { type: 'user', cwd: root, message: { role: 'user', content: 'Remember cobalt' } },
     { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'I remember cobalt' }] } },
   ].map(row => JSON.stringify(row)).join('\n') + '\n')
-  const control = new MasterControlSessions(ctx, agents, commands, new ExternalChats({ claude, codex }))
-  return { ctx, root, commands, control, adapter, archived, sessionIds, flush, attachSession }
+  const control = new MasterControlSessions(ctx, commands, new ExternalChats({ claude, codex }))
+  return { ctx, root, commands, control, controller, adapter, archived, sessionIds, flush, attachSession }
 }
 
 describe('Master Control home and import', () => {
+  it('imports a historical chat whose project folder was removed and preserves its source age', async () => {
+    const b = await harness()
+    const file = join(b.root, 'claude', 'project', 'chat.jsonl')
+    await writeFile(file, JSON.stringify({ type: 'user', cwd: join(b.root, 'removed-project'), message: { role: 'user', content: 'Historical chat' } }) + '\n')
+    const old = new Date('2026-10-01T00:00:00Z')
+    await utimes(file, old, old)
+    const catalog = await b.control.external.discover()
+    const result = await b.control.importChats([catalog.items[0]!.key])
+    expect(result.items[0]?.error).toBeUndefined()
+    const listing = await b.controller.list({})
+    expect(listing).toMatchObject({ items: [expect.objectContaining({
+      sessionId: result.items[0]!.sessionId, updatedAt: old.getTime(), agentAvailable: false,
+    })] })
+  })
   it('serializes home clicks, ignores project masters, and recreates an archived home', async () => {
     const b = await harness()
     await b.commands.create({ sessionId: SessionId('project-master'), cwd: b.root, agentPreset: 'master' })
@@ -86,13 +100,16 @@ describe('Master Control home and import', () => {
     await expect(b.commands.create({ sessionId: SessionId(`imported-chat-${key}`) })).rejects.toThrow('identities are reserved')
     const result = await b.control.importChats(['invalid' as never, key])
     expect(result.items[0]?.error).toBeDefined()
+    expect(result.items[1]?.error).toBeUndefined()
     const id = result.items[1]?.sessionId
     expect(id).toBeDefined()
+    expect(b.ctx.agents.get(id!)).toBeUndefined()
+    const resumed = await new ApiSessionAgentController(b.ctx).resolveAgent(id!)
+    if ('error' in resumed) throw resumed.error
     const session = b.ctx.sessions.get(id!)!
     expect(session.header.agentPreset).toBe('standard')
     expect(session.deriveMessages().map(m => m.role)).toEqual(['user', 'assistant'])
     expect(b.sessionIds).toContain(id)
-    expect(b.flush).toHaveBeenCalled()
     expect(b.adapter.requests).toHaveLength(0)
     const handle = await b.ctx.sessionPersistence.open(id!, 'read')
     try {

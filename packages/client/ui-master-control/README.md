@@ -17,9 +17,9 @@ Master Control opens a dedicated supervising chat, imports Claude Code and Codex
 
 ## Use this package
 
-The web bundle mounts this sidebar page above Plugins. Open master chat resolves the host's dedicated ungrouped home rather than selecting an arbitrary master-preset conversation. Roster groups use existing workspace membership, with Ungrouped for other sessions. The home is omitted from the worker roster.
+The web bundle mounts a dedicated control-center page above Plugins. Its master conversation and composer stay beside the session overview instead of opening an ordinary workspace chat. The host reuses one durable master home, which is excluded from ordinary chat lists and the worker roster. Roster groups use existing workspace membership, with Ungrouped for other sessions.
 
-Import chats lists recent local Claude Code and Codex transcripts. Preview and select rows, then import their supported user/assistant text. Each result reports success, an existing duplicate, or a failure; Open shows the imported conversation in the normal DSH UI. Imported chats use the standard preset and continue with DSH's agent and tools.
+Master Control discovers local Claude Code and Codex transcripts and imports missing copies in batches while the page is open, refreshing once a minute. Import chats also previews and selects histories manually. Open shows the imported conversation in the normal DSH UI. Imported chats use the standard preset and continue with DSH's agent and tools. Idle chats with no source or DSH activity for at least seven days appear in the Archive menu; fresh activity returns them to the active view.
 
 The [Session Controller](../../api/session-controller/README.md) owns discovery and durable import. [Master Control tools](../../subagent/tool-master-control/README.md) own agent messaging and interruption.
 
@@ -41,7 +41,7 @@ An imported session starts a new DSH request history; it does not inherit a vend
 
 ## Known Limitations and Deferred Work
 
-- Discovery offers up to 100 newest transcripts from a bounded scan. Each source file must fit within 16 MiB; previews show its first 2,000 supported text characters. Tools, images, reasoning, and vendor instructions are excluded. Imports are one-shot copies; duplicate imports preserve the existing DSH chat. Unsupported or malformed rows fail individually. Mesh targeting still requires a loaded agent. The UI has no independent runtime invariant because it renders host-owned session and workspace snapshots.
+- Discovery includes every candidate within the bounded directory scan. Source files are streamed; retained conversation data is limited to 16 MiB per chat, and previews show its first 2,000 supported text characters. Tools, images, reasoning, and vendor instructions are excluded. Imports are one-shot copies; duplicate imports preserve the existing DSH chat, while source activity timestamps refresh. Unsupported or malformed rows fail individually. Mesh targeting still requires a loaded agent. The UI has no independent runtime invariant because it renders host-owned session and workspace snapshots.
 
 ### Dev Note
 

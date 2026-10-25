@@ -154,6 +154,21 @@
   font-variant-numeric: tabular-nums;
 }
 
+.runningLines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.runningTask {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--dsw-alias-label-secondary);
+}
+
 .runningIcon {
   display: inline-flex;
   flex: none;

@@ -12,6 +12,7 @@ import css from './ChatView.module.css'
 interface RunningStatusProps {
   readonly startTime: number | undefined
   readonly step?: number | undefined
+  readonly task?: string | undefined
   readonly useChat: ChatViewSlotProps['useChat']
   readonly awaitingUser?: boolean
   readonly onStop: () => void
@@ -30,7 +31,7 @@ function useChangedAt(key: unknown): number | undefined {
  * @returns the blue running indicator; mount only while the Session is running.
  */
 export const RunningStatus = memo(function RunningStatus({
-  startTime, step, useChat, awaitingUser = false, onStop, t,
+  startTime, step, task, useChat, awaitingUser = false, onStop, t,
 }: RunningStatusProps) {
   const [now, setNow] = useState(Date.now)
   useEffect(() => {
@@ -49,12 +50,9 @@ export const RunningStatus = memo(function RunningStatus({
   const quiet = now - Math.max(snapshotChangedAt, interactionChangedAt)
   const operation = startTime === undefined || since === undefined ? undefined
     : activityText(activity, formatLiveRunDuration(Math.max(0, now - since), t), t)
-  const label = operation !== undefined && elapsed !== undefined
-    ? step === undefined ? t('chat.live.withTurn', { text: operation, duration: elapsed })
-      : t('chat.live.withTurnStep', { text: operation, duration: elapsed, step })
-    : operation ?? (elapsed === undefined ? t('chat.deepDiving')
-      : step === undefined ? t('chat.deepDivingFor', { duration: elapsed })
-        : t('chat.deepDivingForStep', { duration: elapsed, step }))
+  const label = elapsed === undefined ? t('chat.deepDiving')
+    : step === undefined ? t('chat.deepDivingFor', { duration: elapsed })
+      : t('chat.deepDivingForStep', { duration: elapsed, step })
   const quietFor = startTime !== undefined && !awaitingUser && quiet >= INACTIVITY_HINT_MS ? quiet : undefined
   return (
     <div className={css.running} data-chat-running>
@@ -62,7 +60,11 @@ export const RunningStatus = memo(function RunningStatus({
       <span className={css.runningDivider} aria-hidden="true" />
       <span className={css.runningContent} data-chat-running-label>
         <RunningWhaleTail />
-        <TextShimmer active className={css.runningText}>{label}</TextShimmer>
+        <span className={css.runningLines}>
+          <TextShimmer active className={css.runningText}>{label}</TextShimmer>
+          {operation !== undefined && <span data-chat-running-operation>{operation}</span>}
+          {task !== undefined && task !== '' && <span className={css.runningTask} data-chat-running-task title={task}>{t('chat.live.task', { task })}</span>}
+        </span>
       </span>
       <RunningActivity quietFor={quietFor} onStop={onStop} t={t} />
     </div>

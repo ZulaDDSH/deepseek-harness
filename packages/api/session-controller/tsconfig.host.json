@@ -15,6 +15,7 @@
     "src/commands.ts",
     "src/master-control.ts",
     "src/external-chats.ts",
+    "src/external-records.ts",
     "src/control.ts",
     "src/file-references.ts",
     "src/history.ts",

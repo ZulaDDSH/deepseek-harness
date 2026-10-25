@@ -39,12 +39,23 @@ function props(over: Partial<MasterControlPageProps> & {
     useWorkspaces: over.useWorkspaces ?? ((selector: (state: { items: never[] }) => unknown) => selector({ items: [] })),
     open: over.open ?? vi.fn(),
     interrupt: over.interrupt ?? vi.fn(async () => undefined),
-    openMasterChat: over.openMasterChat ?? vi.fn(async () => undefined),
     t: makeTranslate(en),
   } as unknown as MasterControlPageProps
 }
 
 describe('MasterControlPage', () => {
+  it('moves seven-day idle chats into the accessible Archive menu', async () => {
+    render(<MasterControlPage {...props({ sessions: list(
+      summary('old', { displayTitle: 'Archived history', updatedAt: Date.now() - 8 * 86_400_000 }),
+      summary('fresh', { displayTitle: 'Current work' }),
+    ) })} />)
+    expect(screen.queryByText('Archived history')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Archive (1)' }))
+    expect(screen.getByText('Archived history')).toBeTruthy()
+    expect(screen.queryByText('Current work')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Active chats' }))
+    expect(screen.getByText('Current work')).toBeTruthy()
+  })
   it('filters the roster by title or cwd and live state, and hides the home', () => {
     render(<MasterControlPage {...props({ sessions: list(
       summary('master-control-home-example'),
@@ -87,18 +98,15 @@ describe('MasterControlPage', () => {
     expect(render(<MasterControlPage {...props({ sessions: loading })} />).getByText('Reading sessions…')).toBeTruthy()
   })
 
-  it('opens a row, interrupts a running turn, and opens master chat', async () => {
+  it('opens a worker row and interrupts a running turn', async () => {
     const open = vi.fn()
     const interrupt = vi.fn(async () => undefined)
-    const openMasterChat = vi.fn(async () => undefined)
     const sessions = list(
       summary('idle'),
       summary('run', { running: true, displayTitle: 'Running job', updatedAt: Date.now() + 1 }),
     )
-    render(<MasterControlPage {...props({ sessions, open, interrupt, openMasterChat })} />)
+    render(<MasterControlPage {...props({ sessions, open, interrupt })} />)
     expect(screen.getByText('Running job')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Open master chat' }))
-    expect(openMasterChat).toHaveBeenCalledOnce()
     fireEvent.click(screen.getAllByRole('button', { name: 'Open' })[0]!)
     expect(open).toHaveBeenCalledWith('run')
     fireEvent.click(screen.getByRole('button', { name: 'Interrupt' }))

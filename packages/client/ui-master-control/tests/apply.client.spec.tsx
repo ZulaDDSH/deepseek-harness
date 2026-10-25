@@ -6,8 +6,8 @@ import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
-import { apply, inject, NS, PANEL_ID, openMasterChat } from '../src/client/index.ts'
-import { MasterControlPage } from '../src/client/MasterControlPage.tsx'
+import { apply, inject, NS, PANEL_ID } from '../src/client/index.ts'
+import { MasterControlCenter } from '../src/client/MasterControlCenter.tsx'
 import { MasterControlIcon } from '../src/client/MasterControlIcon.tsx'
 import { apply as hostApply } from '../src/index.ts'
 
@@ -29,6 +29,9 @@ async function bench() {
   })
   const openSession = vi.fn()
   const create = vi.fn(async () => 'new-master')
+  const release = vi.fn()
+  const reference = { sessionId: 'new-master', release, ready: Promise.resolve({}) }
+  const retain = vi.fn(() => reference)
   const sessionsList = {
     getSnapshot: () => ({
       ids: [] as string[],
@@ -38,10 +41,10 @@ async function bench() {
   const workspacesList = {
     getSnapshot: () => ({ items: [{ workspaceId: 'w1' }] }),
   }
-  ctx.provide('sessions', { using, masterHome: create, create, list: sessionsList } as never)
+  ctx.provide('sessions', { using, masterHome: create, create, retain, list: sessionsList } as never)
   ctx.provide('uiWorkspace', { openSession } as never)
   ctx.provide('workspaces', { list: workspacesList } as never)
-  return { ctx, slots: ctx.get('slots') as SlotRegistry, cancel, using, openSession, create, sessionsList, workspacesList }
+  return { ctx, slots: ctx.get('slots') as SlotRegistry, cancel, using, openSession, create, retain, release, reference, sessionsList, workspacesList }
 }
 
 function declare(slots: SlotRegistry): () => void {
@@ -55,6 +58,25 @@ function declare(slots: SlotRegistry): () => void {
 }
 
 describe('ui-master-control apply', () => {
+  it('releases a failed master acquisition and refuses an acquisition after navigation aborts', async () => {
+    const b = await bench()
+    declare(b.slots)
+    const fiber = b.ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    const face = (b.slots.entries('main')[0]!.inject as unknown as () => {
+      acquireMasterChat: (signal: AbortSignal) => Promise<unknown>
+    })()
+    b.reference.ready = Promise.reject(new Error('Cannot open master'))
+    await expect(face.acquireMasterChat(new AbortController().signal)).rejects.toThrow('Cannot open master')
+    expect(b.release).toHaveBeenCalledOnce()
+    b.retain.mockClear()
+    const aborted = new AbortController()
+    aborted.abort()
+    await expect(face.acquireMasterChat(aborted.signal)).rejects.toThrow()
+    expect(b.retain).not.toHaveBeenCalled()
+    expect(b.openSession).not.toHaveBeenCalled()
+    await fiber.dispose()
+  })
   it('keeps the host Loader entry inert', () => {
     expect(hostApply).not.toThrow()
   })
@@ -70,7 +92,8 @@ describe('ui-master-control apply', () => {
     await fiber.await()
 
     const entry = b.slots.entries('main')[0]!
-    expect(entry.component).toBe(MasterControlPage)
+    expect(entry.component).toBe(MasterControlCenter)
+    expect(entry.children).toMatchObject({ 'main.conversation': { kind: 'single', scope: 'session-maybe' } })
     expect(entry.options).toMatchObject({ key: PANEL_ID })
     expect(entry.locale).toBe(NS)
 
@@ -87,7 +110,7 @@ describe('ui-master-control apply', () => {
     const face = (entry.inject as unknown as () => {
       open: (id: string) => void
       interrupt: (id: string) => Promise<void>
-      openMasterChat: () => Promise<void>
+      acquireMasterChat: (signal: AbortSignal) => Promise<unknown>
     })()
     face.open('s1')
     expect(b.openSession).toHaveBeenCalledWith('s1')
@@ -98,20 +121,14 @@ describe('ui-master-control apply', () => {
     b.cancel.mockResolvedValueOnce({ ok: false, error: { code: 'busy', message: 'still running' } })
     await expect(face.interrupt('s2')).rejects.toThrow('masterControl.interrupt failed: busy: still running')
 
-    await face.openMasterChat()
+    expect(await face.acquireMasterChat(new AbortController().signal)).toBe(b.reference)
     expect(b.create).toHaveBeenCalledWith()
-    expect(b.openSession).toHaveBeenCalledWith('new-master')
+    expect(b.retain).toHaveBeenCalledWith('new-master', { source: 'masterControl', signal: expect.any(AbortSignal) })
+    expect(b.openSession).not.toHaveBeenCalledWith('new-master')
 
     await fiber.dispose()
     expect(b.slots.entries('main')).toHaveLength(0)
     expect(b.slots.entries('sidebar.panellist')).toHaveLength(0)
   })
 
-  it('opens only the host-resolved home identity', async () => {
-    const openSession = vi.fn()
-    const masterHome = vi.fn(async () => 'home')
-    await openMasterChat({ masterHome } as never, { openSession } as never)
-    expect(masterHome).toHaveBeenCalledOnce()
-    expect(openSession).toHaveBeenCalledWith('home')
-  })
 })

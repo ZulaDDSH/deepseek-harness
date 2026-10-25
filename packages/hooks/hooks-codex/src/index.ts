@@ -354,20 +354,11 @@ function turnBase(ctx: Context, agent: Agent | undefined, event: string, model: 
   return { ...base(agent, event, model), turn_id: String(lastTurn(ctx, agent)) }
 }
 
-/** Extract a `command` string from a tool call's parsed arguments, else ''. */
-function commandOf(args: unknown): string {
-  if (typeof args === 'object' && args !== null && 'command' in args) {
-    const command: unknown = args.command
-    if (typeof command === 'string') return command
-  }
-  return ''
-}
-
 function preToolPayload(ctx: Context, exec: ToolExecution, model: string): Record<string, unknown> {
   // tool_name is the dialect name, so a matcher on either name agrees with the payload.
-  return { ...turnBase(ctx, exec.agent, 'PreToolUse', model), tool_name: hookToolName(exec.name, 'codex'), tool_input: { command: commandOf(exec.arguments) }, tool_use_id: exec.callId }
+  return { ...turnBase(ctx, exec.agent, 'PreToolUse', model), tool_name: hookToolName(exec.name, 'codex'), tool_input: exec.arguments, tool_use_id: exec.callId }
 }
 
 function postToolPayload(ctx: Context, exec: ToolExecution, result: ToolExecutionResult, model: string): Record<string, unknown> {
-  return { ...turnBase(ctx, exec.agent, 'PostToolUse', model), tool_name: hookToolName(exec.name, 'codex'), tool_input: { command: commandOf(exec.arguments) }, tool_use_id: exec.callId, tool_response: blocksToText(result.content) }
+  return { ...turnBase(ctx, exec.agent, 'PostToolUse', model), tool_name: hookToolName(exec.name, 'codex'), tool_input: exec.arguments, tool_use_id: exec.callId, tool_response: blocksToText(result.content) }
 }

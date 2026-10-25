@@ -3,10 +3,13 @@ import { createHash } from 'node:crypto'
 import { open, readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { StringDecoder } from 'node:string_decoder'
+import { compactExternalRecord } from './external-records.ts'
 import type { ExternalChat, ExternalChatKey, ExternalChatSource } from './types.ts'
 
 /** Supported text history and source project metadata. */
 export interface ExternalTranscript {
+  readonly updatedAt?: number
   readonly cwd?: string
   readonly title: string
   readonly messages: readonly { role: 'user' | 'assistant'; text: string }[]
@@ -24,18 +27,22 @@ function record(value: unknown): Record<string, unknown> | undefined {
  * @returns supported messages with a title and optional project directory.
  */
 export function parseExternalTranscript(source: ExternalChatSource, text: string): ExternalTranscript {
-  const messages: { role: 'user' | 'assistant'; text: string }[] = []
-  const seen = new Set<string>()
-  let cwd: string | undefined
-  let title: string | undefined
   const rows = text.split('\n').flatMap((line, index) => {
     if (!line.trim()) return []
     let value: unknown
     try { value = JSON.parse(line) } catch { throw new Error(`Invalid JSON at line ${index + 1}`) }
     const row = record(value)
     if (row === undefined) throw new Error(`Invalid record at line ${index + 1}`)
-    return [row]
+    return [compactExternalRecord(source, row)]
   })
+  return parseRecords(source, rows)
+}
+
+function parseRecords(source: ExternalChatSource, rows: Record<string, unknown>[]): ExternalTranscript {
+  const messages: { role: 'user' | 'assistant'; text: string }[] = []
+  const seen = new Set<string>()
+  let cwd: string | undefined
+  let title: string | undefined
   let active: Set<string> | undefined
   if (source === 'claude') {
     const nodes = new Map(rows.flatMap(row => typeof row['uuid'] === 'string' ? [[row['uuid'], row] as const] : []))
@@ -84,12 +91,12 @@ export function parseExternalTranscript(source: ExternalChatSource, text: string
 }
 
 const MAX_BYTES = 16 * 1024 * 1024
-const MAX_FILES = 100
 const MAX_ENTRIES = 20_000
 
 /** Bounded local discovery and reading of supported vendor transcripts. */
 export class ExternalChats {
   private readonly candidates = new Map<string, { path: string; source: ExternalChatSource }>()
+  private readonly previews = new Map<string, { stamp: string; chat: ExternalChat }>()
 
   constructor(private readonly roots: Readonly<Record<ExternalChatSource, string>> = {
     claude: join(process.env['CLAUDE_CONFIG_DIR'] ?? join(homedir(), '.claude'), 'projects'),
@@ -98,10 +105,10 @@ export class ExternalChats {
 
   /**
    * Refresh the private lookup of recent local transcript candidates.
-   * @returns at most 100 previews with per-file errors and a truncation indicator.
+   * @returns previews with per-file errors and a scan truncation indicator.
    */
   async discover(): Promise<{ items: ExternalChat[]; limited: boolean }> {
-    const files: { path: string; source: ExternalChatSource; updatedAt: number }[] = []
+    const files: { path: string; source: ExternalChatSource; updatedAt: number; size: number }[] = []
     let visited = 0
     for (const source of ['claude', 'codex'] as const) {
       const scan = async (directory: string, depth: number): Promise<void> => {
@@ -116,7 +123,10 @@ export class ExternalChats {
           const path = join(directory, entry.name)
           if (entry.isDirectory()) await scan(path, depth + 1)
           else if (entry.isFile() && entry.name.endsWith('.jsonl')) {
-            try { files.push({ path, source, updatedAt: (await stat(path)).mtimeMs }) } catch (error) {
+            try {
+              const info = await stat(path)
+              files.push({ path, source, updatedAt: info.mtimeMs, size: info.size })
+            } catch (error) {
               if (record(error)?.['code'] !== 'ENOENT') throw error
             }
           }
@@ -126,26 +136,33 @@ export class ExternalChats {
     }
     files.sort((a, b) => b.updatedAt - a.updatedAt || a.path.localeCompare(b.path))
     const items: ExternalChat[] = []
+    const keyed = files.map(file => [brandString<ExternalChatKey>(createHash('sha256').update(`${file.source}:${resolve(file.path)}`).digest('hex')), file] as const)
     this.candidates.clear()
-    for (const file of files.slice(0, MAX_FILES)) {
-      const key = brandString<ExternalChatKey>(createHash('sha256').update(`${file.source}:${resolve(file.path)}`).digest('hex'))
-      this.candidates.set(key, file)
+    for (const [key, file] of keyed) this.candidates.set(key, file)
+    for (const [key, file] of keyed) {
+      const stamp = `${file.updatedAt}:${file.size}`
+      const cached = this.previews.get(key)
+      if (cached?.stamp === stamp) { items.push(cached.chat); continue }
       try {
         const parsed = await this.read(key)
         items.push({ key, source: file.source, title: parsed.title, updatedAt: file.updatedAt,
           ...(parsed.cwd === undefined ? {} : { cwd: parsed.cwd }),
           messageCount: parsed.messages.length,
-          preview: parsed.messages.map(m => `${m.role}: ${m.text}`).join('\n\n').slice(0, 2000) })
+          preview: parsed.messages.slice(0, 20).map(m => `${m.role}: ${m.text.slice(0, 2000)}`).join('\n\n').slice(0, 2000) })
       } catch (error) {
         items.push({ key, source: file.source, title: file.path, updatedAt: file.updatedAt,
           messageCount: 0, preview: '', error: error instanceof Error ? error.message : String(error) })
       }
+      const chat = items.at(-1)
+      if (chat !== undefined && chat.error === undefined) this.previews.set(key, { stamp, chat })
+      else this.previews.delete(key)
     }
-    return { items, limited: files.length > MAX_FILES || visited >= MAX_ENTRIES }
+    for (const key of this.previews.keys()) if (!this.candidates.has(key)) this.previews.delete(key)
+    return { items, limited: visited >= MAX_ENTRIES }
   }
 
   /**
-   * Read a discovered transcript inside its source store with a 16 MiB limit.
+   * Read a discovered transcript with at most 16 MiB of retained conversation data.
    * @param key - identity from this instance's latest discovery.
    * @returns the parsed text history; unavailable or invalid files reject.
    */
@@ -157,16 +174,48 @@ export class ExternalChats {
     if (!actual.startsWith(root + (process.platform === 'win32' ? '\\' : '/'))) throw new Error('Transcript is outside its source store')
     const handle = await open(actual, 'r')
     try {
-      if ((await handle.stat()).size > MAX_BYTES) throw new Error('Transcript exceeds the 16 MiB import limit')
-      const buffer = Buffer.alloc(MAX_BYTES + 1)
-      let size = 0
-      while (size < buffer.length) {
-        const next = await handle.read(buffer, size, buffer.length - size, null)
-        if (next.bytesRead === 0) break
-        size += next.bytesRead
+      const info = await handle.stat()
+      const size = info.size
+      const rows: Record<string, unknown>[] = []
+      const decoder = new StringDecoder('utf8')
+      let pending = ''
+      let retained = 0
+      let textBytes = 0
+      let line = 0
+      const accept = (text: string, incomplete = false): void => {
+        line++
+        if (Buffer.byteLength(text) > 64 * 1024 * 1024) throw new Error('Transcript record exceeds the 64 MiB limit')
+        if (!text.trim()) return
+        let value: unknown
+        try { value = JSON.parse(text) } catch {
+          if (incomplete) return
+          throw new Error(`Invalid JSON at line ${line}`)
+        }
+        const row = record(value)
+        if (row === undefined) throw new Error(`Invalid record at line ${line}`)
+        const compact = compactExternalRecord(file.source, row)
+        retained += Buffer.byteLength(JSON.stringify(compact))
+        const message = record(compact[file.source === 'codex' ? 'payload' : 'message'])
+        if (typeof message?.['content'] === 'string') textBytes += Buffer.byteLength(message['content'])
+        if (textBytes > MAX_BYTES) throw new Error('Transcript text exceeds the 16 MiB import limit')
+        if (retained > 64 * 1024 * 1024) throw new Error('Transcript metadata exceeds the 64 MiB import limit')
+        rows.push(compact)
       }
-      if (size > MAX_BYTES) throw new Error('Transcript exceeds the 16 MiB import limit')
-      return parseExternalTranscript(file.source, buffer.toString('utf8', 0, size))
+      if (size > 0) {
+        const stream = handle.createReadStream({ autoClose: false, start: 0, end: size - 1, highWaterMark: 64 * 1024 })
+        for await (const chunk of stream) {
+          pending += decoder.write(chunk as Buffer)
+          let end: number
+          while ((end = pending.indexOf('\n')) !== -1) {
+            accept(pending.slice(0, end))
+            pending = pending.slice(end + 1)
+          }
+          if (Buffer.byteLength(pending) > 64 * 1024 * 1024) throw new Error('Transcript record exceeds the 64 MiB limit')
+        }
+        pending += decoder.end()
+        if (pending) accept(pending, true)
+      }
+      return { ...parseRecords(file.source, rows), updatedAt: info.mtimeMs }
     } finally { await handle.close() }
   }
 }
