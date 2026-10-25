@@ -164,7 +164,7 @@ describe('MasterControlPage', () => {
     vi.useFakeTimers()
     try {
       const discover = vi.fn(async () => ({ limited: false, items: [
-        { key: 'chat-1' as never, source: 'codex', title: 'Discovered chat', updatedAt: 1, messageCount: 1, preview: 'user: hi' },
+        { key: 'chat-1' as never, source: 'codex' as const, title: 'Discovered chat', updatedAt: 1, messageCount: 1, preview: 'user: hi' },
       ] }))
       const importChats = vi.fn(async () => ({ items: [] }))
       render(<MasterControlPage {...props({ discover, importChats })} />)
