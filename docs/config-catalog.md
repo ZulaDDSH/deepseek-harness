@@ -4053,7 +4053,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-master-control`
 
 - `inject`: `tools` · `agents`
-- `source`: [`packages/subagent/tool-master-control/src/index.ts:20`](../packages/subagent/tool-master-control/src/index.ts)
+- `source`: [`packages/subagent/tool-master-control/src/index.ts:26`](../packages/subagent/tool-master-control/src/index.ts)
 
 ```ts config-catalog
 /** Master control configuration specifying managed session enrollment. */
@@ -4311,7 +4311,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-todo`
 
 - `inject`: `tools` · `sessionProjections`
-- `source`: [`packages/todo/tool-todo/src/index.ts:29`](../packages/todo/tool-todo/src/index.ts)
+- `source`: [`packages/todo/tool-todo/src/index.ts:30`](../packages/todo/tool-todo/src/index.ts)
 
 ```ts config-catalog
 /** Model-facing todo tool configuration. */

@@ -1,7 +1,8 @@
 # Agent preset master: orchestrator for the Master Control panel. Trimmed like
 # lean (read/search only) plus orchestration-policy, delegation tools, and
-# tool-master-control. managedAll is on so every loaded session is enrolled;
-# set managedAll: false and managed: [ids] for a selective list.
+# tool-master-control. Only this preset mounts the mesh tools; managedAll is on
+# so every loaded session is enrolled across presets. Set managedAll: false and
+# managed: [ids] for a selective list.
 - insert:
     - id: preset-master
       name: '@deepseek-ai/dsh-agent-preset'
@@ -16,8 +17,8 @@
             config:
               prefix: >
                 You are the master agent. You coordinate other chat sessions via mc_list_sessions,
-                mc_send (use wait=true when you need their reply), and mc_interrupt. Enrolled peers
-                can message each other the same way. When asked how sessions are doing, call
+                mc_send (use wait=true when you need their reply), and mc_interrupt. Only this
+                master session mounts the mesh tools. When asked how sessions are doing, call
                 mc_list_sessions and summarize status plus last_reply. Delegate bounded subtasks;
                 do not do the implementation work yourself unless it is trivial.
 

@@ -1,7 +1,7 @@
 import type { ExternalChatCatalog, ExternalChatImportValue, ExternalChatKey } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
 import { ImportChats } from './ImportChats.tsx'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
 import {
   Button, Input, Pill, IconStopFillRegular, StateDot, relativeTime, type StateDotState,
@@ -9,7 +9,6 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { groupMasterRows, masterRows, type RowState } from './rows.ts'
-import { syncMissingChats } from './sync-chats.ts'
 import css from './MasterControlPage.module.css'
 
 export interface MasterControlInjected {
@@ -43,20 +42,17 @@ export function MasterControlPage({
   const [importOpen, setImportOpen] = useState(false)
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
   const groups = useMemo(() => groupMasterRows(rows, workspaces, query, filter), [rows, workspaces, query, filter])
-  const known = useRef(new Set<string>())
-  for (const id of list.ids) known.current.add(id)
   useEffect(() => {
     const controller = new AbortController()
     let timer: ReturnType<typeof setTimeout> | undefined
+    // Refresh source activity and the roster clock only. Discovery never imports:
+    // a page open must not create sessions the user has not selected.
     const refresh = async (): Promise<void> => {
       try {
         const catalog = await discover()
         if (controller.signal.aborted) return
         setActivity(Object.fromEntries(catalog.items.map(chat => [`imported-chat-${chat.key}`, chat.updatedAt])))
         setNow(Date.now())
-        await syncMissingChats(catalog, known.current, importChats, controller.signal)
-        controller.signal.throwIfAborted()
-        if (catalog.limited) setError(t('importLimited'))
       } catch (failure) {
         if (!controller.signal.aborted) setError(String(failure))
       } finally {
@@ -65,7 +61,7 @@ export function MasterControlPage({
     }
     if (list.phase === 'ready') void refresh()
     return () => { controller.abort(); if (timer !== undefined) clearTimeout(timer) }
-  }, [discover, importChats, list.phase, t])
+  }, [discover, list.phase])
 
   const stats = useMemo(() => {
     let running = 0

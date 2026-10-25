@@ -1072,7 +1072,8 @@ Rows sort attention, failed, running, idle, each most recent first. State preced
 
 - `mc_list_sessions`, `mc_send`, `mc_interrupt` mesh tools reach any enrolled loaded peer (not adjacent-child-only like `send_message` / `interrupt_agent`).
 - Any calling agent may use the tools; self-target is rejected. Enrollment: `Config.managed` or `Config.managedAll`.
-- `mc_send` steers with an `agent-message` relay (`Agent <id> sent a message:`). Optional `wait` awaits `whenIdle` (120s cap) and returns `reply` from `finalAssistantOutput`.
+- `mc_send` steers with an `agent-message` relay (`Agent <id> sent a message:`). Optional `wait` awaits `whenIdle` (120s cap) and folds the reply only from the turn that claimed the relay, so a failed or cancelled turn yields a `note` instead of an older answer.
+- Relay loops are bounded without shared state: `relayOutcome` reads the target's own log for the claimed relay, `waitCycle` follows each session's unsettled `mc_send` call to refuse a wait that would deadlock, and `recentRelays` caps settled relays to one peer inside `MC_RELAY_WINDOW_MS`.
 - `mc_list_sessions` includes truncated `last_reply` so the master can answer how peers are doing.
 - `mc_interrupt` cancels with `{kind:'parent'}`. Targets must be loaded in `ctx.agents`.
 
@@ -1082,7 +1083,7 @@ Forwards optional `agentPreset` on the Host create RPC so the UI can open a mast
 
 ## packages/bundle/web-app/presets/master.patch.yml
 
-- Master mounts `orchestration-policy` plus `tool-master-control` (`managedAll: true`). `standard` and `lean` also mount the mesh tools so peers can talk back.
+- Master mounts `orchestration-policy` plus `tool-master-control` (`managedAll: true`). Only the master preset mounts the mesh tools; `standard` and `lean` omit them, so an ordinary or imported chat cannot message, interrupt, or read other sessions.
 - Master is a trimmed lean-like preset plus delegation; presets have no `extends`.
 
 # Master Control home and external text imports
@@ -1092,6 +1093,8 @@ Forwards optional `agentPreset` on the Host create RPC so the UI can open a mast
 `packages/api/session-controller/src/external-chats.ts:ExternalChats` discovers bounded recent source logs and admits only discovered keys. Text-only previews and imports exclude tool payloads, attachments, reasoning, and vendor configuration. Unsupported or oversized rows report a visible error.
 
 `packages/client/ui-master-control/src/client/rows.ts:groupMasterRows` groups by existing workspace membership and filters before rendering. Home identities are omitted from the worker roster.
+
+`packages/client/ui-master-control/src/client/MasterControlPage.tsx:MasterControlPage` refreshes discovery activity and the roster clock on open and once a minute, but never imports: only `ImportChats` submits the selected keys, so a page visit cannot create sessions.
 
 
 `packages/api/session-controller/src/list.ts:ApiSessionList` initializes reserved master homes as nonblank, so workspace navigation cannot reuse the supervising session as a provisional New Session. Projection state version 2 invalidates older derived metadata while ordinary empty sessions remain blank.

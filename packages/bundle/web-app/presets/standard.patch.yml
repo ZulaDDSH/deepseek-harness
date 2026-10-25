@@ -148,8 +148,3 @@
           - id: tool-plugin-manager
             name: '@deepseek-ai/dsh-plugin-manager/tools'
             disabled: true
-          - id: tool-master-control
-            name: '@deepseek-ai/dsh-tool-master-control'
-            config:
-              managedAll: true
-              managed: []

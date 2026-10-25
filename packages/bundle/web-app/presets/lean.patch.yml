@@ -35,11 +35,6 @@
             disabled: !!js process.platform !== 'win32'
             config:
               enableRunInBackground: false
-          - id: tool-master-control
-            name: '@deepseek-ai/dsh-tool-master-control'
-            config:
-              managedAll: true
-              managed: []
           - id: compaction
             name: cordis:group
             group: true

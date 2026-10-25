@@ -6,7 +6,7 @@ kind: "package-reference"
 
 ## Summary
 
-Master Control opens a dedicated supervising chat, imports Claude Code and Codex text histories into DSH, and groups the session roster by workspace. Search and status filters narrow the roster; rows open conversations or interrupt running work. The normal conversation UI owns continued chats.
+Master Control opens a dedicated supervising chat, previews Claude Code and Codex text histories for explicit import, and groups the session roster by workspace. Search and status filters narrow the roster; rows open conversations or interrupt running work. The normal conversation UI owns continued chats.
 
 ## Table of Contents
 
@@ -19,7 +19,7 @@ Master Control opens a dedicated supervising chat, imports Claude Code and Codex
 
 The web bundle mounts a dedicated control-center page above Plugins. Its master conversation and composer stay beside the session overview instead of opening an ordinary workspace chat. The host reuses one durable master home, which is excluded from ordinary chat lists and the worker roster. Roster groups use existing workspace membership, with Ungrouped for other sessions.
 
-Master Control discovers local Claude Code and Codex transcripts and imports missing copies in batches while the page is open, refreshing once a minute. Import chats also previews and selects histories manually. Open shows the imported conversation in the normal DSH UI. Imported chats use the standard preset and continue with DSH's agent and tools. Idle chats with no source or DSH activity for at least seven days appear in the Archive menu; fresh activity returns them to the active view.
+Master Control discovers local Claude Code and Codex transcripts and keeps source activity fresh while the page is open, refreshing once a minute. Discovery never imports: only the chats selected in Import chats are copied, so opening the page cannot create sessions. Import chats previews, filters, and imports the selected histories. Open shows the imported conversation in the normal DSH UI. Imported chats use the standard preset and continue with DSH's agent and tools. Idle chats with no source or DSH activity for at least seven days appear in the Archive menu; fresh activity returns them to the active view.
 
 The [Session Controller](../../api/session-controller/README.md) owns discovery and durable import. [Master Control tools](../../subagent/tool-master-control/README.md) own agent messaging and interruption.
 

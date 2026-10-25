@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
@@ -158,5 +158,24 @@ describe('MasterControlPage', () => {
     fireEvent.click(alphaHeader)
     expect(screen.queryByText('Session Alpha')).toBeNull()
     expect(screen.getByText('Session Beta')).toBeTruthy()
+  })
+
+  it('refreshes discovery on open and on a timer without importing chats', async () => {
+    vi.useFakeTimers()
+    try {
+      const discover = vi.fn(async () => ({ limited: false, items: [
+        { key: 'chat-1' as never, source: 'codex', title: 'Discovered chat', updatedAt: 1, messageCount: 1, preview: 'user: hi' },
+      ] }))
+      const importChats = vi.fn(async () => ({ items: [] }))
+      render(<MasterControlPage {...props({ discover, importChats })} />)
+      await act(async () => { await Promise.resolve() })
+      expect(discover).toHaveBeenCalledTimes(1)
+      expect(importChats).not.toHaveBeenCalled()
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+      expect(discover).toHaveBeenCalledTimes(2)
+      expect(importChats).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

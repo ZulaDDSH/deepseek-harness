@@ -2310,7 +2310,7 @@ Source: [`packages/subagent/tool-master-control/src/index.ts`](../packages/subag
 
 ### `mc_send`
 
-Send a message to an enrolled loaded session (peer or master). A running session receives it at its next step; an idle session starts a turn. Set wait=true to wait until that session goes idle and return its last assistant reply (capped at 120s).
+Send a message to an enrolled loaded session (peer or master). A running session receives it at its next step; an idle session starts a turn. Set wait=true to wait until that session goes idle and return the reply produced by the turn that ran the message (capped at 120s). If that turn fails or is cancelled, the result carries a note instead of an earlier reply. Repeated relays to one peer and wait cycles are refused so sessions cannot loop on each other.
 
 ```json
 {
