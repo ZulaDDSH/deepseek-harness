@@ -15,6 +15,8 @@ The Orchestrator & Subagent Setup view has an Auto responder switch, stored as `
 3. **Reply** — a non-`DONE` answer is sent with `agent.followup` as a plain `user` message with no `rpcId`, so auto-review never mistakes it for a human instruction. The reviewer is told never to approve a push, merge, deletion, or purchase.
 4. **Loop guard** — at most three auto replies per real user prompt. A real user message resets the count and aborts an in-flight review; so does agent disposal. A reply is dropped if the turn, idle state or setting changed while the model answered. Turns started by hooks or background wakes are never reviewed, and the reviewer prompt treats the agent's text as untrusted data. Failures log a warning and leave the session untouched.
 
+5. **Memory** — the reviewer may answer `MEMORY: <query>` to read saved Memorix notes for this workspace, at most twice per review. The lookup goes through the `memory/lookup` waterfall event, which `MemoryAutomation` answers with its existing project-scoped search; with no provider the reviewer is told no notes were found.
+
 ## Alternatives considered
 
 **Reviewer as a subagent role.** Rejected: it needs subagent mode and routing setup, and a subagent cannot send to its parent's chat as the user.
@@ -22,6 +24,8 @@ The Orchestrator & Subagent Setup view has an Auto responder switch, stored as `
 **Reply with an `rpcId` like a typed message.** Rejected: auto-review treats `rpcId`d user messages as human permission intent, which would let model-written text approve actions.
 
 **Read history with `snapshotEvents` at review time.** Rejected: the sync readers are lint-banned in production; state is folded from delivered events instead.
+
+**Native tool calls for memory.** Rejected: a text prefix avoids tool schemas and tool-call history for a two-round lookup.
 
 ## Consequences
 

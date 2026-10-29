@@ -235,6 +235,7 @@ export const EVENT_SCOPE_PAGE: Record<string, string> = {
   'schedule': 'schedule.md',
   'llm': 'llm-streaming.md',
   'permission-presets': 'permission-presets.md',
+  'memory': 'session.md',
   'session': 'session.md',
   'settings': 'settings.md',
   'skills': 'skills.md',

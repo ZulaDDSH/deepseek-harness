@@ -155,6 +155,62 @@ describe('auto responder', () => {
     expect(userTexts(agent)).toEqual(['go'])
   })
 
+  it('lets the reviewer look up saved memory before it answers', async () => {
+    const { ctx, agent, adapter } = await boot([
+      textResponse('login fixed'), textResponse('MEMORY: login bug\nignored'), textResponse('Add the regression test'), textResponse('test added'), textResponse('DONE'),
+    ], on)
+    const lookup = vi.fn((_query: string) => Promise.resolve('Turn 1: login fix'))
+    ctx.on('memory/lookup', query => lookup(query))
+    prompt(agent, 'fix login')
+    await settle(agent)
+    expect(lookup).toHaveBeenCalledOnce()
+    expect(lookup).toHaveBeenCalledWith('login bug')
+    expect(JSON.stringify(adapter.requests[2]?.messages)).toContain('Turn 1: login fix')
+    expect(userTexts(agent)).toEqual(['fix login', 'Add the regression test'])
+  })
+
+  it('tells the reviewer when no memory provider has notes', async () => {
+    const { agent, adapter } = await boot([textResponse('done'), textResponse('MEMORY: anything'), textResponse('DONE')], on)
+    prompt(agent, 'go')
+    await settle(agent)
+    expect(JSON.stringify(adapter.requests[2]?.messages)).toContain('no notes found')
+    expect(userTexts(agent)).toEqual(['go'])
+  })
+
+  it('stops at two lookups and ignores a blank query', async () => {
+    const capped = await boot([textResponse('done'), textResponse('MEMORY: a'), textResponse('MEMORY: b'), textResponse('MEMORY: c')], on)
+    const lookup = vi.fn((_query: string) => Promise.resolve('note'))
+    capped.ctx.on('memory/lookup', query => lookup(query))
+    prompt(capped.agent, 'go')
+    await settle(capped.agent)
+    expect(lookup).toHaveBeenCalledTimes(2)
+    expect(userTexts(capped.agent)).toEqual(['go'])
+    const blank = await boot([textResponse('done'), textResponse('MEMORY:  ')], on)
+    prompt(blank.agent, 'go')
+    await settle(blank.agent)
+    expect(blank.adapter.requests).toHaveLength(2)
+    expect(userTexts(blank.agent)).toEqual(['go'])
+  })
+
+  it('aborts a lookup in flight when a new user prompt arrives', async () => {
+    const { ctx, agent } = await boot([textResponse('done'), textResponse('MEMORY: x'), textResponse('again done'), textResponse('DONE')], on)
+    let seen: AbortSignal | undefined
+    let release = (_notes: string): void => {}
+    ctx.on('memory/lookup', (_query, _session, signal) => {
+      seen = signal
+      return new Promise<string>((resolve) => { release = resolve })
+    })
+    prompt(agent, 'go')
+    for (let round = 0; round < 50 && seen === undefined; round += 1) await new Promise(resolve => setTimeout(resolve, 20))
+    expect(seen?.aborted).toBe(false)
+    prompt(agent, 'again')
+    await settle(agent)
+    expect(seen?.aborted).toBe(true)
+    release('late note')
+    await settle(agent)
+    expect(userTexts(agent)).toEqual(['go', 'again'])
+  })
+
   it('maps an empty or DONE reply to no message', () => {
     expect(autoResponderMessage(' done \n')).toBeUndefined()
     expect(autoResponderMessage('')).toBeUndefined()

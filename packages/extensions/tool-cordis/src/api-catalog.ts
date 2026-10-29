@@ -4406,6 +4406,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'server', description: 'configured server name.' }, { name: 'next', description: 'delegation to other configured providers.' }],
   },
   {
+    name: 'memory/lookup',
+    mode: 'waterfall',
+    signature: '\'memory/lookup\'(query: string, session: Session, signal: AbortSignal, next: () => Promise<string | undefined>): Promise<string | undefined>',
+    summary: 'Read saved memory text for one session, such as Memorix notes for the auto responder.',
+    description: 'Read saved memory text for one session, such as Memorix notes for the auto responder.',
+    parameters: [{ name: 'query', description: 'literal search text.' }, { name: 'session', description: 'the session asking, so its own chat records are left out.' }, { name: 'signal', description: 'lookup lifetime.' }, { name: 'next', description: 'delegation to other providers.' }],
+  },
+  {
     name: 'permission-presets/catalog-changed',
     mode: 'emit',
     signature: '\'permission-presets/catalog-changed\'(): void',

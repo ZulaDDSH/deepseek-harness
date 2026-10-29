@@ -495,6 +495,39 @@ describe('Memory policy and first-message recall', () => {
     expect(hungWarn).toHaveBeenCalledWith(expect.stringContaining('did not finish within 3 s'))
   }, 15_000)
 
+  it('answers a memory lookup from the auto responder with this workspace notes and falls through otherwise', async () => {
+    const search = 'Found 1 observation(s) matching "login":\n| obs:1@fixture | x |'
+    const { ctx, db, searches } = await fixture({ search })
+    const ask = (target: unknown, query = 'login') => ctx.waterfall('memory/lookup', query, target as never, new AbortController().signal, () => Promise.resolve(undefined))
+    db.prepare('INSERT INTO observations(entityName, title, narrative, topicKey, createdAt) VALUES (?, ?, ?, ?, ?)')
+      .run(workspaceEntity(CWD), 'Turn 1: login fix', 'login narrative', 'dsh-session:old:1:turn:1', '2020-01-01T00:00:00.000Z')
+    expect(await ask(session('s1'))).toContain('Turn 1: login fix')
+    expect(searches).toEqual([{ query: 'login', limit: 8, scope: 'project', quality: 'fast', status: 'active' }])
+    expect(await ask(session('s1', { origin: 'subagent' }))).toBeUndefined()
+    expect(await ask(session('s1'), '   ')).toBeUndefined()
+    expect(searches).toHaveLength(1)
+  })
+
+  it('falls through when the lookup finds nothing or the store is unreadable', async () => {
+    const { ctx, db, directory } = await fixture({ search: 'Found 1 observation(s):\n| obs:9@fixture | x |' })
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    const ask = () => ctx.waterfall('memory/lookup', 'q', session('s1') as never, new AbortController().signal, () => Promise.resolve(undefined))
+    expect(await ask()).toBeUndefined()
+    db.close()
+    await rm(join(directory, 'memorix.db'))
+    expect(await ask()).toBeUndefined()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('automatic memory recall failed'))
+  })
+
+  it('does not report a lookup that the caller aborted', async () => {
+    const { ctx } = await fixture({ call: () => Promise.reject(new Error('aborted mid-call')) })
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    const gone = new AbortController()
+    gone.abort()
+    expect(await ctx.waterfall('memory/lookup', 'q', session('s1') as never, gone.signal, () => Promise.resolve(undefined))).toBeUndefined()
+    expect(warn).not.toHaveBeenCalled()
+  })
+
   it('ignores subagents, sessions without a workspace and CLI terminals for recall', async () => {
     const { ctx, db, searches } = await fixture()
     await ctx.plugin(SystemPrompt)
