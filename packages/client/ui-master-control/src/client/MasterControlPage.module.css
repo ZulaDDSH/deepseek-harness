@@ -38,10 +38,13 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 0 24px;
+  overflow: auto;
 }
 
-.masterBody > * { flex: 1; min-height: 0; }
+.masterBody > p { margin: 0; }
 .rosterPane { min-height: 0; min-width: 0; overflow: hidden; }
 
 @media (max-width: 1050px) {

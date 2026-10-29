@@ -3,8 +3,8 @@
 export const zh = {
   masterConversation: '总控对话',
   sessionOverview: '会话总览',
-  loadingMaster: '正在连接总控对话…',
-  retryMaster: '重试连接',
+  masterHint: '总控对话会在常规对话面板中打开。',
+  openMaster: '打开总控对话',
   archiveMenu: '归档 ({n})',
   activeChats: '活跃对话',
   importChats: '导入对话…',
@@ -67,8 +67,8 @@ export const zh = {
 export const en: Record<keyof typeof zh, string> = {
   masterConversation: 'Master conversation',
   sessionOverview: 'Session overview',
-  loadingMaster: 'Connecting the master conversation…',
-  retryMaster: 'Retry connection',
+  masterHint: 'The master conversation opens in the regular conversation panel.',
+  openMaster: 'Open master chat',
   archiveMenu: 'Archive ({n})',
   activeChats: 'Active chats',
   importChats: 'Import chats…',

@@ -58,25 +58,6 @@ function declare(slots: SlotRegistry): () => void {
 }
 
 describe('ui-master-control apply', () => {
-  it('releases a failed master acquisition and refuses an acquisition after navigation aborts', async () => {
-    const b = await bench()
-    declare(b.slots)
-    const fiber = b.ctx.plugin({ inject: [...inject], apply })
-    await fiber.await()
-    const face = (b.slots.entries('main')[0]!.inject as unknown as () => {
-      acquireMasterChat: (signal: AbortSignal) => Promise<unknown>
-    })()
-    b.reference.ready = Promise.reject(new Error('Cannot open master'))
-    await expect(face.acquireMasterChat(new AbortController().signal)).rejects.toThrow('Cannot open master')
-    expect(b.release).toHaveBeenCalledOnce()
-    b.retain.mockClear()
-    const aborted = new AbortController()
-    aborted.abort()
-    await expect(face.acquireMasterChat(aborted.signal)).rejects.toThrow()
-    expect(b.retain).not.toHaveBeenCalled()
-    expect(b.openSession).not.toHaveBeenCalled()
-    await fiber.dispose()
-  })
   it('keeps the host Loader entry inert', () => {
     expect(hostApply).not.toThrow()
   })
@@ -93,7 +74,7 @@ describe('ui-master-control apply', () => {
 
     const entry = b.slots.entries('main')[0]!
     expect(entry.component).toBe(MasterControlCenter)
-    expect(entry.children).toMatchObject({ 'main.conversation': { kind: 'single', scope: 'session-maybe' } })
+    expect(entry.children ?? {}).not.toHaveProperty(['main.conversation'])
     expect(entry.options).toMatchObject({ key: PANEL_ID })
     expect(entry.locale).toBe(NS)
 
@@ -110,7 +91,7 @@ describe('ui-master-control apply', () => {
     const face = (entry.inject as unknown as () => {
       open: (id: string) => void
       interrupt: (id: string) => Promise<void>
-      acquireMasterChat: (signal: AbortSignal) => Promise<unknown>
+      openMasterChat: () => Promise<void>
     })()
     face.open('s1')
     expect(b.openSession).toHaveBeenCalledWith('s1')
@@ -121,10 +102,11 @@ describe('ui-master-control apply', () => {
     b.cancel.mockResolvedValueOnce({ ok: false, error: { code: 'busy', message: 'still running' } })
     await expect(face.interrupt('s2')).rejects.toThrow('masterControl.interrupt failed: busy: still running')
 
-    expect(await face.acquireMasterChat(new AbortController().signal)).toBe(b.reference)
+    b.openSession.mockClear()
+    await face.openMasterChat()
     expect(b.create).toHaveBeenCalledWith()
-    expect(b.retain).toHaveBeenCalledWith('new-master', { source: 'masterControl', signal: expect.any(AbortSignal) })
-    expect(b.openSession).not.toHaveBeenCalledWith('new-master')
+    expect(b.openSession).toHaveBeenCalledWith('new-master')
+    expect(b.retain).not.toHaveBeenCalled()
 
     await fiber.dispose()
     expect(b.slots.entries('main')).toHaveLength(0)
