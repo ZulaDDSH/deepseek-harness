@@ -604,6 +604,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type FactoryRegistrationPropsOf<F extends keyof SlotFactoryMap & string> = FactoryRenderPropsOf<F> & PropsStore<FactoryStoreOf<F>> & InjectFace<FactoryInjectOf<F>> & PropsLocale<FactoryLocaleOf<F>> & PropsRenderFactories;',
   },
   {
+    name: 'FontFamily',
+    declaration: 'export type FontFamily = typeof FONT_FAMILIES[number];',
+  },
+  {
     name: 'GlobalStandardProps',
     declaration: 'export interface GlobalStandardProps {\n}',
   },
@@ -1009,7 +1013,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ThemeSnapshot',
-    declaration: 'export interface ThemeSnapshot {\n    preference: ThemePreference;\n    fontSize: number;\n    active: ThemeDefinition;\n    themes: readonly ThemeDefinition[];\n    revision: number;\n}',
+    declaration: 'export interface ThemeSnapshot {\n    preference: ThemePreference;\n    fontSize: number;\n    fontFamily: FontFamily;\n    fontStack: string | undefined;\n    active: ThemeDefinition;\n    themes: readonly ThemeDefinition[];\n    revision: number;\n}',
   },
   {
     name: 'ThemeTokenModes',

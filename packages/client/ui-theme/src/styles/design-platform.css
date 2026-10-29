@@ -79,12 +79,12 @@ body {
   --dsw-static-neutral-warm-400: rgb(170, 168, 159);
   --dsw-static-neutral-warm-600: rgb(130, 128, 120);
   --dsw-static-neutral-warm-650: rgb(100, 99, 95);
-  --dsw-static-neutral-warm-700: rgb(78, 77, 74);
-  --dsw-static-neutral-warm-750: rgb(64, 64, 61);
-  --dsw-static-neutral-warm-800: rgb(56, 56, 53);
-  --dsw-static-neutral-warm-850: rgb(48, 48, 46);
-  --dsw-static-neutral-warm-900: rgb(38, 38, 36);
-  --dsw-static-neutral-warm-950: rgb(31, 30, 29);
+  --dsw-static-neutral-warm-700: rgb(68, 67, 64);
+  --dsw-static-neutral-warm-750: rgb(52, 52, 49);
+  --dsw-static-neutral-warm-800: rgb(43, 43, 41);
+  --dsw-static-neutral-warm-850: rgb(34, 34, 32);
+  --dsw-static-neutral-warm-900: rgb(26, 26, 25);
+  --dsw-static-neutral-warm-950: rgb(18, 18, 17);
   --dsw-static-red-100: rgb(254, 226, 226);
   --dsw-static-red-400: rgb(242, 90, 90);
   --dsw-static-red-400-a12: rgb(242 90 90 / 12%);
@@ -303,7 +303,7 @@ body[data-ds-dark-theme] {
   --dsw-alias-bg-mask-2: rgba(0, 0, 0, 0.2);
   --dsw-alias-bg-mask-3: rgba(0, 0, 0, 0.48);
   --dsw-alias-bg-mask-photo: rgba(0, 0, 0, 0.88);
-  --dsw-alias-bg-mask-drop: rgba(38, 38, 36, 0.7);
+  --dsw-alias-bg-mask-drop: rgba(26, 26, 25, 0.7);
   --dsw-alias-bg-module-platform: var(--dsw-static-neutral-warm-750);
   --dsw-alias-bg-multi-select: var(--dsw-static-neutral-warm-800);
   --dsw-alias-bg-overlay: var(--dsw-static-neutral-warm-650);
@@ -394,7 +394,7 @@ body[data-ds-dark-theme] {
   --dsw-specific-bubble: var(--dsw-static-neutral-warm-850);
   --dsw-specific-input-major: var(--dsw-static-neutral-warm-850);
   --dsw-specific-login-input: var(--dsw-static-neutral-warm-850);
-  --dsw-menu-surface-fill: rgba(64, 64, 61, 0.45);
+  --dsw-menu-surface-fill: rgba(52, 52, 49, 0.45);
   --dsw-specific-menu: var(--dsw-menu-surface-fill);
   --dsw-specific-selector: var(--dsw-static-neutral-warm-750);
   --dsw-specific-sidebar-fill: var(--dsw-static-neutral-warm-950);
@@ -411,5 +411,5 @@ html[data-platform='darwin'] body {
 }
 
 html[data-platform='darwin'] body[data-ds-dark-theme] {
-  --dsw-specific-menu: rgba(48, 48, 46, 0.94);
+  --dsw-specific-menu: rgba(34, 34, 32, 0.94);
 }

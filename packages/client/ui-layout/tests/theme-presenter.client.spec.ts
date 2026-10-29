@@ -12,10 +12,11 @@ function snapshot(
   tokens: Record<string, string> = {},
   fontSize = 14,
   preference: ThemePreference = colorScheme,
+  fontStack?: string,
 ): ThemeSnapshot {
   // The presenter must key off colorScheme, not the id — keep them distinct.
   const active = { id: `${colorScheme}-test`, colorScheme, tokens }
-  return { preference, fontSize, active, themes: [active], revision: 1 }
+  return { preference, fontSize, fontFamily: fontStack === undefined ? 'default' : 'serif', fontStack, active, themes: [active], revision: 1 }
 }
 
 function clearThemePresentation(): void {
@@ -108,5 +109,18 @@ describe('ThemePresenter', () => {
     expect(document.body.style.getPropertyValue('--dsh-content-font-size')).toBe('')
     expect(document.body.style.getPropertyValue('--foreign')).toBe('kept')
     expect(meta?.isConnected).toBe(false)
+  })
+})
+
+describe('ThemePresenter font family', () => {
+  it('sets the body font stack, removes it for default, and retracts it on dispose', () => {
+    const presenter = new ThemePresenter()
+    presenter.apply(snapshot('dark', {}, 14, 'dark', 'Georgia, serif'))
+    expect(document.body.style.getPropertyValue('--dsw-font-family')).toBe('Georgia, serif')
+    presenter.apply(snapshot('dark'))
+    expect(document.body.style.getPropertyValue('--dsw-font-family')).toBe('')
+    presenter.apply(snapshot('dark', {}, 14, 'dark', 'Georgia, serif'))
+    presenter.dispose()
+    expect(document.body.style.getPropertyValue('--dsw-font-family')).toBe('')
   })
 })

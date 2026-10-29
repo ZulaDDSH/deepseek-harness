@@ -20,20 +20,23 @@ import type { AppearanceRowInjected } from './AppearanceRow.tsx'
 import { AppearanceRow } from './AppearanceRow.tsx'
 import type { FontSizeRowInjected } from './FontSizeRow.tsx'
 import { FontSizeRow } from './FontSizeRow.tsx'
-import { createAppearanceRowStore, createFontSizeRowStore } from './settings-store.ts'
+import type { FontFamilyRowInjected } from './FontFamilyRow.tsx'
+import { FontFamilyRow } from './FontFamilyRow.tsx'
+import { createAppearanceRowStore, createFontFamilyRowStore, createFontSizeRowStore } from './settings-store.ts'
 import { installThemeStyles } from './styles.ts'
 import { en, zh, type ThemeKey } from './locales.ts'
 import {
-  DEFAULT_FONT_SIZE, DEFAULT_PREFERENCE, FONT_SIZE_FIELD, FONT_SIZE_MAX, FONT_SIZE_MIN,
-  isThemePreference, THEME_PREFERENCE_FIELD, THEME_SETTINGS_NAMESPACE,
-  type ThemePreference, type ThemeSettings,
+  DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE, DEFAULT_PREFERENCE, FONT_FAMILY_FIELD, FONT_SIZE_FIELD, FONT_SIZE_MAX, FONT_SIZE_MIN,
+  fontStackOf, isFontFamily, isThemePreference, THEME_PREFERENCE_FIELD, THEME_SETTINGS_NAMESPACE,
+  type FontFamily, type ThemePreference, type ThemeSettings,
 } from '../theme-settings.ts'
 
 export type { AppearanceRowComponentProps, AppearanceRowInjected } from './AppearanceRow.tsx'
 export type { FontSizeRowComponentProps, FontSizeRowInjected } from './FontSizeRow.tsx'
-export type { AppearanceRowState, FontSizeRowState } from './settings-store.ts'
+export type { FontFamilyRowComponentProps, FontFamilyRowInjected } from './FontFamilyRow.tsx'
+export type { AppearanceRowState, FontFamilyRowState, FontSizeRowState } from './settings-store.ts'
 export type { ThemeKey } from './locales.ts'
-export type { ThemePreference, ThemeSettings } from '../theme-settings.ts'
+export type { FontFamily, ThemePreference, ThemeSettings } from '../theme-settings.ts'
 
 /** Namespace owning this feature's settings-row copy. */
 export const SETTINGS_NS = 'settings.theme'
@@ -82,6 +85,10 @@ export interface ThemeSnapshot {
   preference: ThemePreference
   /** Conversation content font size in px (integer within FONT_SIZE_MIN..FONT_SIZE_MAX). */
   fontSize: number
+  /** Selected font family preset. */
+  fontFamily: FontFamily
+  /** Stack the preset overrides the body font with; undefined keeps the product stack. */
+  fontStack: string | undefined
   /**
    * The resolved active theme (`system` resolved via prefers-color-scheme)
    * with override layers folded into its tokens (seq order, later layers win
@@ -162,6 +169,7 @@ export class ThemeRuntime {
   private themes: ThemeDefinition[] = [...BUILTIN_THEMES]
   private preference: ThemePreference
   private fontSize: number = bootstrapFontSize()
+  private fontFamily: FontFamily = DEFAULT_FONT_FAMILY
   private revision = 0
   private snapshot: ThemeSnapshot
   private readonly media: MediaQueryList | undefined
@@ -255,13 +263,27 @@ export class ThemeRuntime {
     this.publish()
   }
 
+  /**
+   * Change the font family preset.
+   * @param family - a preset id; unknown ids throw.
+   */
+  setFontFamily(family: string): void {
+    if (!isFontFamily(family)) throw new Error(`font family "${family}" is not a preset`)
+    if (this.fontFamily === family) return
+    this.fontFamily = family
+    void this.host.set(FONT_FAMILY_FIELD, family)
+    this.publish()
+  }
+
   /** Adopt the scope's accepted durable preference without writing it back. */
   private adopt(): void {
     const section = this.host.getSnapshot().value
     if (section === undefined) return
-    if (this.preference === section.preference && this.fontSize === section.fontSize) return
+    const family = isFontFamily(section.fontFamily) ? section.fontFamily : DEFAULT_FONT_FAMILY
+    if (this.preference === section.preference && this.fontSize === section.fontSize && this.fontFamily === family) return
     this.preference = section.preference
     this.fontSize = section.fontSize
+    this.fontFamily = family
     this.publish()
   }
 
@@ -329,6 +351,8 @@ export class ThemeRuntime {
     return Object.freeze({
       preference: this.preference,
       fontSize: this.fontSize,
+      fontFamily: this.fontFamily,
+      fontStack: fontStackOf(this.fontFamily),
       active: this.composeActive(active),
       themes: Object.freeze([...this.themes]),
       revision: this.revision,
@@ -438,9 +462,12 @@ export function apply(ctx: ClientContext): void {
   let bound: BoundActions<typeof store> | undefined
   const fontSizeStore = createFontSizeRowStore()
   let fontSizeBound: BoundActions<typeof fontSizeStore> | undefined
+  const fontFamilyStore = createFontFamilyRowStore()
+  let fontFamilyBound: BoundActions<typeof fontFamilyStore> | undefined
   const sync = (snapshot: ThemeSnapshot): void => {
     bound?.sync(snapshot.preference, snapshot.revision)
     fontSizeBound?.sync(snapshot.fontSize, snapshot.revision)
+    fontFamilyBound?.sync(snapshot.fontFamily, snapshot.revision)
   }
   ctx.on('theme/change', sync)
   const injected = (actions: BoundActions<typeof store>): AppearanceRowInjected => {
@@ -476,4 +503,20 @@ export function apply(ctx: ClientContext): void {
     locale: SETTINGS_NS,
     inject: fontSizeInjected,
   }, FontSizeRow))
+
+  const fontFamilyInjected = (actions: BoundActions<typeof fontFamilyStore>): FontFamilyRowInjected => {
+    fontFamilyBound = actions
+    sync(theme.getTheme())
+    return {
+      setFontFamily: (family) => { theme.setFontFamily(family) },
+    }
+  }
+  ctx.slots.inject('settings.general.item', () => ctx.slots.register({
+    name: 'settings.general.item',
+    id: 'font-family',
+    order: 12,
+    store: fontFamilyStore,
+    locale: SETTINGS_NS,
+    inject: fontFamilyInjected,
+  }, FontFamilyRow))
 }
