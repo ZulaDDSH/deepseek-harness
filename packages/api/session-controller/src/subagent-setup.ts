@@ -32,6 +32,11 @@ export interface SubagentGsdSetup {
   readonly parallelWaves: boolean
 }
 
+/** Whether a stopped agent's last message is reviewed and answered automatically. */
+export interface SubagentAutoResponderSetup {
+  readonly enabled: boolean
+}
+
 /** Where one role runs: a Claude Code CLI model, or an LLM provider model. */
 export type SubagentRoleRoute =
   | {
@@ -57,6 +62,7 @@ export interface SubagentSetup {
   readonly reviewRounds: number
   readonly roles: Readonly<Partial<Record<SubagentSetupRole, SubagentRoleSetting>>>
   readonly gsd?: SubagentGsdSetup | undefined
+  readonly autoResponder?: SubagentAutoResponderSetup | undefined
 }
 
 const effortSchema = z.enum(SESSION_RUN_OPTION_EFFORTS)
@@ -93,6 +99,7 @@ export const subagentSetupSchema: z.ZodType<SubagentSetup> = z.object({
   reviewRounds: z.number().int().min(0).max(SUBAGENT_REVIEW_ROUNDS_MAX),
   roles: z.partialRecord(z.enum(SUBAGENT_SETUP_ROLES), settingSchema),
   gsd: gsdSchema.optional(),
+  autoResponder: z.object({ enabled: z.boolean() }).strict().optional(),
 }).strict()
 
 const DELEGATION_ROLE_PURPOSES = [

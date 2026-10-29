@@ -25,6 +25,7 @@
     "src/mcp-selection-projection.ts",
     "src/hook-overrides-projection.ts",
     "src/list-metadata.ts",
+    "src/auto-responder.ts",
     "src/run-options.ts",
     "src/setup-resolver.ts",
     "src/subagent-setup.ts",

@@ -123,6 +123,7 @@ export function SubagentSetupView({
   const gsdAll = show(t('gsd.group'), t('gsd.help'))
   const gsdShow = (label: string): boolean => gsdAll || show(label)
   const gsdVisible = gsdAll || [t('gsd.enable'), t('gsd.gates'), t('gsd.planAuthor'), t('gsd.planning'), t('gsd.checkRounds'), t('gsd.parallelWaves')].some(label => show(label))
+  const autoResponderVisible = show(t('autoResponder.group'), t('autoResponder.help'), t('autoResponder.enable'))
   const roleVisible = (role: SubagentSetupRole): boolean => {
     const route = setup.roles[role]?.mode === 'fixed' ? setup.roles[role].route : undefined
     const group = route?.backend === 'llm' ? groups.find(entry => entry.id === route.provider) : undefined
@@ -131,7 +132,7 @@ export function SubagentSetupView({
       : route.model
     return show(t(`role.${role}`), group?.name ?? (route?.backend === 'llm' ? route.provider : ''), model)
   }
-  const nothingShown = words.length > 0 && !gsdVisible
+  const nothingShown = words.length > 0 && !gsdVisible && !autoResponderVisible
     && !show(t('setup.enable'), t('setup.ultracodeOn'), t('setup.ultracodeOff'), t('filter.label'), t('setup.rounds'))
     && !SUBAGENT_SETUP_ROLES.some(roleVisible)
 
@@ -420,6 +421,20 @@ export function SubagentSetupView({
                 <span>{t('gsd.parallelWaves')}</span>
               </div>
             )}
+          </fieldset>
+        )}
+        {autoResponderVisible && (
+          <fieldset className={css.group}>
+            <legend>{t('autoResponder.group')}</legend>
+            <p className={css.note}>{t('autoResponder.help')}</p>
+            <div className={css.enable}>
+              <Switch
+                checked={setup.autoResponder?.enabled === true}
+                onChange={(next) => { edit({ ...setup, autoResponder: { enabled: next } }) }}
+                label={t('autoResponder.enable')}
+              />
+              <span>{t('autoResponder.enable')}</span>
+            </div>
           </fieldset>
         )}
       </fieldset>

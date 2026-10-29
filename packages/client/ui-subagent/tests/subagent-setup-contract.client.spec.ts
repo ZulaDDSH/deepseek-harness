@@ -39,4 +39,10 @@ describe('browser Subagent Setup contract copy', () => {
     }
     expect(copy.subagentWorkflowPrompt({ enabled: true, reviewRounds: 2, roles: {} })).toBe('')
   })
+
+  it('accepts the auto responder switch in the strict Host schema', () => {
+    const setup = { enabled: false, reviewRounds: 0, roles: {}, autoResponder: { enabled: true } }
+    expect(host.subagentSetupSchema.parse(setup)).toEqual(setup)
+    expect(host.subagentSetupSchema.safeParse({ ...setup, autoResponder: { enabled: true, extra: 1 } }).success).toBe(false)
+  })
 })

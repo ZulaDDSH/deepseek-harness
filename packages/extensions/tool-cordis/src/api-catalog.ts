@@ -7730,6 +7730,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type StreamChunk = {\n    type: \'block-start\';\n    index: number;\n    blockType: ContentBlockType;\n} | {\n    type: \'text-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'reasoning-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'tool-call-delta\';\n    index: number;\n    id: ToolCallId;\n    name?: string;\n    argumentsDelta: string;\n} | {\n    type: \'block-end\';\n    index: number;\n    block: ContentBlock;\n} | {\n    type: \'usage\';\n    usage: TokenUsage;\n} | {\n    type: \'finish\';\n    reason: FinishReason;\n    replayState?: ReplayEnvelope;\n};',
   },
   {
+    name: 'SubagentAutoResponderSetup',
+    declaration: 'export interface SubagentAutoResponderSetup {\n    readonly enabled: boolean;\n}',
+  },
+  {
     name: 'SubagentCapabilities',
     declaration: 'export interface SubagentCapabilities {\n    readonly agentOptions: boolean;\n    readonly outputSchema: boolean;\n    readonly depthLimit: boolean;\n    readonly toolFilter: boolean;\n    readonly persona: boolean;\n}',
   },
@@ -7819,7 +7823,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubagentSetup',
-    declaration: 'export interface SubagentSetup {\n    readonly enabled: boolean;\n    readonly reviewRounds: number;\n    readonly roles: Readonly<Partial<Record<SubagentSetupRole, SubagentRoleSetting>>>;\n    readonly gsd?: SubagentGsdSetup | undefined;\n}',
+    declaration: 'export interface SubagentSetup {\n    readonly enabled: boolean;\n    readonly reviewRounds: number;\n    readonly roles: Readonly<Partial<Record<SubagentSetupRole, SubagentRoleSetting>>>;\n    readonly gsd?: SubagentGsdSetup | undefined;\n    readonly autoResponder?: SubagentAutoResponderSetup | undefined;\n}',
   },
   {
     name: 'SubagentSetupRole',
