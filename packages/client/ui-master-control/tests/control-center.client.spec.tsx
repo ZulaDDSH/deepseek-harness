@@ -2,12 +2,13 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import { MasterControlCenter, type MasterControlCenterProps } from '../src/client/MasterControlCenter.tsx'
+import { MasterControlCenter } from '../src/client/MasterControlCenter.tsx'
+import type { MasterControlPageProps } from '../src/client/MasterControlPage.tsx'
 import { en } from '../src/client/locales.ts'
 
 afterEach(cleanup)
 
-function fixture(openMasterChat?: MasterControlCenterProps['openMasterChat']) {
+function fixture(openMasterChat?: MasterControlPageProps['openMasterChat']) {
   const sessions = { ids: [], byId: {}, phase: 'loading' }
   const workspaces = { items: [], archivedSessionIds: [] }
   const status = new Map()
@@ -20,7 +21,7 @@ function fixture(openMasterChat?: MasterControlCenterProps['openMasterChat']) {
     importChats: vi.fn(async () => ({ items: [] })),
     open: vi.fn(), interrupt: vi.fn(),
     t: makeTranslate(en),
-  } as unknown as MasterControlCenterProps
+  } as unknown as MasterControlPageProps
   return { props }
 }
 
