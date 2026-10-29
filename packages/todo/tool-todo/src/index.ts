@@ -10,6 +10,10 @@ import z from '@deepseek-ai/schemastery'
 import { z as zod } from 'zod'
 import type { ZodType } from 'zod'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { ContextFormed } from '@deepseek-ai/dsh-llm'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { PostToolDecision } from '@deepseek-ai/dsh-tools'
 import type { TodoItem } from './types.ts'
 import { cancelTodos } from './cancel.ts'
 // Type-only: resolves the required ctx.sessionProjections service declaration.
@@ -19,6 +23,18 @@ import type {} from '@deepseek-ai/dsh-session-projection'
 // module edge in the emitted index.d.ts, so aggregate programs consuming the
 // declarations still receive the SessionProjectionMap merge.
 export type * from './types.ts'
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'repeat-tool-reminder': { kind: 'repeat-tool-reminder' } & ContextFormed
+  }
+}
+
+const STALE_AFTER_CALLS = 6
+
+const STALE_REMINDER =
+  'Your todo list may be out of date. Call todo_write now with the complete list: mark every '
+  + 'finished task `completed` and keep the task you are working on `in_progress`.'
 
 export const name = 'tool-todo'
 export const inject = ['tools', 'sessionProjections']
@@ -125,6 +141,24 @@ export function apply(ctx: Context, config: Config): void {
     })
   })
   const allowParallel = config.allowParallelInProgress
+  const callsSinceWrite = new WeakMap<Agent, number>()
+  ctx.on('tools/post-execute', async (exec, _result, next): Promise<PostToolDecision> => {
+    const downstream = await next()
+    if (!exec.agent) return downstream
+    if (exec.name === 'todo_write') {
+      callsSinceWrite.delete(exec.agent)
+      return downstream
+    }
+    const calls = (callsSinceWrite.get(exec.agent) ?? 0) + 1
+    callsSinceWrite.set(exec.agent, calls)
+    const todos = ctx.sessionProjections.stateOf(exec.agent.session, 'todos')
+    if (calls % STALE_AFTER_CALLS !== 0 || !todos?.some(item => item.status !== 'completed')) return downstream
+    const reminder = createUserMessage({
+      content: [{ type: 'text', text: STALE_REMINDER }],
+      source: { kind: 'repeat-tool-reminder', form: 'notice', summary: 'stale todo list' },
+    })
+    return { ...downstream, additionalContexts: [reminder, ...downstream.additionalContexts ?? []] }
+  })
   // Standing-plan fold: latest whole todo/write list, cleared by the next
   // turn/start (turn/end keeps the finished checklist visible); null before the
   // first write or after a later turn begins; every other event returns the

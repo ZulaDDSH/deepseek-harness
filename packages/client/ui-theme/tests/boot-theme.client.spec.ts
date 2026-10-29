@@ -23,6 +23,7 @@ afterEach(() => {
   delete document.documentElement.dataset.dsThemeSource
   document.body.removeAttribute(DARK_ATTRIBUTE)
   document.body.style.removeProperty('--dsh-content-font-size')
+  document.body.style.removeProperty('--dsw-font-family')
 })
 
 describe('theme bootstrap row', () => {
@@ -32,7 +33,7 @@ describe('theme bootstrap row', () => {
     expect(head).toMatchObject({ kind: 'style' })
     expect(body).toMatchObject({ kind: 'script', placement: 'body' })
     if (head?.kind !== 'style') throw new Error('theme head bootstrap row is not a style')
-    expect(head.text).toBe(':root{color-scheme:dark}body{background-color:#262624;--dsh-boot-bg:#262624}')
+    expect(head.text).toBe(':root{color-scheme:dark}body{background-color:#1a1a19;--dsh-boot-bg:#1a1a19}')
     expect(document.body.hasAttribute(DARK_ATTRIBUTE)).toBe(false)
     if (body?.kind !== 'script') throw new Error('theme body bootstrap row is not a script')
     runInNewContext(body.text, { document, matchMedia: globalThis.matchMedia })
@@ -65,7 +66,7 @@ describe('theme bootstrap row', () => {
     if (head?.kind !== 'style') throw new Error('theme head bootstrap row is not a style')
     expect(head.text).toBe(
       ':root{color-scheme:light}body{background-color:#fff;--dsh-boot-bg:#fff}'
-      + '@media(prefers-color-scheme:dark){:root{color-scheme:dark}body{background-color:#262624;--dsh-boot-bg:#262624}}',
+      + '@media(prefers-color-scheme:dark){:root{color-scheme:dark}body{background-color:#1a1a19;--dsh-boot-bg:#1a1a19}}',
     )
   })
 
@@ -81,5 +82,24 @@ describe('theme bootstrap row', () => {
     expect(document.body.style.getPropertyValue('--dsh-content-font-size')).toBe('17px')
     executeBootstrap('light')
     expect(document.body.style.getPropertyValue('--dsh-content-font-size')).toBe('14px')
+  })
+})
+
+describe('theme bootstrap font family', () => {
+  it('embeds no script terminator for any preset', () => {
+    for (const family of ['default', 'readable', 'serif', 'dyslexia', 'mono'] as const) {
+      for (const row of bootThemeInjections('dark', 14, family)) expect(JSON.stringify(row).toLowerCase()).not.toContain('</script')
+    }
+  })
+
+  it('writes the preset stack on body and writes nothing for default', () => {
+    mockSystemDark(false)
+    executeBootstrap('light', 14)
+    expect(document.body.style.getPropertyValue('--dsw-font-family')).toBe('')
+    const rows = bootThemeInjections('light', 14, 'serif')
+    for (const row of rows) {
+      if (row.kind === 'script') runInNewContext(row.text, { document, matchMedia: globalThis.matchMedia })
+    }
+    expect(document.body.style.getPropertyValue('--dsw-font-family')).toContain('Georgia')
   })
 })

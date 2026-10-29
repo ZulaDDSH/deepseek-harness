@@ -1267,6 +1267,30 @@ Types: [SessionId](core.md)
 
 Source: [`packages/api/session-controller/src/types.ts`](../../packages/api/session-controller/src/types.ts)
 
+<a id="memory-events"></a>
+
+### `memory/*` events
+
+<a id="memorylookup--waterfall"></a>
+
+#### `memory/lookup` — waterfall
+
+Read saved memory text for one session, such as Memorix notes for the auto responder.
+
+```ts cordis-catalog
+/**
+ * Read saved memory text for one session, such as Memorix notes for the auto responder.
+ * @param query - literal search text.
+ * @param session - the session asking, so its own chat records are left out.
+ * @param signal - lookup lifetime.
+ * @param next - delegation to other providers.
+ * @mode waterfall
+ */
+'memory/lookup'(query: string, session: Session, signal: AbortSignal, next: () => Promise<string | undefined>): Promise<string | undefined>
+```
+
+Source: [`packages/core/agent/src/runtime-types.ts`](../../packages/core/agent/src/runtime-types.ts)
+
 <a id="session-events"></a>
 
 ### `session/*` events

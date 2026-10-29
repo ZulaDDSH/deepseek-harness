@@ -9,13 +9,15 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { bootThemeInjections } from './boot-theme.ts'
 import {
-  DEFAULT_FONT_SIZE, DEFAULT_PREFERENCE, FONT_SIZE_MIN, FONT_SIZE_MAX, THEME_PREFERENCES,
+  DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE, DEFAULT_PREFERENCE, FONT_FAMILIES, FONT_SIZE_MIN, FONT_SIZE_MAX, THEME_PREFERENCES,
+  type FontFamily,
 } from './theme-settings.ts'
 
 export {
-  DEFAULT_FONT_SIZE, DEFAULT_PREFERENCE, FONT_SIZE_FIELD, FONT_SIZE_MAX, FONT_SIZE_MIN,
+  DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE, DEFAULT_PREFERENCE, FONT_FAMILIES, FONT_FAMILY_FIELD,
+  FONT_SIZE_FIELD, FONT_SIZE_MAX, FONT_SIZE_MIN,
   THEME_PREFERENCE_FIELD, THEME_PREFERENCES, THEME_SETTINGS_NAMESPACE,
-  type ThemePreference, type ThemeSettings,
+  type FontFamily, type ThemePreference, type ThemeSettings,
 } from './theme-settings.ts'
 
 /** Runtime preferences projected to the browser. */
@@ -24,12 +26,15 @@ export interface Config {
   preference: Volatile<ThemePreference>
   /** Browser font size in pixels. */
   fontSize: Volatile<number>
+  /** Browser font family preset. */
+  fontFamily: Volatile<FontFamily>
 }
 
 /** Live theme and typography preferences. */
 export const Config = z.object({
   preference: z.union([...THEME_PREFERENCES]).default(DEFAULT_PREFERENCE).volatile(),
   fontSize: z.number().step(1).min(FONT_SIZE_MIN).max(FONT_SIZE_MAX).default(DEFAULT_FONT_SIZE).volatile(),
+  fontFamily: z.union([...FONT_FAMILIES]).default(DEFAULT_FONT_FAMILY).volatile(),
 })
 
 /** Supply the current palette before browser plugins start.
@@ -39,6 +44,6 @@ export const Config = z.object({
 export function apply(ctx: Context, config: Config): void {
   ctx.inject(['settings'], (child) => { child.effect(() => child.settings.configure({ auto: false }, ctx.fiber)) })
   ctx.on('webserver/index-inject', (table) => {
-    table.push(...bootThemeInjections(config.preference.get(), config.fontSize.get()))
+    table.push(...bootThemeInjections(config.preference.get(), config.fontSize.get(), config.fontFamily.get()))
   }, { prepend: true })
 }

@@ -43,3 +43,14 @@ describe('createFontSizeRowStore', () => {
     expect(store.getSnapshot().revision).toBe(3)
   })
 })
+
+describe('font family row store', () => {
+  it('starts at the default preset and applies only newer revisions', async () => {
+    const { createFontFamilyRowStore } = await import('../src/client/settings-store.ts')
+    const store = createFontFamilyRowStore().create()
+    expect(store.getSnapshot()).toEqual({ fontFamily: 'default', revision: -1 })
+    store.actions.sync('serif', 2)
+    store.actions.sync('mono', 1)
+    expect(store.getSnapshot()).toEqual({ fontFamily: 'serif', revision: 2 })
+  })
+})

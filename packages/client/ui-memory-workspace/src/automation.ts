@@ -317,6 +317,11 @@ export class MemoryAutomation {
         }
       })
     }
+    ctx.on('memory/lookup', async (query, session, signal, next) => {
+      if (!this.eligible(session)) return next()
+      const text = await this.lookup(session, query, signal)
+      return text === '' ? next() : text
+    })
     ctx.on('session/disposed', (session) => {
       this.sessions.delete(session.id)
       this.recalls.delete(session.id)
@@ -452,6 +457,21 @@ export class MemoryAutomation {
     return recallText(rows.length > 0 ? rows : this.recent(session, database), this.config.memoryCharacters)
   }
 
+  private async lookup(session: SessionLike, query: string, signal: AbortSignal): Promise<string> {
+    const text = scrub(query)
+    if (text === '') return ''
+    try {
+      const provider = await this.host.provider()
+      const database = this.host.database(provider)
+      const rows = await this.exclusive(() => this.search(provider, session, session.header.cwd ?? '', text, database, signal))
+      this.succeeded('recall')
+      return recallText(rows, this.config.memoryCharacters)
+    } catch (error) {
+      if (!signal.aborted) this.report(error, 'recall')
+      return ''
+    }
+  }
+
   private async recentNotes(session: SessionLike): Promise<string> {
     try {
       const database = this.host.database(await this.host.provider())
@@ -470,8 +490,8 @@ export class MemoryAutomation {
   }
 
   private async search(provider: McpHumanOperations, session: SessionLike, cwd: string, query: string,
-    database: string): Promise<MemorixObservationRecord[]> {
-    const signal = AbortSignal.any([this.host.signal, AbortSignal.timeout(RECALL_BUDGET_MS)])
+    database: string, caller?: AbortSignal): Promise<MemorixObservationRecord[]> {
+    const signal = AbortSignal.any([this.host.signal, AbortSignal.timeout(RECALL_BUDGET_MS), ...caller === undefined ? [] : [caller]])
     await this.bind(provider, cwd, signal)
     const text = await callMemorix(provider, 'memorix_search', {
       query: clip(query, QUERY_CHARACTERS), limit: RECALL_SEARCH_LIMIT, scope: 'project', quality: 'fast', status: 'active',

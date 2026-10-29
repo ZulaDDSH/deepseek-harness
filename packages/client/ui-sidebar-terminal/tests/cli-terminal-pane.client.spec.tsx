@@ -60,7 +60,7 @@ function mount(initial: TerminalViewState) {
     mount: vi.fn(() => () => {}), refresh: vi.fn(async () => {}), connect: vi.fn(), write: vi.fn(), resize: vi.fn(),
     acknowledge: vi.fn(), state,
   }
-  const theme: ThemeSnapshot = { preference: 'light', fontSize: 14, active: { id: 'light', colorScheme: 'light', tokens: {} }, themes: [], revision: 0 }
+  const theme: ThemeSnapshot = { preference: 'light', fontSize: 14, fontFamily: 'default', fontStack: undefined, active: { id: 'light', colorScheme: 'light', tokens: {} }, themes: [], revision: 0 }
   const view: Partial<TerminalView> = model
   const props: CliTerminalPaneProps = {
     profile: 'grok-cli',

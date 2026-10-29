@@ -27,6 +27,8 @@ describe('ThemeRuntime', () => {
     const snapshot = theme.getTheme()
     expect(snapshot.preference).toBe('system')
     expect(snapshot.fontSize).toBe(14)
+    expect(snapshot.fontFamily).toBe('default')
+    expect(snapshot.fontStack).toBeUndefined()
     // jsdom matchMedia is absent; system resolves to light.
     expect(snapshot.active.id).toBe('light')
     expect(snapshot.active.colorScheme).toBe('light')
@@ -57,6 +59,20 @@ describe('ThemeRuntime', () => {
     expect(host.set).toHaveBeenCalledOnce()
   })
 
+  it('setFontFamily switches, writes through the scope, republishes, and rejects unknown presets', () => {
+    const { theme, events, host } = make()
+    theme.setFontFamily('dyslexia')
+    expect(theme.getTheme().fontFamily).toBe('dyslexia')
+    expect(theme.getTheme().fontStack).toContain('OpenDyslexic')
+    expect(host.set).toHaveBeenCalledWith('fontFamily', 'dyslexia')
+    expect(events).toHaveLength(1)
+    theme.setFontFamily('dyslexia')
+    expect(events).toHaveLength(1)
+    theme.setFontFamily('default')
+    expect(theme.getTheme().fontStack).toBeUndefined()
+    expect(() => { theme.setFontFamily('comic') }).toThrow('not a preset')
+  })
+
   it('rejects out-of-range and fractional font sizes', () => {
     const { theme, events, host } = make()
     for (const px of [11, 18, 14.5, Number.NaN]) {
@@ -68,7 +84,7 @@ describe('ThemeRuntime', () => {
 
   it('adopts a published Host font size without writing it back', () => {
     const { theme, events, host } = make()
-    host.publish({ status: 'ready', value: { preference: 'system', fontSize: 12 }, revision: 1, writable: true })
+    host.publish({ status: 'ready', value: { preference: 'system', fontSize: 12, fontFamily: 'default' }, revision: 1, writable: true })
     expect(theme.getTheme().fontSize).toBe(12)
     expect(events).toHaveLength(1)
     expect(host.set).not.toHaveBeenCalled()
@@ -92,17 +108,17 @@ describe('ThemeRuntime', () => {
 
   it('adopts a published Host section without writing it back', () => {
     const { theme, events, host } = make()
-    host.publish({ status: 'ready', value: { preference: 'dark', fontSize: 14 }, revision: 1, writable: true })
+    host.publish({ status: 'ready', value: { preference: 'dark', fontSize: 14, fontFamily: 'default' }, revision: 1, writable: true })
     expect(theme.getTheme().preference).toBe('dark')
     expect(events).toHaveLength(1)
     expect(host.set).not.toHaveBeenCalled()
-    host.publish({ value: { preference: 'dark', fontSize: 14 }, revision: 2 })
+    host.publish({ value: { preference: 'dark', fontSize: 14, fontFamily: 'default' }, revision: 2 })
     expect(events).toHaveLength(1)
   })
 
   it('adopts a section already standing at construction', () => {
     const host = stubConfigForm<ThemeSettings>()
-    host.publish({ status: 'ready', value: { preference: 'dark', fontSize: 14 }, revision: 1, writable: true })
+    host.publish({ status: 'ready', value: { preference: 'dark', fontSize: 14, fontFamily: 'default' }, revision: 1, writable: true })
     const { theme } = make(host)
     expect(theme.getTheme().preference).toBe('dark')
   })

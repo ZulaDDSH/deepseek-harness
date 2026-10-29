@@ -6,10 +6,13 @@
  */
 
 import type { IndexInjection } from '@deepseek-ai/dsh-host-webserver'
-import { DEFAULT_FONT_SIZE, DEFAULT_PREFERENCE, type ThemePreference } from './theme-settings.ts'
+import {
+  DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE, DEFAULT_PREFERENCE, FONT_FAMILY_VARIABLE, fontStackOf,
+  type FontFamily, type ThemePreference,
+} from './theme-settings.ts'
 
 const LIGHT_BACKGROUND = '#fff'
-const DARK_BACKGROUND = '#262624'
+const DARK_BACKGROUND = '#1a1a19'
 
 /** CSS that colors the document canvas before any script executes. */
 function bootThemeStyle(preference: ThemePreference): string {
@@ -21,7 +24,10 @@ function bootThemeStyle(preference: ThemePreference): string {
 }
 
 /** Build the body script that installs the palette selector and content size. */
-function bootThemeBodyScript(preference: ThemePreference, fontSize: number): string {
+function bootThemeBodyScript(preference: ThemePreference, fontSize: number, fontFamily: FontFamily): string {
+  const stack = fontStackOf(fontFamily)
+  const family = stack === undefined ? '' : `
+  document.body.style.setProperty(${JSON.stringify(FONT_FAMILY_VARIABLE)}, ${JSON.stringify(stack)})`
   return `(() => {
   const preference = ${JSON.stringify(preference)}
   const systemDark = preference === 'system'
@@ -30,7 +36,7 @@ function bootThemeBodyScript(preference: ThemePreference, fontSize: number): str
   const dark = preference === 'dark' || systemDark
   document.documentElement.dataset.dsThemeSource = preference
   document.body.toggleAttribute('data-ds-dark-theme', dark)
-  document.body.style.setProperty('--dsh-content-font-size', ${JSON.stringify(`${fontSize}px`)})
+  document.body.style.setProperty('--dsh-content-font-size', ${JSON.stringify(`${fontSize}px`)})${family}
 })()`
 }
 
@@ -40,14 +46,16 @@ function bootThemeBodyScript(preference: ThemePreference, fontSize: number): str
  * size before the shell mount and module script.
  * @param preference - Current Host-backed built-in preference.
  * @param fontSize - Current Host-backed content font size in px.
+ * @param fontFamily - Current Host-backed font family preset.
  * @returns head and body script rows in execution order.
  */
 export function bootThemeInjections(
   preference: ThemePreference = DEFAULT_PREFERENCE,
   fontSize: number = DEFAULT_FONT_SIZE,
+  fontFamily: FontFamily = DEFAULT_FONT_FAMILY,
 ): IndexInjection[] {
   return [
     { kind: 'style', text: bootThemeStyle(preference) },
-    { kind: 'script', placement: 'body', text: bootThemeBodyScript(preference, fontSize) },
+    { kind: 'script', placement: 'body', text: bootThemeBodyScript(preference, fontSize, fontFamily) },
   ]
 }

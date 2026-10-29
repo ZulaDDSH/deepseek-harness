@@ -29,6 +29,7 @@ import { buildModelCatalog, hasProviderApiKey, missingCredentialProviders } from
 import { installModelSelectionProjection } from './model-selection-projection.ts'
 import { installMcpSelectionProjection } from './mcp-selection-projection.ts'
 import { installHookOverridesProjection } from './hook-overrides-projection.ts'
+import { installAutoResponder } from './auto-responder.ts'
 import { installRunOptions } from './run-options.ts'
 import { subagentSetupSchema, type SubagentSetup } from './subagent-setup.ts'
 import type { HookInventoryReport } from '@deepseek-ai/dsh-hook-protocol'
@@ -162,6 +163,7 @@ export class SessionController extends TypertRemoteService {
     installHookOverridesProjection(ctx)
     installRunOptions(ctx)
     this.agents = new ApiSessionAgentController(ctx)
+    installAutoResponder(ctx, agent => this.agents.selectionFor(agent).current)
     this.commands = new SessionCommandController(ctx, this.agents, process.cwd())
     this.masterControl = new MasterControlSessions(ctx, this.commands)
     ctx.effect(() => ctx.fileUploads.registerAgentResolver(async (sessionId) => {

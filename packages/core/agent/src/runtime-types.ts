@@ -279,6 +279,15 @@ declare module '@deepseek-ai/cordis' {
      */
     'agent/status'(this: Scoped<Agent>, payload: { agent: Agent; status: AgentStatus }): void
     /**
+     * Read saved memory text for one session, such as Memorix notes for the auto responder.
+     * @param query - literal search text.
+     * @param session - the session asking, so its own chat records are left out.
+     * @param signal - lookup lifetime.
+     * @param next - delegation to other providers.
+     * @mode waterfall
+     */
+    'memory/lookup'(query: string, session: Session, signal: AbortSignal, next: () => Promise<string | undefined>): Promise<string | undefined>
+    /**
      * One message entered the live inbox.
      * @param payload.agent - the agent whose inbox changed.
      * @param payload.message - the inserted message.

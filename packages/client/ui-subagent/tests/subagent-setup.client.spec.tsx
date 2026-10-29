@@ -316,6 +316,17 @@ describe('GSD workflow and global defaults in the Orchestrator & Subagent Setup 
     })
   })
 
+  it('saves the auto responder switch with the setup, even while subagent mode is off', async () => {
+    const { saveRunOptions } = renderSetup({ current: { subagentSetup: { ...on, enabled: false } } })
+    const toggle = screen.getByRole('switch', { name: en['autoResponder.enable'] })
+    expect(toggle.closest('fieldset')?.disabled).toBe(false)
+    expect(toggle.getAttribute('aria-checked')).toBe('false')
+    fireEvent.click(toggle)
+    fireEvent.click(screen.getByRole('button', { name: en['setup.save'] }))
+    await waitFor(() => { expect(saveRunOptions).toHaveBeenCalledTimes(1) })
+    expect(saveRunOptions.mock.calls[0]?.[0]).toMatchObject({ subagentSetup: { enabled: false, autoResponder: { enabled: true } } })
+  })
+
   it('disables the GSD group while subagent mode is off', () => {
     renderSetup({ current: { subagentSetup: { ...on, enabled: false } } })
     expect(screen.getByLabelText(en['gsd.gates']).closest('fieldset')?.disabled).toBe(true)
@@ -510,6 +521,9 @@ describe('settings filter', () => {
     expect(screen.queryByText(en['gsd.group'])).toBeNull()
     fireEvent.change(filter, { target: { value: 'zzz' } })
     expect(screen.getByText(t('filter.settingsEmpty', { query: 'zzz' }))).toBeTruthy()
+    fireEvent.change(filter, { target: { value: 'responder' } })
+    expect(screen.getByRole('switch', { name: en['autoResponder.enable'] })).toBeTruthy()
+    expect(screen.queryByText(en['gsd.group'])).toBeNull()
     fireEvent.change(filter, { target: { value: 'gsd' } })
     expect(screen.getByText(en['gsd.group'])).toBeTruthy()
     expect(screen.getByLabelText(en['gsd.gates'])).toBeTruthy()
