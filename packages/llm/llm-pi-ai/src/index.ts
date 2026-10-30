@@ -131,7 +131,7 @@ function directoryEntries(
 ): LlmConfigurableProvider[] {
   const catalog = new Set(catalogProviderIds())
   const entries = new Map<string, LlmConfigurableProvider>()
-  const declare = (provider: string, displayName: string, error?: string): void => {
+  const declare = (provider: string, displayName: string, error?: string, aliased = false): void => {
     entries.set(provider, {
       provider,
       displayName,
@@ -140,12 +140,12 @@ function directoryEntries(
       // Membership of the installed catalog, not of the settings document:
       // narrowing a shipped provider's models stores a profile too, and that
       // route is still one pi-ai knows.
-      declared: !catalog.has(provider),
+      declared: !catalog.has(provider) && !aliased,
       ...error === undefined ? {} : { error },
     })
   }
   for (const provider of catalog) declare(provider, provider)
-  for (const [provider, profile] of profiles) declare(provider, profile.displayName, profile.catalogError)
+  for (const [provider, profile] of profiles) declare(provider, profile.displayName, profile.catalogError, profile.base !== undefined)
   return [...entries.values()]
 }
 
@@ -229,7 +229,9 @@ export function apply(ctx: Context, config: Config): void {
     }
     return accounts
   }
-  ctx.on('llm/rate-limit-observed', (observation) => { claudeUsageFor(observation.route).observe(observation) })
+  ctx.on('llm/rate-limit-observed', (observation) => {
+    if (claudeAccounts().has(observation.route)) claudeUsageFor(observation.route).observe(observation)
+  })
   let quotaRegistry: { registerSource: (source: QuotaSource) => () => void } | undefined
   const quotaSources = new Map<string, { label: string; dispose: () => void }>()
   const syncQuotaSources = (): void => {
@@ -239,6 +241,7 @@ export function apply(ctx: Context, config: Config): void {
       if (accounts.get(route)?.label === entry.label) continue
       entry.dispose()
       quotaSources.delete(route)
+      claudeUsage.delete(route)
     }
     for (const [route, { label }] of accounts) {
       if (quotaSources.has(route)) continue
@@ -272,6 +275,7 @@ export function apply(ctx: Context, config: Config): void {
     resolveApiKey,
     auth,
     onResponseHeaders: ({ provider, headers }) => {
+      if (!claudeAccounts().has(provider)) return
       for (const observation of claudeObservationsFromHeaders(provider, headers, Date.now())) claudeUsageFor(provider).observe(observation)
     },
     onRequestFailure: ({ provider, message }) => {
@@ -354,7 +358,11 @@ export function apply(ctx: Context, config: Config): void {
   // accepts neither, so an already-configured route supplies both inside the
   // Host rather than widening the discovery request.
   ctx.llm.registerModelDiscovery(settingsNs, (request, signal) => discoverModels(
-    { ...request, ...signal === undefined ? {} : { signal } },
+    {
+      ...request,
+      ...request.provider === undefined ? {} : { provider: profiles().get(request.provider)?.base ?? request.provider },
+      ...signal === undefined ? {} : { signal },
+    },
     () => storedDiscoveryProfile(request.provider),
   ))
   // Route effects bind to this apply fiber via the stable `ctx` reference,
@@ -389,10 +397,12 @@ export function apply(ctx: Context, config: Config): void {
   ensureRegistrationFacts()
 
   ctx.on('loader/volatile-update', () => {
-    try { ensureRegistrationFacts(); ensureDirectory(); syncAliasFlows?.(aliasFlows()); syncQuotaSources() }
-    catch (error) {
-      ctx.logger.error('llm-pi-ai: configuration conflicts with an existing provider route')
-      ctx.logger.error(error)
+    for (const step of [ensureRegistrationFacts, ensureDirectory, () => { syncAliasFlows?.(aliasFlows()) }, syncQuotaSources]) {
+      try { step() }
+      catch (error) {
+        ctx.logger.error('llm-pi-ai: configuration update failed')
+        ctx.logger.error(error)
+      }
     }
   })
 }

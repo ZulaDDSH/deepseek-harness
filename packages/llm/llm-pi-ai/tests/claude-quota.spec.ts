@@ -22,6 +22,7 @@ afterEach(() => { vi.useRealTimers() })
 function claudeSource(options: {
   record?: Parameters<typeof memoryAuth>[0]
   apiKeyEnv?: string
+  route?: string
   stored?: readonly string[]
   usage?: ReturnType<typeof createClaudeUsage>
   fetch?: typeof fetch
@@ -34,6 +35,7 @@ function claudeSource(options: {
     apiKeyEnv: () => options.apiKeyEnv,
     keyStored: async ref => options.stored?.includes(ref) ?? false,
     settingsNs: 'llm-pi-ai',
+    ...options.route === undefined ? {} : { route: options.route, name: 'Claude (work)' },
   })
   return { fetch: () => source.fetch(options.fetch ?? offline) }
 }
@@ -178,6 +180,17 @@ describe('Claude quota source', () => {
       providerId: 'anthropic', providerName: 'Anthropic (Claude)', configured: true, ok: true, windows: {},
       billing: { active: 'api', consoleUrl: 'https://platform.claude.com/settings/billing' },
     })
+  })
+
+  it('reads an alias account windows from the alias sign-in, not the base account', async () => {
+    const fetchImpl = usageFetch()
+    const result = await claudeSource({
+      route: 'claude-work',
+      record: { 'claude-work': { ...subscription, access: 'work-access' } },
+      fetch: fetchImpl,
+    }).fetch()
+    expect(fetchImpl.mock.calls[0]?.[1]?.headers).toMatchObject({ Authorization: 'Bearer work-access' })
+    expect(result).toMatchObject({ providerId: 'claude-work', providerName: 'Claude (work)', ok: true, windows: { '5h': { usedPercent: 37 } } })
   })
 
   it('reads the subscription windows from the sign-in without any earlier request', async () => {

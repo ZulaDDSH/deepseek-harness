@@ -25,6 +25,7 @@ import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import {
   CACHE_CONTROL_FORMATS,
   catalogProvider,
+  catalogProviderIds,
   CHAT_TEMPLATE_VARS,
   MAX_TOKENS_FIELDS,
   MODALITIES,
@@ -438,9 +439,11 @@ export function resolveProfiles(
     if (source.displayName !== undefined && source.displayName.length === 0) {
       throw new Error(`llm-pi-ai: provider "${provider}" has an empty displayName`)
     }
-    if (source.base !== undefined && (source.base === provider || catalogProvider(source.base) === undefined)) {
+    const badBase = source.base !== undefined
+      && (source.base === provider || catalogProviderIds().includes(provider) || catalogProvider(source.base) === undefined)
+    if (badBase) {
       throw new Error(
-        `llm-pi-ai: provider "${provider}" base "${source.base}" must name an installed catalog provider other than itself`,
+        `llm-pi-ai: provider "${provider}" base "${source.base}" must name an installed catalog provider, and the route itself must not be an installed provider id`,
       )
     }
     assertValidHeaders(provider, source.headers)

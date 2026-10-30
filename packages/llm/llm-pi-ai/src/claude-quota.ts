@@ -5,6 +5,7 @@ import type { QuotaSource } from '@deepseek-ai/dsh-api-quota-controller'
 import type { QuotaApiLimit, QuotaBilling, QuotaWindow, QuotaWindowId } from '@deepseek-ai/dsh-api-quota-controller/types'
 import type { LlmRateLimitObservation } from '@deepseek-ai/dsh-llm'
 import type { PiAiAuthInjection } from './adapter.ts'
+import { catalogProvider } from './catalog.ts'
 
 /** Route id of the Anthropic (Claude) provider. */
 export const CLAUDE_ROUTE = 'anthropic'
@@ -165,7 +166,10 @@ function usageWindowsFrom(body: unknown): Partial<Record<QuotaWindowId, QuotaWin
 type Windows = Partial<Record<QuotaWindowId, QuotaWindow>>
 
 async function readSubscriptionWindows(auth: PiAiAuthInjection, route: string, fetchImpl: typeof fetch): Promise<Windows> {
-  const resolved = await builtinModels(auth).getAuth(route).catch(() => { throw new Error('Claude authentication failed; sign in again') })
+  const models = builtinModels(auth)
+  const base = catalogProvider(CLAUDE_ROUTE)
+  if (route !== CLAUDE_ROUTE && base !== undefined) models.setProvider({ ...base, id: route })
+  const resolved = await models.getAuth(route).catch(() => { throw new Error('Claude authentication failed; sign in again') })
   if (!resolved?.auth.apiKey) throw new Error('Claude authentication unavailable')
   const response = await fetchImpl(USAGE_URL, {
     headers: { Authorization: `Bearer ${resolved.auth.apiKey}`, 'anthropic-beta': 'oauth-2025-04-20', Accept: 'application/json' },

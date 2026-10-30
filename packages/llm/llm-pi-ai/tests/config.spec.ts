@@ -121,7 +121,8 @@ describe('route aliases', () => {
   })
 
   it('refuses a base that is itself or not an installed provider', () => {
-    expect(() => resolveProfiles({ anthropic: { base: 'anthropic' } })).toThrow('must name an installed catalog provider other than itself')
+    expect(() => resolveProfiles({ anthropic: { base: 'anthropic' } })).toThrow('must not be an installed provider id')
     expect(() => resolveProfiles({ 'claude-work': { base: 'no-such-provider' } })).toThrow('no-such-provider')
+    expect(() => resolveProfiles({ deepseek: { base: 'anthropic' } })).toThrow('must not be an installed provider id')
   })
 })
