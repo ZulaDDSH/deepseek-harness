@@ -23,3 +23,11 @@ Anchors: `packages/client/ui-theme/src/styles/design-platform.css:--dsw-static-n
 - `fontFamily` is a preset id (`default | readable | serif | dyslexia | mono`) persisted beside `preference` and `fontSize` in the `ui-theme` namespace. `FONT_FAMILY_STACKS` maps each non-default preset to a CSS stack; `default` has no stack and leaves the product stack from `base.css` alone. Presets only name installed system fonts (Atkinson Hyperlegible and OpenDyslexic are used when present, with Verdana / Comic Sans MS fallbacks); no font files are bundled.
 - Applying a preset overrides `--dsw-font-family` inline on `body`. The body rule in `web/src/base.css` and the `--dsw-font-*` composites read that variable, so both the boot script (first paint) and `ThemePresenter.apply` write the same variable; `default` removes it. `--dsw-font-family-brand` and the code stack are defined on `:root` and are deliberately unaffected, so code blocks stay monospaced.
 - `ThemeSnapshot` carries `fontFamily` and the resolved `fontStack` so the presenter in `ui-layout` needs no value import from `ui-theme`.
+
+## Master Control panel does not own `main.conversation`
+
+Anchors: `packages/client/ui-master-control/src/client/index.ts:apply`, `packages/client/ui-master-control/src/client/MasterControlCenter.tsx:MasterControlCenter`, `packages/client/ui-conversation/src/client/apply.ts:ConversationPanel`.
+
+- The slot registry lets exactly one live entry declare a child slot (`packages/client/ui-slots/src/index.ts:SlotCore.register` throws `slot "main.conversation" is already declared`). `ui-conversation` already declares `main.conversation`, so a second `main` entry declaring it made `ui-master-control` fail to activate and `assertEntriesActive` aborted the whole web boot.
+- The Master Control entry therefore declares no children. `MasterControlCenter` shows the session roster plus an "Open master chat" button; `openMasterChat` resolves `sessions.masterHome()` and calls `uiWorkspace.openSession`, so the master chat opens in the normal conversation panel and holds no extra session lease.
+- The panel's own tests never loaded `ui-conversation`, so the clash only showed in suites that boot the full web roster (`packages/client/ui-settings-account/tests/apply.client.spec.ts`).

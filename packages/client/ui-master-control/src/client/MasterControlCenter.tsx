@@ -1,44 +1,26 @@
-import { useEffect, useState } from 'react'
-import type { SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
-import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { MasterControlPage, type MasterControlPageProps } from './MasterControlPage.tsx'
 import css from './MasterControlPage.module.css'
 
-/** Props for the control-center page: dashboard props plus the conversation slot. */
-export type MasterControlCenterProps = MasterControlPageProps & PropsRenderSlots<'main.conversation'>
-
-/** Renders the master conversation beside the session dashboard, reusing one master chat. */
-export function MasterControlCenter(props: MasterControlCenterProps) {
-  const { acquireMasterChat, SessionProvider, renderSlot, t } = props
-  const [reference, setReference] = useState<SessionReference>()
+/** Renders the session dashboard beside an entry that opens the master chat in the conversation panel. */
+export function MasterControlCenter(props: MasterControlPageProps) {
+  const { openMasterChat, t } = props
   const [error, setError] = useState<string>()
-  const [attempt, setAttempt] = useState(0)
-  useEffect(() => {
-    const controller = new AbortController()
-    let held: SessionReference | undefined
-    setReference(undefined)
+  const [opening, setOpening] = useState(false)
+  const open = () => {
     setError(undefined)
-    acquireMasterChat(controller.signal).then((result) => {
-      if (controller.signal.aborted) { result.release(); return }
-      held = result
-      setReference(result)
-    }).catch((failure: unknown) => {
-      if (!controller.signal.aborted) setError(String(failure))
-    })
-    return () => { controller.abort(); held?.release() }
-  }, [acquireMasterChat, attempt])
+    setOpening(true)
+    openMasterChat().catch((failure: unknown) => { setError(String(failure)) }).finally(() => { setOpening(false) })
+  }
   return (
     <div className={css.controlCenter}>
       <section className={css.masterPane} aria-label={t('masterConversation')}>
         <h2 className={css.masterHeading}>{t('masterConversation')}</h2>
         <div className={css.masterBody}>
-          {reference !== undefined
-            ? <SessionProvider session={reference}>{renderSlot('main.conversation', {})}</SessionProvider>
-            : error !== undefined
-              ? <div role="alert">{error}<Button onClick={() => { setAttempt(value => value + 1) }}>{t('retryMaster')}</Button></div>
-              : <p role="status">{t('loadingMaster')}</p>}
+          <p>{t('masterHint')}</p>
+          <Button disabled={opening} onClick={open}>{t('openMaster')}</Button>
+          {error !== undefined && <div role="alert">{error}</div>}
         </div>
       </section>
       <section className={css.rosterPane} aria-label={t('sessionOverview')}>

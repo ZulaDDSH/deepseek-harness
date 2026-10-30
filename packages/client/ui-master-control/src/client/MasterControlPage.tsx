@@ -1,5 +1,4 @@
 import type { ExternalChatCatalog, ExternalChatImportValue, ExternalChatKey } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
 import { ImportChats } from './ImportChats.tsx'
 import { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
@@ -12,7 +11,7 @@ import { groupMasterRows, masterRows, type RowState } from './rows.ts'
 import css from './MasterControlPage.module.css'
 
 export interface MasterControlInjected {
-  acquireMasterChat: (signal: AbortSignal) => Promise<SessionReference>
+  openMasterChat: () => Promise<void>
   discover: () => Promise<ExternalChatCatalog>
   importChats: (keys: readonly ExternalChatKey[]) => Promise<ExternalChatImportValue>
   open: (sessionId: string) => void

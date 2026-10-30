@@ -42,12 +42,7 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-master-control: dictionaries')
   const t = ctx.locale.bind(NS)
   const injected = (): MasterControlInjected => ({
-    acquireMasterChat: async (signal) => {
-      const id = await sessions.masterHome()
-      signal.throwIfAborted()
-      const reference = sessions.retain(id, { source: 'masterControl', signal })
-      try { await reference.ready; return reference } catch (error) { reference.release(); throw error }
-    },
+    openMasterChat: async () => { uiWorkspace.openSession(await sessions.masterHome()) },
     open: (id) => { uiWorkspace.openSession(id as SessionId) },
     interrupt: async (id) => {
       await sessions.using(id as SessionId, { source: 'masterControl' }, async (reference) => {
@@ -62,7 +57,6 @@ export function apply(ctx: ClientContext): void {
     name: 'main',
     key: PANEL_ID,
     locale: NS,
-    children: { 'main.conversation': { kind: 'single', scope: 'session-maybe' } },
     inject: injected,
   }, MasterControlCenter))
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
