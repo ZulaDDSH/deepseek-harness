@@ -1,0 +1,662 @@
+{
+ "ja": [
+  {
+   "key": "hooksTitle",
+   "up": null
+  },
+  {
+   "key": "hooksHelp",
+   "up": null
+  },
+  {
+   "key": "hooksRefresh",
+   "up": null
+  },
+  {
+   "key": "hooksEmpty",
+   "up": null
+  },
+  {
+   "key": "hooksSearch",
+   "up": null
+  },
+  {
+   "key": "hooksEmptySearch",
+   "up": null
+  },
+  {
+   "key": "hooksConfigured",
+   "up": null
+  },
+  {
+   "key": "hooksFailed",
+   "up": null
+  },
+  {
+   "key": "hooksNotSupported",
+   "up": null
+  },
+  {
+   "key": "hooksToggle",
+   "up": null
+  },
+  {
+   "key": "hooksDescription",
+   "up": null
+  },
+  {
+   "key": "hooksDescriptionPlaceholder",
+   "up": null
+  },
+  {
+   "key": "hooksDescriptionEdit",
+   "up": null
+  },
+  {
+   "key": "hooksDescriptionSave",
+   "up": null
+  },
+  {
+   "key": "hooksDescriptionCancel",
+   "up": null
+  },
+  {
+   "key": "hooksEnableAll",
+   "up": null
+  },
+  {
+   "key": "hooksDisableAll",
+   "up": null
+  },
+  {
+   "key": "hooksWriteFailed",
+   "up": null
+  },
+  {
+   "key": "hooksDialectCodex",
+   "up": null
+  },
+  {
+   "key": "hooksDialectClaudeCode",
+   "up": null
+  },
+  {
+   "key": "hooksCount",
+   "up": null
+  },
+  {
+   "key": "hooksNoDescription",
+   "up": null
+  },
+  {
+   "key": "hooksDetails",
+   "up": null
+  },
+  {
+   "key": "hooksMatcher",
+   "up": null
+  },
+  {
+   "key": "hooksMoreMatchers",
+   "up": null
+  },
+  {
+   "key": "hooksSaving",
+   "up": null
+  },
+  {
+   "key": "hooksNone",
+   "up": null
+  }
+ ],
+ "es": [
+  {
+   "key": "hooksTitle",
+   "up": null
+  },
+  {
+   "key": "hooksHelp",
+   "up": null
+  },
+  {
+   "key": "hooksRefresh",
+   "up": null
+  },
+  {
+   "key": "hooksEmpty",
+   "up": null
+  },
+  {
+   "key": "hooksSearch",
+   "up": null
+  },
+  {
+   "key": "hooksEmptySearch",
+   "up": null
+  },
+  {
+   "key": "hooksConfigured",
+   "up": null
+  },
+  {
+   "key": "hooksFailed",
+   "up": null
+  },
+  {
+   "key": "hooksNotSupported",
+   "up": null
+  },
+  {
+   "key": "hooksToggle",
+   "up": null
+  },
+  {
+   "key": "hooksDescription",
+   "up": null
+  },
+  {
+   "key": "hooksDescriptionPlaceholder",
+   "up": null
+  },
+  {
+   "key": "hooksDescriptionEdit",
+   "up": null
+  },
+  {
+   "key": "hooksDescriptionSave",
+   "up": null
+  },
+  {
+   "key": "hooksDescriptionCancel",
+   "up": null
+  },
+  {
+   "key": "hooksEnableAll",
+   "up": null
+  },
+  {
+   "key": "hooksDisableAll",
+   "up": null
+  },
+  {
+   "key": "hooksWriteFailed",
+   "up": null
+  },
+  {
+   "key": "hooksDialectCodex",
+   "up": null
+  },
+  {
+   "key": "hooksDialectClaudeCode",
+   "up": null
+  },
+  {
+   "key": "hooksCount",
+   "up": null
+  },
+  {
+   "key": "hooksNoDescription",
+   "up": null
+  },
+  {
+   "key": "hooksDetails",
+   "up": null
+  },
+  {
+   "key": "hooksMatcher",
+   "up": null
+  },
+  {
+   "key": "hooksMoreMatchers",
+   "up": null
+  },
+  {
+   "key": "hooksSaving",
+   "up": null
+  },
+  {
+   "key": "hooksNone",
+   "up": null
+  }
+ ],
+ "fr": [
+  {
+   "key": "hooksTitle",
+   "up": null
+  },
+  {
+   "key": "hooksHelp",
+   "up": null
+  },
+  {
+   "key": "hooksRefresh",
+   "up": null
+  },
+  {
+   "key": "hooksEmpty",
+   "up": null
+  },
+  {
+   "key": "hooksSearch",
+   "up": null
+  },
+  {
+   "key": "hooksEmptySearch",
+   "up": null
+  },
+  {
+   "key": "hooksConfigured",
+   "up": null
+  },
+  {
+   "key": "hooksFailed",
+   "up": null
+  },
+  {
+   "key": "hooksNotSupported",
+   "up": null
+  },
+  {
+   "key": "hooksToggle",
+   "up": null
+  },
+  {
+   "key": "hooksDescription",
+   "up": null
+  },
+  {
+   "key": "hooksDescriptionPlaceholder",
+   "up": null
+  },
+  {
+   "key": "hooksDescriptionEdit",
+   "up": null
+  },
+  {
+   "key": "hooksDescriptionSave",
+   "up": null
+  },
+  {
+   "key": "hooksDescriptionCancel",
+   "up": null
+  },
+  {
+   "key": "hooksEnableAll",
+   "up": null
+  },
+  {
+   "key": "hooksDisableAll",
+   "up": null
+  },
+  {
+   "key": "hooksWriteFailed",
+   "up": null
+  },
+  {
+   "key": "hooksDialectCodex",
+   "up": null
+  },
+  {
+   "key": "hooksDialectClaudeCode",
+   "up": null
+  },
+  {
+   "key": "hooksCount",
+   "up": null
+  },
+  {
+   "key": "hooksNoDescription",
+   "up": null
+  },
+  {
+   "key": "hooksDetails",
+   "up": null
+  },
+  {
+   "key": "hooksMatcher",
+   "up": null
+  },
+  {
+   "key": "hooksMoreMatchers",
+   "up": null
+  },
+  {
+   "key": "hooksSaving",
+   "up": null
+  },
+  {
+   "key": "hooksNone",
+   "up": null
+  }
+ ],
+ "de": [
+  {
+   "key": "hooksTitle",
+   "up": null
+  },
+  {
+   "key": "hooksHelp",
+   "up": null
+  },
+  {
+   "key": "hooksRefresh",
+   "up": null
+  },
+  {
+   "key": "hooksEmpty",
+   "up": null
+  },
+  {
+   "key": "hooksSearch",
+   "up": null
+  },
+  {
+   "key": "hooksEmptySearch",
+   "up": null
+  },
+  {
+   "key": "hooksConfigured",
+   "up": null
+  },
+  {
+   "key": "hooksFailed",
+   "up": null
+  },
+  {
+   "key": "hooksNotSupported",
+   "up": null
+  },
+  {
+   "key": "hooksToggle",
+   "up": null
+  },
+  {
+   "key": "hooksDescription",
+   "up": null
+  },
+  {
+   "key": "hooksDescriptionPlaceholder",
+   "up": null
+  },
+  {
+   "key": "hooksDescriptionEdit",
+   "up": null
+  },
+  {
+   "key": "hooksDescriptionSave",
+   "up": null
+  },
+  {
+   "key": "hooksDescriptionCancel",
+   "up": null
+  },
+  {
+   "key": "hooksEnableAll",
+   "up": null
+  },
+  {
+   "key": "hooksDisableAll",
+   "up": null
+  },
+  {
+   "key": "hooksWriteFailed",
+   "up": null
+  },
+  {
+   "key": "hooksDialectCodex",
+   "up": null
+  },
+  {
+   "key": "hooksDialectClaudeCode",
+   "up": null
+  },
+  {
+   "key": "hooksCount",
+   "up": null
+  },
+  {
+   "key": "hooksNoDescription",
+   "up": null
+  },
+  {
+   "key": "hooksDetails",
+   "up": null
+  },
+  {
+   "key": "hooksMatcher",
+   "up": null
+  },
+  {
+   "key": "hooksMoreMatchers",
+   "up": null
+  },
+  {
+   "key": "hooksSaving",
+   "up": null
+  },
+  {
+   "key": "hooksNone",
+   "up": null
+  }
+ ],
+ "ru": [
+  {
+   "key": "hooksTitle",
+   "up": null
+  },
+  {
+   "key": "hooksHelp",
+   "up": null
+  },
+  {
+   "key": "hooksRefresh",
+   "up": null
+  },
+  {
+   "key": "hooksEmpty",
+   "up": null
+  },
+  {
+   "key": "hooksSearch",
+   "up": null
+  },
+  {
+   "key": "hooksEmptySearch",
+   "up": null
+  },
+  {
+   "key": "hooksConfigured",
+   "up": null
+  },
+  {
+   "key": "hooksFailed",
+   "up": null
+  },
+  {
+   "key": "hooksNotSupported",
+   "up": null
+  },
+  {
+   "key": "hooksToggle",
+   "up": null
+  },
+  {
+   "key": "hooksDescription",
+   "up": null
+  },
+  {
+   "key": "hooksDescriptionPlaceholder",
+   "up": null
+  },
+  {
+   "key": "hooksDescriptionEdit",
+   "up": null
+  },
+  {
+   "key": "hooksDescriptionSave",
+   "up": null
+  },
+  {
+   "key": "hooksDescriptionCancel",
+   "up": null
+  },
+  {
+   "key": "hooksEnableAll",
+   "up": null
+  },
+  {
+   "key": "hooksDisableAll",
+   "up": null
+  },
+  {
+   "key": "hooksWriteFailed",
+   "up": null
+  },
+  {
+   "key": "hooksDialectCodex",
+   "up": null
+  },
+  {
+   "key": "hooksDialectClaudeCode",
+   "up": null
+  },
+  {
+   "key": "hooksCount",
+   "up": null
+  },
+  {
+   "key": "hooksNoDescription",
+   "up": null
+  },
+  {
+   "key": "hooksDetails",
+   "up": null
+  },
+  {
+   "key": "hooksMatcher",
+   "up": null
+  },
+  {
+   "key": "hooksMoreMatchers",
+   "up": null
+  },
+  {
+   "key": "hooksSaving",
+   "up": null
+  },
+  {
+   "key": "hooksNone",
+   "up": null
+  }
+ ],
+ "pt": [
+  {
+   "key": "hooksTitle",
+   "up": null
+  },
+  {
+   "key": "hooksHelp",
+   "up": null
+  },
+  {
+   "key": "hooksRefresh",
+   "up": null
+  },
+  {
+   "key": "hooksEmpty",
+   "up": null
+  },
+  {
+   "key": "hooksSearch",
+   "up": null
+  },
+  {
+   "key": "hooksEmptySearch",
+   "up": null
+  },
+  {
+   "key": "hooksConfigured",
+   "up": null
+  },
+  {
+   "key": "hooksFailed",
+   "up": null
+  },
+  {
+   "key": "hooksNotSupported",
+   "up": null
+  },
+  {
+   "key": "hooksToggle",
+   "up": null
+  },
+  {
+   "key": "hooksDescription",
+   "up": null
+  },
+  {
+   "key": "hooksDescriptionPlaceholder",
+   "up": null
+  },
+  {
+   "key": "hooksDescriptionEdit",
+   "up": null
+  },
+  {
+   "key": "hooksDescriptionSave",
+   "up": null
+  },
+  {
+   "key": "hooksDescriptionCancel",
+   "up": null
+  },
+  {
+   "key": "hooksEnableAll",
+   "up": null
+  },
+  {
+   "key": "hooksDisableAll",
+   "up": null
+  },
+  {
+   "key": "hooksWriteFailed",
+   "up": null
+  },
+  {
+   "key": "hooksDialectCodex",
+   "up": null
+  },
+  {
+   "key": "hooksDialectClaudeCode",
+   "up": null
+  },
+  {
+   "key": "hooksCount",
+   "up": null
+  },
+  {
+   "key": "hooksNoDescription",
+   "up": null
+  },
+  {
+   "key": "hooksDetails",
+   "up": null
+  },
+  {
+   "key": "hooksMatcher",
+   "up": null
+  },
+  {
+   "key": "hooksMoreMatchers",
+   "up": null
+  },
+  {
+   "key": "hooksSaving",
+   "up": null
+  },
+  {
+   "key": "hooksNone",
+   "up": null
+  }
+ ]
+}

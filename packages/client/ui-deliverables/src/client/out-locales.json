@@ -1,0 +1,302 @@
+{
+ "ja": [
+  {
+   "key": "source.title",
+   "up": null
+  },
+  {
+   "key": "source.subtitle",
+   "up": null
+  },
+  {
+   "key": "source.changed",
+   "up": null
+  },
+  {
+   "key": "source.workspace",
+   "up": null
+  },
+  {
+   "key": "source.files",
+   "up": null
+  },
+  {
+   "key": "source.refresh",
+   "up": null
+  },
+  {
+   "key": "source.loading",
+   "up": null
+  },
+  {
+   "key": "source.error",
+   "up": null
+  },
+  {
+   "key": "source.noWorkspace",
+   "up": null
+  },
+  {
+   "key": "source.noRepository",
+   "up": null
+  },
+  {
+   "key": "source.clean",
+   "up": null
+  },
+  {
+   "key": "source.selectFile",
+   "up": null
+  }
+ ],
+ "es": [
+  {
+   "key": "source.title",
+   "up": null
+  },
+  {
+   "key": "source.subtitle",
+   "up": null
+  },
+  {
+   "key": "source.changed",
+   "up": null
+  },
+  {
+   "key": "source.workspace",
+   "up": null
+  },
+  {
+   "key": "source.files",
+   "up": null
+  },
+  {
+   "key": "source.refresh",
+   "up": null
+  },
+  {
+   "key": "source.loading",
+   "up": null
+  },
+  {
+   "key": "source.error",
+   "up": null
+  },
+  {
+   "key": "source.noWorkspace",
+   "up": null
+  },
+  {
+   "key": "source.noRepository",
+   "up": null
+  },
+  {
+   "key": "source.clean",
+   "up": null
+  },
+  {
+   "key": "source.selectFile",
+   "up": null
+  }
+ ],
+ "fr": [
+  {
+   "key": "source.title",
+   "up": null
+  },
+  {
+   "key": "source.subtitle",
+   "up": null
+  },
+  {
+   "key": "source.changed",
+   "up": null
+  },
+  {
+   "key": "source.workspace",
+   "up": null
+  },
+  {
+   "key": "source.files",
+   "up": null
+  },
+  {
+   "key": "source.refresh",
+   "up": null
+  },
+  {
+   "key": "source.loading",
+   "up": null
+  },
+  {
+   "key": "source.error",
+   "up": null
+  },
+  {
+   "key": "source.noWorkspace",
+   "up": null
+  },
+  {
+   "key": "source.noRepository",
+   "up": null
+  },
+  {
+   "key": "source.clean",
+   "up": null
+  },
+  {
+   "key": "source.selectFile",
+   "up": null
+  }
+ ],
+ "de": [
+  {
+   "key": "source.title",
+   "up": null
+  },
+  {
+   "key": "source.subtitle",
+   "up": null
+  },
+  {
+   "key": "source.changed",
+   "up": null
+  },
+  {
+   "key": "source.workspace",
+   "up": null
+  },
+  {
+   "key": "source.files",
+   "up": null
+  },
+  {
+   "key": "source.refresh",
+   "up": null
+  },
+  {
+   "key": "source.loading",
+   "up": null
+  },
+  {
+   "key": "source.error",
+   "up": null
+  },
+  {
+   "key": "source.noWorkspace",
+   "up": null
+  },
+  {
+   "key": "source.noRepository",
+   "up": null
+  },
+  {
+   "key": "source.clean",
+   "up": null
+  },
+  {
+   "key": "source.selectFile",
+   "up": null
+  }
+ ],
+ "ru": [
+  {
+   "key": "source.title",
+   "up": null
+  },
+  {
+   "key": "source.subtitle",
+   "up": null
+  },
+  {
+   "key": "source.changed",
+   "up": null
+  },
+  {
+   "key": "source.workspace",
+   "up": null
+  },
+  {
+   "key": "source.files",
+   "up": null
+  },
+  {
+   "key": "source.refresh",
+   "up": null
+  },
+  {
+   "key": "source.loading",
+   "up": null
+  },
+  {
+   "key": "source.error",
+   "up": null
+  },
+  {
+   "key": "source.noWorkspace",
+   "up": null
+  },
+  {
+   "key": "source.noRepository",
+   "up": null
+  },
+  {
+   "key": "source.clean",
+   "up": null
+  },
+  {
+   "key": "source.selectFile",
+   "up": null
+  }
+ ],
+ "pt": [
+  {
+   "key": "source.title",
+   "up": null
+  },
+  {
+   "key": "source.subtitle",
+   "up": null
+  },
+  {
+   "key": "source.changed",
+   "up": null
+  },
+  {
+   "key": "source.workspace",
+   "up": null
+  },
+  {
+   "key": "source.files",
+   "up": null
+  },
+  {
+   "key": "source.refresh",
+   "up": null
+  },
+  {
+   "key": "source.loading",
+   "up": null
+  },
+  {
+   "key": "source.error",
+   "up": null
+  },
+  {
+   "key": "source.noWorkspace",
+   "up": null
+  },
+  {
+   "key": "source.noRepository",
+   "up": null
+  },
+  {
+   "key": "source.clean",
+   "up": null
+  },
+  {
+   "key": "source.selectFile",
+   "up": null
+  }
+ ]
+}

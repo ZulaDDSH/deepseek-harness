@@ -259,11 +259,12 @@ export class KnowledgeRouter extends Service {
       registerKnowledgeDelegateTool(inner, this, {
         start: async (prompt, label, parent, signal) => {
           const maxDepth = inner.subagents.resolveMaxDepth()
-          const started = await inner.subagents.startContinuable({
+          const started = await inner.subagents.startActivation({
             provider: this.config.delegationProvider,
             label,
             request: { prompt: [{ type: 'text', text: prompt }], parent, ...maxDepth !== undefined ? { maxDepth } : {} },
             signal,
+            delivery: 'parent',
           })
           return String(started.childId)
         },
@@ -374,15 +375,20 @@ export class KnowledgeRouter extends Service {
     options: RetrieveOptions,
   ): Promise<KnowledgeItem> {
     const retrievedAt = new Date().toISOString()
-    const result = await this.ctx.tools.execute({
-      callId: ToolCallId(randomUUID()),
-      name: query.toolName,
-      arguments: this.queryArguments(query.provider, task),
+    const batch = await this.ctx.tools.execute({
+      calls: [{
+        type: 'tool-call',
+        id: ToolCallId(randomUUID()),
+        name: query.toolName,
+        arguments: JSON.stringify(this.queryArguments(query.provider, task)),
+      }],
       ...options.agent !== undefined ? { agent: options.agent } : {},
       ...options.execution !== undefined ? { parent: options.execution.token, rootCallId: options.execution.rootCallId } : {},
       signal: options.signal,
     })
-    const text = resultText(result)
+    const outcome = batch.results[0]
+    if (outcome === undefined) throw new Error('Tool executor omitted the knowledge query result')
+    const text = resultText(outcome.result)
     const signals = query.provider === 'graphify' ? extractLessonSignals(text) : NO_SIGNALS
     const lesson = query.provider === 'graphify' ? await this.probeLesson(text, options.signal) : undefined
     const freshness = query.provider === 'gitnexus'

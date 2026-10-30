@@ -1,5 +1,6 @@
 /** Web SSE transport for page-owned client entry reconciliation; one leader tab per browser holds the events connection. */
 import type { Context } from '@deepseek-ai/cordis'
+import { EventSourceParserStream } from 'eventsource-parser/stream'
 import type { PluginsEventParseResult } from '../events.ts'
 import { EVENTS_ROUTE, parsePluginsEventFrame } from '../events.ts'
 
@@ -18,8 +19,38 @@ const CHANNEL = 'dsh-hmr-events'
 
 type ChannelMessage = { type: 'hello' } | { type: 'frame'; data: string }
 
+/** Request carrier a shell installs when it owns the page transport, such as the worker preview's tunnel. */
+type PageTransportFetch = (input: string, init: RequestInit) => Promise<Response>
+
+/** Page global carrying the shell transport; absent in the served web app. */
+interface PageTransportGlobal {
+  __DSH_TRANSPORT__?: { fetch?: PageTransportFetch }
+}
+
 /**
- * Forward graph snapshots and rebuilds to the page's shared serial controller.
+ * Read the document-relative events route through a shell-owned transport until it closes or `signal` aborts.
+ * @param fetch - The shell's request carrier.
+ * @param signal - Aborts the stream when the plugin disposes.
+ * @param receive - Handles one SSE `data` payload.
+ * @throws Error when the Host refuses the stream or the stream ends while the plugin is active.
+ */
+async function readPageTransportEvents(fetch: PageTransportFetch, signal: AbortSignal, receive: (data: string) => void): Promise<void> {
+  const response = await fetch(EVENTS_ROUTE, { method: 'GET', headers: { accept: 'text/event-stream' }, signal })
+  if (!response.ok || response.body === null) {
+    throw new Error(`client-hmr: ${EVENTS_ROUTE} answered ${String(response.status)}`)
+  }
+  const reader = response.body.pipeThrough(new TextDecoderStream()).pipeThrough(new EventSourceParserStream()).getReader()
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    receive(value.data)
+  }
+  if (!signal.aborted) throw new Error(`client-hmr: ${EVENTS_ROUTE} closed; client graph changes stop until the page reloads`)
+}
+
+/**
+ * Forward graph snapshots and rebuilds to the page's shared serial controller. The event stream arrives through the
+ * shell transport when the page has one, otherwise through the browser `EventSource`.
  * @param ctx - Plugin context with the client module system.
  */
 export function apply(ctx: Context): void {
@@ -53,6 +84,14 @@ export function apply(ctx: Context): void {
   }
 
   ctx.effect(() => {
+    const transport = (globalThis as PageTransportGlobal).__DSH_TRANSPORT__
+    if (transport?.fetch !== undefined) {
+      const controller = new AbortController()
+      void readPageTransportEvents(transport.fetch, controller.signal, receive).catch((error: unknown) => {
+        if (!controller.signal.aborted) ctx.logger.error(error)
+      })
+      return () => { controller.abort() }
+    }
     if (!('locks' in navigator) || typeof BroadcastChannel === 'undefined') return connect(receive)
     const channel = new BroadcastChannel(CHANNEL)
     const abort = new AbortController()

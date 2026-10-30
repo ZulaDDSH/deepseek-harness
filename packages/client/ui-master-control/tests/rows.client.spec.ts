@@ -14,9 +14,8 @@ function list(...rows: SessionSummary[]): SessionListState {
     ids: rows.map(r => r.id),
     byId: Object.fromEntries(rows.map(r => [r.id, r])),
     phase: 'ready',
-    subagentsByParent: {},
-    jobsBySession: {},
-  } as unknown as SessionListState
+    projectionsBySession: {},
+  }
 }
 
 describe('masterRows', () => {
@@ -38,10 +37,10 @@ describe('masterRows', () => {
       summary('fail', { updatedAt: 2 }),
       summary('ask', { updatedAt: 3 }),
     )
-    const status = new Map([
+    const status: SessionStatusSnapshot = new Map([
       ['fail', { running: false, pendingInteraction: undefined, completionUnread: false, failureUnread: true }],
       ['ask', { running: true, pendingInteraction: { kind: 'x' }, completionUnread: false }],
-    ]) as unknown as SessionStatusSnapshot
+    ]) as never
     expect(masterRows(state, status).map(r => [r.id, r.state])).toEqual([
       ['ask', 'attention'],
       ['fail', 'failed'],
@@ -53,9 +52,9 @@ describe('masterRows', () => {
 
   it('prefers the UI status running flag over the summary and marks children', () => {
     const state = list(summary('a', { running: true, parentId: 'p' as never }))
-    const status = new Map([
+    const status: SessionStatusSnapshot = new Map([
       ['a', { running: false, pendingInteraction: undefined, completionUnread: false }],
-    ]) as unknown as SessionStatusSnapshot
+    ]) as never
     const [row] = masterRows(state, status)
     expect(row).toMatchObject({ state: 'idle', child: true })
   })

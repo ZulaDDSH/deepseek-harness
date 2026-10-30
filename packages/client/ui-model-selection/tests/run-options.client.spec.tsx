@@ -10,6 +10,8 @@ import { ModelSelect } from '../src/client/ModelSelect.tsx'
 import { en } from '../src/client/locales.ts'
 import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
 const cliStubs = { cliProfiles: vi.fn(async () => []), openCliTerminal: vi.fn(async () => {}) }
+const renderLabel: ComponentProps<typeof ModelSelect>['renderSlot'] = (_name, _owner, options) => options?.fallback ?? null
+const resolveText: ComponentProps<typeof ModelSelect>['resolveText'] = text => typeof text === 'string' ? text : text.en
 
 const t: ComponentProps<typeof ModelSelect>['t'] = (key, params) => {
   const template = (en as Record<string, string>)[key] ?? (commonEn as Record<string, string>)[key] ?? key
@@ -74,10 +76,18 @@ function renderSeat(
     locked={false} useProjection={projectionHook(runOptions, claudeCode)} favorites={createSnapshotStore<string[]>([])}
     globalSetup={globalSetup}
     toggleFavorite={vi.fn()}
-    {...cliStubs} available
+    {...cliStubs} available renderSlot={renderLabel} resolveText={resolveText}
     directory={createSnapshotStore(models)} load={vi.fn()} select={select}
     setRunOptions={setRunOptions} openSubagentSetup={openSubagentSetup} t={t} />)
   return { setRunOptions, select, trigger: screen.getByRole('button', { name: /Select model, current/ }) }
+}
+
+function openEffort() {
+  fireEvent.click(screen.getByRole('menuitem', { name: /^Effort/ }))
+}
+
+function openModel() {
+  fireEvent.click(screen.getByRole('menuitem', { name: /^Model/ }))
 }
 
 afterEach(cleanup)
@@ -88,7 +98,8 @@ it('shows the Ultracode level and trigger tag for a model that supports it, and 
   expect(trigger.textContent).not.toContain(en['trigger.fast'])
   expect(trigger.textContent).toContain(en['trigger.ultracodeEffort'].replace('{effort}', 'Low'))
   fireEvent.click(trigger)
-  expect(screen.getByRole('radio', { name: en['runOptions.ultracode'] }).getAttribute('aria-checked')).toBe('true')
+  openEffort()
+  expect(screen.getByRole('menuitemradio', { name: en['runOptions.ultracode'] }).getAttribute('aria-checked')).toBe('true')
   expect(screen.queryByRole('switch')).toBeNull()
   expect(screen.queryByRole('radiogroup', { name: en['runOptions.effort'] })).toBeNull()
 })
@@ -97,14 +108,16 @@ it('hides Ultracode everywhere for a model without it, even when the Session car
   const { trigger } = renderSeat(false, { ultracode: true })
   expect(trigger.textContent).not.toContain(en['trigger.ultracode'])
   fireEvent.click(trigger)
-  expect(screen.queryByRole('radio', { name: en['runOptions.ultracode'] })).toBeNull()
+  openEffort()
+  expect(screen.queryByRole('menuitemradio', { name: en['runOptions.ultracode'] })).toBeNull()
   expect(screen.queryByRole('switch', { name: en['runOptions.ultracode'] })).toBeNull()
 })
 
 it('writes Ultracode at the highest effort and turns it off when another effort is chosen', async () => {
   const { setRunOptions, select, trigger } = renderSeat(false, {}, vi.fn(), true)
   fireEvent.click(trigger)
-  fireEvent.click(screen.getByRole('radio', { name: en['runOptions.ultracode'] }))
+  openEffort()
+  fireEvent.click(screen.getByRole('menuitemradio', { name: en['runOptions.ultracode'] }))
   await waitFor(() => { expect(setRunOptions).toHaveBeenCalledWith({ ultracode: true }) })
   expect(select).toHaveBeenCalledWith({ provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'high' })
 })
@@ -112,7 +125,8 @@ it('writes Ultracode at the highest effort and turns it off when another effort 
 it('clears a stored Ultracode when another effort is chosen', async () => {
   const { setRunOptions, select, trigger } = renderSeat(false, { ultracode: true }, vi.fn(), true)
   fireEvent.click(trigger)
-  fireEvent.click(screen.getByRole('radio', { name: 'High' }))
+  openEffort()
+  fireEvent.click(screen.getByRole('menuitemradio', { name: 'High' }))
   await waitFor(() => { expect(setRunOptions).toHaveBeenCalledWith({ ultracode: false }) })
   expect(select).toHaveBeenCalledWith({ provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'high' })
 })
@@ -121,9 +135,10 @@ it('shows Fast mode and the Claude Code effort choice only with the Claude Code 
   const { trigger } = renderSeat(true, { fastMode: true })
   expect(trigger.textContent).toContain(en['trigger.fast'])
   fireEvent.click(trigger)
+  openEffort()
   expect(screen.getByRole('switch', { name: en['runOptions.fastMode'] }).getAttribute('aria-checked')).toBe('true')
   expect(screen.getByRole('radiogroup', { name: en['runOptions.effort'] })).toBeTruthy()
-  expect(screen.queryByRole('radio', { name: en['runOptions.ultracode'] })).toBeNull()
+  expect(screen.queryByRole('menuitemradio', { name: en['runOptions.ultracode'] })).toBeNull()
 })
 
 const jevSetup: SessionRunOptions = { subagentSetup: { enabled: true, reviewRounds: 2, roles: { orchestrator: { mode: 'jev' } } } }
@@ -140,6 +155,7 @@ it('keeps the picker openable while subagent mode is on, locks the model list, a
   const { trigger } = renderSeat(false, jevSetup, openSubagentSetup)
   expect(trigger).toHaveProperty('disabled', false)
   fireEvent.click(trigger)
+  openModel()
   expect(screen.getByRole('note').textContent).toContain(en['subagentSetup.notice'])
   expect(screen.getByRole('menuitemradio', { name: /DeepSeek-V4-Flash/ })).toHaveProperty('disabled', true)
   fireEvent.click(screen.getByRole('button', { name: en['subagentSetup.open'] }))
@@ -149,17 +165,19 @@ it('keeps the picker openable while subagent mode is on, locks the model list, a
 it('leaves Ultracode and Fast mode usable while subagent mode is on', async () => {
   const { setRunOptions, trigger } = renderSeat(true, jevSetup, vi.fn(), true)
   fireEvent.click(trigger)
+  openEffort()
   fireEvent.click(screen.getByRole('switch', { name: en['runOptions.fastMode'] }))
   await waitFor(() => { expect(setRunOptions).toHaveBeenLastCalledWith({ ...jevSetup, fastMode: true }) })
-  fireEvent.click(screen.getByRole('radio', { name: en['runOptions.ultracode'] }))
+  fireEvent.click(screen.getByRole('menuitemradio', { name: en['runOptions.ultracode'] }))
   await waitFor(() => { expect(setRunOptions).toHaveBeenLastCalledWith({ ...jevSetup, fastMode: true, ultracode: true }) })
 })
 
 it('keeps Ultracode selectable under a fixed orchestrator without changing its effort', async () => {
   const { setRunOptions, select, trigger } = renderSeat(false, fixedSetup, vi.fn(), true)
   fireEvent.click(trigger)
-  expect(screen.getByRole('radio', { name: 'High' })).toHaveProperty('disabled', true)
-  fireEvent.click(screen.getByRole('radio', { name: en['runOptions.ultracode'] }))
+  openEffort()
+  expect(screen.getByRole('menuitemradio', { name: 'High' })).toHaveProperty('disabled', true)
+  fireEvent.click(screen.getByRole('menuitemradio', { name: en['runOptions.ultracode'] }))
   await waitFor(() => { expect(setRunOptions).toHaveBeenCalledWith({ ...fixedSetup, ultracode: true }) })
   expect(select).not.toHaveBeenCalled()
 })
@@ -167,11 +185,13 @@ it('keeps Ultracode selectable under a fixed orchestrator without changing its e
 it('locks the reasoning effort only when the orchestrator route is fixed', () => {
   const jev = renderSeat(false, jevSetup)
   fireEvent.click(jev.trigger)
-  expect(screen.getByRole('radio', { name: 'High' })).toHaveProperty('disabled', false)
+  openEffort()
+  expect(screen.getByRole('menuitemradio', { name: 'High' })).toHaveProperty('disabled', false)
   cleanup()
   const fixed = renderSeat(false, fixedSetup)
   fireEvent.click(fixed.trigger)
-  expect(screen.getByRole('radio', { name: 'High' })).toHaveProperty('disabled', true)
+  openEffort()
+  expect(screen.getByRole('menuitemradio', { name: 'High' })).toHaveProperty('disabled', true)
 })
 
 it('leaves the reasoning effort unlocked when the orchestrator is fixed to a Claude CLI route, which the Host does not drive', () => {
@@ -180,19 +200,26 @@ it('leaves the reasoning effort unlocked when the orchestrator is fixed to a Cla
   }
   const { trigger } = renderSeat(false, claudeSetup)
   fireEvent.click(trigger)
-  expect(screen.getByRole('radio', { name: 'High' })).toHaveProperty('disabled', false)
+  openEffort()
+  expect(screen.getByRole('menuitemradio', { name: 'High' })).toHaveProperty('disabled', false)
 })
 
 it('leaves the model list and effort unlocked while subagent mode is off', () => {
-  const { trigger } = renderSeat(false, { subagentSetup: { ...fixedSetup.subagentSetup!, enabled: false } })
-  fireEvent.click(trigger)
+  const off = renderSeat(false, { subagentSetup: { ...fixedSetup.subagentSetup!, enabled: false } })
+  fireEvent.click(off.trigger)
+  openModel()
   expect(screen.queryByRole('note')).toBeNull()
-  expect(screen.getByRole('radio', { name: 'High' })).toHaveProperty('disabled', false)
+  cleanup()
+  const effort = renderSeat(false, { subagentSetup: { ...fixedSetup.subagentSetup!, enabled: false } })
+  fireEvent.click(effort.trigger)
+  openEffort()
+  expect(screen.getByRole('menuitemradio', { name: 'High' })).toHaveProperty('disabled', false)
 })
 
 it('locks the model list for a Session with no setup of its own when the global default has subagent mode on', () => {
   const { trigger } = renderSeat(false, {}, vi.fn(), false, jevSetup.subagentSetup)
   fireEvent.click(trigger)
+  openModel()
   expect(screen.getByRole('note').textContent).toContain(en['subagentSetup.notice'])
   expect(screen.getByRole('menuitemradio', { name: /DeepSeek-V4-Flash/ })).toHaveProperty('disabled', true)
 })
@@ -200,17 +227,19 @@ it('locks the model list for a Session with no setup of its own when the global 
 it('locks the reasoning effort when the global default fixes the orchestrator', () => {
   const { trigger } = renderSeat(false, {}, vi.fn(), false, fixedSetup.subagentSetup)
   fireEvent.click(trigger)
-  expect(screen.getByRole('radio', { name: 'High' })).toHaveProperty('disabled', true)
+  openEffort()
+  expect(screen.getByRole('menuitemradio', { name: 'High' })).toHaveProperty('disabled', true)
 })
 
 it('lets the Session own setup win over the global default in both directions', () => {
   const off = renderSeat(false, { subagentSetup: { ...jevSetup.subagentSetup!, enabled: false } }, vi.fn(), false, fixedSetup.subagentSetup)
   fireEvent.click(off.trigger)
-  expect(screen.queryByRole('note')).toBeNull()
-  expect(screen.getByRole('radio', { name: 'High' })).toHaveProperty('disabled', false)
+  openEffort()
+  expect(screen.getByRole('menuitemradio', { name: 'High' })).toHaveProperty('disabled', false)
   cleanup()
   const on = renderSeat(false, jevSetup, vi.fn(), false, { ...jevSetup.subagentSetup!, enabled: false })
   fireEvent.click(on.trigger)
+  openModel()
   expect(screen.getByRole('note').textContent).toContain(en['subagentSetup.notice'])
 })
 
@@ -228,5 +257,6 @@ it('shows the fixed orchestrator route as the Session model only while subagent 
 it('ignores a malformed global default as the Host does', () => {
   const { trigger } = renderSeat(false, {}, vi.fn(), false, { enabled: true })
   fireEvent.click(trigger)
+  openModel()
   expect(screen.queryByRole('note')).toBeNull()
 })

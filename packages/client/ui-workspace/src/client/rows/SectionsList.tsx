@@ -21,7 +21,7 @@ import type { WorkspaceAppearance } from '../appearance.ts'
 import { deriveFlat, pinCurrentBlank, type SessionNode, type SessionRowState } from '../tree.ts'
 import { deriveSections, type SectionNode } from '../sections.ts'
 import type { ChatSectionsState } from '../stores.ts'
-import { SectionHeaderItem, SessionNodeItem, type RowRenderSlots, type SessionSectionActions } from './Rows.tsx'
+import { SectionHeaderItem, SessionNodeItem, type RowRenderSlots } from './Rows.tsx'
 import css from './WorkspaceBrowser.module.css'
 import { useNativeDragAcceptance } from './drag.ts'
 
@@ -43,7 +43,8 @@ interface SectionDragState {
 
 export interface SectionsListProps extends Pick<
   WorkspaceBrowserProps,
-  'useSessionStatus' | 'open' | 'usePanelInfo' | 't'
+  'useSessionStatus' | 'open' | 'usePanelInfo' | 't' | 'openSectionMenu' | 'openSessionMenu' | 'useContextMenu'
+  | 'useContextMenuTarget' | 'useSessionAccess'
 > {
   list: SessionListState
   /** Registry-global pin and archive sets plus the archived-visibility choice. */
@@ -67,10 +68,6 @@ export interface SectionsListProps extends Pick<
   toggleSection: (sectionId: string) => void
   /** Move a section to a position relative to another section. */
   moveSection: (sectionId: string, beforeSectionId?: string) => void
-  onSectionRename: (sectionId: string, currentName: string) => void
-  onSectionDelete: (sectionId: string, name: string) => void
-  onSectionAppearanceChange: (sectionId: string, change: WorkspaceAppearance) => void
-  onSessionAppearanceChange: (sessionId: SessionId, change: WorkspaceAppearance) => void
   externalChatSessionId: SessionId | null
   onChatDragEnd: () => void
 }
@@ -83,8 +80,7 @@ export interface SectionsListProps extends Pick<
 export function SectionsList({
   list, rowState, visibleSessionIds, sections, appearanceBySection, appearanceBySession, currentBlank, useSessionStatus, open,
   usePanelInfo, onSessionRenameRequest, renderSlot, assignSession, setSectionOrder,
-  toggleSection, moveSection, onSectionRename, onSectionDelete, onSectionAppearanceChange,
-  onSessionAppearanceChange, t,
+  toggleSection, moveSection, openSectionMenu, openSessionMenu, useContextMenu, useContextMenuTarget, useSessionAccess, t,
   externalChatSessionId, onChatDragEnd,
 }: SectionsListProps) {
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
@@ -114,12 +110,6 @@ export function SectionsList({
     assignSession(sessionId, sectionId)
     onChatDragEnd()
   }
-
-  const sectionActions = (currentSectionId: string | undefined): SessionSectionActions => ({
-    sections: sections.sections,
-    currentSectionId,
-    move: (id, sectionId) => { assignSession(id, sectionId) },
-  })
 
   /** The selected provisional New Session inside a projected order, if present. */
   const blankIn = (ids: readonly SessionId[]): SessionId | undefined =>
@@ -193,11 +183,10 @@ export function SectionsList({
         onRenameRequest={onSessionRenameRequest}
         renderSlot={renderSlot}
         appearance={appearanceBySession[node.id]}
-        appearanceActions={{
-          color: (color) => { onSessionAppearanceChange(node.id, { color }) },
-          icon: (icon) => { onSessionAppearanceChange(node.id, { icon }) },
-        }}
-        sectionActions={sectionActions(sectionId)}
+        openSessionMenu={openSessionMenu}
+        useContextMenu={useContextMenu}
+        useContextMenuTarget={useContextMenuTarget}
+        useSessionAccess={useSessionAccess}
         drag={{
           start: () => {
             chatDropCommitted.current = false
@@ -299,12 +288,9 @@ export function SectionsList({
               sectionDropCommitted.current = false
             },
           }}
-          actions={{
-            rename: () => { onSectionRename(section.id, section.name) },
-            delete: () => { onSectionDelete(section.id, section.name) },
-            appearanceColor: (color) => { onSectionAppearanceChange(section.id, { color }) },
-            appearanceIcon: (icon) => { onSectionAppearanceChange(section.id, { icon }) },
-          }}
+          openSectionMenu={openSectionMenu}
+          useContextMenu={useContextMenu}
+          useContextMenuTarget={useContextMenuTarget}
           t={t}
         />
         {!section.expanded && (

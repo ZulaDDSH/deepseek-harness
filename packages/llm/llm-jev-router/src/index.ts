@@ -1,6 +1,6 @@
 import { Service, type Context, type Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
+import type { Agent, ModelSelection, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { assertUsableApiKey, type ContentBlock, type UserMessage } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
@@ -9,7 +9,7 @@ import type {} from '@deepseek-ai/dsh-session'
 import { orchestratorSelectionOf } from '@deepseek-ai/dsh-api-session-controller/setup-resolver'
 import type {} from '@deepseek-ai/dsh-subagent'
 import { jevDecisionProjection } from './projection.ts'
-import { applyRoute, installAgentRequestRouting, selectedRoute } from './request-routing.ts'
+import { routeSelection, selectedRoute, unroutedSelection } from './request-routing.ts'
 import type { JevDecisionRecord } from './types.ts'
 
 export const name = 'llm-jev-router'
@@ -132,6 +132,7 @@ export interface JevClient {
 
 interface CachedRoute {
   readonly route?: JevRoute
+  readonly rejected?: true
 }
 
 function validateConfig(config: Config): void {
@@ -424,7 +425,7 @@ export class JevRouter extends Service {
 function pinnedByDelegation(ctx: Context, agent: Agent): boolean {
   const projections = ctx.get('sessionProjections')
   if (projections === undefined) return false
-  if (projections.stateOf(agent.session, 'subagent')?.identity?.routePinned === true) return true
+  if (projections.snapshot(agent.session, ['subagent']).values.subagent?.routePinned === true) return true
   return orchestratorSelectionOf(ctx, agent.session) !== undefined
 }
 
@@ -444,57 +445,61 @@ export function apply(ctx: Context, initial: RuntimeConfig): void {
     return launchEnvironmentOf(ctx).get(config.apiKeyEnv)?.value
   })
   new JevRouter(ctx, current, client, states)
-  ctx.inject(['sessionProjections'], (inner) => { inner.sessionProjections.register(jevDecisionProjection) })
+  ctx.inject(['sessionProjections'], (inner) => { void inner.sessionProjections.register(jevDecisionProjection) })
   ctx.llm.registerConfigurableProviders([{
     provider: 'jev-router',
     displayName: 'TypeSafe / Jev',
     settingsNs: ctx.fiber.entry?.options.id ?? name,
     settingsPath: [],
   }])
-  const hookAgent = installAgentRequestRouting(ctx, () => current().enabled,
-    (agent, turn) => decisions.get(agent)?.get(turn)?.route)
+  ctx.on('agent/route', async ({ agent, turn, step, messages, signal }, next): Promise<ModelSelection | undefined> => {
+    const config = current()
+    if (!config.enabled || signal.aborted || pinnedByDelegation(ctx, agent)) return next()
+    const providers = new Set(ctx.llm.listProviders().map(provider => provider.id))
+    const routable: Config = Object.assign({}, config, { routes: config.routes.filter(route => providers.has(route.provider)) })
+    if (routable.routes.length === 0) return unroutedSelection(ctx, agent)
+    let perAgent = decisions.get(agent)
+    if (perAgent === undefined) {
+      perAgent = new Map()
+      decisions.set(agent, perAgent)
+    }
+    if (!perAgent.has(turn)) {
+      try {
+        const decision = await client.decide(messages, routable, signal)
+        const route = selectedRoute(decision, routable)
+        const unroutable = config.routes.some(candidate => candidate.id === decision.route)
+          && !routable.routes.some(candidate => candidate.id === decision.route)
+        agent.session.append('jev/decision', {
+          turn, step, choice: decision.route, confidence: decision.confidence,
+          ...route === undefined ? {} : { route: route.id, provider: route.provider, model: route.model },
+          ...unroutable ? { unroutable: true } : {},
+        })
+        perAgent.set(turn, route === undefined ? {} : { route })
+      } catch (error) {
+        ctx.logger.warn(config.failOpen
+          ? 'jev-router: Jev decision failed; preserving the configured model route'
+          : 'jev-router: Jev decision failed; rejecting the turn')
+        agent.session.append('jev/decision', {
+          turn, step, error: String(error), rejected: !config.failOpen,
+        })
+        ctx.logger.warn(error)
+        perAgent.set(turn, config.failOpen ? {} : { rejected: true })
+      }
+    }
+    const applied = perAgent.get(turn)?.route
+    return applied === undefined ? unroutedSelection(ctx, agent) : routeSelection(applied)
+  })
 
   ctx.on('agent/pre-step', async (payload, next): Promise<PreStepDecision> => {
     const admitted = await next()
     const config = current()
     if (admitted.kind === 'reject' || payload.signal.aborted) return admitted
+    if (decisions.get(payload.agent)?.get(payload.turn)?.rejected) return { kind: 'reject' }
     if (!config.enabled) return admitted
     if (pinnedByDelegation(ctx, payload.agent)) return admitted
-    hookAgent(payload.agent)
     states.set(payload.agent, stateForMessages(admitted.messages, config.stateMaxChars))
-    const providers = new Set(ctx.llm.listProviders().map(provider => provider.id))
-    const routable: Config = Object.assign({}, config, { routes: config.routes.filter(route => providers.has(route.provider)) })
-    if (routable.routes.length === 0) return admitted
-    let perAgent = decisions.get(payload.agent)
-    if (perAgent === undefined) {
-      perAgent = new Map()
-      decisions.set(payload.agent, perAgent)
-    }
-    if (perAgent.has(payload.turn)) return admitted
-    try {
-      const decision = await client.decide(admitted.messages, routable, payload.signal)
-      const route = selectedRoute(decision, routable)
-      const unroutable = config.routes.some(candidate => candidate.id === decision.route)
-        && !routable.routes.some(candidate => candidate.id === decision.route)
-      payload.agent.session.append('jev/decision', {
-        turn: payload.turn, step: payload.step, choice: decision.route, confidence: decision.confidence,
-        ...route === undefined ? {} : { route: route.id, provider: route.provider, model: route.model },
-        ...unroutable ? { unroutable: true } : {},
-      })
-      perAgent.set(payload.turn, route === undefined ? {} : { route })
-    } catch (error) {
-      ctx.logger.warn(config.failOpen
-        ? 'jev-router: Jev decision failed; preserving the configured model route'
-        : 'jev-router: Jev decision failed; rejecting the turn')
-      payload.agent.session.append('jev/decision', {
-        turn: payload.turn, step: payload.step, error: String(error), rejected: !config.failOpen,
-      })
-      ctx.logger.warn(error)
-      perAgent.set(payload.turn, {})
-      if (!config.failOpen) return { kind: 'reject' }
-    }
     return admitted
   })
 }
 
-export { applyRoute, selectedRoute }
+export { routeSelection, selectedRoute }

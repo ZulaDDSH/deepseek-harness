@@ -10,6 +10,7 @@
 import { writeFile } from 'node:fs/promises'
 import { boot, resolveConfigPath } from '@deepseek-ai/dsh-app-boot'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import { executeModelCall } from '../model-call.ts'
 
 const configPath = process.argv[2]
 if (configPath === undefined) throw new Error('knowledge-router driver requires a config path')
@@ -20,7 +21,7 @@ try {
   const connected = (provider: string): boolean =>
     statuses.find(status => status.provider === provider)?.connected === true
 
-  const result = await ctx.tools.execute({
+  const result = await executeModelCall(ctx, {
     signal: new AbortController().signal,
     callId: ToolCallId('loader-knowledge'),
     name: 'knowledge_query',
@@ -35,7 +36,7 @@ try {
 
   const recordToolRegistered = ctx.tools.get('knowledge_record') !== undefined
   const record = recordToolRegistered
-    ? await ctx.tools.execute({
+    ? await executeModelCall(ctx, {
       signal: new AbortController().signal,
       callId: ToolCallId('loader-record'),
       name: 'knowledge_record',

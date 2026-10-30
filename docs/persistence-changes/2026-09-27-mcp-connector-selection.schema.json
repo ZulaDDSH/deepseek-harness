@@ -1,80 +1,16 @@
 {
   "formatVersion": 2,
   "roots": [
-    {
-      "key": "event:mcp/selection",
-      "kind": "event",
-      "event": "mcp/selection",
-      "surface": false,
-      "digest": "1ccb7116650e66089c8d2958f212e08a2311cdd8db1978f9d8fe05509032ecac",
-      "schema": {
-        "root": 0,
-        "nodes": [
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "data",
-                "type": 1,
-                "optional": false
-              },
-              {
-                "name": "ignorable",
-                "type": 4,
-                "optional": true
-              },
-              {
-                "name": "seq",
-                "type": 5,
-                "optional": false
-              },
-              {
-                "name": "time",
-                "type": 5,
-                "optional": false
-              },
-              {
-                "name": "type",
-                "type": 6,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "connectorIds",
-                "type": 2,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "array",
-            "element": 3
-          },
-          {
-            "kind": "primitive",
-            "type": "string"
-          },
-          {
-            "kind": "literal",
-            "value": true
-          },
-          {
-            "kind": "primitive",
-            "type": "number"
-          },
-          {
-            "kind": "literal",
-            "value": "mcp/selection"
-          }
-        ]
-      }
-    }
+    {"key":"event:mcp/selection","kind":"event","event":"mcp/selection","surface":false,"digest":"1ccb7116650e66089c8d2958f212e08a2311cdd8db1978f9d8fe05509032ecac"}
   ],
-  "types": []
+  "types": [],
+  "nodes": {
+    "0657d3ca5ac4e7bf": {"kind":"primitive","type":"number"},
+    "1ccb7116650e6608": {"kind":"object","properties":[{"name":"data","type":"d6918af4e3b51f68","optional":false},{"name":"ignorable","type":"dacf3d5f3e4ff619","optional":true},{"name":"seq","type":"0657d3ca5ac4e7bf","optional":false},{"name":"time","type":"0657d3ca5ac4e7bf","optional":false},{"name":"type","type":"9f3bc8cde7db1974","optional":false}],"indices":[]},
+    "4cd48f3e5108bd6e": {"kind":"primitive","type":"string"},
+    "93c33d9687613293": {"kind":"array","element":"4cd48f3e5108bd6e"},
+    "9f3bc8cde7db1974": {"kind":"literal","value":"mcp/selection"},
+    "d6918af4e3b51f68": {"kind":"object","properties":[{"name":"connectorIds","type":"93c33d9687613293","optional":false}],"indices":[]},
+    "dacf3d5f3e4ff619": {"kind":"literal","value":true}
+  }
 }

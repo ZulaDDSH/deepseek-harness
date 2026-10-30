@@ -1,15 +1,6 @@
-- menu "模型与推理等级":
-  - searchbox "筛选模型"
-  - group "DeepSeek":
-    - text: DeepSeek
-    - menuitemradio "Messages Flash" [checked]
-    - button "收藏 Messages Flash"
-    - menuitemradio "DeepSeek-V4-Pro"
-    - button "收藏 DeepSeek-V4-Pro"
-  - text: 推理等级
-  - radiogroup "推理等级":
-    - radio "Off"
-    - radio "Low"
-    - radio "High" [checked]
-    - radio "Max"
-  - text: 已保存到此会话
+- group "模型与推理等级":
+  - menu "模型":
+    - group "DeepSeek":
+      - text: DeepSeek
+      - menuitemradio "Messages Flash" [checked]
+      - menuitemradio "DeepSeek-V4-Pro"

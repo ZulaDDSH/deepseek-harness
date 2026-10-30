@@ -107,6 +107,7 @@ export function claudeObservationsFromHeaders(
 
 /**
  * Store of the latest Claude window per window type.
+ * @param route - provider route whose observations are recorded; defaults to the Anthropic route.
  * @returns the store that records observations and reports windows.
  */
 export function createClaudeUsage(route: string = CLAUDE_ROUTE): ClaudeUsage {

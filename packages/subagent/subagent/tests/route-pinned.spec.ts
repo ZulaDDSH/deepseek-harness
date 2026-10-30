@@ -4,6 +4,7 @@ import SessionStore, { SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-se
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SubagentRuntime, { foldSubagentDescriptor, snapshotSubagentDescriptor, SUBAGENT_DESCRIPTOR_VERSION } from '../src/index.ts'
 import { subagentIdentityProjectionDefinition } from '../src/projection.ts'
+import { mountWorkingDirectoryFixture } from './working-directory-fixture.ts'
 
 function descriptorEvent(data: unknown, seq = 4): SessionEvent {
   return { type: 'subagent/descriptor', seq, time: 1, data } as SessionEvent
@@ -49,6 +50,7 @@ describe('route-pinned subagent descriptors', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionProjectionRegistry)
+    await mountWorkingDirectoryFixture(ctx)
     await ctx.plugin(SubagentRuntime)
     const identity = { mode: 'one-shot' as const, seq: SessionSeq(4), routePinned: true as const }
     const current = ctx.sessionProjections.viewCheckpoint({ subagent: { ver: 3, seq: SessionSeq(4), val: { identity } } }, ['subagent'])

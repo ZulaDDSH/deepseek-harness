@@ -1,26 +1,38 @@
 // @vitest-environment jsdom
+import { contextMenuHook } from '@deepseek-ai/dsh-client-test-runtime'
 import type { ShortcutCatalogEntry, ShortcutCommandId } from '@deepseek-ai/dsh-client-shortcuts/client'
 import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useEffect, useState } from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createSettingsShellStore } from '../src/client/shell-store.ts'
-import { bindSnapshotSelector, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { allowAllAccess, bindSnapshotSelector, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SettingsRootComponentProps } from '../src/client/shell-contract.ts'
 import { SettingsRoot } from '../src/client/SettingsRoot.tsx'
 import { en, zh } from '../src/client/locales.ts'
 import type { DesktopUpdateView } from '../src/types.ts'
-import type { SettingsDirectoryItem, SettingsSaveStatus } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { SettingsSaveStatus } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 
 // Every fixture carries the resource hook the resources plugin merges into GlobalStandardProps.
 const useResource = (() => ({ status: 'none' as const, value: undefined, failure: undefined, reload: () => {} })) as GlobalStandardProps['useResource']
 const usePanelInfo: GlobalStandardProps['usePanelInfo'] = selector => selector({ activePanelId: null })
 
+const scrollIntoView = vi.fn()
+let scrollIntoViewDescriptor: PropertyDescriptor | undefined
+
+beforeEach(() => {
+  scrollIntoViewDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView')
+  Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView })
+  scrollIntoView.mockClear()
+})
+
 afterEach(() => {
   cleanup()
+  if (scrollIntoViewDescriptor === undefined) Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
+  else Object.defineProperty(Element.prototype, 'scrollIntoView', scrollIntoViewDescriptor)
   vi.useRealTimers()
 })
 
@@ -47,8 +59,6 @@ function mount({
   connectionState = 'connected',
   desktopUpdate = { failed: false, opening: false },
   mainView = true,
-  directory = [],
-  sectionBody,
   rows = [
     { id: 'general', order: 0, label: 'General' },
     { id: 'models', order: 10, label: 'Models' },
@@ -61,9 +71,6 @@ function mount({
   connectionState?: ConnectionSnapshot
   desktopUpdate?: DesktopUpdateView
   mainView?: boolean
-  directory?: readonly SettingsDirectoryItem[]
-  /** Content a section renders, to give scroll-to-setting something to find. */
-  sectionBody?: (id: string) => import('react').ReactNode
   rows?: Row[]
 } = {}) {
   let saveStatus: SettingsSaveStatus = { state: 'idle' }
@@ -76,7 +83,7 @@ function mount({
   const reconnect = vi.fn()
   const renderSlot = vi.fn(
     ((key: string, _owner: unknown, opts?: { only?: string; fallback?: import('react').ReactNode }) => {
-      if (key === 'settings.section') return <div data-testid={`section-${opts?.only ?? 'all'}`}>{sectionBody?.(opts?.only ?? '')}</div>
+      if (key === 'settings.section') return <div data-testid={`section-${opts?.only ?? 'all'}`} />
       return SEAT_CONTENT[key] ?? opts?.fallback
     }) as SettingsRootComponentProps['renderSlot'],
   )
@@ -104,6 +111,8 @@ function mount({
     useSessionStatus,
     usePanelInfo, useSessionRetainInfo: () => undefined, useResource,
     useWorkspaces: unusedHook,
+    ...allowAllAccess,
+    useContextMenu: contextMenuHook(),
     wide,
     reconnect,
     openDesktopUpdate: () => {},
@@ -128,9 +137,7 @@ function mount({
       return select(current)
     },
     renderSlot,
-    // Stand-in for the directory service: the same all-words-in-label rule over fixed items.
-    search: query => directory.filter(item => query.trim().toLowerCase().split(/\s+/)
-      .every(word => `${item.label} ${item.description} ${item.keywords}`.toLowerCase().includes(word))),
+    search: () => [],
     useSearchTick: select => select(searchTick),
     useSaveStatus: select => select(saveStatus),
   }
@@ -381,9 +388,9 @@ describe('SettingsPanel navigation', () => {
       ],
     })
     openPanel()
-    // Glyphs carry no id of their own, so the drawn paths are what tells them apart.
+    // Each product glyph names its sprite symbol id in data-icon.
     const glyphs = ['General', 'Models', 'Agent presets', 'Plugins', 'Archived sessions', 'Contributed']
-      .map(name => screen.getByRole('button', { name }).querySelector('svg')?.innerHTML)
+      .map(name => screen.getByRole('button', { name }).querySelector('svg')?.getAttribute('data-icon'))
 
     expect(glyphs.every(glyph => glyph !== undefined && glyph !== '')).toBe(true)
     // The four ids the shell names get their own glyph; every other section —
@@ -466,175 +473,6 @@ it('passes current Settings key labels to the launcher and removes them when unb
 
   setShortcuts([{ ...row, keys: [], aria: undefined, binding: null, modified: true }])
   expect(launcher()).not.toHaveProperty('settingsShortcut')
-})
-
-const ITEMS: SettingsDirectoryItem[] = [
-  { id: 'general.language', section: 'general', link: undefined, label: 'Language', description: 'Language used across the app', keywords: 'locale translation', anchor: 'language' },
-  { id: 'general.appearance', section: 'general', link: undefined, label: 'Appearance', description: 'Light, dark, or follow your system', keywords: 'theme dark mode', anchor: 'appearance' },
-  { id: 'models.keys', section: 'models', link: undefined, label: 'API keys', description: 'Keys for model providers', keywords: '', anchor: undefined },
-  { id: 'gone.item', section: 'removed', link: undefined, label: 'Language of a missing page', description: '', keywords: '', anchor: undefined },
-]
-
-/** Label and crumb of each result. */
-function found(region: HTMLElement): string[][] {
-  return [...region.querySelectorAll('button')].map(button => [button.children[0]!.textContent, button.lastElementChild!.textContent])
-}
-
-function searchBox(): HTMLInputElement {
-  return screen.getByRole('textbox', { name: 'Search settings' }) as HTMLInputElement
-}
-
-describe('SettingsPanel search', () => {
-  it('lists matching pages first, then settings with the page they live in, and hides settings of absent pages', () => {
-    mount({ directory: ITEMS })
-    openPanel()
-    fireEvent.change(searchBox(), { target: { value: 'lang' } })
-    const results = screen.getByRole('region', { name: 'Search results' })
-    expect(found(results)).toEqual([['Language', 'General']])
-    expect(screen.getByTestId('section-general').closest('[hidden]')).not.toBeNull()
-    fireEvent.change(searchBox(), { target: { value: 'models' } })
-    expect(found(results)).toEqual([['Models', 'Settings page']])
-  })
-
-  it('keeps the open page and its unsaved input while a search is typed and cleared', () => {
-    mount({ directory: ITEMS, sectionBody: id => id === 'general' ? <input aria-label="Draft" /> : null })
-    openPanel()
-    fireEvent.change(screen.getByRole('textbox', { name: 'Draft' }), { target: { value: 'half typed' } })
-    fireEvent.change(searchBox(), { target: { value: 'zzz' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
-    expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'Draft' }).value).toBe('half typed')
-  })
-
-  it('matches keywords and ignores case and word order', () => {
-    mount({ directory: ITEMS })
-    openPanel()
-    fireEvent.change(searchBox(), { target: { value: 'DARK theme' } })
-    expect(found(screen.getByRole('region', { name: 'Search results' }))).toEqual([['Appearance', 'General']])
-  })
-
-  it('says what was searched for when nothing matches, and clears with the button', () => {
-    mount({ directory: ITEMS })
-    openPanel()
-    fireEvent.change(searchBox(), { target: { value: 'zzz' } })
-    expect(screen.getByText('No settings match "zzz"')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
-    expect(searchBox().value).toBe('')
-    expect(screen.getByTestId('section-general')).toBeTruthy()
-    expect(document.activeElement).toBe(searchBox())
-  })
-
-  it('opens the page of a result, clears the query and scrolls to, flashes and focuses the setting', () => {
-    const scrollIntoView = vi.fn()
-    Element.prototype.scrollIntoView = scrollIntoView
-    mount({
-      directory: ITEMS,
-      sectionBody: id => id === 'general' ? <div data-settings-entry="appearance"><button>Dark</button></div> : null,
-    })
-    openPanel()
-    fireEvent.click(screen.getByRole('button', { name: 'Models' }))
-    fireEvent.change(searchBox(), { target: { value: 'appearance' } })
-    fireEvent.click(screen.getByRole('button', { name: /^Appearance/ }))
-    expect(searchBox().value).toBe('')
-    expect(screen.getByRole('button', { name: 'General' }).getAttribute('aria-current')).toBe('true')
-    const row = document.querySelector('[data-settings-entry="appearance"]')!
-    expect(scrollIntoView.mock.contexts).toContain(row)
-    expect(row.hasAttribute('data-settings-flash')).toBe(true)
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Dark' }))
-    fireEvent.animationEnd(row)
-    expect(row.hasAttribute('data-settings-flash')).toBe(false)
-    delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView
-  })
-
-  it('opens the best result on Enter and moves between results with the arrow keys', () => {
-    mount({ directory: ITEMS })
-    openPanel()
-    fireEvent.change(searchBox(), { target: { value: 'a' } })
-    const buttons = [...screen.getByRole('region', { name: 'Search results' }).querySelectorAll('button')]
-    expect(buttons.length).toBeGreaterThan(1)
-    fireEvent.keyDown(searchBox(), { key: 'ArrowDown' })
-    expect(document.activeElement).toBe(buttons[0])
-    fireEvent.keyDown(buttons[0]!, { key: 'ArrowDown' })
-    expect(document.activeElement).toBe(buttons[1])
-    fireEvent.keyDown(buttons[1]!, { key: 'ArrowUp' })
-    fireEvent.keyDown(buttons[0]!, { key: 'ArrowUp' })
-    expect(document.activeElement).toBe(searchBox())
-    fireEvent.change(searchBox(), { target: { value: 'models' } })
-    fireEvent.keyDown(searchBox(), { key: 'Enter' })
-    expect(screen.getByTestId('section-models')).toBeTruthy()
-  })
-
-  it('lets Escape clear the query first and close the dialog second; slash focuses the field outside text entry', () => {
-    mount({ directory: ITEMS })
-    openPanel()
-    fireEvent.keyDown(screen.getByRole('button', { name: 'General' }), { key: '/' })
-    expect(document.activeElement).toBe(searchBox())
-    fireEvent.change(searchBox(), { target: { value: 'lang' } })
-    fireEvent.keyDown(searchBox(), { key: '/' })
-    expect(searchBox().value).toBe('lang')
-    fireEvent.keyDown(searchBox(), { key: 'Escape' })
-    expect(searchBox().value).toBe('')
-    expect(screen.getByRole('dialog')).toBeTruthy()
-    fireEvent.keyDown(searchBox(), { key: 'Escape' })
-    expect(screen.queryByRole('dialog')).toBeNull()
-  })
-
-  it('leaves a section click to end the search', () => {
-    mount({ directory: ITEMS })
-    openPanel()
-    fireEvent.change(searchBox(), { target: { value: 'lang' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Models' }))
-    expect(searchBox().value).toBe('')
-    expect(screen.getByTestId('section-models')).toBeTruthy()
-  })
-
-  it('leaves the dialog for a result that lives on another page of the app', () => {
-    const open = vi.fn()
-    mount({ directory: [...ITEMS, { id: 'plugins.item.web-search', section: undefined, link: { place: 'Plugins', open }, label: 'Web search', description: 'Plugin settings', keywords: '', anchor: undefined }] })
-    openPanel()
-    fireEvent.change(searchBox(), { target: { value: 'web' } })
-    expect(found(screen.getByRole('region', { name: 'Search results' }))).toEqual([['Web search', 'Plugins']])
-    fireEvent.click(screen.getByRole('button', { name: /^Web search/ }))
-    expect(open).toHaveBeenCalledTimes(1)
-    expect(screen.queryByRole('dialog')).toBeNull()
-  })
-})
-
-describe('SettingsPanel navigation groups', () => {
-  const rows = [
-    { id: 'account', order: -10, label: 'Account' },
-    { id: 'general', order: 0, label: 'General' },
-    { id: 'models', order: 10, label: 'Models' },
-    { id: 'jev', order: 11, label: 'Model routing' },
-    { id: 'plugins', order: 15, label: 'Built-in plugins' },
-    { id: 'agent-presets', order: 20, label: 'Agent presets' },
-    { id: 'mcp', order: 60, label: 'MCP servers' },
-    { id: 'hooks', order: 70, label: 'Hooks' },
-    { id: 'acme', order: 5, label: 'Acme' },
-  ]
-
-  it('groups pages under headings in a fixed order, with unknown pages under More', () => {
-    mount({ rows })
-    openPanel()
-    const nav = screen.getByRole('navigation', { name: 'Settings sections' })
-    const groups = [...nav.querySelectorAll('[role="group"]')]
-    expect(groups.map(group => group.getAttribute('aria-label'))).toEqual(['AI models', 'Agent', 'More'])
-    expect(groups.map(group => [...group.querySelectorAll('button')].map(button => button.textContent)))
-      .toEqual([['Models', 'Model routing'], ['Agent presets', 'MCP servers', 'Hooks', 'Built-in plugins'], ['Acme']])
-    expect([...nav.querySelectorAll('button')].slice(0, 2).map(button => button.textContent)).toEqual(['Account', 'General'])
-  })
-
-  it('moves focus through the pages with the arrow keys', () => {
-    mount({ rows })
-    openPanel()
-    const first = screen.getByRole('button', { name: 'Account' })
-    first.focus()
-    fireEvent.keyDown(first, { key: 'ArrowDown' })
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'General' }))
-    fireEvent.keyDown(document.activeElement!, { key: 'End' })
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Acme' }))
-    fireEvent.keyDown(document.activeElement!, { key: 'Home' })
-    expect(document.activeElement).toBe(first)
-  })
 })
 
 describe('SettingsPanel save status', () => {

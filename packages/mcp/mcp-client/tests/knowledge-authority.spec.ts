@@ -17,7 +17,9 @@ import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import * as mcpClient from '@deepseek-ai/dsh-mcp-client'
@@ -84,6 +86,7 @@ async function mount(fixture: KnowledgeFixture, headerEnv: Record<string, string
   const ctx = new Context()
   await ctx.plugin(SystemPrompt, {})
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(mcpClient, {
     transport: 'streamable-http',
     serverName: 'knowledge',
@@ -107,7 +110,7 @@ async function mintAgentScope(ctx: Context, name: string): Promise<{ scope: Scop
 
 /** Execute one tool as the given scope's agent and report the first text block. */
 async function run(ctx: Context, name: string, agent: Agent): Promise<string> {
-  const result = await ctx.tools.execute({
+  const result = await executeModelToolFixture(ctx, {
     signal: testToolSignal,
     callId: ToolCallId('c1'),
     name,

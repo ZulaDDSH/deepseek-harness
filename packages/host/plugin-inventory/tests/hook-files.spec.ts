@@ -3,7 +3,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it, onTestFinished } from 'vitest'
-import { hookKey } from '@deepseek-ai/dsh-hook-protocol'
+import { hookKey } from '../src/hook-key.ts'
 import { readHookFiles } from '../src/hook-files.ts'
 
 it('reads all external command events, refreshes files and reports safe failures', async () => {

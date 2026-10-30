@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
@@ -7,16 +8,23 @@ import type {
   SessionPendingInteraction, SessionStatus, SessionStatusSnapshot,
 } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import {
+  allowAllAccess, bindSnapshotSelector, contextMenuHook, makeTranslate,
+} from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
+import type { WorkspaceBrowserProps } from '../src/client/contract/slots.ts'
+import { createWorkspaceShortcutControls } from '../src/client/shortcuts.ts'
+import { createWorkspaceViewStore } from '../src/client/stores.ts'
 import { ProjectRowItem } from '../src/client/rows/Rows.tsx'
-import { SessionTree } from '../src/client/rows/SessionTree.tsx'
+import { WorkspaceBrowser } from '../src/client/rows/WorkspaceBrowser.tsx'
 import { zh } from '../src/client/locales.ts'
 import {
   type GroupAttention, type GroupNode, deriveGroups, mergeAttention,
 } from '../src/client/tree.ts'
 
 afterEach(cleanup)
+
+const useResource = (() => ({ status: 'none' as const, value: undefined, failure: undefined, reload: () => {} })) as WorkspaceBrowserProps['useResource']
 
 const sid = (id: string) => id as SessionId
 const wid = (id: string) => id as WorkspaceId
@@ -97,7 +105,11 @@ describe('ProjectRowItem attention dot', () => {
       key: 'project', workspaceId: wid('project'), cwd: '/projects/project', createdAt: 0, label: 'Project',
       sessionCount: 3, expanded: false, containsCurrent: false, sessions: [],
     }
-    return render(<ProjectRowItem group={group} attention={attention} onToggle={vi.fn()} onCreate={vi.fn()} t={t} />)
+    return render(<ProjectRowItem
+      group={group} attention={attention} onToggle={vi.fn()} onCreate={vi.fn()} t={t}
+      useRemoteAccess={allowAllAccess.useRemoteAccess} useWorkspaceAccess={allowAllAccess.useWorkspaceAccess}
+      useContextMenu={contextMenuHook()} useContextMenuTarget={select => select(null)} openWorkspaceMenu={vi.fn()}
+    />)
   }
 
   it('marks pending attention with a warning dot and a count label', () => {
@@ -118,7 +130,7 @@ describe('ProjectRowItem attention dot', () => {
   })
 })
 
-describe('SessionTree folded subtree attention', () => {
+describe('WorkspaceBrowser folded subtree attention', () => {
   it('rolls a collapsed child Workspace attention into its collapsed parent row', () => {
     const statuses: SessionStatusSnapshot = new Map([[sid('awaiting'), status(approval('awaiting'))]])
     const parent: WorkspaceView = {
@@ -129,19 +141,62 @@ describe('SessionTree folded subtree attention', () => {
       workspaceId: wid('child'), path: '/projects/parent/child', title: 'child', sessionIds: [sid('awaiting')],
       createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
     }
-    const props: Parameters<typeof SessionTree>[0] = {
-      list: list(summary('awaiting', 1)), workspaces: [parent, child], shortcuts: [],
-      appearanceByWorkspace: {}, appearanceBySession: {}, ungroupedSessionIds: [], rowState: rowState(),
-      workspaceReady: true, animationResetKey: 'tree', nestWorkspaces: true, groupExpansion: { parent: false },
+    const store = createWorkspaceViewStore().create()
+    store.actions.setGroupBy('workspace-tree')
+    store.actions.setGroupExpanded('parent', false)
+    const controls = createWorkspaceShortcutControls()
+    const props: WorkspaceBrowserProps = {
+      ...allowAllAccess,
+      wide: true,
+      expandSidebar: vi.fn(),
       usePanelInfo: selector => selector({ activePanelId: null }),
+      useSessions: bindSnapshotSelector({ getSnapshot: () => list(summary('awaiting', 1)), subscribe: () => () => {} }),
       useSessionStatus: selector => selector(statuses),
-      renderSlot: () => null, startSession: vi.fn(), open: vi.fn(), insertWorkspaceBefore: vi.fn(async () => {}),
-      setGroupExpanded: vi.fn(), setSessionOrder: vi.fn(), onLeaveArchivedOnly: vi.fn(),
-      onRenameRequest: vi.fn(), onDeleteRequest: vi.fn(), onAppearanceRequest: vi.fn(), onAppearanceChange: vi.fn(),
-      onSessionAppearanceChange: vi.fn(), onSessionRenameRequest: vi.fn(), sections: [], assignSession: vi.fn(),
-      onChatDragStart: vi.fn(), onChatDragEnd: vi.fn(), onSessionRevealed: vi.fn(), t,
+      useSessionRetainInfo: () => undefined,
+      useResource,
+      useWorkspaces: bindSnapshotSelector({
+        getSnapshot: () => ({
+          items: [parent, child], archivedSessionIds: [], pinnedSessionIds: [],
+          state: 'idle', phase: 'ready', error: null,
+        }),
+        subscribe: () => () => {},
+      }),
+      useStore: bindSnapshotSelector(store),
+      useAppearance: selector => selector({ workspaces: {}, sections: {}, sessions: {} }),
+      useWorkspaceActionRequest: selector => selector(null),
+      useSectionActionRequest: selector => selector(null),
+      useShortcuts: select => select([]),
+      useWorkspaceShortcuts: bindSnapshotSelector(controls.state),
+      useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => false, subscribe: () => () => {} }),
+      useHostInfo: selector => selector({ home: undefined, isLoopback: true }),
+      useContextMenu: contextMenuHook(),
+      useContextMenuTarget: select => select(null),
+      actions: store.actions,
+      startSession: vi.fn(),
+      open: vi.fn(),
+      requestSearch: controls.search,
+      requestAddWorkspace: controls.add,
+      closeAddWorkspace: controls.closeAdd,
+      setDirectoryBusy: controls.directoryBusy,
+      requestSessionRename: controls.rename,
+      notifyArchivedNotOpenable: vi.fn(),
+      renameWorkspace: vi.fn(async () => {}),
+      deleteWorkspace: vi.fn(async () => {}),
+      settleWorkspaceAction: vi.fn(),
+      settleSectionAction: vi.fn(),
+      openWorkspaceMenu: vi.fn(),
+      openSessionMenu: vi.fn(),
+      openSectionMenu: vi.fn(),
+      insertWorkspaceBefore: vi.fn(async () => {}),
+      unarchiveSession: vi.fn(async () => {}),
+      createWorkspace: vi.fn(async () => child),
+      newSectionId: () => 'section-1',
+      searchSessions: vi.fn(async () => ({ items: [], hasMore: false })),
+      searchResultLimit: 20,
+      renderSlot: () => null,
+      t,
     }
-    render(<SessionTree {...props} />)
+    render(<WorkspaceBrowser {...props} />)
     expect(screen.queryByText('awaiting')).toBeNull()
     expect(screen.getByRole('img', { name: '1 个会话需要处理' })).toBeTruthy()
   })

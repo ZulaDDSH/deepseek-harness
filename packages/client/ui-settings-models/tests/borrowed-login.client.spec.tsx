@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import Schema from '@deepseek-ai/schemastery'
-import type { CredentialInfo, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
+import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import type { AuthorizationEntryView } from '@deepseek-ai/dsh-api-settings-controller/types'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { ProviderEditor } from '../src/client/ProviderEditor.tsx'
@@ -44,7 +44,6 @@ function namespaceWith(value: Record<string, JsonValue>): SettingsNamespaceView 
 
 function operations(): ModelsOperations {
   return {
-    describeCredential: () => Promise.resolve<CredentialInfo | undefined>({ configured: false, writable: true }),
     storeCredential: () => Promise.resolve<string | undefined>(undefined),
     removeCredential: () => Promise.resolve<string | undefined>(undefined),
     writeSettings: () => Promise.resolve({ kind: 'refused' as const, message: 'not scripted' }),

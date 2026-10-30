@@ -4,6 +4,7 @@ import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-test
 import { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import { registerKnowledgeLearnTool } from '../src/tool-learn.ts'
 import type { LearningResult, LearningWrite } from '../src/graphify-learn.ts'
+import { executeModelCall } from './fixtures/model-call.ts'
 
 let context: Context | undefined
 
@@ -22,7 +23,7 @@ async function register(learn: (write: LearningWrite) => Promise<LearningResult>
 
 async function render(result: LearningResult): Promise<string> {
   const ctx = await register(async () => result)
-  const call = await ctx.tools.execute({
+  const call = await executeModelCall(ctx, {
     signal: new AbortController().signal,
     callId: ToolCallId('knowledge-record-render'),
     name: 'knowledge_record',
@@ -53,7 +54,7 @@ describe('knowledge_record', () => {
       received = write
       return { outcome: 'corrected', reflected: false, stdout: '' }
     })
-    await ctx.tools.execute({
+    await executeModelCall(ctx, {
       signal: new AbortController().signal,
       callId: ToolCallId('knowledge-record-write'),
       name: 'knowledge_record',

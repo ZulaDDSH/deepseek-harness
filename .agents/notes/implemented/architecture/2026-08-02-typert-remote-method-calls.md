@@ -26,7 +26,7 @@ The Remote consumer projection contains `.d.ts`, `.d.ts.map`, and `.js` files. T
 
 | Component | Cordis service | Responsibility |
 |---|---|---|
-| `@deepseek-ai/dsh-typert-protocol` | Declares only the minimal `ctx.typert` protocol | `TypertRemoteService`, decorators, binding fallback, descriptors, lookup/Context, and the Remote map; no dependency on the compiler, Zod, Connection, or Browser |
+| `@deepseek-ai/dsh-typert-protocol` | Declares only the minimal `ctx.typert` protocol | `TypertRemoteService`, decorators, binding fallback, descriptors, lookup/Context, the Remote map, and Zod-backed lazy info assembly; no dependency on the compiler, Connection, or Browser |
 | Typert registry | `ctx.typert` | Separately stores reflection for the current environment, imported Remote contributions, lookup providers, and Context providers |
 | Typert generator/loader | No new business service | Generates three kinds of `lib` artifacts from the Host/Client Programs and registers the current environment's artifacts with `ctx.typert` |
 | API Gateway's Host face | `ctx.typertGateway` | Associates Host definitions with live Services, decodes parameters, resolves receivers, invokes methods, and projects unary results into carrier-neutral fields and attachments |
@@ -79,15 +79,17 @@ export class ScopedGoalService extends TypertRemoteService {
 
 An endpoint selects exactly one invocation mode. A flow that needs an explicit `Agent` parameter uses `@Remote`. A flow that first switches to an Agent Context and then resolves a scoped receiver uses `@RemoteScope('agent')`. Typert does not infer either mode from the method body or from a missing parameter.
 
-Business packages depend only on the lightweight `@deepseek-ai/dsh-typert-protocol`. It provides `TypertRemoteService` and declaration protocols for decorators, the binding fallback, lookup, Remote Scope, and descriptors, without depending on the TypeScript compiler, Zod, HTTP, or the Client runtime.
+Business packages depend only on `@deepseek-ai/dsh-typert-protocol`. It provides `TypertRemoteService` and declaration protocols for decorators, the binding fallback, lookup, Remote Scope, and descriptors, without depending on the TypeScript compiler, HTTP, or the Client runtime. Its pure `./remote-info` entry uses Zod to assemble lazy named-input schemas without importing Cordis; the root entry also re-exports it alongside Cordis-backed declarations.
 
 A method that cooperatively supports cancellation declares `signal: AbortSignal` as its final Host parameter. This reserved parameter is not a business value, lookup, or JSON field. The generated consumer method exposes it as a final optional parameter so ordinary calls remain unchanged while callers that own cancellation can pass a signal.
 
 ## Decorators and the explicit Gateway facet
 
-A decorator only states that a method participates in the Remote contract. It performs no runtime type reflection and injects no hidden symbol into a Service constructor. The arguments to `@Remote('create')` and `@RemoteScope('agent', 'create')` are external method names; the decorated member may be the business method itself or an adapter such as `remoteExportCreate`. The member name becomes the external method name only when no alias is provided. Inheriting `TypertRemoteService` is the normal explicit declaration that a Service has joined the Gateway; its public readonly `typertGateway` field keeps the binding visible on the runtime instance.
+A decorator states Remote participation, an optional export name, and stream delivery; `@Remote` options contain only `name` and `mode`. It performs no runtime type reflection and injects no hidden symbol into a Service constructor. The arguments to `@Remote('create')` and `@RemoteScope('agent', 'create')` are external method names; the decorated member may be the business method itself or an adapter such as `remoteExportCreate`. The member name becomes the external method name only when no alias is provided. Inheriting `TypertRemoteService` is the normal explicit declaration that a Service has joined the Gateway; its public readonly `typertRemote` field keeps the binding visible on the runtime instance.
 
 In SRC mode, the decorator records the method name and invocation mode in a versioned descriptor on the Service prototype. The descriptor uses a stable string property name, so `remoteMethods()` can read markers produced by another installed copy of `dsh-typert-protocol`; it writes nothing to the Service instance, constructor, or method function.
+
+Ordinary artifacts construct a lazy Remote info instance from one static method spec per endpoint. Its direct `TypertRemoteMethod` objects retain descriptor fields and add named `input(options?)` and `invoke`. Consumers select matching strict parsing and projection with `input({ strict: true })`; `input()` preserves normal handling. Host parameter codecs and the single normal `result` codec are unchanged. Existing Registry queries retain those objects, while `TYPERT_REMOTE.methods` supplies exact static types. Strict source startup prebuilds and loads ordinary Typert artifacts; fallback cannot recover erased schemas. The [unified metadata note](../../proposed/architecture/2026-09-20-unified-typert-remote-metadata.md) records this delivery mechanism and the incomplete consumer adaptation.
 
 In LIB mode, the Typert compiler performs strict method discovery, type resolution, and descriptor generation. It accepts a literal service key in `TypertRemoteService`'s direct `super()` call or the explicit binding fallback; generation neither rewrites business source nor injects hidden registration metadata.
 
@@ -145,7 +147,7 @@ The strict generator writes `scope` only when a direct method has exactly one lo
 
 Parameter order comes from the method signature. HTTP fields come from parameter names or lookup declarations. A cancellation descriptor reserves only the final `signal` position and keeps it outside named `args`; Connection or a direct Gateway caller supplies the actual signal. The Gateway does not infer optional fields, Context types, lookup types, or missing arguments from request contents, and it does not synthesize business defaults.
 
-A LIB codec contains a success-cached Zod schema factory and a canonical `typeSymbol` consisting of "package + public subpath + export name." The Host Gateway invokes parameter and identity factories when it first decodes strict input. The Client contribution retains the same codec metadata for strict input checks at mount but does not materialize invocation schemas; [Host-only Remote input validation](../simplification/2026-09-15-host-only-remote-input-validation.md) owns this placement. An SRC codec is marked only as `src-json`.
+A LIB codec contains a success-cached Zod schema factory and a canonical `typeSymbol` consisting of "package + public subpath + export name." The Host Gateway invokes parameter and identity factories when it first decodes strict input. The Client contribution retains the same codec metadata for strict input checks at mount but does not materialize invocation schemas; [Host-only Remote input validation](../../../../packages/api/gateway/README.md) owns this placement. An SRC codec is marked only as `src-json`.
 
 Descriptors exist only in the local registry on each side. The wire carries only the `/api` channel, endpoint, and `{ args }` payload. The Client uses its descriptor to map positional arguments and Context identity into named fields. The Host uses its descriptor to validate those fields, resolve the receiver, and invoke the method.
 
@@ -192,28 +194,20 @@ The Host and Client still use only two independent TypeScript Programs, but Type
 ```text
 Host Program
 ├─ typert.host.js / typert.host.d.ts
-│  The Host's own Service, Event, Object, schema, and inbound Gateway information
+│  Host 自身的 Service、Event、Object、schema 和 inbound Gateway 信息
 └─ typert.remote-client.js / typert.remote-client.d.ts / typert.remote-client.d.ts.map
-   The wire projection of the Host Remote for any consuming environment
+   Host Remote 对任意消费环境的 wire 投影
 
 Client Program
 └─ typert.client.js / typert.client.d.ts
-   The Client's own Service, Event, Object, and schema information
+   Client 自身的 Service、Event、Object 和 schema 信息
 ```
 
 `remote-client` is the Host Program's second emitter, not a third Program or the Client's local face. It contains no Host Cordis merge, Service class, Context class, or implementation code, and it does not enter the Host-local reflection registry.
 
-The Host lib build performs strict Host analysis and emits both the Host-local and Remote consumer artifacts. The Client lib then consumes the Remote DTS. The complete order is:
+Source-only Host analysis writes the Host-local and Remote consumer artifacts before package compilation. [The generation-order decision](../process/2026-10-18-source-first-metadata-builds.md) owns placement and its tradeoffs; [Development](../../../../docs/development.md#typescript-project-layout) owns the command sequence.
 
-```text
-Host lib build
-→ emit typert.host.{js,d.ts}
-→ emit lib/typert.remote-client.{js,d.ts,d.ts.map} for each business package
-→ finish the Client lib and the typert.client artifacts
-→ build the Web app with Vite
-```
-
-The existing top-level `build` still runs `build:lib` before `build:web`, but `build:lib` must complete the Host and Remote artifacts before starting Client TypeScript compilation. A clean build must not depend on stale `.d.ts` files from an earlier build.
+The top-level `build`, declaration-only `typecheck`, and serial `build:lib` share metadata preparation before package compilation. `build:lib` remains the complete serial lib build for `build:bench`; its Host half `build:lib:host` serves the vendor release workflows and retains aggregate checking. A clean build must not depend on stale `.d.ts` files from an earlier build.
 
 Compiler-backed repository gates that resolve the consumer surface have the same prerequisite even when their primary inputs are source files. The public `typecheck`, `lint`, and `doc-typecheck` commands run the Host contract pass first. The gate scheduler may use their `*:contracts-ready` variants only after an explicit Typert-contract or complete-build dependency, so parallel lanes neither read missing declarations nor run concurrent generators against the same outputs.
 
@@ -295,8 +289,8 @@ Every generated method resolves to `Promise<RemoteResult<T>>`: a call reports it
 Typert in a consumer environment maintains both local information and Remote information imported from other environments, but stores them in separate registries:
 
 ```text
-Typert.local    the current environment's own reflection model
-Typert.remotes  imported Remote contributions
+Typert.local    当前环境自己的反射模型
+Typert.remotes  已导入的 Remote contribution
 ```
 
 `@deepseek-ai/dsh-api-remotes/client` centrally loads the required Remote contributions:
@@ -323,9 +317,9 @@ root ctx.remote.goals.create(agentId, request)
   → ctx.connection.rpc.call('/api', 'goals/create', { args })
 
 agentCtx.remote.goals.create(request)
-  → the remote.goals accessor captures the agent Context
-  → the agent binder reads agentId from the caller Context
-  → agentId fills the lookup parameter of the same direct descriptor
+  → remote.goals accessor 捕获 agent Context
+  → agent binder 从 caller Context 取得 agentId
+  → 用 agentId 补入同一 direct descriptor 的 lookup 参数
   → ctx.connection.rpc.call('/api', 'goals/create', { args })
 ```
 
@@ -347,9 +341,9 @@ The Web already depends on build artifacts such as `lib/client.js`, so it requir
 
 ## SRC and LIB operating modes
 
-SRC supports local source startup. The versioned prototype descriptors created by `@Remote` and `@RemoteScope()` provide method names and invocation modes. At runtime, the system reads ordered parameter names from the JavaScript function signature and combines them with registered lookup/Context providers to produce a permissive descriptor.
+SRC supports local source startup. For methods without registered strict definitions, the versioned prototype descriptors created by `@Remote` and `@RemoteScope()` provide method names and invocation modes. At runtime, the system reads ordered parameter names from the JavaScript function signature and combines them with registered lookup/Context providers to produce a permissive descriptor.
 
-For example, `@Remote('create') remoteExportCreate(agent, request, signal)` resolves to the external method `create`, implementation member `remoteExportCreate`, two top-level business parameters, and one cancellation injection point. Lookup registration rewrites `agent` to the wire field `agentId`, `request` is passed as a same-named JSON parameter, and the final `signal` stays outside the payload. SRC does not start a `ts.Program`, use a preload or loader hook, generate or rewrite source, or inspect the internal structure of an ordinary JSON object.
+For example, `@Remote('create') remoteExportCreate(agent, request, signal)` resolves to the external method `create`, implementation member `remoteExportCreate`, two top-level business parameters, and one cancellation injection point. Lookup registration rewrites `agent` to the wire field `agentId`, `request` is passed as a same-named JSON parameter, and the final `signal` stays outside the payload. The conservative fallback does not start a `ts.Program`, use a preload or loader hook, generate or rewrite source, or inspect the internal structure of an ordinary JSON object.
 
 A signature that SRC cannot resolve unambiguously fails on the first invocation that resolves its descriptor; Service mounting records only the decorator marker and does not inspect the JavaScript signature. SRC does not guess at object destructuring, ambiguity caused by default parameters, rest parameters, nested lookups, or complex types.
 
@@ -371,12 +365,12 @@ A `@RemoteScope('agent')` call first asks the Agent Context provider to resolve 
 
 ```text
 ctx.typertGateway.invoke({ namespace, method, args, signal })
-→ look up the local InvocationDescriptor and the live receiver
-→ read the named wire fields according to the parameter descriptors
-→ the codec decodes plain values or lookup IDs
-→ the lookup provider resolves each ID to a live object
-→ direct uses the original Service; context first resolves the scoped Context and Service
-→ when a cancellation descriptor exists, append the signal after the business parameters
+→ 查找本地 InvocationDescriptor 与 live receiver
+→ 按参数 descriptor 读取具名 wire 字段
+→ codec 解码普通值或 lookup ID
+→ lookup provider 把 ID 解析为活对象
+→ direct 使用原 Service；context 先解析 scoped Context 和 Service
+→ cancellation descriptor 存在时把 signal 追加到业务参数末尾
 → Reflect.apply(receiver[implementation ?? method], receiver, orderedArgs)
 ```
 
@@ -423,17 +417,17 @@ The complete path is:
 
 ```text
 ctx.remote.goals.create(sessionId, request, signal?)
-→ the Client InvocationDescriptor assembles { args: { agentId, request } }
-→ the Client merges the caller signal with the contribution mount lifetime
+→ Client InvocationDescriptor 组装 { args: { agentId, request } }
+→ Client 合并 caller signal 与 contribution mount lifetime
 → ctx.connection.rpc.call('/api', 'goals/create', { args }, signal)
-→ the Connection creates the rpcId and the existing client-request envelope
-→ the current carrier sends POST /api/goals/create
-→ the Connection Host half applies shared trust, then the bridge creates a standard Request
-→ the composite FetchHandler decides endpoint ownership and selects the target FetchHandler
-→ the Typert interceptor calls ctx.typertGateway.invoke(..., request.signal)
-→ the Host InvocationDescriptor decodes, looks up, resolves the receiver, and injects the signal into Reflect.apply
-→ the Connection writes the existing RPC result and echoes the same rpcId
-→ the Client returns CreateGoalResult directly
+→ Connection 创建 rpcId 和既有 client-request envelope
+→ 当前 carrier 发送 POST /api/goals/create
+→ Connection Host half 执行共享 trust，再由 bridge 创建标准 Request
+→ 复合 FetchHandler 判断 endpoint ownership 并选择目标 FetchHandler
+→ Typert interceptor 调用 ctx.typertGateway.invoke(..., request.signal)
+→ Host InvocationDescriptor 解码、lookup、receiver 解析并把 signal 注入 Reflect.apply
+→ Connection 写入既有 RPC result 并回送相同 rpcId
+→ Client 直接返回 CreateGoalResult
 ```
 
 Remote does not define a second-layer `{ ok, value/error }` response on the wire. Successful values and failures use the existing RPC response's `result` directly, and the failure branch carries the shared `{ code, message, details }` data. Owners, resolvers, and the Gateway all raise one class, `RemoteError`, whose code comes from the merged `RemoteErrorDetailsMap`: the Host encodes a structurally identified `RemoteError` onto the wire unchanged — including the Gateway's own `gateway/*` assembly codes and a resolver's `session/not-found` or `session/agent-busy` — and folds only an unclassified throw into `gateway/internal`, keeping its diagnostic in the message. The Client face rebuilds an instance for the `RemoteResult` error branch, so `throw result.error` keeps throw semantics. [The failure-vocabulary Agent Note](2026-08-28-ctx-remote-failure-vocabulary.md) owns the code table, its ownership rules, and why discrimination reads `code` instead of `instanceof`.
@@ -472,7 +466,7 @@ The package topology is `api/remotes → api/gateway → client/connection → h
 
 **Perform strict reflection through decorators at runtime.** JavaScript decorators cannot recover erased TypeScript types, public symbol identity, or complete Zod codecs. Injecting a compiler-private symbol into a constructor would also hide the business class's real dependencies, so Typert generates strict information at compile time.
 
-**Use a preload, loader hook, or complete `ts.Program` during SRC startup.** This could reuse LIB analysis but would add requirements to every source startup entry. SRC needs only a usable permissive descriptor, so it uses decorator markers, function parameter names, and explicit providers; strict checks remain in the LIB contract pass.
+**Use a preload, loader hook, or complete `ts.Program` during SRC startup.** This could reuse LIB analysis but would add requirements to every source startup entry. Source startup can load ordinary prebuilt artifacts or use conservative markers without loading a TypeScript Program.
 
 **Hand-write the Client interface.** A hand-written interface cannot guarantee that it contains only Remote-marked methods and can drift from Host signatures, lookup IDs, and Zod schemas. Client types are therefore projected automatically from the Host Program.
 
@@ -518,7 +512,7 @@ A consumer may import a Remote contract that is not currently mounted on the Hos
 
 Connection's general channel API must suit both the current HTTP carrier and a future WebSocket carrier. If the Client Remote or Gateway exposes `fetch`, an HTTP request, or a route handle, WebSocket migration will pierce the Remote layer again. Those physical objects must therefore remain internal to Connection.
 
-Remote endpoints use Connection's `trusted-host` authority. Loopback is accepted by default and LAN callers require an explicit trusted-host configuration, but this layer adds no per-method caller authorization; every trusted host can invoke a mounted Remote endpoint.
+Remote endpoints use Connection's `trusted-host` authority. Loopback and the listener's own bind address are accepted by default; any other LAN authority requires an explicit trusted-host configuration. This layer adds no per-method caller authorization; every accepted authority can invoke a mounted Remote endpoint.
 
 `hasSeen()` favors strict-definition safety over SRC availability. While a strict descriptor is withdrawn, such as during HMR, the Gateway continues to claim the endpoint and reports it unavailable instead of falling back to a weak SRC descriptor. Re-registration restores it; only a Typert registry restart forgets the historical strict definition.
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { CommandNode, ModelRetryNode, StartedToolCall } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { PartialAssistant, RunningToolCall } from '../src/client/contract/snapshot.ts'
 import { liveActivity } from '../src/client/chat/live-activity.ts'
+import { PartialArguments } from '@deepseek-ai/dsh-util-values'
 import { chatSnapshotFixture } from './chat-snapshot-fixture.client.ts'
 
 function legacy(input: Parameters<typeof chatSnapshotFixture>[0] = {}) {
@@ -9,7 +10,7 @@ function legacy(input: Parameters<typeof chatSnapshotFixture>[0] = {}) {
 }
 
 function started(name: string, argsRaw: string, time: number, subCalls: StartedToolCall['subCalls'] = []): StartedToolCall {
-  return { phase: 'start', callId: `${name}-${time}`, name, argsRaw, turn: 1, step: 1, time, subCalls }
+  return { phase: 'start', callId: `${name}-${time}`, name, argsRaw, args: PartialArguments.fromText(argsRaw), turn: 1, step: 1, time, subCalls }
 }
 
 function partial(blocks: PartialAssistant['blocks']): PartialAssistant {
@@ -39,7 +40,7 @@ describe('liveActivity', () => {
   })
 
   it('shows a preparing tool with its name as the detail', () => {
-    const preparing: RunningToolCall = { phase: 'preparing', callId: 'p1', name: 'custom_probe', turn: 1, step: 1, time: 3_000, subCalls: [] }
+    const preparing: RunningToolCall = { phase: 'preparing', callId: 'p1', name: 'custom_probe', args: PartialArguments.EMPTY, turn: 1, step: 1, time: 3_000, subCalls: [] }
     expect(liveActivity(legacy({ runningCalls: [preparing] })))
       .toEqual({ kind: 'tool', process: 'tools', detail: 'custom_probe', since: 3_000 })
   })

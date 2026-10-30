@@ -76,6 +76,14 @@ const homeAndGuide = sitePages([
     order: 3,
   },
   {
+    source: 'docs/user/guide/public-deployments.md',
+    route: 'guide/public-deployments.md',
+    label: 'Public deployments',
+    sidebar: 'guide',
+    section: 'Guide',
+    order: 4,
+  },
+  {
     source: 'docs/user/guide/python-sdk.md',
     route: 'guide/python-sdk.md',
     label: 'Python',
@@ -97,6 +105,14 @@ const homeAndGuide = sitePages([
     label: 'Session reminders',
     sidebar: 'guide',
     section: 'Automation',
+    order: 2,
+  },
+  {
+    source: 'docs/user/guide/plugin-market.md',
+    route: 'guide/plugin-market.md',
+    label: 'Plugin indexes',
+    sidebar: 'guide',
+    section: 'Integrations',
     order: 2,
   },
   {
@@ -237,7 +253,6 @@ const subsystemGroups = [
   ['Core and scopes', [
     ['core.md', 'Core'],
     ['scope.md', 'Scopes'],
-    ['invariants.md', 'Runtime invariants'],
   ]],
   ['Sessions and persistence', [
     ['session.md', 'Sessions'],

@@ -38,9 +38,14 @@
   cursor: pointer;
 }
 
-.row:hover,
 .active {
   background: var(--dsw-alias-interactive-bg-hover);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .row:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
 }
 
 .icon {

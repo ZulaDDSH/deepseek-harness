@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SessionStore from '@deepseek-ai/dsh-session'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import { resolveRepositoryRoot, type GitRunResult } from '../src/git.ts'
@@ -157,6 +158,7 @@ describe('workspaceChanges service registry access', () => {
     cleanups.push(() => ctx.fiber.dispose())
     await ctx.plugin(SessionStore)
     await ctx.plugin(LocalSubprocessRuntime)
+    await ctx.plugin(LocalFileSystem)
     await ctx.plugin(WorkspaceChanges, {
       timeoutMs: 30_000, outputMaxBytes: 1024 * 1024, maxFiles: 20, maxFileBytes: 1024 * 1024, diffTimeoutMs: 1000,
       root: await scratchDir('dsh-status-store-', cleanups),

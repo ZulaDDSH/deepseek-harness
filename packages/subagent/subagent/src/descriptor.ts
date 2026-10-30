@@ -1,9 +1,9 @@
 /**
  * The durable subagent-child descriptor: the versioned, model-hidden
  * `subagent/descriptor` session event that identifies every session-backed
- * subagent and records whether it is one-shot or continuable. Continuable
- * descriptors additionally preserve the declared composition required for
- * cold resume. Providers append it turn-enclosed in the child's initial turn.
+ * subagent, including historical one-shot records. The manager appends each
+ * continuable child's descriptor inside its initial turn, preserving the
+ * declared composition required for cold resume.
  *
  * The descriptor deliberately snapshots explicit fields rather than the
  * merge-extensible `AgentOptions` object: an unrelated extension value cannot
@@ -30,8 +30,8 @@ declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /**
      * Durable identity and lifecycle mode of a session-backed subagent child,
-     * appended once by the establishing provider inside the child's initial
-     * turn, before its first request. Continuable records also carry their
+     * appended once inside the child's initial turn, before its first
+     * request. Continuable records also carry their
      * resumable composition. Log-only: it carries no `surfaceOp`, never enters
      * model history, and survives compaction.
      */
@@ -265,12 +265,9 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
 }
 
 /**
- * Validate and detach descriptor inputs into the durable payload, before any
- * Task or provider work begins — the same detached lossless-JSON boundary the
- * session log itself enforces, applied early so a synchronous validation
- * failure rejects the tool call without creating a Task.
- * @param input - the caller-collected composition fields.
- * @returns the versioned, detached descriptor payload.
+ * Validate and detach a one-shot descriptor input.
+ * @param input - the caller-collected one-shot identity fields.
+ * @returns the versioned, detached one-shot descriptor payload.
  * @throws when a field is not losslessly JSON-serializable.
  */
 export function snapshotSubagentDescriptor(

@@ -66,17 +66,20 @@ async function fixture() {
   const handler = connection.createSharedFetchHandler('/api')
   const open = (query = '?sessionId=owner&seq=7&index=0', signal?: AbortSignal) => handler.fetch(new Request(
     `http://localhost${PRESENT_OPEN_PATH}${query}`, { method: 'POST', signal: signal ?? null },
-  ))
-  return { applications, root, cwd, ctx, fiber, file, session, readEvent, open, opener, handler, resolveAgent, workspaceChanges }
+  ), connection.browserPeer)
+  return {
+    browserPeer: connection.browserPeer, applications, root, cwd, ctx, fiber, file, session, readEvent, open, opener, handler, resolveAgent,
+    workspaceChanges,
+  }
 }
 
 describe('Presented workspace file native open route', () => {
   it('opens the source itself with current bytes and leaves it intact at disposal', async () => {
-    const { cwd, open, file, fiber, opener, handler, ctx } = await fixture()
+    const { browserPeer, cwd, open, file, fiber, opener, handler, ctx } = await fixture()
     const source = await realpath(join(cwd, file.path))
     expect(presentedFileUrl(SessionId('owner'), 7, 0)).toBe('api/present.open?sessionId=owner&seq=7&index=0')
-    expect((await handler.fetch(new Request(`http://localhost${PRESENT_OPEN_PATH}`))).status).toBe(400)
-    expect((await handler.fetch(new Request('http://localhost/api/present.download?sessionId=owner&seq=7&index=0'))).status).toBe(404)
+    expect((await handler.fetch(new Request(`http://localhost${PRESENT_OPEN_PATH}`), browserPeer)).status).toBe(400)
+    expect((await handler.fetch(new Request('http://localhost/api/present.download?sessionId=owner&seq=7&index=0'), browserPeer)).status).toBe(404)
     for (const contents of ['current source', 'edited source']) {
       await writeFile(source, contents)
       const response = await open()
@@ -207,7 +210,7 @@ describe('Presented workspace file native open route', () => {
 
 describe('Workspace status and comparison routes', () => {
   it('serves current status without Host paths and disables caching', async () => {
-    const { handler, workspaceChanges } = await fixture()
+    const { browserPeer, handler, workspaceChanges } = await fixture()
     const workspaceId = 'workspace-under-test' as WorkspaceId
     const status: WorkspaceStatus = {
       cwd: '/private/host/workspace', root: '/private/host/repository', branch: 'feature',
@@ -218,7 +221,7 @@ describe('Workspace status and comparison routes', () => {
 
     const response = await handler.fetch(new Request(
       `http://localhost${WORKSPACE_STATUS_PATH}?workspaceId=${workspaceId}`,
-    ))
+    ), browserPeer)
 
     expect(response.status).toBe(200)
     expect(response.headers.get('cache-control')).toBe('no-store')
@@ -232,7 +235,7 @@ describe('Workspace status and comparison routes', () => {
   })
 
   it('serves the selected current comparison without caching', async () => {
-    const { handler, workspaceChanges } = await fixture()
+    const { browserPeer, handler, workspaceChanges } = await fixture()
     const workspaceId = 'workspace-under-test' as WorkspaceId
     const diff: WorkspaceFileDiff = {
       kind: 'text', path: 'src/app.ts', display: 'src/app.ts', before: true, after: true,
@@ -243,7 +246,7 @@ describe('Workspace status and comparison routes', () => {
 
     const response = await handler.fetch(new Request(
       `http://localhost${WORKSPACE_DIFF_PATH}?workspaceId=${workspaceId}&index=0`,
-    ))
+    ), browserPeer)
 
     expect(response.status).toBe(200)
     expect(response.headers.get('cache-control')).toBe('no-store')
@@ -252,40 +255,40 @@ describe('Workspace status and comparison routes', () => {
   })
 
   it('rejects invalid workspace coordinates before calling the service', async () => {
-    const { handler, workspaceChanges } = await fixture()
+    const { browserPeer, handler, workspaceChanges } = await fixture()
 
-    expect((await handler.fetch(new Request(`http://localhost${WORKSPACE_STATUS_PATH}`))).status).toBe(400)
+    expect((await handler.fetch(new Request(`http://localhost${WORKSPACE_STATUS_PATH}`), browserPeer)).status).toBe(400)
     for (const query of ['', '?index=0', '?workspaceId=workspace&index=-1', '?workspaceId=workspace&index=0.5']) {
-      expect((await handler.fetch(new Request(`http://localhost${WORKSPACE_DIFF_PATH}${query}`))).status).toBe(400)
+      expect((await handler.fetch(new Request(`http://localhost${WORKSPACE_DIFF_PATH}${query}`), browserPeer)).status).toBe(400)
     }
     expect(workspaceChanges.status).not.toHaveBeenCalled()
     expect(workspaceChanges.workspaceDiff).not.toHaveBeenCalled()
   })
 
   it('returns 404 when the Workspace or comparison is no longer available', async () => {
-    const { handler, workspaceChanges } = await fixture()
+    const { browserPeer, handler, workspaceChanges } = await fixture()
     workspaceChanges.status.mockResolvedValueOnce(undefined)
     workspaceChanges.workspaceDiff.mockResolvedValueOnce(undefined)
 
     expect((await handler.fetch(new Request(
       `http://localhost${WORKSPACE_STATUS_PATH}?workspaceId=workspace`,
-    ))).status).toBe(404)
+    ), browserPeer)).status).toBe(404)
     expect((await handler.fetch(new Request(
       `http://localhost${WORKSPACE_DIFF_PATH}?workspaceId=workspace&index=0`,
-    ))).status).toBe(404)
+    ), browserPeer)).status).toBe(404)
   })
 
   it('hides private paths from service failures', async () => {
-    const { handler, workspaceChanges } = await fixture()
+    const { browserPeer, handler, workspaceChanges } = await fixture()
     workspaceChanges.status.mockRejectedValueOnce(new Error('/private/host/workspace'))
     workspaceChanges.workspaceDiff.mockRejectedValueOnce(new Error('/private/host/workspace'))
 
     const status = await handler.fetch(new Request(
       `http://localhost${WORKSPACE_STATUS_PATH}?workspaceId=workspace`,
-    ))
+    ), browserPeer)
     const diff = await handler.fetch(new Request(
       `http://localhost${WORKSPACE_DIFF_PATH}?workspaceId=workspace&index=0`,
-    ))
+    ), browserPeer)
 
     expect(status.status).toBe(500)
     expect(diff.status).toBe(500)
@@ -294,7 +297,7 @@ describe('Workspace status and comparison routes', () => {
   })
 
   it('propagates cancellation to both Workspace service calls', async () => {
-    const { handler, workspaceChanges } = await fixture()
+    const { browserPeer, handler, workspaceChanges } = await fixture()
     const statusEntered = Promise.withResolvers<AbortSignal>()
     workspaceChanges.status.mockImplementation((_workspaceId, signal) => {
       statusEntered.resolve(signal)
@@ -307,7 +310,7 @@ describe('Workspace status and comparison routes', () => {
     const statusController = new AbortController()
     const statusRequest = handler.fetch(new Request(
       `http://localhost${WORKSPACE_STATUS_PATH}?workspaceId=workspace`, { signal: statusController.signal },
-    ))
+    ), browserPeer)
     const statusSignal = await statusEntered.promise
     statusController.abort(new Error('status cancelled'))
     expect(statusSignal.aborted).toBe(true)
@@ -325,7 +328,7 @@ describe('Workspace status and comparison routes', () => {
     const diffController = new AbortController()
     const diffRequest = handler.fetch(new Request(
       `http://localhost${WORKSPACE_DIFF_PATH}?workspaceId=workspace&index=0`, { signal: diffController.signal },
-    ))
+    ), browserPeer)
     const diffSignal = await diffEntered.promise
     diffController.abort(new Error('diff cancelled'))
     expect(diffSignal.aborted).toBe(true)
@@ -335,8 +338,8 @@ describe('Workspace status and comparison routes', () => {
 
 
 it('reports the serving desktop and reveals only an authorized declared source', async () => {
-  const { cwd, file, open, opener, handler } = await fixture()
-  const info = await handler.fetch(new Request('http://localhost/api/present.host'))
+  const { browserPeer, cwd, file, open, opener, handler } = await fixture()
+  const info = await handler.fetch(new Request('http://localhost/api/present.host'), browserPeer)
   expect(await info.json()).toEqual({ name: 'desktop', available: true, fileManager: 'finder' })
   expect((await open('?sessionId=owner&seq=7&index=0&action=reveal')).status).toBe(204)
   expect(opener).toHaveBeenCalledWith({ path: await realpath(join(cwd, file.path)), action: 'reveal' }, expect.any(AbortSignal))
@@ -347,9 +350,9 @@ it('reports the serving desktop and reveals only an authorized declared source',
 })
 
 it('refuses native actions when the configured Host desktop is unavailable', async () => {
-  const { ctx, open, opener, handler } = await fixture()
+  const { browserPeer, ctx, open, opener, handler } = await fixture()
   vi.spyOn(ctx.sessionController, 'workspaceDesktop').mockReturnValue({ name: 'desktop', available: false, fileManager: 'finder' })
-  expect(await (await handler.fetch(new Request('http://localhost/api/present.host'))).json()).toMatchObject({ available: false })
+  expect(await (await handler.fetch(new Request('http://localhost/api/present.host'), browserPeer)).json()).toMatchObject({ available: false })
   for (const action of ['open', 'reveal']) {
     expect((await open(`?sessionId=owner&seq=7&index=0&action=${action}`)).status).toBe(409)
   }
@@ -383,16 +386,16 @@ it('uses the deployment workspace root when the viewed Session has no cwd', asyn
 
 
 it('queries handlers only after file authorization and forwards explicit application choices', async () => {
-  const { handler, applications, opener, open, ctx } = await fixture()
+  const { browserPeer, handler, applications, opener, open, ctx } = await fixture()
   const url = 'http://localhost/api/present.open?sessionId=owner&seq=7&index=0'
-  const response = await handler.fetch(new Request(url))
+  const response = await handler.fetch(new Request(url), browserPeer)
   expect(response.status).toBe(200)
   expect(await response.json()).toEqual([{ id: 'player', name: 'Player', default: true, icon: null }])
   expect(opener).not.toHaveBeenCalled()
   expect((await open('?sessionId=owner&seq=7&index=0&application=player')).status).toBe(204)
   expect(opener.mock.lastCall?.[0]).toMatchObject({ application: 'player' })
-  expect((await handler.fetch(new Request(url.replace('index=0', 'index=999')))).status).toBe(404)
+  expect((await handler.fetch(new Request(url.replace('index=0', 'index=999')), browserPeer)).status).toBe(404)
   vi.spyOn(ctx.fs, 'processPathFromHostPath').mockReturnValue(undefined)
-  expect((await handler.fetch(new Request(url))).status).toBe(422)
+  expect((await handler.fetch(new Request(url), browserPeer)).status).toBe(422)
   expect(applications).toHaveBeenCalledOnce()
 })

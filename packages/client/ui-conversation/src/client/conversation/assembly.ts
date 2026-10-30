@@ -19,11 +19,14 @@ import type {
 } from '../contract/request-inspection.ts'
 import { inspectRequestPrompt } from '../contract/request-inspection.ts'
 import { inspectSystemPrompt, type SystemPromptState } from '../contract/system-prompt.ts'
+import type { IConversation } from '../service.ts'
 import { ConversationNodeAssembler } from './assembler.ts'
 import { ConversationEventRegistry } from './event-registry.ts'
 import { HistoricalImageCache } from './historical-images.ts'
 import { ConversationViewRegistry } from './view-registry.ts'
 import { ConversationGroupRegistry } from './group-registry.ts'
+import { ConversationInteractionRegistry } from './interaction-registry.ts'
+import { UserTextRegistry } from './user-text-registry.ts'
 
 /** Observable faces published for one Session's Conversation assembly. */
 export interface ConversationBinding {
@@ -182,6 +185,17 @@ interface BindingRecord {
   disposeScope: () => void
 }
 
+/** Resolve the session-scoped Conversation action face, failing loud. */
+function scopedConversation(sessions: ISessions, id: SessionId): IConversation {
+  const scoped = sessions.scope(id)
+  if (scoped === undefined) throw new Error(`ui-conversation: session "${id}" resolved no scope`)
+  const conversation = scoped.get('conversation')
+  if (conversation === undefined) {
+    throw new Error('ui-conversation: conversation service unavailable through the session scope')
+  }
+  return conversation
+}
+
 /** Root service owning Conversation registries and per-Session bindings. */
 export class UiConversation extends Service {
   /** Registry of event matchers and target snapshot builders. */
@@ -190,6 +204,10 @@ export class UiConversation extends Service {
   readonly views: ConversationViewRegistry
   /** Business grouping rules over already materialized target Nodes. */
   readonly groups: ConversationGroupRegistry
+  /** Pure text rules and parser snapshots, independent of durable Session assembly. */
+  readonly userText: UserTextRegistry
+  /** Plugin-owned handlers for selection and context-menu gestures. */
+  readonly interactions: ConversationInteractionRegistry
   private readonly bindings = new WeakMapWithValues<SessionBinding, BindingRecord>()
   private readonly images: HistoricalImageCache
 
@@ -202,6 +220,8 @@ export class UiConversation extends Service {
     this.events = new ConversationEventRegistry(ctx)
     this.views = new ConversationViewRegistry(ctx)
     this.groups = new ConversationGroupRegistry(ctx, this.views)
+    this.userText = new UserTextRegistry(ctx)
+    this.interactions = new ConversationInteractionRegistry(ctx)
     this.images = new HistoricalImageCache(ctx, sessions)
     const rebuild = (): void => {
       for (const record of this.bindings.values) record.binding.rebuild()
@@ -258,9 +278,9 @@ export class UiConversation extends Service {
   }
 
   /**
-   * Resolve one session-authorized durable image URL, cached per Session so
+   * Resolve one Gateway-authorized durable image URL, cached per Session so
    * every Conversation target shares one read and one browser URL.
-   * @param sessionId - Session authorization and lifetime scope.
+   * @param sessionId - Session binding that owns the cached URL lifetime.
    * @param attachment - Durable image reference from a session event.
    * @returns browser URL valid until the Session binding is released.
    */
@@ -270,7 +290,7 @@ export class UiConversation extends Service {
 
   /**
    * Read a cached durable image URL synchronously when one is available.
-   * @param sessionId - Session authorization and lifetime scope.
+   * @param sessionId - Session binding that owns the cached URL lifetime.
    * @param attachment - Durable image reference from a session event.
    * @returns current preview or canonical URL, if cached.
    */
@@ -282,13 +302,23 @@ export class UiConversation extends Service {
    * Adopt an already-displayable URL for one durable reference (see
    * HistoricalImageCache.seed): the transcript node then renders it without a
    * byte round-trip.
-   * @param sessionId - Session authorization and lifetime scope.
+   * @param sessionId - Session binding that owns the cached URL lifetime.
    * @param attachment - Durable image reference the URL displays.
    * @param url - browser URL to adopt.
    * @returns whether the cache took URL ownership.
    */
   seedImageUrl(sessionId: SessionId, attachment: ImageAttachmentRef, url: string): boolean {
     return this.images.seed(sessionId, attachment, url)
+  }
+
+  /**
+   * Cancel one Session's in-flight Turn through its scoped Conversation face.
+   * @param sessionId - Session whose Turn stops.
+   */
+  stop(sessionId: SessionId): void {
+    scopedConversation(this.sessions, sessionId).cancel().catch((_error: unknown) => {
+      // Stop failure is published through Session promptError.
+    })
   }
 
   /**

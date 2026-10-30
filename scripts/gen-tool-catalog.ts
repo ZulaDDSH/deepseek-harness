@@ -7,12 +7,16 @@
  */
 
 import { globSync, readFileSync, writeFileSync } from 'node:fs'
-import { basename, resolve } from 'node:path'
+import { basename, dirname, resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import { NativeToolExecutor } from '@deepseek-ai/dsh-tool-executor-native'
+import { PtcExecutor } from '@deepseek-ai/dsh-tool-executor-ptc'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import { githubSlug } from './verify-md-links.ts'
 import { TOOL_PACKAGES, type ToolPackage } from './tool-catalog-manifest.ts'
 export type { ToolPackage } from './tool-catalog-manifest.ts'
@@ -37,7 +41,7 @@ export type ToolCatalog = CatalogPackage[]
 
 /**
  * Assert the boot manifest covers every shipped tool package on disk (a
- * `tool-*` leaf under `packages/`).
+ * `tool-*` leaf under `packages/`, excluding test support).
  * Booting has no source declaration to enumerate, so this glob restores the
  * "a new tool cannot be silently undocumented" guarantee: an unlisted package
  * fails the generator (and the freshness gate) until it is added to
@@ -46,13 +50,17 @@ export type ToolCatalog = CatalogPackage[]
  * `scanRoot` defaults to the repo root; a test may point it at a fixture tree.
  */
 export function assertManifestComplete(packages: ToolPackage[] = TOOL_PACKAGES, scanRoot: string = root): void {
-  const onDisk = globSync('packages/*/tool-*', { cwd: scanRoot }).map(p => basename(p)).sort()
+  // Native execution owns no tool definitions; PTC contributes run_code.
+  const onDisk = globSync('packages/*/tool-*', { cwd: scanRoot })
+    .filter(path => basename(dirname(path)) !== 'test-support')
+    .map(p => basename(p))
+    .filter(dir => dir !== 'tool-executor-native').sort()
   const listed = new Set(packages.map(p => p.dir))
   const missing = onDisk.filter(dir => !listed.has(dir))
   if (missing.length > 0) {
     throw new Error(
       `gen-tool-catalog: ${missing.length} tool package(s) not in the boot manifest: ${missing.join(', ')}. `
-      + 'Add each to TOOL_PACKAGES in scripts/gen-tool-catalog.ts so its schema is catalogued.',
+      + 'Add each to TOOL_PACKAGES in scripts/tool-catalog-manifest.ts so its schema is catalogued.',
     )
   }
 }
@@ -97,9 +105,16 @@ export async function collectToolCatalog(packages: ToolPackage[] = TOOL_PACKAGES
     try {
       await ctx.plugin(SessionProjectionRegistry)
       await ctx.plugin(SystemPrompt)
-      await ctx.plugin(ToolRuntime, entry.toolsConfig ?? {})
+      await ctx.plugin(LocalFileSystem)
+      await ctx.plugin(WorkingDirectory)
+      await ctx.plugin(ToolRuntime)
+      const executor = entry.executor === 'ptc' ? new PtcExecutor(ctx) : new NativeToolExecutor(ctx)
+      ctx.tools.setExecutor(executor)
       await entry.mount(ctx)
-      const schemas = ctx.tools.schemas(entry.scope?.(ctx)).sort((a, b) => a.name.localeCompare(b.name))
+      const scope = entry.scope?.(ctx)
+      const described = executor.describe(ctx.tools.definitions(scope))
+      const schemas = [...new Map([...ctx.tools.schemas(scope), ...described.schemas].map(schema => [schema.name, schema])).values()]
+        .sort((a, b) => a.name.localeCompare(b.name))
       assertToolsHarvested(entry, schemas.length)
       catalog.push({
         pkg: entry.pkg,

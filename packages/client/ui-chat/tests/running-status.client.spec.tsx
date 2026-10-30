@@ -10,6 +10,7 @@ import type { StartedToolCall } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { ChatViewSlotProps } from '../src/client/contract/slots.ts'
 import type { PartialAssistant } from '../src/client/contract/snapshot.ts'
 import { RunningStatus } from '../src/client/chat/RunningStatus.tsx'
+import { PartialArguments } from '@deepseek-ai/dsh-util-values'
 import { en, zh } from '../src/client/locale.ts'
 import { chatSnapshotFixture } from './chat-snapshot-fixture.client.ts'
 
@@ -25,18 +26,22 @@ function chatHook(input: Parameters<typeof chatSnapshotFixture>[0] = {}): ChatVi
 }
 
 function startedCall(name: string, argsRaw: string, time: number): StartedToolCall {
-  return { phase: 'start', callId: `${name}-${time}`, name, argsRaw, turn: 1, step: 1, time, subCalls: [] }
+  return { phase: 'start', callId: `${name}-${time}`, name, argsRaw, args: PartialArguments.fromText(argsRaw), turn: 1, step: 1, time, subCalls: [] }
 }
 
 function statusHarness(startTime?: number, useChat = chatHook(), onStop = vi.fn(), awaitingUser = false) {
-  const view = render(<RunningStatus startTime={startTime} useChat={useChat} awaitingUser={awaitingUser} onStop={onStop} t={t} />)
+  const view = render(
+    <RunningStatus startTime={startTime} paused={false} useChat={useChat} awaitingUser={awaitingUser} onStop={onStop} t={t} />,
+  )
   return {
     ...view,
     content: () => view.container.querySelector('[data-chat-running-label]'),
     hint: () => view.container.querySelector('[data-chat-running-stuck]'),
-    set: (nextStartTime?: number, nextChat = useChat, nextAwaitingUser = awaitingUser) => {
+    set: (nextStartTime?: number, nextChat = useChat, nextAwaitingUser = awaitingUser, paused = false) => {
       view.rerender(
-        <RunningStatus startTime={nextStartTime} useChat={nextChat} awaitingUser={nextAwaitingUser} onStop={onStop} t={t} />,
+        <RunningStatus
+          startTime={nextStartTime} paused={paused} useChat={nextChat} awaitingUser={nextAwaitingUser} onStop={onStop} t={t}
+        />,
       )
     },
   }
@@ -44,7 +49,7 @@ function statusHarness(startTime?: number, useChat = chatHook(), onStop = vi.fn(
 
 describe('RunningStatus', () => {
   it('leads with the actual operation, then the step, Turn time, and active task', () => {
-    const view = render(<RunningStatus startTime={1_000} step={4} task="Fix the importer" useChat={chatHook({ runningCalls: [startedCall('edit', '{"file_path":"src/import.ts"}', 4_000)] })} onStop={vi.fn()} t={tEn} />)
+    const view = render(<RunningStatus startTime={1_000} paused={false} step={4} task="Fix the importer" useChat={chatHook({ runningCalls: [startedCall('edit', '{"file_path":"src/import.ts"}', 4_000)] })} onStop={vi.fn()} t={tEn} />)
     expect(view.container.querySelector('[data-chat-running-label]')?.textContent)
       .toMatch(/^Editing files: src\/import\.ts · \d+s · step 4 · \d+s totalCurrent task: Fix the importer$/)
     expect(view.container.querySelector('[data-chat-running-task]')?.textContent).toBe('Current task: Fix the importer')
@@ -94,7 +99,7 @@ describe('RunningStatus', () => {
   })
 
   it('names the open step beside the elapsed time and keeps it while the clock runs', () => {
-    const view = render(<RunningStatus startTime={1_000} step={67} useChat={chatHook()} onStop={vi.fn()} t={t} />)
+    const view = render(<RunningStatus startTime={1_000} paused={false} step={67} useChat={chatHook()} onStop={vi.fn()} t={t} />)
     const content = view.container.querySelector('[data-chat-running-label]')
     expect(content?.textContent).toMatch(/^处理中 · 第 67 步 · 共 \d+秒$/)
     act(() => { vi.advanceTimersByTime(2_000) })
@@ -175,7 +180,7 @@ describe('RunningStatus', () => {
     const partial: PartialAssistant = { turn: 1, step: 1, blocks: [{ kind: 'text', text: 'a'.repeat(40) }] }
     const view = render(
       <StrictMode>
-        <RunningStatus startTime={1_000} useChat={chatHook({ partial })} onStop={vi.fn()} t={t} />
+        <RunningStatus startTime={1_000} paused={false} useChat={chatHook({ partial })} onStop={vi.fn()} t={t} />
       </StrictMode>,
     )
     const line = () => view.container.querySelector('[data-chat-running-label]')
@@ -195,7 +200,7 @@ describe('RunningStatus', () => {
 
   it('reads in English with the quiet-Turn hint and a Stop action', () => {
     const chat = chatHook({ runningCalls: [startedCall('bash', '{"command":"pnpm test"}', 4_000)] })
-    const view = render(<RunningStatus startTime={1_000} step={3} useChat={chat} onStop={vi.fn()} t={tEn} />)
+    const view = render(<RunningStatus startTime={1_000} paused={false} step={3} useChat={chat} onStop={vi.fn()} t={tEn} />)
     expect(view.container.querySelector('[data-chat-running-label]')?.textContent)
       .toMatch(/^Running commands: pnpm test · 1s · step 3 · \d+s total$/)
     act(() => { vi.advanceTimersByTime(120_000) })
@@ -205,12 +210,12 @@ describe('RunningStatus', () => {
   })
 
   it('words English job, retry, and generation lines plainly', () => {
-    const job = render(<RunningStatus startTime={1_000} useChat={chatHook({
+    const job = render(<RunningStatus startTime={1_000} paused={false} useChat={chatHook({
       runningCalls: [startedCall('job_output', '{"job_id":"job_9","wait":true}', 4_000)],
     })} onStop={vi.fn()} t={tEn} />)
     expect(job.container.querySelector('[data-chat-running-label]')?.textContent).toContain('Waiting on background job job_9 · 1s')
     job.unmount()
-    const thinking = render(<RunningStatus startTime={1_000} useChat={chatHook({
+    const thinking = render(<RunningStatus startTime={1_000} paused={false} useChat={chatHook({
       partial: { turn: 1, step: 1, blocks: [{ kind: 'reasoning', text: 'b'.repeat(400) }] },
     })} onStop={vi.fn()} t={tEn} />)
     expect(thinking.container.querySelector('[data-chat-running-label]')?.textContent).toContain('Thinking · 0s · about 100 tokens so far')
@@ -235,5 +240,17 @@ describe('RunningStatus', () => {
     view.set()
     expect(view.content()?.textContent).toBe('处理中...')
     expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('freezes the duration while paused and resumes from the Turn start', () => {
+    const view = statusHarness(1_000)
+    expect(view.content()?.textContent).toBe('处理中 · 4秒')
+    view.set(1_000, undefined, undefined, true)
+    expect(vi.getTimerCount()).toBe(0)
+    act(() => { vi.advanceTimersByTime(5_000) })
+    expect(view.content()?.textContent).toBe('处理中 · 4秒')
+    view.set(1_000)
+    expect(view.content()?.textContent).toBe('处理中 · 9秒')
+    expect(vi.getTimerCount()).toBe(1)
   })
 })

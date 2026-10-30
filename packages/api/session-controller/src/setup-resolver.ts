@@ -17,7 +17,7 @@ const MAX_SETUP_HOPS = 8
 export function effectiveSubagentSetupOf(ctx: Context, session: Session): SubagentSetup | undefined {
   let at: Session | undefined = session
   for (let hop = 0; at !== undefined && hop <= MAX_SETUP_HOPS; hop += 1) {
-    const setup = ctx.get('sessionProjections')?.stateOf(at, 'runOptions')?.current?.subagentSetup
+    const setup = ctx.get('sessionProjections')?.snapshot(at, ['runOptions']).values.runOptions?.current?.subagentSetup
     if (setup !== undefined) return setup
     at = at.header.parentSession === undefined ? undefined : ctx.get('sessions')?.get(at.header.parentSession)
   }
@@ -32,7 +32,7 @@ export function effectiveSubagentSetupOf(ctx: Context, session: Session): Subage
  */
 export function orchestratorSelectionOf(ctx: Context, session: Session): ModelSelection | undefined {
   if (session.header.origin === 'subagent') return undefined
-  const setup = ctx.get('sessionProjections')?.stateOf(session, 'runOptions')?.current?.subagentSetup
+  const setup = ctx.get('sessionProjections')?.snapshot(session, ['runOptions']).values.runOptions?.current?.subagentSetup
     ?? ctx.get('sessionController')?.defaultSubagentSetup()
   if (setup?.enabled !== true) return undefined
   const orchestrator = setup.roles.orchestrator

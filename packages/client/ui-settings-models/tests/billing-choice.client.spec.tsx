@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import Schema from '@deepseek-ai/schemastery'
-import type { CredentialInfo, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
+import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import type { AuthorizationEntryView } from '@deepseek-ai/dsh-api-settings-controller/types'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { ProviderEditor } from '../src/client/ProviderEditor.tsx'
@@ -78,12 +78,11 @@ function namespaceWith(profile: Record<string, JsonValue>, base: Record<string, 
   }
 }
 
-function operationsWith(namespace: SettingsNamespaceView, keyStored: boolean): Fakes {
+function operationsWith(namespace: SettingsNamespaceView): Fakes {
   const writeSettings = vi.fn((_ns: string, _ops: PathOp[], _revision: number | undefined) =>
     Promise.resolve<SettingsWriteOutcome>({ kind: 'written', view: namespace }))
   const storeCredential = vi.fn((_ref: string, _value: string) => Promise.resolve<string | undefined>(undefined))
   const operations: ModelsOperations = {
-    describeCredential: () => Promise.resolve<CredentialInfo | undefined>({ configured: keyStored, writable: true }),
     storeCredential,
     removeCredential: () => Promise.resolve<string | undefined>(undefined),
     writeSettings,
@@ -103,7 +102,7 @@ function authorizationWith(flows: readonly AuthorizationEntryView[]): Authorizat
 
 function renderEditor(options: EditorOptions = {}): Fakes {
   const namespace = namespaceWith(options.profile ?? {}, options.base ?? {})
-  const fakes = operationsWith(namespace, options.keyStored ?? false)
+  const fakes = operationsWith(namespace)
   const authorization = options.withSignIn === false
     ? undefined
     : authorizationWith([{ ...ANTHROPIC, ...options.flow }])
@@ -114,6 +113,7 @@ function renderEditor(options: EditorOptions = {}): Fakes {
       namespace={namespace}
       schema={settingsSchema}
       settingsPath={SETTINGS_PATH}
+      credential={{ configured: options.keyStored ?? false, writable: true }}
       operations={fakes.operations}
       {...authorization === undefined ? {} : { authorization }}
       t={t}

@@ -24,6 +24,7 @@ import type { CredentialKey, CredentialRecord } from '@deepseek-ai/dsh-credentia
 import { apply as applyConnection, inject as connectionInject } from '@deepseek-ai/dsh-client-connection'
 import WebServer from '@deepseek-ai/dsh-host-webserver'
 import TypertGatewayService from '@deepseek-ai/dsh-api-gateway'
+import RemoteAccessService from '@deepseek-ai/dsh-api-remote-access'
 import { RemoteStreamMuxClient } from '@deepseek-ai/dsh-api-gateway/src/client/stream-client.ts'
 import type { InvocationDescriptor } from '@deepseek-ai/dsh-typert-protocol'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
@@ -61,6 +62,7 @@ async function bootHost(script: (session: AuthorizationSession) => Promise<void>
   await ctx.plugin(WebServer, { host: '127.0.0.1', port: 0 })
   provideCredentialRecords(ctx)
   await ctx.plugin(TypertRegistry)
+  await ctx.plugin(RemoteAccessService)
   await ctx.plugin(TypertGatewayService, {})
   await ctx.plugin({ inject: [...connectionInject], apply: applyConnection })
   await ctx.plugin(AuthorizationService)

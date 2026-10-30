@@ -5,7 +5,6 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import z from '@deepseek-ai/schemastery'
 import { readHookFiles, type HookFileSource } from './hook-files.ts'
-import type { HookInventoryReport } from '@deepseek-ai/dsh-hook-protocol'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 // Type-only: the optional agent-preset roster resolved through `ctx.get`.
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
@@ -15,6 +14,7 @@ import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from 'zod'
 import type {
   AgentPresetPluginGroup,
+  HookInventoryReport,
   PluginEntryId,
   PluginFiberPhase,
   PluginInventoryEntry,
@@ -110,11 +110,18 @@ export async function readPluginInventory(ctx: Context, hookSources: readonly Ho
     if (entry.options.group) continue
     const base = entry.parent.tree.ctx.baseUrl
     const meta = base === undefined ? undefined : packages?.metaOf(entry.options.name, base)
+    const fiber = entry.fiber
+    const fiberPhase = fiber === undefined ? null : FIBER_PHASE[fiber.state]
+    let diagnostic: string | undefined
+    if (fiber !== undefined && fiberPhase === 'failed') {
+      try { await fiber.await() } catch (error) { diagnostic = error instanceof Error ? error.message : String(error) }
+    }
     entries.push({
       entryId: pluginEntryId(entry.id),
       moduleName: entry.options.name,
       enabled: !entry.disabled,
-      fiberPhase: entry.fiber === undefined ? null : FIBER_PHASE[entry.fiber.state],
+      fiberPhase,
+      ...diagnostic === undefined ? {} : { diagnostic },
       ...meta === undefined ? {} : { meta },
     })
   }

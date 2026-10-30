@@ -12,6 +12,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import KnowledgeRouter from '../src/index.ts'
+import { executeModelCall } from './fixtures/model-call.ts'
 
 /** One delegation the stub subagent service observed. */
 interface Captured {
@@ -33,7 +34,7 @@ class StubSubagents extends Service {
 
   resolveMaxDepth(): number | undefined { return 4 }
 
-  startContinuable(spec: {
+  startActivation(spec: {
     provider: string
     label: string
     request: { prompt: { type: string; text: string }[]; maxDepth?: number }
@@ -97,7 +98,7 @@ async function mount(mode: 'manual' | 'assisted', unbounded = false): Promise<Mo
 /** Dispatch the delegation tool as the delegating agent. */
 function delegate(task: string, agent: Agent): Promise<{ isError: boolean; value?: unknown }> {
   const ctx = context as Context
-  return ctx.tools.execute({
+  return executeModelCall(ctx, {
     signal: new AbortController().signal,
     callId: ToolCallId('delegate-1'),
     name: 'knowledge_delegate',
@@ -164,14 +165,14 @@ describe('assisted-mode delegation', () => {
 
   it('rejects a call without a delegating agent', async () => {
     await mount('assisted')
-    const result = await context?.tools.execute({
+    const result = await executeModelCall(context as Context, {
       signal: new AbortController().signal,
       callId: ToolCallId('delegate-without-agent'),
       name: 'knowledge_delegate',
       arguments: { description: 'Investigate the race', prompt: 'Investigate this recurring race.' },
     })
-    expect(result?.isError).toBe(true)
-    expect(JSON.stringify(result?.content)).toContain('requires a delegating agent')
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('requires a delegating agent')
   })
 
   it('omits an unavailable worker depth limit', async () => {

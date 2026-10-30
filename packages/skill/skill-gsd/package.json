@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-skill-gsd",
   "description": "Bundled GSD (Get Shit Done) phased workflow skills for DeepSeek Harness",
-  "version": "0.2.0-rc.1",
+  "version": "0.2.2-alpha.2",
   "publishConfig": {
     "access": "public"
   },

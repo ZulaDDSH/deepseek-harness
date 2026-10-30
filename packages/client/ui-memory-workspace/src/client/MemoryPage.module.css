@@ -220,8 +220,10 @@
   cursor: pointer;
 }
 
-.row:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
+@media (hover: hover) and (pointer: fine) {
+  .row:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
 }
 
 .row[aria-current='true'] {
@@ -387,10 +389,16 @@
   pointer-events: none;
 }
 
-.drop:hover,
 .drop[data-dragging='true'] {
   border-color: var(--dsw-alias-state-business-primary);
   background: var(--dsw-alias-interactive-bg-hover);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .drop:hover {
+    border-color: var(--dsw-alias-state-business-primary);
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
 }
 
 .drop:focus-within {

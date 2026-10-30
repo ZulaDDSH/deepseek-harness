@@ -1,3 +1,4 @@
+import type { LlmNativeAuth } from '@deepseek-ai/dsh-api-remotes/client'
 import { deriveKeyRef } from './store.ts'
 import type { ModelsSettingsState, ProviderRow } from './store.ts'
 import type { SettingsSchemaOperations } from './schema-operations.ts'
@@ -19,6 +20,9 @@ export interface EditorTarget extends ProviderIdentity {
   credentialRef?: string
   /** The adapter reports this route as one it does not ship (see {@link ProviderEditorProps.declared}). */
   declared?: boolean
+  defaultBaseURL?: string
+  baseURLEnv?: readonly string[]
+  nativeAuth?: LlmNativeAuth
 }
 
 /**
@@ -72,6 +76,9 @@ export function targetOf(row: ProviderRow): EditorTarget {
     ...credentialRef === undefined ? {} : { credentialRef },
     // Only declared routes may expose route-owned fields.
     ...row.entry.declared === true ? { declared: true } : {},
+    ...row.entry.defaultBaseURL === undefined ? {} : { defaultBaseURL: row.entry.defaultBaseURL },
+    ...row.entry.baseURLEnv === undefined ? {} : { baseURLEnv: row.entry.baseURLEnv },
+    ...row.entry.nativeAuth === undefined ? {} : { nativeAuth: row.entry.nativeAuth },
   }
 }
 

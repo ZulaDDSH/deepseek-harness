@@ -19,11 +19,11 @@
           - id: tool-fs
             name: '@deepseek-ai/dsh-tool-fs'
             config:
-              enabledTools: [read, write]
+              readImage: false
+              edit: false
           - id: tool-fs-search
             name: '@deepseek-ai/dsh-tool-fs-search'
             config:
-              enabledTools: [glob, grep]
               sampleOverCapGlobResults: false
           - id: tool-bash
             name: '@deepseek-ai/dsh-tool-bash'

@@ -3,7 +3,7 @@ import { memo } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
 import type { LiveActivity } from './live-activity.ts'
-import { formatLiveRunDuration } from './message-chrome.ts'
+import { formatRunDuration } from './message-chrome.ts'
 import { formatTokens } from './token-format.ts'
 import css from './ChatView.module.css'
 
@@ -56,7 +56,7 @@ export const RunningActivity = memo(function RunningActivity({ quietFor, onStop,
   return (
     <div className={css.runningActivity} data-chat-running-activity>
       <span className={css.runningStuck} data-chat-running-stuck>
-        <span>{t('chat.live.stuck', { duration: formatLiveRunDuration(quietFor, t) })}</span>
+        <span>{t('chat.live.stuck', { duration: formatRunDuration(quietFor, t).map(part => part.text).join('') })}</span>
         <Button size="sm" variant="outline" onClick={onStop}>{t('chat.live.stop')}</Button>
       </span>
     </div>

@@ -5,4 +5,8 @@
   - menuitem "Pin session"
   - menuitem "Rename"
   - menuitem "Fork session"
+  - separator
+  - menuitem "Copy Session ID"
+  - menuitem "Show in Finder"
+  - separator
   - menuitem "Archive session"

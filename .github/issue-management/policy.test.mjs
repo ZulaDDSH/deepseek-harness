@@ -201,12 +201,13 @@ test('keeps Task Issues limited to summary and deliverables', () => {
   )
 })
 
-test('structures the pull request template around motivation, changes, and testing', () => {
+test('keeps the pull request template aligned with the dsh-pr-description skill', () => {
   const source = readFileSync(new URL('../pull_request_template.md', import.meta.url), 'utf8')
-  for (const heading of ['## Motivation', '## Changes', '## Testing']) {
-    assert.match(source, new RegExp(`^${heading.replaceAll('#', '\\#')}$`, 'm'))
-  }
+  const skillPath = '.agents/skills/dsh-pr-description/SKILL.md'
+  assert.ok(source.startsWith(`<!-- Fill in this PR description following ${skillPath}. -->\n`), 'the template points to the skill')
+  assert.deepEqual(source.match(/^## .+$/gm), ['## Motivation', '## Changes', '## Testing'])
   assert.doesNotMatch(source, /^### /m)
+  assert.match(source, /^## Motivation\n\n<!-- [^\n]*Fixes #N[^\n]* -->$/m, 'the template prompts for an Issue reference')
   assert.match(
     source,
     /<!-- Describe at a high level any change to commands[^\n]+ -->\n<!-- Describe at a high level any change to behavior[^\n]+ -->/,

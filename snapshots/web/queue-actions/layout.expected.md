@@ -1,20 +1,20 @@
 - banner:
   - navigation "Session hierarchy": workspace
   - text: Standard mode
-  - button "Usage"
   - button "More actions"
   - button "Open right sidebar"
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
+  - button "More conversation views"
 - group "Command input": /goal Keep the composer context panels aligned
 - 'button "goal Goal created Status: active Objective: Keep the composer context panels aligned Rounds: 0/256 Activation: armed Commands: /goal edit <objective>, /goal pause, /goal clear"'
 - button "Continuing goal {{clock}}":
   - text: Continuing goal
   - time: {{clock}}
 - paragraph: partial
-- status: Working...
-- text: Working · {{duration}}
+- status: Deep diving
+- text: Deep diving for {{duration}} ···
 - region "To-dos":
   - button "To-dos 1 completed · 1 in progress"
 - text: Ongoing Goal Keep the composer context panels aligned

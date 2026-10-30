@@ -135,12 +135,12 @@ export class MasterControlSessions {
     try {
       await writer.append(seed)
       detach = this.ctx.sessions.enter(session)
-      titles.rename(session, `[Imported] ${transcript.title}`)
-      if (!await this.ctx.sessions.flush(session)) throw new Error('Session persistence is unavailable')
       const workspace = transcript.cwd === undefined ? undefined : this.ctx.workspaceRegistry.list()
         .find(item => resolve(item.path) === resolve(cwd))
       if (workspace !== undefined) await workspace.attachSession(sessionId)
       this.ctx.sessions.announce(session)
+      titles.rename(session, `[Imported] ${transcript.title}`)
+      if (!await this.ctx.sessions.flush(session)) throw new Error('Session persistence is unavailable')
       return { key, sessionId }
     } finally {
       try { await writer.close() } finally { detach?.() }

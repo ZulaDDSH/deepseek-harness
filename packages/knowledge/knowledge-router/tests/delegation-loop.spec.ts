@@ -14,13 +14,14 @@ import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import * as control from '@deepseek-ai/dsh-tool-subagent-control'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import { MockAdapter } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import KnowledgeRouter from '../src/index.ts'
+import { executeModelCall } from './fixtures/model-call.ts'
 
 const signal = new AbortController().signal
 const roots: string[] = []
@@ -54,7 +55,7 @@ interface CallOutcome {
 
 /** Dispatch one tool call through the registry. */
 function callTool(ctx: Context, name: string, args: unknown, agent?: unknown): Promise<CallOutcome> {
-  return ctx.tools.execute({
+  return executeModelCall(ctx, {
     signal,
     callId: ToolCallId(`call-${++calls}`),
     name,
@@ -75,7 +76,7 @@ async function setup(options: { learning?: boolean; maxDepth?: number } = {}): P
   adapter: MockAdapter
 }> {
   const ctx = new Context()
-  await mountAgentLoopTestDependencies(ctx)
+  await mountAgentLoopTestDependencies(ctx, { workingDirectory: true })
   const root = mkdtempSync(join(tmpdir(), 'dsh-knowledge-delegate-'))
   roots.push(root)
   await ctx.plugin(JsonlSessionPersistence, { root })
@@ -89,7 +90,7 @@ async function setup(options: { learning?: boolean; maxDepth?: number } = {}): P
     delegation: { provider: 'spawn' },
     ...options.learning === true ? { learning: { enabled: true, command: 'graphify' } } : {},
   })
-  const adapter = new MockAdapter([textResponse('child finding'), textResponse('child follow-up')])
+  const adapter = new MockAdapter(['hang'])
   ctx.llm.registerAdapter(['mock'], adapter)
   const parent = await ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
   // The stand-in parent's own turns are not scripted; only delivery is asserted.

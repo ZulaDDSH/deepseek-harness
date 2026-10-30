@@ -12,7 +12,7 @@ OpenCode Go requires every model request to carry a stable conversation identity
 
 A profile that already configures `x-opencode-session` in its `headers` keeps its own value, whatever the case it spelled the name in; the session id is written only when the request carries none, since the profile owns the transport it speaks and the harness value is a fallback for the routes given no header. Attribute names never collide with it, because `attributionHeaders()` carries no OpenCode header and the merge only dedupes what it does carry.
 
-The header is model-hidden transport metadata. Its value never enters the request body, system prompt, token accounting, KV-cache identity, or session log, and it is not a session event. It sits beside the shared `User-Agent` from [Mandatory app attribution headers](../architecture/2026-06-21-mandatory-app-attribution-headers.md) and follows the same privacy boundary as the provider-specific identity headers in [DeepSeek request user and session identity headers](2026-08-11-deepseek-request-user-id-header.md).
+The header is model-hidden transport metadata. Its value never enters the request body, system prompt, token accounting, KV-cache identity, or session log, and it is not a session event. It sits beside the shared `User-Agent` from [Mandatory app attribution headers](../../archived/architecture/2026-06-21-mandatory-app-attribution-headers.md) and follows the same privacy boundary as the provider-specific identity headers in [DeepSeek request user and session identity headers](../../archived/feature/2026-08-11-deepseek-request-user-id-header.md).
 
 ## Verification
 

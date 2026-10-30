@@ -11,9 +11,11 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import McpResources from '@deepseek-ai/dsh-mcp-resources'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import type { Config } from '@deepseek-ai/dsh-mcp-client'
 
 const { mockConnect, mockClose, mockListTools, mockCreateTransport, MockClient, instances } = vi.hoisted(() => {
@@ -63,6 +65,7 @@ async function mountRegistry(): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(NativeToolExecutor)
   return ctx
 }
 
@@ -118,13 +121,13 @@ describe('connection disposal escalation', () => {
     try {
       await expect(handle.ready).resolves.toEqual({})
       ctx.mcpResources.register('srv', handle.resources)
-      const listed = await ctx.tools.execute({
+      const listed = await executeModelToolFixture(ctx, {
         name: 'list_mcp_resources', arguments: { server: 'srv' },
         callId: nextCallId(), signal: testToolSignal,
       })
       expect(listed.isError).toBe(false)
       await handle.dispose()
-      const rejected = await ctx.tools.execute({
+      const rejected = await executeModelToolFixture(ctx, {
         name: 'list_mcp_resources', arguments: { server: 'srv' },
         callId: nextCallId(), signal: testToolSignal,
       })

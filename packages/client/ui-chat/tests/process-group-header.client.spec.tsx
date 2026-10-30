@@ -10,7 +10,7 @@ import { ProcessGroupHeader } from '../src/client/chat/ChatGroupSeat.tsx'
 import type { ProcessGroupData } from '../src/client/contract/process-groups.ts'
 import type { ChatViewSlotProps } from '../src/client/contract/slots.ts'
 import { en } from '../src/client/locale.ts'
-import { derivePresentationPolicy } from '../src/client/presentation-policy.ts'
+import { derivePresentationPolicy, type CollapseTiming, type FoldedReplies } from '../src/client/presentation-policy.ts'
 
 afterEach(cleanup)
 
@@ -23,7 +23,7 @@ function renderHeader(data: ProcessGroupData) {
   return render(
     <ProcessGroupHeader groupKey={'g' as GroupKey}
       useChatGroup={((_key: string, select: (value: GroupSnapshot<ProcessGroupData> | undefined) => unknown) => useGroup(select)) as ChatViewSlotProps['useChatGroup']}
-      usePresentation={bindSnapshotSelector(derivePresentationPolicy(mode))}
+      usePresentation={bindSnapshotSelector(derivePresentationPolicy(mode, createSnapshotStore<CollapseTiming>('completion'), createSnapshotStore<FoldedReplies>('all')))}
       t={t} open={false} bodyId="body" toggle={() => {}} />,
   )
 }

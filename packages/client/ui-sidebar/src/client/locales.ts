@@ -8,6 +8,9 @@ export const zh = {
   'toggle.collapse': '收起侧边栏',
   'focus.exit': '退出专注模式',
   'panels.label': '全局面板',
+  'navigation.label': '导航',
+  'panels.more': '更多',
+  'version.copied': '版本号复制成功',
 } satisfies Record<string, string>
 
 /** The sidebar namespace key union. */
@@ -21,4 +24,85 @@ export const en = {
   'toggle.collapse': 'Collapse sidebar',
   'focus.exit': 'Exit focus mode',
   'panels.label': 'Global panels',
+  'navigation.label': 'Navigation',
+  'panels.more': 'More',
+  'version.copied': 'Version copied',
 } satisfies Record<SidebarKey, string>
+
+/** Japanese copy, checked against the English keys. */
+export const ja = {
+  'session.new': '新規セッション',
+  'session.new.label': '新規セッション',
+  'toggle.open': 'サイドバーを開く',
+  'toggle.collapse': 'サイドバーを折りたたむ',
+  'focus.exit': '集中モードを終了',
+  'panels.label': 'グローバルパネル',
+  'navigation.label': 'ナビゲーション',
+  'panels.more': 'その他',
+  'version.copied': 'バージョンをコピーしました',
+} satisfies Record<keyof typeof en, string>
+
+/** Spanish dictionary, checked against the English keys. */
+export const es = {
+  'session.new': 'Nueva sesión',
+  'session.new.label': 'Nueva sesión',
+  'toggle.open': 'Abrir barra lateral',
+  'toggle.collapse': 'Contraer barra lateral',
+  'focus.exit': 'Salir del modo de enfoque',
+  'panels.label': 'Paneles globales',
+  'navigation.label': 'Navegación',
+  'panels.more': 'Más',
+  'version.copied': 'Versión copiada',
+} satisfies Record<keyof typeof en, string>
+
+/** French dictionary, checked against the English keys. */
+export const fr = {
+  'session.new': 'Nouvelle séance',
+  'session.new.label': 'Nouvelle séance',
+  'toggle.open': 'Ouvrir la barre latérale',
+  'toggle.collapse': 'Réduire la barre latérale',
+  'focus.exit': 'Quitter le mode concentration',
+  'panels.label': 'Panneaux globaux',
+  'navigation.label': 'Navigation',
+  'panels.more': 'Plus',
+  'version.copied': 'Version copiée',
+} satisfies Record<keyof typeof en, string>
+
+/** German dictionary, checked against the English keys. */
+export const de = {
+  'session.new': 'Neue Sitzung',
+  'session.new.label': 'Neue Sitzung',
+  'toggle.open': 'Seitenleiste öffnen',
+  'toggle.collapse': 'Seitenleiste einklappen',
+  'focus.exit': 'Fokusmodus beenden',
+  'panels.label': 'Globale Bereiche',
+  'navigation.label': 'Navigation',
+  'panels.more': 'Mehr',
+  'version.copied': 'Version kopiert',
+} satisfies Record<keyof typeof en, string>
+
+/** Russian dictionary, checked against the English keys. */
+export const ru = {
+  'session.new': 'Новая сессия',
+  'session.new.label': 'Новая сессия',
+  'toggle.open': 'Открыть боковую панель',
+  'toggle.collapse': 'Свернуть боковую панель',
+  'focus.exit': 'Выйти из режима фокуса',
+  'panels.label': 'Глобальные панели',
+  'navigation.label': 'Навигация',
+  'panels.more': 'Ещё',
+  'version.copied': 'Версия скопирована',
+} satisfies Record<keyof typeof en, string>
+
+/** Portuguese dictionary, checked against the English keys. */
+export const pt = {
+  'session.new': 'Nova sessão',
+  'session.new.label': 'Nova sessão',
+  'toggle.open': 'Abrir barra lateral',
+  'toggle.collapse': 'Recolher barra lateral',
+  'focus.exit': 'Sair do modo foco',
+  'panels.label': 'Painéis globais',
+  'navigation.label': 'Navegação',
+  'panels.more': 'Mais',
+  'version.copied': 'Versão copiada',
+} satisfies Record<keyof typeof en, string>

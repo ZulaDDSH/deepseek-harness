@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { agentPresetProjectionDefinition } from '@deepseek-ai/dsh-agent-preset-registry'
-import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SessionTitleService from '@deepseek-ai/dsh-session-title'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -39,10 +39,11 @@ async function harness() {
   const workspace = { id: 'project', path: root, sessionIds, attachSession }
   ctx.provide('workspaceRegistry', { list: () => [workspace], archivedSessionIds: archived } as never)
   ctx.provide('agentPresets', {
+    presetForSession: (session: Session) => agentPresetProjection.stateOf(session) ?? undefined,
     resolve: async (id: string) => ({ id }), mount: async () => undefined,
   } as never)
-  const controller = createSessionTestController(ctx, { defaultModelSelection: () => ({ provider: 'mock', model: 'mock' }), cwd: root })
-  ctx.sessionProjections.register(agentPresetProjectionDefinition)
+  const controller = await createSessionTestController(ctx, { defaultModelSelection: () => ({ provider: 'mock', model: 'mock' }), cwd: root })
+  const agentPresetProjection = await ctx.sessionProjections.register(agentPresetProjectionDefinition)
   await ctx.plugin(SessionTitleService, { fallbackMaxWords: 5, fallbackMaxBytes: 80, maxTitleBytes: 200 })
   const flush = vi.fn()
   ctx.on('session/flush', () => { flush() })
@@ -83,8 +84,8 @@ describe('Master Control home and import', () => {
     const [first, second] = await Promise.all([b.control.openHome(), b.control.openHome()])
     expect(first.sessionId).toBe(second.sessionId)
     expect(first.sessionId).toMatch(/^master-control-home-/)
-    expect(b.ctx.sessionProjections.stateOf(b.ctx.sessions.get(first.sessionId)!, 'sessionListMetadata')?.blank).toBe(false)
-    expect(b.ctx.sessionProjections.stateOf(b.ctx.sessions.get(SessionId('project-master'))!, 'sessionListMetadata')?.blank).toBe(true)
+    expect(b.ctx.sessionProjections.snapshot(b.ctx.sessions.get(first.sessionId)!, ['sessionListMetadata']).values.sessionListMetadata?.blank).toBe(false)
+    expect(b.ctx.sessionProjections.snapshot(b.ctx.sessions.get(SessionId('project-master'))!, ['sessionListMetadata']).values.sessionListMetadata?.blank).toBe(true)
     expect(b.sessionIds).not.toContain(first.sessionId)
     expect(b.ctx.sessionTitle.get(b.ctx.sessions.get(first.sessionId)!)?.title).toBe('Master Control')
     expect((await b.control.openHome()).sessionId).toBe(first.sessionId)

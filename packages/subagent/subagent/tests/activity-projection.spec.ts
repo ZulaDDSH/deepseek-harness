@@ -3,7 +3,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { describeToolCall, subagentActivityProjectionDefinition } from '../src/activity-projection.ts'
 
 function ev(type: SessionEvent['type'], time: number, data: object): SessionEvent {
-  return { type, seq: time, time, data } as unknown as SessionEvent
+  return { type, seq: time, time, data } as SessionEvent
 }
 
 const call = (id: string, name: string, args: object, time: number): SessionEvent =>

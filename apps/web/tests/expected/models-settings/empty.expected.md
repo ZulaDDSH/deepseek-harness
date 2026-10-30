@@ -1,6 +1,6 @@
 - dialog "设置":
+  - text: 设置
   - navigation:
-    - text: 设置
     - button "通用设置"
     - button "模型"
     - button "Jev"
@@ -23,7 +23,7 @@
       - option "amazon-bedrock"
       - option "ant-ling"
       - option "anthropic"
-      - option "azure-openai-responses"
+      - option "azure"
       - option "baseten"
       - option "cerebras"
       - option "cloudflare-ai-gateway"
@@ -36,6 +36,7 @@
       - option "groq"
       - option "huggingface"
       - option "kimi-coding"
+      - option "meta"
       - option "minimax"
       - option "minimax-cn" [selected]
       - option "mistral"
@@ -50,6 +51,7 @@
       - option "qwen-token-plan"
       - option "qwen-token-plan-cn"
       - option "qwen-token-plan-individual"
+      - option "radius"
       - option "together"
       - option "vercel-ai-gateway"
       - option "xai"
@@ -63,8 +65,10 @@
     - paragraph: 请在浏览器中完成登录，此窗口会自动更新。
     - button "登录"
     - text: API 密钥
+    - button "认证说明": "?"
     - textbox "API 密钥":
-      - /placeholder: 输入 API 密钥，或留空使用环境认证
+      - /placeholder: 留空使用环境认证（MINIMAX_CN_API_KEY）
+    - paragraph: 未检测到环境变量。请填写 API 密钥，或设置环境变量 MINIMAX_CN_API_KEY。
     - group: 自定义设置
     - button "取消"
     - button "保存"

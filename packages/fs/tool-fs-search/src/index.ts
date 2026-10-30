@@ -26,6 +26,7 @@
  * @module @deepseek-ai/dsh-tool-fs-search
  */
 
+import type {} from '@deepseek-ai/dsh-working-directory'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -67,12 +68,10 @@ export type { GrepMatch, RipgrepRun, SearchErrorCode } from './search-core.ts'
 export const name = 'tool-fs-search'
 
 /** Services required by the search tool suite (`spillStore` is optional, read via `ctx.get()`). */
-export const inject = ['tools', 'systemPrompt', 'subprocess']
+export const inject = ['tools', 'systemPrompt', 'subprocess', 'workingDirectory']
 
 /** Plugin config; over-cap glob sampling is an explicit deployment choice and the remaining fields have defaults. */
 export interface Config {
-  /** Model-visible tools to register; defaults to all tools in this plugin. */
-  enabledTools?: ('glob' | 'grep')[]
   /** Whether an over-cap `glob` page is sampled across top-level entries instead of taking the modification-time head. */
   sampleOverCapGlobResults: boolean
   /** Max paths one `glob` call retains inline; later paths go to the formatted spill file. */
@@ -97,7 +96,6 @@ export interface Config {
 }
 
 export const Config: z<Config> = z.object({
-  enabledTools: z.array(z.union([z.const('glob'), z.const('grep')])).default(['glob', 'grep']),
   sampleOverCapGlobResults: z.boolean().required(),
   globMaxResults: z.number().default(GLOB_MAX_RESULTS),
   grepMaxMatches: z.number().default(GREP_MAX_MATCHES),
@@ -120,7 +118,9 @@ function assertPositiveInteger(name: string, value: number): void {
 }
 
 /**
- * Register the configured `glob`/`grep` filesystem discovery tools.
+ * Register the `glob`/`grep` filesystem discovery tool suite. The packaged
+ * ripgrep binary is always available (an npm dependency), so registration is
+ * unconditional.
  *
  * @param ctx - plugin context; registrations are effects scoped to this plugin.
  * @param config - resolved plugin configuration from schemastery.
@@ -129,7 +129,6 @@ function assertPositiveInteger(name: string, value: number): void {
 export async function apply(ctx: Context, config: Config): Promise<void> {
   // schemastery (Config) has already filled every defaulted field.
   const resolved = config as ResolvedConfig
-  const enabled = new Set(resolved.enabledTools)
   assertPositiveInteger('globMaxResults', resolved.globMaxResults)
   assertPositiveInteger('grepMaxMatches', resolved.grepMaxMatches)
   assertPositiveInteger('grepMaxLineBytes', resolved.grepMaxLineBytes)
@@ -141,7 +140,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   }
   assertPositiveInteger('stderrMaxBytes', resolved.stderrMaxBytes)
   assertPositiveInteger('timeoutMs', resolved.timeoutMs)
-  if (enabled.has('glob')) applyGlobTool(ctx, {
+  applyGlobTool(ctx, {
     sampleOverCapGlobResults: resolved.sampleOverCapGlobResults,
     maxResults: resolved.globMaxResults,
     maxMetaBytes: resolved.searchMetaMaxBytes,
@@ -150,7 +149,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     stderrMaxBytes: resolved.stderrMaxBytes,
     timeoutMs: resolved.timeoutMs,
   })
-  if (enabled.has('grep')) applyGrepTool(ctx, {
+  applyGrepTool(ctx, {
     maxMatches: resolved.grepMaxMatches,
     maxLineBytes: resolved.grepMaxLineBytes,
     maxMetaBytes: resolved.searchMetaMaxBytes,

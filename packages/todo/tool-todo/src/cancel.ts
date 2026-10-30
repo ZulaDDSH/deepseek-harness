@@ -22,7 +22,7 @@ export function cancelTodos(ctx: Context, invocation: CommandInvocation): Comman
   }
   invocation.signal.throwIfAborted()
   const { agent } = invocation
-  const current = ctx.sessionProjections.stateOf(agent.session, 'todos') ?? []
+  const current: TodoItem[] = ctx.sessionProjections.snapshot(agent.session, ['todos']).values.todos ?? []
   if (request.expected !== JSON.stringify(current.map(item => [item.content, item.status]))) {
     return { kind: 'error', text: 'The to-do list changed. Review the current list and try again.' }
   }

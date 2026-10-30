@@ -13,7 +13,7 @@ import * as tool from '../src/index.ts'
 /** Mount the real spawn-backed delegation tool as a global composition. */
 async function bootWith(config: tool.Config): Promise<Context> {
   const ctx = new Context()
-  await mountAgentLoopTestDependencies(ctx)
+  await mountAgentLoopTestDependencies(ctx, { workingDirectory: true })
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SubagentRuntime)
   await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })

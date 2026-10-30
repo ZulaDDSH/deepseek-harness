@@ -2,7 +2,7 @@
 
 Status: implemented
 
-> The automation-only boundary remains current. [Standard ACP v1 automation controls](../feature/2026-08-22-standard-acp-automation-controls.md) supersedes only this note's prompt-only method, configuration, MCP, update, and lifecycle inventory; it does not restore ACP as a UI.
+> The automation-only boundary remains current. [Standard ACP v1 automation controls](../../../../packages/acp/acp/README.md) supersedes only this note's prompt-only method, configuration, MCP, update, and lifecycle inventory; it does not restore ACP as a UI.
 
 ## Problem
 

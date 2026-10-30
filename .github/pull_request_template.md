@@ -1,3 +1,5 @@
+<!-- Fill in this PR description following .agents/skills/dsh-pr-description/SKILL.md. -->
+
 ## Motivation
 
 <!-- State the problem being solved in one sentence, and reference the same-repository Issue with Fixes #NN or Related #NN. -->

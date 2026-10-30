@@ -3049,18 +3049,6 @@
       ]
     },
     {
-      "name": "@deepseek-ai/dsh-subagent-in-process-driver",
-      "version": "0.2.0-rc.2",
-      "installations": [
-        {
-          "location": "node_modules/@deepseek-ai/dsh-subagent-in-process-driver",
-          "direct": false,
-          "optional": false,
-          "peer": true
-        }
-      ]
-    },
-    {
       "name": "@deepseek-ai/dsh-subagent-spawn-in-process",
       "version": "0.2.0-rc.2",
       "installations": [

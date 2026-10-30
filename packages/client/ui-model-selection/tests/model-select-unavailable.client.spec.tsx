@@ -10,6 +10,8 @@ import { ModelSelect } from '../src/client/ModelSelect.tsx'
 import { zh } from '../src/client/locales.ts'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 const cliStubs = { cliProfiles: vi.fn(async () => []), openCliTerminal: vi.fn(async () => {}) }
+const renderLabel: ComponentProps<typeof ModelSelect>['renderSlot'] = (_name, _owner, options) => options?.fallback ?? null
+const resolveText: ComponentProps<typeof ModelSelect>['resolveText'] = text => typeof text === 'string' ? text : text.en
 
 const t: ComponentProps<typeof ModelSelect>['t'] = (key, params) => {
   const template = (zh as Record<string, string>)[key]
@@ -82,6 +84,7 @@ function renderSeat(overrides: Partial<ModelDirectoryState>) {
     favorites={createSnapshotStore<string[]>([])}
     toggleFavorite={vi.fn()}
     {...cliStubs}
+    renderSlot={renderLabel} resolveText={resolveText}
     available
     directory={directory}
     load={vi.fn()}

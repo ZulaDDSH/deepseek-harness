@@ -8,9 +8,9 @@ const runnerPrivatePnpmDestination = /^\$\{\{ runner\.temp \}\}\/setup-pnpm-\$\{
 const nativeWindowsPnpmDestination = '${{ runner.temp }}/setup-pnpm-js-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}'
 
 describe('CI workflow', () => {
-  it('requires unit, artifact, and changed-file coverage gates', () => {
+  it('requires lint, unit, consumer, and changed-file coverage gates', () => {
     const workflow = loadWorkflow('.github/workflows/ci.yml')
-    const artifacts = workflowJob(workflow, 'node-24-artifacts')
+    const lint = workflowJob(workflow, 'node-24-lint')
     const coverage = workflowJob(workflow, 'node-24-coverage')
     const consumers = workflowJob(workflow, 'node-24-consumers')
     const dependencyTests = workflowJob(workflow, 'node-24-dependency-tests')
@@ -18,10 +18,11 @@ describe('CI workflow', () => {
     const aggregate = workflowJob(workflow, 'all-checks-passed')
     if (!Array.isArray(aggregate.steps)) throw new TypeError('CI aggregate must define steps')
     expect(aggregate.needs).toEqual(expect.arrayContaining([
-      'node-24-artifacts', 'node-24-coverage', 'node-24-consumers',
+      'node-24-lint', 'node-24-coverage', 'node-24-consumers',
       'node-24-dependency-tests',
     ]))
-    expect(artifacts.steps).toContainEqual(expect.objectContaining({ run: 'pnpm run check:ci:artifacts' }))
+    expect(lint.steps).toContainEqual(expect.objectContaining({ run: 'pnpm run typecheck' }))
+    expect(lint.steps).toContainEqual(expect.objectContaining({ run: 'pnpm run check:ci:lint:contracts-ready' }))
     expect(coverage.steps).toContainEqual(expect.objectContaining({ run: 'pnpm run check:ci:coverage' }))
     expect(coverage['continue-on-error']).not.toBe(true)
     expect(coverage.needs).toContain('change-scope')
@@ -65,6 +66,16 @@ describe('CI workflow', () => {
     }
   })
 
+  it('runs the Node compatibility matrix on the supported floor and Node 26 on hosted Linux', () => {
+    const job = workflowJob(loadWorkflow('.github/workflows/ci.yml'), 'node-compat')
+    expect(job['runs-on']).toBe('ubuntu-latest')
+    expect(job.strategy).toMatchObject({
+      'fail-fast': false,
+      'max-parallel': 1,
+      matrix: { include: [{ node: '24.9' }, { node: 26 }] },
+    })
+  })
+
   it('prepares confinement before Node compatibility smokes', () => {
     const job = workflowJob(loadWorkflow('.github/workflows/ci.yml'), 'node-compat')
     if (!Array.isArray(job.steps)) throw new TypeError('Node compatibility job must define steps')
@@ -77,11 +88,11 @@ describe('CI workflow', () => {
   })
 
   it('prepares confinement before built package smokes', () => {
-    const job = workflowJob(loadWorkflow('.github/workflows/ci.yml'), 'node-24-artifacts')
-    if (!Array.isArray(job.steps)) throw new TypeError('Node artifact job must define steps')
+    const job = workflowJob(loadWorkflow('.github/workflows/ci.yml'), 'node-24-consumers')
+    if (!Array.isArray(job.steps)) throw new TypeError('Node consumer job must define steps')
     const steps = job.steps.filter(isRecord)
-    const preparation = steps.findIndex(step => step.run === 'bash scripts/prepare-ci-bubblewrap.sh')
-    const smoke = steps.findIndex(step => step.run === 'pnpm run check:ci:artifacts')
+    const preparation = steps.findIndex(step => typeof step.run === 'string' && step.run.includes('scripts/prepare-ci-bubblewrap.sh'))
+    const smoke = steps.findIndex(step => step.run === 'pnpm run check:ci:consumers')
     expect(preparation).toBeGreaterThanOrEqual(0)
     expect(smoke).toBeGreaterThan(preparation)
     expect(steps[preparation]).not.toHaveProperty('continue-on-error', true)
@@ -163,7 +174,7 @@ describe('CI workflow', () => {
       if (jobName === 'node-24-consumers') {
         const browserCache: unknown = job.steps.find(step => isRecord(step) && isRecord(step.with)
           && step.with.path === '${{ env.PLAYWRIGHT_BROWSERS_PATH }}')
-        expect(browserCache).toMatchObject({ uses: 'actions/cache/restore@v4' })
+        expect(browserCache).toMatchObject({ uses: 'actions/cache/restore@v6.1.0' })
       }
       const store: unknown = job.steps.find(step => isRecord(step) && step.name === 'Configure pnpm store path')
       expect(store).toMatchObject({
@@ -216,6 +227,7 @@ describe('CI workflow', () => {
     expect(Object.keys(master.on as Record<string, unknown>)).toEqual(['push'])
     expect(Object.keys(master.jobs as Record<string, unknown>)).toEqual(['python-runtime'])
   })
+
   it('keeps performance measurements manual and outside the PR verdict', () => {
     const workflow = loadWorkflow('.github/workflows/ci.yml')
     const benchmark = workflowJob(workflow, 'node-24-bench')
@@ -223,13 +235,26 @@ describe('CI workflow', () => {
     expect(Object.keys(workflow.on as Record<string, unknown>)).toEqual(['pull_request', 'workflow_dispatch'])
     expect(benchmark.if).toBe("github.event_name == 'workflow_dispatch'")
     expect(benchmark['continue-on-error']).toBe(true)
+    expect(benchmark.steps).toContainEqual(expect.objectContaining({
+      uses: 'actions/upload-artifact@v7.0.1',
+      with: expect.objectContaining({ name: 'benchmark-report' }) as object,
+    }))
     expect(aggregate.needs).not.toContain('node-24-bench')
   })
+
+  it('saves coverage duration history from the coverage lane', () => {
+    const coverage = workflowJob(loadWorkflow('.github/workflows/ci.yml'), 'node-24-coverage')
+    expect(coverage.steps).toContainEqual(expect.objectContaining({
+      uses: 'actions/cache/save@v6.1.0',
+      with: expect.objectContaining({ path: '.coverage-times.json' }) as object,
+    }))
+  })
+
   it('gives the Wine Host TypeScript compile the repository heap budget', () => {
     const wineGates = readFileSync(resolve(root, 'scripts/wine-windows-gates.sh'), 'utf8')
 
     expect(wineGates).toContain(
-      'wine_node "$scratch/logs/host-tsc.log" --max-old-space-size=4096 "$tsc_js" -b tsconfig.host.json --pretty false',
+      'wine_node "$scratch/logs/host-tsc.log" --max-old-space-size=8192 "$tsc_js" -p tsconfig.host.json --pretty false',
     )
   })
 
@@ -242,6 +267,7 @@ describe('CI workflow', () => {
     expect(workflow.on).toHaveProperty('push')
     expect(JSON.stringify(workflow)).not.toMatch(/DEEPSEEK_API_KEY|self-hosted|dsh-ubuntu|dsh-windows/)
   })
+
   it('redirects the Node compile cache to the data-volume runner temp before the first pnpm call', () => {
     const prWorkflow = loadWorkflow('.github/workflows/ci.yml')
     const redirectLanes = [
@@ -451,7 +477,7 @@ describe('Python release workflows', () => {
     expect(manylinuxAddon).toMatchObject({ if: "runner.os == 'Linux'" })
     expect(JSON.stringify(manylinuxAddon)).toContain('manylinux_2_28_x86_64')
     expect(JSON.stringify(manylinuxAddon)).toContain('manylinux_2_28_aarch64')
-    expect(JSON.stringify(manylinuxAddon)).toContain('npm_config_build_from_source=true pnpm run install')
+    expect(JSON.stringify(manylinuxAddon)).toContain('npm_config_build_from_source=true pnpm --config.verifyDepsBeforeRun=false run install')
     expect(JSON.stringify(manylinuxAddon)).toContain('pnpm_setup_root')
     expect(JSON.stringify(manylinuxAddon)).toContain('$pnpm_setup_root:$pnpm_setup_root:ro')
     expect(JSON.stringify(manylinuxAddon)).toContain('node-pty-glibc-versions.txt')
@@ -553,6 +579,7 @@ describe('Weighted approval workflow', () => {
     expect(review.types).toEqual(['submitted', 'edited', 'dismissed'])
     expect(reviewEvent.permissions).toEqual({})
     expect(publisher.permissions).toEqual({
+      checks: 'write',
       contents: 'read',
       'pull-requests': 'write',
       statuses: 'write',
@@ -615,7 +642,7 @@ describe('Weighted approval workflow', () => {
     expect(record?.run).toBe("echo 'Recorded a weighted approval review event.'")
     expect(recordSteps).toHaveLength(1)
     expect(JSON.stringify(publisher)).not.toContain('github.event.pull_request.head')
-    expect(JSON.stringify(publisher)).not.toContain('secrets.')
+    expect(JSON.stringify(publisher).match(/secrets\.[A-Za-z0-9_]+/gu)).toEqual(['secrets.DSH_APPROVAL_APP_PRIVATE_KEY'])
     expect(JSON.stringify(reviewEvent)).not.toContain('github.token')
     expect(JSON.stringify(reviewEvent)).not.toContain('secrets.')
   })
@@ -653,8 +680,8 @@ describe('npm release workflows', () => {
       isRecord(step) && typeof step.run === 'string' ? [step.run] : [])
 
     expect(Object.keys(workflow.on).sort()).toEqual(['pull_request', 'push', 'workflow_dispatch'])
-    expect(commands).toContain('pnpm run verify-package-dependencies')
-    expect(commands).toContain('pnpm run verify-npm-install-layout')
+    expect(commands.join('\n')).toContain('pnpm run verify-package-dependencies')
+    expect(commands.join('\n')).toContain('pnpm run verify-npm-install-layout')
   })
 })
 

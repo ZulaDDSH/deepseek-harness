@@ -2,29 +2,32 @@
 import { act, cleanup, createEvent, fireEvent, render, screen } from '@testing-library/react'
 import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
-import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import {
+  allowAllAccess, bindSnapshotSelector, contextMenuHook, makeTranslate,
+} from '@deepseek-ai/dsh-client-test-runtime'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { createWorkspaceShortcutControls } from '../src/client/shortcuts.ts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { WorkspaceBrowserProps } from '../src/client/contract/slots.ts'
 import { zh } from '../src/client/locales.ts'
-import type { RowRenderSlots } from '../src/client/rows/Rows.tsx'
 import { ActivityList } from '../src/client/rows/ActivityList.tsx'
-import { FlatList, type FlatListProps } from '../src/client/rows/FlatList.tsx'
-import { SessionTree } from '../src/client/rows/SessionTree.tsx'
-import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
-import type { ShortcutCommandId } from '@deepseek-ai/dsh-client-shortcuts/client'
-import { FLAT_SESSION_ORDER_KEY } from '../src/client/stores.ts'
-import type { SessionRowState } from '../src/client/tree.ts'
+import { WorkspaceBrowser } from '../src/client/rows/WorkspaceBrowser.tsx'
+import type { RowRenderSlots } from '../src/client/rows/Rows.tsx'
+import { createWorkspaceViewStore, FLAT_SESSION_ORDER_KEY } from '../src/client/stores.ts'
 
 afterEach(cleanup)
 
 const sid = (value: string): SessionId => value as SessionId
-const t: FlatListProps['t'] = makeTranslate(zh, commonZh)
+const t: WorkspaceBrowserProps['t'] = makeTranslate(zh, commonZh)
 const usePanelInfo: GlobalStandardProps['usePanelInfo'] = selector => selector({ activePanelId: null })
-const useSessionStatus: FlatListProps['useSessionStatus'] = selector => selector(new Map())
+const useResource = (() => ({ status: 'none' as const, value: undefined, failure: undefined, reload: () => {} })) as GlobalStandardProps['useResource']
+const useSessionStatus = (selector: (state: Map<never, never>) => unknown) => selector(new Map<never, never>())
 const renderSlot: RowRenderSlots = () => null
-const rowState: SessionRowState = { pinnedSessionIds: [], archivedSessionIds: [], archivedFilter: 'default' }
+const hook = <T,>(snapshot: T) => function select<S>(selector: (state: T) => S): S { return selector(snapshot) }
+const idle = { workspaces: {}, sections: {}, sessions: {} }
 
 function summary(id: string, overrides: Partial<SessionSummary> = {}): SessionSummary {
   return { id: sid(id), title: id, displayTitle: id, running: false, blank: false, updatedAt: 1, retainedBy: {}, ...overrides }
@@ -37,40 +40,12 @@ function sessionList(...rows: SessionSummary[]): SessionListState {
   }
 }
 
-function flatProps(overrides: Partial<FlatListProps> = {}): FlatListProps {
+function workspace(id: string, sessionIds: readonly string[]): WorkspaceView {
   return {
-    list: sessionList(), sessionIds: [], rowState, onLeaveArchivedOnly: vi.fn(), appearanceBySession: {},
-    onSessionAppearanceChange: vi.fn(), useSessionStatus, open: vi.fn(), onSessionRenameRequest: vi.fn(),
-    renderSlot, usePanelInfo, setSessionOrder: vi.fn(), workspaceReady: true, animationResetKey: 'flat',
-    onSessionRevealed: vi.fn(), t, ...overrides,
+    workspaceId: id as WorkspaceView['workspaceId'], title: id, path: `/work/${id}`,
+    sessionIds: sessionIds.map(sid), createdAt: '', updatedAt: '',
   }
 }
-
-it('keeps a revealed chat beyond the collapsed limit visible across Host list refreshes', () => {
-  Element.prototype.scrollIntoView = vi.fn()
-  const rows = Array.from({ length: 8 }, (_, index) => summary(`chat-${String(index)}`))
-  const onSessionRevealed = vi.fn()
-  const props: Parameters<typeof SessionTree>[0] = {
-    list: sessionList(...rows), workspaces: [{ workspaceId: 'workspace' as WorkspaceId, title: 'Project', path: '/work',
-      sessionIds: rows.map(row => row.id), createdAt: '', updatedAt: '' }],
-    shortcuts: [{ id: 'session.new' as ShortcutCommandId, label: 'New', aliases: [], binding: null, keys: ['Ctrl', 'N'],
-      aria: 'Control+N', modified: true, conflicts: [], issue: null }],
-    appearanceByWorkspace: {}, appearanceBySession: {}, ungroupedSessionIds: [], rowState,
-    workspaceReady: true, animationResetKey: 'tree', nestWorkspaces: false, groupExpansion: { workspace: true },
-    usePanelInfo, useSessionStatus, renderSlot, startSession: vi.fn(), open: vi.fn(), insertWorkspaceBefore: vi.fn(async () => {}),
-    setGroupExpanded: vi.fn(), setSessionOrder: vi.fn(), onLeaveArchivedOnly: vi.fn(),
-    onRenameRequest: vi.fn(), onDeleteRequest: vi.fn(), onAppearanceRequest: vi.fn(), onAppearanceChange: vi.fn(),
-    onSessionAppearanceChange: vi.fn(), onSessionRenameRequest: vi.fn(), revealSessionId: sid('chat-7'), onSessionRevealed,
-    sections: [], assignSession: vi.fn(), onChatDragStart: vi.fn(), onChatDragEnd: vi.fn(), t,
-  }
-  const view = render(<SessionTree {...props} />)
-  expect(screen.getByText('chat-7')).toBeTruthy()
-  expect(screen.getByRole('button', { name: '在“Project”中新建会话' }).getAttribute('aria-keyshortcuts')).toBe('Control+N')
-  expect(onSessionRevealed).toHaveBeenCalledWith(sid('chat-7'))
-  view.rerender(<SessionTree {...props} list={sessionList(...rows)} />)
-  expect(screen.getByText('chat-7')).toBeTruthy()
-  expect(onSessionRevealed).toHaveBeenCalledWith(sid('chat-7'))
-})
 
 function fireDrag(row: HTMLElement, kind: 'dragOver' | 'drop', clientY = 0): void {
   const event = kind === 'dragOver' ? createEvent.dragOver(row) : createEvent.drop(row)
@@ -83,62 +58,121 @@ function dragData(): Pick<DataTransfer, 'effectAllowed' | 'dropEffect' | 'setDat
   return { effectAllowed: 'uninitialized', dropEffect: 'none', setData: vi.fn() }
 }
 
+const renderDirectoryFlowOnly: WorkspaceBrowserProps['renderSlot'] = (name: string, owner: object) =>
+  name === 'sidebar.workspaces.directoryFlow' && (owner as { open: boolean }).open
+    ? <div data-testid="directory-flow" />
+    : null
+
+function mountBrowser(
+  overrides: Partial<WorkspaceBrowserProps> = {},
+  store = createWorkspaceViewStore().create(),
+) {
+  const controls = createWorkspaceShortcutControls()
+  const props: WorkspaceBrowserProps = {
+    ...allowAllAccess,
+    wide: true,
+    expandSidebar: vi.fn(),
+    usePanelInfo,
+    useSessions: hook(sessionList()),
+    useSessionStatus: useSessionStatus as WorkspaceBrowserProps['useSessionStatus'],
+    useSessionRetainInfo: () => undefined,
+    useResource,
+    useWorkspaces: hook({ items: [], archivedSessionIds: [], pinnedSessionIds: [], state: 'idle', phase: 'ready', error: null }),
+    useStore: bindSnapshotSelector(store),
+    useAppearance: hook(idle),
+    useWorkspaceActionRequest: hook(null),
+    useSectionActionRequest: hook(null),
+    useShortcuts: select => select([]),
+    useWorkspaceShortcuts: bindSnapshotSelector(controls.state),
+    useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => true, subscribe: () => () => {} }),
+    useHostInfo: selector => selector({ home: undefined, isLoopback: true }),
+    useContextMenu: contextMenuHook(),
+    useContextMenuTarget: select => select(null),
+    actions: store.actions,
+    startSession: vi.fn(),
+    open: vi.fn(),
+    requestSearch: controls.search,
+    requestAddWorkspace: controls.add,
+    closeAddWorkspace: controls.closeAdd,
+    setDirectoryBusy: controls.directoryBusy,
+    requestSessionRename: controls.rename,
+    notifyArchivedNotOpenable: vi.fn(),
+    renameWorkspace: vi.fn(async () => {}),
+    deleteWorkspace: vi.fn(async () => {}),
+    settleWorkspaceAction: vi.fn(),
+    settleSectionAction: vi.fn(),
+    openWorkspaceMenu: vi.fn(),
+    openSessionMenu: vi.fn(),
+    openSectionMenu: vi.fn(),
+    insertWorkspaceBefore: vi.fn(async () => {}),
+    unarchiveSession: vi.fn(async () => {}),
+    createWorkspace: vi.fn(async () => workspace('created', [])),
+    newSectionId: () => 'section-1',
+    searchSessions: vi.fn(async () => ({ items: [], hasMore: false })),
+    searchResultLimit: 20,
+    renderSlot: renderDirectoryFlowOnly,
+    t,
+    ...overrides,
+  }
+  return { ...render(<WorkspaceBrowser {...props} />), props, store }
+}
+
+it('keeps a revealed chat beyond the collapsed limit visible across Host list refreshes', () => {
+  Element.prototype.scrollIntoView = vi.fn()
+  const rows = Array.from({ length: 8 }, (_, index) => summary(`chat-${String(index)}`))
+  const ids = rows.map(row => row.id)
+  const view = mountBrowser({
+    useSessions: hook(sessionList(...rows)),
+    useWorkspaces: hook({
+      items: [workspace('workspace', ids)], archivedSessionIds: [], pinnedSessionIds: [],
+      state: 'idle', phase: 'ready', error: null,
+    }),
+  })
+  fireEvent.change(screen.getByPlaceholderText('搜索会话名称'), { target: { value: 'chat-7' } })
+  fireEvent.click(screen.getByRole('treeitem'))
+  expect(screen.getByText('chat-7')).toBeTruthy()
+  view.rerender(<WorkspaceBrowser {...view.props} useSessions={hook(sessionList(...rows))} />)
+  expect(screen.getByText('chat-7')).toBeTruthy()
+})
+
 describe('ActivityList row actions', () => {
-  it('forwards appearance choices from an activity row menu', () => {
-    const onAppearance = vi.fn()
+  it('opens the registry Session menu for the captured activity row', () => {
+    const openSessionMenu = vi.fn()
     const sessions = sessionList(summary('job', { running: true }))
     render(<ActivityList
-      list={sessions} sessionIds={sessions.ids} rowState={rowState} appearanceBySession={{}}
-      onSessionAppearanceChange={onAppearance} useSessionStatus={useSessionStatus} usePanelInfo={usePanelInfo}
-      open={vi.fn()} onSessionRenameRequest={vi.fn()} renderSlot={renderSlot} t={t}
+      list={sessions} sessionIds={sessions.ids} rowState={{ pinnedSessionIds: [], archivedSessionIds: [], archivedFilter: 'default' }}
+      appearanceBySession={{}} openSessionMenu={openSessionMenu} useContextMenu={contextMenuHook()}
+      useContextMenuTarget={select => select(null)} useSessionAccess={allowAllAccess.useSessionAccess}
+      useSessionStatus={useSessionStatus as never} usePanelInfo={usePanelInfo} open={vi.fn()}
+      onSessionRenameRequest={vi.fn()} renderSlot={renderSlot} t={t}
     />)
 
-    const actions = screen.getByRole('button', { name: '会话“job”的操作' })
-    fireEvent.click(actions)
-    fireEvent.click(screen.getByRole('menuitem', { name: '颜色' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '蓝色' }))
-    fireEvent.click(actions)
-    fireEvent.click(screen.getByRole('menuitem', { name: '图标' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '终端' }))
-
-    expect(onAppearance).toHaveBeenNthCalledWith(1, sid('job'), { color: 'blue' })
-    expect(onAppearance).toHaveBeenNthCalledWith(2, sid('job'), { icon: 'terminal' })
+    fireEvent.click(screen.getByRole('button', { name: '会话“job”的操作' }))
+    expect(openSessionMenu).toHaveBeenCalledWith(sid('job'), 'job', { x: 0, y: 0 }, 'toggle')
   })
 })
 
-describe('FlatList row events', () => {
-  it('forwards appearance choices and suppresses main-view selection in a panel', () => {
+describe('flat list rows', () => {
+  it('suppresses main-view selection while a panel is active and restores it afterwards', () => {
+    const store = createWorkspaceViewStore().create()
+    store.actions.setGroupBy('flat')
     const session = summary('job', { retainedBy: { mainView: 1 } })
-    const sessions = sessionList(session)
-    const onAppearance = vi.fn()
-    const props = flatProps({
-      list: sessions, sessionIds: sessions.ids,
-      onSessionAppearanceChange: onAppearance,
+    const view = mountBrowser({
+      useSessions: hook(sessionList(session)),
       usePanelInfo: selector => selector({ activePanelId: 'settings' as MainPanelId }),
-    })
-    const view = render(<FlatList {...props} />)
-    const row = screen.getByRole('treeitem', { name: /job/ })
-    expect(row.getAttribute('aria-selected')).toBe('false')
-
-    const actions = screen.getByRole('button', { name: '会话“job”的操作' })
-    fireEvent.click(actions)
-    fireEvent.click(screen.getByRole('menuitem', { name: '颜色' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '紫色' }))
-    fireEvent.click(actions)
-    fireEvent.click(screen.getByRole('menuitem', { name: '图标' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '火箭' }))
-
-    expect(onAppearance).toHaveBeenNthCalledWith(1, session.id, { color: 'purple' })
-    expect(onAppearance).toHaveBeenNthCalledWith(2, session.id, { icon: 'rocket' })
-    view.rerender(<FlatList {...props} usePanelInfo={usePanelInfo} />)
+    }, store)
+    expect(screen.getByRole('treeitem', { name: /job/ }).getAttribute('aria-selected')).toBe('false')
+    view.rerender(<WorkspaceBrowser {...view.props} usePanelInfo={usePanelInfo} />)
     expect(screen.getByRole('treeitem', { name: /job/ }).getAttribute('aria-selected')).toBe('true')
   })
 
   it('commits a reorder on drag end and ignores the following drag end after a drop', () => {
-    const sessions = sessionList(summary('one'), summary('two'), summary('three'))
-    const setSessionOrder = vi.fn()
-    const props = flatProps({ list: sessions, sessionIds: sessions.ids, setSessionOrder })
-    render(<FlatList {...props} />)
+    const store = createWorkspaceViewStore().create()
+    store.actions.setGroupBy('flat')
+    store.actions.setOrderBy('manual', {})
+    const sessions = sessionList(summary('one', { updatedAt: 3 }), summary('two', { updatedAt: 2 }), summary('three', { updatedAt: 1 }))
+    const setSessionOrder = vi.fn(store.actions.setSessionOrder)
+    mountBrowser({ useSessions: hook(sessions), actions: { ...store.actions, setSessionOrder } }, store)
     const source = screen.getByText('one').closest('[role="treeitem"]') as HTMLElement
     const target = screen.getByText('three').closest('[role="treeitem"]') as HTMLElement
     target.getBoundingClientRect = () => ({
@@ -148,35 +182,39 @@ describe('FlatList row events', () => {
     fireEvent.dragStart(source, { dataTransfer: dragData() })
     fireDrag(target, 'dragOver', 101)
     fireEvent.dragEnd(source)
-    expect(setSessionOrder).toHaveBeenCalledWith(FLAT_SESSION_ORDER_KEY, ['two', 'one', 'three'])
+    expect(setSessionOrder).toHaveBeenCalledWith(FLAT_SESSION_ORDER_KEY, ['two', 'one', 'three'], expect.anything())
     setSessionOrder.mockClear()
 
     fireEvent.dragStart(source, { dataTransfer: dragData() })
     fireDrag(target, 'dragOver', 139)
     fireEvent.dragEnd(source)
-    expect(setSessionOrder).toHaveBeenCalledWith(FLAT_SESSION_ORDER_KEY, ['two', 'three', 'one'])
+    expect(setSessionOrder).toHaveBeenCalledWith(FLAT_SESSION_ORDER_KEY, ['two', 'three', 'one'], expect.anything())
     setSessionOrder.mockClear()
 
-    fireEvent.dragStart(source, { dataTransfer: dragData() })
-    fireDrag(target, 'dragOver', 139)
+    const first = screen.getByText('two').closest('[role="treeitem"]') as HTMLElement
+    const last = screen.getByText('one').closest('[role="treeitem"]') as HTMLElement
+    last.getBoundingClientRect = () => target.getBoundingClientRect()
+    fireEvent.dragStart(first, { dataTransfer: dragData() })
     act(() => {
-      fireDrag(target, 'drop', 139)
-      fireDrag(target, 'dragOver', 139)
-      fireEvent.dragEnd(source)
+      fireDrag(last, 'drop', 139)
+      fireDrag(last, 'dragOver', 139)
+      fireEvent.dragEnd(first)
     })
     expect(setSessionOrder).toHaveBeenCalledOnce()
+    expect(setSessionOrder).toHaveBeenCalledWith(FLAT_SESSION_ORDER_KEY, ['three', 'one', 'two'], expect.anything())
     const afterDrop = new Event('dragover', { cancelable: true })
     document.dispatchEvent(afterDrop)
     expect(afterDrop.defaultPrevented).toBe(false)
   })
 
   it('normalizes a blank drop target after the blank and leaves a self-drop unchanged', () => {
+    const store = createWorkspaceViewStore().create()
+    store.actions.setGroupBy('flat')
+    store.actions.setOrderBy('manual', {})
     const blank = summary('blank', { blank: true, retainedBy: { mainView: 1 } })
-    const source = summary('source')
-    const target = summary('target')
-    const sessions = sessionList(blank, source, target)
-    const setSessionOrder = vi.fn()
-    render(<FlatList {...flatProps({ list: sessions, sessionIds: sessions.ids, setSessionOrder })} />)
+    const sessions = sessionList(blank, summary('source'), summary('target'))
+    const setSessionOrder = vi.fn(store.actions.setSessionOrder)
+    mountBrowser({ useSessions: hook(sessions), actions: { ...store.actions, setSessionOrder } }, store)
     const sourceRow = screen.getByText('source').closest('[role="treeitem"]') as HTMLElement
     const targetRow = screen.getByText('target').closest('[role="treeitem"]') as HTMLElement
     const blankRow = screen.getByText('新会话').closest('[role="treeitem"]') as HTMLElement
@@ -184,7 +222,7 @@ describe('FlatList row events', () => {
     fireEvent.dragStart(targetRow, { dataTransfer: dragData() })
     fireDrag(blankRow, 'dragOver')
     fireDrag(blankRow, 'drop')
-    expect(setSessionOrder).toHaveBeenCalledWith(FLAT_SESSION_ORDER_KEY, ['blank', 'target', 'source'])
+    expect(setSessionOrder).toHaveBeenCalledWith(FLAT_SESSION_ORDER_KEY, ['blank', 'target', 'source'], expect.anything())
     setSessionOrder.mockClear()
 
     fireEvent.dragStart(sourceRow, { dataTransfer: dragData() })
@@ -193,9 +231,14 @@ describe('FlatList row events', () => {
   })
 
   it('cancels a drag that ends without crossing a row', () => {
-    const sessions = sessionList(summary('one'), summary('two'))
-    const setSessionOrder = vi.fn()
-    render(<FlatList {...flatProps({ list: sessions, sessionIds: sessions.ids, setSessionOrder })} />)
+    const store = createWorkspaceViewStore().create()
+    store.actions.setGroupBy('flat')
+    store.actions.setOrderBy('manual', {})
+    const setSessionOrder = vi.fn(store.actions.setSessionOrder)
+    mountBrowser({
+      useSessions: hook(sessionList(summary('one'), summary('two'))),
+      actions: { ...store.actions, setSessionOrder },
+    }, store)
     const source = screen.getByText('one').closest('[role="treeitem"]') as HTMLElement
     fireEvent.dragStart(source, { dataTransfer: dragData() })
     fireEvent.dragEnd(source)
@@ -203,12 +246,12 @@ describe('FlatList row events', () => {
   })
 
   it('offers to leave an empty archived-only list', () => {
-    const onLeaveArchivedOnly = vi.fn()
-    render(<FlatList {...flatProps({
-      rowState: { ...rowState, archivedFilter: 'only' }, onLeaveArchivedOnly,
-    })} />)
+    const store = createWorkspaceViewStore().create()
+    store.actions.setGroupBy('flat')
+    store.actions.setArchivedFilter('only')
+    mountBrowser({ useSessions: hook(sessionList(summary('active'))) }, store)
     expect(screen.getByText('暂无已归档会话')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '查看其他会话' }))
-    expect(onLeaveArchivedOnly).toHaveBeenCalledOnce()
+    expect(store.getSnapshot().archivedFilter).toBe('default')
   })
 })

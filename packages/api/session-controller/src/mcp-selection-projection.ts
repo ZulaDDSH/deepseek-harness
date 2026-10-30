@@ -32,5 +32,5 @@ const mcpSelectionProjection = {
  * @param ctx - application context that owns the Session projection registry.
  */
 export function installMcpSelectionProjection(ctx: Context): void {
-  ctx.sessionProjections.register(mcpSelectionProjection)
+  void ctx.sessionProjections.register(mcpSelectionProjection)
 }

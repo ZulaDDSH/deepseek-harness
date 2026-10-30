@@ -8,10 +8,11 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
+  - button "More conversation views"
 - text: Inspect the protected operation, but do not run it unless authorized. {{clock}}
 - button "Copy"
-- status: Worked
-- button "Took {{duration}}" [expanded]
+- status: Completed
+- button "Completed in {{duration}}" [expanded]
 - button "Called tools, ran code, ran commands" [expanded]
 - text: Failed
 - button "Tool call Rejected by Auto review"
@@ -20,9 +21,7 @@
 - button "Bash Rejected by Auto review"
 - textbox "Message or run a task, / commands, @ files or sessions"
 - button "Add files or run commands"
-- 'button "Access mode, current: Auto review EXP"':
-  - text: Auto review
-  - superscript: EXP
+- 'button "Access mode, current: Auto review"': Auto review
 - button "Select model, current DeepSeek-V4-Flash": DeepSeek-V4-Flash
 - button "Send message" [disabled]
 - button "1 turns 2 steps"
@@ -37,10 +36,11 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
+  - button "More conversation views"
 - text: Inspect the protected operation, but do not run it unless authorized. {{clock}}
 - button "Copy"
-- status: Worked
-- button "Took {{duration}}" [expanded]
+- status: Completed
+- button "Completed in {{duration}}" [expanded]
 - button "Called tools, ran code, ran commands" [expanded]
 - text: Failed
 - button "Tool call Rejected by Auto review" [expanded]
@@ -53,9 +53,7 @@
 - button "Inspect"
 - textbox "Message or run a task, / commands, @ files or sessions"
 - button "Add files or run commands"
-- 'button "Access mode, current: Auto review EXP"':
-  - text: Auto review
-  - superscript: EXP
+- 'button "Access mode, current: Auto review"': Auto review
 - button "Select model, current DeepSeek-V4-Flash": DeepSeek-V4-Flash
 - button "Send message" [disabled]
 - button "1 turns 2 steps"
@@ -70,10 +68,12 @@
   - tablist:
     - tab "Chat"
     - tab "Trajectory" [selected]
+  - button "More conversation views"
 - toolbar "Trajectory toolbar":
   - button "Use actual duration": Duration
   - button "Collapse turns": Turns
   - button "Collapse calls": Calls
+  - button "Collapse subcalls": Subcalls
   - searchbox "Search trajectory"
 - region "Trajectory timeline"
 - table:
@@ -88,7 +88,7 @@
       - cell "(tool call only)"
     - 'row "TOOL, mystery {\"secret\":\"hidden-input\"}"':
       - cell "TOOL"
-      - 'cell "mystery{\"secret\":\"hidden-input\"} → AUTO_REVIEW_DENIED"'
+      - 'cell "mystery{\"secret\":\"hidden-input\"} → Error: Auto review rejected tool \"mystery\"; its body was not executed"'
     - row "Request 2, ASSISTANT, (tool call only)":
       - 'cell "Request #2 ASSISTANT"':
         - 'button "Request #2"'
@@ -99,7 +99,7 @@
       - cell "run_codeCatch an Auto-denied inner call → denial caught"
     - 'row "SUBTOOL, bash {\"command\":\"echo hidden-input-ptc\"}" [selected]':
       - cell "SUBTOOL"
-      - 'cell "bash{\"command\":\"echo hidden-input-ptc\"} → AUTO_REVIEW_DENIED"'
+      - 'cell "bash{\"command\":\"echo hidden-input-ptc\"} → Error: Auto review rejected tool \"bash\"; its body was not executed"'
 - complementary "Event details":
   - separator "Resize event details"
   - text: SUBTOOL Turn 1 · Step 2
@@ -110,12 +110,16 @@
     - tab "Result" [selected]
     - tab "Schema"
     - tab "Timing"
-  - tabpanel "Result": "AutoReviewDeniedError: AUTO_REVIEW_DENIED Error: Auto review rejected tool \"bash\"; its body was not executed"
+  - tabpanel "Result":
+    - region "Raw result":
+      - heading "Raw result" [level=3]
+      - paragraph: Raw results are only available for live tool calls
+    - region "Rendered result":
+      - heading "Rendered result" [level=3]
+      - text: "Error: Auto review rejected tool \"bash\"; its body was not executed"
 - textbox "Message or run a task, / commands, @ files or sessions"
 - button "Add files or run commands"
-- 'button "Access mode, current: Auto review EXP"':
-  - text: Auto review
-  - superscript: EXP
+- 'button "Access mode, current: Auto review"': Auto review
 - button "Select model, current DeepSeek-V4-Flash": DeepSeek-V4-Flash
 - button "Send message" [disabled]
 - button "1 turns 2 steps"

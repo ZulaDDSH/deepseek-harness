@@ -130,8 +130,9 @@ const todosProjectionSchema: ZodType<TodoItem[] | null> = zod.union([
  * `ctx.sessionProjections`.
  * @param ctx - registrant context carrying the tool and session-projection registries.
  * @param config - deployment's explicit todo policy.
+ * @returns when the plugin is ready.
  */
-export function apply(ctx: Context, config: Config): void {
+export async function apply(ctx: Context, config: Config): Promise<void> {
   ctx.inject(['commands'], (scope) => {
     scope.commands.register({
       name: 'cancel-todos',
@@ -151,7 +152,7 @@ export function apply(ctx: Context, config: Config): void {
     }
     const calls = (callsSinceWrite.get(exec.agent) ?? 0) + 1
     callsSinceWrite.set(exec.agent, calls)
-    const todos = ctx.sessionProjections.stateOf(exec.agent.session, 'todos')
+    const todos = ctx.sessionProjections.snapshot(exec.agent.session, ['todos']).values.todos
     if (calls % STALE_AFTER_CALLS !== 0 || !todos?.some(item => item.status !== 'completed')) return downstream
     const reminder = createUserMessage({
       content: [{ type: 'text', text: STALE_REMINDER }],
@@ -163,7 +164,7 @@ export function apply(ctx: Context, config: Config): void {
   // turn/start (turn/end keeps the finished checklist visible); null before the
   // first write or after a later turn begins; every other event returns the
   // same state reference.
-  ctx.sessionProjections.register<'todos', TodoItem[] | null>({
+  await ctx.sessionProjections.register<'todos', TodoItem[] | null>({
     key: 'todos',
     stateSchema: todosProjectionSchema,
     init: () => null,
@@ -172,7 +173,7 @@ export function apply(ctx: Context, config: Config): void {
       if (event.type === 'turn/start') return null
       return state
     },
-    wire: { viewSchema: todosProjectionSchema, view: state => state },
+    wire: { viewSchema: todosProjectionSchema, view: state => state, summary: false },
     stateVersion: 2,
   })
   ctx.tools.register(defineTool({

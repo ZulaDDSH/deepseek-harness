@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-tool-watch",
   "description": "Model-facing watch tool: host-side polling of a shell command until an external condition holds, then a wake for the owning agent",
-  "version": "0.2.0-rc.1",
+  "version": "0.2.2-alpha.2",
   "publishConfig": {
     "access": "public"
   },

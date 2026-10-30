@@ -46,6 +46,7 @@ export async function buildModelCatalog(
           ...(model.description === undefined ? {} : { description: model.description }),
           ...(reasoning === undefined ? {} : { reasoning }),
           ...(ultracodeSupported(model.id) ? { ultracode: true } : {}),
+          ...(model.badge === undefined ? {} : { badge: model.badge }),
         }
       }))
       return {

@@ -43,9 +43,11 @@ function fixture(nodes: readonly ConversationNode[], { running = false, draft = 
   const setDraft = vi.fn()
   const submit = vi.fn()
   const inputActions: InputActions = {
+    insertQuote: unused,
     captureInsertion: unused,
     insertText: unused,
     setDraft,
+    persistDraft: unused,
     addAttachments: unused,
     removeAttachment: unused,
     pruneAttachments: unused,
@@ -90,7 +92,7 @@ function maxTokensProps(f: Fixture): MaxTokensProps {
 
 describe('turn-error copy', () => {
   it.each([
-    ['AUTH', 'The provider rejected the credentials.'],
+    ['AUTH', 'API key is invalid'],
     ['MISSING_CREDENTIAL', 'No credential is configured for this provider. Add one in Settings.'],
     ['INVALID_CREDENTIAL', 'The stored credential for this provider is malformed. Update it in Settings.'],
     ['RATE_LIMIT', 'The provider is limiting the request rate. Wait a moment, then retry.'],

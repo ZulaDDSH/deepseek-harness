@@ -1,0 +1,1478 @@
+{
+ "ja": [
+  {
+   "key": "option.deepseekV4Flash.description",
+   "up": null
+  },
+  {
+   "key": "option.deepseekV4Pro.description",
+   "up": null
+  },
+  {
+   "key": "routing.button",
+   "up": null
+  },
+  {
+   "key": "routing.buttonRouted",
+   "up": null
+  },
+  {
+   "key": "routing.open",
+   "up": null
+  },
+  {
+   "key": "routing.title",
+   "up": null
+  },
+  {
+   "key": "routing.intro",
+   "up": null
+  },
+  {
+   "key": "routing.off",
+   "up": null
+  },
+  {
+   "key": "routing.running",
+   "up": null
+  },
+  {
+   "key": "routing.selected",
+   "up": null
+  },
+  {
+   "key": "routing.decision",
+   "up": null
+  },
+  {
+   "key": "routing.unknown",
+   "up": null
+  },
+  {
+   "key": "routing.none",
+   "up": null
+  },
+  {
+   "key": "routing.failed",
+   "up": null
+  },
+  {
+   "key": "routing.rejected",
+   "up": null
+  },
+  {
+   "key": "routing.failedLegacy",
+   "up": null
+  },
+  {
+   "key": "routing.routed",
+   "up": null
+  },
+  {
+   "key": "routing.fallback",
+   "up": null
+  },
+  {
+   "key": "routing.fallbackUnnamed",
+   "up": null
+  },
+  {
+   "key": "routing.legacy",
+   "up": null
+  },
+  {
+   "key": "routing.legacyUnnamed",
+   "up": null
+  },
+  {
+   "key": "routing.kept",
+   "up": null
+  },
+  {
+   "key": "routing.unsure",
+   "up": null
+  },
+  {
+   "key": "filter.all",
+   "up": null
+  },
+  {
+   "key": "filter.aria",
+   "up": null
+  },
+  {
+   "key": "menu.saved",
+   "up": null
+  },
+  {
+   "key": "runOptions.title",
+   "up": null
+  },
+  {
+   "key": "runOptions.fastMode",
+   "up": null
+  },
+  {
+   "key": "runOptions.fastModeCaption",
+   "up": null
+  },
+  {
+   "key": "runOptions.ultracode",
+   "up": null
+  },
+  {
+   "key": "runOptions.ultracodeCaption",
+   "up": null
+  },
+  {
+   "key": "runOptions.effort",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortDefault",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortLow",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortMedium",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortHigh",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortXhigh",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortMax",
+   "up": null
+  },
+  {
+   "key": "trigger.fast",
+   "up": null
+  },
+  {
+   "key": "trigger.ultracode",
+   "up": null
+  },
+  {
+   "key": "trigger.ultracodeEffort",
+   "up": null
+  },
+  {
+   "key": "trigger.ariaUnavailable",
+   "up": null
+  },
+  {
+   "key": "trigger.unavailableHint",
+   "up": null
+  },
+  {
+   "key": "trigger.unavailableModelHint",
+   "up": null
+  },
+  {
+   "key": "current.title",
+   "up": null
+  },
+  {
+   "key": "current.unavailable",
+   "up": null
+  },
+  {
+   "key": "trigger.ariaRunOptions",
+   "up": null
+  },
+  {
+   "key": "favorites.title",
+   "up": null
+  },
+  {
+   "key": "favorite.add",
+   "up": null
+  },
+  {
+   "key": "favorite.remove",
+   "up": null
+  },
+  {
+   "key": "cli.group",
+   "up": null
+  },
+  {
+   "key": "cli.gemini-cli.label",
+   "up": null
+  },
+  {
+   "key": "cli.gemini-cli.note",
+   "up": null
+  },
+  {
+   "key": "cli.grok-cli.label",
+   "up": null
+  },
+  {
+   "key": "cli.grok-cli.note",
+   "up": null
+  },
+  {
+   "key": "cli.cursor-cli.label",
+   "up": null
+  },
+  {
+   "key": "cli.cursor-cli.note",
+   "up": null
+  },
+  {
+   "key": "cli.notInstalled",
+   "up": null
+  },
+  {
+   "key": "empty.effortsUnavailable",
+   "up": null
+  },
+  {
+   "key": "subagentSetup.notice",
+   "up": null
+  },
+  {
+   "key": "subagentSetup.open",
+   "up": null
+  }
+ ],
+ "es": [
+  {
+   "key": "option.deepseekV4Flash.description",
+   "up": null
+  },
+  {
+   "key": "option.deepseekV4Pro.description",
+   "up": null
+  },
+  {
+   "key": "routing.button",
+   "up": null
+  },
+  {
+   "key": "routing.buttonRouted",
+   "up": null
+  },
+  {
+   "key": "routing.open",
+   "up": null
+  },
+  {
+   "key": "routing.title",
+   "up": null
+  },
+  {
+   "key": "routing.intro",
+   "up": null
+  },
+  {
+   "key": "routing.off",
+   "up": null
+  },
+  {
+   "key": "routing.running",
+   "up": null
+  },
+  {
+   "key": "routing.selected",
+   "up": null
+  },
+  {
+   "key": "routing.decision",
+   "up": null
+  },
+  {
+   "key": "routing.unknown",
+   "up": null
+  },
+  {
+   "key": "routing.none",
+   "up": null
+  },
+  {
+   "key": "routing.failed",
+   "up": null
+  },
+  {
+   "key": "routing.rejected",
+   "up": null
+  },
+  {
+   "key": "routing.failedLegacy",
+   "up": null
+  },
+  {
+   "key": "routing.routed",
+   "up": null
+  },
+  {
+   "key": "routing.fallback",
+   "up": null
+  },
+  {
+   "key": "routing.fallbackUnnamed",
+   "up": null
+  },
+  {
+   "key": "routing.legacy",
+   "up": null
+  },
+  {
+   "key": "routing.legacyUnnamed",
+   "up": null
+  },
+  {
+   "key": "routing.kept",
+   "up": null
+  },
+  {
+   "key": "routing.unsure",
+   "up": null
+  },
+  {
+   "key": "filter.all",
+   "up": null
+  },
+  {
+   "key": "filter.aria",
+   "up": null
+  },
+  {
+   "key": "menu.saved",
+   "up": null
+  },
+  {
+   "key": "runOptions.title",
+   "up": null
+  },
+  {
+   "key": "runOptions.fastMode",
+   "up": null
+  },
+  {
+   "key": "runOptions.fastModeCaption",
+   "up": null
+  },
+  {
+   "key": "runOptions.ultracode",
+   "up": null
+  },
+  {
+   "key": "runOptions.ultracodeCaption",
+   "up": null
+  },
+  {
+   "key": "runOptions.effort",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortDefault",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortLow",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortMedium",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortHigh",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortXhigh",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortMax",
+   "up": null
+  },
+  {
+   "key": "trigger.fast",
+   "up": null
+  },
+  {
+   "key": "trigger.ultracode",
+   "up": null
+  },
+  {
+   "key": "trigger.ultracodeEffort",
+   "up": null
+  },
+  {
+   "key": "trigger.ariaUnavailable",
+   "up": null
+  },
+  {
+   "key": "trigger.unavailableHint",
+   "up": null
+  },
+  {
+   "key": "trigger.unavailableModelHint",
+   "up": null
+  },
+  {
+   "key": "current.title",
+   "up": null
+  },
+  {
+   "key": "current.unavailable",
+   "up": null
+  },
+  {
+   "key": "trigger.ariaRunOptions",
+   "up": null
+  },
+  {
+   "key": "favorites.title",
+   "up": null
+  },
+  {
+   "key": "favorite.add",
+   "up": null
+  },
+  {
+   "key": "favorite.remove",
+   "up": null
+  },
+  {
+   "key": "cli.group",
+   "up": null
+  },
+  {
+   "key": "cli.gemini-cli.label",
+   "up": null
+  },
+  {
+   "key": "cli.gemini-cli.note",
+   "up": null
+  },
+  {
+   "key": "cli.grok-cli.label",
+   "up": null
+  },
+  {
+   "key": "cli.grok-cli.note",
+   "up": null
+  },
+  {
+   "key": "cli.cursor-cli.label",
+   "up": null
+  },
+  {
+   "key": "cli.cursor-cli.note",
+   "up": null
+  },
+  {
+   "key": "cli.notInstalled",
+   "up": null
+  },
+  {
+   "key": "empty.effortsUnavailable",
+   "up": null
+  },
+  {
+   "key": "subagentSetup.notice",
+   "up": null
+  },
+  {
+   "key": "subagentSetup.open",
+   "up": null
+  }
+ ],
+ "fr": [
+  {
+   "key": "option.deepseekV4Flash.description",
+   "up": null
+  },
+  {
+   "key": "option.deepseekV4Pro.description",
+   "up": null
+  },
+  {
+   "key": "routing.button",
+   "up": null
+  },
+  {
+   "key": "routing.buttonRouted",
+   "up": null
+  },
+  {
+   "key": "routing.open",
+   "up": null
+  },
+  {
+   "key": "routing.title",
+   "up": null
+  },
+  {
+   "key": "routing.intro",
+   "up": null
+  },
+  {
+   "key": "routing.off",
+   "up": null
+  },
+  {
+   "key": "routing.running",
+   "up": null
+  },
+  {
+   "key": "routing.selected",
+   "up": null
+  },
+  {
+   "key": "routing.decision",
+   "up": null
+  },
+  {
+   "key": "routing.unknown",
+   "up": null
+  },
+  {
+   "key": "routing.none",
+   "up": null
+  },
+  {
+   "key": "routing.failed",
+   "up": null
+  },
+  {
+   "key": "routing.rejected",
+   "up": null
+  },
+  {
+   "key": "routing.failedLegacy",
+   "up": null
+  },
+  {
+   "key": "routing.routed",
+   "up": null
+  },
+  {
+   "key": "routing.fallback",
+   "up": null
+  },
+  {
+   "key": "routing.fallbackUnnamed",
+   "up": null
+  },
+  {
+   "key": "routing.legacy",
+   "up": null
+  },
+  {
+   "key": "routing.legacyUnnamed",
+   "up": null
+  },
+  {
+   "key": "routing.kept",
+   "up": null
+  },
+  {
+   "key": "routing.unsure",
+   "up": null
+  },
+  {
+   "key": "filter.all",
+   "up": null
+  },
+  {
+   "key": "filter.aria",
+   "up": null
+  },
+  {
+   "key": "menu.saved",
+   "up": null
+  },
+  {
+   "key": "runOptions.title",
+   "up": null
+  },
+  {
+   "key": "runOptions.fastMode",
+   "up": null
+  },
+  {
+   "key": "runOptions.fastModeCaption",
+   "up": null
+  },
+  {
+   "key": "runOptions.ultracode",
+   "up": null
+  },
+  {
+   "key": "runOptions.ultracodeCaption",
+   "up": null
+  },
+  {
+   "key": "runOptions.effort",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortDefault",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortLow",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortMedium",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortHigh",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortXhigh",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortMax",
+   "up": null
+  },
+  {
+   "key": "trigger.fast",
+   "up": null
+  },
+  {
+   "key": "trigger.ultracode",
+   "up": null
+  },
+  {
+   "key": "trigger.ultracodeEffort",
+   "up": null
+  },
+  {
+   "key": "trigger.ariaUnavailable",
+   "up": null
+  },
+  {
+   "key": "trigger.unavailableHint",
+   "up": null
+  },
+  {
+   "key": "trigger.unavailableModelHint",
+   "up": null
+  },
+  {
+   "key": "current.title",
+   "up": null
+  },
+  {
+   "key": "current.unavailable",
+   "up": null
+  },
+  {
+   "key": "trigger.ariaRunOptions",
+   "up": null
+  },
+  {
+   "key": "favorites.title",
+   "up": null
+  },
+  {
+   "key": "favorite.add",
+   "up": null
+  },
+  {
+   "key": "favorite.remove",
+   "up": null
+  },
+  {
+   "key": "cli.group",
+   "up": null
+  },
+  {
+   "key": "cli.gemini-cli.label",
+   "up": null
+  },
+  {
+   "key": "cli.gemini-cli.note",
+   "up": null
+  },
+  {
+   "key": "cli.grok-cli.label",
+   "up": null
+  },
+  {
+   "key": "cli.grok-cli.note",
+   "up": null
+  },
+  {
+   "key": "cli.cursor-cli.label",
+   "up": null
+  },
+  {
+   "key": "cli.cursor-cli.note",
+   "up": null
+  },
+  {
+   "key": "cli.notInstalled",
+   "up": null
+  },
+  {
+   "key": "empty.effortsUnavailable",
+   "up": null
+  },
+  {
+   "key": "subagentSetup.notice",
+   "up": null
+  },
+  {
+   "key": "subagentSetup.open",
+   "up": null
+  }
+ ],
+ "de": [
+  {
+   "key": "option.deepseekV4Flash.description",
+   "up": null
+  },
+  {
+   "key": "option.deepseekV4Pro.description",
+   "up": null
+  },
+  {
+   "key": "routing.button",
+   "up": null
+  },
+  {
+   "key": "routing.buttonRouted",
+   "up": null
+  },
+  {
+   "key": "routing.open",
+   "up": null
+  },
+  {
+   "key": "routing.title",
+   "up": null
+  },
+  {
+   "key": "routing.intro",
+   "up": null
+  },
+  {
+   "key": "routing.off",
+   "up": null
+  },
+  {
+   "key": "routing.running",
+   "up": null
+  },
+  {
+   "key": "routing.selected",
+   "up": null
+  },
+  {
+   "key": "routing.decision",
+   "up": null
+  },
+  {
+   "key": "routing.unknown",
+   "up": null
+  },
+  {
+   "key": "routing.none",
+   "up": null
+  },
+  {
+   "key": "routing.failed",
+   "up": null
+  },
+  {
+   "key": "routing.rejected",
+   "up": null
+  },
+  {
+   "key": "routing.failedLegacy",
+   "up": null
+  },
+  {
+   "key": "routing.routed",
+   "up": null
+  },
+  {
+   "key": "routing.fallback",
+   "up": null
+  },
+  {
+   "key": "routing.fallbackUnnamed",
+   "up": null
+  },
+  {
+   "key": "routing.legacy",
+   "up": null
+  },
+  {
+   "key": "routing.legacyUnnamed",
+   "up": null
+  },
+  {
+   "key": "routing.kept",
+   "up": null
+  },
+  {
+   "key": "routing.unsure",
+   "up": null
+  },
+  {
+   "key": "filter.all",
+   "up": null
+  },
+  {
+   "key": "filter.aria",
+   "up": null
+  },
+  {
+   "key": "menu.saved",
+   "up": null
+  },
+  {
+   "key": "runOptions.title",
+   "up": null
+  },
+  {
+   "key": "runOptions.fastMode",
+   "up": null
+  },
+  {
+   "key": "runOptions.fastModeCaption",
+   "up": null
+  },
+  {
+   "key": "runOptions.ultracode",
+   "up": null
+  },
+  {
+   "key": "runOptions.ultracodeCaption",
+   "up": null
+  },
+  {
+   "key": "runOptions.effort",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortDefault",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortLow",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortMedium",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortHigh",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortXhigh",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortMax",
+   "up": null
+  },
+  {
+   "key": "trigger.fast",
+   "up": null
+  },
+  {
+   "key": "trigger.ultracode",
+   "up": null
+  },
+  {
+   "key": "trigger.ultracodeEffort",
+   "up": null
+  },
+  {
+   "key": "trigger.ariaUnavailable",
+   "up": null
+  },
+  {
+   "key": "trigger.unavailableHint",
+   "up": null
+  },
+  {
+   "key": "trigger.unavailableModelHint",
+   "up": null
+  },
+  {
+   "key": "current.title",
+   "up": null
+  },
+  {
+   "key": "current.unavailable",
+   "up": null
+  },
+  {
+   "key": "trigger.ariaRunOptions",
+   "up": null
+  },
+  {
+   "key": "favorites.title",
+   "up": null
+  },
+  {
+   "key": "favorite.add",
+   "up": null
+  },
+  {
+   "key": "favorite.remove",
+   "up": null
+  },
+  {
+   "key": "cli.group",
+   "up": null
+  },
+  {
+   "key": "cli.gemini-cli.label",
+   "up": null
+  },
+  {
+   "key": "cli.gemini-cli.note",
+   "up": null
+  },
+  {
+   "key": "cli.grok-cli.label",
+   "up": null
+  },
+  {
+   "key": "cli.grok-cli.note",
+   "up": null
+  },
+  {
+   "key": "cli.cursor-cli.label",
+   "up": null
+  },
+  {
+   "key": "cli.cursor-cli.note",
+   "up": null
+  },
+  {
+   "key": "cli.notInstalled",
+   "up": null
+  },
+  {
+   "key": "empty.effortsUnavailable",
+   "up": null
+  },
+  {
+   "key": "subagentSetup.notice",
+   "up": null
+  },
+  {
+   "key": "subagentSetup.open",
+   "up": null
+  }
+ ],
+ "ru": [
+  {
+   "key": "option.deepseekV4Flash.description",
+   "up": null
+  },
+  {
+   "key": "option.deepseekV4Pro.description",
+   "up": null
+  },
+  {
+   "key": "routing.button",
+   "up": null
+  },
+  {
+   "key": "routing.buttonRouted",
+   "up": null
+  },
+  {
+   "key": "routing.open",
+   "up": null
+  },
+  {
+   "key": "routing.title",
+   "up": null
+  },
+  {
+   "key": "routing.intro",
+   "up": null
+  },
+  {
+   "key": "routing.off",
+   "up": null
+  },
+  {
+   "key": "routing.running",
+   "up": null
+  },
+  {
+   "key": "routing.selected",
+   "up": null
+  },
+  {
+   "key": "routing.decision",
+   "up": null
+  },
+  {
+   "key": "routing.unknown",
+   "up": null
+  },
+  {
+   "key": "routing.none",
+   "up": null
+  },
+  {
+   "key": "routing.failed",
+   "up": null
+  },
+  {
+   "key": "routing.rejected",
+   "up": null
+  },
+  {
+   "key": "routing.failedLegacy",
+   "up": null
+  },
+  {
+   "key": "routing.routed",
+   "up": null
+  },
+  {
+   "key": "routing.fallback",
+   "up": null
+  },
+  {
+   "key": "routing.fallbackUnnamed",
+   "up": null
+  },
+  {
+   "key": "routing.legacy",
+   "up": null
+  },
+  {
+   "key": "routing.legacyUnnamed",
+   "up": null
+  },
+  {
+   "key": "routing.kept",
+   "up": null
+  },
+  {
+   "key": "routing.unsure",
+   "up": null
+  },
+  {
+   "key": "filter.all",
+   "up": null
+  },
+  {
+   "key": "filter.aria",
+   "up": null
+  },
+  {
+   "key": "menu.saved",
+   "up": null
+  },
+  {
+   "key": "runOptions.title",
+   "up": null
+  },
+  {
+   "key": "runOptions.fastMode",
+   "up": null
+  },
+  {
+   "key": "runOptions.fastModeCaption",
+   "up": null
+  },
+  {
+   "key": "runOptions.ultracode",
+   "up": null
+  },
+  {
+   "key": "runOptions.ultracodeCaption",
+   "up": null
+  },
+  {
+   "key": "runOptions.effort",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortDefault",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortLow",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortMedium",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortHigh",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortXhigh",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortMax",
+   "up": null
+  },
+  {
+   "key": "trigger.fast",
+   "up": null
+  },
+  {
+   "key": "trigger.ultracode",
+   "up": null
+  },
+  {
+   "key": "trigger.ultracodeEffort",
+   "up": null
+  },
+  {
+   "key": "trigger.ariaUnavailable",
+   "up": null
+  },
+  {
+   "key": "trigger.unavailableHint",
+   "up": null
+  },
+  {
+   "key": "trigger.unavailableModelHint",
+   "up": null
+  },
+  {
+   "key": "current.title",
+   "up": null
+  },
+  {
+   "key": "current.unavailable",
+   "up": null
+  },
+  {
+   "key": "trigger.ariaRunOptions",
+   "up": null
+  },
+  {
+   "key": "favorites.title",
+   "up": null
+  },
+  {
+   "key": "favorite.add",
+   "up": null
+  },
+  {
+   "key": "favorite.remove",
+   "up": null
+  },
+  {
+   "key": "cli.group",
+   "up": null
+  },
+  {
+   "key": "cli.gemini-cli.label",
+   "up": null
+  },
+  {
+   "key": "cli.gemini-cli.note",
+   "up": null
+  },
+  {
+   "key": "cli.grok-cli.label",
+   "up": null
+  },
+  {
+   "key": "cli.grok-cli.note",
+   "up": null
+  },
+  {
+   "key": "cli.cursor-cli.label",
+   "up": null
+  },
+  {
+   "key": "cli.cursor-cli.note",
+   "up": null
+  },
+  {
+   "key": "cli.notInstalled",
+   "up": null
+  },
+  {
+   "key": "empty.effortsUnavailable",
+   "up": null
+  },
+  {
+   "key": "subagentSetup.notice",
+   "up": null
+  },
+  {
+   "key": "subagentSetup.open",
+   "up": null
+  }
+ ],
+ "pt": [
+  {
+   "key": "option.deepseekV4Flash.description",
+   "up": null
+  },
+  {
+   "key": "option.deepseekV4Pro.description",
+   "up": null
+  },
+  {
+   "key": "routing.button",
+   "up": null
+  },
+  {
+   "key": "routing.buttonRouted",
+   "up": null
+  },
+  {
+   "key": "routing.open",
+   "up": null
+  },
+  {
+   "key": "routing.title",
+   "up": null
+  },
+  {
+   "key": "routing.intro",
+   "up": null
+  },
+  {
+   "key": "routing.off",
+   "up": null
+  },
+  {
+   "key": "routing.running",
+   "up": null
+  },
+  {
+   "key": "routing.selected",
+   "up": null
+  },
+  {
+   "key": "routing.decision",
+   "up": null
+  },
+  {
+   "key": "routing.unknown",
+   "up": null
+  },
+  {
+   "key": "routing.none",
+   "up": null
+  },
+  {
+   "key": "routing.failed",
+   "up": null
+  },
+  {
+   "key": "routing.rejected",
+   "up": null
+  },
+  {
+   "key": "routing.failedLegacy",
+   "up": null
+  },
+  {
+   "key": "routing.routed",
+   "up": null
+  },
+  {
+   "key": "routing.fallback",
+   "up": null
+  },
+  {
+   "key": "routing.fallbackUnnamed",
+   "up": null
+  },
+  {
+   "key": "routing.legacy",
+   "up": null
+  },
+  {
+   "key": "routing.legacyUnnamed",
+   "up": null
+  },
+  {
+   "key": "routing.kept",
+   "up": null
+  },
+  {
+   "key": "routing.unsure",
+   "up": null
+  },
+  {
+   "key": "filter.all",
+   "up": null
+  },
+  {
+   "key": "filter.aria",
+   "up": null
+  },
+  {
+   "key": "menu.saved",
+   "up": null
+  },
+  {
+   "key": "runOptions.title",
+   "up": null
+  },
+  {
+   "key": "runOptions.fastMode",
+   "up": null
+  },
+  {
+   "key": "runOptions.fastModeCaption",
+   "up": null
+  },
+  {
+   "key": "runOptions.ultracode",
+   "up": null
+  },
+  {
+   "key": "runOptions.ultracodeCaption",
+   "up": null
+  },
+  {
+   "key": "runOptions.effort",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortDefault",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortLow",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortMedium",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortHigh",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortXhigh",
+   "up": null
+  },
+  {
+   "key": "runOptions.effortMax",
+   "up": null
+  },
+  {
+   "key": "trigger.fast",
+   "up": null
+  },
+  {
+   "key": "trigger.ultracode",
+   "up": null
+  },
+  {
+   "key": "trigger.ultracodeEffort",
+   "up": null
+  },
+  {
+   "key": "trigger.ariaUnavailable",
+   "up": null
+  },
+  {
+   "key": "trigger.unavailableHint",
+   "up": null
+  },
+  {
+   "key": "trigger.unavailableModelHint",
+   "up": null
+  },
+  {
+   "key": "current.title",
+   "up": null
+  },
+  {
+   "key": "current.unavailable",
+   "up": null
+  },
+  {
+   "key": "trigger.ariaRunOptions",
+   "up": null
+  },
+  {
+   "key": "favorites.title",
+   "up": null
+  },
+  {
+   "key": "favorite.add",
+   "up": null
+  },
+  {
+   "key": "favorite.remove",
+   "up": null
+  },
+  {
+   "key": "cli.group",
+   "up": null
+  },
+  {
+   "key": "cli.gemini-cli.label",
+   "up": null
+  },
+  {
+   "key": "cli.gemini-cli.note",
+   "up": null
+  },
+  {
+   "key": "cli.grok-cli.label",
+   "up": null
+  },
+  {
+   "key": "cli.grok-cli.note",
+   "up": null
+  },
+  {
+   "key": "cli.cursor-cli.label",
+   "up": null
+  },
+  {
+   "key": "cli.cursor-cli.note",
+   "up": null
+  },
+  {
+   "key": "cli.notInstalled",
+   "up": null
+  },
+  {
+   "key": "empty.effortsUnavailable",
+   "up": null
+  },
+  {
+   "key": "subagentSetup.notice",
+   "up": null
+  },
+  {
+   "key": "subagentSetup.open",
+   "up": null
+  }
+ ]
+}
