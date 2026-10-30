@@ -1,0 +1,28 @@
+# llm-pi-ai code notes
+
+## Multi-account Claude: route aliases
+
+- `packages/llm/llm-pi-ai/src/config.ts:PiAiProviderProfile.base` — a route key normally equals the installed pi-ai catalog
+  provider id, so `anthropic` could hold one sign-in only. `base` names the catalog provider a route is a second account of
+  (for example route `claude-work` with `base: 'anthropic'`). Credentials stay keyed by the route key, so every alias has
+  its own `llm-pi-ai/<route>` record and its own OAuth login; models, auth methods and dispatch come from the base provider.
+- `packages/llm/llm-pi-ai/src/config.ts:resolveProfiles` — rejects a `base` that is not an installed catalog provider, and
+  any route key that is itself an installed provider id (it already owns that provider's flow and record). The error is thrown in both strict and deferred modes because it is a configuration mistake, not a
+  catalog-upgrade diagnostic.
+- `packages/llm/llm-pi-ai/src/catalog.ts:resolveRouteModels` — catalog lookups (default models, provider endpoint) use
+  `request.base ?? provider`; the materialized models still carry the route key as `provider`, so selectors and requests
+  address the alias, not the base.
+- `packages/llm/llm-pi-ai/src/provider.ts:buildProvider` — looks the catalog provider up by `spec.base ?? spec.provider`
+  and keeps `id: spec.provider`, so pi-ai resolves credentials under the alias route.
+- `packages/llm/llm-pi-ai/src/login.ts:registerPiAiFlows` and `src/index.ts` — sign-in flows are registered per route:
+  catalog ids at mount, alias routes whenever the `providers` profiles change, and disposed when an alias is removed.
+- `packages/llm/llm-pi-ai/src/claude-quota.ts:createClaudeQuotaSource` — quota is per account: one source and one usage
+  store per route whose base is `anthropic`, so rate-limit headers from one account never show on another's meter.
+- `packages/llm/llm-pi-ai/src/claude-quota.ts:readSubscriptionWindows` — `builtinModels` only knows stock provider ids, so an
+  alias route registers a copy of the Anthropic provider under its own id before `getAuth`, otherwise the usage fetch
+  for an alias account could never find its credential.
+- `packages/llm/llm-pi-ai/src/index.ts:directoryEntries` — alias routes are listed `declared: false` (their catalog is the
+  base's), and model discovery resolves the base provider's catalog for them.
+- `packages/llm/llm-pi-ai/src/index.ts:apply` — the volatile-update handler runs each sync step in its own try block so a
+  route conflict cannot leave alias flows or quota sources stale; usage stores exist only for Claude accounts and are
+  dropped with their quota source.

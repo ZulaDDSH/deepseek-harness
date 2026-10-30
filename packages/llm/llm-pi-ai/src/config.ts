@@ -24,6 +24,8 @@ import type { ResolvedRetryPolicy, RetryPolicyConfig } from '@deepseek-ai/dsh-ll
 import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import {
   CACHE_CONTROL_FORMATS,
+  catalogProvider,
+  catalogProviderIds,
   CHAT_TEMPLATE_VARS,
   MAX_TOKENS_FIELDS,
   MODALITIES,
@@ -96,6 +98,7 @@ export interface PiAiProviderProfile {
   apiKeyEnv?: string
   /** Name shown by configuration surfaces; defaults to the route key. */
   displayName?: string
+  base?: string
   /**
    * Wire protocol every model on this route speaks. Omission keeps each
    * installed catalog model's own protocol, which is why a catalog route needs
@@ -336,6 +339,7 @@ const modelOverride: z<PiAiModelOverride> = z.object(modelFields)
 const profile = z.object({
   apiKeyEnv: z.string().role('credential-ref'),
   displayName: z.string(),
+  base: z.string(),
   api: z.union(supportedProtocols()),
   baseURL: z.string(),
   models: z.array(modelProfile),
@@ -435,6 +439,13 @@ export function resolveProfiles(
     if (source.displayName !== undefined && source.displayName.length === 0) {
       throw new Error(`llm-pi-ai: provider "${provider}" has an empty displayName`)
     }
+    const badBase = source.base !== undefined
+      && (source.base === provider || catalogProviderIds().includes(provider) || catalogProvider(source.base) === undefined)
+    if (badBase) {
+      throw new Error(
+        `llm-pi-ai: provider "${provider}" base "${source.base}" must name an installed catalog provider, and the route itself must not be an installed provider id`,
+      )
+    }
     assertValidHeaders(provider, source.headers)
     const streamIdleTimeoutMs = source.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS
     if (!Number.isFinite(streamIdleTimeoutMs)
@@ -475,6 +486,7 @@ export function resolveProfiles(
     try {
       catalog = resolveRouteModels({
         provider,
+        ...source.base === undefined ? {} : { base: source.base },
         ...source.api === undefined ? {} : { api: source.api },
         ...source.baseURL === undefined ? {} : { baseURL: source.baseURL },
         ...source.models === undefined ? {} : { models: source.models },
@@ -488,6 +500,7 @@ export function resolveProfiles(
       piProvider = buildProvider({
         provider,
         displayName,
+        ...source.base === undefined ? {} : { base: source.base },
         ...source.api === undefined ? {} : { api: source.api },
         ...source.baseURL === undefined ? {} : { baseURL: source.baseURL },
         models: catalog.models,
