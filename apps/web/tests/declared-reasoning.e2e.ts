@@ -45,6 +45,7 @@ describe.skipIf(MODE === 'record').each([
           models: [
             { id: 'acme-think', name: 'Acme Think' },
             { id: 'acme-swift', name: 'Acme Swift' },
+            { id: 'acme-lite', name: 'Acme Lite' },
           ].map(model => ({
             ...model,
             reasoningEfforts: { off: null, high: 'high', max: 'ultra' },
@@ -119,15 +120,25 @@ describe.skipIf(MODE === 'record').each([
     onTestFailed(() => saveFailureShot(page, `web-e2e-model-trigger-${engine.name()}`))
     const trigger = page.getByRole('button', { name: /^选择模型/ })
     const menu = page.getByRole('menu')
-    await page.locator('[data-composer-input][contenteditable="true"]').focus()
-    await trigger.click()
-    await expect.poll(() => trigger.evaluate(element => element === document.activeElement)).toBe(true)
-    await page.keyboard.press('ArrowDown')
-    await expect.poll(() => page.getByRole('menuitemradio').first()
-      .evaluate(element => element === document.activeElement)).toBe(true)
-    await trigger.click()
-    await menu.waitFor({ state: 'detached' })
-    await expect.poll(() => trigger.evaluate(element => element === document.activeElement)).toBe(true)
+    for (const pane of ['root', 'model', 'effort']) {
+      await page.locator('[data-composer-input][contenteditable="true"]').focus()
+      await trigger.click()
+      await expect.poll(() => trigger.evaluate(element => element === document.activeElement)).toBe(true)
+      if (pane === 'root') {
+        await page.keyboard.press('ArrowDown')
+        await expect.poll(() => page.getByRole('menuitem', { name: /^模型/ })
+          .evaluate(element => element === document.activeElement)).toBe(true)
+      } else {
+        await page.getByRole('menuitem', { name: pane === 'model' ? /^模型/ : /推理等级/ }).click()
+        const focused = pane === 'model'
+          ? page.getByRole('searchbox', { name: '搜索模型…' })
+          : page.locator('[role="menuitemradio"][aria-checked="true"]')
+        await expect.poll(() => focused.evaluate(element => element === element.ownerDocument.activeElement)).toBe(true)
+      }
+      await trigger.click()
+      await menu.waitFor({ state: 'detached' })
+      await expect.poll(() => trigger.evaluate(element => element === document.activeElement)).toBe(true)
+    }
     expect(tripwire.pageErrors).toEqual([])
   })
 
@@ -145,22 +156,27 @@ describe.skipIf(MODE === 'record').each([
     await page.keyboard.press('Tab')
     const current = page.getByRole('menuitemradio', { name: 'Acme Think', exact: true })
     const target = page.getByRole('menuitemradio', { name: 'Acme Swift', exact: true })
-    await expect.poll(() => current.evaluate(element => element === document.activeElement)).toBe(true)
+    const search = page.getByRole('searchbox', { name: '搜索模型…' })
+    await expect.poll(() => search.evaluate(element => element === element.ownerDocument.activeElement)).toBe(true)
+    expect(await search.getAttribute('aria-activedescendant')).toBe(await current.getAttribute('id'))
 
-    // Native mousedown must not blur the focused row and unmount the menu before click in WebKit.
+    // Native mousedown must not blur search and unmount the menu before click in WebKit.
     await target.getByText('Acme Swift', { exact: true }).hover()
     await page.mouse.down()
     try {
       await expect.poll(() => menu.count()).toBe(1)
-      await expect.poll(() => current.evaluate(element => element === document.activeElement)).toBe(true)
-      await page.getByLabel('Acme Gateway').getByText('Acme Gateway', { exact: true }).hover()
+      await expect.poll(() => search.evaluate(element => element === element.ownerDocument.activeElement)).toBe(true)
+      await page.getByText('Acme Gateway', { exact: true }).hover()
     } finally {
       await page.mouse.up()
     }
     // Later selection counts also include any request from this cancelled press.
     expect(selections).toBe(0)
-    await page.keyboard.press('ArrowDown')
-    await expect.poll(() => target.evaluate(element => element === document.activeElement)).toBe(true)
+    await search.press('ArrowUp')
+    expect(await search.getAttribute('aria-activedescendant')).toBe(await current.getAttribute('id'))
+    await search.press('ArrowDown')
+    expect(await search.getAttribute('aria-activedescendant')).toBe(await target.getAttribute('id'))
+    await expect.poll(() => search.evaluate(element => element === element.ownerDocument.activeElement)).toBe(true)
     await page.keyboard.press('Escape')
     await menu.waitFor({ state: 'detached' })
 
@@ -191,17 +207,21 @@ describe.skipIf(MODE === 'record').each([
       })
     }, { times: 1 })
     await trigger.click()
-    await page.keyboard.press('Tab')
-    await expect.poll(() => target.evaluate(element => element === document.activeElement)).toBe(true)
+    await page.getByRole('menuitem', { name: /^模型/ }).click()
+    await expect.poll(() => search.evaluate(element => element === element.ownerDocument.activeElement)).toBe(true)
+    expect(await search.getAttribute('aria-activedescendant')).toBe(await target.getAttribute('id'))
     await current.click()
     await page.getByRole('alert').waitFor()
     expect(selections).toBe(3)
-    await compareOrRefreshGolden(POINTER_EXPECTED, await captureStableAria(page, '[role="menu"]', scaffold.workspaceCwd), MODE)
+    await compareOrRefreshGolden(POINTER_EXPECTED,
+      await captureStableAria(page, '[role="group"][aria-label="模型与推理等级"]', scaffold.workspaceCwd), MODE)
     await expect.poll(() => trigger.evaluate(element => element === document.activeElement)).toBe(true)
     await page.keyboard.press('Tab')
-    await expect.poll(() => target.evaluate(element => element === document.activeElement)).toBe(true)
-    await page.keyboard.press('ArrowUp')
-    await expect.poll(() => current.evaluate(element => element === document.activeElement)).toBe(true)
+    await expect.poll(() => search.evaluate(element => element === element.ownerDocument.activeElement)).toBe(true)
+    expect(await search.getAttribute('aria-activedescendant')).toBe(await target.getAttribute('id'))
+    await search.press('ArrowUp')
+    expect(await search.getAttribute('aria-activedescendant')).toBe(await current.getAttribute('id'))
+    expect(await search.evaluate(element => element === element.ownerDocument.activeElement)).toBe(true)
     await page.keyboard.press('Escape')
     await menu.waitFor({ state: 'detached' })
 

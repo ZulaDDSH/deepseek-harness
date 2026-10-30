@@ -1,10 +1,10 @@
 /** The running Turn's in-flight operation, read from the Chat legacy slice. */
-import type { ProcessActivity } from '../contract/process-groups.ts'
+import { activity, type ProcessActivity } from '../contract/process-groups.ts'
 import { isRunningTool } from '../contract/chat-nodes.ts'
 import type {
   CommandNode, LegacyConversationSlice, ModelRetryNode, PartialAssistant, RunningToolCall, ToolCallBlock,
 } from '../contract/snapshot.ts'
-import { activity, liveToolDetail } from '../contract/process-activity.ts'
+import { liveToolDetail } from '@deepseek-ai/dsh-util-values'
 
 /** Silence after which a running Turn shows the inactivity hint. */
 export const INACTIVITY_HINT_MS = 120_000

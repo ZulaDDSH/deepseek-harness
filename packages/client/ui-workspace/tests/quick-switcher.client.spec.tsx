@@ -5,7 +5,7 @@ import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { WorkspaceId, WorkspaceSnapshot, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { allowAllAccess, contextMenuHook, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { QuickSwitcher, type QuickSwitcherProps } from '../src/client/QuickSwitcher.tsx'
 import { zh } from '../src/client/locales.ts'
@@ -69,6 +69,8 @@ function mount(overrides: Partial<QuickSwitcherProps> = {}) {
   ])
   const runQuick = vi.fn(() => true)
   const props: QuickSwitcherProps = {
+    ...allowAllAccess,
+    useContextMenu: contextMenuHook(),
     useSessions: hook(sessions([
       summary('current', true, { displayTitle: 'Current task', cwd: '/projects/a' }),
       summary('other', false, { displayTitle: 'Other task', cwd: '/projects/b' }),

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
+import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
-import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import { createInboxStub } from '@deepseek-ai/dsh-agent-loop-testkit'
 import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
 import * as ToolJobs from '@deepseek-ai/dsh-tool-jobs'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -17,6 +19,7 @@ describe('dsh-tool-subagent background progress', () => {
       id,
       ctx: scopeFiber.ctx,
       inject: () => {},
+      inbox: createInboxStub(),
       options: {},
       session: Session.create(id),
     } as never
@@ -26,7 +29,6 @@ describe('dsh-tool-subagent background progress', () => {
 
   async function progressSetup(onStart: (request: SubagentStartRequest) => Promise<void> | void): Promise<Context> {
     const ctx = await setup({ provider: 'mock' }, { reply: 'progress answer', onStart })
-    await ctx.plugin(AgentRegistry)
     await ctx.plugin(LocalJobRegistry)
     await ctx.plugin(ToolJobs, {})
     return ctx
@@ -47,16 +49,18 @@ describe('dsh-tool-subagent background progress', () => {
     const parent = await liveParent(ctx, 'sess-progress')
 
     const start = await callSubagent(ctx, { description: 'd', prompt: 'p', run_in_background: true }, { agent: parent })
-    expect(text(start)).toBe('started background subagent job subagent-1')
+    if (start.isError) throw new Error('expected background subagent success')
+    const jobId = (start.value as { jobId: string }).jobId
+    expect(text(start)).toBe(`started background subagent job ${jobId}`)
     await started
-    expect(ctx.jobs.list(parent.id)).toEqual([expect.objectContaining({ id: 'subagent-1', progress: 'Edit: src/a.ts' })])
+    expect(ctx.jobs.list(parent.id)).toEqual([expect.objectContaining({ id: jobId, progress: 'Edit: src/a.ts' })])
 
     releaseGate()
-    const collected = await ctx.tools.execute({
+    const collected = await executeToolFixture(ctx, {
       signal: testToolSignal,
       callId: ToolCallId('progress-collect'),
       name: 'job_output',
-      arguments: { job_id: 'subagent-1', wait: true },
+      arguments: { job_id: jobId, wait: true },
       agent: parent,
     })
     expect(text(collected)).toBe('progress answer\n[status: completed]')

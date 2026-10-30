@@ -55,8 +55,8 @@ export function runOptionsValue(request: SessionRunOptions): SessionRunOptions {
  * @returns the provider and model id of that request.
  */
 export function sessionModelOf(ctx: Context, session: Session): ModelSelection {
-  const selection = ctx.sessionProjections.stateOf(session, 'modelSelection')
-  return orchestratorSelectionOf(ctx, session) ?? selection?.selected ?? selection?.lastUsed ?? ctx.agentDefaultModel.currentSelection()
+  const next = ctx.sessionProjections.snapshot(session, ['modelSelection']).values.modelSelection?.next
+  return orchestratorSelectionOf(ctx, session) ?? next ?? ctx.agentDefaultModel.currentSelection()
 }
 
 /**
@@ -66,7 +66,7 @@ export function sessionModelOf(ctx: Context, session: Session): ModelSelection {
  * @returns true when the Ultracode instruction and native Ultracode apply to the Session.
  */
 export function ultracodeActive(ctx: Context, session: Session): boolean {
-  return ctx.sessionProjections.stateOf(session, 'runOptions')?.current?.ultracode === true
+  return ctx.sessionProjections.snapshot(session, ['runOptions']).values.runOptions?.current?.ultracode === true
     && ultracodeSupported(sessionModelOf(ctx, session).model)
 }
 
@@ -86,7 +86,7 @@ const runOptionsProjection = {
  * @param ctx - Session Controller context; the section is deployment-global and reads each agent's own Session.
  */
 export function installRunOptions(ctx: Context): void {
-  ctx.sessionProjections.register(runOptionsProjection)
+  void ctx.sessionProjections.register(runOptionsProjection)
   ctx.inject(['systemPrompt'], ({ systemPrompt }) => {
     const ultracodeOn = (context: AssembleContext): boolean => context.agent !== undefined
       && context.agent.session.header.origin !== 'subagent'

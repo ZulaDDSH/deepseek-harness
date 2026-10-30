@@ -23,5 +23,5 @@ const hookOverridesProjection = {
  * @param ctx - application context that owns the Session projection registry.
  */
 export function installHookOverridesProjection(ctx: Context): void {
-  ctx.sessionProjections.register(hookOverridesProjection)
+  void ctx.sessionProjections.register(hookOverridesProjection)
 }

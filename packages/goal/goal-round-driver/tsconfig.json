@@ -30,7 +30,7 @@
       "path": "../../jobs/jobs"
     },
     {
-      "path": "../../runtime-diagnostics/invariants"
+      "path": "../../subagent/subagent"
     }
   ]
 }

@@ -14,6 +14,7 @@ import {
   type ClaudeCodeRunSpec,
 } from '../src/run.ts'
 import { fakeChild, sdkSpawnOptions, type FakeChild } from './claude-fakes.ts'
+import { mountWorkingDirectoryFixture } from '../../subagent/tests/working-directory-fixture.ts'
 
 type QueryFactory = (params: {
   prompt: string
@@ -83,6 +84,7 @@ describe('run limits', () => {
 
     const ctx = new Context()
     await ctx.plugin(SessionProjectionRegistry)
+    await mountWorkingDirectoryFixture(ctx)
     await ctx.plugin(SubagentRuntime)
     await ctx.plugin(LocalSubprocessRuntime)
     await expect(ctx.plugin(claudeCode, { timeoutMs: 0 }))

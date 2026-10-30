@@ -3,29 +3,23 @@
 - button "新建会话": 新会话
 - navigation "全局面板":
   - button "插件"
-  - button "更改"
+  - button "自动化任务"
+  - button "更多"
 - text: 工作区
-- button "筛选工作区"
 - button "搜索会话"
 - textbox "搜索会话名称"
-- button "添加工作区"
 - button "视图选项"
-- button "新建分组"
+- button "添加工作区"
 - tree "会话":
   - treeitem "workspace" [expanded]
   - treeitem "新会话" [selected]
-- button "设置"
+- button "账号菜单": 更多
 - banner:
-  - navigation "会话层级": workspace
-  - text: 标准模式
-  - button "用量"
-  - button "更多操作"
   - button "打开右侧边栏"
-  - tablist:
-    - tab "对话" [selected]
-    - tab "轨迹"
-- text: plan Plan mode on. Use /plan off to leave.
-- textbox "描述你的任务以生成计划"
+- text: 探索未至之境 预览版
+- button "选择工作区": workspace
+- button "标准模式"
+- textbox "描述你想要构建的内容, / 调用指令, @ 文件或对话"
 - button "添加文件或调用指令"
 - button "访问模式，当前：工作区内修改": 工作区内修改
 - button "计划模式已开启，按下关闭": 计划

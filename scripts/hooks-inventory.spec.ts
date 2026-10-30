@@ -4,9 +4,9 @@ import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { expect, it, onTestFinished } from 'vitest'
-import * as Codex from '../packages/hooks/hooks-codex/src/index.ts'
-import * as Claude from '../packages/hooks/hooks-claude-code/src/index.ts'
-import type { HookInventoryReport } from '../packages/hooks/hook-protocol/src/inventory.ts'
+import * as Codex from '../packages/experimental/hooks-codex/src/index.ts'
+import * as Claude from '../packages/experimental/hooks-claude-code/src/index.ts'
+import type { HookInventoryReport } from '../packages/experimental/hook-protocol/src/inventory.ts'
 
 it.each([Codex, Claude])('collects loaded hooks through the Loader without executing commands: $name', async (bridge) => {
   const root = mkdtempSync(join(tmpdir(), 'dsh-hook-inventory-'))

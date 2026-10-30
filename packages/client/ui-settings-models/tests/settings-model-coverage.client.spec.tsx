@@ -92,7 +92,6 @@ function row(
 }
 
 const operations: ModelsOperations = {
-  describeCredential: async () => undefined,
   storeCredential: async () => undefined,
   removeCredential: async () => undefined,
   writeSettings: async (_ns, _ops, _revision) => ({ kind: 'refused', message: 'unused' }),
@@ -278,14 +277,15 @@ describe('Jev page apply', () => {
   }
 
   it('stores the typed key, shows it as stored and confirms the save', async () => {
-    let stored = false
-    const storeCredential = vi.fn(async () => { stored = true; return undefined })
-    const ops: ModelsOperations = {
-      ...operations,
-      describeCredential: vi.fn(async () => ({ configured: stored, writable: true })),
-      storeCredential,
-    }
-    const { load } = mount([row('jev-router', 'llm-jev-router', [], true)], [namespace('llm-jev-router', JevConfig, jevValue)], [], true, ops)
+    const storeCredential = vi.fn(async () => undefined)
+    const ops: ModelsOperations = { ...operations, storeCredential }
+    const jevRow = row('jev-router', 'llm-jev-router', [], true)
+    const { controller, load } = mount([jevRow], [namespace('llm-jev-router', JevConfig, jevValue)], [], true, ops)
+    load.mockImplementation(async () => {
+      controller.store.update((state) => {
+        state.rows = [{ ...jevRow, credential: { configured: true, writable: true } }]
+      })
+    })
     const key = screen.getByLabelText<HTMLInputElement>(en.keyInput)
     expect(key.placeholder).not.toBe(en.keyStored)
     fireEvent.change(key, { target: { value: 'sk-jev' } })
@@ -296,10 +296,12 @@ describe('Jev page apply', () => {
     expect(load).toHaveBeenCalled()
   })
 
-  it('keeps the key shown as stored when the follow-up read is refused', async () => {
+  it('keeps the key shown as stored when the row already reports it', async () => {
     const storeCredential = vi.fn(async () => undefined)
-    const ops: ModelsOperations = { ...operations, describeCredential: vi.fn(async () => undefined), storeCredential }
-    mount([row('jev-router', 'llm-jev-router', [], true)], [namespace('llm-jev-router', JevConfig, jevValue)], [], true, ops)
+    const ops: ModelsOperations = { ...operations, storeCredential }
+    const jevRow = row('jev-router', 'llm-jev-router', [], true)
+    jevRow.credential = { configured: true, writable: true }
+    mount([jevRow], [namespace('llm-jev-router', JevConfig, jevValue)], [], true, ops)
     const key = screen.getByLabelText<HTMLInputElement>(en.keyInput)
     fireEvent.change(key, { target: { value: 'sk-jev' } })
     fireEvent.click(screen.getByRole('button', { name: en.apply }))

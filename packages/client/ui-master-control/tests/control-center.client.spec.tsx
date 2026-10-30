@@ -21,7 +21,7 @@ function fixture(openMasterChat?: MasterControlPageProps['openMasterChat']) {
     importChats: vi.fn(async () => ({ items: [] })),
     open: vi.fn(), interrupt: vi.fn(),
     t: makeTranslate(en),
-  } as unknown as MasterControlPageProps
+  } as MasterControlPageProps
   return { props }
 }
 

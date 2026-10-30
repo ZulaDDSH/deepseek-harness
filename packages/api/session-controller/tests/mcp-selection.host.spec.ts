@@ -1,19 +1,22 @@
 import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { modelSelectionProjectionDefinition } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { SessionHeader } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime, { defineContentToolFixture, type ToolExecutionResult } from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { type ToolExecutionResult } from '@deepseek-ai/dsh-tools'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { defineContentToolFixture, executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiSessionAgentController } from '../src/agent.ts'
 import { SessionCommandController } from '../src/commands.ts'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { installMcpSelectionProjection } from '../src/mcp-selection-projection.ts'
-import { installModelSelectionProjection } from '../src/model-selection-projection.ts'
+import { unsupportedModel } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { createSessionTestController, installSessionReadTestServices } from './test-remote.ts'
 
 const roots: Context[] = []
@@ -33,16 +36,20 @@ async function harness(withTools = true): Promise<{ ctx: Context; agents: ApiSes
   roots.push(ctx)
   await ctx.plugin(TypertRegistry)
   await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(SystemPrompt)
   installSessionReadTestServices(ctx)
-  installModelSelectionProjection(ctx)
+  await ctx.sessionProjections.register(modelSelectionProjectionDefinition)
   installMcpSelectionProjection(ctx)
   ctx.provide('agentDefaultModel', {
     currentSelection: () => ({ provider: 'fixture', model: 'fixture-model' }),
     saveSelection: () => Promise.resolve(),
   } as never)
-  if (withTools) await ctx.plugin(ToolRuntime)
+  if (withTools) {
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
+  }
   let agents: ApiSessionAgentController | undefined
   await ctx.plugin(Object.assign((inner: Context) => { agents = new ApiSessionAgentController(inner) }, {
     // The production `inject` list, minus the services these paths never read.
@@ -78,7 +85,7 @@ function agentUnder(ctx: Context, id: string): Agent {
   const session = ctx.sessions.create(SessionId(id), { meta })
   const rejectInboxMutation = (): never => { throw new Error('this fixture does not mutate the inbox') }
   const agent: Agent = {
-    id: SessionId(id), session, options: {}, ctx, status: 'idle',
+    id: SessionId(id), session, model: unsupportedModel(), options: {}, ctx, status: 'idle',
     inbox: {
       nextTurn: [], nextStep: [], append: rejectInboxMutation, prepend: rejectInboxMutation,
       replace: rejectInboxMutation, remove: rejectInboxMutation, splice: rejectInboxMutation, clear: rejectInboxMutation,
@@ -109,28 +116,16 @@ describe('MCP connector selection installation', () => {
     expect(assembly.tools.map(tool => tool.name)).not.toContain('mcp__other__late')
     expect(assembly.sections.map(section => section.name)).toContain('mcp:console')
     expect(assembly.sections.map(section => section.name)).not.toContain('mcp:other')
-    const denied = await ctx.tools.execute({
+    const denied = await executeModelToolFixture(ctx, {
       signal: testToolSignal, callId: ToolCallId('resource-other'), name: 'read_mcp_resource',
       arguments: { server: 'other' }, agent,
     })
     expect(denied.isError).toBe(true)
-    const allowed = await ctx.tools.execute({
+    const allowed = await executeModelToolFixture(ctx, {
       signal: testToolSignal, callId: ToolCallId('resource-console'), name: 'read_mcp_resource',
       arguments: { server: 'console' }, agent,
     })
     expect(allowed.isError).toBe(false)
-    ctx.provide('ptcRuntime', {
-      language: 'typescript',
-      resolve: () => { throw new Error('This fixture only assembles prompts') },
-      run: () => { throw new Error('This fixture only assembles prompts') },
-    } as never)
-    agent.ctx.get('tools')!.presentAs('both')
-    ctx.tools.register(connectorTool('mcp__other__later'))
-    const hybrid = await ctx.systemPrompt.assemble({ scope: agent })
-    const sdk = hybrid.sections.find(section => section.name === 'tools:sdk')?.text
-    expect(sdk).toContain('mcp__console__ping')
-    expect(sdk).not.toContain('mcp__other__later')
-    expect(hybrid.sections.map(section => section.name)).not.toContain('mcp-resource-servers')
   })
   it('exposes connector discovery and normalized selection through the Session controller', async () => {
     const ctx = new Context()
@@ -140,8 +135,9 @@ describe('MCP connector selection installation', () => {
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
     ctx.tools.register(connectorTool('mcp__console__ping'))
-    const controller = createSessionTestController(ctx, {
+    const controller = await createSessionTestController(ctx, {
       defaultModelSelection: () => ({ provider: 'fixture', model: 'fixture-model' }), cwd: '/workspace',
     })
     const agent = agentUnder(ctx, 'mcp-facade')
@@ -196,7 +192,7 @@ describe('MCP connector selection installation', () => {
     agents.installMcpSelection(agent, { connectorIds: [] })
     expect(ctx.tools.schemas().map(schema => schema.name)).toContain('mcp__console__ping')
     const call = { signal: testToolSignal, callId: ToolCallId('ping'), name: 'mcp__console__ping', arguments: {}, agent }
-    expect((await ctx.tools.execute(call)).isError).toBe(true)
+    expect((await executeModelToolFixture(ctx, call)).isError).toBe(true)
   })
 
   it('updates restrictions and restores unrestricted access while preserving local tools', async () => {
@@ -204,7 +200,9 @@ describe('MCP connector selection installation', () => {
     for (const name of ['mcp__console__ping', 'local', 'mcp____invalid']) ctx.tools.register(connectorTool(name))
     const agent = agentUnder(ctx, 'mcp-update')
     agents.installMcpSelection(agent, { connectorIds: [] })
-    const execute = (name: string) => ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId(name), name, arguments: {}, agent })
+    const execute = (name: string) => executeModelToolFixture(ctx, {
+      signal: testToolSignal, callId: ToolCallId(name), name, arguments: {}, agent,
+    })
     expect((await execute('local')).isError).toBe(false)
     expect((await execute('mcp____invalid')).isError).toBe(false)
     expect((await execute('mcp__console__ping')).isError).toBe(true)
@@ -231,10 +229,10 @@ describe('MCP connector selection installation', () => {
     const { setup } = await agents.composeAgent(undefined)
     await setup(agent.ctx, agent)
 
-    const selected = await ctx.tools.execute({
+    const selected = await executeModelToolFixture(ctx, {
       signal: testToolSignal, callId: ToolCallId('selected'), name: 'mcp__console__ping', arguments: {}, agent,
     })
-    const unselected = await ctx.tools.execute({
+    const unselected = await executeModelToolFixture(ctx, {
       signal: testToolSignal, callId: ToolCallId('unselected'), name: 'mcp__other__probe', arguments: {}, agent,
     })
     expect(selected.isError).toBe(false)

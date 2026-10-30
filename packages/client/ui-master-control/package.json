@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-master-control",
   "description": "Master Control for the dsh web client: a sidebar panel above Plugins listing every Session with its live status, opening it, and interrupting a running turn",
-  "version": "0.2.0-rc.1",
+  "version": "0.2.2-alpha.2",
   "publishConfig": {
     "access": "public"
   },
@@ -65,7 +65,6 @@
     "@deepseek-ai/dsh-client-ui-workspace": "workspace:*",
     "@deepseek-ai/dsh-session": "workspace:*",
     "@testing-library/react": "^16.1.0",
-    "@types/react": "~18.3.1",
     "clsx": "^2.1.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"

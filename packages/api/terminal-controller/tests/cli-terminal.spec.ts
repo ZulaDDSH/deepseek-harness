@@ -10,13 +10,14 @@ import { SubprocessExecutableNotFoundError, type SubprocessTerminalHandle, type 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CLI_TERMINAL_PROFILES, cliStartupArgv, cliTerminalProfile, type CliTerminalProfileId } from '../src/cli-profiles.ts'
 import { TerminalController, type Config } from '../src/index.ts'
-import type { TerminalAttachmentId, WebTerminalId } from '../src/types.ts'
+import { inputChannel } from './input.ts'
+import type { PeerId, RemoteInvocation } from '@deepseek-ai/dsh-typert-protocol'
+import type { TerminalInput, WebTerminalId } from '../src/types.ts'
 
 const roots: Context[] = []
 afterEach(async () => { await Promise.all(roots.splice(0).map(ctx => ctx.fiber.dispose())) })
 const config: Config = { shellCandidates: ['bash'], shell: { path: '/bin/bash', name: 'bash', args: ['--noprofile', '--norc', '-i'] }, maxTerminals: 2, maxCols: 200, maxRows: 100, scrollback: 100, maxBufferedBytes: 100_000, maxInputBytes: 1000, disposeGraceMs: 100, unattendedTimeoutMs: 7_200_000, activityPollIntervalMs: 30_000, cleanupRetryMs: 60_000 }
 const id = 'cli-terminal' as WebTerminalId
-const attachment = 'writer' as TerminalAttachmentId
 const request = { id, cols: 80, rows: 24 }
 const signal = (): AbortSignal => new AbortController().signal
 
@@ -48,10 +49,26 @@ function fixture() {
     spawnTerminal: vi.fn(async (_spec: SubprocessTerminalSpawnSpec) => handle as SubprocessTerminalHandle),
   }
   ctx.provide('subprocess', subprocess as never)
+  ctx.provide('workingDirectory', {
+    get: (session: Agent['session']) => session.header.cwd ?? '/workspace',
+    ensure: async (agent: Agent) => agent.session.header.cwd ?? '/workspace',
+  } as never)
   ctx.provide('sessionProjections', {
-    stateOf: (hosted: { cliProfile?: CliTerminalProfileId }, key: string) => key === 'cliTerminal' ? { profile: hosted.cliProfile ?? null } : undefined,
+    snapshot: (hosted: { cliProfile?: CliTerminalProfileId }) => ({
+      asOfSeq: -1,
+      values: { cliTerminal: { profile: hosted.cliProfile ?? null } },
+    }),
   } as never)
   return { ctx, controller: new TerminalController(ctx, config), subprocess, handle }
+}
+
+function attachController(agent: Agent, terminalId: WebTerminalId, signal: AbortSignal, input: AsyncIterable<unknown>) {
+  const invocation: RemoteInvocation = {
+    request: { namespace: 'terminal', method: 'attach', args: {} }, service: 'terminalController', signal,
+    peer: { id: 'test-peer' as PeerId, ctx: agent.ctx, principal: { kind: 'owner' }, interactions: 'answer', signal, dispose: async () => {} },
+    uplink: <In>() => input as AsyncIterable<In>,
+  }
+  return agent.ctx.extend({ invocation }).terminalController.attach(agent, terminalId, signal)
 }
 
 function sourcesUnder(directories: string[]): string[] {
@@ -143,14 +160,16 @@ describe('TerminalController CLI terminals', () => {
     expect(subprocess.spawnTerminal).not.toHaveBeenCalled()
   })
 
-  it('writes to the PTY only through controller input from the attached writer', async () => {
+  it('writes to the PTY only through uplink input from the attached writer', async () => {
     const { ctx, controller, handle } = fixture()
     const agent = session(ctx, 'cursor-cli')
     await controller.create(agent, { ...request, cli: 'cursor-cli' }, signal())
     expect(handle.write).not.toHaveBeenCalled()
-    const stream = controller.follow(agent, id, attachment, signal())[Symbol.asyncIterator]()
+    const input = inputChannel<TerminalInput>()
+    const stream = attachController(agent, id, signal(), input.source)[Symbol.asyncIterator]()
     await stream.next()
-    await controller.write(agent, id, attachment, 'ls\r')
+    input.push({ type: 'write', sequence: 1, data: 'ls\r' })
+    expect((await stream.next()).value).toMatchObject({ type: 'ack', sequence: 1 })
     expect(handle.write).toHaveBeenCalledOnce()
     expect(handle.write).toHaveBeenCalledWith('ls\r')
     await stream.return?.()
@@ -170,7 +189,7 @@ describe('TerminalController CLI terminals', () => {
   })
 
   it('keeps the agent-accessible terminal tools off the terminal controller', () => {
-    const tools = sourcesUnder(['../../../terminal/terminal-bash/src', '../../../terminal/tool-terminal/src'])
+    const tools = sourcesUnder(['../../../terminal/terminal-bash/src', '../../../experimental/tool-terminal/src'])
     expect(tools.length).toBeGreaterThan(0)
     expect(tools.filter(file => /terminal-controller|terminalController/u.test(readFileSync(file, 'utf8')))).toEqual([])
   })

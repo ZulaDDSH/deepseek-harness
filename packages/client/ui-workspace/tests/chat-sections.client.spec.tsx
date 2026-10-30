@@ -10,14 +10,19 @@
 import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, createEvent, fireEvent, render, screen, within } from '@testing-library/react'
-import { bindSnapshotSelector, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import {
+  allowAllAccess, bindSnapshotSelector, contextMenuHook, makeTranslate,
+} from '@deepseek-ai/dsh-client-test-runtime'
+import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { WorkspaceId, WorkspaceSnapshot, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
-import type { DirectoryFlowOwnerProps, WorkspaceBrowserProps } from '../src/client/contract/slots.ts'
+import type {
+  DirectoryFlowOwnerProps, SectionActionRequest, WorkspaceBrowserProps,
+} from '../src/client/contract/slots.ts'
 import { createWorkspaceShortcutControls } from '../src/client/shortcuts.ts'
 import { createWorkspaceViewStore } from '../src/client/stores.ts'
 import { WorkspaceBrowser } from '../src/client/rows/WorkspaceBrowser.tsx'
@@ -80,10 +85,17 @@ const renderDirectoryFlowOnly: WorkspaceBrowserProps['renderSlot'] = (name: stri
     ? <div data-testid="directory-flow" />
     : null
 
+type ViewStore = ReturnType<ReturnType<typeof createWorkspaceViewStore>['create']>
+/** The store and section-request source of the most recent mount; the helpers below act on it. */
+let live: { store: ViewStore; sectionRequests: SnapshotStore<SectionActionRequest | null> } | undefined
+
 function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
   const controls = createWorkspaceShortcutControls()
   const store = createWorkspaceViewStore().create()
+  const sectionRequests = createSnapshotStore<SectionActionRequest | null>(null)
+  live = { store, sectionRequests }
   const props: WorkspaceBrowserProps = {
+    ...allowAllAccess,
     useShortcuts: select => select([]),
     useWorkspaceShortcuts: bindSnapshotSelector(controls.state),
     requestSearch: controls.search,
@@ -91,7 +103,6 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     closeAddWorkspace: controls.closeAdd,
     setDirectoryBusy: controls.directoryBusy,
     requestSessionRename: controls.rename,
-    dismissForkError: controls.dismissForkError,
     wide: true,
     expandSidebar: vi.fn(),
     useSessions: hook(sessionState([])),
@@ -100,6 +111,16 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     usePanelInfo, useResource,
     useWorkspaces: hook(workspaceState([])),
     useStore: bindSnapshotSelector(store),
+    useAppearance: hook({ workspaces: {}, sections: {}, sessions: {} }),
+    useWorkspaceActionRequest: hook(null),
+    useSectionActionRequest: bindSnapshotSelector(sectionRequests),
+    settleSectionAction: () => { sectionRequests.set(null) },
+    settleWorkspaceAction: vi.fn(),
+    openWorkspaceMenu: vi.fn(),
+    openSessionMenu: vi.fn(),
+    openSectionMenu: vi.fn(),
+    useContextMenu: contextMenuHook(),
+    useContextMenuTarget: select => select(null),
     actions: store.actions,
     startSession: vi.fn(),
     open: vi.fn(),
@@ -120,6 +141,12 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
   }
   const view = render(<WorkspaceBrowser {...props} />)
   return { view, props, store }
+}
+
+/** Ask the browser for a section's rename or delete dialog, as the section's menu does. */
+function requestSection(action: 'rename' | 'delete', name: string): void {
+  const section = live!.store.getSnapshot().chatSections.sections.find(row => row.name === name)!
+  act(() => { live!.sectionRequests.set({ action, sectionId: section.id, displayTitle: name }) })
 }
 
 /** Create a section through the header button and its dialog. */
@@ -152,16 +179,14 @@ function expandWorkspace(name = 'alpha'): void {
   fireEvent.click(screen.getByText(name))
 }
 /**
- * File a Chat into a section through its row menu, expanding the workspace
- * group first when its rows are still folded.
+ * File a Chat into a section, expanding the workspace group first when its rows
+ * are still folded. The row menu's move item writes this same store action; the
+ * menu wiring itself is covered in rename-assembly.client.spec.
  */
 function fileInto(chatTitle: string, sectionName: string): void {
-  const operator = (): HTMLElement | null =>
-    screen.queryByRole('button', { name: `会话“${chatTitle}”的操作` })
-  if (operator() === null) expandWorkspace()
-  fireEvent.click(operator() as HTMLElement)
-  fireEvent.click(screen.getByRole('menuitem', { name: '移动到分组' }))
-  fireEvent.click(screen.getByRole('menuitem', { name: sectionName }))
+  if (screen.queryByRole('button', { name: `会话“${chatTitle}”的操作` }) === null) expandWorkspace()
+  const section = live!.store.getSnapshot().chatSections.sections.find(row => row.name === sectionName)!
+  act(() => { live!.store.actions.assignSession(chatTitle, section.id) })
 }
 
 /** Stub a row rect so drop-half detection has geometry to read. */
@@ -231,8 +256,7 @@ describe('Chat Sections pane', () => {
     createSection('Work')
     fileInto('chat-a', 'Work')
 
-    fireEvent.click(screen.getByRole('button', { name: '分组“Work”的操作' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '重命名' }))
+    requestSection('rename', 'Work')
     const dialog = screen.getByRole('dialog', { name: '重命名分组' })
     fireEvent.change(within(dialog).getByRole('textbox'), { target: { value: 'Server Debugging' } })
     fireEvent.click(within(dialog).getByRole('button', { name: '重命名' }))
@@ -249,8 +273,7 @@ describe('Chat Sections pane', () => {
     createSection('Work')
     fileInto('chat-a', 'Work')
 
-    fireEvent.click(screen.getByRole('button', { name: '分组“Work”的操作' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '删除分组' }))
+    requestSection('delete', 'Work')
     const dialog = screen.getByRole('dialog', { name: '删除分组' })
     expect(within(dialog).getByText(/其会话不会被删除/)).toBeTruthy()
     fireEvent.click(within(dialog).getByRole('button', { name: '删除分组' }))
@@ -263,29 +286,15 @@ describe('Chat Sections pane', () => {
     expect(titlesOf(within(workspaceTree()).getAllByRole('treeitem'))).toContain('chat-a')
   })
 
-  it('unfiles a chat from the row menu inside the pane', () => {
+  it('unfiles a chat, leaving it in its workspace folder', () => {
     const b = mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
     createSection('Work')
     fileInto('chat-a', 'Work')
 
-    fireEvent.click(within(sectionsPane()).getByRole('button', { name: '会话“chat-a”的操作' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '从分组中移出' }))
+    act(() => { b.store.actions.assignSession('chat-a', undefined) })
     expect(b.store.getSnapshot().chatSections.members).toEqual({})
     expect(membersOf('Work')).toEqual([])
-  })
-
-  it('disables the menu row for the section a chat already belongs to', () => {
-    mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
-    createSection('Work')
-    createSection('Personal')
-    fileInto('chat-a', 'Work')
-
-    // The pane's own row menu offers the current section as a no-op choice
-    // (disabled) and every other section as a live one.
-    fireEvent.click(within(sectionsPane()).getByRole('button', { name: '会话“chat-a”的操作' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '移动到分组' }))
-    expect(screen.getByRole('menuitem', { name: 'Work' }).hasAttribute('disabled')).toBe(true)
-    expect(screen.getByRole('menuitem', { name: 'Personal' }).hasAttribute('disabled')).toBe(false)
+    expect(titlesOf(within(workspaceTree()).getAllByRole('treeitem'))).toContain('chat-a')
   })
 
   it('files a chat by dropping it on a section header', () => {
@@ -468,25 +477,6 @@ describe('Chat Sections pane', () => {
     expect(b.store.getSnapshot().chatSections.sections.map(section => section.name)).toEqual(['Work', 'Personal'])
   })
 
-  it('persists section and member appearance choices separately', () => {
-    mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
-    createSection('Work')
-    fileInto('chat-a', 'Work')
-    const choose = (label: string, category: string, value: string): void => {
-      fireEvent.click(within(sectionsPane()).getByRole('button', { name: label }))
-      fireEvent.click(screen.getByRole('menuitem', { name: category }))
-      fireEvent.click(screen.getByRole('menuitem', { name: value }))
-    }
-    choose('分组“Work”的操作', '颜色', '红色')
-    choose('分组“Work”的操作', '图标', '火箭')
-    choose('会话“chat-a”的操作', '颜色', '蓝色')
-    choose('会话“chat-a”的操作', '图标', '终端')
-    expect(JSON.parse(localStorage.getItem('dsh.workspace.appearance.v2') ?? 'null')).toEqual({
-      workspaces: {}, sections: { 'section-1': { color: 'red', icon: 'rocket' } },
-      sessions: { 'chat-a': { color: 'blue', icon: 'terminal' } },
-    })
-  })
-
   it('ends a chat drag without a target without changing membership', () => {
     const b = mount({ useSessions: hook(chats()), useWorkspaces: hook(oneWorkspace()) })
     createSection('Work')
@@ -648,7 +638,8 @@ describe('Chat Sections pane', () => {
       useSessionStatus: hook(noStatuses), open: vi.fn(), usePanelInfo,
       onSessionRenameRequest: vi.fn(), renderSlot: () => null,
       assignSession: vi.fn(), setSectionOrder: vi.fn(), toggleSection: vi.fn(), moveSection: vi.fn(),
-      onSectionRename: vi.fn(), onSectionDelete: vi.fn(), onSectionAppearanceChange: vi.fn(), onSessionAppearanceChange: vi.fn(),
+      openSectionMenu: vi.fn(), openSessionMenu: vi.fn(), useContextMenu: contextMenuHook(),
+      useContextMenuTarget: select => select(null), useSessionAccess: allowAllAccess.useSessionAccess,
       externalChatSessionId: null, onChatDragEnd: vi.fn(), t,
     }
     const view = render(<SectionsList {...props} />)

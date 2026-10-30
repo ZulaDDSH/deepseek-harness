@@ -5,10 +5,11 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-session-query'
 import { finalAssistantOutput } from '@deepseek-ai/dsh-subagent'
 
 export const name = 'tool-master-control'
-export const inject = ['tools', 'agents']
+export const inject = ['tools', 'agents', 'sessionQuery']
 
 /** Cap for `mc_send` wait so a hung peer cannot block the caller forever. */
 export const MC_SEND_WAIT_MS = 120_000
@@ -51,9 +52,10 @@ function target(ctx: Context, config: Config, caller: Agent, id: string, tool: s
   return agent
 }
 
-/** Snapshot one live session log for a same-process read. */
-function snapshot(agent: Agent): readonly SessionEvent[] {
-  return agent.session.snapshotEvents()
+/** Read one session's full log through the query service. */
+async function history(ctx: Context, agent: Agent): Promise<readonly SessionEvent[]> {
+  using observation = await ctx.sessionQuery.observeSession(agent.id, { projectionMode: 'none' })
+  return observation.events
 }
 
 /**
@@ -126,12 +128,12 @@ function sendArguments(raw: string): SendArguments | undefined {
 
 /**
  * The peer one session is blocked on inside its own unsettled `mc_send` wait.
- * @param agent - the session whose log is inspected.
+ * @param events - the session's log, in order.
  * @returns the awaited session id, or undefined when no wait is in flight.
  */
-function waitingOn(agent: Agent): string | undefined {
+function waitingOn(events: readonly SessionEvent[]): string | undefined {
   const pending = new Map<string, string>()
-  for (const event of snapshot(agent)) {
+  for (const event of events) {
     if (event.type === 'tool/call' && event.data.name === 'mc_send') {
       const args = sendArguments(event.data.arguments)
       if (args?.wait === true && args.sessionId !== undefined) pending.set(event.data.callId, args.sessionId)
@@ -150,7 +152,7 @@ function waitingOn(agent: Agent): string | undefined {
  * @param target - the session it would wait on.
  * @returns the session ids from the target back to the caller, or undefined when waiting is safe.
  */
-function waitCycle(ctx: Context, caller: Agent, target: Agent): readonly string[] | undefined {
+async function waitCycle(ctx: Context, caller: Agent, target: Agent): Promise<readonly string[] | undefined> {
   const trail: string[] = []
   const visited = new Set<string>()
   let current: Agent | undefined = target
@@ -160,7 +162,7 @@ function waitCycle(ctx: Context, caller: Agent, target: Agent): readonly string[
     if (current.id === caller.id) return trail
     if (visited.has(id)) return undefined
     visited.add(id)
-    const next = waitingOn(current)
+    const next = waitingOn(await history(ctx, current))
     if (next === undefined) return undefined
     current = ctx.agents.get(brandString<SessionId>(next))
   }
@@ -169,15 +171,15 @@ function waitCycle(ctx: Context, caller: Agent, target: Agent): readonly string[
 
 /**
  * Count this session's settled relays to one peer inside the loop window.
- * @param agent - the session that would send.
+ * @param events - the sending session's log, in order.
  * @param targetId - the peer the new message targets.
  * @param now - current epoch milliseconds.
  * @returns how many completed `mc_send` calls that peer received inside {@link MC_RELAY_WINDOW_MS}.
  */
-function recentRelays(agent: Agent, targetId: string, now: number): number {
+function recentRelays(events: readonly SessionEvent[], targetId: string, now: number): number {
   const open = new Map<string, { readonly targetId: string; readonly time: number }>()
   let settled = 0
-  for (const event of snapshot(agent)) {
+  for (const event of events) {
     if (event.type === 'tool/call' && event.data.name === 'mc_send') {
       const args = sendArguments(event.data.arguments)
       if (args?.sessionId !== undefined) open.set(event.data.callId, { targetId: args.sessionId, time: event.time })
@@ -215,13 +217,12 @@ interface RelayOutcome {
  * Read the outcome of the turn that consumed one relayed message. The reply is
  * scoped to that turn, so an earlier turn's answer is never reported as this
  * message's reply.
- * @param agent - the session that received the message.
+ * @param events - the receiving session's log, read after delivery.
  * @param caller - the session that sent it.
  * @param beforeSeq - last event seq observed before delivery.
  * @returns the turn's reply, or a note explaining why none is available.
  */
-function relayOutcome(agent: Agent, caller: Agent, beforeSeq: number): RelayOutcome {
-  const events = snapshot(agent)
+function relayOutcome(events: readonly SessionEvent[], caller: Agent, beforeSeq: number): RelayOutcome {
   const relayIndex = events.findIndex(event => event.seq > beforeSeq
     && event.type === 'user/message'
     && event.data.source.kind === 'agent-message'
@@ -284,12 +285,12 @@ export function apply(ctx: Context, config: Config): void {
           }).join('\n'),
       }],
     },
-    execute(_args, exec) {
+    async execute(_args, exec) {
       const caller = callerOf(exec.agent, 'mc_list_sessions')
-      return Promise.resolve(ctx.agents.list()
+      return await Promise.all(ctx.agents.list()
         .filter(a => a.id !== caller.id && (config.managedAll || (config.managed ?? []).includes(a.id)))
-        .map((a) => {
-          const last = replyText(snapshot(a))
+        .map(async (a) => {
+          const last = replyText(await history(ctx, a))
           return {
             id: a.id,
             status: a.status,
@@ -335,7 +336,7 @@ export function apply(ctx: Context, config: Config): void {
     async execute(args, exec) {
       const caller = callerOf(exec.agent, 'mc_send')
       const agent = target(ctx, config, caller, args.session_id, 'mc_send')
-      if (recentRelays(caller, args.session_id, Date.now()) >= MC_RELAY_LIMIT) {
+      if (recentRelays(await history(ctx, caller), args.session_id, Date.now()) >= MC_RELAY_LIMIT) {
         throw new Error(
           `mc_send: refusing to relay another message to session ${args.session_id}: `
           + `${MC_RELAY_LIMIT} messages were sent within ${MC_RELAY_WINDOW_MS / 1000}s, which indicates a message loop. `
@@ -343,7 +344,7 @@ export function apply(ctx: Context, config: Config): void {
         )
       }
       if (args.wait === true) {
-        const cycle = waitCycle(ctx, caller, agent)
+        const cycle = await waitCycle(ctx, caller, agent)
         if (cycle !== undefined) {
           throw new Error(
             `mc_send: refusing to wait on session ${args.session_id}: `
@@ -352,14 +353,14 @@ export function apply(ctx: Context, config: Config): void {
           )
         }
       }
-      const beforeSeq = snapshot(agent).at(-1)?.seq ?? -1
+      const beforeSeq = (await history(ctx, agent)).at(-1)?.seq ?? -1
       agent.steer(createUserMessage({
         content: [{ type: 'text', text: `Agent ${caller.id} sent a message: ${args.message}` }],
         source: { kind: 'agent-message', form: 'relay', senderSessionId: caller.id },
       }))
       if (args.wait !== true) return { delivered: true }
       await waitIdle(agent, 'mc_send')
-      return { delivered: true, ...relayOutcome(agent, caller, beforeSeq) }
+      return { delivered: true, ...relayOutcome(await history(ctx, agent), caller, beforeSeq) }
     },
   }))
 

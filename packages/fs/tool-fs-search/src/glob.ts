@@ -102,13 +102,28 @@ function patternFilter(pattern: string): string[] {
  * `node_modules` are respected unless {@link GlobInput.includeIgnored} drops
  * the ignore rules with `--no-ignore`. {@link GLOB_VCS_EXCLUDES} keeps VCS
  * metadata out in every mode. The pattern goes through {@link patternFilter}.
+ * Simple directory prefixes prune unrelated subtrees through directory-name globs without changing the
+ * search root, path separators, or symlink handling. The last matching glob
+ * wins. A fixed 8 KiB budget bounds added argv bytes; larger additions retain
+ * the original traversal, since even linear growth can exceed command-line limits.
  *
  * @param input - the validated arguments.
  * @returns the complete ripgrep argument vector (excluding the binary itself).
  */
 export function buildGlobCommand(input: GlobInput): string[] {
+  const directories = input.pattern.split('/').slice(0, -1)
+  const pruning: string[] = []
+  if (input.path === undefined && directories.length > 0
+    && directories.every(part => /^[\w .-]+$/.test(part) && part !== '.' && part !== '..' && !GLOB_VCS_EXCLUDES.includes(part))) {
+    // Trailing slashes admit directories only, never files with the same names.
+    const directoryGlob = `--glob={${[...new Set(directories)].join(',')}}/`
+    if (directoryGlob.length + '--glob=!**'.length + 2 <= 8 * 1024) {
+      pruning.push('--glob=!**', directoryGlob)
+    }
+  }
   const parts = [
     '--files',
+    ...pruning,
     ...patternFilter(input.pattern),
     '--sort=modified',
     '--hidden',

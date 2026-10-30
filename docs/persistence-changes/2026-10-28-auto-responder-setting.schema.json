@@ -1,383 +1,46 @@
 {
   "formatVersion": 2,
   "roots": [
-    {
-      "key": "event:session/run-options",
-      "kind": "event",
-      "event": "session/run-options",
-      "surface": false,
-      "digest": "490eccfaf4a3233b6a932a108665cb1655777aab97637487afde06c269db912d",
-      "schema": {
-        "root": 0,
-        "nodes": [
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "data",
-                "type": 1,
-                "optional": false
-              },
-              {
-                "name": "ignorable",
-                "type": 35,
-                "optional": true
-              },
-              {
-                "name": "seq",
-                "type": 12,
-                "optional": false
-              },
-              {
-                "name": "time",
-                "type": 12,
-                "optional": false
-              },
-              {
-                "name": "type",
-                "type": 36,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "effort",
-                "type": 2,
-                "optional": true
-              },
-              {
-                "name": "fastMode",
-                "type": 8,
-                "optional": true
-              },
-              {
-                "name": "subagentSetup",
-                "type": 9,
-                "optional": true
-              },
-              {
-                "name": "ultracode",
-                "type": 8,
-                "optional": true
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "union",
-            "types": [
-              3,
-              4,
-              5,
-              6,
-              7
-            ]
-          },
-          {
-            "kind": "literal",
-            "value": "max"
-          },
-          {
-            "kind": "literal",
-            "value": "medium"
-          },
-          {
-            "kind": "literal",
-            "value": "high"
-          },
-          {
-            "kind": "literal",
-            "value": "low"
-          },
-          {
-            "kind": "literal",
-            "value": "xhigh"
-          },
-          {
-            "kind": "primitive",
-            "type": "boolean"
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "autoResponder",
-                "type": 10,
-                "optional": true
-              },
-              {
-                "name": "enabled",
-                "type": 8,
-                "optional": false
-              },
-              {
-                "name": "gsd",
-                "type": 11,
-                "optional": true
-              },
-              {
-                "name": "reviewRounds",
-                "type": 12,
-                "optional": false
-              },
-              {
-                "name": "roles",
-                "type": 23,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "enabled",
-                "type": 8,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "checkRounds",
-                "type": 12,
-                "optional": false
-              },
-              {
-                "name": "enabled",
-                "type": 8,
-                "optional": false
-              },
-              {
-                "name": "gates",
-                "type": 13,
-                "optional": false
-              },
-              {
-                "name": "parallelWaves",
-                "type": 8,
-                "optional": false
-              },
-              {
-                "name": "planAuthor",
-                "type": 17,
-                "optional": false
-              },
-              {
-                "name": "planning",
-                "type": 20,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "primitive",
-            "type": "number"
-          },
-          {
-            "kind": "union",
-            "types": [
-              14,
-              15,
-              16
-            ]
-          },
-          {
-            "kind": "literal",
-            "value": "auto"
-          },
-          {
-            "kind": "literal",
-            "value": "every-step"
-          },
-          {
-            "kind": "literal",
-            "value": "plan-and-ship"
-          },
-          {
-            "kind": "union",
-            "types": [
-              18,
-              19
-            ]
-          },
-          {
-            "kind": "literal",
-            "value": "orchestrator"
-          },
-          {
-            "kind": "literal",
-            "value": "researcher"
-          },
-          {
-            "kind": "union",
-            "types": [
-              21,
-              22
-            ]
-          },
-          {
-            "kind": "literal",
-            "value": "commit"
-          },
-          {
-            "kind": "literal",
-            "value": "local"
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "coder",
-                "type": 24,
-                "optional": true
-              },
-              {
-                "name": "orchestrator",
-                "type": 24,
-                "optional": true
-              },
-              {
-                "name": "researcher",
-                "type": 24,
-                "optional": true
-              },
-              {
-                "name": "reviewer",
-                "type": 24,
-                "optional": true
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "union",
-            "types": [
-              25,
-              33
-            ]
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "mode",
-                "type": 26,
-                "optional": false
-              },
-              {
-                "name": "route",
-                "type": 27,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "literal",
-            "value": "fixed"
-          },
-          {
-            "kind": "union",
-            "types": [
-              28,
-              31
-            ]
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "backend",
-                "type": 29,
-                "optional": false
-              },
-              {
-                "name": "model",
-                "type": 30,
-                "optional": false
-              },
-              {
-                "name": "provider",
-                "type": 30,
-                "optional": false
-              },
-              {
-                "name": "reasoningEffort",
-                "type": 30,
-                "optional": true
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "literal",
-            "value": "llm"
-          },
-          {
-            "kind": "primitive",
-            "type": "string"
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "backend",
-                "type": 32,
-                "optional": false
-              },
-              {
-                "name": "model",
-                "type": 30,
-                "optional": false
-              },
-              {
-                "name": "reasoningEffort",
-                "type": 2,
-                "optional": true
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "literal",
-            "value": "claude-cli"
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "mode",
-                "type": 34,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "literal",
-            "value": "jev"
-          },
-          {
-            "kind": "literal",
-            "value": true
-          },
-          {
-            "kind": "literal",
-            "value": "session/run-options"
-          }
-        ]
-      }
-    }
+    {"key":"event:session/run-options","kind":"event","event":"session/run-options","surface":false,"digest":"490eccfaf4a3233b6a932a108665cb1655777aab97637487afde06c269db912d"}
   ],
-  "types": []
+  "types": [],
+  "nodes": {
+    "0272df259c961422": {"kind":"literal","value":"jev"},
+    "05053387afaf98f8": {"kind":"literal","value":"max"},
+    "0657d3ca5ac4e7bf": {"kind":"primitive","type":"number"},
+    "085c87cc2cbb7966": {"kind":"literal","value":"researcher"},
+    "27c6a24670a70561": {"kind":"object","properties":[{"name":"backend","type":"c89bd775fcf04e6c","optional":false},{"name":"model","type":"4cd48f3e5108bd6e","optional":false},{"name":"reasoningEffort","type":"352eb0b4cc4d1473","optional":true}],"indices":[]},
+    "30fde5ff07237467": {"kind":"object","properties":[{"name":"mode","type":"0272df259c961422","optional":false}],"indices":[]},
+    "3325dffa5d99f59d": {"kind":"union","types":["37754fa5ccea9aa1","c1c048838e93aa84"]},
+    "352eb0b4cc4d1473": {"kind":"union","types":["05053387afaf98f8","437a1c86fb6f6644","65f6a6e8bdce8376","8bb188be8ccbc2bd","963de05e8412d454"]},
+    "37636b5ad6e3c6fc": {"kind":"object","properties":[{"name":"coder","type":"eb186030fcea65ab","optional":true},{"name":"orchestrator","type":"eb186030fcea65ab","optional":true},{"name":"researcher","type":"eb186030fcea65ab","optional":true},{"name":"reviewer","type":"eb186030fcea65ab","optional":true}],"indices":[]},
+    "37754fa5ccea9aa1": {"kind":"literal","value":"local"},
+    "38b1d3b9f12fa617": {"kind":"literal","value":"plan-and-ship"},
+    "3a575eb6a5302989": {"kind":"literal","value":"orchestrator"},
+    "3e1c2c020bf3a578": {"kind":"literal","value":"llm"},
+    "437a1c86fb6f6644": {"kind":"literal","value":"high"},
+    "490eccfaf4a3233b": {"kind":"object","properties":[{"name":"data","type":"9573852ca24a7d0c","optional":false},{"name":"ignorable","type":"dacf3d5f3e4ff619","optional":true},{"name":"seq","type":"0657d3ca5ac4e7bf","optional":false},{"name":"time","type":"0657d3ca5ac4e7bf","optional":false},{"name":"type","type":"5041e4210398f92f","optional":false}],"indices":[]},
+    "4cd48f3e5108bd6e": {"kind":"primitive","type":"string"},
+    "5041e4210398f92f": {"kind":"literal","value":"session/run-options"},
+    "62458c1f6c5e65dc": {"kind":"literal","value":"auto"},
+    "65f6a6e8bdce8376": {"kind":"literal","value":"low"},
+    "79ed678c293ff55c": {"kind":"object","properties":[{"name":"backend","type":"3e1c2c020bf3a578","optional":false},{"name":"model","type":"4cd48f3e5108bd6e","optional":false},{"name":"provider","type":"4cd48f3e5108bd6e","optional":false},{"name":"reasoningEffort","type":"4cd48f3e5108bd6e","optional":true}],"indices":[]},
+    "8bb188be8ccbc2bd": {"kind":"literal","value":"medium"},
+    "9092674493b7deee": {"kind":"object","properties":[{"name":"mode","type":"b3a4777d4a7e6102","optional":false},{"name":"route","type":"96bc2d8ff29d204a","optional":false}],"indices":[]},
+    "9573852ca24a7d0c": {"kind":"object","properties":[{"name":"effort","type":"352eb0b4cc4d1473","optional":true},{"name":"fastMode","type":"aa93010d0e521ad7","optional":true},{"name":"subagentSetup","type":"c40e2c19c6564e31","optional":true},{"name":"ultracode","type":"aa93010d0e521ad7","optional":true}],"indices":[]},
+    "963de05e8412d454": {"kind":"literal","value":"xhigh"},
+    "96bc2d8ff29d204a": {"kind":"union","types":["27c6a24670a70561","79ed678c293ff55c"]},
+    "aa93010d0e521ad7": {"kind":"primitive","type":"boolean"},
+    "b174ddd21711dd22": {"kind":"literal","value":"every-step"},
+    "b3a4777d4a7e6102": {"kind":"literal","value":"fixed"},
+    "b782fca980e9246a": {"kind":"union","types":["38b1d3b9f12fa617","62458c1f6c5e65dc","b174ddd21711dd22"]},
+    "c1c048838e93aa84": {"kind":"literal","value":"commit"},
+    "c2a13242efc3bea4": {"kind":"object","properties":[{"name":"enabled","type":"aa93010d0e521ad7","optional":false}],"indices":[]},
+    "c40e2c19c6564e31": {"kind":"object","properties":[{"name":"autoResponder","type":"c2a13242efc3bea4","optional":true},{"name":"enabled","type":"aa93010d0e521ad7","optional":false},{"name":"gsd","type":"e6a92740c011f0a4","optional":true},{"name":"reviewRounds","type":"0657d3ca5ac4e7bf","optional":false},{"name":"roles","type":"37636b5ad6e3c6fc","optional":false}],"indices":[]},
+    "c89bd775fcf04e6c": {"kind":"literal","value":"claude-cli"},
+    "dacf3d5f3e4ff619": {"kind":"literal","value":true},
+    "e6a92740c011f0a4": {"kind":"object","properties":[{"name":"checkRounds","type":"0657d3ca5ac4e7bf","optional":false},{"name":"enabled","type":"aa93010d0e521ad7","optional":false},{"name":"gates","type":"b782fca980e9246a","optional":false},{"name":"parallelWaves","type":"aa93010d0e521ad7","optional":false},{"name":"planAuthor","type":"fbb1c675c6a6b828","optional":false},{"name":"planning","type":"3325dffa5d99f59d","optional":false}],"indices":[]},
+    "eb186030fcea65ab": {"kind":"union","types":["30fde5ff07237467","9092674493b7deee"]},
+    "fbb1c675c6a6b828": {"kind":"union","types":["085c87cc2cbb7966","3a575eb6a5302989"]}
+  }
 }

@@ -22,7 +22,7 @@ import type { CredentialsRevisionState } from './store.ts'
 import { createModelsOperations } from './operations.ts'
 import { createAuthorizationOperations } from './authorization-operations.ts'
 import { createSettingsSchemaOperations } from './schema-operations.ts'
-import { en, zh, type ModelsKey } from './locales.ts'
+import { en, ja, es, fr, de, ru, pt, zh, type ModelsKey } from './locales.ts'
 import { modelsSearchEntries } from './search-entries.ts'
 
 export type { ModelsSectionInjected, ModelsSectionProps } from './ModelsSection.tsx'
@@ -71,7 +71,7 @@ export const inject = [
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
-  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-settings-models: copy dictionaries')
+  ctx.effect(() => ctx.locale.register(NS, { zh, en, ja, es, fr, de, ru, pt }), 'ui-settings-models: copy dictionaries')
   ctx.effect(() => ctx.settingsDirectory.register(modelsSearchEntries(ctx.locale.bind(NS))), 'ui-settings-models: search entries')
 
   const schema = createSettingsSchemaOperations(ctx.settingsSchema)

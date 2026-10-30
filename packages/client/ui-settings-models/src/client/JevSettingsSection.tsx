@@ -32,6 +32,7 @@ export function JevSettingsSection({
       : <ProviderEditor
         provider={row.entry.provider} displayName={row.entry.displayName} namespace={namespace}
         settingsPath={row.entry.settingsPath} operations={operations} schema={schema} t={t}
+        {...row.credential === undefined ? {} : { credential: row.credential }}
         credentialsRevision={revision} readOnly={!state.writable}
         modelOptions={providerModelOptions(state, schema)}
         onCredentialChanged={reload}

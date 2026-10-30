@@ -19,7 +19,7 @@ function renderViews(options: { blank: boolean; selected: string }) {
   const renderSlot = vi.fn((_key: string, _owner: object, slotOptions?: { only?: string }) =>
     <div data-testid={`view-${slotOptions?.only ?? ''}`} />)
   const session = { ...sessionFixture('s1' as SessionId), blank: options.blank }
-  const props = {
+  const props: ConversationSessionSlotProps = {
     useSession: (select: (value: typeof session) => unknown) => select(session),
     useConversation: (select: (value: typeof EMPTY_CONVERSATION_SNAPSHOT) => unknown) => select(EMPTY_CONVERSATION_SNAPSHOT),
     useConversationViews: (select: (value: ViewTab[]) => unknown) => select(tabs),
@@ -31,7 +31,7 @@ function renderViews(options: { blank: boolean; selected: string }) {
     bindDraftMirror: () => () => {},
     openView: vi.fn(),
     renderSlot,
-  } as ConversationSessionSlotProps
+  } as never
   const view = render(<DefaultConversationViews {...props} />)
   return { view, renderSlot }
 }

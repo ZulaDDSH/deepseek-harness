@@ -16,7 +16,7 @@ function agentAtDepth(depth: number): Agent {
   return {
     options: depth === 0 ? {} : { subagentDepth: depth },
     session: { header: {} },
-  } as unknown as Agent
+  } as Agent
 }
 
 async function mount(): Promise<Context> {

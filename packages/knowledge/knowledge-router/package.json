@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-knowledge-router",
   "description": "Routes bounded knowledge queries to configured MCP-backed knowledge providers",
-  "version": "0.2.0-rc.1",
+  "version": "0.2.2-alpha.2",
   "publishConfig": {
     "access": "public"
   },
@@ -69,6 +69,7 @@
     "@deepseek-ai/dsh-subagent": "workspace:*",
     "@deepseek-ai/dsh-subagent-spawn-in-process": "workspace:*",
     "@deepseek-ai/dsh-system-prompt": "workspace:*",
+    "@deepseek-ai/dsh-tool-executor-native": "workspace:*",
     "@deepseek-ai/dsh-tool-subagent-control": "workspace:*",
     "@deepseek-ai/dsh-tools": "workspace:*"
   }

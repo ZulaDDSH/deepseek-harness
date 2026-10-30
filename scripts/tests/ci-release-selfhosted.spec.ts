@@ -9,6 +9,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+interface Workflow {
+  on: Record<string, unknown>
+  jobs: Record<string, { 'runs-on': string }>
+}
+
+function workflow(file: string): Workflow {
+  return load(readFileSync(resolve(root, '.github/workflows', file), 'utf8')) as Workflow
+}
+
 describe('public package release rehearsals', () => {
   it.each(['release.yml', 'release-vendor.yml'])('%s uses GitHub-hosted runners', (file) => {
     const workflow: unknown = load(readFileSync(resolve(root, '.github/workflows', file), 'utf8'))
@@ -22,4 +31,10 @@ describe('public package release rehearsals', () => {
       expect(job['runs-on']).toBe('ubuntu-latest')
     }
   })
+})
+
+it.each(['release-publish.yml', 'release-vendor-publish.yml'])('%s stays manual on GitHub-hosted runners', (file) => {
+  const publish = workflow(file)
+  expect(Object.keys(publish.on)).toEqual(['workflow_dispatch'])
+  for (const job of Object.values(publish.jobs)) expect(job['runs-on']).toBe('ubuntu-24.04')
 })

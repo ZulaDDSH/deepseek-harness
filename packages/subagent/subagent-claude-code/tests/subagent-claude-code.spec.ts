@@ -1,3 +1,6 @@
+import { mountWorkingDirectoryFixture } from '../../subagent/tests/working-directory-fixture.ts'
+import { randomUUID } from 'node:crypto'
+import { startExternalActivation, externalTestParent } from '../../subagent/tests/external-activation-helpers.ts'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -20,11 +23,17 @@ import {
   it,
   vi,
 } from 'vitest'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionLogOffset, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
+import type { SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+
+async function startAs(ctx: Context, provider: string, { signal, ...request }: SubagentStartRequest) {
+  if (ctx.agents.get(request.parent.id) !== request.parent) await ctx.agents.register(request.parent)
+  return ctx.subagents.startActivation({ provider, label: 'provider task', request, signal, delivery: 'caller' })
+}
 import type {
   SubprocessHandle,
   SubprocessOutcome,
@@ -89,6 +98,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async importOriginal => ({
 const fakeParent = {
   id: 'parent',
   session: {
+    id: 'parent',
     header: { cwd: process.cwd() },
     requestHeader: () => undefined,
     inheritedEventCount: SessionLogOffset(0),
@@ -205,7 +215,7 @@ afterEach(() => {
 })
 
 describe('task admission and package contracts', () => {
-  it('ships one independently installable provider-only Bundle patch', () => {
+  it('ships the provider with a global delegation tool', () => {
     const root = fileURLToPath(new URL('..', import.meta.url))
     const manifest = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')) as {
       dependencies?: Record<string, string>
@@ -220,9 +230,9 @@ describe('task admission and package contracts', () => {
     )
     expect(manifest.dependencies).toHaveProperty(
       '@modelcontextprotocol/sdk',
-      '^1.30.0',
+      '^1.31.0',
     )
-    expect(manifest.dependencies).toHaveProperty('zod', '^4.4.3')
+    expect(manifest.dependencies).toHaveProperty('zod', '4.4.3')
     expect(manifest.dependencies).not.toHaveProperty('@deepseek-ai/dsh-subagent-codex')
 
     const sdkRoot = dirname(fileURLToPath(
@@ -255,14 +265,13 @@ describe('task admission and package contracts', () => {
     }
 
     const parsed = yaml.load(readFileSync(resolve(root, manifest.dsh!.bundle!.patch!), 'utf8'))
-    const rows = Array.isArray(parsed)
-      ? (parsed as Array<{ insert?: Array<{ id?: string; name?: string }> }>).flatMap(entry => entry.insert ?? [])
-      : []
-    expect(rows).toEqual([{
-      id: 'subagent-claude-code',
-      name: '@deepseek-ai/dsh-subagent-claude-code',
-    }])
-    expect(JSON.stringify(rows)).not.toContain('tool-subagent')
+    expect(parsed).toEqual([{ insert: [
+      { id: 'subagent-claude-code', name: '@deepseek-ai/dsh-subagent-claude-code' },
+      { id: 'tool-subagent-claude-code', name: '@deepseek-ai/dsh-tool-subagent', config: {
+        provider: 'claude-code', toolName: 'subagent_claude_code', maxDepth: 'provider-managed',
+      } },
+    ] }])
+    expect(manifest.dependencies).toHaveProperty('@deepseek-ai/dsh-tool-subagent', 'workspace:*')
   })
 
   it('preserves text sequences and rejects empty, blank, and non-text tasks', () => {
@@ -277,19 +286,42 @@ describe('task admission and package contracts', () => {
       .toThrow('must not be empty')
   })
 
+  it.each([false, true])('rejects a missing parent directory before spawning (cancelled: %s)', async (cancelled) => {
+    const ctx = new Context()
+    try {
+      await ctx.plugin(SessionProjectionRegistry)
+      await mountWorkingDirectoryFixture(ctx)
+      await ctx.plugin(SubagentRuntime)
+      await ctx.plugin(LocalSubprocessRuntime)
+      await ctx.plugin(claudeCode, {})
+      const spawn = vi.spyOn(ctx.subprocess, 'spawn')
+      const controller = new AbortController()
+      if (cancelled) controller.abort()
+      const provider = ctx.subagents.getProvider('claude-code')!
+      await expect(Promise.resolve().then(async () => provider.start!({
+        ...request(undefined, controller.signal),
+        parent: await externalTestParent(ctx),
+        cwd: resolve('missing-parent-' + randomUUID()),
+      }))).rejects.toThrow(cancelled
+        ? 'request was aborted before SDK startup'
+        : 'stage: query-start; category: unknown')
+      expect(spawn).not.toHaveBeenCalled()
+    } finally { await ctx.fiber.dispose() }
+  })
+
   it('registers the default descriptor, validates config, and unregisters on HMR', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionProjectionRegistry)
+    await mountWorkingDirectoryFixture(ctx)
     await ctx.plugin(SubagentRuntime)
     await ctx.plugin(LocalSubprocessRuntime)
     const fiber = await ctx.plugin(claudeCode, {})
     expect(ctx.subagents.getProvider('claude-code')).toMatchObject({
       name: 'claude-code',
       capabilities: {
+        agentPreset: false,
         outputSchema: false,
         depthLimit: false,
-        toolFilter: false,
-        persona: false,
       },
       inheritsParentContext: false,
     })
@@ -312,6 +344,7 @@ describe('task admission and package contracts', () => {
   it('keeps named instances, runs, and HMR ownership isolated', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionProjectionRegistry)
+    await mountWorkingDirectoryFixture(ctx)
     await ctx.plugin(SubagentRuntime)
     await ctx.plugin(LocalSubprocessRuntime)
     const safeChild = fakeChild()
@@ -363,20 +396,20 @@ describe('task admission and package contracts', () => {
 
     const safeController = new AbortController()
     const [safeRun, bypassRun] = await Promise.all([
-      ctx.subagents.start('claude-safe', request(undefined, safeController.signal)),
-      ctx.subagents.start('claude-bypass', request()),
+      startExternalActivation(ctx, 'claude-safe', request(undefined, safeController.signal)),
+      startExternalActivation(ctx, 'claude-bypass', request()),
     ])
     await safeFiber.dispose()
     expect(ctx.subagents.list()).toEqual(['claude-bypass'])
     expect(removed).toEqual(['claude-safe'])
-    await expect(ctx.subagents.start('claude-safe', request()))
+    await expect(startExternalActivation(ctx, 'claude-safe', request()))
       .rejects.toMatchObject({ code: 'NO_PROVIDER' })
 
     await expect(bypassRun.result).resolves.toEqual({
       output: [{ type: 'text', text: 'bypass answer' }],
       stopReason: 'completed',
     })
-    safeController.abort(new Error('stop only the safe instance'))
+    void safeRun.dispose()
     await expect(safeRun.result).resolves.toEqual({
       output: [],
       stopReason: 'aborted',
@@ -410,6 +443,7 @@ describe('task admission and package contracts', () => {
   it('rejects duplicate provider names without replacing the first instance', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionProjectionRegistry)
+    await mountWorkingDirectoryFixture(ctx)
     await ctx.plugin(SubagentRuntime)
     await ctx.plugin(LocalSubprocessRuntime)
     const firstFiber = await ctx.plugin(claudeCode, {
@@ -530,6 +564,7 @@ describe('task admission and package contracts', () => {
   it('resolves the safe permission default when apply is called directly', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionProjectionRegistry)
+    await mountWorkingDirectoryFixture(ctx)
     await ctx.plugin(SubagentRuntime)
     await ctx.plugin(LocalSubprocessRuntime)
     const child = fakeChild()
@@ -543,7 +578,7 @@ describe('task admission and package contracts', () => {
     })
     claudeCode.apply(ctx, { env: {}, disposeGraceMs: 3_000 })
     expect(ctx.subagents.getProvider('claude-code')).toBeDefined()
-    const run = await ctx.subagents.start('claude-code', request())
+    const run = await startExternalActivation(ctx, 'claude-code', request())
     await expect(run.result).resolves.toEqual({
       output: [{ type: 'text', text: 'native model answer' }],
       stopReason: 'completed',
@@ -555,6 +590,7 @@ describe('task admission and package contracts', () => {
   it('starts through the registered provider with its resolved config and diagnostics', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionProjectionRegistry)
+    await mountWorkingDirectoryFixture(ctx)
     await ctx.plugin(SubagentRuntime)
     await ctx.plugin(LocalSubprocessRuntime)
     const child = fakeChild()
@@ -577,51 +613,13 @@ describe('task admission and package contracts', () => {
       disposeGraceMs: 29,
     })
 
-    await expect(ctx.subagents.start('claude-diagnostic', {
-      ...request(),
-      parent: {
-        id: 'parent-without-cwd',
-        session: { header: {} },
-      } as unknown as Agent,
-    })).rejects.toThrow(
-      'subagent-claude-code: no working directory for the child — delegate from a parent session that has one',
-    )
-    expect(queryMock).not.toHaveBeenCalled()
-
-    const invalidCwdParent = {
-      id: 'parent-with-invalid-cwd',
-      session: { header: { cwd: 'relative/SECRET_TOKEN' } },
-    } as unknown as Agent
-    const invalidCwd = ctx.subagents.start('claude-diagnostic', {
-      ...request(),
-      parent: invalidCwdParent,
-    })
-    await expect(invalidCwd)
-      .rejects.toThrow(expectedFailureDiagnostic('query-start', 'unknown'))
-    await expect(invalidCwd).rejects.not.toThrow('relative/SECRET_TOKEN')
-    expect(warn).toHaveBeenCalledWith(
-      'subagent-claude-code "claude-diagnostic": child start failed: %o',
-      expect.any(Error),
-    )
-    expect(errorCause(warn.mock.calls[0]?.[1] as unknown)?.message)
-      .toContain('relative/SECRET_TOKEN')
-
-    const invalidCwdAbort = new AbortController()
-    invalidCwdAbort.abort(new Error('cancel invalid cwd startup'))
-    await expect(ctx.subagents.start('claude-diagnostic', {
-      ...request(undefined, invalidCwdAbort.signal),
-      parent: invalidCwdParent,
-    })).rejects.toThrow('aborted before SDK startup')
-    expect(queryMock).not.toHaveBeenCalled()
-    warn.mockClear()
-
     vi.stubEnv('PATH', '/host/bin')
     queryMock.mockImplementationOnce(() => {
       throw new Error(
         'Native CLI binary for fixture-platform not found. Reinstall @anthropic-ai/claude-agent-sdk without --omit=optional, or set options.pathToClaudeCodeExecutable.',
       )
     })
-    const missingPayload = ctx.subagents.start('claude-diagnostic', request())
+    const missingPayload = startExternalActivation(ctx, 'claude-diagnostic', request())
     await expect(missingPayload)
       .rejects.toThrow(expectedFailureDiagnostic('query-start', 'unknown'))
     await expect(missingPayload).rejects.not.toThrow('Native CLI binary')
@@ -635,7 +633,7 @@ describe('task admission and package contracts', () => {
       .toContain('Native CLI binary for fixture-platform not found')
     expect(resolveExecutable).not.toHaveBeenCalled()
 
-    const run = await ctx.subagents.start('claude-diagnostic', request())
+    const run = await startExternalActivation(ctx, 'claude-diagnostic', request())
     child.settle({ exitCode: 9, signal: null })
     child.stdout.end()
     await expect(run.result).resolves.toEqual({
@@ -673,6 +671,8 @@ describe('task admission and package contracts', () => {
   it('takes fast mode, ultracode and effort from the Session run options, never from the parent route', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(AgentRegistry)
+    await mountWorkingDirectoryFixture(ctx)
     await ctx.plugin(SubagentRuntime)
     await ctx.plugin(LocalSubprocessRuntime)
     vi.spyOn(ctx.subprocess, 'spawn').mockImplementation(() => fakeChild().handle)
@@ -680,32 +680,27 @@ describe('task admission and package contracts', () => {
     const register = vi.spyOn(ctx.sessionProjections, 'register')
     await ctx.plugin(claudeCode, { model: 'claude-opus-5-5', ultracode: true, disposeGraceMs: 29 })
     expect(register).toHaveBeenCalledWith(claudeCodeRunOptionsProjection)
-    const stateOf = vi.spyOn(ctx.sessionProjections, 'stateOf')
-      .mockReturnValue({ current: { fastMode: true, ultracode: false, effort: 'max' } })
-    const parentWithEffort = (reasoningEffort: string) => ({
+    const snapshot = vi.spyOn(ctx.sessionProjections, 'snapshot')
+      .mockReturnValue({ values: { runOptions: { current: { fastMode: true, ultracode: false, effort: 'max' } } } } as never)
+    const parent = {
       id: 'parent-with-run-options',
       options: {},
       session: {
+        id: 'parent-with-run-options',
         header: { cwd: process.cwd() },
-        requestHeader: () => ({ config: { provider: 'p', model: 'claude-opus-5-5', reasoningEffort } }),
+        requestHeader: () => ({ config: { provider: 'p', model: 'claude-opus-5-5', reasoningEffort: 'high' } }),
       },
-    } as Agent)
+    } as Agent
 
-    const first = await ctx.subagents.start('claude-code', {
-      ...request(),
-      parent: parentWithEffort('high'),
-    })
+    const first = await startAs(ctx, 'claude-code', { ...request(), parent })
     const firstOptions = queryMock.mock.calls[0]?.[0].options
     expect(firstOptions?.effort).toBe('max')
     expect(firstOptions?.settings).toEqual({ ultracode: false, fastMode: true })
     expect(firstOptions).not.toHaveProperty('allowedTools')
     await first.dispose()
 
-    stateOf.mockReturnValue(undefined)
-    const second = await ctx.subagents.start('claude-code', {
-      ...request(),
-      parent: parentWithEffort('high'),
-    })
+    snapshot.mockReturnValue({ values: {} } as never)
+    const second = await startAs(ctx, 'claude-code', { ...request(), parent })
     const secondOptions = queryMock.mock.calls[1]?.[0].options
     expect(secondOptions).not.toHaveProperty('effort')
     expect(secondOptions?.settings).toEqual({ ultracode: true, enableWorkflows: true })
@@ -717,21 +712,23 @@ describe('task admission and package contracts', () => {
   it('sends Ultracode only to runs whose model is a Claude 5 family model', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(AgentRegistry)
+    await mountWorkingDirectoryFixture(ctx)
     await ctx.plugin(SubagentRuntime)
     await ctx.plugin(LocalSubprocessRuntime)
     vi.spyOn(ctx.subprocess, 'spawn').mockImplementation(() => fakeChild().handle)
     vi.spyOn(ctx.subprocess, 'resolveExecutable').mockResolvedValue('/host/bin/claude')
-    vi.spyOn(ctx.sessionProjections, 'stateOf').mockReturnValue({ current: { ultracode: true } })
+    vi.spyOn(ctx.sessionProjections, 'snapshot').mockReturnValue({ values: { runOptions: { current: { ultracode: true } } } } as never)
     await ctx.plugin(claudeCode, { model: 'claude-sonnet-4', ultracode: true, disposeGraceMs: 29 })
-    const sonnet = await ctx.subagents.start('claude-code', request())
+    const sonnet = await startAs(ctx, 'claude-code', request())
     expect(queryMock.mock.calls[0]?.[0].options.settings).toBeUndefined()
     await sonnet.dispose()
     for (const model of ['opus[1m]', 'claude-sonnet-5-5', 'haiku', 'claude-haiku-5-5-20261001']) {
-      const run = await ctx.subagents.start('claude-code', { ...request(), agentOptions: { model } })
+      const run = await startAs(ctx, 'claude-code', { ...request(), agentOptions: { model } })
       expect(queryMock.mock.calls.at(-1)?.[0].options.settings).toEqual({ ultracode: true, enableWorkflows: true })
       await run.dispose()
     }
-    const other = await ctx.subagents.start('claude-code', { ...request(), agentOptions: { model: 'claude-opus-4-5' } })
+    const other = await startAs(ctx, 'claude-code', { ...request(), agentOptions: { model: 'claude-opus-4-5' } })
     expect(queryMock.mock.calls.at(-1)?.[0].options.settings).toBeUndefined()
     await other.dispose()
     await ctx.fiber.dispose()
@@ -740,21 +737,26 @@ describe('task admission and package contracts', () => {
   it('ignores a stored Ultracode flag when the delegating Session model does not support it', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(AgentRegistry)
+    await mountWorkingDirectoryFixture(ctx)
     await ctx.plugin(SubagentRuntime)
     await ctx.plugin(LocalSubprocessRuntime)
     vi.spyOn(ctx.subprocess, 'spawn').mockImplementation(() => fakeChild().handle)
     vi.spyOn(ctx.subprocess, 'resolveExecutable').mockResolvedValue('/host/bin/claude')
-    vi.spyOn(ctx.sessionProjections, 'stateOf').mockReturnValue({ current: { ultracode: true } })
+    vi.spyOn(ctx.sessionProjections, 'snapshot').mockReturnValue({ values: { runOptions: { current: { ultracode: true } } } } as never)
     await ctx.plugin(claudeCode, { model: 'claude-opus-5-5', disposeGraceMs: 29 })
-    const parentOn = (model: string) => ({
-      id: 'parent',
-      options: {},
-      session: { header: { cwd: process.cwd() }, requestHeader: () => ({ config: { provider: 'p', model } }) },
-    } as Agent)
-    const stale = await ctx.subagents.start('claude-code', { ...request(), parent: parentOn('deepseek-v4-pro') })
+    const parentOn = (model: string) => {
+      const id = `parent-on-${model}`
+      return {
+        id,
+        options: {},
+        session: { id, header: { cwd: process.cwd() }, requestHeader: () => ({ config: { provider: 'p', model } }) },
+      } as Agent
+    }
+    const stale = await startAs(ctx, 'claude-code', { ...request(), parent: parentOn('deepseek-v4-pro') })
     expect(queryMock.mock.calls.at(-1)?.[0].options.settings).toBeUndefined()
     await stale.dispose()
-    const live = await ctx.subagents.start('claude-code', { ...request(), parent: parentOn('claude-opus-5-5') })
+    const live = await startAs(ctx, 'claude-code', { ...request(), parent: parentOn('claude-opus-5-5') })
     expect(queryMock.mock.calls.at(-1)?.[0].options.settings).toEqual({ ultracode: true, enableWorkflows: true })
     await live.dispose()
     await ctx.fiber.dispose()

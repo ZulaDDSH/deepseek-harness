@@ -9,6 +9,7 @@
  * idle→running→idle, while teardown is a registry lifecycle.
  */
 
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
@@ -43,6 +44,7 @@ async function harness() {
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
   ctx.llm.registerAdapter(['mock'], new EchoAdapter())
@@ -132,7 +134,7 @@ describe('agent loop scheduling properties', () => {
           await ctx.fiber.dispose()
         }
       },
-    ), { numRuns: 25, timeout: 2000 })
+    ), { numRuns: 25, plugins: [fc.timeout(2000)] })
   })
 
   it('sequential sends each get their own turn with increasing numbers', async () => {
@@ -154,7 +156,7 @@ describe('agent loop scheduling properties', () => {
           await ctx.fiber.dispose()
         }
       },
-    ), { numRuns: 20, timeout: 2000 })
+    ), { numRuns: 20, plugins: [fc.timeout(2000)] })
   })
 
   it('mixed settled and same-tick sends preserve one turn per message', async () => {
@@ -189,6 +191,6 @@ describe('agent loop scheduling properties', () => {
           await ctx.fiber.dispose()
         }
       },
-    ), { numRuns: 25, timeout: 3000 })
+    ), { numRuns: 25, plugins: [fc.timeout(3000)] })
   })
 })

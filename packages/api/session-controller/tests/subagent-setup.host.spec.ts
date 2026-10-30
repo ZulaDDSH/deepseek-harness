@@ -1,12 +1,14 @@
 import { readFile } from 'node:fs/promises'
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { modelSelectionProjectionDefinition } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionHeader } from '@deepseek-ai/dsh-session'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createVolatile } from '../../../../vendor/cosmokit/src/volatile.ts'
@@ -16,6 +18,7 @@ import {
   GSD_CHECK_ROUNDS_MAX, GSD_GATES, GSD_PLAN_AUTHORS, GSD_PLANNING_MODES,
   subagentPolicyText, subagentSetupSchema, subagentWorkflowText, type SubagentSetup,
 } from '../src/subagent-setup.ts'
+import { unsupportedModel } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { createSessionTestController } from './test-remote.ts'
 
 const roots: Context[] = []
@@ -38,7 +41,7 @@ function agentUnder(ctx: Context, id: string, lineage: Partial<SessionHeader> = 
   const session = ctx.sessions.create(SessionId(id), { meta })
   const reject = (): never => { throw new Error('this fixture does not mutate the inbox') }
   const agent: Agent = {
-    id: SessionId(id), session, options: {}, ctx, status: 'idle',
+    id: SessionId(id), session, model: unsupportedModel(), options: {}, ctx, status: 'idle',
     inbox: { nextTurn: [], nextStep: [], append: reject, prepend: reject, replace: reject, remove: reject, splice: reject, clear: reject },
     steer: vi.fn(), followup: vi.fn(), cancel: vi.fn(), send: vi.fn(), inject: vi.fn(),
     whenIdle: () => Promise.resolve(), runMaintenance: task => task(new AbortController().signal),
@@ -55,6 +58,7 @@ async function setupRoot(withSubagentTool: boolean, globalSetup?: unknown) {
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(NativeToolExecutor)
   if (withSubagentTool) {
     ctx.tools.register(defineContentToolFixture({
       name: 'subagent',
@@ -63,10 +67,11 @@ async function setupRoot(withSubagentTool: boolean, globalSetup?: unknown) {
       async execute() { return [{ type: 'text', text: 'ok' }] },
     }))
   }
-  const controller = createSessionTestController(ctx, {
+  const controller = await createSessionTestController(ctx, {
     defaultModelSelection: () => ({ provider: 'fixture', model: 'fixture-model' }), cwd: '/workspace',
     ...globalSetup === undefined ? {} : { subagentSetup: createVolatile(globalSetup) },
   })
+  await ctx.sessionProjections.register(modelSelectionProjectionDefinition)
   return { ctx, controller }
 }
 
@@ -113,11 +118,11 @@ it('stores a Subagent Setup beside ultracode, fast mode, and effort, and a write
   agent.session.append('model/selection', { provider: 'anthropic', model: 'claude-opus-5-5' })
   await expect(controller.setRunOptions({ sessionId: agent.id, fastMode: true, ultracode: true, effort: 'max', subagentSetup: setup }))
     .resolves.toEqual({ fastMode: true, ultracode: true, effort: 'max', subagentSetup: setup })
-  expect(ctx.sessionProjections.stateOf(agent.session, 'runOptions')).toEqual({
+  expect(ctx.sessionProjections.snapshot(agent.session, ['runOptions']).values.runOptions).toEqual({
     current: { fastMode: true, ultracode: true, effort: 'max', subagentSetup: setup },
   })
   await controller.setRunOptions({ sessionId: agent.id, subagentSetup: setup })
-  expect(ctx.sessionProjections.stateOf(agent.session, 'runOptions')).toEqual({ current: { subagentSetup: setup } })
+  expect(ctx.sessionProjections.snapshot(agent.session, ['runOptions']).values.runOptions).toEqual({ current: { subagentSetup: setup } })
 })
 
 it('adds the subagent policy only while Subagent Setup is on and the subagent tool is in scope', async () => {

@@ -15,10 +15,13 @@
       "path": "../../../vendor/include"
     },
     {
-      "path": "../webworker-runtime/tsconfig.host.json"
+      "path": "../../boot/app-boot"
     },
     {
-      "path": "../../util/home-paths"
+      "path": "../../util/official-bundles"
+    },
+    {
+      "path": "../webworker-runtime/tsconfig.host.json"
     },
     {
       "path": "../../session/session-format"

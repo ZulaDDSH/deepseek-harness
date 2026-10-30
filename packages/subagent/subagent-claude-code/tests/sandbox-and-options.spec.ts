@@ -1,16 +1,23 @@
 import type { Options, Query, SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { Context } from '@deepseek-ai/cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionRunOptions } from '@deepseek-ai/dsh-api-session-controller'
 import { type Session, type SessionEvent, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
+import type { SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
+
+async function startAs(ctx: Context, provider: string, { signal, ...request }: SubagentStartRequest) {
+  if (ctx.agents.get(request.parent.id) !== request.parent) await ctx.agents.register(request.parent)
+  return ctx.subagents.startActivation({ provider, label: 'provider task', request, signal, delivery: 'caller' })
+}
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as claudeCode from '../src/index.ts'
 import { inheritedRunOptions } from '../src/run-options-projection.ts'
 import type { ClaudeCodePermissionMode } from '../src/run.ts'
 import { fakeChild, sdkSpawnOptions, success } from './claude-fakes.ts'
+import { mountWorkingDirectoryFixture } from '../../subagent/tests/working-directory-fixture.ts'
 
 type QueryFactory = (params: {
   prompt: string
@@ -29,6 +36,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async importOriginal => ({
 /** Minimal Session face the runOptions projection fold reads. */
 function fakeSession(header: { readonly parentSession?: string | undefined } = {}): Session {
   return {
+    id: 'parent',
     header: { cwd: process.cwd(), ...header },
     requestHeader: () => undefined,
     inheritedEventCount: SessionLogOffset(0),
@@ -61,6 +69,8 @@ async function runClaudeCode(
 ) {
   const ctx = new Context()
   await ctx.plugin(SessionProjectionRegistry)
+  await ctx.plugin(AgentRegistry)
+  await mountWorkingDirectoryFixture(ctx)
   await ctx.plugin(SubagentRuntime)
   await ctx.plugin(LocalSubprocessRuntime)
   if (sandbox !== undefined) {
@@ -82,7 +92,7 @@ async function runClaudeCode(
       helper: { description: 'Helps', prompt: 'Help.', permissionMode: agentMode },
     },
   })
-  const run = await ctx.subagents.start('claude-code', {
+  const run = await startAs(ctx, 'claude-code', {
     prompt: [{ type: 'text', text: 'do the task' }],
     parent: parentAgent,
     signal: new AbortController().signal,
@@ -209,6 +219,8 @@ describe('inherited run options through the provider', () => {
   it('projects ultracode from an ancestor Session into the SDK settings', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(AgentRegistry)
+    await mountWorkingDirectoryFixture(ctx)
     await ctx.plugin(SubagentRuntime)
     await ctx.plugin(LocalSubprocessRuntime)
     const rootSession = fakeSession({})
@@ -219,7 +231,7 @@ describe('inherited run options through the provider', () => {
     const runOptionsOf = (session: Session) => session === rootSession
       ? { current: { ultracode: true } }
       : { current: null }
-    vi.spyOn(ctx.sessionProjections, 'stateOf').mockImplementation(runOptionsOf)
+    vi.spyOn(ctx.sessionProjections, 'snapshot').mockImplementation(session => ({ values: { runOptions: runOptionsOf(session) } }) as never)
     const child = fakeChild()
     vi.spyOn(ctx.subprocess, 'spawn').mockImplementation(() => child.handle)
     const captured: { options?: Options } = {}
@@ -230,7 +242,7 @@ describe('inherited run options through the provider', () => {
     })
     await ctx.plugin(claudeCode, { model: 'claude-opus-5-5' })
 
-    const run = await ctx.subagents.start('claude-code', {
+    const run = await startAs(ctx, 'claude-code', {
       prompt: [{ type: 'text', text: 'do the task' }],
       parent: { id: 'parent', options: { model: 'claude-opus-5-5' }, session: parentSession } as never,
       signal: new AbortController().signal,

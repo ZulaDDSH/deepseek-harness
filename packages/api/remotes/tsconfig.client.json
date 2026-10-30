@@ -36,6 +36,9 @@
       "path": "../../context/session-reference"
     },
     {
+      "path": "../../core/session"
+    },
+    {
       "path": "../../extensions/cordis-host-runner"
     },
     {
@@ -103,6 +106,9 @@
     },
     {
       "path": "../../boot/plugin-manager"
+    },
+    {
+      "path": "../../boot/plugin-market"
     },
     {
       "path": "../../document/office-to-pdf"

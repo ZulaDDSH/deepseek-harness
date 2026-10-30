@@ -40,6 +40,8 @@ function state(): ModelDirectoryState {
 }
 
 const noProjection = () => undefined
+const renderLabel: ComponentProps<typeof ModelSelect>['renderSlot'] = (_name, _owner, options) => options?.fallback ?? null
+const resolveText: ComponentProps<typeof ModelSelect>['resolveText'] = text => typeof text === 'string' ? text : text.en
 
 const statuses: CliTerminalStatus[] = [
   { profile: 'gemini-cli', installed: true, installUrl: 'https://geminicli.com' },
@@ -79,7 +81,7 @@ function renderSeat(props: Partial<SeatProps> = {}) {
     select={vi.fn(async () => ({ ok: true as const, value: undefined }))}
     openCliTerminal={openCliTerminal}
     cliProfiles={cliProfiles}
-    t={zhT}
+    t={zhT} renderSlot={renderLabel} resolveText={resolveText}
     {...props}
   />
   render(seat)

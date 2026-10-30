@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-api-session-controller",
   "description": "Session Remote commands, cold reads, and live control transport",
-  "version": "0.2.0-rc.1",
+  "version": "0.2.2-alpha.2",
   "publishConfig": {
     "access": "public"
   },
@@ -43,7 +43,8 @@
       "default": "./lib/typert.remote-client.js"
     },
     "./src/*": "./src/*",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
   },
   "dsh": {
     "client": {
@@ -62,6 +63,7 @@
     "watch": "tsdown --watch"
   },
   "files": [
+    "locale/*.json",
     "lib/index.js",
     "lib/client.js",
     "lib/types/**/*.js",
@@ -75,9 +77,10 @@
   "dependencies": {
     "@deepseek-ai/dsh-brand": "workspace:*",
     "@deepseek-ai/dsh-deque": "workspace:*",
+    "@deepseek-ai/dsh-timeout": "workspace:*",
     "@deepseek-ai/schemastery": "workspace:~",
     "mime-types": "^3.0.2",
-    "zod": "^4.4.3"
+    "zod": "4.4.3"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
@@ -110,7 +113,8 @@
     "@deepseek-ai/dsh-util-time": "workspace:*",
     "@deepseek-ai/dsh-util-values": "workspace:*",
     "@deepseek-ai/dsh-util-workspace-path": "workspace:*",
-    "@deepseek-ai/dsh-workspace": "workspace:*"
+    "@deepseek-ai/dsh-workspace": "workspace:*",
+    "@deepseek-ai/dsh-working-directory": "workspace:*"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh-session-persistence": {
@@ -124,6 +128,7 @@
     }
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-api-remote-access": "workspace:*",
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/dsh-agent": "workspace:*",
     "@deepseek-ai/dsh-agent-default-model": "workspace:*",
@@ -132,6 +137,7 @@
     "@deepseek-ai/dsh-agent-preset-registry": "workspace:*",
     "@deepseek-ai/dsh-api-gateway": "workspace:*",
     "@deepseek-ai/dsh-attachment": "workspace:*",
+    "@deepseek-ai/dsh-attachment-local": "workspace:*",
     "@deepseek-ai/dsh-client-connection": "workspace:*",
     "@deepseek-ai/dsh-client-file-upload": "workspace:*",
     "@deepseek-ai/dsh-client-store": "workspace:*",
@@ -161,6 +167,7 @@
     "@deepseek-ai/dsh-storage-json": "workspace:*",
     "@deepseek-ai/dsh-subagent": "workspace:*",
     "@deepseek-ai/dsh-system-prompt": "workspace:*",
+    "@deepseek-ai/dsh-tool-testkit": "workspace:*",
     "@deepseek-ai/dsh-typert-protocol": "workspace:*",
     "@deepseek-ai/dsh-typert-registry": "workspace:*",
     "@deepseek-ai/dsh-util-crypto": "workspace:*",
@@ -168,6 +175,7 @@
     "@deepseek-ai/dsh-util-values": "workspace:*",
     "@deepseek-ai/dsh-util-workspace-path": "workspace:*",
     "@deepseek-ai/dsh-workspace": "workspace:*",
-    "@types/mime-types": "^3.0.1"
+    "@types/mime-types": "^3.0.1",
+    "@deepseek-ai/dsh-working-directory": "workspace:*"
   }
 }

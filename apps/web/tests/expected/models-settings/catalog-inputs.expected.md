@@ -1,13 +1,10 @@
 - dialog "设置":
+  - text: 设置
   - navigation:
-    - text: 设置
     - button "通用设置"
     - button "模型"
-    - button "Jev"
     - button "内置插件"
     - button "Agent 预设"
-    - button "MCP 服务器"
-    - button "钩子"
   - button "打开配置文件"
   - button "关闭"
   - heading "模型" [level=2]
@@ -22,35 +19,35 @@
       - text: openai
       - button "编辑 openai": 编辑
       - button "删除 openai": 删除
-      - text: openai 登录 openai 未登录
-      - paragraph: 请在浏览器中完成登录，此窗口会自动更新。
-      - button "登录"
-      - text: API 密钥
+      - text: openai API 密钥
+      - button "认证说明": "?"
       - textbox "API 密钥":
-        - /placeholder: 输入 API 密钥，或留空使用环境认证
+        - /placeholder: 留空使用环境认证（OPENAI_API_KEY）
+      - paragraph: 已检测到环境变量（OPENAI_API_KEY）
       - group:
         - text: 自定义设置 API 地址
         - textbox "API 地址":
-          - /placeholder: 提供商默认
+          - /placeholder: https://api.openai.com/v1
         - region "模型目录":
           - text: 模型目录 已自定义模型目录
           - button "恢复默认模型"
           - button "获取可用模型"
+          - button "调整模型顺序 1"
           - textbox "模型 ID 1":
             - /placeholder: 模型 ID
             - text: gpt-6-astra
+          - button "模型选项 1" [expanded]
+          - button "删除模型 1"
           - textbox "显示名称 1":
             - /placeholder: 显示名称
             - text: GPT-6 Astra
-          - button "模型选项 1" [expanded]
-          - button "删除模型 1"
           - text: 上下文窗口
           - textbox "上下文窗口 1":
-            - /placeholder: 256K
+            - /placeholder: 1M
             - text: 272K
           - text: 最大输出 token 数
           - textbox "最大输出 token 数 1":
-            - /placeholder: 32K
+            - /placeholder: 128K
             - text: 128K
           - group "输入类型 1":
             - text: 输入类型

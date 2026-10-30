@@ -2,7 +2,7 @@
 import { afterEach, expect, it } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { sessionSnapshot } from '@deepseek-ai/dsh-client-test-runtime'
-import type { ModelSelection, ModelSelectionProjection } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { ModelSelection, ModelSelectionProjection } from '@deepseek-ai/dsh-agent/types'
 import { SessionSeq, type SessionId } from '@deepseek-ai/dsh-session/types'
 import type { TurnOutlineEntry } from '@deepseek-ai/dsh-session-turn-outline/types'
 import type { JevDecisionRecord } from '@deepseek-ai/dsh-llm-jev-router/client'

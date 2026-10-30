@@ -12,6 +12,8 @@ const unusedStandardHook = (): never => { throw new Error('Memory fixture does n
 const standard = {
   usePanelInfo: unusedStandardHook, useWorkspaces: unusedStandardHook, useSessions: unusedStandardHook,
   useSessionStatus: unusedStandardHook, useSessionRetainInfo: unusedStandardHook, useResource: unusedStandardHook,
+  useRemoteAccess: unusedStandardHook, useSessionAccess: unusedStandardHook, useContextMenu: unusedStandardHook,
+  useWorkspaceAccess: unusedStandardHook,
 }
 
 it('renders provider records and embeds the official Graphify viewer in a script-only sandbox', async () => {

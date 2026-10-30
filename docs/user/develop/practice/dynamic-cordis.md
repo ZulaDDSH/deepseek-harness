@@ -1,6 +1,6 @@
 # Configure persistent plugins from a prompt
 
-Creator mode provides [Plugin Manager](../../../../packages/boot/plugin-manager/README.md) and read-only [runtime inspection](../../../../packages/extensions/tool-cordis/README.md). Plugin configuration belongs to the current profile, affects its sessions, and survives process restarts.
+Standard and Creator modes provide [Plugin Manager](../../../../packages/boot/plugin-manager/README.md); Creator mode adds read-only [runtime inspection](../../../../packages/extensions/tool-cordis/README.md). Plugin configuration belongs to the current profile, affects its sessions, and survives process restarts.
 
 ## Connect an MCP server
 

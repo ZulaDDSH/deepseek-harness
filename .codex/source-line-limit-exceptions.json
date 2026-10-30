@@ -2,6 +2,27 @@
   "files": {
     "scripts/ci-workflow.spec.ts": {
       "reason": "Existing workflow contract suite is intentionally retained as one cross-workflow specification."
+    },
+    "scripts/run-gates.ts": {
+      "reason": "Upstream-owned gate runner kept in one file so upstream syncs merge without a local split."
+    },
+    "apps/desktop/src/locale.ts": {
+      "reason": "Upstream-owned locale dictionary file kept whole so upstream syncs merge without a local split."
+    },
+    "apps/cli/tests/web-agent-presets.e2e.ts": {
+      "reason": "Upstream-owned e2e suite kept whole so upstream syncs merge without a local split."
+    },
+    "apps/web/tests/preview-boot.e2e.ts": {
+      "reason": "Upstream-owned e2e suite kept whole so upstream syncs merge without a local split."
+    },
+    "scripts/gen-cordis-catalog.ts": {
+      "reason": "Upstream-owned generator kept in one file so upstream syncs merge without a local split."
+    },
+    "apps/web/tests/document-preview.e2e.ts": {
+      "reason": "Upstream-owned e2e suite kept whole so upstream syncs merge without a local split."
+    },
+    "scripts/run-gates.spec.ts": {
+      "reason": "Upstream-owned gate runner suite kept in one file so upstream syncs merge without a local split."
     }
   }
 }

@@ -27,9 +27,9 @@ async function setup() {
   session.append('todo/write', { todos })
   const inject = vi.fn()
   const cancel = vi.fn()
-  const agent = { session, inject, cancel } as unknown as Agent
+  const agent: Partial<Agent> = { session, inject, cancel }
   const invocation = (content: string | null, expected = todos): CommandInvocation => ({
-    agent, commandId: 'cancel' as CommandInvocation['commandId'], attachments: [],
+    agent: agent as Agent, commandId: 'cancel' as CommandInvocation['commandId'], attachments: [],
     signal: new AbortController().signal,
     rawInput: JSON.stringify({ content, expected: JSON.stringify(expected.map(item => [item.content, item.status])) }),
   })
@@ -41,15 +41,15 @@ describe('to-do cancellation', () => {
     const h = await setup()
     expect(h.register).toHaveBeenCalledWith(expect.objectContaining({ name: 'cancel-todos' }))
     expect(cancelTodos(h.ctx, h.invocation('Build')).kind).toBe('success')
-    expect(h.ctx.sessionProjections.stateOf(h.session, 'todos')).toEqual([todos[0], todos[2]])
+    expect(h.ctx.sessionProjections.snapshot(h.session, ['todos']).values.todos).toEqual([todos[0], todos[2]])
     expect(h.cancel).not.toHaveBeenCalled()
-    expect(h.inject).toHaveBeenCalledWith(expect.objectContaining({ source: { kind: 'user' }, content: [expect.objectContaining({ text: expect.stringContaining('Do not continue or re-add') })] }))
+    expect(h.inject).toHaveBeenCalledWith(expect.objectContaining({ source: { kind: 'user' }, content: [expect.objectContaining({ text: expect.stringContaining('Do not continue or re-add') as string })] }))
   })
 
   it('cancels all unfinished tasks and stops the run while retaining completed tasks and the inbox', async () => {
     const h = await setup()
     expect(cancelTodos(h.ctx, h.invocation(null)).kind).toBe('success')
-    expect(h.ctx.sessionProjections.stateOf(h.session, 'todos')).toEqual([todos[0]])
+    expect(h.ctx.sessionProjections.snapshot(h.session, ['todos']).values.todos).toEqual([todos[0]])
     expect(h.cancel).toHaveBeenCalledWith({ kind: 'user' }, { keepInbox: true })
   })
 
@@ -61,7 +61,7 @@ describe('to-do cancellation', () => {
     const abort = new AbortController()
     abort.abort()
     expect(() => cancelTodos(h.ctx, { ...h.invocation(null), signal: abort.signal })).toThrow()
-    expect(h.ctx.sessionProjections.stateOf(h.session, 'todos')).toEqual(todos)
+    expect(h.ctx.sessionProjections.snapshot(h.session, ['todos']).values.todos).toEqual(todos)
     expect(h.inject).not.toHaveBeenCalled()
     expect(h.cancel).not.toHaveBeenCalled()
   })

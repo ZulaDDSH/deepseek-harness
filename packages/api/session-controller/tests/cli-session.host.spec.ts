@@ -10,7 +10,6 @@ import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ApiSessionAgentController } from '../src/agent.ts'
 import { SessionCommandController } from '../src/commands.ts'
-import { installModelSelectionProjection } from '../src/model-selection-projection.ts'
 import { createSessionTestRemote, installSessionReadTestServices } from './test-remote.ts'
 
 const roots: Context[] = []
@@ -28,8 +27,7 @@ async function baseHarness(): Promise<{ ctx: Context; cwd: string }> {
   await mountAgentLoopTestDependencies(ctx)
   await mountAgentLoopTestHarness(ctx)
   installSessionReadTestServices(ctx)
-  ctx.sessionProjections.register(agentPresetProjectionDefinition)
-  installModelSelectionProjection(ctx)
+  await ctx.sessionProjections.register(agentPresetProjectionDefinition)
   ctx.provide('agentDefaultModel', {
     currentSelection: () => ({ provider: 'fixture', model: 'fixture-model' }),
     saveSelection: () => Promise.resolve(),
@@ -67,7 +65,7 @@ describe('CLI terminal Sessions', () => {
       sessionId: SessionId(created.sessionId),
       mode: 'queue',
       content: [{ type: 'text', text: 'hello' }],
-    })).rejects.toMatchObject({ code: 'session/cli-terminal' })
+    }, { kind: 'user' })).rejects.toMatchObject({ code: 'session/cli-terminal' })
     expect(ctx.agents.get(SessionId(created.sessionId))?.session.ownEvents().some(event => event.type === 'user/message')).toBe(false)
   })
 
@@ -95,7 +93,7 @@ describe('CLI terminal Sessions', () => {
 
   it('lists a CLI terminal Session as not blank with its profile', async () => {
     const { ctx, cwd } = await baseHarness()
-    const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd })
+    const remote = await createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd })
     const created = await remote.create({ cwd, cliProfile: 'cursor-cli' })
     if (!created.ok) throw new Error('create failed')
     const listed = await remote.list({})
@@ -108,7 +106,7 @@ describe('CLI terminal Sessions', () => {
     const { ctx, cwd } = await baseHarness()
     const announced: { sessionId: string; blank: boolean; cliProfile?: string }[] = []
     ctx.on('api-session/added', (summary) => { announced.push(summary) })
-    const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd })
+    const remote = await createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd })
     const created = await remote.create({ cwd, cliProfile: 'gemini-cli' })
     if (!created.ok) throw new Error('create failed')
     expect(announced.filter(item => item.sessionId === created.value.sessionId).at(-1))
@@ -117,7 +115,7 @@ describe('CLI terminal Sessions', () => {
 
   it('creates a plain New Session that is never a CLI terminal Session', async () => {
     const { ctx, cwd } = await baseHarness()
-    const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd })
+    const remote = await createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd })
     const cli = await remote.create({ cwd, cliProfile: 'gemini-cli' })
     const plain = await remote.create({ cwd })
     if (!cli.ok || !plain.ok) throw new Error('create failed')

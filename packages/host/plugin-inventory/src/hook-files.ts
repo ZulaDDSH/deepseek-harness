@@ -1,6 +1,7 @@
 /** Read external hook configuration without registering or executing commands. */
 import { readFile } from 'node:fs/promises'
-import { hookKey, type HookInventoryHandler, type HookInventoryReport } from '@deepseek-ai/dsh-hook-protocol'
+import { hookKey } from './hook-key.ts'
+import type { HookInventoryHandler, HookInventoryReport } from './types.ts'
 
 /** External application's JSON hook file. */
 export interface HookFileSource {

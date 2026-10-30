@@ -4,6 +4,8 @@ import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
@@ -101,6 +103,8 @@ async function setup(options: Setup = {}) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(NativeToolExecutor)
+  await ctx.plugin(SessionProjections)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(LocalJobRegistry, {})
   await ctx.plugin(ToolJobs, {})
@@ -118,7 +122,7 @@ interface Owner {
   readonly injects: UserMessage[]
 }
 
-type FakeAgent = Pick<Agent, 'id' | 'ctx' | 'inject' | 'followup' | 'status'> & {
+type FakeAgent = Pick<Agent, 'id' | 'ctx' | 'inbox' | 'inject' | 'followup' | 'status'> & {
   readonly session: Pick<Agent['session'], 'id' | 'header'>
 }
 
@@ -130,6 +134,7 @@ async function fakeOwner(ctx: Context, id: string, status: 'idle' | 'running', c
   const fake: FakeAgent = {
     id: sessionId,
     ctx: scope.ctx,
+    inbox: { remove: () => false } as never,
     inject: (message: UserMessage) => { injects.push(message) },
     followup: (message: UserMessage) => { followups.push(message) },
     status,
@@ -144,14 +149,13 @@ async function fakeOwner(ctx: Context, id: string, status: 'idle' | 'running', c
 }
 
 let callCounter = 0
-function call(ctx: Context, name: string, args: unknown, agent?: Agent) {
-  return ctx.tools.execute({
+async function call(ctx: Context, name: string, args: unknown, agent?: Agent) {
+  const batch = await ctx.tools.execute({
     signal: new AbortController().signal,
-    callId: ToolCallId(`call-${++callCounter}`),
-    name,
-    arguments: args,
+    calls: [{ type: 'tool-call', id: ToolCallId(`call-${++callCounter}`), name, arguments: JSON.stringify(args) }],
     ...agent ? { agent } : {},
   })
+  return batch.results[0]!.result
 }
 
 function text(result: { content: { type: string; text?: string }[] }): string {
@@ -160,6 +164,10 @@ function text(result: { content: { type: string; text?: string }[] }): string {
 
 function messageText(message: UserMessage): string {
   return message.content.map(block => (block.type === 'text' ? block.text : '')).join('')
+}
+
+function jobIdOf(ctx: Context, owner: Owner, index = 0): JobId {
+  return ctx.jobs.list(owner.agent.id)[index]!.id
 }
 
 async function advance(ms: number): Promise<void> {
@@ -184,7 +192,7 @@ describe('watch tool', () => {
     const owner = await fakeOwner(ctx, 'alice', 'idle')
     const started = await call(ctx, 'watch', base, owner.agent)
     expect(started.isError).toBe(false)
-    expect(text(started)).toContain('started watch watch-1 "CI on PR 123"')
+    expect(text(started)).toContain(`started watch ${jobIdOf(ctx, owner)} "CI on PR 123"`)
     await advance(0)
     expect(shell.calls()).toBe(1)
     await advance(30_000)
@@ -192,11 +200,11 @@ describe('watch tool', () => {
     expect(owner.followups).toHaveLength(0)
     await advance(30_000)
     expect(shell.calls()).toBe(3)
-    expect(ctx.jobs.get(JobId('watch-1'), owner.agent.id).detail).toBe('condition met: exit code 0')
+    expect(ctx.jobs.get(jobIdOf(ctx, owner), owner.agent.id).detail).toBe('condition met: exit code 0')
     expect(vi.getTimerCount()).toBe(0)
     expect(owner.followups).toHaveLength(1)
     expect(owner.injects).toHaveLength(0)
-    expect(messageText(owner.followups[0]!)).toContain('background job watch-1 (watch: CI on PR 123)')
+    expect(messageText(owner.followups[0]!)).toContain(`background job ${jobIdOf(ctx, owner)} (watch: CI on PR 123)`)
   })
 
   it('delivers the settlement into a busy owner at its next step instead of waking it', async () => {
@@ -206,7 +214,7 @@ describe('watch tool', () => {
     await advance(0)
     expect(owner.followups).toHaveLength(0)
     expect(owner.injects).toHaveLength(1)
-    expect(messageText(owner.injects[0]!)).toContain('background job watch-1')
+    expect(messageText(owner.injects[0]!)).toContain(`background job ${jobIdOf(ctx, owner)}`)
   })
 
   it('fires on a regex match and reports the matched output through job_output', async () => {
@@ -215,8 +223,8 @@ describe('watch tool', () => {
     await call(ctx, 'watch', { ...base, until: { regex: '^state: MERGED$' } }, owner.agent)
     await advance(0)
     await advance(30_000)
-    expect(ctx.jobs.get(JobId('watch-1'), owner.agent.id).detail).toBe('condition met: output matches /^state: MERGED$/')
-    const read = await call(ctx, 'job_output', { job_id: 'watch-1' }, owner.agent)
+    expect(ctx.jobs.get(jobIdOf(ctx, owner), owner.agent.id).detail).toBe('condition met: output matches /^state: MERGED$/')
+    const read = await call(ctx, 'job_output', { job_id: jobIdOf(ctx, owner) }, owner.agent)
     expect(text(read)).toContain('Condition met after 2 checks.')
     expect(text(read)).toContain('state: MERGED')
   })
@@ -230,7 +238,7 @@ describe('watch tool', () => {
     expect(shell.calls()).toBe(2)
     expect(ctx.jobs.list(owner.agent.id)[0]?.status).toBe('running')
     await advance(30_000)
-    expect(ctx.jobs.get(JobId('watch-1'), owner.agent.id).detail).toBe('condition met: output changed')
+    expect(ctx.jobs.get(jobIdOf(ctx, owner), owner.agent.id).detail).toBe('condition met: output changed')
   })
 
   it('settles completed at its deadline when the condition never holds', async () => {
@@ -239,7 +247,7 @@ describe('watch tool', () => {
     await call(ctx, 'watch', { ...base, timeout_min: 1 }, owner.agent)
     await advance(0)
     await advance(60_000)
-    const job = ctx.jobs.get(JobId('watch-1'), owner.agent.id)
+    const job = ctx.jobs.get(jobIdOf(ctx, owner), owner.agent.id)
     expect(job.status).toBe('completed')
     expect(job.detail).toBe('timed out after 1 min without the condition')
     expect(owner.followups).toHaveLength(1)
@@ -254,7 +262,7 @@ describe('watch tool', () => {
     await advance(0)
     await advance(30_000)
     await advance(30_000)
-    const job = ctx.jobs.get(JobId('watch-1'), owner.agent.id)
+    const job = ctx.jobs.get(jobIdOf(ctx, owner), owner.agent.id)
     expect(job.status).toBe('failed')
     expect(job.detail).toBe('stopped after 3 failed checks: stream lost')
     expect(owner.followups).toHaveLength(1)
@@ -267,7 +275,7 @@ describe('watch tool', () => {
     await advance(0)
     await advance(30_000)
     await advance(30_000)
-    const job = ctx.jobs.get(JobId('watch-1'), owner.agent.id)
+    const job = ctx.jobs.get(jobIdOf(ctx, owner), owner.agent.id)
     expect(job.status).toBe('failed')
     expect(job.detail).toContain('took longer than 250 ms')
     expect(owner.followups).toHaveLength(1)
@@ -281,7 +289,7 @@ describe('watch tool', () => {
     await call(ctx, 'watch', base, owner.agent)
     await advance(0)
     for (let i = 0; i < 3; i += 1) await advance(30_000)
-    expect(ctx.jobs.get(JobId('watch-1'), owner.agent.id).status).toBe('running')
+    expect(ctx.jobs.get(jobIdOf(ctx, owner), owner.agent.id).status).toBe('running')
   })
 
   it('polls without calling the owning agent until the condition holds', async () => {
@@ -293,7 +301,7 @@ describe('watch tool', () => {
     expect(shell.calls()).toBe(5)
     expect(owner.followups).toHaveLength(0)
     expect(owner.injects).toHaveLength(0)
-    expect(ctx.jobs.get(JobId('watch-1'), owner.agent.id).status).toBe('running')
+    expect(ctx.jobs.get(jobIdOf(ctx, owner), owner.agent.id).status).toBe('running')
   })
 
   it('stops polling on cancel and settles killed with the kill reason', async () => {
@@ -301,10 +309,10 @@ describe('watch tool', () => {
     const owner = await fakeOwner(ctx, 'ivy', 'running')
     await call(ctx, 'watch', base, owner.agent)
     await advance(0)
-    expect(ctx.jobs.kill(JobId('watch-1'), owner.agent.id, 'no longer needed')).toBe('requested')
+    expect(ctx.jobs.kill(jobIdOf(ctx, owner), owner.agent.id, 'no longer needed')).toBe('requested')
     await advance(120_000)
     expect(shell.calls()).toBe(1)
-    const job = ctx.jobs.get(JobId('watch-1'), owner.agent.id)
+    const job = ctx.jobs.get(jobIdOf(ctx, owner), owner.agent.id)
     expect(job.status).toBe('killed')
     expect(job.detail).toBe('no longer needed')
     expect(vi.getTimerCount()).toBe(0)
@@ -337,7 +345,7 @@ describe('watch tool', () => {
     const owner = await fakeOwner(ctx, 'lee', 'running')
     await call(ctx, 'watch', base, owner.agent)
     await advance(0)
-    const read = await call(ctx, 'job_output', { job_id: 'watch-1' }, owner.agent)
+    const read = await call(ctx, 'job_output', { job_id: jobIdOf(ctx, owner) }, owner.agent)
     expect(text(read)).toContain('[earlier output dropped]')
   })
 
@@ -346,7 +354,7 @@ describe('watch tool', () => {
     const owner = await fakeOwner(ctx, 'mia', 'running')
     await call(ctx, 'watch', base, owner.agent)
     await advance(0)
-    const read = await call(ctx, 'job_output', { job_id: 'watch-1' }, owner.agent)
+    const read = await call(ctx, 'job_output', { job_id: jobIdOf(ctx, owner) }, owner.agent)
     expect(text(read)).toContain('(no output)')
   })
 
@@ -356,10 +364,10 @@ describe('watch tool', () => {
     await call(ctx, 'watch', base, owner.agent)
     await call(ctx, 'watch', { ...base, label: 'deploy' }, owner.agent)
     await advance(0)
-    expect(ctx.jobs.list(owner.agent.id).map(job => job.id)).toEqual(['watch-1', 'watch-2'])
+    expect(new Set(ctx.jobs.list(owner.agent.id).map(job => job.id)).size).toBe(2)
     expect(owner.injects.map(message => messageText(message))).toEqual([
-      expect.stringContaining('watch-1'),
-      expect.stringContaining('watch-2'),
+      expect.stringContaining(jobIdOf(ctx, owner, 0)),
+      expect.stringContaining(jobIdOf(ctx, owner, 1)),
     ])
   })
 
@@ -404,7 +412,7 @@ describe('watch tool', () => {
     await advance(1000)
     expect(shell.calls()).toBe(2)
     await advance(120 * 60_000)
-    expect(ctx.jobs.get(JobId('watch-1'), owner.agent.id).detail).toBe('timed out after 120 min without the condition')
+    expect(ctx.jobs.get(jobIdOf(ctx, owner), owner.agent.id).detail).toBe('timed out after 120 min without the condition')
   })
 
   it('renders a generic card with the label as title and the command as raw input', async () => {

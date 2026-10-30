@@ -3,29 +3,23 @@
 - button "New session": New Session
 - navigation "Global panels":
   - button "Plugins"
-  - button "Changes"
+  - button "Automation tasks"
+  - button "More"
 - text: Workspaces
-- button "Filter workspaces"
 - button "Search sessions"
 - textbox "Search session names"
-- button "Add workspace"
 - button "View options"
-- button "New section"
+- button "Add workspace"
 - tree "Sessions":
   - treeitem "workspace" [expanded]
   - treeitem "New Session" [selected]
-- button "Settings"
+- button "Account menu": More
 - banner:
-  - navigation "Session hierarchy": workspace
-  - text: Standard mode
-  - button "Usage"
-  - button "More actions"
   - button "Open right sidebar"
-  - tablist:
-    - tab "Chat" [selected]
-    - tab "Trajectory"
-- text: plan Plan mode on. Use /plan off to leave.
-- textbox "describe your task to generate plan"
+- text: Into the Unknown Preview
+- button "Choose workspace": workspace
+- button "Standard mode"
+- textbox "Describe what you want to build, / commands, @ files or sessions"
 - button "Add files or run commands"
 - 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Plan mode on, press to turn off": Plan

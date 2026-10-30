@@ -3,7 +3,7 @@
 import { runInNewContext } from 'node:vm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { bootThemeInjections } from '../src/boot-theme.ts'
-import type { ThemePreference } from '../src/theme-settings.ts'
+import type { FontSizes, ThemePreference } from '../src/theme-settings.ts'
 
 const DARK_ATTRIBUTE = 'data-ds-dark-theme'
 
@@ -11,8 +11,8 @@ function mockSystemDark(matches: boolean): void {
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches }) as MediaQueryList))
 }
 
-function executeBootstrap(preference?: ThemePreference, fontSize?: number): void {
-  for (const row of bootThemeInjections(preference, fontSize)) {
+function executeBootstrap(preference?: ThemePreference, fontSizes?: FontSizes): void {
+  for (const row of bootThemeInjections(preference, fontSizes)) {
     if (row.kind === 'script') runInNewContext(row.text, { document, matchMedia: globalThis.matchMedia })
   }
 }
@@ -22,8 +22,8 @@ afterEach(() => {
   vi.unstubAllGlobals()
   delete document.documentElement.dataset.dsThemeSource
   document.body.removeAttribute(DARK_ATTRIBUTE)
-  document.body.style.removeProperty('--dsh-content-font-size')
-  document.body.style.removeProperty('--dsw-font-family')
+  for (const name of ['--dsh-content-font-size', '--dsh-code-font-size', '--dsh-terminal-font-size']) document.body.style.removeProperty(name)
+  for (const kind of ['text', 'code', 'terminal']) document.body.style.removeProperty(`--dsh-font-family-${kind}`)
 })
 
 describe('theme bootstrap row', () => {
@@ -76,30 +76,26 @@ describe('theme bootstrap row', () => {
     expect(document.body.hasAttribute(DARK_ATTRIBUTE)).toBe(false)
   })
 
-  it('writes the durable content font size and defaults it to 14px', () => {
+  it('writes the durable font sizes and their defaults', () => {
     mockSystemDark(false)
-    executeBootstrap('light', 17)
-    expect(document.body.style.getPropertyValue('--dsh-content-font-size')).toBe('17px')
+    executeBootstrap('light', { text: 22, code: 15, terminal: 18 })
+    expect(document.body.style.getPropertyValue('--dsh-content-font-size')).toBe('22px')
+    expect(document.body.style.getPropertyValue('--dsh-code-font-size')).toBe('15px')
+    expect(document.body.style.getPropertyValue('--dsh-terminal-font-size')).toBe('18px')
     executeBootstrap('light')
     expect(document.body.style.getPropertyValue('--dsh-content-font-size')).toBe('14px')
-  })
-})
-
-describe('theme bootstrap font family', () => {
-  it('embeds no script terminator for any preset', () => {
-    for (const family of ['default', 'readable', 'serif', 'dyslexia', 'mono'] as const) {
-      for (const row of bootThemeInjections('dark', 14, family)) expect(JSON.stringify(row).toLowerCase()).not.toContain('</script')
-    }
+    expect(document.body.style.getPropertyValue('--dsh-code-font-size')).toBe('11px')
+    expect(document.body.style.getPropertyValue('--dsh-terminal-font-size')).toBe('13px')
   })
 
-  it('writes the preset stack on body and writes nothing for default', () => {
+  it('writes normalized durable font lists and leaves empty lists unset', () => {
     mockSystemDark(false)
-    executeBootstrap('light', 14)
-    expect(document.body.style.getPropertyValue('--dsw-font-family')).toBe('')
-    const rows = bootThemeInjections('light', 14, 'serif')
-    for (const row of rows) {
-      if (row.kind === 'script') runInNewContext(row.text, { document, matchMedia: globalThis.matchMedia })
-    }
-    expect(document.body.style.getPropertyValue('--dsw-font-family')).toContain('Georgia')
+    const [, body] = bootThemeInjections('light', undefined, { text: 'Inter', code: '', terminal: 'MesloLGS NF</script>, monospace' })
+    if (body?.kind !== 'script') throw new Error('theme body bootstrap row is not a script')
+    expect(body.text).not.toContain('<')
+    runInNewContext(body.text, { document, matchMedia: globalThis.matchMedia })
+    expect(document.body.style.getPropertyValue('--dsh-font-family-text')).toBe('"Inter"')
+    expect(document.body.style.getPropertyValue('--dsh-font-family-code')).toBe('')
+    expect(document.body.style.getPropertyValue('--dsh-font-family-terminal')).toBe('"MesloLGS NF/script", monospace')
   })
 })

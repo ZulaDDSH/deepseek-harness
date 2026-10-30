@@ -39,7 +39,7 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
-const environment = { cwd: '/workspace', maxCols: 200, maxRows: 100, scrollback: 1000, maxInputBytes: 1000 }
+const environment = { cwd: '/workspace', maxCols: 200, maxRows: 100, scrollback: 1000, maxInputBytes: 1000, maxBufferedBytes: 100_000 }
 const cliInfo = { id: 'cli' as WebTerminalId, title: 'grok', shell: { path: '/bin/bash', name: 'bash', args: ['-i'] }, cwd: '/workspace', cols: 80, rows: 24, state: 'running' as const, exitCode: null }
 
 function store(initial: TerminalViewState) {
@@ -60,7 +60,7 @@ function mount(initial: TerminalViewState) {
     mount: vi.fn(() => () => {}), refresh: vi.fn(async () => {}), connect: vi.fn(), write: vi.fn(), resize: vi.fn(),
     acknowledge: vi.fn(), state,
   }
-  const theme: ThemeSnapshot = { preference: 'light', fontSize: 14, fontFamily: 'default', fontStack: undefined, active: { id: 'light', colorScheme: 'light', tokens: {} }, themes: [], revision: 0 }
+  const theme: ThemeSnapshot = { preference: 'light', fontSizes: { text: 14, code: 11, terminal: 13 }, fontFamilies: { text: '', code: '', terminal: '' }, active: { id: 'light', colorScheme: 'light', tokens: {} }, themes: [], revision: 0 }
   const view: Partial<TerminalView> = model
   const props: CliTerminalPaneProps = {
     profile: 'grok-cli',

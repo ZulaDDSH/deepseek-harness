@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { Context } from '@deepseek-ai/cordis'
 import { apply, Config, MC_RELAY_LIMIT, MC_SEND_WAIT_MS } from '../src/index.ts'
 
 interface FakeAgent {
@@ -7,7 +6,7 @@ interface FakeAgent {
   status: 'idle' | 'running'
   session: {
     header: { cwd?: string }
-    snapshotEvents: ReturnType<typeof vi.fn>
+    snapshotEvents: () => readonly unknown[]
   }
   options: Record<string, unknown>
   steer: ReturnType<typeof vi.fn>
@@ -33,10 +32,17 @@ function agent(id: string, over: Partial<FakeAgent> = {}): FakeAgent {
 
 function setup(config: Partial<Config>, agents: FakeAgent[]) {
   const tools: Record<string, { execute(args: unknown, exec: unknown): Promise<unknown> }> = {}
+  const sessionQuery = {
+    observeSession: async (id: string) => ({
+      events: agents.find(a => a.id === id)?.session.snapshotEvents() ?? [],
+      [Symbol.dispose]: () => undefined,
+    }),
+  }
   const ctx = {
     tools: { register: (t: { name: string }) => { tools[t.name] = t as never } },
     agents: { get: (id: string) => agents.find(a => a.id === id), list: () => agents },
-  } as unknown as Context
+    sessionQuery,
+  } as never
   apply(ctx, { managedAll: false, managed: [], ...config })
   return tools
 }

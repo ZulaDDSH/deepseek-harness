@@ -1,0 +1,110 @@
+{
+ "ja": [
+  {
+   "key": "presetEconomyName",
+   "up": null
+  },
+  {
+   "key": "presetEconomyDescription",
+   "up": null
+  },
+  {
+   "key": "presetLeanName",
+   "up": null
+  },
+  {
+   "key": "presetLeanDescription",
+   "up": null
+  }
+ ],
+ "es": [
+  {
+   "key": "presetEconomyName",
+   "up": null
+  },
+  {
+   "key": "presetEconomyDescription",
+   "up": null
+  },
+  {
+   "key": "presetLeanName",
+   "up": null
+  },
+  {
+   "key": "presetLeanDescription",
+   "up": null
+  }
+ ],
+ "fr": [
+  {
+   "key": "presetEconomyName",
+   "up": null
+  },
+  {
+   "key": "presetEconomyDescription",
+   "up": null
+  },
+  {
+   "key": "presetLeanName",
+   "up": null
+  },
+  {
+   "key": "presetLeanDescription",
+   "up": null
+  }
+ ],
+ "de": [
+  {
+   "key": "presetEconomyName",
+   "up": null
+  },
+  {
+   "key": "presetEconomyDescription",
+   "up": null
+  },
+  {
+   "key": "presetLeanName",
+   "up": null
+  },
+  {
+   "key": "presetLeanDescription",
+   "up": null
+  }
+ ],
+ "ru": [
+  {
+   "key": "presetEconomyName",
+   "up": null
+  },
+  {
+   "key": "presetEconomyDescription",
+   "up": null
+  },
+  {
+   "key": "presetLeanName",
+   "up": null
+  },
+  {
+   "key": "presetLeanDescription",
+   "up": null
+  }
+ ],
+ "pt": [
+  {
+   "key": "presetEconomyName",
+   "up": null
+  },
+  {
+   "key": "presetEconomyDescription",
+   "up": null
+  },
+  {
+   "key": "presetLeanName",
+   "up": null
+  },
+  {
+   "key": "presetLeanDescription",
+   "up": null
+  }
+ ]
+}

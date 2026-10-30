@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { apply as applyMenus, inject as injectMenus } from '@deepseek-ai/dsh-client-ui-context-menu/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 /**
  * The session-rename assembly chain on SlotTestRuntime (real apply, real
@@ -14,7 +15,7 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
  * (session.spec.ts#rename), the entries' own arms with
  * session-actions.client.spec, the row's list rendering with rows.client.spec.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { act, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 import type { ISession } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
@@ -53,6 +54,7 @@ async function createRuntime(): Promise<SlotTestRuntime> {
   const locale = new LocaleRuntime(runtime.ctx)
   runtime.ctx.provide('locale', locale)
   runtime.slots.installLocale(locale)
+  await runtime.mount({ inject: [...injectMenus], apply: applyMenus })
   return runtime
 }
 
@@ -117,28 +119,28 @@ describe('session rename through the assembled browser', () => {
         },
       )
     }
-    // `order` places plugin rows after the shipped rows (100/200/300/400)
-    // even when the later registration has the lower shadowing priority
-    // assigned to dynamic browser packages; the first plugin row opens the
-    // plugin group with a hairline.
     registerAction('export', 500, -1, 'Export action')
-    registerAction('last', 600, -2, 'Last action')
+    registerAction('last', 700, -2, 'Last action')
     const view = runtime.renderRoot()
 
     const row = (await view.findByText('Persisted title')).closest('[role="treeitem"]')!
     const trigger = within(row as HTMLElement).getByLabelText('会话“Persisted title”的操作')
     fireEvent.click(trigger)
-    // The browser-local appearance rows lead as data rows, closed by their own hairline.
+    // The browser-local appearance rows lead as data rows; the copy row, the plugin rows, and archive each start a group.
+    await view.findByRole('menuitem', { name: '置顶会话' })
     expect(view.getAllByRole('menuitem').map(item => item.textContent)).toEqual([
-      '颜色', '图标', '置顶会话', '重命名', '分叉会话', '归档会话', 'Export action', 'Last action',
+      '颜色', '默认', '红色', '橙色', '绿色', '蓝色', '紫色', '图标', '置顶会话', '重命名', '分叉会话', '复制 Session ID', 'Export action', 'Last action', '归档会话',
     ])
-    expect(view.getAllByRole('separator')).toHaveLength(2)
+    expect(view.getAllByRole('separator')).toHaveLength(3)
     const last = view.getByRole('menuitem', { name: 'Last action' })
     const exportRow = view.getByRole('menuitem', { name: 'Export action' })
     trigger.focus()
     fireEvent.keyDown(trigger, { key: 'End' })
+    const archive = view.getByRole('menuitem', { name: '归档会话' })
+    expect(document.activeElement).toBe(archive)
+    fireEvent.keyDown(archive, { key: 'ArrowUp' })
     expect(document.activeElement).toBe(last)
-    fireEvent.keyDown(last, { key: 'ArrowUp' })
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowUp' })
     expect(document.activeElement).toBe(exportRow)
     fireEvent.click(exportRow)
     expect(selected).toHaveBeenCalledWith('export', SID, 'Persisted title')
@@ -147,6 +149,18 @@ describe('session rename through the assembled browser', () => {
     expect(view.queryByRole('menu')).toBeNull()
     await act(async () => { await Promise.resolve() })
     expect(document.activeElement).toBe(trigger)
+    const writeText = vi.fn(async () => {})
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    onTestFinished(() => {
+      if (clipboard === undefined) Reflect.deleteProperty(navigator, 'clipboard')
+      else Object.defineProperty(navigator, 'clipboard', clipboard)
+    })
+    fireEvent.click(trigger)
+    fireEvent.click(await view.findByRole('menuitem', { name: '复制 Session ID' }))
+    expect(view.queryByRole('menu')).toBeNull()
+    expect(writeText).toHaveBeenCalledExactlyOnceWith(SID)
+    await view.findByText('Session ID 已复制')
     await runtime.dispose()
   })
 
@@ -169,7 +183,7 @@ describe('session rename through the assembled browser', () => {
     // The current session's group auto-expands; open the row's action menu.
     const row = (await view.findByText('旧标题')).closest('[role="treeitem"]')!
     fireEvent.click(within(row as HTMLElement).getByLabelText('会话“旧标题”的操作'))
-    fireEvent.click(view.getByRole('menuitem', { name: '重命名', hidden: true }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '重命名' }))
     // The rename row dismissed the menu; the dialog lives in the overlay list.
     expect(view.queryByRole('menu')).toBeNull()
 
@@ -211,7 +225,7 @@ describe('session rename through the assembled browser', () => {
 
     const row = (await view.findByText('旧标题')).closest('[role="treeitem"]')!
     fireEvent.click(within(row as HTMLElement).getByLabelText('会话“旧标题”的操作'))
-    fireEvent.click(view.getByRole('menuitem', { name: '重命名', hidden: true }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '重命名' }))
     const input = await view.findByLabelText('会话名称')
     fireEvent.change(input, { target: { value: '新名' } })
     fireEvent.click(view.getByRole('button', { name: '重命名' }))
@@ -222,6 +236,97 @@ describe('session rename through the assembled browser', () => {
     expect(alert.textContent).toContain('title write failed')
     expect(view.getByLabelText('会话名称')).toBeTruthy()
     expect(view.getByText('旧标题')).toBeTruthy()
+    await runtime.dispose()
+  })
+})
+
+describe('Chat Section and appearance menus through the assembled browser', () => {
+  async function assembled(): Promise<{ runtime: SlotTestRuntime; view: ReturnType<SlotTestRuntime['renderRoot']> }> {
+    const runtime = await createRuntime()
+    await runtime.sessions.add({
+      id: SID,
+      summary: { title: 'Persisted title', displayTitle: 'Session title', cwd: '/w/alpha' },
+      session: { rename: vi.fn() },
+    })
+    await runtime.sessions.retainFor(runtime.ctx, SID, { source: 'mainView' }).ready
+    await seedWorkspace(runtime)
+    await declareFrame(runtime)
+    await runtime.mount({ inject: [...inject], apply })
+    return { runtime, view: runtime.renderRoot() }
+  }
+
+  const stored = (): { workspaces?: object; sections?: object; sessions?: object } =>
+    JSON.parse(localStorage.getItem('dsh.workspace.appearance.v2') ?? '{}') as Record<string, object>
+
+  it('files a Session into a Chat Section and unfiles it from the pane', async () => {
+    const { runtime, view } = await assembled()
+    fireEvent.click(await view.findByRole('button', { name: '新建分组' }))
+    const create = view.getByRole('dialog', { name: '新建分组' })
+    fireEvent.change(within(create).getByRole('textbox'), { target: { value: 'Work' } })
+    fireEvent.click(within(create).getByRole('button', { name: '创建' }))
+
+    const row = (await view.findByText('Persisted title')).closest('[role="treeitem"]')!
+    fireEvent.click(within(row as HTMLElement).getByLabelText('会话“Persisted title”的操作'))
+    fireEvent.click(await view.findByRole('menuitem', { name: '移动到分组' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: 'Work' }))
+    expect(within(view.getByRole('group', { name: 'Work' })).getByText('Persisted title')).toBeTruthy()
+
+    fireEvent.click(within(view.getByRole('group', { name: 'Work' })).getByLabelText('会话“Persisted title”的操作'))
+    fireEvent.click(await view.findByRole('menuitem', { name: '移动到分组' }))
+    expect(view.getByRole('menuitem', { name: 'Work' }).hasAttribute('disabled')).toBe(true)
+    fireEvent.click(await view.findByRole('menuitem', { name: '从分组中移出' }))
+    expect(within(view.getByRole('group', { name: 'Work' })).queryByText('Persisted title')).toBeNull()
+    await runtime.dispose()
+  })
+
+  it('renames a Chat Section from its header menu', async () => {
+    const { runtime, view } = await assembled()
+    fireEvent.click(await view.findByRole('button', { name: '新建分组' }))
+    const create = view.getByRole('dialog', { name: '新建分组' })
+    fireEvent.change(within(create).getByRole('textbox'), { target: { value: 'Work' } })
+    fireEvent.click(within(create).getByRole('button', { name: '创建' }))
+
+    fireEvent.click(await view.findByRole('button', { name: '分组“Work”的操作' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '重命名' }))
+    const rename = await view.findByRole('dialog', { name: '重命名分组' })
+    fireEvent.change(within(rename).getByRole('textbox'), { target: { value: 'Server' } })
+    fireEvent.click(within(rename).getByRole('button', { name: '重命名' }))
+    expect(view.getByRole('group', { name: 'Server' })).toBeTruthy()
+    await runtime.dispose()
+  })
+
+  it('writes Chat Section, Workspace, and Session color choices to the appearance store', async () => {
+    const { runtime, view } = await assembled()
+    fireEvent.click(await view.findByRole('button', { name: '新建分组' }))
+    const create = view.getByRole('dialog', { name: '新建分组' })
+    fireEvent.change(within(create).getByRole('textbox'), { target: { value: 'Work' } })
+    fireEvent.click(within(create).getByRole('button', { name: '创建' }))
+
+    fireEvent.click(await view.findByRole('button', { name: '分组“Work”的操作' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '颜色' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '红色' }))
+    fireEvent.click(await view.findByRole('button', { name: '分组“Work”的操作' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '图标' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '火箭' }))
+    expect(Object.values(stored().sections ?? {})).toEqual([{ color: 'red', icon: 'rocket' }])
+    fireEvent.click(await view.findByRole('button', { name: '分组“Work”的操作' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '图标' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '默认' }))
+    expect(Object.values(stored().sections ?? {})).toEqual([{ color: 'red' }])
+
+    fireEvent.click(await view.findByRole('button', { name: '工作区“alpha”的操作' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '颜色' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '紫色' }))
+    expect(stored().workspaces).toEqual({ w1: { color: 'purple' } })
+
+    const row = (await view.findByText('Persisted title')).closest('[role="treeitem"]')!
+    fireEvent.click(within(row as HTMLElement).getByLabelText('会话“Persisted title”的操作'))
+    fireEvent.click(await view.findByRole('menuitem', { name: '颜色' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '蓝色' }))
+    fireEvent.click(within(row as HTMLElement).getByLabelText('会话“Persisted title”的操作'))
+    fireEvent.click(await view.findByRole('menuitem', { name: '图标' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '终端' }))
+    expect(stored().sessions).toEqual({ [SID]: { color: 'blue', icon: 'terminal' } })
     await runtime.dispose()
   })
 })

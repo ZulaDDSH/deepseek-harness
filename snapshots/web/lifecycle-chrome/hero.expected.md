@@ -3,18 +3,17 @@
 - button "New session": New Session
 - navigation "Global panels":
   - button "Plugins"
-  - button "Changes"
+  - button "Automation tasks"
+  - button "More"
 - text: Workspaces
-- button "Filter workspaces"
 - button "Search sessions"
 - textbox "Search session names"
-- button "Add workspace"
 - button "View options"
-- button "New section"
+- button "Add workspace"
 - tree "Sessions":
   - treeitem "workspace" [expanded]
   - treeitem "New Session" [selected]
-- button "Settings"
+- button "Account menu": More
 - banner:
   - button "Open right sidebar"
 - text: Into the Unknown Preview

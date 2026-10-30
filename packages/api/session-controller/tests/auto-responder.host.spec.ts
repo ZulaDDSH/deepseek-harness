@@ -116,8 +116,8 @@ describe('auto responder', () => {
     const { ctx } = await boot([], on)
     const child = ctx.sessions.create(SessionId('child'), { meta: { origin: 'subagent' } })
     const followup = vi.fn()
-    const fake = { id: SessionId('child'), session: child, status: 'idle', followup } as unknown as Agent
-    ctx.emit('agent/status', { agent: fake, status: 'idle' })
+    const fake: Partial<Agent> = { id: SessionId('child'), session: child, status: 'idle', followup }
+    ctx.emit('agent/status', { agent: fake as Agent, status: 'idle' })
     ctx.emit('agent/disposed', { agent: fake } as never)
     expect(followup).not.toHaveBeenCalled()
   })

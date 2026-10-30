@@ -44,7 +44,7 @@ export interface DelegateStarter {
 
 const DESCRIPTION = 'Delegate a technical task to a worker that begins with a bounded knowledge packet. '
   + 'Prefer this over the plain subagent tool when the task is technical and code structure or earlier findings would change how it is approached: the harness retrieves only the knowledge the task warrants, bounded by the configured packet size, and passes it to the worker with the task. '
-  + 'The worker is continuable, so send_message reaches the same child for follow-up and correction.'
+  + 'The worker answers and then settles.'
 
 /**
  * Register the delegation tool on the calling context.

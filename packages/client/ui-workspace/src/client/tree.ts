@@ -61,6 +61,8 @@ export interface SessionNode {
   /** In the registry-global archive set: shown grayed in place and not openable. */
   archived: boolean
   updatedAt: number
+  /** Session working directory; absent when the Host reports none or an empty path. */
+  cwd?: string
 }
 
 /** Session order selected by the Workspace browser. */
@@ -439,6 +441,7 @@ function sessionNode(
     pinned: !archived.has(s.id) && pinned.has(s.id),
     archived: archived.has(s.id),
     updatedAt: s.updatedAt,
+    ...(s.cwd === undefined || s.cwd === '' ? {} : { cwd: s.cwd }),
     ...(pendingInteraction === undefined ? {} : { pendingInteraction }),
   }
 }
@@ -565,7 +568,7 @@ export function deriveFlat(
 }
 
 /**
- * Merge immediate title/Workspace substring matches with ranked Host content
+ * Merge immediate title/Workspace/Session id substring matches with ranked Host content
  * matches. Local rows lead newest-first, content-only rows retain backend
  * order, and duplicate sessions receive the backend snippet in place.
  * @param list - session metadata authority.
@@ -615,6 +618,7 @@ export function deriveSearchResults(
     if (
       sessionTitle(summary).toLowerCase().includes(q)
       || labelOf(summary).toLowerCase().includes(q)
+      || summary.id.toLowerCase().includes(q)
     ) {
       local.push(summary)
     }

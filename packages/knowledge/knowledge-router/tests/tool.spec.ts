@@ -6,6 +6,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolExecutionToken, ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { registerKnowledgeTool } from '../src/tool.ts'
 import type { KnowledgePacket, RetrieveOptions } from '../src/types.ts'
+import { executeModelCall } from './fixtures/model-call.ts'
 
 const packet: KnowledgePacket = {
   task: 'task',
@@ -45,7 +46,7 @@ describe('knowledge_query', () => {
       name: 'knowledge_query',
       arguments: { task: 'Find prior graph context', providers: ['graphify'] },
     }
-    await ctx.tools.execute(exec)
+    await executeModelCall(ctx, exec)
     expect(received?.task).toBe('Find prior graph context')
     expect(received?.options).toMatchObject({
       providers: ['graphify'],
@@ -56,7 +57,7 @@ describe('knowledge_query', () => {
 
   it('renders the packet returned by retrieval', async () => {
     const ctx = await register(async () => packet)
-    const outcome = await ctx.tools.execute({
+    const outcome = await executeModelCall(ctx, {
       signal: new AbortController().signal,
       callId: ToolCallId('knowledge-query-render'),
       name: 'knowledge_query',

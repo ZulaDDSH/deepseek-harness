@@ -7,7 +7,17 @@
     "types": ["node"],
     "tsBuildInfoFile": "lib/tsconfig.client.tsbuildinfo"
   },
-  "include": ["src/client", "src/fixture-manifest.ts", "src/image-layout.ts", "src/transport/frames.ts"],
+  "include": [
+    "src/client",
+    "src/fixture-manifest.ts",
+    "src/image-layout.ts",
+    "src/module-system/posix-path.ts",
+    "src/package-assets.ts",
+    "src/storage/memory.ts",
+    "src/storage/tar.ts",
+    "src/storage/types.ts",
+    "src/transport/frames.ts"
+  ],
   "references": [
     { "path": "../../../vendor/cordis" },
     { "path": "../../client/file-upload/tsconfig.client.json" },

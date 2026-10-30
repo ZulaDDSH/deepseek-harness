@@ -8,5 +8,5 @@ import type { CliTerminalProfileId, Session } from '@deepseek-ai/dsh-session'
  * @returns the profile identity, or undefined for an ordinary Session or when no agent loop is installed.
  */
 export function cliTerminalProfileOf(ctx: Context, session: Session): CliTerminalProfileId | undefined {
-  return ctx.get('sessionProjections')?.stateOf(session, 'cliTerminal')?.profile ?? undefined
+  return ctx.get('sessionProjections')?.snapshot(session, ['cliTerminal']).values.cliTerminal?.profile ?? undefined
 }

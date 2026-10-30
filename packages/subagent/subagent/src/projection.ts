@@ -50,13 +50,6 @@ const timingStateSchema: z.ZodType<TimingState> = z.object({
   lastTurnCompleted: z.boolean().optional(),
 }).strict()
 
-declare module '@deepseek-ai/dsh-session-projection/types' {
-  interface SessionProjectionStateMap {
-    subagentTiming: TimingState
-    subagent: IdentityState
-  }
-}
-
 /**
  * Fold turn boundaries around the child's own durable descriptor.
  *
@@ -137,7 +130,7 @@ const identityValueSchema = z.discriminatedUnion('mode', [
     seq: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).transform(SessionSeq),
     routePinned: z.literal(true).optional(),
   }).strict(),
-]) as unknown as z.ZodType<SubagentIdentityProjection>
+]) as z.ZodType<SubagentIdentityProjection>
 
 const identitySchema = identityValueSchema.nullable()
 

@@ -55,6 +55,7 @@ export function sectionsActive(sections: ChatSectionsState): boolean {
  * @param sections - persisted section state.
  * @param visibleSessionIds - visible top-level Sessions in fallback (recency) order.
  * @param summaries - current Session summaries used to append newly known members by recency.
+ * @param rowState - pinned and archived Sessions; archived Sessions are never pinned. Omitted leaves none pinned.
  * @returns section nodes plus the ungrouped remainder.
  */
 export function deriveSections(

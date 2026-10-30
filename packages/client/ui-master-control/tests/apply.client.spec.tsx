@@ -85,10 +85,11 @@ describe('ui-master-control apply', () => {
     const unread = () => { throw new Error('The sidebar icon must not read application state') }
     const glyph = render(<MasterControlIcon size={18} active={false}
       usePanelInfo={unread} useSessions={unread} useSessionStatus={unread} useSessionRetainInfo={unread}
-      useWorkspaces={unread} useResource={unread} />)
+      useWorkspaces={unread} useResource={unread} useRemoteAccess={unread} useSessionAccess={unread}
+      useContextMenu={unread} useWorkspaceAccess={unread} />)
     expect(glyph.container.querySelector('svg')?.getAttribute('width')).toBe('18')
 
-    const face = (entry.inject as unknown as () => {
+    const face = (entry.inject as () => {
       open: (id: string) => void
       interrupt: (id: string) => Promise<void>
       openMasterChat: () => Promise<void>

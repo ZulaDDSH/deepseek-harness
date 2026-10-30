@@ -5,7 +5,7 @@ import { MenuSurface, useAnchoredPosition, useDismissOnOutsidePointer } from '@d
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-session-turn-outline/client'
-import type { ModelSelection } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { ModelSelection } from '@deepseek-ai/dsh-agent/types'
 import type { JevDecisionRecord } from '@deepseek-ai/dsh-llm-jev-router/client'
 import css from './ModelSelect.module.css'
 

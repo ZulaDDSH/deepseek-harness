@@ -58,11 +58,11 @@ describe('TodoPanel', () => {
     render(<TodoPanel todos={[{ content: 'Build', status: 'pending' }]} t={makeTranslate(en, commonEn)} onCancel={onCancel} />)
     fireEvent.click(screen.getByRole('button', { expanded: false }))
     fireEvent.click(screen.getByRole('button', { name: 'Cancel: Build' }))
-    expect((screen.getByRole('button', { name: 'Cancel: Build' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Cancel: Build' }).disabled).toBe(true)
     await act(async () => { reject(new Error('Plan changed')) })
     expect(screen.getByRole('alert').textContent).toBe('Plan changed')
     expect(screen.getByText('Build')).toBeTruthy()
-    expect((screen.getByRole('button', { name: 'Cancel: Build' }) as HTMLButtonElement).disabled).toBe(false)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Cancel: Build' }).disabled).toBe(false)
   })
 
   it('starts collapsed with the per-status count summary visible', () => {
@@ -157,6 +157,6 @@ describe('TodoDock', () => {
     const inject = vi.fn((_name: string, callback: () => () => void) => callback())
     todoDockEntry.apply({ slots: { inject, register } } as never)
     expect(inject).toHaveBeenCalledWith('conversation.input.dock', expect.any(Function))
-    expect(register).toHaveBeenCalledWith(expect.objectContaining({ name: 'conversation.input.dock', id: 'todo', order: 0, locale: NS, inject: expect.any(Function) }), TodoDock)
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({ name: 'conversation.input.dock', id: 'todo', order: 0, locale: NS, inject: expect.any(Function) as never }), TodoDock)
   })
 })

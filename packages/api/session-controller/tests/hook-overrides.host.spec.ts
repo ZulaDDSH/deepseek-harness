@@ -9,6 +9,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import { afterEach, expect, it, vi } from 'vitest'
+import { unsupportedModel } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { createSessionTestController } from './test-remote.ts'
 
 const roots: Context[] = []
@@ -22,7 +23,7 @@ function agentUnder(ctx: Context, id: string): Agent {
   const session = ctx.sessions.create(SessionId(id), { meta })
   const reject = (): never => { throw new Error('this fixture does not mutate the inbox') }
   const agent: Agent = {
-    id: SessionId(id), session, options: {}, ctx, status: 'idle',
+    id: SessionId(id), session, model: unsupportedModel(), options: {}, ctx, status: 'idle',
     inbox: { nextTurn: [], nextStep: [], append: reject, prepend: reject, replace: reject, remove: reject, splice: reject, clear: reject },
     steer: vi.fn(), followup: vi.fn(), cancel: vi.fn(), send: vi.fn(), inject: vi.fn(),
     whenIdle: () => Promise.resolve(), runMaintenance: task => task(new AbortController().signal),
@@ -49,7 +50,7 @@ it('lists loaded bridge hooks and records per-Session overrides in the projectio
     ] },
   ]
   ctx.on('hooks/inventory', (target) => { target.push(...reports) })
-  const controller = createSessionTestController(ctx, {
+  const controller = await createSessionTestController(ctx, {
     defaultModelSelection: () => ({ provider: 'fixture', model: 'fixture-model' }), cwd: '/workspace',
   })
   expect(controller.listHooks()).toEqual({ hooks: [
@@ -58,10 +59,10 @@ it('lists loaded bridge hooks and records per-Session overrides in the projectio
   ] })
   const agent = agentUnder(ctx, 'hook-overrides')
   await ctx.agents.register(agent)
-  expect(ctx.sessionProjections.stateOf(agent.session, 'hookOverrides')).toEqual({ current: null })
+  expect(ctx.sessionProjections.snapshot(agent.session, ['hookOverrides']).values.hookOverrides).toEqual({ current: null })
   agent.session.append('mcp/selection', { connectorIds: [] })
-  expect(ctx.sessionProjections.stateOf(agent.session, 'hookOverrides')).toEqual({ current: null })
+  expect(ctx.sessionProjections.snapshot(agent.session, ['hookOverrides']).values.hookOverrides).toEqual({ current: null })
   await expect(controller.setHookOverrides({ sessionId: agent.id, overrides: { k1: true, k2: false } }))
     .resolves.toEqual({ overrides: { k1: true, k2: false } })
-  expect(ctx.sessionProjections.stateOf(agent.session, 'hookOverrides')).toEqual({ current: { overrides: { k1: true, k2: false } } })
+  expect(ctx.sessionProjections.snapshot(agent.session, ['hookOverrides']).values.hookOverrides).toEqual({ current: { overrides: { k1: true, k2: false } } })
 })

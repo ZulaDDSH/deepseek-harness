@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
-  applyRoute,
   createJevClient,
   DEFAULT_ENDPOINT,
   DEFAULT_MODEL,
+  routeSelection,
   selectedRoute,
   selectRelevantGrepMatches,
   stateForMessages,
   type Config,
 } from '../src/index.ts'
-import { ReasoningEffortId, type LlmCallConfig, type UserMessage } from '@deepseek-ai/dsh-llm'
+import { ReasoningEffortId, type UserMessage } from '@deepseek-ai/dsh-llm'
 
 const config: Config = {
   enabled: true,
@@ -103,19 +103,12 @@ describe('Jev router', () => {
     expect(selectedRoute({ route: 'lean', confidence: 0.8 }, config)?.id).toBe('lean')
   })
 
-  it('replaces the base route and clears inherited reasoning when target has none', () => {
-    const base: LlmCallConfig = {
-      provider: 'deepseek',
-      model: 'deepseek-chat',
-      reasoningEffort: ReasoningEffortId('high'),
-      temperature: 0.2,
-    }
-    expect(applyRoute(base, config.routes[0]!)).toEqual({
+  it('selects the route provider and model and sets an effort only when the route names one', () => {
+    expect(routeSelection(config.routes[0]!)).toEqual({
       provider: 'claude-code',
       model: 'claude-sonnet',
-      temperature: 0.2,
     })
-    expect(applyRoute(base, config.routes[1]!)).toMatchObject({
+    expect(routeSelection(config.routes[1]!)).toEqual({
       provider: 'claude-code',
       model: 'claude-opus',
       reasoningEffort: ReasoningEffortId('high'),

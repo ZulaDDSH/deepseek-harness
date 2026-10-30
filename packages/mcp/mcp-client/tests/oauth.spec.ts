@@ -6,8 +6,10 @@ import AuthorizationService from '@deepseek-ai/dsh-authorization'
 import McpResources from '@deepseek-ai/dsh-mcp-resources'
 import { credentialKey, parseCredentialKey } from '@deepseek-ai/dsh-credentials'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { SdkErrorCode, SdkHttpError, UnauthorizedError, InsufficientScopeError } from '@modelcontextprotocol/client'
 import { apply, type Config, type McpConnectionReport } from '../src/index.ts'
 import {
@@ -43,6 +45,7 @@ async function mount(config: Config, withCredentials = true) {
   roots.push(ctx)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(McpResources)
   if (withCredentials) {
     await ctx.plugin(MemoryCredentials)
@@ -89,11 +92,11 @@ function signIn(ctx: Context, onNotice: (url: string) => void | Promise<void>, s
   })
 }
 
-const ping = (ctx: Context) => ctx.tools.execute({
+const ping = (ctx: Context) => executeModelToolFixture(ctx, {
   name: 'mcp__Oauth_Srv__ping', arguments: {}, callId: ToolCallId('ping'), signal: new AbortController().signal,
 })
 
-const listResources = (ctx: Context) => ctx.tools.execute({
+const listResources = (ctx: Context) => executeModelToolFixture(ctx, {
   name: 'list_mcp_resources', arguments: { server: 'Oauth_Srv' }, callId: ToolCallId('list'), signal: new AbortController().signal,
 })
 
@@ -344,6 +347,7 @@ describe('MCP OAuth sign-in', () => {
     roots.push(ctx)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
     void apply(ctx, configFor(`http://127.0.0.1:${String(port)}/mcp`))
     await vi.waitFor(() => { expect(report(ctx).state).toBe('connecting') })
   })

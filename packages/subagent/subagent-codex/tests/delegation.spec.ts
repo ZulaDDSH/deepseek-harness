@@ -1,9 +1,16 @@
 import { Context } from '@deepseek-ai/cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
+import type { SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
+import { mountWorkingDirectoryFixture } from '../../subagent/tests/working-directory-fixture.ts'
+
+async function startAs(ctx: Context, provider: string, { signal, ...request }: SubagentStartRequest) {
+  if (ctx.agents.get(request.parent.id) !== request.parent) await ctx.agents.register(request.parent)
+  return ctx.subagents.startActivation({ provider, label: 'provider task', request, signal, delivery: 'caller' })
+}
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as codex from '../src/index.ts'
@@ -29,7 +36,7 @@ type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
 
 const fakeParent: Agent = {
   id: 'parent',
-  session: { header: { cwd: process.cwd() } },
+  session: { id: 'parent', header: { cwd: process.cwd() } },
 } as never
 
 const MODES: readonly CodexPermissionMode[] = [
@@ -48,6 +55,8 @@ async function providerContext(
 ) {
   const ctx = new Context()
   await ctx.plugin(SessionProjectionRegistry)
+  await ctx.plugin(AgentRegistry)
+  await mountWorkingDirectoryFixture(ctx)
   await ctx.plugin(SubagentRuntime)
   await ctx.plugin(LocalSubprocessRuntime)
   if (sandbox !== undefined) {
@@ -62,7 +71,7 @@ async function providerContext(
 }
 
 async function startThread(ctx: Context, child: FakeChild) {
-  const starting = ctx.subagents.start('codex', request())
+  const starting = startAs(ctx, 'codex', request())
   const initialize = await child.peer.nextMethod('initialize')
   child.peer.respond(initialize, { userAgent: 'codex-cli 0.153.4' })
   await child.peer.nextMethod('initialized')
@@ -176,7 +185,7 @@ describe('Codex provider under a delegating parent sandbox', () => {
       { permissionMode: 'dangerously-bypass-approvals-and-sandbox' },
       'workspace-write',
     )
-    await expect(ctx.subagents.start('codex', request()))
+    await expect(startAs(ctx, 'codex', request()))
       .rejects.toMatchObject({ code: 'PARENT_SANDBOX_MISMATCH' })
     expect(spawn).not.toHaveBeenCalled()
     await ctx.fiber.dispose()

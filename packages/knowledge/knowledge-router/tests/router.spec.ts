@@ -6,11 +6,11 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime from '@deepseek-ai/dsh-tools'
+import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import KnowledgeRouter, { resolveConfig } from '../src/index.ts'
 import { renderPacket } from '../src/packet.ts'
+import { executeModelCall } from './fixtures/model-call.ts'
 
 /** A stand-in for one MCP server tool. */
 function stubTool(name: string, respond: string | (() => Promise<string> | string)): ToolDefinition {
@@ -29,8 +29,7 @@ function stubTool(name: string, respond: string | (() => Promise<string> | strin
 /** Mount a registry plus the router under test. */
 async function mount(config: Parameters<typeof KnowledgeRouter.Config>[0]): Promise<Context> {
   const ctx = new Context()
-  await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRuntime)
+  await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(KnowledgeRouter, config)
   return ctx
 }
@@ -108,7 +107,7 @@ describe('provider isolation', () => {
     tool.execute = async (_args, execution) => { root = execution.rootCallId; return 'CODE' }
     context.tools.register(tool)
     const callId = ToolCallId('knowledge-query-root')
-    await context.tools.execute({ callId, name: 'knowledge_query', arguments: { task: 'What calls close?' }, signal: signal() })
+    await executeModelCall(context, { callId, name: 'knowledge_query', arguments: { task: 'What calls close?' }, signal: signal() })
     expect(root).toBe(callId)
   })
 
@@ -305,7 +304,7 @@ describe('learning write-back wiring', () => {
 
   it('surfaces a failing provider command as a failed call rather than a silent success', async () => {
     context = await mount({ mode: 'assisted', learning: { enabled: true, command: 'dsh-knowledge-router-missing-graphify' } })
-    const result = await context.tools.execute({
+    const result = await executeModelCall(context, {
       signal: signal(),
       callId: ToolCallId('record-1'),
       name: 'knowledge_record',

@@ -1,14 +1,21 @@
 import type { Options } from '@anthropic-ai/claude-agent-sdk'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import { credentialKey, type CredentialRecord } from '@deepseek-ai/dsh-credentials'
 import { SessionLogOffset, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
+import type { SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+
+async function startAs(ctx: Context, provider: string, { signal, ...request }: SubagentStartRequest) {
+  if (ctx.agents.get(request.parent.id) !== request.parent) await ctx.agents.register(request.parent)
+  return ctx.subagents.startActivation({ provider, label: 'provider task', request, signal, delivery: 'caller' })
+}
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
+import { mountWorkingDirectoryFixture } from '../../subagent/tests/working-directory-fixture.ts'
 import * as claudeCode from '../src/index.ts'
 
 const queryMock = vi.hoisted(() => vi.fn())
@@ -56,6 +63,7 @@ interface Stored {
 const fakeParent = {
   id: 'parent',
   session: {
+    id: 'parent',
     header: { cwd: process.cwd() },
     requestHeader: () => undefined,
     inheritedEventCount: SessionLogOffset(0),
@@ -67,6 +75,8 @@ const fakeParent = {
 async function bootWith(stored: Stored): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionProjectionRegistry)
+  await ctx.plugin(AgentRegistry)
+  await mountWorkingDirectoryFixture(ctx)
   await ctx.plugin(SubagentRuntime)
   await ctx.plugin(LocalSubprocessRuntime)
   const credentials = new MemoryCredentials(ctx, stored.credentials ?? {})
@@ -81,7 +91,7 @@ async function bootWith(stored: Stored): Promise<Context> {
 }
 
 function startRun(ctx: Context): Promise<unknown> {
-  return ctx.subagents.start('claude-code', {
+  return startAs(ctx, 'claude-code', {
     prompt: [{ type: 'text', text: 'do the task' }],
     parent: fakeParent,
     signal: new AbortController().signal,
@@ -130,7 +140,7 @@ describe('the Anthropic route key in a Claude Code run', () => {
       throw new Error('query captured for the run assertion')
     })
 
-    await expect(ctx.subagents.start('claude-code', {
+    await expect(startAs(ctx, 'claude-code', {
       prompt: [{ type: 'text', text: 'do the task' }],
       parent: fakeParent,
       signal: new AbortController().signal,

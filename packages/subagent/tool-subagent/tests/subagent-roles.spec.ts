@@ -4,6 +4,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionRunOptions } from '@deepseek-ai/dsh-api-session-controller'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { MockAdapter } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import * as mock from './scripted-provider.ts'
 import { callSubagent, fakeAgent, setup, text } from './harness.ts'
@@ -20,12 +21,23 @@ const REASONING = {
 
 let parentCount = 0
 
-function parentWithSetup(ctx: Context, subagentSetup: SubagentSetup | undefined): Agent {
-  const readOriginal = ctx.sessionProjections.stateOf.bind(ctx.sessionProjections)
-  vi.spyOn(ctx.sessionProjections, 'stateOf').mockImplementation((session, key) =>
-    key === 'runOptions' ? { current: { subagentSetup } } : readOriginal(session, key))
+async function parentWithSetup(ctx: Context, subagentSetup: SubagentSetup | undefined): Promise<Agent> {
+  const readOriginal = SessionProjectionRegistry.prototype.snapshot.bind(ctx.sessionProjections)
+  vi.spyOn(ctx.sessionProjections, 'snapshot').mockImplementation((session, keys) => {
+    const snapshot = readOriginal(session, keys)
+    return [...keys ?? []].includes('runOptions')
+      ? { ...snapshot, values: { ...snapshot.values, runOptions: { current: { subagentSetup } } } }
+      : snapshot
+  })
   parentCount += 1
-  return fakeAgent(`role-parent-${parentCount}`)
+  return liveAgent(ctx, `role-parent-${parentCount}`)
+}
+
+async function liveAgent(ctx: Context, id: string): Promise<Agent> {
+  const scopeFiber = ctx.plugin(() => {})
+  const parent = { ...fakeAgent(id), ctx: scopeFiber.ctx } as Agent
+  await ctx.agents.register(parent)
+  return parent
 }
 
 function roleCall(ctx: Context, parent: Agent, args: Record<string, unknown>) {
@@ -41,7 +53,7 @@ describe('dsh-tool-subagent roles', () => {
       onStart: (request) => { starts.push(request) },
     })
     ctx.llm.registerAdapter(['alpha'], new MockAdapter([], REASONING))
-    const parent = parentWithSetup(ctx, {
+    const parent = await parentWithSetup(ctx, {
       ...ENABLED,
       roles: { coder: { mode: 'fixed', route: { backend: 'llm', provider: 'alpha', model: 'coder-model', reasoningEffort: 'low' } } },
     })
@@ -62,7 +74,7 @@ describe('dsh-tool-subagent roles', () => {
     const ctx = await setup({ provider: 'mock', roles: true, maxDepth: 1 }, {
       onStart: (request) => { starts.push(request) },
     })
-    const parent = parentWithSetup(ctx, {
+    const parent = await parentWithSetup(ctx,{
       ...ENABLED,
       roles: { coder: { mode: 'fixed', route: { backend: 'llm', provider: 'ghost', model: 'coder-model' } } },
     })
@@ -82,8 +94,8 @@ describe('dsh-tool-subagent roles', () => {
     })
     ctx.llm.registerAdapter(['alpha'], new MockAdapter([], REASONING))
     ctx.llm.registerAdapter(['beta'], new MockAdapter([], REASONING))
-    ctx.provide('sessionController', { missingCredentialProviders: async () => ['alpha'] } as never)
-    const parent = parentWithSetup(ctx, {
+    ctx.provide('sessionController', { defaultSubagentSetup: () => undefined, missingCredentialProviders: async () => ['alpha'] } as never)
+    const parent = await parentWithSetup(ctx,{
       ...ENABLED,
       roles: { coder: { mode: 'fixed', route: { backend: 'llm', provider: 'alpha', model: 'coder-model' } } },
     })
@@ -94,7 +106,7 @@ describe('dsh-tool-subagent roles', () => {
     expect(text(result)).toContain('subagent role "coder" is set to alpha/coder-model, which cannot run: no credential is configured for provider "alpha"; pick another route in Orchestrator & Subagent Setup or add a key in Settings')
     expect(starts).toHaveLength(0)
 
-    const funded = parentWithSetup(ctx, {
+    const funded = await parentWithSetup(ctx,{
       ...ENABLED,
       roles: { coder: { mode: 'fixed', route: { backend: 'llm', provider: 'beta', model: 'coder-model' } } },
     })
@@ -108,7 +120,7 @@ describe('dsh-tool-subagent roles', () => {
     const ctx = await setup({ provider: 'mock', roles: true, maxDepth: 1 }, {
       onStart: (request) => { starts.push(request) },
     })
-    const parent = parentWithSetup(ctx, { ...ENABLED, roles: { coder: { mode: 'jev' } } })
+    const parent = await parentWithSetup(ctx,{ ...ENABLED, roles: { coder: { mode: 'jev' } } })
 
     const result = await roleCall(ctx, parent, { role: 'coder' })
 
@@ -128,7 +140,7 @@ describe('dsh-tool-subagent roles', () => {
       capabilities: { depthLimit: false },
       onStart: (request) => { claudeStarts.push(request) },
     })
-    const parent = parentWithSetup(ctx, {
+    const parent = await parentWithSetup(ctx,{
       ...ENABLED,
       roles: { coder: { mode: 'fixed', route: { backend: 'claude-cli', model: 'cli-model', reasoningEffort: 'high' } } },
     })
@@ -147,7 +159,7 @@ describe('dsh-tool-subagent roles', () => {
     const ctx = await setup({ provider: 'mock', roles: true, maxDepth: 1 }, {
       onStart: (request) => { starts.push(request) },
     })
-    const parent = parentWithSetup(ctx, { enabled: false, reviewRounds: 0, roles: {} })
+    const parent = await parentWithSetup(ctx,{ enabled: false, reviewRounds: 0, roles: {} })
 
     const result = await roleCall(ctx, parent, { role: 'coder' })
 
@@ -161,7 +173,7 @@ describe('dsh-tool-subagent roles', () => {
     const ctx = await setup({ provider: 'mock', roles: true, maxDepth: 1 }, {
       onStart: (request) => { starts.push(request) },
     })
-    const parent = parentWithSetup(ctx, { ...ENABLED, roles: { coder: { mode: 'jev' } } })
+    const parent = await parentWithSetup(ctx,{ ...ENABLED, roles: { coder: { mode: 'jev' } } })
 
     const result = await roleCall(ctx, parent, { role: 'reviewer' })
 
@@ -175,7 +187,7 @@ describe('dsh-tool-subagent roles', () => {
     const ctx = await setup({ provider: 'mock', roles: true, maxDepth: 1 }, {
       onStart: (request) => { starts.push(request) },
     })
-    const parent = parentWithSetup(ctx, { ...ENABLED, roles: { coder: { mode: 'jev' } } })
+    const parent = await parentWithSetup(ctx,{ ...ENABLED, roles: { coder: { mode: 'jev' } } })
 
     const result = await roleCall(ctx, parent, { role: 'coder', provider: 'alpha', model: 'other-model' })
 
@@ -190,7 +202,7 @@ describe('dsh-tool-subagent roles', () => {
     const ctx = await setup({ provider: 'mock', roles: true, maxDepth: 1 }, {
       onStart: (request) => { starts.push(request) },
     })
-    const parent = parentWithSetup(ctx, { ...ENABLED, roles: { coder: { mode: 'jev' } } })
+    const parent = await parentWithSetup(ctx,{ ...ENABLED, roles: { coder: { mode: 'jev' } } })
 
     for (const route of [{ provider: 'alpha', model: 'other-model' }, { model: 'other-model' }, { reasoning_effort: 'low' }]) {
       const result = await roleCall(ctx, parent, route)
@@ -205,7 +217,7 @@ describe('dsh-tool-subagent roles', () => {
     const ctx = await setup({ provider: 'mock', roles: true, maxDepth: 1 }, {
       onStart: (request) => { starts.push(request) },
     })
-    const parent = parentWithSetup(ctx, {
+    const parent = await parentWithSetup(ctx,{
       ...ENABLED,
       roles: { orchestrator: { mode: 'jev' }, coder: { mode: 'jev' }, researcher: { mode: 'jev' } },
     })
@@ -223,7 +235,7 @@ describe('dsh-tool-subagent roles', () => {
       onStart: (request) => { starts.push(request) },
     })
     ctx.llm.registerAdapter(['alpha'], new MockAdapter([], REASONING))
-    const parent = parentWithSetup(ctx, {
+    const parent = await parentWithSetup(ctx,{
       ...ENABLED,
       roles: { coder: { mode: 'fixed', route: { backend: 'llm', provider: 'alpha', model: 'coder-model', reasoningEffort: 'high' } } },
     })
@@ -245,7 +257,7 @@ describe('dsh-tool-subagent roles', () => {
     const ctx = await setup({ provider: 'mock', roles: true, maxDepth: 1 }, {
       onStart: (request) => { starts.push(request) },
     })
-    const parent = parentWithSetup(ctx, { ...ENABLED, roles: { orchestrator: { mode: 'jev' } } })
+    const parent = await parentWithSetup(ctx,{ ...ENABLED, roles: { orchestrator: { mode: 'jev' } } })
 
     const result = await roleCall(ctx, parent, {})
 
@@ -255,7 +267,7 @@ describe('dsh-tool-subagent roles', () => {
 
   it('allows an explicit route without a role while Orchestrator & Subagent Setup is off', async () => {
     const ctx = await setup({ provider: 'mock', roles: true, maxDepth: 1 })
-    const parent = parentWithSetup(ctx, { ...ENABLED, enabled: false, roles: {} })
+    const parent = await parentWithSetup(ctx,{ ...ENABLED, enabled: false, roles: {} })
 
     const result = await roleCall(ctx, parent, { reasoning_effort: 'low' })
 
@@ -267,7 +279,7 @@ describe('dsh-tool-subagent roles', () => {
     const ctx = await setup({ provider: 'mock', roles: true, maxDepth: 1 }, {
       onStart: (request) => { starts.push(request) },
     })
-    const parent = parentWithSetup(ctx, { ...ENABLED, roles: { orchestrator: { mode: 'jev' } } })
+    const parent = await parentWithSetup(ctx,{ ...ENABLED, roles: { orchestrator: { mode: 'jev' } } })
 
     const result = await roleCall(ctx, parent, { role: 'orchestrator' })
 
@@ -280,7 +292,7 @@ describe('dsh-tool-subagent roles', () => {
     const ctx = await setup({ provider: 'mock', roles: true, maxDepth: 1 }, {
       onStart: (request) => { starts.push(request) },
     })
-    const parent = parentWithSetup(ctx, {
+    const parent = await parentWithSetup(ctx,{
       ...ENABLED,
       roles: { coder: { mode: 'fixed', route: { backend: 'claude-cli', model: 'cli-model' } } },
     })
@@ -297,7 +309,7 @@ describe('dsh-tool-subagent roles', () => {
     const ctx = await setup({ provider: 'mock', maxDepth: 1 }, {
       onStart: (request) => { starts.push(request) },
     })
-    const parent = parentWithSetup(ctx, undefined)
+    const parent = await parentWithSetup(ctx,undefined)
 
     const result = await roleCall(ctx, parent, { role: 'coder' })
 
@@ -310,7 +322,7 @@ describe('dsh-tool-subagent roles', () => {
     const ctx = await setup({ provider: 'mock', maxDepth: 1 }, {
       onStart: (request) => { starts.push(request) },
     })
-    const parent = parentWithSetup(ctx, { ...ENABLED, roles: { coder: { mode: 'jev' } } })
+    const parent = await parentWithSetup(ctx,{ ...ENABLED, roles: { coder: { mode: 'jev' } } })
 
     const result = await callSubagent(ctx, { description: 'delegated task', prompt: 'do it' }, { agent: parent })
 
@@ -332,7 +344,7 @@ describe('dsh-tool-subagent roles under the global default setup', () => {
       roles: { coder: { mode: 'fixed', route: { backend: 'llm', provider: 'alpha', model: 'global-coder', reasoningEffort: 'low' } } },
     } as const
     ctx.provide('sessionController', { defaultSubagentSetup: () => globalSetup, missingCredentialProviders: async () => [] } as never)
-    const inheriting = fakeAgent('role-global-inherit')
+    const inheriting = await liveAgent(ctx, 'role-global-inherit')
 
     const result = await roleCall(ctx, inheriting, { role: 'coder' })
 
@@ -340,7 +352,7 @@ describe('dsh-tool-subagent roles under the global default setup', () => {
     expect(starts[0]?.agentOptions).toEqual({ provider: 'alpha', model: 'global-coder', reasoningEffort: ReasoningEffortId('low') })
     expect(starts[0]?.routePinned).toBe(true)
 
-    const overriding = parentWithSetup(ctx, { ...ENABLED, roles: { coder: { mode: 'jev' } } })
+    const overriding = await parentWithSetup(ctx,{ ...ENABLED, roles: { coder: { mode: 'jev' } } })
     const jev = await roleCall(ctx, overriding, { role: 'coder' })
     expect(jev.isError).toBe(false)
     expect(starts[1]?.routePinned).not.toBe(true)

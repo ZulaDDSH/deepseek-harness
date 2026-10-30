@@ -90,7 +90,7 @@ No runtime invariant companion is published: packets derive from registry and pr
 
 #### What the model sees
 
-`knowledge_query` retrieves a bounded packet. `knowledge_delegate` starts a continuable worker with that packet or the original task. Disabled and disconnected providers are unavailable. Optional `knowledge_record` saves findings; `reflectionError` reports a reflection failure after a successful save.
+`knowledge_query` retrieves a bounded packet. `knowledge_delegate` starts a worker with that packet or the original task; the worker answers and then settles. Disabled and disconnected providers are unavailable. Optional `knowledge_record` saves findings; `reflectionError` reports a reflection failure after a successful save.
 
 #### Token effect
 

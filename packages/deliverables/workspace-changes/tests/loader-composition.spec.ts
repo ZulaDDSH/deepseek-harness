@@ -13,6 +13,7 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import * as WorkspaceChangesPlugin from '@deepseek-ai/dsh-workspace-changes'
 import { changes, endTurn, git, startTurn, toolCall } from './support.ts'
 
@@ -34,6 +35,7 @@ describe('real Loader composition', () => {
     await writeFile(join(root, 'cordis.yml'), [
       "- name: '@deepseek-ai/dsh-session'",
       "- name: '@deepseek-ai/dsh-subprocess-local'",
+      "- name: '@deepseek-ai/dsh-fs-local'",
       "- name: '@deepseek-ai/dsh-workspace-changes'",
       '  config:',
       // Records are durable now, so the row names its own root: the default is
@@ -48,6 +50,7 @@ describe('real Loader composition', () => {
     const modules = new Map<string, unknown>([
       ['@deepseek-ai/dsh-session', SessionStore],
       ['@deepseek-ai/dsh-subprocess-local', LocalSubprocessRuntime],
+      ['@deepseek-ai/dsh-fs-local', LocalFileSystem],
       ['@deepseek-ai/dsh-workspace-changes', WorkspaceChangesPlugin],
     ])
     context.loader.internal = {

@@ -1,116 +1,21 @@
 {
   "formatVersion": 2,
   "roots": [
-    {
-      "key": "event:session/run-options",
-      "kind": "event",
-      "event": "session/run-options",
-      "surface": false,
-      "digest": "2134d708b7e49b6f48beb0ca7692ee7e7ec209e797748725d032c5362db9edd8",
-      "schema": {
-        "root": 0,
-        "nodes": [
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "data",
-                "type": 1,
-                "optional": false
-              },
-              {
-                "name": "ignorable",
-                "type": 9,
-                "optional": true
-              },
-              {
-                "name": "seq",
-                "type": 10,
-                "optional": false
-              },
-              {
-                "name": "time",
-                "type": 10,
-                "optional": false
-              },
-              {
-                "name": "type",
-                "type": 11,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "effort",
-                "type": 2,
-                "optional": true
-              },
-              {
-                "name": "fastMode",
-                "type": 8,
-                "optional": true
-              },
-              {
-                "name": "ultracode",
-                "type": 8,
-                "optional": true
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "union",
-            "types": [
-              3,
-              4,
-              5,
-              6,
-              7
-            ]
-          },
-          {
-            "kind": "literal",
-            "value": "high"
-          },
-          {
-            "kind": "literal",
-            "value": "low"
-          },
-          {
-            "kind": "literal",
-            "value": "max"
-          },
-          {
-            "kind": "literal",
-            "value": "medium"
-          },
-          {
-            "kind": "literal",
-            "value": "xhigh"
-          },
-          {
-            "kind": "primitive",
-            "type": "boolean"
-          },
-          {
-            "kind": "literal",
-            "value": true
-          },
-          {
-            "kind": "primitive",
-            "type": "number"
-          },
-          {
-            "kind": "literal",
-            "value": "session/run-options"
-          }
-        ]
-      }
-    }
+    {"key":"event:session/run-options","kind":"event","event":"session/run-options","surface":false,"digest":"2134d708b7e49b6f48beb0ca7692ee7e7ec209e797748725d032c5362db9edd8"}
   ],
-  "types": []
+  "types": [],
+  "nodes": {
+    "05053387afaf98f8": {"kind":"literal","value":"max"},
+    "0657d3ca5ac4e7bf": {"kind":"primitive","type":"number"},
+    "2134d708b7e49b6f": {"kind":"object","properties":[{"name":"data","type":"784d0d351ada818e","optional":false},{"name":"ignorable","type":"dacf3d5f3e4ff619","optional":true},{"name":"seq","type":"0657d3ca5ac4e7bf","optional":false},{"name":"time","type":"0657d3ca5ac4e7bf","optional":false},{"name":"type","type":"5041e4210398f92f","optional":false}],"indices":[]},
+    "352eb0b4cc4d1473": {"kind":"union","types":["05053387afaf98f8","437a1c86fb6f6644","65f6a6e8bdce8376","8bb188be8ccbc2bd","963de05e8412d454"]},
+    "437a1c86fb6f6644": {"kind":"literal","value":"high"},
+    "5041e4210398f92f": {"kind":"literal","value":"session/run-options"},
+    "65f6a6e8bdce8376": {"kind":"literal","value":"low"},
+    "784d0d351ada818e": {"kind":"object","properties":[{"name":"effort","type":"352eb0b4cc4d1473","optional":true},{"name":"fastMode","type":"aa93010d0e521ad7","optional":true},{"name":"ultracode","type":"aa93010d0e521ad7","optional":true}],"indices":[]},
+    "8bb188be8ccbc2bd": {"kind":"literal","value":"medium"},
+    "963de05e8412d454": {"kind":"literal","value":"xhigh"},
+    "aa93010d0e521ad7": {"kind":"primitive","type":"boolean"},
+    "dacf3d5f3e4ff619": {"kind":"literal","value":true}
+  }
 }

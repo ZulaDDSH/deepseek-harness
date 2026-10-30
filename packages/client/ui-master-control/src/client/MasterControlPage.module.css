@@ -111,9 +111,11 @@
   user-select: none;
 }
 
-.statCard:hover {
-  background: var(--dsw-alias-surface-hover, rgba(128, 128, 128, 0.1));
-  border-color: var(--dsw-alias-border-primary, rgba(128, 128, 128, 0.3));
+@media (hover: hover) and (pointer: fine) {
+  .statCard:hover {
+    background: var(--dsw-alias-surface-hover, rgba(128, 128, 128, 0.1));
+    border-color: var(--dsw-alias-border-primary, rgba(128, 128, 128, 0.3));
+  }
 }
 
 .statCardActive {
@@ -173,8 +175,10 @@
   transition: border-color 0.15s ease;
 }
 
-.groupCard:hover {
-  border-color: var(--dsw-alias-border-primary, rgba(128, 128, 128, 0.25));
+@media (hover: hover) and (pointer: fine) {
+  .groupCard:hover {
+    border-color: var(--dsw-alias-border-primary, rgba(128, 128, 128, 0.25));
+  }
 }
 
 .groupHeader {
@@ -188,8 +192,10 @@
   transition: background 0.15s ease;
 }
 
-.groupHeader:hover {
-  background: var(--dsw-alias-surface-hover, rgba(128, 128, 128, 0.08));
+@media (hover: hover) and (pointer: fine) {
+  .groupHeader:hover {
+    background: var(--dsw-alias-surface-hover, rgba(128, 128, 128, 0.08));
+  }
 }
 
 .groupHeaderExpanded {
@@ -285,8 +291,10 @@
   vertical-align: middle;
 }
 
-.table tr:hover td {
-  background: var(--dsw-alias-surface-hover, rgba(128, 128, 128, 0.04));
+@media (hover: hover) and (pointer: fine) {
+  .table tr:hover td {
+    background: var(--dsw-alias-surface-hover, rgba(128, 128, 128, 0.04));
+  }
 }
 
 .name {
@@ -409,9 +417,11 @@
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-.importRow:hover {
-  background: var(--dsw-alias-surface-hover, rgba(128, 128, 128, 0.07));
-  border-color: var(--dsw-alias-border-primary, rgba(128, 128, 128, 0.25));
+@media (hover: hover) and (pointer: fine) {
+  .importRow:hover {
+    background: var(--dsw-alias-surface-hover, rgba(128, 128, 128, 0.07));
+    border-color: var(--dsw-alias-border-primary, rgba(128, 128, 128, 0.25));
+  }
 }
 
 .importRowSelected {
@@ -501,8 +511,10 @@
   user-select: none;
 }
 
-.previewDetails summary:hover {
-  color: var(--dsw-alias-label-primary);
+@media (hover: hover) and (pointer: fine) {
+  .previewDetails summary:hover {
+    color: var(--dsw-alias-label-primary);
+  }
 }
 
 .preview {

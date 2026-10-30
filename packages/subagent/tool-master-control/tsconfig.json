@@ -24,6 +24,9 @@
       "path": "../../core/tools"
     },
     {
+      "path": "../../session-query/session-query"
+    },
+    {
       "path": "../subagent"
     }
   ]

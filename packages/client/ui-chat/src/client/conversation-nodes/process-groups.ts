@@ -8,9 +8,9 @@ import type { ChatConversationViewNode, ChatNode } from '../contract/chat-nodes.
 import type { ProcessActivitySummary, ProcessGroupData } from '../contract/process-groups.ts'
 import { hasAssistantReplyContent } from '../contract/assistant-content.ts'
 import { isVisibleChatNode } from '../contract/chat-visibility.ts'
-import { processActivity } from '../contract/process-activity.ts'
+import { isAtOrOutside } from '../contract/group-tree.ts'
+import { processActivity } from './process-activity.ts'
 
-const INDEPENDENT = new Set(['user', 'steering', 'turn-trigger', 'model-retry', 'turn-error', 'turn-max-tokens', 'turn-tail'])
 type ProcessInput = ConversationGroupInput<ChatConversationViewNode>
 
 function turnOf(node: ChatNode): number | undefined {
@@ -49,6 +49,7 @@ function structureChanged(previous: ChatNode | undefined, current: ChatNode): bo
   return previous === undefined || previous.kind !== current.kind
     || turnOf(previous) !== turnOf(current)
     || isVisibleChatNode(previous) !== isVisibleChatNode(current)
+    || previous.groupTree !== current.groupTree
     || reasoning(previous) !== reasoning(current) || reply(previous) !== reply(current)
 }
 
@@ -156,12 +157,11 @@ class TurnGroups {
       previous = key
       followed = position.next !== undefined
       const node = readNode(input, key)
-      if (INDEPENDENT.has(node.kind)) {
+      if (isAtOrOutside(node, 'process')) {
         flush(true)
         emit(key, { kind: 'node', key })
-      } else if (node.kind === 'turn-process') {
-        emit(key, { kind: 'node', key })
       } else if (node.kind === 'assistant-step') {
+        // One Node, two rows: reasoning joins the step run, a reply stands outside it.
         if (reasoning(node)) pending.push({ kind: 'node', key, groupPart: 'reasoning' })
         if (reply(node)) {
           flush(true)

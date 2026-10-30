@@ -18,9 +18,9 @@ import {
   assertPositiveFinite,
   NO_START_CAPABILITIES,
   parentAgentOptionsForDelegation,
-  resolveChildCwd,
   resolveParentSandboxMode,
   type ParentSandboxMode,
+  assertUsableCwd,
   type ResolvedSubagentStartRequest,
   type SubagentCapabilities,
   type SubagentProvider,
@@ -226,19 +226,9 @@ class ClaudeCodeProvider implements SubagentProvider {
   ) {}
 
   async start(request: ResolvedSubagentStartRequest) {
-    const parentCwd = request.parent.session.header.cwd
-    if (parentCwd === undefined) {
-      throw new Error(
-        'subagent-claude-code: no working directory for the child — delegate from a parent session that has one',
-      )
-    }
     let cwd: string
     try {
-      cwd = resolveChildCwd(
-        'subagent-claude-code',
-        undefined,
-        parentCwd,
-      )
+      cwd = assertUsableCwd('subagent-claude-code', 'child cwd', request.cwd)
     } catch (error: unknown) {
       if (request.signal.aborted) {
         throw new Error(
@@ -270,7 +260,7 @@ class ClaudeCodeProvider implements SubagentProvider {
     }
     const runOptions = inheritedRunOptions(
       request.parent.session,
-      session => this.ctx.sessionProjections.stateOf(session, 'runOptions')?.current,
+      session => this.ctx.sessionProjections.snapshot(session, ['runOptions']).values.runOptions?.current,
       id => this.ctx.get('sessions')?.get(id),
     )
     const selection = claudeRunSelectionOf(request.agentOptions)
@@ -358,7 +348,7 @@ export function apply(ctx: Context, config: Config): void {
   if (resolved.maxBudgetUsd !== undefined) {
     assertPositiveFinite('subagent-claude-code', 'maxBudgetUsd', resolved.maxBudgetUsd)
   }
-  ctx.sessionProjections.register(claudeCodeRunOptionsProjection)
+  void ctx.sessionProjections.register(claudeCodeRunOptionsProjection)
   ctx.subagents.registerProvider(new ClaudeCodeProvider(
     resolved.providerName,
     ctx,

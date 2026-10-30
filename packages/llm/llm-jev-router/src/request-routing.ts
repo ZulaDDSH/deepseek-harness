@@ -1,17 +1,14 @@
 /**
- * Route selection and per-Agent request interception for the Jev router.
+ * Route selection and unrouted fallback for the Jev router.
  * @module @deepseek-ai/dsh-llm-jev-router/request-routing
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
-import { ReasoningEffortId, type LlmCallConfig } from '@deepseek-ai/dsh-llm'
+import type { Agent, ModelSelection } from '@deepseek-ai/dsh-agent'
+import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import { orchestratorSelectionOf } from '@deepseek-ai/dsh-api-session-controller/setup-resolver'
 import type { Config, JevDecision, JevRoute } from './index.ts'
-
-/** The Jev route that applies to one Agent turn, or `undefined` when Jev selected none. */
-export type RouteForTurn = (agent: Agent, turn: number) => JevRoute | undefined
 
 /** Resolve a decision through confidence and fallback policy.
  * @param decision parsed Jev decision.
@@ -25,15 +22,12 @@ export function selectedRoute(decision: JevDecision, config: Config): JevRoute |
   return config.routes.find(candidate => candidate.id === config.fallback)
 }
 
-/** Apply a selected route without mutating the frozen base config.
- * @param config base DSH call configuration.
+/** The model selection a Jev route names; an absent effort follows adapter defaults.
  * @param route selected destination.
- * @returns the replacement call configuration.
+ * @returns a detached selection for one step.
  */
-export function applyRoute(config: LlmCallConfig, route: JevRoute): LlmCallConfig {
-  const { reasoningEffort: _inheritedEffort, ...withoutInheritedEffort } = config
+export function routeSelection(route: JevRoute): ModelSelection {
   return {
-    ...withoutInheritedEffort,
     provider: route.provider,
     model: route.model,
     ...route.reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(route.reasoningEffort) },
@@ -41,56 +35,24 @@ export function applyRoute(config: LlmCallConfig, route: JevRoute): LlmCallConfi
 }
 
 /**
- * Return a step to the model its Session or Agent selected instead of the route
- * a previous turn used, or `base` when that model is already the base route.
- */
-function unrouted(ctx: Context, agent: Agent, base: LlmCallConfig): LlmCallConfig {
-  const selected = orchestratorSelectionOf(ctx, agent.session)
-    ?? ctx.get('sessionProjections')?.stateOf(agent.session, 'modelSelection')?.selected
-  const fallback = selected ?? (agent.options.provider !== undefined && agent.options.model !== undefined
-    ? {
-      provider: agent.options.provider, model: agent.options.model,
-      ...agent.options.reasoningEffort === undefined ? {} : { reasoningEffort: agent.options.reasoningEffort },
-    }
-    : undefined)
-  if (fallback === undefined || (fallback.provider === base.provider && fallback.model === base.model)) return base
-  return applyRoute(base, { id: '', description: '', ...fallback })
-}
-
-/**
- * Install one `agent/request` listener per Agent the first time it is routed.
- * The listener consults {@link enabled} on every request, so a hook installed
- * while routing was on delegates the request unchanged once the live config
- * turns routing off. It is released when its Agent is disposed and when the
- * owning fiber unloads, so a disposed Agent is not retained by its hook.
+ * The selection a step runs on when Jev selected no route: the orchestrator's
+ * fixed route, else the Session's pick, else the Agent's configured route.
  * @param ctx - owning plugin context.
- * @param enabled - reads whether routing is currently enabled.
- * @param routeForTurn - the route Jev recorded for one Agent turn.
- * @returns an installer that hooks an Agent at most once.
+ * @param agent - the Agent proposing the step.
+ * @returns a detached selection, or undefined when none of those names both provider and model.
  */
-export function installAgentRequestRouting(
-  ctx: Context,
-  enabled: () => boolean,
-  routeForTurn: RouteForTurn,
-): (agent: Agent) => void {
-  const hooked = new Map<Agent, () => void>()
-  const release = (agent: Agent): void => {
-    const dispose = hooked.get(agent)
-    if (dispose === undefined) return
-    hooked.delete(agent)
-    dispose()
+export function unroutedSelection(ctx: Context, agent: Agent): ModelSelection | undefined {
+  const selected = orchestratorSelectionOf(ctx, agent.session)
+    ?? ctx.get('agents')?.modelSelectionOf(agent.session).pending
+  if (selected) {
+    return {
+      provider: selected.provider,
+      model: selected.model,
+      ...selected.reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(selected.reasoningEffort) },
+    }
   }
-  ctx.on('agent/disposed', ({ agent }) => { release(agent) })
-  ctx.effect(() => () => {
-    for (const agent of [...hooked.keys()]) release(agent)
-  }, 'jev-router: per-Agent request routing')
-  return (agent: Agent): void => {
-    if (hooked.has(agent)) return
-    hooked.set(agent, agent.ctx.on('agent/request', async (payload, next): Promise<LlmCallConfig> => {
-      const base = await next()
-      if (!enabled() || payload.signal.aborted) return base
-      const route = routeForTurn(payload.agent, payload.turn)
-      return route === undefined ? unrouted(ctx, payload.agent, base) : applyRoute(base, route)
-    }, { prepend: true }))
-  }
+  const { provider, model, reasoningEffort } = agent.options
+  return provider !== undefined && model !== undefined
+    ? { provider, model, ...reasoningEffort === undefined ? {} : { reasoningEffort } }
+    : undefined
 }

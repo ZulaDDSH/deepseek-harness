@@ -1,0 +1,1334 @@
+{
+ "ja": [
+  {
+   "key": "searchPageDescription",
+   "up": null
+  },
+  {
+   "key": "searchPageKeywords",
+   "up": null
+  },
+  {
+   "key": "searchItemDescription",
+   "up": null
+  },
+  {
+   "key": "searchItemKeywords",
+   "up": null
+  },
+  {
+   "key": "mcpNav",
+   "up": null
+  },
+  {
+   "key": "mcpTitle",
+   "up": null
+  },
+  {
+   "key": "mcpHelp",
+   "up": null
+  },
+  {
+   "key": "mcpYourServers",
+   "up": null
+  },
+  {
+   "key": "mcpRunning",
+   "up": null
+  },
+  {
+   "key": "mcpOff",
+   "up": null
+  },
+  {
+   "key": "mcpFailedState",
+   "up": null
+  },
+  {
+   "key": "mcpLoading",
+   "up": null
+  },
+  {
+   "key": "mcpEmpty",
+   "up": null
+  },
+  {
+   "key": "mcpFailed",
+   "up": null
+  },
+  {
+   "key": "mcpToggle",
+   "up": null
+  },
+  {
+   "key": "mcpStopped",
+   "up": null
+  },
+  {
+   "key": "mcpRemove",
+   "up": null
+  },
+  {
+   "key": "mcpImportTitle",
+   "up": null
+  },
+  {
+   "key": "mcpImportFind",
+   "up": null
+  },
+  {
+   "key": "mcpImportNone",
+   "up": null
+  },
+  {
+   "key": "mcpImport",
+   "up": null
+  },
+  {
+   "key": "mcpImported",
+   "up": null
+  },
+  {
+   "key": "mcpSourceClaudeDesktop",
+   "up": null
+  },
+  {
+   "key": "mcpSourceClaudeCode",
+   "up": null
+  },
+  {
+   "key": "mcpSourceCodex",
+   "up": null
+  },
+  {
+   "key": "mcpAddTitle",
+   "up": null
+  },
+  {
+   "key": "mcpName",
+   "up": null
+  },
+  {
+   "key": "mcpTransport",
+   "up": null
+  },
+  {
+   "key": "mcpTransportStdio",
+   "up": null
+  },
+  {
+   "key": "mcpTransportHttp",
+   "up": null
+  },
+  {
+   "key": "mcpCommand",
+   "up": null
+  },
+  {
+   "key": "mcpArgs",
+   "up": null
+  },
+  {
+   "key": "mcpEnv",
+   "up": null
+  },
+  {
+   "key": "mcpEnvPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpUrl",
+   "up": null
+  },
+  {
+   "key": "mcpAdd",
+   "up": null
+  },
+  {
+   "key": "mcpTagHttp",
+   "up": null
+  },
+  {
+   "key": "mcpTagStdio",
+   "up": null
+  },
+  {
+   "key": "mcpCommandPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpArgsPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpUrlPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpHeaders",
+   "up": null
+  },
+  {
+   "key": "mcpHeadersPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpHeadersHint",
+   "up": null
+  },
+  {
+   "key": "mcpRequired",
+   "up": null
+  },
+  {
+   "key": "mcpNameTaken",
+   "up": null
+  },
+  {
+   "key": "mcpUrlInvalid",
+   "up": null
+  },
+  {
+   "key": "mcpConnecting",
+   "up": null
+  },
+  {
+   "key": "mcpConnectedOne",
+   "up": null
+  },
+  {
+   "key": "mcpConnectedMany",
+   "up": null
+  },
+  {
+   "key": "mcpAuthRequired",
+   "up": null
+  },
+  {
+   "key": "mcpConnectionFailed",
+   "up": null
+  },
+  {
+   "key": "mcpSignIn",
+   "up": null
+  },
+  {
+   "key": "mcpSignInCancel",
+   "up": null
+  },
+  {
+   "key": "mcpSignInOpenPage",
+   "up": null
+  }
+ ],
+ "es": [
+  {
+   "key": "searchPageDescription",
+   "up": null
+  },
+  {
+   "key": "searchPageKeywords",
+   "up": null
+  },
+  {
+   "key": "searchItemDescription",
+   "up": null
+  },
+  {
+   "key": "searchItemKeywords",
+   "up": null
+  },
+  {
+   "key": "mcpNav",
+   "up": null
+  },
+  {
+   "key": "mcpTitle",
+   "up": null
+  },
+  {
+   "key": "mcpHelp",
+   "up": null
+  },
+  {
+   "key": "mcpYourServers",
+   "up": null
+  },
+  {
+   "key": "mcpRunning",
+   "up": null
+  },
+  {
+   "key": "mcpOff",
+   "up": null
+  },
+  {
+   "key": "mcpFailedState",
+   "up": null
+  },
+  {
+   "key": "mcpLoading",
+   "up": null
+  },
+  {
+   "key": "mcpEmpty",
+   "up": null
+  },
+  {
+   "key": "mcpFailed",
+   "up": null
+  },
+  {
+   "key": "mcpToggle",
+   "up": null
+  },
+  {
+   "key": "mcpStopped",
+   "up": null
+  },
+  {
+   "key": "mcpRemove",
+   "up": null
+  },
+  {
+   "key": "mcpImportTitle",
+   "up": null
+  },
+  {
+   "key": "mcpImportFind",
+   "up": null
+  },
+  {
+   "key": "mcpImportNone",
+   "up": null
+  },
+  {
+   "key": "mcpImport",
+   "up": null
+  },
+  {
+   "key": "mcpImported",
+   "up": null
+  },
+  {
+   "key": "mcpSourceClaudeDesktop",
+   "up": null
+  },
+  {
+   "key": "mcpSourceClaudeCode",
+   "up": null
+  },
+  {
+   "key": "mcpSourceCodex",
+   "up": null
+  },
+  {
+   "key": "mcpAddTitle",
+   "up": null
+  },
+  {
+   "key": "mcpName",
+   "up": null
+  },
+  {
+   "key": "mcpTransport",
+   "up": null
+  },
+  {
+   "key": "mcpTransportStdio",
+   "up": null
+  },
+  {
+   "key": "mcpTransportHttp",
+   "up": null
+  },
+  {
+   "key": "mcpCommand",
+   "up": null
+  },
+  {
+   "key": "mcpArgs",
+   "up": null
+  },
+  {
+   "key": "mcpEnv",
+   "up": null
+  },
+  {
+   "key": "mcpEnvPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpUrl",
+   "up": null
+  },
+  {
+   "key": "mcpAdd",
+   "up": null
+  },
+  {
+   "key": "mcpTagHttp",
+   "up": null
+  },
+  {
+   "key": "mcpTagStdio",
+   "up": null
+  },
+  {
+   "key": "mcpCommandPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpArgsPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpUrlPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpHeaders",
+   "up": null
+  },
+  {
+   "key": "mcpHeadersPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpHeadersHint",
+   "up": null
+  },
+  {
+   "key": "mcpRequired",
+   "up": null
+  },
+  {
+   "key": "mcpNameTaken",
+   "up": null
+  },
+  {
+   "key": "mcpUrlInvalid",
+   "up": null
+  },
+  {
+   "key": "mcpConnecting",
+   "up": null
+  },
+  {
+   "key": "mcpConnectedOne",
+   "up": null
+  },
+  {
+   "key": "mcpConnectedMany",
+   "up": null
+  },
+  {
+   "key": "mcpAuthRequired",
+   "up": null
+  },
+  {
+   "key": "mcpConnectionFailed",
+   "up": null
+  },
+  {
+   "key": "mcpSignIn",
+   "up": null
+  },
+  {
+   "key": "mcpSignInCancel",
+   "up": null
+  },
+  {
+   "key": "mcpSignInOpenPage",
+   "up": null
+  }
+ ],
+ "fr": [
+  {
+   "key": "searchPageDescription",
+   "up": null
+  },
+  {
+   "key": "searchPageKeywords",
+   "up": null
+  },
+  {
+   "key": "searchItemDescription",
+   "up": null
+  },
+  {
+   "key": "searchItemKeywords",
+   "up": null
+  },
+  {
+   "key": "mcpNav",
+   "up": null
+  },
+  {
+   "key": "mcpTitle",
+   "up": null
+  },
+  {
+   "key": "mcpHelp",
+   "up": null
+  },
+  {
+   "key": "mcpYourServers",
+   "up": null
+  },
+  {
+   "key": "mcpRunning",
+   "up": null
+  },
+  {
+   "key": "mcpOff",
+   "up": null
+  },
+  {
+   "key": "mcpFailedState",
+   "up": null
+  },
+  {
+   "key": "mcpLoading",
+   "up": null
+  },
+  {
+   "key": "mcpEmpty",
+   "up": null
+  },
+  {
+   "key": "mcpFailed",
+   "up": null
+  },
+  {
+   "key": "mcpToggle",
+   "up": null
+  },
+  {
+   "key": "mcpStopped",
+   "up": null
+  },
+  {
+   "key": "mcpRemove",
+   "up": null
+  },
+  {
+   "key": "mcpImportTitle",
+   "up": null
+  },
+  {
+   "key": "mcpImportFind",
+   "up": null
+  },
+  {
+   "key": "mcpImportNone",
+   "up": null
+  },
+  {
+   "key": "mcpImport",
+   "up": null
+  },
+  {
+   "key": "mcpImported",
+   "up": null
+  },
+  {
+   "key": "mcpSourceClaudeDesktop",
+   "up": null
+  },
+  {
+   "key": "mcpSourceClaudeCode",
+   "up": null
+  },
+  {
+   "key": "mcpSourceCodex",
+   "up": null
+  },
+  {
+   "key": "mcpAddTitle",
+   "up": null
+  },
+  {
+   "key": "mcpName",
+   "up": null
+  },
+  {
+   "key": "mcpTransport",
+   "up": null
+  },
+  {
+   "key": "mcpTransportStdio",
+   "up": null
+  },
+  {
+   "key": "mcpTransportHttp",
+   "up": null
+  },
+  {
+   "key": "mcpCommand",
+   "up": null
+  },
+  {
+   "key": "mcpArgs",
+   "up": null
+  },
+  {
+   "key": "mcpEnv",
+   "up": null
+  },
+  {
+   "key": "mcpEnvPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpUrl",
+   "up": null
+  },
+  {
+   "key": "mcpAdd",
+   "up": null
+  },
+  {
+   "key": "mcpTagHttp",
+   "up": null
+  },
+  {
+   "key": "mcpTagStdio",
+   "up": null
+  },
+  {
+   "key": "mcpCommandPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpArgsPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpUrlPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpHeaders",
+   "up": null
+  },
+  {
+   "key": "mcpHeadersPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpHeadersHint",
+   "up": null
+  },
+  {
+   "key": "mcpRequired",
+   "up": null
+  },
+  {
+   "key": "mcpNameTaken",
+   "up": null
+  },
+  {
+   "key": "mcpUrlInvalid",
+   "up": null
+  },
+  {
+   "key": "mcpConnecting",
+   "up": null
+  },
+  {
+   "key": "mcpConnectedOne",
+   "up": null
+  },
+  {
+   "key": "mcpConnectedMany",
+   "up": null
+  },
+  {
+   "key": "mcpAuthRequired",
+   "up": null
+  },
+  {
+   "key": "mcpConnectionFailed",
+   "up": null
+  },
+  {
+   "key": "mcpSignIn",
+   "up": null
+  },
+  {
+   "key": "mcpSignInCancel",
+   "up": null
+  },
+  {
+   "key": "mcpSignInOpenPage",
+   "up": null
+  }
+ ],
+ "de": [
+  {
+   "key": "searchPageDescription",
+   "up": null
+  },
+  {
+   "key": "searchPageKeywords",
+   "up": null
+  },
+  {
+   "key": "searchItemDescription",
+   "up": null
+  },
+  {
+   "key": "searchItemKeywords",
+   "up": null
+  },
+  {
+   "key": "mcpNav",
+   "up": null
+  },
+  {
+   "key": "mcpTitle",
+   "up": null
+  },
+  {
+   "key": "mcpHelp",
+   "up": null
+  },
+  {
+   "key": "mcpYourServers",
+   "up": null
+  },
+  {
+   "key": "mcpRunning",
+   "up": null
+  },
+  {
+   "key": "mcpOff",
+   "up": null
+  },
+  {
+   "key": "mcpFailedState",
+   "up": null
+  },
+  {
+   "key": "mcpLoading",
+   "up": null
+  },
+  {
+   "key": "mcpEmpty",
+   "up": null
+  },
+  {
+   "key": "mcpFailed",
+   "up": null
+  },
+  {
+   "key": "mcpToggle",
+   "up": null
+  },
+  {
+   "key": "mcpStopped",
+   "up": null
+  },
+  {
+   "key": "mcpRemove",
+   "up": null
+  },
+  {
+   "key": "mcpImportTitle",
+   "up": null
+  },
+  {
+   "key": "mcpImportFind",
+   "up": null
+  },
+  {
+   "key": "mcpImportNone",
+   "up": null
+  },
+  {
+   "key": "mcpImport",
+   "up": null
+  },
+  {
+   "key": "mcpImported",
+   "up": null
+  },
+  {
+   "key": "mcpSourceClaudeDesktop",
+   "up": null
+  },
+  {
+   "key": "mcpSourceClaudeCode",
+   "up": null
+  },
+  {
+   "key": "mcpSourceCodex",
+   "up": null
+  },
+  {
+   "key": "mcpAddTitle",
+   "up": null
+  },
+  {
+   "key": "mcpName",
+   "up": null
+  },
+  {
+   "key": "mcpTransport",
+   "up": null
+  },
+  {
+   "key": "mcpTransportStdio",
+   "up": null
+  },
+  {
+   "key": "mcpTransportHttp",
+   "up": null
+  },
+  {
+   "key": "mcpCommand",
+   "up": null
+  },
+  {
+   "key": "mcpArgs",
+   "up": null
+  },
+  {
+   "key": "mcpEnv",
+   "up": null
+  },
+  {
+   "key": "mcpEnvPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpUrl",
+   "up": null
+  },
+  {
+   "key": "mcpAdd",
+   "up": null
+  },
+  {
+   "key": "mcpTagHttp",
+   "up": null
+  },
+  {
+   "key": "mcpTagStdio",
+   "up": null
+  },
+  {
+   "key": "mcpCommandPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpArgsPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpUrlPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpHeaders",
+   "up": null
+  },
+  {
+   "key": "mcpHeadersPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpHeadersHint",
+   "up": null
+  },
+  {
+   "key": "mcpRequired",
+   "up": null
+  },
+  {
+   "key": "mcpNameTaken",
+   "up": null
+  },
+  {
+   "key": "mcpUrlInvalid",
+   "up": null
+  },
+  {
+   "key": "mcpConnecting",
+   "up": null
+  },
+  {
+   "key": "mcpConnectedOne",
+   "up": null
+  },
+  {
+   "key": "mcpConnectedMany",
+   "up": null
+  },
+  {
+   "key": "mcpAuthRequired",
+   "up": null
+  },
+  {
+   "key": "mcpConnectionFailed",
+   "up": null
+  },
+  {
+   "key": "mcpSignIn",
+   "up": null
+  },
+  {
+   "key": "mcpSignInCancel",
+   "up": null
+  },
+  {
+   "key": "mcpSignInOpenPage",
+   "up": null
+  }
+ ],
+ "ru": [
+  {
+   "key": "searchPageDescription",
+   "up": null
+  },
+  {
+   "key": "searchPageKeywords",
+   "up": null
+  },
+  {
+   "key": "searchItemDescription",
+   "up": null
+  },
+  {
+   "key": "searchItemKeywords",
+   "up": null
+  },
+  {
+   "key": "mcpNav",
+   "up": null
+  },
+  {
+   "key": "mcpTitle",
+   "up": null
+  },
+  {
+   "key": "mcpHelp",
+   "up": null
+  },
+  {
+   "key": "mcpYourServers",
+   "up": null
+  },
+  {
+   "key": "mcpRunning",
+   "up": null
+  },
+  {
+   "key": "mcpOff",
+   "up": null
+  },
+  {
+   "key": "mcpFailedState",
+   "up": null
+  },
+  {
+   "key": "mcpLoading",
+   "up": null
+  },
+  {
+   "key": "mcpEmpty",
+   "up": null
+  },
+  {
+   "key": "mcpFailed",
+   "up": null
+  },
+  {
+   "key": "mcpToggle",
+   "up": null
+  },
+  {
+   "key": "mcpStopped",
+   "up": null
+  },
+  {
+   "key": "mcpRemove",
+   "up": null
+  },
+  {
+   "key": "mcpImportTitle",
+   "up": null
+  },
+  {
+   "key": "mcpImportFind",
+   "up": null
+  },
+  {
+   "key": "mcpImportNone",
+   "up": null
+  },
+  {
+   "key": "mcpImport",
+   "up": null
+  },
+  {
+   "key": "mcpImported",
+   "up": null
+  },
+  {
+   "key": "mcpSourceClaudeDesktop",
+   "up": null
+  },
+  {
+   "key": "mcpSourceClaudeCode",
+   "up": null
+  },
+  {
+   "key": "mcpSourceCodex",
+   "up": null
+  },
+  {
+   "key": "mcpAddTitle",
+   "up": null
+  },
+  {
+   "key": "mcpName",
+   "up": null
+  },
+  {
+   "key": "mcpTransport",
+   "up": null
+  },
+  {
+   "key": "mcpTransportStdio",
+   "up": null
+  },
+  {
+   "key": "mcpTransportHttp",
+   "up": null
+  },
+  {
+   "key": "mcpCommand",
+   "up": null
+  },
+  {
+   "key": "mcpArgs",
+   "up": null
+  },
+  {
+   "key": "mcpEnv",
+   "up": null
+  },
+  {
+   "key": "mcpEnvPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpUrl",
+   "up": null
+  },
+  {
+   "key": "mcpAdd",
+   "up": null
+  },
+  {
+   "key": "mcpTagHttp",
+   "up": null
+  },
+  {
+   "key": "mcpTagStdio",
+   "up": null
+  },
+  {
+   "key": "mcpCommandPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpArgsPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpUrlPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpHeaders",
+   "up": null
+  },
+  {
+   "key": "mcpHeadersPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpHeadersHint",
+   "up": null
+  },
+  {
+   "key": "mcpRequired",
+   "up": null
+  },
+  {
+   "key": "mcpNameTaken",
+   "up": null
+  },
+  {
+   "key": "mcpUrlInvalid",
+   "up": null
+  },
+  {
+   "key": "mcpConnecting",
+   "up": null
+  },
+  {
+   "key": "mcpConnectedOne",
+   "up": null
+  },
+  {
+   "key": "mcpConnectedMany",
+   "up": null
+  },
+  {
+   "key": "mcpAuthRequired",
+   "up": null
+  },
+  {
+   "key": "mcpConnectionFailed",
+   "up": null
+  },
+  {
+   "key": "mcpSignIn",
+   "up": null
+  },
+  {
+   "key": "mcpSignInCancel",
+   "up": null
+  },
+  {
+   "key": "mcpSignInOpenPage",
+   "up": null
+  }
+ ],
+ "pt": [
+  {
+   "key": "searchPageDescription",
+   "up": null
+  },
+  {
+   "key": "searchPageKeywords",
+   "up": null
+  },
+  {
+   "key": "searchItemDescription",
+   "up": null
+  },
+  {
+   "key": "searchItemKeywords",
+   "up": null
+  },
+  {
+   "key": "mcpNav",
+   "up": null
+  },
+  {
+   "key": "mcpTitle",
+   "up": null
+  },
+  {
+   "key": "mcpHelp",
+   "up": null
+  },
+  {
+   "key": "mcpYourServers",
+   "up": null
+  },
+  {
+   "key": "mcpRunning",
+   "up": null
+  },
+  {
+   "key": "mcpOff",
+   "up": null
+  },
+  {
+   "key": "mcpFailedState",
+   "up": null
+  },
+  {
+   "key": "mcpLoading",
+   "up": null
+  },
+  {
+   "key": "mcpEmpty",
+   "up": null
+  },
+  {
+   "key": "mcpFailed",
+   "up": null
+  },
+  {
+   "key": "mcpToggle",
+   "up": null
+  },
+  {
+   "key": "mcpStopped",
+   "up": null
+  },
+  {
+   "key": "mcpRemove",
+   "up": null
+  },
+  {
+   "key": "mcpImportTitle",
+   "up": null
+  },
+  {
+   "key": "mcpImportFind",
+   "up": null
+  },
+  {
+   "key": "mcpImportNone",
+   "up": null
+  },
+  {
+   "key": "mcpImport",
+   "up": null
+  },
+  {
+   "key": "mcpImported",
+   "up": null
+  },
+  {
+   "key": "mcpSourceClaudeDesktop",
+   "up": null
+  },
+  {
+   "key": "mcpSourceClaudeCode",
+   "up": null
+  },
+  {
+   "key": "mcpSourceCodex",
+   "up": null
+  },
+  {
+   "key": "mcpAddTitle",
+   "up": null
+  },
+  {
+   "key": "mcpName",
+   "up": null
+  },
+  {
+   "key": "mcpTransport",
+   "up": null
+  },
+  {
+   "key": "mcpTransportStdio",
+   "up": null
+  },
+  {
+   "key": "mcpTransportHttp",
+   "up": null
+  },
+  {
+   "key": "mcpCommand",
+   "up": null
+  },
+  {
+   "key": "mcpArgs",
+   "up": null
+  },
+  {
+   "key": "mcpEnv",
+   "up": null
+  },
+  {
+   "key": "mcpEnvPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpUrl",
+   "up": null
+  },
+  {
+   "key": "mcpAdd",
+   "up": null
+  },
+  {
+   "key": "mcpTagHttp",
+   "up": null
+  },
+  {
+   "key": "mcpTagStdio",
+   "up": null
+  },
+  {
+   "key": "mcpCommandPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpArgsPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpUrlPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpHeaders",
+   "up": null
+  },
+  {
+   "key": "mcpHeadersPlaceholder",
+   "up": null
+  },
+  {
+   "key": "mcpHeadersHint",
+   "up": null
+  },
+  {
+   "key": "mcpRequired",
+   "up": null
+  },
+  {
+   "key": "mcpNameTaken",
+   "up": null
+  },
+  {
+   "key": "mcpUrlInvalid",
+   "up": null
+  },
+  {
+   "key": "mcpConnecting",
+   "up": null
+  },
+  {
+   "key": "mcpConnectedOne",
+   "up": null
+  },
+  {
+   "key": "mcpConnectedMany",
+   "up": null
+  },
+  {
+   "key": "mcpAuthRequired",
+   "up": null
+  },
+  {
+   "key": "mcpConnectionFailed",
+   "up": null
+  },
+  {
+   "key": "mcpSignIn",
+   "up": null
+  },
+  {
+   "key": "mcpSignInCancel",
+   "up": null
+  },
+  {
+   "key": "mcpSignInOpenPage",
+   "up": null
+  }
+ ]
+}

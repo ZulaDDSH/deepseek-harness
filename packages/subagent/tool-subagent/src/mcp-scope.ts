@@ -9,7 +9,7 @@ import type { SubagentProvider } from '@deepseek-ai/dsh-subagent'
  * @returns true when MCP tools are scoped per call.
  */
 export function scopesMcp(provider: SubagentProvider): boolean {
-  return provider.capabilities.toolFilter && !provider.inheritsParentContext
+  return provider.capabilities.toolFilter === true && !provider.inheritsParentContext
 }
 
 /**

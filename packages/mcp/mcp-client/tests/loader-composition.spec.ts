@@ -9,6 +9,7 @@ import { EntryTree } from '@deepseek-ai/cordis-plugin-loader/src/config/tree.ts'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 
 const { mockConnect, mockClose, mockListTools, MockClient } = vi.hoisted(() => {
   const mockConnect = vi.fn<() => Promise<void>>()
@@ -72,6 +73,7 @@ async function loadYaml(): Promise<Context> {
   await writeFile(configPath, [
     "- name: '@deepseek-ai/dsh-system-prompt'",
     "- name: '@deepseek-ai/dsh-tools'",
+    "- name: '@deepseek-ai/dsh-tool-executor-native'",
     "- name: '@deepseek-ai/dsh-mcp-client'",
     '  config:',
     '    transport: stdio',
@@ -93,6 +95,7 @@ async function loadYaml(): Promise<Context> {
     ['cordis:include', Include],
     ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
     ['@deepseek-ai/dsh-tools', ToolRuntime],
+    ['@deepseek-ai/dsh-tool-executor-native', NativeToolExecutor],
     ['@deepseek-ai/dsh-mcp-client', McpClient],
   ])
   vi.spyOn(EntryTree.prototype, 'import').mockImplementation(async (specifier: string) => {

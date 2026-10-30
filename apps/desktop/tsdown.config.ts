@@ -1,6 +1,6 @@
 import { defineConfig } from 'tsdown'
 import { fileURLToPath } from 'node:url'
-import { readFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { repositoryClientBuildEnvironment, resolveClientBuildEnvironment } from '../../scripts/client-build-environment.ts'
 import { packagedImportsPlugin } from './scripts/desktop-bundle-imports.mjs'
 
@@ -32,9 +32,35 @@ const clientVersionDefine = { 'process.env.DSH_CLIENT_VERSION': JSON.stringify(c
 
 export default defineConfig([
   {
+    entry: ['lib/types/operation-report-worker.js'],
+    plugins: [packagedImportsPlugin({ packages: new Set(), nodeBuiltins: true })],
+    outDir: 'lib', format: ['esm'], platform: 'node', target: 'es2024',
+    fixedExtension: false, dts: false, clean: false, codeSplitting: false,
+  },
+  {
+    entry: ['lib/types/command-manager-entry.js'],
+    plugins: [packagedImportsPlugin({ packages: new Set(), nodeBuiltins: true })],
+    outDir: 'lib',
+    format: ['esm'],
+    platform: 'node',
+    target: 'es2024',
+    fixedExtension: false,
+    dts: false,
+    clean: false,
+    codeSplitting: false,
+    deps: { alwaysBundle: ['@deepseek-ai/dsh-atomic-write'] },
+  },
+  {
     entry: ['lib/types/main.js'],
     plugins: [packagedImportsPlugin(mainProcessImports)],
     define: clientVersionDefine,
+    onSuccess: () => {
+      mkdirSync(new URL('./lib/welcome/', import.meta.url), { recursive: true })
+      copyFileSync(
+        new URL('../../packages/client/ui-theme/src/styles/design-platform.css', import.meta.url),
+        new URL('./lib/welcome/design-platform.css', import.meta.url),
+      )
+    },
     outDir: 'lib',
     format: ['esm'],
     platform: 'node',

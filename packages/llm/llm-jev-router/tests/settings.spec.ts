@@ -13,7 +13,7 @@ it('exposes Jev settings and preserves its live reference through edits', async 
   expect(before.value).toMatchObject({ enabled: false, model: 'jev-latest', routes: [] })
   const entry = ctx.configEditor.entries().find(row => row.options.id === 'first')!
   const fiber = entry.fiber
-  const first = entry.fiber!.config as Volatile<JevConfig>
+  const first = entry.fiber!.effectiveConfig as Volatile<JevConfig>
   await ctx.settings.mutate('first', [{ op: 'set', path: ['enabled'], value: true }])
   expect(entry.fiber).toBe(fiber)
   expect(first.get().enabled).toBe(true)

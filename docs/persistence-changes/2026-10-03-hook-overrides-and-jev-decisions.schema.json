@@ -1,190 +1,21 @@
 {
   "formatVersion": 2,
   "roots": [
-    {
-      "key": "event:hooks/session-overrides",
-      "kind": "event",
-      "event": "hooks/session-overrides",
-      "surface": false,
-      "digest": "8f1df624af4d2a5d9aa39342beb3d354c8147388e80ba7a0cf9b6aa7d1cb0f5e",
-      "schema": {
-        "root": 0,
-        "nodes": [
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "data",
-                "type": 1,
-                "optional": false
-              },
-              {
-                "name": "ignorable",
-                "type": 5,
-                "optional": true
-              },
-              {
-                "name": "seq",
-                "type": 6,
-                "optional": false
-              },
-              {
-                "name": "time",
-                "type": 6,
-                "optional": false
-              },
-              {
-                "name": "type",
-                "type": 7,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "overrides",
-                "type": 2,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "object",
-            "properties": [],
-            "indices": [
-              {
-                "key": 3,
-                "value": 4
-              }
-            ]
-          },
-          {
-            "kind": "primitive",
-            "type": "string"
-          },
-          {
-            "kind": "primitive",
-            "type": "boolean"
-          },
-          {
-            "kind": "literal",
-            "value": true
-          },
-          {
-            "kind": "primitive",
-            "type": "number"
-          },
-          {
-            "kind": "literal",
-            "value": "hooks/session-overrides"
-          }
-        ]
-      }
-    },
-    {
-      "key": "event:jev/decision",
-      "kind": "event",
-      "event": "jev/decision",
-      "surface": false,
-      "digest": "06f9dc0f3520fd54d8bb07d330acf0d089e87898429952c991c18803eddaf7f8",
-      "schema": {
-        "root": 0,
-        "nodes": [
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "data",
-                "type": 1,
-                "optional": false
-              },
-              {
-                "name": "ignorable",
-                "type": 4,
-                "optional": true
-              },
-              {
-                "name": "seq",
-                "type": 3,
-                "optional": false
-              },
-              {
-                "name": "time",
-                "type": 3,
-                "optional": false
-              },
-              {
-                "name": "type",
-                "type": 5,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "object",
-            "properties": [
-              {
-                "name": "choice",
-                "type": 2,
-                "optional": true
-              },
-              {
-                "name": "confidence",
-                "type": 3,
-                "optional": true
-              },
-              {
-                "name": "error",
-                "type": 2,
-                "optional": true
-              },
-              {
-                "name": "model",
-                "type": 2,
-                "optional": true
-              },
-              {
-                "name": "provider",
-                "type": 2,
-                "optional": true
-              },
-              {
-                "name": "step",
-                "type": 3,
-                "optional": false
-              },
-              {
-                "name": "turn",
-                "type": 3,
-                "optional": false
-              }
-            ],
-            "indices": []
-          },
-          {
-            "kind": "primitive",
-            "type": "string"
-          },
-          {
-            "kind": "primitive",
-            "type": "number"
-          },
-          {
-            "kind": "literal",
-            "value": true
-          },
-          {
-            "kind": "literal",
-            "value": "jev/decision"
-          }
-        ]
-      }
-    }
+    {"key":"event:hooks/session-overrides","kind":"event","event":"hooks/session-overrides","surface":false,"digest":"8f1df624af4d2a5d9aa39342beb3d354c8147388e80ba7a0cf9b6aa7d1cb0f5e"},
+    {"key":"event:jev/decision","kind":"event","event":"jev/decision","surface":false,"digest":"06f9dc0f3520fd54d8bb07d330acf0d089e87898429952c991c18803eddaf7f8"}
   ],
-  "types": []
+  "types": [],
+  "nodes": {
+    "0657d3ca5ac4e7bf": {"kind":"primitive","type":"number"},
+    "06f9dc0f3520fd54": {"kind":"object","properties":[{"name":"data","type":"a667acf5cb25728d","optional":false},{"name":"ignorable","type":"dacf3d5f3e4ff619","optional":true},{"name":"seq","type":"0657d3ca5ac4e7bf","optional":false},{"name":"time","type":"0657d3ca5ac4e7bf","optional":false},{"name":"type","type":"4b31b0e4f80a08aa","optional":false}],"indices":[]},
+    "12cb8c094c08420f": {"kind":"object","properties":[{"name":"overrides","type":"93c9d307f39e2338","optional":false}],"indices":[]},
+    "4b31b0e4f80a08aa": {"kind":"literal","value":"jev/decision"},
+    "4cd48f3e5108bd6e": {"kind":"primitive","type":"string"},
+    "6c40c18a58ccdb11": {"kind":"literal","value":"hooks/session-overrides"},
+    "8f1df624af4d2a5d": {"kind":"object","properties":[{"name":"data","type":"12cb8c094c08420f","optional":false},{"name":"ignorable","type":"dacf3d5f3e4ff619","optional":true},{"name":"seq","type":"0657d3ca5ac4e7bf","optional":false},{"name":"time","type":"0657d3ca5ac4e7bf","optional":false},{"name":"type","type":"6c40c18a58ccdb11","optional":false}],"indices":[]},
+    "93c9d307f39e2338": {"kind":"object","properties":[],"indices":[{"key":"4cd48f3e5108bd6e","value":"aa93010d0e521ad7"}]},
+    "a667acf5cb25728d": {"kind":"object","properties":[{"name":"choice","type":"4cd48f3e5108bd6e","optional":true},{"name":"confidence","type":"0657d3ca5ac4e7bf","optional":true},{"name":"error","type":"4cd48f3e5108bd6e","optional":true},{"name":"model","type":"4cd48f3e5108bd6e","optional":true},{"name":"provider","type":"4cd48f3e5108bd6e","optional":true},{"name":"step","type":"0657d3ca5ac4e7bf","optional":false},{"name":"turn","type":"0657d3ca5ac4e7bf","optional":false}],"indices":[]},
+    "aa93010d0e521ad7": {"kind":"primitive","type":"boolean"},
+    "dacf3d5f3e4ff619": {"kind":"literal","value":true}
+  }
 }

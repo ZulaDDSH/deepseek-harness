@@ -144,7 +144,7 @@ function unattendedDiagnostic(
  * run inputs and error normalization instead of adding a shared lifecycle owner. */
 /** Fully resolved inputs for one official Claude Agent SDK query. */
 export interface ClaudeCodeRunSpec {
-  /** Parent Session workspace supplied to the SDK and real CLI. */
+  /** Selected child working directory supplied to the SDK and real CLI. */
   readonly cwd: string
   /** Receives each rate-limit window the SDK reports for the run. */
   readonly onRateLimit?: (info: SDKRateLimitInfo) => void

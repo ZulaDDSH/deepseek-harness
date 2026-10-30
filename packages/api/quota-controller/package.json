@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-api-quota-controller",
   "description": "Credential-backed provider quota Remote service",
-  "version": "0.2.0-rc.1",
+  "version": "0.2.2-alpha.2",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

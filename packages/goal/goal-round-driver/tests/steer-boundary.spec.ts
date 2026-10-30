@@ -5,7 +5,7 @@ import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-test
 import GoalService from '@deepseek-ai/dsh-goal'
 import { createUserMessage, LlmAdapter, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import * as goalSession from '../src/index.ts'
 

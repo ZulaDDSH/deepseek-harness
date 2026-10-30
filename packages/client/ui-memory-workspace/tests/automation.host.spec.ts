@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { runNativeCommand } from '@deepseek-ai/dsh-native-command'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { registerHumanOperations, type McpHumanOperations } from '../../../mcp/mcp-client/src/human-operations.ts'
 import MemoryWorkspace, { type Config } from '../src/index.ts'
 import { SessionTurns, memoryPolicy, recallText, scrub, turnRecord, workspaceEntity } from '../src/automation.ts'
@@ -70,7 +71,7 @@ async function fixture({ config = {}, call, search = '' }: Options = {}): Promis
   const ctx = new Context()
   roots.push(ctx)
   ctx.provide('sessionProjections', {
-    stateOf: (hosted: { cliProfile?: string }, key: string) => key === 'cliTerminal' ? { profile: hosted.cliProfile ?? null } : undefined,
+    snapshot: (hosted: { cliProfile?: string }) => ({ values: { cliTerminal: { profile: hosted.cliProfile ?? null } } }),
   } as never)
   registerHumanOperations(ctx, 'memorix', {
     local: true, cwd: directory, env: { MEMORIX_DATA_DIR: directory },
@@ -322,6 +323,7 @@ describe('Memory policy and first-message recall', () => {
     const { ctx } = await fixture()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
     const policy = async (): Promise<string | undefined> =>
       (await ctx.systemPrompt.assemble()).sections.find(section => section.name === 'memory:policy')?.text
     expect(await policy()).toBe('')
@@ -337,6 +339,7 @@ describe('Memory policy and first-message recall', () => {
     const { ctx } = await fixture({ config: { policy: false, recall: false } })
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
     register(ctx, 'mcp__memorix__memorix_store')
     const assembly = await ctx.systemPrompt.assemble()
     expect(assembly.sections.some(section => section.name === 'memory:policy')).toBe(false)
@@ -610,7 +613,7 @@ describe('Memory policy and first-message recall', () => {
       .run(workspaceEntity(CWD), 'Turn 1: earlier', 'earlier narrative', 'dsh-session:old:1:turn:1', '2020-01-01T00:00:00.000Z')
     inbox(ctx, session('live'), 'anything')
     expect(await assembled(ctx, 'live')).toContain('earlier narrative')
-    updateVolatile((fiber.config as { chatMemory: Volatile<boolean> }).chatMemory, createVolatile(false))
+    updateVolatile((fiber.effectiveConfig as { chatMemory: Volatile<boolean> }).chatMemory, createVolatile(false))
     expect(await assembled(ctx, 'live')).toBe('')
     expect(await ctx.memoryWorkspace.status()).toMatchObject({ chatMemory: false })
   })

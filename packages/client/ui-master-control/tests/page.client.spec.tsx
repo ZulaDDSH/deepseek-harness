@@ -20,9 +20,8 @@ function list(...rows: SessionSummary[]): SessionListState {
     ids: rows.map(r => r.id),
     byId: Object.fromEntries(rows.map(r => [r.id, r])),
     phase: 'ready',
-    subagentsByParent: {},
-    jobsBySession: {},
-  } as unknown as SessionListState
+    projectionsBySession: {},
+  }
 }
 
 function props(over: Partial<MasterControlPageProps> & {
@@ -40,7 +39,7 @@ function props(over: Partial<MasterControlPageProps> & {
     open: over.open ?? vi.fn(),
     interrupt: over.interrupt ?? vi.fn(async () => undefined),
     t: makeTranslate(en),
-  } as unknown as MasterControlPageProps
+  } as MasterControlPageProps
 }
 
 describe('MasterControlPage', () => {

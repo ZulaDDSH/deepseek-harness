@@ -11,11 +11,10 @@ import css from './WorkspaceBrowser.module.css'
 /** Props of the activity-centered body. */
 export interface ActivityListProps extends Pick<
   WorkspaceBrowserProps,
-  'useSessionStatus' | 'open' | 'usePanelInfo' | 't'
+  'useSessionStatus' | 'open' | 'usePanelInfo' | 't' | 'openSessionMenu' | 'useContextMenu' | 'useContextMenuTarget' | 'useSessionAccess'
 > {
   list: SessionListState
   appearanceBySession: Readonly<Record<string, WorkspaceAppearance>>
-  onSessionAppearanceChange: (sessionId: SessionId, change: WorkspaceAppearance) => void
   sessionIds: readonly SessionId[]
   /** Registry-global pin and archive sets plus the archived-visibility choice. */
   rowState: SessionRowState
@@ -31,8 +30,8 @@ export interface ActivityListProps extends Pick<
  * @returns the activity-centered body.
  */
 export function ActivityList({
-  list, sessionIds, rowState, appearanceBySession, onSessionAppearanceChange, useSessionStatus, open,
-  onSessionRenameRequest, renderSlot, usePanelInfo, t,
+  list, sessionIds, rowState, appearanceBySession, useSessionStatus, open, openSessionMenu, useContextMenu,
+  useContextMenuTarget, useSessionAccess, onSessionRenameRequest, renderSlot, usePanelInfo, t,
 }: ActivityListProps) {
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
   const statuses = useSessionStatus(s => s)
@@ -73,10 +72,10 @@ export function ActivityList({
                   onRenameRequest={onSessionRenameRequest}
                   renderSlot={renderSlot}
                   appearance={appearanceBySession[node.id]}
-                  appearanceActions={{
-                    color: (color) => { onSessionAppearanceChange(node.id, { color }) },
-                    icon: (icon) => { onSessionAppearanceChange(node.id, { icon }) },
-                  }}
+                  openSessionMenu={openSessionMenu}
+                  useContextMenu={useContextMenu}
+                  useContextMenuTarget={useContextMenuTarget}
+                  useSessionAccess={useSessionAccess}
                   t={t}
                 />
               ))}
