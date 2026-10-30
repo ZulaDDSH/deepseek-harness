@@ -77,3 +77,33 @@ describe('Claude usage on the main request path', () => {
     expect(await quota.fetch('anthropic')).not.toHaveProperty('apiLimit')
   })
 })
+
+describe('Claude usage per account', () => {
+  it('keeps each alias account windows apart from the base account', async () => {
+    const server = await mockServer([{
+      events: STREAM,
+      headers: { 'anthropic-ratelimit-unified-5h-utilization': '0.3', 'anthropic-ratelimit-unified-5h-reset': '4102444800' },
+    }])
+    vi.stubEnv('PI_TEST_KEY', 'test-key')
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    ctx.provide('credentials', {
+      resolve: async (ref: string) => ref === 'PI_TEST_KEY' ? { value: 'test-key', source: 'test' } : undefined,
+      readRecord: async () => undefined,
+    } as never)
+    const quota = new QuotaController(ctx)
+    await ctx.plugin(LlmPiAi, { providers: {
+      anthropic: { apiKeyEnv: 'PI_TEST_KEY', baseURL: server.url },
+      'claude-work': { base: 'anthropic', apiKeyEnv: 'PI_TEST_KEY', baseURL: server.url, displayName: 'Claude (work)' },
+    } })
+    await assemble(ctx, { provider: 'claude-work', model: 'claude-sonnet-4-5', messages: [] })
+    await expect(quota.fetch('claude-work')).resolves.toMatchObject({
+      ok: true,
+      providerName: 'Claude (work)',
+      windows: { '5h': { usedPercent: 30 } },
+    })
+    const base = await quota.fetch('anthropic')
+    expect(base).toMatchObject({ ok: true })
+    expect(base).not.toHaveProperty('windows.5h')
+  })
+})

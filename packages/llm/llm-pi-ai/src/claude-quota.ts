@@ -56,6 +56,10 @@ export interface ClaudeQuotaOptions {
   readonly keyStored: (ref: string) => Promise<boolean>
   /** Settings namespace the billing choice is written to. */
   readonly settingsNs: string
+  /** Route of the account this source reports; defaults to the Anthropic route. */
+  readonly route?: string
+  /** Name shown for the account; defaults to the Anthropic name. */
+  readonly name?: string
 }
 
 function headerNumber(value: string | undefined): number | undefined {
@@ -104,13 +108,13 @@ export function claudeObservationsFromHeaders(
  * Store of the latest Claude window per window type.
  * @returns the store that records observations and reports windows.
  */
-export function createClaudeUsage(): ClaudeUsage {
+export function createClaudeUsage(route: string = CLAUDE_ROUTE): ClaudeUsage {
   const observed = new Map<string, LlmRateLimitObservation>()
   let limit: QuotaApiLimit | undefined
   return {
     observeApiLimit(next) { limit = next },
     observe(observation) {
-      if (observation.route !== CLAUDE_ROUTE || !WINDOW_IDS.has(observation.window)) return
+      if (observation.route !== route || !WINDOW_IDS.has(observation.window)) return
       observed.set(observation.window, observation)
     },
     snapshot(now = Date.now()) {
@@ -160,8 +164,8 @@ function usageWindowsFrom(body: unknown): Partial<Record<QuotaWindowId, QuotaWin
 
 type Windows = Partial<Record<QuotaWindowId, QuotaWindow>>
 
-async function readSubscriptionWindows(auth: PiAiAuthInjection, fetchImpl: typeof fetch): Promise<Windows> {
-  const resolved = await builtinModels(auth).getAuth(CLAUDE_ROUTE).catch(() => { throw new Error('Claude authentication failed; sign in again') })
+async function readSubscriptionWindows(auth: PiAiAuthInjection, route: string, fetchImpl: typeof fetch): Promise<Windows> {
+  const resolved = await builtinModels(auth).getAuth(route).catch(() => { throw new Error('Claude authentication failed; sign in again') })
   if (!resolved?.auth.apiKey) throw new Error('Claude authentication unavailable')
   const response = await fetchImpl(USAGE_URL, {
     headers: { Authorization: `Bearer ${resolved.auth.apiKey}`, 'anthropic-beta': 'oauth-2025-04-20', Accept: 'application/json' },
@@ -182,7 +186,8 @@ async function readSubscriptionWindows(auth: PiAiAuthInjection, fetchImpl: typeo
  * @returns the quota source registered for the Anthropic route.
  */
 export function createClaudeQuotaSource(options: ClaudeQuotaOptions): QuotaSource {
-  const identity = { providerId: CLAUDE_ROUTE, providerName: CLAUDE_NAME }
+  const route = options.route ?? CLAUDE_ROUTE
+  const identity = { providerId: route, providerName: options.name ?? CLAUDE_NAME }
   let live: { readonly at: number; readonly windows: Partial<Record<QuotaWindowId, QuotaWindow>> } | undefined
   const ambientRoute = async (): Promise<QuotaBilling['active'] | undefined> => {
     for (const [ref, route] of AMBIENT_REFS) {
@@ -191,7 +196,7 @@ export function createClaudeQuotaSource(options: ClaudeQuotaOptions): QuotaSourc
     return undefined
   }
   const state = async () => {
-    const record = await options.auth.credentials.read(CLAUDE_ROUTE)
+    const record = await options.auth.credentials.read(route)
     const apiKeyEnv = options.apiKeyEnv()
     const ambient = record === undefined && apiKeyEnv === undefined ? await ambientRoute() : undefined
     const { windows, asOf, apiLimit } = options.usage.snapshot()
@@ -204,8 +209,8 @@ export function createClaudeQuotaSource(options: ClaudeQuotaOptions): QuotaSourc
     return { subscription, signedIn: record?.type === 'oauth', apiKeyRef, apiKeyStored, active, configured, windows, asOf, apiLimit }
   }
   return {
-    id: CLAUDE_ROUTE,
-    name: CLAUDE_NAME,
+    id: route,
+    name: identity.providerName,
     async configured() { return (await state()).configured },
     async fetch(fetchImpl) {
       try {
@@ -216,7 +221,7 @@ export function createClaudeQuotaSource(options: ClaudeQuotaOptions): QuotaSourc
           const now = Date.now()
           try {
             if (live === undefined || now - live.at >= USAGE_TTL_MS) {
-              live = { at: now, windows: await readSubscriptionWindows(options.auth, fetchImpl) }
+              live = { at: now, windows: await readSubscriptionWindows(options.auth, route, fetchImpl) }
             }
           } catch (error) {
             live = undefined
@@ -240,7 +245,7 @@ export function createClaudeQuotaSource(options: ClaudeQuotaOptions): QuotaSourc
             ...current.subscription ? {
               switch: {
                 settingsNs: options.settingsNs,
-                settingsPath: ['providers', CLAUDE_ROUTE],
+                settingsPath: ['providers', route],
                 apiKeyRef: current.apiKeyRef,
                 apiKeyStored: current.apiKeyStored,
               },

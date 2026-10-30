@@ -223,3 +223,41 @@ describe('pi-ai login flows', () => {
     expect(seen?.aborted).toBe(true)
   })
 })
+
+describe('alias account flows', () => {
+  it('offers a sign-in per alias route that stores under the alias, and withdraws it on removal', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-pi-login-'))
+    dirs.push(dir)
+    const ctx = new Context()
+    await ctx.plugin(LocalCredentialProvider, { path: join(dir, '.credentials.yaml'), watch: false })
+    await ctx.plugin(AuthorizationService)
+    const sync = registerPiAiFlows(ctx, { credentials: credentialStoreFrom(ctx), authContext: authContextFrom(ctx) })
+    const key = recordKeyFor('claude-work')
+    expect(ctx.authorization.list().some(entry => entry.key === key)).toBe(false)
+
+    sync(new Map([['claude-work', { base: 'anthropic', label: 'Claude (work)' }]]))
+    const offered = ctx.authorization.list().find(entry => entry.key === key)
+    expect(offered).toMatchObject({ label: 'Claude (work)', borrowedFrom: 'Claude Code' })
+    expect(offered?.methods.map(one => one.id)).toEqual(['oauth', 'api-key'])
+
+    await attempt(ctx, () => Promise.resolve(), { key })
+    expect(login).toHaveBeenLastCalledWith('claude-work', 'oauth', expect.anything())
+    await expect(credentialStoreFrom(ctx).read('claude-work')).resolves.toMatchObject({ type: 'oauth' })
+    await expect(credentialStoreFrom(ctx).read('anthropic')).resolves.toBeUndefined()
+
+    sync(new Map())
+    expect(ctx.authorization.list().some(entry => entry.key === key)).toBe(false)
+  })
+
+  it('never shadows an installed provider flow', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-pi-login-'))
+    dirs.push(dir)
+    const ctx = new Context()
+    await ctx.plugin(LocalCredentialProvider, { path: join(dir, '.credentials.yaml'), watch: false })
+    await ctx.plugin(AuthorizationService)
+    const sync = registerPiAiFlows(ctx, { credentials: credentialStoreFrom(ctx), authContext: authContextFrom(ctx) })
+    expect(() => { sync(new Map([['deepseek', { base: 'anthropic', label: 'x' }]])) }).not.toThrow()
+    expect(ctx.authorization.list().find(entry => entry.key === recordKeyFor('deepseek'))?.methods.map(one => one.id))
+      .toEqual(['api-key'])
+  })
+})

@@ -107,3 +107,21 @@ describe('request image policy bounds', () => {
     }).toThrow(message)
   })
 })
+
+describe('route aliases', () => {
+  it('serves the base catalog under the alias route key', () => {
+    const resolved = resolveProfiles({ anthropic: {}, 'claude-work': { base: 'anthropic', displayName: 'Claude (work)' } })
+    const base = resolved.get('anthropic')?.piProvider
+    const alias = resolved.get('claude-work')?.piProvider
+    expect(alias?.id).toBe('claude-work')
+    expect(alias?.name).toBe('Claude (work)')
+    expect(alias?.getModels().length).toBe(base?.getModels().length)
+    expect(alias?.getModels().every(model => model.provider === 'claude-work')).toBe(true)
+    expect(alias?.auth.oauth).toBe(base?.auth.oauth)
+  })
+
+  it('refuses a base that is itself or not an installed provider', () => {
+    expect(() => resolveProfiles({ anthropic: { base: 'anthropic' } })).toThrow('must name an installed catalog provider other than itself')
+    expect(() => resolveProfiles({ 'claude-work': { base: 'no-such-provider' } })).toThrow('no-such-provider')
+  })
+})
