@@ -165,7 +165,7 @@ export function SubagentSetupView({
 
   const resetToGlobal = (): Promise<void> => persist(() => saveRunOptions(withoutSubagentSetup(projection?.current ?? {})))
 
-  return (
+  const content = (
     <div className={css.root}>
       {mode === 'global' && (
         <>
@@ -470,4 +470,7 @@ export function SubagentSetupView({
       </div>
     </div>
   )
+  return mode === 'session'
+    ? <div className={css.scroller} data-conversation-composer-overlay="">{content}</div>
+    : content
 }

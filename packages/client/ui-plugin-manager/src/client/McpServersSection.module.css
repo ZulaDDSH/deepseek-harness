@@ -199,3 +199,10 @@
     grid-template-columns: 1fr;
   }
 }
+
+.notice {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+  overflow-wrap: anywhere;
+}

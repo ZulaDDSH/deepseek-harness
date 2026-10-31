@@ -1108,3 +1108,11 @@ Forwards optional `agentPreset` on the Host create RPC so the UI can open a mast
 ## packages/fs/tool-str-replace-editor/src/index.ts:fileEol
 
 `str_replace` matched `old_str` with an exact `indexOf`, and models always send `\n`, so any multi-line `old_str` failed on a CRLF file ("did not appear verbatim"). Agents then wrote throwaway Python scripts to patch CRLF files. `fileEol` picks CRLF only when CRLF lines outnumber bare LF lines; `withEol` converts `old_str`, `new_str` and inserted text to that ending, so edits match and never introduce bare LF. LF and mixed-majority-LF files keep the old exact matching.
+
+## packages/client/ui-subagent/src/client/subagent-setup/SubagentSetupView.tsx:SubagentSetupView
+
+`SubagentSetupView` wraps the session-tab form in a self-scrolling container that opts into the Conversation composer overlay (`data-conversation-composer-overlay`) and pads its bottom by `--dsh-composer-height`, so the sticky composer seat no longer covers the Prompt preview and Save buttons. The global Settings mount (`mode === 'global'`) is unchanged.
+
+## packages/client/ui-plugin-manager/src/client/McpServersSection.tsx:McpServersSection
+
+`McpServersSection` renders MCP sign-in notices in a wrapping `.notice` span instead of the one-line ellipsised `.detail`, because the trailing "Open sign-in page" link was being truncated away.
