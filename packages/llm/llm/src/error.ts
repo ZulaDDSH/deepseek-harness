@@ -86,6 +86,7 @@ export function isContextWindowExceededError(detail: string): boolean {
     || TOO_LARGE_FOR_CONTEXT.test(detail)
     || /\b(?:input|prompt|request)\s+(?:is\s+)?too\s+(?:long|large)\s+for\s+(?:this|the)\s+model\b/i.test(detail)
     || EXCEEDS_MODEL_CONTEXT.test(detail)
+    || /\binput\s+too\s+(?:long|large)\b.{0,20}\bmodel\s+limit\b/i.test(detail)
 }
 
 /**

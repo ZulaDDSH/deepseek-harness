@@ -121,6 +121,7 @@ describe('LlmRuntime', () => {
     expect(isContextWindowExceededError('context-window-overflowed')).toBe(true)
     expect(isContextWindowExceededError('This model maximum context length is 128000 tokens')).toBe(true)
     expect(isContextWindowExceededError('input is too long for this model')).toBe(true)
+    expect(isContextWindowExceededError('Input too long: model limit 1048576 tokens, requested 1113111 tokens')).toBe(true)
     expect(isContextWindowExceededError('request too large for model context')).toBe(true)
     expect(isContextWindowExceededError('input exceeds the model context window limit')).toBe(true)
   })
