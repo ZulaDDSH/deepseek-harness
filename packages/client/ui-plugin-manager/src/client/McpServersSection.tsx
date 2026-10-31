@@ -176,7 +176,7 @@ export function McpServersSection(props: McpServersSectionProps) {
                 </span>
                 <span className={css.detail} title={`${phaseLabel(server)} · ${server.target}`}>{phaseLabel(server)} · {server.target}</span>
                 {signIn?.entryId === server.entryId
-                  ? signIn.notices.map((notice, index) => <span key={`${String(index)}:${notice.message}`} className={css.detail}>
+                  ? signIn.notices.map((notice, index) => <span key={`${String(index)}:${notice.message}`} className={css.notice}>
                     {notice.message}
                     {notice.url === undefined ? null : <>{' '}<a href={notice.url} target="_blank" rel="noreferrer">{t('mcpSignInOpenPage')}</a></>}
                   </span>)

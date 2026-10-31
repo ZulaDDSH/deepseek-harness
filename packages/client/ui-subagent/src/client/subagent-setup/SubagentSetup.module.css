@@ -178,3 +178,11 @@
   padding: 0 4px;
   font-weight: 510;
 }
+
+/* Session tab: the Conversation seat floats over the view, so the view scrolls itself and clears it. */
+.scroller {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: calc(var(--dsh-composer-height, 152px) + 16px);
+}
