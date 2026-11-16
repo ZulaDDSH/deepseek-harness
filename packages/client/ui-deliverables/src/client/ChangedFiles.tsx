@@ -23,19 +23,23 @@ function Counts({ added, deleted, t }: { added: number; deleted: number } & Prop
   </>
 }
 
-export function ChangedFiles({ changes, cwd, openReview, t, sessionId, useChangesDiff, loadChangesDiff }: {
+export function ChangedFiles({ changes, cwd, openReview, t, sessionId, useChangesDiff, loadChangesDiff, compact = false }: {
   /** The served summary with the sequence of the event that announced it. */
   changes: Pick<ChangesSummary, 'files' | 'total' | 'added' | 'deleted'> & { seq: number }
   cwd: string | undefined
+  compact?: boolean
   /** Open the turn's review on the file at an original summary index. */
   openReview: (index: number) => void
 } & PropsLocale<typeof NS> & PreviewProps) {
   const cardRef = useRef<HTMLDivElement>(null)
   const pathDescriptionId = useId()
   const [open, setOpen] = useState(false)
-  const singleFile = changes.total === 1 ? changes.files[0] : undefined
+  const onlyFile = changes.total === 1 ? changes.files[0] : undefined
+  const singleFile = compact ? undefined : onlyFile
+  const title = onlyFile === undefined ? t('changes.title', { count: String(changes.total) })
+    : t('changes.singleTitle', { name: basename(onlyFile.path) })
   const header = <button type="button" className={css.header}
-    aria-label={singleFile === undefined ? t('changes.title', { count: String(changes.total) }) : t('changes.viewDiff', { name: singleFile.display })}
+    aria-label={singleFile === undefined ? title : t('changes.viewDiff', { name: singleFile.display })}
     aria-haspopup={singleFile === undefined ? 'menu' : undefined}
     aria-expanded={singleFile === undefined ? open : undefined}
     aria-describedby={singleFile === undefined ? undefined : pathDescriptionId}
@@ -44,9 +48,7 @@ export function ChangedFiles({ changes, cwd, openReview, t, sessionId, useChange
       {singleFile === undefined ? <FileTypeIcon kind="code" size={20} /> : <FileTypeIcon path={singleFile.path} size={20} />}
     </span>
     <span className={css.titles}>
-      <span className={css.title}>{singleFile === undefined
-        ? t('changes.title', { count: String(changes.total) })
-        : t('changes.singleTitle', { name: basename(singleFile.path) })}</span>
+      <span className={css.title}>{title}</span>
       <span className={css.stat}>
         <span className={css.statCounts}>{singleFile?.binary === true ? t('changes.binary')
           : singleFile?.oversized === true ? t('changes.oversized')

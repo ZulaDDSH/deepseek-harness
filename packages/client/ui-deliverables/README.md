@@ -23,7 +23,7 @@ This package renders the changed-files card a finished turn ends with — the fi
 <a id="use-this-package"></a>
 ## Use this package
 
-When a turn changes multiple files, its compact summary shows the total additions and deletions. Select it to open a menu of changed files and their individual counts; selecting a file opens its review.
+The latest turn’s compact changed-files bubble appears above the composer when Developer Tools is enabled. Select it to open a menu of changed files and their individual counts; selecting a file opens its review. Earlier turn summaries remain in the conversation.
 
 Mount this plugin alongside `ui-conversation` and the Host [workspace-changes](../../deliverables/workspace-changes/README.md) plugin; a finished turn then ends with the changed-files card between the closing message's body and its action footer. Without a served summary — a turn that changed no file, the plugin composed out, or a Host restarted since the turn ran — the card is absent and only deliveries and prose links remain; outside a git repository the summary lists file-tool edits only.
 
