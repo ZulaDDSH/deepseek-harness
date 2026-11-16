@@ -10,7 +10,7 @@ import { contextMenuHook } from '@deepseek-ai/dsh-client-test-runtime'
 import { renderFileActions } from './file-actions.tsx'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { Context } from '@deepseek-ai/cordis'
-import { cleanup, fireEvent, render, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionLiveEventEntry, SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import {
@@ -694,42 +694,26 @@ describe('ChangedFiles card', () => {
     expect(summaries.state.getSnapshot()[changesSummaryUrl(SessionId('child-session'), 5)]).toBe('loading')
   })
 
-  it('summarizes the turn, folds after four rows, and opens the review from the header and each row', () => {
+  it('opens a compact menu of changed files and reviews the selected file', () => {
     const { props, openFile, view } = renderCard()
     const card = view.container.querySelector('[data-changed-files]')
     if (!(card instanceof HTMLElement)) throw new Error('changed-files card missing')
     expect(within(card).getByText('Edited 11 files')).toBeTruthy()
     expect(within(card).getByText('+1,232')).toBeTruthy()
     expect(within(card).getByText('-326')).toBeTruthy()
-    expect(within(card).getByText('Preview in sidebar')).toBeTruthy()
-    expect(within(card).getAllByRole('listitem')).toHaveLength(4)
-    expect(within(within(card).getByRole('button', { name: 'View changes to config/design-token' })).getByText('config/design-token')).toBeTruthy()
-    expect(within(card).getByText('+42')).toBeTruthy()
-    expect(within(within(card).getByRole('button', { name: 'View changes to src/index.ts' })).getByText('src/index.ts')).toBeTruthy()
-    expect(within(card).queryByText('~/.zshrc')).toBeNull()
-    expect(within(card).getByRole('button', { name: 'Review this turn’s changes in the sidebar' })
-      .querySelector('svg')?.getAttribute('width')).toBe('20')
-    fireEvent.click(within(card).getByRole('button', { name: 'View changes to config/feature-flags.json' }))
+    const summary = within(card).getByRole('button', { name: 'Edited 11 files' })
+    expect(summary.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(summary)
+    expect(screen.getAllByRole('menuitem')).toHaveLength(5)
+    expect(screen.getByText('+42')).toBeTruthy()
+    fireEvent.click(screen.getByRole('menuitem', { name: /config\/feature-flags\.json/ }))
     expect(props.openChangesReview).toHaveBeenLastCalledWith({ sessionId: 'child-session', seq: 5, turn: 1 }, 1)
     expect(props.openChanged).not.toHaveBeenCalled()
-    fireEvent.click(within(card).getByRole('button', { name: 'Review this turn’s changes in the sidebar' }))
-    expect(props.openChangesReview).toHaveBeenLastCalledWith({ sessionId: 'child-session', seq: 5, turn: 1 }, 0)
     expect(openFile).not.toHaveBeenCalled()
-    const expand = within(card).getByRole('button', { name: 'Show all 5 changed files' })
-    expect(expand.getAttribute('aria-expanded')).toBe('false')
-    expect(expand.textContent).toContain('All 5 files')
-    fireEvent.click(expand)
-    expect(within(card).getAllByRole('listitem')).toHaveLength(5)
-    expect(within(card).getByText('binary')).toBeTruthy()
-    expect(within(card).getByRole('button', { name: 'View changes to ~/.zshrc' }).getAttribute('title')).toBeNull()
-    expect(within(card).getByRole('button', { name: 'View changes to ~/.zshrc', description: '/home/u/.zshrc' })).toBeTruthy()
-    fireEvent.click(within(card).getByRole('button', { name: 'View changes to ~/.zshrc' }))
+    fireEvent.click(summary)
+    expect(screen.getByText('binary')).toBeTruthy()
+    fireEvent.click(screen.getByRole('menuitem', { name: /~\/\.zshrc/ }))
     expect(props.openChangesReview).toHaveBeenLastCalledWith({ sessionId: 'child-session', seq: 5, turn: 1 }, 4)
-    const collapse = within(card).getByRole('button', { name: 'Collapse changed files' })
-    expect(collapse.getAttribute('aria-expanded')).toBe('true')
-    expect(card.lastElementChild).toBe(collapse)
-    fireEvent.click(collapse)
-    expect(within(card).getAllByRole('listitem')).toHaveLength(4)
   })
 
   it('opens the review the same way without a desktop', () => {
@@ -737,30 +721,28 @@ describe('ChangedFiles card', () => {
     const { openFile, props, view } = renderCard(controller, zh)
     controller.host.set('error')
     view.rerender(<Deliverables {...props} matched={{ changes, presented: [] }} openFile={openFile} sessionId={SessionId('child-session')} t={makeTranslate(zh)} />)
-    expect(view.getByRole('button', { name: '在侧边栏查看本轮改动' })).toBeTruthy()
+    expect(view.getByRole('button', { name: '已编辑 11 个文件' })).toBeTruthy()
     controller.host.set({ name: 'server', available: false, fileManager: null })
     view.rerender(<Deliverables {...props} matched={{ changes, presented: [] }} openFile={openFile} sessionId={SessionId('child-session')} t={makeTranslate(zh)} />)
     expect(view.getByText('已编辑 11 个文件')).toBeTruthy()
-    fireEvent.click(view.getByRole('button', { name: '在侧边栏查看本轮改动' }))
-    expect(props.openChangesReview).toHaveBeenLastCalledWith({ sessionId: 'child-session', seq: 5, turn: 1 }, 0)
-    fireEvent.click(view.getByRole('button', { name: '查看 config/design-token 的改动' }))
+    fireEvent.click(view.getByRole('button', { name: '已编辑 11 个文件' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /config\/design-token/ }))
     expect(props.openChangesReview).toHaveBeenLastCalledWith({ sessionId: 'child-session', seq: 5, turn: 1 }, 0)
     expect(openFile).not.toHaveBeenCalled()
     expect(props.openChanged).not.toHaveBeenCalled()
-    expect(view.getByRole('button', { name: '展开全部 5 个改动文件' }).textContent).toContain('全部 5 个文件')
   })
 
-  it('preserves expanded rows when the served announcement changes', () => {
+  it('keeps the menu open when the served announcement changes', () => {
     const summaries = servedStore()
     summaries.state.set({ ...summaries.state.getSnapshot(), [changesSummaryUrl(SessionId('child-session'), 6)]: served })
     const { props, openFile, view } = renderCard(new PresentedOpenController(), en, { changes, presented: [] }, summaries)
     const card = view.container.querySelector('[data-changed-files]')
-    fireEvent.click(view.getByRole('button', { name: 'Show all 5 changed files' }))
+    fireEvent.click(view.getByRole('button', { name: 'Edited 11 files' }))
     view.rerender(<Deliverables {...props} matched={{ changes: { seq: 6 }, presented: [] }} openFile={openFile}
       sessionId={SessionId('child-session')} t={makeTranslate(en)} />)
     expect(view.container.querySelector('[data-changed-files]')).toBe(card)
-    expect(view.getAllByRole('listitem')).toHaveLength(5)
-    expect(view.getByRole('button', { name: 'Collapse changed files' }).getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getAllByRole('menuitem')).toHaveLength(5)
+    expect(view.getByRole('button', { name: 'Edited 11 files' }).getAttribute('aria-expanded')).toBe('true')
   })
 
   it('keeps every count in place whatever the native-open gestures of the review tab are doing', () => {
@@ -773,6 +755,7 @@ describe('ChangedFiles card', () => {
     // Native-open gestures belong to the review tab; the card shows counts only.
     expect(view.queryByText(en['presented.opening'])).toBeNull()
     expect(view.queryByText(en['presented.error'])).toBeNull()
+    fireEvent.click(view.getByRole('button', { name: 'Edited 11 files' }))
     expect(view.getByText('+42')).toBeTruthy()
     expect(view.getByText('+143')).toBeTruthy()
     expect(view.getByText('+1,232')).toBeTruthy()
@@ -782,7 +765,8 @@ describe('ChangedFiles card', () => {
     const short = servedStore({ turn: 1, files: [...files.slice(0, 1), changedFile('huge.bin', 0, 0, { oversized: true })], total: 2, added: 185, deleted: 43 })
     const { view } = renderCard(new PresentedOpenController(), en, { changes, presented: [{ path: 'report.pdf', seq: 6, index: 0 }] as never[] }, short)
     expect(view.getByText('Edited 2 files')).toBeTruthy()
-    expect(view.getByText('too large')).toBeTruthy()
+    fireEvent.click(view.getByRole('button', { name: 'Edited 2 files' }))
+    expect(screen.getByText('too large')).toBeTruthy()
     expect(view.queryByRole('button', { name: /Show all|Collapse changed/ })).toBeNull()
     expect(view.container.querySelectorAll('[data-presented-file]')).toHaveLength(1)
     expect(view.container.querySelector('[data-presented-files-row]')?.parentElement?.getAttribute('data-after-changes')).toBe('true')
