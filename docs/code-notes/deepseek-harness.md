@@ -1084,4 +1084,3 @@ The runtime type declaration override resolves distinct Office rendering generat
 packages/api/session-controller/src/subagent-setup.ts:SubagentRoleSetting requires a fixed route for each configured role.
 
 packages/client/ui-settings-models/src/client/search-entries.ts:modelsSearchEntries supplies localized entries for the Models settings page.
-
