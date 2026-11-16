@@ -5302,7 +5302,7 @@ One of:
 
 SHA-256: `9092674493b7deee5e891b3b9306528b21ec90acc543804c2b635c15f5fe6a24`
 
-Sources: [`packages/api/session-controller/src/subagent-setup.ts:55`](../packages/api/session-controller/src/subagent-setup.ts)
+Sources: [`packages/api/session-controller/src/subagent-setup.ts:54`](../packages/api/session-controller/src/subagent-setup.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -5339,7 +5339,7 @@ Sources: [`packages/subagent/subagent/src/continuation-messages.ts:29`](../packa
 
 SHA-256: `b465d1eee3efe8fb2be4f896042805c85d8056dc0d3e691641e7988de6ac687e`
 
-Sources: [`packages/api/session-controller/src/subagent-setup.ts:58`](../packages/api/session-controller/src/subagent-setup.ts)
+Sources: [`packages/api/session-controller/src/subagent-setup.ts:57`](../packages/api/session-controller/src/subagent-setup.ts)
 
 | Property | Presence | Type |
 |---|---|---|
