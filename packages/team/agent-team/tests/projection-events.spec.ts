@@ -446,7 +446,7 @@ describe('Agent Teams projection events', () => {
     expect(restored).toEqual(full)
     expect(restored.checkpoint['agentTeam']!.ver).toBe(8)
     expect(restored.snapshot.values.agentTeam).toMatchObject({ tasks: [{ ownerName: 'reviewer/checker' }] })
-    const invalid = { agentTeam: { ...checkpoint.agentTeam, val: {
+    const invalid = { agentTeam: { ...checkpoint.agentTeam, ver: teamProjectionDefinition.stateVersion, val: {
       ...checkpoint.agentTeam.val, tasks: [task({ ownerName: 'reviewer' })],
     } } }
     expect(ctx.sessionProjections.viewCheckpoint(invalid)).not.toHaveProperty('agentTeam')
@@ -528,7 +528,11 @@ describe('Agent Teams projection events', () => {
       expect(valid.failure).toBeUndefined()
       expect(failed.failure).toMatch(/unsupported Agent Teams event version 1/)
       expect(failed.tasks).toBe(valid.tasks)
-      expect(teamProjectionDefinition.apply(failed, queuedEvent)).toBe(failed)
+      const withMail = teamProjectionDefinition.apply(failed, queuedEvent)
+      expect(withMail).not.toBe(failed)
+      expect(withMail.failure).toBe(failed.failure)
+      expect(withMail.tasks).toBe(failed.tasks)
+      expect(withMail.historicalMessages).toEqual([message()])
     })
 
     it('views non-deleted derived tasks and historical records with stable task data', () => {
@@ -550,6 +554,7 @@ describe('Agent Teams projection events', () => {
       expect(teamProjectionDefinition.wire.viewSchema.parse(view)).toEqual(view)
       expect(view).toEqual({
         enabled: true,
+        historicalMembers: [member({ phase: 'active' })],
         tasks: [
           {
             id: 'task-1', revision: 2, subject: 'subject', description: 'description', status: 'in_progress',
@@ -615,11 +620,16 @@ describe('Agent Teams projection events', () => {
 
       lead.append('team/message/queued', queuedEvent.data)
       lead.append('turn/start', { turn: 1 })
-      expect(published).toHaveLength(1)
-
-      other.append('team/task', { version: 2, teamId: brandString<TeamId>(other.id), task: task() })
       expect(published).toHaveLength(2)
       expect(published[1]).toMatchObject({
+        session: ROOT,
+        key: 'agentTeam',
+        value: { historicalMessages: [{ message: message(), delivered: false }] },
+      })
+
+      other.append('team/task', { version: 2, teamId: brandString<TeamId>(other.id), task: task() })
+      expect(published).toHaveLength(3)
+      expect(published[2]).toMatchObject({
         session: other.id,
         value: { tasks: [{ id: 'task-1' }] },
       })
