@@ -98,3 +98,6 @@
 
 ### `packages/client/ui-settings-models/src/client/search-entries.ts:modelsSearchEntries`
 - `description`: Builds localized search entries for the Models settings page.
+
+### `packages/subagent/tool-subagent/src/index.ts:CLAUDE_CLI_PROVIDER`
+- `description`: Names the default Claude Code provider used for delegated CLI roles.

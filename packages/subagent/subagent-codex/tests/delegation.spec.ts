@@ -9,7 +9,7 @@ import { mountWorkingDirectoryFixture } from '../../subagent/tests/working-direc
 
 async function startAs(ctx: Context, provider: string, { signal, ...request }: SubagentStartRequest) {
   if (ctx.agents.get(request.parent.id) !== request.parent) await ctx.agents.register(request.parent)
-  return ctx.subagents.startActivation({ provider, label: 'provider task', request, signal, delivery: 'caller' })
+  return ctx.subagents.startActivation({ provider, label: 'provider task', ...request, signal, delivery: 'caller' })
 }
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { afterEach, describe, expect, it, vi } from 'vitest'

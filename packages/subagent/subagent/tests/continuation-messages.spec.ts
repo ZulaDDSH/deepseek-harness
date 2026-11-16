@@ -68,10 +68,10 @@ describe('continuable settlement content', () => {
   })
 
   it('reports the failure of an errored epoch before saying it left no closing message', () => {
-    const message = createSettlementMessage(childId, { output: [], stopReason: 'error', diagnostic: 'no API key for route' })
+    const message = createSettlementMessage(childId, childName, { output: [], stopReason: 'error', diagnostic: 'no API key for route' })
 
     expect(message.content).toEqual([
-      { type: 'text', text: `Background subagent ${childId} failed before it finished.` },
+      { type: 'text', text: `Background subagent ${childName} failed before it finished.` },
       { type: 'text', text: 'Its failure: no API key for route' },
       { type: 'text', text: 'It left no closing message.' },
     ])

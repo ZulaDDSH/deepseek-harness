@@ -25,7 +25,7 @@ export function parseAnchoredFieldNotes(markdown: string): Map<string, Map<strin
   for (const line of markdown.split(/\r?\n/)) {
     const heading = line.match(/^### `([^`]+)`\s*$/)
     if (heading) {
-      anchor = heading[1]
+      anchor = heading[1]!
       if (notes.has(anchor)) throw new Error(`duplicate code-note anchor '${anchor}'`)
       notes.set(anchor, new Map())
       continue
@@ -34,8 +34,8 @@ export function parseAnchoredFieldNotes(markdown: string): Map<string, Map<strin
     const field = anchor && line.match(/^- `([^`]+)`:\s*(\S.*)$/)
     if (field && anchor) {
       const fields = notes.get(anchor)!
-      if (fields.has(field[1])) throw new Error(`duplicate code-note field '${anchor}.${field[1]}'`)
-      fields.set(field[1], field[2].trim())
+      if (fields.has(field[1]!)) throw new Error(`duplicate code-note field '${anchor}.${field[1]}'`)
+      fields.set(field[1]!, field[2]!.trim())
       continue
     }
     anchor = undefined

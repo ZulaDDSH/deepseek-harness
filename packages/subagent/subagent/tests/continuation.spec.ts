@@ -1026,7 +1026,7 @@ describe('continuable image Queue prompts', () => {
     try {
       await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
       vi.spyOn(ctx.llm, 'resolveModelInfo').mockResolvedValue({ inputModalities: ['text'] } as never)
-      await expect(subagentManager(ctx).steerPrompt(parent, run.childId, [imageBlock], { kind: 'user' }, testSignal))
+      await expect(subagentManager(ctx).deliverPrompt(run.childId, [imageBlock], { delivery: 'steer', source: { kind: 'user' }, signal: testSignal }))
         .rejects.toMatchObject({ code: 'MODEL_DOES_NOT_SUPPORT_IMAGES' })
     } finally {
       release.resolve(undefined)
@@ -1045,7 +1045,7 @@ describe('continuable image Queue prompts', () => {
       await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
       vi.spyOn(ctx.llm, 'resolveModelInfo').mockResolvedValue({ inputModalities: ['text', 'image'] } as never)
       const messageId = await subagentManager(ctx)
-        .steerPrompt(parent, run.childId, [imageBlock], { kind: 'user' }, testSignal)
+        .deliverPrompt(run.childId, [imageBlock], { delivery: 'steer', source: { kind: 'user' }, signal: testSignal })
       expect(messageId).toBeTypeOf('string')
     } finally {
       release.resolve(undefined)
@@ -1244,7 +1244,7 @@ describe('target-only Queue residency routing', () => {
     const run = await ctx.subagents.startActivation({ ...oneShotSpec(parent), delivery: 'caller' })
     try {
       await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-      const receipt = await humanPrompt(ctx, parent, run.childId, 'mid-run steer', 'steer')
+      const receipt = await humanPrompt(ctx, run.childId, 'mid-run steer', 'steer')
       expect(receipt.messageId).toBeTypeOf('string')
     } finally {
       release.resolve(undefined)
@@ -1259,14 +1259,12 @@ describe('target-only Queue residency routing', () => {
     const { ctx, parent } = await setupWith(adapter)
     parkParent(ctx, parent)
     const run = await ctx.subagents.startActivation({ ...oneShotSpec(parent), delivery: 'caller' })
-    const stranger = await ctx.agentLoop.create(SessionId('stranger'), { provider: 'mock', model: 'mock' })
+    const stranger = await ctx.agentLoop.create(brandString<SessionId>('stranger'), { provider: 'mock', model: 'mock' })
     const cancelSpy = vi.spyOn(ctx.agents.get(run.childId)!, 'cancel')
     try {
       await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-      await expect(subagentManager(ctx).steerPrompt(stranger, run.childId, message('not mine'), { kind: 'user' }, testSignal))
-        .rejects.toThrow(/belongs to another parent session/)
-      expect(() => { ctx.subagents.interrupt(run.childId, { kind: 'user', parentSessionId: stranger.id }) })
-        .toThrow(/belongs to another parent session/)
+      await expect(ctx.subagents.sendMessage(stranger, run.childId, message('not mine'), { signal: testSignal }))
+        .rejects.toThrow(/target belongs to another subagent tree/)
       expect(() => { ctx.subagents.interrupt(run.childId, { kind: 'ancestor', agent: stranger }) })
         .toThrow(/is not a live descendant/)
       expect(cancelSpy).not.toHaveBeenCalled()
@@ -1309,7 +1307,7 @@ describe('target-only Queue residency routing', () => {
     const run = await ctx.subagents.startActivation({ ...oneShotSpec(parent), delivery: 'caller' })
     try {
       await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-      expect(ctx.subagents.interruptByParent(run.childId, parent.id, 'continuable')).toEqual({ accepted: true })
+      ctx.subagents.interrupt(run.childId, { kind: 'user' })
     } finally {
       release.resolve(undefined)
     }
