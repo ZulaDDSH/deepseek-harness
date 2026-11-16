@@ -36,8 +36,7 @@ Mount [`dsh-computer-use`](../../packages/computer-use/computer-use/README.md) a
 
 The Desktop app's Plugins page offers Computer Use (Cua Driver) in its Official group, switched off. The native provider is the only one offered there; the MCP provider stays a composition choice. Switching it on mounts the computer-use service and the native provider in the Desktop profile. Grant desktop permissions to the Desktop app itself, because the native runtime runs inside the Desktop host process. The Desktop runtime includes the native Cua Driver platform binary for its target through npm optional dependencies.
 
-Each provider supplies its upstream tool catalog. The shared service registers only a name and rejects any second provider, including another instance with the same name. It has no common desktop-operation methods or model-controlled selector.
-The two Cua Driver providers are public experimental npm packages. Mount one explicitly to expose its upstream tool catalog. The shared service registers only a name and rejects any second provider, including another instance with the same name. It has no common desktop-operation methods or model-controlled selector.
+Each provider supplies its upstream tool catalog. The shared service registers only a name and rejects any second provider, including another instance with the same name. It has no common desktop-operation methods or model-controlled selector. The two Cua Driver providers are public experimental npm packages. Mount one explicitly to expose its upstream tool catalog. The shared service registers only a name and rejects any second provider, including another instance with the same name. It has no common desktop-operation methods or model-controlled selector.
 
 ## Lifetime and desktop sharing
 

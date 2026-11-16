@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-host-authentication-token
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Open the tokenized launch URL to sign a browser Cookie, then continue accessing the application with that Cookie. API clients exchange the same process token through `/connect` for their independent connection credentials. The plugin preserves the default Cookie format and signing-key record while registering through the common ConnectionAuthentication service.

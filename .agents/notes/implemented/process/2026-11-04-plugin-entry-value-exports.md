@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-11-04-plugin-entry-value-exports.zh.md)
-
 ## Problem
 
 [The package surface rules](../../../../docs/defensive-patterns/package-surface.md) limit a plugin entry to what the Cordis Loader loads: a function plugin's entry exports `name`, `inject`, `Config`, and `apply`, a service plugin's entry default-exports its plugin class, and beyond those a Host entry may export only the Service Definition classes and error types that other packages extend or throw. No gate checked the rule, and value exports beyond it accumulated on many plugin entries; `dsh-mcp-client`'s entry, for example, gained `probeServer`, `ReconnectSchema`, and four other values that `dsh-mcp-manager` imports.

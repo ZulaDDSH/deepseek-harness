@@ -4,8 +4,6 @@ description: "Run Windows capture comparisons with the installed .NET Framework 
 
 # Windows capture experiment
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Compare screen copying, window DC copying, and PrintWindow without installing a .NET SDK or third-party library. The private experiment targets .NET Framework 4.8 and uses the compiler and assemblies installed with Windows. It does not replace the provider's capture implementation.

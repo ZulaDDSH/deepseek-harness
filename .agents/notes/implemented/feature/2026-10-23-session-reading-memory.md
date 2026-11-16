@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-10-23-session-reading-memory.zh.md)
-
 ## Problem
 
 Clients connected to the same Host need consistent reading reminders, including completions that end while every Client is offline. Automatic acknowledgements must not clear unseen completions or manual unread marks. Reading activity must not change model history. The reminders appear in the Client Session status table that [`@deepseek-ai/dsh-client-ui-session-status`](../../../../packages/client/ui-session-status/README.md) owns, so the reading records, their Client follower, and the table that consumes them need one owner whose Client face may follow a Host Remote stream.

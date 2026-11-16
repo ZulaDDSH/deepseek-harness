@@ -5,8 +5,6 @@ kind: "package-library"
 
 # @deepseek-ai/dsh-util-ripgrep
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Use this library to start packaged ripgrep without a shell or a system `rg` installation. `tool-fs-search` uses collected output; `workspace-files` reads file paths incrementally and stops at its configured cap. Callers supply the working directory, arguments, stream modes, termination grace and cancellation signal, and own exit-code interpretation.

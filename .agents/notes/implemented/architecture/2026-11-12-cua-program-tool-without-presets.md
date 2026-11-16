@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-11-12-cua-program-tool-without-presets.zh.md)
-
 ## Problem
 
 The SDK, headless, and ACP applications create Agents without joining an Agent preset, and their profiles mount no preset registry. A native CUA provider configured with a preset ID registered no tool for those Agents, so its default configuration and the Computer Use bundle had no effect there. `agentPreset: false` supplied only the raw `cua` tool. A Host whose model calls ordinary tools directly had no configuration that supplied `cua_run_code`.

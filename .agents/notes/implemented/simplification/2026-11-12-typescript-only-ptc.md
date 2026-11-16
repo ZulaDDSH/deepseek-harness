@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-11-12-typescript-only-ptc.zh.md)
-
 ## Problem
 
 The Python tool SDK originally let a provider change the program language while retaining typed tool calls. Removing the experimental Python runtime left that presentation available to external providers, together with Python completion rendering and binding-name restrictions imposed on the Node provider. Shipped PTC compositions use TypeScript, so those paths maintain a second language without a repository-owned execution provider or profile replay.

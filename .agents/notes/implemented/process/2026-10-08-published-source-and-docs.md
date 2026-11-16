@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-10-08-published-source-and-docs.zh.md)
-
 ## Problem
 
 A published `@deepseek-ai/dsh-*` package carried declarations, bundled runtime, and locale resources, but neither the TypeScript the declarations describe nor the maps that resolve into it. Its `exports` map nevertheless declared `./src/*`, so an installed consumer resolved that subpath to files the tarball did not contain. A plugin author who wanted the implementation behind a documented API had to read the declaration, the documentation website, or a checkout at the matching `dsh-v*` tag: the first stops at the declaration, and the other two are not the installed version. The repository's Markdown documentation reached readers only through the website, which tracks the published release.

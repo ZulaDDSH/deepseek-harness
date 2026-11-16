@@ -2,8 +2,6 @@
 
 Status: proposed
 
-English | [中文](2026-11-06-chat-history-consumption-details.zh.md)
-
 ## Problem
 
 Session owns a history page's network lifetime, while Chat owns whether that page can safely enter the current view. Two-phase loading must reuse existing publication and scrolling capabilities without copying business data, consumption intent, and DOM preservation state into one owner.

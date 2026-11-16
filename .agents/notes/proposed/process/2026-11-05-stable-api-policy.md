@@ -2,8 +2,6 @@
 
 Status: proposed
 
-English | [中文](2026-11-05-stable-api-policy.zh.md)
-
 ## Problem
 
 Every public DSH API is pre-stable: root `AGENTS.md` tells contributors to update every consumer when an API changes. That rule works inside the repository, but external plugins now install from npm and the plugin market, and their authors cannot tell which APIs they can rely on. All released packages share one lockstep version, so a package version says nothing about which API changed. The only compatibility check, `evaluatePluginCompatibility` in [plugin-compatibility.ts](../../../../packages/boot/app-boot/src/plugin-compatibility.ts), compares a plugin's `engines.dsh` range, or else its `@deepseek-ai/dsh` and `@deepseek-ai/dsh-*` peer ranges, with the whole runtime version; `workspace:` peer ranges count as the running version.

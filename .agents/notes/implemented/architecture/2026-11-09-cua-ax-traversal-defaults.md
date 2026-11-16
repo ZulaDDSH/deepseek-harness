@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-11-09-cua-ax-traversal-defaults.zh.md)
-
 ## Problem
 
 A shallow read can omit a control in a deeply nested window. Increasing the profile settings to reach it also increases the work and possible output of subsequent reads.

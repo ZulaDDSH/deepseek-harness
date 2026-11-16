@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-11-11-deepseek-chat-export-import.zh.md)
-
 ## Problem
 
 The "export all chats" action on the DeepSeek website (chat.deepseek.com) produces a `deepseek_data-*.zip`. Users want to bring these conversations into DSH and keep using them: browse the original questions, reasoning, and answers in the Web GUI, and continue any conversation with the model seeing its original context. Without an import, DSH can only start from a blank Session.

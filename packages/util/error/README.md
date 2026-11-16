@@ -5,8 +5,6 @@ kind: "package-library"
 
 # @deepseek-ai/dsh-error
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 `dsh-error` holds `HarnessError`, the base class for every expected Harness failure. A `HarnessError` carries a stable machine-routable `code` beside its human-readable `message` and optional `cause`, and its `name` is the constructing class name. The tool registry records `name` and `code` of a thrown `HarnessError` on `tool/result`, so retry policy, UI, replay, and analytics route on the code instead of parsing text. The package has no dependencies, so packages below `dsh-llm` in the dependency graph can extend the base too; `dsh-llm` re-exports the same class.

@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-11-09-explicit-ptc-output.zh.md)
-
 ## Problem
 
 PTC lets a program acquire and filter intermediate tool results before choosing what the model sees. A final expression or return value can expose incidental data, while automatically attaching every acquired image defeats that selection. Separate screenshot bytes and image-output callbacks also make programs convert images before comparing or displaying them.

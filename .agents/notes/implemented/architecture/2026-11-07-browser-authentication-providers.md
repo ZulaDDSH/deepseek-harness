@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-11-07-browser-authentication-providers.zh.md)
-
 ## Problem
 
 The Host serves tool-capable operations, so a reachable address cannot establish caller identity. Browser login, Desktop access, and remote invitation or pairing flows need different credential implementations without giving each transport a different authorization model.

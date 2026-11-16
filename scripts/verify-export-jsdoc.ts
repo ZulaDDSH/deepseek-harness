@@ -11,6 +11,7 @@ import { existsSync, globSync, readFileSync } from 'node:fs'
 import { relative, resolve, sep } from 'node:path'
 import ts from 'typescript'
 import { checkParams, checkReturns, parseJsDoc, parseTags, pointer, rawJsDoc } from './jsdoc.ts'
+import { loadAnchoredFieldNotes } from './code-notes.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -27,6 +28,37 @@ interface Walk {
   text: string
   checker: ts.TypeChecker
   violations: string[]
+  codeNotes: Map<string, Map<string, string>>
+  usedCodeNotes: Set<string>
+}
+
+function documentedRaw(raw: string, symbol: string, w: Walk): string {
+  const anchor = `${w.rel}:${symbol}`
+  const fields = w.codeNotes.get(anchor)
+  if (!fields) return raw
+  w.usedCodeNotes.add(anchor)
+  for (const field of fields.keys()) {
+    if (field !== 'description' && field !== 'returns' && !/^params\.[\w$]+$/.test(field)) {
+      w.violations.push(`code-note '${anchor}' has unsupported field '${field}'.`)
+    }
+  }
+  const doc = parseJsDoc(raw).doc
+  const sourceTags = parseTags(raw)
+  const lines = ['/**']
+  const description = doc || fields.get('description')
+  if (description) lines.push(` * ${description}`)
+  const params = new Map(sourceTags.params)
+  let returns = sourceTags.returns
+  for (const [field, value] of fields) {
+    if (field.startsWith('params.')) {
+      const name = field.slice('params.'.length)
+      if (!params.get(name)?.trim()) params.set(name, value)
+    } else if (field === 'returns' && !returns?.trim()) returns = value
+  }
+  for (const [name, value] of params) lines.push(` * @param ${name} - ${value}`)
+  if (returns !== null) lines.push(` * @returns ${returns}`)
+  lines.push(' */')
+  return lines.join('\n')
 }
 
 function isExported(stmt: ts.Statement): boolean {
@@ -200,7 +232,7 @@ function checkFunctionLike(
  * @param w - the walk state violations append to.
  */
 function checkClass(cls: ts.ClassDeclaration, name: string, w: Walk): void {
-  checkDescribed(`exported class '${name}' (${pointer(w.rel, w.sf, cls)})`, rawJsDoc(w.text, cls), w)
+  checkDescribed(`exported class '${name}' (${pointer(w.rel, w.sf, cls)})`, documentedRaw(rawJsDoc(w.text, cls), name, w), w)
   const overloadSigs = new Set<string>()
   const documentedGetters = new Set<string>()
   for (const m of cls.members) {
@@ -218,7 +250,7 @@ function checkClass(cls: ts.ClassDeclaration, name: string, w: Walk): void {
       if (m.body && overloadSigs.has(mname)) continue // overload implementation: the signatures carry the docs
       const where = `exported class method '${name}.${mname}' (${pointer(w.rel, w.sf, m)})`
       if (exemption !== null) {
-        const raw = rawJsDoc(w.text, m)
+        const raw = documentedRaw(rawJsDoc(w.text, m), `${name}.${mname}`, w)
         // The heritage declaration owns the prose; parameters the base never
         // names — including binding patterns, which no base declaration can
         // name — are new API and keep their @param duty.
@@ -240,14 +272,14 @@ function checkClass(cls: ts.ClassDeclaration, name: string, w: Walk): void {
         }
         continue
       }
-      checkFunctionLike(where, rawJsDoc(w.text, m), m.parameters, m.type, false, w)
+      checkFunctionLike(where, documentedRaw(rawJsDoc(w.text, m), `${name}.${mname}`, w), m.parameters, m.type, false, w)
     } else if (exemption !== null) {
       continue // the heritage declaration owns the doc (properties/accessors carry no own parameters)
     } else if (ts.isGetAccessorDeclaration(m) || ts.isPropertyDeclaration(m)) {
       const kind = ts.isPropertyDeclaration(m) ? 'property' : 'accessor'
-      checkDescribed(`exported class ${kind} '${name}.${mname}' (${pointer(w.rel, w.sf, m)})`, rawJsDoc(w.text, m), w)
+      checkDescribed(`exported class ${kind} '${name}.${mname}' (${pointer(w.rel, w.sf, m)})`, documentedRaw(rawJsDoc(w.text, m), `${name}.${mname}`, w), w)
     } else if (ts.isSetAccessorDeclaration(m) && !documentedGetters.has(mname)) {
-      checkDescribed(`exported class accessor '${name}.${mname}' (${pointer(w.rel, w.sf, m)})`, rawJsDoc(w.text, m), w)
+      checkDescribed(`exported class accessor '${name}.${mname}' (${pointer(w.rel, w.sf, m)})`, documentedRaw(rawJsDoc(w.text, m), `${name}.${mname}`, w), w)
     }
     // index signatures / static blocks: no named API
   }
@@ -277,7 +309,7 @@ function checkDecl(
     const name = stmt.name?.text ?? 'default'
     if (prefix === '' && PROTOCOL_EXPORTS.has(name)) return // cordis plugin-protocol slot
     if (stmt.body && overloadSigs.has(name)) return // overload implementation: the signatures carry the docs
-    checkFunctionLike(`exported function '${prefix}${name}'${at(stmt)}`, rawJsDoc(w.text, stmt),
+    checkFunctionLike(`exported function '${prefix}${name}'${at(stmt)}`, documentedRaw(rawJsDoc(w.text, stmt), `${prefix}${name}`, w),
       stmt.parameters, stmt.type, false, w)
     return
   }
@@ -286,24 +318,25 @@ function checkDecl(
     return
   }
   if (ts.isInterfaceDeclaration(stmt)) {
-    checkDescribed(`exported interface '${prefix}${stmt.name.text}'${at(stmt)}`, rawJsDoc(w.text, stmt), w)
+    checkDescribed(`exported interface '${prefix}${stmt.name.text}'${at(stmt)}`, documentedRaw(rawJsDoc(w.text, stmt), `${prefix}${stmt.name.text}`, w), w)
     return
   }
   if (ts.isTypeAliasDeclaration(stmt)) {
-    checkDescribed(`exported type '${prefix}${stmt.name.text}'${at(stmt)}`, rawJsDoc(w.text, stmt), w)
+    checkDescribed(`exported type '${prefix}${stmt.name.text}'${at(stmt)}`, documentedRaw(rawJsDoc(w.text, stmt), `${prefix}${stmt.name.text}`, w), w)
     return
   }
   if (ts.isEnumDeclaration(stmt)) {
-    checkDescribed(`exported enum '${prefix}${stmt.name.text}'${at(stmt)}`, rawJsDoc(w.text, stmt), w)
+    checkDescribed(`exported enum '${prefix}${stmt.name.text}'${at(stmt)}`, documentedRaw(rawJsDoc(w.text, stmt), `${prefix}${stmt.name.text}`, w), w)
     return
   }
   if (ts.isVariableStatement(stmt)) {
-    const raw = rawJsDoc(w.text, stmt) // JSDoc sits on the statement, not the declarator
+    const sourceRaw = rawJsDoc(w.text, stmt) // JSDoc sits on the statement, not the declarator
     for (const d of stmt.declarationList.declarations) {
       const name = ts.isIdentifier(d.name) ? d.name.text : d.name.getText(w.sf)
       if (only !== null && !only.has(name)) continue // sibling declarator the export list never named: not exported API
       if (prefix === '' && PROTOCOL_EXPORTS.has(name)) continue // cordis plugin-protocol slot
       const where = `exported const '${prefix}${name}'${at(d)}`
+      const raw = documentedRaw(sourceRaw, `${prefix}${name}`, w)
       const annotation = d.type !== undefined ? callableAnnotation(d.type) : null
       const init = d.initializer !== undefined ? unwrapExpression(d.initializer) : undefined
       if (annotation === 'refuse') {
@@ -332,7 +365,7 @@ function checkDecl(
     // Config-namespace idiom) needs no second doc block of its own.
     const siblings = (byName.get(stmt.name.text) ?? []).filter(s => s !== stmt)
     const merged = siblings.some(s => parseJsDoc(rawJsDoc(w.text, s)).doc !== '')
-    if (!merged) checkDescribed(`exported namespace '${prefix}${stmt.name.text}'${at(stmt)}`, rawJsDoc(w.text, stmt), w)
+    if (!merged) checkDescribed(`exported namespace '${prefix}${stmt.name.text}'${at(stmt)}`, documentedRaw(rawJsDoc(w.text, stmt), `${prefix}${stmt.name.text}`, w), w)
     let body = stmt.body
     let nsPrefix = `${prefix}${stmt.name.text}.`
     while (body !== undefined && ts.isModuleDeclaration(body)) { // dotted `namespace A.B`
@@ -362,7 +395,7 @@ function checkDecl(
       w.violations.push(`${where} aliases a callable, class, or namespace target whose signature/member contract the alias cannot carry; export the declaration directly instead.`)
       return
     }
-    checkDescribed(where, rawJsDoc(w.text, stmt), w)
+    checkDescribed(where, documentedRaw(rawJsDoc(w.text, stmt), `${prefix}${stmt.name.text}`, w), w)
     return
   }
   // Fail CLOSED: an exported statement kind this dispatch does not recognize
@@ -446,9 +479,9 @@ function checkScope(
       if (ts.isIdentifier(expr)) {
         for (const decl of byName.get(expr.text) ?? []) request(decl, expr.text)
       } else if (ts.isArrowFunction(expr) || ts.isFunctionExpression(expr)) {
-        checkFunctionLike(where, rawJsDoc(w.text, stmt), expr.parameters, expr.type, false, w)
+        checkFunctionLike(where, documentedRaw(rawJsDoc(w.text, stmt), 'default', w), expr.parameters, expr.type, false, w)
       } else {
-        checkDescribed(where, rawJsDoc(w.text, stmt), w)
+        checkDescribed(where, documentedRaw(rawJsDoc(w.text, stmt), 'default', w), w)
       }
       continue
     }
@@ -566,6 +599,11 @@ function loadCompilerOptions(scanRoot: string): ts.CompilerOptions {
  */
 export function collectExportJsdocViolations(scanRoot: string = root): string[] {
   const violations: string[] = []
+  const codeNotes = loadAnchoredFieldNotes(scanRoot, [
+    'docs/code-notes/mcp-export-contracts.md',
+    'docs/code-notes/other-export-contracts.md',
+  ])
+  const usedCodeNotes = new Set<string>()
   const rels = globSync('packages/*/*/src/**/*.ts', { cwd: scanRoot })
     .map(path => path.split(sep).join('/'))
     .sort()
@@ -582,10 +620,13 @@ export function collectExportJsdocViolations(scanRoot: string = root): string[] 
     checkScope(
       sf.statements,
       '',
-      { rel, sf, text: sf.text, checker, violations },
+      { rel, sf, text: sf.text, checker, violations, codeNotes, usedCodeNotes },
       sf.isDeclarationFile && !ts.isExternalModule(sf),
       allowedNames,
     )
+  }
+  for (const anchor of codeNotes.keys()) {
+    if (!usedCodeNotes.has(anchor)) violations.push(`code-note '${anchor}' does not match an exported declaration.`)
   }
   return violations
 }

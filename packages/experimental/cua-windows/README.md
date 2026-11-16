@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-cua-windows
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Discover Windows applications, obtain consent, then inspect and operate their windows through the shared [Computer Use API](../cua/README.md). Simulated keyboard and mouse input are available, including typing, pasting, key presses, individual key events, pointer movement, clicking, scrolling, and dragging. Application selection, window selection, accessibility observation, and foreground activation are separate actions. Use this page for Windows-specific semantics and safe interaction rules.

@@ -2,8 +2,6 @@
 
 Status: proposed
 
-English | [中文](2026-11-04-dsh-home-path-categories.zh.md)
-
 ## Problem
 
 Each package builds its own path under `$DSH_HOME` (default `~/.dsh`), so the home root mixes user configuration, durable records, logs, indexes, and downloads. A new service or plugin has no rule for where its files belong, and some owners resolve the home by hand: [liveshare](../../../../packages/experimental/liveshare/src/host/share-host.ts) reads `process.env.DSH_HOME` directly, and [migrate-sessions-to-v4](../../../../scripts/migrate-sessions-to-v4.ts) defaults to `~/.dsh/sessions` without reading `DSH_HOME`.

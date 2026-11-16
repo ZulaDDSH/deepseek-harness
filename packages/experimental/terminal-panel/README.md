@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-terminal-panel
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Show an Agent's persistent terminals in the Web sidebar. The package registers a `ctx.terminals` backend whose sessions are sidebar terminals from the [terminal controller](../../api/terminal-controller/README.md), so the six [`terminal_*` tools](../tool-terminal/README.md) keep their names, parameters and results while each `terminal_open` becomes a tab the person can watch and type into. The person's first keystroke takes the terminal over; afterwards the Agent can only read it. Two read-only tools list and read the terminals the person opened. The [experimental terminal bundle](../terminal-bundle/README.md) mounts it.

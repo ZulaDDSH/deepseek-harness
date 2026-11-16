@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-office-kit
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Render Office documents as PDFs or PNG images, convert them between formats, and recalculate workbooks on the Host computer. Targets with a declared native LibreOffice engine use it; other targets use Node WASM. Previews accept DOC, DOCX, XLS, XLSX, PPT, and PPTX; operations also accept the OpenDocument formats, and image rendering accepts PDF. OOXML operations return missing-font names; binary Office operations return an empty list.

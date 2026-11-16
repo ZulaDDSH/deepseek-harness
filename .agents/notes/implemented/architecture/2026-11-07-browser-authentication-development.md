@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-11-07-browser-authentication-development.zh.md)
-
 ## Problem
 
 In the built-in authentication design, Connection combined BrowserAuth with its transport API, and route owners called its admission helpers. WebApp obtained a tokenized address through Connection. Splitting credential implementations requires concrete registration, route, event, and startup usage that does not put Token knowledge back into a transport or protocol handler.

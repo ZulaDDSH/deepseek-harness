@@ -1176,3 +1176,27 @@ Upgrade guides require the Change and Migration sections and are limited to 500 
 ## scripts/gen-config-catalog.ts:pasteText
 
 The configuration catalog fills missing field descriptions from anchored code notes and still reports missing descriptions as violations.
+
+## Account notification contracts
+
+### `packages/api/account-controller/src/index.ts:AccountController.getNotifications`
+- `description`: Queries unconsumed notifications in server order without reading profile data.
+- `params.client`: Identity of the requesting UI; its language selects the server-authored message.
+- `returns`: Notifications with their next query delay, or null when the account grant is absent or changed.
+
+### `packages/api/account-controller/src/index.ts:AccountController.getNotificationContent`
+- `description`: Queries localized content for a notification, including one already consumed.
+- `params.id`: Notification whose content is requested.
+- `params.client`: Identity of the requesting UI; its language selects the localized content.
+- `returns`: Content without changing consumption, or null when the account grant is absent or changed.
+
+### `packages/api/account-controller/src/index.ts:AccountController.reportNotificationEvent`
+- `description`: Reports a notification interaction; Platform decides whether the notification is consumed.
+- `params.id`: Notification the user interacted with.
+- `params.event`: Displayed frame, non-dismiss action click, or explicit dismissal.
+- `params.client`: Identity of the requesting UI for this call.
+- `returns`: True when Platform accepts the event; false when the account grant is absent or changed.
+
+## packages/typert/generator/src/cordis-catalog.ts:CordisCatalogPolicy
+
+The runtime type declaration override resolves distinct Office rendering generation brands in the shared catalog while identical declarations are deduplicated.

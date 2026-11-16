@@ -4,8 +4,6 @@ kind: "package-library"
 ---
 # Desktop publisher
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Publish retained Desktop packages, change an existing release's rollout percentage, and refresh website installers. The manual GitHub workflows select the original packaging machine and require the configured environment approvals. This private workspace shares the repository lockfile and runs TypeScript source directly with Node 24 and tsx.

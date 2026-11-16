@@ -5,8 +5,6 @@ kind: "package-bundle"
 
 # Timeline
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Timeline shows what an agent is working on and what it has finished. Its task tree and progress bar follow the current session. Timed reports give you a record of changes you can review later.

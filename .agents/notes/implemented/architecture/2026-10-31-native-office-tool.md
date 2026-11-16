@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-10-31-native-office-tool.zh.md)
-
 ## Problem
 
 Office operation skills ran the LibreOffice Kit CLI through ordinary shell commands, as [progressive Office skills](2026-09-27-progressive-office-skills.md) decided. Kit's native engine starts helper processes, Workers, and font caches that the shell sandbox and PTC permissions restrict, so the same render could succeed in one deployment and fail in another. Each deployment had to publish a standalone Node executable and a CLI path into the skill body, which required Node and CLI configuration, a Python sidecar Node, an Electron check against the application binary, and a runtime-root containment check against the Electron shell's own Kit. Rendering for inspection wrote PNG files into a temporary workspace directory that the model then read with `read_image` and deleted, adding calls and cleanup obligations to every visual check.

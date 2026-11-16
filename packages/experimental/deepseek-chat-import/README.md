@@ -5,8 +5,6 @@ kind: "package-bundle"
 
 # @deepseek-ai/dsh-deepseek-chat-import
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Bring the chats exported from the DeepSeek website (chat.deepseek.com) into DSH and continue them. After you enable this optional bundle, a button right of "New session" uploads the `deepseek_data-*.zip` file to the Host, which stores the most recent conversations as Sessions in the Workspace you choose. Imported Sessions keep their original titles and times and show the original questions with their attached files, reasoning, web search cards, read links, and answers. The [Agent Note](../../../.agents/notes/implemented/feature/2026-11-11-deepseek-chat-export-import.md) records the design and its trade-offs.

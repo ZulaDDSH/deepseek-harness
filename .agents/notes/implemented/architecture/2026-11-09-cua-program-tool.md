@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-11-09-cua-program-tool.zh.md)
-
 ## Problem
 
 Computer Use needs reusable application and window objects in Standard and other presets without changing their ordinary tool calls or requiring users to change the profile's PTC runtime. Experimental CUA packages cannot appear in shipped preset definitions. Program dispatch must retain the same permission checks, cancellation, nested logs, and screenshots as PTC.

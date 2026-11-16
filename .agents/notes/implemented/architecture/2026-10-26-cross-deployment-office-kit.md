@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-10-26-cross-deployment-office-kit.zh.md)
-
 ## Problem
 
 Office skills were mounted only by Desktop and the Python SDK, so ordinary `dsh web` users could not create or inspect Office documents with the same guidance. Each deployment located LibreOffice Kit differently: the conversion provider, the skills, and the Desktop shell each held their own lookup, and an absent Kit made the conversion row fail to load. A Python SDK executable without its downloaded Office sidecar, or a source checkout without native engines, is a deployment that lacks Kit, not a misconfigured composition; failing the row hid the provider and the skills even though most of their behavior did not need Kit.

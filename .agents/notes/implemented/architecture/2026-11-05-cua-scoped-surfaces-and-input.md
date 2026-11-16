@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-11-05-cua-scoped-surfaces-and-input.zh.md)
-
 ## Problem
 
 Application and window objects share accessibility operations, but only an explicit window can capture or deliver pointer input. Duplicating shared methods on both factories creates two implementations to keep aligned. Moving application-only capability checks into the shared base makes window behavior depend on an application-level decision. Keyboard input has the same problem at a smaller scale: a chord string combines a key and its modifiers, and a complete-keystroke method cannot express a modifier held across calls or a standalone key-up.

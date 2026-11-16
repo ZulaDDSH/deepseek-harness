@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-09-21-reject-silent-empty-catch.zh.md)
-
 ## Problem
 
 An empty `catch` discards every failure of its `try`, including defects the author did not expect. The root rule requires such a clause to name the error, state why discarding it is safe, and keep its `try` to one statement, so that the clause discards only the failure its author considered. Without a check, new clauses drifted from the rule, and existing clauses broke it across many unrelated package and test owners.

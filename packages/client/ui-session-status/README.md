@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-client-ui-session-status
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Show each Session's running state, highest-precedence pending interaction, and read or unread reminder from one Client status table. Reminders come from reading records this package keeps in Host memory: they survive a browser refresh while the Host remains running, and connected clients share manual marks and acknowledgements, including completions that occur while every client is offline. Reading marks do not change conversation history or model requests.

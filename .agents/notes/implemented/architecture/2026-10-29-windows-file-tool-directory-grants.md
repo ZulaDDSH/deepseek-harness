@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-10-29-windows-file-tool-directory-grants.zh.md)
-
 ## Problem
 
 Memory plugins need session-specific writes to directories such as `~/.dsh/memory`. Extending Windows process access through ACLs requires managing persistent filesystem grants and token identities for changing directory combinations, increasing reliance on a backend with existing enforcement limitations.

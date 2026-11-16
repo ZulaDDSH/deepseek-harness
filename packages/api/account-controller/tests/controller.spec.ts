@@ -1,7 +1,12 @@
 /** Account Remote delegation preserves provider results, failures, and stream lifetime. */
 import { Context } from '@deepseek-ai/cordis'
 import type { DeepSeekAccount } from '@deepseek-ai/dsh-deepseek-account'
-import type { AccountBonusBatch, AccountBonusOrderId, AccountClientMetadata, AccountUserId } from '@deepseek-ai/dsh-deepseek-account/types'
+import type {
+  AccountClientMetadata,
+  AccountNotification,
+  AccountNotificationBatch,
+  AccountNotificationId,
+} from '@deepseek-ai/dsh-deepseek-account/types'
 import type { AccountView, SignInAttemptId } from '../src/types.ts'
 import { afterEach, expect, it, vi } from 'vitest'
 import AccountController from '../src/index.ts'
@@ -18,8 +23,9 @@ function fixture() {
     getState: vi.fn<DeepSeekAccount['getState']>().mockResolvedValue(state),
     getProfile: vi.fn<DeepSeekAccount['getProfile']>().mockResolvedValue({ status: 'failed' }),
     getBalance: vi.fn<DeepSeekAccount['getBalance']>().mockResolvedValue(null),
-    getUnnotifiedBonuses: vi.fn<DeepSeekAccount['getUnnotifiedBonuses']>().mockResolvedValue(null),
-    ackBonusNotified: vi.fn<DeepSeekAccount['ackBonusNotified']>().mockResolvedValue(false),
+    getNotifications: vi.fn<DeepSeekAccount['getNotifications']>().mockResolvedValue(null),
+    getNotificationContent: vi.fn<DeepSeekAccount['getNotificationContent']>().mockResolvedValue(null),
+    reportNotificationEvent: vi.fn<DeepSeekAccount['reportNotificationEvent']>().mockResolvedValue(false),
     startSignIn: vi.fn<DeepSeekAccount['startSignIn']>().mockResolvedValue(state),
     cancelSignIn: vi.fn<DeepSeekAccount['cancelSignIn']>().mockResolvedValue(state),
     signOut: vi.fn<DeepSeekAccount['signOut']>().mockResolvedValue(state),
@@ -47,20 +53,26 @@ it('delegates account operations without coupling profile and balance queries', 
   await expect(controller.signOut(client)).rejects.toBe(failure)
 })
 
-it('delegates bonus reads and acknowledgements without altering their values', async () => {
+it('delegates notification reads and events without altering their values', async () => {
   const { provider, controller } = fixture()
-  const accountId = 'account' as AccountUserId
-  const orderId = 'order' as AccountBonusOrderId
-  const batch: AccountBonusBatch = { accountId, bonuses: [{ orderId, expiresAt: '2026-10-21T12:00:00Z', message: '已赠送您 5.00 元 DSH 体验赠金。' }] }
-  provider.getUnnotifiedBonuses.mockResolvedValueOnce(batch)
-  expect(await controller.getUnnotifiedBonuses(client)).toBe(batch)
-  expect(provider.getUnnotifiedBonuses).toHaveBeenCalledExactlyOnceWith(client)
-  provider.ackBonusNotified.mockResolvedValueOnce(true)
-  expect(await controller.ackBonusNotified(accountId, orderId, client)).toBe(true)
-  expect(provider.ackBonusNotified).toHaveBeenCalledExactlyOnceWith(accountId, orderId, client)
+  const id = 'notification' as AccountNotificationId
+  const notification: AccountNotification = {
+    id, createdAt: '2026-10-21T08:00:00Z', displayUntil: null,
+    title: 'Account update', body: 'A notification.', actions: [],
+  }
+  const batch: AccountNotificationBatch = { nextPollAfterSeconds: 300, notifications: [notification] }
+  provider.getNotifications.mockResolvedValueOnce(batch)
+  expect(await controller.getNotifications(client)).toBe(batch)
+  expect(provider.getNotifications).toHaveBeenCalledExactlyOnceWith(client)
+  provider.getNotificationContent.mockResolvedValueOnce(notification)
+  expect(await controller.getNotificationContent(id, client)).toBe(notification)
+  expect(provider.getNotificationContent).toHaveBeenCalledExactlyOnceWith(id, client)
+  provider.reportNotificationEvent.mockResolvedValueOnce(true)
+  expect(await controller.reportNotificationEvent(id, 'displayed', client)).toBe(true)
+  expect(provider.reportNotificationEvent).toHaveBeenCalledExactlyOnceWith(id, 'displayed', client)
   const failure = new Error('unavailable')
-  provider.getUnnotifiedBonuses.mockRejectedValueOnce(failure)
-  await expect(controller.getUnnotifiedBonuses(client)).rejects.toBe(failure)
+  provider.getNotifications.mockRejectedValueOnce(failure)
+  await expect(controller.getNotifications(client)).rejects.toBe(failure)
 })
 
 it('passes the subscriber lifetime to the provider and returns its state stream', async () => {

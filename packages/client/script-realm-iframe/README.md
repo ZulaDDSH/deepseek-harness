@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-client-script-realm-iframe
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Use this provider when framework code explicitly needs a separate browser global environment with direct object references. Loading the plugin registers the `iframe` factory without allocating a frame. It does not move application plugins or change their default execution environment.

@@ -2,8 +2,6 @@
 
 Status: proposed
 
-English | [中文](2026-11-06-chat-history-consumption.zh.md)
-
 ## Problem
 
 With only a Load earlier button, readers must reach the beginning of loaded history before clicking. Prefetch can reduce interruption, but a request that starts in a suitable state can return during touch dragging, a navigation change, or a fold animation. History prepending must not change the existing fold driver or simulate momentum.

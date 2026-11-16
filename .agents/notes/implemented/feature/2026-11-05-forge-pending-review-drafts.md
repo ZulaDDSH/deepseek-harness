@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-11-05-forge-pending-review-drafts.zh.md)
-
 ## Problem
 
 The [forge panel](2026-10-09-forge-panel.md) kept a pull request's comment drafts in a browser tab occurrence, published them as one review, and recorded what it published. Once the changes view shows the code host's review threads and lets the user reply to them, browser drafts leave four gaps. A reply cannot join a later review, because the drafts and the threads live in different places. A review the user started on the GitHub page, or in another browser, does not appear, and GitHub refuses a review submitted while the user has one. Drafts are lost with the tab and invisible on another device. And GitHub keeps one pending review per user and pull request, so two stores of one review would disagree.

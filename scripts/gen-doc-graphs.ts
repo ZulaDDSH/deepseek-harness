@@ -298,6 +298,11 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'The provider owns the retained cua_run_code runtime; a host without a model releases one Agent\'s environment and reads the configured screenshot request target through it.',
   },
   {
+    key: 'officeToPdf', pkg: 'office-to-pdf', title: 'Office to PDF conversion',
+    mode: 'core', consumers: ['client-ui-memory-workspace'],
+    note: 'Converts authorized Office documents to PDFs for memory workspace ingestion.',
+  },
+  {
     key: 'officeKit', pkg: 'office-kit', title: 'Office rendering, conversion, and recalculation',
     mode: 'core', consumers: ['client-ui-sidebar-documentpreview', 'tool-office'],
     note: 'Authorized Office bytes are rendered as PDFs or images, converted, or recalculated on the Host using the declared native target engine, or Node WASM when no native target is declared.',

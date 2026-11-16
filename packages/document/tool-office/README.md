@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-tool-office
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 After an Office skill loads, the model gains three tools. `office_render` returns document pages, slides, or worksheet areas as images for layout inspection, without temporary image files or a separate image read. `office_convert` produces a document in another format; `office_recalculate` refreshes workbook formulas. Both return a temporary file to copy to its destination with the shell. The tools do not modify inputs or write workspace files, and work in standard and PTC modes alike.

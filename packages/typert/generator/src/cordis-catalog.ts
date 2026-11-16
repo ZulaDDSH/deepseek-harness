@@ -127,6 +127,7 @@ export interface CordisCatalogPolicy {
   readonly inheritedServices: readonly InheritedEntry[]
   /** Maximum rendered characters per runtime type declaration. */
   readonly runtimeDeclarationMaxChars?: number
+  readonly runtimeTypeDeclarations?: Readonly<Record<string, string>>
 }
 
 /** Complete model-level Cordis projection used by every text renderer. */
@@ -343,22 +344,28 @@ export class CordisCatalogProjector {
     events: readonly EventEntry[],
   ): { name: string; declaration: string }[] {
     const declarations = new Map<string, string>()
+    const sourceTexts = new Map<string, string>()
     const ambiguous = new Set<string>()
     const maxDeclarationChars = this.policy.runtimeDeclarationMaxChars ?? DEFAULT_MAX_DECL_CHARS
     for (const declaration of this.sourceDeclarations) {
       if (declaration.face !== this.face.face
         || (!/^packages\/[^/]+\/[^/]+\/src\/.+\.tsx?$/.test(declaration.location.file)
           && !(declaration.kind === 'enum' && /^vendor\/[^/]+\/src\/.+\.ts$/.test(declaration.location.file)))) continue
-      if (declarations.has(declaration.name)) {
-        ambiguous.add(declaration.name)
+      const existing = sourceTexts.get(declaration.name)
+      if (existing !== undefined) {
+        if (existing !== declaration.text) ambiguous.add(declaration.name)
         continue
       }
-      declarations.set(
-        declaration.name,
-        declaration.text.length > maxDeclarationChars
-          ? `${declaration.text.slice(0, maxDeclarationChars)} /* …truncated — full shape in source */`
-          : declaration.text,
-      )
+      sourceTexts.set(declaration.name, declaration.text)
+      declarations.set(declaration.name, declaration.text.length > maxDeclarationChars
+        ? `${declaration.text.slice(0, maxDeclarationChars)} /* …truncated — full shape in source */`
+        : declaration.text)
+    }
+    for (const [name, text] of Object.entries(this.policy.runtimeTypeDeclarations ?? {})) {
+      if (declarations.has(name)) {
+        declarations.set(name, text)
+        ambiguous.delete(name)
+      }
     }
     for (const name of ambiguous) declarations.delete(name)
     return referencedTypes([

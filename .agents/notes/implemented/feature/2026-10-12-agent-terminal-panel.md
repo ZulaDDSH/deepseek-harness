@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-10-12-agent-terminal-panel.zh.md)
-
 ## Problem
 
 DSH had two terminal systems that could not see each other. The Agent's [persistent terminals](2026-07-16-persistent-pty-sessions.md) ran in private PTYs that the person could neither watch nor take over, and the [Web sidebar terminals](2026-09-09-web-sidebar-terminal.md) belonged to the person and gave the Agent no access. Comparable products let the Agent run commands in terminals the person can see, and let the Agent read what the person saw. A long-running process the Agent starts, such as a dev server, should be visible where the person works, without new model tools or a second permission model.

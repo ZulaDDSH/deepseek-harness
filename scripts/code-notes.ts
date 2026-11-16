@@ -3,9 +3,20 @@ import { resolve } from 'node:path'
 
 const NOTES_PATH = 'docs/code-notes/deepseek-harness.md'
 
-export function loadAnchoredFieldNotes(scanRoot: string): Map<string, Map<string, string>> {
-  const path = resolve(scanRoot, NOTES_PATH)
-  return existsSync(path) ? parseAnchoredFieldNotes(readFileSync(path, 'utf8')) : new Map()
+export function loadAnchoredFieldNotes(
+  scanRoot: string,
+  notesPaths: string | readonly string[] = NOTES_PATH,
+): Map<string, Map<string, string>> {
+  const notes = new Map<string, Map<string, string>>()
+  for (const notesPath of typeof notesPaths === 'string' ? [notesPaths] : notesPaths) {
+    const path = resolve(scanRoot, notesPath)
+    if (!existsSync(path)) continue
+    for (const [anchor, fields] of parseAnchoredFieldNotes(readFileSync(path, 'utf8'))) {
+      if (notes.has(anchor)) throw new Error(`duplicate code-note anchor '${anchor}' across files`)
+      notes.set(anchor, fields)
+    }
+  }
+  return notes
 }
 
 export function parseAnchoredFieldNotes(markdown: string): Map<string, Map<string, string>> {

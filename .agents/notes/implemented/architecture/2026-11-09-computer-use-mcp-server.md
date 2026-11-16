@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-11-09-computer-use-mcp-server.zh.md)
-
 ## Problem
 
 Computer Use training data should come from several agent harnesses, not only from DSH sessions. Codex, Claude Code, and in-house harnesses connect to capabilities through MCP stdio servers; Codex's own Computer Use is a stdio server with a persistent JavaScript REPL. DSH's `cua_run_code` already composes a retained program environment, consent, screenshots, and native connections per Agent, but only a DSH model turn could call it. The MCP form must keep those owners, persist program state across calls, and start from one documented command on every DSH distribution.

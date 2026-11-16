@@ -5,8 +5,6 @@ kind: "package-library"
 
 # dsh-util-text-search
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 One search index for every in-memory search list in the Web client and for Host lists that feed it, such as `@` Session candidates. It implements the [client search rule](../../client/AGENTS.md#search-and-filter): results display in the current locale, matching covers every declared language and every field a user can identify an item by, and matching is fuzzy. Name matching uses [fuzzysort](https://github.com/farzher/fuzzysort), pinned to an exact version.

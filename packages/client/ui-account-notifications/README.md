@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-client-ui-account-notifications
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Show server-authored account notifications beside the account menu. Displayed cards survive later list omissions and refresh their content when the interface language changes.

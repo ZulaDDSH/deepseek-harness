@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-11-09-retained-ptc-scoped-repl.zh.md)
-
 ## Problem
 
 `persistent-in-memory` runs every `run_code` call of one Agent in one global scope through node:repl ([best-effort persistent PTC](../../implemented/architecture/2026-09-23-best-effort-persistent-ptc.md)). When a later call declares a `const`, `let`, or `class` name again, V8 rejects the program before it runs with `SyntaxError: Identifier 'x' has already been declared`, and no statement executes. Model guidance can only ask for no redeclarations, and models rarely track every name across many calls.

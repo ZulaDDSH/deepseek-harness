@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-11-05-harness-error-dependency-free-base.zh.md)
-
 ## Problem
 
 The tool registry records a failed result's `error.name` and `error.code` only when the thrown value is `instanceof HarnessError`, so every expected failure must extend the one shared class; copying its `code` field is not enough. The [archived structured-error-taxonomy note](../../archived/architecture/2026-06-11-structured-error-taxonomy.md) placed the base in `dsh-llm` because `dsh-llm` was then a leaf that every package already imported, so the base added no dependency edge.

@@ -59,7 +59,7 @@ PlatformSession is a Host-only snapshot from getPlatformSession: origin names th
 
 AccountDetails.balance projects recharge wallets in value and promotional wallets in bonusWallets, with independent currency and decimal balance strings. Failed queries contain no wallet arrays.
 
-Bonus notification queries return an AccountBonusBatch with the current Platform account id and eligible orders in server order. AccountBonusNotification retains the server message and expiry without projecting credentials. Acknowledgment carries the expected account id and order id; the Host refuses it after an account change. Both notification operations use the initiating UI language through x-client-locale, without a language query parameter.
+Notification queries return a server-ordered AccountNotificationBatch with a polling delay, localized content, and optional business data. getNotificationContent can read localized content after a notification is consumed. reportNotificationEvent reports display, click, or dismissal events; Platform decides whether an event consumes the notification. These calls use the initiating UI locale through x-client-locale, and discard late results after the account grant changes.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 

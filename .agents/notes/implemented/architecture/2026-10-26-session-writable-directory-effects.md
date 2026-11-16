@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-10-26-session-writable-directory-effects.zh.md)
-
 ## Problem
 
 Memory plugins need agent writes outside the workspace without granting every Session the same directory. Deployment-wide roots cannot express a plugin enabled for only one Session or a grant that ends when that plugin unloads.

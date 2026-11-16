@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-client-script-realm
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Use this package when an optional Client extension needs a named script-environment provider. Registration does not create an environment; creation returns an instance whose caller owns cleanup. Normal application startup does not wait for this registry. The module loader has its own Main execution environment.

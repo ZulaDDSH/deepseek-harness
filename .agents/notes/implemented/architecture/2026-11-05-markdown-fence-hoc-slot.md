@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-11-05-markdown-fence-hoc-slot.zh.md)
-
 ## Problem
 
 A Markdown fence is a fenced code block: an opening line of three or more backticks or tildes followed by an info string, such as `ts title=demo`, then the body and a closing fence. The info string's first word names the fence's language.

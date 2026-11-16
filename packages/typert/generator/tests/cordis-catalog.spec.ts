@@ -94,6 +94,17 @@ describe('Typert-backed Cordis catalog', () => {
     expect(rendered).toContain('ACTIVE,')
   })
 
+  it('keeps shared Office types unique and both rendering generations in the runtime catalog', () => {
+    const { projector, model } = projection()
+    const rendered = projector.renderRuntimeApi(model)
+    for (const name of ['OfficeExtension', 'OfficeSourceKey', 'RenderedDocumentBytes']) {
+      expect(rendered.split(`name: '${name}'`).length - 1).toBe(1)
+    }
+    expect(rendered).toContain('generation: OfficeKitGeneration | OfficeToPdfGeneration;')
+    expect(rendered).toContain("name: 'OfficeKitGeneration'")
+    expect(rendered).toContain("name: 'OfficeToPdfGeneration'")
+  })
+
   it('keeps the Slots service declaration and its referenced types within the display budget', { timeout: 480_000 }, () => {
     const { projector, model } = clientProjection()
     const slots = model.services.find(service => service.key === 'slots')

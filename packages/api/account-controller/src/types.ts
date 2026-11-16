@@ -1,2 +1,14 @@
 /** Account Remote values contain no credential payloads. */
-export type { AccountBonusBatch, AccountBonusNotification, AccountBonusOrderId, AccountClientMetadata, AccountDetails, AccountProfile, AccountUserId, AccountView, SignInAttemptId } from '@deepseek-ai/dsh-deepseek-account/types'
+export type {
+  AccountClientMetadata,
+  AccountDetails,
+  AccountNotification,
+  AccountNotificationAction,
+  AccountNotificationBatch,
+  AccountNotificationEvent,
+  AccountNotificationId,
+  AccountProfile,
+  AccountUserId,
+  AccountView,
+  SignInAttemptId,
+} from '@deepseek-ai/dsh-deepseek-account/types'

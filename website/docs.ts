@@ -86,9 +86,9 @@ const homeAndGuide = sitePages([
   {
     source: 'docs/user/guide/desktop-uninstall-cleanup.md',
     route: 'guide/desktop-uninstall-cleanup.md',
-    label: { root: '卸载 DSH 桌面端', en: 'Uninstall DSH Desktop' },
-    sidebar: { root: 'zh-guide', en: 'en-guide' },
-    section: { root: '入门', en: 'Guide' },
+    label: 'Uninstall DSH Desktop',
+    sidebar: 'guide',
+    section: 'Guide',
     order: 5,
   },
   {

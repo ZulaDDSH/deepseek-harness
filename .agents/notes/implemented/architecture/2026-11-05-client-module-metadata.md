@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-11-05-client-module-metadata.zh.md)
-
 ## Problem
 
 A script's execution environment need not be its presentation document. CSS injection embedded in JavaScript factories couples those destinations and makes module loading responsible for DOM cleanup. Inferring stylesheet ownership from React components would add component-level tracking without reliable source-file identity.

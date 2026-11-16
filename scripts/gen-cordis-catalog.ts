@@ -71,6 +71,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   agents: 'core.md',
   approval: 'approval.md',
   officeKit: 'office-kit.md',
+  officeToPdf: 'office-to-pdf.md',
   attachments: 'attachment.md',
   shell: 'shell.md',
   shellEnv: 'shell.md',
@@ -182,7 +183,6 @@ export const SERVICE_PAGE: Record<string, string> = {
  * to a model as `cordis_runtime_inspect what:"client"`).
  */
 export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
-  officeToPdf: 'Typert Remote service documented in packages/document/office-to-pdf/README.md',
   timeline: 'experimental session data service internal to the bundle — packages/experimental/timeline/README.md owns its behavior',
   contextMenus: 'client-side interface-typed menu registry — packages/client/ui-context-menu/README.md owns the API',
   fileActions: 'client-side interface-typed file actions — packages/client/ui-file-actions/README.md owns the API',
@@ -384,6 +384,10 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   CuaSystemPermission: 'computer-use.md',
   CuaSystemPermissionState: 'computer-use.md',
   RenderedDocumentBytes: 'office-kit.md',
+  OfficeToPdfRequest: 'office-to-pdf.md',
+  OfficeToPdfResult: 'office-to-pdf.md',
+  OfficeToPdfPriority: 'office-to-pdf.md',
+  OfficeToPdfGeneration: 'office-to-pdf.md',
   OfficeKitRequest: 'office-kit.md',
   OfficeKitResult: 'office-kit.md',
   OfficeImagesRequest: 'office-kit.md',
@@ -1243,6 +1247,12 @@ export const CORDIS_CATALOG_POLICY: CordisCatalogPolicy = {
   foundationTypeNames: FOUNDATION_TYPE_NAMES,
   typeLinkExemptions: TYPE_LINK_EXEMPTIONS,
   runtimeServiceExclusions: new Set(['cordisInspect', 'dynamicCordisRunner']),
+  runtimeTypeDeclarations: {
+    RenderedDocumentBytes: 'export interface RenderedDocumentBytes extends WorkspaceFileBytes {\n'
+      + '    readonly missingFonts: string[];\n'
+      + '    readonly generation: OfficeKitGeneration | OfficeToPdfGeneration;\n'
+      + '}',
+  },
   runtimeServices: [{
     key: 'timer',
     type: 'TimerService',

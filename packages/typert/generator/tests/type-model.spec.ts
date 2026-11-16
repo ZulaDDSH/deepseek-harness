@@ -891,6 +891,24 @@ describe('WorkspaceAnalyzer', { timeout: 60_000 }, () => {
     )
   })
 
+  it('retains unresolved exports when declaration diagnostics are disabled', () => {
+    const root = copyFixture('typert-unresolved-export-')
+    const sourcePath = join(root, 'packages/host/src/index.ts')
+    writeFileSync(sourcePath, `${readFileSync(sourcePath, 'utf8')}\nexport { Missing as UnresolvedExport } from './missing.ts'\n`)
+
+    expect(() => new WorkspaceAnalyzer({ root, faces: ['host'], packages: ['@fixture/host'] }).analyze()).toThrow(
+      /TypeScript TS2307/,
+    )
+
+    const host = new WorkspaceAnalyzer({
+      root,
+      faces: ['host'],
+      packages: ['@fixture/host'],
+      checkDiagnostics: false,
+    }).analyze().faces[0]
+    expect(host?.packages[0]?.exports.map(exported => exported.name)).toContain('UnresolvedExport')
+  })
+
   it('retains every authored part of a merged interface', () => {
     const root = copyFixture('typert-merged-declaration-')
     const sourcePath = join(root, 'packages/host/src/models.ts')

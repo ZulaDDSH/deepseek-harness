@@ -5,8 +5,6 @@ description: "Authenticate Desktop requests with a private, in-memory credential
 
 # @deepseek-ai/dsh-host-authentication-desktop
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Desktop can access its Host with a private credential without a browser-token exchange. The credential flows only between the Electron main process and its owned Host, never into the browser cookie jar; the renderer receives ordinary startup data only. All authenticated Desktop requests share owner access for that Desktop lifetime.

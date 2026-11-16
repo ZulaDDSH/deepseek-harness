@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-11-07-forge-changes-view-responsiveness.zh.md)
-
 ## Problem
 
 The forge changes view of a large change request froze the browser. Opening #7985 (366 files, 37,563 drawn lines) kept the main thread busy for about five seconds, "expand all" for fifteen, and every later state change, such as a poll result, a tool result, a file jump, or a keystroke in the file filter, re-rendered every file section. While the view was visible, the whole app slowed down: two subject-less `:has()` rules in `ui-sidebar-files` made each DOM change restyle the entire document, and the view's hundred thousand nodes made each restyle cost 170–260 ms, so a streaming Agent turn kept the main thread saturated.
