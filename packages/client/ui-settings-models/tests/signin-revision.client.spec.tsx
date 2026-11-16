@@ -127,11 +127,11 @@ describe('a sign-in from another tab on the assembled Models section', () => {
     const { runtime, view, signIn, listCalls } = await bench()
     const scoped = within(view.container)
 
-    // Open the provider row's editor, which mounts its sign-in card on the
-    // pre-login state the Host reported at first render.
-    fireEvent.click(await scoped.findByRole('button', { name: 'Edit openai-codex' }))
     expect(runtime.ctx.get('remote.authorization')).toBeTruthy()
     expect(await scoped.findByText(en.signedOut)).toBeTruthy()
+    const signInButton = scoped.getByRole('button', { name: en.signIn })
+    fireEvent.click(scoped.getByRole('button', { name: 'Edit openai-codex' }))
+    expect(scoped.getByRole('button', { name: en.signIn })).toBe(signInButton)
 
     // A second tab signs in: the Host commits a credential record and pushes
     // the update this page subscribes to.

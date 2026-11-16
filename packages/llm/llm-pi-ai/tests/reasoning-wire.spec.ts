@@ -69,6 +69,14 @@ describe('Anthropic adaptive effort on Claude 5.5 (mid-conversation effort)', ()
   })
 })
 
+describe('Anthropic adaptive effort on Claude Fable 5.2', () => {
+  it.each(['low', 'medium', 'high', 'xhigh', 'max'])('sends adaptive thinking with %s effort', async (level) => {
+    const body = await sentBody('anthropic', 'claude-fable-5-2', level)
+    expect(body.thinking).toMatchObject({ type: 'adaptive' })
+    expect(body.output_config).toEqual({ effort: level })
+  })
+})
+
 describe('Anthropic adaptive effort on Claude 4.7 (top-level output_config)', () => {
   it('leaves Default to the model: adaptive thinking, no effort field', async () => {
     const body = await sentBody('anthropic', 'claude-opus-4-7')
