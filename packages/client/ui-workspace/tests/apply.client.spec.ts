@@ -88,9 +88,6 @@ async function bench(access: 'fake' | 'static' = 'fake') {
   const rename = vi.fn(async () => ({}))
   const selectPanel = vi.fn()
   ctx.provide('layout', { selectPanel, beginNavigation: () => new AbortController().signal })
-  ctx.provide('uiSession', {
-    sessionStatus: { getSnapshot: () => new Map(), subscribe: () => () => {} },
-  } as never)
   ctx.provide('commandUi', {
     quickCommands: vi.fn(async () => []),
     runQuick: vi.fn(() => true),
