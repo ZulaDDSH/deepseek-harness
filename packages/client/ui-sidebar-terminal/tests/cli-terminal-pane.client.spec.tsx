@@ -7,7 +7,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ThemeSnapshot } from '@deepseek-ai/dsh-client-ui-theme/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { TerminalView, TerminalViewState } from '@deepseek-ai/dsh-api-terminal-controller/client'
-import type { WebTerminalId } from '@deepseek-ai/dsh-api-terminal-controller/types'
+import type { WebTerminalId, WebTerminalInfo } from '@deepseek-ai/dsh-api-terminal-controller/types'
 import { CliTerminalPane, type CliTerminalPaneProps } from '../src/client/CliTerminalPane.tsx'
 import { en } from '../src/client/locales.ts'
 
@@ -40,7 +40,7 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 const environment = { cwd: '/workspace', maxCols: 200, maxRows: 100, scrollback: 1000, maxInputBytes: 1000, maxBufferedBytes: 100_000 }
-const cliInfo = { id: 'cli' as WebTerminalId, title: 'grok', shell: { path: '/bin/bash', name: 'bash', args: ['-i'] }, cwd: '/workspace', cols: 80, rows: 24, state: 'running' as const, exitCode: null, origin: 'user', control: 'user' }
+const cliInfo: WebTerminalInfo = { id: 'cli' as WebTerminalId, title: 'grok', shell: { path: '/bin/bash', name: 'bash', args: ['-i'] }, cwd: '/workspace', cols: 80, rows: 24, state: 'running', exitCode: null, origin: 'user', control: 'user' }
 
 function store(initial: TerminalViewState) {
   let current = initial

@@ -92,7 +92,7 @@ function props(
     },
     ...summaries,
   }
-  const state = {
+  const state: SessionListState = {
     ids: [CHILD],
     byId,
     phase: 'ready',
@@ -110,7 +110,7 @@ function props(
       }])),
       ...projectionOverrides,
     },
-  } satisfies SessionListState
+  }
   for (const [id, entry] of Object.entries(byId)) {
     const projection = state.projectionsBySession[id as SessionId]
     if (projection !== undefined && projectionOverrides[id as SessionId] === undefined) {

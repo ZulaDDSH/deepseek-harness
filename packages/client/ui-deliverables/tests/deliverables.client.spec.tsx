@@ -631,7 +631,7 @@ describe('ChangedFiles card', () => {
     const turn = turnLocation(1, { produced: [], changes })
     const snapshot = { timeline: { turnOrder: [1], turns: new Map([[1, turn]]) } }
     const useChat = <T,>(select: (value: typeof snapshot) => T): T => select(snapshot)
-    const dock = { ...props, ...dockZone, useChat, sessionId: childSessionId, t: makeTranslate(en) }
+    const dock = { ...standardProps, ...props, ...dockZone, useChat, sessionId: childSessionId, t: makeTranslate(en) }
     const view = render(<ChangedFilesDock {...dock} />)
     expect(view.container.querySelector('[data-changed-files-dock]')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Edited 11 files' }))
@@ -649,7 +649,7 @@ describe('ChangedFiles card', () => {
     const turn = turnLocation(1, { produced: [], changes })
     const snapshot = { timeline: { turnOrder: [1], turns: new Map([[1, turn]]) } }
     const useChat = <T,>(select: (value: typeof snapshot) => T): T => select(snapshot)
-    const dock = { ...props, ...dockZone, useChat, sessionId: childSessionId, t: makeTranslate(en) }
+    const dock = { ...standardProps, ...props, ...dockZone, useChat, sessionId: childSessionId, t: makeTranslate(en) }
     const view = render(<ChangedFilesDock {...dock} />)
     fireEvent.click(screen.getByRole('button', { name: 'Edited example.scss' }))
     fireEvent.click(screen.getByRole('menuitem', { name: /src\/example\.scss/ }))

@@ -144,6 +144,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     settleSectionAction: vi.fn(),
     openSectionMenu: vi.fn(),
     openWorkspaceMenu: vi.fn(),
+    openSessionMenu: vi.fn(),
     actions: store.actions,
     startSession: vi.fn(),
     open: vi.fn(),

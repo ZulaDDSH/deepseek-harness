@@ -11,8 +11,11 @@ import { changesDiffUrl } from '../src/changes.ts'
 import { en } from '../src/client/locales.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
 
-beforeEach(() => { vi.useFakeTimers() })
-afterEach(() => { cleanup(); vi.useRealTimers() })
+beforeEach(() => {
+  vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(any-hover: hover)' }))
+  vi.useFakeTimers()
+})
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals() })
 
 const sessionId = brandString<SessionId>('hover-session')
 const files = ['main.ts', 'second.ts'].map(path => ({ path, display: path, added: 1, deleted: 1 }))
