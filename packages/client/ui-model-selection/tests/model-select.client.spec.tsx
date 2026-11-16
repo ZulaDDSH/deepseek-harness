@@ -554,6 +554,30 @@ describe('ModelSelect reasoning effort', () => {
 })
 
 describe('ModelSelect favorites and provider filter', () => {
+  it('opens a provider directly and reveals its remaining models', () => {
+    const directory = createSnapshotStore(state({ groups: [
+      ...modelGroups(6),
+      { id: 'other', name: 'Other provider', models: [{ id: 'other-model', name: 'Other model' }] },
+    ] }))
+    render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={directory} load={vi.fn()}
+      resolveText={resolveText} select={vi.fn().mockResolvedValue({ ok: true, value: undefined })} t={t} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /选择模型/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'DeepSeek' }))
+    expect(screen.getAllByRole('menuitemradio')).toHaveLength(4)
+    expect(screen.queryByRole('menuitemradio', { name: 'Model 5' })).toBeNull()
+    fireEvent.keyDown(screen.getByRole('searchbox'), { key: 'ArrowUp' })
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: zh['models.showMore'] }))
+    fireEvent.click(screen.getByRole('menuitem', { name: zh['models.showMore'] }))
+    expect(screen.getAllByRole('menuitemradio')).toHaveLength(6)
+    fireEvent.click(screen.getByRole('menuitem', { name: zh['models.showFewer'] }))
+    expect(screen.getAllByRole('menuitemradio')).toHaveLength(4)
+    fireEvent.keyDown(screen.getByRole('searchbox'), { key: 'Escape' })
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'DeepSeek' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /^模型/ }))
+    expect(screen.getByRole('menuitemradio', { name: 'Other model' })).toBeTruthy()
+  })
+
   it('moves favorited models into a top section and keeps them listed there', () => {
     const groups = [{
       id: 'provider',
@@ -786,9 +810,10 @@ describe('ModelSelect keyboard walk', () => {
 
   it('a backward step from outside the list enters at the last row, and a closed menu leaves Tab native', () => {
     mountOpen()
-    const [modelRow, effortRow] = screen.getAllByRole('menuitem')
+    const rows = screen.getAllByRole('menuitem')
+    const modelRow = rows[0]
     expect(fireEvent.keyDown(modelRow!, { key: 'ArrowUp' })).toBe(false)
-    expect(document.activeElement).toBe(effortRow)
+    expect(document.activeElement).toBe(rows.at(-1))
     const trigger = screen.getByRole('button', { name: /选择模型/ })
     fireEvent.keyDown(trigger, { key: 'Escape' })
     expect(screen.queryByRole('menu')).toBeNull()

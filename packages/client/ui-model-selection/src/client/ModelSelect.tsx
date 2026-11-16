@@ -119,6 +119,7 @@ export function ModelSelect(
   const [pane, setPane] = useState<Pane>('root')
   const [query, setQuery] = useState('')
   const [providerFilter, setProviderFilter] = useState<string | null>(null)
+  const [showAllModels, setShowAllModels] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null)
   const [selectionFocus, setSelectionFocus] = useState(false)
   const favoriteIds = useModelFavorites(ids => ids)
@@ -153,6 +154,8 @@ export function ModelSelect(
   const groupsRef = useRef<HTMLDivElement | null>(null)
   const [menuPos, setMenuPos] = useState<CSSProperties | null>(null)
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([])
+  const moreModelsRef = useRef<HTMLButtonElement | null>(null)
+  const rootProviderRef = useRef<string | null>(null)
   const id = useId()
 
   const accountProviderName = t('provider.account')
@@ -173,7 +176,12 @@ export function ModelSelect(
   const filteredSections = useMemo(() => {
     const matching = groups
       .filter(group => providerFilter === null || group.id === providerFilter)
-      .map(group => ({ group, models: rankByName(group.models, showSearch ? query.trim() : '') }))
+      .map(group => ({ group, models: rankByName(
+        providerFilter !== null && !showAllModels && query.trim() === ''
+          ? group.models.filter((model, index) => index < 4 || (state.current?.provider === group.id && state.current.model === model.id))
+          : group.models,
+        showSearch ? query.trim() : '',
+      ) }))
     const providerSections = matching.map(({ group, models }) => ({
       key: group.id,
       label: group.provider.name,
@@ -188,7 +196,7 @@ export function ModelSelect(
     return favorites.length === 0
       ? providerSections
       : [{ key: 'favorites', label: t('favorites.title'), rows: favorites }, ...providerSections]
-  }, [groups, providerFilter, showSearch, query, favoriteSet, t])
+  }, [groups, providerFilter, showAllModels, showSearch, query, favoriteSet, state.current, t])
   const visibleRows = useMemo(() => filteredSections.flatMap(section => section.rows), [filteredSections])
   const currentVisibleIndex = visibleRows.findIndex(row =>
     row.group.id === state.current?.provider && row.model.id === state.current.model)
@@ -272,7 +280,11 @@ export function ModelSelect(
       ;(target ?? triggerRef.current)?.focus()
       return
     }
-    const cell = itemRefs.current[intent === 'effort' ? 1 : 0]
+    const providerCell = intent === 'model' && rootProviderRef.current !== null
+      ? [...menuRef.current?.querySelectorAll<HTMLButtonElement>('[data-model-provider]') ?? []]
+        .find(item => item.dataset['modelProvider'] === rootProviderRef.current)
+      : undefined
+    const cell = providerCell ?? itemRefs.current[intent === 'effort' ? 1 : 0]
     ;(cell !== null && cell !== undefined && !cell.disabled ? cell : triggerRef.current)?.focus()
   }, [open, pane, showSearch])
 
@@ -327,6 +339,8 @@ export function ModelSelect(
     triggerRef.current?.focus()
     setQuery('')
     setProviderFilter(null)
+    setShowAllModels(false)
+    rootProviderRef.current = null
     setHighlightedIndex(null)
     if (currentChoice === undefined) paneFocus.current = 'drill'
     setPane(currentChoice === undefined ? 'model' : 'root')
@@ -381,15 +395,21 @@ export function ModelSelect(
     if (event.key === 'Escape' && open) {
       event.preventDefault()
       // Escape backs out of a drilled pane first, then closes.
-      if (pane !== 'root' && currentChoice !== undefined) back(pane)
+      if (pane !== 'root' && (currentChoice !== undefined || rootProviderRef.current !== null)) back(pane)
       else close(true)
       return
     }
     if (!open) return
-    if (pane === 'model' && showSearch && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+    if (pane === 'model' && showSearch && event.target !== moreModelsRef.current
+      && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
       event.preventDefault()
       if (!busy && visibleRows.length > 0) {
         const direction = event.key === 'ArrowDown' ? 1 : -1
+        if (moreModelsRef.current !== null
+          && ((direction === 1 && activeModelIndex === visibleRows.length - 1) || (direction === -1 && activeModelIndex === 0))) {
+          moreModelsRef.current.focus()
+          return
+        }
         setHighlightedIndex((activeModelIndex + direction + visibleRows.length) % visibleRows.length)
         searchRef.current?.focus()
       }
@@ -409,7 +429,7 @@ export function ModelSelect(
     if (event.key === 'Tab') {
       if (event.shiftKey) {
         event.preventDefault()
-        if (pane !== 'root' && currentChoice !== undefined) back(pane)
+        if (pane !== 'root' && (currentChoice !== undefined || rootProviderRef.current !== null)) back(pane)
         else close(true)
         return
       }
@@ -652,7 +672,7 @@ export function ModelSelect(
         <MenuSurface
           ref={menuRef}
           id={`${id}-menu`}
-          className={css.menu}
+          className={clsx(css.menu, pane === 'root' && css.rootMenu)}
           style={menuPos ?? MEASURE_STYLE}
           role={pane === 'model' ? 'group' : 'menu'}
           aria-label={t('menu.aria')}
@@ -660,7 +680,12 @@ export function ModelSelect(
         >
           {pane === 'root' && (
             <>
-              <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { drill('model') }}>
+              <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => {
+                rootProviderRef.current = null
+                setProviderFilter(null)
+                setShowAllModels(false)
+                drill('model')
+              }}>
                 <span className={css.cellLabel}>{t('menu.model')}</span>
                 <span className={css.cellValue}>
                   {currentChoice === undefined ? modelLabel : renderModelLabel(currentChoice.group.provider, currentChoice.model, 'menu', true)}
@@ -674,6 +699,17 @@ export function ModelSelect(
                   <IconChevronRightOutlineRegular className={css.cellChevron} />
                 </button>
               )}
+              {groups.map(group => (
+                <button key={group.id} ref={itemRef()} type="button" role="menuitem" data-model-provider={group.id} className={css.cell} onClick={() => {
+                  rootProviderRef.current = group.id
+                  setProviderFilter(group.id)
+                  setShowAllModels(false)
+                  drill('model')
+                }}>
+                  <span className={css.cellLabel}>{group.provider.name}</span>
+                  <IconChevronRightOutlineRegular className={css.cellChevron} />
+                </button>
+              ))}
               <CliTerminalEntries t={t} probe={cliProfiles} onPick={(profile) => {
                 close()
                 openCliTerminal(profile).catch((error: unknown) => {
@@ -729,7 +765,7 @@ export function ModelSelect(
                       className={css.chip}
                       active={providerFilter === filter.id}
                       aria-pressed={providerFilter === filter.id}
-                      onClick={() => { setProviderFilter(filter.id) }}
+                      onClick={() => { setProviderFilter(filter.id); setShowAllModels(false) }}
                       onFocus={(event) => { event.currentTarget.scrollIntoView({ inline: 'nearest', block: 'nearest' }) }}
                     >
                       {filter.name}
@@ -834,6 +870,12 @@ export function ModelSelect(
                     })}
                   </MenuGroup>
                 ))}
+                {providerFilter !== null && query.trim() === '' && groups.some(group => group.id === providerFilter && group.models.length > 4) && (
+                  <button ref={moreModelsRef} type="button" role="menuitem" aria-expanded={showAllModels} className={css.cell} onClick={() => { setShowAllModels(value => !value) }}>
+                    <span className={css.cellLabel}>{t(showAllModels ? 'models.showFewer' : 'models.showMore')}</span>
+                    <IconChevronRightOutlineRegular className={css.cellChevron} />
+                  </button>
+                )}
               </div>
               {state.status === 'ready' && filteredSections.length === 0 && (
                 <div className={css.empty} role="status">{t(choices.length === 0 ? 'empty.models' : 'search.empty')}</div>
