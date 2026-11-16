@@ -1061,3 +1061,5 @@ The configuration catalog fills missing field descriptions from anchored code no
 ## packages/typert/generator/src/cordis-catalog.ts:CordisCatalogPolicy
 
 The runtime type declaration override resolves distinct Office rendering generation brands in the shared catalog while identical declarations are deduplicated.
+
+`apps/web/tests/scaffold.ts`: Type-only imports provide the Host Context service types used by the test scaffold.

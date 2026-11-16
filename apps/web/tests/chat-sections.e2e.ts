@@ -82,7 +82,7 @@ describe('web e2e: Chat Sections pane', () => {
 
     // Drag a workspace row onto the section header: the cross-pane filing.
     // Seeded chats live inside their workspace group, so open it first.
-    const group = workspaceTree(page).getByRole('treeitem', { hasText: 'Ungrouped' }).first()
+    const group = workspaceTree(page).getByRole('treeitem').filter({ hasText: 'Ungrouped' }).first()
     await group.click()
     const source = workspaceTree(page).getByRole('treeitem')
       .filter({ hasNotText: 'Ungrouped' }).first()

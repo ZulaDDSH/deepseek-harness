@@ -28,7 +28,7 @@ describe('probe', () => {
     await page.waitForTimeout(400)
 
     // Expand the workspace group so a chat row exists.
-    await page.getByRole('treeitem', { hasText: 'Ungrouped' }).first().click()
+    await page.getByRole('treeitem').filter({ hasText: 'Ungrouped' }).first().click()
     await page.waitForTimeout(400)
 
     // Instrument the DOM to log what the browser actually delivers.
