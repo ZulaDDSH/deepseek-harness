@@ -21,6 +21,7 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { Config } from '@deepseek-ai/dsh-mcp-client'
 import { startConnection } from '@deepseek-ai/dsh-mcp-client/src/connection.ts'
 import { resolveReconnectPolicy } from '@deepseek-ai/dsh-mcp-client/src/reconnect-policy.ts'
+import { McpStatusCell } from '@deepseek-ai/dsh-mcp-client/src/status.ts'
 
 const FIXTURE_SERVER = fileURLToPath(new URL('./reap-fixture-server.ts', import.meta.url))
 
@@ -50,6 +51,8 @@ function configFor(args: readonly string[]): Config {
     env: {},
     cwd: '',
     toolCallTimeoutMs: 2_000,
+    closeTimeoutMs: 5_000,
+    expandTemplates: false,
     failOnStartupError: false,
   }
 }
@@ -99,7 +102,7 @@ async function connectExitingChild(
     ...configFor(['--import', 'tsx', FIXTURE_SERVER, marker]),
     failOnStartupError,
   }
-  const handle = startConnection(ctx, config, resolveReconnectPolicy({ enabled: false }, 'reap-hazard'))
+  const handle = startConnection(ctx, config, resolveReconnectPolicy({ enabled: false }, 'reap-hazard'), new McpStatusCell(() => {}))
   await handle.ready
   // `ready` settles when the first connect+sync finishes, which can precede the
   // server's own exit. Wait for the descendant marker so disposal observes the

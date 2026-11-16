@@ -501,6 +501,8 @@ describe('resources server — headless completion exits cleanly', () => {
         env: {},
         cwd: packageDir,
         toolCallTimeoutMs: 15_000,
+        closeTimeoutMs: 5_000,
+        expandTemplates: false,
         failOnStartupError: true,
         reconnect: { enabled: false },
       })

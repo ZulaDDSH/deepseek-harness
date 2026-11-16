@@ -46,7 +46,7 @@ describe('knowledge endpoint credentials', () => {
   })
 
   it('fails loudly when a configured credential variable is missing', () => {
-    expect(() => resolveHttpHeaders({ headerEnv: { Authorization: TOKEN_VAR } }, { required: true }))
+    expect(() => resolveHttpHeaders({ headerEnv: { Authorization: TOKEN_VAR } }, true))
       .toThrow(/GARDEN_KNOWLEDGE_TOKEN/)
   })
 

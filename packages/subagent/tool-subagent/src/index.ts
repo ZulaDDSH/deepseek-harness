@@ -42,7 +42,6 @@ import { registerListSubagentModels } from './list-models.ts'
 import { SubagentPresetSelection, type PresetSelectionConfig, type PresetSelectionRequest } from './preset-selection.ts'
 import { cannotDelegate, restrictAtDepthLimit } from './depth-limit.ts'
 import { mcpParameter, scopedToolFilter, scopesMcp } from './mcp-scope.ts'
-import { SUBAGENT_TEAM_ROLES } from '@deepseek-ai/dsh-api-session-controller'
 import type { SubagentTeamRole, SubagentTeamRoleRoute } from '@deepseek-ai/dsh-api-session-controller'
 import type {} from './model-selection-settings.ts'
 import {
@@ -52,6 +51,12 @@ import {
 
 export const name = 'tool-subagent'
 export const inject = ['tools', 'subagents', 'systemPrompt', 'sessionProjections']
+
+const SUBAGENT_TEAM_ROLES = {
+  coder: true,
+  reviewer: true,
+  researcher: true,
+} as const satisfies Record<SubagentTeamRole, true>
 
 // Definition identity keeps shared guidance scoped to the actual visible tools,
 // including scoped overrides and independently loaded tool registries.
@@ -524,7 +529,7 @@ export async function apply(ctx: Context, config: Config, session?: Session): Pr
           },
           role: {
             type: 'string' as const,
-            enum: [...SUBAGENT_TEAM_ROLES],
+            enum: Object.keys(SUBAGENT_TEAM_ROLES),
             description: 'Optional Team role. When Agent Teams is enabled, a saved fixed role route is used as the child default; explicit provider, model, and reasoning_effort fields take precedence.',
           },
           ...modelSelectionEnabled ? {

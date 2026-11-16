@@ -182,13 +182,15 @@ async function footprintOf(path: string): Promise<SessionFootprint> {
         await walk(full)
         continue
       }
+      let info
       try {
-        const info = await stat(full)
-        bytes += info.size
-        modifiedMs = Math.max(modifiedMs, info.mtimeMs)
+        info = await stat(full)
       } catch (_fileRemoved) {
         // A file removed under the walk simply stops counting.
+        continue
       }
+      bytes += info.size
+      modifiedMs = Math.max(modifiedMs, info.mtimeMs)
     }
   }
   await walk(path)
