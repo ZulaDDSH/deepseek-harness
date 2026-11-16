@@ -87,7 +87,6 @@ import type {
 export type * from './types.ts'
 export { ApiSessionNotFound } from './agent.ts'
 export { SessionFileReferences } from './file-references.ts'
-export { SUBAGENT_TEAM_ROLES } from './subagent-setup.ts'
 export type { SubagentTeamRole, SubagentTeamRoleRoute } from './subagent-setup.ts'
 export { SessionSkillCatalog } from './skill-catalog.ts'
 export { effectiveSubagentSetupOf } from './run-options.ts'
