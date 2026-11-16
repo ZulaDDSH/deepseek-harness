@@ -17,6 +17,8 @@ const POLICY: CordisCatalogPolicy = {
 }
 
 const roots: string[] = []
+const EVENT_ANCHOR = 'packages/group/fix/src/index.ts:fix/happened'
+const SERVICE_METHOD_ANCHOR = 'packages/group/fix/src/index.ts:FixService.poke'
 
 function fixture(
   event = "    'fix/happened'(): void",
@@ -60,9 +62,17 @@ function fixture(
 }
 
 function policy(anchor: string, fields: Record<string, string>): CordisCatalogPolicy {
+  const codeNotes = new Map([
+    [EVENT_ANCHOR, new Map([
+      ['description', 'A fixture event.'],
+      ['mode', 'emit'],
+    ])],
+    [SERVICE_METHOD_ANCHOR, new Map([['description', 'A fixture service method.']])],
+  ])
+  codeNotes.set(anchor, new Map(Object.entries(fields)))
   return {
     ...POLICY,
-    codeNotes: new Map([[anchor, new Map(Object.entries(fields))]]),
+    codeNotes,
   }
 }
 
@@ -73,7 +83,7 @@ afterEach(() => {
 describe('Cordis code-note contracts', () => {
   it('uses code notes when an event has no source JSDoc', () => {
     const entries = collectEvents(fixture(), policy(
-      'packages/group/fix/src/index.ts:fix/happened',
+      EVENT_ANCHOR,
       { description: 'A thing happened.', mode: 'emit' },
     ))
 
@@ -87,7 +97,7 @@ describe('Cordis code-note contracts', () => {
 
   it('fails closed when event code notes omit the required description', () => {
     expect(() => collectEvents(fixture(), policy(
-      'packages/group/fix/src/index.ts:fix/happened',
+      EVENT_ANCHOR,
       { mode: 'emit' },
     ))).toThrow(/has no description prose/)
   })
@@ -100,7 +110,7 @@ describe('Cordis code-note contracts', () => {
       '     */',
       "    'fix/happened'(): void",
     ].join('\n')), policy(
-      'packages/group/fix/src/index.ts:fix/happened',
+      EVENT_ANCHOR,
       { description: 'Fallback event.' },
     ))
 
@@ -110,7 +120,7 @@ describe('Cordis code-note contracts', () => {
 
   it('uses code notes when a service member has no source JSDoc', () => {
     const entries = collectServices(fixture(), policy(
-      'packages/group/fix/src/index.ts:FixService.poke',
+      SERVICE_METHOD_ANCHOR,
       { description: 'Fire and forget.' },
     ))
 
@@ -118,7 +128,8 @@ describe('Cordis code-note contracts', () => {
   })
 
   it('fails when a service member has neither source JSDoc nor code notes', () => {
-    expect(() => collectServices(fixture(), POLICY)).toThrow(/ctx\.fix\.poke .* has no JSDoc/)
+    expect(() => collectServices(fixture(), policy(SERVICE_METHOD_ANCHOR, {})))
+      .toThrow(/ctx\.fix\.poke .* has no JSDoc/)
   })
 
   it('keeps service member source JSDoc ahead of code notes', () => {
@@ -129,7 +140,7 @@ describe('Cordis code-note contracts', () => {
       '  poke(): void {}',
       '}',
     ].join('\n')), policy(
-      'packages/group/fix/src/index.ts:FixService.poke',
+      SERVICE_METHOD_ANCHOR,
       { description: 'Fallback method.' },
     ))
 
