@@ -28,6 +28,8 @@
     // not declaration path aliases, keep each package/vendor source compiled
     // under its own tsconfig boundary.
     "paths": {
+      "@deepseek-ai/dsh-api-account-controller": ["./packages/api/account-controller/src/index.ts"],
+      "@deepseek-ai/dsh-api-account-controller/types": ["./packages/api/account-controller/src/types.ts"],
       "@deepseek-ai/dsh-desktop-publisher/*": ["./apps/desktop-publisher/src/*"],
       "@deepseek-ai/dsh-client-script-realm": ["./packages/client/script-realm/src/index.ts"],
       "@deepseek-ai/dsh-client-script-realm/client": ["./packages/client/script-realm/src/client/index.ts"],
@@ -536,6 +538,7 @@
       "@deepseek-ai/dsh-message-quotes": ["./packages/session/message-quotes/src"],
       "@deepseek-ai/dsh-native-command": ["./packages/util/native-command/src"],
       "@deepseek-ai/dsh-office-kit": ["./packages/document/office-kit/src"],
+      "@deepseek-ai/dsh-office-to-pdf": ["./packages/document/office-to-pdf/src"],
       "@deepseek-ai/dsh-official-bundles": ["./packages/util/official-bundles/src"],
       "@deepseek-ai/dsh-output-retention": ["./packages/util/output-retention/src"],
       "@deepseek-ai/dsh-package-manifest": ["./packages/util/package-manifest/src"],
@@ -632,8 +635,8 @@
       "@deepseek-ai/dsh-tool-goal": ["./packages/goal/tool-goal/src"],
       "@deepseek-ai/dsh-tool-jobs": ["./packages/jobs/tool-jobs/src"],
       "@deepseek-ai/dsh-tool-lsp": ["./packages/lsp/tool-lsp/src"],
-      "@deepseek-ai/dsh-tool-office": ["./packages/document/tool-office/src"],
       "@deepseek-ai/dsh-tool-master-control": ["./packages/subagent/tool-master-control/src"],
+      "@deepseek-ai/dsh-tool-office": ["./packages/document/tool-office/src"],
       "@deepseek-ai/dsh-tool-present": ["./packages/deliverables/tool-present/src"],
       "@deepseek-ai/dsh-tool-pwsh-persistent": ["./packages/shell/tool-pwsh-persistent/src"],
       "@deepseek-ai/dsh-tool-ralph": ["./packages/experimental/tool-ralph/src"],
@@ -658,6 +661,8 @@
       "@deepseek-ai/dsh-web-deepseek-api": ["./packages/web/web-deepseek-api/src"],
       "@deepseek-ai/dsh-web-fetch-http": ["./packages/web/web-fetch-http/src"],
       "@deepseek-ai/dsh-web-search-deepseek": ["./packages/web/web-search-deepseek/src"],
+      "@deepseek-ai/dsh-web-search-exa": ["./packages/web/web-search-exa/src"],
+      "@deepseek-ai/dsh-web-search-perplexity": ["./packages/web/web-search-perplexity/src"],
       "@deepseek-ai/dsh-webhook": ["./packages/experimental/webhook/src"],
       "@deepseek-ai/dsh-webhook-github": ["./packages/experimental/webhook-github/src"],
       "@deepseek-ai/dsh-win32-process": ["./packages/subprocess/win32-process/src"],
