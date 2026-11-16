@@ -355,28 +355,11 @@ describe('workflow host delegation roles', () => {
     try {
       expect((await handle.result).stopReason).toBe('completed')
       expect(startSpy).toHaveBeenCalledWith(expect.objectContaining({ provider: 'stub' }))
-      expect(startSpy.mock.calls[0]?.[0].request).toEqual(expect.objectContaining({
+      expect(startSpy.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+        parent: expect.any(Object),
         agentOptions: { provider: 'alpha', model: 'coder-model' },
         routePinned: true,
       }))
-    } finally {
-      await handle.dispose()
-    }
-  })
-
-  it('leaves a Jev-decides role child unrouted', async () => {
-    const { ctx, start } = await setup(async (bindings) => {
-      await bindings.startChild!({ prompt: 'p', role: 'reviewer' })
-      return completed
-    })
-    mockSetup(ctx, { enabled: true, reviewRounds: 0, roles: { reviewer: { mode: 'jev' } } })
-    const startSpy = vi.spyOn(ctx.subagents, 'startActivation')
-    const handle = start()
-    try {
-      expect((await handle.result).stopReason).toBe('completed')
-      const request = startSpy.mock.calls[0]?.[0].request
-      expect(request).not.toHaveProperty('agentOptions')
-      expect(request).not.toHaveProperty('routePinned')
     } finally {
       await handle.dispose()
     }
@@ -403,7 +386,8 @@ describe('workflow host delegation roles', () => {
     try {
       expect((await handle.result).stopReason).toBe('completed')
       expect(startSpy).toHaveBeenCalledWith(expect.objectContaining({ provider: 'claude-code' }))
-      expect(startSpy.mock.calls[0]?.[0].request).toEqual(expect.objectContaining({
+      expect(startSpy.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+        parent: expect.any(Object),
         agentOptions: { model: 'cli-model' },
         routePinned: true,
       }))
@@ -433,7 +417,7 @@ describe('workflow host delegation roles', () => {
     try {
       expect((await handle.result).stopReason).toBe('completed')
       expect(startSpy).toHaveBeenCalledWith(expect.objectContaining({ provider: 'claude-team' }))
-      expect(startSpy.mock.calls[0]?.[0].request).toEqual(expect.objectContaining({ agentOptions: { model: 'cli-model' }, routePinned: true }))
+      expect(startSpy.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ parent: expect.any(Object), agentOptions: { model: 'cli-model' }, routePinned: true }))
     } finally {
       await handle.dispose()
     }
@@ -447,7 +431,7 @@ describe('workflow host delegation roles', () => {
         .rejects.toThrow('must pass role (coder)')
       return completed
     })
-    mockSetup(ctx, { enabled: true, reviewRounds: 0, roles: { coder: { mode: 'jev' } } })
+    mockSetup(ctx, { enabled: true, reviewRounds: 0, roles: { coder: { mode: 'fixed', route: { backend: 'llm', provider: 'alpha', model: 'model' } } } })
     const startSpy = vi.spyOn(ctx.subagents, 'startActivation')
     const handle = start()
     try {
@@ -463,7 +447,7 @@ describe('workflow host delegation roles', () => {
       await bindings.startChild!({ prompt: 'p' })
       return completed
     })
-    mockSetup(ctx, { enabled: true, reviewRounds: 0, roles: { orchestrator: { mode: 'jev' } } })
+    mockSetup(ctx, { enabled: true, reviewRounds: 0, roles: { orchestrator: { mode: 'fixed', route: { backend: 'llm', provider: 'alpha', model: 'model' } } } })
     const startSpy = vi.spyOn(ctx.subagents, 'startActivation')
     const handle = start()
     try {

@@ -1321,7 +1321,9 @@ it('pins an unlisted selection as a disabled checked row under the current sessi
 
 it('keeps normal model and effort selection available when a setup record exists', () => {
   const runOptions = createSnapshotStore<SessionRunOptionsProjection | undefined>({
-    current: { subagentSetup: { enabled: true, roles: { orchestrator: { mode: 'jev' } } } },
+    current: { subagentSetup: { enabled: true, roles: { orchestrator: {
+      mode: 'fixed', route: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+    } } } },
   } as SessionRunOptionsProjection)
   const select = vi.fn(async (_selection: ModelSelection) => ({ ok: true as const, value: undefined }))
   render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={createSnapshotStore(state())}

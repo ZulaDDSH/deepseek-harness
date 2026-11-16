@@ -37,7 +37,7 @@ After Apply closes an editor, its saved status appears when the current provider
 
 ### Finding a setting
 
-The Models and Model routing pages register their settings (API key, adding a provider or custom endpoint, and each routing option) with the Settings search, using the labels and one-line descriptions already shown on the page plus English aliases such as relay, proxy and router. The navigation entry that was named Jev reads **Model routing**, and its page heading reads **Model routing (Jev)**.
+The Models page registers its settings (API key, adding a provider or custom endpoint) with the Settings search, using the labels and one-line descriptions already shown on the page plus English aliases such as relay, proxy and router.
 
 ### API keys
 

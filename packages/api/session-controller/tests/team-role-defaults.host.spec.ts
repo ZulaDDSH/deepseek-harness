@@ -25,7 +25,7 @@ const route = { backend: 'llm', provider: 'alpha', model: 'coder-model', reasoni
 const setup = {
   enabled: true,
   reviewRounds: 2,
-  roles: { coder: { mode: 'fixed', route }, reviewer: { mode: 'jev' } },
+  roles: { coder: { mode: 'fixed', route } },
   gsd: { enabled: true, gates: 'auto', planAuthor: 'researcher', planning: 'local', checkRounds: 1, parallelWaves: true },
   autoResponder: { enabled: true },
 }

@@ -16,7 +16,6 @@ import type { ModelsSectionInjected, ModelsSectionProps } from '../src/client/Mo
 import { ApiKeyInput } from '../src/client/ApiKeyInput.tsx'
 import { needsSetup, providerCopy, providerTargetLabel } from '../src/client/provider-rows.ts'
 import { ProviderEditor, pathOps } from '../src/client/ProviderEditor.tsx'
-import { JevSettingsSection } from '../src/client/JevSettingsSection.tsx'
 import type { ProviderEditorProps } from '../src/client/ProviderEditor.tsx'
 import {
   DeepSeekModelsEditor, formatCapacity, modelDrafts, parseCapacity, validateDeepSeekModels,
@@ -94,71 +93,6 @@ const DEFAULT_DEEPSEEK_MODELS = [
     contextWindow: 1_000_000,
   },
   { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', contextWindow: 1_000_000 },
-]
-
-const JevConfig = Schema.object({
-  enabled: Schema.boolean().default(false),
-  apiKeyEnv: Schema.string().role('credential-ref').default('TYPESAFE_API_KEY'),
-  endpoint: Schema.string().default('https://api.typesafe.ai/v1/systemone'),
-  model: Schema.string().default('jev-latest'),
-  timeoutMs: Schema.number().step(1).min(1).default(1500),
-  minConfidence: Schema.number().min(0).max(1).default(0.8),
-  stateMaxChars: Schema.number().step(1).min(256).default(12000),
-  fallback: Schema.string().min(1).default('keep'),
-  failOpen: Schema.boolean().default(true),
-  routes: Schema.array(Schema.object({
-    id: Schema.string().min(1),
-    provider: Schema.string().min(1),
-    model: Schema.string().min(1),
-    description: Schema.string().min(1),
-    reasoningEffort: Schema.string().min(1),
-  })).default([]),
-})
-
-const JEV_ROUTE = {
-  id: 'opus-5-low',
-  provider: 'anthropic',
-  model: 'claude-opus-5',
-  description: 'Complex architecture and difficult debugging',
-  reasoningEffort: 'low',
-}
-
-/** The `llm-jev-router` entry view a Jev editor card renders against. */
-function jevNamespaceView(routes: JsonValue[] = [JEV_ROUTE]): {
-  namespace: SettingsNamespaceView
-  value: JsonValue
-} {
-  const value: JsonValue = {
-    enabled: false,
-    apiKeyEnv: 'TYPESAFE_API_KEY',
-    endpoint: 'https://api.typesafe.ai/v1/systemone',
-    model: 'jev-latest',
-    timeoutMs: 1500,
-    minConfidence: 0.8,
-    stateMaxChars: 12000,
-    fallback: 'keep',
-    failOpen: true,
-    routes,
-  }
-  return {
-    value,
-    namespace: {
-      ns: 'llm-jev-router',
-      autoGenerate: true,
-      schema: JSON.parse(JSON.stringify(JevConfig.toJSON())) as JsonValue,
-      value,
-      base: value,
-      user: {},
-      applies: 'live',
-      secrets: [],
-      revision: 0,
-    },
-  }
-}
-
-const JEV_MODEL_OPTIONS = [
-  { provider: 'deepseek', displayName: 'DeepSeek', models: ['deepseek-v4-flash'] },
-  { provider: 'anthropic', displayName: 'Anthropic', models: ['claude-opus-5'] },
 ]
 
 function wireNamespaces(): SettingsNamespaceView[] {
@@ -249,13 +183,8 @@ function scriptedFace(overrides: {
   mutate?: ReturnType<typeof vi.fn>
   set?: ReturnType<typeof vi.fn>
   unset?: ReturnType<typeof vi.fn>
-  withJev?: boolean
 } = {}) {
   const providerNamespace = wireNamespaces().find(view => view.ns === 'llm-pi-ai')!
-  const jevEntries = overrides.withJev === true
-    ? [{ provider: 'jev-router', displayName: 'TypeSafe / Jev', settingsNs: 'llm-jev-router', settingsPath: [] as string[] }]
-    : []
-  const jevNamespaces = overrides.withJev === true ? [jevNamespaceView().namespace] : []
   const update = overrides.update ?? vi.fn(() => Promise.resolve(remoteOk(providerNamespace)))
   const mutate = overrides.mutate ?? vi.fn(() => Promise.resolve(remoteOk(providerNamespace)))
   const set = overrides.set ?? vi.fn(() => Promise.resolve(remoteOk(undefined)))
@@ -280,12 +209,12 @@ function scriptedFace(overrides: {
         { provider: 'zombie', displayName: 'zombie', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'zombie'], active: false },
         { provider: 'broken', displayName: 'broken', settingsNs: 'llm-pi-ai', settingsPath: ['nope', 'x'], active: false },
         { provider: 'plain', displayName: 'plain', settingsNs: 'llm-plain', settingsPath: ['profiles', 'plain'], active: false },
-      ].map(({ active: _active, ...entry }) => entry).concat(jevEntries)))),
+      ].map(({ active: _active, ...entry }) => entry)))),
       discoverModels: vi.fn(() => Promise.resolve(remoteOk([]))),
     },
     settings: {
       describe: vi.fn(() => Promise.resolve(remoteOk({
-        writable: true, hasDocument: false, namespaces: [...wireNamespaces(), ...jevNamespaces],
+        writable: true, hasDocument: false, namespaces: wireNamespaces(),
       }))),
       update,
       mutate,
@@ -416,48 +345,6 @@ async function mountSection(overrides: Parameters<typeof scriptedFace>[0] = {}) 
   return mountFace(scriptedFace(overrides))
 }
 
-it('opens the dedicated Jev editor with configured routing controls', async () => {
-  const scripted = scriptedFace()
-  const jev = jevNamespaceView()
-  scripted.face.settings.describe.mockImplementation(async () => remoteOk({
-    writable: true, hasDocument: false, namespaces: [...wireNamespaces(), jev.namespace],
-  }))
-  scripted.face.llm.listConfigurableProviders.mockImplementation(async () => remoteOk([
-    { provider: 'jev-router', displayName: 'TypeSafe / Jev', settingsNs: 'llm-jev-router', settingsPath: [], active: false },
-  ]))
-  const ctx = ctxWith(scripted.face)
-  const mirror = new SettingsDescribeMirror(ctx)
-  const controller = new ModelsSettingsStore(ctx, settingsSchema, mirror)
-  render(<JevSettingsSection controller={controller}
-    useSnapshot={bindSnapshotSelector(controller.store)}
-    useCredentialsRevision={bindSnapshotSelector(createSnapshotStore({ revision: 0 }))}
-    operations={operationsWith(scripted.face, mirror)} schema={settingsSchema} t={t} />)
-  await screen.findByLabelText(en.jevEnabled)
-  expect(screen.getByRole('heading', { name: en.jevTitle })).toBeTruthy()
-  expect(screen.getByLabelText(en.jevEndpoint)).toHaveProperty('value', 'https://api.typesafe.ai/v1/systemone')
-  expect(screen.getByLabelText(en.jevRouteModel)).toHaveProperty('value', 'claude-opus-5')
-})
-
-it('reports a Jev load failure and reloads on retry', async () => {
-  const scripted = scriptedFace()
-  const listProviders = vi.fn(() => Promise.resolve(remoteFail('directory down', 'gateway/internal')))
-  scripted.face.llm.listProviders = listProviders
-  const ctx = ctxWith(scripted.face)
-  const mirror = new SettingsDescribeMirror(ctx)
-  const controller = new ModelsSettingsStore(ctx, settingsSchema, mirror)
-  render(<JevSettingsSection controller={controller}
-    useSnapshot={bindSnapshotSelector(controller.store)}
-    useCredentialsRevision={bindSnapshotSelector(createSnapshotStore({ revision: 0 }))}
-    operations={operationsWith(scripted.face, mirror)} schema={settingsSchema} t={t} />)
-  expect((await screen.findByRole('alert')).textContent).toMatch(/directory down/)
-  expect(screen.getByText(en.jevUnavailable)).toBeTruthy()
-  const calls = listProviders.mock.calls.length
-  listProviders.mockResolvedValue(remoteOk([]) as never)
-  fireEvent.click(screen.getByRole('button', { name: en.retry }))
-  await waitFor(() => { expect(screen.queryByRole('alert')).toBeNull() })
-  expect(listProviders.mock.calls.length).toBeGreaterThan(calls)
-})
-
 /**
  * Mount for a user who cannot reach any provider yet: no credential is stored
  * anywhere, so the whole-section DeepSeek route owns the first-run setup card.
@@ -483,26 +370,6 @@ async function mountDeepSeekCard(overrides: Parameters<typeof scriptedFace>[0] =
 }
 
 describe('ModelsSection', () => {
-  it('keeps the Jev router out of the provider list while Settings → Jev still serves it', async () => {
-    const { controller, face, mirror } = await mountSection({ withJev: true })
-    expect(screen.queryByText('TypeSafe / Jev')).toBeNull()
-    expect(screen.queryByRole('button', { name: /TypeSafe \/ Jev/ })).toBeNull()
-    expect(screen.queryByLabelText(en.jevEnabled)).toBeNull()
-    cleanup()
-    render(<JevSettingsSection controller={controller}
-      useSnapshot={bindSnapshotSelector(controller.store)}
-      useCredentialsRevision={bindSnapshotSelector(createSnapshotStore({ revision: 0 }))}
-      operations={operationsWith(face, mirror)} schema={settingsSchema} t={t} />)
-    expect(await screen.findByLabelText(en.jevEnabled)).toBeTruthy()
-  })
-
-  it('offers only model-provider setup on first run when the Jev router is present', async () => {
-    await mountFirstRun({ withJev: true })
-    expect(screen.queryByText('TypeSafe / Jev')).toBeNull()
-    expect(screen.queryByLabelText(en.jevEnabled)).toBeNull()
-    expect(screen.getAllByLabelText(en.keyInput)).toHaveLength(1)
-  })
-
   it('keeps the credential state unconfirmed when its redacted read fails', async () => {
     const scripted = scriptedFace()
     scripted.face.credentials.describe.mockResolvedValue(remoteFail('credentials unavailable', 'gateway/internal'))
@@ -1003,203 +870,6 @@ describe('ModelsSection', () => {
     )
     fireEvent.click(screen.getByText(en.add))
     expect(screen.queryByText(providerCopy(en.savedProvider, { provider: 'deepseek-official', displayName: 'DeepSeek' }))).toBeNull()
-  })
-
-  it('renders Jev route model suggestions while allowing manual values', async () => {
-    const { face, mutate } = scriptedFace()
-    const { ProviderEditor } = await import('../src/client/ProviderEditor.tsx')
-    const { namespace } = jevNamespaceView()
-    render(<ProviderEditor
-      provider="jev-router"
-      displayName="TypeSafe / Jev"
-      namespace={namespace}
-      schema={settingsSchema}
-      settingsPath={[]}
-      modelOptions={[...JEV_MODEL_OPTIONS]}
-      operations={operationsWith(face)}
-      t={t}
-      readOnly={false}
-      onClose={vi.fn()}
-    />)
-
-    expect(screen.getByLabelText(en.keyInput)).toBeTruthy()
-    expect(screen.getByLabelText(en.jevEnabled)).toBeTruthy()
-    const routeProvider = screen.getByLabelText<HTMLSelectElement>(`${en.jevRouteProvider} 1`)
-    const routeModel = screen.getByLabelText<HTMLSelectElement>(`${en.jevRouteModel} 1`)
-    expect(routeProvider.tagName).toBe('SELECT')
-    expect(routeModel.tagName).toBe('SELECT')
-    expect(routeProvider.querySelector('option[value="deepseek"]')).toBeTruthy()
-    expect(routeModel.querySelector('option[value="claude-opus-5"]')).toBeTruthy()
-    expect(screen.queryByText(en.customized)).toBeNull()
-    fireEvent.click(screen.getByLabelText(en.jevEnabled))
-    fireEvent.change(routeProvider, { target: { value: 'deepseek' } })
-    fireEvent.change(routeModel, { target: { value: '__custom__' } })
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>(`${en.jevRouteModel} 1`), { target: { value: 'custom-model' } })
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.keyInput), { target: { value: 'jev-test-key' } })
-    fireEvent.click(screen.getByText(en.apply))
-    await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
-    await waitFor(() => { expect(face.credentials.set).toHaveBeenCalledWith('TYPESAFE_API_KEY', 'jev-test-key') })
-    expect(mutate.mock.calls[0]).toEqual([
-      'llm-jev-router',
-      [
-        { op: 'set', path: ['enabled'], value: true },
-        {
-          op: 'set',
-          path: ['routes'],
-          value: [{ ...JEV_ROUTE, id: 'custom-model', provider: 'deepseek', model: 'custom-model' }],
-        },
-      ],
-      0,
-    ])
-  })
-
-  it('edits every Jev setting and route row as path ops', async () => {
-    const { face, mutate } = scriptedFace()
-    const { ProviderEditor } = await import('../src/client/ProviderEditor.tsx')
-    const { namespace } = jevNamespaceView()
-    render(<ProviderEditor
-      provider="jev-router"
-      displayName="TypeSafe / Jev"
-      namespace={namespace}
-      schema={settingsSchema}
-      settingsPath={[]}
-      modelOptions={[...JEV_MODEL_OPTIONS]}
-      operations={operationsWith(face)}
-      t={t}
-      readOnly={false}
-      onClose={vi.fn()}
-    />)
-
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.jevEndpoint), { target: { value: 'https://proxy.test/v1' } })
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.jevModel), { target: { value: 'jev-next' } })
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.jevTimeoutMs), { target: { value: '2500' } })
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.jevMinConfidence), { target: { value: '0.5' } })
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.jevStateMaxChars), { target: { value: '4096' } })
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.jevFallback), { target: { value: 'opus-5-low' } })
-    fireEvent.click(screen.getByLabelText(en.jevFailOpen))
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>(`${en.jevRouteId} 1`), { target: { value: 'strong' } })
-    // Clearing the optional effort drops the field instead of storing an empty string.
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>(`${en.jevRouteReasoningEffort} 1`), { target: { value: '' } })
-
-    fireEvent.click(screen.getByText(en.jevAddRoute))
-    // A row whose provider ships no catalog models offers manual entry alone.
-    expect(screen.getByLabelText<HTMLInputElement>(`${en.jevRouteModel} 2`).getAttribute('list')).toBeNull()
-    // Editing row 1 while row 2 exists leaves the untouched row as it was.
-    fireEvent.change(
-      screen.getByLabelText<HTMLInputElement>(`${en.jevRouteDescription} 1`),
-      { target: { value: 'Routine edits' } },
-    )
-    fireEvent.click(screen.getByLabelText(`${en.jevRemoveRoute} 2`))
-    expect(screen.queryByLabelText(`${en.jevRouteId} 2`)).toBeNull()
-
-    fireEvent.click(screen.getByText(en.apply))
-    await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
-    expect(mutate.mock.calls[0]).toEqual([
-      'llm-jev-router',
-      expect.arrayContaining([
-        { op: 'set', path: ['endpoint'], value: 'https://proxy.test/v1' },
-        { op: 'set', path: ['model'], value: 'jev-next' },
-        { op: 'set', path: ['timeoutMs'], value: 2500 },
-        { op: 'set', path: ['minConfidence'], value: 0.5 },
-        { op: 'set', path: ['stateMaxChars'], value: 4096 },
-        { op: 'set', path: ['fallback'], value: 'strong' },
-        { op: 'set', path: ['failOpen'], value: false },
-        {
-          op: 'set',
-          path: ['routes'],
-          value: [{
-            id: 'strong',
-            provider: 'anthropic',
-            model: 'claude-opus-5',
-            description: 'Routine edits',
-          }],
-        },
-      ]),
-      0,
-    ])
-  })
-
-  it.each([
-    ['a fallback that names no route', 'gone', [JEV_ROUTE], 'jevFallbackMissing'],
-    ['two routes with the same ID', 'keep', [JEV_ROUTE, { ...JEV_ROUTE, model: 'claude-sonnet-5' }], 'jevRouteIdDuplicate'],
-  ] as const)('refuses to apply %s, which the router would reject', async (_name, fallback, routes, message) => {
-    const { face, mutate } = scriptedFace()
-    const { ProviderEditor } = await import('../src/client/ProviderEditor.tsx')
-    const { namespace } = jevNamespaceView([...routes])
-    const stored = { ...namespace, value: { ...(namespace.value as Record<string, JsonValue>), fallback } }
-    render(<ProviderEditor
-      provider="jev-router" displayName="TypeSafe / Jev" namespace={stored} schema={settingsSchema} settingsPath={[]}
-      modelOptions={[...JEV_MODEL_OPTIONS]} operations={operationsWith(face)} t={t} readOnly={false} onClose={vi.fn()}
-    />)
-    fireEvent.click(screen.getByLabelText(en.jevEnabled))
-    fireEvent.click(screen.getByText(en.apply))
-    expect(await screen.findByText(en[message])).toBeTruthy()
-    expect(mutate).not.toHaveBeenCalled()
-  })
-
-  it('renders Jev defaults, stored-key copy, and the credential-only form', async () => {
-    const { face } = scriptedFace()
-    const { ProviderEditor } = await import('../src/client/ProviderEditor.tsx')
-    // A namespace with no layer values renders from the schema defaults alone.
-    const namespace: SettingsNamespaceView = {
-      ns: 'llm-jev-router',
-      autoGenerate: true,
-      schema: JSON.parse(JSON.stringify(JevConfig.toJSON())) as JsonValue,
-      value: {},
-      base: {},
-      user: {},
-      applies: 'live',
-      secrets: [],
-      revision: 0,
-    }
-    const { unmount } = render(<ProviderEditor
-      provider="jev-router"
-      displayName="TypeSafe / Jev"
-      credential={{ configured: true, source: 'env', writable: true }}
-      namespace={namespace}
-      schema={settingsSchema}
-      settingsPath={[]}
-      operations={operationsWith(face)}
-      t={t}
-      readOnly={false}
-      onClose={vi.fn()}
-    />)
-
-    const key = screen.getByLabelText<HTMLInputElement>(en.keyInput)
-    await waitFor(() => { expect(key.placeholder).toBe(en.keyStored) })
-    expect(screen.getByLabelText<HTMLInputElement>(en.jevEndpoint).value).toBe('https://api.typesafe.ai/v1/systemone')
-    expect(screen.getByLabelText<HTMLInputElement>(en.jevModel).value).toBe('jev-latest')
-    expect(screen.getByLabelText<HTMLInputElement>(en.jevTimeoutMs).value).toBe('1500')
-    expect(screen.getByLabelText<HTMLInputElement>(en.jevMinConfidence).value).toBe('0.8')
-    expect(screen.getByLabelText<HTMLInputElement>(en.jevStateMaxChars).value).toBe('12000')
-    expect(screen.getByLabelText<HTMLInputElement>(en.jevFallback).value).toBe('keep')
-    expect(screen.getByLabelText<HTMLInputElement>(en.jevFailOpen).checked).toBe(true)
-    expect(screen.queryByLabelText(`${en.jevRouteProvider} 1`)).toBeNull()
-    // An unusable number is unset, so the field falls back to the schema default.
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.jevTimeoutMs), { target: { value: '1e999' } })
-    expect(screen.getByLabelText<HTMLInputElement>(en.jevTimeoutMs).value).toBe('1500')
-    fireEvent.change(key, { target: { value: '"quoted"' } })
-    expect(screen.getByText(en.keyIllegalCharacters)).toBeTruthy()
-    unmount()
-
-    // The credential-only form renders the key field alone, against a locked reference.
-    render(<ProviderEditor
-      provider="jev-router"
-      displayName="TypeSafe / Jev"
-      hideTitle
-      credential={{ configured: true, source: 'env', writable: false }}
-      namespace={namespace}
-      schema={settingsSchema}
-      settingsPath={[]}
-      operations={operationsWith(face)}
-      t={t}
-      readOnly={false}
-      credentialOnly
-      onClose={vi.fn()}
-    />)
-    const locked = screen.getByLabelText<HTMLInputElement>(en.keyInput)
-    await waitFor(() => { expect(locked.placeholder).toBe(en.keyEnvLocked) })
-    expect(locked.disabled).toBe(true)
   })
 
   it('applies customized deepseek fields as path ops', async () => {

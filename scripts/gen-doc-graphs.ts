@@ -334,14 +334,6 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Adapters register provider implementations; the loop and compaction call the provider-neutral stream service.',
   },
   {
-    key: 'jevRouter',
-    pkg: 'llm-jev-router',
-    title: 'Optional Jev grep relevance ranking',
-    mode: 'core',
-    consumers: ['tool-fs-search'],
-    note: 'Consumers treat the service as optional and keep their normal output when it is absent, disabled, or fails.',
-  },
-  {
     key: 'sessionLogDeepSeek',
     pkg: 'session-log-deepseek',
     title: 'Session-log upload policy',

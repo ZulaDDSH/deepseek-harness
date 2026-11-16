@@ -1,14 +1,15 @@
 /** Workflow child ownership and progress over the shared sandboxed PTC executor. */
 import type { Context } from '@deepseek-ai/cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-working-directory'
 import type { PtcBindingFunction, PtcJsonValue, PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
 import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import { brandString } from '@deepseek-ai/dsh-brand'
+import { effectiveSubagentSetupOf } from '@deepseek-ai/dsh-api-session-controller/setup-resolver'
+import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import type { SubagentActivation } from '@deepseek-ai/dsh-subagent'
-import { roleRouteOf } from '@deepseek-ai/dsh-tool-subagent'
 import { assertObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import type { ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import { assertNever, snapshotJsonValue } from '@deepseek-ai/dsh-util-values'
@@ -28,6 +29,47 @@ interface ChildRecord {
 
 const GUEST_URL = `data:text/javascript,${encodeURIComponent(WORKFLOW_GUEST_SOURCE)}`
 const PROGRAM = `const { runWorkflowGuest } = await import(${JSON.stringify(GUEST_URL)}); return await runWorkflowGuest(workflowHost);`
+const DELEGATION_ROLES = ['coder', 'reviewer', 'researcher'] as const
+
+interface RoleRoute {
+  readonly kind: 'llm' | 'claude-cli'
+  readonly options: AgentOptions
+}
+
+function roleRouteOf(ctx: Context, agent: Agent, request: ChildStartRequest, claudeCliProvider: string): RoleRoute | undefined {
+  const { role } = request
+  const setup = effectiveSubagentSetupOf(ctx, agent.session)
+  const configured = setup?.enabled === true ? DELEGATION_ROLES.filter(candidate => setup.roles[candidate] !== undefined) : []
+  if (role === undefined) {
+    if (configured.length > 0) {
+      throw new Error(`Orchestrator & Subagent Setup is on, so every subagent call must pass role (${configured.join(', ')}); a call without one is rejected because the child would run on your own model`)
+    }
+    if ((request.provider !== undefined || request.model !== undefined) && setup?.enabled === true) {
+      throw new Error(`Orchestrator & Subagent Setup is on, so pass role (${DELEGATION_ROLES.join(', ')}) instead of provider or model`)
+    }
+    return undefined
+  }
+  const delegated = DELEGATION_ROLES.find(candidate => candidate === role)
+  if (delegated === undefined) throw new Error(`subagent role must be one of ${DELEGATION_ROLES.join(', ')}`)
+  if (request.provider !== undefined || request.model !== undefined) {
+    throw new Error(`subagent role "${role}" chooses the child route; omit provider and model${configured.length === 0 ? '' : ` (configured roles: ${configured.join(', ')})`}`)
+  }
+  if (setup === undefined || !setup.enabled) {
+    throw new Error(`subagent role "${role}" needs Orchestrator & Subagent Setup, which is off for this session`)
+  }
+  const setting = setup.roles[delegated]
+  if (setting === undefined) {
+    throw new Error(`subagent role "${role}" has no model in Orchestrator & Subagent Setup${configured.length === 0 ? '' : `; configured roles: ${configured.join(', ')}`}`)
+  }
+  const { route } = setting
+  const reasoningEffort = route.reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(route.reasoningEffort) }
+  if (route.backend === 'llm') return { kind: 'llm', options: { provider: route.provider, model: route.model, ...reasoningEffort } }
+  const claude = ctx.subagents.getProvider(claudeCliProvider)
+  if (claude === undefined || !claude.capabilities.agentOptions) {
+    throw new Error(`subagent role "${role}" runs on a Claude subscription, but provider "${claudeCliProvider}" is not installed or takes no per-run model`)
+  }
+  return { kind: 'claude-cli', options: { model: route.model, ...reasoningEffort } }
+}
 
 function object(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('workflow binding requires an object')
@@ -219,7 +261,7 @@ export class PtcWorkflowRun implements WorkflowRun {
   private async startChild(request: ChildStartRequest): Promise<PtcJsonValue> {
     this.requireActive()
     const callId = ++this.started
-    const pin = roleRouteOf(this.ctx, this.parent.session, request, this.claudeCliProvider)
+    const pin = roleRouteOf(this.ctx, this.parent, request, this.claudeCliProvider)
     const agentOptions = pin?.options ?? (request.provider === undefined && request.model === undefined ? undefined : {
       ...request.provider === undefined ? {} : { provider: request.provider },
       ...request.model === undefined ? {} : { model: request.model },
@@ -229,14 +271,12 @@ export class PtcWorkflowRun implements WorkflowRun {
       label: `${this.meta.name} child ${callId}`,
       delivery: 'caller',
       signal: this.controller.signal,
-      request: {
-        cwd: await this.cwd,
-        prompt: [{ type: 'text', text: request.prompt }],
-        parent: this.parent,
-        ...request.schema === undefined ? {} : { outputSchema: request.schema },
-        ...agentOptions === undefined ? {} : { agentOptions },
-        ...pin === undefined ? {} : { routePinned: true as const },
-      },
+      cwd: await this.cwd,
+      prompt: [{ type: 'text', text: request.prompt }],
+      parent: this.parent,
+      ...request.schema === undefined ? {} : { outputSchema: request.schema },
+      ...agentOptions === undefined ? {} : { agentOptions },
+      ...pin === undefined ? {} : { routePinned: true as const },
     })
     const record: ChildRecord = { callId, run }
     this.children.set(callId, record)

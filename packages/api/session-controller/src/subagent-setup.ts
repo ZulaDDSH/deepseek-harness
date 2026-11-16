@@ -51,10 +51,7 @@ export type SubagentRoleRoute =
     readonly reasoningEffort?: string | undefined
   }
 
-/** A role either defers each run to Jev or is fixed to one route. */
-export type SubagentRoleSetting =
-  | { readonly mode: 'jev' }
-  | { readonly mode: 'fixed'; readonly route: SubagentRoleRoute }
+export type SubagentRoleSetting = { readonly mode: 'fixed'; readonly route: SubagentRoleRoute }
 
 /** Per-Session subagent setup: whether subagent mode is on, its review rounds, and each role's routing. */
 export interface SubagentSetup {
@@ -79,10 +76,7 @@ const routeSchema = z.discriminatedUnion('backend', [
     reasoningEffort: z.string().min(1).optional(),
   }).strict(),
 ])
-const settingSchema = z.discriminatedUnion('mode', [
-  z.object({ mode: z.literal('jev') }).strict(),
-  z.object({ mode: z.literal('fixed'), route: routeSchema }).strict(),
-])
+const settingSchema = z.object({ mode: z.literal('fixed'), route: routeSchema }).strict()
 
 const gsdSchema = z.object({
   enabled: z.boolean(),

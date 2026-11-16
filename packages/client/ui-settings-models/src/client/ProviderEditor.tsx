@@ -37,7 +37,6 @@ import type { ActiveBilling, BillingSource } from './BillingChoice.tsx'
 import { EditorFooter } from './EditorFooter.tsx'
 import { ModelListEditor } from './ModelListEditor.tsx'
 import { SignInCard } from './SignInCard.tsx'
-import { JevFields, jevConfigFailure } from './JevFields.tsx'
 import type { AuthorizationOperations } from './authorization-operations.ts'
 import { validateReasoningEfforts } from './ModelReasoningEfforts.tsx'
 import type { ReasoningEffortsFailure } from './ModelReasoningEfforts.tsx'
@@ -52,14 +51,7 @@ import { RetryPolicyEditor, retryPolicyDefaults, retryPolicyFailure } from './Re
 import styles from './ModelsSection.module.css'
 
 /** Per-adapter-family curated field sets (unknown namespaces get the hint alone). */
-type EditorLayout = 'deepseek' | 'pi-ai' | 'jev' | 'unknown'
-
-export type ModelPickerOption = {
-  provider: string
-  displayName: string
-  models: readonly string[]
-  efforts?: Readonly<Record<string, readonly string[]>>
-}
+type EditorLayout = 'deepseek' | 'pi-ai' | 'unknown'
 
 
 /** Props of {@link ProviderEditor}. */
@@ -82,7 +74,6 @@ export interface ProviderEditorProps {
   namespace: SettingsNamespaceView
   /** Settings-owned synchronous schema and immutable path operations. */
   schema: SettingsSchemaOperations
-  modelOptions?: readonly ModelPickerOption[]
   /** Path from the section root to this provider's profile. */
   settingsPath: readonly string[]
   /** The Host operations this card writes and interrogates through. */
@@ -188,7 +179,6 @@ export function pathOps(
 function layoutOf(ns: string): EditorLayout {
   if (ns === 'llm-deepseek') return 'deepseek'
   if (ns === 'llm-pi-ai') return 'pi-ai'
-  if (ns === 'llm-jev-router') return 'jev'
   return 'unknown'
 }
 
@@ -405,13 +395,6 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
         return `${t('model')} ${String(failure.index + 1)}: ${t(failure.key)}`
       }
     }
-    if (layout === 'jev' && props.credentialOnly !== true) {
-      const jevFailure = jevConfigFailure(
-        schema.getPath(next, ['routes']) ?? schema.getPath(fallback, ['routes']),
-        schema.getPath(next, ['fallback']) ?? schema.getPath(fallback, ['fallback']),
-      )
-      if (jevFailure !== undefined) return t(jevFailure)
-    }
     /* v8 ignore next -- apply is only reachable from the rendered card, which required a resolved node */
     if (props.credentialOnly !== true && node !== undefined && settingsPath.length === 0) {
       const sectionError = schema.validate(node, next)
@@ -485,44 +468,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
    * narrowed so the per-family branches below are total: an unknown namespace
    * renders the hint instead and never reaches this body.
    */
-  const curatedFields = (family: 'deepseek' | 'pi-ai' | 'jev'): ReactNode => {
-    if (family === 'jev') {
-      const keyPlaceholder = keyLocked
-        ? t('keyEnvLocked')
-        : props.credential?.configured === true && props.credentialRequired !== true
-          ? t('keyStored')
-          : t('keyPlaceholder')
-      const keyField = (
-        <div className={styles['field']}>
-          <span className={styles['fieldLabel']}>{t('keyInput')}</span>
-          <input
-            className={styles['input']}
-            type="password"
-            autoComplete="off"
-            value={keyText}
-            placeholder={keyPlaceholder}
-            aria-label={t('keyInput')}
-            aria-invalid={shownKeyFailure !== undefined}
-            required={props.credentialRequired === true}
-            autoFocus={props.autoFocusCredential === true}
-            disabled={disabled || keyLocked}
-            onChange={(event) => { setKeyDraft(event.target.value) }}
-          />
-          {shownKeyFailure === undefined ? null : <p className={styles['error']}>{t(shownKeyFailure)}</p>}
-        </div>
-      )
-      if (props.credentialOnly === true) return keyField
-      return (
-        <>
-          {keyField}
-          <JevFields
-            schema={schema} draft={draft} stored={fallback} setDraft={setDraft} setField={setField} disabled={disabled}
-            ownProvider={props.provider} providers={props.modelOptions ?? []}
-            customFields={customFields} setCustomFields={setCustomFields} t={t}
-          />
-        </>
-      )
-    }
+  const curatedFields = (family: 'deepseek' | 'pi-ai'): ReactNode => {
     // What a hand-declared route names for itself and nothing else can supply.
     // A whole-section `llm-deepseek` profile is a composition fact with no
     // per-route identity for its schema to carry, hence the family test.

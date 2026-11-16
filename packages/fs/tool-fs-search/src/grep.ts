@@ -15,7 +15,6 @@ import type { Context } from '@deepseek-ai/cordis'
 import { ToolArgsError, defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, SearchResultView, ToolResult } from '@deepseek-ai/dsh-tools'
 import type { RetainedItems } from '@deepseek-ai/dsh-output-retention'
-import type {} from '@deepseek-ai/dsh-llm-jev-router'
 import type { SpillRef } from '@deepseek-ai/dsh-spill'
 import type { GrepMatch } from './search-core.ts'
 
@@ -234,14 +233,6 @@ function formatRetainedGrep(retained: RetainedItems<GrepMatch>, spillRef?: Spill
   return formatGrepOutput(retained, spillRef)
 }
 
-function formatJevFilteredGrep(matches: readonly GrepMatch[], total: number, spillRef?: SpillRef): string {
-  const body = formatGrepMatches(matches)
-  const recovery = spillRef !== undefined
-    ? `Full grep result stored at: ${spillRef.locator}. ${spillRef.retrievalHint}`
-    : 'Jev filtered the remaining matches; narrow pattern, path, or include to inspect more.'
-  return `Jev kept ${matches.length} of ${total} grep matches\n\n${body}\n\n(${recovery})`
-}
-
 /**
  * Pending-call presentation: a search card titled by the pattern (and target /
  * include filter). An exact empty include contributes no filter suffix.
@@ -358,28 +349,7 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
     const value = acceptedDirectCallValue(ctx, tool, exec, result, decision) as { matches: GrepMatch[] } | undefined
     if (value === undefined) return decision
     const matches = value.matches
-    const previewedInline = matches
-      .slice(0, caps.maxMatches)
-      .map(match => ({ ...match, line: previewLine(match.line, caps.maxLineBytes) }))
-    let relevant = previewedInline
-    if (exec.parent === undefined && exec.agent !== undefined) {
-      const jev = ctx.get('jevRouter')
-      if (jev !== undefined) {
-        try {
-          relevant = [...await jev.filterGrepMatches({
-            agent: exec.agent,
-            pattern: (exec.arguments as { pattern?: unknown }).pattern as string,
-            matches: previewedInline,
-            signal: exec.signal,
-          })]
-        } catch (error) {
-          ctx.logger.warn('grep: Jev relevance filter failed; preserving normal grep output')
-          ctx.logger.warn(error)
-        }
-      }
-    }
-    const jevFiltered = relevant.length < previewedInline.length
-    if (!jevFiltered && matches.length <= caps.maxMatches) return decision
+    if (matches.length <= caps.maxMatches) return decision
     const previewedAll = matches.map(match => ({ ...match, line: previewLine(match.line, caps.maxLineBytes) }))
     const spillRef = await trySaveFormattedResult(
       ctx,
@@ -391,9 +361,7 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
       kind: 'accept',
       content: [{
         type: 'text',
-        text: jevFiltered
-          ? formatJevFilteredGrep(relevant, matches.length, spillRef)
-          : formatRetainedGrep(retainGrepMatches(matches, caps.maxMatches, caps.maxLineBytes), spillRef),
+        text: formatRetainedGrep(retainGrepMatches(matches, caps.maxMatches, caps.maxLineBytes), spillRef),
       }],
       ...decision.additionalContexts !== undefined ? { additionalContexts: decision.additionalContexts } : {},
     }

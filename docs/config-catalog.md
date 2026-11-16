@@ -2363,59 +2363,6 @@ export interface Config extends ProtocolConfig, ModelListingConfig {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-llm-deepseek-api-key -->
 
-<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-llm-jev-router -->
-<a id="deepseek-aidsh-llm-jev-router"></a>
-
-## `@deepseek-ai/dsh-llm-jev-router`
-
-- `inject`: `llm`
-- `refs`: `Volatile` (`@deepseek-ai/cordis`)
-- `source`: [`packages/llm/llm-jev-router/src/index.ts:77`](../packages/llm/llm-jev-router/src/index.ts)
-
-```ts config-catalog
-/** Live Jev settings retained by the router. */
-export type RuntimeConfig = Volatile<Config>
-
-/** Jev router settings. */
-export interface Config {
-  /** Enable automatic routing. */
-  enabled: boolean
-  /** Credential/environment reference. */
-  apiKeyEnv: string
-  /** TypeSafe evaluation endpoint. */
-  endpoint: string
-  /** Jev model alias. */
-  model: string
-  /** Request timeout in milliseconds. */
-  timeoutMs: number
-  /** Minimum accepted decision confidence. */
-  minConfidence: number
-  /** Maximum state characters sent to Jev. */
-  stateMaxChars: number
-  /** Route id or `keep` for the base route. */
-  fallback: string
-  /** Preserve the base route when Jev fails. */
-  failOpen: boolean
-  /** Allow-listed destination routes. */
-  routes: readonly JevRoute[]
-}
-
-/** Allow-listed DSH destination selected by Jev. */
-export interface JevRoute {
-  /** Jev choice identifier. */
-  id: string
-  /** Registered DSH provider route. */
-  provider: string
-  /** Provider-owned model identifier. */
-  model: string
-  /** Choice criteria sent to Jev. */
-  description: string
-  /** Optional provider reasoning effort. */
-  reasoningEffort?: string
-}
-```
-<!-- END GENERATED config-catalog:@deepseek-ai/dsh-llm-jev-router -->
-
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-llm-pi-ai -->
 <a id="deepseek-aidsh-llm-pi-ai"></a>
 

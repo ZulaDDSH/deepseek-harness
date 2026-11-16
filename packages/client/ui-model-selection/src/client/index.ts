@@ -28,7 +28,6 @@ import { IconDataOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ModelDirectoryState } from './directory.ts'
 import { ModelDirectoryResolver } from './service.ts'
 import type { ModelSelectInjected } from './slots.ts'
-import { JevRouting } from './JevRouting.tsx'
 import { ModelSelect } from './ModelSelect.tsx'
 import { descriptionOf, rowId } from './descriptions.ts'
 import { en, ja, es, fr, de, ru, pt, zh, type ModelKey } from './locales.ts'
@@ -216,10 +215,5 @@ export function apply(ctx: ClientContext): void {
         }
       },
     }, ModelSelect))
-    scope.slots.inject('conversation.input.right', () => scope.slots.register({
-      name: 'conversation.input.right',
-      id: 'model-routing',
-      locale: NS,
-    }, JevRouting))
   })
 }

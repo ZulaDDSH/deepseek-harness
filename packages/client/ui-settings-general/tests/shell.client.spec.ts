@@ -41,7 +41,7 @@ const CHILD_NAMES = Object.keys(CHILD_SPECS) as Array<keyof typeof CHILD_SPECS>
  * ui-settings-models, ui-settings-plugins, and ui-agent-preset. A plugin
  * adding a section changes this list.
  */
-const PRODUCT_SECTIONS: readonly string[] = ['general', 'models', 'jev', 'agent-presets', 'mcp', 'hooks', 'plugins']
+const PRODUCT_SECTIONS: readonly string[] = ['general', 'models', 'agent-presets', 'mcp', 'hooks', 'plugins']
 describe('ui-settings-general shell', () => {
   it('shares one carrier subscription between both update locations and releases it on unload', async ({ start }) => {
     const initial = Promise.withResolvers<DesktopUpdatePresentation>()
@@ -108,14 +108,13 @@ describe('ui-settings-general shell', () => {
     off()
   })
 
-  it('searches the assembled product: General rows that are registered, Models, Jev and MCP settings, and stops listing a package once it unloads', async ({ start }) => {
+  it('searches the assembled product: General rows that are registered, Models and MCP settings, and stops listing a package once it unloads', async ({ start }) => {
     const c = await start()
     const { search, hooks } = injectedOf(c)
     const ids = (query: string) => search(query).map(item => item.id)
     // Keyword aliases are English in both dictionaries, so the query does not depend on the active locale.
     expect(ids('locale')).toContain('general.language')
     expect(ids('hotkeys')).toEqual(['general.shortcuts'])
-    expect(ids('wait')).toContain('jev.timeout')
     expect(ids('stdio')).toContain('mcp.add')
     expect(ids('relay')).toEqual(['models.custom-api'])
     // A row whose feature is not registered is not offered (the Link row needs the built-in browser).

@@ -1,8 +1,6 @@
 import type { LlmNativeAuth } from '@deepseek-ai/dsh-api-remotes/client'
 import { deriveKeyRef } from './store.ts'
-import type { ModelsSettingsState, ProviderRow } from './store.ts'
-import type { SettingsSchemaOperations } from './schema-operations.ts'
-import type { ModelPickerOption } from './ProviderEditor.tsx'
+import type { ProviderRow } from './store.ts'
 
 /** Provider identity shared by row actions and confirmation copy. */
 export interface ProviderIdentity {
@@ -101,42 +99,4 @@ export function providerTargetLabel(target: ProviderIdentity): string {
  */
 export function providerCopy(template: string, target: ProviderIdentity): string {
   return template.replace('{provider}', () => providerTargetLabel(target))
-}
-
-/** Build editable provider and model suggestions from configured namespaces.
- * @param state Current provider rows and settings views.
- * @param schema Settings path reader.
- * @returns Suggestions retaining arbitrary manual provider and model input.
- */
-export function providerModelOptions(state: Pick<ModelsSettingsState, 'rows' | 'namespaces' | 'catalog'>, schema: SettingsSchemaOperations): ModelPickerOption[] {
-  const options = new Map<string, ModelPickerOption>()
-  for (const group of state.catalog ?? []) {
-    options.set(group.id, {
-      provider: group.id,
-      displayName: group.name,
-      models: group.models.map(model => model.id),
-      efforts: Object.fromEntries(group.models.map(model => [model.id, model.reasoning?.efforts.map(effort => effort.id) ?? []])),
-    })
-  }
-  const configured = state.rows.flatMap((row) => {
-    const namespace = state.namespaces.get(row.entry.settingsNs)
-    if (namespace === undefined) return []
-    const profile = schema.getPath(namespace.value, row.entry.settingsPath)
-    const rawModels = schema.getPath(profile, ['models'])
-    const models = Array.isArray(rawModels)
-      ? rawModels.flatMap((model) => {
-        if (typeof model !== 'object' || model === null || Array.isArray(model)) return []
-        const id = (model as { id?: unknown }).id
-        return typeof id === 'string' && id.length > 0 ? [id] : []
-      })
-      : []
-    return [{ provider: row.entry.provider, displayName: row.entry.displayName, models }]
-  })
-  for (const option of configured) {
-    const known = options.get(option.provider)
-    options.set(option.provider, known === undefined
-      ? option
-      : { ...known, models: [...new Set([...known.models, ...option.models])] })
-  }
-  return [...options.values()]
 }

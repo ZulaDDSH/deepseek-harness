@@ -32,7 +32,7 @@ const setup: SubagentSetup = {
   reviewRounds: 2,
   roles: {
     coder: { mode: 'fixed', route: { backend: 'llm', provider: 'fixture', model: 'fixture-coder' } },
-    reviewer: { mode: 'jev' },
+    reviewer: { mode: 'fixed', route: { backend: 'llm', provider: 'fixture', model: 'fixture-reviewer' } },
   },
 }
 
@@ -93,7 +93,8 @@ it('validates a Subagent Setup at the write boundary', () => {
   const malformed = [
     { ...setup, reviewRounds: 6 },
     { ...setup, reviewRounds: 1.5 },
-    { ...setup, roles: { boss: { mode: 'jev' } } },
+    { ...setup, roles: { boss: { mode: 'fixed', route: { backend: 'llm', provider: 'fixture', model: 'm' } } } },
+    { ...setup, roles: { coder: { mode: 'invalid' } } },
     { ...setup, roles: { coder: { mode: 'fixed', route: { backend: 'claude-cli', model: 'opus', reasoningEffort: 'turbo' } } } },
     { ...setup, roles: { coder: { mode: 'fixed', route: { backend: 'claude-cli', model: '  ' } } } },
     { ...setup, roles: { coder: { mode: 'fixed', route: { backend: 'llm', provider: '', model: 'm' } } } },
@@ -196,13 +197,17 @@ it('describes only configured roles and the review rounds', () => {
   expect(subagentPolicyText({ ...setup, reviewRounds: 1, roles: {} })).toContain('cannot run a role')
   expect(subagentPolicyText({ ...setup, reviewRounds: 1 })).toContain('for at most 1 review round before you report.')
   expect(subagentPolicyText({ ...setup, reviewRounds: 0 })).toContain('Do not run review rounds')
-  expect(subagentPolicyText({ ...setup, reviewRounds: 3, roles: { coder: { mode: 'jev' } } })).not.toContain('review round')
+  expect(subagentPolicyText({ ...setup, reviewRounds: 3, roles: { coder: { mode: 'fixed', route: { backend: 'llm', provider: 'fixture', model: 'm' } } } })).not.toContain('review round')
 })
 
 it('tells the orchestrator to plan, delegate, parallelize and not implement itself', () => {
   const full = subagentPolicyText({
     ...setup,
-    roles: { coder: { mode: 'jev' }, reviewer: { mode: 'jev' }, researcher: { mode: 'jev' } },
+    roles: {
+      coder: { mode: 'fixed', route: { backend: 'llm', provider: 'fixture', model: 'coder' } },
+      reviewer: { mode: 'fixed', route: { backend: 'llm', provider: 'fixture', model: 'reviewer' } },
+      researcher: { mode: 'fixed', route: { backend: 'llm', provider: 'fixture', model: 'researcher' } },
+    },
   })
   expect(full).toContain('You are the orchestrator: plan the work, brief each subagent completely, and verify what comes back.')
   expect(full).toContain('Delegate implementation to a coder and do not make code changes yourself; writing brief and handoff files is fine.')
@@ -212,7 +217,7 @@ it('tells the orchestrator to plan, delegate, parallelize and not implement itse
   expect(full).toContain('Subagents cannot start subagents, so you start every subagent yourself.')
   expect(full).toContain('After a coder returns a code change, start a reviewer (role reviewer) on it, send its findings to the coder with send_message')
   expect(full).toContain('repeat for at most 2 review rounds before you report.')
-  const noCoder = subagentPolicyText({ ...setup, roles: { reviewer: { mode: 'jev' } } })
+  const noCoder = subagentPolicyText({ ...setup, roles: { reviewer: { mode: 'fixed', route: { backend: 'llm', provider: 'fixture', model: 'reviewer' } } } })
   expect(noCoder).not.toContain('do not make code changes yourself')
   expect(noCoder).not.toContain('researcher')
 })
@@ -287,7 +292,7 @@ it('adds the GSD section only to the top-level orchestrator while subagent mode 
 })
 
 it('resolves one setup per Session: its override, else the nearest ancestor, else the global default, else nothing', async () => {
-  const globalSetup: SubagentSetup = { enabled: true, reviewRounds: 1, roles: { reviewer: { mode: 'jev' } } }
+  const globalSetup: SubagentSetup = { enabled: true, reviewRounds: 1, roles: { reviewer: { mode: 'fixed', route: { backend: 'llm', provider: 'fixture', model: 'reviewer' } } } }
   const { ctx, controller } = await setupRoot(true, globalSetup)
   const own = agentUnder(ctx, 'resolve-own')
   const parent = agentUnder(ctx, 'resolve-parent')
@@ -392,7 +397,6 @@ describe('orchestrator route that drives a Session model', () => {
     expect(orchestratorSelectionOf(on.ctx, bare.session)).toEqual(drivenRoute)
     for (const globalSetup of [
       { ...fixedLlm, enabled: false },
-      { ...fixedLlm, roles: { orchestrator: { mode: 'jev' as const } } },
       { ...fixedLlm, roles: { orchestrator: { mode: 'fixed' as const, route: { backend: 'claude-cli' as const, model: 'opus' } } } },
     ]) {
       const off = await setupRoot(false, globalSetup)

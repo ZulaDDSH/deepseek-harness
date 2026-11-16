@@ -138,7 +138,9 @@ it('shows Fast mode and the Claude Code effort choice only with the Claude Code 
 })
 
 it('keeps the ordinary model and effort choices available when a saved setup record exists', () => {
-  const current = { subagentSetup: { enabled: true, reviewRounds: 2, roles: { orchestrator: { mode: 'jev' as const } } } }
+  const current = { subagentSetup: { enabled: true, reviewRounds: 2, roles: { orchestrator: {
+    mode: 'fixed' as const, route: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+  } } } }
   const { trigger } = renderSeat(false, current)
   fireEvent.click(trigger)
   openModel()

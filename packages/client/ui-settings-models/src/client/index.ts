@@ -1,10 +1,3 @@
-/**
- * Models settings plugin, browser half. It registers the Models page and the
- * JEV settings section. The Host settings and credential contracts stay behind
- * their existing wire APIs.
- * Export discipline:
- * packages/client/AGENTS.md.
- */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { SettingsDescribeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
@@ -15,7 +8,6 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { ModelsSection } from './ModelsSection.tsx'
-import { JevSettingsSection } from './JevSettingsSection.tsx'
 import type { ModelsSectionInjected } from './ModelsSection.tsx'
 import { ModelsSettingsStore } from './store.ts'
 import type { CredentialsRevisionState } from './store.ts'
@@ -131,7 +123,4 @@ export function apply(ctx: ClientContext): void {
       'settings.models.footer': { kind: 'list', scope: 'root' },
     },
   }, ModelsSection))
-  ctx.slots.inject('settings.section', () => ctx.slots.register({
-    name: 'settings.section', id: 'jev', order: 11, label: () => t('jevNav'), inject: injected,
-  }, JevSettingsSection))
 }

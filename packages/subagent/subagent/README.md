@@ -50,7 +50,7 @@ Mount the optional `@deepseek-ai/dsh-subagent/orchestration-policy` plugin when 
 - name: '@deepseek-ai/dsh-subagent/orchestration-policy'
 ```
 
-It contributes one system-prompt section that renders only for a top-level agent — a delegated child already carries its own delegation-scope statement — and states when to work directly, when to delegate one bounded subtask, and when to write a workflow script, plus how to decompose, parallelize, steer, stop, and synthesize delegated work. The section also states the route rule the composition implies: with no router mounted, a delegate inherits this agent's provider, model, and reasoning effort; when the composed Jev router is enabled, it instead forbids naming a delegate's provider, model, or reasoning effort, because that router decides each agent's route. The section re-renders on every assembly, so changing the router's enabled setting applies from the next request. Mounting the plugin changes the model-visible prompt; a composition that omits it keeps its prompt unchanged.
+It contributes one system-prompt section that renders only for a top-level agent — a delegated child already carries its own delegation-scope statement — and states when to work directly, when to delegate one bounded subtask, and when to write a workflow script, plus how to decompose, parallelize, steer, stop, and synthesize delegated work. Mounting the plugin changes the model-visible prompt; a composition that omits it keeps its prompt unchanged.
 
 ### Delegation settings
 
@@ -238,15 +238,15 @@ Prefix-stable within a child: the statement never changes during the child's lif
 
 #### What the model sees
 
-With the optional orchestration-policy plugin mounted, one `orchestration:policy` section joins every top-level agent's system prompt after the team policy and before the knowledge policy. It ends with the inheritance clause, or with the router-owned clause while the composed Jev router is enabled. A delegated child never receives the section.
+With the optional orchestration-policy plugin mounted, one `orchestration:policy` section joins every top-level agent's system prompt after the team policy and before the knowledge policy. A delegated child never receives the section.
 
 #### Token effect
 
-One fixed policy paragraph plus one route clause in each top-level agent request; nothing in a child's request.
+One fixed policy paragraph in each top-level agent request; nothing in a child's request.
 
 #### KV Cache effect
 
-Prefix-stable within a deployment: the text changes only when the router's enabled setting changes.
+Prefix-stable within a deployment.
 
 ## Known Limitations and Deferred Work
 

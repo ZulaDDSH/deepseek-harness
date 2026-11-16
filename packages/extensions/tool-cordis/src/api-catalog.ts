@@ -2013,19 +2013,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
-    key: 'jevRouter',
-    summary: 'Grep relevance ranking backed by the Jev client.',
-    description: 'Grep relevance ranking backed by the Jev client. Every failure path returns the input matches unchanged, so a consumer never loses grep output to Jev.',
-    methods: [
-      {
-        signature: 'async filterGrepMatches(input: { agent: Agent pattern: string matches: readonly JevGrepMatch[] signal: AbortSignal }): Promise<readonly JevGrepMatch[]>',
-        description: 'Keep the grep matches Jev ranks most relevant to the Agent\'s current task. Returns `input.matches` unchanged when routing is disabled, the signal is aborted, fewer than GREP_RELEVANCE_MIN_MATCHES matches arrive, the Agent has no recorded state, or scoring fails.',
-        parameters: [{ name: 'input', description: 'requesting Agent, grep pattern, candidate matches, and abort signal.' }],
-        returns: 'at most {@link GREP_RELEVANCE_KEEP_MATCHES} matches in input order, or the input matches.',
-      },
-    ],
-  },
-  {
     key: 'jobController',
     summary: 'Host service backing the generated `ctx.remote.job` namespace.',
     description: 'Host service backing the generated `ctx.remote.job` namespace.',
@@ -7833,10 +7820,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface InvokeRemoteRequest {\n    readonly namespace: string;\n    readonly method: string;\n    readonly args: Readonly<Record<string, unknown>>;\n    readonly uplink?: AsyncIterable<unknown>;\n    readonly uplinkWindow?: RemoteUplinkWindow | undefined;\n    readonly peer: PeerScope;\n    readonly signal?: AbortSignal;\n}',
   },
   {
-    name: 'JevGrepMatch',
-    declaration: 'export interface JevGrepMatch {\n    readonly path: string;\n    readonly lineNumber: number;\n    readonly line: string;\n}',
-  },
-  {
     name: 'JobAppendOptions',
     declaration: 'export interface JobAppendOptions {\n    channel?: JobChannel;\n    gapBefore?: true;\n}',
   },
@@ -10626,7 +10609,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubagentRoleSetting',
-    declaration: 'export type SubagentRoleSetting = {\n    readonly mode: \'jev\';\n} | {\n    readonly mode: \'fixed\';\n    readonly route: SubagentRoleRoute;\n};',
+    declaration: 'export type SubagentRoleSetting = {\n    readonly mode: \'fixed\';\n    readonly route: SubagentRoleRoute;\n};',
   },
   {
     name: 'SubagentRun',
