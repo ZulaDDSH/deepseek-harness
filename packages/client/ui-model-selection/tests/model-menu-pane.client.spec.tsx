@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
 import type { OwnerOf } from '@deepseek-ai/dsh-client-ui-slots'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { bindSnapshotSelector, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { ModelDirectoryState } from '../src/client/directory.ts'
 import { ModelSelect } from '../src/client/ModelSelect.tsx'
 import { en } from '../src/client/locales.ts'
@@ -19,6 +19,8 @@ function setup(autoFocus = true, paneKey = 'fixture', paneTitle = 'Fixture setti
   })
   const change = vi.fn()
   const select = vi.fn()
+  const useModelDirectory = bindSnapshotSelector(directory)
+  const useModelFavorites = bindSnapshotSelector(createSnapshotStore<string[]>([]))
   const renderSlot: ComponentProps<typeof ModelSelect>['renderSlot'] = (name, owner, options) => {
     if (name === 'conversation.input.model.options') {
       const controls = owner as object as OwnerOf<'conversation.input.model.options'>
@@ -35,7 +37,9 @@ function setup(autoFocus = true, paneKey = 'fixture', paneTitle = 'Fixture setti
     }
     return options?.fallback ?? null
   }
-  render(<ModelSelect locked={false} available directory={directory} load={vi.fn()} select={select}
+  render(<ModelSelect locked={false} available useModelDirectory={useModelDirectory} useModelFavorites={useModelFavorites}
+    useProjection={() => undefined} toggleFavorite={vi.fn()} cliProfiles={vi.fn(async () => [])}
+    openCliTerminal={vi.fn(async () => {})} load={vi.fn()} select={select}
     resolveText={text => typeof text === 'string' ? text : text.en} t={makeTranslate(en)} renderSlot={renderSlot} />)
   const trigger = screen.getByRole('button', { name: /^Select model/ })
   fireEvent.click(trigger)
