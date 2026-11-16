@@ -36,9 +36,10 @@ import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import type { ModelReasoningEffort, ModelSelection } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SessionRunOptions, SessionRunOptionsProjection } from '@deepseek-ai/dsh-api-session-controller/types'
+import { TextSearchIndex } from '@deepseek-ai/dsh-util-text-search'
 import {
   IconCheckOutlineRegular, IconChevronDownOutlineRegular, IconChevronRightOutlineRegular, IconCloseFillRegular,
-  IconDataOutlineRegular, IconWarningOutlineRegular, Input, isMobileDevice, Pill, rankByName, StateDot, Switch, Tag, Toast,
+  IconDataOutlineRegular, IconWarningOutlineRegular, Input, isMobileDevice, Pill, StateDot, Switch, Tag, Toast,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ModelDirectoryState } from './directory.ts'
@@ -169,10 +170,13 @@ export function ModelSelect(
       selection: selectionFor(group.id, model),
     }))), [groups])
   const showSearch = choices.length > 4
+  const groupIndexes = useMemo(() => groups.map(group => ({
+    group, index: new TextSearchIndex(group.models, model => ({ fuzzy: [model.name, model.id], substring: [model.description] })),
+  })), [groups])
   const filteredSections = useMemo(() => {
-    const matching = groups
-      .filter(group => providerFilter === null || group.id === providerFilter)
-      .map(group => ({ group, models: rankByName(group.models, showSearch ? query.trim() : '') }))
+    const matching = groupIndexes
+      .filter(({ group }) => providerFilter === null || group.id === providerFilter)
+      .map(({ group, index }) => ({ group, models: index.search(showSearch ? query : '') }))
     const providerSections = matching.map(({ group, models }) => ({
       key: group.id,
       label: group.provider.name,
@@ -187,7 +191,7 @@ export function ModelSelect(
     return favorites.length === 0
       ? providerSections
       : [{ key: 'favorites', label: t('favorites.title'), rows: favorites }, ...providerSections]
-  }, [groups, providerFilter, showSearch, query, favoriteSet, t])
+  }, [groupIndexes, providerFilter, showSearch, query, favoriteSet, t])
   const visibleRows = useMemo(() => filteredSections.flatMap(section => section.rows), [filteredSections])
   const currentVisibleIndex = visibleRows.findIndex(row =>
     row.group.id === state.current?.provider && row.model.id === state.current.model)
