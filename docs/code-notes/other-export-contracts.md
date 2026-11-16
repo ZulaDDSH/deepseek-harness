@@ -101,3 +101,9 @@
 
 ### `packages/subagent/tool-subagent/src/index.ts:CLAUDE_CLI_PROVIDER`
 - `description`: Names the default Claude Code provider used for delegated CLI roles.
+
+### `packages/boot/app-boot/src/profile-resolution/resolver.ts:isInternalModuleUnavailable`
+- `description`: Recognizes Node module-loading failures that identify the requested internal module as unavailable.
+- `params.error`: Thrown value from the module-loading attempt.
+- `params.moduleId`: Internal module identifier requested by the caller.
+- `returns`: True only when a recognized Node error identifies the requested module itself as unavailable; false for unrelated or transitive failures.
