@@ -32,6 +32,7 @@ import { ChangesSummaryStore } from './changes-summary.ts'
 import { PresentedOpenController } from './present-open.ts'
 import { PresentRow } from './PresentRow.tsx'
 import { DeliverablesTail, type DeliverablesInjected } from './Deliverables.tsx'
+import { ChangedFilesDock, type ChangedFilesDockInjected } from './ChangedFilesDock.tsx'
 import { ReviewTab, type ReviewInjected } from './ReviewTab.tsx'
 import { SourceChangesPage, type SourceChangesInjected } from './SourceChangesPage.tsx'
 import { WorkspaceChangesTab, type WorkspaceChangesInjected } from './WorkspaceChangesTab.tsx'
@@ -102,6 +103,18 @@ export function apply(ctx: ClientContext): void {
       }),
     }, DeliverablesTail),
   )
+  ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
+    name: 'conversation.input.dock', id: 'changed-files', order: 30, locale: NS,
+    inject: (sessionId): ChangedFilesDockInjected => ({
+      hooks: { chat: ctx.uiConversation.binding(sessionId).target('chat'), changesSummary: summaries.state,
+        changesDiff: diffs.state, showCodeDiff: ctx.configForms.developerTools.enabled },
+      loadChangesSummary: (id, seq) => summaries.load(id, seq),
+      loadChangesDiff: (id, seq, index) => diffs.load(id, seq, index),
+      openChangesReview: (coordinates, index) => {
+        ctx.sidebarRight.openResource(changesReviewAddress(coordinates), { params: { index } })
+      },
+    }),
+  }, ChangedFilesDock))
   ctx.slots.inject('tool.call.toolview', () => ctx.slots.register(
     { name: 'tool.call.toolview', key: 'present', locale: NS }, PresentRow,
   ))

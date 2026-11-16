@@ -26,6 +26,7 @@ import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-c
 import type { ChatFileMentions, TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { makeTranslate, stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
 import { Deliverables, DeliverablesTail, selectDeliverables, type DeliverablesInjected } from '../src/client/Deliverables.tsx'
+import { ChangedFilesDock } from '../src/client/ChangedFilesDock.tsx'
 import type { ReviewInjected } from '../src/client/ReviewTab.tsx'
 import type { SourceChangesInjected } from '../src/client/SourceChangesPage.tsx'
 import { SourceChangesPanelIcon } from '../src/client/SourceChangesPanelIcon.tsx'
@@ -585,6 +586,39 @@ describe('ChangedFiles card', () => {
     return { props, openFile, view }
   }
 
+  it('shows the latest turn above the composer and opens its selected file', () => {
+    const props = openProps(new PresentedOpenController(), servedStore())
+    const turn = turnLocation(1, { produced: [], changes })
+    const snapshot = { timeline: { turnOrder: [1], turns: new Map([[1, turn]]) } }
+    const useChat = <T,>(select: (value: typeof snapshot) => T): T => select(snapshot)
+    const dock = { ...props, useChat, sessionId: SessionId('child-session'), t: makeTranslate(en) }
+    const view = render(<ChangedFilesDock {...dock as Parameters<typeof ChangedFilesDock>[0]} />)
+    expect(view.container.querySelector('[data-changed-files-dock]')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Edited 11 files' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /config\/feature-flags\.json/ }))
+    expect(props.openChangesReview).toHaveBeenCalledExactlyOnceWith({ sessionId: 'child-session', seq: 5, turn: 1 }, 1)
+    snapshot.timeline.turnOrder.push(2)
+    snapshot.timeline.turns.set(2, turnLocation(2, { produced: [] }))
+    view.rerender(<ChangedFilesDock {...dock as Parameters<typeof ChangedFilesDock>[0]} />)
+    expect(view.container.querySelector('[data-changed-files-dock]')).toBeNull()
+  })
+
+  it('opens a one-file dock bubble as a menu and respects Developer Tools', () => {
+    const single = servedStore({ turn: 1, files: [changedFile('src/example.scss', 3, 1)], total: 1, added: 3, deleted: 1 })
+    const props = openProps(new PresentedOpenController(), single)
+    const turn = turnLocation(1, { produced: [], changes })
+    const snapshot = { timeline: { turnOrder: [1], turns: new Map([[1, turn]]) } }
+    const useChat = <T,>(select: (value: typeof snapshot) => T): T => select(snapshot)
+    const dock = { ...props, useChat, sessionId: SessionId('child-session'), t: makeTranslate(en) }
+    const view = render(<ChangedFilesDock {...dock as Parameters<typeof ChangedFilesDock>[0]} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Edited example.scss' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /src\/example\.scss/ }))
+    expect(props.openChangesReview).toHaveBeenCalledExactlyOnceWith({ sessionId: 'child-session', seq: 5, turn: 1 }, 0)
+    const off = { useShowCodeDiff: <T,>(select: (value: boolean) => T): T => select(false) }
+    view.rerender(<ChangedFilesDock {...dock as Parameters<typeof ChangedFilesDock>[0]} {...off} />)
+    expect(view.container.querySelector('[data-changed-files-dock]')).toBeNull()
+  })
+
   it.each([en, zh])('shows one edited filename without a list and opens its review', (locale) => {
     const single = servedStore({ turn: 1, files: [changedFile('src/example.scss', 3, 1)], total: 1, added: 3, deleted: 1 })
     const { props, view } = renderCard(new PresentedOpenController(), locale, { changes, presented: [] }, single)
@@ -847,6 +881,7 @@ describe('plugin registration', () => {
       name: 'root',
       children: {
         'conversation.chat.turnTail': { kind: 'list', scope: 'session' },
+        'conversation.input.dock': { kind: 'list', scope: 'session' },
         'tool.call.toolview': { kind: 'keyed', scope: 'session' },
         'sidebar.right.pane.tab': { kind: 'keyed', scope: 'session' },
         'main': { kind: 'keyed', scope: 'root' },
@@ -875,6 +910,7 @@ describe('plugin registration', () => {
     await fiber.await()
     const [entry] = ctx.slots.entries('conversation.chat.turnTail')
     expect(entry).toBeDefined()
+    expect(ctx.slots.entries('conversation.input.dock')).toHaveLength(1)
     expect(ctx.slots.entries('tool.call.toolview')).toHaveLength(1)
     expect(ctx.slots.entries('main')).toHaveLength(1)
     expect(ctx.slots.entries('sidebar.panellist')).toHaveLength(1)
@@ -1003,6 +1039,7 @@ describe('plugin registration', () => {
     expect(reset).not.toHaveBeenCalled()
     unsubscribe()
     expect(ctx.slots.entries('conversation.chat.turnTail')).toHaveLength(0)
+    expect(ctx.slots.entries('conversation.input.dock')).toHaveLength(0)
     expect(ctx.slots.entries('tool.call.toolview')).toHaveLength(0)
     expect(ctx.slots.entries('main')).toHaveLength(0)
     expect(ctx.slots.entries('sidebar.panellist')).toHaveLength(0)
