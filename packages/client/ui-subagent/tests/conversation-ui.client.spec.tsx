@@ -72,6 +72,7 @@ function props(
   nested: Readonly<Record<SessionId, CatalogFixture>> = {},
   summaries?: Readonly<Record<SessionId, SessionSummary>>,
   boundAddress?: SubagentAddress,
+  projectionOverrides: Readonly<Partial<SessionListState['projectionsBySession']>> = {},
 ) {
   const catalogs = value === undefined ? nested : { [PARENT]: value, ...nested }
   const statuses: SessionStatusSnapshot = new Map()
@@ -107,11 +108,14 @@ function props(
           subagentCatalog: catalog.entries.map(({ activity: _activity, ...entry }) => ({ ...entry, createdAt: 1 })),
         },
       }])),
+      ...projectionOverrides,
     },
   } satisfies SessionListState
   for (const [id, entry] of Object.entries(byId)) {
     const projection = state.projectionsBySession[id]
-    if (projection !== undefined) byId[id as SessionId] = { ...entry, projectionValues: projection.values }
+    if (projection !== undefined && projectionOverrides[id as SessionId] === undefined) {
+      byId[id as SessionId] = { ...entry, projectionValues: projection.values }
+    }
   }
   function useSessions<T>(select: (snapshot: SessionListState) => T): T {
     return select(state)
@@ -1077,7 +1081,6 @@ describe('SubagentHeaderLineage', () => {
             : undefined,
           ...(id === 'running'
             ? {
-              contextPressure: { pressureTokens: 1_500, projectedTokens: 1_800 },
               modelSelection: {
                 lastUsed: { provider: 'deepseek', model: 'deepseek-v4-flash' },
                 lastUsedSeq: null,
@@ -1097,7 +1100,12 @@ describe('SubagentHeaderLineage', () => {
         },
       }]
     })) as Record<SessionId, SessionSummary>
-    const input = props(catalog({ entries }), {}, summaries)
+    const input = props(catalog({ entries }), {}, summaries, undefined, {
+      [CHILD]: {
+        state: 'ready', error: null,
+        values: { contextPressure: { pressureTokens: 1_500, projectedTokens: 1_800 } },
+      },
+    })
     render(<HeaderCatalog {...input} />)
     const trigger = screen.getByRole('button', { name: /\d+ 个子智能体$/ })
     expect(within(trigger).getByText('9 个子智能体')).toBeTruthy()

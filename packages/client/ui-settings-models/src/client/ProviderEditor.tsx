@@ -228,7 +228,6 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   const keyRemoval = typeof keyDraft === 'object' ? keyDraft : undefined
   const { authorization } = props
   const keyFieldRef = useRef<HTMLDivElement>(null)
-  const [customFields, setCustomFields] = useState<ReadonlySet<string>>(() => new Set())
   const [flow, setFlow] = useState<AuthorizationEntryView | undefined>(undefined)
   const [billingPick, setBillingPick] = useState<BillingSource | undefined>(undefined)
   const [busy, setBusy] = useState(false)
@@ -332,7 +331,6 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
     ? 'keyRequired' as const
     : undefined
   const shownKeyFailure = credentialRequiredFailure ?? keyFailure
-  const keyLocked = props.credential?.writable === false
   // What the form currently shows, which is what an interrogation must ask:
   // an edited-but-unsaved endpoint, and a key typed but not yet stored.
   const probeBaseURL = stringAt(draft, 'baseURL') ?? stringAt(fallback, 'baseURL')

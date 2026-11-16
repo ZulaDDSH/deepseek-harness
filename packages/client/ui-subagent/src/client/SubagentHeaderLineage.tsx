@@ -18,7 +18,7 @@ import type {} from '@deepseek-ai/dsh-agent-team/client'
 import type {} from './slots.ts'
 import css from './SubagentHeaderLineage.module.css'
 import {
-  activityDuration, contextTokens, formatDuration, formatExactDuration, formatTokens, liveActivityLine, tokenTotal,
+  activityDuration, formatDuration, formatExactDuration, formatTokens, liveActivityLine, tokenTotal,
 } from './catalog-format.ts'
 import { ClearedFooter, useClearedView } from './ClearedSubagents.tsx'
 
@@ -55,6 +55,7 @@ interface CatalogRowsProps {
   catalog: SubagentCatalogSnapshot
   catalogs: Catalogs
   summaries: Readonly<Record<SessionId, SessionSummary>>
+  projections: Readonly<Record<SessionId, SessionProjectionSnapshot>>
   expanded: ReadonlySet<SessionId>
   level: number
   openChild: (address: SubagentAddress) => void
@@ -138,7 +139,7 @@ function catalogProgress(entries: SubagentCatalogSnapshot['entries'], summaries:
 
 /** Render one catalog level and recurse only through explicitly expanded rows. */
 function CatalogRows({
-  parentSessionId, currentSessionId, catalog, catalogs, summaries, expanded, level,
+  parentSessionId, currentSessionId, catalog, catalogs, summaries, projections, expanded, level,
   openChild, openChildAside, refreshProjection, toggleBranch, closeCatalog, t,
 }: CatalogRowsProps & { t: TranslateNS<typeof NS> }) {
   const [now, setNow] = useState(() => Date.now())
@@ -203,7 +204,8 @@ function CatalogRows({
           t,
         )
         const totalTokens = tokenTotal(summary?.projectionValues?.tokenUsage)
-        const context = contextTokens(summary?.projectionValues?.contextPressure)
+        const pressure = projections[entry.id]?.values.contextPressure
+        const context = pressure?.projectedTokens ?? pressure?.pressureTokens
         const durationMs = activityDuration(
           summary,
           entry.activity,
@@ -360,6 +362,7 @@ function CatalogRows({
                   catalog={childCatalog}
                   catalogs={catalogs}
                   summaries={summaries}
+                  projections={projections}
                   expanded={expanded}
                   level={level + 1}
                   openChild={openChild}
@@ -726,6 +729,7 @@ function CatalogDropdown(props: CatalogDropdownProps) {
                 catalog={presentedCatalog}
                 catalogs={catalogs}
                 summaries={summaries}
+                projections={projections}
                 expanded={expanded}
                 level={1}
                 openChild={openChild}

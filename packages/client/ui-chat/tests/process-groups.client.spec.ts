@@ -628,6 +628,8 @@ describe('Chat process group titles', () => {
     ['one file read repeatedly', [{ kind: 'read', count: 3, targets: ['notes.md'] }], 'Read notes.md'],
     ['one tool call', [{ kind: 'tools', count: 1, targets: [] }], 'Used a tool'],
     ['repeated tool calls', [{ kind: 'tools', count: 2, targets: [] }], 'Called 2 tools'],
+    ['injected context', [{ kind: 'context', count: 1, targets: [] }], 'Injected context'],
+    ['repeated context injections', [{ kind: 'context', count: 2, targets: [] }], 'Injected context 2 times'],
   ])('titles %s', (_name, counts, expected) => {
     expect(processTitle(summary(counts), englishTitle)).toBe(expected)
   })
