@@ -5,8 +5,6 @@ description: "Update custom Node PTC bootstraps to protocol version 3 before run
 
 # Node PTC bootstrap protocol version 3 and the scoped-repl format
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 The Node PTC Host requires bootstrap protocol version 3 instead of version 2. It rejects an older bootstrap before dispatching a program, with `bootstrap protocol mismatch; upgrade launch.bootstrapPath with the host`. This affects custom `launch.bootstrapPath` deployments in every execution mode, including `@deepseek-ai/dsh-ssh` hosts with a `node-script` launch that set `launch.bootstrapPath` and `launch.bootstrapHash`. The bootstrap bundled with DSH updates with the Host and needs no configuration change.

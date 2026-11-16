@@ -5,8 +5,6 @@ description: "Code that replaces Session.append must implement both the single-e
 
 # Update replacements for `Session.append`
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 In v0.2.2-rc.1, `Session.append` had a single call signature. It now accepts either one typed event call or an array of event tuples. Ordinary single-event calls still compile. Test doubles and wrappers assigned to `Session['append']` must support both overloads.

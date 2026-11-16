@@ -5,8 +5,6 @@ description: "bash and pwsh report unadvertised sandbox_permissions and run_in_b
 
 # Shell and read_image failures use consolidated error codes
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 Three `tool/result` error identities recorded by v0.2.2-rc.2 change:

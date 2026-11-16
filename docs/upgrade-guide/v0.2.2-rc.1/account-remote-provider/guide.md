@@ -5,8 +5,6 @@ description: "Move account plugin composition and Remote imports to the concrete
 
 # Account service and Remote imports
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 `@deepseek-ai/dsh-deepseek-account` is a concrete `DeepSeekAccount` service owning browser login, stored credentials, and the `account` Remote namespace. The abstract account class, `@deepseek-ai/dsh-deepseek-account-platform`, and `@deepseek-ai/dsh-api-account-controller` are removed. Existing `ctx.deepseekAccount` and `ctx.remote.account` operations retain their names and arguments. Host-only credential methods are not Remote operations. The `/types` entry remains available without loading the service implementation.

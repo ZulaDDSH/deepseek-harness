@@ -5,8 +5,6 @@ description: "DeepSeek Search and Fetch add per-capability billing and replace p
 
 # DeepSeek web search and fetch choose their credential by billing
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 The DeepSeek Search and Fetch APIs (`web-deepseek-api`) previously used the signed-in account only in `deepseek-account` conversations; other conversations required an API key. New `searchBilling` and `fetchBilling` settings accept `auto` (default), `account`, or `api-key`. With `auto`, DeepSeek model routes behave as before; other conversations and operations outside a Session now use the signed-in account when no key exists. `account` uses only the account; `api-key` only the key. Non-empty `*BaseURL` or `*ApiKeyEnv` settings still take precedence. Other providers, including local HTTP fetch, are unaffected.

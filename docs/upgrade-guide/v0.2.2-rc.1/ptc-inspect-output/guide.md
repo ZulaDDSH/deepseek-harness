@@ -5,8 +5,6 @@ description: "TypeScript PTC programs display selected values through inspect an
 
 # Explicit output in TypeScript PTC programs
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 TypeScript `run_code` programs display selected values through `inspect(...values)`. Function return values and final expressions previously appeared in the result; they are now omitted. Each inspected argument is rendered independently: strings appear directly, and other values use Node's object formatting without depth, array-length or string-length preview limits. Undefined properties, Error objects and circular references remain visible.

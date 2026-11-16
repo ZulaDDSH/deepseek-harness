@@ -5,8 +5,6 @@ description: "Creator mode replaces its four skills with one `dsh-doc` skill, an
 
 # `dsh-doc` replaces the Creator mode skills
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 Creator mode offered four skills from `@deepseek-ai/dsh-agent-preset`: `cordis-plugin-development`, `editing-cordis-compositions`, `cordis-composition-reference`, and `agent-experience`. It now offers one skill, `dsh-doc`. Its former content is in files that `dsh-doc` reads on demand, under `skills/dsh-doc/references/` and `skills/dsh-doc/templates/` of that package. The old skill names no longer appear in the skill catalog, and loading one by name fails.

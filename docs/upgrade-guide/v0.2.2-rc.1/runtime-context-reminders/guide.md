@@ -5,8 +5,6 @@ description: "Runtime-context log text gains reminder framing, and clear markers
 
 # Runtime-context reminder records
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 New `user/message` records with `source.kind: 'runtime-context'` wrap their text in `<system-reminder>`. The first snapshot introduces the current session without asserting that it replaces earlier context; later snapshots explicitly replace context retained in conversation summaries. Clear reminders now carry `form: 'snapshot'` and `sections: []`.

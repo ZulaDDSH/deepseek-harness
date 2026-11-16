@@ -5,8 +5,6 @@ description: "AttachmentError now extends HarnessError, so tool and model-reques
 
 # Attachment failures keep their codes
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 `AttachmentError` from `@deepseek-ai/dsh-attachment` now extends `HarnessError` from `@deepseek-ai/dsh-error`. Its `name` (`AttachmentError`) and every `ATTACHMENT_*` and image admission code are unchanged. Two persisted results change:

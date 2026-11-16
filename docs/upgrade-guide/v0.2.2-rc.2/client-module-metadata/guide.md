@@ -5,8 +5,6 @@ description: Client artifact metadata and static library manifests require rebui
 
 # Client module metadata
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 Client bundle registrations can carry `meta` beside `id`, `factory`, and optional `chunk`. The factory still returns the plugin or library exports. Metadata optionally contains `stylesheets`, a record keyed by each stylesheet's path within the owning package, such as `src/client/App.module.css`; each descriptor has `text(context)`, with `context.asset()` resolving carrier asset URLs. Compiled stylesheet imports no longer install DOM nodes during JavaScript factory execution.

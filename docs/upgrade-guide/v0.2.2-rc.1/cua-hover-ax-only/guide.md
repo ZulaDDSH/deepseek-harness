@@ -5,8 +5,6 @@ description: "macOS mouseMove requires AX alternate UI by default and returns HO
 
 # macOS hover keeps the system pointer in place by default
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 On macOS, `win.mouseMove(target)` uses an enabled element or ancestor that advertises both `AXShowAlternateUI` and `AXShowDefaultUI`. Without that route, previous versions moved the visible system cursor. The default now returns `HOVER_UNAVAILABLE` before sending input. By default, explicitly requesting the system pointer asks the user for this session.

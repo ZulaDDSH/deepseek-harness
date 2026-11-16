@@ -5,8 +5,6 @@ kind: persistence-change
 
 # 2026-11-05-timeline-priority-notice
 
-English | [中文](2026-11-05-timeline-priority-notice.zh.md)
-
 ## Summary
 
 Records a Timeline notice when the user adds or removes urgent priority.

@@ -4,8 +4,6 @@ description: "macOS CUA returns marked partial AX observations and distinguishes
 ---
 # macOS CUA isolates unavailable AX branches
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 macOS `getState` previously rejected an entire AX read with `STALE_SNAPSHOT` when one traversed element became invalid. It now returns readable nodes, marks each unavailable branch in `tree` with `[One child could not be read.]`, and sets `hasUnreadableElements: true`. Markers have no element IDs; their contents are unknown. `truncated` still describes traversal limits independently. macOS omits `hasUnreadableElements` when no unreadable node or child-list entry was encountered; other providers may also omit the field.

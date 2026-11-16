@@ -5,8 +5,6 @@ description: "ForgeProvider.diff and ctx.forge.diff take the head commit to read
 
 # Forge diffs read one head commit
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 `ForgeProvider.diff(ref, signal)` becomes `diff(ref, headSha, signal)`, and `ctx.forge.diff(ref, signal)` becomes `ctx.forge.diff(ref, headSha, signal)`. A provider returns a patch only when it describes `headSha`; when the change request's head is another commit, it resolves to a `ForgeFailure` whose code is the new `stale`. `ctx.forge.diff` then polls the change request again at once when it is watched. The GitHub provider reads the head and base commits in one GraphQL query, returns `stale` when the head is another commit, and otherwise reads the patch through the compare API between those two commits instead of `gh pr diff`. A GitHub pull request over 300 files, which `gh pr diff` refused as too large, now shows its complete diff; only output over `maxOutputBytes` or GitHub's own refusal remains `too-large`.

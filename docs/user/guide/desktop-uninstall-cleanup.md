@@ -1,7 +1,5 @@
 # Uninstall DSH Desktop
 
-English | [中文](desktop-uninstall-cleanup.zh.md)
-
 Use this guide to uninstall DeepSeek Harness Desktop on macOS or Windows. Local data cleanup is optional.
 
 ## 1. Uninstall the app

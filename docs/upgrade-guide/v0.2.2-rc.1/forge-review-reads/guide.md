@@ -5,8 +5,6 @@ description: "ForgeFailure gains the unsupported code, which ctx.forge.readRevie
 
 # Forge failures report unsupported reads
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 `ForgeFailure['code']` gains `unsupported`. `ctx.forge.readReview(ref, headSha, signal)`, new beside the optional `ForgeProvider.readReview`, returns it when the provider of the change request does not read review threads. Other reads keep their codes: a provider without `fetchChecks` still makes `ctx.forge.fetchChecks` return `unavailable`.

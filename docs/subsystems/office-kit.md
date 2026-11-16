@@ -1,7 +1,5 @@
 # Office Kit
 
-English | [中文](office-kit.zh.md)
-
 The [document package family](../../packages/document/README.md) renders, converts, and recalculates Office files on the Node Host. Consumers authorize source reads and own presentation; the shared provider owns the engine, bounded admission, transient output reuse, and the private output store. The [`office_render`, `office_convert`, and `office_recalculate` tools](../../packages/document/tool-office/README.md) are the model-facing consumers; the provider itself creates no Session event.
 
 ## Ownership

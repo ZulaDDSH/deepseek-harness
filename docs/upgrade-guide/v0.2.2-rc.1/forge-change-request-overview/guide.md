@@ -5,8 +5,6 @@ description: "ChangeRequestSnapshot gains required overview fields, ChangeReques
 
 # Forge snapshots carry the change request overview, and actions report unknown outcomes
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 `ChangeRequestSnapshot` gains seven required fields: `reviewers` and `reviewersTruncated`, `closingIssues` and `closingIssuesTruncated`, `branchUpdates`, `canRequestReviews`, and `canRerunChecks`. `ChangeRequestCheck` gains the required `rerun: ForgeCheckId | null`, which names how the provider reruns the check. The change request card reads these fields to list reviewers, linked issues, and the branch update, and to offer rerunning failed checks, requesting reviews, and updating the branch.

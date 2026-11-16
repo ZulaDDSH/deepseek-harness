@@ -5,8 +5,6 @@ description: "Generic account notification APIs replace bonus-specific methods a
 
 # Update account notification consumers
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 `DeepSeekAccount.getNotifications()` and `account/getNotifications` replace `getUnnotifiedBonuses()`. They return `AccountNotificationBatch.notifications` with opaque string `id`, `createdAt`, nullable `displayUntil`, localized `title` and `body`, ordered `actions`, and optional JSON `data`. The batch also requires `nextPollAfterSeconds`, projected from the wire field `next_poll_after`. Bonus metadata belongs in `data`; the bonus-specific types and fields are removed. `reportNotificationEvent()` replaces `ackBonusNotified()` and takes `(id, event, client)` to report `displayed`, `cta_clicked`, or `dismissed` using the notification ID. `getNotificationContent()` reads localized content by notification ID, including consumed notifications, without changing consumption.

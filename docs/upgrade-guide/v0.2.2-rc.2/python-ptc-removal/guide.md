@@ -5,8 +5,6 @@ description: "Python PTC runtime packages, external providers, SDK renderers and
 
 # Python PTC removal
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 `@deepseek-ai/dsh-experimental-ptc-runtime-python` is no longer published or included in this repository. Custom compositions that select it must migrate to [`@deepseek-ai/dsh-ptc-runtime-node`](../../../../packages/ptc-runtime/ptc-runtime-node/README.md). Shipped profiles already select the Node provider. `dsh-tool-executor-ptc` also removes support for external `PtcRuntime` providers reporting `language: 'python'`: prompt assembly or execution through the selected executor, or creation of a `/run-code` tool with a non-TypeScript provider, fails with `ToolContextUnavailableError` / `TOOL_CONTEXT_UNAVAILABLE`. The package no longer exports `jsonSchemaToPy` or `renderToolsSdkPy`.

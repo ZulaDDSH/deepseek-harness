@@ -4,8 +4,6 @@ description: "The experimental terminal bundle opens Agent terminals in the Web 
 ---
 # Persistent terminals open in the Web sidebar
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 The **Persistent terminals** bundle (`@deepseek-ai/dsh-experimental-terminal-bundle`) used to run Agent terminals through `@deepseek-ai/dsh-terminal-bash`: a profile-free Bash on POSIX and PowerShell on Windows, invisible to the person, with sandbox-mode changes refused while one was open. Its `optional-persistent-terminals` group now mounts [`@deepseek-ai/dsh-terminal-panel`](../../../../packages/experimental/terminal-panel/README.md) instead. Each `terminal_open` becomes a sidebar tab running the execution environment's default shell with the person's startup files, or `pwsh` then `powershell` on Windows; the person can type into it and take it over. The bundle also registers `user_terminal_list` and `user_terminal_read`, and it requires the Web or Desktop composition, which mounts the terminal controller.

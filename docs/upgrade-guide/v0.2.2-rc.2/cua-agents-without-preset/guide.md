@@ -5,8 +5,6 @@ description: "A native CUA provider configured with a preset id now gives Agents
 
 # CUA gives Agents without a preset `cua_run_code`
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 A native CUA provider whose `agentPreset` is a preset id, including the default `ptc`, registered no tool for an Agent that had joined no Agent preset, and nothing at all in a composition without the preset registry. Such an Agent now receives `cua_run_code` and its operation guidance. Agents on the configured preset still receive raw `cua`, Agents on other presets still receive `cua_run_code`, and `agentPreset: false` still registers raw `cua` globally.

@@ -4,8 +4,6 @@ description: "Keep a longer image upload deadline on slow DeepSeek gateways."
 ---
 # DeepSeek image upload timeout
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 The default `filesApiTimeoutMs` falls from 60,000 to 20,000 milliseconds. After an upload times out, the adapter sends inline images for the next request that needs an upload. Further timeouts double the number of requests skipped. A successful upload resets the count.

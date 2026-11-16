@@ -5,8 +5,6 @@ description: "Cordis 4.0.0-rc.12 replaces ctx.root with ctx[Context.root] and re
 
 # `ctx[Context.root]` replaces `ctx.root`, and service intercept metadata is renamed
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 `@deepseek-ai/cordis` now carries upstream Cordis 4.0.0-rc.12. Third-party plugins and services written against the previous release are affected:

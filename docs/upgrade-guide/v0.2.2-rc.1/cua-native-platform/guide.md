@@ -5,8 +5,6 @@ description: "Migrate CUA scripts and custom native providers to scoped window i
 
 # Native CUA application and window API
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 Screenshots and pointer input require explicit windows. App (`appHandle`) and Window (`windowId`) objects share their application handle's latest accessibility snapshot. Window IDs are opaque strings. macOS retains running application PIDs and permission `helper.pid` and `parent.pid`. Windows permission metadata omits PIDs.

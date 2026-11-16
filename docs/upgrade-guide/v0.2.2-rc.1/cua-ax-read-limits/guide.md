@@ -5,8 +5,6 @@ description: "macOS reads more AX nodes by default and accepts per-read override
 
 # macOS AX tree read limits
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 The default macOS node count rises from 2000 to 5000 and the default depth from 25 to 50. Reading a large window can take longer and emit more text to the model.

@@ -5,8 +5,6 @@ description: "Update direct dependencies and configuration overrides for the ren
 
 # macOS Computer Use provider name
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 The Computer Use bundle picks up the renamed macOS provider automatically. Direct dependencies and overrides use the following names.

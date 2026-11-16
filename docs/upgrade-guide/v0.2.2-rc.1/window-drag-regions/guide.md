@@ -5,8 +5,6 @@ description: "Custom Client overlays that relied on global macOS no-drag exclusi
 
 # Explicit window regions for custom Client overlays
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 After upgrading from 0.2.2-rc.1, macOS Desktop automatically excludes interactive controls only inside `data-window-drag` rows or `data-window-drag-controls` scopes. Previously, matching controls and ARIA roles anywhere in the application received `no-drag`. Custom Client plugins that relied on that rule for content covering a draggable header must now declare an exclusion. Ordinary scrollable content without an explicit region declaration contributes no region, so content clipped above its viewport no longer blocks header dragging.

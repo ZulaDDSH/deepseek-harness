@@ -5,8 +5,6 @@ description: "Built-in configurations disable interrupt_agent for subagents and 
 
 # Built-in configurations disable agent interruption
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 The base bundle and the Web `standard`, `cordis`, and `ptc` presets now set `config.interrupt: false` on their `tool-subagent-control` rows. Models using these configurations no longer receive `interrupt_agent`, including in Team mode. Messaging, discovery, inbox waiting, and the subagent service interruption API remain available. The plugin's own default remains `true`; independent compositions that omit the setting retain interruption.

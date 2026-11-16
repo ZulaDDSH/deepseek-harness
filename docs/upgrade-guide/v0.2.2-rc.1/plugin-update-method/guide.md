@@ -5,8 +5,6 @@ description: "BundleInfo.updatable is replaced by BundleInfo.update, and Managem
 
 # `BundleInfo.update` replaces `BundleInfo.updatable`
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 `pluginManager.listBundles()` no longer returns `BundleInfo.updatable: boolean`. It returns the optional `BundleInfo.update`, which is `'registry'` for a bundle whose newer versions `listVersions` reads, `'git'` for a bundle installed from a Git spec pinned to a full commit, and absent for a bundle `updateBundle` cannot replace. A bundle that `updatable: true` marked before is now `update: 'registry'`. `updateBundle` also accepts a `'git'` bundle when `options.spec` names a newer commit of the same repository directory.

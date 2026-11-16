@@ -5,8 +5,6 @@ description: "Experimental and hook plugin tool failures record error codes, Nat
 
 # Experimental plugin failures carry error codes
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 Tool failures from the CUA, browser-use, Cua Driver, worktree, Ralph, terminal, OAR subagent, Liveshare, Claude Code and Codex hook, and claude-code-mods plugins now record `error: { name, code }` on `tool/result`; previously most of these results had no `error`. The [package READMEs](../../../../packages/experimental/README.md) list each class and code.

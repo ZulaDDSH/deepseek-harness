@@ -5,8 +5,6 @@ description: "The sandbox package removes SandboxUnsupportedPolicyError; Windows
 
 # Remove SandboxUnsupportedPolicyError imports
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 `@deepseek-ai/dsh-sandbox` no longer exports `SandboxUnsupportedPolicyError`. Windows subprocess confinement ignores additional writable directories instead of rejecting execution with `SANDBOX_UNSUPPORTED_POLICY`. The harness `write` and `edit` tools still honor those directories; Windows processes retain workspace and private-temp access under `workspace-write`.

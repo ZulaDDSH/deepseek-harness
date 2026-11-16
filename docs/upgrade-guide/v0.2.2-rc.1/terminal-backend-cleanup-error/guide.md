@@ -5,8 +5,6 @@ description: "TerminalBackendCleanupError extends TerminalError instead of Aggre
 
 # `TerminalBackendCleanupError` extends `TerminalError`
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 `@deepseek-ai/dsh-terminal` exports `TerminalBackendCleanupError`, which a PTY backend throws when startup failed and cleaning its partial resources also failed. It previously extended `AggregateError`. It now extends `TerminalError`, so it is a `HarnessError` with code `CLEANUP_FAILED`, and a tool result that carries it records `error.name` `TerminalBackendCleanupError` and `error.code` `CLEANUP_FAILED`. The constructor, the `name`, `spawnError`, `cleanupError`, and the `errors` list in that order are unchanged; `errors` is typed `readonly unknown[]` instead of `any[]`. `cause` is a new `AggregateError` of the same two failures. `error instanceof AggregateError` is now `false`.

@@ -5,8 +5,6 @@ description: Update removed package subpaths; retained identity constructors rem
 
 # Update removed package subpath imports
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 Upgrading from v0.2.2-rc.2 removes the seven package subpaths below. Existing identity-only string constructors remain available at retained entrypoints; their implementations and branded type definitions are preserved. The `/types` entries re-export those types without runtime values. Persisted strings, Session formats, validation and ID generation do not change.

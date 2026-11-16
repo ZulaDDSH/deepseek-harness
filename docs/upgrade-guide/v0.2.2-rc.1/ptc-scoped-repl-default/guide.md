@@ -5,8 +5,6 @@ description: "Node PTC persistent-in-memory execution runs the scoped REPL unles
 
 # Retained Node PTC runs the scoped REPL by default
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 `@deepseek-ai/dsh-ptc-runtime-node` previously ran `executionMode: persistent-in-memory` programs in Node's REPL evaluator when `replScoped` was omitted. It now runs them as scoped REPL statements and reports program format `scoped-repl`. Each call is a separate strict-mode script that starts with copies of the top-level bindings left by earlier calls, so a later call may declare a `let`, `const`, or `class` name again. `require`, `_`, `_error`, and globals created by assigning an undeclared name are unavailable. The model guidance describes this behavior; the package README lists its [known limitations](../../../../packages/ptc-runtime/ptc-runtime-node/README.md#known-limitations-and-deferred-work).

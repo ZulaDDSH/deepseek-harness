@@ -5,8 +5,6 @@ description: WebServer routes require authentication by default, and default Tok
 
 # Token Provider and route admission migration
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 Default Token verification and HTTP login exchanges move to `@deepseek-ai/dsh-host-authentication-token`. Connection removes BrowserAuth, `authorizeIndex`, `authenticatedUrl`, `requestRejection`, `ConnectionRequestRejection`, `peer(id)`, `createPeer.socketOwned`, `ConnectionAdmission`, and `admitConnection`. Token owns `/api/remote.mux` Socket claims through the post-admission `webserver/upgrade` waterfall. Cookie formats and `/connect` remain; valid v2 Cookies now also authenticate pages, without a page/API `purpose` field.

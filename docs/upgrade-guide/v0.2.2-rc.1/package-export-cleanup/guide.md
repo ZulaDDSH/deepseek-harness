@@ -5,8 +5,6 @@ description: Internal helper values are removed from three published plugin-root
 
 # Replace internal plugin-root imports
 
-English | [中文](guide.zh.md)
-
 ## Change
 
 After upgrading from v0.2.2-rc.1, the following plugin-root values are no longer exported. Their implementations remain inside the packages. Consumers importing these values from a package root must change their imports or use the owning service.
