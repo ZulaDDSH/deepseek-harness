@@ -29,6 +29,7 @@ export type SubagentErrorCode =
   | 'MODEL_SELECTION_DISABLED'
   /** The Session's model-selection policy does not authorize the requested child provider or route. */
   | 'MODEL_ROUTE_NOT_ALLOWED'
+  | 'PARENT_SANDBOX_MISMATCH'
   /** The requested LLM provider is not registered with the LLM runtime. */
   | 'LLM_PROVIDER_NOT_FOUND'
   /** The child's target model cannot accept image input. */

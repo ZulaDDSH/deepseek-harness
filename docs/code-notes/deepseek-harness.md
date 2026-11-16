@@ -860,29 +860,10 @@ Cause: the Electron main process forwards every `/api` request from the renderer
 Fix: `apps/desktop/src/web-document.ts:requestHost` issues the Host request with `node:http`, which has no default headers or body deadline, so no client timeout cuts a long command. Undici is not a dependency of `apps/desktop`, so an undici `Agent` with zero timeouts was not available without adding one. `node:http` also keeps the renderer's cancellation: aborting `request.signal` destroys the outgoing request, before or after headers. The forwarder removes `accept-encoding` from forwarded requests so the Host answers identity-coded bytes, which are relayed unchanged; `apps/desktop/src/web-document.ts:forwardWebRequest` no longer withholds `content-encoding` or `content-length` for that reason.
 
 Other main-process calls to the Host are short and keep their own deadlines: `apps/desktop/src/web-document.ts:authenticateWebHost` (a 303 exchange) and `apps/desktop/src/main.ts` welcome backend (`net.fetch`, analytics with a 1 s deadline). `packages/util/http-proxy/src/install.ts:createPolicyDispatcher` installs an undici global dispatcher with the same default deadlines; the desktop main process does not call it, and it applies to Node-side `fetch` callers, not to the renderer's Host route.
-## Lead subagent control
+## Team task tools
 
-`packages/experimental/tool-agent-team/src/index.ts:ownSubagents`: inside Team scopes the scoped `send_message`, `interrupt_agent`, and `list_agents` shadow the global control names, so a Lead could not reach a subagent it started. Non-member targets now resolve through the caller's direct continuable children, excluding roster members: a teammate is also a continuable child of the Lead, and a teammate id must not bypass the mailbox.
+`packages/team/tool-agent-team/src/index.ts:apply`: the Team task-board plugin injects `subagents` and is loaded after `SubagentRuntime` in `scripts/tool-catalog-manifest.ts`, which provides the delegation and messaging service during catalog generation.
 
-`packages/experimental/tool-agent-team/src/index.ts:isMemberTarget`: any name that matches a roster row, including provisioning and failed members, keeps the team path, so existing team errors and behavior are unchanged for team targets.
-
-`packages/experimental/tool-agent-team/src/index.ts:unknownTarget`: an id that is neither a member nor a direct subagent fails with a message that names both kinds; a silent no-op would be wrong because the service accepts unknown interrupt ids as no-ops.
-
-`packages/experimental/tool-agent-team/src/index.ts:send_message`: a subagent send returns `status: 'accepted'` because `ctx.subagents.sendMessage()` resolves only after inbox acceptance. The service keeps the adjacency and authority checks; the team tool passes the exact live caller as sender.
-
-`packages/experimental/tool-agent-team/src/index.ts:interrupt_agent`: a subagent interrupt uses the same `{ kind: 'ancestor', agent: caller }` authority as the global tool, and a teammate caller may interrupt its own subagents. The Lead-only restriction still applies to roster teammates.
-
-`packages/subagent/tool-subagent-control/src/list-agents.ts:listContinuableChildren`: the Team tools see direct children only, because team scope shadows the global `interrupt_agent` that reaches deeper descendants. A Lead therefore cannot stop a grandchild through Team tools; the global tool remains the only route, and that route is unavailable inside Team scopes.
-
-`packages/subagent/tool-subagent-control/src/list-agents.ts:observeProgress`: progress is best effort. A child whose log cannot be observed (missing session or query failure) keeps its row without `progress`, so one unreadable child does not hide the others. Abort still propagates through `signal.throwIfAborted()`. The read uses `sessionQuery.observeSession()` with projections disabled, so no session file is parsed.
-
-`packages/subagent/tool-subagent-control/src/list-agents.ts:summarizeProgress`: `steps` counts `step/start` events over the child's whole log, not per turn. `idleMs` is measured from the last logged event, so a child in a long model call reports growing idle time until its next event.
-
-`packages/experimental/tool-agent-team/src/index.ts:wait_agent`: running subagents do not wake team activity, because the `agent/status` edge is notified only for roster members in `packages/experimental/agent-team/src/index.ts:TeamService`. A subagent's completion reaches the Lead as an inbox notice after the wait returns, so waiting would only stall the Lead until its timeout. The no-progress reply therefore names the running subagents instead of claiming nothing is running.
-
-`packages/experimental/tool-agent-team/src/index.ts:send_message`: the Team `send_message` is not marked as the adjacent-Agent messaging tool. The continuation guidance check in `packages/subagent/subagent/src/manager.ts:SubagentManager.startLocal` reads the child's own tool scope, where Team tools are absent, so the `isAdjacentAgentSendMessageTool` contract is unchanged.
-
-`scripts/tool-catalog-manifest.ts:mount`: the Team catalog entry mounts `SubagentRuntime` before the Team plugin, because the Team plugin now injects `subagents`; without it the plugin stays pending during schema harvest.
 ## Desktop computer use
 
 `packages/boot/app-boot/src/profile.ts:OPTIONAL_BUNDLES`: the native Cua Driver provider is listed beside the other optional bundles, so the Desktop and Web Plugins page offers it switched off. This admits a native closure into every dsh installation, reversing the computer-use exclusion in the 2026-09-21 optional-bundle record for the native provider only; the MCP provider stays an explicit composition, because it needs a separately installed executable.
@@ -988,7 +969,6 @@ Forwards optional `agentPreset` on the Host create RPC so the UI can open a mast
 
 `packages/client/ui-master-control/package.json`, `packages/client/ui-memory-workspace/package.json`, and `packages/client/ui-provider-quota/package.json` drop their React type devDependencies; only the root manifest declares them (`packages/client/AGENTS.md`, dependency declaration rule 8).
 
-`tsconfig.base.json` maps `@deepseek-ai/dsh-tool-subagent-control/list-agents` to `packages/subagent/tool-subagent-control/src/list-agents.ts`, the file behind that package's `./list-agents` export, so `packages/experimental/tool-agent-team/src/index.ts` resolves it through the path mapping.
 
 ## packages/fs/tool-str-replace-editor/src/index.ts:fileEol
 

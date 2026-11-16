@@ -56,7 +56,7 @@ export const inject = ['tools', 'subagents', 'systemPrompt', 'sessionProjections
 // Definition identity keeps shared guidance scoped to the actual visible tools,
 // including scoped overrides and independently loaded tool registries.
 const delegationTools = new Set<ToolDefinition>()
-const CLAUDE_CLI_PROVIDER = 'claude-code'
+export const CLAUDE_CLI_PROVIDER = 'claude-code'
 
 interface DelegationTeamRoleRequest extends DelegationModelRequest {
   readonly role?: SubagentTeamRole
@@ -618,9 +618,6 @@ export async function apply(ctx: Context, config: Config, session?: Session): Pr
             assertAllowedModelSelection(modelSelectionPolicy, parentOptions, {
               provider: roleRoute.backend === 'llm' ? roleRoute.provider : claudeCliProvider,
               model: roleRoute.model,
-            }, {
-              provider: roleRoute.backend === 'llm' ? roleRoute.provider : claudeCliProvider,
-              model: roleRoute.model,
             })
           }
           const childProviderName = roleRoute?.backend === 'claude-cli' ? claudeCliProvider : config.provider
@@ -654,18 +651,20 @@ export async function apply(ctx: Context, config: Config, session?: Session): Pr
               ? { ...providerRouteDefaults, ...config.agentOptions, ...roleAgentOptions }
               : { ...config.agentOptions, ...roleAgentOptions }
           const requestedChildAgentOptions = requestedAgentOptions(
-            parentOptions,
             configuredChildAgentOptions,
             modelRequest,
             modelSelectionEnabled,
+            modelSelectionPolicy,
+            parentOptions,
           )
-          if (roleRoute === undefined) {
-            assertAllowedModelSelection(
-              modelSelectionPolicy,
-              parentOptions,
-              requestedChildAgentOptions,
-              modelRequest,
-            )
+          if (roleRoute === undefined && modelSelectionPolicy !== undefined
+            && !hasDelegationModelRequest(modelRequest)
+            && (configuredChildAgentOptions?.provider !== undefined || configuredChildAgentOptions?.model !== undefined)) {
+            const provider = requestedChildAgentOptions?.provider ?? parentOptions.provider
+            const model = requestedChildAgentOptions?.model ?? parentOptions.model
+            if (provider !== undefined && model !== undefined) {
+              assertAllowedModelSelection(modelSelectionPolicy, parentOptions, { provider, model })
+            }
           }
           if (requiresRoutePreflight) {
             const llm = runtimeCtx.get('llm')

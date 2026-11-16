@@ -117,6 +117,15 @@ export function requestedAgentOptions(
   assertNonEmpty(request.provider, 'provider')
   assertNonEmpty(request.model, 'model')
   assertNonEmpty(request.reasoning_effort, 'reasoning_effort')
+  if (request.provider === undefined && request.model === undefined && request.reasoning_effort !== undefined) {
+    const provider = configured?.provider ?? parentOptions.provider
+    const model = configured?.model ?? parentOptions.model
+    if (provider === undefined || model === undefined) {
+      throw new ToolContextUnavailableError('cannot select child LLM values without an effective provider and model')
+    }
+    assertAllowedModelSelection(policy, parentOptions, { provider, model })
+    return { ...configured, reasoningEffort: brandString<ReasoningEffortId>(request.reasoning_effort) }
+  }
   if (request.provider === undefined || request.model === undefined) {
     throw new ToolArgsError([request.reasoning_effort === undefined
       ? 'child LLM `provider` and `model` must be supplied together'

@@ -55,6 +55,7 @@ const PACKAGE_LIBRARIES: Readonly<Record<string, string>> = {
   'packages/util/error': 'Error base class library without a plugin entry.',
   'packages/util/file-drag': 'File naming and native transfer declarations without a plugin entry.',
   'packages/util/ripgrep': 'Packaged ripgrep resolution and subprocess execution helpers without a plugin entry.',
+  'packages/util/text-search': 'In-memory fuzzy search index with plain module exports and no plugin entry.',
   'packages/experimental/browser-use-runtime': 'Provider-owned browser resource management and MCP integration helpers; no plugin entry.',
   'packages/boot/app-boot': 'Boot library the app bins import; plain helper exports.',
   'packages/boot/cmdline': 'Command-line library the app bins import; plain module exports.',
