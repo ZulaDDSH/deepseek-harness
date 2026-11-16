@@ -25,7 +25,8 @@ import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { GlobalStandardProps, SessionStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import type { ChatFileMentions, TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-chat/client'
-import { makeTranslate, stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
+import { makeTranslate, sessionSnapshot, stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
+import type { InputZone } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { Deliverables, DeliverablesTail, selectDeliverables, type DeliverablesInjected } from '../src/client/Deliverables.tsx'
 import { ChangedFilesDock } from '../src/client/ChangedFilesDock.tsx'
 import type { ReviewInjected } from '../src/client/ReviewTab.tsx'
@@ -48,6 +49,11 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import { brandString } from '@deepseek-ai/dsh-brand'
 
 const unusedStandardHook = (): never => { throw new Error('isolated deliverables fixture does not consume this framework hook') }
+const childSessionId = brandString<SessionId>('child-session')
+const dockZone: InputZone = {
+  session: sessionSnapshot(childSessionId),
+  input: { draft: '', attachmentIds: [], draftRev: 0, phase: 'plain', occurrences: [], queue: [] },
+}
 const standardProps: GlobalStandardProps & Omit<SessionStandardProps, 'sessionId'> = {
   useSession: unusedStandardHook,
   useProjection: unusedStandardHook,
@@ -625,15 +631,15 @@ describe('ChangedFiles card', () => {
     const turn = turnLocation(1, { produced: [], changes })
     const snapshot = { timeline: { turnOrder: [1], turns: new Map([[1, turn]]) } }
     const useChat = <T,>(select: (value: typeof snapshot) => T): T => select(snapshot)
-    const dock = { ...props, useChat, sessionId: brandString<SessionId>('child-session'), t: makeTranslate(en) }
-    const view = render(<ChangedFilesDock {...dock as Parameters<typeof ChangedFilesDock>[0]} />)
+    const dock = { ...props, ...dockZone, useChat, sessionId: childSessionId, t: makeTranslate(en) }
+    const view = render(<ChangedFilesDock {...dock} />)
     expect(view.container.querySelector('[data-changed-files-dock]')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Edited 11 files' }))
     fireEvent.click(screen.getByRole('menuitem', { name: /config\/feature-flags\.json/ }))
     expect(props.openChangesReview).toHaveBeenCalledExactlyOnceWith({ sessionId: 'child-session', seq: 5, turn: 1 }, 1)
     snapshot.timeline.turnOrder.push(2)
     snapshot.timeline.turns.set(2, turnLocation(2, { produced: [] }))
-    view.rerender(<ChangedFilesDock {...dock as Parameters<typeof ChangedFilesDock>[0]} />)
+    view.rerender(<ChangedFilesDock {...dock} />)
     expect(view.container.querySelector('[data-changed-files-dock]')).toBeNull()
   })
 
@@ -643,13 +649,13 @@ describe('ChangedFiles card', () => {
     const turn = turnLocation(1, { produced: [], changes })
     const snapshot = { timeline: { turnOrder: [1], turns: new Map([[1, turn]]) } }
     const useChat = <T,>(select: (value: typeof snapshot) => T): T => select(snapshot)
-    const dock = { ...props, useChat, sessionId: brandString<SessionId>('child-session'), t: makeTranslate(en) }
-    const view = render(<ChangedFilesDock {...dock as Parameters<typeof ChangedFilesDock>[0]} />)
+    const dock = { ...props, ...dockZone, useChat, sessionId: childSessionId, t: makeTranslate(en) }
+    const view = render(<ChangedFilesDock {...dock} />)
     fireEvent.click(screen.getByRole('button', { name: 'Edited example.scss' }))
     fireEvent.click(screen.getByRole('menuitem', { name: /src\/example\.scss/ }))
     expect(props.openChangesReview).toHaveBeenCalledExactlyOnceWith({ sessionId: 'child-session', seq: 5, turn: 1 }, 0)
     const off = { useShowCodeDiff: <T,>(select: (value: boolean) => T): T => select(false) }
-    view.rerender(<ChangedFilesDock {...dock as Parameters<typeof ChangedFilesDock>[0]} {...off} />)
+    view.rerender(<ChangedFilesDock {...dock} {...off} />)
     expect(view.container.querySelector('[data-changed-files-dock]')).toBeNull()
   })
 
@@ -984,7 +990,7 @@ describe('plugin registration', () => {
     const workspaceEntry = ctx.slots.entries('sidebar.right.pane.tab')
       .find(value => value.options.key === '@deepseek-ai/dsh-client-ui-deliverables/workspace-changes')!
     const mainFace = mainEntry.inject!(undefined as never) as SourceChangesInjected & Record<string, unknown>
-    const workspaceFace = workspaceEntry.inject!(SessionId('child-session') as never) as SourceChangesInjected & Record<string, unknown>
+    const workspaceFace = workspaceEntry.inject!(brandString<SessionId>('child-session') as never) as SourceChangesInjected & Record<string, unknown>
     const workspaceId = 'workspace' as WorkspaceId
     const status = { workspaceId, files: [], total: 0, added: 0, deleted: 0 }
     expect(workspaceFace.hooks.workspaceStatus).toBe(mainFace.hooks.workspaceStatus)

@@ -293,6 +293,7 @@ describe('workspace browser rows', () => {
       running: false,
       runningSubagentCount: 0,
       completed: false,
+      failed: false,
     }, t)).toThrow('unknown pending interaction')
   })
 
@@ -409,7 +410,7 @@ describe('workspace browser rows', () => {
   it('leads the session title with the owning Workspace icon choice', () => {
     const node: SessionNode = {
       id: sid('session'), title: 'Session', blank: false, running: false,
-      runningSubagentCount: 0, completed: false, updatedAt: 0, pinned: false, archived: false,
+      runningSubagentCount: 0, completed: false, failed: false, updatedAt: 0, pinned: false, archived: false,
     }
     const { container } = render(
       <SessionNodeItem
@@ -428,7 +429,7 @@ describe('workspace browser rows', () => {
   it('adds no session mark for the default folder choice', () => {
     const node: SessionNode = {
       id: sid('session'), title: 'Session', blank: false, running: false,
-      runningSubagentCount: 0, completed: false, updatedAt: 0, pinned: false, archived: false,
+      runningSubagentCount: 0, completed: false, failed: false, updatedAt: 0, pinned: false, archived: false,
     }
     const { container } = render(
       <SessionNodeItem
@@ -540,7 +541,7 @@ describe('workspace browser rows', () => {
   it('keeps the browser menu on a blank session row, which has no verbs', () => {
     const node: SessionNode = {
       id: sid('blank'), title: '', blank: true, running: false,
-      runningSubagentCount: 0, completed: false, updatedAt: 0, pinned: false, archived: false,
+      runningSubagentCount: 0, completed: false, failed: false, updatedAt: 0, pinned: false, archived: false,
     }
     render(
       <SessionNodeItem

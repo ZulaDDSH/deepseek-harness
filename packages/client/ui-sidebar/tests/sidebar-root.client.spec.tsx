@@ -185,6 +185,7 @@ describe('SidebarRoot shell', () => {
       useContextMenu={contextMenuHook()} {...allowAllAccess}
       startSession={vi.fn()} toggleSidebar={toggleSidebar} trackEntryClick={vi.fn()} t={t}
       renderSlot={(() => null) as SidebarRootComponentProps['renderSlot']}
+      renderFactorySlot={() => null}
     />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Exit focus mode' }))

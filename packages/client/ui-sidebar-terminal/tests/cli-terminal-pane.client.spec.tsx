@@ -40,7 +40,7 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 const environment = { cwd: '/workspace', maxCols: 200, maxRows: 100, scrollback: 1000, maxInputBytes: 1000, maxBufferedBytes: 100_000 }
-const cliInfo = { id: 'cli' as WebTerminalId, title: 'grok', shell: { path: '/bin/bash', name: 'bash', args: ['-i'] }, cwd: '/workspace', cols: 80, rows: 24, state: 'running' as const, exitCode: null }
+const cliInfo = { id: 'cli' as WebTerminalId, title: 'grok', shell: { path: '/bin/bash', name: 'bash', args: ['-i'] }, cwd: '/workspace', cols: 80, rows: 24, state: 'running' as const, exitCode: null, origin: 'user', control: 'user' }
 
 function store(initial: TerminalViewState) {
   let current = initial

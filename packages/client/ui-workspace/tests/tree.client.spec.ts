@@ -759,7 +759,7 @@ describe('deriveSearchResults', () => {
   })
 
   it('carries unread runtime failure into matching search rows', () => {
-    const result = deriveSearchResults(
+    const result = searchResults(
       list(summary('failed', 1)), [], 'failed', noArchive, 'default',
       new Map([[sid('failed'), { running: false, pendingInteraction: undefined, completionUnread: false, completionFailed: false, failureUnread: true }]]),
       { items: [], hasMore: false }, 10,

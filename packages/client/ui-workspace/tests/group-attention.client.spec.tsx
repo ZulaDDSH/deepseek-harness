@@ -118,7 +118,7 @@ describe('ProjectRowItem attention dot', () => {
     }
     return render(<ProjectRowItem
       group={group} attention={attention} onToggle={vi.fn()} onCreate={vi.fn()} t={t}
-      useRemoteAccess={allowAllAccess.useRemoteAccess} useWorkspaceAccess={allowAllAccess.useWorkspaceAccess}
+      useWorkspaceAccess={allowAllAccess.useWorkspaceAccess}
       useContextMenu={contextMenuHook()} useContextMenuTarget={select => select(null)} openWorkspaceMenu={vi.fn()}
     />)
   }

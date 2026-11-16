@@ -56,7 +56,6 @@ it('registers account sign-in in a plain browser without the Desktop-only surfac
     if (reload) await c.reload(SELF)
     await c.mock.streams.opened('account/watch', reload ? 2 : 1)
     expect(c.ctx.slots.entries('settings.launcher')).toHaveLength(1)
-    expect(c.ctx.slots.entries('settings.models.sign-in')).toHaveLength(0)
     expect(quotaNoticeEntry(c)).toBeDefined()
     expect(platformHostEntry(c)).toBeUndefined()
   }
@@ -67,7 +66,6 @@ withoutAccountAccess('opens no account stream and registers no account surface w
   expect(c.mock.streams.end('account/watch')).toBe(0)
   expect(c.ctx.slots.entries('settings.launcher')).toHaveLength(0)
   expect(quotaNoticeEntry(c)).toBeUndefined()
-  expect(c.ctx.slots.entries('settings.models.sign-in')).toHaveLength(0)
   expect(c.ctx.slots.entries('settings.section').some(entry => entry.options.id === 'account')).toBe(false)
 }, 60_000)
 

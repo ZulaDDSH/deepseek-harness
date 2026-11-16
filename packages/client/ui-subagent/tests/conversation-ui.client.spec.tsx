@@ -112,7 +112,7 @@ function props(
     },
   } satisfies SessionListState
   for (const [id, entry] of Object.entries(byId)) {
-    const projection = state.projectionsBySession[id]
+    const projection = state.projectionsBySession[id as SessionId]
     if (projection !== undefined && projectionOverrides[id as SessionId] === undefined) {
       byId[id as SessionId] = { ...entry, projectionValues: projection.values }
     }
