@@ -1040,18 +1040,18 @@ The configuration catalog fills missing field descriptions from anchored code no
 
 ## Account notification contracts
 
-### `packages/api/account-controller/src/index.ts:AccountController.getNotifications`
+### `packages/credentials/deepseek-account/src/index.ts:DeepSeekAccount.getNotifications`
 - `description`: Queries unconsumed notifications in server order without reading profile data.
 - `params.client`: Identity of the requesting UI; its language selects the server-authored message.
 - `returns`: Notifications with their next query delay, or null when the account grant is absent or changed.
 
-### `packages/api/account-controller/src/index.ts:AccountController.getNotificationContent`
+### `packages/credentials/deepseek-account/src/index.ts:DeepSeekAccount.getNotificationContent`
 - `description`: Queries localized content for a notification, including one already consumed.
 - `params.id`: Notification whose content is requested.
 - `params.client`: Identity of the requesting UI; its language selects the localized content.
 - `returns`: Content without changing consumption, or null when the account grant is absent or changed.
 
-### `packages/api/account-controller/src/index.ts:AccountController.reportNotificationEvent`
+### `packages/credentials/deepseek-account/src/index.ts:DeepSeekAccount.reportNotificationEvent`
 - `description`: Reports a notification interaction; Platform decides whether the notification is consumed.
 - `params.id`: Notification the user interacted with.
 - `params.event`: Displayed frame, non-dismiss action click, or explicit dismissal.
