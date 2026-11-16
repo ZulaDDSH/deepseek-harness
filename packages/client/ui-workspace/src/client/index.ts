@@ -29,6 +29,7 @@ import type { RemoteEndpoint } from '@deepseek-ai/dsh-api-remote-access/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { HostObservable, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // Type-only: pulls the Controller service merges.
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
@@ -40,26 +41,32 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: pulls the Session root standard-hook merge.
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
-// Type-only: pulls the useSessionStatus root standard-hook merge.
 import type {} from '@deepseek-ai/dsh-client-ui-session-status/client'
+import { DesktopAttentionSource, type DesktopAttentionBridge } from './desktop-attention.ts'
 import {
   type ArchiveSessionInjected, type DirectoryFlowSlotName, type ForkSessionInjected, menuOpenStateFactory, type PinSessionInjected,
   type SessionArchiveConfirmInjected, type SessionArchiveConfirmRequest,
   type RenameSessionInjected, type RowToast, type RowToastInjected, type RowToastState, type SessionRenameDialogInjected,
-  type WorkspaceActionRequest, type SessionIdInjected, type WorkspaceBrowserInjected, type WorkspacePickerInjected,
+  type SectionActionRequest, type WorkspaceActionRequest, type SessionIdInjected, type WorkspaceBrowserInjected,
+  type WorkspacePickerInjected,
 } from './contract/slots.ts'
+import {
+  APPEARANCE_STORAGE_KEY, readAppearances, withAppearance, type AppearanceKind, type AppearanceMaps, type WorkspaceAppearance,
+} from './appearance.ts'
 import { createWorkspaceShortcutControls, installWorkspaceShortcuts } from './shortcuts.ts'
 import { UiWorkspaceService } from './navigation.ts'
 import { createWorkspaceViewStore } from './stores.ts'
+import { sectionsActive } from './sections.ts'
 import { WorkspaceBrowser } from './rows/WorkspaceBrowser.tsx'
 import { ArchiveSessionRowButton, SessionArchiveConfirmDialog } from './session-actions/ArchiveSession.tsx'
 import { derive } from './session-actions/derived.ts'
-import { registerSessionMenus } from './session-actions/context-menus.tsx'
+import { appearanceMenuActions, registerAppearanceIcons, registerSessionMenus } from './session-actions/context-menus.tsx'
 import { PinSessionRowButton } from './session-actions/PinSession.tsx'
 import { SessionRenameDialog } from './session-actions/RenameSession.tsx'
 import { RowActionToast } from './session-actions/RowActionToast.tsx'
 import { registerToasts } from './toast/register.ts'
 import { WorkspacePicker, WorkspacePickerFactory } from './WorkspacePicker.tsx'
+import { QuickSwitcher, type QuickSwitcherInjected } from './QuickSwitcher.tsx'
 import { en, ja, es, fr, de, ru, pt, zh, type WorkspaceKey } from './locales.ts'
 
 export type { StartSessionOptions, UiWorkspace } from './navigation.ts'
@@ -138,7 +145,7 @@ const NS = 'workspace'
  */
 export const inject = ['contextMenus',
   'slots', 'sessions', 'workspaces', 'locale', 'remote', 'remote.directoryPicker', 'layout', 'shortcuts', 'remoteAccess',
-  'uiSession', 'uiSession.sessionStatus',
+  'uiSession', 'uiSession.sessionStatus', 'commandUi',
 ]
 
 /**
@@ -150,6 +157,10 @@ export const inject = ['contextMenus',
 export function apply(ctx: Context): void {
   const sessions = ctx.get('sessions') as ISessions
   const workspaces = ctx.get('workspaces') as IWorkspaces
+  const commandUi = ctx.get('commandUi') as {
+    quickCommands: QuickSwitcherInjected['quickCommands']
+    runQuick: QuickSwitcherInjected['runQuick']
+  }
   // One viewing-store instance, created here as ui-layout does for its layout
   // store: the browser declares the handle, and the UiWorkspace service writes
   // view order through the same instance the renderer hands the browser.
@@ -162,6 +173,18 @@ export function apply(ctx: Context): void {
   const uiWorkspace = new UiWorkspaceService(
     ctx, ctx.remote.directoryPicker, workspaces, sessions, viewInstance.actions, notify,
   )
+  const carrier = (globalThis as typeof globalThis & {
+    dshDesktop?: { protocolVersion: number; attention?: DesktopAttentionBridge }
+  }).dshDesktop
+  if (carrier?.protocolVersion === 1 && carrier.attention !== undefined) {
+    const desktopAttention = new DesktopAttentionSource(
+      ctx.uiSession.sessionStatus,
+      sessions.list,
+      carrier.attention,
+      (sessionId) => { uiWorkspace.openSession(sessionId) },
+    )
+    ctx.effect(() => () => { desktopAttention.dispose() }, 'ui-workspace: desktop attention')
+  }
   ctx.slots.provideRoot({
     hooks: { workspaces: workspaces.list },
     keyedHooks: {
@@ -322,6 +345,16 @@ export function apply(ctx: Context): void {
     if (workspace === undefined || !ctx.remoteAccess.source('workspace', workspaceId, `workspace/${action}`).getSnapshot()) return
     workspaceActionRequest.set({ action, workspaceId, displayTitle, storedTitle: workspace.title })
   }
+  const appearanceStore = createSnapshotStore<AppearanceMaps>(readAppearances())
+  const updateAppearance = (kind: AppearanceKind, id: string, change: WorkspaceAppearance): void => {
+    const next = withAppearance(appearanceStore.getSnapshot(), kind, id, change)
+    appearanceStore.set(next)
+    localStorage.setItem(APPEARANCE_STORAGE_KEY, JSON.stringify(next))
+  }
+  const sectionActionRequest = createSnapshotStore<SectionActionRequest | null>(null)
+  const requestSectionAction = (sectionId: string, displayTitle: string, action: 'rename' | 'delete'): void => {
+    sectionActionRequest.set({ action, sectionId, displayTitle })
+  }
   ctx.slots.inject('contextMenu.icon', function* () {
     for (const [key, Icon] of Object.entries({
       'workspace.rename': IconEditOutlineRegular, 'workspace.delete': IconTrashOutlineRegular,
@@ -342,8 +375,80 @@ export function apply(ctx: Context): void {
       ? [{ id: 'delete', label: ctx.locale.bind(NS)('delete.workspace'), icon: { key: 'workspace.delete' }, danger: true, separatorBefore: true,
         run: () => { requestWorkspaceAction(workspaceId, displayTitle, 'delete') } }] : [],
   }), 'workspace: delete menu action')
+  registerAppearanceIcons(ctx)
+  ctx.effect(() => ctx.contextMenus.register({
+    id: 'workspace.appearance', target: 'workspace', order: 50,
+    resolve: ({ workspaceId }) => appearanceMenuActions(ctx, (change) => { updateAppearance('workspaces', workspaceId, change) }),
+  }), 'workspace: appearance menu action')
+  ctx.effect(() => ctx.contextMenus.register({
+    id: 'session.appearance', target: 'session', order: 50,
+    resolve: ({ sessionId }) => appearanceMenuActions(ctx, (change) => { updateAppearance('sessions', sessionId, change) }),
+  }), 'session: appearance menu action')
+  ctx.effect(() => ctx.contextMenus.register({
+    id: 'session.section', target: 'session', order: 60,
+    observe: () => [viewInstance],
+    resolve: ({ sessionId }) => {
+      const { chatSections } = viewInstance.getSnapshot()
+      if (!sectionsActive(chatSections)) return []
+      const current = chatSections.members[sessionId]
+      const t = ctx.locale.bind(NS)
+      return [
+        {
+          id: 'move', label: t('section.moveTo'), icon: { key: 'section.move' },
+          children: [
+            ...chatSections.sections.map(section => ({
+              id: section.id, label: section.name, disabled: section.id === current,
+              run: () => { viewInstance.actions.assignSession(sessionId, section.id) },
+            })),
+            {
+              id: 'ungrouped', label: t('section.ungrouped'), disabled: current === undefined,
+              run: () => { viewInstance.actions.assignSession(sessionId, undefined) },
+            },
+          ],
+        },
+        ...current === undefined ? [] : [{
+          id: 'remove', label: t('section.removeFrom'), icon: { key: 'section.remove' },
+          run: () => { viewInstance.actions.assignSession(sessionId, undefined) },
+        }],
+      ]
+    },
+  }), 'session: section menu action')
+  ctx.effect(() => ctx.contextMenus.register({
+    id: 'section.appearance', target: 'section', order: 50,
+    resolve: ({ sectionId }) => appearanceMenuActions(ctx, (change) => { updateAppearance('sections', sectionId, change) }),
+  }), 'section: appearance menu action')
+  ctx.effect(() => ctx.contextMenus.register({
+    id: 'section.rename', target: 'section', order: 100,
+    resolve: ({ sectionId, displayTitle }) => [{
+      id: 'rename', label: ctx.locale.bind(NS)('rename'), icon: { key: 'workspace.rename' },
+      run: () => { requestSectionAction(sectionId, displayTitle, 'rename') },
+    }],
+  }), 'section: rename menu action')
+  ctx.effect(() => ctx.contextMenus.register({
+    id: 'section.delete', target: 'section', order: 300,
+    resolve: ({ sectionId, displayTitle }) => [{
+      id: 'delete', label: ctx.locale.bind(NS)('section.delete'), icon: { key: 'workspace.delete' }, danger: true, separatorBefore: true,
+      run: () => { requestSectionAction(sectionId, displayTitle, 'delete') },
+    }],
+  }), 'section: delete menu action')
   const browserInjected = (): WorkspaceBrowserInjected => ({
+    openWorkspaceMenu: (workspaceId, path, displayTitle, point, mode) => {
+      const target = ctx.contextMenus.active.getSnapshot()
+      if (mode === 'toggle' && target?.kind === 'workspace' && target.value.workspaceId === workspaceId) ctx.contextMenus.close()
+      else ctx.contextMenus.open({ kind: 'workspace', value: { workspaceId, path, displayTitle } }, point)
+    },
     settleWorkspaceAction: () => { workspaceActionRequest.set(null) },
+    openSectionMenu: (sectionId, displayTitle, point, mode) => {
+      const target = ctx.contextMenus.active.getSnapshot()
+      if (mode === 'toggle' && target?.kind === 'section' && target.value.sectionId === sectionId) ctx.contextMenus.close()
+      else ctx.contextMenus.open({ kind: 'section', value: { sectionId, displayTitle } }, point)
+    },
+    settleSectionAction: () => { sectionActionRequest.set(null) },
+    openSessionMenu: (sessionId, displayTitle, point, mode) => {
+      const target = ctx.contextMenus.active.getSnapshot()
+      if (mode === 'toggle' && target?.kind === 'session' && target.value.sessionId === sessionId) ctx.contextMenus.close()
+      else ctx.contextMenus.open({ kind: 'session', value: { sessionId, displayTitle } }, point)
+    },
     // Explicit group actions keep their target; unscoped New Session inherits
     // the current Session Workspace before the recent-Workspace fallback.
     startSession: (workspaceId, options) => { uiWorkspace.startSession(workspaceId, options) },
@@ -359,17 +464,33 @@ export function apply(ctx: Context): void {
     },
     unarchiveSession: async (sessionId) => { await uiWorkspace.unarchiveSession(sessionId) },
     createWorkspace: input => workspaces.create(input),
+    // Chat Sections have no Host counterpart: the identity an assignment
+    // references is minted here and persisted with the browser view state.
+    newSectionId: () => randomUUID(),
     requestSearch: shortcutControls.search,
     requestAddWorkspace: shortcutControls.add,
     closeAddWorkspace: shortcutControls.closeAdd,
     setDirectoryBusy: shortcutControls.directoryBusy,
-    hooks: { workspaceActionRequest, contextMenuTarget: ctx.contextMenus.active, directoryFlow: browserFlowSource, hostInfo,
-      workspaceShortcuts: shortcutControls.state, shortcuts: ctx.shortcuts.catalog },
+    hooks: { workspaceActionRequest, sectionActionRequest, appearance: appearanceStore, contextMenuTarget: ctx.contextMenus.active,
+      directoryFlow: browserFlowSource, hostInfo, workspaceShortcuts: shortcutControls.state, shortcuts: ctx.shortcuts.catalog },
   })
   const pickerInjected = (directoryFlow: HostObservable<boolean>) => (): WorkspacePickerInjected => ({
     createWorkspace: input => workspaces.create(input),
     hooks: { directoryFlow },
   })
+  const quickInjected = (): QuickSwitcherInjected => ({
+    openSession: (sessionId) => { uiWorkspace.openSession(sessionId) },
+    openWorkspace: workspaceId => uiWorkspace.openWorkspace(workspaceId),
+    quickCommands: (sessionId, query, signal) => commandUi.quickCommands(sessionId, query, signal),
+    runQuick: (sessionId, name) => commandUi.runQuick(sessionId, name),
+  })
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+    name: 'shell.overlay',
+    id: 'workspace-quick-switcher',
+    order: 10,
+    locale: NS,
+    inject: quickInjected,
+  }, QuickSwitcher))
   // Each registration declares its owned children in the same call; slot
   // injection follows both the owner and declaration HMR lifetimes.
   ctx.slots.inject('sidebar.workspaces', () => ctx.slots.register(

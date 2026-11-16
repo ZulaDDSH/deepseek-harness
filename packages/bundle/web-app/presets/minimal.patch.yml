@@ -11,9 +11,14 @@
           - id: persona
             name: '@deepseek-ai/dsh-persona'
             config:
-              prefix: You are a helpful software engineer assistant.
+              prefix: You are a helpful software engineer assistant.{{ultracode_policy}}
               complete: true
               includeRuntimeContext: false
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+              endOfTurnRule: true
           - id: tool-fs
             name: '@deepseek-ai/dsh-tool-fs'
             config:

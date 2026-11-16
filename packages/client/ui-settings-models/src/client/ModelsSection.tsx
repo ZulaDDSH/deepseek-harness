@@ -25,15 +25,19 @@ import { useId, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Button, IconPlusOutlineRegular, Modal, SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
-import type { LlmNativeAuth, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
+import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: pulls this package's SlotMap merge (the two Models child slots).
 import type {} from './slot-contract.ts'
 import { CustomProviderCard } from './CustomProviderCard.tsx'
-import { deriveKeyRef, protocolChoices, providerUsable, reasoningLevelChoices } from './store.ts'
-import type { ModelsSettingsStore, ProviderRow } from './store.ts'
+import { protocolChoices, providerUsable, reasoningLevelChoices } from './store.ts'
+import type { CredentialsRevisionState, ModelsSettingsStore, ProviderRow } from './store.ts'
 import type { ModelsOperations } from './operations.ts'
 import type { SettingsSchemaOperations } from './schema-operations.ts'
 import { ProviderEditor, type ProviderEditorProps } from './ProviderEditor.tsx'
+import type { AuthorizationOperations } from './authorization-operations.ts'
+import { keyConfiguredOf, needsSetup, providerCopy, providerModelOptions, targetOf } from './provider-rows.ts'
+import type { EditorTarget, ProviderIdentity } from './provider-rows.ts'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
 
@@ -44,9 +48,21 @@ export interface ModelsSectionInjected {
   hooks: {
     /** Page snapshot bound by the UI renderer as useSnapshot. */
     snapshot: ModelsSettingsStore['store']
+    /**
+     * Credential-record revision bound by the UI renderer as
+     * useCredentialsRevision. A root entry's inject result is memoized for the
+     * life of that entry, so a card learns about a sign-in it did not perform
+     * only through a live source like this one.
+     */
+    credentialsRevision: SnapshotStore<CredentialsRevisionState>
   }
   /** The Host operations the section and its cards invoke. */
   operations: ModelsOperations
+  /**
+   * The Host authorization calls, when this deployment mounts a registry. An
+   * engine that mounts none leaves every card with its API-key field alone.
+   */
+  authorization?: AuthorizationOperations
   /** Settings schema and immutable path callbacks. */
   schema: SettingsSchemaOperations
   /** Section copy. */
@@ -76,30 +92,6 @@ export type ModelsSectionProps = Partial<InjectFace<ModelsSectionInjected>> & Pr
 
 type ModelsSectionFace = InjectFace<ModelsSectionInjected>
 
-/** Provider identity shared by row actions and confirmation copy. */
-export interface ProviderIdentity {
-  /** Stable provider route id. */
-  provider: string
-  /** Human-facing provider name. */
-  displayName: string
-}
-
-/** One existing row or dormant directory entry addressed by an editor action. */
-interface EditorTarget extends ProviderIdentity {
-  settingsNs: string
-  settingsPath: readonly string[]
-  /** Writable credential identified under this page's conventional reference. */
-  credentialRef?: string
-  /** The adapter reports this route as one it does not ship (see {@link ProviderEditorProps.declared}). */
-  declared?: boolean
-  /** The route's catalog endpoint (see {@link ProviderEditorProps.defaultBaseURL}). */
-  defaultBaseURL?: string
-  /** Environment used to construct an endpoint (see {@link ProviderEditorProps.baseURLEnv}). */
-  baseURLEnv?: readonly string[]
-  /** The route's native authentication (see {@link ProviderEditorProps.nativeAuth}). */
-  nativeAuth?: LlmNativeAuth
-}
-
 /** A dormant directory row the add card can adopt, with its registered namespace. */
 interface AddableRow {
   row: ProviderRow
@@ -115,7 +107,8 @@ interface CatalogDraft {
 /** Values that vary around the shared provider-editor rendering. */
 interface ProviderEditorRenderProps extends Pick<
   ProviderEditorProps,
-  'namespace' | 'schema' | 'operations' | 't' | 'readOnly' | 'onClose'
+  'namespace' | 'schema' | 'operations' | 'authorization' | 'credentialsRevision' | 't' | 'readOnly'
+  | 'onCredentialChanged' | 'onClose' | 'modelOptions'
 > {
   target: EditorTarget
   row: ProviderRow
@@ -170,85 +163,39 @@ export async function removeProviderProfile(
 }
 
 /**
- * Whether a whole-section provider still needs its first key: an unconfigured
- * credential opens the setup card instead of showing a row. This is the
- * first-run posture alone — a user who can already reach some provider gets an
- * ordinary row with the missing-key dot, since nothing here is blocking them.
- * @param row - the joined provider row.
- * @param anyUsable - whether any joined row can already serve requests.
- * @returns whether to render the setup card.
- */
-export function needsSetup(row: ProviderRow, anyUsable: boolean): boolean {
-  if (anyUsable || row.entry.provider === 'deepseek-account') return false
-  if (row.entry.settingsPath.length > 0) return false
-  return row.credential?.configured !== true
-}
-
-/**
- * The provider-card seat's credential fact: the reference this page would use
- * for the row — the profile's `apiKeyEnv`, or the page's derived
- * `<ROUTE>_API_KEY` while the profile names none — confirmed configured. The
- * derived half is what keeps the seat consistent with the editor on the
- * add-provider draft, whose dormant row names no reference yet.
- */
-function keyConfiguredOf(row: ProviderRow): boolean {
-  return row.apiKeyEnv !== undefined
-    ? row.credential?.configured === true
-    : row.derivedCredential?.configured === true
-}
-
-function targetOf(row: ProviderRow): EditorTarget {
-  const managedRef = deriveKeyRef(row.entry.provider)
-  const credentialRef = row.apiKeyEnv === managedRef
-    && row.credential?.configured === true
-    && row.credential.writable
-    ? managedRef
-    : undefined
-  return {
-    provider: row.entry.provider,
-    displayName: row.entry.displayName,
-    settingsNs: row.entry.settingsNs,
-    settingsPath: row.entry.settingsPath,
-    ...credentialRef === undefined ? {} : { credentialRef },
-    // Only declared routes may expose route-owned fields.
-    ...row.entry.declared === true ? { declared: true } : {},
-    ...row.entry.defaultBaseURL === undefined ? {} : { defaultBaseURL: row.entry.defaultBaseURL },
-    ...row.entry.baseURLEnv === undefined ? {} : { baseURLEnv: row.entry.baseURLEnv },
-    ...row.entry.nativeAuth === undefined ? {} : { nativeAuth: row.entry.nativeAuth },
-  }
-}
-
-/** Stable visible and accessible identity for one provider target. */
-export function providerTargetLabel(target: ProviderIdentity): string {
-  return target.provider === target.displayName
-    ? target.provider
-    : `${target.displayName} (${target.provider})`
-}
-
-/** Replace the one provider placeholder in localized destructive-action copy. */
-export function providerCopy(template: string, target: ProviderIdentity): string {
-  return template.replace('{provider}', () => providerTargetLabel(target))
-}
-
-/**
  * Render the Models section content column.
  * @param props - slot-delivered injected dependencies.
  * @returns the section, or null while the shell has not injected yet.
  */
 export function ModelsSection(props: ModelsSectionProps): ReactNode {
-  const { controller, useSnapshot, operations, schema, t, renderSlot } = props
+  const { controller, useSnapshot, useCredentialsRevision, operations, authorization, schema, t, renderSlot } = props
   if (
-    controller === undefined || useSnapshot === undefined || operations === undefined
-    || schema === undefined || t === undefined
+    controller === undefined || useSnapshot === undefined || useCredentialsRevision === undefined
+    || operations === undefined || schema === undefined || t === undefined
   ) return null
-  return <Loaded injected={{ controller, useSnapshot, operations, schema, t }} renderSlot={renderSlot} />
+  return (
+    <Loaded
+      injected={{
+        controller,
+        useSnapshot,
+        useCredentialsRevision,
+        operations,
+        ...authorization === undefined ? {} : { authorization },
+        schema,
+        t,
+      }}
+      renderSlot={renderSlot}
+    />
+  )
 }
 
 function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderSlot: ModelsRenderSlot }): ReactNode {
-  const { controller, operations, schema, t } = injected
+  const { controller, useCredentialsRevision, operations, authorization, schema, t } = injected
   const snapshot = injected.useSnapshot(value => value)
-  const state = { ...snapshot, rows: snapshot.rows.map(row => row.entry.provider === 'deepseek-account'
-    ? { ...row, entry: { ...row.entry, displayName: t('deepSeekAccount') } } : row) }
+  const state = { ...snapshot, rows: snapshot.rows.filter(row => row.entry.provider !== 'jev-router')
+    .map(row => row.entry.provider === 'deepseek-account'
+      ? { ...row, entry: { ...row.entry, displayName: t('deepSeekAccount') } } : row) }
+  const credentialsRevision = useCredentialsRevision(value => value.revision)
   /** A new or failed surface waits for a current snapshot; background refreshes preserve its drafts. */
   const [hasReadySnapshot, setHasReadySnapshot] = useState(state.status === 'ready')
   if (state.status === 'ready' && !hasReadySnapshot) setHasReadySnapshot(true)
@@ -347,6 +294,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
       <div className={styles['section']}>
         <h2 className={styles['title']}>{t('title')}</h2>
         <p className={styles['intro']}>{t('intro')}</p>
+        <p className={styles['notice']} role="status">{t('providersLoading')}</p>
       </div>
     )
   }
@@ -362,8 +310,8 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
     ? savedTarget
     : { provider: savedRow.entry.provider, displayName: savedRow.entry.displayName }
 
-  // One fact decides both first-run postures on this page and the onboarding
-  // step: whether the user already has a provider to talk to.
+  // One fact decides the first-run posture on this page: whether the user
+  // already has a provider to talk to.
   const anyUsable = state.rows.some(providerUsable)
   const configured = state.rows.filter(row => row.configured)
   const configurable = state.rows.filter(row => state.namespaces.has(row.entry.settingsNs))
@@ -409,11 +357,15 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
   const addRow = draft === undefined
     ? undefined
     : state.rows.find(row => row.entry.provider === draft.target.provider)
+  const modelOptions = providerModelOptions(state, schema)
 
   return (
     <div className={styles['section']}>
       <h2 className={styles['title']}>{t('title')}</h2>
       <p className={styles['intro']}>{t('intro')}</p>
+      {state.status !== 'ready' && state.rows.length === 0
+        ? <p className={styles['notice']} role="status">{t('providersLoading')}</p>
+        : null}
       {!state.writable && state.status === 'ready' ? <p className={styles['notice']}>{t('readOnly')}</p> : null}
       {savedIdentity === undefined
         ? null
@@ -441,10 +393,14 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                   target,
                   row,
                   namespace,
+                  modelOptions,
                   schema,
                   operations,
+                  ...authorization === undefined ? {} : { authorization },
+                  credentialsRevision,
                   t,
                   readOnly: !state.writable,
+                  onCredentialChanged: () => { void controller.load() },
                   onClose: (changed) => { closeSetup(changed, target) },
                 })}
                 {renderSlot(
@@ -554,10 +510,14 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                   target,
                   row,
                   namespace,
+                  modelOptions,
                   schema,
                   operations,
+                  ...authorization === undefined ? {} : { authorization },
+                  credentialsRevision,
                   t,
                   readOnly: !state.writable,
+                  onCredentialChanged: () => { void controller.load() },
                   onClose: (changed) => { closeEditor(changed, target) },
                 })
                 : null}
@@ -643,13 +603,18 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                       namespace={draft.namespace}
                       schema={schema}
                       settingsPath={draft.target.settingsPath}
+                      modelOptions={modelOptions}
                       operations={operations}
+                      {...authorization === undefined ? {} : { authorization }}
+                      credentialsRevision={credentialsRevision}
                       {...draft.target.defaultBaseURL === undefined ? {} : { defaultBaseURL: draft.target.defaultBaseURL }}
                       {...draft.target.baseURLEnv === undefined ? {} : { baseURLEnv: draft.target.baseURLEnv }}
                       {...draft.target.nativeAuth === undefined ? {} : { nativeAuth: draft.target.nativeAuth }}
+                      {...addRow?.credential === undefined ? {} : { credential: addRow.credential }}
                       {...addRow?.credentialChecks === undefined ? {} : { credentialChecks: addRow.credentialChecks }}
                       t={t}
                       readOnly={!state.writable}
+                      onCredentialChanged={() => { void controller.load() }}
                       onClose={(changed) => { closeEditor(changed, draft.target) }}
                       onBusyChange={setCatalogBusy}
                     />

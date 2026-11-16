@@ -12,7 +12,7 @@
       "path": "../../util/text-search"
     },
     {
-      "path": "../../host/webserver"
+      "path": "../../api/settings-controller"
     },
     {
       "path": "../../../vendor/schemastery"
@@ -40,9 +40,6 @@
     },
     {
       "path": "../../api/remotes/tsconfig.client.json"
-    },
-    {
-      "path": "../product-analytics/tsconfig.client.json"
     }
   ]
 }

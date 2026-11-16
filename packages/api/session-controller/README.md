@@ -4,8 +4,6 @@ kind: "package-reference"
 ---
 # Session Controller
 
-English | [中文](README.zh.md)
-
 Desktop analytics follows the [product collection policy](../../client/product-analytics/README.md), including its launch-time switch. Web usage is excluded.
 
 ## Summary
@@ -29,6 +27,8 @@ Desktop analytics follows the [product collection policy](../../client/product-a
 
 Prompt retries use the request identity in the first committed inbox insertion, including after the message is claimed or removed. Admission checks again after asynchronous attachment preparation, so concurrent retries accept one input. Acceptance acknowledges insertion, not execution or completion.
 
+MCP connector selections persist per Session. A disabled namespace is excluded from model tool schemas and attributed server instructions, including tools discovered after selection; resource list, template and read operations targeting it are rejected. Local tools and selected namespaces remain available. No selection preserves unrestricted access; an empty selection disables all connector namespaces.
+
 The controller reads a Session's recorded preset through the optional `agentPresets.presetForSession(session)` service method. A null result means no preset was recorded; an absent service means preset identity is unavailable to the controller.
 
 History pages and follow opening snapshots carry one `{ type: 'event', event: SessionWireEvent }` record per durable Session event. The Client retains each accepted record as one durable `SessionEventLikeEntry`; Assistant token boundaries remain inside the compact stream on `assistant/message` or `assistant/attempt`. Tool arguments, result content, failures, and `tool/result.data.meta` pass through unchanged; the controller does not resolve a Tool definition, run a presenter, or attach UI data.
@@ -44,6 +44,8 @@ Every Remote endpoint is access-controlled: a Peer whose principal is not the ow
 List rows carry `formatStatus` when available, so Clients can identify migration-required Sessions without requesting their projections.
 
 Host list generation yields between complete rows only when its configured work slice is exhausted; cheap remaining work returns without a forced yield. Request cancellation is checked per row and after each yield and rejects without partial results. Each row is synchronous; the list does not promise one cross-Session snapshot. A Session already queued as cold remains a cached row if it attaches during a yield: Client in-flight mutation replay corrects its availability, and sequenced projections supersede cached hints. An attached Session's summary reads its blankness and last-prompt recency through the `sessionListMetadata` projection handle, and its projection hints carry every summary key computed through `snapshot`. The first summary of an attached Session computes these projections over its whole in-memory log, and later summaries advance them incrementally; this computation runs inside one synchronous row, so `listWorkSliceMs` cannot split it.
+
+`setRunOptions` rejects a non-boolean `fastMode` or `ultracode` and an `effort` outside `low`, `medium`, `high`, `xhigh`, and `max` with `gateway/bad-request`, then appends only the fields that are set as one log-only `session/run-options` event. This package registers the `runOptions` projection over that event for every Session, so Ultracode works without a Claude Code provider. `setRunOptions` also refuses to turn `ultracode` on for a model that does not support it, and a model switch clears a stored `ultracode` that the new model does not support. Fast mode and the Claude Code effort controls depend on the `claudeCodeRunOptions` presence key that [`dsh-subagent-claude-code`](../../subagent/subagent-claude-code/README.md) registers, so clients hide them when no Claude Code provider is installed. While `ultracode` is on, the `session:ultracode` system-prompt section tells the agent to delegate substantive work and verify it; the section is empty otherwise. The same text is the `ultracode_policy` prompt variable, so a complete persona that references `{{ultracode_policy}}` carries it too.
 
 Client list rows and resident Sessions use the current `sessionListMetadata` projection to reject stale blank-session hints; recency is the later of the summary timestamp and the projected last user prompt. When SessionManager creates an instance before its list row arrives, it reconciles blankness with metadata already retained for that Session. An opened conversation is therefore not reused by New Session even when an older list response still marks it blank.
 
@@ -79,6 +81,10 @@ Queue edits replace pending content with non-empty text only.
 `session.attachment` receives `{ sessionId, attachment: ImageAttachmentRef }` and passes the complete reference to `AttachmentStore.readImage()`, without reading or traversing Session history. The Client supplies the message's reference through `session.readAttachment(ref)`. Connection authentication and Gateway permission checks still apply; `sessionId` selects the Session resource for the endpoint's permission check. After authorization, the handler does not check whether that Session exists and does not return `session/not-found` merely because it is absent. An authorized caller may read any image in the same store, including an image referenced only by another Session or by no Session. The response preserves the supplied reference after verifying its ID, media type, byte length, width, and height against the stored bytes. Optional `name` and `originalDimensions` pass through as caller-supplied display information and are not verified against the file. Missing or invalid objects return a terminal attachment failure. The Client's historical-image cache retains one result and browser URL per Session and attachment ID.
 
 The controller composes `ArchivedSessionGate` through `ctx.plugin`: it loads once the Agent registry, Session store, and Workspace registry exist and unwinds with the controller. Its `agent/pre-step` listener rejects a step proposed for an archived Session or for a subagent descendant of one — read through available Session headers, never a fork — so a late waking delivery ends its turn as `blocked` without a model request; unarchiving lifts the gate for the whole lineage. The Subagent runtime separately checks retained creation ancestors, covering managed descendants whose intermediate creators are offline. The work an archived Session still runs is reported and stopped by its owners through the Workspace registry's archive admission ([seam](../../workspace/workspace/README.md)): the running turn by the [Agent registry](../../core/agent/README.md), owned jobs by the [job registry seam](../../jobs/jobs/README.md), subagent descendants by the [Subagent](../../subagent/subagent/README.md) runtime, reminders by the [Schedule](../../schedule/schedule/README.md) plugin; this controller reports nothing itself.
+
+### Master Control and text import
+
+`session.masterHome` serializes home resolution and returns a dedicated master-preset session with a durable title and no workspace attachment. It recreates archived or deleted homes. `session.externalChats` discovers up to 100 recent Claude Code and Codex transcript candidates from bounded local scans, returning supported-text previews and per-file errors. `session.importChats` accepts only discovered keys, creates standard-preset DSH sessions with balanced user/assistant text history, attaches matching workspaces, and flushes before reporting success. Import makes no model request. Stable source/path identities preserve existing duplicates. Files over 16 MiB fail individually; source project directories must exist. Tools, attachments, reasoning, vendor instructions, and live vendor continuation are excluded.
 
 <a id="client-references"></a>
 ## Client references
@@ -117,11 +123,19 @@ An empty `prompt.content` array requests a new turn only for an eligible failed,
 <a id="model-experience"></a>
 ## Model Experience
 
-None, as invoked Agent commands own any model-visible effect.
+### Session prompt sections
+
+#### What the model sees
+
+Run options add system-prompt sections. `session:ultracode` is added while Ultracode is on. `session:subagent-policy` is added while a Session's Orchestrator & Subagent Setup is enabled and the `subagent` tool is in scope; it names only the configured delegation roles and the review-round limit. Other Agent commands still own their own model-visible effects.
+
+#### Token effect
+
+Each section adds its text to the system prompt while it is on, and nothing while it is off.
 
 #### KV Cache effect
 
-No direct effect; model requests remain owned by the Agent and LLM packages.
+Turning a section on or off, or editing the setup, changes the system prompt, so prompt-cache reuse for that Session restarts from the next request.
 
 ## Known Limitations and Deferred Work
 

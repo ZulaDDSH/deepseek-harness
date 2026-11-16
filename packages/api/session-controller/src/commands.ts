@@ -5,6 +5,7 @@ import { continuationProjectionDefinition, type ContinuationState } from './cont
 
 import { modelAvailable } from './catalog.ts'
 import { randomUUID } from 'node:crypto'
+import { homedir } from 'node:os'
 import type { Context } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { Agent, ModelSelection as AgentModelSelection } from '@deepseek-ai/dsh-agent'
@@ -14,9 +15,7 @@ import type {
 } from '@deepseek-ai/dsh-attachment'
 import type { FileUploadReceiptId, StagedAttachment } from '@deepseek-ai/dsh-client-file-upload/types'
 import type {} from '@deepseek-ai/dsh-client-file-upload'
-import {
-  type ReasoningEffortId, createUserMessage, freezeMessage,
-} from '@deepseek-ai/dsh-llm'
+import { ReasoningEffortId, createUserMessage, freezeMessage, ultracodeSupported } from '@deepseek-ai/dsh-llm'
 import type { MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
 import { buildForkSeed } from '@deepseek-ai/dsh-session/fork'
 import { SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
@@ -35,6 +34,7 @@ import {
   hasApiSessionSubagentOwner,
   type ApiSessionCreated,
 } from './agent.ts'
+import { runOptionsValue, sessionModelOf } from './run-options.ts'
 import type {
   SessionAttachmentRequest,
   SessionAttachmentValue,
@@ -48,6 +48,12 @@ import type {
   SessionPromptValue,
   SessionRenameRequest,
   SessionRenameValue,
+  SessionSelectMcpRequest,
+  SessionSetHookOverridesRequest,
+  SessionSetRunOptionsRequest,
+  HookOverrides,
+  SessionRunOptions,
+  SessionSelectMcpValue,
   SessionSelectModelRequest,
   SessionSelectModelValue,
   SessionUpdateQueueRequest,
@@ -118,6 +124,23 @@ export class SessionCommandController {
    * @returns the created or reused Session identity and its preset when configured.
    */
   async create(request: SessionCreateRequest): Promise<SessionCreateValue> {
+    if (request.sessionId?.startsWith('master-control-home-') === true
+      || request.sessionId?.startsWith('imported-chat-') === true) {
+      throw new RemoteError('gateway/bad-request', 'Master Control home and imported chat identities are reserved', {})
+    }
+    return this.createSession(request)
+  }
+
+  /**
+   * Create or adopt the reserved master home without workspace membership.
+   * @param sessionId - reserved home identity.
+   * @returns the master session identity and preset.
+   */
+  createMasterHome(sessionId: SessionId): Promise<SessionCreateValue> {
+    return this.createSession({ sessionId, agentPreset: 'master', cwd: homedir() })
+  }
+
+  private async createSession(request: SessionCreateRequest): Promise<SessionCreateValue> {
     if (request.workspaceId !== undefined && request.cwd !== undefined) {
       throw new RemoteError('gateway/bad-request', 'session.create accepts workspaceId or cwd, not both', {})
     }
@@ -136,6 +159,7 @@ export class SessionCommandController {
       created = await this.agents.createSession({
         ...(request.sessionId === undefined ? {} : { sessionId: request.sessionId }),
         cwd,
+        ...(request.cliProfile === undefined ? {} : { cliProfile: request.cliProfile }),
         ...(request.agentPreset === undefined ? {} : { agentPreset: request.agentPreset }),
         reusable: sessionId => !this.ctx.workspaceRegistry.archivedSessionIds.includes(sessionId)
           && (workspace === undefined || workspace.sessionIds.includes(sessionId)),
@@ -159,6 +183,51 @@ export class SessionCommandController {
   }
 
   /**
+   * Persist the complete hook overrides of one Session.
+   * @param request - Session identity and override map.
+   * @returns the stored overrides.
+   */
+  async setHookOverrides(request: SessionSetHookOverridesRequest): Promise<HookOverrides> {
+    const agent = await this.resolveAgent(request.sessionId)
+    const value = { overrides: { ...request.overrides } }
+    agent.session.append('hooks/session-overrides', value)
+    return value
+  }
+
+  /**
+   * Replace the run options (ultracode, plus fast mode and effort for Claude Code runs) of one Session.
+   * @param request - Session identity and the run options to store.
+   * @returns the stored run options.
+   */
+  async setRunOptions(request: SessionSetRunOptionsRequest): Promise<SessionRunOptions> {
+    const value = runOptionsValue(request)
+    const agent = await this.resolveAgent(request.sessionId)
+    const stored = this.ctx.sessionProjections.snapshot(agent.session, ['runOptions']).values.runOptions?.current
+    const { model } = sessionModelOf(this.ctx, agent.session)
+    if (value.ultracode === true && stored?.ultracode !== true && !ultracodeSupported(model)) {
+      throw new RemoteError('gateway/bad-request', `Ultracode is not available for the Session's model "${model}"`, {})
+    }
+    agent.session.append('session/run-options', value)
+    return value
+  }
+
+  /**
+   * Validate and install one Session-local MCP connector selection.
+   * @param request - Session identity and requested connector namespaces.
+   * @returns the normalized connector selection installed for the Session.
+   */
+  async selectMcp(request: SessionSelectMcpRequest): Promise<SessionSelectMcpValue> {
+    const agent = await this.resolveAgent(request.sessionId)
+    try {
+      this.agents.selectMcpFor(agent, { connectorIds: request.connectorIds })
+      return { selected: { connectorIds: [...new Set(request.connectorIds)].sort() } }
+    } catch (error) {
+      if (error instanceof RemoteError) throw error
+      throw new RemoteError('gateway/bad-request', error instanceof Error ? error.message : String(error), {})
+    }
+  }
+
+  /**
    * Validate and record one Session model selection; save the default in the background.
    * @param request - Session identity and requested model selection.
    * @returns the normalized selection recorded for the Session, without waiting for default persistence.
@@ -177,6 +246,10 @@ export class SessionCommandController {
         }
         await this.ctx.llm.resolveCallConfig(selected)
         agent.model.select(selected)
+        const stored = this.ctx.sessionProjections.snapshot(agent.session, ['runOptions']).values.runOptions?.current
+        if (stored?.ultracode === true && !ultracodeSupported(selected.model)) {
+          agent.session.append('session/run-options', { ...stored, ultracode: false })
+        }
         void this.ctx.agentDefaultModel.saveSelection(selected).catch((error: unknown) => {
           this.ctx.logger.warn(
             `session-controller: model selection changed for the Session but the default was not saved: ${String(error)}`,
@@ -319,7 +392,7 @@ export class SessionCommandController {
    * @returns acknowledgement that the Agent accepted the prompt.
    */
   async prompt(request: SessionPromptRequest, source: MessageSource): Promise<SessionPromptValue> {
-    const agent = await this.resolveAgent(request.sessionId)
+    const agent = this.agents.refuseCliSession(await this.resolveAgent(request.sessionId))
     if (this.hasPromptRequest(agent.session, request.requestId)) return { accepted: true }
     if (request.content.length === 0) {
       try {

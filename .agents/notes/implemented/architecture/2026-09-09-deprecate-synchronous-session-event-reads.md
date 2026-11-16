@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-09-09-deprecate-synchronous-session-event-reads.zh.md)
-
 ## Problem
 
 Synchronous access to arbitrary event positions makes consumers depend on the complete Session event sequence being immediately available in memory. The storage direction is to stop retaining that complete sequence in memory. Once historical events require storage I/O, the runtime cannot preserve the same synchronous read guarantee without retaining the history or blocking on storage.
@@ -44,7 +42,7 @@ Fork and a small number of operations may genuinely need a complete historical s
 
 New domain behavior must make its event data and projected state sufficient for resumed execution. User-requested history may still load progressively, and genuine full-history operations still have a storage path to design. This decision does not claim that resume or fork already avoids loading the complete log.
 
-Calls outside test files carry line-scoped `typescript/no-deprecated` waivers that identify deferred migration or delegation between deprecated readers. Remove a waiver when its deprecated call is removed; copying a waiver to a new production call violates this policy. The executable lint check accepts test reads and existing waived reads, rejects unwaived production reads, and rejects unrelated deprecated APIs in tests. Documentation checks verify the source-equivalent API declarations and bilingual records.
+Calls outside test files carry line-scoped `typescript/no-deprecated` waivers that identify deferred migration or delegation between deprecated readers. Remove a waiver when its deprecated call is removed; copying a waiver to a new production call violates this policy. The executable lint check accepts test reads and existing waived reads, rejects unwaived production reads, and rejects unrelated deprecated APIs in tests. Documentation checks verify the source-equivalent API declarations and declaration records.
 
 ## Related decisions
 

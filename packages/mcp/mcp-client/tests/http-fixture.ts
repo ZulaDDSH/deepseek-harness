@@ -13,15 +13,19 @@ export interface HttpMcpFixture {
   close: () => Promise<void>
 }
 
-/** Start a local stateless MCP endpoint exposing one `ping` tool, optionally echoing the request credential in an MCP tool error. */
-export async function startHttpMcpFixture(options: { rejectToolCalls?: boolean } = {}): Promise<HttpMcpFixture> {
+export type HttpIntercept = (request: IncomingMessage, response: ServerResponse) => boolean | Promise<boolean>
+
+export async function startHttpMcpFixture(input: HttpIntercept | { rejectToolCalls?: boolean } = {}): Promise<HttpMcpFixture> {
+  const intercept = typeof input === 'function' ? input : undefined
+  const options = typeof input === 'function' ? {} : input
   const calls: string[] = []
   const authorization: Array<string | undefined> = []
   const handler = createMcpHandler(({ requestInfo }) => {
     const mcp = new McpServer(
       { name: 'http-fixture', version: '1.0.0' },
-      { capabilities: { tools: {} } },
+      { capabilities: { tools: {}, resources: {} } },
     )
+    mcp.registerResource('note', 'note://one', { mimeType: 'text/plain' }, async uri => ({ contents: [{ uri: uri.href, text: 'one' }] }))
     mcp.registerTool('ping', { description: 'Replies pong.', inputSchema: z.object({}) }, async (): Promise<CallToolResult> => {
       calls.push('ping')
       if (options.rejectToolCalls) {
@@ -34,6 +38,7 @@ export async function startHttpMcpFixture(options: { rejectToolCalls?: boolean }
   const handle = toNodeHandler(handler)
   const handleRequest = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     authorization.push(request.headers.authorization)
+    if (await intercept?.(request, response) === true) return
     // The adapter excludes explicit undefined on Node's optional HTTP fields.
     await handle(request as NodeIncomingMessageLike, response)
   }

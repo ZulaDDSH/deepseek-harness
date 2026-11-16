@@ -1,8 +1,7 @@
 # HTTP Server
 
-English | [中文](web-server.zh.md)
 
-[dsh-host-webserver](../../packages/host/webserver) provides the GUI Host's HTTP or TLS listener, route matching and admission, optional gzip, index rendering, and one fallback. Feature plugins register their own routes; Connection supplies source and credential decisions through `webserver/authorize`. The carrier passes each admitted Peer directly to the handler or resource rather than constructing a request-context container ([layering reference](../../packages/boot/app-boot/README.md)).
+[dsh-host-webserver](../../packages/host/webserver) is the GUI Host's browser HTTP carrier: one `node:http` server (or `node:https` when TLS is configured) providing `ctx.webServer`, named routes, optional gzip, index transforms, and one plugin-claimed handler or resource fallback. Feature plugins register their own routes, including the `/api` bridge, plugin bundles, and HMR stream; Connection supplies authorization decisions through `webserver/authorize`. The carrier passes each admitted Peer directly to handlers or resources rather than constructing a request-context container. Electron loads built files over `file://` and sends fetch requests through an IPC bridge. It is not part of the agent loop or a capability seam ([layering reference](../../packages/boot/app-boot/README.md)).
 
 Source: [`packages/host/webserver/src/index.ts`](../../packages/host/webserver/src/index.ts)
 

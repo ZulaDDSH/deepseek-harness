@@ -1,11 +1,9 @@
 /** Account settings copy, owned by the account feature. */
-import { onboardingZh, onboardingEn, onboardingJa, onboardingEs, onboardingFr, onboardingDe, onboardingRu, onboardingPt } from './locales/onboarding.ts'
 
 /** English account dictionary. */
 export const en = {
   modelSignInRequired: 'Model unavailable. Please sign in and try again.',
   sessionExpired: 'You have signed out of your account, please log in again.',
-  ...onboardingEn,
   close: 'Close', addApiKey: 'Add API Key', retry: 'Sign in again',
   loginTitle: 'Get started', loginDescription: 'Sign in to your DeepSeek account or add an API Key to get started. Your projects and files are stored locally.',
   browserTitle: 'Waiting for sign in', browserPrompt: 'Page did not open automatically? ', copyLink: 'Copy sign-in link', copiedLink: 'Link copied', copyFailed: 'Copy failed',
@@ -40,7 +38,6 @@ export type AccountKey = keyof typeof en
 export const zh: Record<AccountKey, string> = {
   modelSignInRequired: '当前模型暂不可用，请登录后再试',
   sessionExpired: '登录信息已失效，请重新登录',
-  ...onboardingZh,
   close: '关闭', addApiKey: '添加 API Key', retry: '重新登录',
   loginTitle: '开始使用', loginDescription: '登录 DeepSeek 账号，或添加 API Key，即可开始使用。你的项目和文件保存在本地。',
   browserTitle: '等待登录', browserPrompt: '没有自动打开新页面？', copyLink: '复制登录链接', copiedLink: '链接已复制', copyFailed: '复制失败',
@@ -72,7 +69,6 @@ export const zh: Record<AccountKey, string> = {
 
 /** Japanese copy, checked against the English keys. */
 export const ja = {
-  ...onboardingJa,
   'modelSignInRequired': 'モデルを利用できません。ログインしてから再試行してください。',
   'sessionExpired': 'アカウントからログアウトしました。もう一度ログインしてください。',
   'close': '閉じる',
@@ -133,7 +129,6 @@ export const ja = {
 export const es = {
   modelSignInRequired: 'Modelo no disponible. Por favor inicia sesión y vuelve a intentarlo.',
   sessionExpired: 'Has cerrado sesión en tu cuenta, inicia sesión nuevamente.',
-  ...onboardingEs,
   close: 'Cerrar', addApiKey: 'Agregar clave API', retry: 'Iniciar sesión nuevamente',
   loginTitle: 'empezar', loginDescription: 'Inicie sesión en su cuenta DeepSeek o agregue una clave API para comenzar. Sus proyectos y archivos se almacenan localmente.',
   browserTitle: 'Esperando iniciar sesión', browserPrompt: '¿La página no se abrió automáticamente? ', copyLink: 'Copiar enlace de inicio de sesión', copiedLink: 'Enlace copiado', copyFailed: 'Copia fallida',
@@ -167,7 +162,6 @@ export const es = {
 export const fr = {
   modelSignInRequired: 'Modèle indisponible. Veuillez vous connecter et réessayer.',
   sessionExpired: 'Vous vous êtes déconnecté de votre compte, veuillez vous reconnecter.',
-  ...onboardingFr,
   close: 'Fermer', addApiKey: 'Ajouter une clé API', retry: 'Connectez-vous à nouveau',
   loginTitle: 'Commencez', loginDescription: 'Connectez-vous à votre compte DeepSeek ou ajoutez une clé API pour commencer. Vos projets et fichiers sont stockés localement.',
   browserTitle: 'En attente de connexion', browserPrompt: "La page ne s'est pas ouverte automatiquement ? ", copyLink: 'Copier le lien de connexion', copiedLink: 'Lien copié', copyFailed: 'Échec de la copie',
@@ -201,7 +195,6 @@ export const fr = {
 export const de = {
   modelSignInRequired: 'Modell nicht verfügbar. Bitte melden Sie sich an und versuchen Sie es erneut.',
   sessionExpired: 'Sie haben sich von Ihrem Konto abgemeldet. Bitte melden Sie sich erneut an.',
-  ...onboardingDe,
   close: 'Schließen', addApiKey: 'Fügen Sie den API-Schlüssel hinzu', retry: 'Melden Sie sich erneut an',
   loginTitle: 'Fangen Sie an', loginDescription: 'Melden Sie sich bei Ihrem DeepSeek-Konto an oder fügen Sie einen API-Schlüssel hinzu, um loszulegen. Ihre Projekte und Dateien werden lokal gespeichert.',
   browserTitle: 'Warten auf die Anmeldung', browserPrompt: 'Seite wurde nicht automatisch geöffnet? ', copyLink: 'Anmeldelink kopieren', copiedLink: 'Link kopiert', copyFailed: 'Das Kopieren ist fehlgeschlagen',
@@ -235,7 +228,6 @@ export const de = {
 export const ru = {
   modelSignInRequired: 'Модель недоступна. Пожалуйста, войдите в систему и повторите попытку.',
   sessionExpired: 'Вы вышли из своей учетной записи, пожалуйста, войдите снова.',
-  ...onboardingRu,
   close: 'Закрыть', addApiKey: 'Добавить ключ API', retry: 'Войдите снова',
   loginTitle: 'Начать', loginDescription: 'Войдите в свою учетную запись DeepSeek или добавьте ключ API, чтобы начать. Ваши проекты и файлы хранятся локально.',
   browserTitle: 'Ожидание входа в систему', browserPrompt: 'Страница не открылась автоматически? ', copyLink: 'Скопировать ссылку для входа', copiedLink: 'Ссылка скопирована', copyFailed: 'Не удалось скопировать',
@@ -269,7 +261,6 @@ export const ru = {
 export const pt = {
   modelSignInRequired: 'Modelo indisponível. Faça login e tente novamente.',
   sessionExpired: 'Você saiu da sua conta, faça login novamente.',
-  ...onboardingPt,
   close: 'Fechar', addApiKey: 'Adicionar chave API', retry: 'Faça login novamente',
   loginTitle: 'Comece', loginDescription: 'Faça login em sua conta DeepSeek ou adicione uma chave API para começar. Seus projetos e arquivos são armazenados localmente.',
   browserTitle: 'Aguardando login', browserPrompt: 'A página não abriu automaticamente? ', copyLink: 'Copiar link de login', copiedLink: 'Link copiado', copyFailed: 'Falha na cópia',

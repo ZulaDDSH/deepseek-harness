@@ -81,6 +81,7 @@ interface OlderHistoryRequest {
 export interface SessionOptions {
   /** Catalog-discovered address selecting non-activating subagent transport. */
   address?: SubagentAddress
+  parentAvailable?: boolean
   /**
    * Publish each accepted prompt to the Manager, including after this Session
    * object is replaced. Acceptance converts display state, but does not
@@ -124,6 +125,7 @@ export class Session implements SessionFace {
   private readonly assistantStream = new ClientAssistantStream()
   private running = false
   private address: SubagentAddress | undefined
+  private parentAvailable: boolean | undefined
   /**
    * Sticky send marker, private input of the composerPhase derivation: set
    * when the Host accepts a prompt, never reset — the blank → engaging edge of
@@ -203,6 +205,7 @@ export class Session implements SessionFace {
   ) {
     this.projections = options.projections ?? new ProjectionValueStore()
     this.address = options.address
+    this.parentAvailable = options.parentAvailable
     this.notifier = new Notifier(() => {
       this.snapshotCache = this.buildSnapshot()
     })
@@ -640,13 +643,20 @@ export class Session implements SessionFace {
    * address rebuilds an already-open window through its new history route.
    * @param address - direct parent/child address, or undefined for ordinary transport.
    */
-  configureSubagent(address: SubagentAddress | undefined): void {
+  configureSubagent(address: SubagentAddress | undefined, parentAvailable?: boolean): void {
     const same = this.address?.parentSessionId === address?.parentSessionId
       && this.address?.childSessionId === address?.childSessionId
       && this.address?.mode === address?.mode
     this.address = address
+    this.parentAvailable = parentAvailable
     if (!same && this.openState !== 'cold') void this.resync()
     else this.notifier.markDirty()
+  }
+
+  handleSubagentParentAvailable(available: boolean): void {
+    if (this.parentAvailable === available) return
+    this.parentAvailable = available
+    this.notifier.markDirty()
   }
 
   /**
@@ -1009,6 +1019,7 @@ export class Session implements SessionFace {
           address: this.address.mode === 'unknown' && identity != null
             ? { ...this.address, mode: identity.mode }
             : this.address,
+          ...(this.parentAvailable === undefined ? {} : { parentAvailable: this.parentAvailable }),
         },
       removed: this.removed,
       openState: this.openState,

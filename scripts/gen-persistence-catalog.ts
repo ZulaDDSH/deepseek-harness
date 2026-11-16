@@ -16,7 +16,7 @@ import {
 } from './persistence-catalog-source.ts'
 import { extractPersistenceSchema } from './persistence-schema.ts'
 import { persistenceCatalogText, type PersistenceCatalogLocale } from './persistence-catalog-text.ts'
-import { renderPersistencePair, type PersistenceArtifact } from './persistence-artifacts.ts'
+import type { PersistenceArtifact } from './persistence-artifacts.ts'
 import { collectPluginRecords, type PluginRecordEntry } from './plugin-record-catalog.ts'
 
 export { annotateSurface, collectEventEnvelopeTypes, collectLogEvents, collectSurfaceEventTypes } from './persistence-catalog-source.ts'
@@ -67,9 +67,7 @@ function typeLinks(payload: string, locale: PersistenceCatalogLocale): string {
   }
   if (seen.size === 0) return ''
   const links = Object.entries(LINK_MAP).filter(([name]) => seen.has(name)).sort(([left], [right]) => left.localeCompare(right))
-    .map(([name, path]) => {
-      return `[${name}](${locale === 'zh' ? path.replace(/\.md$/u, '.zh.md') : path})`
-    })
+    .map(([name, path]) => `[${name}](${path})`)
   return `${persistenceCatalogText[locale].types}${links.join(' · ')}`
 }
 
@@ -94,7 +92,7 @@ function recordCode(value: string): string {
  * Render the standalone current-source plugin record catalog without expanding payload types.
  * @param records - validated experimental package record declarations.
  * @param locale - language of the page's headings and explanatory prose.
- * @returns the complete Markdown page, including its language switcher and main catalog link.
+ * @returns the complete Markdown page, including its main catalog link.
  */
 export function renderPluginRecordCatalog(records: readonly PluginRecordEntry[], locale: PersistenceCatalogLocale = 'en'): string {
   const text = persistenceCatalogText[locale]
@@ -103,10 +101,6 @@ export function renderPluginRecordCatalog(records: readonly PluginRecordEntry[],
     '     Run `pnpm run gen-persistence-catalog` to regenerate. -->',
     '',
     `# ${text.pluginRecords}`,
-    '',
-    locale === 'en'
-      ? 'English | [中文](experimental-persistence-catalog.zh.md)'
-      : '[English](experimental-persistence-catalog.md) | 中文',
     '',
     text.pluginRecordsIntro,
     '',
@@ -138,7 +132,6 @@ export function render(
     '',
     `# ${text.title}`,
     '',
-    ...(locale === 'zh' ? ['[English](persistence-catalog.md) | 中文', ''] : []),
     text.intro,
     '',
     text.pluginRecordsLink,
@@ -215,15 +208,15 @@ export function renderKnownEventTypes(events: AnnotatedLogEventEntry[]): string 
  * Render the complete generated persistence reference from one extracted inventory.
  * @param scanRoot - checkout whose source event declarations supply JSDoc.
  * @param schema - already extracted source schemas; shared with record validation.
- * @returns both catalog pairs and their metadata, runtime names and machine schemas.
+ * @returns the catalogs, runtime names and machine schemas.
  */
 export function persistenceCatalogArtifacts(scanRoot: string, schema: PersistenceSchemaInventory): PersistenceArtifact[] {
   const events = annotateSurface(collectLogEvents(scanRoot), collectSurfaceEventTypes(scanRoot))
   const envelope = collectEventEnvelopeTypes(scanRoot)
   const pluginRecords = collectPluginRecords(scanRoot)
   return [
-    ...renderPersistencePair(scanRoot, OUT, render(events, envelope, schema), render(events, envelope, schema, 'zh')),
-    ...renderPersistencePair(scanRoot, OUT_PLUGIN_RECORDS, renderPluginRecordCatalog(pluginRecords), renderPluginRecordCatalog(pluginRecords, 'zh')),
+    { path: OUT, content: render(events, envelope, schema) },
+    { path: OUT_PLUGIN_RECORDS, content: renderPluginRecordCatalog(pluginRecords) },
     { path: OUT_RUNTIME_TYPES, content: renderKnownEventTypes(events) },
     { path: OUT_SCHEMA, content: encodePersistenceSnapshot(schema) },
   ]

@@ -131,6 +131,10 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 export interface SidebarOwnerProps {
   /** True when closed; a drawer is hidden, while other browser columns retain a rail. */
   collapsed: boolean
+  /** True while focus presentation suppresses secondary columns. */
+  focusMode: boolean
+  /** Exit or enter focus presentation without changing saved panel widths. */
+  toggleFocus: () => void
   /** Rendered sidebar width in px; a hidden drawer retains its expanded width. */
   width: number
   /** Present the retained sidebar content as an overlay drawer. */

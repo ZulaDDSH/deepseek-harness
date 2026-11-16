@@ -490,7 +490,7 @@ describe('catalog routes with per-model configuration', () => {
 
     const listed = await ctx.llm.listModels('deepseek')
     expect(listed.map(model => model.id).sort())
-      .toEqual(getBuiltinModels('deepseek').map(model => model.id).sort())
+      .toEqual([...catalogModels('deepseek').keys()].sort())
   })
 
   it('overrides one catalog model field and defaults the rest from the catalog', async () => {
@@ -777,7 +777,7 @@ describe('modelOverrides', () => {
   }
 
   it('reshapes one catalog model while the rest of the catalog keeps serving', () => {
-    const catalogSize = getBuiltinModels('deepseek').length
+    const catalogSize = catalogModels('deepseek').size
     const target = deepseekModel()
     const resolved = resolveProfiles({
       deepseek: {
@@ -804,7 +804,7 @@ describe('modelOverrides', () => {
     expect(resolved.get('deepseek')?.configuredMaxTokens.get(target.id)).toBe(4096)
     // A sibling the overrides do not name is byte-identical to the catalog.
     const sibling = models.find(model => model.id !== target.id)
-    expect(sibling?.maxTokens).toBe(getBuiltinModels('deepseek').find(model => model.id === sibling?.id)?.maxTokens)
+    expect(sibling?.maxTokens).toBe(catalogModels('deepseek').get(sibling?.id ?? '')?.maxTokens)
   })
 
   it('refuses every override that lands nowhere instead of skipping it', () => {
@@ -1163,6 +1163,187 @@ describe('compat switches', () => {
   })
 })
 
+describe('Codex subscription model gate', () => {
+  it('withholds catalog ids the ChatGPT backend refuses to serve', async () => {
+    const ctx = await harness({ providers: { 'openai-codex': {} } })
+
+    const ids = (await ctx.llm.listModels('openai-codex')).map(model => model.id)
+    // The backend answers "not supported when using Codex with a ChatGPT
+    // account" for these, so a default route must not offer them.
+    expect(ids).not.toContain('gpt-5.4')
+    expect(ids).not.toContain('gpt-5.4-mini')
+    expect(ids).not.toContain('gpt-5.3-codex-spark')
+    expect(ids).toContain('gpt-5.6-luna')
+  })
+
+  it('leaves other providers that share a withheld id untouched', async () => {
+    const ctx = await harness({ providers: { openai: { apiKeyEnv: KEY_ENV } } })
+
+    // `openai` serves the same ids over the public API, where the plan gate
+    // does not apply, so the withholding is scoped to the Codex route.
+    expect((await ctx.llm.listModels('openai')).map(model => model.id)).toContain('gpt-5.4')
+  })
+
+  it('still serves a withheld id a profile names explicitly', async () => {
+    const ctx = await harness({ providers: { 'openai-codex': { models: [{ id: 'gpt-5.4' }] } } })
+
+    // A profile that lists the model asks for it by name; dropping it silently
+    // would hide the configuration the user wrote.
+    expect((await ctx.llm.listModels('openai-codex')).map(model => model.id)).toEqual(['gpt-5.4'])
+  })
+})
+
+describe('declared model modes', () => {
+  it('offers Codex fast mode from a model override', async () => {
+    const ctx = await harness({
+      providers: {
+        'openai-codex': {
+          modelOverrides: { 'gpt-5.6-luna': { modes: { fast: { serviceTier: 'fast' } } } },
+        },
+      },
+    })
+
+    expect((await ctx.llm.listModels('openai-codex')).map(model => model.id)).toContain('gpt-5.6-luna-fast')
+  })
+
+  it('expands a mode into a selectable catalog entry', async () => {
+    const model: LlmPiAi.PiAiModelProfile = {
+      id: 'acme-large',
+      name: 'Acme Large',
+      contextWindow: 65_536,
+      maxTokens: 4096,
+      modes: { fast: { serviceTier: 'priority' } },
+    }
+    const resolved = resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-responses',
+        baseURL: 'https://acme.test',
+        models: [model],
+      },
+    })
+
+    expect(resolved.get('acme-gateway')?.piProvider?.getModels()).toMatchObject([
+      { id: 'acme-large', name: 'Acme Large' },
+      { id: 'acme-large-fast', name: 'Acme Large Fast', contextWindow: 65_536, maxTokens: 4096 },
+    ])
+    expect(resolved.get('acme-gateway')?.modeRequests.get('acme-large-fast'))
+      .toEqual({ model: 'acme-large', serviceTier: 'priority' })
+  })
+
+  it('inherits configured maxTokens defaults onto a mode alias', async () => {
+    const ctx = await harness({
+      providers: {
+        'acme-gateway': {
+          api: 'openai-responses',
+          baseURL: 'https://acme.test',
+          models: [{ id: 'acme-large', maxTokens: 4096, modes: { fast: { serviceTier: 'priority' } } }],
+        },
+      },
+    })
+
+    const base = await ctx.llm.resolveModelInfo('acme-gateway', 'acme-large')
+    const mode = await ctx.llm.resolveModelInfo('acme-gateway', 'acme-large-fast')
+    expect(base.defaultMaxTokens).toBe(4096)
+    expect(mode.defaultMaxTokens).toBe(4096)
+  })
+
+  it('refuses modes without a service tier or a supported protocol', () => {
+    expect(() => resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-responses',
+        baseURL: 'https://acme.test',
+        models: [{ id: 'acme-large', modes: { fast: { serviceTier: '' } } }],
+      },
+    })).toThrow(/mode "fast" has an empty serviceTier/)
+
+    expect(() => resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-completions',
+        baseURL: 'https://acme.test',
+        models: [{ id: 'acme-large', modes: { fast: { serviceTier: 'priority' } } }],
+      },
+    })).toThrow(/mode "fast" sets a serviceTier, but protocol "openai-completions" has no service-tier request option/)
+  })
+
+  it('refuses a mode id claimed by another model', () => {
+    expect(() => resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-responses',
+        baseURL: 'https://acme.test',
+        models: [
+          { id: 'acme-large', modes: { fast: { serviceTier: 'priority' } } },
+          { id: 'acme-large-fast' },
+        ],
+      },
+    })).toThrow(/lists model "acme-large-fast" more than once/)
+  })
+
+  it('refuses a mode with an empty name', () => {
+    expect(() => resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-responses',
+        baseURL: 'https://acme.test',
+        models: [{ id: 'acme-large', modes: { '': { serviceTier: 'priority' } } }],
+      },
+    })).toThrow(/model "acme-large" has a mode with an empty name/)
+  })
+
+  it('refuses a mode id claimed by another model\'s mode', () => {
+    expect(() => resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-responses',
+        baseURL: 'https://acme.test',
+        models: [
+          { id: 'acme-x', modes: { fast: { serviceTier: 'priority' } } },
+          { id: 'acme', modes: { 'x-fast': { serviceTier: 'priority' } } },
+        ],
+      },
+    })).toThrow(/lists model "acme-x-fast" more than once/)
+  })
+
+  it('drops conflicting generated ids during deferred loading', () => {
+    const modeCollision = resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-responses',
+        baseURL: 'https://acme.test',
+        models: [
+          { id: 'acme-x', modes: { fast: { serviceTier: 'priority' } } },
+          { id: 'acme', modes: { 'x-fast': { serviceTier: 'priority' } } },
+        ],
+      },
+    }, 'deferred')
+    expect(modeCollision.get('acme-gateway')?.piProvider?.getModels().map(model => model.id)).toEqual(['acme-x'])
+
+    const plainCollision = resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-responses',
+        baseURL: 'https://acme.test',
+        models: [
+          { id: 'acme-x-fast' },
+          { id: 'acme-x', modes: { fast: { serviceTier: 'priority' } } },
+        ],
+      },
+    }, 'deferred')
+    expect(plainCollision.get('acme-gateway')?.piProvider?.getModels().map(model => model.id)).toEqual([])
+  })
+
+  it('drops a mode when deferred loading invalidates its base model', () => {
+    const resolved = resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-responses',
+        baseURL: 'https://acme.test',
+        models: [
+          { id: 'acme-large', modes: { fast: { serviceTier: 'priority' } } },
+          { id: 'acme-large' },
+          { id: 'acme-small' },
+        ],
+      },
+    }, 'deferred')
+
+    expect(resolved.get('acme-gateway')?.piProvider?.getModels().map(model => model.id)).toEqual(['acme-small'])
+  })
+})
+
 describe('resolution snapshots', () => {
   it('finishes an in-flight request under the configuration it started with', async () => {
     const server = await mockServer([{ events: textEvents }])
@@ -1316,5 +1497,105 @@ describe('configurable-provider directory', () => {
       defaultBaseURL: 'https://chatgpt.com/backend-api',
       nativeAuth: { env: [], oauth: true },
     })
+  })
+})
+
+describe('catalog supplement', () => {
+  it.each([
+    ['anthropic', 'claude-opus-5-5', 'anthropic-messages'],
+    ['anthropic', 'claude-sonnet-5-5', 'anthropic-messages'],
+    ['openai', 'gpt-6.1-sol', 'openai-responses'],
+    ['openai-codex', 'gpt-6.1-sol', 'openai-codex-responses'],
+  ])('offers %s model %s with its provider protocol', async (provider, id, api) => {
+    const ctx = await harness({ providers: { [provider]: { apiKeyEnv: KEY_ENV } } })
+    expect(await ctx.llm.listModels(provider)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id, inputModalities: ['text', 'image'] }),
+    ]))
+    const models = resolveProfiles({ [provider]: { apiKeyEnv: KEY_ENV } }).get(provider)?.piProvider?.getModels() ?? []
+    const contextWindow = { anthropic: 1_000_000, openai: 1_050_000, 'openai-codex': 500_000 }[provider]
+    expect(models.find(model => model.id === id)).toMatchObject({ api, contextWindow })
+  })
+
+  it('serves deepseek-v4-flash, which the pinned pi-ai catalog dropped, at its 0.85.1 entry', () => {
+    const models = resolveProfiles({ deepseek: { apiKeyEnv: KEY_ENV } }).get('deepseek')?.piProvider?.getModels() ?? []
+    expect(models.find(model => model.id === 'deepseek-v4-flash')).toMatchObject({
+      api: 'openai-completions', baseUrl: 'https://api.deepseek.com', contextWindow: 1_000_000, maxTokens: 384_000,
+      cost: { input: 0.14, output: 0.28 },
+    })
+  })
+
+  it('serves a model the pinned pi-ai catalog does not ship and keeps the installed ids', async () => {
+    const ctx = await harness({ providers: { 'opencode-go': { apiKeyEnv: KEY_ENV } } })
+
+    const listed = await ctx.llm.listModels('opencode-go')
+    const ids = listed.map(model => model.id)
+    expect(ids).toContain('deepseek-v4.1-flash')
+    expect(ids).toContain('gemini-4-argon-contributor')
+    // The pinned catalog already describes this one; the supplement only fills ids it lacks.
+    expect(ids).toContain('glm-5.2')
+    expect(ids).not.toContain('deepseek-v4-flash')
+    expect(listed.find(model => model.id === 'deepseek-v4.1-flash'))
+      .toMatchObject({ name: 'DeepSeek V4.1 Flash', inputModalities: ['text', 'image'] })
+  })
+
+  it.each([
+    ['gpt-6-luna', 'openai-responses', 1_050_000, 128_000, 0.1],
+    ['grok-4.7', 'openai-responses', 500_000, 500_000, 2],
+    ['longcat-2.5-preview-free', 'openai-completions', 1_000_000, 131_072, 0],
+    ['mimo-v2.6-flash', 'openai-completions', 1_048_576, 131_072, 0.14],
+    ['mimo-v2.6-pro', 'openai-completions', 1_048_576, 131_072, 0.435],
+    ['space-bunny', 'openai-completions', 1_048_576, 524_288, 0.15],
+  ])('offers opencode-go model %s with its protocol, limits and price', async (id, api, contextWindow, maxTokens, input) => {
+    const ctx = await harness({ providers: { 'opencode-go': { apiKeyEnv: KEY_ENV } } })
+    expect(await ctx.llm.listModels('opencode-go')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id, inputModalities: ['text', 'image'] }),
+    ]))
+    const models = resolveProfiles({ 'opencode-go': { apiKeyEnv: KEY_ENV } }).get('opencode-go')?.piProvider?.getModels() ?? []
+    expect(models.find(model => model.id === id)).toMatchObject({
+      api, contextWindow, maxTokens, baseUrl: 'https://opencode.ai/inference/go/v1', cost: { input },
+    })
+  })
+
+  it('materializes the supplemented model with the route protocol and endpoint', () => {
+    const models = resolveProfiles({ 'opencode-go': { apiKeyEnv: KEY_ENV } }).get('opencode-go')?.piProvider?.getModels() ?? []
+    expect(models.find(model => model.id === 'cat-jam-free'))
+      .toMatchObject({ api: 'openai-completions', baseUrl: 'https://opencode.ai/inference/go/v1', contextWindow: 262_144 })
+  })
+
+  it('serves the Go claude-haiku-5-5 over the Anthropic endpoint of its route', async () => {
+    const ctx = await harness({ providers: { 'opencode-go': { apiKeyEnv: KEY_ENV } } })
+    expect(await ctx.llm.listModels('opencode-go')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'claude-haiku-5-5', inputModalities: ['text', 'image'] }),
+    ]))
+    const models = resolveProfiles({ 'opencode-go': { apiKeyEnv: KEY_ENV } }).get('opencode-go')?.piProvider?.getModels() ?? []
+    expect(models.find(model => model.id === 'claude-haiku-5-5')).toMatchObject({
+      api: 'anthropic-messages', baseUrl: 'https://opencode.ai/inference/go', contextWindow: 1_000_000, maxTokens: 128_000,
+      cost: { input: 0.1, cacheWrite: 0.125 },
+    })
+  })
+
+  it('serves an OpenCode Zen model the pinned catalog lacks and hides a retired one', async () => {
+    const ctx = await harness({ providers: { opencode: { apiKeyEnv: KEY_ENV } } })
+    const ids = (await ctx.llm.listModels('opencode')).map(model => model.id)
+    expect(ids).toContain('gpt-6-sol')
+    expect(ids).not.toContain('claude-sonnet-4')
+    const models = resolveProfiles({ opencode: { apiKeyEnv: KEY_ENV } }).get('opencode')?.piProvider?.getModels() ?? []
+    expect(models.find(model => model.id === 'gpt-6-sol')).toMatchObject({
+      api: 'openai-responses', baseUrl: 'https://opencode.ai/inference/v1', contextWindow: 1_050_000, cost: { input: 2, output: 10 },
+    })
+  })
+
+  it('serves an installed model at the price the OpenCode docs list', () => {
+    const models = resolveProfiles({ 'opencode-go': { apiKeyEnv: KEY_ENV } }).get('opencode-go')?.piProvider?.getModels() ?? []
+    expect(models.find(model => model.id === 'glm-5.3-flash'))
+      .toMatchObject({ cost: { input: 0.15, output: 0.5, cacheRead: 0.03 } })
+  })
+
+  it('keeps a modelOverrides entry over a corrected model', () => {
+    const overridden = resolveProfiles({
+      opencode: { apiKeyEnv: KEY_ENV, modelOverrides: { 'kimi-k2.5': { contextWindow: 123_456 } } },
+    }).get('opencode')?.piProvider?.getModels() ?? []
+    expect(overridden.find(model => model.id === 'kimi-k2.5'))
+      .toMatchObject({ cost: { cacheRead: 0.1 }, contextWindow: 123_456 })
   })
 })

@@ -8,6 +8,7 @@
  */
 
 import type { BuiltInPresetCopyKey, PresetDisplaySource, PresetDisplayText } from './types.ts'
+export type { BuiltInPresetCopyKey, PresetDisplaySource, PresetDisplayText } from './types.ts'
 
 interface PresetLocaleKeys {
   readonly name: BuiltInPresetCopyKey
@@ -17,6 +18,8 @@ interface PresetLocaleKeys {
 const BUILT_IN_PRESET_KEYS: Readonly<Partial<Record<string, PresetLocaleKeys>>> = {
   standard: { name: 'presetStandardName', description: 'presetStandardDescription' },
   ptc: { name: 'presetPtcName', description: 'presetPtcDescription' },
+  economy: { name: 'presetEconomyName', description: 'presetEconomyDescription' },
+  lean: { name: 'presetLeanName', description: 'presetLeanDescription' },
   minimal: { name: 'presetMinimalName', description: 'presetMinimalDescription' },
   cordis: { name: 'presetCordisName', description: 'presetCordisDescription' },
 }

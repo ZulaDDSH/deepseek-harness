@@ -16,6 +16,7 @@ import type { ChatFlowHookContext, ChatViewSlotProps, OpenFileOptions } from '..
 import type { ChatSnapshot } from '../contract/snapshot.ts'
 import { markdownLabels } from '../markdown-labels.ts'
 import { TurnNavigator } from './TurnNavigator.tsx'
+import type {} from '@deepseek-ai/dsh-tool-todo/client'
 import { mergeTurnRailItems } from './turn-rail-items.ts'
 import { useTextInteraction } from './text-interaction.ts'
 import { useChatScroll } from './use-chat-scroll.ts'
@@ -79,6 +80,7 @@ export function ChatView({
     }
   }), [getTriggerProps, resolveFilePath, sessionId])
   const order = useChat(s => s.order)
+  const currentTask = useProjection('todos', todos => todos?.filter(item => item.status === 'in_progress').map(item => item.content).join(' · '))
   const groupedEntries = useConversation(snapshot => snapshot.views.grouped('chat')?.entries)
   const entries = useMemo<readonly RenderEntry[]>(() => groupedEntries
     ?? order.map(key => ({ kind: 'node', key: key as NodeKey })), [groupedEntries, order])
@@ -97,6 +99,7 @@ export function ChatView({
     [turnNavigationItems, turnOutline],
   )
   const inbox = useProjection('inbox') as InboxState | undefined
+  const openStep = useProjection('sessionStats', stats => stats === undefined ? undefined : stats.steps + 1)
   // Workspace root off the session list row: path summaries display relative to it.
   const cwd = useSessions(s => s.byId[sessionId]?.cwd)
   const fileImages = useMemo(() => ({
@@ -280,7 +283,7 @@ export function ChatView({
             >
               {renderSlot('conversation.chat.flow', {
                 entries, pendingInputs, lastInputTurn, deferCollapse,
-                cwd, openFile: requestOpenFile, inspectCall, forkAt, loadImage,
+                cwd, openFile: requestOpenFile, inspectCall, forkAt, loadImage, task: currentTask, step: openStep,
               }, { hookContext: flowContext })}
             </MarkdownDelegateProvider>
             <div ref={interactionSurfaceRef} className={css.textInteraction} data-text-interaction-surface=""

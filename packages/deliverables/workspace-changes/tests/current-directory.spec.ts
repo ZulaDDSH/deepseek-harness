@@ -62,7 +62,7 @@ it.each(['write', 'edit', 'str_replace_editor'] as const)('captures the resolved
   if (name !== 'str_replace_editor') expect(result).toMatchObject({ data: { meta: { path: join(current, 'witness.txt') } } })
   const announcement = events.findLast(event => event.type === 'workspace/changes')
   expect(announcement).toBeDefined()
-  const summary = ctx.workspaceChanges.summary(agent.id, announcement!.seq)
+  const summary = await ctx.workspaceChanges.summary(agent.id, announcement!.seq)
   expect(summary).toMatchObject({ cwd: origin, total: 1, files: [{ path: 'current/witness.txt', added: 1, deleted: 1 }] })
   expect(summary!.snapshot).toBeUndefined()
   expect(await ctx.workspaceChanges.diff(agent.id, announcement!.seq, 0, new AbortController().signal)).toMatchObject({ kind: 'text', hunks: [{ lines: ['-before', '+after'] }] })

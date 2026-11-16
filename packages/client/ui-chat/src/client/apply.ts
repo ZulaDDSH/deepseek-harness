@@ -230,7 +230,18 @@ export function apply(ctx: Context): void {
     inject: (sessionId: SessionId): ChatFlowDataInjected => {
       const binding = ctx.sessions.binding(sessionId)
       if (binding === undefined) throw new Error(`ui-chat: unknown session "${sessionId}"`)
-      return { ...nodeSources(binding), hooks: { presentation, connectionState } }
+      return {
+        ...nodeSources(binding),
+        stop: () => { ctx.uiConversation.stop(sessionId) },
+        hooks: {
+          presentation,
+          connectionState,
+          awaitingUser: {
+            getSnapshot: () => ctx.uiSession.sessionStatus.getSnapshot().get(sessionId)?.pendingInteraction !== undefined,
+            subscribe: listener => ctx.uiSession.sessionStatus.subscribe(listener),
+          },
+        },
+      }
     },
   }, ChatFlow))
 

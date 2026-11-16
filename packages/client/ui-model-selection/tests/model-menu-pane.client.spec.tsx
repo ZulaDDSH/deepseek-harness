@@ -11,7 +11,7 @@ import { en } from '../src/client/locales.ts'
 
 afterEach(cleanup)
 
-function setup(autoFocus = true) {
+function setup(autoFocus = true, paneKey = 'fixture', paneTitle = 'Fixture settings', afterDismiss?: () => void) {
   const directory = createSnapshotStore<ModelDirectoryState>({
     current: { provider: 'fixture', model: 'fixture' }, routable: true,
     groups: [{ id: 'fixture', name: 'Fixture', models: [{ id: 'fixture', name: 'Fixture' }] }],
@@ -22,14 +22,16 @@ function setup(autoFocus = true) {
   const renderSlot: ComponentProps<typeof ModelSelect>['renderSlot'] = (name, owner, options) => {
     if (name === 'conversation.input.model.options') {
       const controls = owner as object as OwnerOf<'conversation.input.model.options'>
-      return <button type="button" role="menuitem" data-model-menu-pane="fixture" disabled={controls.locked}
-        onClick={() => { controls.openPane({ key: 'fixture', title: 'Fixture settings' }) }}>Fixture settings</button>
+      return <button type="button" role="menuitem" data-model-menu-pane={paneKey} disabled={controls.locked}
+        onClick={() => { controls.openPane({ key: paneKey, title: paneTitle }) }}>{paneTitle}</button>
     }
     if (name === 'conversation.input.model.pane') {
       const controls = owner as object as OwnerOf<'conversation.input.model.pane'>
-      expect(options?.entryKey).toBe('fixture')
+      expect(options?.entryKey).toBe(paneKey)
       return <><button type="button" role="switch" aria-checked="false" disabled={controls.locked}
-        autoFocus={autoFocus} onClick={change}>Fixture setting</button><p>Fixture explanation</p></>
+        autoFocus={autoFocus} onClick={change}>Fixture setting</button>
+      {afterDismiss !== undefined && <button type="button" onClick={() => { controls.dismiss(); afterDismiss() }}>Open confirmation</button>}
+      <p>Fixture explanation</p></>
     }
     return options?.fallback ?? null
   }
@@ -55,6 +57,33 @@ it('dispatches a keyed page and returns focus to its invoking summary on Escape'
   expect(trigger.getAttribute('aria-expanded')).toBe('false')
   expect(change).not.toHaveBeenCalled()
   expect(select).not.toHaveBeenCalled()
+})
+
+it('routes the Agent Teams menu entry through its keyed model chooser pane', () => {
+  const { trigger } = setup(true, 'agent-team', 'Agent teamwork')
+  const summary = screen.getByRole('menuitem', { name: 'Agent teamwork' })
+  expect(summary.getAttribute('data-model-menu-pane')).toBe('agent-team')
+  fireEvent.click(summary)
+  expect(screen.getByRole('group', { name: 'Agent teamwork' })).toBeTruthy()
+  fireEvent.keyDown(screen.getByRole('switch'), { key: 'Escape' })
+  expect(document.activeElement).toBe(summary)
+  expect(trigger.getAttribute('aria-expanded')).toBe('true')
+})
+
+it('hands focus to an immediately opened confirmation after dismissing the Team pane', async () => {
+  const confirmation = document.createElement('button')
+  document.body.append(confirmation)
+  try {
+    const { trigger } = setup(true, 'agent-team', 'Agent teamwork', () => { confirmation.focus() })
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Agent teamwork' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open confirmation' }))
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+    expect(document.activeElement).toBe(confirmation)
+    await act(async () => {})
+    expect(document.activeElement).toBe(confirmation)
+  } finally {
+    confirmation.remove()
+  }
 })
 
 it('keeps focus on the page surface when the page places none, so Escape still returns', () => {

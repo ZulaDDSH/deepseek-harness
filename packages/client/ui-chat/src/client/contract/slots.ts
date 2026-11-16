@@ -363,9 +363,11 @@ export interface ChatViewInjected {
 
 /** Session-owned node sources shared with the view, plus the flow's connection state. */
 export type ChatFlowDataInjected = Pick<ChatViewInjected, 'keyedHooks'> & {
+  stop: () => void
   hooks: Pick<ChatViewInjected['hooks'], 'presentation'> & {
     /** Client connection lifecycle; the running clock pauses while it is not connected. */
     connectionState: ConnectionStateSource
+    awaitingUser: ObservableSnapshot<boolean>
   }
 }
 
@@ -376,6 +378,8 @@ export interface ChatFlowOwnerProps extends Pick<ChatNodeOwnerProps,
   readonly pendingInputs: readonly (PendingSubmission | InboxState['next-step'][number])[]
   readonly lastInputTurn: number | undefined
   readonly deferCollapse: boolean
+  readonly task?: string | undefined
+  readonly step?: number | undefined
 }
 
 /** Full props of the Chat-owned flow renderer. */

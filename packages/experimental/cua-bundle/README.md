@@ -5,8 +5,6 @@ kind: "package-bundle"
 
 # @deepseek-ai/dsh-cua-bundle
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Enable Computer Use from Plugins on macOS and Windows for existing and new sessions. PTC uses the `cua` binding through `run_code`. Other presets receive `cua_run_code`. The bundle ships with DSH switched off and appears in the Experimental plugins list on supported Hosts. Each Host loads its platform's native provider and the shared permission page. Disabled profiles prepare no native components and register neither CUA tools nor their model guidance.

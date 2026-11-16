@@ -129,7 +129,7 @@ describe('Assembled liveshare viewer page on a writable share', () => {
       workspaceId: workspace.workspaceId, path: workspace.path, displayTitle: workspace.title,
     } })
     await workspaceMenu.ready
-    expect(workspaceMenu.source.getSnapshot()).toEqual([])
+    expect(workspaceMenu.source.getSnapshot().map(item => item.id)).toEqual(['workspace.appearance/color', 'workspace.appearance/icon'])
     workspaceMenu.dispose()
     expect(document.querySelector('[role="treeitem"][draggable="true"]')).toBeNull()
     // The Session's own verbs stay the owner's — the one this page may use there is the branch the

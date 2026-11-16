@@ -26,8 +26,8 @@
 # to the first search so startup stays quiet.
 - id: session-query-sqlite
   config:
-    path: ':memory:'
-    openAt: never
+    path: !!js "dshHomePath('cache', 'session-query', (ctx.get('profileContext')?.name ?? 'web') + '.sqlite')"
+    openAt: first-search
 
 # ── web-only host rows, the transport layer, and the browser roster ─────────
 
@@ -83,6 +83,9 @@
       name: '@deepseek-ai/dsh-client-ui-context-menu'
     - id: ui-open-in-app
       name: '@deepseek-ai/dsh-client-ui-open-in-app'
+
+    - id: ui-provider-quota
+      name: '@deepseek-ai/dsh-client-ui-provider-quota'
 
     - id: workspace
       name: '@deepseek-ai/dsh-workspace'
@@ -140,6 +143,9 @@
     - id: ui-settings-account
       name: '@deepseek-ai/dsh-client-ui-settings-account'
 
+    - id: account-controller
+      name: '@deepseek-ai/dsh-api-account-controller'
+
     - id: ui-account-notifications
       name: '@deepseek-ai/dsh-client-ui-account-notifications'
 
@@ -153,6 +159,9 @@
     - id: mcp-manager
       name: '@deepseek-ai/dsh-mcp-manager'
       inject: [credentials]
+
+    - id: quota-controller
+      name: '@deepseek-ai/dsh-api-quota-controller'
 
     # Workspace commands and reconnect-safe projection over Typert Remote.
     - id: workspace-controller
@@ -295,6 +304,9 @@
       name: '@deepseek-ai/dsh-client-ui-sidebar-right'
 
 
+    - id: office-to-pdf
+      name: '@deepseek-ai/dsh-office-to-pdf'
+
     - id: office-kit
       name: '@deepseek-ai/dsh-office-kit'
       config:
@@ -341,6 +353,32 @@
 
     - id: ui-settings-models
       name: '@deepseek-ai/dsh-client-ui-settings-models'
+
+    # Memory page and automatic chat memory over the `memorix` MCP client below.
+    # The Memorix server ships with this bundle (pinned `memorix` dependency) and
+    # runs under the Host's own Node, so no global install or PATH lookup is needed.
+    - id: memorix-launch
+      name: '@deepseek-ai/dsh-web-app/memorix'
+
+    - id: memory-memorix
+      name: '@deepseek-ai/dsh-mcp-client'
+      inject: [memorixLaunch]
+      config:
+        serverName: memorix
+        transport: stdio
+        command: !!js ctx.memorixLaunch.command
+        args: !!js ctx.memorixLaunch.args
+        env:
+          MEMORIX_SQLITE_DRIVER: node
+          ELECTRON_RUN_AS_NODE: '1'
+
+    - id: ui-memory-workspace
+      name: '@deepseek-ai/dsh-client-ui-memory-workspace'
+
+    # Master Control: the sidebar panel above Plugins listing every Session
+    # with its live state, an open action, and interrupt for running turns.
+    - id: ui-master-control
+      name: '@deepseek-ai/dsh-client-ui-master-control'
 
     # Plugin management: the sidebar Plugins page installs, enables, disables,
     # and removes the profile's bundles through the `pluginManager` Remote.
@@ -392,9 +430,17 @@
       name: '@deepseek-ai/dsh-client-ui-deliverables'
 
     # Records each top-level turn's changed files from git working-tree
-    # snapshots; the changed-files card above renders its events.
+    # snapshots; the changed-files card above renders its events. Records,
+    # captured copies, and snapshot objects outlive their Session under
+    # `$DSH_HOME/workspace-changes`, so a conversation reopened after a restart
+    # keeps its cards and comparisons; the retention bounds cap that directory.
     - id: workspace-changes
       name: '@deepseek-ai/dsh-workspace-changes'
+      config:
+        root: !!js dshHomePath('workspace-changes')
+        retentionSessions: 200
+        retentionBytes: 536870912
+        retentionDays: 30
 
 
     - id: ui-workspace
@@ -538,6 +584,9 @@
 # agent, so one host instance serves every session exactly as before presets.
 
 - id: tool-jobs
+  disabled: true
+
+- id: tool-watch
   disabled: true
 
 - id: tool-fs

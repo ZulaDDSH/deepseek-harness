@@ -1,7 +1,8 @@
+import type { ExternalChatCatalog, ExternalChatImportValue, ExternalChatKey } from '../../types.ts'
 /** Client catalog and source-labelled ownership of exact Session generations. */
 import type { Context, Fiber } from '@deepseek-ai/cordis'
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
-import { SessionSeq, type SessionId } from '@deepseek-ai/dsh-session/types'
+import { SessionSeq, type CliTerminalProfileId, type SessionId } from '@deepseek-ai/dsh-session/types'
 import { workspaceTitleOf } from '@deepseek-ai/dsh-util-workspace-path'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import { SESSION_SEARCH_RESULT_LIMIT } from '../../types.ts'
@@ -32,6 +33,8 @@ export interface SessionSummary {
   displayTitle: string
   cwd?: string
   parentId?: SessionId
+  /** CLI terminal profile the Session hosts. */
+  cliProfile?: CliTerminalProfileId
   /** Coarse durable origin for navigation filtering; not a continuation capability. */
   origin?: 'subagent'
   /** Format classification supplied by the Host list, when available. */
@@ -271,7 +274,7 @@ export class ClientSessions implements ISessions {
    */
   constructor(
     private readonly rootCtx: Context,
-    remote: SessionRemotes,
+    private readonly remote: SessionRemotes,
   ) {
     this.manager = new SessionManager(remote)
     this.list = createSnapshotStore<SessionListState>({
@@ -296,6 +299,26 @@ export class ClientSessions implements ISessions {
       await managerDisposal
     }, 'session-controller.client.sessions')
     rootCtx.reflect.provide('sessions', this, undefined)
+  }
+
+  async masterHome(): Promise<SessionId> {
+    const result = await this.remote.session.masterHome()
+    if (!result.ok) throw new Error(result.error.message)
+    await this.refresh()
+    return result.value.sessionId
+  }
+
+  async externalChats(): Promise<ExternalChatCatalog> {
+    const result = await this.remote.session.externalChats()
+    if (!result.ok) throw new Error(result.error.message)
+    return result.value
+  }
+
+  async importChats(keys: readonly ExternalChatKey[]): Promise<ExternalChatImportValue> {
+    const result = await this.remote.session.importChats({ keys })
+    if (!result.ok) throw new Error(result.error.message)
+    await this.refresh()
+    return result.value
   }
 
   retain(target: SessionTarget, options: SessionRetainOptions): SessionReference {
@@ -452,6 +475,7 @@ export class ClientSessions implements ISessions {
     cwd?: string
     sessionId?: SessionId
     agentPreset?: string
+    cliProfile?: CliTerminalProfileId
   } = {}): Promise<SessionId> {
     const result = await this.manager.create(opts)
     if (!result.ok) throw new SessionCreateError(result.error, opts.sessionId)
@@ -657,6 +681,7 @@ export class ClientSessions implements ISessions {
           : { projectionValues: entry.projectionValues }),
         ...(entry.title !== undefined ? { title: entry.title } : {}),
         ...(entry.cwd !== undefined ? { cwd: entry.cwd } : {}),
+        ...(entry.cliProfile !== undefined ? { cliProfile: entry.cliProfile } : {}),
         ...(entry.parentSessionId !== undefined ? { parentId: entry.parentSessionId } : {}),
         ...(entry.origin !== undefined ? { origin: entry.origin } : {}),
       }

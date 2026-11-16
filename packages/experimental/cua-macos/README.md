@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-cua-macos
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Inspect macOS permissions, select running applications and windows, read accessibility trees, capture screenshots from a selected window, and send input. Standard and other non-PTC presets use retained objects through `cua_run_code`; PTC uses its existing runtime. The Swift helper uses macOS frameworks directly and adapts selected MIT-licensed Cua Driver behavior. The [shared CUA package](../cua/README.md) owns tool registration and the dedicated runtime; this provider owns native operations.

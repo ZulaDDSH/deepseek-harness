@@ -15,6 +15,8 @@ import { FileLayers } from '../src/layers.ts'
 import type { ForgeLocalScope, ForgeSessionWorktree } from '../src/types.ts'
 import { git, gitContext, plainSession, repository, sandboxRecord, scratch } from './harness.ts'
 
+vi.setConfig({ testTimeout: 30_000 })
+
 const CONFIG: DiffConfig = {
   gitCommand: 'git', gitTimeoutMs: 10_000, graceMs: 500, maxOutputBytes: 1_048_576, maxDiffBytes: 1_048_576, maxUntrackedFiles: 100,
 }

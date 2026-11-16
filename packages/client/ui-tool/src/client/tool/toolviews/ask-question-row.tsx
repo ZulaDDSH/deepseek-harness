@@ -362,6 +362,7 @@ export function AskQuestionRow({
       output={transcript === null ? model.output : null}
       askQuestion={transcript}
       state={state}
+      startedAt={model.startedAt}
       inspect={inspect}
     />
   )

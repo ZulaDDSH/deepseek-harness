@@ -45,23 +45,26 @@ export function WorkspaceDialogs({ request, workspaces, renameWorkspace, deleteW
 
   const deleteTarget = request.action === 'delete' ? request : null
   const [deleting, setDeleting] = useState(false)
+  const deletePending = useRef(false)
   const [deleteCommittedId, setDeleteCommittedId] = useState<WorkspaceId | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   useEffect(() => {
     if (deleteCommittedId === null
       || workspaces.some(workspace => workspace.workspaceId === deleteCommittedId)) return
     setDeleting(false)
+    deletePending.current = false
     setDeleteCommittedId(null)
     settleWorkspaceAction()
   }, [deleteCommittedId, workspaces, settleWorkspaceAction])
   const closeDelete = () => {
-    if (deleting) return
+    if (deletePending.current) return
     settleWorkspaceAction()
     setDeleteError(null)
   }
   const confirmDelete = () => {
     /* v8 ignore next -- the Modal is absent without a target and its button is disabled while deleting. */
-    if (deleting || deleteTarget === null) return
+    if (deletePending.current || deleteTarget === null) return
+    deletePending.current = true
     setDeleting(true)
     setDeleteCommittedId(null)
     setDeleteError(null)
@@ -71,6 +74,7 @@ export function WorkspaceDialogs({ request, workspaces, renameWorkspace, deleteW
       // exposes one stale React frame to the next Create Workspace gesture.
       setDeleteCommittedId(deleteTarget.workspaceId)
     }).catch((reason: unknown) => {
+      deletePending.current = false
       setDeleting(false)
       setDeleteError(reason instanceof Error ? reason.message : String(reason))
     })

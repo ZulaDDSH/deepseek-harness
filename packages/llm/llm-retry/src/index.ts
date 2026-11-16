@@ -22,6 +22,8 @@ export { RetryId } from './brand.ts'
 export const name = 'llm-retry'
 export const inject = ['agents', 'sessionProjections']
 
+const NORMAL_RETRY_AFTER_CAP_MS = 120_000
+
 /** This policy executor has no config; providers own `retryPolicy`. */
 export type Config = Readonly<Record<string, never>>
 
@@ -225,7 +227,10 @@ export async function apply(ctx: Context, config: Config = {}, internals: RetryI
     if (failure.providerRetryAfterMs !== undefined
       && Number.isFinite(failure.providerRetryAfterMs)
       && failure.providerRetryAfterMs > 0) {
-      if (failure.providerRetryAfterMs > policy.maxDelayMs) {
+      const acceptedWaitMs = policy.mode === 'normal'
+        ? Math.max(policy.maxDelayMs, NORMAL_RETRY_AFTER_CAP_MS)
+        : policy.maxDelayMs
+      if (failure.providerRetryAfterMs > acceptedWaitMs) {
         if (policy.mode === 'normal') return next()
         delayMs = localDelay(policy, retry, random)
       } else {

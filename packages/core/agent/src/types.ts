@@ -8,7 +8,7 @@ import type { ReasoningEffortId } from '@deepseek-ai/dsh-llm/types'
 import type { UserMessage } from '@deepseek-ai/dsh-llm/types'
 // Type-only: the Workspace registry's archive-admission family map this registry merges `turn` into.
 import type {} from '@deepseek-ai/dsh-workspace/types'
-import type { OptionalSessionSeq, SessionId, SessionSeq } from '@deepseek-ai/dsh-session/types'
+import type { CliTerminalProfileId, OptionalSessionSeq, SessionId, SessionSeq } from '@deepseek-ai/dsh-session/types'
 import type { TypertContext, TypertLookup } from '@deepseek-ai/dsh-typert-protocol'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 
@@ -75,6 +75,11 @@ export interface TurnBoundaryProjection {
   readonly lastTurn: number
 }
 
+/** CLI terminal profile a Session hosts, or null for an ordinary Session; registered by `dsh-agent-loop`. */
+export interface CliTerminalProjection {
+  readonly profile: CliTerminalProfileId | null
+}
+
 /** Complete provider, model, and optional reasoning effort chosen for one Session's model steps. */
 export interface ModelSelection {
   /** Registered provider route. */
@@ -89,6 +94,8 @@ export interface ModelSelection {
 export interface ModelSelectionProjection {
   /** Selection used by the latest recorded model request. */
   readonly lastUsed: ModelSelection | null
+  /** Seq of the `request/header` that recorded {@link lastUsed}; identifies its turn. */
+  readonly lastUsedSeq: SessionSeq | null
   /** Selection the next model step uses; null while the Agent's initial options supply the route. */
   readonly next: ModelSelection | null
 }
@@ -97,6 +104,8 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionMap {
     /** Recorded model selection for the next model step and the latest request. */
     modelSelection: ModelSelectionProjection
+    /** The CLI terminal profile the session hosts, or null for an ordinary session. */
+    cliTerminal: CliTerminalProjection
   }
 }
 

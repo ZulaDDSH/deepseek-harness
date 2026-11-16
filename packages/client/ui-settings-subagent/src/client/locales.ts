@@ -20,6 +20,8 @@ export type SubagentSettingsLocaleKey =
   | 'subagentModelSelectionPartial' | 'subagentModelSelectionUnavailable'
   | 'subagentModelSelectionUnavailableGroup' | 'subagentModelSelectionEmpty'
   | 'subagentModelSelectionRequired' | 'subagentModelSelectionConflict' | 'subagentModelSelectionOff'
+  | 'claudeCodeTitle' | 'claudeCodeDescription'
+  | 'ultracodeLabel' | 'ultracodeHint' | 'ultracodeUnset'
 
 /** English copy. */
 export const en: Record<SubagentSettingsLocaleKey, string> = {
@@ -58,6 +60,11 @@ export const en: Record<SubagentSettingsLocaleKey, string> = {
   subagentModelSelectionRequired: 'Select at least one model before saving.',
   subagentModelSelectionConflict: 'Settings changed elsewhere. Discard your draft and try again.',
   subagentModelSelectionOff: 'Subagents use configured defaults or inherit the parent agent\'s model. Saved model choices are retained.',
+  claudeCodeTitle: 'Claude Code',
+  claudeCodeDescription: 'Set the default behavior of Claude Code subagents.',
+  ultracodeLabel: 'Ultracode',
+  ultracodeHint: 'Let Claude CLI orchestrate multi-agent Workflows by default on runs of current Claude 5 family models only. A session\'s Ultracode effort level in the model picker overrides it.',
+  ultracodeUnset: 'Not set: Claude Code\'s own settings decide.',
 }
 
 /** Simplified Chinese copy. */
@@ -97,6 +104,11 @@ export const zh: Record<SubagentSettingsLocaleKey, string> = {
   subagentModelSelectionRequired: '保存前请至少选择一个模型。',
   subagentModelSelectionConflict: '设置已在其他位置更新。请放弃修改后重试。',
   subagentModelSelectionOff: '关闭后，子智能体使用配置的默认模型或继承父 Agent 的模型；已选模型会保留。',
+  claudeCodeTitle: 'Claude Code',
+  claudeCodeDescription: '设置 Claude Code 子智能体的默认行为。',
+  ultracodeLabel: 'Ultracode',
+  ultracodeHint: '默认让 Claude CLI 在当前 Claude 5 系列模型的运行中编排多代理工作流。会话在模型选择器的推理强度中选择的 Ultracode 等级会覆盖此默认值。',
+  ultracodeUnset: '未设置：由 Claude Code 自身的设置决定。',
 }
 
 /**
@@ -145,6 +157,11 @@ export const ja = {
   'subagentModelSelectionRequired': '保存する前に少なくとも1つのモデルを選択してください。',
   'subagentModelSelectionConflict': '設定が別の場所で変更されました。下書きを破棄して再試行してください。',
   'subagentModelSelectionOff': 'サブエージェントは設定済みのデフォルトを使用するか、親エージェントのモデルを継承します。保存済みのモデル選択は保持されます。',
+  'claudeCodeTitle': 'Claude Code',
+  'claudeCodeDescription': 'Claude Code サブエージェントの既定の動作を設定します。',
+  'ultracodeLabel': 'Ultracode',
+  'ultracodeHint': '現行の Claude 5 ファミリーのモデルで実行する場合に限り、既定でマルチエージェントのワークフローを Claude CLI が編成します。モデル選択の Ultracode 推論強度をセッションごとに指定すると、この設定より優先されます。',
+  'ultracodeUnset': '未設定: Claude Code 自身の設定に従います。',
 } satisfies Record<keyof typeof en, string>
 
 /** Spanish dictionary, checked against the English keys. */
@@ -184,6 +201,11 @@ export const es = {
   subagentModelSelectionRequired: 'Seleccione al menos un modelo antes de guardar.',
   subagentModelSelectionConflict: 'La configuración cambió en otros lugares. Descarta tu borrador y vuelve a intentarlo.',
   subagentModelSelectionOff: 'Los subagentes utilizan valores predeterminados configurados o heredan el modelo del agente principal. Las opciones de modelo guardadas se conservan.',
+  claudeCodeTitle: 'Claude Code',
+  claudeCodeDescription: 'Defina el comportamiento predeterminado de los subagentes de Claude Code.',
+  ultracodeLabel: 'Ultracode',
+  ultracodeHint: 'Permite que Claude CLI orqueste flujos de trabajo multiagente de forma predeterminada, solo en ejecuciones con los modelos actuales de la familia Claude 5. El nivel de esfuerzo Ultracode de una sesión en el selector de modelos tiene prioridad sobre esta opción.',
+  ultracodeUnset: 'Sin definir: deciden los ajustes propios de Claude Code.',
 } satisfies Record<keyof typeof en, string>
 
 /** French dictionary, checked against the English keys. */
@@ -223,6 +245,11 @@ export const fr = {
   subagentModelSelectionRequired: 'Sélectionnez au moins un modèle avant de sauvegarder.',
   subagentModelSelectionConflict: 'Paramètres modifiés ailleurs. Supprimez votre brouillon et réessayez.',
   subagentModelSelectionOff: "Les sous-agents utilisent les valeurs par défaut configurées ou héritent du modèle de l'agent parent. Les choix de modèles enregistrés sont conservés.",
+  claudeCodeTitle: 'Claude Code',
+  claudeCodeDescription: 'Définissez le comportement par défaut des sous-agents Claude Code.',
+  ultracodeLabel: 'Ultracode',
+  ultracodeHint: 'Laisse Claude CLI orchestrer par défaut des workflows multi-agents, uniquement pour les exécutions avec les modèles actuels de la famille Claude 5. Le niveau d’effort Ultracode d’une session, choisi dans le sélecteur de modèle, remplace ce réglage.',
+  ultracodeUnset: 'Non défini : ce sont les réglages propres à Claude Code qui décident.',
 } satisfies Record<keyof typeof en, string>
 
 /** German dictionary, checked against the English keys. */
@@ -262,6 +289,11 @@ export const de = {
   subagentModelSelectionRequired: 'Wählen Sie vor dem Speichern mindestens ein Modell aus.',
   subagentModelSelectionConflict: 'Einstellungen wurden an anderer Stelle geändert. Verwerfen Sie Ihren Entwurf und versuchen Sie es erneut.',
   subagentModelSelectionOff: 'Subagenten verwenden konfigurierte Standardwerte oder erben das Modell des übergeordneten Agenten. Gespeicherte Modellauswahlen bleiben erhalten.',
+  claudeCodeTitle: 'Claude Code',
+  claudeCodeDescription: 'Legen Sie das Standardverhalten der Claude-Code-Subagenten fest.',
+  ultracodeLabel: 'Ultracode',
+  ultracodeHint: 'Lassen Sie Claude CLI standardmäßig Multi-Agenten-Workflows orchestrieren, aber nur bei Ausführungen mit den aktuellen Modellen der Claude-5-Familie. Die Ultracode-Aufwandsstufe einer Sitzung im Modellauswahlmenü hat Vorrang.',
+  ultracodeUnset: 'Nicht festgelegt: Die eigenen Einstellungen von Claude Code entscheiden.',
 } satisfies Record<keyof typeof en, string>
 
 /** Russian dictionary, checked against the English keys. */
@@ -301,6 +333,11 @@ export const ru = {
   subagentModelSelectionRequired: 'Прежде чем сохранить, выберите хотя бы одну модель.',
   subagentModelSelectionConflict: 'Настройки изменены в другом месте. Отмените черновик и повторите попытку.',
   subagentModelSelectionOff: 'Субагенты используют настроенные значения по умолчанию или наследуют модель родительского агента. Сохраненные варианты моделей сохраняются.',
+  claudeCodeTitle: 'Claude Code',
+  claudeCodeDescription: 'Задайте поведение по умолчанию для субагентов Claude Code.',
+  ultracodeLabel: 'Ultracode',
+  ultracodeHint: 'По умолчанию разрешать Claude CLI организовывать многоагентные рабочие процессы только при запусках на текущих моделях семейства Claude 5. Уровень усилий Ultracode для сеанса, выбранный в выборе модели, имеет приоритет.',
+  ultracodeUnset: 'Не задано: решают собственные настройки Claude Code.',
 } satisfies Record<keyof typeof en, string>
 
 /** Portuguese dictionary, checked against the English keys. */
@@ -340,4 +377,9 @@ export const pt = {
   subagentModelSelectionRequired: 'Selecione pelo menos um modelo antes de salvar.',
   subagentModelSelectionConflict: 'Configurações alteradas em outro lugar. Descarte seu rascunho e tente novamente.',
   subagentModelSelectionOff: 'Os subagentes usam padrões configurados ou herdam o modelo do agente pai. As opções de modelo salvas são mantidas.',
+  claudeCodeTitle: 'Claude Code',
+  claudeCodeDescription: 'Defina o comportamento padrão dos subagentes do Claude Code.',
+  ultracodeLabel: 'Ultracode',
+  ultracodeHint: 'Permite que o Claude CLI oriente fluxos de trabalho multiagente por padrão, somente em execuções com os modelos atuais da família Claude 5. O nível de esforço Ultracode de uma sessão no seletor de modelos tem prioridade.',
+  ultracodeUnset: 'Não definido: valem as configurações do próprio Claude Code.',
 } satisfies Record<keyof typeof en, string>

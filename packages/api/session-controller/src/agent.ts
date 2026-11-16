@@ -3,15 +3,19 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import type { Context } from '@deepseek-ai/cordis'
-import type { Agent, AgentOptions, AgentSetup } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentOptions, AgentSetup, ModelSelection as AgentModelSelection } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import type { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { isCliTerminalProfileId, type CliTerminalProfileId, type Session, type SessionId } from '@deepseek-ai/dsh-session'
 import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query'
 import { RemoteError, remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-typert-registry'
+import type {} from '@deepseek-ai/dsh-tools'
+import { orchestratorSelectionOf } from './setup-resolver.ts'
+import type { McpSelection, ModelSelection } from './types.ts'
 
 /** Cold Session identity absent from persistence. */
 export class ApiSessionNotFound extends Error {}
@@ -60,6 +64,8 @@ export interface ApiSessionCreateRequest {
   readonly cwd: string
   /** Preset the Session runs; the configured default when omitted. */
   readonly agentPreset?: string
+  /** CLI terminal profile recorded once on a new Session; requires no `sessionId`. */
+  readonly cliProfile?: CliTerminalProfileId
   /**
    * Placement rule the caller owns, such as Workspace membership and archive state.
    * @param sessionId - existing Session named by the request.
@@ -90,6 +96,15 @@ export type ApiSessionAgentResult =
   | { readonly agent: Agent }
   | { readonly error: ApiSessionAgentError }
 
+type InstalledMcpSelection = {
+  selected: Set<string> | null
+  disposeRestriction: (() => void) | undefined
+  disposeGuard: (() => void) | undefined
+  disposePrompt: (() => void) | undefined
+  disposeChange: (() => void) | undefined
+  restrictionSignature: string
+}
+
 /**
  * Test whether generic Session routing must leave an identity to subagent routing.
  * @param session - Attached or live Session whose origin is tested.
@@ -116,6 +131,7 @@ export function apiSessionSubagentOwnershipError(sessionId: SessionId): ApiSessi
 export class ApiSessionAgentController {
   private readonly resumes = new Map<SessionId, Promise<Agent>>()
   private readonly claims = new Map<SessionId, Promise<void>>()
+  private readonly mcpSelections = new WeakMap<Agent, InstalledMcpSelection>()
   private readonly imageAdmissionChains = new WeakMap<Agent, Promise<void>>()
 
   /** @param ctx - Host context carrying Agent, model, persistence, and Typert services. */
@@ -225,10 +241,16 @@ export class ApiSessionAgentController {
    * @throws ApiSessionSubagentOwnership when subagent routing owns the named Session.
    * @throws RemoteError `agent-preset/not-found` or `agent-preset/invalid` for the requested or default preset.
    * @throws ApiSessionPresetConflict when no roster is composed and the request names a preset for a reused Session.
+   * @throws RemoteError `gateway/bad-request` when a CLI profile is unknown or names an explicit identity.
    */
   async createSession(request: ApiSessionCreateRequest): Promise<ApiSessionCreated> {
     const named = request.sessionId
-    if (named === undefined) return this.created(await this.createMinted(request.cwd, await this.composeAgent(request.agentPreset)))
+    if (request.cliProfile !== undefined && (named !== undefined || !isCliTerminalProfileId(request.cliProfile))) {
+      throw new RemoteError('gateway/bad-request', 'cliProfile needs a known profile and no explicit sessionId', {})
+    }
+    if (named === undefined) {
+      return this.created(await this.createMinted(request.cwd, await this.composeAgent(request.agentPreset), request.cliProfile))
+    }
     return this.inOrder(named, async () => this.created(await this.claim(named, request)))
   }
 
@@ -239,6 +261,103 @@ export class ApiSessionAgentController {
    */
   presetForSession(session: Session): string | undefined {
     return this.ctx.get('agentPresets')?.presetForSession(session) ?? undefined
+  }
+
+  /**
+   * Return MCP connector namespaces exposed by the current global tool registry.
+   * @returns sorted connector namespace identifiers.
+   */
+  listMcpConnectorIds(): readonly string[] {
+    const ids = new Set<string>()
+    for (const schema of this.ctx.get('tools')?.schemas() ?? []) {
+      const rest = schema.name.startsWith('mcp__') ? schema.name.slice(5) : ''
+      const separator = rest.indexOf('__')
+      if (separator > 0) ids.add(rest.slice(0, separator))
+    }
+    return [...ids].sort()
+  }
+
+  /**
+   * Read the durable MCP selection for one Session.
+   * @param session - Session whose projected selection should be read.
+   * @returns the current selection, or null when unrestricted.
+   */
+  mcpSelectionFor(session: Session): McpSelection | null {
+    return this.ctx.sessionProjections.snapshot(session, ['mcpSelection']).values.mcpSelection?.current ?? null
+  }
+
+  /**
+   * Install or update the Agent-scoped MCP restriction.
+   * @param agent - live Agent whose tool registry is restricted.
+   * @param selection - selected connector namespaces, or null for unrestricted access.
+   */
+  installMcpSelection(agent: Agent, selection: McpSelection | null): void {
+    const runtime: InstalledMcpSelection = this.mcpSelections.get(agent) ?? {
+      selected: null, disposeRestriction: undefined, disposeGuard: undefined, disposePrompt: undefined,
+      disposeChange: undefined, restrictionSignature: '[]',
+    }
+    runtime.selected = selection === null ? null : new Set(selection.connectorIds)
+    this.mcpSelections.set(agent, runtime)
+    const tools = agent.ctx.get('tools')
+    if (tools === undefined) {
+      this.mcpSelections.set(agent, runtime)
+      return
+    }
+    runtime.disposeGuard ??= tools.guard((execution) => {
+      if (runtime.selected !== null
+        && ['list_mcp_resources', 'list_mcp_resource_templates', 'read_mcp_resource'].includes(execution.name)) {
+        const args = execution.arguments
+        if (typeof args === 'object' && args !== null && 'server' in args
+          && typeof args.server === 'string' && !runtime.selected.has(args.server)) {
+          return 'MCP connector is not enabled for this Session'
+        }
+      }
+      const rest = execution.name.startsWith('mcp__') ? execution.name.slice(5) : ''
+      const separator = rest.indexOf('__')
+      if (separator <= 0 || runtime.selected === null || runtime.selected.has(rest.slice(0, separator))) return undefined
+      return 'MCP connector is not enabled for this Session'
+    })
+    runtime.disposePrompt ??= agent.ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
+      const assembly = await next()
+      if (runtime.selected === null) return assembly
+      assembly.sections = assembly.sections.filter(section => section.name !== 'mcp-resource-servers'
+        && (!section.name.startsWith('mcp:') || runtime.selected?.has(section.name.slice(4))))
+      return assembly
+    })
+    runtime.disposeChange ??= agent.ctx.on('tools/change', () => {
+      this.installMcpSelection(agent, runtime.selected === null ? null : { connectorIds: [...runtime.selected] })
+    })
+    const allTools = this.ctx.get('tools')?.schemas().map(schema => schema.name) ?? []
+    const deny = runtime.selected === null
+      ? []
+      : allTools.filter((name) => {
+        const rest = name.startsWith('mcp__') ? name.slice(5) : ''
+        const separator = rest.indexOf('__')
+        return separator > 0 && !runtime.selected?.has(rest.slice(0, separator))
+      })
+    const signature = JSON.stringify(deny.sort())
+    if (signature !== runtime.restrictionSignature) {
+      runtime.restrictionSignature = signature
+      const previous = runtime.disposeRestriction
+      runtime.disposeRestriction = undefined
+      previous?.()
+      runtime.disposeRestriction = deny.length === 0 ? undefined : tools.restrict({ deny })
+    }
+    this.mcpSelections.set(agent, runtime)
+  }
+
+  /**
+   * Persist and apply one MCP connector selection for a live Agent.
+   * @param agent - live Agent that owns the Session selection.
+   * @param selection - requested connector namespaces.
+   */
+  selectMcpFor(agent: Agent, selection: McpSelection): void {
+    const allowed = new Set(this.listMcpConnectorIds())
+    const invalid = selection.connectorIds.filter(id => !allowed.has(id))
+    if (invalid.length > 0) throw new Error(`unknown MCP connector: ${invalid[0]}`)
+    const normalized = { connectorIds: [...new Set(selection.connectorIds)].sort() }
+    agent.session.append('mcp/selection', normalized)
+    this.installMcpSelection(agent, normalized)
   }
 
   /**
@@ -261,14 +380,20 @@ export class ApiSessionAgentController {
   async composeAgent(presetId: string | undefined): Promise<ApiSessionComposition> {
     const presets = this.ctx.get('agentPresets')
     if (presets === undefined) {
-      return { setup: (agentCtx) => { installModelSelection(agentCtx) } }
+      return {
+        setup: (agentCtx, agent) => {
+          installModelSelection(agentCtx)
+          this.installMcpSelection(agent, this.mcpSelectionFor(agent.session))
+        },
+      }
     }
     const resolvedId = (await presets.resolve(presetId)).id
     return {
       agentPreset: resolvedId,
-      setup: async (agentCtx) => {
+      setup: async (agentCtx, agent) => {
         installModelSelection(agentCtx)
         await presets.mount(agentCtx, resolvedId)
+        this.installMcpSelection(agent, this.mcpSelectionFor(agent.session))
       },
     }
   }
@@ -429,8 +554,11 @@ export class ApiSessionAgentController {
     return { agent, agentPreset: this.presetForSession(agent.session) }
   }
 
-  private createMinted(cwd: string, composition: ApiSessionComposition): Promise<Agent> {
-    return this.createAgent(brandString<SessionId>(`session-${randomUUID()}`), cwd, composition)
+  private createMinted(cwd: string, composition: ApiSessionComposition, cliProfile?: CliTerminalProfileId): Promise<Agent> {
+    const marked = cliProfile === undefined
+      ? composition
+      : { ...composition, setup: withCliMarker(composition.setup, cliProfile) }
+    return this.createAgent(brandString<SessionId>(`session-${randomUUID()}`), cwd, marked)
   }
 
   private async createAgent(sessionId: SessionId, cwd: string, composition: ApiSessionComposition): Promise<Agent> {
@@ -457,6 +585,10 @@ export class ApiSessionAgentController {
       get provider() { return defaults.currentSelection().provider },
       get model() { return defaults.currentSelection().model },
       get reasoningEffort() { return defaults.currentSelection().reasoningEffort },
+      pinnedSelection: (session) => {
+        const route = orchestratorSelectionOf(this.ctx, session)
+        return route === undefined ? undefined : agentModelSelection(route)
+      },
     }
   }
 
@@ -470,5 +602,34 @@ export class ApiSessionAgentController {
       throw new Error('api-session: Agent activation requires a projected Session observation')
     }
     return observation.projections.values.agentPreset ?? undefined
+  }
+
+  /**
+   * Refuse turn-starting work on a CLI terminal Session.
+   * @param agent - live ordinary Agent about to receive a prompt.
+   * @returns the same Agent when it is not a CLI terminal Session.
+   * @throws when the Session records a CLI terminal profile.
+   */
+  refuseCliSession(agent: Agent): Agent {
+    if ((this.ctx.sessionProjections.snapshot(agent.session, ['cliTerminal']).values.cliTerminal?.profile ?? null) === null) return agent
+    throw new RemoteError('session/cli-terminal', `session "${agent.session.header.id}" is a CLI terminal and accepts no prompts`, {})
+  }
+}
+
+function withCliMarker(setup: AgentSetup, profile: CliTerminalProfileId): AgentSetup {
+  return async (agentCtx, agent) => {
+    const commit = await setup(agentCtx, agent)
+    agent.session.append('session/cli-terminal', { profile })
+    return commit
+  }
+}
+
+function agentModelSelection(selection: ModelSelection): AgentModelSelection {
+  return {
+    provider: selection.provider,
+    model: selection.model,
+    ...selection.reasoningEffort === undefined
+      ? {}
+      : { reasoningEffort: ReasoningEffortId(selection.reasoningEffort) },
   }
 }

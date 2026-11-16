@@ -10,6 +10,11 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 /** Simplified Chinese terminal copy. */
 export const zh = {
   'shortcut.noSession': '请先选择会话',
+  'cli.label': '命令行终端',
+  'cli.install': '请先安装此 CLI，然后确保 `{command}` 在 PATH 中。',
+  'cli.installLink': '安装说明',
+  'cli.profile.gemini-cli': 'Gemini CLI', 'cli.profile.grok-cli': 'Grok CLI', 'cli.profile.cursor-cli': 'Cursor CLI',
+  'cli.close': '关闭',
   recoveryFailed: '恢复终端失败：{message}', retryRecovery: '重试恢复终端',
   shell: '选择 Shell', shellLoading: '正在读取 Shell…', shellEmpty: '没有可用的 Shell', description: '在会话工作区运行命令',
   title: '终端', new: '新建终端', loading: '正在读取终端环境…', creating: '正在启动…',
@@ -32,6 +37,11 @@ export const zh = {
 /** English terminal copy. */
 export const en = {
   'shortcut.noSession': 'Select a session first',
+  'cli.label': 'CLI terminal',
+  'cli.install': 'Install this CLI, then make sure `{command}` is on your PATH.',
+  'cli.installLink': 'Install instructions',
+  'cli.profile.gemini-cli': 'Gemini CLI', 'cli.profile.grok-cli': 'Grok CLI', 'cli.profile.cursor-cli': 'Cursor CLI',
+  'cli.close': 'Close',
   recoveryFailed: 'Terminal recovery failed: {message}', retryRecovery: 'Retry terminal recovery',
   shell: 'Choose shell', shellLoading: 'Loading shells…', shellEmpty: 'No shells available', description: 'Run commands in the Session workspace',
   title: 'Terminal', new: 'New terminal', loading: 'Reading terminal environment…', creating: 'Starting…',
@@ -54,6 +64,13 @@ export const en = {
 /** Japanese copy, checked against the English keys. */
 export const ja = {
   'shortcut.noSession': '先にセッションを選択してください',
+  'cli.label': 'CLI ターミナル',
+  'cli.install': 'この CLI をインストールし、`{command}` が PATH に含まれていることを確認してください。',
+  'cli.installLink': 'インストール手順',
+  'cli.profile.gemini-cli': 'Gemini CLI',
+  'cli.profile.grok-cli': 'Grok CLI',
+  'cli.profile.cursor-cli': 'Cursor CLI',
+  'cli.close': '閉じる',
   'recoveryFailed': 'ターミナルの復元に失敗しました: {message}',
   'retryRecovery': 'ターミナルの復元を再試行',
   'shell': 'シェルを選択',
@@ -91,6 +108,13 @@ export const ja = {
 /** Spanish dictionary, checked against the English keys. */
 export const es = {
   'shortcut.noSession': 'Seleccione una sesión primero',
+  'cli.label': 'Terminal de CLI',
+  'cli.install': 'Instale esta CLI y asegúrese de que `{command}` esté en su PATH.',
+  'cli.installLink': 'Instrucciones de instalación',
+  'cli.profile.gemini-cli': 'Gemini CLI',
+  'cli.profile.grok-cli': 'Grok CLI',
+  'cli.profile.cursor-cli': 'Cursor CLI',
+  'cli.close': 'Cerrar',
   recoveryFailed: 'Falló la recuperación del terminal: {message}', retryRecovery: 'Reintentar la recuperación del terminal',
   shell: 'Elige concha', shellLoading: 'Cargando proyectiles…', shellEmpty: 'No hay conchas disponibles', description: 'Ejecutar comandos en el espacio de trabajo de sesión',
   title: 'terminales', new: 'Nueva terminal', loading: 'Entorno de terminal de lectura...', creating: 'Empezando…',
@@ -113,6 +137,13 @@ export const es = {
 /** French dictionary, checked against the English keys. */
 export const fr = {
   'shortcut.noSession': "Sélectionnez d'abord une session",
+  'cli.label': 'Terminal CLI',
+  'cli.install': 'Installez cette CLI, puis assurez-vous que `{command}` est dans votre PATH.',
+  'cli.installLink': "Instructions d'installation",
+  'cli.profile.gemini-cli': 'Gemini CLI',
+  'cli.profile.grok-cli': 'Grok CLI',
+  'cli.profile.cursor-cli': 'Cursor CLI',
+  'cli.close': 'Fermer',
   recoveryFailed: 'Échec de la récupération du terminal : {message}', retryRecovery: 'Réessayez la récupération du terminal',
   shell: 'Choisissez la coque', shellLoading: 'Chargement des obus…', shellEmpty: 'Aucune coquille disponible', description: 'Exécuter des commandes dans l’espace de travail de la session',
   title: 'Borne', new: 'Nouvelle borne', loading: 'Environnement du terminal de lecture…', creating: 'Commencer…',
@@ -135,6 +166,13 @@ export const fr = {
 /** German dictionary, checked against the English keys. */
 export const de = {
   'shortcut.noSession': 'Wählen Sie zunächst eine Sitzung aus',
+  'cli.label': 'CLI-Terminal',
+  'cli.install': 'Installieren Sie diese CLI und stellen Sie sicher, dass `{command}` in Ihrem PATH enthalten ist.',
+  'cli.installLink': 'Installationsanleitung',
+  'cli.profile.gemini-cli': 'Gemini CLI',
+  'cli.profile.grok-cli': 'Grok CLI',
+  'cli.profile.cursor-cli': 'Cursor CLI',
+  'cli.close': 'Schließen',
   recoveryFailed: 'Terminalwiederherstellung fehlgeschlagen: {message}', retryRecovery: 'Versuchen Sie die Terminalwiederherstellung erneut',
   shell: 'Wählen Sie Shell', shellLoading: 'Granaten werden geladen…', shellEmpty: 'Keine Muscheln verfügbar', description: 'Führen Sie Befehle im Sitzungsarbeitsbereich aus',
   title: 'Terminal', new: 'Neues Terminal', loading: 'Terminalumgebung lesen…', creating: 'Beginnend mit …',
@@ -157,6 +195,13 @@ export const de = {
 /** Russian dictionary, checked against the English keys. */
 export const ru = {
   'shortcut.noSession': 'Сначала выберите сеанс',
+  'cli.label': 'Терминал CLI',
+  'cli.install': 'Установите этот CLI и убедитесь, что `{command}` есть в вашем PATH.',
+  'cli.installLink': 'Инструкции по установке',
+  'cli.profile.gemini-cli': 'Gemini CLI',
+  'cli.profile.grok-cli': 'Grok CLI',
+  'cli.profile.cursor-cli': 'Cursor CLI',
+  'cli.close': 'Закрыть',
   recoveryFailed: 'Восстановление терминала не удалось: {message}', retryRecovery: 'Повторить попытку восстановления терминала',
   shell: 'Выбрать оболочку', shellLoading: 'Загрузка снарядов…', shellEmpty: 'Нет доступных ракушек', description: 'Запуск команд в рабочей области сеанса',
   title: 'Терминал', new: 'Новый терминал', loading: 'Чтение среды терминала…', creating: 'Начало…',
@@ -179,6 +224,13 @@ export const ru = {
 /** Portuguese dictionary, checked against the English keys. */
 export const pt = {
   'shortcut.noSession': 'Selecione uma sessão primeiro',
+  'cli.label': 'Terminal CLI',
+  'cli.install': 'Instale esta CLI e verifique se `{command}` está no seu PATH.',
+  'cli.installLink': 'Instruções de instalação',
+  'cli.profile.gemini-cli': 'Gemini CLI',
+  'cli.profile.grok-cli': 'Grok CLI',
+  'cli.profile.cursor-cli': 'Cursor CLI',
+  'cli.close': 'Fechar',
   recoveryFailed: 'Falha na recuperação do terminal: {message}', retryRecovery: 'Tentar novamente a recuperação do terminal',
   shell: 'Escolha a concha', shellLoading: 'Carregando conchas…', shellEmpty: 'Não há conchas disponíveis', description: 'Execute comandos no espaço de trabalho Sessão',
   title: 'Terminais', new: 'Novo terminal', loading: 'Lendo o ambiente do terminal…', creating: 'Começando…',

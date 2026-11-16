@@ -19,6 +19,7 @@ import type {
 } from '../contract/request-inspection.ts'
 import { inspectRequestPrompt } from '../contract/request-inspection.ts'
 import { inspectSystemPrompt, type SystemPromptState } from '../contract/system-prompt.ts'
+import type { IConversation } from '../service.ts'
 import { ConversationNodeAssembler, ConversationUpdateError } from './assembler.ts'
 import { ConversationEventRegistry } from './event-registry.ts'
 import { HistoricalImageCache } from './historical-images.ts'
@@ -199,6 +200,17 @@ interface BindingRecord {
   disposeScope: () => void
 }
 
+/** Resolve the session-scoped Conversation action face, failing loud. */
+function scopedConversation(sessions: ISessions, id: SessionId): IConversation {
+  const scoped = sessions.scope(id)
+  if (scoped === undefined) throw new Error(`ui-conversation: session "${id}" resolved no scope`)
+  const conversation = scoped.get('conversation')
+  if (conversation === undefined) {
+    throw new Error('ui-conversation: conversation service unavailable through the session scope')
+  }
+  return conversation
+}
+
 /** Root service owning Conversation registries and per-Session bindings. */
 export class UiConversation extends Service {
   /** Registry of event matchers and target snapshot builders. */
@@ -312,6 +324,16 @@ export class UiConversation extends Service {
    */
   seedImageUrl(sessionId: SessionId, attachment: ImageAttachmentRef, url: string): boolean {
     return this.images.seed(sessionId, attachment, url)
+  }
+
+  /**
+   * Cancel one Session's in-flight Turn through its scoped Conversation face.
+   * @param sessionId - Session whose Turn stops.
+   */
+  stop(sessionId: SessionId): void {
+    scopedConversation(this.sessions, sessionId).cancel().catch((_error: unknown) => {
+      // Stop failure is published through Session promptError.
+    })
   }
 
   /**

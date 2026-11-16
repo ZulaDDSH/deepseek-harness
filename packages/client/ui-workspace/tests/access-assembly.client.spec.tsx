@@ -79,6 +79,10 @@ async function bench(access: ClientAccessState, options: { ungroupedSession?: Se
     { 'sidebar.workspaces': { kind: 'single', scope: 'root', inject: SECTION_INJECT } } as never,
     SidebarFrame as never,
   )
+  runtime.ctx.provide('commandUi', {
+    quickCommands: vi.fn(async () => []),
+    runQuick: vi.fn(() => true),
+  } as never)
   await runtime.mount({ inject: [...injectMenus], apply: applyMenus })
   await runtime.mount({ inject: [...inject], apply })
   return runtime
@@ -100,7 +104,7 @@ describe('Workspace header actions under the page access snapshot', () => {
       const target = { kind: 'workspace' as const, value: { workspaceId: WORKSPACE, path: '/projects/project', displayTitle: 'Project' } }
       const deniedMenu = runtime.ctx.contextMenus.resolve(target)
       await deniedMenu.ready
-      expect(deniedMenu.source.getSnapshot()).toEqual([])
+      expect(deniedMenu.source.getSnapshot().map(item => item.id)).toEqual(['workspace.appearance/color', 'workspace.appearance/icon'])
       deniedMenu.dispose()
       expect(header.getAttribute('draggable')).toBe('false')
 
@@ -120,7 +124,9 @@ describe('Workspace header actions under the page access snapshot', () => {
 
       const grantedMenu = runtime.ctx.contextMenus.resolve(target)
       await grantedMenu.ready
-      expect(grantedMenu.source.getSnapshot().map(item => item.id)).toEqual(['workspace.rename/rename'])
+      expect(grantedMenu.source.getSnapshot().map(item => item.id)).toEqual([
+        'workspace.appearance/color', 'workspace.appearance/icon', 'workspace.rename/rename',
+      ])
       act(() => { access.replace({ type: 'baseline', owner: false, grants: [] }) })
       grantedMenu.select('workspace.rename/rename')
       expect(screen.queryByRole('dialog')).toBeNull()

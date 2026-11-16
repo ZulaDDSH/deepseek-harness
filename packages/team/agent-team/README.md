@@ -139,7 +139,7 @@ Team requires `sessionPersistence` before activation. `Service.init` awaits regi
 
 Task mutations honor cancellation before appending `team/task` to the exact live root Session, then await the flush. Cancellation cannot retract an appended record. A failed flush or one with no participating listener raises `TEAM_TASK_PERSISTENCE_UNCONFIRMED` with the task id and revision: the task is already visible, but durability is unknown. Read that task before retrying. Task records remain log-only. No committed task or historical payload generation is rewritten.
 
-The projection ignores historical roster and mailbox records without validating or retaining their payloads. It stores only the task board, saved mode, and recovery metadata. Version-7 checkpoints without `ownerName` remain usable; suffix replay records names from later task events without backfilling historical tasks. Incompatible projection checkpoints rebuild from the unchanged Session log; see the [upgrade guide](../../../docs/upgrade-guide/v0.2.1-rc.3/team-projection/guide.md).
+The projection retains validated historical roster and mailbox records for read-only display; replay accepts legacy v1 and v2 roster/mailbox events, drops the v1 message `delivery` field, and never reconnects old members or delivers old messages. Malformed or foreign historical records are ignored. Version-7 checkpoints without `ownerName` rebuild from the unchanged Session log. Checkpoints from earlier projection versions also rebuild from that log, preserving task ownership and historical records; see the [upgrade guide](../../../docs/upgrade-guide/v0.2.1-rc.3/team-projection/guide.md).
 
 ### Disposal
 
@@ -147,9 +147,9 @@ Unloading the service unregisters the projection. The retained handle remains re
 
 ### Browser projection
 
-The `agentTeam` projection publishes non-deleted task views and any failure beside the last valid state. Historical roster and mailbox records cannot cause a task-board projection failure. A failed projection rejects task reads and mutations with `TeamError` `TEAM_STATE_CORRUPT` without appending task events. Mode selections can still be saved and applied, including disabling Team; the projection failure remains visible. Invalid mode payloads retain the last valid selection and publish a projection failure. The [subsystem reference](../../../docs/subsystems/agent-team.md#web-projection) defines the wire types.
+The `agentTeam` projection publishes non-deleted task views, read-only history, and any failure beside the last valid state. Malformed or foreign historical roster and mailbox records are ignored; they cannot block current task reads or mutations. Invalid authoritative task or mode payloads retain the last valid state and publish a projection failure. A failed task projection rejects reads and mutations with `TeamError` `TEAM_STATE_CORRUPT` without appending task events. Mode selections can still be saved and applied, including disabling Team; the projection failure remains visible. The [subsystem reference](../../../docs/subsystems/agent-team.md#web-projection) defines the wire types.
 
-The [Web UI](../../client/ui-agent-team/README.md) displays tasks only. Ordinary subagent navigation owns the member list; task owner labels display the owner's full name, or its Session id when the owner has no name.
+The [Web UI](../../client/ui-agent-team/README.md) displays the task board and a read-only historical roster and mailbox. Ordinary subagent navigation owns current live members; historical members are not restored as agents. Task owner labels display the owner's full name, or its Session id when the owner has no name.
 
 </details>
 

@@ -203,3 +203,16 @@ describe('ThemePresenter', () => {
     expect(meta?.isConnected).toBe(false)
   })
 })
+
+describe('ThemePresenter font family', () => {
+  it('sets the body font stack, removes it for default, and retracts it on dispose', () => {
+    const presenter = new ThemePresenter()
+    presenter.apply(snapshot('dark', {}, 14, 'dark', { text: 'Georgia, serif', code: '', terminal: '' }))
+    expect(document.body.style.getPropertyValue('--dsh-font-family-text')).toBe('Georgia, serif')
+    presenter.apply(snapshot('dark'))
+    expect(document.body.style.getPropertyValue('--dsh-font-family-text')).toBe('')
+    presenter.apply(snapshot('dark', {}, 14, 'dark', { text: 'Georgia, serif', code: '', terminal: '' }))
+    presenter.dispose()
+    expect(document.body.style.getPropertyValue('--dsh-font-family-text')).toBe('')
+  })
+})

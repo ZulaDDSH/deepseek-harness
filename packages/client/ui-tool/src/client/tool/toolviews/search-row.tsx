@@ -35,6 +35,7 @@ export function SearchRow({ toolName, block, inspect, useDisclosure, t }: Search
       errorSummary={model.errorSummary}
       search={search}
       state={model.state}
+      startedAt={model.startedAt}
       inspect={inspect}
     />
   )

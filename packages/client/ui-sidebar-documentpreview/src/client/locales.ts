@@ -29,6 +29,14 @@ export const zh = {
   'error.notText': '该格式文件暂时无法预览',
   'error.notRegularFile': '该路径不是普通文件，没有可显示的内容',
   'error.unavailable': '读取失败：{message}',
+  'diff.show': '查看差异',
+  'diff.hide': '查看文件',
+  'diff.copy': '复制',
+  'diff.copied': '已复制',
+  'diff.collapse': '收起',
+  'diff.collapseAria': '收起差异',
+  'diff.expandAria': '展开其余 {count} 行差异',
+  'diff.expandRest': '… 其余 {count} 行',
   retry: '重试',
 } satisfies Record<string, string>
 
@@ -58,6 +66,14 @@ export const en = {
   'error.notText': 'Preview is not available for this file type yet.',
   'error.notRegularFile': 'Not a regular file, nothing to display.',
   'error.unavailable': 'Read failed: {message}',
+  'diff.show': 'View diff',
+  'diff.hide': 'Show file',
+  'diff.copy': 'Copy',
+  'diff.copied': 'Copied',
+  'diff.collapse': 'Collapse',
+  'diff.collapseAria': 'Collapse diff',
+  'diff.expandAria': 'Expand {count} more diff lines',
+  'diff.expandRest': '… {count} more lines',
   retry: 'Retry',
 } satisfies Record<SidebarDocumentPreviewKey, string>
 
@@ -84,6 +100,14 @@ export const ja = {
   'error.notText': 'このファイル形式のプレビューはまだ利用できません。',
   'error.notRegularFile': '通常のファイルではないため、表示する内容がありません。',
   'error.unavailable': '読み込みに失敗しました: {message}',
+  'diff.show': '差分を表示',
+  'diff.hide': 'ファイルを表示',
+  'diff.copy': 'コピー',
+  'diff.copied': 'コピーしました',
+  'diff.collapse': '折りたたむ',
+  'diff.collapseAria': '差分を折りたたむ',
+  'diff.expandAria': '残り {count} 行の差分を展開',
+  'diff.expandRest': '… 残り {count} 行',
   'retry': '再試行',
 } satisfies Record<keyof typeof en, string>
 
@@ -110,6 +134,14 @@ export const es = {
   'error.notText': 'La vista previa aún no está disponible para este tipo de archivo.',
   'error.notRegularFile': 'No es un archivo normal, no hay nada que mostrar.',
   'error.unavailable': 'Error de lectura: {message}',
+  'diff.show': 'Ver diferencias',
+  'diff.hide': 'Mostrar archivo',
+  'diff.copy': 'Copiar',
+  'diff.copied': 'Copiado',
+  'diff.collapse': 'Contraer',
+  'diff.collapseAria': 'Contraer diferencias',
+  'diff.expandAria': 'Expandir {count} líneas más de diferencias',
+  'diff.expandRest': '… {count} líneas más',
   retry: 'Reintentar',
 } satisfies Record<keyof typeof en, string>
 
@@ -136,6 +168,14 @@ export const fr = {
   'error.notText': "L'aperçu n'est pas encore disponible pour ce type de fichier.",
   'error.notRegularFile': "Ce n'est pas un fichier normal, rien à afficher.",
   'error.unavailable': 'Échec de lecture : {message}',
+  'diff.show': 'Afficher les différences',
+  'diff.hide': 'Afficher le fichier',
+  'diff.copy': 'Copier',
+  'diff.copied': 'Copié',
+  'diff.collapse': 'Réduire',
+  'diff.collapseAria': 'Réduire les différences',
+  'diff.expandAria': 'Développer {count} lignes de différences supplémentaires',
+  'diff.expandRest': '… {count} lignes de plus',
   retry: 'Réessayer',
 } satisfies Record<keyof typeof en, string>
 
@@ -162,6 +202,14 @@ export const de = {
   'error.notText': 'Für diesen Dateityp ist noch keine Vorschau verfügbar.',
   'error.notRegularFile': 'Keine normale Datei, nichts zum Anzeigen.',
   'error.unavailable': 'Lesen fehlgeschlagen: {message}',
+  'diff.show': 'Diff anzeigen',
+  'diff.hide': 'Datei anzeigen',
+  'diff.copy': 'Kopieren',
+  'diff.copied': 'Kopiert',
+  'diff.collapse': 'Einklappen',
+  'diff.collapseAria': 'Diff einklappen',
+  'diff.expandAria': '{count} weitere Diff-Zeilen aufklappen',
+  'diff.expandRest': '… {count} weitere Zeilen',
   retry: 'Erneut versuchen',
 } satisfies Record<keyof typeof en, string>
 
@@ -188,6 +236,14 @@ export const ru = {
   'error.notText': 'Предварительный просмотр для этого типа файлов пока недоступен.',
   'error.notRegularFile': 'Не обычный файл, отображать нечего.',
   'error.unavailable': 'Не удалось прочитать: {message}.',
+  'diff.show': 'Показать различия',
+  'diff.hide': 'Показать файл',
+  'diff.copy': 'Копировать',
+  'diff.copied': 'Скопировано',
+  'diff.collapse': 'Свернуть',
+  'diff.collapseAria': 'Свернуть различия',
+  'diff.expandAria': 'Развернуть ещё {count} строк различий',
+  'diff.expandRest': '… ещё строк: {count}',
   retry: 'Повторить',
 } satisfies Record<keyof typeof en, string>
 
@@ -214,5 +270,13 @@ export const pt = {
   'error.notText': 'A visualização ainda não está disponível para este tipo de arquivo.',
   'error.notRegularFile': 'Não é um arquivo normal, nada para exibir.',
   'error.unavailable': 'Falha na leitura: {message}',
+  'diff.show': 'Ver diferenças',
+  'diff.hide': 'Mostrar arquivo',
+  'diff.copy': 'Copiar',
+  'diff.copied': 'Copiado',
+  'diff.collapse': 'Recolher',
+  'diff.collapseAria': 'Recolher diferenças',
+  'diff.expandAria': 'Expandir mais {count} linhas de diferenças',
+  'diff.expandRest': '… mais {count} linhas',
   retry: 'Tentar novamente',
 } satisfies Record<keyof typeof en, string>

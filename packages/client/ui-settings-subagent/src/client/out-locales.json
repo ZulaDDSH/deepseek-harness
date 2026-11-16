@@ -1,0 +1,134 @@
+{
+ "ja": [
+  {
+   "key": "claudeCodeTitle",
+   "up": null
+  },
+  {
+   "key": "claudeCodeDescription",
+   "up": null
+  },
+  {
+   "key": "ultracodeLabel",
+   "up": null
+  },
+  {
+   "key": "ultracodeHint",
+   "up": null
+  },
+  {
+   "key": "ultracodeUnset",
+   "up": null
+  }
+ ],
+ "es": [
+  {
+   "key": "claudeCodeTitle",
+   "up": null
+  },
+  {
+   "key": "claudeCodeDescription",
+   "up": null
+  },
+  {
+   "key": "ultracodeLabel",
+   "up": null
+  },
+  {
+   "key": "ultracodeHint",
+   "up": null
+  },
+  {
+   "key": "ultracodeUnset",
+   "up": null
+  }
+ ],
+ "fr": [
+  {
+   "key": "claudeCodeTitle",
+   "up": null
+  },
+  {
+   "key": "claudeCodeDescription",
+   "up": null
+  },
+  {
+   "key": "ultracodeLabel",
+   "up": null
+  },
+  {
+   "key": "ultracodeHint",
+   "up": null
+  },
+  {
+   "key": "ultracodeUnset",
+   "up": null
+  }
+ ],
+ "de": [
+  {
+   "key": "claudeCodeTitle",
+   "up": null
+  },
+  {
+   "key": "claudeCodeDescription",
+   "up": null
+  },
+  {
+   "key": "ultracodeLabel",
+   "up": null
+  },
+  {
+   "key": "ultracodeHint",
+   "up": null
+  },
+  {
+   "key": "ultracodeUnset",
+   "up": null
+  }
+ ],
+ "ru": [
+  {
+   "key": "claudeCodeTitle",
+   "up": null
+  },
+  {
+   "key": "claudeCodeDescription",
+   "up": null
+  },
+  {
+   "key": "ultracodeLabel",
+   "up": null
+  },
+  {
+   "key": "ultracodeHint",
+   "up": null
+  },
+  {
+   "key": "ultracodeUnset",
+   "up": null
+  }
+ ],
+ "pt": [
+  {
+   "key": "claudeCodeTitle",
+   "up": null
+  },
+  {
+   "key": "claudeCodeDescription",
+   "up": null
+  },
+  {
+   "key": "ultracodeLabel",
+   "up": null
+  },
+  {
+   "key": "ultracodeHint",
+   "up": null
+  },
+  {
+   "key": "ultracodeUnset",
+   "up": null
+  }
+ ]
+}

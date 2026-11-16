@@ -3,14 +3,17 @@ import type { ReactNode } from 'react'
 import type { PendingSubmission } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { PropsRenderFactories, PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { UserTextFacts } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { IconBranchOutlineRegular, JsonBlock, StateDot, TextShimmer } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconBranchOutlineRegular, JsonBlock, StateDot, TextShimmer } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { ChatNode } from '../contract/chat-nodes.ts'
 import type {
   ChatNodeOwnerProps, ChatNodeViewProps, ChatViewSlotProps, UserContentAttachment, UserContentData, UserContentInput,
 } from '../contract/slots.ts'
-import type { ModelRetryNode, TurnErrorNode, UserMessageNode } from '../contract/snapshot.ts'
+import type { ChatSnapshot, ModelRetryNode, TurnErrorNode, UserMessageNode } from '../contract/snapshot.ts'
+import type { ChatKey } from '../locale.ts'
 import { CompactionItem } from './CompactionItem.tsx'
 import { ContextInjectionRow } from './ContextInjectionRow.tsx'
 import { MessageIconActions } from './MessageIconActions.tsx'
+import { providerUsageLimitOf } from '@deepseek-ai/dsh-llm/provider-limit'
 import css from './MessageItem.module.css'
 
 const EMPTY_TEXT_FACTS: Readonly<Partial<UserTextFacts>> = {}
@@ -48,16 +51,49 @@ interface RetryCountdown {
   seconds: number
 }
 
+const FAILURE_COPY = {
+  ACCOUNT_SIGNED_OUT: 'message.failure.accountSignedOut',
+  ACCOUNT_SIGN_IN_REQUIRED: 'message.failure.accountSignInRequired',
+  INTERRUPTED: 'message.failure.interrupted',
+  QUOTA: 'message.failure.quota',
+  ACCOUNT_QUOTA: 'message.failure.quota',
+  AUTH: 'message.failure.auth',
+  MISSING_CREDENTIAL: 'message.failure.missingCredential',
+  INVALID_CREDENTIAL: 'message.failure.invalidCredential',
+  RATE_LIMIT: 'message.failure.rateLimit',
+} as const satisfies Record<string, ChatKey>
+
+/** Account codes that re-sending cannot fix. */
+const NO_RETRY_CODES = new Set(['ACCOUNT_SIGNED_OUT', 'ACCOUNT_SIGN_IN_REQUIRED'])
+
+function usageLimitOf(message: string, code: unknown): ReturnType<typeof providerUsageLimitOf> {
+  return typeof code === 'string' && Object.hasOwn(FAILURE_COPY, code) ? undefined : providerUsageLimitOf(message)
+}
+
 function failureMessage(
   message: string,
   code: unknown,
   t: ChatViewSlotProps['t'],
 ): string {
-  if (code === 'ACCOUNT_SIGNED_OUT') return t('message.failure.accountSignedOut')
-  if (code === 'INTERRUPTED') return t('message.failure.interrupted')
-  if (code === 'ACCOUNT_SIGN_IN_REQUIRED') return t('message.failure.accountSignInRequired')
-  if (code === 'QUOTA' || code === 'ACCOUNT_QUOTA') return t('message.failure.quota')
-  return code === 'AUTH' ? t('message.failure.auth') : message
+  if (typeof code === 'string' && Object.hasOwn(FAILURE_COPY, code)) return t(FAILURE_COPY[code as keyof typeof FAILURE_COPY])
+  const limit = providerUsageLimitOf(message)
+  if (limit === undefined) return message
+  return limit.regainDate === undefined
+    ? t('message.failure.usageLimit.noDate')
+    : t('message.failure.usageLimit', { date: limit.regainDate })
+}
+
+/** Text of the first user message in one Turn. */
+function turnPromptText(snapshot: ChatSnapshot, turn: number): string | undefined {
+  for (const key of snapshot.order) {
+    const node = snapshot.nodes.get(key)
+    if (node?.kind !== 'user') continue
+    if ((node.location.kind === 'turn' || node.location.kind === 'step') && node.location.turn.turn === turn) {
+      const { text } = contentParts((node as ChatNode<'user'>).data.content)
+      return text === '' ? undefined : text
+    }
+  }
+  return undefined
 }
 
 function ModelRetryItem({ node, active, t }: {
@@ -128,10 +164,34 @@ function ModelRetryItem({ node, active, t }: {
   )
 }
 
+/** Turn-end button that resends through the composer. */
+function TurnEndAction({ label, prompt, hint, useInput, inputActions, t }: Pick<ChatNodeViewProps<'turn-error'>, 'useInput' | 'inputActions' | 't'> & {
+  label: string
+  prompt: string
+  hint: string
+}) {
+  const ready = useInput(s => s.phase === 'plain' && s.draft === '' && s.attachmentIds.length === 0)
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      disabled={!ready}
+      title={ready ? hint : t('message.action.draftBusy')}
+      onClick={() => {
+        inputActions.setDraft(prompt)
+        inputActions.submit()
+      }}
+    >
+      {label}
+    </Button>
+  )
+}
+
 /** Persistent, turn-positioned feedback for a terminal failure. */
-function TurnErrorItem({ node, t }: {
+function TurnErrorItem({ node, t, action }: {
   node: TurnErrorNode
   t: ChatViewSlotProps['t']
+  action?: ReactNode
 }) {
   return (
     <div className={css.turnErrorRow} role="status">
@@ -139,6 +199,13 @@ function TurnErrorItem({ node, t }: {
       <div className={css.turnErrorCopy}>
         <span className={css.turnErrorTitle}>{node.code === 'ACCOUNT_SIGNED_OUT' || node.code === 'INTERRUPTED' ? t('message.taskStopped') : t('message.turnError')}</span>
         <span className={css.turnErrorMessage}>{failureMessage(node.message, node.code, t)}</span>
+        {usageLimitOf(node.message, node.code) !== undefined && (
+          <details className={css.turnErrorDetails}>
+            <summary>{t('message.failure.details')}</summary>
+            <pre className={css.turnErrorRaw}>{node.message}</pre>
+          </details>
+        )}
+        {action !== undefined && <div className={css.turnEndActions}>{action}</div>}
       </div>
       {node.code !== undefined && node.code !== 'INTERRUPTED' && <code className={css.turnErrorCode}>{node.code}</code>}
     </div>
@@ -146,8 +213,9 @@ function TurnErrorItem({ node, t }: {
 }
 
 /** Persistent, turn-positioned notice for a turn ended at the output-token cap. */
-function TurnMaxTokensItem({ t }: {
+function TurnMaxTokensItem({ t, action }: {
   t: ChatViewSlotProps['t']
+  action?: ReactNode
 }) {
   return (
     <div className={css.turnErrorRow} role="status">
@@ -155,6 +223,7 @@ function TurnMaxTokensItem({ t }: {
       <div className={css.turnErrorCopy}>
         <span className={css.maxTokensTitle}>{t('message.maxTokens')}</span>
         <span className={css.turnErrorMessage}>{t('message.maxTokens.hint')}</span>
+        {action !== undefined && <div className={css.turnEndActions}>{action}</div>}
       </div>
     </div>
   )
@@ -400,13 +469,51 @@ export const RetryNodeView = memo(function RetryNodeView({ node, t }: ChatNodeVi
 })
 
 /** Terminal turn-error keyed Chat renderer. */
-export const TurnErrorNodeView = memo(function TurnErrorNodeView({ node, t }: ChatNodeViewProps<'turn-error'>) {
-  return <TurnErrorItem node={node.data} t={t} />
+export const TurnErrorNodeView = memo(function TurnErrorNodeView({ node, useChat, useSession, useInput, inputActions, t }: ChatNodeViewProps<'turn-error'>) {
+  const data = node.data
+  const latest = useChat(s => s.timeline.turnOrder.at(-1)) === data.turn
+  const running = useSession(s => s.running)
+  const offer = latest && !running && !NO_RETRY_CODES.has(data.code ?? '')
+  const prompt = useChat(s => offer ? turnPromptText(s, data.turn) : undefined)
+  return (
+    <TurnErrorItem
+      node={data}
+      t={t}
+      action={prompt === undefined ? undefined : (
+        <TurnEndAction
+          label={t('retry')}
+          prompt={prompt}
+          hint={t('message.action.retryHint')}
+          useInput={useInput}
+          inputActions={inputActions}
+          t={t}
+        />
+      )}
+    />
+  )
 })
 
 /** Max-tokens turn-end notice keyed Chat renderer. */
-export const TurnMaxTokensNodeView = memo(function TurnMaxTokensNodeView({ t }: ChatNodeViewProps<'turn-max-tokens'>) {
-  return <TurnMaxTokensItem t={t} />
+export const TurnMaxTokensNodeView = memo(function TurnMaxTokensNodeView({ node, useChat, useSession, useInput, inputActions, t }: ChatNodeViewProps<'turn-max-tokens'>) {
+  const data = node.data
+  const latest = useChat(s => s.timeline.turnOrder.at(-1)) === data.turn
+  const running = useSession(s => s.running)
+  const offer = latest && !running
+  return (
+    <TurnMaxTokensItem
+      t={t}
+      action={!offer ? undefined : (
+        <TurnEndAction
+          label={t('message.action.continue')}
+          prompt={t('message.action.continuePrompt')}
+          hint={t('message.action.continue')}
+          useInput={useInput}
+          inputActions={inputActions}
+          t={t}
+        />
+      )}
+    />
+  )
 })
 
 /** Explicit unknown-surface keyed Chat renderer. */

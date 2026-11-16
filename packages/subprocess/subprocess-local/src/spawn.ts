@@ -39,10 +39,14 @@ type SpawnProcess = (
  * deliberately restores or overrides an entry; an explicit `undefined`
  * tombstone removes an ordinary ambient entry.
  * @param extra - explicit caller entries and tombstones, merged after the scrub.
+ * @param base - ambient entries before the explicit entries; defaults to the credential-scrubbed parent environment.
  * @returns the environment to hand to `spawn` for the child process.
  */
-export function childEnv(extra?: Readonly<NodeJS.ProcessEnv>): NodeJS.ProcessEnv {
-  const env = scrubbedParentEnv()
+export function childEnv(
+  extra?: Readonly<NodeJS.ProcessEnv>,
+  base: Readonly<NodeJS.ProcessEnv> = scrubbedParentEnv(),
+): NodeJS.ProcessEnv {
+  const env = base
   if (process.platform !== 'win32') return { ...env, ...extra }
   let entries: [string, string | undefined][] = Object.entries(env)
   for (const [key, value] of Object.entries(extra ?? {})) {

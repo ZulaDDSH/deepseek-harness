@@ -25,7 +25,7 @@ export function DeveloperToolsRow({ useDeveloperTools, setEnabled, t }:
     <div>
       <div className={css.title}>{t('developerTools.title')}</div>
       <div className={css.description}>{t('developerTools.description')}</div>
-      {failed && <div role="alert">{t('developerTools.error')}</div>}
+      {failed && <div className={css.error} role="alert">{t('developerTools.error')}</div>}
     </div>
     <Switch checked={enabled} disabled={busy} label={t('developerTools.title')}
       onChange={(next) => {

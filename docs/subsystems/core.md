@@ -1,7 +1,5 @@
 # Core
 
-English | [中文](core.zh.md)
-
 The **core** subsystem is [`packages/core`](../../packages/core/README.md) — the packages every composition boots: the event-sourced session log, system-prompt assembly, the tool registry, the agent types, and the concrete loop that drives them. This page explains what the `agent`/`agent-loop` pair declares — how an agent is created and owned, and the `Agent` handle's delivery, cancellation, and interception contracts — plus the two type patterns every subsystem follows. The group's dedicated pages and the rest of the folder are indexed in the [subsystems README](README.md).
 
 ## The spine, package by package
@@ -210,18 +208,21 @@ interface AgentOptions {
   reasoningEffort?: ReasoningEffortId | undefined
   /** Maximum output tokens for each conversation-model request. */
   maxTokens?: number
+  /** Route the Session's owner pins for each step, ahead of recorded choices; undefined leaves them in force. */
+  pinnedSelection?: (session: Session) => ModelSelection | undefined
 }
 ```
 
 Step preparation requires `provider` and `model` before prompt assembly. The deprecated `agent/request` hook may change request controls but must preserve that route. An explicit `reasoningEffort` seeds the first request on that route; exact-model resolution validates it, while omission allows the adapter default to materialize. When present, `maxTokens` must be a positive safe integer and caps every conversation-model request; omission allows the exact-model adapter default to materialize before the request header, or otherwise leaves provider behavior unchanged. An agent-scoped `deployment:persona-prefix` prompt section may shadow the global default persona.
 
-`AgentLoop` registers `modelSelection` on `ctx.sessionProjections` and exposes selection operations through each `agent.model` instance. `model/selection` records a complete choice without entering model history. A matching request header clears `pending`; the latest request remains `lastUsed`. Adapter-defaulted effort is omitted so later requests resolve the default again. `next` is null only before either a choice or a request is recorded; in that case `AgentOptions` supplies the route. The [Agent model API](../../packages/core/agent/README.md) describes selection precedence and resume policy.
+`AgentLoop` registers `modelSelection` on `ctx.sessionProjections` and exposes selection operations through each `agent.model` instance. `model/selection` records a complete choice without entering model history. A request header never clears `pending`; the latest request remains `lastUsed`, and `lastUsedSeq` is the seq of the header that recorded it, which identifies its turn. Adapter-defaulted effort is omitted so later requests resolve the default again. `next` is null only before either a choice or a request is recorded; in that case `AgentOptions` supplies the route. While `AgentOptions.pinnedSelection(session)` returns a route, it outranks recorded choices for every step; `undefined` leaves them in force. The [Agent model API](../../packages/core/agent/README.md) describes selection precedence and resume policy.
 
 ```ts type-equiv
 /** Agent-owned access to the model choice for future steps. */
 interface Model {
   /**
-   * Resolve the choice for the next step to begin preparation. Recorded choices
+   * Resolve the choice for the next step to begin preparation. A pinned
+   * selection from AgentOptions takes precedence over recorded choices, which
    * take precedence over the last request and then the Agent's live options.
    * This read neither starts a step nor changes an already-prepared step.
    * @returns a detached choice, or undefined when no source names both provider and model.
@@ -238,6 +239,7 @@ interface Model {
    */
   select(selection: Readonly<ModelSelection>): void
 
+  selectionState(): ModelSelectionProjectionState
 }
 ```
 
@@ -262,7 +264,9 @@ interface ModelSelection {
 interface ModelSelectionProjectionState {
   /** Selection used by the latest recorded model request. */
   readonly lastUsed: ModelSelection | null
-  /** Later recorded selection not yet used by a matching model request. */
+  /** Seq of the `request/header` that recorded {@link lastUsed}; identifies its turn. */
+  readonly lastUsedSeq: SessionSeq | null
+  /** Latest selection the user recorded; request headers never clear it. */
   readonly pending: ModelSelection | null
 }
 ```
@@ -272,6 +276,8 @@ interface ModelSelectionProjectionState {
 interface ModelSelectionProjection {
   /** Selection used by the latest recorded model request. */
   readonly lastUsed: ModelSelection | null
+  /** Seq of the `request/header` that recorded {@link lastUsed}; identifies its turn. */
+  readonly lastUsedSeq: SessionSeq | null
   /** Selection the next model step uses; null while the Agent's initial options supply the route. */
   readonly next: ModelSelection | null
 }
@@ -696,6 +702,13 @@ Initiator methods provide same-process causal attribution only. Ambient presence
 turnBoundaryOf(session: Session): TurnBoundaryProjection
 
 /**
+ * Read the Session's model selection state, including the pending choice.
+ * @param session - Session whose committed events are read.
+ * @returns the current selection state; do not mutate the returned value.
+ */
+modelSelectionOf(session: Session): ModelSelectionProjectionState
+
+/**
  * Read the Agent that initiated the inherited asynchronous driver chain.
  * Use this optional form for logging, tracing, metrics, or host attribution
  * that also supports agentless calls. When a parent creates a child, setup
@@ -1064,6 +1077,30 @@ Types: [LlmFailure](llm-streaming.md) · [ResolvedRetryPolicy](llm-streaming.md)
 
 Source: [`packages/core/agent/src/runtime-types.ts`](../../packages/core/agent/src/runtime-types.ts)
 
+<a id="agentroute--waterfall"></a>
+
+#### `agent/route` — waterfall
+
+Choose the model selection for one proposed step, or `undefined` to keep the Agent's own choice.
+
+```ts cordis-catalog
+/**
+ * Choose the model selection for one proposed step, or `undefined` to keep the Agent's own choice.
+ * @param payload.agent - the agent proposing the step.
+ * @param payload.turn - the turn that will own the step.
+ * @param payload.step - the step proposed by the loop.
+ * @param payload.messages - messages claimed for the step, before pre-step admission.
+ * @param payload.signal - the current turn's cancellation signal.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+ * @mode waterfall
+ */
+'agent/route'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; messages: UserMessage[]; signal: AbortSignal }, next: () => Promise<ModelSelection | undefined>): Promise<ModelSelection | undefined>
+```
+
+Types: [Scoped](scope.md) · [UserMessage](session.md)
+
+Source: [`packages/core/agent/src/runtime-types.ts`](../../packages/core/agent/src/runtime-types.ts)
+
 <a id="agentstatus--emit"></a>
 
 #### `agent/status` — emit
@@ -1165,4 +1202,25 @@ One session committed a different agent preset to its durable log. Consumers inv
 ```
 
 Source: [`packages/preset/agent-preset-registry/src/types.ts`](../../packages/preset/agent-preset-registry/src/types.ts)
+
+<a id="hooks-events"></a>
+
+### `hooks/*` events
+
+<a id="hooksinventory--emit"></a>
+
+#### `hooks/inventory` — emit
+
+Collect configuration snapshots from currently mounted hook bridges.
+
+```ts cordis-catalog
+/**
+ * Collect configuration snapshots from currently mounted hook bridges.
+ * @mode emit
+ * @param reports Mutable destination for loaded bridge reports.
+ */
+'hooks/inventory'(reports: HookInventoryReport[]): void
+```
+
+Source: [`packages/host/plugin-inventory/src/types.ts`](../../packages/host/plugin-inventory/src/types.ts)
 <!-- END GENERATED cordis-surface -->

@@ -34,6 +34,12 @@
     - id: llm
       name: '@deepseek-ai/dsh-llm'
 
+    - id: llm-jev-router
+      name: '@deepseek-ai/dsh-llm-jev-router'
+      config:
+        enabled: false
+        routes: []
+
     - id: deepseek-llm-api-extensions
       name: '@deepseek-ai/dsh-deepseek-llm-api-extensions'
 
@@ -114,6 +120,8 @@
     # environment, project `.env`, and user `.env` fallbacks.
     # Adapters resolve references per request; the Models page writes only the
     # managed document, which is never materialized into the process environment.
+    # The same row hosts the credential-obtaining flow registry that
+    # `dsh-llm-pi-ai` registers into below; without it no sign-in can start.
     - id: authorization
       name: '@deepseek-ai/dsh-authorization'
 
@@ -150,9 +158,9 @@
     # ctx.sessionQuery mounted — exact reads, titles, and lineage traces
     # (session export, subagent-fork Workspace inheritance) stay available —
     # while search calls fail with SESSION_QUERY_SEARCH_DISABLED and SQLite is
-    # never opened; the Web sidebar search matches titles and workspace names
-    # only. Deployments enabling content search override `openAt` to
-    # `first-search` or `startup` in a later patch layer (profile
+    # never opened. The dsh-web-app bundle overrides this row to `first-search`
+    # with a durable per-profile index under the Harness `cache` directory;
+    # other deployments can do the same in a later patch layer (profile
     # cordis.patch.yml or a --patch overlay), typically with a durable `path`.
     - id: session-query-sqlite
       name: '@deepseek-ai/dsh-session-query-sqlite'
@@ -289,6 +297,9 @@
     - id: tool-jobs
       name: '@deepseek-ai/dsh-tool-jobs'
 
+    - id: tool-watch
+      name: '@deepseek-ai/dsh-tool-watch'
+
     - id: fs-observation-policy
       name: '@deepseek-ai/dsh-fs-observation-policy'
       disabled: true
@@ -314,6 +325,9 @@
 
     - id: skill-filesystem
       name: '@deepseek-ai/dsh-skill-filesystem'
+
+    - id: skill-gsd
+      name: '@deepseek-ai/dsh-skill-gsd'
 
     - id: tool-skill
       name: '@deepseek-ai/dsh-tool-skill'
@@ -492,6 +506,12 @@
       config:
         apiKeyEnv: DEEPSEEK_API_KEY
 
+    - id: web-search-exa
+      name: '@deepseek-ai/dsh-web-search-exa'
+
+    - id: web-search-perplexity
+      name: '@deepseek-ai/dsh-web-search-perplexity'
+
     - id: web-deepseek-api
       name: '@deepseek-ai/dsh-web-deepseek-api'
 
@@ -526,6 +546,12 @@
       name: '@deepseek-ai/dsh-system-prompt'
       config:
         personaPrefix: ''
+
+    # One shared-knowledge rule for every agent, independent of provider or
+    # preset. Knowledge content is retrieved on demand through the configured
+    # knowledge MCP entry; this contributes policy text only.
+    - id: knowledge-policy
+      name: '@deepseek-ai/dsh-knowledge-policy'
 
     # Agents created at startup. The base stays empty; raw overlays may create
     # agents, while Web creates sessions on client request.

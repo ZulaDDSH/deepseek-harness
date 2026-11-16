@@ -1,7 +1,5 @@
 # Web Client Slots
 
-English | [中文](slots.zh.md)
-
 Slots are the Web Client's typed React composition system. [`dsh-client-ui-slots`](../../packages/client/ui-slots/README.md) defines the React-free registry and type algebra; [`dsh-client-ui-renderer`](../../packages/client/ui-renderer/README.md) binds observable sources to hooks, renders the tree, and owns React contexts internally. A feature plugin contributes UI through `ctx.slots.register()` and never imports another feature plugin's component.
 
 This page documents slot ownership, component inputs, extension APIs, and the shipped hierarchy. The surrounding boot, Remote, Client model, and Conversation paths are in [Web Client architecture](web-client.md).
@@ -139,18 +137,53 @@ Use owner props for values already known at one render occurrence, registration 
 The following Conversation paths distinguish declaration owners from reusable Factory roots; unrelated shell positions are omitted. An entry owns its declared children, while a Factory owns its child declarations for the lifetime of its registered definition. Bracketed names identify the default React components; a plain React descendant can render its owner's Slot. Factory calls are references to independent reusable definitions, not new Slot declarations.
 
 ```text
-root [AppFrame]
-└─ main[key=conversation] [ConversationPanel]
-   └─ main.conversation [ConversationRoot / ConversationMainPanel]
-      ├─ conversation.header [ConversationHeader]
-      │  ├─ conversation.header.leading
-      │  └─ conversation.session.header [ConversationSessionHeader]
-      │     ├─ conversation.session.header.lineage
-      │     ├─ conversation.session.header.actions
-      │     ├─ conversation.session.header.utilities
-      │     ├─ conversation.session.header.views.actions
-      │     └─ conversation.session.header.corner
-      └─ calls Factory: conversation.content
+root
+├─ sidebar
+│  ├─ sidebar.brand.mark
+│  ├─ sidebar.brand.name
+│  ├─ sidebar.panellist
+│  ├─ sidebar.footer.action
+│  ├─ sidebar.workspaces
+│  │  ├─ sidebar.workspaces.directoryFlow
+│  │  ├─ sidebar.workspaces.session.menu.item
+│  │  └─ sidebar.workspaces.session.row.action
+│  └─ sidebar.settings
+│     ├─ settings.trigger
+│     ├─ settings.header
+│     ├─ settings.action
+│     ├─ settings.close
+│     └─ settings.section
+│        ├─ settings.general.item
+│        ├─ settings.models.provider-card
+│        ├─ settings.models.footer
+│        └─ settings.plugins.tab
+├─ main
+│  ├─ plugins.item
+│  ├─ plugins.bundle.config
+│  ├─ plugins.row.config
+│  ├─ plugins.detail.actions
+│  ├─ plugins.detail.badge
+│  ├─ plugins.detail.section
+│  └─ main.conversation
+│     ├─ conversation.header [ConversationHeader]
+│     │  ├─ conversation.header.leading
+│     │  └─ conversation.session.header [ConversationSessionHeader]
+│     │     ├─ conversation.session.header.lineage
+│     │     ├─ conversation.session.header.actions
+│     │     ├─ conversation.session.header.utilities
+│     │     ├─ conversation.session.header.views.actions
+│     │     └─ conversation.session.header.corner
+│     └─ calls Factory: conversation.content
+├─ rightbar
+│  └─ rightbar.session
+│     ├─ sidebar.right.pane.tab
+│     │  ├─ sidebar.right.tab.guide
+│     │  └─ sidebar.right.tab.guide.entry
+│     ├─ sidebar.right.pane.tab.title
+│     └─ sidebar.right.tab.menu.item
+├─ shell.leading
+└─ shell.overlay
+   └─ shell.quota-notice
 
 Factory: conversation.content [ConversationContent]
 ├─ conversation.session [ConversationSession / DefaultConversationViews]
@@ -171,8 +204,9 @@ Factory: conversation.content [ConversationContent]
 │     │        │     └─ calls Factory: conversation.chat.reasoning.content
 │     │        ├─ key=tool-call [ToolCallTree]
 │     │        │  └─ tool.call.toolview
-│     │        │     └─ key=read_image [ReadImageRow / ToolRow]
+│     │        │     ├─ key=read_image [ReadImageRow / ToolRow]
 │     │        │        └─ tool.call.images [MessageImages]
+│     │        │     └─ tool.view.cordis
 │     │        ├─ key=command-input [GoalCommandInputView]
 │     │        │  └─ calls Factory: conversation.user.text
 │     │        ├─ key=command [CommandNodeView]

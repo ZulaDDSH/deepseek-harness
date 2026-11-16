@@ -1,7 +1,7 @@
 /** Host catalog, durable projection caches, and explicitly retained Client instances. */
 
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
-import { SessionSeq, type SessionId, type SessionSeqCursor } from '@deepseek-ai/dsh-session/types'
+import { SessionSeq, type CliTerminalProfileId, type SessionId, type SessionSeqCursor } from '@deepseek-ai/dsh-session/types'
 import type { SessionProjectionMap, SessionProjectionViewValues } from '@deepseek-ai/dsh-session-projection/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type {
@@ -147,7 +147,7 @@ export class SessionManager {
       throw new Error(`sessions.retain: unknown session ${id}`)
     }
     if (address !== undefined) this.addresses.set(id, address)
-    this.sessions.get(id)?.configureSubagent(address)
+    this.sessions.get(id)?.configureSubagent(address, address === undefined ? undefined : this.agentAvailable(address.parentSessionId))
     return id
   }
 
@@ -271,8 +271,9 @@ export class SessionManager {
 
   private createSession(sessionId: SessionId): Session {
     const address = this.addresses.get(sessionId)
+    const parentAvailable = address === undefined ? undefined : this.agentAvailable(address.parentSessionId)
     return new Session(sessionId, this.remote, {
-      ...(address === undefined ? {} : { address }),
+      ...(address === undefined ? {} : { address, ...(parentAvailable === undefined ? {} : { parentAvailable }) }),
       // The sender's local first-send flip mirrors into the list row so the
       // session surfaces (lists filter on blank) before any host frame lands.
       onEngaged: (engaged) => {
@@ -389,6 +390,18 @@ export class SessionManager {
     return operation
   }
 
+  private agentAvailable(sessionId: SessionId): boolean | undefined {
+    return this.summaries.find(summary => summary.sessionId === sessionId)?.agentAvailable
+      ?? (this.listPhase === 'ready' ? false : undefined)
+  }
+
+  private updateParentAvailability(): void {
+    for (const [childId, address] of this.addresses) {
+      const available = this.agentAvailable(address.parentSessionId)
+      if (available !== undefined) this.sessions.get(childId)?.handleSubagentParentAvailable(available)
+    }
+  }
+
   // ---- List API ----
 
   /** Full refresh via session.list (single-flight within one Host generation). */
@@ -423,6 +436,7 @@ export class SessionManager {
           for (const sessionId of this.engagedSessions) this.pruneEngagement(sessionId, retained)
           this.listState = 'idle'
           this.listPhase = 'ready'
+          this.updateParentAvailability()
 
           // Resident Sessions and list rows share one display blank, reconciled with the metadata projection.
           for (const s of this.summaries) {
@@ -493,20 +507,23 @@ export class SessionManager {
       cwd?: string
       sessionId?: SessionId
       agentPreset?: string
+      cliProfile?: CliTerminalProfileId
     } = {},
   ): Promise<RemoteResult<{ sessionId: SessionId }>> {
     const shared = {
       ...(opts.sessionId === undefined ? {} : { sessionId: opts.sessionId }),
       ...(opts.agentPreset === undefined ? {} : { agentPreset: opts.agentPreset }),
     }
+    const cli = opts.cliProfile === undefined ? {} : { cliProfile: opts.cliProfile }
     const payload = opts.workspaceId !== undefined
-      ? { workspaceId: opts.workspaceId, ...shared }
-      : { ...(opts.cwd === undefined ? {} : { cwd: opts.cwd }), ...shared }
+      ? { workspaceId: opts.workspaceId, ...shared, ...cli }
+      : { ...(opts.cwd === undefined ? {} : { cwd: opts.cwd }), ...shared, ...cli }
     const result = await this.remote.session.create(payload)
     if (result.ok) {
       this.recordMutation({ kind: 'placeholder', summary: { agentAvailable: true,
         sessionId: result.value.sessionId, updatedAt: Date.now(), running: false, blank: true,
         ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
+        ...cli,
       } })
     } else {
       const publishedSessionId = workspaceAttachSessionId(result.error)
@@ -576,6 +593,7 @@ export class SessionManager {
    */
   private mergeSummary(summary: SessionSummary): void {
     this.recordMutation({ kind: 'upsert', summary })
+    this.updateParentAvailability()
   }
 
   /** Apply immediately and retain for replay when a list response is in flight. */
@@ -697,6 +715,9 @@ export class SessionManager {
     this.projectionInflight.get(sessionId)?.controller.abort()
     this.projectionInflight.delete(sessionId)
     this.projectionLoads.delete(sessionId)
+    for (const [childId, address] of this.addresses) {
+      if (address.parentSessionId === sessionId) this.sessions.get(childId)?.handleSubagentParentAvailable(false)
+    }
   }
 
   /**
@@ -707,6 +728,7 @@ export class SessionManager {
   handleSessionStatus(sessionId: SessionId, running: boolean): void {
     if (!this.disposed && running) this.engagedSessions.add(sessionId)
     this.recordMutation({ kind: 'status', sessionId, running, agentAvailable: true })
+    this.updateParentAvailability()
     this.sessions.get(sessionId)?.handleRunning(running)
   }
 

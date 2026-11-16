@@ -163,3 +163,35 @@
   line-height: 18px;
   overflow-wrap: anywhere;
 }
+
+.history {
+  min-width: 0;
+  padding: 8px 7px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.history h3,
+.history h4,
+.history p {
+  margin: 0 0 4px;
+}
+
+.history ul {
+  margin: 0 0 8px;
+  padding-inline-start: 20px;
+}
+
+.history li + li {
+  margin-top: 4px;
+}
+
+.history pre {
+  max-height: 240px;
+  margin: 4px 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

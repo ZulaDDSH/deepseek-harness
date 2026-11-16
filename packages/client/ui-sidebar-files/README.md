@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-client-ui-sidebar-files
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Browse a Session's workspace tree beside the files you preview. Each pane keeps one tree that every file tab in it shows with its width, expansion, and scroll, marking the current file. Its search bar searches the whole workspace through the Host. A preview's tree opens a file in place of that preview; the `files` page opens it in a new tab where the right Sidebar places it by default. The root and expanded directories refresh from direct-entry watches or on reload. The `files` page is reached from the guide and claims no resource address.

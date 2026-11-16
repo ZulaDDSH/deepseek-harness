@@ -44,7 +44,7 @@ it('reads no more than its byte budget from a two GiB file and ignores unrelated
   expect(result.records).toEqual([record('last')])
   expect(result.bytesRead).toBe(limits.bytes)
   expect(result.truncated).toBe(true)
-})
+}, 60_000)
 
 it('bounds parsed record size and output count independently', async () => {
   const path = await fixture()

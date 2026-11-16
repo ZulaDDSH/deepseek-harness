@@ -5,8 +5,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { collectConfigCatalog, render, type CatalogEntry } from './gen-config-catalog.ts'
-import { computeTranslationPairingRecord, translationPairPaths } from './translation-pairing-record.ts'
-import { generatedRegions } from './translation-pairing.ts'
+import { generatedRegions } from './generated-regions.ts'
 
 const roots: string[] = []
 const sharedSchema = `
@@ -62,6 +61,39 @@ afterEach(() => {
 })
 
 describe('shared config schema catalog', () => {
+  it('fills missing config field prose from code notes while preserving source JSDoc', () => {
+    const { root, write } = fixture()
+    write('packages/test/provider/src/index.ts', `
+import Schema from '@deepseek-ai/schemastery'
+export interface Config {
+  ${sharedSchema.match(/\/\*\* Browser ownership mode\. \*\//)?.[0]}
+  mode: string
+  selected: string
+}
+export const Config = Schema.object({ mode: Schema.string(), selected: Schema.string() })
+export function apply(ctx: unknown, config: Config): void {}
+`)
+    write('docs/code-notes/deepseek-harness.md', `### \`packages/test/provider/src/index.ts:Config\`
+- \`mode\`: Ignored note for documented field.
+- \`selected\`: Selected value from an anchored note.
+`)
+    const text = collectConfigCatalog(root).find(entry => entry.pkg === '@test/provider')?.pastes?.[0]?.text
+    expect(text).toContain('/** Browser ownership mode. */')
+    expect(text).toContain('/** Selected value from an anchored note. */')
+    expect(text).not.toContain('Ignored note for documented field.')
+  })
+
+  it('still rejects a config field without source JSDoc or an anchored note', () => {
+    const { root, write } = fixture()
+    write('packages/test/provider/src/index.ts', `
+import Schema from '@deepseek-ai/schemastery'
+export interface Config { selected: string }
+export const Config = Schema.object({ selected: Schema.string() })
+export function apply(ctx: unknown, config: Config): void {}
+`)
+    expect(() => collectConfigCatalog(root)).toThrow('has no JSDoc prose or anchored code-note description')
+  })
+
   it.each([false, true])('checks imported object fields and spread overrides (invalid=%s)', (invalid) => {
     const { root, write } = fixture(`
 import Schema from '@deepseek-ai/schemastery'
@@ -276,28 +308,14 @@ describe('config catalog rendering', () => {
     },
     { pkg: '@deepseek-ai/dsh-plain', dir: 'packages/demo/plain', entry: 'packages/demo/plain/src/index.ts', kind: 'no-config', inject },
   ]
-  const paths = translationPairPaths('docs/config-catalog.md')
-  const record = (inject: string[]) => computeTranslationPairingRecord(
-    paths,
-    render(entries(inject), 'en'),
-    render(entries(inject), 'zh'),
-    { repoRoot: process.cwd(), isTranslationPairSource: () => false },
-  )
-
-  it('keeps package data in generated regions shared by both languages', () => {
-    const en = generatedRegions(render(entries(['jobs']), 'en')).map(region => region.text)
+  it('keeps package data in generated regions', () => {
+    const en = generatedRegions(render(entries(['jobs']))).map(region => region.text)
     expect(en.map(region => region.split('\n')[0])).toEqual([
       '<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-demo -->',
       '<!-- BEGIN GENERATED config-catalog:no-config -->',
       '<!-- BEGIN GENERATED config-catalog:seam -->',
       '<!-- BEGIN GENERATED config-catalog:library -->',
     ])
-    expect(generatedRegions(render(entries(['jobs']), 'zh')).map(region => region.text)).toEqual(en)
     expect(en[0]).toContain('- `inject`: `jobs`')
-  })
-
-  it('leaves the consistency record unchanged when only package data changes', () => {
-    expect(record(['jobs', 'typert'])).toEqual(record(['jobs']))
-    expect([...record(['jobs']).keys()].some(key => key.includes('dsh-demo'))).toBe(false)
   })
 })

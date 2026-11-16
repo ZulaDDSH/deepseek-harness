@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 import type { DesktopFileDrag, FileDragHandle, FileDragRequestId } from '@deepseek-ai/dsh-util-file-drag'
-import { JSDOM } from 'jsdom'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { installMandatoryUpdateOverlay } from '../src/preload-mandatory-overlay.ts'
 import { syncWindowsAppearance } from '../src/preload-windows.ts'
@@ -20,24 +19,6 @@ vi.mock('../src/preload-mandatory-overlay.ts', () => ({ installMandatoryUpdateOv
 beforeEach(() => { vi.stubGlobal('process', { ...process, isMainFrame: true }) })
 afterEach(() => { document.body.replaceChildren(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.clearAllMocks(); vi.resetModules() })
 
-it('reads only native login API-key presence through the onboarding bridge', async () => {
-  vi.stubGlobal('location', new URL('dsh-app://app/'))
-  electron.ipcRenderer.invoke.mockResolvedValueOnce(true)
-  await import('../src/preload-app.ts')
-  const api = electron.contextBridge.exposeInMainWorld.mock.calls.find(([name]) => name === 'dshOnboarding')?.[1] as { hasApiKey(): Promise<boolean> }
-  expect(await api.hasApiKey()).toBe(true)
-  expect(electron.ipcRenderer.invoke).toHaveBeenCalledWith(DESKTOP_IPC.onboardingApiKey)
-})
-
-it('exposes onboarding size activation to the application document', async () => {
-  vi.stubGlobal('location', new URL('dsh-app://app/'))
-  await import('../src/preload-app.ts')
-  const api = electron.contextBridge.exposeInMainWorld.mock.calls.find(([name]) => name === 'dshOnboarding')?.[1] as { setActive(active: boolean): void }
-  api.setActive(true)
-  api.setActive(false)
-  expect(electron.ipcRenderer.send.mock.calls).toEqual([[DESKTOP_IPC.onboardingActive, true], [DESKTOP_IPC.onboardingActive, false]])
-})
-
 it('routes original-file requests through the trusted application bridge', async () => {
   vi.stubGlobal('location', new URL('dsh-app://app/'))
   await import('../src/preload-app.ts')
@@ -51,7 +32,7 @@ it('routes original-file requests through the trusted application bridge', async
   ])
 })
 
-it('limits product documents to update status and a native confirmation action', async () => {
+it('limits product documents to update and Session-attention actions', async () => {
   vi.stubGlobal('location', new URL('dsh-app://app/index.html'))
   await import('../src/preload-app.ts')
   const api = electron.contextBridge.exposeInMainWorld.mock.calls.find(([name]) => name === 'dshDesktop')?.[1] as DshDesktopProductApi
@@ -61,6 +42,19 @@ it('limits product documents to update status and a native confirmation action',
   expect(api).not.toHaveProperty('plugins')
   expect(api).not.toHaveProperty('backend')
   expect(api.updates).not.toHaveProperty('install')
+  await api.attention.notify({ sessionId: 's1', title: 'Task', kind: 'question' })
+  expect(electron.ipcRenderer.invoke).toHaveBeenCalledWith(
+    DESKTOP_IPC.attentionNotify,
+    { sessionId: 's1', title: 'Task', kind: 'question' },
+  )
+  const activate = vi.fn()
+  const stopAttention = api.attention.subscribe(activate)
+  const activationHandler = electron.ipcRenderer.on.mock.calls
+    .find(([channel]) => channel === DESKTOP_IPC.attentionActivate)?.[1] as (event: unknown, sessionId: string) => void
+  activationHandler({}, 's1')
+  expect(activate).toHaveBeenCalledWith('s1')
+  stopAttention()
+  expect(electron.ipcRenderer.off).toHaveBeenCalledWith(DESKTOP_IPC.attentionActivate, activationHandler)
   const listener = vi.fn()
   const dispose = api.updates.subscribe(listener)
   const handler = electron.ipcRenderer.on.mock.calls.find(([channel]) => channel === DESKTOP_IPC.updatesPresentation)?.[1] as
@@ -148,26 +142,6 @@ it.each(['dsh-app://app/', 'dsh-app://shell/plugin-manager.html', 'https://examp
     expect(syncWindowsAppearance).toHaveBeenCalledTimes(url === 'dsh-app://app/' ? 1 : 0)
   },
 )
-
-it('moves welcome-entry focus to the document without changing keyboard tab order', async () => {
-  const dom = new JSDOM('<body><button>Sidebar</button><input></body>')
-  try {
-    vi.stubGlobal('document', dom.window.document)
-    vi.stubGlobal('location', new URL('dsh-app://app/'))
-    await import('../src/preload-app.ts')
-    const enter = electron.ipcRenderer.on.mock.calls.find(([channel]) => channel === DESKTOP_IPC.enterWorkspace)![1] as () => void
-    const button = dom.window.document.querySelector('button')!
-    button.focus()
-    enter()
-    expect(dom.window.document.activeElement).toBe(dom.window.document.body)
-    expect(dom.window.document.body.hasAttribute('tabindex')).toBe(false)
-    expect(button.tabIndex).toBe(0)
-    dom.window.document.body.setAttribute('tabindex', '-1')
-    button.focus()
-    enter()
-    expect(dom.window.document.body.getAttribute('tabindex')).toBe('-1')
-  } finally { dom.window.close() }
-})
 
 it.each(['win32', 'darwin'] as const)('installs the embedded mandatory UI only in the Windows app document (%s)', async (platform) => {
   vi.stubGlobal('process', { ...process, platform })

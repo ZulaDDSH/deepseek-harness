@@ -13,10 +13,13 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
+import { SandboxPolicyService, setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
+import { ShellExecutor, type ShellExecRequest, type ShellExecSpec, type ShellExecution, type ShellRunResult } from '@deepseek-ai/dsh-shell'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import SubagentRuntime, { type SubagentRunId } from '@deepseek-ai/dsh-subagent'
 import * as HooksClaude from '@deepseek-ai/dsh-hooks-claude-code'
+import { ALL_HOOKS, type HookInventoryReport } from '@deepseek-ai/dsh-hook-protocol'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
 /**
@@ -64,7 +67,7 @@ async function harnessWithFiber(
   await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
   beforeHooks?.(ctx)
-  const hooks = await ctx.plugin(HooksClaude, { configPath: join(configDir, 'hooks.json') })
+  const hooks = await ctx.plugin(HooksClaude, { configPath: join(configDir, 'hooks.json'), enabledHooks: [ALL_HOOKS] })
   ctx.llm.registerAdapter(['mock'], adapter)
   return { ctx, hooks }
 }
@@ -188,6 +191,34 @@ describe('hooks-claude-code bridge — PreToolUse', () => {
     const result = events(agent).find(e => e.type === 'tool/result')
     expect(result?.type === 'tool/result' && result.data.message.isError).toBe(true)
     expect(result?.type === 'tool/result' && result.data.message.content.some(b => b.type === 'text' && b.text.includes('danger tool blocked'))).toBe(true)
+  })
+
+  it('a PreToolUse hook not in enabledHooks is skipped and reported as disabled', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-hooks-claude-'))
+    dirs.push(dir)
+    const deny = join(dir, 'deny.sh')
+    writeFileSync(deny, '#!/usr/bin/env bash\nexit 2\n')
+    chmodSync(deny, 0o755)
+    writeFileSync(join(dir, 'hooks.json'), JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'danger', hooks: [{ type: 'command', command: deny }] }] } }))
+
+    const ctx = new Context()
+    await mountAgentLoopTestDependencies(ctx)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(LocalSubprocessRuntime)
+    await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
+    await ctx.plugin(HooksClaude, { configPath: join(dir, 'hooks.json') })
+    ctx.llm.registerAdapter(['mock'], new MockAdapter([toolCallResponse('c1', 'danger', {}), textResponse('done')]))
+    let ran = false
+    ctx.tools.register(defineContentToolFixture({ name: 'danger', description: 'd', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ran' }] } }))
+    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'use danger' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    expect(ran).toBe(true)
+    const reports: HookInventoryReport[] = []
+    ctx.emit('hooks/inventory', reports)
+    expect(reports[0]?.handlers).toEqual([expect.objectContaining({ command: deny, disabled: true })])
+    expect(reports[0]?.settingsNs).toBeUndefined()
   })
 
   it('a PreToolUse hook whose matcher does NOT match leaves the tool alone', async () => {
@@ -382,6 +413,121 @@ describe('hooks-claude-code bridge — SubagentStart / SubagentStop (observe)', 
   })
 })
 
+describe('hooks-claude-code bridge — tool aliases and run control', () => {
+  /** A fresh temp dir for one test; removed by the file's afterEach. */
+  function sandbox(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-hooks-claude-'))
+    dirs.push(dir)
+    return dir
+  }
+  /** Write an executable bash hook at `dir/name` and return its absolute path. */
+  function hookScript(dir: string, name: string, body: string): string {
+    const path = join(dir, name)
+    writeFileSync(path, `#!/usr/bin/env bash\n${body}\n`)
+    chmodSync(path, 0o755)
+    return path
+  }
+
+  it('a Claude Code tool-name matcher fires on the DSH tool it names', async () => {
+    const dir = sandbox()
+    const payload = join(dir, 'payload')
+    const deny = hookScript(dir, 'deny.sh', 'echo "no shell" >&2\nexit 2')
+    const capture = hookScript(dir, 'capture.sh', `cat > "${payload}"\nexit 2`)
+    writeFileSync(join(dir, 'hooks.json'), JSON.stringify({ hooks: { PreToolUse: [
+      { matcher: 'Bash', hooks: [{ type: 'command', command: deny }] },
+      { matcher: 'Write|Edit', hooks: [{ type: 'command', command: capture }] },
+    ] } }))
+
+    const adapter = new MockAdapter([
+      toolCallResponse('c1', 'bash', { command: 'ls' }),
+      toolCallResponse('c2', 'write', { file_path: 'a.txt', content: 'x' }),
+      textResponse('done'),
+    ])
+    const ctx = await harness(dir, adapter)
+    let bashRan = false
+    let writeRan = false
+    ctx.tools.register(defineContentToolFixture({ name: 'bash', description: 'b', parameters: { command: { type: 'string' } }, async execute() { bashRan = true; return [{ type: 'text', text: 'ran' }] } }))
+    ctx.tools.register(defineContentToolFixture({ name: 'write', description: 'w', parameters: { file_path: { type: 'string' }, content: { type: 'string' } }, async execute() { writeRan = true; return [{ type: 'text', text: 'ran' }] } }))
+    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'edit' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    expect(bashRan).toBe(false)
+    expect(writeRan).toBe(false)
+    // The capture hook saw the Claude Code tool name and the unchanged argument keys.
+    expect(JSON.parse(readFileSync(payload, 'utf8'))).toMatchObject({ tool_name: 'Write', tool_input: { file_path: 'a.txt' } })
+  }, 15_000)
+
+  it('an always-blocking Stop hook forces at most maxForcedStops continuations and reports stop_hook_active', async () => {
+    const dir = sandbox()
+    const payloads = join(dir, 'payloads')
+    const stop = hookScript(dir, 'stop.sh', `cat >> "${payloads}"\necho "keep going" >&2\nexit 2`)
+    writeFileSync(join(dir, 'hooks.json'), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: stop }] }] } }))
+
+    const adapter = new MockAdapter([textResponse('1'), textResponse('2'), textResponse('3'), textResponse('4'), textResponse('5')])
+    const warn = vi.fn()
+    const ctx = await harness(dir, adapter, (ctx) => { ctx.logger.warn = warn as never })
+    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    // Three forced continuations, then the fourth Stop block lets the turn end.
+    expect(adapter.requests).toHaveLength(4)
+    const flags = readFileSync(payloads, 'utf8').split('\n').filter(line => line.length > 0)
+      .map(line => JSON.parse(line) as { stop_hook_active: boolean }).map(p => p.stop_hook_active)
+    expect(flags).toEqual([false, true, true, true])
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('Stop hook blocked 3 times'))
+  }, 15_000)
+
+  it('a Stop block with {"continue":false} halts instead of steering', async () => {
+    const dir = sandbox()
+    const stop = hookScript(dir, 'stop.sh', 'echo \'{"decision":"block","reason":"more","continue":false,"stopReason":"halt"}\'')
+    writeFileSync(join(dir, 'hooks.json'), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: stop }] }] } }))
+
+    const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
+    const ctx = await harness(dir, adapter)
+    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    // No steer: the second model step never runs, and the turn ends on the hook halt.
+    expect(adapter.requests).toHaveLength(1)
+    const turnEnd = events(agent).findLast(e => e.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted', reason: { kind: 'hook', reason: 'halt' } })
+  }, 15_000)
+
+  it('a {"continue":false} UserPromptSubmit hook halts before any model call', async () => {
+    const dir = sandbox()
+    const halt = hookScript(dir, 'halt.sh', 'echo \'{"continue":false}\'')
+    writeFileSync(join(dir, 'hooks.json'), JSON.stringify({ hooks: { UserPromptSubmit: [{ hooks: [{ type: 'command', command: halt }] }] } }))
+
+    const adapter = new MockAdapter([textResponse('should not run')])
+    const ctx = await harness(dir, adapter)
+    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(0)
+    const result = events(agent).find(e => e.type === 'hook/result')
+    expect(result?.type === 'hook/result' && result.data.decision).toBe('stop')
+  }, 15_000)
+
+  it('a no-agent direct call is denied by a {"continue":false} PreToolUse hook', async () => {
+    const dir = sandbox()
+    const halt = hookScript(dir, 'halt.sh', 'echo \'{"continue":false}\'')
+    writeFileSync(join(dir, 'hooks.json'), JSON.stringify({ hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: halt }] }] } }))
+
+    const ctx = await harness(dir, new MockAdapter([]))
+    let ran = false
+    ctx.tools.register(defineContentToolFixture({ name: 'echo', description: 'e', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
+    const result = await executeToolFixture(ctx, { signal: new AbortController().signal, callId: ToolCallId('c1'), name: 'echo', arguments: {} })
+
+    expect(ran).toBe(false)
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('blocked by PreToolUse hook')
+  }, 15_000)
+})
+
 describe('hooks-claude-code bridge — load resilience', () => {
   it('a missing config file registers no hooks and does not crash the loop', async () => {
     const adapter = new MockAdapter([textResponse('fine')])
@@ -452,7 +598,7 @@ describe('hooks-claude-code bridge — load resilience', () => {
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(LocalSubprocessRuntime)
     await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
-    const fiber = await ctx.plugin(HooksClaude, { configPath: join(dir, 'hooks.json') })
+    const fiber = await ctx.plugin(HooksClaude, { configPath: join(dir, 'hooks.json'), enabledHooks: [ALL_HOOKS] })
     await fiber.dispose()
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = await ctx.agentLoop.create(brandString<SessionId>('a1'), { provider: 'mock', model: 'mock' })
@@ -476,5 +622,66 @@ describe('hooks-claude-code bridge — load resilience', () => {
     expect(unwrapped.name).toBe('hooks-claude-code')
     expect(unwrapped.inject).toEqual(['shell', 'agents', 'workingDirectory'])
     expect(typeof unwrapped.apply).toBe('function')
+  })
+})
+
+class RecordingShell extends ShellExecutor {
+  readonly specs: ShellExecSpec[] = []
+
+  override get sandboxMode() {
+    return 'workspace-write' as const
+  }
+
+  resolve(request: ShellExecRequest): ShellExecSpec {
+    return {
+      command: request.command,
+      workdir: request.workdir ?? process.cwd(),
+      stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
+      timeoutMs: request.timeoutMs ?? 1000,
+      onExpiry: request.onExpiry ?? 'kill',
+      ...request.signal ? { signal: request.signal } : {},
+      ...request.stdin !== undefined ? { stdin: request.stdin } : {},
+      sandboxPolicy: request.sandboxPolicy,
+    }
+  }
+
+  async execute(spec: ShellExecSpec): Promise<ShellExecution> {
+    this.specs.push(spec)
+    const silent = { readFrom: (from: number) => ({ text: '', nextOffset: from, lossy: false }) }
+    const run: ShellRunResult = {
+      exitCode: 0, signal: null, timedOut: false, aborted: false, timeoutMs: spec.timeoutMs,
+      stdout: { text: '', truncated: false }, stderr: { text: '', truncated: false },
+    }
+    return {
+      status: 'completed',
+      exitCode: 0,
+      signal: null,
+      done: Promise.resolve(),
+      readOutput: () => ({ delta: '', lossy: false }),
+      observed: { stdout: silent, stderr: silent },
+      kill: () => false,
+      result: () => Promise.resolve(run),
+    }
+  }
+}
+
+describe('hooks-claude-code bridge — sandbox policy', () => {
+  it('a hook run for a session carries that session sandbox policy, not the deployment default', async () => {
+    const dir = writeConfig({ UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'policy-probe' }] }] })
+
+    const ctx = new Context()
+    await mountAgentLoopTestDependencies(ctx)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(SandboxPolicyService, { mode: 'workspace-write', workspaceRoot: dir })
+    await ctx.plugin(RecordingShell)
+    await ctx.plugin(HooksClaude, { configPath: join(dir, 'hooks.json'), enabledHooks: [ALL_HOOKS] })
+    ctx.llm.registerAdapter(['mock'], new MockAdapter([textResponse('ok')]))
+    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    setSandboxMode(agent.session, 'danger-full-access')
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    const spec = (ctx.shell as RecordingShell).specs.find(candidate => candidate.command === 'policy-probe')
+    expect(spec?.sandboxPolicy).toEqual(expect.objectContaining({ mode: 'danger-full-access', sessionId: agent.session.id }))
   })
 })

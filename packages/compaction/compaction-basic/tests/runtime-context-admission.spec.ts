@@ -18,7 +18,7 @@ class CompactionAdapter extends LlmAdapter {
   readonly summaries: GenerateOptions[] = []
 
   override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
-    return Promise.resolve({ provider, id: model, name: model, context: { contextWindow: 2048 } })
+    return Promise.resolve({ provider, id: model, name: model, context: { contextWindow: 8192 } })
   }
 
   override async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
@@ -53,7 +53,7 @@ it('retains required cwd in the first request after proactive compaction with op
       name: 'work', description: 'Do work.', parameters: {}, async execute() { return [{ type: 'text', text: 'work done' }] },
     }))
     await ctx.plugin(BasicCompaction, {
-      auto: true, thresholdRatio: 0.5, headroomTokens: 0, retainTokens: 20, maxTokens: 32, compactionRetries: 0,
+      auto: true, thresholdRatio: 0.25, headroomTokens: 0, retainTokens: 20, maxTokens: 32, compactionRetries: 0,
     })
     const harness = await mountAgentLoopTestHarness(ctx)
     const agent = await harness.create(brandString<SessionId>('compaction-admission'), { provider: 'mock', model: 'mock' }, { cwd: root })

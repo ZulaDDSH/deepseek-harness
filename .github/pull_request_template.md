@@ -1,34 +1,23 @@
-<!-- 本 PR 正文按 .agents/skills/dsh-pr-description/SKILL.md 填写。 -->
+<!-- Fill in this PR description following .agents/skills/dsh-pr-description/SKILL.md. -->
 
 ## Motivation
 
-<!-- 引用同仓库 Issue：Fixes #N 或 Refs #N。 -->
+<!-- State the problem being solved in one sentence, and reference the same-repository Issue with Fixes #NN or Related #NN. -->
 
 ## Changes
 
+<!-- Describe at a high level any change to commands, configuration, APIs, protocols, or persistence formats; write None if there is none. -->
+<!-- Describe at a high level any change to behavior that users, models, or the system can observe; write None if there is none. -->
+
 ## Testing
 
-<!-- 测试设计 -->
+<!-- Add one entry per testing method. Keep the method visible and put reviewable evidence in its Proof section. -->
 
-- <!-- 测试条目 -->
+- <!-- Describe the command or steps, and the behavior they cover. -->
 
   <details>
   <summary>Proof</summary>
 
+  <!-- Provide test output, screenshots, recordings, logs, or other reviewable evidence. -->
+
   </details>
-
-## AI Usage
-
-<!-- ai-declaration:start -->
-[![AI-DECLARATION: 待填级别](https://img.shields.io/badge/䷼%20AI--DECLARATION-待填级别-e5e7eb?labelColor=e5e7eb)](https://ai-declaration.md)
-
-**AI declaration** ([v0.1.2](https://ai-declaration.md/en/0.1.2)): `待填级别`
-<!-- ai-declaration:end -->
-
-| 阶段 | 级别 | AI 参与度 | 决策记录 |
-|:--|:--|--:|:--|
-| breakdown 问题拆解 | 待填级别 | ?% | 待填说明 |
-| design 方案设计 | 待填级别 | ?% | 待填说明 |
-| testing 验收测试 | 待填级别 | ?% | 待填说明 |
-| implementation 技术实现 | 待填级别 | ?% | 待填说明 |
-| review 评审处理 | n/a 暂不适用 | — | 尚无已处理的评审意见。 |

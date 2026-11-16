@@ -10,7 +10,7 @@ import { contextMenuHook } from '@deepseek-ai/dsh-client-test-runtime'
 import { renderFileActions } from './file-actions.tsx'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { Context } from '@deepseek-ai/cordis'
-import { cleanup, fireEvent, render, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionLiveEventEntry, SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import {
@@ -27,7 +27,12 @@ import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-c
 import type { ChatFileMentions, TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { makeTranslate, stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
 import { Deliverables, DeliverablesTail, selectDeliverables, type DeliverablesInjected } from '../src/client/Deliverables.tsx'
+import { ChangedFilesDock } from '../src/client/ChangedFilesDock.tsx'
 import type { ReviewInjected } from '../src/client/ReviewTab.tsx'
+import type { SourceChangesInjected } from '../src/client/SourceChangesPage.tsx'
+import { SourceChangesPanelIcon } from '../src/client/SourceChangesPanelIcon.tsx'
+import { workspaceChangesDefinition } from '../src/client/workspace-changes-definition.ts'
+import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import { ChangesDiffStore } from '../src/client/changes-diff.ts'
 import { ChangesSummaryStore } from '../src/client/changes-summary.ts'
 import { changesSummaryUrl, type ChangesSummary } from '../src/changes.ts'
@@ -615,6 +620,39 @@ describe('ChangedFiles card', () => {
     return { props, openFile, view }
   }
 
+  it('shows the latest turn above the composer and opens its selected file', () => {
+    const props = openProps(new PresentedOpenController(), servedStore())
+    const turn = turnLocation(1, { produced: [], changes })
+    const snapshot = { timeline: { turnOrder: [1], turns: new Map([[1, turn]]) } }
+    const useChat = <T,>(select: (value: typeof snapshot) => T): T => select(snapshot)
+    const dock = { ...props, useChat, sessionId: brandString<SessionId>('child-session'), t: makeTranslate(en) }
+    const view = render(<ChangedFilesDock {...dock as Parameters<typeof ChangedFilesDock>[0]} />)
+    expect(view.container.querySelector('[data-changed-files-dock]')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Edited 11 files' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /config\/feature-flags\.json/ }))
+    expect(props.openChangesReview).toHaveBeenCalledExactlyOnceWith({ sessionId: 'child-session', seq: 5, turn: 1 }, 1)
+    snapshot.timeline.turnOrder.push(2)
+    snapshot.timeline.turns.set(2, turnLocation(2, { produced: [] }))
+    view.rerender(<ChangedFilesDock {...dock as Parameters<typeof ChangedFilesDock>[0]} />)
+    expect(view.container.querySelector('[data-changed-files-dock]')).toBeNull()
+  })
+
+  it('opens a one-file dock bubble as a menu and respects Developer Tools', () => {
+    const single = servedStore({ turn: 1, files: [changedFile('src/example.scss', 3, 1)], total: 1, added: 3, deleted: 1 })
+    const props = openProps(new PresentedOpenController(), single)
+    const turn = turnLocation(1, { produced: [], changes })
+    const snapshot = { timeline: { turnOrder: [1], turns: new Map([[1, turn]]) } }
+    const useChat = <T,>(select: (value: typeof snapshot) => T): T => select(snapshot)
+    const dock = { ...props, useChat, sessionId: brandString<SessionId>('child-session'), t: makeTranslate(en) }
+    const view = render(<ChangedFilesDock {...dock as Parameters<typeof ChangedFilesDock>[0]} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Edited example.scss' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /src\/example\.scss/ }))
+    expect(props.openChangesReview).toHaveBeenCalledExactlyOnceWith({ sessionId: 'child-session', seq: 5, turn: 1 }, 0)
+    const off = { useShowCodeDiff: <T,>(select: (value: boolean) => T): T => select(false) }
+    view.rerender(<ChangedFilesDock {...dock as Parameters<typeof ChangedFilesDock>[0]} {...off} />)
+    expect(view.container.querySelector('[data-changed-files-dock]')).toBeNull()
+  })
+
   it.each([en, zh])('shows one edited filename without a list and opens its review', (locale) => {
     const single = servedStore({ turn: 1, files: [changedFile('src/example.scss', 3, 1)], total: 1, added: 3, deleted: 1 })
     const { props, view } = renderCard(new PresentedOpenController(), locale, { changes, presented: [] }, single)
@@ -724,42 +762,26 @@ describe('ChangedFiles card', () => {
     expect(summaries.state.getSnapshot()[changesSummaryUrl(brandString<SessionId>('child-session'), 5)]).toBe('loading')
   })
 
-  it('summarizes the turn, folds after four rows, and opens the review from the header and each row', () => {
+  it('opens a compact menu of changed files and reviews the selected file', () => {
     const { props, openFile, view } = renderCard()
     const card = view.container.querySelector('[data-changed-files]')
     if (!(card instanceof HTMLElement)) throw new Error('changed-files card missing')
     expect(within(card).getByText('Edited 11 files')).toBeTruthy()
     expect(within(card).getByText('+1,232')).toBeTruthy()
     expect(within(card).getByText('-326')).toBeTruthy()
-    expect(within(card).getByText('Preview in sidebar')).toBeTruthy()
-    expect(within(card).getAllByRole('listitem')).toHaveLength(4)
-    expect(within(within(card).getByRole('button', { name: 'View changes to config/design-token' })).getByText('config/design-token')).toBeTruthy()
-    expect(within(card).getByText('+42')).toBeTruthy()
-    expect(within(within(card).getByRole('button', { name: 'View changes to src/index.ts' })).getByText('src/index.ts')).toBeTruthy()
-    expect(within(card).queryByText('~/.zshrc')).toBeNull()
-    expect(within(card).getByRole('button', { name: 'Review this turn’s changes in the sidebar' })
-      .querySelector('svg')?.getAttribute('width')).toBe('20')
-    fireEvent.click(within(card).getByRole('button', { name: 'View changes to config/feature-flags.json' }))
+    const summary = within(card).getByRole('button', { name: 'Edited 11 files' })
+    expect(summary.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(summary)
+    expect(screen.getAllByRole('menuitem')).toHaveLength(5)
+    expect(screen.getByText('+42')).toBeTruthy()
+    fireEvent.click(screen.getByRole('menuitem', { name: /config\/feature-flags\.json/ }))
     expect(props.openChangesReview).toHaveBeenLastCalledWith({ sessionId: 'child-session', seq: 5, turn: 1 }, 1)
     expect(props.openChanged).not.toHaveBeenCalled()
-    fireEvent.click(within(card).getByRole('button', { name: 'Review this turn’s changes in the sidebar' }))
-    expect(props.openChangesReview).toHaveBeenLastCalledWith({ sessionId: 'child-session', seq: 5, turn: 1 }, 0)
     expect(openFile).not.toHaveBeenCalled()
-    const expand = within(card).getByRole('button', { name: 'Show all 5 changed files' })
-    expect(expand.getAttribute('aria-expanded')).toBe('false')
-    expect(expand.textContent).toContain('All 5 files')
-    fireEvent.click(expand)
-    expect(within(card).getAllByRole('listitem')).toHaveLength(5)
-    expect(within(card).getByText('binary')).toBeTruthy()
-    expect(within(card).getByRole('button', { name: 'View changes to ~/.zshrc' }).getAttribute('title')).toBeNull()
-    expect(within(card).getByRole('button', { name: 'View changes to ~/.zshrc', description: '/home/u/.zshrc' })).toBeTruthy()
-    fireEvent.click(within(card).getByRole('button', { name: 'View changes to ~/.zshrc' }))
+    fireEvent.click(summary)
+    expect(screen.getByText('binary')).toBeTruthy()
+    fireEvent.click(screen.getByRole('menuitem', { name: /~\/\.zshrc/ }))
     expect(props.openChangesReview).toHaveBeenLastCalledWith({ sessionId: 'child-session', seq: 5, turn: 1 }, 4)
-    const collapse = within(card).getByRole('button', { name: 'Collapse changed files' })
-    expect(collapse.getAttribute('aria-expanded')).toBe('true')
-    expect(card.lastElementChild).toBe(collapse)
-    fireEvent.click(collapse)
-    expect(within(card).getAllByRole('listitem')).toHaveLength(4)
   })
 
   it('opens the review the same way without a desktop', () => {
@@ -767,30 +789,28 @@ describe('ChangedFiles card', () => {
     const { openFile, props, view } = renderCard(controller, zh)
     controller.host.set('error')
     view.rerender(<Deliverables {...props} matched={{ changes, presented: [] }} openFile={openFile} sessionId={brandString<SessionId>('child-session')} t={makeTranslate(zh)} />)
-    expect(view.getByRole('button', { name: '在侧边栏查看本轮改动' })).toBeTruthy()
+    expect(view.getByRole('button', { name: '已编辑 11 个文件' })).toBeTruthy()
     controller.host.set({ name: 'server', available: false, fileManager: null })
     view.rerender(<Deliverables {...props} matched={{ changes, presented: [] }} openFile={openFile} sessionId={brandString<SessionId>('child-session')} t={makeTranslate(zh)} />)
     expect(view.getByText('已编辑 11 个文件')).toBeTruthy()
-    fireEvent.click(view.getByRole('button', { name: '在侧边栏查看本轮改动' }))
-    expect(props.openChangesReview).toHaveBeenLastCalledWith({ sessionId: 'child-session', seq: 5, turn: 1 }, 0)
-    fireEvent.click(view.getByRole('button', { name: '查看 config/design-token 的改动' }))
+    fireEvent.click(view.getByRole('button', { name: '已编辑 11 个文件' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /config\/design-token/ }))
     expect(props.openChangesReview).toHaveBeenLastCalledWith({ sessionId: 'child-session', seq: 5, turn: 1 }, 0)
     expect(openFile).not.toHaveBeenCalled()
     expect(props.openChanged).not.toHaveBeenCalled()
-    expect(view.getByRole('button', { name: '展开全部 5 个改动文件' }).textContent).toContain('全部 5 个文件')
   })
 
-  it('preserves expanded rows when the served announcement changes', () => {
+  it('keeps the menu open when the served announcement changes', () => {
     const summaries = servedStore()
     summaries.state.set({ ...summaries.state.getSnapshot(), [changesSummaryUrl(brandString<SessionId>('child-session'), 6)]: served })
     const { props, openFile, view } = renderCard(new PresentedOpenController(), en, { changes, presented: [] }, summaries)
     const card = view.container.querySelector('[data-changed-files]')
-    fireEvent.click(view.getByRole('button', { name: 'Show all 5 changed files' }))
+    fireEvent.click(view.getByRole('button', { name: 'Edited 11 files' }))
     view.rerender(<Deliverables {...props} matched={{ changes: { seq: 6 }, presented: [] }} openFile={openFile}
       sessionId={brandString<SessionId>('child-session')} t={makeTranslate(en)} />)
     expect(view.container.querySelector('[data-changed-files]')).toBe(card)
-    expect(view.getAllByRole('listitem')).toHaveLength(5)
-    expect(view.getByRole('button', { name: 'Collapse changed files' }).getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getAllByRole('menuitem')).toHaveLength(5)
+    expect(view.getByRole('button', { name: 'Edited 11 files' }).getAttribute('aria-expanded')).toBe('true')
   })
 
   it('keeps every count in place whatever the native-open gestures of the review tab are doing', () => {
@@ -803,6 +823,7 @@ describe('ChangedFiles card', () => {
     // Native-open gestures belong to the review tab; the card shows counts only.
     expect(view.queryByText(en['presented.opening'])).toBeNull()
     expect(view.queryByText(en['presented.error'])).toBeNull()
+    fireEvent.click(view.getByRole('button', { name: 'Edited 11 files' }))
     expect(view.getByText('+42')).toBeTruthy()
     expect(view.getByText('+143')).toBeTruthy()
     expect(view.getByText('+1,232')).toBeTruthy()
@@ -812,7 +833,8 @@ describe('ChangedFiles card', () => {
     const short = servedStore({ turn: 1, files: [...files.slice(0, 1), changedFile('huge.bin', 0, 0, { oversized: true })], total: 2, added: 185, deleted: 43 })
     const { view } = renderCard(new PresentedOpenController(), en, { changes, presented: [{ path: 'report.pdf', seq: 6, index: 0 }] as never[] }, short)
     expect(view.getByText('Edited 2 files')).toBeTruthy()
-    expect(view.getByText('too large')).toBeTruthy()
+    fireEvent.click(view.getByRole('button', { name: 'Edited 2 files' }))
+    expect(screen.getByText('too large')).toBeTruthy()
     expect(view.queryByRole('button', { name: /Show all|Collapse changed/ })).toBeNull()
     expect(view.container.querySelectorAll('[data-presented-file]')).toHaveLength(1)
     expect(view.container.querySelector('[data-presented-files-row]')?.parentElement?.getAttribute('data-after-changes')).toBe('true')
@@ -874,6 +896,15 @@ describe('producedFileMentions resolver', () => {
 
 
 describe('plugin registration', () => {
+  it('names the workspace guide and renders the Source Control rail icon at the requested size', () => {
+    const definition = workspaceChangesDefinition(makeTranslate(en))
+    expect(definition.title?.('')).toBe('Changes')
+    const guide = definition.guide?.[0]
+    expect(guide?.title()).toBe('Changes')
+    expect(guide?.description?.()).toBe(en['source.subtitle'])
+    const view = render(<SourceChangesPanelIcon {...{ size: 20, active: false } as Parameters<typeof SourceChangesPanelIcon>[0]} />)
+    expect(view.container.querySelector('svg')?.getAttribute('width')).toBe('20')
+  })
   it('registers the tail entry and fiber disposal removes it', async () => {
     const ctx = new Context()
     ctx.provide('contextMenus', { register: () => () => {}, open: vi.fn() } as never)
@@ -884,13 +915,16 @@ describe('plugin registration', () => {
       name: 'root',
       children: {
         'conversation.chat.turnTail': { kind: 'list', scope: 'session' },
+        'conversation.input.dock': { kind: 'list', scope: 'session' },
         'tool.call.toolview': { kind: 'keyed', scope: 'session' },
         'sidebar.right.pane.tab': { kind: 'keyed', scope: 'session' },
+        'main': { kind: 'keyed', scope: 'root' },
+        'sidebar.panellist': { kind: 'list', scope: 'root' },
       },
     } as never, () => null)
-    const registerTab = vi.fn(() => () => { registered = undefined })
-    let registered: unknown
-    ctx.provide('sidebarRightTabs', { register: (definition: unknown) => { registered = definition; return registerTab() } } as never)
+    const registerTab = vi.fn(() => () => { registered.length = 0 })
+    const registered: unknown[] = []
+    ctx.provide('sidebarRightTabs', { register: (definition: unknown) => { registered.push(definition); return registerTab() } } as never)
     const openResource = vi.fn()
     ctx.provide('sidebarRight', { openResource } as never)
     // ui-theme's Appearance row binds a durable scope through these two.
@@ -910,9 +944,13 @@ describe('plugin registration', () => {
     await fiber.await()
     const [entry] = ctx.slots.entries('conversation.chat.turnTail')
     expect(entry).toBeDefined()
+    expect(ctx.slots.entries('conversation.input.dock')).toHaveLength(1)
     expect(ctx.slots.entries('tool.call.toolview')).toHaveLength(1)
+    expect(ctx.slots.entries('main')).toHaveLength(1)
+    expect(ctx.slots.entries('sidebar.panellist')).toHaveLength(1)
     expect(entry?.inject).toBeDefined()
-    expect(registered).toMatchObject({ kind: 'changes-review', patterns: ['dsh-resource://changes-review/**'] })
+    expect(registered).toContainEqual(expect.objectContaining({ kind: 'changes-review', patterns: ['dsh-resource://changes-review/**'] }))
+    expect(registered).toContainEqual(expect.objectContaining({ kind: 'workspace-changes' }))
     const [tabEntry] = ctx.slots.entries('sidebar.right.pane.tab')
     expect(tabEntry?.options.key).toBe('@deepseek-ai/dsh-client-ui-deliverables')
 
@@ -942,6 +980,30 @@ describe('plugin registration', () => {
 
     const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
     vi.stubGlobal('fetch', fetcher)
+    const mainEntry = ctx.slots.entries('main')[0]!
+    const workspaceEntry = ctx.slots.entries('sidebar.right.pane.tab')
+      .find(value => value.options.key === '@deepseek-ai/dsh-client-ui-deliverables/workspace-changes')!
+    const mainFace = mainEntry.inject!(undefined as never) as SourceChangesInjected & Record<string, unknown>
+    const workspaceFace = workspaceEntry.inject!(SessionId('child-session') as never) as SourceChangesInjected & Record<string, unknown>
+    const workspaceId = 'workspace' as WorkspaceId
+    const status = { workspaceId, files: [], total: 0, added: 0, deleted: 0 }
+    expect(workspaceFace.hooks.workspaceStatus).toBe(mainFace.hooks.workspaceStatus)
+    expect(workspaceFace.hooks.workspaceDiff).toBe(mainFace.hooks.workspaceDiff)
+    for (const readFace of [mainFace, workspaceFace]) {
+      ctx.emit('connection/reset')
+      fetcher.mockResolvedValueOnce(Response.json(status))
+      await readFace.loadStatus(workspaceId)
+      expect(readFace.hooks.workspaceStatus.getSnapshot()['api/workspace.status?workspaceId=workspace']).toEqual(status)
+      fetcher.mockResolvedValueOnce(Response.json({ ...status, branch: 'main' }))
+      await readFace.refreshStatus(workspaceId)
+      expect(readFace.hooks.workspaceStatus.getSnapshot()['api/workspace.status?workspaceId=workspace']).toMatchObject({ branch: 'main' })
+      fetcher.mockResolvedValueOnce(Response.json({ kind: 'binary', path: 'image.png', display: 'image.png' }))
+      await readFace.loadDiff(workspaceId, 0)
+      expect(readFace.hooks.workspaceDiff.getSnapshot()['api/workspace.diff?workspaceId=workspace&index=0']).toMatchObject({ kind: 'binary' })
+    }
+    const label = ctx.slots.entries('sidebar.panellist')[0]!.options.label
+    expect(typeof label === 'function' ? label() : label).toBe('Changes')
+    fetcher.mockClear()
     const preview = vi.fn<(path: string) => void>()
     for (const produced of [[], [{ path: 'out/report.docx' }]]) {
       const delivered = tailOwner({ produced, presented: [{ path: 'out/report.docx', seq: 2, index: 0 }] }, 3, preview)
@@ -977,7 +1039,8 @@ describe('plugin registration', () => {
     expect(face.hooks.presentedOpen.getSnapshot()['api/changes.open?sessionId=child-session&seq=5&index=0']).toBeUndefined()
     face.openChangesReview({ sessionId: brandString<SessionId>('child-session'), seq: 5, turn: 3 }, 1)
     expect(openResource).toHaveBeenCalledWith('dsh-resource://changes-review/session/child-session/5/3', { params: { index: 1 } })
-    expect((registered as { title(address: string): string }).title('dsh-resource://changes-review/session/child-session/5/3')).toBe('Review · turn 3')
+    const reviewType = registered.find(definition => (definition as { kind: string }).kind === 'changes-review') as { title(address: string): string }
+    expect(reviewType.title('dsh-resource://changes-review/session/child-session/5/3')).toBe('Review · turn 3')
     const tabFace: ReviewInjected = tabEntry!.inject!(brandString<SessionId>('child-session') as never) as Record<string, unknown> & ReviewInjected
     fetcher.mockResolvedValueOnce(Response.json({ turn: 3, files: [], total: 0, added: 0, deleted: 0 }))
     await tabFace.loadChangesSummary(brandString<SessionId>('child-session'), 6)
@@ -1010,9 +1073,12 @@ describe('plugin registration', () => {
     expect(reset).not.toHaveBeenCalled()
     unsubscribe()
     expect(ctx.slots.entries('conversation.chat.turnTail')).toHaveLength(0)
+    expect(ctx.slots.entries('conversation.input.dock')).toHaveLength(0)
     expect(ctx.slots.entries('tool.call.toolview')).toHaveLength(0)
+    expect(ctx.slots.entries('main')).toHaveLength(0)
+    expect(ctx.slots.entries('sidebar.panellist')).toHaveLength(0)
     expect(ctx.slots.entries('sidebar.right.pane.tab')).toHaveLength(0)
-    expect(registered).toBeUndefined()
+    expect(registered).toEqual([])
     // Fiber teardown retracts the service: the consumer's ctx.get sees the off state.
     expect((ctx as { get(name: string): unknown }).get('chatFileMentions')).toBeUndefined()
   })

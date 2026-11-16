@@ -21,12 +21,16 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
+import type {} from '@deepseek-ai/dsh-api-terminal-controller/client'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { IconDataOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ModelDirectoryState } from './directory.ts'
 import { ModelDirectoryResolver } from './service.ts'
 import type { ModelSelectInjected } from './slots.ts'
+import { JevRouting } from './JevRouting.tsx'
 import { ModelSelect } from './ModelSelect.tsx'
+import { descriptionOf, rowId } from './descriptions.ts'
 import { en, ja, es, fr, de, ru, pt, zh, type ModelKey } from './locales.ts'
 import { orderModelProviders } from './provider-order.ts'
 
@@ -43,21 +47,23 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-/** One selectable row's id: an opaque row key (resolved by lookup, never parsed). */
-function rowId(providerId: string, modelId: string): string {
-  return `${providerId}/${modelId}`
-}
-
 /** Flatten the directory into popup rows; failure rows are listed for visibility but never selectable. */
-function optionsOf(directory: ModelDirectoryState, t: TranslateNS<'model'>): SelectOption[] {
+function optionsOf(
+  directory: ModelDirectoryState,
+  t: TranslateNS<'model'>,
+  favoriteIds: readonly string[],
+): SelectOption[] {
+  const favorites = new Set(favoriteIds)
   const rows: SelectOption[] = []
   for (const group of orderModelProviders(directory.groups)) {
     const name = group.id === 'deepseek-account' ? t('provider.account') : group.name
     for (const model of group.models) {
+      const description = descriptionOf(group.id, model, t)
       rows.push({
         id: rowId(group.id, model.id),
         label: model.name,
         group: { name: group.id, label: name },
+        ...(description === undefined ? {} : { detail: description }),
         ...(directory.current !== null
           && directory.current.provider === group.id
           && directory.current.model === model.id
@@ -65,6 +71,7 @@ function optionsOf(directory: ModelDirectoryState, t: TranslateNS<'model'>): Sel
       })
     }
   }
+  rows.sort((left, right) => Number(favorites.has(right.id)) - Number(favorites.has(left.id)))
   for (const failure of directory.failures) {
     rows.push({
       id: `failure/${failure.id}`,
@@ -118,7 +125,6 @@ export function apply(ctx: ClientContext): void {
   // Non-slot faces (the command description, the popup option builder) read
   // through the bound translate; the seat component reads the standard seat.
   const t = ctx.locale.bind(NS)
-
   ctx.plugin(ModelDirectoryResolver)
 
   // Entry 1: the /model popupSelect over the shared directory.
@@ -143,7 +149,7 @@ export function apply(ctx: ClientContext): void {
           if (sessions.subagentAddress(session.sessionId) !== undefined) {
             throw new Error('model selection is unavailable for addressed subagent sessions')
           }
-          return optionsOf(await models.directoryFor(session.sessionId).load(), t)
+          return optionsOf(await models.directoryFor(session.sessionId).load(), t, models.favorites.getSnapshot())
         },
         onSelect: async (option, session) => {
           if (sessions.subagentAddress(session.sessionId) !== undefined) {
@@ -165,7 +171,7 @@ export function apply(ctx: ClientContext): void {
   })
 
   // Entry 2: the composer's named model seat over the SAME directory.
-  ctx.inject(['slots', 'modelDirectories'], (scope: ClientContext) => {
+  ctx.inject(['slots', 'modelDirectories', 'uiWorkspace', 'webTerminals'], (scope: ClientContext) => {
     const models = scope.modelDirectories
     const sessions = scope.sessions
     scope.slots.inject('conversation.input.model', () => scope.slots.register({
@@ -181,7 +187,14 @@ export function apply(ctx: ClientContext): void {
         const available = sessions.subagentAddress(sessionId) === undefined
         return {
           available,
-          directory: directory.store,
+          hooks: { modelDirectory: directory.store, modelFavorites: models.favorites },
+          toggleFavorite: (key) => {
+            models.favorites.update((ids) => {
+              const at = ids.indexOf(key)
+              if (at === -1) ids.push(key)
+              else ids.splice(at, 1)
+            })
+          },
           load: () => {
             if (available) directory.load().catch(() => { /* surfaced on the store */ })
           },
@@ -189,8 +202,24 @@ export function apply(ctx: ClientContext): void {
           select: (selection: ModelSelection) => available
             ? directory.select(selection)
             : Promise.resolve(undefined),
+          openCliTerminal: async (profile) => {
+            const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
+            const workspaceId = scope.get('workspaces')?.list.getSnapshot().items.find(item => item.sessionIds.includes(sessionId))?.workspaceId
+            const placement = workspaceId === undefined ? cwd === undefined ? {} : { cwd } : { workspaceId }
+            const opened = await sessions.create({ ...placement, cliProfile: profile })
+            scope.uiWorkspace.openSession(opened)
+          },
+          cliProfiles: signal => scope.webTerminals.cliProfiles(sessionId, signal),
+          setRunOptions: options => available
+            ? scope.remote.session.setRunOptions({ sessionId, ...options })
+            : Promise.resolve(undefined),
         }
       },
     }, ModelSelect))
+    scope.slots.inject('conversation.input.right', () => scope.slots.register({
+      name: 'conversation.input.right',
+      id: 'model-routing',
+      locale: NS,
+    }, JevRouting))
   })
 }

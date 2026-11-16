@@ -4,13 +4,13 @@ import { hostname } from 'node:os'
 import { resolve } from 'node:path'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-fs'
-import { Context, Service } from '@deepseek-ai/cordis'
+import { Context, Service, type Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { errorChain, type ReasoningEffortId, type MessageSource } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-client-file-upload'
 import { canOpenNativePath, nativeFileManager, nativeFileApplications, openNativeFileApplication, openNativeAssociatedPath, revealNativePath } from '@deepseek-ai/dsh-native-command'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
 import type { SessionObservation } from '@deepseek-ai/dsh-session-query'
 import { Remote, RemoteError, TypertRemoteService, principalOf, type TypertResourceResolveInput } from '@deepseek-ai/dsh-typert-protocol'
@@ -22,13 +22,22 @@ import {
   type ApiSessionAgentResult,
 } from './agent.ts'
 import { SessionCommandController, hasPromptContent } from './commands.ts'
+import { MasterControlSessions } from './master-control.ts'
+import type { ExternalChatCatalog, ExternalChatImportRequest, ExternalChatImportValue } from './types.ts'
 import { SessionControlController } from './control.ts'
 import { HistoryController } from './history/controller.ts'
 import { StateController } from './state/controller.ts'
 import { WebController } from './web/controller.ts'
 import { SessionFileReferences } from './file-references.ts'
 import { ApiSessionList } from './list.ts'
-import { buildModelCatalog, hasProviderApiKey } from './catalog.ts'
+import { buildModelCatalog, hasProviderApiKey, missingCredentialProvider, missingCredentialProviders } from './catalog.ts'
+import { installMcpSelectionProjection } from './mcp-selection-projection.ts'
+import { installHookOverridesProjection } from './hook-overrides-projection.ts'
+import { installAutoResponder } from './auto-responder.ts'
+import { installRunOptions } from './run-options.ts'
+import { subagentSetupSchema, type SubagentSetup, type SubagentTeamRole, type SubagentTeamRoleRoute } from './subagent-setup.ts'
+import { teamRoleDefaultOf } from './team-role-defaults.ts'
+import type { HookInventoryReport } from '@deepseek-ai/dsh-hook-protocol'
 import { SessionSkillCatalog } from './skill-catalog.ts'
 import { SessionMediaReferences } from './media-references.ts'
 import { ArchivedSessionGate } from './archived-session-gate.ts'
@@ -59,10 +68,18 @@ import type {
   SessionRenameValue,
   SessionSearchRequest,
   SessionSearchValue,
+  McpConnectorCatalog,
+  SessionHookCatalog,
+  SessionSetHookOverridesRequest,
+  HookOverrides,
+  SessionSelectMcpRequest,
+  SessionSelectMcpValue,
   SessionSelectModelRequest,
   SessionSelectModelValue,
   SessionProjectionsRequest,
   SessionProjectionsValue,
+  SessionSetRunOptionsRequest,
+  SessionRunOptions,
   SessionUpdateQueueRequest,
   SessionUpdateQueueValue,
 } from './types.ts'
@@ -70,7 +87,10 @@ import type {
 export type * from './types.ts'
 export { ApiSessionNotFound } from './agent.ts'
 export { SessionFileReferences } from './file-references.ts'
+export { SUBAGENT_TEAM_ROLES } from './subagent-setup.ts'
+export type { SubagentTeamRole, SubagentTeamRoleRoute } from './subagent-setup.ts'
 export { SessionSkillCatalog } from './skill-catalog.ts'
+export { effectiveSubagentSetupOf } from './run-options.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -111,6 +131,8 @@ function resolveSessionResource({ args, parameters }: TypertResourceResolveInput
 export interface Config {
   /** Override platform desktop-opener detection. */
   readonly nativeOpen?: boolean
+  /** Global default Orchestrator & Subagent Setup for Sessions without their own; unset means subagent mode is off. */
+  readonly subagentSetup?: Volatile<unknown>
   /** Positive integral milliseconds of list work before yielding between complete rows. */
   readonly listWorkSliceMs?: number
 }
@@ -152,14 +174,18 @@ export class SessionController extends TypertRemoteService {
 
   static Config: z<Config, ResolvedConfig> = z.object({
     nativeOpen: z.boolean(),
+    subagentSetup: z.any().volatile(),
     listWorkSliceMs: z.natural().min(1).default(16),
   })
 
+  private readonly subagentSetupDefault: Volatile<unknown> | undefined
+  private warnedSubagentSetup: unknown
   private historyController!: HistoryController
   private stateController!: StateController
   private webController!: WebController
 
   private agents!: ApiSessionAgentController
+  private masterControl!: MasterControlSessions
   private commands!: SessionCommandController
   private controlState!: SessionControlController
   private listState!: ApiSessionList
@@ -178,7 +204,9 @@ export class SessionController extends TypertRemoteService {
    */
   constructor(ctx: Context, config: Config, internals: SessionControllerInternals = {}) {
     super(ctx, 'sessionController', { namespace: 'session' })
-    this.listWorkSliceMs = SessionController.Config(config).listWorkSliceMs
+    const { subagentSetup, ...listing } = config
+    this.subagentSetupDefault = subagentSetup
+    this.listWorkSliceMs = SessionController.Config(listing).listWorkSliceMs
     this.fileApplications = internals.fileApplications ?? nativeFileApplications
     this.openFileApplication = internals.openFileApplication ?? openNativeFileApplication
     this.openPath = internals.openPath ?? openNativeAssociatedPath
@@ -190,9 +218,14 @@ export class SessionController extends TypertRemoteService {
   protected async [Service.init](): Promise<void> {
     const ctx = this.ctx
     ctx.typert.resources.register('session', { resolve: resolveSessionResource })
+    installMcpSelectionProjection(ctx)
+    installHookOverridesProjection(ctx)
+    installRunOptions(ctx)
     this.agents = new ApiSessionAgentController(ctx)
     this.agents.initialize()
+    installAutoResponder(ctx, agent => agent.model.current() ?? ctx.agentDefaultModel.currentSelection())
     this.commands = new SessionCommandController(ctx, this.agents, process.cwd())
+    this.masterControl = new MasterControlSessions(ctx, this.commands)
     ctx.effect(() => ctx.fileUploads.registerAgentResolver(async (sessionId) => {
       const result = await this.agents.resolveAgent(sessionId)
       if ('error' in result) throw result.error
@@ -265,6 +298,38 @@ export class SessionController extends TypertRemoteService {
   }
 
   /**
+   * Provider routes whose named API-key reference has no configured credential, for Host-side route preflight.
+   * @returns provider route ids that cannot authenticate; empty when credentials cannot be read.
+   */
+  missingCredentialProviders(): Promise<readonly string[]> {
+    return missingCredentialProviders(this.ctx)
+  }
+
+  /**
+   * The global default Orchestrator & Subagent Setup, which a Session without its own setup inherits.
+   * @returns the stored default, or undefined when none is set or the stored value fails {@link subagentSetupSchema}.
+   */
+  defaultSubagentSetup(): SubagentSetup | undefined {
+    const stored = this.subagentSetupDefault?.get()
+    if (stored === undefined) return undefined
+    const parsed = subagentSetupSchema.safeParse(stored)
+    if (parsed.success) return parsed.data
+    if (this.warnedSubagentSetup !== stored) {
+      this.warnedSubagentSetup = stored
+      this.ctx.logger.warn('session-controller: stored default Orchestrator & Subagent Setup is invalid and is ignored')
+    }
+    return undefined
+  }
+
+  teamRoleDefaultOf(session: Session, role: SubagentTeamRole): SubagentTeamRoleRoute | undefined {
+    return teamRoleDefaultOf(this.ctx, session, role, this.subagentSetupDefault?.get())
+  }
+
+  missingCredentialProvider(provider: string): Promise<boolean> {
+    return missingCredentialProvider(this.ctx, provider)
+  }
+
+  /**
    * Resolve or resume one ordinary Session for another Host API domain.
    * @param sessionId - Session identity whose Agent owns the operation.
    * @returns the live Agent or the stable Session-domain failure.
@@ -300,6 +365,34 @@ export class SessionController extends TypertRemoteService {
   }
 
   /**
+   * Resolve the dedicated ungrouped home; concurrent requests share creation.
+   * @returns the durable master session identity.
+   */
+  @Remote('masterHome')
+  masterHome(): Promise<SessionCreateValue> {
+    return this.masterControl.openHome()
+  }
+
+  /**
+   * Discover recent supported external chats without importing or running them.
+   * @returns at most 100 rows with supported-text previews and per-file errors.
+   */
+  @Remote('externalChats')
+  externalChats(): Promise<ExternalChatCatalog> {
+    return this.masterControl.external.discover()
+  }
+
+  /**
+   * Import discovered text histories; preserve existing imports and isolate row failures.
+   * @param request - keys returned by external chat discovery.
+   * @returns per-key outcomes after successful imports reach durable storage.
+   */
+  @Remote('importChats')
+  importChats(request: ExternalChatImportRequest): Promise<ExternalChatImportValue> {
+    return this.masterControl.importChats(request.keys)
+  }
+
+  /**
    * Create one ordinary Session for a new conversation, reusing the named blank Session while it is reusable.
    * @param request - optional blank Session to reuse, location, and Agent preset.
    * @returns the created or reused Session identity and its preset when configured.
@@ -317,6 +410,62 @@ export class SessionController extends TypertRemoteService {
   @Remote('selectModel')
   selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue> {
     return this.commands.selectModel(request)
+  }
+
+  /**
+   * List connector namespaces exposed by globally connected MCP tools.
+   * @returns connector namespaces available for Session selection.
+   */
+  @Remote('listMcpConnectors')
+  listMcpConnectors(): McpConnectorCatalog {
+    return { connectorIds: this.agents.listMcpConnectorIds() }
+  }
+
+  /**
+   * List hooks loaded by mounted hook bridges.
+   * @returns every loaded hook with its global enablement.
+   */
+  @Remote('listHooks')
+  listHooks(): SessionHookCatalog {
+    const reports: HookInventoryReport[] = []
+    this.ctx.emit('hooks/inventory', reports)
+    return {
+      hooks: reports.filter(report => report.status === 'loaded').flatMap(report => report.handlers.map(handler => ({
+        key: handler.key, dialect: report.dialect, event: handler.event, command: handler.command,
+        globallyDisabled: handler.disabled === true, ...handler.matcher === undefined ? {} : { matcher: handler.matcher },
+        ...handler.description === undefined ? {} : { description: handler.description },
+      }))),
+    }
+  }
+
+  /**
+   * Replace the hook overrides of one Session.
+   * @param request - Session identity and the complete override map.
+   * @returns the stored overrides.
+   */
+  @Remote('setHookOverrides')
+  setHookOverrides(request: SessionSetHookOverridesRequest): Promise<HookOverrides> {
+    return this.commands.setHookOverrides(request)
+  }
+
+  /**
+   * Replace the run options (ultracode, plus fast mode and effort for Claude Code runs) of one Session.
+   * @param request - Session identity and the run options to store.
+   * @returns the stored run options.
+   */
+  @Remote('setRunOptions')
+  setRunOptions(request: SessionSetRunOptionsRequest): Promise<SessionRunOptions> {
+    return this.commands.setRunOptions(request)
+  }
+
+  /**
+   * Select MCP connector namespaces for one Session.
+   * @param request - Session identity and selected connector namespaces.
+   * @returns the normalized Session selection.
+   */
+  @Remote('selectMcp')
+  selectMcp(request: SessionSelectMcpRequest): Promise<SessionSelectMcpValue> {
+    return this.commands.selectMcp(request)
   }
 
   /**

@@ -53,6 +53,7 @@ import type { SessionActivity, WorkspaceId, WorkspaceView } from '@deepseek-ai/d
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ShortcutCatalogEntry } from '@deepseek-ai/dsh-client-shortcuts/client'
 import type { WorkspaceShortcutState } from '../shortcuts.ts'
+import type { AppearanceMaps } from '../appearance.ts'
 import type { StartSessionOptions } from '../navigation.ts'
 import type {} from './toast.ts'
 import type { createWorkspaceViewStore } from '../stores.ts'
@@ -61,6 +62,8 @@ declare module '@deepseek-ai/dsh-client-ui-context-menu/client' {
   interface ContextMenuTargetMap {
     /** Registered Workspace header; path and title belong to the clicked row. */
     workspace: { readonly workspaceId: WorkspaceId; readonly path: string; readonly displayTitle: string }
+    /** Registered Chat Section header; the title is the section's visible name. */
+    section: { readonly sectionId: string; readonly displayTitle: string }
   }
 }
 
@@ -70,6 +73,13 @@ export type WorkspaceActionRequest = {
   readonly workspaceId: WorkspaceId
   readonly displayTitle: string
   readonly storedTitle: string
+}
+
+/** One request for the Chat Section rename or delete dialog. */
+export type SectionActionRequest = {
+  readonly action: 'rename' | 'delete'
+  readonly sectionId: string
+  readonly displayTitle: string
 }
 
 /**
@@ -271,10 +281,19 @@ export type DirectoryPickingHooks = PropsHooks<DirectoryPickingInjected['hooks']
  * browsing region drives.
  */
 export type WorkspaceBrowserInjected = {
+  openWorkspaceMenu: (workspaceId: WorkspaceId, path: string, displayTitle: string, point: { x: number; y: number }, mode?: 'toggle') => void
   /** Dismiss the settled Workspace dialog. */
   settleWorkspaceAction: () => void
+  /** Open actions for the clicked Session without selecting it. */
+  openSessionMenu: (sessionId: SessionId, displayTitle: string, point: { x: number; y: number }, mode?: 'toggle') => void
+  /** Open the registered actions of one Chat Section header without changing expansion. */
+  openSectionMenu: (sectionId: string, displayTitle: string, point: { x: number; y: number }, mode?: 'toggle') => void
+  /** Dismiss the settled Chat Section dialog request. */
+  settleSectionAction: () => void
   hooks: DirectoryPickingInjected['hooks'] & {
     workspaceActionRequest: HostObservable<WorkspaceActionRequest | null>
+    sectionActionRequest: HostObservable<SectionActionRequest | null>
+    appearance: HostObservable<AppearanceMaps>
     contextMenuTarget: HostObservable<ContextMenuTarget | null>
     /**
      * Fixed Host facts, reached through a hook rather than injected as values:
@@ -329,6 +348,12 @@ export type WorkspaceBrowserInjected = {
   unarchiveSession: (sessionId: SessionId) => Promise<void>
   /** Adopt a picked host directory as a real Workspace before targeting a Session. */
   createWorkspace: (input: { path: string }) => Promise<WorkspaceView>
+  /**
+   * Mint the stable identity for a new Chat Section. Sections are a
+   * browser-local organizational layer with no Host counterpart, so identity
+   * is generated on the Client and persisted with the rest of the view state.
+   */
+  newSectionId: () => string
 }
 
 /** The browser's declared viewing store handle, shared with the row actions that write view state. */

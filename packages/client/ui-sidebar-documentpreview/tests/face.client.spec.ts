@@ -121,6 +121,33 @@ const settlements = [
 ] as const
 
 describe('textFace', () => {
+  it('ignores comparisons after cancellation or a newer reading generation', async () => {
+    const retired = bench()
+    retired.controller.abort()
+    retired.face.showDiff(TAB_1, FILE, retired.controller.signal, 'before')
+    expect(retired.bytes).not.toHaveBeenCalled()
+
+    const current = bench()
+    current.face.showDiff(TAB_1, FILE, current.controller.signal, 'before')
+    current.face.reloadPages(TAB_1, FILE, current.controller.signal)
+    await current.settleAll(complete())
+    expect(current.tab()?.diff).toBeUndefined()
+  })
+  it('compares the shown text with the file current text, and reports a failed read', async () => {
+    const benchOne = bench()
+    benchOne.face.showDiff(TAB_1, FILE, benchOne.controller.signal, 'a\nb')
+    expect(benchOne.tab()?.loading).toBe(true)
+    await benchOne.settleAll(complete('v2', new TextEncoder().encode('a\nc')))
+    expect(benchOne.tab()?.diff).toEqual({ before: 'a\nb', after: 'a\nc' })
+    expect(benchOne.tab()?.loading).toBe(false)
+
+    const benchTwo = bench()
+    benchTwo.face.showDiff(TAB_1, FILE, benchTwo.controller.signal, 'a')
+    await benchTwo.settleAll(bytesFailure())
+    expect(benchTwo.tab()?.diff).toBeUndefined()
+    expect(benchTwo.tab()?.failure).toBeDefined()
+  })
+
   it('subscribes to a dependency once and stops accepting members after the tab ends', () => {
     const { face, resources, controller, forget } = bench()
     const source = vi.spyOn(resources, 'source')

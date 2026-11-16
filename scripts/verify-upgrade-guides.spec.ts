@@ -73,12 +73,10 @@ function commit(root: string, version: string, files: Record<string, string>): v
 }
 
 describe('upgrade guide gate', () => {
-  it('accepts an absent tree and conforming guide pairs, including prerelease versions and CRLF files', () => {
+  it('accepts an absent tree and conforming guides, including prerelease versions and CRLF files', () => {
     expect(collectUpgradeGuideViolations(fixtureRoot({}))).toEqual([])
     expect(collectUpgradeGuideViolations(fixtureRoot({
       'v0.1.7-rc.2/profile-flag/guide.md': VALID,
-      'v0.1.7-rc.2/profile-flag/guide.zh.md': VALID_ZH,
-      'v0.1.7-rc.2/profile-flag/guide.i18n.yaml': 'not parsed by this gate\n',
       'v1.0.0/crlf-item/guide.md': VALID.replaceAll('\n', '\r\n'),
     }))).toEqual([])
   })
@@ -91,14 +89,18 @@ describe('upgrade guide gate', () => {
       'v0.1.7/Item_Name/guide.md': VALID,
       'v0.1.7/item/notes.md': VALID,
       'v0.1.7/item/extra/guide.md': VALID,
+      'v0.1.7/item/guide.zh.md': VALID_ZH,
+      'v0.1.7/item/guide.i18n.yaml': 'counterpart: guide.zh.md\n',
     }))).toEqual([
       'docs/upgrade-guide/0.1.7/item/guide.md',
       'docs/upgrade-guide/README.md',
       'docs/upgrade-guide/v0.1.7/Item_Name/guide.md',
       'docs/upgrade-guide/v0.1.7/item/extra/guide.md',
+      'docs/upgrade-guide/v0.1.7/item/guide.i18n.yaml',
+      'docs/upgrade-guide/v0.1.7/item/guide.zh.md',
       'docs/upgrade-guide/v0.1.7/item/notes.md',
       'docs/upgrade-guide/v0.1/item/guide.md',
-    ].map(path => `${path}: only v<semver>/<kebab-case-item>/guide.{md,zh.md,i18n.yaml} files belong in docs/upgrade-guide`))
+    ].map(path => `${path}: only v<semver>/<kebab-case-item>/guide.md files belong in docs/upgrade-guide`))
   })
 
   it('rejects missing, extra, or invalid frontmatter fields', () => {
@@ -131,22 +133,21 @@ describe('upgrade guide gate', () => {
     expect(violations[0]).toBe('docs/upgrade-guide/v0.1.7/extra/guide.md: headings must be one "#" title followed by "## Change", "## Migration"; got "# `--profile` replaces `--preset`", "## Change", "## Migration", "## References"')
   })
 
-  it('checks the Chinese sibling against its own section names and metadata', () => {
+  it('rejects translated guide artifacts', () => {
     expect(collectUpgradeGuideViolations(fixtureRoot({
-      'v0.1.7/english-headings/guide.zh.md': VALID,
-      'v0.1.7/wrong-kind/guide.zh.md': VALID_ZH.replace('kind: upgrade-guide', 'kind: guide'),
+      'v0.1.7/item/guide.zh.md': VALID_ZH,
+      'v0.1.7/item/guide.i18n.yaml': 'counterpart: guide.zh.md\n',
     }))).toEqual([
-      'docs/upgrade-guide/v0.1.7/english-headings/guide.zh.md: headings must be one "#" title followed by "## 变更", "## 迁移"; got "# `--profile` replaces `--preset`", "## Change", "## Migration"',
-      'docs/upgrade-guide/v0.1.7/wrong-kind/guide.zh.md: kind must be upgrade-guide',
+      'docs/upgrade-guide/v0.1.7/item/guide.i18n.yaml: only v<semver>/<kebab-case-item>/guide.md files belong in docs/upgrade-guide',
+      'docs/upgrade-guide/v0.1.7/item/guide.zh.md: only v<semver>/<kebab-case-item>/guide.md files belong in docs/upgrade-guide',
     ])
   })
 
-  it('rejects an English guide over 500 words, counting frontmatter, and leaves the Chinese sibling uncounted', () => {
+  it('rejects a guide over 500 words, counting frontmatter', () => {
     const words = VALID.split(/\s+/u).filter(Boolean).length
     expect(collectUpgradeGuideViolations(fixtureRoot({
       'v0.1.7/at-limit/guide.md': `${VALID}${'word '.repeat(500 - words)}\n`,
       'v0.1.7/over-limit/guide.md': `${VALID}${'word '.repeat(501 - words)}\n`,
-      'v0.1.7/over-limit/guide.zh.md': `${VALID_ZH}${'词 '.repeat(600)}\n`,
     }))).toEqual(['docs/upgrade-guide/v0.1.7/over-limit/guide.md: 501 words exceeds the 500-word ceiling'])
   })
 
@@ -192,13 +193,11 @@ describe('upgrade guide gate', () => {
       const root = bumpedClone(originRoot(), {
         'v0.2.2-alpha.3/stale/guide.md': VALID,
         'v0.2.1-rc.4/backport/guide.md': VALID,
-        'v0.2.1-rc.4/backport/guide.zh.md': VALID_ZH,
         'v0.2.0-rc.2/no-branch/guide.md': VALID,
         'README.md': VALID,
       })
       expect(collectStaleUpgradeGuideAdditions(root, 'HEAD')).toEqual([
         'docs/upgrade-guide/v0.2.0-rc.2/no-branch/guide.md',
-        'docs/upgrade-guide/v0.2.1-rc.4/backport/guide.zh.md',
         'docs/upgrade-guide/v0.2.2-alpha.3/stale/guide.md',
       ].map(path => `${path}${MESSAGE}`))
       expect(git(root, 'for-each-ref', 'refs/remotes/origin/release')).toBe('')

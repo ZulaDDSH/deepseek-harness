@@ -151,8 +151,9 @@ export const InputBar = memo(function InputBar({
   const cardRef = useRef<HTMLDivElement | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
-  const continuable = subagent?.address.mode === 'continuable'
-  const disabled = removed || inert || !live || blocked !== undefined
+  const continuable = subagent?.address.mode === 'continuable' || (subagent?.address.mode === 'one-shot' && running)
+  const parentOffline = continuable && subagent.parentAvailable !== true
+  const disabled = removed || inert || !live || blocked !== undefined || parentOffline
   const locked = disabled
   // The model seat is the ONE control a block leaves live: every block this
   // contract has is cleared by choosing a model, so locking it too would leave
@@ -169,7 +170,8 @@ export const InputBar = memo(function InputBar({
   const workspaceTrigger = inert && !removed && onRequestWorkspace !== undefined
   const editorDisabled = removed || (locked && !workspaceTrigger)
   const editable = live && !locked && !machineBusy
-  const steeringAvailable = subagent === null || subagent.address.mode === 'continuable'
+  const steeringAvailable = subagent === null || continuable
+  const busyEnterMode = subagent?.address.mode === 'one-shot' ? 'steer' : busyEnter
   const canSteerQueue = !locked && !machineBusy && !commandMenuOpen && empty && running && steeringAvailable
     && input.queue.length > 0
 
@@ -287,11 +289,11 @@ export const InputBar = memo(function InputBar({
   // The keymap handlers read live bar state through this ref so the editor
   // registration survives re-renders without re-arming per keystroke.
   const gate = useRef({
-    locked, machineBusy, canSteerQueue, running, steeringAvailable, busyEnter,
+    locked, machineBusy, canSteerQueue, running, steeringAvailable, busyEnter: busyEnterMode,
     intakeFiles, uploadsPending, uploadsHeldText, showToast, canAcceptDrop,
   })
   gate.current = {
-    locked, machineBusy, canSteerQueue, running, steeringAvailable, busyEnter,
+    locked, machineBusy, canSteerQueue, running, steeringAvailable, busyEnter: busyEnterMode,
     intakeFiles, uploadsPending, uploadsHeldText, showToast, canAcceptDrop,
   }
 
@@ -381,7 +383,7 @@ export const InputBar = memo(function InputBar({
   const primaryDisabled = primaryStops ? stopAction === undefined
     : (!primaryRetries && empty) || disabled || machineBusy || uploadsPending
   const interruptible = running && (continuable || (sending && subagent === null))
-  const primarySubmitMode = resolveSubmitMode(busyEnter, running, 'enter', steeringAvailable)
+  const primarySubmitMode = resolveSubmitMode(busyEnterMode, running, 'enter', steeringAvailable)
   const plainMessageDraft = !empty && input?.phase === 'plain' && !draft.trimStart().startsWith('/')
   const primaryLabel = primaryStops
     ? t('input.stop')

@@ -140,7 +140,7 @@ describe.each(['MacIntel', 'Win32', 'Linux x86_64'])('web context menus on %s', 
       }, key)
       await expect.poll(() => item.getAttribute('aria-keyshortcuts')).toBe(platform === 'MacIntel' ? 'Shift+Meta+,' : 'Control+Shift+,')
       expect(await item.getAttribute('aria-keyshortcuts')).not.toBe(initial)
-      expect(await popup!.evaluate(element => element.isConnected)).toBe(true)
+      expect(await popup.evaluate(element => element.isConnected)).toBe(true)
       expect(await background.getAttribute('aria-selected')).toBe('false')
       await item.click()
       const rename = page.getByRole('dialog', { name: 'Rename session', exact: true })
@@ -246,7 +246,7 @@ describe.each(['MacIntel', 'Win32', 'Linux x86_64'])('web context menus on %s', 
     const previous = await page.getByRole('menu').elementHandle()
     await page.getByRole('link', { name: 'Website', exact: true }).click({ button: 'right' })
     await page.getByRole('menuitem', { name: 'Copy link address', exact: true }).waitFor()
-    expect(await previous!.evaluate(element => element.isConnected)).toBe(false)
+    expect(await previous.evaluate(element => element.isConnected)).toBe(false)
     await page.keyboard.press('Escape')
     const counts = await page.evaluate(() => {
       const observed = (window as Window & { menuObservation?: { frames: number[]; observer: MutationObserver } }).menuObservation

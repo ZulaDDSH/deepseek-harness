@@ -73,6 +73,7 @@ export interface SessionSnapshot {
   readonly running: boolean
   readonly subagent: {
     readonly address: SubagentAddress
+    readonly parentAvailable?: boolean
   } | null
   readonly removed: boolean
   readonly openState: OpenState

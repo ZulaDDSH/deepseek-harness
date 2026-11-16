@@ -3,7 +3,7 @@ import { contextMenuHook } from '@deepseek-ai/dsh-client-test-runtime'
 import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { allowAllAccess, bindSnapshotSelector, RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
+import { allowAllAccess, bindSnapshotSelector, makeTranslate, RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import type { GeneralSectionComponentProps } from '../src/client/GeneralSection.tsx'
 import { GeneralSection } from '../src/client/GeneralSection.tsx'
 import { CloseLabel, HeaderContent, TriggerContent } from '../src/client/chrome.tsx'
@@ -13,6 +13,8 @@ import { DesktopChannelRow, DesktopChannelToast } from '../src/client/DesktopCha
 import { DesktopChannelSource } from '../src/client/desktop-channel-source.ts'
 import type { DesktopChannelChangeResult, DesktopChannelState } from '../src/types.ts'
 import { DeveloperToolsRow } from '../src/client/DeveloperToolsRow.tsx'
+import { SessionSearchRow } from '../src/client/SessionSearchRow.tsx'
+import { ChatMemoryRow } from '../src/client/ChatMemoryRow.tsx'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
 import { SettingsDocumentStore } from '../src/client/settings-document-store.ts'
@@ -130,15 +132,39 @@ describe('GeneralSection', () => {
     const renderSlot = vi.fn(
       ((key: string) => <div data-testid={`slot-${key}`} />) as GeneralSectionComponentProps['renderSlot'],
     )
-    const props: GeneralSectionComponentProps = { ...kit, renderSlot, close: vi.fn() }
+    const props: GeneralSectionComponentProps = {
+      ...kit, renderSlot, close: vi.fn(), t: makeTranslate(en),
+      useItems: select => select(ids),
+    }
     const view = render(<GeneralSection {...props} />)
     return { view, renderSlot }
   }
+  let ids: readonly string[] = ['language', 'appearance', 'developer-tools', 'current-version', 'acme-plugin-row']
 
-  it('renders the item slot as the section body', () => {
-    const { renderSlot } = mount()
-    expect(renderSlot).toHaveBeenCalledWith('settings.general.item', {})
-    expect(screen.getByTestId('slot-settings.general.item')).toBeTruthy()
+  it('renders one anchored slot per registered row under plain headings, keeping unknown rows', () => {
+    ids = ['language', 'appearance', 'developer-tools', 'current-version', 'acme-plugin-row']
+    const { renderSlot, view } = mount()
+    expect(renderSlot).toHaveBeenCalledWith('settings.general.item', {}, { only: 'language' })
+    expect(renderSlot).not.toHaveBeenCalledWith('settings.general.item', {})
+    const headings = [...view.container.querySelectorAll('h3')].map(heading => heading.textContent)
+    expect(headings).toEqual(['Preferences', 'Advanced', 'About'])
+    const anchored = [...view.container.querySelectorAll('[data-settings-entry]')].map(node => node.getAttribute('data-settings-entry'))
+    expect(anchored).toEqual(['language', 'appearance', 'developer-tools', 'acme-plugin-row', 'current-version'])
+    expect(screen.getByRole('region', { name: 'Advanced' })).toBeTruthy()
+  })
+
+  it('omits a heading whose rows are not registered', () => {
+    ids = ['shortcuts']
+    const { view } = mount()
+    expect([...view.container.querySelectorAll('h3')].map(heading => heading.textContent)).toEqual(['Conversation and input'])
+  })
+
+  it('renders a shadowed plugin row once', () => {
+    ids = ['acme-plugin-row', 'language', 'acme-plugin-row']
+    const { renderSlot, view } = mount()
+    const anchored = [...view.container.querySelectorAll('[data-settings-entry]')].map(node => node.getAttribute('data-settings-entry'))
+    expect(anchored).toEqual(['language', 'acme-plugin-row'])
+    expect(renderSlot.mock.calls.filter(([, , options]) => JSON.stringify(options) === JSON.stringify({ only: 'acme-plugin-row' }))).toHaveLength(1)
   })
 })
 
@@ -235,6 +261,35 @@ it('reports a failed developer-tool write and allows retry', async () => {
   fireEvent.click(toggle)
   await waitFor(() => { expect(toggle.getAttribute('aria-checked')).toBe('true') })
   expect(screen.queryByRole('alert')).toBeNull()
+})
+
+it('toggles session content search and keeps the setting when a write is refused', async () => {
+  const state = createSnapshotStore(true)
+  const setEnabled = vi.fn().mockRejectedValueOnce(new Error('offline')).mockImplementation(async (enabled: boolean) => { state.set(enabled) })
+  render(<SessionSearchRow {...kit} t={t} useContentSearch={bindSnapshotSelector(state)} setEnabled={setEnabled} />)
+  const toggle = screen.getByRole('switch', { name: 'Search session contents' })
+  expect(toggle.getAttribute('aria-checked')).toBe('true')
+  fireEvent.click(toggle)
+  expect((await screen.findByRole('alert')).textContent).toBe('Could not save. Please try again.')
+  expect(toggle.getAttribute('aria-checked')).toBe('true')
+  fireEvent.click(toggle)
+  await waitFor(() => { expect(toggle.getAttribute('aria-checked')).toBe('false') })
+  expect(setEnabled).toHaveBeenLastCalledWith(false)
+  expect(screen.queryByRole('alert')).toBeNull()
+})
+
+it('toggles chat memory and keeps the setting when a write is refused', async () => {
+  const state = createSnapshotStore(true)
+  const setEnabled = vi.fn().mockRejectedValueOnce(new Error('offline')).mockImplementation(async (enabled: boolean) => { state.set(enabled) })
+  render(<ChatMemoryRow {...kit} t={t} useChatMemory={bindSnapshotSelector(state)} setEnabled={setEnabled} />)
+  const toggle = screen.getByRole('switch', { name: 'Memory: save chats and recall them' })
+  expect(toggle.getAttribute('aria-checked')).toBe('true')
+  fireEvent.click(toggle)
+  expect((await screen.findByRole('alert')).textContent).toBe('Could not save. Please try again.')
+  expect(toggle.getAttribute('aria-checked')).toBe('true')
+  fireEvent.click(toggle)
+  await waitFor(() => { expect(toggle.getAttribute('aria-checked')).toBe('false') })
+  expect(setEnabled).toHaveBeenLastCalledWith(false)
 })
 
 describe('current version', () => {

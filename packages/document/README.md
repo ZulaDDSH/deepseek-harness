@@ -5,8 +5,6 @@ kind: "package-group"
 
 # document/ — Office documents
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Render, convert, and recalculate authorized Office files on the Host, for previews and for the model's Office tools. The shared service runs LibreOffice kit. Targets with a declared native engine use it; other targets use Node WASM.

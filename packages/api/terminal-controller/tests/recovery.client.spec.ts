@@ -44,6 +44,7 @@ function fixture() {
     shells: vi.fn<TerminalRemote['shells']>(async () => success([info.shell])),
     environment: vi.fn<TerminalRemote['environment']>(async () => success(environment)), list: vi.fn<TerminalRemote['list']>(async () => success([])),
     create: vi.fn<TerminalRemote['create']>(async (_session, request) => success({ ...info, id: request.id })),
+    cliProfiles: vi.fn<TerminalRemote['cliProfiles']>(async () => success([])),
     close: vi.fn<TerminalRemote['close']>(async () => success(undefined)), rename: vi.fn<TerminalRemote['rename']>(async () => success(undefined)),
     watch: vi.fn<TerminalRemote['watch']>(streamMethod<TerminalRemote['watch']>(async function* (_session, signal) {
       yield* rosterFrames

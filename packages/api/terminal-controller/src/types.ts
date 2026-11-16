@@ -1,11 +1,14 @@
 /** Browser terminal identities, metadata and screen-stream frames. */
 import type { Branded } from '@deepseek-ai/dsh-brand'
+import type { CliTerminalProfileId } from '@deepseek-ai/dsh-session/types'
 import type { RemoteUplinkWindow } from '@deepseek-ai/dsh-typert-protocol'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface RemoteErrorDetailsMap {
     /** The terminal identity is missing or has begun process cleanup. */
     'terminal/unavailable': Record<string, never>
+    /** The Session was not created for the requested CLI terminal profile. */
+    'terminal/cli-session-mismatch': Record<string, never>
     /** Input or resize was refused without invalidating the output attachment. */
     'terminal/control-unavailable': { readonly reason: 'read-only' | 'not-running' }
     /** Retained screens and pending allocations consume the Session's terminal quota. */
@@ -67,6 +70,12 @@ export interface WebTerminalInfo {
   readonly control: TerminalParty
   /** Sandbox mode an agent terminal started under; user terminals run with system-user permissions and omit it. */
   readonly sandboxMode?: TerminalSandboxMode
+  readonly cli?: {
+    readonly profile: CliTerminalProfileId
+    readonly command: string
+    readonly installed: boolean
+    readonly installUrl: string
+  }
 }
 
 /** A newest-relative page of rendered screen lines. */
@@ -104,10 +113,19 @@ export interface TerminalScreenMark {
   dispose(): void
 }
 
+/** One CLI terminal profile's installed state on the Host and its vendor install page. */
+export interface CliTerminalStatus {
+  readonly profile: CliTerminalProfileId
+  readonly installed: boolean
+  readonly installUrl: string
+}
+
 /** Create is idempotent for an open identity; closed identities cannot be recreated. */
 export interface TerminalCreateRequest {
   /** A path returned by shell discovery; absent selects the execution default. */
   readonly shellPath?: string
+  /** CLI terminal profile whose command runs in the default shell. */
+  readonly cli?: CliTerminalProfileId
   readonly id: WebTerminalId
   readonly cols: number
   readonly rows: number

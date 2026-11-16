@@ -40,6 +40,10 @@ export class AppWebEntry {
     this.page = new BootPage(container)
   }
 
+  setBootHint(text: string): void {
+    this.page.setHint(text)
+  }
+
   /**
    * Load and activate every client entry, audit activation, then hand the
    * mount point to the UI renderer. A required-entry failure remains visible

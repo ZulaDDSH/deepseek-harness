@@ -1,8 +1,10 @@
 # Subagents
 
-English | [中文](subagent.zh.md)
+The unified activation API manages local conversations and external executions.
 
 The unified activation API manages local conversations and external executions. Creation ancestry, runtime ownership, and communication belong to the subagent tree. [Subagent controls](../../packages/subagent/tool-subagent-control/README.md) own agent identity and exact-caller inbox waiting; Team tools add shared tasks and task policy.
+
+`SubagentTeamRole` identifies a saved Team role. `SubagentTeamRoleRoute` selects a backend and model for a Team role, with a provider required for `llm` routes and optional reasoning effort.
 
 ## Capabilities and activation requests
 
@@ -23,6 +25,10 @@ interface SubagentCapabilities {
   readonly agentPreset: boolean
   readonly outputSchema: boolean
   readonly depthLimit: boolean
+  /** Honors a per-child `persona`; omitted means unsupported. */
+  readonly persona?: boolean
+  /** Honors a per-child `toolFilter`; omitted means unsupported. */
+  readonly toolFilter?: boolean
 }
 ```
 
@@ -109,6 +115,24 @@ interface SubagentStartRequest {
    * before initializing the separate child runtime.
    */
   readonly agentOptions?: AgentOptions
+  readonly routePinned?: true
+  /**
+   * Per-child persona that shadows `deployment:persona-prefix`. Requires the
+   * provider's `persona` capability; omission preserves the deployment persona.
+   */
+  readonly persona?: string
+  /**
+   * Tool filter applied to every child. Filtered tools disappear from its
+   * prompt and reject execution. Requires the provider's `toolFilter`
+   * capability.
+   */
+  readonly toolFilter?: ToolRestriction
+  /**
+   * Optional advisory sink for short live progress lines such as `Edit: src/a.ts`.
+   * Providers that observe child tool activity may call it; others ignore it.
+   * It needs no capability and never affects the result.
+   */
+  readonly onProgress?: (line: string) => void
   /**
    * Object-rooted JSON Schema within `assertObjectJsonSchema`'s enforced subset. Start rejects
    * unsupported schemas or providers without the capability. Data must be plain host-realm JSON;
@@ -179,6 +203,7 @@ interface ContinuableCreateSpec {
 }
 ```
 
+A local one-shot provider appends the descriptor inside the child's initial turn before its first request. The continuation manager appends the descriptor after any provider-supplied lineage and before the initial prompt is admitted; `Session.inheritedEventCount` remains the fork-lineage boundary: resume-time descriptor authority reads the child's own suffix, while the identity projection folds `subagent/descriptor` last-wins so the child's own descriptor overrides a fork-seeded ancestor's. The event is log-only: no `surfaceOp`, never in model history, and retained across compaction by the append-only log. Malformed current-version descriptors are corrupt; unsupported versions cannot be classified by this runtime.
 ## Agent names
 
 Session ids remain the only execution identity for routing, authorization, persistence, and task ownership; names are model-facing references. `SubagentActivation.name` is the child's full name, and `listDescendants()` rows carry it as `path` when every link from the root is named. `namesOf(agent)` reports the names of a live member and its direct creator; the root is `lead`. `resolveName(caller, name, signal)` returns the Session id for `lead` or a full name; any other text that names no member is returned unchanged as a Session id, while a slash-separated address that names no member fails with `AGENT_NAME_NOT_FOUND`. Callers authorize the result; resolution grants no authority. The [package README](../../packages/subagent/subagent/README.md#agent-names) defines the name rule, defaults, failures, and catalog persistence.
@@ -416,6 +441,10 @@ type SubagentDescendantListEntry = SubagentListEntry & {
 }
 ```
 
+## In-process backends: depth and seed
+
+- **Delegation depth** is durable `SessionHeader.delegationDepth` plus the merge-extensible runtime field `AgentOptions.subagentDepth`; absence means top-level depth zero, and the greater present value is authoritative. The seam owns both fields — the loop neither sets nor reads them — so an in-process child persists parent depth + 1, cold resume cannot lower it, and every start rejects a derived depth outside the safe-integer domain or above a defined absolute `request.maxDepth` cap. `tool-subagent` also withholds a delegation tool from an agent whose child would exceed the effective cap (`restrictAtDepthLimit`), so a child at the cap is never offered a tool it cannot run.
+- **Fork seeding** uses [`CreateAgentOptions.seed`](core.md#creation-and-ownership) (a `SessionEvent[]` prefix threaded through `AgentLoop.createAgent` → `ctx.sessions.prepare({ seed })`, the same primitive `ctx.agents.resume()` uses). The fork backend passes a *balanced completed-turn prefix* of the parent's log — the parent's events up to and including its last `turn/end` — so the seed is contiguous-from-0 and the invariants replay accepts it (the in-flight, unbalanced turn is excluded).
 
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
@@ -431,6 +460,14 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 ### `ctx.subagentModelSelection` — `SubagentModelSelectionConfig`
 
 Host settings owner that records Session authorization before the first model request.
+
+```ts cordis-catalog
+/**
+ * Read a detached selection preference for the next fresh top-level Session.
+ * @returns the enabled state and exact allowed routes.
+ */
+current(): SubagentModelSelectionSettings
+```
 
 Source: [`packages/subagent/tool-subagent/src/model-selection-settings.ts`](../../packages/subagent/tool-subagent/src/model-selection-settings.ts)
 
@@ -606,6 +643,12 @@ listDescendants(rootSessionId: SessionId, signal?: AbortSignal): Promise<Subagen
  * @returns the exact Cordis effect disposer.
  */
 registerProvider(provider: SubagentProvider): () => void
+
+/**
+ * The current per-parent live-child capacity (maxActiveSubagents).
+ * @returns the configured limit.
+ */
+activeSubagentLimit(): number
 
 /**
  * Look up a provider by name.

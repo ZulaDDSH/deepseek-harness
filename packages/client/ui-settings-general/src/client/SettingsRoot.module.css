@@ -181,6 +181,12 @@
   }
 }
 
+.navCell:focus-visible,
+.close:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: -1px;
+}
+
 .navCell.active {
   background: var(--dsw-specific-sidebar-nav-item-active);
 }
@@ -217,6 +223,18 @@
   justify-content: flex-end;
   gap: 8px;
   margin-left: auto;
+}
+
+/* Live region stays mounted so each change is announced. */
+.saveStatus {
+  min-width: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.saveStatus[data-state='failed'] {
+  color: var(--dsw-alias-state-error-primary);
 }
 
 /* Compact close control. */

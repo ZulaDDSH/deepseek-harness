@@ -1,22 +1,25 @@
 // @vitest-environment jsdom
 import * as uiPrimitives from '@deepseek-ai/dsh-client-ui-primitives'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
-import { RemoteError, SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { bindSnapshotSelector, RemoteError, SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
+import { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { ModelSelection } from '@deepseek-ai/dsh-api-remotes/client'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { ComponentProps } from 'react'
-import type { OwnerOf } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SessionRunOptions, SessionRunOptionsProjection } from '@deepseek-ai/dsh-api-session-controller/types'
+import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import { useMemo, useSyncExternalStore, type ComponentProps } from 'react'
 import type { ModelDirectoryState } from '../src/client/directory.ts'
-import { ModelSelect } from '../src/client/ModelSelect.tsx'
+import { ModelSelect as ModelSelectView } from '../src/client/ModelSelect.tsx'
 import { en, zh } from '../src/client/locales.ts'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
-import { brandString } from '@deepseek-ai/dsh-brand'
+
+type ViewProps = ComponentProps<typeof ModelSelectView>
+type UseProjection = ViewProps['useProjection']
 
 // The seat's key domain is model ∪ common; the stub mirrors the real lookup
 // chain: package dictionary, then common vocabulary, then the key.
-const t: ComponentProps<typeof ModelSelect>['t'] = (key, params) => {
+const t: ViewProps['t'] = (key, params) => {
   const template = (zh as Record<string, string>)[key]
     ?? (commonZh as Record<string, string>)[key]
     ?? key
@@ -25,9 +28,44 @@ const t: ComponentProps<typeof ModelSelect>['t'] = (key, params) => {
     : template.replace(/\{(\w+)\}/g, (match, name: string) => name in params ? String(params[name]) : match)
 }
 
-const renderLabel: ComponentProps<typeof ModelSelect>['renderSlot'] = (_name, _owner, options) => options?.fallback ?? null
+const renderLabel: ViewProps['renderSlot'] = (_name, _owner, options) => options?.fallback ?? null
 
-const resolveText: ComponentProps<typeof ModelSelect>['resolveText'] = text => typeof text === 'string' ? text : text.en
+const resolveText: ViewProps['resolveText'] = text => typeof text === 'string' ? text : text.en
+
+/** Renderer stand-in for useProjection: serves runOptions from one store and the Claude Code capability, absent without the store. */
+function projectionHook(runOptions?: SnapshotStore<SessionRunOptionsProjection | undefined>): UseProjection {
+  return ((key: string) => useSyncExternalStore(
+    listener => runOptions?.subscribe(listener) ?? (() => {}),
+    () => key === 'runOptions' ? runOptions?.getSnapshot() : key === 'claudeCodeRunOptions' && runOptions !== undefined ? true : undefined,
+  ))
+}
+const noProjection = projectionHook()
+const cliStubs = { cliProfiles: vi.fn(async () => []), openCliTerminal: vi.fn(async () => {}) }
+const toggleStub = vi.fn()
+
+type SeatProps = Omit<ViewProps, 'useModelDirectory' | 'useModelFavorites' | 'useProjection' | 'toggleFavorite' | 'cliProfiles' | 'openCliTerminal' | 'renderSlot'>
+  & Partial<Pick<ViewProps, 'useProjection' | 'toggleFavorite' | 'cliProfiles' | 'openCliTerminal' | 'renderSlot'>>
+  & { directory: SnapshotStore<ModelDirectoryState>; favorites?: SnapshotStore<string[]> }
+
+/** Renderer stand-in for the inject hooks compartment: binds the stores the way the slot renderer does. */
+function ModelSelect({
+  directory, favorites, useProjection = noProjection, toggleFavorite = toggleStub, cliProfiles = cliStubs.cliProfiles,
+  openCliTerminal = cliStubs.openCliTerminal, renderSlot = renderLabel, ...props
+}: SeatProps) {
+  const useModelDirectory = useMemo(() => bindSnapshotSelector(directory), [directory])
+  const favoriteStore = useMemo(() => favorites ?? createSnapshotStore<string[]>([]), [favorites])
+  const useModelFavorites = useMemo(() => bindSnapshotSelector(favoriteStore), [favoriteStore])
+  return <ModelSelectView
+    {...props}
+    useModelDirectory={useModelDirectory}
+    useModelFavorites={useModelFavorites}
+    useProjection={useProjection}
+    toggleFavorite={toggleFavorite}
+    cliProfiles={cliProfiles}
+    openCliTerminal={openCliTerminal}
+    renderSlot={renderSlot}
+  />
+}
 
 const reasoning = {
   efforts: [
@@ -60,6 +98,17 @@ function state(overrides: Partial<ModelDirectoryState> = {}): ModelDirectoryStat
   }
 }
 
+function capableState(): ModelDirectoryState {
+  return state({
+    current: { provider: 'anthropic', model: 'claude-sonnet-5-5' },
+    groups: [{
+      id: 'anthropic',
+      name: 'Anthropic',
+      models: [{ id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5', reasoning, ultracode: true }],
+    }],
+  })
+}
+
 function modelGroups(count: number): ModelDirectoryState['groups'] {
   const group = state().groups[0]!
   return [{ ...group, models: [
@@ -87,7 +136,7 @@ describe('ModelSelect label slot', () => {
   it('distinguishes identical model names and ids by provider across all placements and restores labels on unload', async () => {
     const runtime = await SlotTestRuntime.create()
     onTestFinished(() => runtime.dispose())
-    const sessionId = brandString<SessionId>('model-label')
+    const sessionId = SessionId('model-label')
     await runtime.sessions.add({ id: sessionId })
     const session = runtime.sessions.retainFor(runtime.ctx, sessionId)
     const groups = ['trusted', 'external'].map(id => ({
@@ -100,7 +149,6 @@ describe('ModelSelect label slot', () => {
     })
     await runtime.root.declare({
       'conversation.input.model.label': { kind: 'single', scope: 'session', inline: true },
-      'conversation.input.model.options': { kind: 'list', scope: 'session' },
     }, ({ renderSlot, SessionProvider }) => <SessionProvider session={session}>
       <ModelSelect locked={false} available directory={directory} load={vi.fn()}
         resolveText={resolveText} select={select} t={t} renderSlot={renderSlot} />
@@ -151,7 +199,7 @@ describe('ModelSelect label slot', () => {
     expect(renderSlot).not.toHaveBeenCalled()
     expect(document.querySelector('[data-provider-id]')).toBeNull()
     act(() => { directory.set(state({ groups: [] })) })
-    expect(screen.getByRole('button', { name: '请选择模型' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '选择模型，当前 deepseek-official/deepseek-v4-flash' })).toBeTruthy()
     expect(renderSlot).not.toHaveBeenCalled()
   })
 })
@@ -169,7 +217,7 @@ describe('ModelSelect catalog badges', () => {
       ],
     }],
   })
-  const chinese: ComponentProps<typeof ModelSelect>['resolveText'] = text => typeof text === 'string' ? text : text.zh ?? text.en
+  const chinese: ViewProps['resolveText'] = text => typeof text === 'string' ? text : text.zh ?? text.en
 
   it('places the badge before the trigger name and after names in the menus', () => {
     render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={createSnapshotStore(badged())}
@@ -187,7 +235,7 @@ describe('ModelSelect catalog badges', () => {
   it('hands the badge to a label contribution, which replaces the default rendering', async () => {
     const runtime = await SlotTestRuntime.create()
     onTestFinished(() => runtime.dispose())
-    const sessionId = brandString<SessionId>('model-badge')
+    const sessionId = SessionId('model-badge')
     await runtime.sessions.add({ id: sessionId })
     const session = runtime.sessions.retainFor(runtime.ctx, sessionId)
     await runtime.root.declare({
@@ -274,35 +322,33 @@ describe('ModelSelect reasoning effort', () => {
       .toEqual(['Default', 'Standard'])
   })
 
-  it('opens model choices without exposing a saved route absent from the catalog', () => {
+  it('pins a saved route absent from the catalog as a disabled checked row under the current session', () => {
     const directory = createSnapshotStore(state({
       current: { provider: 'deepseek-official', model: 'removed-model' },
+      routable: false,
     }))
     const select = vi.fn().mockResolvedValue({ ok: true, value: undefined })
-    render(<ModelSelect renderSlot={renderLabel}
-      locked={false}
-      available
-      directory={directory}
-      load={vi.fn()} resolveText={resolveText}
-      select={select}
-      t={t}
-    />)
+    render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={directory} load={vi.fn()}
+      resolveText={resolveText} select={select} t={t} />)
 
-    const trigger = screen.getByRole('button', { name: '请选择模型' })
-    expect(trigger.textContent).toBe('请选择模型')
+    const trigger = screen.getByRole('button', { name: '选择模型，当前 deepseek-official/removed-model，不可用' })
+    expect(trigger.textContent).toBe('removed-model')
+    expect(trigger.getAttribute('title')).toBe(`deepseek-official/removed-model — ${zh['trigger.unavailableModelHint']}`)
     fireEvent.click(trigger)
     expect(screen.queryByRole('menuitem', { name: /推理等级/ })).toBeNull()
     expect(screen.queryByRole('menuitem', { name: /模型/ })).toBeNull()
-    expect(screen.queryByRole('menuitemradio', { name: 'removed-model' })).toBeNull()
+    const pinned = screen.getByRole('menuitemradio', { name: 'removed-model' })
+    expect(pinned.getAttribute('aria-checked')).toBe('true')
+    expect(pinned.hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('group', { name: zh['current.title'] }).contains(pinned)).toBe(true)
     expect(screen.getByRole('menuitemradio', { name: 'DeepSeek-V4-Flash' })).toBeTruthy()
-    expect(screen.queryByText('Fast catalog description')).toBeNull()
     expect(select).not.toHaveBeenCalled()
     expect(directory.getSnapshot().current).toEqual({ provider: 'deepseek-official', model: 'removed-model' })
     fireEvent.keyDown(screen.getByRole('menuitemradio', { name: 'DeepSeek-V4-Flash' }), { key: 'Escape' })
     expect(screen.queryByRole('group', { name: '模型与推理等级' })).toBeNull()
   })
 
-  it.each(['model', 'provider'])('hides the saved id and effort when the selected %s disappears', (removed) => {
+  it.each(['model', 'provider'])('keeps the saved id and effort when the selected %s disappears', (removed) => {
     const directory = createSnapshotStore(state({ retainedEffort: 'High' }))
     render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={directory} load={vi.fn()}
       resolveText={resolveText} select={vi.fn()} t={t} />)
@@ -311,8 +357,8 @@ describe('ModelSelect reasoning effort', () => {
       snapshot.groups = removed === 'provider' ? [] : snapshot.groups.map(group => ({ ...group, models: [] }))
       snapshot.routable = false
     }) })
-    const trigger = screen.getByRole('button', { name: '请选择模型' })
-    expect(trigger.textContent).toBe('请选择模型')
+    const trigger = screen.getByRole('button', { name: /选择模型，当前/ })
+    expect(trigger.textContent).toBe('deepseek-v4-flashHigh')
     expect(directory.getSnapshot().current).toEqual(state().current)
     fireEvent.click(trigger)
     expect(screen.getByRole('status').textContent).toBe(zh['empty.models'])
@@ -358,7 +404,7 @@ describe('ModelSelect reasoning effort', () => {
     const directory = createSnapshotStore<ModelDirectoryState>(state({ groups }))
     const select = vi.fn(async () => {
       const error = sessionInUse
-        ? new RemoteError('session/writer-held', 'writer held', { sessionId: brandString<SessionId>('owned') })
+        ? new RemoteError('session/writer-held', 'writer held', { sessionId: SessionId('owned') })
         : new RemoteError('session/model-unavailable', 'session already contains images', { provider: 'deepseek-official', model: 'deepseek-v4-pro' })
       directory.set(state({ groups, status: 'error', error: 'unrelated catalog refresh' }))
       return { ok: false as const, error }
@@ -451,36 +497,41 @@ describe('ModelSelect reasoning effort', () => {
       .map(row => row.textContent)).toEqual(['Max'])
   })
 
-  it('anchors the body portal with CSS and closes only on truly-outside mousedown', () => {
-    const measure = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
-    onTestFinished(() => { measure.mockRestore() })
-    const { container } = render(<ModelSelect renderSlot={renderLabel}
-      locked={false}
-      available
-      directory={createSnapshotStore(state())}
-      load={vi.fn()} resolveText={resolveText}
-      select={vi.fn().mockResolvedValue({ ok: true, value: undefined })}
-      t={t}
-    />)
-    const trigger = screen.getByRole('button', { name: /选择模型/ })
-    fireEvent.click(trigger)
-    const menu = screen.getByRole('menu')
-    // Outside the composer subtree — column overflow clips cannot crop it.
-    expect(container.contains(menu)).toBe(false)
-    expect(menu.parentElement).toBe(document.body)
-    const anchor = trigger.style.getPropertyValue('--dsh-model-anchor')
-    expect(anchor).toMatch(/^--dsh-model-/)
-    expect(menu.style.getPropertyValue('--dsh-model-anchor')).toBe(anchor)
-    expect(menu.style.left).toBe('')
-    expect(menu.style.top).toBe('')
-    expect(measure).not.toHaveBeenCalled()
-    // Interactions inside the trigger subtree or the portaled card stay open.
-    expect(fireEvent.mouseDown(menu)).toBe(true)
-    expect(fireEvent.mouseDown(trigger)).toBe(false)
-    fireEvent.blur(trigger, { relatedTarget: menu })
-    expect(screen.getByRole('menu')).toBeTruthy()
-    fireEvent.mouseDown(document.body)
-    expect(screen.queryByRole('menu')).toBeNull()
+  it('portals the placed menu card to body and closes only on truly-outside mousedown', () => {
+    const offsetWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth')!
+    const offsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')!
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, get: () => 200 })
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get: () => 300 })
+    try {
+      const { container } = render(<ModelSelect renderSlot={renderLabel}
+        locked={false}
+        available
+        directory={createSnapshotStore(state())}
+        load={vi.fn()} resolveText={resolveText}
+        select={vi.fn().mockResolvedValue({ ok: true, value: undefined })}
+        t={t}
+      />)
+      const trigger = screen.getByRole('button', { name: /选择模型/ })
+      fireEvent.click(trigger)
+      const menu = screen.getByRole('menu')
+      // Outside the composer subtree — column overflow clips cannot crop it.
+      expect(container.contains(menu)).toBe(false)
+      expect(menu.parentElement).toBe(document.body)
+      // jsdom anchor rects are all zero, so the measured 200x300 card clamps
+      // to the 12px viewport margin on both axes.
+      expect(menu.style.left).toBe('12px')
+      expect(menu.style.top).toBe('12px')
+      // Interactions inside the trigger subtree or the portaled card stay open.
+      expect(fireEvent.mouseDown(menu)).toBe(true)
+      expect(fireEvent.mouseDown(trigger)).toBe(false)
+      fireEvent.blur(trigger, { relatedTarget: menu })
+      expect(screen.getByRole('menu')).toBeTruthy()
+      fireEvent.mouseDown(document.body)
+      expect(screen.queryByRole('menu')).toBeNull()
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, 'offsetWidth', offsetWidth)
+      Object.defineProperty(HTMLElement.prototype, 'offsetHeight', offsetHeight)
+    }
   })
 
   it('renders no Agent-bound control for an addressed subagent session', () => {
@@ -496,6 +547,79 @@ describe('ModelSelect reasoning effort', () => {
 
     expect(screen.queryByRole('button')).toBeNull()
     expect(load).not.toHaveBeenCalled()
+  })
+})
+
+describe('ModelSelect favorites and provider filter', () => {
+  it('moves favorited models into a top section and keeps them listed there', () => {
+    const groups = [{
+      id: 'provider',
+      name: 'Example',
+      models: [
+        { id: 'flash', name: 'Flash' },
+        { id: 'pro', name: 'Pro' },
+      ],
+    }]
+    const directory = createSnapshotStore(state({ groups, current: { provider: 'provider', model: 'flash' } }))
+    const favorites = createSnapshotStore<string[]>([])
+    const toggleFavorite = (key: string): void => {
+      favorites.update((ids) => {
+        const at = ids.indexOf(key)
+        if (at === -1) ids.push(key)
+        else ids.splice(at, 1)
+      })
+    }
+    render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={directory} load={vi.fn()}
+      resolveText={resolveText} select={vi.fn().mockResolvedValue({ ok: true, value: undefined })} t={t}
+      favorites={favorites} toggleFavorite={toggleFavorite} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /选择模型/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /^模型/ }))
+    expect(screen.getAllByRole('menuitemradio').map(row => row.textContent)).toEqual(['Flash', 'Pro'])
+    expect(screen.queryByRole('group', { name: zh['filter.aria'] })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '收藏 Pro' }))
+    expect(screen.getAllByRole('menuitemradio').map(row => row.textContent)).toEqual(['Pro', 'Flash'])
+    expect(within(screen.getByRole('group', { name: zh['favorites.title'] })).getByRole('menuitemradio', { name: 'Pro' })).toBeTruthy()
+  })
+
+  it('filters the model list to one provider, keeping its favorites, until the menu reopens', () => {
+    const groups = [
+      { id: 'deepseek-account', name: 'Account', models: [{ id: 'acct', name: 'Acct' }] },
+      { id: 'anthropic', name: 'Claude', models: [{ id: 'opus', name: 'Opus' }, { id: 'sonnet', name: 'Sonnet' }] },
+      { id: 'opencode', name: 'OpenCode', models: [{ id: 'grok', name: 'Grok' }] },
+    ]
+    const directory = createSnapshotStore(state({ groups, current: { provider: 'anthropic', model: 'opus' } }))
+    const favorites = createSnapshotStore<string[]>(['opencode/grok'])
+    render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={directory} load={vi.fn()}
+      resolveText={resolveText} select={vi.fn().mockResolvedValue({ ok: true, value: undefined })} t={t}
+      favorites={favorites} toggleFavorite={vi.fn()} />)
+    const rows = () => screen.getAllByRole('menuitemradio').map(row => row.textContent)
+    const chip = (name: string) => screen.getByRole('button', { name })
+
+    fireEvent.click(screen.getByRole('button', { name: /选择模型/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /^模型/ }))
+    expect(screen.getByRole('group', { name: zh['filter.aria'] })).toBeTruthy()
+    expect(rows()).toEqual(['Grok', 'Acct', 'Opus', 'Sonnet'])
+    expect(chip(zh['filter.all']).getAttribute('aria-pressed')).toBe('true')
+
+    fireEvent.click(chip('Claude'))
+    expect(chip('Claude').getAttribute('aria-pressed')).toBe('true')
+    expect(chip(zh['filter.all']).getAttribute('aria-pressed')).toBe('false')
+    expect(rows()).toEqual(['Opus', 'Sonnet'])
+
+    fireEvent.click(chip('OpenCode'))
+    expect(rows()).toEqual(['Grok'])
+    fireEvent.click(chip(zh['provider.account']))
+    expect(rows()).toEqual(['Acct'])
+    fireEvent.click(chip(zh['filter.all']))
+    expect(rows()).toEqual(['Grok', 'Acct', 'Opus', 'Sonnet'])
+
+    fireEvent.click(chip('Claude'))
+    fireEvent.click(screen.getByRole('button', { name: /选择模型/ }))
+    expect(screen.queryByRole('group', { name: zh['filter.aria'] })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /选择模型/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /^模型/ }))
+    expect(rows()).toEqual(['Grok', 'Acct', 'Opus', 'Sonnet'])
   })
 })
 
@@ -758,6 +882,39 @@ describe('ModelSelect keyboard walk', () => {
     expect(rows.every(row => row.getAttribute('aria-checked') === 'false')).toBe(true)
     expect(screen.queryByRole('searchbox')).toBeNull()
     expect(document.activeElement).toBe(rows[0])
+  })
+
+  it('Tab from a run-option switch closes the menu back to the trigger like Shift+Tab', async () => {
+    const runOptions = createSnapshotStore<SessionRunOptionsProjection | undefined>({ current: {} })
+    render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={createSnapshotStore(state())}
+      load={vi.fn()} resolveText={resolveText} select={vi.fn()} t={t} useProjection={projectionHook(runOptions)}
+      setRunOptions={vi.fn(async (options: SessionRunOptions) => ({ ok: true as const, value: options }))} />)
+    const trigger = screen.getByRole('button', { name: /选择模型/ })
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
+    const toggle = screen.getByRole('switch', { name: '快速模式' })
+    toggle.focus()
+    expect(fireEvent.keyDown(toggle, { key: 'Tab' })).toBe(false)
+    expect(screen.queryByRole('menu')).toBeNull()
+    await waitFor(() => { expect(document.activeElement).toBe(trigger) })
+  })
+
+  it('Tab from a Claude Code effort choice closes the menu without writing it', async () => {
+    const runOptions = createSnapshotStore<SessionRunOptionsProjection | undefined>({ current: {} })
+    const setRunOptions = vi.fn(async (options: SessionRunOptions) => ({ ok: true as const, value: options }))
+    render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={createSnapshotStore(state())}
+      load={vi.fn()} resolveText={resolveText} select={vi.fn()} t={t} useProjection={projectionHook(runOptions)}
+      setRunOptions={setRunOptions} />)
+    const trigger = screen.getByRole('button', { name: /选择模型/ })
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
+    const max = within(screen.getByRole('radiogroup', { name: zh['runOptions.effort'] }))
+      .getByRole('radio', { name: zh['runOptions.effortMax'] })
+    max.focus()
+    expect(fireEvent.keyDown(max, { key: 'Tab' })).toBe(false)
+    expect(screen.queryByRole('menu')).toBeNull()
+    await waitFor(() => { expect(document.activeElement).toBe(trigger) })
+    expect(setRunOptions).not.toHaveBeenCalled()
   })
 })
 
@@ -1052,27 +1209,23 @@ describe('ModelSelect search', () => {
   })
 })
 
-it('hides the inherited effort until a listed model is selected', async () => {
+it('shows the unselected model control with the inherited effort until a listed model is selected', () => {
   const directory = createSnapshotStore<ModelDirectoryState>(state({ current: null, routable: false, retainedEffort: 'High' }))
   render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={directory} load={vi.fn()}
     resolveText={resolveText} select={vi.fn()} t={t} />)
   const trigger = screen.getByRole('button', { name: '请选择模型' })
   expect(trigger.hasAttribute('disabled')).toBe(false)
-  await expect(`${trigger.textContent}\n`).toMatchFileSnapshot('./expected/unselected-model.txt')
-  expect(trigger.textContent).not.toContain('High')
+  expect(trigger.textContent).toBe('请选择模型High')
   fireEvent.click(trigger)
   expect(screen.queryByRole('menuitem', { name: /模型/ })).toBeNull()
-  expect(screen.getByRole('menuitemradio', { name: 'DeepSeek-V4-Flash' })).toBeTruthy()
   expect(screen.queryByRole('searchbox')).toBeNull()
   const row = screen.getByRole('menuitemradio', { name: 'DeepSeek-V4-Flash' })
   expect(document.activeElement).toBe(row)
   fireEvent.keyDown(row, { key: 'Escape' })
   expect(screen.queryByRole('group', { name: '模型与推理等级' })).toBeNull()
   fireEvent.click(trigger)
-  expect(screen.queryByRole('searchbox')).toBeNull()
   expect(document.activeElement).toBe(screen.getByRole('menuitemradio', { name: 'DeepSeek-V4-Flash' }))
 })
-
 
 it('places account and official models before third-party models', async () => {
   const groups = ['custom', 'deepseek-official', 'deepseek-account', 'another'].map(id => ({
@@ -1089,6 +1242,17 @@ it('places account and official models before third-party models', async () => {
   ])
   expect(groups.map(group => group.id)).toEqual(['custom', 'deepseek-official', 'deepseek-account', 'another'])
   await expect(`${names.join('\n')}\n`).toMatchFileSnapshot('./expected/account-first.txt')
+})
+
+it('localizes the built-in DeepSeek row descriptions', () => {
+  const groups = [{ id: 'deepseek-official', name: 'DeepSeek', models: [
+    { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', description: en['option.deepseekV4Flash.description'] },
+  ] }]
+  render(<ModelSelect renderSlot={renderLabel} locked={false} available
+    directory={createSnapshotStore(state({ current: null, groups }))}
+    load={vi.fn()} resolveText={resolveText} select={vi.fn()} t={t} />)
+  fireEvent.click(screen.getByRole('button', { name: zh['trigger.selectAria'] }))
+  expect(screen.getByText(zh['option.deepseekV4Flash.description'])).toBeTruthy()
 })
 
 it.each([en, zh])('localizes the account group while preserving external names', (copy) => {
@@ -1114,25 +1278,208 @@ it('restores the account model name after login without changing the saved route
     resolveText={resolveText} select={vi.fn()} t={t} />)
   expect(screen.getByRole('button', { name: /选择模型，当前/ }).textContent).toBe('DeepSeek FlashHigh')
   act(() => { directory.update((snapshot) => { snapshot.groups = []; snapshot.routable = false }) })
-  expect(screen.getByRole('button', { name: '请选择模型' }).textContent).toBe('请选择模型')
+  expect(screen.getByRole('button', { name: /选择模型，当前/ }).textContent).toBe('deepseek-flashHigh')
   act(() => { directory.update((snapshot) => { snapshot.groups = groups; snapshot.routable = true }) })
   expect(screen.getByRole('button', { name: /选择模型，当前/ }).textContent).toBe('DeepSeek FlashHigh')
   expect(directory.getSnapshot().current).toEqual(selected)
 })
 
+it('names an unlisted selection by its last advertised catalog name', () => {
+  const directory = createSnapshotStore(state({
+    current: { provider: 'anthropic', model: 'claude-opus-5-5' },
+    retainedName: 'Claude Opus 5.5',
+  }))
+  render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={directory} load={vi.fn()}
+    resolveText={resolveText} select={vi.fn()} t={t} />)
+  expect(screen.getByRole('button', { name: '选择模型，当前 Claude Opus 5.5' }).textContent).toBe('Claude Opus 5.5')
+})
 
-it('dismisses contributed options with focus on the trigger before opening another overlay', () => {
-  const renderSlot = vi.fn((_name: string, _owner: object) => null)
-  render(<ModelSelect locked={false} available directory={createSnapshotStore(state())}
-    load={vi.fn()} resolveText={resolveText} select={vi.fn()} t={t} renderSlot={renderSlot} />)
-  const trigger = screen.getByRole('button', { name: /^选择模型/ })
-  fireEvent.click(trigger)
-  const options = renderSlot.mock.calls.find(call => call[0] === 'conversation.input.model.options')
-  if (options?.[0] !== 'conversation.input.model.options') throw new Error('Missing model options')
-  act(() => {
-    screen.getAllByRole('menuitem')[0]!.focus()
-    ;(options[1] as OwnerOf<'conversation.input.model.options'>).dismiss()
-    expect(document.activeElement).toBe(trigger)
+it('shows the bare model id on the trigger and the provider/model in its title when no name is known', () => {
+  const directory = createSnapshotStore(state({ current: { provider: 'anthropic', model: 'claude-opus-5-5' } }))
+  render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={directory} load={vi.fn()}
+    resolveText={resolveText} select={vi.fn()} t={t} />)
+  const trigger = screen.getByRole('button', { name: '选择模型，当前 anthropic/claude-opus-5-5' })
+  expect(trigger.textContent).toBe('claude-opus-5-5')
+  expect(trigger.getAttribute('title')).toBe('anthropic/claude-opus-5-5')
+})
+
+it('pins an unlisted selection as a disabled checked row under the current session with a warning trigger', () => {
+  const directory = createSnapshotStore(state({
+    current: { provider: 'anthropic', model: 'claude-opus-5-5' },
+    routable: false,
+    retainedName: 'Claude Opus 5.5',
+  }))
+  render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={directory} load={vi.fn()}
+    resolveText={resolveText} select={vi.fn()} t={t} />)
+  fireEvent.click(screen.getByRole('button', { name: '选择模型，当前 Claude Opus 5.5，不可用' }))
+  const row = screen.getByRole('menuitemradio', { name: 'Claude Opus 5.5' })
+  expect(row.getAttribute('aria-checked')).toBe('true')
+  expect(row.hasAttribute('disabled')).toBe(true)
+  expect(screen.getByRole('group', { name: zh['current.title'] }).contains(row)).toBe(true)
+  expect(screen.getByRole('menuitemradio', { name: 'DeepSeek-V4-Flash' }).getAttribute('aria-checked')).toBe('false')
+})
+
+it('keeps normal model and effort selection available when a setup record exists', () => {
+  const runOptions = createSnapshotStore<SessionRunOptionsProjection | undefined>({
+    current: { subagentSetup: { enabled: true, roles: { orchestrator: { mode: 'jev' } } } },
+  } as SessionRunOptionsProjection)
+  const select = vi.fn(async (_selection: ModelSelection) => ({ ok: true as const, value: undefined }))
+  render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={createSnapshotStore(state())}
+    load={vi.fn()} resolveText={resolveText} select={select} t={t}
+    useProjection={projectionHook(runOptions)} setRunOptions={vi.fn()} />)
+  fireEvent.click(screen.getByRole('button', { name: /选择模型，当前/ }))
+  fireEvent.click(screen.getByRole('menuitem', { name: /^模型/ }))
+  const model = screen.getByRole('menuitemradio', { name: 'DeepSeek-V4-Flash' })
+  expect(model.hasAttribute('disabled')).toBe(false)
+  fireEvent.click(model)
+  expect(select).toHaveBeenCalledOnce()
+  fireEvent.click(screen.getByRole('button', { name: /选择模型，当前/ }))
+  fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
+  expect(screen.getByRole('menuitemradio', { name: 'High' }).hasAttribute('disabled')).toBe(false)
+})
+
+describe('ModelSelect run options and Ultracode', () => {
+  it('toggles fast mode through its switch and keeps the Ultracode level off a model without it', async () => {
+    const runOptions = createSnapshotStore<SessionRunOptionsProjection | undefined>({ current: { fastMode: true, ultracode: true } })
+    const setRunOptions = vi.fn(async (options: SessionRunOptions) => ({ ok: true as const, value: options }))
+    render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={createSnapshotStore(state())}
+      load={vi.fn()} resolveText={resolveText} select={vi.fn()} t={t}
+      useProjection={projectionHook(runOptions)} setRunOptions={setRunOptions} />)
+    const trigger = screen.getByRole('button', { name: /选择模型，当前/ })
+    expect(trigger.textContent).toContain(zh['trigger.fast'])
+    expect(trigger.textContent).not.toContain(zh['trigger.ultracode'])
+    expect(trigger.getAttribute('aria-label')).toBe(`选择模型，当前 DeepSeek-V4-Flash，推理等级 High，已开启：${zh['trigger.fast']}`)
+    fireEvent.click(trigger)
+    expect(screen.getByText(zh['menu.saved'])).toBeTruthy()
+    fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
+    expect(screen.getByRole('switch', { name: '快速模式' }).getAttribute('aria-checked')).toBe('true')
+    expect(screen.queryByRole('menuitemradio', { name: 'Ultracode' })).toBeNull()
+    expect(screen.queryByRole('radio', { name: 'Ultracode' })).toBeNull()
+    fireEvent.click(screen.getByRole('switch', { name: '快速模式' }))
+    await waitFor(() => { expect(setRunOptions).toHaveBeenCalledWith({ fastMode: false, ultracode: true }) })
   })
-  expect(screen.queryByRole('menu')).toBeNull()
+
+  it('announces a rejected run-option write in the toast', async () => {
+    const runOptions = createSnapshotStore<SessionRunOptionsProjection | undefined>({ current: {} })
+    const setRunOptions = vi.fn(async () => ({
+      ok: false as const,
+      error: new RemoteError('session/model-unavailable', 'run options rejected', { provider: 'deepseek-official', model: 'deepseek-v4-pro' }),
+    }))
+    render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={createSnapshotStore(capableState())}
+      load={vi.fn()} resolveText={resolveText}
+      select={vi.fn(async () => ({ ok: true as const, value: undefined }))} t={t}
+      useProjection={projectionHook(runOptions)} setRunOptions={setRunOptions} />)
+    fireEvent.click(screen.getByRole('button', { name: /选择模型，当前/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Ultracode' }))
+    const toast = await screen.findByRole('alert')
+    expect(toast.textContent).toBe('模型操作失败：session/model-unavailable: run options rejected')
+  })
+
+  it('offers Ultracode as the last effort level only for a model that supports it', () => {
+    render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={createSnapshotStore(capableState())}
+      load={vi.fn()} resolveText={resolveText} select={vi.fn()} t={t}
+      useProjection={projectionHook(createSnapshotStore<SessionRunOptionsProjection | undefined>({ current: {} }))}
+      setRunOptions={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /选择模型，当前/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
+    expect(screen.getAllByRole('menuitemradio').map(item => item.textContent))
+      .toEqual(['Off', 'High', 'Max', 'Ultracode'])
+    expect(screen.queryByRole('switch', { name: 'Ultracode' })).toBeNull()
+  })
+
+  it('selects the XHigh effort with Ultracode, as Claude Code does, not the top Max level', async () => {
+    const xhighReasoning = {
+      efforts: [{ id: 'high', name: 'High' }, { id: 'xhigh', name: 'XHigh' }, { id: 'max', name: 'Max' }],
+      defaultEffort: 'high',
+    }
+    const directory = createSnapshotStore<ModelDirectoryState>(state({
+      current: { provider: 'anthropic', model: 'claude-opus-5-5' },
+      groups: [{ id: 'anthropic', name: 'Anthropic', models: [{ id: 'claude-opus-5-5', name: 'Claude Opus 5.5', reasoning: xhighReasoning, ultracode: true }] }],
+    }))
+    const select = vi.fn(async (_selection: ModelSelection) => ({ ok: true as const, value: undefined }))
+    render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={directory} load={vi.fn()}
+      resolveText={resolveText} select={select} t={t}
+      useProjection={projectionHook(createSnapshotStore<SessionRunOptionsProjection | undefined>({ current: {} }))}
+      setRunOptions={vi.fn(async (options: SessionRunOptions) => ({ ok: true as const, value: options }))} />)
+    fireEvent.click(screen.getByRole('button', { name: /选择模型，当前/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Ultracode' }))
+    await waitFor(() => { expect(select).toHaveBeenCalledWith({ provider: 'anthropic', model: 'claude-opus-5-5', reasoningEffort: 'xhigh' }) })
+  })
+
+  it('hides the Claude Code section when the Session has no runOptions projection', () => {
+    render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={createSnapshotStore(state())}
+      load={vi.fn()} resolveText={resolveText} select={vi.fn()} t={t} setRunOptions={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /选择模型，当前/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
+    expect(screen.queryAllByRole('switch')).toHaveLength(0)
+    expect(screen.queryByText(zh['runOptions.title'])).toBeNull()
+  })
+
+  it('builds a second run-option write on the first before the projection catches up', async () => {
+    const runOptions = createSnapshotStore<SessionRunOptionsProjection | undefined>({ current: {} })
+    const setRunOptions = vi.fn(async (options: SessionRunOptions) => ({ ok: true as const, value: options }))
+    render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={createSnapshotStore(capableState())}
+      load={vi.fn()} resolveText={resolveText}
+      select={vi.fn(async () => ({ ok: true as const, value: undefined }))} t={t}
+      useProjection={projectionHook(runOptions)} setRunOptions={setRunOptions} />)
+    const trigger = screen.getByRole('button', { name: /选择模型，当前/ })
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
+    fireEvent.click(screen.getByRole('switch', { name: '快速模式' }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Ultracode' }))
+    await waitFor(() => { expect(setRunOptions).toHaveBeenCalledTimes(2) })
+    expect(setRunOptions.mock.calls).toEqual([[{ fastMode: true }], [{ fastMode: true, ultracode: true }]])
+    await waitFor(() => { expect(screen.queryByRole('menu')).toBeNull() })
+    act(() => { runOptions.set({ current: { fastMode: true, ultracode: true } }) })
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
+    expect(screen.getByRole('menuitemradio', { name: 'Ultracode' }).getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('sends run-option writes one at a time and voids those queued behind a rejected one', async () => {
+    const runOptions = createSnapshotStore<SessionRunOptionsProjection | undefined>({ current: {} })
+    const first = Promise.withResolvers<RemoteResult<SessionRunOptions>>()
+    const setRunOptions = vi.fn<(options: SessionRunOptions) => Promise<RemoteResult<SessionRunOptions>>>()
+      .mockReturnValueOnce(first.promise)
+      .mockImplementation(async options => ({ ok: true as const, value: options }))
+    render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={createSnapshotStore(capableState())}
+      load={vi.fn()} resolveText={resolveText}
+      select={vi.fn(async () => ({ ok: true as const, value: undefined }))} t={t}
+      useProjection={projectionHook(runOptions)} setRunOptions={setRunOptions} />)
+    const trigger = screen.getByRole('button', { name: /选择模型，当前/ })
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
+    fireEvent.click(screen.getByRole('switch', { name: '快速模式' }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Ultracode' }))
+    await waitFor(() => { expect(setRunOptions).toHaveBeenCalledTimes(1) })
+    first.resolve({ ok: false, error: new RemoteError('session/writer-held', 'held', { sessionId: SessionId('s1') }) })
+    await screen.findByRole('alert')
+    await waitFor(() => { expect(screen.queryByRole('menu')).toBeNull() })
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
+    expect(screen.getByRole('switch', { name: '快速模式' }).getAttribute('aria-checked')).toBe('false')
+    expect(screen.getByRole('menuitemradio', { name: 'Ultracode' }).getAttribute('aria-checked')).toBe('false')
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Ultracode' }))
+    await waitFor(() => { expect(setRunOptions).toHaveBeenCalledTimes(2) })
+    expect(setRunOptions.mock.calls).toEqual([[{ fastMode: true }], [{ ultracode: true }]])
+  })
+
+  it('writes the Claude Code effort with the other run options and clears it with Default', async () => {
+    const runOptions = createSnapshotStore<SessionRunOptionsProjection | undefined>({ current: { fastMode: true } })
+    const setRunOptions = vi.fn(async (options: SessionRunOptions) => ({ ok: true as const, value: options }))
+    render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={createSnapshotStore(state())}
+      load={vi.fn()} resolveText={resolveText} select={vi.fn()} t={t}
+      useProjection={projectionHook(runOptions)} setRunOptions={setRunOptions} />)
+    fireEvent.click(screen.getByRole('button', { name: /选择模型，当前/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
+    const group = screen.getByRole('radiogroup', { name: zh['runOptions.effort'] })
+    expect(within(group).getByRole('radio', { name: zh['runOptions.effortDefault'] }).getAttribute('aria-checked')).toBe('true')
+    fireEvent.click(within(group).getByRole('radio', { name: zh['runOptions.effortMax'] }))
+    await waitFor(() => { expect(setRunOptions).toHaveBeenCalledWith({ fastMode: true, effort: 'max' }) })
+    act(() => { runOptions.set({ current: { fastMode: true, effort: 'max' } }) })
+    fireEvent.click(within(group).getByRole('radio', { name: zh['runOptions.effortDefault'] }))
+    await waitFor(() => { expect(setRunOptions).toHaveBeenLastCalledWith({ fastMode: true, effort: undefined }) })
+  })
 })

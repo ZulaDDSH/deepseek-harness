@@ -233,7 +233,7 @@ describe('Chat inject API', () => {
         buildGroups: () => ({
           entries: [{ kind: 'group', key }],
           groups: { kind: 'replace', snapshots: [{
-            key, data: { turn: 1, closed: true, summary: { counts: [], running: undefined, runningDetail: '' } }, members: [],
+            key, data: { turn: 1, closed: true, summary: { counts: [], running: undefined, runningDetail: '', added: 0, removed: 0 } }, members: [],
           }] },
         }),
       })
@@ -550,6 +550,18 @@ describe('Chat inject API', () => {
     expect(b.session.readAttachment).toHaveBeenCalledWith(ATTACHMENT)
     expect(injected.loadImage.peek?.(ATTACHMENT)).toBe(loaded)
     await b.runtime.dispose()
+  })
+
+  it('stops the Chat flow through the Session cancel and reports no pending interaction at rest', async () => {
+    const b = await bench()
+    try {
+      const { injected } = b.chatFlowApi(b.rootReference)
+      expect(injected.hooks.awaitingUser.getSnapshot()).toBe(false)
+      injected.stop()
+      expect(b.session.cancel).toHaveBeenCalledOnce()
+    } finally {
+      await b.runtime.dispose()
+    }
   })
 })
 

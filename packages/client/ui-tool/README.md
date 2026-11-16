@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-client-ui-tool
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 `dsh-client-ui-tool` is the client Tool presentation plugin of the dsh web client: it renders every tool call in the conversation. `ui-conversation` dispatches each ordered `tool-call` Conversation Node through the matching key of `conversation.chat.node`; this package renders its root and PTC dispatch children, then dispatches every atomic call through the keyed `tool.call.toolview` slot. Unregistered Tool names use the generic card. Business UI packages register only their wire Tool names and atomic views — they do not pair Session events, rebuild the transcript, or own root/subcall topology, because the Runtime remains authoritative for call/result pairing, lifecycle, and recursive `subCalls` projection.
@@ -93,7 +91,7 @@ Chat diff cards keep nine rows before folding, enough for a file header, one rem
 
 An Auto denial takes precedence over keyed specialized views. Its generic row preserves the call identity, omits raw arguments, and normalizes the stored reason only for display: trim surrounding whitespace and collapse line separators to spaces, with localized fallback for an empty result. Session and SDK error details keep the original reason.
 
-Recorded tool details cover goal and schedule tools, Cordis inspection, workflow and Ralph reports, Session event/search/trace queries, agent and teammate controls, background jobs, persistent terminals, and LSP navigation. These expanded bodies read successful logged results, preserve generic input/output for failures or unsupported data, and keep Inspect available. Dates include the viewer's time zone, and statuses reflect the call result rather than current session state. Agent control receipts display the recorded target agent name, or the Session id in historical calls. `wait_agent` shows a single waiting, ended, or timed-out header without a repeated summary; historical `noProgress` results keep their recorded explanation. Session traces preserve descendant indentation. LSP results open filesystem paths through the Host callback and display other URIs as text. The browser adapter consumes recorded producer text and JSON; Host service objects and presenter callbacks do not cross into the Client.
+Recorded tool details cover goal and schedule tools, Cordis inspection, workflow and Ralph reports, Session event/search/trace queries, agent and teammate controls, background jobs, persistent terminals, and LSP navigation. These expanded bodies read successful logged results, preserve generic input/output for failures or unsupported data, and keep Inspect available. Dates include the viewer's time zone, and statuses reflect the call result rather than current session state. Session traces preserve descendant indentation. LSP results open filesystem paths through the Host callback and display other URIs as text. The browser adapter consumes recorded producer text and JSON; Host service objects and presenter callbacks do not cross into the Client. Every `subagent_<provider>` delegation instance (fork, codex, claude_code) shares the subagent title, receipt and reply details and adds a Provider field; names ending in `_inspect` keep their own key.
 
 Expanded status dots and labels use static semantic colors. Catalog failure statuses are localized. Team task cards localize the `owner` field; Cordis inspection retains provider-owned field names. Receipt and job-output headers keep neutral text and omit the status while expanded. An interruption receipt confirms only that interruption was requested.
 
@@ -145,6 +143,7 @@ These limits define the dispatch depth and the view ownership; they are current 
 - **First-party Tool views are colocated here** — they can move to their owning business packages independently through the keyed slot.
 - **Web tool links always open a new tab** — the collapsed `web_fetch` URL and the expanded web card links ignore the `ui-chat` link-opening setting because Tool views receive no external-link callback.
 - **Tool copy reuses the `ui-conversation` locale namespace** — tool titles, row chrome, and Cordis-free primitive labels use that dictionary; presenter models retain locale keys or data rather than rendered wording.
+- **Delegation provider labels come from the wire name** — `subagent_<provider>` replaces `_` with `-` to fill the Provider field, so a provider id containing a literal underscore displays with hyphens. The field shows the configured instance suffix, not a resolved provider id: `subagent_codex_primary` displays `codex-primary`. The field is a label, not a lookup key.
 
 <a id="dev-note"></a>
 ### Dev Note

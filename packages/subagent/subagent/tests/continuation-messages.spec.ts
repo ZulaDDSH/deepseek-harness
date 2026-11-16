@@ -67,6 +67,16 @@ describe('continuable settlement content', () => {
     ])
   })
 
+  it('reports the failure of an errored epoch before saying it left no closing message', () => {
+    const message = createSettlementMessage(childId, { output: [], stopReason: 'error', diagnostic: 'no API key for route' })
+
+    expect(message.content).toEqual([
+      { type: 'text', text: `Background subagent ${childId} failed before it finished.` },
+      { type: 'text', text: 'Its failure: no API key for route' },
+      { type: 'text', text: 'It left no closing message.' },
+    ])
+  })
+
   it('preserves text block order and bytes around omitted reasoning and tool calls', () => {
     const first: ContentBlock = { type: 'text', text: '  first\n' }
     const second: ContentBlock = { type: 'text', text: '\n第二段  ' }
@@ -90,10 +100,10 @@ it('includes closing text alongside structured results and diagnostics', () => {
     structured: { answer: 42 }, diagnostic: 'safe diagnostic',
   }).content).toEqual([
     summary,
+    { type: 'text', text: 'Its failure: safe diagnostic' },
     { type: 'text', text: 'Its closing message:' },
     { type: 'text', text: 'final answer' },
     { type: 'text', text: 'Structured result: {"answer":42}' },
-    { type: 'text', text: 'safe diagnostic' },
   ])
 })
 
@@ -103,8 +113,8 @@ it('omits the closing text after the child messaged its parent, keeping structur
     structured: { answer: 42 }, diagnostic: 'safe diagnostic',
   }, true, true).content).toEqual([
     summary,
+    { type: 'text', text: 'Its failure: safe diagnostic' },
     { type: 'text', text: 'It sent you a message just before finishing, so its closing message is omitted.' },
     { type: 'text', text: 'Structured result: {"answer":42}' },
-    { type: 'text', text: 'safe diagnostic' },
   ])
 })

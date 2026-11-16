@@ -3,8 +3,6 @@
 Status: implemented
 Archived: 2026-09-30
 
-English | [中文](2026-09-06-master-only-platform-ci.zh.md)
-
 ## Problem
 
 Python runtime builds on macOS Intel and ARM and Linux ARM64, plus Windows build/site checks through Wine, consume paid hosted capacity on each pull-request revision. Native Linux and Windows x64 already provide required executable and installed-wheel evidence, and native Windows checks cover the build and process behavior before merge.
@@ -31,4 +29,4 @@ This decision partially supersedes scheduling in the [installed-wheel validation
 
 A macOS, Linux ARM64, or Wine-specific regression can merge while required PR checks are green. Master failures remain ordinary failing jobs, not `continue-on-error` observations. Linux/Windows x64 installed-wheel checks and native Windows build/process checks continue to block the PR aggregate; its dependencies never name the removed Wine PR job.
 
-The [routing regression](../../../../scripts/tests/ci-master-platforms.spec.ts) runs through the existing script-spec coverage inventory and checks target partitioning, master-only conditions, credential forwarding, cancellation, Wine uniqueness, valid aggregate dependencies, and the full release matrix. Executed negative controls remove the Intel target, misroute Wine, and restore the stale aggregate dependency; each produces its intended failure. Real platform execution remains CI-owned; local scheduling tests do not claim native runtime or Wine execution.
+The former routing regression ran through the existing script-spec coverage inventory and checks target partitioning, master-only conditions, credential forwarding, cancellation, Wine uniqueness, valid aggregate dependencies, and the full release matrix. Executed negative controls remove the Intel target, misroute Wine, and restore the stale aggregate dependency; each produces its intended failure. Real platform execution remains CI-owned; local scheduling tests do not claim native runtime or Wine execution.

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import assert from 'node:assert/strict'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ClientModuleLoader } from '@deepseek-ai/dsh-client-modules/client'
 import { Context, Service } from '@deepseek-ai/cordis'
@@ -11,12 +12,17 @@ import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply, inject, NS } from '../src/client/index.ts'
 import { PluginInventorySettingsTab } from '../src/client/PluginInventorySettingsTab.tsx'
 import type { PluginInventorySettingsTabInjected } from '../src/client/PluginInventorySettingsTab.tsx'
+import type { HooksSettingsSectionInjected } from '../src/client/HooksSettingsSection.tsx'
 import { apply as hostApply } from '../src/index.ts'
 
 usePinnedBrowserLanguages('zh-CN')
 afterEach(cleanup)
 
 const EMPTY = { entries: [] }
+function isHooksFace(face: Record<string, unknown>): face is Record<string, unknown> & HooksSettingsSectionInjected {
+  return typeof face.setEnabledHooks === 'function' && typeof face.setHookDescriptions === 'function'
+}
+
 type ListResult =
   | { readonly ok: true; readonly value: typeof EMPTY }
   | { readonly ok: false; readonly error: { readonly code: string; readonly message: string } }
@@ -38,13 +44,18 @@ async function bench() {
   const list = vi.fn<() => Promise<ListResult>>()
     .mockResolvedValue({ ok: true, value: EMPTY })
   ctx.provide('remote.pluginInventory', { list })
-  return { ctx, retryClient, slots: ctx.get('slots') as SlotRegistry, locale, list }
+  const mutate = vi.fn<() => Promise<{ ok: boolean; error?: { code: string; message: string } }>>(async () => ({ ok: true }))
+  ctx.provide('remote.settings', { mutate })
+  return { ctx, retryClient, slots: ctx.get('slots') as SlotRegistry, locale, list, mutate }
 }
 
 function declare(slots: SlotRegistry): () => void {
   return slots.register({
     name: 'root',
-    children: { 'settings.plugins.tab': { kind: 'list', scope: 'root' } },
+    children: {
+      'settings.plugins.tab': { kind: 'list', scope: 'root' },
+      'settings.section': { kind: 'list', scope: 'root' },
+    },
   } as never, () => null)
 }
 
@@ -54,7 +65,7 @@ describe('ui-settings-plugin-inventory browser plugin', () => {
   })
 
   it('declares only the services used by the Settings Remote contribution', () => {
-    expect(inject).toEqual(['slots', 'locale', 'remote', 'remote.pluginInventory', 'modules'])
+    expect(inject).toEqual(['slots', 'locale', 'remote', 'remote.pluginInventory', 'remote.settings', 'modules'])
   })
 
   it('registers a localized tab without reading the Remote eagerly', async () => {
@@ -68,6 +79,20 @@ describe('ui-settings-plugin-inventory browser plugin', () => {
     expect(entry.locale).toBe(NS)
     expect(resolveSlotLabel(entry.options.label)).toBe('插件列表')
     expect(b.list).not.toHaveBeenCalled()
+    const hooks = b.slots.entries('settings.section')[0]!
+    expect(hooks.options.id).toBe('hooks')
+    expect(resolveSlotLabel(hooks.options.label)).toBe('钩子')
+    assert(hooks.inject !== undefined)
+    const hooksInjected = hooks.inject()
+    assert(isHooksFace(hooksInjected))
+    await hooksInjected.setEnabledHooks('hooks-1', ['k1'])
+    expect(b.mutate).toHaveBeenCalledWith('hooks-1', [{ op: 'set', path: ['enabledHooks'], value: ['k1'] }], undefined)
+    await hooksInjected.setHookDescriptions('hooks-1', { k1: 'd' })
+    expect(b.mutate).toHaveBeenLastCalledWith('hooks-1', [{ op: 'set', path: ['hookDescriptions'], value: { k1: 'd' } }], undefined)
+    b.mutate.mockResolvedValueOnce({ ok: false, error: { code: 'settings/refused', message: 'no' } })
+    await expect(hooksInjected.setHookDescriptions('hooks-1', {})).rejects.toThrow('settings.mutate failed')
+    b.mutate.mockResolvedValueOnce({ ok: false, error: { code: 'settings/refused', message: 'no' } })
+    await expect(hooksInjected.setEnabledHooks('hooks-1', [])).rejects.toThrow('settings.mutate failed: settings/refused: no')
 
     const injected = (entry.inject as unknown as () => PluginInventorySettingsTabInjected)()
     const text = { en: 'Local tools', zh: '本地工具' }
@@ -92,6 +117,7 @@ describe('ui-settings-plugin-inventory browser plugin', () => {
     expect(injected.presetName({ id: 'standard', isDefault: true, rows: [] })).toBe('标准模式')
     expect(injected.presetName({ id: 'mine', name: '我自己的', isDefault: false, rows: [] })).toBe('我自己的')
     await b.ctx.fiber.dispose()
+    expect(b.slots.entries('settings.section')).toHaveLength(0)
   })
 
   it('follows locale and recovers across late declaration and declarer reload', async () => {

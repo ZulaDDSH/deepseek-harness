@@ -510,6 +510,17 @@ describe('RowActionToast', () => {
     }
   })
 
+  it.each([
+    ['zh', t, '当前会话没有已结束的轮次', '无法分叉会话，请重试'],
+    ['en', tEn, 'This session has no completed turn', 'Could not fork the session. Try again.'],
+  ])('localizes a refused shortcut fork notice (%s) and replaces it with the next failure', async (_locale, translate, unavailable, failed) => {
+    const { notify } = await toastSurface({ archivedFilter: 'default' }, translate)
+    notify({ kind: 'shortcutForkFailed', reason: 'unavailable' })
+    expect(screen.getByRole('alert').textContent).toBe(unavailable)
+    notify({ kind: 'shortcutForkFailed', reason: 'failed' })
+    expect(screen.getByRole('alert').textContent).toBe(failed)
+  })
+
   it('renders nothing without a notice', async () => {
     await toastSurface()
     expect(screen.queryByRole('alert')).toBeNull()

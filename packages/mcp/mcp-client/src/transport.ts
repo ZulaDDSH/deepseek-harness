@@ -6,7 +6,7 @@
  * @module
  */
 
-import type { Transport } from '@modelcontextprotocol/client'
+import type { AuthProvider, Transport } from '@modelcontextprotocol/client'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
@@ -18,8 +18,27 @@ import type { Config } from './index.ts'
  * actual spawn, so this transport shares the scrub definition rather than the
  * spawn path.
  */
-function buildChildEnv(extra: Record<string, string>): Record<string, string> {
+export function buildChildEnv(extra: Record<string, string>): Record<string, string> {
   return { ...scrubbedParentEnv(), ...extra }
+}
+
+export interface HttpHeaderConfig {
+  headers?: Record<string, string>
+  headerEnv?: Record<string, string>
+}
+
+export function resolveHttpHeaders(config: HttpHeaderConfig, required = false): Record<string, string> {
+  const resolved = { ...config.headers }
+  for (const [header, variable] of Object.entries(config.headerEnv ?? {})) {
+    if (config.headers?.[header] !== undefined) continue
+    const value = process.env[variable]
+    if (value === undefined || value === '') {
+      if (required) throw new Error(`streamable-http header "${header}" reads environment variable "${variable}", which is unset or empty`)
+      continue
+    }
+    resolved[header] = value
+  }
+  return resolved
 }
 
 /**
@@ -28,19 +47,22 @@ function buildChildEnv(extra: Record<string, string>): Record<string, string> {
  * @param config - Resolved plugin config discriminated on `transport`.
  * @returns an unstarted MCP transport (stdio or Streamable HTTP).
  */
-export function createTransport(config: Config): Transport {
+export function createTransport(config: Config, authProvider?: AuthProvider, environment?: Record<string, string>): Transport {
   switch (config.transport) {
     case 'stdio':
       return new StdioClientTransport({
         command: config.command,
         args: config.args,
-        env: buildChildEnv(config.env),
+        env: environment ?? buildChildEnv(config.env),
         cwd: config.cwd,
       })
     case 'streamable-http':
       return new StreamableHTTPClientTransport(
         new URL(config.url),
-        { requestInit: { headers: config.headers } },
+        {
+          requestInit: { headers: resolveHttpHeaders(config, true) },
+          ...authProvider === undefined ? {} : { authProvider },
+        },
       )
   }
 }

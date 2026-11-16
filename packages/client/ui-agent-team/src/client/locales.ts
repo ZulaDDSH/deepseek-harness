@@ -36,6 +36,12 @@ export const zh = {
   'status.pending': '待处理',
   'status.in_progress': '进行中',
   'status.completed': '已完成',
+  'history.title': '历史团队记录',
+  'history.notice': '这些记录为只读，旧成员不会作为实时智能体恢复。',
+  'history.members': '历史成员',
+  'history.messages': '历史消息',
+  'history.delivered': '已送达',
+  'history.queued': '仅已排队',
 } satisfies Record<string, string>
 
 /** Agent teamwork locale key union. */
@@ -74,6 +80,12 @@ export const en = {
   'status.pending': 'Pending',
   'status.in_progress': 'In progress',
   'status.completed': 'Completed',
+  'history.title': 'Historical Team records',
+  'history.notice': 'These records are read-only. Old members are not restored as live agents.',
+  'history.members': 'Historical members',
+  'history.messages': 'Historical messages',
+  'history.delivered': 'Delivered',
+  'history.queued': 'Queued only',
 } satisfies Record<TeamKey, string>
 
 /** Japanese copy, checked against the English keys. */
@@ -109,6 +121,12 @@ export const ja = {
   'status.pending': '保留中',
   'status.in_progress': '進行中',
   'status.completed': '完了',
+  'history.title': '過去のチーム記録',
+  'history.notice': 'これらの記録は読み取り専用です。過去のメンバーは稼働中のエージェントとして復元されません。',
+  'history.members': '過去のメンバー',
+  'history.messages': '過去のメッセージ',
+  'history.delivered': '配信済み',
+  'history.queued': 'キューのみ',
 } satisfies Record<keyof typeof en, string>
 
 /** Spanish dictionary, checked against the English keys. */
@@ -144,6 +162,12 @@ export const es = {
   'status.pending': 'Pendiente',
   'status.in_progress': 'En progreso',
   'status.completed': 'Completado',
+  'history.title': 'Registros históricos del equipo',
+  'history.notice': 'Estos registros son de solo lectura. Los miembros antiguos no se restauran como agentes activos.',
+  'history.members': 'Miembros históricos',
+  'history.messages': 'Mensajes históricos',
+  'history.delivered': 'Entregado',
+  'history.queued': 'Solo en cola',
 } satisfies Record<keyof typeof en, string>
 
 /** French dictionary, checked against the English keys. */
@@ -179,6 +203,12 @@ export const fr = {
   'status.pending': 'En attente',
   'status.in_progress': 'En cours',
   'status.completed': 'Terminé',
+  'history.title': 'Anciens enregistrements d’équipe',
+  'history.notice': 'Ces enregistrements sont en lecture seule. Les anciens membres ne sont pas restaurés comme agents actifs.',
+  'history.members': 'Anciens membres',
+  'history.messages': 'Anciens messages',
+  'history.delivered': 'Distribué',
+  'history.queued': 'En file uniquement',
 } satisfies Record<keyof typeof en, string>
 
 /** German dictionary, checked against the English keys. */
@@ -214,6 +244,12 @@ export const de = {
   'status.pending': 'Ausstehend',
   'status.in_progress': 'In Bearbeitung',
   'status.completed': 'Abgeschlossen',
+  'history.title': 'Historische Teamaufzeichnungen',
+  'history.notice': 'Diese Aufzeichnungen sind schreibgeschützt. Frühere Mitglieder werden nicht als aktive Agenten wiederhergestellt.',
+  'history.members': 'Historische Mitglieder',
+  'history.messages': 'Historische Nachrichten',
+  'history.delivered': 'Zugestellt',
+  'history.queued': 'Nur eingereiht',
 } satisfies Record<keyof typeof en, string>
 
 /** Russian dictionary, checked against the English keys. */
@@ -249,6 +285,12 @@ export const ru = {
   'status.pending': 'Ожидается',
   'status.in_progress': 'В процессе',
   'status.completed': 'Завершено',
+  'history.title': 'Исторические записи команды',
+  'history.notice': 'Эти записи доступны только для чтения. Старые участники не восстанавливаются как активные агенты.',
+  'history.members': 'Исторические участники',
+  'history.messages': 'Исторические сообщения',
+  'history.delivered': 'Доставлено',
+  'history.queued': 'Только в очереди',
 } satisfies Record<keyof typeof en, string>
 
 /** Portuguese dictionary, checked against the English keys. */
@@ -284,4 +326,10 @@ export const pt = {
   'status.pending': 'Pendente',
   'status.in_progress': 'Em andamento',
   'status.completed': 'Concluído',
+  'history.title': 'Registros históricos da equipe',
+  'history.notice': 'Estes registros são somente leitura. Os membros antigos não são restaurados como agentes ativos.',
+  'history.members': 'Membros históricos',
+  'history.messages': 'Mensagens históricas',
+  'history.delivered': 'Entregue',
+  'history.queued': 'Apenas na fila',
 } satisfies Record<keyof typeof en, string>

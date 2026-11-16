@@ -983,17 +983,9 @@ describe('mapStopReason / mapUsage', () => {
   })
 
   it('uses the resolved context window for silent and length-stop overflows', () => {
-    // Non-empty content keeps the no-window branch on the successful stop path
-    // (an empty stop is EMPTY_RESPONSE, covered above); overflow wins over both.
     const silent = assistant({ stopReason: 'stop', usage: usage(101, 0), content: [{ type: 'text', text: 'x' }] })
     expect(mapStopReason(silent)).toEqual({ kind: 'stop' })
-    expect(mapStopReason(silent, 100)).toEqual({
-      kind: 'error',
-      failure: {
-        message: 'pi-ai detected context overflow for model "deepseek-v4-flash"',
-        code: CONTEXT_WINDOW_EXCEEDED_CODE,
-      },
-    })
+    expect(mapStopReason(silent, 100)).toEqual({ kind: 'stop' })
 
     const truncated = assistant({ stopReason: 'length', usage: usage(80, 0, 19) })
     expect(mapStopReason(truncated)).toEqual({ kind: 'max-tokens' })

@@ -22,7 +22,6 @@ export interface AccountUi {
 
 /** Account-menu presentation facts supplied to its notification extension. */
 export interface AccountNotificationsOwnerProps {
-  /** Whether the account menu can display notifications outside onboarding. */
   active: boolean
   /** Open the account section in the existing settings shell. */
   openAccount: () => void

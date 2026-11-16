@@ -17,6 +17,10 @@ import type {} from '@deepseek-ai/dsh-token-meter/client'
 import type {} from '@deepseek-ai/dsh-agent-team/client'
 import type {} from './slots.ts'
 import css from './SubagentHeaderLineage.module.css'
+import {
+  activityDuration, contextTokens, formatDuration, formatExactDuration, formatTokens, liveActivityLine, tokenTotal,
+} from './catalog-format.ts'
+import { ClearedFooter, useClearedView } from './ClearedSubagents.tsx'
 
 type SubagentCatalogSnapshot = Omit<SessionProjectionSnapshot, 'values' | 'state'> & {
   state: 'idle' | 'loading' | 'ready' | 'migration-required' | 'error'
@@ -64,117 +68,6 @@ function treeItems(root: HTMLDivElement | null): HTMLElement[] {
   return root === null
     ? []
     : Array.from(root.querySelectorAll<HTMLElement>('[role="treeitem"]:not([aria-disabled="true"])'))
-}
-
-/** Compact token count shared in shape with the conversation stats strip. */
-function formatTokens(value: number, t: TranslateNS<typeof NS>): string {
-  const scaled = (next: number): string => next >= 100
-    ? String(Math.round(next))
-    : String(Math.round(next * 10) / 10)
-  if (value < 1_000) return String(value)
-  if (value < 1_000_000) return t('tokens.thousand', { value: scaled(value / 1_000) })
-  return t('tokens.million', { value: scaled(value / 1_000_000) })
-}
-
-/** Sum the four disjoint durable provider-usage buckets. */
-function tokenTotal(
-  usage: SessionProjectionMap['tokenUsage'] | undefined,
-): number | undefined {
-  return usage === undefined
-    ? undefined
-    : usage.uncachedInputTokens + usage.outputTokens
-      + usage.cacheReadTokens + usage.cacheWriteTokens
-}
-
-/** Exact whole-second active-turn duration for one catalog row. */
-function activityDuration(
-  summary: SessionSummary | undefined,
-  activity: 'running' | 'inactive',
-  now: number,
-): number | undefined {
-  if (summary === undefined) return undefined
-  const timing: SessionProjectionMap['subagentTiming'] | undefined
-    = summary.projectionValues?.subagentTiming
-  if (timing === undefined) return undefined
-  if (timing.active === undefined) return timing.settledMs
-  const end = activity === 'running'
-    ? now
-    : timing.active.through
-  return timing.settledMs + Math.max(0, end - timing.active.since)
-}
-
-interface DurationParts {
-  seconds: number
-  minutes: number
-  hours: number
-  days: number
-  totalMinutes: number
-  totalHours: number
-}
-
-function splitDuration(ms: number): DurationParts {
-  const totalSeconds = Math.floor(Math.max(0, ms) / 1_000)
-  const totalMinutes = Math.floor(totalSeconds / 60)
-  const totalHours = Math.floor(totalMinutes / 60)
-  return {
-    seconds: totalSeconds % 60,
-    minutes: totalMinutes % 60,
-    hours: totalHours % 24,
-    days: Math.floor(totalHours / 24),
-    totalMinutes,
-    totalHours,
-  }
-}
-
-/** Format a duration with decreasing visual precision at larger scales. */
-function formatDuration(ms: number, t: TranslateNS<typeof NS>): string {
-  const { seconds, minutes, hours, days, totalMinutes, totalHours } = splitDuration(ms)
-  if (days >= 365) {
-    const years = Math.floor(days / 365)
-    const months = Math.floor((days % 365) / 30)
-    return months === 0
-      ? t('duration.years', { years })
-      : t('duration.yearsMonths', { years, months })
-  }
-  if (days >= 30) {
-    const months = Math.floor(days / 30)
-    const remainingDays = days % 30
-    return remainingDays === 0
-      ? t('duration.months', { months })
-      : t('duration.monthsDays', { months, days: remainingDays })
-  }
-  if (days > 0) {
-    return hours === 0
-      ? t('duration.days', { days })
-      : t('duration.daysHours', { days, hours })
-  }
-  if (totalHours > 0) {
-    return t('duration.hours', {
-      hours: totalHours,
-      minutes: String(minutes).padStart(2, '0'),
-      seconds: String(seconds).padStart(2, '0'),
-    })
-  }
-  if (totalMinutes > 0) {
-    return t('duration.minutes', {
-      minutes: totalMinutes,
-      seconds: String(seconds).padStart(2, '0'),
-    })
-  }
-  return t('duration.seconds', { seconds })
-}
-
-/** Preserve exact whole seconds for hover and accessible naming. */
-function formatExactDuration(ms: number, t: TranslateNS<typeof NS>): string {
-  const { seconds, minutes, hours, days } = splitDuration(ms)
-  return days === 0
-    ? formatDuration(ms, t)
-    : t('duration.exactDays', {
-      days,
-      hours: String(hours).padStart(2, '0'),
-      minutes: String(minutes).padStart(2, '0'),
-      seconds: String(seconds).padStart(2, '0'),
-    })
 }
 
 function SubagentSwitcherIcon() {
@@ -299,18 +192,28 @@ function CatalogRows({
           : completed
             ? t('activity.completed')
             : t('activity.inactive')
-        const secondary = [secondaryLabel, mode, activity]
+        const selection = summary?.projectionValues?.modelSelection
+        const model = (selection?.lastUsed ?? selection?.next)?.model
+        const secondary = [model, requiresOpening ? t('catalog.migrationRequired') : mode, activity]
           .filter(value => value !== undefined)
           .join(' · ')
+        const liveLine = liveActivityLine(
+          summary?.projectionValues?.subagentActivity,
+          entry.activity === 'running',
+          t,
+        )
         const totalTokens = tokenTotal(summary?.projectionValues?.tokenUsage)
+        const context = contextTokens(summary?.projectionValues?.contextPressure)
         const durationMs = activityDuration(
           summary,
           entry.activity,
           now,
         )
-        const tokenMetric = totalTokens === undefined
-          ? undefined
-          : t('tokens.total', { value: formatTokens(totalTokens, t) })
+        const tokenMetric = context !== undefined
+          ? t('tokens.context', { value: formatTokens(context, t) })
+          : totalTokens === undefined
+            ? undefined
+            : t('tokens.total', { value: formatTokens(totalTokens, t) })
         const durationMetric = durationMs === undefined
           ? undefined
           : {
@@ -358,7 +261,7 @@ function CatalogRows({
               aria-disabled={external || undefined}
               aria-level={level}
               aria-current={isCurrent || undefined}
-              aria-label={[primaryLabel, secondary, metrics].filter(value => value !== '').join(' ')}
+              aria-label={[primaryLabel, secondaryLabel, secondary, liveLine, metrics].filter(value => value !== undefined && value !== '').join(' ')}
               {...canExpand ? { 'aria-expanded': isExpanded } : {}}
               className={css.row}
               onClick={open}
@@ -383,13 +286,24 @@ function CatalogRows({
                 </span>
                 <span className={css.content}>
                   <span className={`${css.label} ${isCurrent ? css.currentLabel : ''}`}>{primaryLabel}</span>
-                  {secondaryLabel !== undefined && (
-                    <span className={css.secondaryLabel}>{secondaryLabel}</span>
+                  {secondaryLabel !== undefined && <span className={css.secondaryLabel}>{secondaryLabel}</span>}
+                  {secondary !== '' && <span className={css.summary}>{secondary}</span>}
+                  {liveLine !== undefined && (
+                    <span className={css.liveLine} title={liveLine} data-subagent-live-activity>{liveLine}</span>
                   )}
                 </span>
                 {metrics !== '' && (
                   <span className={css.metrics}>
-                    {tokenMetric !== undefined && <span className={css.metricToken}>{tokenMetric}</span>}
+                    {tokenMetric !== undefined && (
+                      <span
+                        className={css.metricToken}
+                        title={totalTokens === undefined
+                          ? undefined
+                          : t('tokens.totalTitle', { value: formatTokens(totalTokens, t) })}
+                      >
+                        {tokenMetric}
+                      </span>
+                    )}
                     {durationMetric !== undefined && (
                       <span
                         className={css.metricDuration}
@@ -530,6 +444,7 @@ function CatalogDropdown(props: CatalogDropdownProps) {
       console.error('[ui-subagent] catalog discovery failed:', error)
     })
   }
+  const cleared = useClearedView(rootSessionId, catalog?.entries ?? [], currentSessionId)
   const [open, setOpen] = useState(false)
   const [expanded, setExpanded] = useState<ReadonlySet<SessionId>>(() => new Set())
   const rootRef = useRef<HTMLDivElement>(null)
@@ -549,12 +464,12 @@ function CatalogDropdown(props: CatalogDropdownProps) {
     ? currentEntry.label || entryName(currentEntry)
     : displayTitle
   const directChildren = catalog?.entries ?? []
-  const directCount = directChildren.length
+  const directCount = directChildren.length - cleared.hiddenCount
   const runningCount = directChildren.filter(entry => entry.activity === 'running').length
   const progress = catalogProgress(directChildren, summaries, t)
   const totalCountKey = directCount === 1 ? 'count.total.one' : 'count.total.other'
   const runningCountKey = runningCount === 1 ? 'count.running.one' : 'count.running.other'
-  const presentedCatalog: SubagentCatalogSnapshot | undefined = catalog ?? (variant === 'switcher' || props.hasBoardContent
+  const presentedCatalog: SubagentCatalogSnapshot | undefined = catalog !== undefined ? { ...catalog, entries: cleared.visible } : (variant === 'switcher' || props.hasBoardContent
     ? { entries: [], state: 'idle', error: null }
     : undefined)
 
@@ -666,7 +581,7 @@ function CatalogDropdown(props: CatalogDropdownProps) {
   const visible = presentedCatalog !== undefined
     && (variant === 'switcher'
       || props.hasBoardContent || presentedCatalog.state === 'error'
-      || presentedCatalog.entries.length > 0)
+      || cleared.hiddenCount > 0 || presentedCatalog.entries.length > 0)
   useEffect(() => {
     if (visible) return
     cancelHoverOpen()
@@ -823,6 +738,7 @@ function CatalogDropdown(props: CatalogDropdownProps) {
             </div>
             {props.renderFooter?.()}
           </div>
+          <ClearedFooter view={cleared} t={t} />
         </MenuSurface>
       ), document.body)}
     </div>

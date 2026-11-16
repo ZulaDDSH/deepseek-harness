@@ -25,6 +25,8 @@ import { assertSupportedJsonSchema } from '@deepseek-ai/dsh-tools'
 import type { JsonSchemaNode } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { describeError, McpLocalError, mcpRequestError, McpToolError } from './diagnostic.ts'
+import { toolAllowed, type ResolvedToolFilter } from './tool-filter.ts'
+import { isAuthRequired } from './oauth.ts'
 
 /** Resolved options relevant to tool bridging. */
 export interface ToolBridgeOptions {
@@ -32,6 +34,8 @@ export interface ToolBridgeOptions {
   toolCallTimeoutMs: number
   /** Generation cancellation combined with each tool execution's signal. */
   signal: AbortSignal
+  toolFilter?: ResolvedToolFilter
+  onAuthRequired?: (error: unknown) => void
   /**
    * Remove secret values from tool-call failures before they reach callers;
    * a failure keeps its `name` and `code`.
@@ -146,6 +150,7 @@ export async function syncTools(
     : await client.listTools(undefined, { cacheMode: 'refresh', signal: opts.signal })
   const outputValidators = new AjvJsonSchemaValidator()
   for (const tool of response.tools) {
+    if (!toolAllowed(opts.toolFilter, tool.name)) continue
     const publicName = publicToolName(opts.serverName, tool.name)
     if (definitions.has(publicName)) {
       throw new Error(
@@ -187,6 +192,7 @@ export async function syncTools(
           // and generation closure are reported as their own reasons instead.
           execution.signal.throwIfAborted()
           opts.signal.throwIfAborted()
+          if (isAuthRequired(error)) opts.onAuthRequired?.(error)
           throw mcpRequestError(error, `tool "${tool.name}"`, opts.redact)
         }
         if (result.isError !== true) {

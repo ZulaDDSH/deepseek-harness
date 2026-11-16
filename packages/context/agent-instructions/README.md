@@ -5,11 +5,9 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-agent-instructions
 
-English | [中文](README.zh.md)
-
 ## Summary
 
-`dsh-agent-instructions` gives agents workspace guidance from user-global and project-level `AGENTS.md`-compatible files. It loads the applicable chain for the first request. It does not watch external edits continuously: successful filesystem operations discover newly relevant nested files and make later changes or removals visible, while session resume reconciles the baseline. `dsh-base` enables this behavior by default, while profiles can disable it. A byte budget bounds the user-global chain and the project chain separately: within each chain, broader files are omitted before the most specific file is truncated, and an empty chain adds nothing.
+`dsh-agent-instructions` gives agents workspace guidance from user-global and project-level `AGENTS.md`-compatible files, loaded for the first request. It does not watch external edits continuously: successful filesystem operations discover new nested files and surface later changes or removals, while session resume reconciles the baseline. `dsh-base` enables this by default; profiles can disable it. A byte budget bounds the user-global and project chains separately: broader files are omitted before the most specific file is truncated, and an empty chain adds nothing. Set `endOfTurnRule: true` to include the fixed response rule even with an empty file chain. The shipped desktop presets enable it.
 
 ## Table of Contents
 
@@ -53,6 +51,7 @@ The accepted fields, at a glance:
 export interface Config {
   projectRootMarkers?: string[]
   maxBytes: number
+  endOfTurnRule?: boolean
   maxSourceBytes?: number
   instructionFileCandidates?: string[]
   localInstructionFileCandidates?: string[]
@@ -62,6 +61,7 @@ export interface Config {
 | Field | Default | Meaning |
 |---|---|---|
 | `maxBytes` | required | Cap on each instruction chain (user-global, project) in one rendered message, in bytes; a message holding both chains is at most twice this size |
+| `endOfTurnRule` | `false` | Prepend the fixed response rule; omitted before workspace files when the byte budget is insufficient |
 | `maxSourceBytes` | `1048576` | Cap on one source instruction file before rendering |
 | `projectRootMarkers` | `['.git']` | Directory names that mark the project root |
 | `instructionFileCandidates` | `['AGENTS.md', 'CLAUDE.md']` | Base file names loaded in each project directory |

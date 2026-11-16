@@ -169,6 +169,9 @@ export class ReactLoopAgent implements Agent {
   }
 
   send(message: UserMessage, target: InboxTarget, wakeup: boolean): void {
+    if (wakeup && (this.loopCtx.sessionProjections.snapshot(this.session, ['cliTerminal']).values.cliTerminal?.profile ?? null) !== null) {
+      throw new Error(`agent "${this.id}" hosts a CLI terminal and starts no turns`)
+    }
     // Waking input cannot join an aborted activity, so it starts the next turn.
     // Captured before the insertion so a reentrant cancel from a splice observer cannot reclassify it.
     const wakingAfterAbort = wakeup && this.phase.kind !== 'idle' && this.phase.abort.signal.aborted
@@ -291,7 +294,14 @@ export class ReactLoopAgent implements Agent {
     if (this.phase.kind !== 'running') throw new Error(`agent "${this.id}": pre-step outside running phase`)
     const signal = this.phase.abort.signal
     const claimed = this.inbox.claim(target, position.turn)
-    const selection = this.model.current()
+    const pinned = this.options.pinnedSelection?.(this.session)
+    const captured = this.model.current()
+    const routed = pinned !== undefined ? undefined : await this.dispatch.waterfall(
+      'agent/route', { ...position, messages: claimed, signal },
+      () => Promise.resolve<ModelSelection | undefined>(undefined),
+    )
+    signal.throwIfAborted()
+    const selection = routed ?? captured
     if (selection === undefined) {
       throw new Error(`agent "${this.id}" has no provider/model: set AgentOptions.provider and AgentOptions.model or record a model selection`)
     }

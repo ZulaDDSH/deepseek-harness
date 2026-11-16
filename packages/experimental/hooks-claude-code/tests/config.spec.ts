@@ -29,16 +29,38 @@ describe('parseClaudeCodeConfig', () => {
     expect(config.Stop).toEqual([{ hooks: [{ command: '/p/s.sh', timeoutSec: 30 }] }])
   })
 
-  it('skips non-command hooks (recorded) and keeps the command ones in the same group', () => {
+  it('skips agent and other non-command hooks (recorded) and keeps the command ones in the same group', () => {
     const { config, skipped } = parseClaudeCodeConfig({
       PreToolUse: [{ hooks: [
-        { type: 'prompt', prompt: 'hi' },
+        { type: 'agent', prompt: 'hi' },
         { type: 'command', command: 'ok.sh' },
         { type: 'http', url: 'http://x' },
       ] }],
     })
     expect(config.PreToolUse).toEqual([{ hooks: [{ command: 'ok.sh' }] }])
-    expect(skipped).toEqual([{ event: 'PreToolUse', type: 'prompt' }, { event: 'PreToolUse', type: 'http' }])
+    expect(skipped).toEqual([{ event: 'PreToolUse', type: 'agent' }, { event: 'PreToolUse', type: 'http' }])
+  })
+
+  it('parses a prompt hook with its model, timeout, and continueOnBlock, keeping the prompt text', () => {
+    const { config, skipped } = parseClaudeCodeConfig({
+      PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'prompt', prompt: 'check $ARGUMENTS', model: 'small', timeout: 5, continueOnBlock: true }] }],
+    })
+    expect(config.PreToolUse).toEqual([{ matcher: 'Bash', hooks: [{ prompt: 'check $ARGUMENTS', model: 'small', timeoutSec: 5, continueOnBlock: true }] }])
+    expect(skipped).toEqual([])
+  })
+
+  it('keeps a bare prompt hook with no optional fields and skips prompt hooks on SessionStart', () => {
+    const { config, skipped } = parseClaudeCodeConfig({
+      Stop: [{ hooks: [{ type: 'prompt', prompt: 'done?' }] }],
+      SessionStart: [{ hooks: [{ type: 'prompt', prompt: 'hi' }] }],
+    })
+    expect(config.Stop).toEqual([{ hooks: [{ prompt: 'done?' }] }])
+    expect(config.SessionStart).toBeUndefined()
+    expect(skipped).toEqual([{ event: 'SessionStart', type: 'prompt' }])
+  })
+
+  it('drops a prompt hook whose prompt is not a string', () => {
+    expect(parseClaudeCodeConfig({ Stop: [{ hooks: [{ type: 'prompt' }, { type: 'prompt', prompt: 3 }] }] }).config).toEqual({})
   })
 
   it('treats a hook with no `type` as a command (CC default)', () => {

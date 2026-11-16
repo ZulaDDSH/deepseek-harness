@@ -1,9 +1,7 @@
 # Agent Note: Device-local Desktop onboarding
 
 Status: implemented
-Archived: 2026-09-30
-
-English | [中文](2026-09-16-desktop-onboarding.zh.md)
+Archived: 2026-10-12
 
 ## Problem
 

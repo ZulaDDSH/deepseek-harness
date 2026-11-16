@@ -45,6 +45,15 @@
       "path": "../ui-session"
     },
     {
+      "path": "../ui-settings/tsconfig.client.json"
+    },
+    {
+      "path": "../ui-workspace"
+    },
+    {
+      "path": "../../api/terminal-controller/tsconfig.client.json"
+    },
+    {
       "path": "../ui-input-trigger"
     },
     {
@@ -54,7 +63,13 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../session/session-turn-outline"
+    },
+    {
       "path": "../../api/session-controller/tsconfig.client.json"
+    },
+    {
+      "path": "../../llm/llm-jev-router"
     },
     {
       "path": "../../util/values"

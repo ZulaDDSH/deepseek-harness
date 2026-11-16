@@ -5,13 +5,23 @@ import { createServer } from 'node:http'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DesktopHostProcess } from '../src/host-process.ts'
+import { DesktopProjectManager } from '../src/project-manager.ts'
+import { resolveDesktopPaths } from '../src/paths.ts'
 import { desktopClientMetadata } from '../src/client-metadata.ts'
 import { connectDesktopWelcome, type DesktopWelcomeBackend } from '../src/welcome-backend.ts'
-import { builtHost, prepareDesktopHome } from './harness.ts'
+import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
+import { prepareDevelopmentProject } from '../scripts/development-project.ts'
 
+const repository = fileURLToPath(new URL('../../../', import.meta.url))
+const builtHost = join(repository, 'apps/desktop-host/lib/index.js')
 afterEach(() => { vi.unstubAllEnvs() })
+
+function version(path: string): string {
+  return (JSON.parse(readFileSync(path, 'utf8')) as { version: string }).version
+}
 
 async function mockPlatform() {
   let origin = ''
@@ -72,43 +82,64 @@ async function mockPlatform() {
   }
 }
 
-describe.skipIf(!existsSync(builtHost))('built Desktop welcome flow', () => {
-  it('persists explicit API keys and browser account login independently across Host restarts', async () => {
+describe.skipIf(!existsSync(builtHost))('built Desktop account session', () => {
+  it('authenticates Web RPC and preserves browser account login across Host restarts', async () => {
+    vi.stubEnv('DSH_CLIENT_VERSION', '1.2.3')
     const root = mkdtempSync(join(tmpdir(), 'dsh-desktop-welcome-'))
     let host: DesktopHostProcess | undefined
     const platform = await mockPlatform()
     try {
-      const { home, project, paths } = await prepareDesktopHome(root)
+      for (const name of Object.keys(process.env)) {
+        if (/KEY|TOKEN|SECRET|PASSWORD/u.test(name)) vi.stubEnv(name, undefined)
+      }
+      const home = join(root, 'home')
+      mkdirSync(home)
+      vi.stubEnv('DSH_HOME', home)
+      vi.stubEnv('DSH_TELEMETRY_MODE', 'DISABLED')
+      const project = prepareDevelopmentProject({
+        projectDir: join(root, 'project'),
+        cliDir: join(repository, 'apps/cli'),
+        hostDir: join(repository, 'apps/desktop-host'),
+        dependencyDir: join(repository, 'node_modules/.pnpm/node_modules'),
+        release: {
+          schemaVersion: 1,
+          version: version(join(repository, 'apps/desktop/package.json')),
+          pnpmVersion: version(join(repository, 'apps/desktop/node_modules/pnpm/package.json')),
+          nodeVersion: process.versions.node,
+          hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION,
+        },
+        target: 'mac-x64',
+      })
+      cpSync(join(repository, 'packages/skill/skill-office/assets'), join(root, 'runtime/office-skills'), { recursive: true })
       const nodeBin = join(root, 'runtime/primary-runtime/dependencies/node/bin')
       mkdirSync(nodeBin, { recursive: true })
       cpSync(process.execPath, join(nodeBin, process.platform === 'win32' ? 'node.exe' : 'node'))
-      writeFileSync(join(paths.profile, 'cordis.patch.yml'), `- id: webserver\n  config:\n    host: 127.0.0.1\n    port: 0\n- id: deepseek-account\n  config:\n${process.platform === 'linux' ? '    desktopPlatform: darwin\n' : ''}    platformOrigin: ${platform.origin}\n    harnessOrigin: ${platform.origin}\n    allowLoopbackHttp: true\n    requestHeaders:\n      Cookie: test_gate=synthetic\n`)
+      const paths = resolveDesktopPaths(home)
+      const manager = new DesktopProjectManager(paths, {
+        dsh: project,
+      })
+      await manager.applyRelease()
+      writeFileSync(join(paths.profile, 'cordis.patch.yml'), `- id: webserver\n  config:\n    host: 127.0.0.1\n    port: 0\n- id: deepseek-account\n  config:\n${process.platform === 'linux' ? '    desktopPlatform: darwin\n' : ''}    platformOrigin: ${platform.origin}\n    allowLoopbackHttp: true\n    requestHeaders:\n      Cookie: test_gate=synthetic\n`)
       let backend: DesktopWelcomeBackend
       let hostOrigin = ''
       const restart = async (): Promise<void> => {
         await host?.stop()
-        host = new DesktopHostProcess(process.execPath, project, paths.profile, undefined,
-          process.env, undefined, join(root, 'runtime', 'primary-runtime'))
-        const { url, authenticationCookie } = await host.start()
+        host = new DesktopHostProcess(process.execPath, project, paths.profile)
+        const ready = await host.start()
+        const { url } = ready
         hostOrigin = new URL(url).origin
-        backend = connectDesktopWelcome(url, authenticationCookie)
+        backend = await connectDesktopWelcome(url, fetch, () => Promise.resolve(ready.authenticationCookie))
       }
-      const status = async () => backend.read()
-      const fingerprint = (): string => createHash('sha256')
-        .update(readFileSync(join(home, '.credentials.yaml'))).digest('hex')
+      const accountState = async () => backend.account.state()
       await restart()
-      expect(await status()).toMatchObject({ hasApiKey: false, localePreference: null })
-      const before = fingerprint()
+      expect(await backend.readLocalePreference()).toBeNull()
+      expect(await accountState()).toMatchObject({ status: 'signed-out' })
       await host!.stop()
       writeFileSync(join(paths.profile, 'cordis.patch.yml'),
         readFileSync(join(paths.profile, 'cordis.patch.yml'), 'utf8') + '- id: locale\n  config:\n    preference: zh\n')
       await restart()
-      expect(await status()).toMatchObject({ hasApiKey: false, localePreference: 'zh' })
-      expect(fingerprint()).toBe(before)
-      expect(await backend!.save('sk-local-onboarding-test')).toEqual({ ok: true })
-      expect(await status()).toMatchObject({ hasApiKey: true, localePreference: 'zh' })
+      expect(await backend.readLocalePreference()).toBe('zh')
       await restart()
-      expect(await status()).toMatchObject({ hasApiKey: true })
       await backend!.account.start(desktopClientMetadata('en'))
       await expect.poll(async () => (await backend!.account.state()).attempt?.phase).toBe('waiting-browser')
       expect(new URL(platform.callback()).origin).toBe(hostOrigin)
@@ -116,26 +147,25 @@ describe.skipIf(!existsSync(builtHost))('built Desktop welcome flow', () => {
       const failed = await fetch(platform.callback(), { redirect: 'manual' })
       expect(failed.status).toBe(204)
       expect(await backend!.account.state()).toMatchObject({ status: 'signed-out', attempt: { phase: 'failed' } })
-      expect(await status()).toMatchObject({ hasApiKey: true, loggedIn: false })
       platform.failExchange(false)
       await backend!.account.start(desktopClientMetadata('en'))
       await expect.poll(async () => (await backend!.account.state()).attempt?.phase).toBe('waiting-browser')
       const response = await fetch(platform.callback(), { redirect: 'manual' })
       expect(response.status).toBe(302)
       expect(response.headers.get('location')).toBe(`${platform.origin}/dsh/authorized?result=test&locale=zh_CN&login_source=desktop`)
-      expect(await status()).toMatchObject({ hasApiKey: true, loggedIn: true })
+      expect(await accountState()).toMatchObject({ status: 'credential-stored' })
       await restart()
-      expect(await status()).toMatchObject({ hasApiKey: true, loggedIn: true })
+      expect(await accountState()).toMatchObject({ status: 'credential-stored' })
       // A failed remote logout must not block local sign-out through the real Host composition.
       await backend!.account.signOut(desktopClientMetadata('en'))
-      expect(await status()).toMatchObject({ hasApiKey: true, loggedIn: false })
+      expect(await accountState()).toMatchObject({ status: 'signed-out' })
       await backend!.account.start(desktopClientMetadata('en'))
       await expect.poll(async () => (await backend!.account.state()).attempt?.phase).toBe('waiting-browser')
       const waiting = await backend!.account.state()
       const late = platform.callback()
       await backend!.account.cancel(waiting.attempt!.id)
       expect((await fetch(late, { redirect: 'manual' })).status).not.toBe(302)
-      expect(await status()).toMatchObject({ loggedIn: false })
+      expect(await accountState()).toMatchObject({ status: 'signed-out' })
       // A handle left open after acknowledged teardown must not fail the update handoff.
       vi.stubEnv('NODE_OPTIONS', `--import=data:text/javascript,${encodeURIComponent(
         "process.on('message', message => { if (message?.type === 'shutdown') setInterval(() => {}, 1000) })")}`)

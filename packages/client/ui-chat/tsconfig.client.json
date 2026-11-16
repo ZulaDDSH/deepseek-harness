@@ -118,6 +118,9 @@
       "path": "../product-analytics/tsconfig.client.json"
     },
     {
+      "path": "../../todo/tool-todo"
+    },
+    {
       "path": "../ui-file-drag"
     },
     {

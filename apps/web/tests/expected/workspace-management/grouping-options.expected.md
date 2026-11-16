@@ -3,6 +3,7 @@
   - menuitem "WorkSpace"
   - menuitem "Workspace Tree"
   - menuitem "In one list"
+  - menuitem "Activity"
   - separator
   - text: Order by
   - menuitem "Manual"

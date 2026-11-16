@@ -197,6 +197,7 @@ export function apply(ctx: Context): void {
     },
   })
   provideClientCordisInspect(ctx, inspect)
+  ctx.effect(() => () => { inspect.dispose() }, 'cordis-client-runner: inspect registry')
   for (const provider of clientInspectProviders(ctx)) {
     ctx.effect(() => inspect.register(provider), `cordis-client-runner: inspect ${provider.manifest.id}`)
   }

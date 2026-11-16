@@ -15,6 +15,7 @@ import McpResources from '@deepseek-ai/dsh-mcp-resources'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { ToolCallId } from '@deepseek-ai/dsh-llm/types'
 import { TestCredentials } from './credential-fixture.ts'
+import { credentialKey } from '@deepseek-ai/dsh-credentials'
 import type { Config } from '@deepseek-ai/dsh-mcp-client'
 
 // ---- Mock MCP SDK ----
@@ -428,6 +429,90 @@ describe('reconnect supervisor', () => {
     instances[0]!.transport?.onclose?.()
     await sleep(30)
     expect(instances).toHaveLength(2)
+  })
+
+  it('waits for a lost generation to close before starting a manual reconnect', async () => {
+    const closeGate: PromiseWithResolvers<void> = Promise.withResolvers()
+    const handle = startConnection(ctx, stdioConfig({ initialDelayMs: 100, maxDelayMs: 100, maxAttempts: 3 }),
+      resolveReconnectPolicy({ initialDelayMs: 100, maxDelayMs: 100, maxAttempts: 3 }, 'test'), new McpStatusCell(() => {}))
+    try {
+      await handle.ready
+      mockClose.mockImplementationOnce(() => closeGate.promise)
+      instances[0]!.transport?.onclose?.()
+      await vi.waitFor(() => { expect(mockClose).toHaveBeenCalledTimes(1) })
+
+      expect(handle.reconnect()).toBe(true)
+      expect(handle.reconnect()).toBe(false)
+      await sleep(5)
+      expect(instances).toHaveLength(1)
+
+      closeGate.resolve()
+      await vi.waitFor(() => { expect(instances).toHaveLength(2) })
+      await sleep(120)
+      expect(instances).toHaveLength(2)
+      expect(mockConnect).toHaveBeenCalledTimes(2)
+    } finally {
+      closeGate.resolve()
+      await handle.dispose()
+    }
+  })
+
+  it('waits for a failed attempt to close before a manual reconnect', async () => {
+    const closeGate: PromiseWithResolvers<void> = Promise.withResolvers()
+    mockConnect.mockRejectedValueOnce(new Error('initial connection failed'))
+    mockClose.mockImplementationOnce(function (this: { transport?: Transport }) {
+      this.transport?.onclose?.()
+      return closeGate.promise
+    })
+    const policy = { initialDelayMs: 100, maxDelayMs: 100, maxAttempts: 3 }
+    const handle = startConnection(ctx, stdioConfig(policy), resolveReconnectPolicy(policy, 'test'), new McpStatusCell(() => {}))
+    try {
+      await vi.waitFor(() => { expect(mockClose).toHaveBeenCalledTimes(1) })
+      expect(handle.reconnect()).toBe(true)
+      await sleep(5)
+      expect(instances).toHaveLength(1)
+
+      closeGate.resolve()
+      await handle.ready
+      await vi.waitFor(() => { expect(instances).toHaveLength(2) })
+      await sleep(120)
+      expect(instances).toHaveLength(2)
+      expect(mockConnect).toHaveBeenCalledTimes(2)
+    } finally {
+      closeGate.resolve()
+      await handle.dispose()
+    }
+  })
+
+  it('waits for an auth-required generation to close during disposal', async () => {
+    const closeGate: PromiseWithResolvers<void> = Promise.withResolvers()
+    const handle = startConnection(ctx, stdioConfig({ enabled: false }), resolveReconnectPolicy({ enabled: false }, 'test'),
+      new McpStatusCell(() => {}), { key: credentialKey('mcp-client', 'test'), providerFor: () => undefined as never })
+    try {
+      await handle.ready
+      mockClose.mockImplementationOnce(function (this: { transport?: Transport }) {
+        this.transport?.onclose?.()
+        return closeGate.promise
+      })
+      mockCallTool.mockRejectedValueOnce(new Error('HTTP 401 unauthorized'))
+      const result = await executeToolFixture(ctx, {
+        name: 'mcp__srv__remote', arguments: {}, callId: nextCallId(), signal: testToolSignal,
+      })
+      expect(result.isError).toBe(true)
+      await vi.waitFor(() => { expect(mockClose).toHaveBeenCalledTimes(1) })
+      const disposing = handle.dispose()
+      let disposed = false
+      void disposing.then(() => { disposed = true })
+      await sleep(5)
+      expect(disposed).toBe(false)
+
+      closeGate.resolve()
+      await disposing
+      expect(handle.status().state).toBe('closed')
+    } finally {
+      closeGate.resolve()
+      await handle.dispose()
+    }
   })
 
   it('a startup listing that outlives the budget publishes no tools', async () => {

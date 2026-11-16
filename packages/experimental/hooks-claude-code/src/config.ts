@@ -1,12 +1,12 @@
 /**
- * Parse Claude Code's event-to-matcher-group hook format into shared {@link MatcherGroup}s.
- * Only command hooks run; other hook types are returned as skipped so the
- * bridge can warn. Plugin-root and project-directory substitutions are applied
- * to commands at parse time.
+ * Parse Claude Code's event-to-matcher-group hook format into bridge-runnable groups.
+ * Command and prompt hooks run; other hook types, and prompt hooks on SessionStart,
+ * are returned as skipped so the bridge can warn. Plugin-root and project-directory
+ * substitutions are applied to commands at parse time.
  * @module @deepseek-ai/dsh-hooks-claude-code/config
  */
 
-import { matcherDiagnostic, type MatcherGroup } from '@deepseek-ai/dsh-hook-protocol'
+import { matcherDiagnostic, type CommandHook } from '@deepseek-ai/dsh-hook-protocol'
 
 const CLAUDE_EVENTS = [
   'SessionStart',
@@ -18,8 +18,25 @@ const CLAUDE_EVENTS = [
   'SubagentStop',
 ] as const
 
-/** A parsed CC config: event name → its matcher groups (command hooks only). */
-export type ClaudeCodeHookConfig = Record<string, MatcherGroup[]>
+/** A prompt hook: its prompt text, plus its optional model, timeout in seconds, and continueOnBlock flag. */
+export interface PromptHook {
+  prompt: string
+  model?: string
+  timeoutSec?: number
+  continueOnBlock?: boolean
+}
+
+/** A runnable hook: a command hook or a prompt hook. */
+export type ClaudeHook = CommandHook | PromptHook
+
+/** One matcher group: an optional matcher and the runnable hooks it selects. */
+export interface ClaudeMatcherGroup {
+  matcher?: string
+  hooks: ClaudeHook[]
+}
+
+/** A parsed CC config: event name → its matcher groups (command and prompt hooks). */
+export type ClaudeCodeHookConfig = Record<string, ClaudeMatcherGroup[]>
 
 /** A skipped non-command hook, surfaced so the bridge can warn about it. */
 export interface SkippedHook {
@@ -64,8 +81,8 @@ export function substituteCommand(command: string, vars: SubstitutionVars): stri
 /**
  * Parse either a settings `hooks` value or a bare `hooks.json` event map. Malformed entries are
  * ignored rather than failing boot; unsupported events are ignored before their groups are parsed,
- * non-command hooks are returned in `skipped`, and substitutions are applied to every surviving
- * command. Matcher fields on UserPromptSubmit and Stop are discarded because those events have no
+ * hooks of other types and prompt hooks on SessionStart are returned in `skipped`, and substitutions
+ * are applied to every surviving command. Matcher fields on UserPromptSubmit and Stop are discarded because those events have no
  * matcher subject. A matcher-bearing supported runnable group with an invalid regex throws a
  * `SyntaxError`, allowing the bridge to reject the complete config before listener registration.
  *
@@ -86,26 +103,36 @@ export function parseClaudeCodeConfig(raw: unknown, vars: SubstitutionVars = {})
   for (const event of CLAUDE_EVENTS) {
     const rawGroups = hooksMap[event]
     if (!Array.isArray(rawGroups)) continue
-    const groups: MatcherGroup[] = []
+    const groups: ClaudeMatcherGroup[] = []
     for (const rawGroup of rawGroups) {
       const group = asObject(rawGroup)
       if (!group || !Array.isArray(group.hooks)) continue
-      const commands: MatcherGroup['hooks'] = []
+      const runnable: ClaudeHook[] = []
       for (const rawHook of group.hooks) {
         const hook = asObject(rawHook)
         if (!hook) continue
         const type = typeof hook.type === 'string' ? hook.type : 'command'
+        if (type === 'prompt' && event !== 'SessionStart') {
+          if (typeof hook.prompt !== 'string') continue
+          runnable.push({
+            prompt: hook.prompt,
+            ...typeof hook.model === 'string' ? { model: hook.model } : {},
+            ...typeof hook.timeout === 'number' ? { timeoutSec: hook.timeout } : {},
+            ...typeof hook.continueOnBlock === 'boolean' ? { continueOnBlock: hook.continueOnBlock } : {},
+          })
+          continue
+        }
         if (type !== 'command') {
           skipped.push({ event, type })
           continue
         }
         if (typeof hook.command !== 'string') continue
-        commands.push({
+        runnable.push({
           command: substituteCommand(hook.command, vars),
           ...typeof hook.timeout === 'number' ? { timeoutSec: hook.timeout } : {},
         })
       }
-      if (commands.length === 0) continue
+      if (runnable.length === 0) continue
       const matcher = event === 'UserPromptSubmit' || event === 'Stop'
         ? undefined
         : typeof group.matcher === 'string' ? group.matcher : undefined
@@ -113,7 +140,7 @@ export function parseClaudeCodeConfig(raw: unknown, vars: SubstitutionVars = {})
       if (diagnostic !== undefined) throw new SyntaxError(`${diagnostic} on event ${JSON.stringify(event)}`)
       groups.push({
         ...matcher !== undefined ? { matcher } : {},
-        hooks: commands,
+        hooks: runnable,
       })
     }
     if (groups.length > 0) config[event] = groups

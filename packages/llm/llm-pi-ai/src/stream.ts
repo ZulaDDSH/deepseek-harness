@@ -53,7 +53,7 @@ function classifyPiAiError(message: string): BuiltinLlmFailureCode {
   if (/\b429\b/.test(statusSource) || /rate.?limit/i.test(message)) return 'RATE_LIMIT'
   // A rejected request body (gateway or provider size cap): resending the
   // same request cannot succeed, so it is invalid, not transient.
-  if (/\b413\b/.test(statusSource) || /failed to buffer the request body:\s*length limit exceeded|payload too large|request body too large/i.test(message)) return 'INVALID_REQUEST'
+  if (/\b413\b/.test(statusSource) || /failed to buffer the request body:\s*length limit exceeded|payload too large|request body too large|websocket closed 1009\b/i.test(message)) return 'INVALID_REQUEST'
   if (/\b400\b/.test(statusSource) || /invalid.?request/i.test(message)) return 'INVALID_REQUEST'
   if (/\b5\d\d\b/.test(statusSource)) return 'SERVER'
   if (/\btime(?:d)?\s*out\b|timeout/i.test(message)) return 'TIMEOUT'
@@ -65,7 +65,7 @@ function classifyPiAiError(message: string): BuiltinLlmFailureCode {
   // truncation, not a model-level error.
   if (/stream ended (?:before|without)\b/i.test(message)) return 'TRANSPORT'
   if (/\b(?:network|connection|socket|fetch)\b|\bECONN[A-Z]+\b/i.test(message)
-    || /\b(?:other side closed|HTTP2 request did not get a response|WebSocket closed unexpectedly)\b/i.test(message)
+    || /\b(?:other side closed|HTTP2 request did not get a response|WebSocket (?:error|(?:stream )?closed))\b/i.test(message)
     // undici renders a mid-stream socket drop as a bare `terminated` (its
     // `cause` — the real SocketError — was flattened away upstream); Node's
     // stream layer says `Premature close`.
@@ -75,18 +75,26 @@ function classifyPiAiError(message: string): BuiltinLlmFailureCode {
   return 'PI_AI_ERROR'
 }
 
+/** Whether a completion carries non-empty answer text or a tool call. */
+function hasAnswerContent(message: AssistantMessage): boolean {
+  return message.content.some(block => (block.type === 'text' && block.text.trim().length > 0) || block.type === 'toolCall')
+}
+
 /**
  * Map a terminal pi-ai event to the harness finish reason.
  * @param message - the assistant message carried by the `done` or `error` event.
  * @param contextWindow - resolved catalog capacity for usage-based overflow detection.
- * @returns the mapped harness reason. Recognized error text, `stop` usage above
- *   `contextWindow`, and zero-output `length` usage that fills the window map
- *   to `CONTEXT_WINDOW_EXCEEDED`; a `stop` with no content blocks maps to an
- *   `EMPTY_RESPONSE` error, while terminal `pending` and `deferred` states map
- *   to non-retryable `PI_AI_ERROR` failures.
+ * @returns the mapped harness reason. Recognized error text maps to
+ *   `CONTEXT_WINDOW_EXCEEDED`; usage above `contextWindow` maps to it only for a
+ *   `stop` without non-empty text or tool-call content, or a zero-output `length`
+ *   that fills the window. A `stop` with an answer stays successful even when its
+ *   provider-reported usage exceeds the catalog window. A `stop` with no content
+ *   blocks maps to an `EMPTY_RESPONSE` error, while terminal `pending` and
+ *   `deferred` states map to non-retryable `PI_AI_ERROR` failures.
  */
 export function mapStopReason(message: AssistantMessage, contextWindow?: number): FinishReason {
-  const piAiOverflow = isContextOverflow(message, contextWindow)
+  const usageWindow = message.stopReason === 'stop' && hasAnswerContent(message) ? undefined : contextWindow
+  const piAiOverflow = isContextOverflow(message, usageWindow)
   const harnessOverflow = message.stopReason === 'error'
     && message.errorMessage !== undefined
     && isContextWindowExceededError(message.errorMessage)
@@ -144,7 +152,6 @@ export function mapStopReason(message: AssistantMessage, contextWindow?: number)
  * @param callerSignal - caller cancellation state; an aborted caller makes any
  *   in-band terminal error an aborted finish.
  * @param requestedModel - request model identity recorded for durable replay.
- * @param prefixDigest - request-context digest recorded for durable replay.
  * @returns the harness chunks, ending with `usage` then `finish`; throws
  *   `LlmError` (`STREAM_CLOSED`) if the source ends without a terminal event, or
  *   `MALFORMED_RESPONSE` when completed tool arguments are invalid. Length-limited
@@ -155,6 +162,7 @@ export async function* toStreamChunks(
   contextWindow?: number,
   callerSignal?: AbortSignal,
   requestedModel?: string,
+  onUsageAboveWindow?: (inputTokens: number) => void,
   prefixDigest?: string,
 ): AsyncGenerator<StreamChunk> {
   // pi-ai contentIndex ↔ our block index map 1:1 (both count blocks from 0
@@ -222,17 +230,22 @@ export async function* toStreamChunks(
           },
         }
         break
-      case 'done':
+      case 'done': {
+        const reason = mapStopReason(event.message, contextWindow)
+        const inputTokens = event.message.usage.input + event.message.usage.cacheRead
+        if (contextWindow !== undefined && inputTokens > contextWindow
+          && (reason.kind === 'stop' || reason.kind === 'tool-calls')) onUsageAboveWindow?.(inputTokens)
         yield { type: 'usage', usage: mapUsage(event.message.usage) }
         if (argumentsError !== undefined && event.message.stopReason !== 'length') {
           throw new LlmError(argumentsError, 'MALFORMED_RESPONSE')
         }
         yield {
           type: 'finish',
-          reason: mapStopReason(event.message, contextWindow),
+          reason,
           replayState: toPiReplayState(event.message, requestedModel, prefixDigest),
         }
         return
+      }
       case 'error':
         // In-stream error delivery (pi-ai's style) → error finish chunk
         // (the harness's other sanctioned error path besides throwing).

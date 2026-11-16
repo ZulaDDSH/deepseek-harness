@@ -13,6 +13,7 @@ import type {
 import type { AgentCancelCause, Session, SessionSeq, UserMessage } from '@deepseek-ai/dsh-session'
 export type { AgentCancelCause } from '@deepseek-ai/dsh-session'
 import type { Agent, InboxTarget, ModelSelection } from './types.ts'
+import type { ModelSelectionProjectionState } from './model-selection.ts'
 export type { Agent } from './types.ts'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 declare module '@deepseek-ai/dsh-system-prompt' {
@@ -38,6 +39,8 @@ export interface AgentOptions {
   reasoningEffort?: ReasoningEffortId | undefined
   /** Maximum output tokens for each conversation-model request. */
   maxTokens?: number
+  /** Route the Session's owner pins for each step, ahead of recorded choices; undefined leaves them in force. */
+  pinnedSelection?: (session: Session) => ModelSelection | undefined
 }
 
 /** Options for {@link Agent.cancel}. */
@@ -53,7 +56,8 @@ export interface CancelOptions {
 /** Agent-owned access to the model choice for future steps. */
 export interface Model {
   /**
-   * Resolve the choice for the next step to begin preparation. Recorded choices
+   * Resolve the choice for the next step to begin preparation. A pinned
+   * selection from AgentOptions takes precedence over recorded choices, which
    * take precedence over the last request and then the Agent's live options.
    * This read neither starts a step nor changes an already-prepared step.
    * @returns a detached choice, or undefined when no source names both provider and model.
@@ -69,6 +73,8 @@ export interface Model {
    * @param selection - complete provider, model, and optional explicit effort.
    */
   select(selection: Readonly<ModelSelection>): void
+
+  selectionState(): ModelSelectionProjectionState
 }
 
 /** Agent-owned access to pending work; concrete storage belongs to the driver. */
@@ -309,6 +315,15 @@ declare module '@deepseek-ai/cordis' {
      */
     'agent/status'(this: Scoped<Agent>, payload: { agent: Agent; status: AgentStatus }): void
     /**
+     * Read saved memory text for one session, such as Memorix notes for the auto responder.
+     * @param query - literal search text.
+     * @param session - the session asking, so its own chat records are left out.
+     * @param signal - lookup lifetime.
+     * @param next - delegation to other providers.
+     * @mode waterfall
+     */
+    'memory/lookup'(query: string, session: Session, signal: AbortSignal, next: () => Promise<string | undefined>): Promise<string | undefined>
+    /**
      * One message entered the live inbox.
      * @param payload.agent - the agent whose inbox changed.
      * @param payload.message - the inserted message.
@@ -336,6 +351,17 @@ declare module '@deepseek-ai/cordis' {
      */
     'agent/inbox/discarded'(this: Scoped<Agent>, payload: { agent: Agent; message: UserMessage }): void
     // ---- the machine's extension points ----
+    /**
+     * Choose the model selection for one proposed step, or `undefined` to keep the Agent's own choice.
+     * @param payload.agent - the agent proposing the step.
+     * @param payload.turn - the turn that will own the step.
+     * @param payload.step - the step proposed by the loop.
+     * @param payload.messages - messages claimed for the step, before pre-step admission.
+     * @param payload.signal - the current turn's cancellation signal.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+     * @mode waterfall
+     */
+    'agent/route'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; messages: UserMessage[]; signal: AbortSignal }, next: () => Promise<ModelSelection | undefined>): Promise<ModelSelection | undefined>
     /**
      * Reject a proposed step or replace the messages that enter it. Calling
      * `next()` preserves the current messages.

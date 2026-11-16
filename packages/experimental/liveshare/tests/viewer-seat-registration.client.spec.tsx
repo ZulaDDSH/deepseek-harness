@@ -44,6 +44,7 @@ const CATALOG = {
 /** The Session's durable selection fold: the model the next request would use. */
 const SELECTION = {
   lastUsed: null,
+  lastUsedSeq: null,
   next: { provider: 'internal', model: 'dsv41f', reasoningEffort: 'high' },
 }
 

@@ -46,6 +46,7 @@
     "@deepseek-ai/dsh-native-command": "workspace:*"
   },
   "peerDependencies": {
+    "@deepseek-ai/dsh-system-prompt": "workspace:*",
     "@deepseek-ai/cordis-plugin-group": "workspace:~",
     "@deepseek-ai/cordis-plugin-include": "workspace:~",
     "@deepseek-ai/cordis-plugin-loader": "workspace:~",

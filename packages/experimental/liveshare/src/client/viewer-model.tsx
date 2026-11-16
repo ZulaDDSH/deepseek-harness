@@ -15,7 +15,7 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { SessionId, SessionSeq } from '@deepseek-ai/dsh-session/types'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { NS } from './locales.ts'
 import { ViewerSeat, VIEWER_SEAT_PRIORITY } from './viewer-seat.tsx'
@@ -36,6 +36,7 @@ interface StatedModel {
 /** The durable selection fold: what the last request used and what the next one would use. */
 interface SelectionFold {
   readonly lastUsed: StatedModel | null
+  readonly lastUsedSeq: SessionSeq | null
   readonly next: StatedModel | null
 }
 

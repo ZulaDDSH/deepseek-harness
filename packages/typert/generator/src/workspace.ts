@@ -80,6 +80,7 @@ export class WorkspaceTypertGenerator {
     const workspace = new WorkspaceAnalyzer({
       root: this.root,
       packages: contributors,
+      diagnosedPackages: [...selected],
       caches: this.caches,
       ...(faces === undefined ? {} : { faces }),
       ...(this.options.checkDiagnostics === undefined ? {} : { checkDiagnostics: this.options.checkDiagnostics }),

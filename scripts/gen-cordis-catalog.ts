@@ -2,10 +2,7 @@
  * Generate the per-subsystem Cordis service/event reference regions from the
  * Typert catalog projection. Every harness `ctx.<key>` service and event scope
  * maps to exactly one `docs/subsystems/` page through the curated tables below;
- * the generator injects each page's Cordis API reference between its GENERATED markers —
- * into both language sides of the pair, localizing paired document paths for
- * the Chinese side while retaining every other byte — and re-records a pair's
- * `.i18n.yaml` only when nothing outside the region changed. The
+ * the generator injects each page's Cordis API reference between its GENERATED markers. The
  * projection enforces event modes, JSDoc parameter/return completeness, and
  * signature type-link coverage; the inherited (vendor) tier renders to
  * `docs/cordis-api/inherited.md`. `--check` verifies every generated artifact.
@@ -29,12 +26,8 @@ import {
 } from '@deepseek-ai/dsh-typert-generator'
 import type { CordisCatalogPolicy } from '@deepseek-ai/dsh-typert-generator'
 import { renderCordisCoreApiPages } from './cordis-core-api.ts'
+import { loadAnchoredFieldNotes } from './code-notes.ts'
 import { contextKeyMap, contextMergeFiles, eventNameList } from './cordis-walk.ts'
-import {
-  parseTranslationPairingManifest,
-  translationPairSourcePredicate,
-} from './translation-pairing.ts'
-import { rewriteTranslationLinkLocales } from './translation-links.ts'
 
 const root = resolve(import.meta.dirname, '..')
 const SUBSYSTEMS_DIR = 'docs/subsystems'
@@ -68,6 +61,8 @@ export const SERVICE_PAGE: Record<string, string> = {
   configEditor: 'boot.md',
   profileContext: 'boot.md',
   hmr: 'boot.md',
+  knowledge: 'mcp.md',
+  memoryWorkspace: 'mcp.md',
   mcpResources: 'mcp.md',
   agentLoop: 'core.md',
   mcpManager: 'mcp.md',
@@ -89,12 +84,15 @@ export const SERVICE_PAGE: Record<string, string> = {
   compaction: 'compaction.md',
   cordisInspect: 'extensions.md',
   authorization: 'credentials.md',
+  authorizationController: 'credentials.md',
   deepseekAccount: 'credentials.md',
   credentials: 'credentials.md',
   credentialsController: 'credentials.md',
+  quotaController: 'credentials.md',
   settingsController: 'settings.md',
   directoryPicker: 'workspace.md',
   deepseekLlmApiExtensions: 'llm-streaming.md',
+  jevRouter: 'llm-streaming.md',
   dynamicCordisRunner: 'extensions.md',
   fileUploads: 'attachment.md',
   fileReferences: 'session-reference.md',
@@ -184,6 +182,7 @@ export const SERVICE_PAGE: Record<string, string> = {
  * to a model as `cordis_runtime_inspect what:"client"`).
  */
 export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
+  officeToPdf: 'Typert Remote service documented in packages/document/office-to-pdf/README.md',
   timeline: 'experimental session data service internal to the bundle — packages/experimental/timeline/README.md owns its behavior',
   contextMenus: 'client-side interface-typed menu registry — packages/client/ui-context-menu/README.md owns the API',
   fileActions: 'client-side interface-typed file actions — packages/client/ui-file-actions/README.md owns the API',
@@ -205,6 +204,7 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
   uiWorkspace: 'client-side Workspace navigation adapter — packages/client/ui-workspace/README.md owns the API',
   settingsSchema: 'client-side schema introspection service — packages/client/ui-settings/README.md owns the API',
   configForms: 'client-side shared entry forms — packages/client/ui-settings/README.md owns the API',
+  settingsDirectory: 'client-side settings search directory — packages/client/ui-settings/README.md owns the API',
   chatFileMentions: 'client-side slot-contract accessor (ChatFileMentions) — packages/client/ui-chat/README.md owns the API',
   shortcuts: 'client-side interface-typed keyboard service — packages/client/shortcuts/README.md owns the API',
   userQuestionPanels: 'client-side slot-contract accessor (UserQuestionPanels) — packages/client/ui-tool/README.md owns the API',
@@ -241,6 +241,9 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
  * {@link EVENT_WALK_EXEMPTIONS} names each one with its documentation owner.
  */
 export const EVENT_SCOPE_PAGE: Record<string, string> = {
+  hooks: 'core.md',
+  mcp: 'mcp.md',
+  'mcp-client': 'mcp.md',
   'app-boot': 'boot.md',
   hmr: 'boot.md',
   'plugin-manager': 'boot.md',
@@ -266,6 +269,7 @@ export const EVENT_SCOPE_PAGE: Record<string, string> = {
   'llm-pi-ai': 'llm-streaming.md',
   'mcp-manager': 'mcp.md',
   'permission-presets': 'permission-presets.md',
+  'memory': 'session.md',
   'session': 'session.md',
   'timeline': 'session.md',
   'settings': 'settings.md',
@@ -337,6 +341,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   ProductTelemetryScalar: 'product-telemetry.md',
   WorkspaceChangesSummary: 'deliverables.md',
   WorkspaceFileDiff: 'deliverables.md',
+  WorkspaceStatus: 'deliverables.md',
   Reload: 'boot.md',
   ProfileReconciliation: 'boot.md',
   PluginInfo: 'boot.md',
@@ -351,6 +356,9 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   NpmFileSource: 'boot.md',
   ChangeResult: 'boot.md',
   InstallBundleOptions: 'boot.md',
+  McpServerRow: 'boot.md',
+  McpServerCandidate: 'boot.md',
+  McpServerConfig: 'boot.md',
   PluginEntryId: 'boot.md',
   BundleRowInfo: 'boot.md',
   PluginInstallCancellation: 'boot.md',
@@ -411,8 +419,12 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   AgentFactory: 'core.md',
   AgentHandle: 'core.md',
   ModelSelection: 'core.md',
+  ModelSelectionProjectionState: 'core.md',
   AllowedModelRoute: 'subagent.md',
   SubagentModelSelectionSettings: 'subagent.md',
+  SubagentSetup: 'subagent.md',
+  SubagentTeamRole: 'subagent.md',
+  SubagentTeamRoleRoute: 'subagent.md',
   AgentOptions: 'core.md',
   TurnBoundaryProjection: 'core.md',
   AgentStatus: 'core.md',
@@ -537,6 +549,9 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   SessionCancelRequest: 'session.md',
   SessionCancelValue: 'session.md',
   SessionControlFrame: 'session.md',
+  ExternalChatCatalog: 'session.md',
+  ExternalChatImportRequest: 'session.md',
+  ExternalChatImportValue: 'session.md',
   SessionCreateRequest: 'session.md',
   SessionCreateValue: 'session.md',
   SessionEvent: 'session.md',
@@ -578,6 +593,14 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   SessionSearchValue: 'session.md',
   SessionSelectModelRequest: 'session.md',
   SessionSelectModelValue: 'session.md',
+  SessionSelectMcpRequest: 'session.md',
+  SessionSelectMcpValue: 'session.md',
+  McpConnectorCatalog: 'session.md',
+  SessionHookCatalog: 'session.md',
+  SessionSetHookOverridesRequest: 'session.md',
+  HookOverrides: 'session.md',
+  SessionRunOptions: 'session.md',
+  SessionSetRunOptionsRequest: 'session.md',
   SessionSummary: 'session.md',
   SessionMessageProjection: 'session.md',
   SessionUpdateQueueRequest: 'session.md',
@@ -667,7 +690,11 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   ScheduleDeliveryHistoryResult: 'schedule.md',
   ScheduleCreateRequest: 'schedule.md',
   ScheduleListRequest: 'schedule.md',
+  ScheduleDeleteRequest: 'schedule.md',
   ScheduleDeleteResult: 'schedule.md',
+  ScheduleTimingChange: 'schedule.md',
+  ScheduleUpdateRequest: 'schedule.md',
+  ScheduleUpdateResult: 'schedule.md',
   ScheduleDeleteInactiveResult: 'schedule.md',
   ScheduleRecord: 'schedule.md',
   ScheduleEditResult: 'schedule.md',
@@ -781,6 +808,8 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   SpillRef: 'spill.md',
   ContinuableCreateRequest: 'subagent.md',
   ContinuableCreateSpec: 'subagent.md',
+  ContinuableStart: 'subagent.md',
+  ContinuableStartSpec: 'subagent.md',
   SubagentActivation: 'subagent.md',
   SubagentActivationSpec: 'subagent.md',
   AgentMessageSource: 'subagent.md',
@@ -907,7 +936,9 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   SettingsDescribeOptions: 'settings.md',
   SkillListRequest: 'skills.md',
   SkillListValue: 'skills.md',
+  AuthorizationEnd: 'credentials.md',
   AuthorizationEntry: 'credentials.md',
+  AuthorizationEntryView: 'credentials.md',
   AuthorizationFlow: 'credentials.md',
   AuthorizationInteraction: 'credentials.md',
   AuthorizationMethod: 'credentials.md',
@@ -929,6 +960,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   AuthorizationRequest: 'credentials.md',
   AuthorizationSession: 'credentials.md',
   AuthorizationSettlement: 'credentials.md',
+  AuthorizationStart: 'credentials.md',
   AuthorizationStatus: 'credentials.md',
   CredentialRef: 'credentials.md',
   CredentialKey: 'credentials.md',
@@ -999,6 +1031,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   ProjectionDefinition: 'session-projection.md',
   ProjectionHandle: 'session-projection.md',
   SessionProjectionMap: 'session-projection.md',
+  SessionProjectionStateMap: 'session-projection.md',
   ProjectionKeySelection: 'session-projection.md',
   ProjectionChangeListener: 'session-projection.md',
   ProjectionEventChangeListener: 'session-projection.md',
@@ -1053,6 +1086,12 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
 
 /** Project types deliberately documented outside the subsystems catalog. */
 export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
+  LearningResult: 'Knowledge router public types are owned by packages/knowledge/knowledge-router/README.md and src/types.ts',
+  LearningWrite: 'Knowledge router public types are owned by packages/knowledge/knowledge-router/README.md and src/types.ts',
+  ProviderStatus: 'Knowledge router public types are owned by packages/knowledge/knowledge-router/README.md and src/types.ts',
+  KnowledgeProviderName: 'Knowledge router public types are owned by packages/knowledge/knowledge-router/README.md and src/types.ts',
+  KnowledgePacket: 'Knowledge router public types are owned by packages/knowledge/knowledge-router/README.md and src/types.ts',
+  RetrieveOptions: 'Knowledge router public types are owned by packages/knowledge/knowledge-router/README.md and src/types.ts',
   ActionCardDecision: 'packages/experimental/action-cards/README.md',
   ActionCardKind: 'packages/experimental/action-cards/README.md',
   ActionCardResult: 'packages/experimental/action-cards/README.md',
@@ -1060,6 +1099,11 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   RecommendationDetails: 'packages/experimental/plugin-recommendations/README.md',
   DeepseekChatImportLimits: 'upload limits returned to the browser are owned by packages/experimental/deepseek-chat-import/src/types.ts',
   ProductEvent: 'Desktop event fields are owned by packages/client/product-analytics/README.md and src/events.ts',
+  QuotaProviderView: 'provider quota projection is owned by packages/api/quota-controller/README.md',
+  QuotaSource: 'provider-owned account source is owned by packages/api/quota-controller/README.md',
+  QuotaResult: 'provider quota result is owned by packages/api/quota-controller/README.md',
+  LlmRateLimitObservation: 'rate-limit observation is owned by packages/llm/llm/src/types.ts',
+  JevGrepMatch: 'Jev grep relevance candidate is owned by packages/llm/llm-jev-router/README.md',
   ConnectionFetchHandler: 'shared Fetch dispatch is owned by packages/client/connection/src/rpc.ts',
   ConnectionTrustRequest: 'transport authentication input is owned by packages/client/connection/src/rpc.ts',
   PeerAdmission: 'Peer admission outcome is owned by packages/client/connection/src/rpc.ts',
@@ -1072,6 +1116,14 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   Profile: 'resolved profile layers are owned by packages/boot/app-boot/README.md',
   PatchOptions: 'Include patch entries are owned by vendor/include (vendored upstream)',
   McpResourceProvider: 'scoped resource provider is owned by packages/mcp/mcp-resources/README.md',
+  McpHumanOperations: 'Host-owned provider access is owned by packages/mcp/mcp-client/README.md',
+  McpConnectionReport: 'MCP connection status reports are owned by packages/mcp/mcp-client/README.md',
+  MemorixTable: 'Memorix browser values are owned by packages/knowledge/knowledge-router/README.md',
+  MemorixPage: 'Memorix browser values are owned by packages/knowledge/knowledge-router/README.md',
+  MemorixView: 'Memorix browser values are owned by packages/knowledge/knowledge-router/README.md',
+  MemoryGraph: 'Native graph viewer values are owned by packages/client/ui-memory-workspace/README.md',
+  MemoryImportResult: 'Document import outcomes are owned by packages/client/ui-memory-workspace/README.md',
+  MemoryStatus: 'Memory page status values are owned by packages/client/ui-memory-workspace/README.md',
   'z.ZodType': 'Zod response validation API is owned by https://zod.dev/packages/zod',
   Socket: 'Node.js byte stream API is owned by https://nodejs.org/api/net.html#class-netsocket',
   z: 'schemastery schema constructor is owned by vendor/schemastery (vendored upstream)',
@@ -1169,9 +1221,11 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   WorkspaceFileSearchRequest: 'Host workspace file endpoint contract is owned by packages/api/workspace-files/README.md',
   WorkspaceFileSearchResult: 'Host workspace file endpoint contract is owned by packages/api/workspace-files/README.md',
   TerminalShell: 'Browser terminal shell profiles are owned by packages/api/terminal-controller/README.md',
+  HookInventoryReport: 'Loaded hook configuration reports are owned by packages/hooks/hook-protocol/README.md',
   TerminalEnvironment: 'Browser terminal environment fields are owned by packages/api/terminal-controller/README.md',
   WebTerminalInfo: 'Browser terminal metadata is owned by packages/api/terminal-controller/README.md',
   TerminalCreateRequest: 'Browser terminal allocation fields are owned by packages/api/terminal-controller/README.md',
+  CliTerminalStatus: 'CLI terminal profile status is owned by packages/api/terminal-controller/README.md',
   TerminalInput: 'Browser terminal input commands are owned by packages/api/terminal-controller/README.md',
   TerminalFrame: 'Browser terminal stream frames are owned by packages/api/terminal-controller/README.md',
   TerminalRetentionFrame: 'Browser terminal window holds are owned by packages/api/terminal-controller/README.md',
@@ -1184,6 +1238,7 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
 
 /** Repository data policy consumed by the Cordis catalog projector. */
 export const CORDIS_CATALOG_POLICY: CordisCatalogPolicy = {
+  codeNotes: loadAnchoredFieldNotes(root),
   linkedTypePages: LINK_MAP,
   foundationTypeNames: FOUNDATION_TYPE_NAMES,
   typeLinkExemptions: TYPE_LINK_EXEMPTIONS,
@@ -1298,19 +1353,6 @@ export interface WalkPartitionMaps {
   readonly serviceWalkExemptions: Readonly<Record<string, string>>
   readonly eventScopePage: Readonly<Record<string, string>>
   readonly eventWalkExemptions: Readonly<Record<string, string>>
-}
-
-/** Project paired Markdown destinations in one generated region to the page's locale. */
-export function localizePageRegion(region: string, pageRel: string, scanRoot: string = root): string {
-  if (!pageRel.endsWith('.zh.md')) return region
-  const manifest = parseTranslationPairingManifest(
-    readFileSync(resolve(scanRoot, 'scripts/translation-pairing.manifest.json'), 'utf8'),
-  )
-  return rewriteTranslationLinkLocales(region, {
-    repoRoot: scanRoot,
-    sourcePath: pageRel,
-    isTranslationPairSource: translationPairSourcePredicate(manifest),
-  }).content
 }
 
 /**
@@ -1434,23 +1476,18 @@ export function computeOutputs(): [string, string][] {
       events.filter(e => EVENT_SCOPE_PAGE[e.scope] === page),
       CORDIS_CATALOG_POLICY,
     )
-    for (const side of [page, page.replace(/\.md$/, '.zh.md')]) {
-      const rel = `${SUBSYSTEMS_DIR}/${side}`
-      const localizedRegion = localizePageRegion(region, rel)
-      let current: string
-      try {
-        current = readFileSync(resolve(root, rel), 'utf8')
-      } catch {
-        // Both pair sides must exist before a region can be injected; the
-        // pairing gate owns pair completeness, this generator names the miss.
-        problems.push(`${rel}: mapped subsystems page does not exist.`)
-        continue
-      }
-      try {
-        outputs.push([rel, spliceRegion(current, localizedRegion)])
-      } catch (error) {
-        problems.push(`${rel}: ${error instanceof Error ? error.message : String(error)}`)
-      }
+    const rel = `${SUBSYSTEMS_DIR}/${page}`
+    let current: string
+    try {
+      current = readFileSync(resolve(root, rel), 'utf8')
+    } catch {
+      problems.push(`${rel}: mapped subsystems page does not exist.`)
+      continue
+    }
+    try {
+      outputs.push([rel, spliceRegion(current, region)])
+    } catch (error) {
+      problems.push(`${rel}: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
   if (problems.length > 0) throw new Error(`gen-cordis-catalog: ${problems.length} page violation(s):\n${problems.map(p => `  ${p}`).join('\n')}`)

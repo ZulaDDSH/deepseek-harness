@@ -32,10 +32,6 @@ export type {
   SubagentReadOnlyComposerProps, SubagentReadOnlyMatch,
 } from './SubagentReadOnlyComposer.tsx'
 
-/**
- * Required services for subagent presentation and navigation. `uiSession.sessionStatus` provides the
- * `useSessionStatus` hook the lineage header renders with, so the plugin unloads and reloads with it.
- */
 export const inject = ['sessions', 'uiWorkspace', 'slots', 'locale', 'sidebarRight', 'uiSession.sessionStatus']
 
 /** Claim the composer when the child mode does not allow follow-ups. */
@@ -43,8 +39,9 @@ function selectReadOnlySubagent(owner: ComposerChainProps): SubagentReadOnlyMatc
   const subagent = owner.session?.subagent
   if (subagent === undefined || subagent === null) return null
   if (subagent.address.mode === 'unknown') return { reason: 'unknown' }
-  if (subagent.address.mode === 'one-shot') return { reason: 'one-shot' }
-  return null
+  if (subagent.address.mode === 'one-shot' && owner.session?.running !== true) return { reason: 'one-shot' }
+  if (subagent.parentAvailable !== false) return null
+  return owner.session?.running === true ? null : { reason: 'parent-unavailable' }
 }
 
 /**

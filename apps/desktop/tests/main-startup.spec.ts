@@ -24,7 +24,6 @@ vi.mock('../src/file-drag.ts', () => ({ installDesktopFileDrag: () => { fileDrag
 
 vi.mock('../src/web-document.ts', () => ({
   serveWebDocument: vi.fn(), forwardWebRequest: vi.fn(),
-  removeLegacyHostCookies: harness.removeLegacyHostCookies,
 }))
 vi.mock('../src/operation-report-job.ts', () => ({ runOperationReportJob: vi.fn(async () => ({ appended: false, timedOut: false, cancelled: false })) }))
 // Report persistence has its own unit tests; here it resolves within microtasks so the fatal
@@ -156,7 +155,7 @@ const harness = await vi.hoisted(async () => {
     readonly updateTasks = vi.fn(async (_action: 'inspect' | 'lock' | 'unlock') => false)
     readonly inspectQuit = vi.fn(async () => ({ activeTasks: false, scheduledTasks: false }))
     url = 'http://127.0.0.1:3080/'
-    fetch = vi.fn(async () => Response.json({ hasApiKey: true, writable: true, localePreference: null, themePreference: 'system' }))
+    fetch = vi.fn(async () => Response.json({ hasApiKey: false, localePreference: null }))
     readonly ready = deferred()
     readonly exited = deferred()
     readonly stopping = deferred()
@@ -201,6 +200,7 @@ const harness = await vi.hoisted(async () => {
     }),
   })
   let accountListener: ((state: AccountView) => void) | undefined
+  let accountExpiredListener: (() => void) | undefined
   let analyticsEnabled = true
   let analyticsEnabledListener: ((enabled: boolean) => void) | undefined
   const analytics = vi.fn(async (_event: unknown) => {})
@@ -223,7 +223,7 @@ const harness = await vi.hoisted(async () => {
     failWindow(error: Error) { windowFailure = error },
     windows, views, hosts, handlers, app, FakeWindow, FakeView, FakeHost, powerMonitor, nativeTheme, analytics,
     trays, FakeTray, backgroundNotice, shellDialog,
-    menu, popup, socketHeaders: vi.fn(), connectWelcome: vi.fn(), removeLegacyHostCookies: vi.fn(async () => {}), hostCookies: {},
+    menu, popup, socketHeaders: vi.fn(),
     loginShell, readLoginShell, updateCheck, updateDownload, updateInstall,
     platformDispose,
     platformCloseAndWait,
@@ -231,14 +231,16 @@ const harness = await vi.hoisted(async () => {
     get analyticsEnabled() { return analyticsEnabled },
     set analyticsEnabled(value: boolean) { analyticsEnabled = value; analyticsEnabledListener?.(value) },
     watchAccount: (
-      listener: (state: AccountView) => void, _failed: () => void, _expired: () => void,
+      listener: (state: AccountView) => void, _failed: () => void, expired: () => void,
       onAnalyticsEnabledChanged?: (enabled: boolean) => void,
     ) => {
       analyticsEnabledListener = onAnalyticsEnabledChanged
       accountListener = listener
-      return () => { accountListener = undefined; analyticsEnabledListener = undefined }
+      accountExpiredListener = expired
+      return () => { accountListener = undefined; accountExpiredListener = undefined; analyticsEnabledListener = undefined }
     },
     publishAccount(state: AccountView) { accountListener?.(state) },
+    expireAccount() { accountExpiredListener?.() },
     ipcOn: vi.fn<(channel: string, listener: (event: { sender: unknown; senderFrame: unknown }, ...args: unknown[]) => void) => void>(),
     get updateState() { return updateState },
     set updateState(value: DesktopUpdateState) { updateState = value },
@@ -270,6 +272,7 @@ const harness = await vi.hoisted(async () => {
     set closeWindowsOnQuit(value: boolean) { closeWindowsOnQuit = value },
     reset() {
       accountListener = undefined
+      accountExpiredListener = undefined
       windows.length = 0
       views.length = 0; hosts.length = 0; handlers.clear(); app.removeAllListeners()
       trays.length = 0
@@ -327,7 +330,7 @@ vi.mock('electron', () => ({
   },
   Menu: { setApplicationMenu: harness.menu.setApplicationMenu, buildFromTemplate: harness.menu },
   session: { defaultSession: {
-    on: vi.fn(), cookies: harness.hostCookies,
+    on: vi.fn(), cookies: { get: vi.fn(async () => [{ name: 'dsh-desktop-session', value: 'test-private' }]) },
     setPermissionCheckHandler: vi.fn(), setPermissionRequestHandler: vi.fn(), webRequest: { onBeforeSendHeaders: harness.socketHeaders },
   } },
   protocol: { registerSchemesAsPrivileged: vi.fn(), handle: harness.protocolHandle },
@@ -417,17 +420,10 @@ vi.mock('../src/platform-view.ts', async importOriginal => ({
   },
 }))
 vi.mock('../src/welcome-backend.ts', () => ({
-  connectDesktopWelcome: (...args: unknown[]) => {
-    harness.connectWelcome(...args)
-    return {
-      analyticsEnabled: async () => harness.analyticsEnabled,
-      report: harness.analytics,
-      readLocalePreference: async () => null,
-      read: async (): Promise<unknown> => (await harness.hosts.at(-1)!.fetch()).json() as Promise<unknown>,
-      save: async () => ({ ok: true }),
-      account: { watch: harness.watchAccount, state: async () => ({ status: 'signed-out', attempt: null }) },
-    }
-  },
+  connectDesktopWelcome: async () => ({
+    analyticsEnabled: async () => harness.analyticsEnabled, report: harness.analytics,
+    readLocalePreference: async () => (await (await harness.hosts.at(-1)!.fetch()).json() as { localePreference: string }).localePreference,
+    account: { watch: harness.watchAccount, state: async () => ({ status: 'signed-out', attempt: null }) } }),
 }))
 
 function configureTestAuthPopup(allow: boolean): void {
@@ -1179,33 +1175,6 @@ describe('desktop main startup', () => {
     expect(harness.windows[0]!.options).toMatchObject({ backgroundColor: color })
   })
 
-  describe.each(['win32', 'darwin'] as const)('Host theme on %s', (platform) => {
-    it.each([
-      ['light', true, '#f9fafb'], ['dark', false, '#1b1b1c'],
-      ['system', true, '#1b1b1c'], ['system', false, '#f9fafb'],
-    ] as const)('applies %s with system dark=%s before revealing the workspace', async (source, systemDark, color) => {
-      vi.spyOn(process, 'platform', 'get').mockReturnValue(platform)
-      harness.nativeTheme.systemDark = systemDark
-      await import('../src/main.ts')
-      await harness.preparing.promise
-      const window = harness.windows[0]!
-      expect(window.show).not.toHaveBeenCalled()
-      harness.prepared.resolve()
-      await harness.hostStarted.promise
-      const host = harness.hosts[0]!
-      host.fetch.mockResolvedValue(Response.json({ hasApiKey: true, localePreference: null, themePreference: source }))
-      window.show.mockImplementation(() => {
-        expect(harness.nativeTheme.themeSource).toBe(source)
-        if (platform === 'win32') expect(window.setBackgroundColor).toHaveBeenLastCalledWith(color)
-        else expect(window.options).toMatchObject({ backgroundColor: '#00000000', vibrancy: 'sidebar' })
-      })
-      host.ready.resolve()
-      await Promise.resolve(invoke(DESKTOP_IPC.boot))
-      await vi.waitFor(() => { expect(window.show).toHaveBeenCalledOnce() })
-      expect(host.fetch).toHaveBeenCalledOnce()
-    })
-  })
-
   it('tracks effective appearance changes and removes the listener when closed', async () => {
     await import('../src/main.ts')
     await harness.preparing.promise
@@ -1460,7 +1429,7 @@ describe('desktop main startup', () => {
     } finally { harness.app.name = originalName }
   })
 
-  it.each(['http:', 'https:'] as const)('passes the %s Host cookie explicitly and attaches socket credentials only to the owned application origin and window', async (protocol) => {
+  it.each(['http:', 'https:'] as const)('attaches authenticated socket credentials only to the owned application origin and window (%s)', async (protocol) => {
     await import('../src/main.ts')
     await harness.preparing.promise
     harness.prepared.resolve()
@@ -1468,8 +1437,6 @@ describe('desktop main startup', () => {
     harness.hosts[0]!.url = `${protocol}//127.0.0.1:3080/`
     harness.hosts[0]!.ready.resolve()
     await Promise.resolve(invoke(DESKTOP_IPC.boot))
-    expect(harness.connectWelcome).toHaveBeenCalledWith(`${protocol}//127.0.0.1:3080/`, 'dsh-desktop-session=test-private')
-    expect(harness.removeLegacyHostCookies).toHaveBeenCalledWith(harness.hostCookies, `${protocol}//127.0.0.1:3080/`)
     const handler = harness.socketHeaders.mock.calls[0]![1] as (
       details: { url: string; webContentsId: number; requestHeaders: Record<string, string> },
       callback: (result: unknown) => void,
@@ -1491,50 +1458,10 @@ describe('desktop main startup', () => {
     expect(callback).toHaveBeenLastCalledWith({})
   })
 
-  it('logs a legacy Host cookie cleanup failure without blocking boot', async () => {
-    const failure = new Error('cookie store unavailable')
-    harness.removeLegacyHostCookies.mockRejectedValueOnce(failure)
-    await import('../src/main.ts')
-    await harness.preparing.promise
-    harness.prepared.resolve()
-    await harness.hostStarted.promise
-    harness.hosts[0]!.ready.resolve()
-    await Promise.resolve(invoke(DESKTOP_IPC.boot))
-    await vi.waitFor(() => { expect(console.error).toHaveBeenCalledWith('desktop: legacy Host cookie cleanup failed', failure) })
-    expect(harness.connectWelcome).toHaveBeenCalled()
-  })
-
-  it('shares login key discovery with onboarding and rejects foreign renderers', async () => {
+  it('opens the workspace directly for a signed-out account without a configured key', async () => {
     await readyForUpdate()
-    const window = harness.windows[0]!
-    const handler = harness.handlers.get(DESKTOP_IPC.onboardingApiKey)!
-    const event = { sender: window.webContents, senderFrame: window.webContents.mainFrame }
-    await vi.waitFor(async () => { expect(await handler(event)).toBe(true) })
-    harness.hosts.at(-1)!.fetch.mockResolvedValueOnce(Response.json({ hasApiKey: false }))
-    await expect(handler(event)).resolves.toBe(false)
-    await expect(handler({ ...event, sender: {} })).rejects.toThrow()
-  })
-
-  it('enlarges only an active onboarding window and keeps its size after completion', async () => {
-    await import('../src/main.ts')
-    await harness.preparing.promise
-    const window = harness.windows[0]!
-    const listener = harness.ipcOn.mock.calls.find(([channel]) => channel === DESKTOP_IPC.onboardingActive)![1]
-    const event = { sender: window.webContents, senderFrame: window.webContents.mainFrame }
-    expect(window.setMinimumSize).not.toHaveBeenCalled()
-    listener({ ...event, sender: {} }, true)
-    listener(event, 'true')
-    expect(window.setMinimumSize).not.toHaveBeenCalled()
-    listener(event, true)
-    expect(window.setMinimumSize).toHaveBeenLastCalledWith(960, 600)
-    expect(window.setSize).toHaveBeenLastCalledWith(960, 700)
-    window.setSize.mockClear()
-    window.getBounds.mockReturnValue({ x: 0, y: 0, width: 1200, height: 800 })
-    listener(event, true)
-    expect(window.setSize).not.toHaveBeenCalled()
-    listener(event, false)
-    expect(window.setMinimumSize).toHaveBeenLastCalledWith(520, 600)
-    expect(window.setSize).not.toHaveBeenCalled()
+    expect(harness.windows).toHaveLength(1)
+    expect(harness.windows[0]!.urls).toEqual(['dsh-app://app/'])
   })
 
   it('registers the window-owned directory picker during startup and rejects foreign callers', async () => {
@@ -3067,7 +2994,7 @@ describe('desktop main startup', () => {
     host.exited.resolve()
     host.onFailure!(new Error('backend exited during startup preferences'))
     await harness.dialogShown.promise
-    preferences.resolve(Response.json({ hasApiKey: true, localePreference: null }))
+    preferences.resolve(Response.json({ localePreference: null }))
     await startup
     expect(harness.windows[0]!.urls).not.toContain('http://127.0.0.1:3080/')
     const failureDialog = harness.dialog.showMessageBox.mock.calls[0]![0] as { detail: string }
@@ -3112,6 +3039,22 @@ it.each(['failed', 'expired'] as const)('focuses DSH once when browser authoriza
   harness.publishAccount(state)
   harness.publishAccount(state)
   expect(window.focus).toHaveBeenCalledTimes(1)
+})
+
+it('returns the user to the workspace when Platform credentials expire', async () => {
+  await import('../src/main.ts')
+  await harness.preparing.promise
+  harness.prepared.resolve()
+  await harness.hostStarted.promise
+  harness.hosts[0]!.ready.resolve()
+  await Promise.resolve(invoke(DESKTOP_IPC.boot))
+  const window = harness.windows[0]!
+  window.show.mockClear()
+  window.focus.mockClear()
+  window.visible = false
+  harness.expireAccount()
+  expect(window.show).toHaveBeenCalledOnce()
+  expect(window.focus).toHaveBeenCalledOnce()
 })
 
 it.each([['light', false], ['dark', true]] as const)('opens Platform authorization in the effective %s palette', async (theme, shouldUseDarkColors) => {

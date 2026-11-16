@@ -3,11 +3,6 @@
  * all data and callbacks arrive via props. Hover swaps (folder->chevron,
  * time->ellipsis, action buttons) are CSS-only, and a session row's clipped
  * title marquees programmatically while the row is hovered. Workspace row
- * menus share captured Workspace actions with right-click. Both row types
- * render the shared `contextMenu.button` factory for their menu trigger.
- * Session hover buttons use the browser's `renderSlot` for the
- * `sidebar.workspaces.session.row.action` list. Session and Workspace
- * hover cards are suppressed while their menu is open.
  */
 import { useEffect, useMemo, useRef } from 'react'
 import type { PointerEvent, RefObject } from 'react'
@@ -15,16 +10,21 @@ import clsx from 'clsx'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   HoverCard, IconArchiveOutlineRegular,
-  IconFolderCloseRegular, IconFolderOpenRegular,
+  IconEllipsisOutlineRegular, IconFolderCloseRegular, IconFolderOpenRegular,
   IconNewChatOutlineRegular, IconPinFillRegular,
   IconTriangleRightFillRegular, IconUnarchiveOutlineRegular, relativeTime, StateDot, Tooltip, useRowDragPreview,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ShortcutCatalogEntry } from '@deepseek-ai/dsh-client-shortcuts/client'
-import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import { abbreviateHomePath } from '@deepseek-ai/dsh-util-workspace-path'
 import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
-import type { GroupNode, SearchResultNode, SessionNode } from '../tree.ts'
+import { WORKSPACE_APPEARANCE_COLORS } from '../appearance.ts'
+import type { WorkspaceAppearance, WorkspaceIcon } from '../appearance.ts'
+import type { SectionNode } from '../sections.ts'
+import type { GroupAttention, GroupNode, SearchResultNode, SessionNode } from '../tree.ts'
+import { GroupAttentionDot } from './GroupAttention.tsx'
+import { SessionStatusDots, sessionStatuses } from './SessionStatus.tsx'
+import { WORKSPACE_ICON_GLYPHS } from './WorkspaceIcons.ts'
 import css from './Rows.module.css'
 
 /** Sidebar-owned layout values needed by row copies mounted outside the sidebar. */
@@ -44,7 +44,7 @@ type RowTranslate = WorkspaceBrowserProps['t']
  * leading occupant never share the row; the hover seat only while the row's
  * card is open.
  */
-type RowRenderSlots = PropsRenderSlots<
+export type RowRenderSlots = PropsRenderSlots<
   | 'sidebar.workspaces.session.row.action'
   | 'sidebar.session.row.trailing'
   | 'sidebar.session.row.leading'
@@ -189,6 +189,23 @@ function WorkspaceHoverContent({ label, cwd, createdAt, t }: {
 }
 
 /**
+ * Inline style painting a Workspace's chosen color onto its leading slot. The
+ * row label inherits this color, so one declaration colors both the glyph and
+ * the title; the default look leaves the slot to the stylesheet's alias.
+ * @param appearance - the Workspace's chosen appearance, when it has one.
+ * @returns the style to spread on the row, or undefined for the default look.
+ */
+function appearanceStyle(appearance: WorkspaceAppearance | undefined): { color: string } | undefined {
+  return appearance?.color === undefined ? undefined : { color: WORKSPACE_APPEARANCE_COLORS[appearance.color] }
+}
+
+/** One Workspace icon choice rendered from the shared icon library. */
+function WorkspaceIconGlyph({ choice }: { choice: WorkspaceIcon }) {
+  const Glyph = WORKSPACE_ICON_GLYPHS[choice]
+  return <Glyph size={16} />
+}
+
+/**
  * Row drag wiring supplied by the tree owner. `drop` reports the half of the
  * row where the pointer released so the owner can resolve an insert anchor.
  */
@@ -222,10 +239,14 @@ type ProjectRowItemProps = {
   group: GroupNode
   newShortcut?: ShortcutCatalogEntry | undefined
   containsCurrentDescendant?: boolean
+  /** Folded attention for a collapsed row; absent when nothing folded needs the user. */
+  attention?: GroupAttention | undefined
   onToggle: () => void
   onCreate: (workspaceId: WorkspaceId) => void
   /** Present only for real Workspace rows in the grouped view. */
   drag?: WorkspaceRowDragProps | undefined
+  /** The Workspace's chosen color and icon; absent for the default look. */
+  appearance?: WorkspaceAppearance | undefined
   /** Host account home; POSIX home-rooted hover paths display as `~`. */
   home?: string | undefined
   t: RowTranslate
@@ -279,7 +300,7 @@ function WorkspaceProjectRow({ workspaceId, ...props }: ProjectRowItemProps & { 
 
 function ProjectRow({
   group, containsCurrentDescendant = false, onToggle, drag: offeredDrag, home, newShortcut, t, actions,
-  renderFactorySlot, useContextMenuTarget, useContextMenu,
+  appearance, attention, renderFactorySlot, useContextMenuTarget, useContextMenu,
 }: Omit<ProjectRowItemProps, 'onCreate'> & { actions: ProjectRowActions }) {
   const { getTriggerProps } = useContextMenu()
   const drag = actions.reorder ? offeredDrag : undefined
@@ -295,6 +316,7 @@ function ProjectRow({
   const ownRow = (
     <div
       className={clsx(css.projectRow, menuOpen && css.menuOpen)}
+      style={appearanceStyle(appearance)}
       data-row-key={`workspace:${group.key}`}
       role="treeitem"
       aria-expanded={row.expanded}
@@ -311,8 +333,10 @@ function ProjectRow({
         }}
       onDragEnd={() => { if (dragPreview.clear()) drag?.end() }}
     >
-      <span className={clsx(css.slot, css.folder, active && css.folderActive)}>
-        {row.expanded ? <IconFolderOpenRegular /> : <IconFolderCloseRegular />}
+      <span className={clsx(css.slot, css.folder, active && appearance?.color === undefined && css.folderActive)}>
+        {appearance?.icon === undefined || appearance.icon === 'folder'
+          ? row.expanded ? <IconFolderOpenRegular /> : <IconFolderCloseRegular />
+          : <WorkspaceIconGlyph choice={appearance.icon} />}
       </span>
       <span className={clsx(css.slot, css.chevron)}>
         <IconTriangleRightFillRegular className={clsx(css.arrow, row.expanded && css.arrowOpen)} />
@@ -320,6 +344,7 @@ function ProjectRow({
       <span className={css.projectText}>
         <span className={css.title}>{label}</span>
       </span>
+      {attention !== undefined && <GroupAttentionDot attention={attention} t={t} />}
       <span className={css.rowActions}>
         {workspaceMenuTarget !== undefined && (
           renderFactorySlot('contextMenu.button', {
@@ -365,87 +390,125 @@ function ProjectRow({
   )
 }
 
-/* v8 ignore next 3 -- closed-union backstop; only reached if the status is forged */
-function assertNever(value: never): never {
-  throw new Error(`unknown pending interaction: ${String(value)}`)
-}
-
-interface SessionStatus {
-  state: StateDotState
-  label: string
-  /** Compact text that replaces the Session row's update time. */
-  trailingLabel?: string
-}
-
 /**
- * Session status presentation; pending interaction is primary and live activity
- * outranks completion reminders.
+ * One Chat Section header row: disclosure chevron, title, member count, and
+ * the section verbs (add chat, and the section menu). The header is the drop target
+ * that assigns a dragged Chat to this section, so it reports its own hover
+ * state through the drag wiring its list owner supplies. Its menu is the
+ * registry's `section` target, opened through the browser's `openSectionMenu`.
+ * @param props.section - derived section node.
+ * @param props.appearance - the section's chosen color and icon.
+ * @param props.dragActive - a compatible Chat or section drag is in flight.
+ * @param props.marker - current drop marker: assign into, insert above, or none.
+ * @param props.onToggle - collapse or expand the section.
+ * @param props.onDragOver - report a hovered drop boundary.
+ * @param props.onDrop - commit the drop on this header.
+ * @param props.drag - optional section-row drag wiring (reorder).
+ * @param props.openSectionMenu - open the section's registry menu at a point.
+ * @param props.useContextMenu - the browser root's menu bindings.
+ * @param props.useContextMenuTarget - whether the registry menu is open on this section.
+ * @param props.t - the browser root's locale seat.
+ * @returns the section header element.
  */
-function sessionStatuses(
-  node: Pick<SessionNode, 'pendingInteraction' | 'running' | 'runningSubagentCount' | 'completed' | 'failed'>,
-  t: RowTranslate,
-): readonly [SessionStatus, ...SessionStatus[]] {
-  const subagents: SessionStatus | undefined = node.runningSubagentCount === 0
-    ? undefined
-    : {
-      state: 'ongoing',
-      label: t(
-        node.runningSubagentCount === 1
-          ? 'status.subagentsRunning.one'
-          : 'status.subagentsRunning.other',
-        { n: node.runningSubagentCount },
-      ),
-    }
-  let pending: SessionStatus | undefined
-  switch (node.pendingInteraction) {
-    case 'approval':
-      pending = {
-        state: 'warning',
-        label: t('status.waitingApproval'),
-        trailingLabel: t('status.compact.approval'),
-      }
-      break
-    case 'plan-review':
-      pending = {
-        state: 'warning',
-        label: t('status.planReview'),
-        trailingLabel: t('status.compact.planReview'),
-      }
-      break
-    case 'question':
-      pending = {
-        state: 'warning',
-        label: t('status.waitingAnswer'),
-        trailingLabel: t('status.compact.answer'),
-      }
-      break
-    case undefined: break
-    /* v8 ignore next -- closed PendingInteractionStatus union */
-    default: return assertNever(node.pendingInteraction)
-  }
-  const completion: SessionStatus = node.failed
-    ? { state: 'error', label: t('status.failed') }
-    : { state: 'done', label: t('status.unread') }
-  const unread: SessionStatus[] = node.completed ? [completion] : []
-  if (pending !== undefined) return subagents === undefined ? [pending, ...unread] : [pending, subagents, ...unread]
-  if (node.running) {
-    const primary: SessionStatus = { state: 'ongoing', label: t('status.running') }
-    return subagents === undefined ? [primary, ...unread] : [primary, subagents, ...unread]
-  }
-  if (subagents !== undefined) return [subagents, ...unread]
-  if (node.completed) return [completion]
-  return [{ state: 'idle', label: t('status.idle') }]
-}
-
-/** Primary status dot plus every status's screen-reader label, shared by the search and session rows. */
-function SessionStatusDots({ statuses }: { statuses: readonly [SessionStatus, ...SessionStatus[]] }) {
+export function SectionHeaderItem({
+  section, appearance, dragActive = false, marker = null, onToggle, onDragOver, onDrop, onFileChat,
+  externalChatSessionId = null, drag, openSectionMenu, useContextMenu, useContextMenuTarget, t,
+}: {
+  section: SectionNode
+  appearance?: WorkspaceAppearance | undefined
+  dragActive?: boolean | undefined
+  marker?: 'before' | 'after' | 'inside' | null | undefined
+  onToggle: () => void
+  onDragOver?: ((half: 'before' | 'after') => void) | undefined
+  onDrop?: ((half: 'before' | 'after') => void) | undefined
+  onFileChat?: (() => void) | undefined
+  externalChatSessionId?: string | null | undefined
+  drag?: WorkspaceRowDragProps | undefined
+  openSectionMenu: WorkspaceBrowserProps['openSectionMenu']
+  useContextMenu: WorkspaceBrowserProps['useContextMenu']
+  useContextMenuTarget: WorkspaceBrowserProps['useContextMenuTarget']
+  t: RowTranslate
+}) {
+  const { getTriggerProps } = useContextMenu()
+  const menuOpen = useContextMenuTarget(target => target?.kind === 'section' && target.value.sectionId === section.id)
   return (
-    <>
-      <StateDot state={statuses[0].state} />
-      {statuses.map(status => (
-        <span className={css.visuallyHidden} key={status.label}>{status.label}</span>
-      ))}
-    </>
+    <div
+      className={clsx(
+        css.projectRow, css.sectionRow, menuOpen && css.menuOpen,
+        marker === 'before' && css.dropBefore, marker === 'after' && css.dropAfter,
+        marker === 'inside' && css.dropInside,
+      )}
+      style={appearanceStyle(appearance)}
+      role="treeitem"
+      aria-expanded={section.expanded}
+      aria-label={section.name}
+      onClick={onToggle}
+      {...getTriggerProps({ kind: 'section', value: { sectionId: section.id, displayTitle: section.name } })}
+      draggable={drag !== undefined}
+      onDragStart={drag === undefined
+        ? undefined
+        : (e) => {
+          e.dataTransfer.effectAllowed = 'move'
+          e.dataTransfer.setData('text/plain', section.id)
+          drag.start()
+        }}
+      onDragEnd={drag?.end}
+      onDragOver={(event) => {
+        if (onFileChat !== undefined && externalChatSessionId !== null) {
+          event.preventDefault()
+          event.stopPropagation()
+          event.dataTransfer.dropEffect = 'move'
+          return
+        }
+        if (!dragActive) return
+        event.preventDefault()
+        event.stopPropagation()
+        event.dataTransfer.dropEffect = 'move'
+        onDragOver?.(rowHalf(event))
+      }}
+      onDrop={(event) => {
+        if (onFileChat !== undefined && externalChatSessionId !== null) {
+          event.preventDefault()
+          event.stopPropagation()
+          onFileChat()
+          return
+        }
+        if (!dragActive) return
+        event.preventDefault()
+        event.stopPropagation()
+        onDrop?.(rowHalf(event))
+      }}
+    >
+      <span className={clsx(css.slot, css.sectionGlyph)}>
+        {appearance?.icon === undefined || appearance.icon === 'folder'
+          ? section.expanded ? <IconFolderOpenRegular /> : <IconFolderCloseRegular />
+          : <WorkspaceIconGlyph choice={appearance.icon} />}
+      </span>
+      <span className={clsx(css.slot, css.chevron)}>
+        <IconTriangleRightFillRegular className={clsx(css.arrow, section.expanded && css.arrowOpen)} />
+      </span>
+      <span className={css.projectText}>
+        <span className={css.title}>{section.name}</span>
+      </span>
+      <span className={css.sectionCount}>{t('section.count.other', { n: section.sessionCount })}</span>
+      <span className={css.rowActions}>
+        <button
+          type="button"
+          className={css.iconButton}
+          data-context-menu-trigger
+          aria-label={t('section.actions.aria', { name: section.name })}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          onClick={(e) => {
+            e.stopPropagation()
+            const rect = e.currentTarget.getBoundingClientRect()
+            openSectionMenu(section.id, section.name, { x: rect.left, y: rect.bottom }, 'toggle')
+          }}
+        >
+          <IconEllipsisOutlineRegular />
+        </button>
+      </span>
+    </div>
   )
 }
 
@@ -473,7 +536,7 @@ function SessionHoverContent({ node, cwd, now, renderSlot, t }: {
   t: RowTranslate
 }) {
   // Archived rows show live activity but suppress idle and unread reminders.
-  const statuses = sessionStatuses(node.archived ? { ...node, completed: false } : node, t)
+  const statuses = sessionStatuses(node.archived ? { ...node, completed: false, failed: false, runtimeFailed: false } : node, t)
     .filter(status => !(node.archived && status.state === 'idle'))
   return (
     <div className={css.hoverContent}>
@@ -590,6 +653,7 @@ export function SearchResultItem({
  * @param props.onReveal - scroll this row into view after search navigation, then acknowledge it.
  * @param props.drag - optional row-drag target wiring; blank rows, and rows whose access excludes
  * `workspace/insertSessionBefore`, cannot start a drag.
+ * @param props.appearance - the owning Workspace's appearance merged with the row's own choice.
  * @param props.home - host account home for POSIX hover-path abbreviation.
  * @param props.useSessionAccess - the browser root's Session access Hook; the title double-click
  * renames only while it allows `session/rename`.
@@ -598,7 +662,7 @@ export function SearchResultItem({
  */
 export function SessionNodeItem({
   node, currentId, now, onOpen, onRenameRequest, renderSlot, renderFactorySlot, useContextMenuTarget,
-  useContextMenu, onReveal, drag, home, useSessionAccess, t,
+  useContextMenu, onReveal, drag, appearance, home, useSessionAccess, t,
 }: {
   useContextMenu: WorkspaceBrowserProps['useContextMenu']
   renderFactorySlot: WorkspaceBrowserProps['renderFactorySlot']
@@ -613,6 +677,12 @@ export function SessionNodeItem({
   onReveal?: (() => void) | undefined
   /** Present on reorderable-list rows so every row can remain a drop target. */
   drag?: RowDragProps | undefined
+  /**
+   * The owning Workspace's appearance. Its icon leads the session title so a
+   * session stays identified with the Workspace it belongs to, and its color
+   * rides on that same glyph.
+   */
+  appearance?: WorkspaceAppearance | undefined
   /** Host account home; POSIX home-rooted hover paths display as `~`. */
   home?: string | undefined
   t: RowTranslate
@@ -629,6 +699,16 @@ export function SessionNodeItem({
   const statuses = sessionStatuses(node, t)
   const primaryStatus = statuses[0]
   const showStatus = primaryStatus.state !== 'idle'
+  // Live work reads as text beside the title; states with a compact trailing
+  // label already say so in the time cell.
+  const showStatusLabel = !row.blank && !row.archived && primaryStatus.trailingLabel === undefined
+    && (row.running || row.runningSubagentCount > 0)
+  // The folder choice is the default look and gets no session-level mark; any
+  // other choice leads the title so the row reads as part of that Workspace.
+  const iconChoice = appearance?.icon
+  const sessionGlyph = iconChoice === undefined || iconChoice === 'folder'
+    ? undefined
+    : <WorkspaceIconGlyph choice={iconChoice} />
   // Archived rows hold their in-place grayed slot, so manual reorder cannot
   // move them. Pinned rows drag within the pinned block: the browser gates
   // their drop targets to fellow pinned rows.
@@ -663,6 +743,7 @@ export function SessionNodeItem({
         row.archived && css.archived,
         drag?.marker === 'before' && css.dropBefore, drag?.marker === 'after' && css.dropAfter,
       )}
+      style={appearanceStyle(appearance)}
       role="treeitem"
       aria-selected={selected}
       aria-description={row.archived ? t('toast.archivedNotOpenable') : undefined}
@@ -692,6 +773,7 @@ export function SessionNodeItem({
         : (e) => {
           if (!drag.active) return
           e.preventDefault()
+          e.stopPropagation()
           e.dataTransfer.dropEffect = 'move'
           drag.hover(rowHalf(e))
         }}
@@ -700,6 +782,7 @@ export function SessionNodeItem({
         : (e) => {
           if (!drag.active) return
           e.preventDefault()
+          e.stopPropagation()
           drag.drop(rowHalf(e))
         }}
     >
@@ -710,9 +793,14 @@ export function SessionNodeItem({
           status stays on the hover card only. */}
       <span className={css.slot}>
         {!row.archived && !row.blank && (showStatus
-          ? <SessionStatusDots statuses={statuses} />
+          ? <SessionStatusDots statuses={statuses} visiblePrimary={showStatusLabel} />
           : renderSlot('sidebar.session.row.leading', { sessionId: node.id }))}
       </span>
+      {sessionGlyph !== undefined && (
+        <span className={clsx(css.slot, css.sessionGlyph)} style={appearanceStyle(appearance)}>
+          {sessionGlyph}
+        </span>
+      )}
       <span
         ref={titleRef}
         className={css.title}
@@ -733,6 +821,7 @@ export function SessionNodeItem({
       >
         {title}
       </span>
+      {showStatusLabel && <span className={css.statusLabel}>{primaryStatus.label}</span>}
       {/* Blank rows have no first prompt, so neither trailing details nor
           actions for existing content are available. */}
       {!row.blank && (

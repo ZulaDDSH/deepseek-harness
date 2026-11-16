@@ -235,6 +235,31 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'schedule/view': 'owner-only', // owner schedules
   'subagents/interruptByUser': 'owner-only', // owner subagents
   'subagents/prompt': 'owner-only', // owner subagents
+  'authorization/answer': 'owner-only', // owner authorization
+  'authorization/begin': 'owner-only', // owner authorization
+  'authorization/cancel': 'owner-only', // owner authorization
+  'authorization/list': 'owner-only', // owner authorization
+  'memoryWorkspace/graph': 'owner-only', // owner memory workspace
+  'memoryWorkspace/importDocument': 'owner-only', // owner memory workspace
+  'memoryWorkspace/inventory': 'owner-only', // owner memory workspace
+  'memoryWorkspace/page': 'owner-only', // owner memory workspace
+  'memoryWorkspace/retry': 'owner-only', // owner memory workspace
+  'memoryWorkspace/status': 'owner-only', // owner memory workspace
+  'pluginManager/addMcpServer': 'owner-only', // owner plugin management
+  'pluginManager/discoverMcpServers': 'owner-only', // owner plugin management
+  'pluginManager/listMcpServers': 'owner-only', // owner plugin management
+  'pluginManager/removeMcpServer': 'owner-only', // owner plugin management
+  'quota/fetch': 'owner-only', // owner quota
+  'quota/listProviders': 'owner-only', // owner quota
+  'session/externalChats': 'owner-only', // owner external chat import
+  'session/importChats': 'owner-only', // owner external chat import
+  'session/listHooks': 'owner-only', // owner session hooks
+  'session/setHookOverrides': 'owner-only', // owner session hooks
+  'session/listMcpConnectors': 'owner-only', // owner session MCP connectors
+  'session/selectMcp': 'owner-only', // owner session MCP connectors
+  'session/masterHome': 'owner-only', // owner master control
+  'session/setRunOptions': 'owner-only', // owner session run options
+  'terminal/cliProfiles': 'owner-only', // owner terminals
 
   // Owner share management stays on the owner's own page; a `share-viewer` Peer is refused first.
   'liveshareShares/audit': 'owner-only',

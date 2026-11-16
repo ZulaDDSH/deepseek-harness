@@ -27,6 +27,8 @@ import { SessionRenameDialog } from '../src/client/session-actions/RenameSession
 import { RowActionToast } from '../src/client/session-actions/RowActionToast.tsx'
 import type { ArchiveToastInjected, ToastDisplayInjected } from '../src/client/contract/toast.ts'
 import { WorkspacePicker } from '../src/client/WorkspacePicker.tsx'
+import { QuickSwitcher } from '../src/client/QuickSwitcher.tsx'
+import type { QuickSwitcherInjected } from '../src/client/QuickSwitcher.tsx'
 import { FLAT_SESSION_ORDER_KEY } from '../src/client/stores.ts'
 import { UNGROUPED_KEY } from '../src/client/tree.ts'
 import { apply as hostApply } from '../src/index.ts'
@@ -86,6 +88,13 @@ async function bench(access: 'fake' | 'static' = 'fake') {
   const rename = vi.fn(async () => ({}))
   const selectPanel = vi.fn()
   ctx.provide('layout', { selectPanel, beginNavigation: () => new AbortController().signal })
+  ctx.provide('uiSession', {
+    sessionStatus: { getSnapshot: () => new Map(), subscribe: () => () => {} },
+  } as never)
+  ctx.provide('commandUi', {
+    quickCommands: vi.fn(async () => []),
+    runQuick: vi.fn(() => true),
+  } as never)
   const search = vi.fn(async () => ({
     ok: true as const,
     value: { items: [{ sessionId: 'session' as never, snippet: 'match' }], hasMore: false },
@@ -246,7 +255,7 @@ describe('ui-workspace apply', () => {
   it('declares the services it drives', () => {
     expect(inject).toEqual(['contextMenus',
       'slots', 'sessions', 'workspaces', 'locale', 'remote', 'remote.directoryPicker', 'layout', 'shortcuts', 'remoteAccess',
-      'uiSession', 'uiSession.sessionStatus',
+      'uiSession', 'uiSession.sessionStatus', 'commandUi',
     ])
   })
 
@@ -313,7 +322,7 @@ describe('ui-workspace apply', () => {
     // The row actions follow the browser's own declaration, whenever it lands.
     expect(after.slots.entries(MENU_ITEM)).toHaveLength(0)
     expect(after.slots.entries(ROW_ACTION)).toHaveLength(2)
-    expect(after.slots.entries('shell.overlay')).toHaveLength(3)
+    expect(after.slots.entries('shell.overlay')).toHaveLength(4)
   })
 
   it('declares the two Session row lists and registers the shipped actions and overlay surfaces into them', async () => {
@@ -340,6 +349,7 @@ describe('ui-workspace apply', () => {
       ['workspace.session-rename', undefined, SessionRenameDialog, 'workspace'],
       ['workspace.session-archive', undefined, SessionArchiveConfirmDialog, 'workspace'],
       ['workspace.row-toast', undefined, RowActionToast, undefined],
+      ['workspace-quick-switcher', 10, QuickSwitcher, 'workspace'],
     ])
     // Only archive notice entries share the browser's viewing store.
     const browser = b.slots.entries('sidebar.workspaces')[0]!
@@ -727,6 +737,26 @@ describe('ui-workspace apply', () => {
     expect(unarchiveSession).toHaveBeenCalledWith('session')
   })
 
+  it('registers the root quick switcher and routes its actions through existing services', async () => {
+    const b = await bench()
+    declare(b.slots, 'shell.overlay')
+    const quickCommands = vi.spyOn(b.ctx.get('commandUi') as never, 'quickCommands')
+    const runQuick = vi.spyOn(b.ctx.get('commandUi') as never, 'runQuick')
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+
+    const entry = b.slots.entries('shell.overlay').find(item => item.options.id === 'workspace-quick-switcher')
+    expect(entry?.component).toBe(QuickSwitcher)
+    const injected = entry!.inject!() as Partial<QuickSwitcherInjected>
+    if (injected.quickCommands === undefined || injected.runQuick === undefined) {
+      throw new Error('quick switcher actions are missing')
+    }
+    const signal = new AbortController().signal
+    await injected.quickCommands('session' as never, 'plan', signal)
+    expect(quickCommands).toHaveBeenCalledWith('session', 'plan', signal)
+    injected.runQuick('session' as never, 'plan')
+    expect(runQuick).toHaveBeenCalledWith('session', 'plan')
+  })
+
   it.each(['absent', 'cold', 'loading', 'error', 'closed'] as const)(
     'forks a %s source without opening it locally', async (state) => {
       const b = await bench()
@@ -972,7 +1002,7 @@ describe('ui-workspace apply', () => {
     await fiber.await()
     expect(b.slots.entries(MENU_ITEM)).toHaveLength(0)
     expect(b.slots.entries(ROW_ACTION)).toHaveLength(2)
-    expect(b.slots.entries('shell.overlay')).toHaveLength(3)
+    expect(b.slots.entries('shell.overlay')).toHaveLength(4)
     await fiber.dispose()
     expect(b.slots.entries('sidebar.workspaces')).toHaveLength(0)
     expect(b.slots.entries('conversation.hero.workspace')).toHaveLength(0)
@@ -1058,7 +1088,9 @@ it('captures Workspace menu requests, rechecks mutable access, and withdraws reg
   const target = { kind: 'workspace' as const, value: { workspaceId: 'alpha' as WorkspaceId, path: '/projects/alpha', displayTitle: 'Alpha' } }
   const menu = b.ctx.contextMenus.resolve(target)
   await menu.ready
-  expect(menu.source.getSnapshot().map(item => item.id)).toEqual(['workspace.rename/rename', 'workspace.delete/delete'])
+  expect(menu.source.getSnapshot().map(item => item.id)).toEqual([
+    'workspace.appearance/color', 'workspace.appearance/icon', 'workspace.rename/rename', 'workspace.delete/delete',
+  ])
   menu.select('workspace.rename/rename')
   expect(browser.hooks.workspaceActionRequest.getSnapshot()).toEqual({ action: 'rename', workspaceId: 'alpha', displayTitle: 'Alpha', storedTitle: 'alpha' })
   browser.settleWorkspaceAction()

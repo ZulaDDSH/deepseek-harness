@@ -1,6 +1,7 @@
 /** Validate workspace-change records that cross the Host routes and address their summary, comparison, and native-open actions. */
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { WorkspaceChangedFile, WorkspaceChangesSummary, WorkspaceDiffHunk, WorkspaceFileDiff } from '@deepseek-ai/dsh-workspace-changes/types'
+import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
+import type { WorkspaceChangedFile, WorkspaceChangesSummary, WorkspaceDiffHunk, WorkspaceFileDiff, WorkspaceStatusFile } from '@deepseek-ai/dsh-workspace-changes/types'
 
 /** Authenticated GET route serving one announced change summary while its Session lives. */
 export const CHANGED_FILES_PATH = '/api/changes.summary'
@@ -10,6 +11,12 @@ export const CHANGES_DIFF_PATH = '/api/changes.diff'
 
 /** Authenticated POST route for opening a changed file on the Host desktop. */
 export const CHANGES_OPEN_PATH = '/api/changes.open'
+
+/** Authenticated GET route serving current git status for one registered Workspace. */
+export const WORKSPACE_STATUS_PATH = '/api/workspace.status'
+
+/** Authenticated GET route serving one current git comparison for a registered Workspace. */
+export const WORKSPACE_DIFF_PATH = '/api/workspace.diff'
 
 /**
  * Browser-relative form of {@link CHANGED_FILES_PATH}; see
@@ -23,6 +30,12 @@ export const CHANGES_DIFF_ROUTE = CHANGES_DIFF_PATH.slice(1)
 /** Browser-relative form of {@link CHANGES_OPEN_PATH}. */
 export const CHANGES_OPEN_ROUTE = CHANGES_OPEN_PATH.slice(1)
 
+/** Browser-relative form of {@link WORKSPACE_STATUS_PATH}. */
+export const WORKSPACE_STATUS_ROUTE = WORKSPACE_STATUS_PATH.slice(1)
+
+/** Browser-relative form of {@link WORKSPACE_DIFF_PATH}. */
+export const WORKSPACE_DIFF_ROUTE = WORKSPACE_DIFF_PATH.slice(1)
+
 /** Resource-address prefix of a turn's review tab in the right Sidebar. */
 export const CHANGES_REVIEW_ADDRESS = 'dsh-resource://changes-review/session/'
 
@@ -31,6 +44,19 @@ export type ChangesSummary = Pick<WorkspaceChangesSummary, 'turn' | 'files' | 't
 
 /** The comparison the route serves, as the Host computed it. */
 export type ChangesDiff = WorkspaceFileDiff
+
+/** Current status fields exposed to the browser without Host paths. */
+export interface WorkspaceStatusValue {
+  workspaceId: WorkspaceId
+  branch?: string
+  files: WorkspaceStatusFile[]
+  total: number
+  added: number
+  deleted: number
+}
+
+/** Current comparison returned by the workspace diff route. */
+export type WorkspaceDiff = WorkspaceFileDiff
 
 /** Coordinates of one turn's review: the viewed Session, the announcing event, and the turn it summarized. */
 export interface ChangesReviewCoordinates {
@@ -55,6 +81,35 @@ export function isChangedFile(value: unknown): value is WorkspaceChangedFile {
   return typeof path === 'string' && path.length > 0 && typeof display === 'string' && display.length > 0
     && Number.isSafeInteger(added) && Number.isSafeInteger(deleted)
     && (binary === undefined || binary === true) && (oversized === undefined || oversized === true)
+}
+
+/**
+ * Validate one current repository status file.
+ * @param value - decoded JSON candidate.
+ * @returns whether the value is a valid status-file record.
+ */
+export function isWorkspaceStatusFile(value: unknown): value is WorkspaceStatusFile {
+  if (!isRecord(value)) return false
+  const { path, display, index, worktree, oldPath, added, deleted, binary } = value
+  return typeof path === 'string' && path.length > 0 && typeof display === 'string' && display.length > 0
+    && typeof index === 'string' && index.length === 1 && typeof worktree === 'string' && worktree.length === 1
+    && (oldPath === undefined || typeof oldPath === 'string')
+    && Number.isSafeInteger(added) && Number.isSafeInteger(deleted)
+    && (binary === undefined || binary === true)
+}
+
+/**
+ * Validate current repository status returned by the Host.
+ * @param value - decoded JSON candidate.
+ * @returns whether the value is a valid Workspace status response.
+ */
+export function isWorkspaceStatus(value: unknown): value is WorkspaceStatusValue {
+  if (!isRecord(value)) return false
+  const { workspaceId, branch, files, total, added, deleted } = value
+  return typeof workspaceId === 'string' && workspaceId.length > 0
+    && (branch === undefined || typeof branch === 'string')
+    && Number.isSafeInteger(total) && Number.isSafeInteger(added) && Number.isSafeInteger(deleted)
+    && Array.isArray(files) && files.every(isWorkspaceStatusFile)
 }
 
 /**
@@ -100,6 +155,25 @@ export function isChangesDiff(value: unknown): value is ChangesDiff {
  */
 export function isChangesEvent(value: unknown): value is { turn: number } {
   return isRecord(value) && Number.isSafeInteger(value.turn) && (value.turn as number) >= 1
+}
+
+/**
+ * Build the authenticated status URL for one registered Workspace.
+ * @param workspaceId - registered Workspace identity.
+ * @returns document-relative status route.
+ */
+export function workspaceStatusUrl(workspaceId: WorkspaceId): string {
+  return `${WORKSPACE_STATUS_ROUTE}?${new URLSearchParams({ workspaceId })}`
+}
+
+/**
+ * Build the authenticated current-diff URL for one status-file index.
+ * @param workspaceId - registered Workspace identity.
+ * @param index - status-file index in the current status response.
+ * @returns document-relative current-diff route.
+ */
+export function workspaceDiffUrl(workspaceId: WorkspaceId, index: number): string {
+  return `${WORKSPACE_DIFF_ROUTE}?${new URLSearchParams({ workspaceId, index: String(index) })}`
 }
 
 /**

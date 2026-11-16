@@ -8,6 +8,7 @@ import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { en } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
 import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
 import { detailsCardModel, todosDetail } from '../src/client/tool/models/details-card-model.ts'
+import { subagentProvider, toolViewKey } from '../src/client/tool/models/tool-call-model.ts'
 import { DetailsRow, detailsToolview } from '../src/client/tool/toolviews/details-row.tsx'
 import { useDisclosure } from '@deepseek-ai/dsh-client-ui-chat/src/client/chat/use-disclosure.ts'
 import { PartialArguments } from '@deepseek-ai/dsh-util-values'
@@ -152,6 +153,18 @@ describe('todosDetail', () => {
   })
 })
 
+describe('toolViewKey', () => {
+  it('maps every delegation instance to the subagent presentation and keeps other names', () => {
+    for (const name of ['subagent', 'subagent_codex', 'subagent_claude_code']) expect(toolViewKey(name)).toBe('subagent')
+    expect(toolViewKey('subagent_fork')).toBe('subagent_fork')
+    for (const name of ['list_subagent_models', 'subagent_inspect', 'bash']) expect(toolViewKey(name)).toBe(name)
+    expect(subagentProvider('subagent')).toBeUndefined()
+    expect(subagentProvider('subagent_fork')).toBeUndefined()
+    expect(subagentProvider('subagent_claude_code')).toBe('claude-code')
+    expect(subagentProvider('subagent_codex_primary')).toBe('codex-primary')
+  })
+})
+
 describe('DetailsRow', () => {
   it('shows the full agent description above its name without a disclosure', () => {
     const description = 'Verify every construction bound. '.repeat(20)
@@ -209,6 +222,22 @@ describe('DetailsRow', () => {
     render(<DetailsRow {...{ useDisclosure, toolName: 'wait_agent', block, t } as Parameters<typeof DetailsRow>[0]} />)
     const header = screen.getByRole('button', { expanded: false })
     expect(header.textContent).toBe('Waiting for messages…')
+  })
+
+  it('presents every configured delegation tool as a subagent with its provider', () => {
+    const block: ToolResultNode = {
+      kind: 'tool-result', seq: 10, time: 2000, callTime: 1000, callId: 'c1',
+      name: 'subagent_claude_code', args: PartialArguments.fromText('{"prompt":"Audit the parser"}'),
+      call: { name: 'subagent_claude_code', argsRaw: '{"prompt":"Audit the parser"}' },
+      content: [{ type: 'text', text: 'Found **two** issues' }], isError: false, subCalls: [],
+    }
+    render(<DetailsRow {...{ useDisclosure, toolName: 'subagent_claude_code', block, t } as Parameters<typeof DetailsRow>[0]} />)
+    expect(screen.getByText('Create subagent')).toBeTruthy()
+    fireEvent.keyDown(screen.getByRole('button', { expanded: false }), { key: 'Enter' })
+    expect(screen.getAllByText('Agent response').length).toBeGreaterThan(0)
+    expect(screen.getByText('Provider')).toBeTruthy()
+    expect(screen.getByText('claude-code')).toBeTruthy()
+    expect(screen.getByText('two').tagName).toBe('STRONG')
   })
 
   it('registers the supported tool names through the scoped keyed slot', () => {

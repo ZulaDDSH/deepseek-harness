@@ -1,8 +1,6 @@
 import { defineConfig } from 'tsdown'
-import { build } from 'vite'
 import { fileURLToPath } from 'node:url'
-import { readFileSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import { copyFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { repositoryClientBuildEnvironment, resolveClientBuildEnvironment } from '../../scripts/client-build-environment.ts'
 import { packagedImportsPlugin } from './scripts/desktop-bundle-imports.mjs'
 
@@ -57,36 +55,12 @@ export default defineConfig([
     entry: ['lib/types/main.js'],
     plugins: [packagedImportsPlugin(mainProcessImports)],
     define: clientVersionDefine,
-    onSuccess: async () => {
-      await build({
-        configFile: false,
-        plugins: [{
-          name: 'desktop-shell-assets',
-          async generateBundle() {
-            for (const name of ['design-platform.css', 'brand-font.css', 'montserrat-regular.woff2', 'montserrat-light.woff2', 'montserrat-medium.woff2', 'Montserrat-OFL.txt']) {
-              this.emitFile({
-                type: 'asset',
-                fileName: name,
-                source: await readFile(new URL(`../../packages/client/ui-theme/src/styles/${name}`, import.meta.url)),
-              })
-            }
-          },
-        }],
-        root: fileURLToPath(new URL('.', import.meta.url)),
-        esbuild: { jsx: 'automatic' },
-        define: { 'process.env.NODE_ENV': JSON.stringify('production') },
-        build: {
-          outDir: 'lib/welcome',
-          emptyOutDir: true,
-          lib: {
-            entry: 'src/client/welcome.tsx',
-            formats: ['iife'],
-            name: 'DesktopWelcome',
-            fileName: () => 'welcome.js',
-            cssFileName: 'welcome',
-          },
-        },
-      })
+    onSuccess: () => {
+      mkdirSync(new URL('./lib/welcome/', import.meta.url), { recursive: true })
+      copyFileSync(
+        new URL('../../packages/client/ui-theme/src/styles/design-platform.css', import.meta.url),
+        new URL('./lib/welcome/design-platform.css', import.meta.url),
+      )
     },
     outDir: 'lib',
     format: ['esm'],
@@ -97,7 +71,7 @@ export default defineConfig([
     clean: false,
     deps: { neverBundle: ['electron'] },
   },
-  ...(['preload-app', 'preload-welcome', 'preload-platform-account', 'preload-mandatory', 'preload-update-dialog'] as const).map(name => ({
+  ...(['preload-app', 'preload-platform-account', 'preload-mandatory', 'preload-update-dialog'] as const).map(name => ({
     // Sandboxed Electron preloads run as CommonJS even though the application package is ESM.
     entry: { [name]: `lib/types/${name}.js` },
     plugins: [packagedImportsPlugin(preloadImports)],

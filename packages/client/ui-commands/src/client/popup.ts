@@ -26,6 +26,7 @@ import { groupOptions } from './option-groups.ts'
 export type TokenSegment =
   | { readonly via: 'menu'; readonly span: TokenSpan }
   | { readonly via: 'enter'; readonly token: string }
+  | { readonly via: 'quick' }
 
 /**
  * Structural business spec the shell settles against — the popupSelect half

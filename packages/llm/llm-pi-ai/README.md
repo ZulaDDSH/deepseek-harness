@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-llm-pi-ai
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 `@deepseek-ai/dsh-llm-pi-ai` routes model requests to multiple pi-ai providers, OpenAI-compatible gateways, or self-hosted servers from one configuration. Installed pi-ai providers supply endpoint, protocol, and model-catalog defaults; custom routes can declare those values without code changes. Profiles and credentials are resolved for each request, so settings changes take effect on the next request without a restart. Supported providers can use stored OAuth or interactive-key sign-in with cross-process refresh locking. The package may start with no routes and activate when user settings add them.
@@ -26,6 +24,10 @@ English | [中文](README.zh.md)
 ## Use this package
 
 Mount this plugin when a composition routes model requests through pi-ai's provider catalogs or through gateways that pi-ai's installed catalog does not describe. The `providers` dictionary is the whole configuration surface: each key is the provider route name a request selects with `GenerateOptions.provider`.
+
+Pinned catalog display names omit “latest”; user-configured names are preserved. When the quota controller is mounted, the Codex route reports account limits using its inference OAuth account and serialized token refresh. The provider validates window durations and reset timestamps; unavailable data remains an error rather than zero usage. The ChatGPT usage endpoint is an internal backend API and may change.
+
+The offline catalog includes Claude Opus 5.5 and Sonnet 5.5 on `anthropic`, and GPT-6.1 Sol on `openai` and `openai-codex`. Existing catalog models remain available.
 
 The adapter accepts the LLM service's [request-only user inputs](../llm/README.md#use-this-package) alongside durable history. User identity and attribution do not enter pi-ai content; assistant replay metadata and tool-call correlation remain attached to durable messages.
 
@@ -53,6 +55,12 @@ Each profile may set a `retryPolicy`; omission uses normal mode with five retrie
         retryPolicy:
           mode: normal
           maxRetries: 3
+      openai-codex:
+        modelOverrides:
+          gpt-5.6-luna:
+            modes:
+              fast:
+                serviceTier: fast
       anthropic:
         apiKeyEnv: ANTHROPIC_API_KEY
         models:
@@ -81,7 +89,7 @@ Each profile may set a `retryPolicy`; omission uses normal mode with five retrie
 | `api` | catalog protocol | Wire protocol; only needed for routes the catalog does not supply |
 | `baseURL` | catalog endpoint | Endpoint of every model on the route |
 | `models` | installed catalog | Replaces the route's catalog wholesale; each entry defaults from the installed model |
-| `modelOverrides` | none | Reshapes individual installed-catalog models without replacing the rest |
+| `modelOverrides` | none | Reshapes individual installed-catalog models or adds their request modes without replacing the rest |
 | `compat` | catalog detection | Wire-compatibility switches for unrecognized endpoints |
 | `defaultContextWindow` | `1,000,000` | Capacity fallback for undescribed models |
 | `defaultMaxTokens` | `128,000` | Output-cap fallback for undescribed models |
@@ -102,6 +110,8 @@ A provider pi-ai ships a login for can be signed into through the harness author
 
 A profile's `models` list replaces the route's installed catalog rather than extending it; each entry defaults its unset fields from the installed model of the same id, so narrowing a route to two models, correcting one capacity, or adding a model newer than the installed catalog are one-line edits. `modelOverrides` reshapes individual installed-catalog models without that cost — correct one model, keep the other thirty-seven — and is refused when set beside a `models` list, on a hand-declared route, or naming a model the catalog does not describe, because a silently unchanged model would be a typo someone hunts for later.
 
+A model can declare selectable request modes under `modes`. The selector adds an entry named `<id>-<mode>`; for example, the configuration above offers `gpt-5.6-luna-fast`. A mode keeps the provider's base model id and sends its configured `serviceTier` as `service_tier`; modes are supported by `openai-codex-responses` and `openai-responses`.
+
 ### Run with reasoning and wire compatibility
 
 `reasoningEfforts` declares a model's selectable thinking levels: each key is a level selectors offer, its value the spelling dispatch sends on the wire, so `max: ultra` renames a level for a gateway with its own vocabulary. Omitting the field keeps the installed catalog entry's capability; `false` declares a non-reasoning model. `compat` switches reshape the request for endpoints pi-ai cannot recognize — which role carries the system prompt, which field caps output, how a thinking level travels — configurable per route and per model. A model neither the entry nor the installed catalog sizes takes the route's `defaultContextWindow` and `defaultMaxTokens` fallbacks.
@@ -109,6 +119,8 @@ A profile's `models` list replaces the route's installed catalog rather than ext
 Exact-model metadata lists `reasoning.efforts` from least to greatest selectable effort. A configuration function can select from that list before `prepareCall()` validates the concrete effort. The adapter receives only the resolved controls. Selecting `off` does not guarantee disabled reasoning: a protocol that expresses it by omitting the reasoning field leaves the gateway's default in effect. Reasoning tokens at any selected level count toward the request's output cap.
 
 For self-hosted Chat Completions endpoints, `thinkingTokenBudgetField` selects the reasoning-budget parameter, and `vllmPriority` sets an integer scheduler priority when the server enables priority scheduling. Template arguments accept `$var: thinking.budget`. `openai-responses` gateways can set `supportsMaxOutputTokens: false` to omit `max_output_tokens`; Azure and Codex transports ignore this shared compatibility field. These controls are opt-in; catalog-owned Anthropic effort and fallback capabilities are not configurable switches.
+
+A call with no level keeps the provider default: adaptive Anthropic models send adaptive thinking with no effort field (so the model default applies), manual-budget Anthropic models send no thinking field, OpenAI Responses sends no `reasoning` field, Codex keeps `reasoning` with only its summary, and DeepSeek chat-completions routes send no `thinking` field. An explicit `off` still sends the provider's off value. Adaptive Anthropic models send the requested level as `output_config.effort`, including Claude 5.5, whose mid-conversation effort is set to the same level. Anthropic has no `minimal` level, and Codex maps it to `low`, so neither offers it.
 
 ### Change configuration at runtime
 
@@ -121,6 +133,8 @@ The plugin answers "which models can this provider serve?" for a route a configu
 ### Failures and recovery
 
 A route pi-ai does not ship needs `api`, `baseURL`, and a non-empty `models` list; an unserviceable profile is refused where it is written, naming the route and model. Failures carry stable codes: a credential that cannot be used fails with `INVALID_CREDENTIAL` naming the route and reference, a route whose `apiKeyEnv` reference resolves to nothing fails with `MISSING_CREDENTIAL`, an unconfigured model fails with `UNKNOWN_MODEL`, and terminal provider failures distinguish `QUOTA` from transient `RATE_LIMIT`. `GenerateOptions.stop` is rejected with `UNSUPPORTED_OPTION` because pi-ai's common streaming UI cannot guarantee it across providers.
+
+A completed answer is never discarded for exceeding the catalog `contextWindow`. Usage above the window maps to `CONTEXT_WINDOW_EXCEEDED` only when the completion is unusable: a `stop` without non-empty text or a tool call, or a zero-output `length` that fills the window. Otherwise the plugin logs one warning per route that the catalog window is lower than what the provider accepted. Codex WebSocket drops (`WebSocket error`, `WebSocket closed …`, `WebSocket stream closed before response.completed`) are transient `TRANSPORT` failures, while close code 1009 (message too big) is `INVALID_REQUEST`.
 
 Config updates strictly validate changed providers. Initial loading retains stored catalog failures as editable provider diagnostics; unchanged failed providers do not block edits elsewhere. Serviceable models remain selectable, and unresolved models fail before network I/O. Repairing or deleting the offending configuration clears its diagnostic.
 

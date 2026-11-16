@@ -10,6 +10,8 @@ import WorktreeService from '../src/index.ts'
 import type { RestoreWorktreeRequest } from '../src/index.ts'
 import { contents, git, harness, repository, testAgent } from './harness.ts'
 
+vi.setConfig({ testTimeout: 30_000 })
+
 let ctx: Context | undefined
 const roots: string[] = []
 

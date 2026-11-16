@@ -6,6 +6,9 @@ export const DEFAULT_VIEW_ID = 'chat'
 /** Registered identity of the trajectory View. */
 export const TRAJECTORY_VIEW_ID = 'trajectory'
 
+/** Registered identity of the Subagent Setup View. */
+export const SUBAGENT_SETUP_VIEW_ID = 'subagent-setup'
+
 /**
  * Resolve a preferred registered View, then Chat, without choosing another View.
  * @param tabs - currently registered Views.

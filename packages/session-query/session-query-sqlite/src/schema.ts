@@ -1,7 +1,7 @@
 /** SQLite schema for the disposable session full-text read model. */
 
 import type { DatabaseSync } from 'node:sqlite'
-import { mkdir, open } from 'node:fs/promises'
+import { mkdir, open, rm } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 
 /** Current derived-index schema version. Incompatible versions reset in place. */
@@ -35,6 +35,45 @@ async function createDatabaseFile(path: string): Promise<void> {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
   }
+}
+
+const SQLITE_MAGIC = Buffer.from('SQLite format 3\u0000')
+const SQLITE_APPLICATION_ID_OFFSET = 68
+
+/** Whether the file at `path` is absent, empty, or a SQLite database that is not another application's. */
+async function isDerivedIndexFile(path: string): Promise<boolean> {
+  try {
+    const handle = await open(path, 'r')
+    try {
+      const header = Buffer.alloc(SQLITE_APPLICATION_ID_OFFSET + 4)
+      const { bytesRead } = await handle.read(header, 0, header.length, 0)
+      if (bytesRead === 0) return true
+      if (bytesRead < header.length || !header.subarray(0, SQLITE_MAGIC.length).equals(SQLITE_MAGIC)) return false
+      const applicationId = header.readUInt32BE(SQLITE_APPLICATION_ID_OFFSET)
+      return applicationId === 0 || applicationId === SESSION_QUERY_SQLITE_APPLICATION_ID
+    } finally {
+      await handle.close()
+    }
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ENOENT'
+  }
+}
+
+/**
+ * Delete a derived index and its SQLite sidecar files. Absent files are not an
+ * error, `:memory:` has none to remove, and a file at `path` that is not this
+ * application's SQLite index is left alone along with its would-be sidecars.
+ * @param path - the configured derived-index path.
+ * @returns whether the path held an index (or nothing) and was cleared.
+ */
+export async function removeIndexFiles(path: string): Promise<boolean> {
+  if (path === ':memory:') return true
+  const actual = resolve(path)
+  if (!await isDerivedIndexFile(actual)) return false
+  for (const suffix of ['', '-wal', '-shm', '-journal']) {
+    await rm(`${actual}${suffix}`, { force: true })
+  }
+  return true
 }
 
 /**

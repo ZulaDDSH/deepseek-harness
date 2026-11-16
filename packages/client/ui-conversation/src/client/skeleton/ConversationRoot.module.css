@@ -35,9 +35,6 @@
   padding-bottom: 10px;
 }
 
-/* Blank Sessions retain navigation controls without conversation title or tabs.
-   The same 40px row (10px inset + 30px title row) applies before a Session
-   exists, so the Hero centers below one header height in both states. */
 .headerBlank {
   min-height: 0;
   padding-bottom: 0;

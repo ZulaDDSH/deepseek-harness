@@ -86,6 +86,9 @@
       "path": "../workspace-files/tsconfig.client.json"
     },
     {
+      "path": "../quota-controller/tsconfig.client.json"
+    },
+    {
       "path": "../settings-controller"
     },
     {
@@ -117,6 +120,9 @@
     },
     {
       "path": "../../web/web"
+    },
+    {
+      "path": "../../knowledge/knowledge-router"
     }
   ]
 }

@@ -1,6 +1,8 @@
 import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import { createUserMessage, type ToolCallId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { ALL_HOOKS, type HookInventoryReport } from '@deepseek-ai/dsh-hook-protocol'
+import type { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import { provideWorkingDirectoryFixture, mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -50,7 +52,7 @@ async function harness(configPath: string, adapter: MockAdapter, opts: HarnessOp
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
-  await ctx.plugin(HooksCodex, { configPath, model: 'm', ...opts })
+  await ctx.plugin(HooksCodex, { configPath, model: 'm', enabledHooks: [ALL_HOOKS], ...opts })
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx
 }
@@ -252,7 +254,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
   })
 
   if (selected.has('result-shape')) describe('hooks-codex coverage — hook result shape and configuration', () => {
-    it('PreToolUse for a tool call WITHOUT a command arg passes an empty command (commandOf non-object/missing arm)', async () => {
+    it('PreToolUse accepts a tool call without a command argument', async () => {
       const d = dir()
       hooks(d, { PreToolUse: [{ hooks: [{ type: 'command', command: sh(d, 'pre.sh', '#!/usr/bin/env bash\ncat >/dev/null\nexit 0\n') }] }] })
       const adapter = new MockAdapter([toolCallResponse('c1', 'Bash', {}), textResponse('done')]) // no command arg
@@ -261,7 +263,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       ctx.tools.register(defineContentToolFixture({ name: 'Bash', description: 'b', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
       const agent = await ctx.agentLoop.create(brandString<SessionId>('a1'), { provider: 'mock', model: 'mock' })
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
-      expect(ran).toBe(true) // clean-exit hook allows; commandOf returned ''
+      expect(ran).toBe(true)
     })
 
     it('a clean exit-0 hook records exitCode 0 and omits stderrSummary', async () => {
@@ -329,12 +331,36 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
       ctx.logger.warn = warn as never
       // Direct apply (schema bypass) → the `model ?? ''` fallback is exercised.
-      HooksCodex.apply(ctx, { configPath: join(d, 'hooks.json') })
+      HooksCodex.apply(ctx, { configPath: join(d, 'hooks.json'), enabledHooks: { get: () => [ALL_HOOKS] } })
       ctx.llm.registerAdapter(['mock'], adapter)
       const agent = await ctx.agentLoop.create(brandString<SessionId>('a1'), { provider: 'mock', model: 'mock' })
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       expect(existsSync(marker)).toBe(true)
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('async hook'))
+      const reports: HookInventoryReport[] = []
+      ctx.emit('hooks/inventory', reports)
+      expect(reports[0]?.handlers.some(handler => handler.disabled === true)).toBe(false)
+    })
+
+    it('a direct apply() without enabledHooks skips the hook and reports it disabled', async () => {
+      const d = dir()
+      const marker = join(d, 'ran')
+      hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: sh(d, 'h.sh', `#!/usr/bin/env bash\ntouch "${marker}"\n`) }] }] })
+      const ctx = new Context()
+      await mountAgentLoopTestDependencies(ctx)
+      await ctx.plugin(AgentLoop, { agents: [] })
+      await ctx.plugin(LocalSubprocessRuntime)
+      await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
+      HooksCodex.apply(ctx, { configPath: join(d, 'hooks.json') })
+      ctx.llm.registerAdapter(['mock'], new MockAdapter([textResponse('ok')]))
+      const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+      await waitForIdle(ctx, agent)
+      expect(existsSync(marker)).toBe(false)
+      const reports: HookInventoryReport[] = []
+      ctx.emit('hooks/inventory', reports)
+      expect(reports).toEqual([expect.objectContaining({ dialect: 'codex', status: 'loaded', handlers: [expect.objectContaining({ disabled: true })] })])
+      expect(reports[0]).not.toHaveProperty('settingsNs')
     })
 
     it('a no-op clean hook proceeds (contextFrom empty → next)', async () => {
@@ -412,10 +438,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       expect(events(agent).some(e => e.type === 'hook/invoked')).toBe(false)
     })
 
-    it('a {"continue":false} hook is RECORDED as "stop" but does not halt the run (TODO(hook-continue-false))', async () => {
-    // Honoring `continue:false` is deferred — the extension points have no hard-halt
-    // primitive. Assert the LOG records the halt request AND that the run is not
-    // actually halted (the tool still runs, the turn completes).
+    it('a {"continue":false} PreToolUse hook halts the run', async () => {
       const d = dir()
       hooks(d, { PreToolUse: [{ hooks: [{ type: 'command', command: sh(d, 's.sh', '#!/usr/bin/env bash\necho \'{"continue":false,"stopReason":"halt"}\'\n') }] }] })
       const adapter = new MockAdapter([toolCallResponse('c1', 'Bash', { command: 'x' }), textResponse('done')])
@@ -425,8 +448,10 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const agent = await ctx.agentLoop.create(brandString<SessionId>('a1'), { provider: 'mock', model: 'mock' })
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       const res = events(agent).find(e => e.type === 'hook/result')
-      expect(res?.type === 'hook/result' && res.data.decision).toBe('stop') // recorded
-      expect(ran).toBe(true) // NOT honored: the tool still ran (halt is deferred)
+      expect(res?.type === 'hook/result' && res.data.decision).toBe('stop')
+      expect(ran).toBe(false)
+      const turnEnd = events(agent).findLast(e => e.type === 'turn/end')
+      expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted', reason: { kind: 'hook', reason: 'halt' } })
     })
 
     it('PreToolUse deny with EMPTY stderr uses the default reason (?? right arm)', async () => {
@@ -456,10 +481,8 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       expect(events(agent).some(e => e.type === 'user/message' && e.data.source.kind !== 'user' && e.data.content.some(b => b.type === 'text' && b.text.includes('ctx too')))).toBe(true)
     })
 
-    it('commandOf reads a non-string command arg as an empty command', async () => {
+    it('preserves a non-string command argument for the hook to validate', async () => {
       const d = dir()
-      // The tool-call arguments carry `command` as a NUMBER → commandOf's
-      // `typeof command === 'string'` false arm → '' (the payload's tool_input.command).
       const cap = join(d, 'payload')
       hooks(d, { PreToolUse: [{ hooks: [{ type: 'command', command: sh(d, 'cap.sh', `#!/usr/bin/env bash\ncat > "${cap}"\nexit 0\n`) }] }] })
       const adapter = new MockAdapter([toolCallResponse('c1', 'Bash', { command: 7 }), textResponse('done')])
@@ -467,8 +490,8 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       ctx.tools.register(defineContentToolFixture({ name: 'Bash', description: 'b', parameters: { command: { type: 'number' } }, async execute() { return [{ type: 'text', text: 'ok' }] } }))
       const agent = await ctx.agentLoop.create(brandString<SessionId>('a1'), { provider: 'mock', model: 'mock' })
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
-      const payload = JSON.parse(readFileSync(cap, 'utf8')) as { tool_input: { command: string } }
-      expect(payload.tool_input.command).toBe('')
+      const payload = JSON.parse(readFileSync(cap, 'utf8')) as { tool_input: { command: number } }
+      expect(payload.tool_input.command).toBe(7)
     })
 
     it('a no-agent direct PreToolUse run uses process.cwd() and turn 0 (no session to record)', async () => {
@@ -645,7 +668,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       await ctx.plugin(AgentLoop, { agents: [] })
       await ctx.plugin(LocalSubprocessRuntime)
       await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000, cwd: serverDir })
-      await ctx.plugin(HooksCodex, { configPath: join(serverDir, 'hooks.json'), model: 'm' })
+      await ctx.plugin(HooksCodex, { configPath: join(serverDir, 'hooks.json'), model: 'm', enabledHooks: [ALL_HOOKS] })
       ctx.llm.registerAdapter(['mock'], adapter)
       ctx.tools.register(defineContentToolFixture({ name: 'Bash', description: 'b', parameters: { command: { type: 'string' } }, async execute() { return [{ type: 'text', text: 'ok' }] } }))
       const handle = await ctx.agents.create({ sessionId: brandString<SessionId>('s1'), meta: { cwd: sessionDir }, agentOptions: { provider: 'mock', model: 'mock' } })

@@ -20,7 +20,7 @@ export type AccountMenuProps = PropsRuntime<'settings.launcher'> & PropsRenderSl
  * @returns account menu launcher.
  */
 export function AccountMenu({
-  subscribeSessionExpired, subscribeModelSignInRequired, wide, settingsShortcut, openSettings, openOnboarding, settingsOpen,
+  subscribeSessionExpired, subscribeModelSignInRequired, wide, settingsShortcut, openSettings, openSection, settingsOpen,
   useAccount, useTheme, signOut, hasRunningAccountTasks, refreshAccount, renderSlot,
   contactUs, showLogin, start, cancel, avatarFailed, t,
 }: AccountMenuProps) {
@@ -58,7 +58,7 @@ export function AccountMenu({
     {signInNotice > 0 && <Toast key={signInNotice} text={t('modelSignInRequired')} onDone={() => { setSignInNotice(0) }} />}
     {expiryNotice && <Toast text={t('sessionExpired')} onDone={() => { setExpiryNotice(false) }} />}
     <div className={css.notifications} hidden={!wide}>{renderSlot('settings.launcher.notifications', {
-      active: signedIn && !account.desktopOnboardingVisible && !account.onboarding, openAccount,
+      active: signedIn, openAccount,
     })}</div>
     <Menu open={open} side="top" portal autoFocus className={css.anchor} listClassName={signedIn ? undefined : css.signedOutMenu}
       anchor={<button ref={trigger} type="button" className={css.trigger} data-collapsed={!wide} data-signed-out={!signedIn} aria-label={t('menu')}
@@ -84,9 +84,9 @@ export function AccountMenu({
         else if (id === 'signin') beginSignIn()
         else void requestSignOut()
       }} />
-    {account.loginVisible && !account.onboarding && <SignInDialog account={account} colorScheme={colorScheme}
+    {account.loginVisible && <SignInDialog account={account} colorScheme={colorScheme}
       start={start} cancel={cancel} t={t}
-      close={() => { showLogin(false) }} useApiKey={() => { showLogin(false); openOnboarding('deepseek-official') }} />}
+      close={() => { showLogin(false) }} useApiKey={() => { showLogin(false); openSection('models') }} />}
     {signedIn && signOutImpact !== undefined && <SignOutDialog running={signOutImpact} signOut={signOut}
       close={() => { setSignOutImpact(undefined) }} t={t} />}
   </div>

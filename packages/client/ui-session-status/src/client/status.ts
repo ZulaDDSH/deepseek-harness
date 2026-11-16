@@ -25,6 +25,7 @@ export interface SessionStatus {
   readonly completionUnread: boolean
   /** Latest unread completion ended with an execution error this Host observed. */
   readonly completionFailed: boolean
+  readonly failureUnread?: boolean
 }
 
 /** Current UI status indexed by Session identity. */
@@ -52,6 +53,7 @@ declare module '@deepseek-ai/dsh-client-ui-session/client' {
  */
 export class UiSessionStatus extends Service implements HostObservable<SessionStatusSnapshot> {
   private readonly running = new Map<SessionId, boolean>()
+  private readonly failureUnread = new Set<SessionId>()
   private statusSnapshot: SessionStatusSnapshot = new Map()
   private viewedBinding: SessionBinding | undefined
   private viewedOpenState: string | undefined
@@ -87,6 +89,12 @@ export class UiSessionStatus extends Service implements HostObservable<SessionSt
       const disposeRemoteStatus = ctx.remote.$on('api-session/status', (sessionId, running) => {
         this.observeRunning(sessionId, running)
       })
+      const disposeRemoteError = ctx.remote.$on('api-session/error', (sessionId) => {
+        if ((sessions.list.getSnapshot().byId[sessionId]?.retainedBy.mainView ?? 0) === 0) {
+          this.failureUnread.add(sessionId)
+          this.publishStatus()
+        }
+      })
       const disposePending = pendingInteractions.subscribe(() => { this.publishStatus() })
       const disposeReading = reading.state.subscribe(() => { this.publishStatus() })
       const disposeView = watchViewVisibility(() => { this.publishStatus() })
@@ -94,6 +102,7 @@ export class UiSessionStatus extends Service implements HostObservable<SessionSt
       return () => {
         disposeStatus()
         disposeRemoteStatus()
+        disposeRemoteError()
         disposePending()
         disposeReading()
         disposeView()
@@ -130,6 +139,7 @@ export class UiSessionStatus extends Service implements HostObservable<SessionSt
 
   private observeRunning(sessionId: SessionId, running: boolean): void {
     this.running.set(sessionId, running)
+    if (running) this.failureUnread.delete(sessionId)
     this.publishStatus()
   }
 
@@ -140,8 +150,16 @@ export class UiSessionStatus extends Service implements HostObservable<SessionSt
     for (const id of list.ids) {
       const row = list.byId[id] as SessionSummary
       const previous = this.running.get(id)
-      if (previous === undefined) this.running.set(id, row.running)
+      if (previous === undefined) {
+        this.running.set(id, row.running)
+        if (row.running) this.failureUnread.delete(id)
+      }
       else if (previous !== row.running) this.observeRunning(id, row.running)
+    }
+    for (const id of this.failureUnread) {
+      if ((list.byId[id]?.retainedBy.mainView ?? 0) > 0 || (list.phase === 'ready' && !present.has(id))) {
+        this.failureUnread.delete(id)
+      }
     }
     if (list.phase === 'ready') {
       for (const id of this.running.keys()) {
@@ -179,6 +197,7 @@ export class UiSessionStatus extends Service implements HostObservable<SessionSt
     const ids = new Set<SessionId>([
       ...(Object.keys(list.byId) as SessionId[]),
       ...this.running.keys(),
+      ...this.failureUnread,
       ...pending.keys(),
       ...(Object.keys(reading) as SessionId[]),
     ])
@@ -192,6 +211,7 @@ export class UiSessionStatus extends Service implements HostObservable<SessionSt
         pendingInteraction: pending.get(id),
         completionUnread: unread,
         completionFailed: unread && record.failed,
+        ...(this.failureUnread.has(id) ? { failureUnread: true } : {}),
       })
     }
     if (sameSessionStatus(this.statusSnapshot, next)) return
@@ -230,7 +250,8 @@ function sameSessionStatus(left: SessionStatusSnapshot, right: SessionStatusSnap
       || candidate.running !== status.running
       || candidate.pendingInteraction !== status.pendingInteraction
       || candidate.completionUnread !== status.completionUnread
-      || candidate.completionFailed !== status.completionFailed) return false
+      || candidate.completionFailed !== status.completionFailed
+      || candidate.failureUnread !== status.failureUnread) return false
   }
   return true
 }

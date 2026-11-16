@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-host-plugin-inventory
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Clients can call `pluginInventory/list` to display the host’s current plugins in load order, including each entry’s identifier, module specifier, effective enablement, live phase, and available display text. Deployments with an agent-preset roster also report each preset’s metadata, health, and flattened plugin composition; without a roster, preset data is absent. Each response is a point-in-time, read-only snapshot for display and diagnostics: it cannot mutate plugins and provides no history or change subscription.
@@ -24,6 +22,8 @@ Clients can call `pluginInventory/list` to display the host’s current plugins 
 
 <a id="use-this-package"></a>
 ## Use this package
+
+The snapshot includes loaded bridge `hooks` reports and read-only external hook files. `externalHookSources` config selects `{ dialect, source }` JSON paths; defaults inspect `CODEX_HOME/hooks.json` and `CLAUDE_CONFIG_DIR/settings.json` and `settings.local.json`, using `~/.codex` and `~/.claude` when those variables are absent. Each call rereads external files and labels them `configured`; missing files are omitted and read/JSON failures carry safe diagnostics. Reading never mounts a bridge or runs a command. Loaded reports retain the bridge's captured configuration; neither status establishes execution history.
 
 Call `pluginInventory/list` when a client or settings page needs to show what is currently composed in the host — which plugins are loaded, enabled, and alive, and what each agent preset would give a session. The Remote is the only entry point: the service is Remote-only and deliberately declares no same-process Cordis `Context` merge.
 

@@ -1,0 +1,206 @@
+{
+ "ja": [
+  {
+   "key": "diff.show",
+   "up": null
+  },
+  {
+   "key": "diff.hide",
+   "up": null
+  },
+  {
+   "key": "diff.copy",
+   "up": null
+  },
+  {
+   "key": "diff.copied",
+   "up": null
+  },
+  {
+   "key": "diff.collapse",
+   "up": null
+  },
+  {
+   "key": "diff.collapseAria",
+   "up": null
+  },
+  {
+   "key": "diff.expandAria",
+   "up": null
+  },
+  {
+   "key": "diff.expandRest",
+   "up": null
+  }
+ ],
+ "es": [
+  {
+   "key": "diff.show",
+   "up": null
+  },
+  {
+   "key": "diff.hide",
+   "up": null
+  },
+  {
+   "key": "diff.copy",
+   "up": null
+  },
+  {
+   "key": "diff.copied",
+   "up": null
+  },
+  {
+   "key": "diff.collapse",
+   "up": null
+  },
+  {
+   "key": "diff.collapseAria",
+   "up": null
+  },
+  {
+   "key": "diff.expandAria",
+   "up": null
+  },
+  {
+   "key": "diff.expandRest",
+   "up": null
+  }
+ ],
+ "fr": [
+  {
+   "key": "diff.show",
+   "up": null
+  },
+  {
+   "key": "diff.hide",
+   "up": null
+  },
+  {
+   "key": "diff.copy",
+   "up": null
+  },
+  {
+   "key": "diff.copied",
+   "up": null
+  },
+  {
+   "key": "diff.collapse",
+   "up": null
+  },
+  {
+   "key": "diff.collapseAria",
+   "up": null
+  },
+  {
+   "key": "diff.expandAria",
+   "up": null
+  },
+  {
+   "key": "diff.expandRest",
+   "up": null
+  }
+ ],
+ "de": [
+  {
+   "key": "diff.show",
+   "up": null
+  },
+  {
+   "key": "diff.hide",
+   "up": null
+  },
+  {
+   "key": "diff.copy",
+   "up": null
+  },
+  {
+   "key": "diff.copied",
+   "up": null
+  },
+  {
+   "key": "diff.collapse",
+   "up": null
+  },
+  {
+   "key": "diff.collapseAria",
+   "up": null
+  },
+  {
+   "key": "diff.expandAria",
+   "up": null
+  },
+  {
+   "key": "diff.expandRest",
+   "up": null
+  }
+ ],
+ "ru": [
+  {
+   "key": "diff.show",
+   "up": null
+  },
+  {
+   "key": "diff.hide",
+   "up": null
+  },
+  {
+   "key": "diff.copy",
+   "up": null
+  },
+  {
+   "key": "diff.copied",
+   "up": null
+  },
+  {
+   "key": "diff.collapse",
+   "up": null
+  },
+  {
+   "key": "diff.collapseAria",
+   "up": null
+  },
+  {
+   "key": "diff.expandAria",
+   "up": null
+  },
+  {
+   "key": "diff.expandRest",
+   "up": null
+  }
+ ],
+ "pt": [
+  {
+   "key": "diff.show",
+   "up": null
+  },
+  {
+   "key": "diff.hide",
+   "up": null
+  },
+  {
+   "key": "diff.copy",
+   "up": null
+  },
+  {
+   "key": "diff.copied",
+   "up": null
+  },
+  {
+   "key": "diff.collapse",
+   "up": null
+  },
+  {
+   "key": "diff.collapseAria",
+   "up": null
+  },
+  {
+   "key": "diff.expandAria",
+   "up": null
+  },
+  {
+   "key": "diff.expandRest",
+   "up": null
+  }
+ ]
+}

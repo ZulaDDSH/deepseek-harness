@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-host-frontend-static
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Serve the built Web shell from its configured distribution directory. Root and configured-index entries require an authenticated Peer and render its startup data; other assets need no credentials but still pass active Connection source checks. Missing or non-file paths return 404, traversal returns 403, and admitted requests with unsupported methods return 405. Only one instance can own unmatched requests; a second activation fails, and unloading it leaves unmatched requests at 404.

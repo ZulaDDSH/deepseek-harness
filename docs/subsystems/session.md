@@ -1,7 +1,5 @@
 # Sessions
 
-English | [中文](session.zh.md)
-
 The in-memory, event-sourced model of [dsh-session](../../packages/core/session). A `Session` is an **append-only log** of typed `SessionEvent`s — the single source of truth for an agent's whole interaction history. The LLM message history is *derived* from the log, never stored separately; replay is re-derivation from the same events. How the log is made **durable** (the persistence seam, backends, crash recovery) is the sibling concern on [persistence.md](persistence.md).
 
 Source: [`packages/core/session/src/types.ts`](../../packages/core/session/src/types.ts)
@@ -25,6 +23,8 @@ interface UserMessage extends MessageBase {
  * compact raw streams so persistence stores one durable settlement per attempt.
  */
 interface SessionEventMap {
+  /** CLI terminal profile the Session hosts. */
+  'session/cli-terminal': { profile: CliTerminalProfileId }
   /**
    * Opens turn `turn` before the loop claims queued input or runs pre-step.
    * Rejection, empty input, cancellation, or failure may close it with no
@@ -840,6 +840,12 @@ The backends that consume this contract are on [persistence.md](persistence.md).
 
 The optional `application` selects a registered file handler without changing the system default; `workspacePathApplications({ path })` returns current handlers, names, icons, and default selection after Host path verification.
 
+## External text history imports
+
+The browser-safe declarations in `packages/api/session-controller/src/types.ts` define discovery and import. `ExternalChatKey` is an opaque source/path identity, and `ExternalChatSource` is `claude` or `codex`. An `ExternalChat` contains its key, source, title, optional cwd, update time, supported-message count, bounded text preview, and optional row error. `ExternalChatCatalog` contains those `items` and a `limited` flag for a bounded discovery result.
+
+`ExternalChatImportRequest.keys` names selected discovery rows. `ExternalChatImportValue.items` contains one `ExternalChatImportResult` per distinct selected key, with an optional DSH session id, duplicate flag, or error. Successful creation is durable before its result is returned. An existing import is preserved; one failing row does not abort other rows. These operations import text into ordinary DSH sessions rather than continuing vendor processes. The [package reference](../../packages/api/session-controller/README.md#master-control-and-text-import) owns discovery limits and supported content.
+
 ## Session-log upload exclusions
 
 `ctx.sessionLogDeepSeek.registerExclusion()` registers a caller-owned predicate over `SessionLogUploadRequest`. Any match omits the log contribution and its acceptance callback before reading Session events. No match preserves normal upload eligibility. The [package README](../../packages/session/session-log-deepseek/README.md#upload-exclusions) defines failure and disposal behavior.
@@ -879,6 +885,31 @@ Host service backing the generated `ctx.remote.session` namespace.
 
 ```ts cordis-catalog
 /**
+ * Provider routes whose named API-key reference has no configured credential, for Host-side route preflight.
+ * @returns provider route ids that cannot authenticate; empty when credentials cannot be read.
+ */
+missingCredentialProviders(): Promise<readonly string[]>
+
+/**
+ * The global default Orchestrator & Subagent Setup, which a Session without its own setup inherits.
+ * @returns the stored default, or undefined when none is set or the stored value fails {@link subagentSetupSchema}.
+ */
+defaultSubagentSetup(): SubagentSetup | undefined
+
+/** Resolve a Team role route from the first saved setup in the Session ancestry, or the global default when no ancestor has one.
+ * @param session - Session whose ancestry supplies the role settings.
+ * @param role - Team role to resolve.
+ * @returns The saved route, or undefined when no enabled route exists.
+ */
+teamRoleDefaultOf(session: Session, role: SubagentTeamRole): SubagentTeamRoleRoute | undefined
+
+/** Report whether a provider’s named API-key credential is unconfigured.
+ * @param provider - Provider identifier to check.
+ * @returns Whether the named credential is unconfigured; false when no named reference exists.
+ */
+missingCredentialProvider(provider: string): Promise<boolean>
+
+/**
  * Resolve or resume one ordinary Session for another Host API domain.
  * @param sessionId - Session identity whose Agent owns the operation.
  * @returns the live Agent or the stable Session-domain failure.
@@ -904,6 +935,25 @@ resolveAgent(sessionId: SessionId): Promise<ApiSessionAgentResult>
 @Remote('search') async search(request: SessionSearchRequest, signal: AbortSignal): Promise<SessionSearchValue>
 
 /**
+ * Resolve the dedicated ungrouped home; concurrent requests share creation.
+ * @returns the durable master session identity.
+ */
+@Remote('masterHome') masterHome(): Promise<SessionCreateValue>
+
+/**
+ * Discover recent supported external chats without importing or running them.
+ * @returns at most 100 rows with supported-text previews and per-file errors.
+ */
+@Remote('externalChats') externalChats(): Promise<ExternalChatCatalog>
+
+/**
+ * Import discovered text histories; preserve existing imports and isolate row failures.
+ * @param request - keys returned by external chat discovery.
+ * @returns per-key outcomes after successful imports reach durable storage.
+ */
+@Remote('importChats') importChats(request: ExternalChatImportRequest): Promise<ExternalChatImportValue>
+
+/**
  * Create one ordinary Session for a new conversation, reusing the named blank Session while it is reusable.
  * @param request - optional blank Session to reuse, location, and Agent preset.
  * @returns the created or reused Session identity and its preset when configured.
@@ -916,6 +966,39 @@ resolveAgent(sessionId: SessionId): Promise<ApiSessionAgentResult>
  * @returns the normalized selection installed for the Session, without waiting for default persistence.
  */
 @Remote('selectModel') selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue>
+
+/**
+ * List connector namespaces exposed by globally connected MCP tools.
+ * @returns connector namespaces available for Session selection.
+ */
+@Remote('listMcpConnectors') listMcpConnectors(): McpConnectorCatalog
+
+/**
+ * List hooks loaded by mounted hook bridges.
+ * @returns every loaded hook with its global enablement.
+ */
+@Remote('listHooks') listHooks(): SessionHookCatalog
+
+/**
+ * Replace the hook overrides of one Session.
+ * @param request - Session identity and the complete override map.
+ * @returns the stored overrides.
+ */
+@Remote('setHookOverrides') setHookOverrides(request: SessionSetHookOverridesRequest): Promise<HookOverrides>
+
+/**
+ * Replace the run options (ultracode, plus fast mode and effort for Claude Code runs) of one Session.
+ * @param request - Session identity and the run options to store.
+ * @returns the stored run options.
+ */
+@Remote('setRunOptions') setRunOptions(request: SessionSetRunOptionsRequest): Promise<SessionRunOptions>
+
+/**
+ * Select MCP connector namespaces for one Session.
+ * @param request - Session identity and selected connector namespaces.
+ * @returns the normalized Session selection.
+ */
+@Remote('selectMcp') selectMcp(request: SessionSelectMcpRequest): Promise<SessionSelectMcpValue>
 
 /**
  * Select the first available account model after login when no provider API key is configured.
@@ -1077,7 +1160,7 @@ workspaceDesktop(): { name: string; available: boolean; fileManager: 'finder' | 
 @Remote({ mode: 'stream' }) async *control(signal: AbortSignal): AsyncIterable<SessionControlFrame>
 ```
 
-Types: [SessionId](core.md) · [SessionSearchRequest](session-query.md)
+Types: [SessionId](core.md) · [SessionSearchRequest](session-query.md) · [SubagentSetup](subagent.md) · [SubagentTeamRole](subagent.md) · [SubagentTeamRoleRoute](subagent.md)
 
 Source: [`packages/api/session-controller/src/index.ts`](../../packages/api/session-controller/src/index.ts)
 
@@ -1350,6 +1433,30 @@ One Agent changed running state.
 Types: [SessionId](core.md)
 
 Source: [`packages/api/session-controller/src/types.ts`](../../packages/api/session-controller/src/types.ts)
+
+<a id="memory-events"></a>
+
+### `memory/*` events
+
+<a id="memorylookup--waterfall"></a>
+
+#### `memory/lookup` — waterfall
+
+Read saved memory text for one session, such as Memorix notes for the auto responder.
+
+```ts cordis-catalog
+/**
+ * Read saved memory text for one session, such as Memorix notes for the auto responder.
+ * @param query - literal search text.
+ * @param session - the session asking, so its own chat records are left out.
+ * @param signal - lookup lifetime.
+ * @param next - delegation to other providers.
+ * @mode waterfall
+ */
+'memory/lookup'(query: string, session: Session, signal: AbortSignal, next: () => Promise<string | undefined>): Promise<string | undefined>
+```
+
+Source: [`packages/core/agent/src/runtime-types.ts`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="session-events"></a>
 

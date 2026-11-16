@@ -55,6 +55,7 @@ const SCTX = {} as Context
 const SID = 's1' as SessionId
 const CONTINUABLE_CHILD = {
   address: { parentSessionId: 'parent' as SessionId, childSessionId: SID, mode: 'continuable' as const },
+  parentAvailable: true,
 }
 
 function snapshotOf(overrides: Partial<SessionSnapshot> = {}): SessionSnapshot {
@@ -255,7 +256,9 @@ function bench(over?: BenchOptions) {
   // is the Stop seat). The mirror models plain-phase drafts only: cases
   // that claim a command or freeze the machine query the DOM directly.
   const steeringAvailable = over?.subagent === undefined || over.subagent.address.mode === 'continuable'
+    || (over.subagent.address.mode === 'one-shot' && over.running === true)
   const composerLocked = over?.disabled === true || over?.inert === true || over?.blocked !== undefined
+    || (over?.subagent !== undefined && steeringAvailable && over.subagent.parentAvailable !== true)
   const uploadsPending = (over?.attachments ?? []).some(attachment => attachment.kind === 'file'
     ? over?.fileUploads?.[attachment.id]?.status !== 'ready'
     : over?.fileUploads?.[attachment.id] !== undefined && over.fileUploads[attachment.id]?.status !== 'ready')
@@ -855,9 +858,7 @@ describe('Enter semantics', () => {
     expect(bench({
       running: true,
       queue: [row('q-1')],
-      subagent: {
-        address: { parentSessionId: 'parent' as SessionId, childSessionId: SID, mode: 'continuable' },
-      },
+      subagent: CONTINUABLE_CHILD,
     }).placeholder).toBe('Cmd/Ctrl+Enter 插话发送全部排队消息')
   })
 
@@ -969,13 +970,7 @@ describe('Enter semantics', () => {
     expect(plain.sink).not.toHaveBeenCalled()
 
     // Continuable children expose the same steering face as ordinary Sessions.
-    const subagent = {
-      address: {
-        parentSessionId: 'parent' as SessionId,
-        childSessionId: SID,
-        mode: 'continuable' as const,
-      },
-    }
+    const subagent = CONTINUABLE_CHILD
     const childSteerQueue = vi.fn()
     const child = bench({ running: true, subagent, queue: [row('q-1')], steerQueue: childSteerQueue })
     fireEvent.keyDown(child.textarea, { key: 'Enter', metaKey: true })
@@ -1413,13 +1408,7 @@ describe('running and lock semantics', () => {
     const { button, interruptButton, textarea, sink, stop, view, slotCalls, shell } = bench({
       running: true,
       draft: '后续消息',
-      subagent: {
-        address: {
-          parentSessionId: 'parent' as SessionId,
-          childSessionId: SID,
-          mode: 'continuable',
-        },
-      },
+      subagent: CONTINUABLE_CHILD,
     })
     expect(button.getAttribute('aria-label')).toBe('排队发送')
     expect(interruptButton).not.toBeNull()
@@ -1439,13 +1428,7 @@ describe('running and lock semantics', () => {
   })
 
   it('running continuable subagent Send follows the Steer preference like an ordinary session', () => {
-    const subagent = {
-      address: {
-        parentSessionId: 'parent' as SessionId,
-        childSessionId: SID,
-        mode: 'continuable' as const,
-      },
-    }
+    const subagent = CONTINUABLE_CHILD
     const { button, sink } = bench({ running: true, busyEnter: 'steer', draft: '子代理插话', subagent })
     expect(button.getAttribute('aria-label')).toBe('插话发送')
     fireEvent.click(button)
@@ -1500,22 +1483,39 @@ describe('running and lock semantics', () => {
     expect(shell.pickFiles()).toBe(false)
   })
 
-  it('keeps input and Stop available for a continuable child without parent availability', () => {
+  it('keeps Stop available while a continuable child awaits parent availability', () => {
     const { button, interruptButton, textarea, stop } = bench({
       running: true,
-      draft: 'continue',
-      subagent: CONTINUABLE_CHILD,
+      subagent: { address: CONTINUABLE_CHILD.address },
     })
-    expect(textarea.getAttribute('aria-disabled')).not.toBe('true')
-    expect(button.disabled).toBe(false)
+    expect(textarea.getAttribute('aria-disabled')).toBe('true')
+    expect(button.disabled).toBe(true)
     expect(interruptButton?.disabled).toBe(false)
     fireEvent.click(interruptButton!)
     expect(stop).toHaveBeenCalledTimes(1)
   })
 
-  it('running one-shot subagent never exposes Stop', () => {
-    const { button, interruptButton, stop } = bench({
-      running: true,
+  it('running one-shot subagent submits as steer and exposes Stop', () => {
+    const subagent = {
+      address: {
+        parentSessionId: 'parent' as SessionId,
+        childSessionId: SID,
+        mode: 'one-shot' as const,
+      },
+      parentAvailable: true,
+    }
+    const { textarea, interruptButton, stop, sink } = bench({ running: true, draft: '运行中', subagent })
+    expect(textarea.getAttribute('aria-disabled')).not.toBe('true')
+    expect(interruptButton?.disabled).toBe(false)
+    fireEvent.click(interruptButton!)
+    expect(stop).toHaveBeenCalledTimes(1)
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+    expect(sink).toHaveBeenCalledWith('运行中', [], 'steer', expect.any(AbortSignal), expect.any(Function))
+  })
+
+  it('idle one-shot subagent exposes no Stop', () => {
+    const { interruptButton, stop } = bench({
+      running: false,
       draft: '不可停止',
       subagent: {
         address: {
@@ -1525,19 +1525,12 @@ describe('running and lock semantics', () => {
         },
       },
     })
-    expect(button.getAttribute('aria-label')).toBe('发送消息')
     expect(interruptButton).toBeNull()
     expect(stop).not.toHaveBeenCalled()
   })
 
   it('applies the ordinary Queue/Steer preference to a running continuable child', () => {
-    const subagent = {
-      address: {
-        parentSessionId: 'parent' as SessionId,
-        childSessionId: SID,
-        mode: 'continuable' as const,
-      },
-    }
+    const subagent = CONTINUABLE_CHILD
     const plain = bench({ running: true, busyEnter: 'steer', draft: 'plain', subagent })
     fireEvent.keyDown(plain.textarea, { key: 'Enter' })
     expect(plain.sink).toHaveBeenCalledWith('plain', [], 'steer', expect.any(AbortSignal), expect.any(Function))

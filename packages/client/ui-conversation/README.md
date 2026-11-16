@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-client-ui-conversation
 
-English | [中文](README.zh.md)
-
 Desktop product events use the optional [product analytics service](../product-analytics/README.md); ordinary Web interactions are excluded.
 
 ## Summary
@@ -69,6 +67,8 @@ The existing semantic `DraftSnapshot` retains quote text and clipboard-coordinat
 ## Shell and standard props
 
 The root-scoped `conversation.hero.frame` hoc Slot wraps the scroll body in every phase, so its layers never remount the composer when the home ends. Its owner props carry `hero`, true only for the blank home of a standalone Conversation. Layers keep the scroll body a direct flex item of the body, for example with `display: contents`. On the home, the Conversation root, which paints the background, isolates stacking: a layer decoration at negative `z-index` paints above that background and below all Conversation content, including composer takeovers. Other phases leave the root out of the stacking order, so unportaled Conversation popovers can still rise above AppFrame chrome that floats over the column. Layers own their own input handling. With no occupant, the body is unchanged.
+
+The composer **+** menu exposes files, slash commands, connected MCP namespaces and plugin management. Desktop **Add folder** inserts a folder reference without uploading its contents. **Connectors** toggles the selected namespace for the current Session and shows its saved selection when reopened; addressed subagents cannot change it. **Manage connectors** opens the MCP package configuration, which applies to the profile. Only connected namespaces with discovered tools appear.
 
 Below 768px, Web view tabs align with the header's 20px left inset. Desktop and wider Web windows retain the additional 8px tab inset.
 

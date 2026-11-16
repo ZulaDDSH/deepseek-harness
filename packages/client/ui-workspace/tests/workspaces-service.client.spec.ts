@@ -137,6 +137,9 @@ interface RetainedSession {
 }
 
 class FakeSessions implements ISessions {
+  declare readonly masterHome: ISessions['masterHome']
+  declare readonly externalChats: ISessions['externalChats']
+  declare readonly importChats: ISessions['importChats']
   readonly list: MutableSource<SessionListState>
   readonly create: ReturnType<typeof vi.fn<ISessions['create']>>
   readonly fork = vi.fn<ISessions['fork']>(async () => sid('forked'))
@@ -289,6 +292,7 @@ function bench(options: BenchOptions = {}) {
   const requestDraftInitialization = vi.fn<SessionInputResolver['requestDraftInitialization']>(() => 'applied')
   if (options.conversation !== false) ctx.provide('conversation', { input: { requestDraftInitialization } })
   const layout = new LayoutController({
+    resetRuntime: vi.fn(), toggleFocus: vi.fn(),
     selectPanel: vi.fn(), retainMainPanels: vi.fn(),
     setSidebar: vi.fn(), toggleSidebar: vi.fn(), setViewportWidth: vi.fn(),
     setRightbar: vi.fn(), openRightbar: vi.fn(), closeRightbar: vi.fn(),

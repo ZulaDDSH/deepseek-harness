@@ -98,6 +98,8 @@ export interface TeamTaskView {
 export interface TeamProjection {
   readonly enabled: boolean
   readonly tasks: TeamTaskView[]
+  readonly historicalMembers?: TeamMemberSnapshot[]
+  readonly historicalMessages?: { message: TeamMessageSnapshot; delivered: boolean }[]
   readonly failure?: string
 }
 

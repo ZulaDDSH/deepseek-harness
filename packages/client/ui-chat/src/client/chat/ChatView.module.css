@@ -278,6 +278,21 @@
   font-variant-numeric: tabular-nums;
 }
 
+.runningLines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.runningTask {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--dsw-alias-label-secondary);
+}
+
 .runningIcon {
   position: relative;
   display: inline-flex;
@@ -293,6 +308,28 @@
   display: none;
   position: absolute;
   inset: 0;
+}
+
+.runningActivity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  min-width: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: calc(18px + var(--dsh-content-font-delta-secondary, 0px));
+  font-variant-numeric: tabular-nums;
+}
+
+.runningActivityText {
+  min-width: 0;
+}
+
+.runningStuck {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .runningWhaleStill {

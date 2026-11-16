@@ -1,7 +1,5 @@
 # Tools
 
-English | [中文](tools.zh.md)
-
 The tool pipeline of [dsh-tools](../../packages/core/tools). [core.md](core.md) introduces `ToolDefinition` as the pipeline-authoring type shared by the core packages; the model-facing [`ToolSchema`](llm-streaming.md#the-model-request-and-result) wire type is declared with the model request. This page documents every `ToolDefinition` field, the typed schema DSL that builds it, the guarded execution types, and the UI-presentation types.
 
 Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index.ts) · [`packages/core/tools/src/schema.ts`](../../packages/core/tools/src/schema.ts) · [`packages/core/tools/src/presentation.ts`](../../packages/core/tools/src/presentation.ts)
@@ -251,6 +249,10 @@ interface ToolBatchInput {
    * Undefined admits only unconditional registrations.
    */
   readonly toolSet?: ResolvedToolSet
+  /** Enclosing execution token for nested calls dispatched by a tool; undefined for model-direct calls. */
+  readonly parent?: ToolExecutionToken
+  /** Root model-requested call owning nested calls; undefined uses each call's own identity. */
+  readonly rootCallId?: ToolCallId
   /**
    * Committed model step receiving root call/result events; requires `agent`.
    * Undefined when `agent` is absent or for calls outside a model response, such

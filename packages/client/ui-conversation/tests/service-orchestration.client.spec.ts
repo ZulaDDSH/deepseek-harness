@@ -11,7 +11,7 @@ import { makeTranslate, RemoteError, SlotTestRuntime } from '@deepseek-ai/dsh-cl
 import type {
   BeginSubmissionInput, PendingSubmissionRetirement,
 } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { SessionSeq, type SessionId } from '@deepseek-ai/dsh-session/types'
 import { ComposerBlockRegistry } from '../src/client/input/blocks.ts'
 import { InputHub } from '../src/client/input/hub.ts'
 import { reportMessageSubmission } from '../src/client/input/submission-analytics.ts'
@@ -1069,7 +1069,7 @@ it('captures run mode and queue intent at submission before later projection cha
   try {
     await b.runtime.sessions.setProjection('s1', 'plan', { active: true, pending: false })
     await b.runtime.sessions.setProjection('s1', 'goal', { goal: { phase: 'active' } })
-    await b.runtime.sessions.setProjection('s1', 'modelSelection', { next: { provider: 'fixture', model: 'model', reasoningEffort: 'high' }, lastUsed: null })
+    await b.runtime.sessions.setProjection('s1', 'modelSelection', { next: { provider: 'fixture', model: 'model', reasoningEffort: 'high' }, lastUsed: null, lastUsedSeq: null })
     await b.runtime.sessions.updateSessionSnapshot('s1', (state) => { state.running = true; state.blank = false })
     b.shell.setDraft('private prompt')
     b.shell.submit('queue', 'click')
@@ -1178,7 +1178,7 @@ it('reports an active goal and a model without an explicit effort', async () => 
   b.runtime.ctx.provide('productAnalytics', { enabled: true, track } as never)
   try {
     await b.runtime.sessions.setProjection('s1', 'goal', { goal: { phase: 'active' } })
-    await b.runtime.sessions.setProjection('s1', 'modelSelection', { next: null, lastUsed: { provider: 'fixture', model: 'model' } })
+    await b.runtime.sessions.setProjection('s1', 'modelSelection', { next: null, lastUsed: { provider: 'fixture', model: 'model' }, lastUsedSeq: SessionSeq(1) })
     await b.runtime.sessions.updateSessionSnapshot('s1', (state) => { state.running = false; state.blank = false })
     b.shell.setDraft('message')
     b.shell.submit('queue', 'click')

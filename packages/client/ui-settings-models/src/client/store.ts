@@ -3,13 +3,13 @@
  * directory (`llm/listProviders` joined with `llm/listConfigurableProviders`),
  * the settings namespaces (shared settings mirror),
  * and the referenced credentials (`credentials/describe`). The host stays the
- * single fact source — every mutation writes through the wire and the page
- * re-renders from the next describe, pushed or refetched.
+ * single fact source — every mutation writes through the wire and, after the
+ * initial describe, successful write answers update the shared mirror before returning.
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {
-  CredentialInfo, LlmConfigurableProvider, LlmNativeAuth, LlmProviderInfo, SettingsNamespaceView,
+  CredentialInfo, ModelCatalog, LlmConfigurableProvider, LlmNativeAuth, LlmProviderInfo, SettingsNamespaceView,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
@@ -113,6 +113,8 @@ export interface ModelsSettingsState {
   rows: readonly ProviderRow[]
   /** Namespace views by ns, for the editor's schema/layers/secrets. */
   namespaces: ReadonlyMap<string, SettingsNamespaceView>
+  /** Host model catalog groups; empty when the catalog read fails. */
+  catalog?: ModelCatalog['groups']
 }
 
 /**
@@ -179,6 +181,11 @@ function apiKeyEnvOf(
   if (typeof profile !== 'object' || profile === null) return undefined
   const ref = (profile as { apiKeyEnv?: unknown }).apiKeyEnv
   return typeof ref === 'string' && ref.length > 0 ? ref : undefined
+}
+
+/** How many credential-record writes this page has observed. */
+export interface CredentialsRevisionState {
+  revision: number
 }
 
 /** The models settings page controller (one per settings surface). */
@@ -264,12 +271,10 @@ export class ModelsSettingsStore {
         credential: undefined,
       }
     })
-    if (rows.some(row => row.entry.provider === 'deepseek-account')) {
-      const catalog = await this.ctx.remote.session.modelCatalog()
-      for (const row of rows) {
-        if (row.entry.provider === 'deepseek-account') row.accountAvailable = catalog.ok
-          && catalog.value.groups.some(group => group.id === 'deepseek-account' && group.models.length > 0)
-      }
+    const catalog = await this.ctx.remote.session.modelCatalog()
+    for (const row of rows) {
+      if (row.entry.provider === 'deepseek-account') row.accountAvailable = catalog.ok
+        && catalog.value.groups.some(group => group.id === 'deepseek-account' && group.models.length > 0)
     }
     const refs = [...new Set(rows.filter(row => row.entry.provider !== 'deepseek-account').flatMap(row =>
       row.apiKeyEnv === undefined ? [deriveKeyRef(row.entry.provider), ...row.entry.nativeAuth?.env ?? []] : [row.apiKeyEnv]))]
@@ -279,8 +284,7 @@ export class ModelsSettingsStore {
     for (let index = 0; index < refs.length; index += 64) {
       const response = await this.ctx.remote.credentials.describe(refs.slice(index, index + 64))
       // Credential state is an enrichment for the Models page: a failure
-      // degrades the badge instead of failing the load. The onboarding
-      // projection below retains the failure distinction.
+      // degrades the badge instead of failing the load.
       if (response.ok) Object.assign(credentials, response.value)
       else { credentialError = response.error.message; break }
     }
@@ -308,6 +312,7 @@ export class ModelsSettingsStore {
         }
       })
       s.namespaces = namespaces
+      s.catalog = catalog.ok ? catalog.value.groups : []
     })
   }
 
@@ -343,75 +348,4 @@ export function providerUsable(row: ProviderRow): boolean {
   if (row.entry.provider === 'deepseek-account') return row.accountAvailable === true
   if (row.apiKeyEnv === undefined) return true
   return row.credential?.configured === true
-}
-
-/** First-run onboarding readiness derived only from the shared Models join. */
-export type OnboardingReadiness =
-  | { kind: 'loading' }
-  | { kind: 'adapter-absent' }
-  | { kind: 'provider-ready' }
-  | { kind: 'credential-missing' }
-  | {
-    kind: 'unavailable'
-    reason:
-      | 'load-failed'
-      | 'provider-inactive'
-      | 'credentials-unavailable'
-      | 'settings-read-only'
-      | 'credential-read-only'
-  }
-
-/**
- * Project first-run readiness from the provider/settings/credential join used
- * by the Models page. The step exists to leave the user with a model to talk
- * to, so ANY usable provider ends it; only when none exists does the official
- * DeepSeek route — the one route the prompt can offer a key field for — decide
- * whether prompting can help. A missing official configurable-provider
- * declaration means the adapter is not repairable by navigating to Models.
- * @param state - current shared Models join snapshot.
- * @returns the onboarding state without reading a parallel fact source.
- */
-export function onboardingReadiness(state: ModelsSettingsState): OnboardingReadiness {
-  if ((state.status === 'idle' || state.status === 'loading') && state.rows.length === 0) {
-    return { kind: 'loading' }
-  }
-  if (state.status === 'error') {
-    return {
-      kind: 'unavailable',
-      reason: 'load-failed',
-    }
-  }
-  if (state.rows.some(providerUsable)) return { kind: 'provider-ready' }
-  const row = state.rows.find(candidate =>
-    candidate.entry.provider === 'deepseek-official'
-    && candidate.entry.settingsNs === 'llm-deepseek'
-    && candidate.entry.settingsPath.length === 0)
-  if (row === undefined) return { kind: 'adapter-absent' }
-  if (!row.entry.active) {
-    return {
-      kind: 'unavailable',
-      reason: 'provider-inactive',
-    }
-  }
-  // Past the usable gate an active route names a reference it has no stored
-  // credential for, so the remaining questions are all about that credential.
-  if (state.credentialError !== null || row.credential === undefined) {
-    return {
-      kind: 'unavailable',
-      reason: 'credentials-unavailable',
-    }
-  }
-  if (!state.writable) {
-    return {
-      kind: 'unavailable',
-      reason: 'settings-read-only',
-    }
-  }
-  if (!row.credential.writable) {
-    return {
-      kind: 'unavailable',
-      reason: 'credential-read-only',
-    }
-  }
-  return { kind: 'credential-missing' }
 }

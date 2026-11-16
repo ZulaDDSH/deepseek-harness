@@ -5,6 +5,8 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 export type BuiltInPresetCopyKey =
   | 'presetStandardName' | 'presetStandardDescription'
   | 'presetPtcName' | 'presetPtcDescription'
+  | 'presetLeanName' | 'presetLeanDescription'
+  | 'presetEconomyName' | 'presetEconomyDescription'
   | 'presetMinimalName' | 'presetMinimalDescription'
   | 'presetCordisName' | 'presetCordisDescription'
 

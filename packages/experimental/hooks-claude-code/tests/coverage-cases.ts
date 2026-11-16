@@ -1,5 +1,7 @@
 import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
-import { createUserMessage, type ToolCallId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { ALL_HOOKS, type HookInventoryReport } from '@deepseek-ai/dsh-hook-protocol'
+import type { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import { provideWorkingDirectoryFixture, mountAgentLoopTestDependencies, unsupportedInbox, unsupportedModel } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -60,7 +62,7 @@ async function harness(configPath: string, adapter: MockAdapter, opts: HarnessOp
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
-  await ctx.plugin(HooksClaude, { configPath, ...opts })
+  await ctx.plugin(HooksClaude, { configPath, enabledHooks: [ALL_HOOKS], ...opts })
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx
 }
@@ -124,7 +126,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       sh(d, 'h.sh', `#!/usr/bin/env bash\ntouch "${marker}"\n`)
       const path = hooks(d, {
         PreToolUse: [{ hooks: [
-          { type: 'prompt', prompt: 'skipme' }, // skipped → warn loop
+          { type: 'agent', prompt: 'skipme' }, // skipped → warn loop
           { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/h.sh' }, // substituted
         ] }],
       })
@@ -399,12 +401,36 @@ export function defineCoverageCases(group: CoverageGroup): void {
       // Direct apply with only configPath — bypasses schemastery's defaults, so
       // the bridge must run on the raw minimal config (the per-hook timeout is
       // the protocol lib's reference default, not a config knob).
-      HooksClaude.apply(ctx, { configPath: join(d, 'hooks.json') })
+      HooksClaude.apply(ctx, { configPath: join(d, 'hooks.json'), enabledHooks: { get: () => [ALL_HOOKS] } })
       ctx.llm.registerAdapter(['mock'], adapter)
       const agent = await ctx.agentLoop.create(brandString<SessionId>('a1'), { provider: 'mock', model: 'mock' })
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, agent)
       expect(existsSync(marker)).toBe(true)
+      const reports: HookInventoryReport[] = []
+      ctx.emit('hooks/inventory', reports)
+      expect(reports[0]?.handlers.some(handler => handler.disabled === true)).toBe(false)
+    })
+
+    it('a direct apply() without enabledHooks skips the hook and reports it disabled', async () => {
+      const d = dir()
+      const marker = join(d, 'ran')
+      hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: sh(d, 'h.sh', `#!/usr/bin/env bash\ntouch "${marker}"\n`) }] }] })
+      const ctx = new Context()
+      await mountAgentLoopTestDependencies(ctx)
+      await ctx.plugin(AgentLoop, { agents: [] })
+      await ctx.plugin(LocalSubprocessRuntime)
+      await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
+      HooksClaude.apply(ctx, { configPath: join(d, 'hooks.json') })
+      ctx.llm.registerAdapter(['mock'], new MockAdapter([textResponse('ok')]))
+      const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+      await waitForIdle(ctx, agent)
+      expect(existsSync(marker)).toBe(false)
+      const reports: HookInventoryReport[] = []
+      ctx.emit('hooks/inventory', reports)
+      expect(reports).toEqual([expect.objectContaining({ dialect: 'claude-code', status: 'loaded', handlers: [expect.objectContaining({ disabled: true })] })])
+      expect(reports[0]).not.toHaveProperty('settingsNs')
     })
 
     it('a non-zero non-2 hook exit (e.g. a command-not-found 127) is a non-blocking error; the tool still runs', async () => {
@@ -440,9 +466,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
   })
 
   if (group === 'context') describe('hooks-claude-code coverage — continue:false, context arm, no-cwd', () => {
-    it('a {"continue":false} hook is RECORDED as decision "stop" but does not halt the run (TODO(hook-continue-false))', async () => {
-    // The extension points cannot yet honor `continue:false` as a hard halt. The log must still record the
-    // stop decision while execution and the turn continue normally.
+    it('a {"continue":false} PreToolUse hook halts the run: the tool is denied and the turn aborts with the hook reason', async () => {
       const d = dir()
       const s = sh(d, 'stop.sh', '#!/usr/bin/env bash\necho \'{"continue":false,"stopReason":"halt"}\'\n')
       const path = hooks(d, { PreToolUse: [{ hooks: [{ type: 'command', command: s }] }] })
@@ -454,10 +478,10 @@ export function defineCoverageCases(group: CoverageGroup): void {
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, agent)
       const res = events(agent).find(e => e.type === 'hook/result')
-      expect(res?.type === 'hook/result' && res.data.decision).toBe('stop') // recorded
-      expect(ran).toBe(true) // NOT honored: the tool still ran (halt is deferred)
+      expect(res?.type === 'hook/result' && res.data.decision).toBe('stop')
+      expect(ran).toBe(false)
       const turnEnd = events(agent).findLast(e => e.type === 'turn/end')
-      expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind).toBe('completed') // ran to completion
+      expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted', reason: { kind: 'hook', reason: 'halt' } })
     })
 
     it('a PostToolUse hook that BOTH blocks AND attaches additionalContext', async () => {
@@ -701,7 +725,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       // Executor default cwd = serverDir (deliberately NOT the session cwd).
       await ctx.plugin(LocalSubprocessRuntime)
       await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000, cwd: serverDir })
-      await ctx.plugin(HooksClaude, { configPath: join(serverDir, 'hooks.json') })
+      await ctx.plugin(HooksClaude, { configPath: join(serverDir, 'hooks.json'), enabledHooks: [ALL_HOOKS] })
       ctx.llm.registerAdapter(['mock'], adapter)
       ctx.tools.register(defineContentToolFixture({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
 
@@ -732,7 +756,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       // Executor default cwd = serverDir (deliberately NOT the child session cwd).
       await ctx.plugin(LocalSubprocessRuntime)
       await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000, cwd: serverDir })
-      await ctx.plugin(HooksClaude, { configPath: join(serverDir, 'hooks.json') })
+      await ctx.plugin(HooksClaude, { configPath: join(serverDir, 'hooks.json'), enabledHooks: [ALL_HOOKS] })
       ctx.llm.registerAdapter(['mock'], new MockAdapter([]))
 
       const childHandle = await ctx.agents.create({ sessionId: brandString<SessionId>('child-stop-session'), meta: { cwd: childDir }, agentOptions: { provider: 'mock', model: 'mock' } })

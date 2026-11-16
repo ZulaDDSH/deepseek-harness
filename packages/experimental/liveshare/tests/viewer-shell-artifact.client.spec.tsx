@@ -96,13 +96,15 @@ describe('Assembled liveshare viewer page', () => {
       workspaceId: workspace.workspaceId, path: workspace.path, displayTitle: workspace.title,
     } })
     await workspaceMenu.ready
-    expect(workspaceMenu.source.getSnapshot()).toEqual([])
+    expect(workspaceMenu.source.getSnapshot().map(item => item.id)).toEqual(['workspace.appearance/color', 'workspace.appearance/icon'])
     workspaceMenu.dispose()
     // A Session row keeps its menu for Copy Session ID, and every write verb in it hides itself.
     const rowMenu = screen.getAllByRole('button', { name: /^Session actions for / })[0]
     if (rowMenu === undefined) throw new Error('no Session row menu')
     await act(async () => { fireEvent.click(rowMenu) })
-    expect((await screen.findAllByRole('menuitem')).map(item => item.textContent)).toEqual(['Copy Session ID'])
+    expect((await screen.findAllByRole('menuitem')).map(item => item.textContent)).toEqual([
+      'Color', 'Default', 'Red', 'Orange', 'Green', 'Blue', 'Purple', 'Icon', 'Copy Session ID',
+    ])
     await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }) })
     await waitFor(() => { expect(screen.queryByRole('menu')).toBeNull() })
     expect(document.body.textContent).not.toContain('Fork session')

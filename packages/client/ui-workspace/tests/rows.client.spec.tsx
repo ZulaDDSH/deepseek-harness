@@ -12,9 +12,12 @@ import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { RowDragProps } from '../src/client/rows/Rows.tsx'
 import {
-  ProjectRowItem as ProjectRowItemComponent, SearchResultItem, SessionNodeItem as SessionNodeItemComponent,
+  ProjectRowItem as ProjectRowItemComponent, SearchResultItem, SectionHeaderItem as SectionHeaderItemComponent,
+  SessionNodeItem as SessionNodeItemComponent,
 } from '../src/client/rows/Rows.tsx'
+import { sessionStatuses } from '../src/client/rows/SessionStatus.tsx'
 import type { GroupNode, SearchResultNode, SessionNode } from '../src/client/tree.ts'
+import type { SectionNode } from '../src/client/sections.ts'
 import { en, zh } from '../src/client/locales.ts'
 import rowCss from '../src/client/rows/Rows.module.css'
 import { renderMenuButton } from './menu-button.tsx'
@@ -25,6 +28,8 @@ afterEach(() => { vi.unstubAllGlobals() })
 
 const t = makeTranslate(zh, commonZh) as never
 const tEn = makeTranslate(en, commonEn) as never
+/** The same zh seat, callable for expected labels. */
+const label = makeTranslate(zh, commonZh)
 
 const sid = (id: string) => id as SessionId
 const wid = (id: string) => id as WorkspaceId
@@ -39,6 +44,7 @@ type RowSlotName =
 type RowRenderSlot = PropsRenderSlots<RowSlotName>['renderSlot']
 type SessionNodeItemProps = ComponentProps<typeof SessionNodeItemComponent>
 type ProjectRowItemProps = ComponentProps<typeof ProjectRowItemComponent>
+type SectionHeaderItemProps = ComponentProps<typeof SectionHeaderItemComponent>
 
 const renderNoRowEntries: RowRenderSlot = () => null
 
@@ -70,6 +76,15 @@ function ProjectRowItem({
   & Partial<Pick<ProjectRowItemProps, 'useWorkspaceAccess' | 'renderFactorySlot' | 'useContextMenuTarget' | 'useContextMenu'>>) {
   return <ProjectRowItemComponent {...props} useWorkspaceAccess={useWorkspaceAccess}
     useContextMenu={props.useContextMenu ?? contextMenuHook()} renderFactorySlot={renderFactorySlot}
+    useContextMenuTarget={useContextMenuTarget} />
+}
+
+// Direct section-header specs hold the registry menu bindings; the menu itself is the registry's.
+function SectionHeaderItem({ openSectionMenu = vi.fn(), useContextMenuTarget = select => select(null), ...props }: Omit<
+  SectionHeaderItemProps, 'openSectionMenu' | 'useContextMenu' | 'useContextMenuTarget'
+> & Partial<Pick<SectionHeaderItemProps, 'openSectionMenu' | 'useContextMenuTarget'>>) {
+  return <SectionHeaderItemComponent {...props} openSectionMenu={openSectionMenu}
+    useContextMenu={contextMenuHook((target, point) => { if (target.kind === 'section') openSectionMenu(target.value.sectionId, target.value.displayTitle, point) })}
     useContextMenuTarget={useContextMenuTarget} />
 }
 
@@ -262,6 +277,25 @@ describe('native row drag previews', () => {
 })
 
 describe('workspace browser rows', () => {
+  it('shows an unacknowledged failure ahead of pending, running, and completed states', () => {
+    expect(sessionStatuses({
+      failed: true, runtimeFailed: true,
+      pendingInteraction: 'question',
+      running: true,
+      runningSubagentCount: 2,
+      completed: true,
+    }, t)).toEqual([{ state: 'error', label: '失败', trailingLabel: '失败' }])
+  })
+
+  it('rejects an unknown pending interaction discriminator', () => {
+    expect(() => sessionStatuses({
+      pendingInteraction: 'unknown' as never,
+      running: false,
+      runningSubagentCount: 0,
+      completed: false,
+    }, t)).toThrow('unknown pending interaction')
+  })
+
   it('keeps the leading status cell in the hierarchy-free flat list', () => {
     const idle: SessionNode = {
       id: sid('flat'), title: 'Flat Session', blank: false, running: false,
@@ -361,6 +395,178 @@ describe('workspace browser rows', () => {
     expect(onToggle).toHaveBeenCalledOnce()
   })
 
+  it('paints a chosen color onto the row so the label inherits it', () => {
+    const group: GroupNode = {
+      key: 'project', workspaceId: wid('project'), cwd: '/projects/project', createdAt: 0, label: 'Project',
+      sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
+    }
+    render(<ProjectRowItem group={group} appearance={{ color: 'purple' }} onToggle={vi.fn()} onCreate={vi.fn()} t={t} />)
+    const row = screen.getByText('Project').closest('[role="treeitem"]') as HTMLElement
+    expect(row.style.color).toBe('rgb(122, 90, 248)')
+    expect(getComputedStyle(screen.getByText('Project')).color).toBe('rgb(122, 90, 248)')
+  })
+
+  it('leads the session title with the owning Workspace icon choice', () => {
+    const node: SessionNode = {
+      id: sid('session'), title: 'Session', blank: false, running: false,
+      runningSubagentCount: 0, completed: false, updatedAt: 0, pinned: false, archived: false,
+    }
+    const { container } = render(
+      <SessionNodeItem
+        node={node} currentId={undefined} now={0} appearance={{ icon: 'rocket', color: 'purple' }}
+        onOpen={vi.fn()} t={t}
+      />,
+    )
+    // The mark is part of the title cluster, so it renders before the title text
+    // and carries the Workspace color.
+    const glyph = container.querySelector('[class*="sessionGlyph"]') as HTMLElement
+    expect(glyph).toBeTruthy()
+    expect(glyph.style.color).toBe('rgb(122, 90, 248)')
+    expect(screen.getByText('Session').closest('[class*="sessionGlyph"]')).toBeNull()
+  })
+
+  it('adds no session mark for the default folder choice', () => {
+    const node: SessionNode = {
+      id: sid('session'), title: 'Session', blank: false, running: false,
+      runningSubagentCount: 0, completed: false, updatedAt: 0, pinned: false, archived: false,
+    }
+    const { container } = render(
+      <SessionNodeItem
+        node={node} currentId={undefined} now={0} appearance={{ icon: 'folder', color: 'purple' }}
+        onOpen={vi.fn()} t={t}
+      />,
+    )
+    expect(container.querySelector('[class*="sessionGlyph"]')).toBeNull()
+  })
+
+  it('renders a chosen icon in place of the folder glyph', () => {
+    const group: GroupNode = {
+      key: 'project', workspaceId: wid('project'), cwd: '/projects/project', createdAt: 0, label: 'Project',
+      sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
+    }
+    const { container } = render(
+      <ProjectRowItem group={group} appearance={{ icon: 'rocket' }} onToggle={vi.fn()} onCreate={vi.fn()} t={t} />,
+    )
+    // The rocket choice swaps the folder glyph for its own sprite symbol.
+    const withIcon = container.querySelector('[data-icon="dsw-icon-rocket-outline-medium"]')
+    cleanup()
+    const { container: plain } = render(
+      <ProjectRowItem group={group} onToggle={vi.fn()} onCreate={vi.fn()} t={t} />,
+    )
+    expect(withIcon).not.toBeNull()
+    expect(plain.querySelector('[data-icon="dsw-icon-folder-close-regular"]')).not.toBeNull()
+    expect(container).toBeTruthy()
+  })
+
+  it('starts a drag from a Workspace row with its stable row key', () => {
+    const start = vi.fn()
+    const end = vi.fn()
+    const group: GroupNode = {
+      key: 'project', workspaceId: wid('project'), cwd: '/projects/project', createdAt: 0, label: 'Project',
+      sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
+    }
+    render(<ProjectRowItem
+      group={group} onToggle={vi.fn()} onCreate={vi.fn()} drag={{ start, end }} t={t}
+    />)
+    const row = screen.getByRole('treeitem')
+    fireEvent.dragStart(row, { dataTransfer })
+    expect(dataTransfer.setData).toHaveBeenLastCalledWith('text/plain', group.key)
+    expect(start).toHaveBeenCalledOnce()
+    fireEvent.dragEnd(row)
+    expect(end).toHaveBeenCalledOnce()
+  })
+
+  it('reorders section headers through their drag callbacks and displays each marker', () => {
+    const section: SectionNode = { id: 'section', name: 'Work', sessionIds: [], sessionCount: 0, expanded: false }
+    const drag = { start: vi.fn(), end: vi.fn() }
+    const onDragOver = vi.fn()
+    const onDrop = vi.fn()
+    const props = { section, drag, onDragOver, onDrop, onToggle: vi.fn(), t }
+    const view = render(<SectionHeaderItem {...props} marker="before" appearance={{ icon: 'rocket' }} />)
+    const row = screen.getByRole('treeitem')
+    stubRect(row)
+    expect(row.className).toContain('dropBefore')
+    fireEvent.dragStart(row, { dataTransfer })
+    expect(drag.start).toHaveBeenCalledOnce()
+    fireDrag(row, 'dragOver', 105)
+    fireDrag(row, 'drop', 130)
+    expect(onDragOver).not.toHaveBeenCalled()
+    expect(onDrop).not.toHaveBeenCalled()
+    view.rerender(<SectionHeaderItem {...props} dragActive marker="after" appearance={{ icon: 'folder' }} />)
+    expect(row.className).toContain('dropAfter')
+    fireDrag(row, 'dragOver', 105)
+    fireDrag(row, 'drop', 130)
+    fireEvent.dragEnd(row)
+    expect(onDragOver).toHaveBeenCalledWith('before')
+    expect(onDrop).toHaveBeenCalledWith('after')
+    expect(drag.end).toHaveBeenCalledOnce()
+    view.rerender(<SectionHeaderItem {...props} dragActive marker="inside" />)
+    expect(row.className).toContain('dropInside')
+    expect(row.getAttribute('aria-label')).toBe('Work')
+    expect(props.onToggle).not.toHaveBeenCalled()
+  })
+
+  it('opens the registry section menu from its ellipsis and right-click, capturing the section', () => {
+    const openSectionMenu = vi.fn()
+    const section: SectionNode = { id: 'section', name: 'Work', sessionIds: [], sessionCount: 0, expanded: true }
+    render(<SectionHeaderItem section={section} onToggle={vi.fn()} openSectionMenu={openSectionMenu} t={t} />)
+    fireEvent.click(screen.getByRole('button', { name: label('section.actions.aria', { name: 'Work' }) }))
+    expect(openSectionMenu).toHaveBeenLastCalledWith('section', 'Work', { x: 0, y: 0 }, 'toggle')
+    fireEvent.contextMenu(screen.getByRole('treeitem'), { clientX: 4, clientY: 6 })
+    expect(openSectionMenu).toHaveBeenLastCalledWith('section', 'Work', { x: 4, y: 6 })
+  })
+
+  it('routes an external Chat drop to the section filing action', () => {
+    const onFileChat = vi.fn()
+    const onDrop = vi.fn()
+    const onParentDrop = vi.fn()
+    const section: SectionNode = { id: 'section', name: 'Work', sessionIds: [], sessionCount: 0, expanded: true }
+    render(<div onDrop={onParentDrop}>
+      <SectionHeaderItem
+        section={section} onToggle={vi.fn()} onFileChat={onFileChat}
+        externalChatSessionId="external-chat" onDrop={onDrop} t={t}
+      />
+    </div>)
+    const row = screen.getByRole('treeitem')
+
+    fireDrag(row, 'dragOver', 105)
+    fireDrag(row, 'drop', 120)
+
+    expect(onFileChat).toHaveBeenCalledOnce()
+    expect(onDrop).not.toHaveBeenCalled()
+    expect(onParentDrop).not.toHaveBeenCalled()
+  })
+
+  it('keeps the browser menu on a blank session row, which has no verbs', () => {
+    const node: SessionNode = {
+      id: sid('blank'), title: '', blank: true, running: false,
+      runningSubagentCount: 0, completed: false, updatedAt: 0, pinned: false, archived: false,
+    }
+    render(
+      <SessionNodeItem
+        node={node}
+        currentId={undefined} now={0}
+        onOpen={vi.fn()} t={t}
+      />,
+    )
+    const row = screen.getByText('新会话')
+    // Not cancelled, so the browser keeps offering its own menu here.
+    expect(fireEvent.contextMenu(row, { clientX: 5, clientY: 5 })).toBe(true)
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('keeps the browser menu on the ungrouped bucket, which has no actions', () => {
+    const group: GroupNode = {
+      key: 'ungrouped', workspaceId: undefined, cwd: undefined, createdAt: undefined, label: 'Ungrouped',
+      sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
+    }
+    render(<ProjectRowItem group={group} onToggle={vi.fn()} onCreate={vi.fn()} t={t} />)
+    const row = screen.getByText('未分组')
+    // Not cancelled, so the browser keeps offering its own menu here.
+    expect(fireEvent.contextMenu(row, { clientX: 5, clientY: 5 })).toBe(true)
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
   it('renders and opens a selected running Session row', () => {
     const node: SessionNode = {
       id: sid('session'), title: 'Session', blank: false, running: true,
@@ -375,6 +581,7 @@ describe('workspace browser rows', () => {
     expect(row.getAttribute('aria-selected')).toBe('true')
     expect(row.hasAttribute('aria-expanded')).toBe(false)
     expect(screen.queryByRole('button', { name: /展开|收起/ })).toBeNull()
+    expect(screen.getByText('进行中').className).toMatch(/statusLabel/)
     fireEvent.click(row)
     expect(onOpen).toHaveBeenCalledWith(node.id)
   })
@@ -680,6 +887,21 @@ describe('workspace browser rows', () => {
       useSessionAccess={allowAllAccess.useSessionAccess} t={t}
     />)
     expect(screen.getByRole('treeitem').querySelector('[data-state="done"]')).not.toBeNull()
+  })
+
+  it('unarchives an archived search result in the ungrouped workspace', () => {
+    const onUnarchive = vi.fn()
+    const id = sid('archived')
+    render(<SearchResultItem
+      result={{
+        id, title: 'Archived', workspace: '', running: false,
+        runningSubagentCount: 0, completed: false, failed: false, archived: true,
+      }}
+      currentId={undefined} onOpen={vi.fn()} onUnarchive={onUnarchive} useSessionAccess={allowAllAccess.useSessionAccess} t={t}
+    />)
+    expect(screen.getByText(label('group.ungrouped'))).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: label('menu.unarchiveSession') }))
+    expect(onUnarchive).toHaveBeenCalledWith(id)
   })
 
   it('gives right-click and the shared button the Workspace row target without changing expansion', () => {

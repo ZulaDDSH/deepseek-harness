@@ -11,7 +11,7 @@ describe('terminal client artifacts', () => {
     expect(existsSync(terminalPath)).toBe(true)
     const entry = readFileSync(entryPath, 'utf8')
     const terminal = readFileSync(terminalPath, 'utf8')
-    expect([...entry.matchAll(/require\.async\((["'`])(\.\/client[^"'`/]*\.js)\1\)/gu)].map(match => match[2]))
+    expect([...new Set([...entry.matchAll(/require\.async\((["'`])(\.\/client[^"'`/]*\.js)\1\)/gu)].map(match => match[2]))])
       .toEqual(['./client.terminal.js'])
     expect(entry).not.toMatch(/\brequire\((["'`])\.\/client[^"'`/]*\.js\1\)/u)
     expect([...terminal.matchAll(/require\((["'`])(\.\/client[^"'`/]*\.js)\1\)/gu)].map(match => match[2]))

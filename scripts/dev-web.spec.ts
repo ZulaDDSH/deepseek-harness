@@ -9,6 +9,7 @@ import {
   discoverLibraryDirs,
   discoverPluginDirs,
   parseDevWebArguments,
+  pollNotice,
   StageSupervisor,
   watchClientPlugins,
 } from './dev-web.ts'
@@ -71,6 +72,17 @@ describe('StageSupervisor', () => {
     await stopping
     expect(interrupted.signals).toEqual([])
     expect(survivor.signals).toEqual(['SIGTERM'])
+  })
+})
+
+describe('pollNotice', () => {
+  it('stays silent when watching natively', () => {
+    expect(pollNotice(undefined)).toBeUndefined()
+  })
+
+  it('names the polling interval and its steady CPU cost', () => {
+    expect(pollNotice(500)).toContain('500ms')
+    expect(pollNotice(500)).toContain('CPU')
   })
 })
 

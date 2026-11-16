@@ -8,6 +8,7 @@ import {
   subagentModelCandidates,
   type SubagentModelSelectionSettings,
 } from '../src/client/subagent-model-selection-card-controller.ts'
+import { ClaudeCodeCardController, type ClaudeCodeSettings } from '../src/client/claude-code-card-controller.ts'
 
 /** Make the stub behave like a Host that accepts every write. */
 function acceptWrites<T>(host: StubConfigForm<T>): void {
@@ -559,6 +560,31 @@ describe('shared Subagent card actions', () => {
     ], 5)
   })
 
+  it('waits for the model namespace save before saving limits', async () => {
+    const { limits, models, face, state } = card()
+    const modelWrite = deferred<undefined>()
+    models.mutate.mockImplementationOnce(async (ops) => {
+      await modelWrite.promise
+      const enabled = ops.find(op => op.path[0] === 'enabled')
+      const allowedModels = ops.find(op => op.path[0] === 'allowedModels')
+      models.publish({ value: {
+        enabled: enabled?.op === 'set' ? enabled.value as boolean : false,
+        allowedModels: allowedModels?.op === 'set' ? allowedModels.value as never[] : [],
+      } })
+      return true
+    })
+    face.editLimit('maxDepth', '2')
+    face.toggleEnabled()
+
+    face.save()
+    await vi.waitFor(() => { expect(models.mutate).toHaveBeenCalledOnce() })
+
+    expect(limits.mutate).not.toHaveBeenCalled()
+    modelWrite.resolve(undefined)
+    await vi.waitFor(() => { expect(state()).toMatchObject({ saving: false, dirty: false, failed: false }) })
+    expect(limits.mutate).toHaveBeenCalledWith([{ op: 'set', path: ['maxDepth'], value: 2 }], 2)
+  })
+
   it('saves a limit-only draft without rewriting model authorization', async () => {
     const { limits, models, face, state } = card()
     face.editLimit('maxDepth', '2')
@@ -622,5 +648,41 @@ describe('shared Subagent card actions', () => {
     await vi.waitFor(() => { expect(state()).toMatchObject({ saving: false, dirty: false, failed: false }) })
     expect(limits.mutate).toHaveBeenCalledOnce()
     expect(models.mutate).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('ClaudeCodeCardController', () => {
+  it('stages the Ultracode switch and saves it as one revision-fenced mutation', async () => {
+    const host = stubConfigForm<ClaudeCodeSettings>()
+    acceptWrites(host)
+    const controller = new ClaudeCodeCardController(host.scope)
+    host.publish({ status: 'ready', writable: true, value: {}, base: {}, user: {} })
+    const face = controller.inject()
+
+    face.edit('ultracode', 'true')
+    face.save()
+    await vi.waitFor(() => { expect(host.mutate).toHaveBeenCalledWith([{ op: 'set', path: ['ultracode'], value: true }], undefined) })
+
+    expect(face.hooks.claudeCodeCard.getSnapshot()).toMatchObject({
+      dirty: false,
+      ultracode: { text: 'true', overridden: true },
+    })
+  })
+
+  it('clears a stored Ultracode back to the Claude Code default', async () => {
+    const host = stubConfigForm<ClaudeCodeSettings>()
+    acceptWrites(host)
+    const controller = new ClaudeCodeCardController(host.scope)
+    host.publish({ status: 'ready', writable: true, value: { ultracode: true }, base: {}, user: { ultracode: true } })
+    const face = controller.inject()
+
+    face.resetField('ultracode')
+    face.save()
+    await vi.waitFor(() => { expect(host.mutate).toHaveBeenCalledWith([{ op: 'unset', path: ['ultracode'] }], undefined) })
+
+    expect(face.hooks.claudeCodeCard.getSnapshot()).toMatchObject({
+      dirty: false,
+      ultracode: { text: 'false', overridden: false },
+    })
   })
 })

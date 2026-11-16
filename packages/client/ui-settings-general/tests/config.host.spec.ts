@@ -1,4 +1,4 @@
-/** Onboarding state uses live Config fields. */
+/** Retired welcome preference uses live Config fields. */
 import { Context } from '@deepseek-ai/cordis'
 import { expect, it, onTestFinished } from 'vitest'
 import * as HostPlugin from '../src/index.ts'
@@ -6,7 +6,7 @@ import { liveConfig, omitsGeneratedPage } from '../../../settings/settings/tests
 import { plainConfig } from '../../../settings/settings/src/schema.ts'
 import * as General from '../src/index.ts'
 
-it('validates and updates onboarding preferences without remounting', async () => {
+it('validates and updates the retired welcome preference without remounting', async () => {
   const ctx = new Context()
   onTestFinished(() => ctx.fiber.dispose())
   const configuration = await liveConfig(ctx, General)

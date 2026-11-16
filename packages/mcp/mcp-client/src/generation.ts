@@ -1,6 +1,6 @@
 /** One transport lifetime, including pending work and confirmed closure. */
 
-import type { Client, Transport } from '@modelcontextprotocol/client'
+import type { AuthProvider, Client, Transport } from '@modelcontextprotocol/client'
 import { withDeadline } from './deadline.ts'
 import { McpLocalError } from './diagnostic.ts'
 import { createTransport } from './transport.ts'
@@ -30,9 +30,9 @@ export class McpGeneration {
    * @param timeoutMs - remaining operation budget; undefined leaves the SDK default.
    * @returns completion of negotiation, or cancellation/deadline rejection.
    */
-  connect(config: Config, timeoutMs: number | undefined): Promise<void> {
+  connect(config: Config, timeoutMs: number | undefined, authProvider?: AuthProvider, environment?: Record<string, string>): Promise<void> {
     this.lifetime.signal.throwIfAborted()
-    const transport = this.transport = createTransport(config)
+    const transport = this.transport = createTransport(config, authProvider, environment)
     const close = transport.close.bind(transport)
     let closing: Promise<void> | undefined
     transport.close = () => closing ??= close()

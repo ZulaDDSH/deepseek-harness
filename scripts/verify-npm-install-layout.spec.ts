@@ -92,6 +92,15 @@ describe('npm install layout verifier', () => {
     )
   })
 
+  it('allows the React that the shipped Memorix server needs but still rejects react-dom', () => {
+    const layout = validLayout()
+    const packages = { ...layout.packages, 'node_modules/memorix': { version: '1.9.10' }, 'node_modules/react': { version: '19.2.7' } }
+    expect(() => assertDualDshInstallLayout({ ...layout, packages })).not.toThrow()
+    expect(() => assertDualDshInstallLayout({ ...layout, packages: { ...packages, 'node_modules/react-dom': { version: '19.2.7' } } })).toThrow(
+      'node_modules/react-dom: react-dom is a browser build input',
+    )
+  })
+
   it('rejects an internal edge that crosses release versions', () => {
     const layout = validLayout()
     const packages = { ...layout.packages }

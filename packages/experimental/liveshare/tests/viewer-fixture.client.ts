@@ -1575,9 +1575,11 @@ function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknow
 
 function modelSelectionProjectionOf(log: readonly SessionEvent[]): {
   lastUsed: ModelSelection | null
+  lastUsedSeq: SessionSeq | null
   next: ModelSelection | null
 } {
   let lastUsed: ModelSelection | null = null
+  let lastUsedSeq: SessionSeq | null = null
   let pending: ModelSelection | null = null
   for (const event of log) {
     if (event.type === 'model/selection') {
@@ -1592,9 +1594,10 @@ function modelSelectionProjectionOf(log: readonly SessionEvent[]): {
         ? {}
         : { reasoningEffort: event.data.header.config.reasoningEffort }),
     }
+    lastUsedSeq = event.seq
     if (sameModelSelection(pending, lastUsed)) pending = null
   }
-  return { lastUsed, next: pending ?? lastUsed }
+  return { lastUsed, lastUsedSeq, next: pending ?? lastUsed }
 }
 
 function sameModelSelection(left: ModelSelection | null, right: ModelSelection | null): boolean {

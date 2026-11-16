@@ -105,7 +105,7 @@ describe('AssistantMarkdown reasoning blocks', () => {
   })
 
   it('keeps non-blank rows and their expanded bodies across modes, excluding them from the response part', () => {
-    const mode = createSnapshotStore<TranscriptViewMode>('compact')
+    const mode = createSnapshotStore<TranscriptViewMode>('detailed')
     const usePresentation = bindSnapshotSelector(derivePresentationPolicy(mode, createSnapshotStore<CollapseTiming>('completion'), createSnapshotStore<FoldedReplies>('all')))
     const blocks: AssistantMarkdownProps['blocks'] = [
       { kind: 'reasoning', text: '' },
@@ -118,7 +118,7 @@ describe('AssistantMarkdown reasoning blocks', () => {
     const toggle = view.getByRole('button')
     fireEvent.click(toggle)
     const body = view.getByText('Mode body')
-    for (const next of ['standard', 'detailed', 'verbose', 'compact'] as const) {
+    for (const next of ['verbose', 'detailed'] as const) {
       act(() => { mode.set(next) })
       expect(view.getAllByRole('button')).toHaveLength(1)
       expect(view.getByRole('button')).toBe(toggle)
@@ -126,6 +126,8 @@ describe('AssistantMarkdown reasoning blocks', () => {
       expect(view.getByText('Mode body')).toBe(body)
       expect(view.queryByText('Answer')).toBeNull()
     }
+    act(() => { mode.set('compact') })
+    expect(view.queryAllByRole('button')).toHaveLength(0)
     view.rerender(<AssistantMarkdown {...props} usePresentation={usePresentation}
       blocks={blocks} groupPart="response" streaming={false} />)
     expect(view.queryAllByRole('button')).toHaveLength(0)
@@ -444,5 +446,26 @@ describe('ReasoningRow', () => {
         '[data-variant="think"][data-expanded] [data-open] [data-disclosure-header]',
       ),
     ).not.toBeNull()
+  })
+
+  it.each([
+    ['compact', false],
+    ['standard', false],
+    ['detailed', true],
+    ['verbose', true],
+  ] as const)('shows process-group reasoning rows in %s only when the mode keeps them', (mode, shown) => {
+    const store = createSnapshotStore<TranscriptViewMode>(mode)
+    const view = render(
+      <AssistantMarkdown useDisclosure={useDisclosure} renderSlot={renderSlot} useGroupAction={useSearchableHidden}
+        usePresentation={bindSnapshotSelector(derivePresentationPolicy(store, createSnapshotStore<CollapseTiming>('completion'), createSnapshotStore<FoldedReplies>('all')))}
+        t={t}
+        groupPart="reasoning"
+        blocks={[{ kind: 'reasoning', text: 'Inspect the session' }, { kind: 'text', text: 'Answer' }]}
+        streaming={false}
+        loadImage={unusedImageLoader}
+      />,
+    )
+    expect(view.container.querySelector('[data-variant="think"]') !== null).toBe(shown)
+    expect(view.queryByText('Answer')).toBeNull()
   })
 })

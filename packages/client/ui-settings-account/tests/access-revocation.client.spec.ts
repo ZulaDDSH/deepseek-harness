@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 /** Account surfaces follow `account/watch` access: a revocation withdraws them and a later grant restores them. */
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { AccountView } from '@deepseek-ai/dsh-deepseek-account/types'
 import { apply, type AccountSectionInjected } from '../src/client/index.ts'
 
-afterEach(() => { vi.unstubAllEnvs() })
+beforeEach(() => { vi.stubGlobal('dshDesktop', {}) })
+afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals() })
 
 type AccessEffect = (() => void) | Iterable<() => void>
 
@@ -92,22 +93,22 @@ it('withdraws every account surface and the account stream on revocation, and re
     },
   }
   const surfaces = (): Record<string, number | undefined> => Object.fromEntries(
-    ['settings.launcher', 'shell.quota-notice', 'settings.models.sign-in', 'settings.section'].map(name => [name, registered.get(name)]),
+    ['settings.launcher', 'shell.quota-notice', 'settings.section'].map(name => [name, registered.get(name)]),
   )
   try {
     apply(ctx as never)
     expect(new Set(guards.map(guard => guard.action))).toEqual(new Set(['account/watch']))
     grant(guards)
     await streams[0]!.accepted
-    expect(surfaces()).toEqual({ 'settings.launcher': 1, 'shell.quota-notice': 1, 'settings.models.sign-in': 1, 'settings.section': 1 })
+    expect(surfaces()).toEqual({ 'settings.launcher': 1, 'shell.quota-notice': 1, 'settings.section': 1 })
 
     revoke(guards)
     expect(streams[0]!.signal.aborted).toBe(true)
-    expect(surfaces()).toEqual({ 'settings.launcher': 0, 'shell.quota-notice': 0, 'settings.models.sign-in': 0, 'settings.section': 0 })
+    expect(surfaces()).toEqual({ 'settings.launcher': 0, 'shell.quota-notice': 0, 'settings.section': 0 })
 
     grant(guards)
     await streams[1]!.accepted
-    expect(surfaces()).toEqual({ 'settings.launcher': 1, 'shell.quota-notice': 1, 'settings.models.sign-in': 1, 'settings.section': 1 })
+    expect(surfaces()).toEqual({ 'settings.launcher': 1, 'shell.quota-notice': 1, 'settings.section': 1 })
   } finally {
     revoke(guards)
     for (const dispose of lifetime.reverse()) dispose()
@@ -291,10 +292,8 @@ it('ignores a frame the stream delivered just before the revocation', async () =
   }
 })
 
-it('closes the sign-in dialog, its failure, and the pending authorization tab on revocation', async () => {
+it('closes the sign-in dialog, its failure, and the pending sign-in on revocation', async () => {
   vi.stubEnv('DSH_CLIENT_VERSION', '0.0.0-test')
-  const popup = { opener: null, closed: false, close: vi.fn(), location: { replace: vi.fn() } }
-  const open = vi.spyOn(window, 'open').mockReturnValue(popup as never)
   const b = revocationHarness([() => {}, () => {}])
   try {
     grant(b.guards)
@@ -308,14 +307,12 @@ it('closes the sign-in dialog, its failure, and the pending authorization tab on
 
     grant(b.guards)
     await b.accepted[1]
-    popup.close.mockClear()
     b.startSignIn.mockReturnValueOnce(new Promise(() => {}))
     void b.operations().start()
-    expect(open).toHaveBeenCalledTimes(2)
+    expect(b.operations().hooks.account.getSnapshot().loginVisible).toBe(true)
     revoke(b.guards)
-    expect(popup.close).toHaveBeenCalledOnce()
+    expect(b.operations().hooks.account.getSnapshot().loginVisible).toBe(false)
   } finally {
     b.dispose()
-    open.mockRestore()
   }
 })

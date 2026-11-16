@@ -80,6 +80,7 @@ export function GenericToolCard({
       search={search}
       web={web}
       state={state}
+      startedAt={model.startedAt}
       filePath={model.filePath}
       onOpenFile={singleFile ? openFile : undefined}
       inspect={inspect}

@@ -285,6 +285,77 @@ describe('Conversation inject API', () => {
     await vi.waitFor(() => { expect(b.sessionFake.prompt).toHaveBeenCalledTimes(2) })
   })
 
+  it('toggles connected MCP tools for this session and reports failed selections without changing the projection', async () => {
+    const b = await bench()
+    onTestFinished(() => b.runtime.dispose())
+    const contributions = new Map<string, CommandContribution>()
+    b.runtime.ctx.provide('commandUi', {
+      register: (entry: CommandContribution) => {
+        contributions.set(entry.name, entry)
+        return () => { contributions.delete(entry.name) }
+      },
+    })
+    const selectMcp = vi.fn(async (request: { sessionId: SessionId; connectorIds: string[] }) => {
+      await b.runtime.sessions.setProjection(ROOT, 'mcpSelection', { current: { connectorIds: request.connectorIds } })
+      return { ok: true as const, value: { selected: { connectorIds: request.connectorIds } } }
+    })
+    b.runtime.remote.provideNamespaces({ session: {
+      listMcpConnectors: async () => ({ ok: true, value: { connectorIds: ['memorix', 'github'] } }), selectMcp,
+    } })
+    await vi.waitFor(() => { expect(contributions.has('connectors')).toBe(true) })
+    const entry = contributions.get('connectors')!
+    if (entry.ui.kind !== 'popupSelect') throw new Error('Expected connector popup')
+    const popup = entry.ui
+    const target = { sessionId: ROOT }
+    const signal = new AbortController().signal
+    expect(await popup.options(target, signal)).toEqual([
+      { id: 'memorix', label: 'memorix', active: true }, { id: 'github', label: 'github', active: true },
+    ])
+    await popup.onSelect({ id: 'github', label: 'github' }, target)
+    expect(selectMcp).toHaveBeenLastCalledWith({ sessionId: ROOT, connectorIds: ['memorix'] })
+    expect(await popup.options(target, signal)).toMatchInlineSnapshot(`
+      [
+        {
+          "active": true,
+          "id": "memorix",
+          "label": "memorix",
+        },
+        {
+          "active": false,
+          "id": "github",
+          "label": "github",
+        },
+      ]
+    `)
+    selectMcp.mockRejectedValueOnce(new Error('writer held'))
+    await expect(popup.onSelect({ id: 'memorix', label: 'memorix' }, target)).rejects.toThrow('writer held')
+    expect((await popup.options(target, signal))[0]?.active).toBe(true)
+  })
+
+  it('adds a picked desktop folder as a reference without uploading directory contents', async () => {
+    const pick = vi.fn(async () => '/proj/my folder')
+    vi.stubGlobal('__DSH_DIRECTORY_PICKER__', { pick })
+    onTestFinished(() => { vi.unstubAllGlobals() })
+    const b = await bench()
+    onTestFinished(() => b.runtime.dispose())
+    const contributions = new Map<string, CommandContribution>()
+    b.runtime.ctx.provide('commandUi', {
+      register: (entry: CommandContribution) => {
+        contributions.set(entry.name, entry)
+        return () => { contributions.delete(entry.name) }
+      },
+    })
+    await vi.waitFor(() => { expect(contributions.has('folder')).toBe(true) })
+    const entry = contributions.get('folder')!
+    const keyboard = b.composerApi(ROOT).keyboard!
+    const unbind = keyboard.bindFilePicker({ open: vi.fn(), available: () => true })
+    onTestFinished(unbind)
+    if (entry.ui.kind !== 'action') throw new Error('Expected folder action')
+    entry.ui.run({ sessionId: ROOT })
+    await vi.waitFor(() => { expect(b.inputApi(ROOT).state.getSnapshot().draft).toBe('@"my folder/" ') })
+    expect(b.rootUpload).not.toHaveBeenCalled()
+  })
+
   it('renders literal quote text through the actual Factory and keyed node registration', async () => {
     const b = await bench(true)
     onTestFinished(() => b.runtime.dispose())
@@ -372,30 +443,8 @@ describe('Conversation inject API', () => {
     inspect('call-1')
     expect(body.instance.store.getSnapshot().viewRequest).toEqual({ view: 'trajectory', focus: 'tool:call-1' })
     await b.runtime.ctx.configForms.developerTools.setEnabled(false)
-    expect(source.getSnapshot()).toBeUndefined()
-    await b.runtime.ctx.configForms.developerTools.setEnabled(true)
     expect(source.getSnapshot()).toBe(inspect)
-    // Trajectory still owns inspection while both Views are visible; hiding
-    // it must leave a third-party View's inspection capability reachable.
-    const removePipelineDefinition = b.runtime.ctx.uiConversation.views.register({
-      target: 'pipeline',
-      toolCallFocus: callId => `stage:${callId}`,
-      create: () => ({ empty: null, replace: () => null, apply: () => null }),
-    })
-    const removePipelineView = b.slots.register(
-      { name: 'conversation.view', id: 'pipeline' }, (() => null) as never,
-    )
-    await b.runtime.flush()
-    expect(source.getSnapshot()).toBe(inspect)
-    await b.runtime.ctx.configForms.developerTools.setEnabled(false)
-    const pipelineInspect = source.getSnapshot()!
-    expect(pipelineInspect).toBeTypeOf('function')
-    pipelineInspect('call-2')
-    expect(body.instance.store.getSnapshot().viewRequest).toEqual({ view: 'pipeline', focus: 'stage:call-2' })
     await b.runtime.ctx.configForms.developerTools.setEnabled(true)
-    removePipelineView()
-    removePipelineDefinition()
-    await b.runtime.flush()
     expect(source.getSnapshot()).toBe(inspect)
     removeView()
     await b.runtime.flush()

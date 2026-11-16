@@ -29,7 +29,7 @@ it('uses account Remote commands without returning additional wire fields', asyn
   const backend = desktopAccountBackend('http://127.0.0.1:1234', (request) => {
     requests.push(request)
     return Promise.resolve({ links: { usageUrl: 'http://localhost/usage', topUpUrl: 'http://localhost/top_up' }, status: 'signed-out', attempt: null, token: 'private' })
-  }, '')
+  }, () => Promise.resolve(''))
   const client = { version: '1.2.3', locale: 'en', timezoneOffsetSeconds: 28_800 }
   expect(await backend.start(client)).toEqual({ links: { usageUrl: 'http://localhost/usage', topUpUrl: 'http://localhost/top_up' }, status: 'signed-out', attempt: null })
   expect(await backend.signOut(client)).toMatchObject({ status: 'signed-out' })
@@ -45,12 +45,7 @@ it('does not replay an expiry reason from an account snapshot', () => {
   expect(accountView({ ...state, signOutReason: 'expired' })).toEqual(state)
 })
 
-it.each([
-  ['snapshot', 'invalid'],
-  ['credentials-changed', 'invalid'],
-  ['snapshot', ['snapshot']],
-  ['credentials-changed', ['credentials-changed']],
-] as const)('receives %s state updates separately from live expiry and rejects type %j', async (type, invalidType) => {
+it('receives live expiry separately from account snapshots', async () => {
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 })
   await once(server, 'listening')
   onTestFinished(async () => {
@@ -65,14 +60,12 @@ it.each([
   const snapshot = { status: 'signed-out', attempt: null,
     links: { usageUrl: 'https://platform.deepseek.com/usage', topUpUrl: 'https://platform.deepseek.com/top_up' } }
   const received = Promise.withResolvers<undefined>()
-  const backend = desktopAccountBackend(`http://127.0.0.1:${address.port}`, () => Promise.resolve(snapshot), 'dsh-auth-fixture=signed')
-  const failed = vi.fn()
+  const backend = desktopAccountBackend(`http://127.0.0.1:${address.port}`, () => Promise.resolve(snapshot), () => Promise.resolve(''))
   const stop = backend.watch(
-    (value) => { expect(value).toEqual(snapshot); received.resolve(undefined) }, failed, expired, onAnalyticsEnabledChanged,
+    (value) => { expect(value).toEqual(snapshot); received.resolve(undefined) }, vi.fn(), expired, onAnalyticsEnabledChanged,
   )
   onTestFinished(stop)
-  const [, upgrade] = await connected as [unknown, IncomingMessage]
-  expect(upgrade.headers.cookie).toBe('dsh-auth-fixture=signed')
+  await connected
   // Logical streams share the socket; observe their opening frames before sending data.
   const streams = new Map<string, string>()
   const opened = Promise.withResolvers<undefined>()
@@ -84,7 +77,7 @@ it.each([
     if (streams.size === 3) opened.resolve(undefined)
   })
   await opened.promise
-  socket.send(JSON.stringify({ type: 'item', streamId: streams.get('account/watch'), value: { type, state: snapshot } }))
+  socket.send(JSON.stringify({ type: 'item', streamId: streams.get('account/watch'), value: snapshot }))
   await received.promise
   socket.send(JSON.stringify({ type: 'item', streamId: streams.get('productAnalytics/watchPolicy'), value: true }))
   await vi.waitFor(() => { expect(onAnalyticsEnabledChanged).toHaveBeenLastCalledWith(true) })
@@ -97,7 +90,35 @@ it.each([
   expect(expired).not.toHaveBeenCalled()
   socket.send(JSON.stringify({ type: 'item', streamId: streams.get('account/watchExpiry'), value: 'session-expired' }))
   await vi.waitFor(() => { expect(expired).toHaveBeenCalledOnce() })
-  socket.send(JSON.stringify({ type: 'item', streamId: streams.get('account/watch'), value: { type: invalidType, state: snapshot } }))
-  await vi.waitFor(() => { expect(failed).toHaveBeenCalledOnce() })
+  stop()
+})
+
+it('refreshes the session cookie when the account stream reconnects', async () => {
+  const server = new WebSocketServer({ host: '127.0.0.1', port: 0 })
+  await once(server, 'listening')
+  onTestFinished(async () => {
+    for (const client of server.clients) client.terminate()
+    await new Promise<void>((resolve, reject) => { server.close((error) => { if (error) reject(error); else resolve() }) })
+  })
+  const address = server.address()
+  if (typeof address === 'string' || address === null) throw new Error('missing server address')
+  const snapshot = { status: 'signed-out', attempt: null,
+    links: { usageUrl: 'https://platform.deepseek.com/usage', topUpUrl: 'https://platform.deepseek.com/top_up' } }
+  let cookie = 'session=initial'
+  const cookies = vi.fn(async () => cookie)
+  const backend = desktopAccountBackend(`http://127.0.0.1:${address.port}`, () => Promise.resolve(snapshot), cookies)
+  const firstConnection = once(server, 'connection')
+  const stop = backend.watch(vi.fn(), vi.fn(), vi.fn())
+  onTestFinished(stop)
+  const [, firstRequest] = await firstConnection as [unknown, IncomingMessage]
+  expect(firstRequest.headers.cookie).toBe('session=initial')
+
+  cookie = 'session=refreshed'
+  const secondConnection = once(server, 'connection')
+  const firstSocket = [...server.clients][0]!
+  firstSocket.close()
+  const [, secondRequest] = await secondConnection as [unknown, IncomingMessage]
+  expect(secondRequest.headers.cookie).toBe('session=refreshed')
+  expect(cookies).toHaveBeenCalledTimes(2)
   stop()
 })

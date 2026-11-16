@@ -125,6 +125,7 @@ function text(reply: string): SubagentResult {
 interface SetupOptions {
   persistent?: boolean
   config?: Config
+  subagentConfig?: { maxActiveSubagents: number }
   reply?: (request: SubagentStartRequest, index: number) => SubagentResult
   manual?: boolean
   disposeDelayMs?: number
@@ -138,7 +139,7 @@ async function setup(options?: SetupOptions) {
   await ctx.plugin(SessionProjectionRegistry)
   await mountPtcRuntime(ctx, 'danger-full-access', options?.persistent ? 'persistent-in-memory' : 'per-call')
   provideWorkingDirectoryFixture(ctx)
-  await ctx.plugin(SubagentRuntime)
+  await ctx.plugin(SubagentRuntime, { ...options?.subagentConfig })
   const provider = new StubProvider(
     'stub',
     options?.manual ? undefined : options?.reply ?? (() => text('stub reply')),
@@ -346,6 +347,31 @@ describe('dsh-workflow-ptc', { timeout: 120_000 }, () => {
       expect(result.agentsStarted).toBe(1)
       expect(result.error).toContain('total agent cap (1)')
       await handle.dispose()
+    })
+
+    it('caps parallel() fan-out to the parent subagent pool instead of failing the run at capacity', async () => {
+      const { ctx, parent, provider } = await setup({
+        manual: true,
+        config: { maxConcurrentAgents: 4 },
+        subagentConfig: { maxActiveSubagents: 2 },
+      })
+      const handle = ctx.workflowEngine.start({
+        ...scripted("return await parallel([1, 2, 3, 4].map((n) => () => agent('task ' + n)))"),
+        parent,
+      })
+      const state: { finished?: WorkflowResult } = {}
+      void handle.result.then((result) => { state.finished = result })
+      try {
+        for (let settled = 0; settled < 4 && state.finished === undefined; settled++) {
+          await waitFor(() => { expect(provider.runs.length > settled || state.finished !== undefined).toBe(true) })
+          provider.runs[settled]?.settle(text(`answer-${settled}`))
+        }
+        const result = await handle.result
+        expect(result.stopReason).toBe('completed')
+        expect(result.value).toEqual(['answer-0', 'answer-1', 'answer-2', 'answer-3'])
+      } finally {
+        await handle.dispose()
+      }
     })
 
     it('a fatal hook error inside the guest kills the script and reports the error', async () => {

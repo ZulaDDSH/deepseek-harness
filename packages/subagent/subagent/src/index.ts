@@ -65,11 +65,13 @@ import type {
 } from './types.ts'
 import { SubagentError } from './error.ts'
 import { assertSubagentMaxDepth } from './depth.ts'
+import { installStepBudget } from './step-budget.ts'
 import { createLifecycleEmitter } from './lifecycle.ts'
 import type { LifecycleEmitter } from './lifecycle.ts'
 import SubagentManager from './manager.ts'
 import { listDescendants as listSubagentDescendants, resolveAgentPath } from './list-children.ts'
 import type { SubagentDescendantListEntry } from './list-children.ts'
+import { subagentActivityProjectionDefinition } from './activity-projection.ts'
 import { subagentIdentityProjectionDefinition, subagentTimingProjectionDefinition } from './projection.ts'
 import { subagentCatalogProjectionDefinition } from './catalog.ts'
 import { ROOT_AGENT_NAME } from './names.ts'
@@ -78,6 +80,7 @@ export type {} from './catalog.ts'
 export type {} from './projection.ts'
 export * from './out-of-process.ts'
 export { AssistantOutputFold, finalAssistantOutput } from './assistant-output.ts'
+export { failureDiagnosticOf } from './failure-diagnostic.ts'
 export { SubagentRunId } from './types.ts'
 export { ROOT_AGENT_NAME } from './names.ts'
 export type {
@@ -126,7 +129,10 @@ export type { AgentMessageSource, SubagentSettledMessageSource } from './continu
 export type * from './control-types.ts'
 export type { SubagentDescendantListEntry } from './list-children.ts'
 export type { SubagentRunEndInfo, SubagentRunInfo } from './types.ts'
-export type { SubagentCatalogEntry, SubagentIdentityProjection, SubagentTimingProjection } from './projection-types.ts'
+export type {
+  SubagentActivityProjection, SubagentCatalogEntry, SubagentIdentityProjection, SubagentTimingProjection, SubagentToolActivity,
+} from './projection-types.ts'
+export type * from './projection.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -184,10 +190,12 @@ interface BrowserPromptSource {
 
 /** Host configuration for continuable subagent capacity. */
 export interface Config {
-  /** Maximum live children sharing uninterrupted continuable parent links; defaults to 8. */
+  /** Maximum live children sharing uninterrupted continuable parent links, counting one-shot runs; defaults to 8. */
   maxActiveSubagents: Volatile<number>
   /** Default delegation depth for tools without an explicit limit; defaults to 1. */
   maxDepth: Volatile<number>
+  /** Steps in one child turn before the child is told to wrap up and report; 0 turns it off; defaults to 40. */
+  stepBudget: Volatile<number>
 }
 
 /** Named provider registry with managed activations, durable discovery, and local child messaging. */
@@ -195,6 +203,7 @@ export class SubagentRuntime extends TypertRemoteService {
   static Config = z.object({
     maxDepth: z.number().step(1).min(0).max(Number.MAX_SAFE_INTEGER).default(1).volatile(),
     maxActiveSubagents: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(8).volatile(),
+    stepBudget: z.number().step(1).min(0).max(Number.MAX_SAFE_INTEGER).default(40).volatile(),
   })
   static inject = ['workingDirectory', 'sessionProjections']
   private providers = new Map<string, SubagentProvider>()
@@ -229,6 +238,8 @@ export class SubagentRuntime extends TypertRemoteService {
         if (this.manager === manager) this.manager = undefined
       }, 'subagents.managerBinding()')
     })
+    installStepBudget(ctx, () => this.config.stepBudget.get())
+    await ctx.sessionProjections.register(subagentActivityProjectionDefinition)
   }
 
   /**
@@ -541,6 +552,14 @@ export class SubagentRuntime extends TypertRemoteService {
   }
 
   /**
+   * The current per-parent live-child capacity (maxActiveSubagents).
+   * @returns the configured limit.
+   */
+  activeSubagentLimit(): number {
+    return this.config.maxActiveSubagents.get()
+  }
+
+  /**
    * Look up a provider by name.
    * @param name - the provider name.
    * @returns the provider, or undefined when absent.
@@ -588,6 +607,8 @@ export class SubagentRuntime extends TypertRemoteService {
       { when: request.agentOptions !== undefined, cap: 'agentOptions' },
       { when: request.outputSchema !== undefined, cap: 'outputSchema' },
       { when: request.maxDepth !== undefined, cap: 'depthLimit' },
+      { when: request.toolFilter !== undefined, cap: 'toolFilter' },
+      { when: request.persona !== undefined, cap: 'persona' },
     ]
     for (const { when, cap } of needs) {
       if (when && !provider.capabilities[cap]) {

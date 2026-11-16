@@ -27,6 +27,7 @@ beforeEach(() => {
   vi.stubEnv('DSH_COVERAGE_MAX_WORKERS', undefined)
   vi.stubEnv('DSH_COVERAGE_PARTITIONS', undefined)
   vi.stubEnv('DSH_CLI_HELP_CONCURRENCY', undefined)
+  vi.stubEnv('DSH_COVERAGE_FILES', undefined)
 })
 afterEach(() => vi.unstubAllEnvs())
 
@@ -330,6 +331,15 @@ describe('gate graph validation', () => {
     expect(ids).toContain('concrete-terms')
   })
 
+  it('runs the English-only documentation gate in the local and quick documentation aggregates', () => {
+    for (const mode of ['doc-sync', 'doc-quick'] as const) {
+      expect(withPnpmEntrypoint(() => gatesForMode(mode))).toContainEqual(expect.objectContaining({
+        id: 'english-only-docs',
+        displayCommand: 'pnpm run verify-english-only-docs',
+      }))
+    }
+  })
+
   it('checks retrospective releases alongside the current persistence history', () => {
     for (const mode of ['doc-sync', 'ci-static'] as const) {
       const ids = withPnpmEntrypoint(() => gatesForMode(mode).map(subject => subject.id))
@@ -388,16 +398,6 @@ describe('gate graph validation', () => {
     ])
   })
 
-  it('includes JSON resource checks in local and CI aggregates', () => {
-    for (const mode of ['i18n', 'check-all', 'ci-static', 'hygiene'] as const) {
-      const ids = withPnpmEntrypoint(() => gatesForMode(mode).map(gate => gate.id))
-      expect(ids).toEqual(expect.arrayContaining(['installer-locales', 'locale-metadata']))
-      if (mode !== 'i18n') expect(ids).not.toContain('locale-dictionaries')
-    }
-    expect(withPnpmEntrypoint(() => gatesForMode('i18n').map(gate => gate.id)))
-      .toEqual(['installer-locales', 'locale-metadata', 'locale-dictionaries'])
-  })
-
   it('caps the local hygiene aggregate at eight workers', () => {
     const ids = withPnpmEntrypoint(() => gatesForMode('hygiene').map(subject => subject.id))
 
@@ -416,7 +416,7 @@ describe('gate graph validation', () => {
 
     expect(ids.slice(0, 11)).toEqual([
       'doc-typecheck', 'docs-site-build', 'doc-graphs', 'cli-help', 'markdown-links', 'type-equivalence',
-      'cordis-catalog', 'cordis-inspect-catalog', 'workflow-guest', 'mermaid', 'translation-pairing',
+      'cordis-catalog', 'cordis-inspect-catalog', 'workflow-guest', 'mermaid', 'markdown-wrap',
     ])
   })
 
@@ -731,8 +731,9 @@ describe('gate graph validation', () => {
   })
 
   it('selects partitioned coverage only when explicitly configured', () => {
-    const coverage = withEnv('DSH_COVERAGE_PARTITIONS', '3', () =>
-      withPnpmEntrypoint(() => gatesForMode('ci-windows-complete').find(subject => subject.id === 'coverage')))
+    const coverage = withEnv('DSH_COVERAGE_FILES', '[]', () =>
+      withEnv('DSH_COVERAGE_PARTITIONS', '3', () =>
+        withPnpmEntrypoint(() => gatesForMode('ci-windows-complete').find(subject => subject.id === 'coverage'))))
 
     expect(coverage).toMatchObject({
       displayCommand: 'DSH_COVERAGE_PARTITIONS=3 pnpm run test:coverage:partitioned',
@@ -740,6 +741,25 @@ describe('gate graph validation', () => {
       env: { DSH_COVERAGE_EXEMPT_HEAVY: '1' },
       streamOutput: true,
     })
+  })
+
+  it('limits 100 percent coverage to changed runtime source files when a scope is supplied', () => {
+    const coverage = withEnv('DSH_COVERAGE_FILES', '["packages/llm/llm-pi-ai/src/index.ts","packages/core/session/src/session.ts"]', () =>
+      withEnv('DSH_COVERAGE_PARTITIONS', '3', () =>
+        withPnpmEntrypoint(() => gatesForMode('ci-coverage').find(subject => subject.id === 'coverage'))))
+
+    expect(coverage?.args).toEqual(expect.arrayContaining([
+      '--',
+      '--coverage.include',
+      'packages/llm/llm-pi-ai/src/index.ts',
+      'packages/core/session/src/session.ts',
+    ]))
+  })
+
+  it('rejects invalid changed coverage source paths', () => {
+    expect(() => withEnv('DSH_COVERAGE_FILES', '["packages/core/session/src/../../outside.ts"]', () =>
+      withPnpmEntrypoint(() => gatesForMode('ci-coverage'))))
+      .toThrow('DSH_COVERAGE_FILES must contain package runtime source paths')
   })
 
   it('rejects an invalid coverage partition count before starting a gate', () => {
@@ -858,15 +878,17 @@ describe('Typert contract preparation', () => {
     ])
   })
 
-  it('reuses contracts from the validated consumer build', () => {
+  it('keeps consumer-only checks on the validated build without repeating artifact gates', () => {
     const subject = withPnpmEntrypoint(() => gatesForMode('ci-consumers'))
+    const ids = subject.map(item => item.id)
 
-    // Lint and duplication run in their own lane; the consumers graph only
-    // keeps the readers that consume built artifacts.
-    expect(subject.map(item => item.id)).not.toContain('lint-and-duplication')
-    expect(withPnpmEntrypoint(() => gatesForMode('ci-lint-contracts-ready'))).toContainEqual(expect.objectContaining({
-      id: 'lint',
-    }))
+    expect(ids).not.toEqual(expect.arrayContaining([
+      'node-compat',
+      'publint',
+      'lint-and-duplication',
+      'node-next-types',
+      'built-bin-smoke',
+    ]))
     expect(subject.find(item => item.id === 'doc-typecheck')).toMatchObject({
       displayCommand: 'pnpm run doc-typecheck:contracts-ready',
       args: ['/private/pnpm.cjs', 'run', 'doc-typecheck:contracts-ready'],
@@ -971,47 +993,29 @@ describe('Node 24 lane ownership', () => {
     expect(subject.map(item => item.id)).not.toContain('doc-typecheck')
   })
 
-  it('owns the build and orders its artifact consumers', () => {
+  it('owns one build and only the unique build-backed consumer checks', () => {
     const subject = withPnpmEntrypoint(() => gatesForMode('ci-consumers'))
 
-    expect(defaultConcurrency('ci-consumers', subject.length, 4, { CI: 'true' })).toEqual({
-      workers: 4,
-      source: '4 available CPU(s)',
+    expect(defaultConcurrency('ci-consumers', subject.length, 4)).toEqual({
+      workers: 5,
+      source: 'ci-consumers gate count',
     })
     expect(subject.map(item => item.id)).toEqual([
       'build',
-      'node-compat',
-      'publint',
       'snapshot',
       'expected-output',
       'web-snapshot',
       'doc-typecheck',
-      'node-next-types',
-      'built-bin-smoke',
     ])
-    expect(subject.find(item => item.id === 'publint')?.needs).toEqual(['build'])
-    // The consumers lane emits artifacts only: the aggregate test and script
-    // type checks belong to the master lanes, not to every pull request.
     expect(subject.find(item => item.id === 'build')).toMatchObject({
       displayCommand: 'pnpm run build:artifacts',
       env: { DSH_BUILD_CLIENT_PROFILE: 'official' },
     })
-    expect(subject.find(item => item.id === 'node-compat')?.env).toEqual({
-      DSH_BUILD_CLIENT_PROFILE: 'official',
-    })
-    for (const id of [
-      'snapshot',
-      'expected-output',
-      'web-snapshot',
-      'doc-typecheck',
-      'node-next-types',
-      'built-bin-smoke',
-    ]) {
+    for (const id of ['snapshot', 'expected-output', 'web-snapshot', 'doc-typecheck']) {
       expect(subject.find(item => item.id === id)?.needs).toEqual(['build'])
     }
     expect(subject.find(item => item.id === 'snapshot')?.env).toEqual({ DSH_EXAMPLE_MODE: 'lib' })
     expect(subject.find(item => item.id === 'expected-output')?.env).toEqual({ DSH_EXAMPLE_MODE: 'lib' })
-    expect(subject.find(item => item.id === 'built-bin-smoke')?.env).toEqual({ DSH_EXAMPLE_MODE: 'lib' })
     expect(subject.find(item => item.id === 'doc-typecheck')?.env).toEqual({
       DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1',
     })
@@ -1031,14 +1035,27 @@ describe('Node 24 lane ownership', () => {
       displayCommand: 'DSH_SNAPSHOT=replay pnpm run test:web:built',
       env: { DSH_SNAPSHOT: 'replay' },
       after: [
-        'publint',
         'snapshot',
         'expected-output',
         'doc-typecheck',
-        'node-next-types',
-        'built-bin-smoke',
       ],
     })
+  })
+
+  it('runs the built-bin smoke in the artifact lane', () => {
+    const subject = withPnpmEntrypoint(() => gatesForMode('ci-artifacts'))
+    const smoke = subject.find(item => item.id === 'built-bin-smoke')
+
+    expect(smoke?.needs).toEqual(['build'])
+    expect(smoke?.env).toEqual({ DSH_EXAMPLE_MODE: 'lib' })
+    expect(smoke?.args).toEqual(expect.arrayContaining([
+      'apps/cli/tests/profiles/headless/tests/source-tool.built.e2e.ts',
+      'apps/desktop/tests/acl-skill.built.e2e.ts',
+      'packages/subprocess/subprocess-local/tests/spawn-runner-built.e2e.ts',
+      'packages/subagent/subagent-codex/tests/loader-composition.e2e.ts',
+      'packages/subagent/subagent-claude-code/tests/loader-composition.e2e.ts',
+      'packages/team/agent-team/tests/built-lib.e2e.ts',
+    ]))
   })
 })
 

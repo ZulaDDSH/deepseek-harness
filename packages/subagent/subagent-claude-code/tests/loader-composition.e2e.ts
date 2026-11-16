@@ -48,7 +48,7 @@ describe('product-provider public Loader composition', () => {
         {
           name: 'claude-code',
           capabilities: {
-            agentOptions: false,
+            agentOptions: true,
             agentPreset: false,
             outputSchema: false,
             depthLimit: false,
@@ -58,7 +58,7 @@ describe('product-provider public Loader composition', () => {
         {
           name: 'claude-primary',
           capabilities: {
-            agentOptions: false,
+            agentOptions: true,
             agentPreset: false,
             outputSchema: false,
             depthLimit: false,
@@ -68,7 +68,7 @@ describe('product-provider public Loader composition', () => {
         {
           name: 'claude-secondary',
           capabilities: {
-            agentOptions: false,
+            agentOptions: true,
             agentPreset: false,
             outputSchema: false,
             depthLimit: false,

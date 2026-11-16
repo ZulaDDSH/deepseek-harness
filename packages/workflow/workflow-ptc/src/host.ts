@@ -8,6 +8,7 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import type { SubagentActivation } from '@deepseek-ai/dsh-subagent'
+import { roleRouteOf } from '@deepseek-ai/dsh-tool-subagent'
 import { assertObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import type { ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import { assertNever, snapshotJsonValue } from '@deepseek-ai/dsh-util-values'
@@ -49,6 +50,7 @@ function childRequest(value: unknown): ChildStartRequest {
   const prompt = text(request.prompt, 'prompt')
   const provider = request.provider === undefined ? undefined : text(request.provider, 'provider')
   const model = request.model === undefined ? undefined : text(request.model, 'model')
+  const role = request.role === undefined ? undefined : text(request.role, 'role')
   let schema: ObjectJsonSchema | undefined
   if (request.schema !== undefined) {
     const candidate = object(request.schema)
@@ -59,6 +61,7 @@ function childRequest(value: unknown): ChildStartRequest {
     prompt,
     ...provider === undefined ? {} : { provider },
     ...model === undefined ? {} : { model },
+    ...role === undefined ? {} : { role },
     ...schema === undefined ? {} : { schema },
   }
 }
@@ -147,6 +150,7 @@ export class PtcWorkflowRun implements WorkflowRun {
     private readonly parent: Agent,
     private readonly init: WorkerInit,
     private readonly provider: string,
+    private readonly claudeCliProvider: string,
     private readonly policy: SandboxExecutionPolicy,
     private readonly observer: ExecutionObserver,
     private readonly signal?: AbortSignal,
@@ -215,20 +219,23 @@ export class PtcWorkflowRun implements WorkflowRun {
   private async startChild(request: ChildStartRequest): Promise<PtcJsonValue> {
     this.requireActive()
     const callId = ++this.started
+    const pin = roleRouteOf(this.ctx, this.parent.session, request, this.claudeCliProvider)
+    const agentOptions = pin?.options ?? (request.provider === undefined && request.model === undefined ? undefined : {
+      ...request.provider === undefined ? {} : { provider: request.provider },
+      ...request.model === undefined ? {} : { model: request.model },
+    })
     const run = await this.subagents.startActivation({
-      provider: this.provider,
+      provider: pin?.kind === 'claude-cli' ? this.claudeCliProvider : this.provider,
       label: `${this.meta.name} child ${callId}`,
       delivery: 'caller',
       signal: this.controller.signal,
-      cwd: await this.cwd,
-      prompt: [{ type: 'text', text: request.prompt }],
-      parent: this.parent,
-      ...request.schema === undefined ? {} : { outputSchema: request.schema },
-      ...request.provider === undefined && request.model === undefined ? {} : {
-        agentOptions: {
-          ...request.provider === undefined ? {} : { provider: request.provider },
-          ...request.model === undefined ? {} : { model: request.model },
-        },
+      request: {
+        cwd: await this.cwd,
+        prompt: [{ type: 'text', text: request.prompt }],
+        parent: this.parent,
+        ...request.schema === undefined ? {} : { outputSchema: request.schema },
+        ...agentOptions === undefined ? {} : { agentOptions },
+        ...pin === undefined ? {} : { routePinned: true as const },
       },
     })
     const record: ChildRecord = { callId, run }

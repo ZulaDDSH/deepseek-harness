@@ -1,6 +1,23 @@
 import type { Fiber } from '@deepseek-ai/cordis'
 import type { McpCloseResult, McpConnectionStatus } from './types.ts'
 
+export type McpConnectionState = 'connecting' | 'connected' | 'auth-required' | 'failed'
+
+export interface McpConnectionReport {
+  serverName: string
+  state: McpConnectionState
+  toolCount: number
+  error?: string
+  authKey?: import('@deepseek-ai/dsh-credentials').CredentialKey
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    'mcp-client/inventory'(reports: McpConnectionReport[]): void
+    'mcp-client/reconnect'(serverName: string): void
+  }
+}
+
 /**
  * Connection status and cleanup results keyed by the owning Cordis Fiber.
  * The cell survives reloads of that Fiber and remains readable after final

@@ -3,9 +3,18 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { RemoteEndpoint } from '@deepseek-ai/dsh-api-remote-access/client'
 import type { ShortcutCommandId } from '@deepseek-ai/dsh-client-shortcuts/client'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
-import type { MenuContribution, ContextMenuTargetMap } from '@deepseek-ai/dsh-client-ui-context-menu/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-client-ui-session-status/client'
+import type { MenuAction, MenuContribution, ContextMenuTargetMap } from '@deepseek-ai/dsh-client-ui-context-menu/client'
+import {
+  IconEditOutlineRegular, IconFolderCloseRegular, IconFolderOpenRegular,
+} from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  WORKSPACE_APPEARANCE_COLORS, WORKSPACE_COLORS, WORKSPACE_ICONS,
+} from '../appearance.ts'
+import type { WorkspaceAppearance } from '../appearance.ts'
+import { WORKSPACE_ICON_GLYPHS } from '../rows/WorkspaceIcons.ts'
+import css from '../rows/Rows.module.css'
 import type {
   ArchiveSessionInjected, ForkSessionInjected, PinSessionInjected, RenameSessionInjected, SessionIdInjected,
 } from '../contract/slots.ts'
@@ -82,5 +91,57 @@ export function registerSessionMenus(ctx: Context, actions: Actions): void {
       ...restoring ? {} : { commandId: 'session.archive' as ShortcutCommandId },
       run: () => { (restoring ? actions.unarchiveSession : actions.archiveSession)(target.sessionId) },
     }]
+  })
+}
+
+/**
+ * The Color and Icon submenus every appearance target offers; each leaf writes through the captured identity.
+ * @param ctx - workspace plugin context owning the locale labels.
+ * @param apply - write one appearance change for the captured target.
+ * @returns the two submenu actions, color first.
+ */
+export function appearanceMenuActions(ctx: Context, apply: (change: WorkspaceAppearance) => void): MenuAction[] {
+  const t = ctx.locale.bind('workspace')
+  return [
+    {
+      id: 'color', label: t('appearance.color'), icon: { key: 'appearance.edit' },
+      children: [
+        { id: 'clear', label: t('appearance.default'), run: () => { apply({ color: undefined }) } },
+        ...WORKSPACE_COLORS.map(color => ({
+          id: color, label: t(`appearance.color.${color}`), icon: { key: `appearance.color.${color}` },
+          run: () => { apply({ color }) },
+        })),
+      ],
+    },
+    {
+      id: 'icon', label: t('appearance.icon'), icon: { key: 'appearance.edit' },
+      children: [
+        { id: 'clear', label: t('appearance.default'), run: () => { apply({ icon: undefined }) } },
+        ...WORKSPACE_ICONS.map(icon => ({
+          id: icon, label: t(`appearance.icon.${icon}`), icon: { key: `appearance.icon.${icon}` },
+          run: () => { apply({ icon }) },
+        })),
+      ],
+    },
+  ]
+}
+
+/**
+ * Keyed icons the appearance and Chat Section menu rows reference: color swatches, icon glyphs, and row glyphs.
+ * @param ctx - workspace plugin context owning the keyed icon slot.
+ */
+export function registerAppearanceIcons(ctx: Context): void {
+  ctx.slots.inject('contextMenu.icon', function* () {
+    for (const color of WORKSPACE_COLORS) {
+      yield ctx.slots.register({ name: 'contextMenu.icon', key: `appearance.color.${color}` },
+        () => <span className={css.colorSwatch} style={{ background: WORKSPACE_APPEARANCE_COLORS[color] }} />)
+    }
+    for (const icon of WORKSPACE_ICONS) {
+      const Glyph = WORKSPACE_ICON_GLYPHS[icon]
+      yield ctx.slots.register({ name: 'contextMenu.icon', key: `appearance.icon.${icon}` }, () => <Glyph size={16} />)
+    }
+    yield ctx.slots.register({ name: 'contextMenu.icon', key: 'appearance.edit' }, IconEditOutlineRegular)
+    yield ctx.slots.register({ name: 'contextMenu.icon', key: 'section.move' }, IconFolderCloseRegular)
+    yield ctx.slots.register({ name: 'contextMenu.icon', key: 'section.remove' }, IconFolderOpenRegular)
   })
 }

@@ -30,6 +30,7 @@ import {
   selectCompactableRange,
 } from './region.ts'
 import { summarizeWithLlm } from './summarizer.ts'
+import { summaryPrefixLimit } from './summarizer.ts'
 import type { SummarizationInput, SummaryResult, SummaryRoute } from './summarizer.ts'
 import type {
   BasicCompactionConfig,
@@ -97,6 +98,7 @@ const maxOverflowRetriesSchema = z.number().step(1).min(0)
 const modelPolicy: z<ModelCompactPolicyConfig> = z.object({
   provider: z.string().required(),
   model: z.string().required(),
+  maxContextWindow: z.number().step(1).min(1),
   thresholdRatio: thresholdRatioSchema,
   headroomTokens: headroomTokensSchema,
   retainRatio: retainRatioSchema,
@@ -120,6 +122,7 @@ export class BasicCompactionEngine extends CompactionEngine {
   static inject = ['llm', 'tokenMeter', 'sessions', 'sessionProjections']
 
   static Config: z<BasicCompactionConfig> = z.object({
+    maxContextWindow: z.number().step(1).min(1),
     thresholdRatio: thresholdRatioSchema,
     headroomTokens: headroomTokensSchema,
     retainRatio: retainRatioSchema,
@@ -141,6 +144,7 @@ export class BasicCompactionEngine extends CompactionEngine {
   private readonly overflowAgents = new WeakMap<Session, Agent>()
   /** Registered at construction; `summarize()` awaits it, so no read precedes readiness. */
   private readonly answeredRoute: Promise<ProjectionHandle<AnsweredRoute>>
+  private readonly pressureBackoff = new WeakMap<Agent, { generation: number; failures: number; skipSteps: number }>()
 
   constructor(ctx: Context, config: BasicCompactionConfig = {}) {
     super(ctx)
@@ -173,14 +177,19 @@ export class BasicCompactionEngine extends CompactionEngine {
       { agent, signal },
       next,
     ): Promise<PreStepDecision> => {
-      if (!signal.aborted) {
+      if (!signal.aborted && !this.skipPressureStep(agent)) {
         try {
           const result = await this.compactIfNeeded(agent, 'pressure', signal)
+          this.pressureBackoff.delete(agent)
           if (result !== null) logResult(result, 'step pressure')
         } catch (error: unknown) {
           if (error instanceof TargetPressureConfigError) {
             if (this.warnedPressureConfigTargets.has(error.targetKey)) return next()
             this.warnedPressureConfigTargets.add(error.targetKey)
+          }
+          // oxlint-disable-next-line typescript/no-unnecessary-condition -- the signal can abort while compaction is awaited.
+          if (!(error instanceof TargetPressureConfigError) && !signal.aborted) {
+            this.recordPressureFailure(agent)
           }
           const message = error instanceof Error ? error.message : String(error)
           ctx.logger.warn(`step compaction failed: ${message}; continuing the turn`)
@@ -190,7 +199,10 @@ export class BasicCompactionEngine extends CompactionEngine {
     })
 
     ctx.on('agent/status', ({ agent, status }) => {
-      if (status === 'idle') this.overflowRetries.delete(agent)
+      if (status === 'idle') {
+        this.overflowRetries.delete(agent)
+        this.pressureBackoff.delete(agent)
+      }
     })
 
     // Prepend wraps routing listeners: await their final selection while the
@@ -272,6 +284,27 @@ export class BasicCompactionEngine extends CompactionEngine {
     })
   }
 
+  /** Consume one skipped step while a failed pressure attempt backs off on an unchanged surface. */
+  private skipPressureStep(agent: Agent): boolean {
+    const backoff = this.pressureBackoff.get(agent)
+    if (backoff === undefined) return false
+    if (backoff.generation !== agent.session.surface.replaceGeneration) {
+      this.pressureBackoff.delete(agent)
+      return false
+    }
+    if (backoff.skipSteps === 0) return false
+    backoff.skipSteps -= 1
+    return true
+  }
+
+  /** Record a failed pressure attempt; the next 2^failures steps (at most 32) skip it. */
+  private recordPressureFailure(agent: Agent): void {
+    const generation = agent.session.surface.replaceGeneration
+    const previous = this.pressureBackoff.get(agent)
+    const failures = previous?.generation === generation ? previous.failures + 1 : 1
+    this.pressureBackoff.set(agent, { generation, failures, skipSteps: Math.min(2 ** failures, 32) })
+  }
+
   /**
    * Summarize the replayed conversation region through a direct one-shot
    * `ctx.llm.stream()` call whose prefix reuses the conversation's own system
@@ -301,7 +334,7 @@ export class BasicCompactionEngine extends CompactionEngine {
    * Compact for replayed step-boundary pressure or one provider-confirmed context
    * overflow. Both triggers price the latest durable routed request envelope;
    * overflow bypasses the normal threshold and retained-tail policy so it can
-   * force one useful balanced reduction.
+   * force the largest balanced head reduction whose summarizer request fits the routed window.
    * @param agent - agent whose latest durable routed request is measured.
    * @param trigger - normal step-boundary pressure or context-overflow recovery.
    * @param signal - live turn cancellation signal forwarded to summarization.
@@ -320,7 +353,15 @@ export class BasicCompactionEngine extends CompactionEngine {
       case 'context-overflow': {
         this.ctx.get('toolResultPruner')?.pruneSession(agent.session)
         const measurement = this.ctx.tokenMeter.measure(agent.session)
-        const range = selectCompactableRange(agent.session, measurement, 0)
+        const policy = resolveTargetPolicy(this.config, header.config)
+        const routedWindow = agent.session.requestContext()?.contextWindow
+        const prefixLimit = routedWindow === undefined
+          ? undefined
+          : summaryPrefixLimit(
+            Math.min(routedWindow, policy.maxContextWindow ?? Number.POSITIVE_INFINITY),
+            policy.maxTokens,
+          )
+        const range = selectCompactableRange(agent.session, measurement, 0, prefixLimit)
         if (range === null) return null
         return this.compactRegion(range.start, range.end, agent, signal)
       }
@@ -367,9 +408,10 @@ export class BasicCompactionEngine extends CompactionEngine {
     }
     if (measurement.totalTokens < spec.thresholdTokens) return null
 
+    const prefixLimit = requireBelowThreshold ? undefined : summaryPrefixLimit(spec.contextWindow, spec.maxTokens)
     let result: CompactionResult | null = null
     for (let attempt = 0; attempt <= spec.compactionRetries; attempt += 1) {
-      const range = selectCompactableRange(agent.session, measurement, spec.retainTokens)
+      const range = selectCompactableRange(agent.session, measurement, spec.retainTokens, prefixLimit)
       if (range === null) {
         if (result === null && !requireBelowThreshold) return null
         throw new Error(

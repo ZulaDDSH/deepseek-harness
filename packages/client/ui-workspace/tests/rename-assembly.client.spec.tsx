@@ -41,6 +41,12 @@ async function createRuntime(): Promise<SlotTestRuntime> {
   const runtime = await SlotTestRuntime.create()
   runtime.ctx.provide('shortcuts', { register: () => () => {}, catalog: createSnapshotStore([]) })
   runtime.ctx.provide('layout', { selectPanel: vi.fn(), beginNavigation: () => new AbortController().signal })
+  // The quick switcher consumes the command service structurally; its namespace
+  // only has to be present for ui-workspace's inject to settle.
+  runtime.ctx.provide('commandUi', {
+    quickCommands: vi.fn(async () => []),
+    runQuick: vi.fn(() => true),
+  } as never)
   runtime.releaseWorkspaceSource()
   // The rename flow never picks a directory; the namespace only has to be there
   // for ui-workspace's inject to settle.
@@ -121,9 +127,10 @@ describe('session rename through the assembled browser', () => {
     const row = (await view.findByText('Persisted title')).closest('[role="treeitem"]')!
     const trigger = within(row as HTMLElement).getByLabelText('会话“Persisted title”的操作')
     fireEvent.click(trigger)
+    // The browser-local appearance rows lead as data rows; the copy row, the plugin rows, and archive each start a group.
     await view.findByRole('menuitem', { name: '置顶会话' })
     expect(view.getAllByRole('menuitem').map(item => item.textContent)).toEqual([
-      '置顶会话', '重命名', '标为未读', '分叉会话', '复制 Session ID', 'Export action', 'Last action', '归档会话',
+      '颜色', '图标', '置顶会话', '重命名', '标为未读', '分叉会话', '复制 Session ID', 'Export action', 'Last action', '归档会话',
     ])
     expect(view.getAllByRole('separator')).toHaveLength(3)
     const last = view.getByRole('menuitem', { name: 'Last action' })
@@ -230,6 +237,97 @@ describe('session rename through the assembled browser', () => {
     expect(alert.textContent).toContain('title write failed')
     expect(view.getByLabelText('会话名称')).toBeTruthy()
     expect(view.getByText('旧标题')).toBeTruthy()
+    await runtime.dispose()
+  })
+})
+
+describe('Chat Section and appearance menus through the assembled browser', () => {
+  async function assembled(): Promise<{ runtime: SlotTestRuntime; view: ReturnType<SlotTestRuntime['renderRoot']> }> {
+    const runtime = await createRuntime()
+    await runtime.sessions.add({
+      id: SID,
+      summary: { title: 'Persisted title', displayTitle: 'Session title', cwd: '/w/alpha' },
+      session: { rename: vi.fn() },
+    })
+    await runtime.sessions.retainFor(runtime.ctx, SID, { source: 'mainView' }).ready
+    await seedWorkspace(runtime)
+    await declareFrame(runtime)
+    await runtime.mount({ inject: [...inject], apply })
+    return { runtime, view: runtime.renderRoot() }
+  }
+
+  const stored = (): { workspaces?: object; sections?: object; sessions?: object } =>
+    JSON.parse(localStorage.getItem('dsh.workspace.appearance.v2') ?? '{}') as Record<string, object>
+
+  it('files a Session into a Chat Section and unfiles it from the pane', async () => {
+    const { runtime, view } = await assembled()
+    fireEvent.click(await view.findByRole('button', { name: '新建分组' }))
+    const create = view.getByRole('dialog', { name: '新建分组' })
+    fireEvent.change(within(create).getByRole('textbox'), { target: { value: 'Work' } })
+    fireEvent.click(within(create).getByRole('button', { name: '创建' }))
+
+    const row = (await view.findByText('Persisted title')).closest('[role="treeitem"]')!
+    fireEvent.click(within(row as HTMLElement).getByLabelText('会话“Persisted title”的操作'))
+    fireEvent.click(await view.findByRole('menuitem', { name: '移动到分组' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: 'Work' }))
+    expect(within(view.getByRole('group', { name: 'Work' })).getByText('Persisted title')).toBeTruthy()
+
+    fireEvent.click(within(view.getByRole('group', { name: 'Work' })).getByLabelText('会话“Persisted title”的操作'))
+    fireEvent.click(await view.findByRole('menuitem', { name: '移动到分组' }))
+    expect(view.getByRole('menuitem', { name: 'Work' }).hasAttribute('disabled')).toBe(true)
+    fireEvent.click(await view.findByRole('menuitem', { name: '从分组中移出' }))
+    expect(within(view.getByRole('group', { name: 'Work' })).queryByText('Persisted title')).toBeNull()
+    await runtime.dispose()
+  })
+
+  it('renames a Chat Section from its header menu', async () => {
+    const { runtime, view } = await assembled()
+    fireEvent.click(await view.findByRole('button', { name: '新建分组' }))
+    const create = view.getByRole('dialog', { name: '新建分组' })
+    fireEvent.change(within(create).getByRole('textbox'), { target: { value: 'Work' } })
+    fireEvent.click(within(create).getByRole('button', { name: '创建' }))
+
+    fireEvent.click(await view.findByRole('button', { name: '分组“Work”的操作' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '重命名' }))
+    const rename = await view.findByRole('dialog', { name: '重命名分组' })
+    fireEvent.change(within(rename).getByRole('textbox'), { target: { value: 'Server' } })
+    fireEvent.click(within(rename).getByRole('button', { name: '重命名' }))
+    expect(view.getByRole('group', { name: 'Server' })).toBeTruthy()
+    await runtime.dispose()
+  })
+
+  it('writes Chat Section, Workspace, and Session color choices to the appearance store', async () => {
+    const { runtime, view } = await assembled()
+    fireEvent.click(await view.findByRole('button', { name: '新建分组' }))
+    const create = view.getByRole('dialog', { name: '新建分组' })
+    fireEvent.change(within(create).getByRole('textbox'), { target: { value: 'Work' } })
+    fireEvent.click(within(create).getByRole('button', { name: '创建' }))
+
+    fireEvent.click(await view.findByRole('button', { name: '分组“Work”的操作' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '颜色' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '红色' }))
+    fireEvent.click(await view.findByRole('button', { name: '分组“Work”的操作' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '图标' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '火箭' }))
+    expect(Object.values(stored().sections ?? {})).toEqual([{ color: 'red', icon: 'rocket' }])
+    fireEvent.click(await view.findByRole('button', { name: '分组“Work”的操作' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '图标' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '默认' }))
+    expect(Object.values(stored().sections ?? {})).toEqual([{ color: 'red' }])
+
+    fireEvent.click(await view.findByRole('button', { name: '工作区“alpha”的操作' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '颜色' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '紫色' }))
+    expect(stored().workspaces).toEqual({ w1: { color: 'purple' } })
+
+    const row = (await view.findByText('Persisted title')).closest('[role="treeitem"]')!
+    fireEvent.click(within(row as HTMLElement).getByLabelText('会话“Persisted title”的操作'))
+    fireEvent.click(await view.findByRole('menuitem', { name: '颜色' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '蓝色' }))
+    fireEvent.click(within(row as HTMLElement).getByLabelText('会话“Persisted title”的操作'))
+    fireEvent.click(await view.findByRole('menuitem', { name: '图标' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '终端' }))
+    expect(stored().sessions).toEqual({ [SID]: { color: 'blue', icon: 'terminal' } })
     await runtime.dispose()
   })
 })

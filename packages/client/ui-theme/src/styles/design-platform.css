@@ -75,6 +75,19 @@ body {
   --dsw-static-neutral-bluish-900: rgb(27, 27, 28);
   --dsw-static-neutral-bluish-90: rgb(237, 240, 244);
   --dsw-static-neutral-bluish-950: rgb(21, 21, 23);
+  --dsw-static-neutral-warm-50: rgb(250, 249, 245);
+  --dsw-static-neutral-warm-100: rgb(236, 234, 226);
+  --dsw-static-neutral-warm-200: rgb(214, 212, 203);
+  --dsw-static-neutral-warm-300: rgb(194, 192, 182);
+  --dsw-static-neutral-warm-400: rgb(170, 168, 159);
+  --dsw-static-neutral-warm-600: rgb(130, 128, 120);
+  --dsw-static-neutral-warm-650: rgb(100, 99, 95);
+  --dsw-static-neutral-warm-700: rgb(68, 67, 64);
+  --dsw-static-neutral-warm-750: rgb(52, 52, 49);
+  --dsw-static-neutral-warm-800: rgb(43, 43, 41);
+  --dsw-static-neutral-warm-850: rgb(34, 34, 32);
+  --dsw-static-neutral-warm-900: rgb(26, 26, 25);
+  --dsw-static-neutral-warm-950: rgb(18, 18, 17);
   --dsw-static-red-100: rgb(254, 226, 226);
   --dsw-static-red-400: rgb(242, 90, 90);
   --dsw-static-red-400-a12: rgb(242 90 90 / 12%);
@@ -471,6 +484,7 @@ body[data-ds-dark-theme] {
   --dsw-specific-sidebar-fill: var(--dsw-static-neutral-bluish-900);
   --dsw-specific-sidebar-nav-item-active-accent: var(--dsw-static-neutral-bluish-800);
   --dsw-specific-sidebar-nav-item-active: var(--dsw-static-neutral-bluish-750);
+  --dsw-specific-sidebar-nav-item-hover: var(--dsw-static-neutral-bluish-800);
   --dsw-specific-tip: var(--dsw-static-neutral-bluish-800);
 }
 

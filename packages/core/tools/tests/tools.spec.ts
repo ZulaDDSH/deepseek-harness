@@ -205,6 +205,26 @@ describe('ToolRuntime', () => {
     expect(observed).toEqual(result)
   })
 
+  it('threads a batch parent token and root call identity into each nested execution', async () => {
+    const ctx = await setup()
+    const parent = Symbol('parent') as ToolExecutionToken
+    const observed: unknown[] = []
+    ctx.tools.register({
+      ...echoTool,
+      execute: (_args, exec) => {
+        observed.push({ parent: exec.parent, rootCallId: exec.rootCallId })
+        return Promise.resolve('ok')
+      },
+    })
+    await ctx.tools.execute({
+      calls: [{ type: 'tool-call', id: ToolCallId('nested-call'), name: 'echo', arguments: '{}' }],
+      signal: testToolSignal,
+      parent,
+      rootCallId: ToolCallId('root-call'),
+    })
+    expect(observed).toEqual([{ parent, rootCallId: ToolCallId('root-call') }])
+  })
+
   it('projects presentation metadata from the canonical value', async () => {
     const ctx = await setup()
     ctx.tools.register({

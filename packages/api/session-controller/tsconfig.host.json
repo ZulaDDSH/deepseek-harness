@@ -13,6 +13,9 @@
     "src/assistant-stream.ts",
     "src/catalog.ts",
     "src/commands.ts",
+    "src/master-control.ts",
+    "src/external-chats.ts",
+    "src/external-records.ts",
     "src/control.ts",
     "src/file-references.ts",
     "src/history.ts",
@@ -24,6 +27,14 @@
     "src/web/controller.ts",
     "src/list.ts",
     "src/media-references.ts",
+      "src/mcp-selection-projection.ts",
+      "src/hook-overrides-projection.ts",
+      "src/list-metadata.ts",
+      "src/auto-responder.ts",
+      "src/run-options.ts",
+      "src/setup-resolver.ts",
+      "src/subagent-setup.ts",
+      "src/team-role-defaults.ts",
     "src/archived-session-gate.ts",
     "src/skill-catalog.ts",
     "src/continuation.ts"
@@ -73,6 +84,9 @@
     },
     {
       "path": "../../fs/fs"
+    },
+    {
+      "path": "../../experimental/hook-protocol"
     },
     {
       "path": "../../llm/llm"
@@ -130,6 +144,9 @@
     },
     {
       "path": "../../util/brand"
+    },
+    {
+      "path": "../../host/plugin-inventory"
     }
   ]
 }

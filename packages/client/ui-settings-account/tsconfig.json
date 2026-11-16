@@ -39,9 +39,6 @@
       "path": "../../credentials/deepseek-account"
     },
     {
-      "path": "../ui-settings-models"
-    },
-    {
       "path": "../../host/webserver"
     },
     {
@@ -55,9 +52,6 @@
     },
     {
       "path": "../../settings/settings"
-    },
-    {
-      "path": "../product-analytics/tsconfig.client.json"
     }
   ]
 }

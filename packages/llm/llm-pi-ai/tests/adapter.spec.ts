@@ -12,8 +12,9 @@ import type {
 import LlmRuntime, { createToolResultMessage, createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, type ReasoningEffortId, userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
+import { QuotaController } from '@deepseek-ai/dsh-api-quota-controller'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
+import { catalogModels } from '../src/catalog.ts'
 import { DEFAULT_IMAGE_OFFLOAD_COUNT_QUANTUM, DEFAULT_MAX_REQUEST_IMAGE_BYTES, DEFAULT_MAX_REQUEST_IMAGES, resolveProfiles } from '../src/config.ts'
 import { memoryAuth } from './auth-double.ts'
 import { assemble } from './assemble.ts'
@@ -162,6 +163,82 @@ describe('PiAiAdapter provider routing', () => {
     await assemble(ctx, { model: 'deepseek-flash', messages: [] })
     expect(server.headers[0]?.['x-company']).toBe('private')
     expect(server.headers[0]?.['user-agent']).toBe(userAgent())
+  })
+
+  it('withholds the OpenCode session header from a lookalike host', async () => {
+    const lookalike = await mockServer([{ events: textEvents }])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        'opencode-go': {
+          apiKeyEnv: 'PI_TEST_KEY',
+          baseURL: lookalike.url.replace(/^http:\/\/(127\.0\.0\.1|localhost)/, 'http://opencode.ai.evil.test'),
+        },
+      },
+    })
+
+    await assemble(ctx, {
+      provider: 'opencode-go',
+      model: 'deepseek-v4.1-flash',
+      messages: [],
+      sessionId: 'session-leak' as never,
+    })
+
+    expect(lookalike.headers[0]?.['x-opencode-session']).toBeUndefined()
+  })
+
+  it('keeps an explicitly configured OpenCode session header whatever its case', async () => {
+    const opencode = await mockServer([{ events: textEvents }])
+    const ctx = await harness(opencode.url, {
+      headers: { 'X-OpenCode-Session': 'configured-session' },
+    })
+
+    await assemble(ctx, { model: 'deepseek-v4-flash', messages: [], sessionId: 'stream-session' as never })
+
+    const sent = (opencode.rawHeaderNames[0] ?? [])
+      .filter(name => name.toLowerCase() === 'x-opencode-session')
+    expect(sent).toHaveLength(1)
+    expect(opencode.headers[0]?.['x-opencode-session']).toBe('configured-session')
+  })
+
+  it('sends the OpenCode session header only on OpenCode routes', async () => {
+    const deepseek = await mockServer([{ events: textEvents }])
+    const opencode = await mockServer([{ events: textEvents }])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        deepseek: { apiKeyEnv: 'PI_TEST_KEY', baseURL: deepseek.url },
+        'opencode-go': { apiKeyEnv: 'PI_TEST_KEY', baseURL: opencode.url },
+      },
+    })
+
+    await assemble(ctx, { model: 'deepseek-v4-flash', messages: [], sessionId: 'session-plain' as never })
+    expect(deepseek.headers[0]?.['x-opencode-session']).toBeUndefined()
+
+    await assemble(ctx, {
+      provider: 'opencode-go',
+      model: 'deepseek-v4.1-flash',
+      messages: [],
+      sessionId: 'session-go' as never,
+    })
+    expect(opencode.headers[0]?.['x-opencode-session']).toBe('session-go')
+  })
+
+  it('treats an unparseable custom baseURL as not an OpenCode route', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: { deepseek: { apiKeyEnv: 'PI_TEST_KEY', baseURL: 'not-a-valid-url' } },
+    })
+
+    const result = await assemble(ctx, {
+      model: 'deepseek-v4-flash',
+      messages: [],
+      sessionId: 'session-unparseable' as never,
+    })
+    expect(result.finish).toEqual({ kind: 'error', failure: { code: 'PI_AI_ERROR', message: 'Invalid URL' } })
   })
 
   it('forwards common stream options and profile reasoning', async () => {
@@ -499,8 +576,8 @@ describe('PiAiAdapter provider routing', () => {
   })
 
   it('uses the resolved catalog context window for usage-based overflow detection', async () => {
-    const model = getBuiltinModels('deepseek').find(candidate => candidate.id === 'deepseek-flash')
-    if (model === undefined) throw new Error('deepseek-flash missing from pi-ai test catalog')
+    const model = catalogModels('deepseek').get('deepseek-v4-flash')
+    if (model === undefined) throw new Error('deepseek-v4-flash missing from pi-ai test catalog')
     const events = [
       '{"choices":[{"delta":{"role":"assistant","content":""},"index":0,"finish_reason":null}]}',
       JSON.stringify({
@@ -524,6 +601,10 @@ describe('PiAiAdapter provider routing', () => {
   })
 
   it('stops the SDK request when the adapter idle watchdog expires', async () => {
+    const warmup = await mockServer([{ events: textEvents }])
+    const warmupContext = await harness(warmup.url)
+    expect((await assemble(warmupContext, { model: 'deepseek-v4-flash', messages: [] })).finish.kind).toBe('stop')
+
     const server = await mockServer([{ holdOpen: true }])
     const ctx = await harness(server.url, { streamIdleTimeoutMs: 20 })
     const controller = new AbortController()
@@ -544,7 +625,23 @@ describe('PiAiAdapter provider routing', () => {
     await server.responseClosed
 
     expect(server.paths).toEqual(['/chat/completions'])
+    await expect(server.responseClosed).resolves.toBe(true)
     expect(server.closedResponses).toBe(1)
+  })
+
+  it('keeps a stalled Anthropic stream on the TIMEOUT code', async () => {
+    const server = await mockServer([{ holdOpen: true }])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: { anthropic: { apiKeyEnv: 'PI_TEST_KEY', baseURL: server.url, streamIdleTimeoutMs: 20 } },
+    })
+
+    const result = await assemble(ctx, { provider: 'anthropic', model: 'claude-haiku-4-5', messages: [] })
+    expect(result.finish).toEqual({
+      kind: 'error',
+      failure: { message: 'pi-ai stream idle timeout after 20ms', code: 'TIMEOUT' },
+    })
   })
 })
 
@@ -559,6 +656,21 @@ describe('provider profile lifecycle', () => {
       'mapUsage',
       'toStreamChunks',
     ]) expect(LlmPiAi).not.toHaveProperty(helper)
+  })
+
+  it('registers Codex account usage with its provider and removes it on disposal', async () => {
+    const ctx = new Context()
+    try {
+      await ctx.plugin(LlmRuntime)
+      ctx.provide('credentials', { resolve: async () => undefined, readRecord: async () => undefined } as never)
+      const controller = new QuotaController(ctx)
+      const fiber = await ctx.plugin(LlmPiAi, { providers: { 'openai-codex': {} } })
+      await expect(controller.listProviders()).resolves.toContainEqual({ id: 'openai-codex', name: 'OpenAI Codex' })
+      await expect(controller.fetch('openai-codex')).resolves.toMatchObject({ ok: false, error: 'Not configured' })
+      await fiber.dispose()
+      await expect(controller.listProviders()).resolves.not.toContainEqual({ id: 'openai-codex', name: 'OpenAI Codex' })
+      await expect(controller.fetch('openai-codex')).resolves.toMatchObject({ ok: false, error: 'Unsupported provider' })
+    } finally { await ctx.fiber.dispose() }
   })
 
   it('registers every profile atomically and unregisters on dispose', async () => {
@@ -1214,6 +1326,30 @@ describe('abort wiring', () => {
     }
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(server.requests).toHaveLength(1)
+  })
+})
+
+describe('declared model modes', () => {
+  it('sends a mode tier while preserving the base model request', async () => {
+    const rejected = { status: 401, body: JSON.stringify({ error: { message: 'expected mock failure' } }) }
+    const server = await mockServer([rejected, rejected])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    ctx.llm.registerAdapter(['acme-gateway'], adapterOf({
+      'acme-gateway': {
+        api: 'openai-responses',
+        baseURL: server.url,
+        models: [{ id: 'acme-large', modes: { fast: { serviceTier: 'priority' } } }],
+      },
+    }))
+
+    await assemble(ctx, { provider: 'acme-gateway', model: 'acme-large-fast', messages: [] })
+    await assemble(ctx, { provider: 'acme-gateway', model: 'acme-large', messages: [] })
+
+    expect(server.requests).toHaveLength(2)
+    expect(server.requests[0]).toMatchObject({ model: 'acme-large', service_tier: 'priority' })
+    expect(server.requests[1]).toMatchObject({ model: 'acme-large' })
+    expect(server.requests[1]).not.toHaveProperty('service_tier')
   })
 })
 

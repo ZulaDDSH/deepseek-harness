@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-subagent
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Use `dsh-subagent` to delegate work through named providers and collect managed activation results. Local spawn and fork children retain durable sessions for later messages; ACP, DSH SDK, Codex, and Claude Code execute once. Every child shares admission, cancellation, ownership, and discovery. Compose the service with a provider and a delegation tool.
@@ -44,9 +42,19 @@ Mount the service with `@deepseek-ai/dsh-session-projection`, a provider, and th
 
 The tool returns the child's name immediately. The parent receives a completion notice when the background activation settles. Mounting the service alone enables no delegation.
 
+### Root orchestration policy
+
+Mount the optional `@deepseek-ai/dsh-subagent/orchestration-policy` plugin when the top-level agent should own decomposition instead of delegating opportunistically:
+
+```yaml
+- name: '@deepseek-ai/dsh-subagent/orchestration-policy'
+```
+
+It contributes one system-prompt section that renders only for a top-level agent — a delegated child already carries its own delegation-scope statement — and states when to work directly, when to delegate one bounded subtask, and when to write a workflow script, plus how to decompose, parallelize, steer, stop, and synthesize delegated work. The section also states the route rule the composition implies: with no router mounted, a delegate inherits this agent's provider, model, and reasoning effort; when the composed Jev router is enabled, it instead forbids naming a delegate's provider, model, or reasoning effort, because that router decides each agent's route. The section re-renders on every assembly, so changing the router's enabled setting applies from the next request. Mounting the plugin changes the model-visible prompt; a composition that omits it keeps its prompt unchanged.
+
 ### Delegation settings
 
-The limits section on the **Plugins → Subagent** page edits the Host’s `subagent` settings section. User values override this plugin's composition; reset removes the user override. `maxDepth` defaults to `1` and supplies the delegation tools' depth when their own configuration omits it. An explicit tool depth, including `provider-managed`, takes precedence. Depth `0` disables delegation through tools inheriting this setting; depth `1` permits direct children only. Changes apply on the next delegation attempt. Direct service callers continue to supply their own optional request depth.
+The limits section on the **Plugins → Subagent** page edits the Host’s `subagent` settings section. User values override this plugin's composition; reset removes the user override. `maxDepth` defaults to `1` and supplies the delegation tools' depth when their own configuration omits it. An explicit tool depth, including `provider-managed`, takes precedence. Depth `0` disables delegation through tools inheriting this setting; depth `1` permits direct children only, and an agent whose child would exceed the cap is not offered the delegation tool. Changes apply on the next delegation attempt. Direct service callers continue to supply their own optional request depth.
 
 ### Activation capacity
 
@@ -72,6 +80,8 @@ The root is always `lead`. A descendant's full name is the slash-separated path 
 ### Child presets
 
 In-process spawn accepts an independent `agentPreset`; fork and external backends reject this option. Without a selection, a local child joins the parent's current preset revision. An explicit id mounts the currently available revision, even when that id matches the parent's. Configure model choices through [`dsh-tool-subagent`](../tool-subagent/README.md#selecting-a-child-preset) and persona and tools in the [preset composition](../../preset/agent-preset-registry/README.md). Cold resume preserves persona and tool restrictions recorded in historical child descriptors.
+
+A start request may also carry `onProgress`, an advisory sink for short live lines such as `Edit: src/a.ts`. It needs no capability and never changes the result; a provider that observes child tool activity may call it, and others ignore it. Out-of-process backends share three helpers from `out-of-process.ts`: `boundedProgress` caps the sink at one line per 500 ms with lines of at most 120 code points, `runTimeLimit` arms an optional wall-clock limit on the published run, and `resolveParentSandboxMode` reads the delegating parent's file-sandbox mode from the composed `sandboxPolicy`, which a composition without one lacks, so no sandbox clamp applies.
 
 ### Messaging, interrupting, and discovering
 
@@ -223,6 +233,20 @@ One fixed statement in each child's runtime-context snapshot; none in the parent
 #### KV Cache effect
 
 Prefix-stable within a child: the statement never changes during the child's lifetime, so it is written once into the first runtime-context snapshot. Parent-side, no direct invalidation; the named tool consumers own any request-prefix changes.
+
+### Root orchestration policy
+
+#### What the model sees
+
+With the optional orchestration-policy plugin mounted, one `orchestration:policy` section joins every top-level agent's system prompt after the team policy and before the knowledge policy. It ends with the inheritance clause, or with the router-owned clause while the composed Jev router is enabled. A delegated child never receives the section.
+
+#### Token effect
+
+One fixed policy paragraph plus one route clause in each top-level agent request; nothing in a child's request.
+
+#### KV Cache effect
+
+Prefix-stable within a deployment: the text changes only when the router's enabled setting changes.
 
 ## Known Limitations and Deferred Work
 

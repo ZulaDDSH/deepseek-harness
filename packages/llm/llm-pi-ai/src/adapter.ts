@@ -23,6 +23,12 @@
  * so a configuration change rebuilds the collection without forgetting who is
  * signed in.
  *
+ * Every request carries the shared `User-Agent` attribution, and a route served
+ * by an OpenCode gateway also carries `x-opencode-session` from
+ * `GenerateOptions.sessionId`: OpenCode Go rejects a request without it and
+ * pi-ai emits no equivalent. The session value is model-hidden transport
+ * metadata and never enters the request body, prompt, or session log.
+ *
  * @module dsh-llm-pi-ai/adapter
  */
 
@@ -61,6 +67,7 @@ import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { requestImageTarget, toPiContext } from './context.ts'
 import { conversationUpdates, createModels, getSupportedThinkingLevels } from './models.ts'
+import { shapeReasoningPayload } from './reasoning-payload.ts'
 import { toStreamChunks } from './stream.ts'
 import { bindThinkingToPrefix } from './prefix-binding.ts'
 import type { PrefixDigests } from './prefix-binding.ts'
@@ -128,13 +135,10 @@ export interface PiAiAdapterOptions {
    * conversion because its stored replay state is unusable by this build.
    */
   onReplayDegrade?: (detail: { provider: string; model: string; reason: string }) => void
-  /**
-   * Observe one request that sent replayed assistant messages without their
-   * signed Anthropic thinking because the request prefix changed or was never
-   * recorded. Stale messages stay omitted, so later requests of the
-   * conversation report them again.
-   */
   onThinkingOmitted?: (detail: { provider: string; model: string; count: number }) => void
+  onResponseHeaders?: (detail: { provider: string; headers: Readonly<Record<string, string>> }) => void
+  onRequestFailure?: (detail: { provider: string; message: string }) => void
+  onUsageAboveWindow?: (detail: { provider: string; model: string; contextWindow: number; inputTokens: number }) => void
 }
 
 /** The two auth injectables a pi-ai collection is built with. */
@@ -274,6 +278,53 @@ function requestHeaders(
   }
 }
 
+/** The conversation header OpenCode's gateways route and cache by; pi-ai emits no equivalent. */
+const OPENCODE_SESSION_HEADER = 'x-opencode-session'
+
+/** Hosts served by an OpenCode gateway, matched against the endpoint's parsed hostname. */
+const OPENCODE_HOSTS = new Set(['opencode.ai', 'www.opencode.ai'])
+
+/**
+ * Whether a model is served by an OpenCode gateway that requires the session
+ * header. The parsed hostname decides it for a route that named a custom
+ * `baseURL`: a substring test would also match `opencode.ai.example.com`, and
+ * the session id must never reach a host that is merely named after OpenCode.
+ */
+function isOpencodeRoute(model: Model<Api>): boolean {
+  if (model.provider === 'opencode' || model.provider === 'opencode-go') return true
+  try {
+    return OPENCODE_HOSTS.has(new URL(model.baseUrl).hostname.toLowerCase())
+  } catch (_unparseableBaseUrl) {
+    return false
+  }
+}
+
+/**
+ * Add the OpenCode session header to a request's headers.
+ *
+ * OpenCode Go rejects a request without `x-opencode-session`, and pi-ai's
+ * installed providers never send it, so the conversation identity is mapped
+ * here from `GenerateOptions.sessionId`. The value is model-hidden transport
+ * metadata: it never enters the request body, prompt, or session log.
+ *
+ * A deployment that configured the header itself keeps its own value: the
+ * profile owns the transport it speaks, and the session id is only a fallback
+ * for the routes that need one and were given none.
+ * @param headers - the request headers built from the profile and attribution.
+ * @param model - the resolved pi-ai model, used to recognize the route.
+ * @param sessionId - the durable conversation identity, when the request has one.
+ * @returns a header record with the session header set on OpenCode routes.
+ */
+function withOpencodeSession(
+  headers: Record<string, string>,
+  model: Model<Api>,
+  sessionId: string | undefined,
+): Record<string, string> {
+  const configured = Object.keys(headers).some(name => name.toLowerCase() === OPENCODE_SESSION_HEADER)
+  if (sessionId === undefined || configured || !isOpencodeRoute(model)) return headers
+  return { ...headers, [OPENCODE_SESSION_HEADER]: sessionId }
+}
+
 /**
  * pi-ai-backed multi-provider adapter. Each operation reads the current
  * profiles, so a configuration change reaches the next request without a
@@ -379,7 +430,8 @@ export class PiAiAdapter extends LlmAdapter {
     const defaultLevel = describableReasoningLevel(resolvedModel, profile.reasoning)
     // Only a cap the deployment configured is a request default; the
     // catalog's `maxTokens` sizes the model and stops there.
-    const configuredMaxTokens = profile.configuredMaxTokens.get(model)
+    const requestModel = profile.modeRequests.get(model)?.model ?? model
+    const configuredMaxTokens = profile.configuredMaxTokens.get(requestModel)
     return {
       provider,
       id: model,
@@ -472,15 +524,33 @@ export class PiAiAdapter extends LlmAdapter {
       const { context, digest } = bindThinkingToPrefix(converted, model.api, prefixDigests, manualThinking, (count) => {
         this.config.onThinkingOmitted?.({ provider: options.provider, model: options.model, count })
       })
-      const events = snapshot.models.streamSimple(model, context, {
+      const sessionId = options.sessionId === undefined ? undefined : String(options.sessionId)
+      const mode = profile.modeRequests.get(model.id)
+      const requestModel = mode === undefined ? model : { ...model, id: mode.model }
+      const events = snapshot.models.streamSimple(requestModel, context, {
         ...profileOptions(profile, reasoning, apiKey),
         ...options.temperature === undefined ? {} : { temperature: options.temperature },
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
-        ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
+        ...sessionId === undefined ? {} : { sessionId },
+        onPayload: body => shapeReasoningPayload(model, reasoning, {
+          ...(body as Record<string, unknown>),
+          ...mode === undefined ? {} : { service_tier: mode.serviceTier },
+        }),
         signal: watchdog.signal,
-        headers: requestHeaders(profile.headers, options, model.baseUrl, this.config.prepareHeaders),
+        onResponse: (response) => { this.config.onResponseHeaders?.({ provider: options.provider, headers: response.headers }) },
+        // Profile headers are deployment-owned; attribution names are
+        // Harness-owned and therefore win collisions.
+        headers: withOpencodeSession(requestHeaders(profile.headers, options, model.baseUrl, this.config.prepareHeaders), model, sessionId),
       })
-      const iterator = toStreamChunks(events, model.contextWindow, options.signal, model.id, digest)[Symbol.asyncIterator]()
+      const onUsageAboveWindow = (inputTokens: number): void => {
+        this.config.onUsageAboveWindow?.({
+          provider: options.provider,
+          model: options.model,
+          contextWindow: model.contextWindow,
+          inputTokens,
+        })
+      }
+      const iterator = toStreamChunks(events, model.contextWindow, options.signal, model.id, onUsageAboveWindow, digest)[Symbol.asyncIterator]()
       let exhausted = false
       try {
         while (true) {
@@ -488,6 +558,9 @@ export class PiAiAdapter extends LlmAdapter {
           if (result.done) {
             exhausted = true
             return
+          }
+          if (result.value.type === 'finish' && result.value.reason.kind === 'error') {
+            this.config.onRequestFailure?.({ provider: options.provider, message: result.value.reason.failure.message })
           }
           yield result.value
         }
@@ -507,6 +580,7 @@ export class PiAiAdapter extends LlmAdapter {
       if (options.signal?.aborted) {
         throw new LlmError('pi-ai request aborted by caller', 'ABORTED', { cause: error })
       }
+      if (error instanceof Error) this.config.onRequestFailure?.({ provider: options.provider, message: error.message })
       throw error
     } finally {
       consumer.abort('pi-ai stream consumer stopped')

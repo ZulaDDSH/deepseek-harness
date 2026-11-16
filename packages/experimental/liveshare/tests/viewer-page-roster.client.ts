@@ -24,6 +24,8 @@ import * as clientResources from '@deepseek-ai/dsh-client-resources/client'
 import * as clientShortcuts from '@deepseek-ai/dsh-client-shortcuts/client'
 import * as uiAttachment from '@deepseek-ai/dsh-client-ui-attachment/client'
 import * as uiChat from '@deepseek-ai/dsh-client-ui-chat/client'
+import * as uiCommands from '@deepseek-ai/dsh-client-ui-commands/client'
+import * as uiInputTrigger from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import * as uiContextMenu from '@deepseek-ai/dsh-client-ui-context-menu/client'
 import * as uiConversation from '@deepseek-ai/dsh-client-ui-conversation/client'
 import * as uiDeliverables from '@deepseek-ai/dsh-client-ui-deliverables/client'
@@ -75,6 +77,8 @@ export const VIEWER_PAGE_ROSTER: readonly ViewerPageRosterRow[] = [
   { id: '@deepseek-ai/dsh-client-ui-sidebar', exports: uiSidebar },
   { id: '@deepseek-ai/dsh-client-ui-conversation', exports: uiConversation },
   { id: '@deepseek-ai/dsh-client-ui-chat', exports: uiChat },
+  { id: '@deepseek-ai/dsh-client-ui-commands', exports: uiCommands },
+  { id: '@deepseek-ai/dsh-client-ui-input-trigger', exports: uiInputTrigger },
   { id: '@deepseek-ai/dsh-client-ui-context-menu', exports: uiContextMenu },
   { id: '@deepseek-ai/dsh-client-ui-tool', exports: uiTool },
   { id: '@deepseek-ai/dsh-client-ui-attachment', exports: uiAttachment },

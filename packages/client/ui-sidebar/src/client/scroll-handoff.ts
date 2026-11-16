@@ -57,17 +57,21 @@ export function createScrollHandoff(): ScrollHandoff {
   let lastSplit = Number.NEGATIVE_INFINITY
   const handle = (viewport: HTMLElement, event: WheelEvent): void => {
     if (scroller === null || event.defaultPrevented) return
+    const target = event.target instanceof Element
+      ? event.target.closest<HTMLElement>('[data-sidebar-list-area]')
+      : null
+    const activeScroller = target !== null && viewport.contains(target) ? target : scroller
     const delta = verticalWheelPixels(event, viewport.clientHeight)
     if (delta === undefined || delta === 0) return
     // A gesture split here stays here: native scrolling does not resume within its momentum.
     const continuing = event.cancelable && event.timeStamp - lastSplit < GESTURE_GAP_MS
     if (!continuing) {
       // With the navigation gone, the section scroller under the pointer takes this step natively.
-      const native = atEnd(viewport) && scroller.contains(event.target as Node | null)
-      if (native && (delta > 0 || scroller.scrollTop + delta >= 0)) return
+      const native = atEnd(viewport) && activeScroller.contains(event.target as Node | null)
+      if (native && (delta > 0 || activeScroller.scrollTop + delta >= 0)) return
       if (!event.cancelable) {
         // A native gesture latched to the section scroller stops at its top; the viewport takes the rest.
-        if (native) scrollClamped(viewport, delta + scroller.scrollTop)
+        if (native) scrollClamped(viewport, delta + activeScroller.scrollTop)
         return
       }
     }
@@ -75,10 +79,10 @@ export function createScrollHandoff(): ScrollHandoff {
     lastSplit = event.timeStamp
     if (delta > 0) {
       const rest = delta - scrollClamped(viewport, delta)
-      if (rest > 0) scrollClamped(scroller, rest)
+      if (rest > 0) scrollClamped(activeScroller, rest)
       return
     }
-    const rest = delta - scrollClamped(scroller, delta)
+    const rest = delta - scrollClamped(activeScroller, delta)
     if (rest < 0) scrollClamped(viewport, rest)
   }
   const sectionScroller: SectionScroller = {

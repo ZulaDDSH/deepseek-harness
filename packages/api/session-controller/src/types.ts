@@ -8,11 +8,13 @@ import type {
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { LlmAttemptId, MessageId } from '@deepseek-ai/dsh-llm/types'
 import type { LlmModelBadge, TextBlock } from '@deepseek-ai/dsh-llm'
-import type { SessionId, SessionSeq, SessionSeqCursor } from '@deepseek-ai/dsh-session/types'
+import type { CliTerminalProfileId, SessionId, SessionSeq, SessionSeqCursor } from '@deepseek-ai/dsh-session/types'
 import type { SessionProjectionMap, SessionProjectionSummaryExcluded, SessionProjectionSummaryValues } from '@deepseek-ai/dsh-session-projection/types'
 import type { Principal } from '@deepseek-ai/dsh-typert-protocol'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
+import type { SessionListMetadata } from './list-metadata.ts'
+import type { SubagentSetup } from './subagent-setup.ts'
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionMap {
@@ -26,16 +28,29 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
      * it, so a list row would repeat one host-wide fact.
      */
     imageLimits: SessionProjectionSummaryExcluded<ImageAttachmentLimits>
+    /** Client view of per-Session hook overrides. */
+    hookOverrides: HookOverridesProjection
+    /** Client view of per-Session run options; the Session Controller registers it for every Session. */
+    runOptions: SessionRunOptionsProjection
+    /** Client view of durable MCP connector selection. */
+    mcpSelection: McpSelectionProjection
+    /** Client view that a Claude Code provider is installed; absent otherwise, which hides its run controls. */
+    claudeCodeRunOptions: { readonly available: true }
   }
 }
 
-/** Persisted hints used to summarize a cold Session. */
-export interface SessionListMetadata {
-  /** Whether the folded prefix contains no turn. */
-  readonly blank: boolean
-  /** Latest human-authored prompt time in the folded prefix. */
-  readonly lastPromptAt: number | null
+declare module '@deepseek-ai/dsh-session/types' {
+  interface SessionEventMap {
+    /** Complete connector selection requested for subsequent MCP tool calls. */
+    'mcp/selection': McpSelection
+    /** Complete per-Session hook overrides. Log-only: it never enters model history. */
+    'hooks/session-overrides': HookOverrides
+    /** Complete per-Session run options (ultracode, plus fast mode and effort for Claude Code runs). Log-only. */
+    'session/run-options': SessionRunOptions
+  }
 }
+
+export type { SessionListMetadata } from './list-metadata.ts'
 
 /**
  * Summary wire values a Session-list row carries. A `sequenced` block carries
@@ -94,6 +109,24 @@ export interface ModelSelection {
   readonly reasoningEffort?: string
 }
 
+/** Durable MCP connector selection for one Session. */
+export interface McpSelection {
+  /** Stable connector namespaces selected for this Session. */
+  readonly connectorIds: readonly string[]
+}
+
+/** Host fold state for durable MCP connector selection. */
+export interface McpSelectionProjectionState {
+  /** Latest selected connector namespaces, or null for legacy unrestricted Sessions. */
+  readonly current: McpSelection | null
+}
+
+/** Client view of durable MCP connector selection. */
+export interface McpSelectionProjection {
+  /** Selected connector namespaces, or null when the Session has no selection. */
+  readonly current: McpSelection | null
+}
+
 /** One adapter-owned reasoning effort for an exact model route. */
 export interface ModelReasoningEffort {
   readonly id: string
@@ -113,6 +146,7 @@ export interface ModelCatalogModel {
   readonly name: string
   readonly description?: string
   readonly reasoning?: ModelReasoning
+  readonly ultracode?: boolean
   /** Provider-authored label shown beside the name; display data only. */
   readonly badge?: LlmModelBadge
 }
@@ -122,6 +156,8 @@ export interface ModelProviderGroup {
   readonly id: string
   readonly name: string
   readonly models: readonly ModelCatalogModel[]
+  /** Present and true when the provider's named API-key reference has no stored or ambient credential. */
+  readonly missingCredential?: boolean
 }
 
 /** One provider whose model catalog lookup failed. */
@@ -160,6 +196,8 @@ export interface SessionSummary {
   readonly updatedAt: number
   readonly running: boolean
   readonly blank: boolean
+  /** CLI terminal profile the Session hosts. */
+  readonly cliProfile?: CliTerminalProfileId
   readonly parentSessionId?: SessionId
   readonly origin?: 'subagent'
   readonly cwd?: string
@@ -274,6 +312,8 @@ export interface SessionCreateRequest {
   readonly sessionId?: SessionId
   /** Preset the Session runs, replacing a reused Session's recorded preset; the configured default when omitted. */
   readonly agentPreset?: string
+  /** Creates a CLI terminal Session for this profile. */
+  readonly cliProfile?: CliTerminalProfileId
 }
 
 /** Session creation response value. */
@@ -284,6 +324,48 @@ export interface SessionCreateValue {
   readonly agentPreset?: string
 }
 
+/** Opaque identity of a discovered vendor transcript. */
+export type ExternalChatKey = Branded<'external-chat-key'>
+
+/** Supported vendor transcript formats. */
+export type ExternalChatSource = 'claude' | 'codex'
+
+/** Transcript preview or per-file discovery error. */
+export interface ExternalChat {
+  readonly key: ExternalChatKey
+  readonly source: ExternalChatSource
+  readonly title: string
+  readonly cwd?: string
+  readonly updatedAt: number
+  readonly messageCount: number
+  readonly preview: string
+  readonly error?: string
+}
+
+/** Bounded discovery result with an indicator that candidates were omitted. */
+export interface ExternalChatCatalog {
+  readonly items: readonly ExternalChat[]
+  readonly limited: boolean
+}
+
+/** Selected identities from external transcript discovery. */
+export interface ExternalChatImportRequest {
+  readonly keys: readonly ExternalChatKey[]
+}
+
+/** One imported or existing session, or an isolated import error. */
+export interface ExternalChatImportResult {
+  readonly key: ExternalChatKey
+  readonly sessionId?: SessionId
+  readonly duplicate?: boolean
+  readonly error?: string
+}
+
+/** Outcomes for the selected transcript identities. */
+export interface ExternalChatImportValue {
+  readonly items: readonly ExternalChatImportResult[]
+}
+
 /** Session model-selection request. */
 export interface SessionSelectModelRequest extends ModelSelection {
   readonly sessionId: SessionId
@@ -292,6 +374,78 @@ export interface SessionSelectModelRequest extends ModelSelection {
 /** Accepted model selection after Host resolution. */
 export interface SessionSelectModelValue {
   readonly selected: ModelSelection
+}
+
+/** Per-Session hook overrides keyed by `hookKey`; true enables, false disables. */
+export interface HookOverrides {
+  readonly overrides: Readonly<Record<string, boolean>>
+}
+
+/** Host fold state and client view of per-Session hook overrides. */
+export interface HookOverridesProjection {
+  readonly current: HookOverrides | null
+}
+
+/** Claude Code native effort levels a Session may select, faster to smarter. */
+export const SESSION_RUN_OPTION_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+
+/** Per-Session run options; an omitted field keeps the Profile default or native Claude setting. */
+export interface SessionRunOptions {
+  /** Native fast mode for delegated Claude Code runs. */
+  readonly fastMode?: boolean | undefined
+  /** Ultracode: a standing multi-agent instruction, and native ultracode for Claude Code runs that overrides the Profile. */
+  readonly ultracode?: boolean | undefined
+  /** Native reasoning effort for delegated Claude Code runs; omitted leaves Claude settings in force. */
+  readonly effort?: (typeof SESSION_RUN_OPTION_EFFORTS)[number] | undefined
+  readonly subagentSetup?: SubagentSetup | undefined
+}
+
+/** Host fold state and client view of per-Session Claude Code run options. */
+export interface SessionRunOptionsProjection {
+  readonly current: SessionRunOptions | null
+}
+
+/** Session-local Claude Code run toggle request. */
+export interface SessionSetRunOptionsRequest extends SessionRunOptions {
+  readonly sessionId: SessionId
+}
+
+/** One loaded hook command and its global enablement. */
+export interface SessionHookRow {
+  readonly key: string
+  readonly dialect: string
+  readonly event: string
+  readonly matcher?: string
+  readonly command: string
+  readonly globallyDisabled: boolean
+  readonly description?: string
+}
+
+/** Hooks loaded by mounted bridges. */
+export interface SessionHookCatalog {
+  readonly hooks: readonly SessionHookRow[]
+}
+
+/** Session-local hook override request. */
+export interface SessionSetHookOverridesRequest {
+  readonly sessionId: SessionId
+  readonly overrides: Readonly<Record<string, boolean>>
+}
+
+/** MCP connector namespaces available to one Session. */
+export interface McpConnectorCatalog {
+  readonly connectorIds: readonly string[]
+}
+
+/** Session-local MCP connector selection request. */
+export interface SessionSelectMcpRequest {
+  readonly sessionId: SessionId
+  readonly connectorIds: readonly string[]
+}
+
+/** Accepted Session-local MCP connector selection. */
+export interface SessionSelectMcpValue {
+  readonly selected: McpSelection
 }
 
 /** Session rename request. */

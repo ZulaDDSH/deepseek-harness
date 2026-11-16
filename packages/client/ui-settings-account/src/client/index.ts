@@ -1,6 +1,4 @@
 /** Account settings registration and reconnecting Remote subscription. */
-import type {} from '@deepseek-ai/dsh-client-product-analytics/client'
-import type { TranscriptViewMode } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -11,13 +9,11 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-api-remote-access/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { AccountUpdate, AccountDetails } from '@deepseek-ai/dsh-deepseek-account/types'
-import type { OnboardingChange } from './onboarding-contract.ts'
 import type { PlatformBridge } from './PlatformOverlay.tsx'
 import { ContactConfig, CONTACT_CONFIG_GLOBAL } from '../contact-config.ts'
 import { contactUrl } from './contact-url.ts'
 import { authorizeUrlWithTheme } from './authorize-url.ts'
 import { BrowserLogin } from './browser-login.ts'
-import { AccountOnboarding } from './AccountOnboarding.tsx'
 import { AccountPlatformHost, type AccountPlatformHostInjected } from './AccountPlatformHost.tsx'
 import { AccountMenu } from './AccountMenu.tsx'
 import { createPlatformPages, type PlatformPages } from './platform-pages.ts'
@@ -25,10 +21,6 @@ import { AccountSection, type AccountSnapshot, type AccountSectionInjected } fro
 import { accountClientMetadata } from './client-metadata.ts'
 import { en, ja, es, fr, de, ru, pt, zh, type AccountKey } from './locales.ts'
 import { AccountQuotaNotice, type AccountQuotaNoticeInjected } from './AccountQuotaNotice.tsx'
-import { DESKTOP_ONBOARDING_NAMESPACE, type OnboardingSettings } from '../onboarding-settings.ts'
-import { DesktopOnboardingController } from './onboarding-state.ts'
-import { DesktopOnboardingEntry, type DesktopOnboardingInjected } from './DesktopOnboardingEntry.tsx'
-import { readOnboardingApiKeyPresence } from './onboarding-credentials.ts'
 import { refreshAfterReturn } from './account-refresh.ts'
 import { AccountAvatarLoader } from './account-avatar.ts'
 export type { AccountSectionInjected, AccountSectionProps } from './AccountSection.tsx'
@@ -42,7 +34,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 /** Services required by account settings. */
-export const inject = ['slots', 'locale', 'remote', 'remote.account', 'remote.session', 'theme', 'configForms', 'remoteAccess']
+export const inject = ['slots', 'locale', 'remote', 'remote.account', 'remote.session', 'theme', 'remoteAccess']
 /** Register account UI in Desktop and plain Web clients. @param ctx - client plugin context. */
 export function apply(ctx: Context): void {
   const desktop = 'dshDesktop' in globalThis
@@ -51,7 +43,7 @@ export function apply(ctx: Context): void {
   const page = globalThis as Partial<Record<typeof CONTACT_CONFIG_GLOBAL, unknown>>
   const config = ContactConfig(page[CONTACT_CONFIG_GLOBAL] ?? {})
   let snapshot: AccountSnapshot = {
-    view: undefined, details: undefined, avatar: undefined, failed: false, loginVisible: false, desktopOnboardingVisible: desktop,
+    view: undefined, details: undefined, avatar: undefined, failed: false, loginVisible: false,
   }
   // Desktop main opens the authorization page natively; a plain browser opens it in a tab it owns.
   const browser = new BrowserLogin(url => authorizeUrlWithTheme(url, ctx.theme.getTheme().active.colorScheme))
@@ -213,7 +205,6 @@ export function apply(ctx: Context): void {
       })()
     },
     showLogin(visible) { publish({ ...snapshot, loginVisible: visible }) },
-    setOnboarding(active) { publish({ ...snapshot, onboarding: active }) },
     hooks: {
       account: {
         getSnapshot: () => snapshot,
@@ -256,44 +247,6 @@ export function apply(ctx: Context): void {
       throw result.error
     },
   }
-  if (desktop) {
-    const controller = new DesktopOnboardingController(
-      ctx.configForms.get<OnboardingSettings>(DESKTOP_ONBOARDING_NAMESPACE),
-      ctx.configForms.get<{ transcriptView?: TranscriptViewMode | null; performanceUsage: 'compact' | 'detailed' }>('ui-chat'),
-      enabled => ctx.configForms.developerTools.setEnabled(enabled),
-      operations.hooks.account,
-      readOnboardingApiKeyPresence,
-      ctx.configForms.describe(),
-    )
-    ctx.effect(() => () => { controller.dispose() }, 'account: desktop onboarding lifetime')
-    ctx.effect(() => {
-      const refreshCredentials = () => { controller.invalidateCredentials() }
-      const disposers = [
-        ctx.remote.$on('credentials/reference-updated', refreshCredentials),
-        ctx.remote.$on('llm/adapters-updated', refreshCredentials),
-        ctx.configForms.describe().subscribe(refreshCredentials),
-      ]
-      return () => { for (const dispose of disposers) dispose() }
-    }, 'account: desktop credential readiness')
-    ctx.slots.inject('shell.overlay', () => ctx.slots.register({
-      name: 'shell.overlay', id: 'desktop-onboarding', locale: 'settings.account',
-      inject: (): DesktopOnboardingInjected => ({
-        hooks: { account: operations.hooks.account, onboarding: controller.state },
-        setVisible: (visible: boolean) => {
-          if (snapshot.desktopOnboardingVisible !== visible) publish({ ...snapshot, desktopOnboardingVisible: visible })
-        },
-        // Onboarding's recharge return re-reads profile and balance only.
-        ...nativePlatform === undefined ? {} : { openPlatformPage: platformPageOpener(refresh) },
-        update: (change: OnboardingChange) => controller.update(change),
-        complete: (reason: 'completed' | 'skipped') => controller.complete(reason),
-        retry: () => controller.retry(),
-        track: (name, attributes) => ctx.get('productAnalytics')?.track(name, attributes),
-      }),
-    }, DesktopOnboardingEntry))
-  }
-  ctx.remoteAccess.whenAccess('account/watch', () => ctx.slots.inject('settings.models.sign-in', () => ctx.slots.register({
-    name: 'settings.models.sign-in', locale: 'settings.account', inject: () => operations,
-  }, AccountOnboarding)))
   ctx.remoteAccess.whenAccess('account/watch', () => ctx.slots.inject('shell.quota-notice', () => ctx.slots.register({
     name: 'shell.quota-notice', locale: 'settings.account',
     select: owner => owner.code === 'ACCOUNT_QUOTA' ? owner : null,

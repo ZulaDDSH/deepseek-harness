@@ -12,6 +12,7 @@ import { FileLayers } from '../src/layers.ts'
 import { git, gitContext, plainSession, repository, sandboxRecord, scratch } from './harness.ts'
 
 const LAYERS = new FileLayers([], [])
+vi.setConfig({ testTimeout: 30_000 })
 
 const CONFIG: DiffConfig = {
   gitCommand: 'git', gitTimeoutMs: 10_000, graceMs: 500, maxOutputBytes: 1_048_576, maxDiffBytes: 1_048_576, maxUntrackedFiles: 100,

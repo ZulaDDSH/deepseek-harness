@@ -3,7 +3,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-context-menu/client'
 import type {} from '@deepseek-ai/dsh-client-product-analytics/client'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import type { ISessions, SessionBinding } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionBinding } from '@deepseek-ai/dsh-api-session-controller/client'
 import { IconPaperclipOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createSnapshotStore, type BoundActions } from '@deepseek-ai/dsh-client-store'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
@@ -25,12 +25,12 @@ import type {
   ConversationSessionInjected, DraftFileUploads, UserTextInjected,
 } from './contract/slots.ts'
 import type { InputNotice } from './contract/input.ts'
+import type { HookOverridesProjection, McpSelectionProjection } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { ReferenceInsert } from './contract/draft-editor.ts'
 import { createConversationStore, readConversationViewPreference } from './stores.ts'
 import { formatFileMention } from '@deepseek-ai/dsh-file-reference/grammar'
 import { relativizeToCwd, workspaceTitleOf } from '@deepseek-ai/dsh-util-workspace-path'
 import { ConversationController, UnsupportedImageMediaTypeError, isImageMediaType } from './service.ts'
-import type { IConversation } from './service.ts'
 import { ComposerBlockRegistry } from './input/blocks.ts'
 import type { ComposerBlock } from './contract/composer-blocks.ts'
 import { InputHub } from './input/hub.ts'
@@ -47,7 +47,7 @@ import { ConversationSession, ConversationSessionHeader } from './skeleton/Conve
 import { InputBar } from './skeleton/InputBar.tsx'
 import { todoDockEntry } from './skeleton/TodoPanel.tsx'
 import { installStopShortcut } from './stop-shortcut.ts'
-import { TRAJECTORY_VIEW_ID, resolveActiveView } from './view-selection.ts'
+import { resolveActiveView } from './view-selection.ts'
 import { createViewPins } from './view-pins.ts'
 import { en, ja, es, fr, de, ru, pt, NS, zh, type ConversationKey } from './locales.ts'
 import { CONVERSATION_SETTINGS_NAMESPACE, type ConversationSettings } from '../submission-settings.ts'
@@ -133,19 +133,12 @@ interface FileCommandRegistry {
     label(): string
     icon: typeof IconPaperclipOutlineRegular
     available(session: { sessionId: SessionId }): boolean
-    ui: { kind: 'action'; run(session: { sessionId: SessionId }): void }
+    ui: { kind: 'action'; run(session: { sessionId: SessionId }): void } | {
+      kind: 'popupSelect'
+      options(session: { sessionId: SessionId }, signal: AbortSignal): Promise<readonly { id: string; label: string; active?: boolean }[]>
+      onSelect(option: { id: string }, session: { sessionId: SessionId }): Promise<void>
+    }
   }): () => void
-}
-
-/** Resolve the session-scoped Conversation action face, failing loud. */
-function scopedConversation(sessions: ISessions, id: SessionId): IConversation {
-  const scoped = sessions.scope(id)
-  if (scoped === undefined) throw new Error(`ui-conversation: session "${id}" resolved no scope`)
-  const conversation = scoped.get('conversation')
-  if (conversation === undefined) {
-    throw new Error('ui-conversation: conversation service unavailable through the session scope')
-  }
-  return conversation
 }
 
 /** Resolve package-internal attachment operations from the public service. */
@@ -159,7 +152,7 @@ function concreteConversation(ctx: Context): ConversationController {
  * Mount the Conversation core and target-neutral presentation.
  * @param ctx - Client root context.
  */
-export function apply(ctx: Context, config: Config = Config({})): void {
+export async function apply(ctx: Context, config: Config = Config({})): Promise<void> {
   const sessions = ctx.sessions
   const slots = ctx.slots
   // Schemastery's field default is materialized before Cordis calls apply.
@@ -216,7 +209,6 @@ export function apply(ctx: Context, config: Config = Config({})): void {
     for (const entry of slots.entries('conversation.view')) {
       /* v8 ignore next -- list registration validates id at load. */
       if (entry.options.id === undefined) continue
-      if (!ctx.configForms.developerTools.enabled.getSnapshot() && entry.options.id === TRAJECTORY_VIEW_ID) continue
       tabs.push({
         id: entry.options.id,
         label: resolveSlotLabel(entry.options.label) ?? entry.options.id,
@@ -228,8 +220,9 @@ export function apply(ctx: Context, config: Config = Config({})): void {
     const active = resolveActiveView(viewTabs(), preferred)
     if (active !== undefined) uiConversation.binding(sessionId).activate(active.id)
   }
-  const restoreView = (sessionId: SessionId): void => {
-    activateView(sessionId, readConversationViewPreference(sessionId))
+  const restoreView = (binding: SessionBinding): void => {
+    if (sessions.binding(binding.sessionId) !== binding) return
+    activateView(binding.sessionId, readConversationViewPreference(binding.sessionId))
   }
   const conversationViews = createSnapshotStore<readonly ViewTab[]>(viewTabs())
   const viewPins = createViewPins()
@@ -254,24 +247,17 @@ export function apply(ctx: Context, config: Config = Config({})): void {
         return candidate !== undefined && tab.id === candidate.id && tab.label === candidate.label
       })
     if (!unchanged) conversationViews.set(next)
-    for (const binding of bindings) restoreView(binding.sessionId)
+    for (const binding of bindings) restoreView(binding)
   }
   ctx.effect(() => {
     const disposeViews = slots.subscribe('conversation.view', refreshViews)
     const disposeLocale = ctx.locale.subscribe(refreshViews)
-    const disposeDeveloperTools = ctx.configForms.developerTools.enabled.subscribe(refreshViews)
     return () => {
-      disposeDeveloperTools()
       disposeLocale()
       disposeViews()
     }
   }, 'ui-conversation: View selection')
 
-  const stop = (sessionId: SessionId): void => {
-    scopedConversation(sessions, sessionId).cancel().catch((_error: unknown) => {
-      // Stop failure is published through Session promptError.
-    })
-  }
   const stopShortcut = createSnapshotStore<readonly string[]>([])
   ctx.inject(['shortcuts'], (scope) => {
     const fixedInputs: readonly ShortcutFixedCommand[] = [
@@ -292,7 +278,8 @@ export function apply(ctx: Context, config: Config = Config({})): void {
       scope.effect(() => scope.shortcuts.registerFixed(command), `ui-conversation: ${command.id}`)
     }
     scope.effect(() => installStopShortcut(
-      scope.shortcuts, sessions, binding => uiConversation.binding(binding).openTurn, ctx.uiSession, stop,
+      scope.shortcuts, sessions, binding => uiConversation.binding(binding).openTurn, ctx.uiSession,
+      (sessionId) => { uiConversation.stop(sessionId) },
     ), 'ui-conversation: fixed stop input')
     scope.effect(() => {
       const command: ShortcutFixedCommand = {
@@ -316,6 +303,123 @@ export function apply(ctx: Context, config: Config = Config({})): void {
       available: session => inputHub.canPickFiles(session.sessionId),
       ui: { kind: 'action', run: (session) => { inputHub.pickFiles(session.sessionId) } },
     }), 'ui-conversation: File action')
+    const desktop = (globalThis as typeof globalThis & {
+      __DSH_DIRECTORY_PICKER__?: { pick(): Promise<string | null> }
+    }).__DSH_DIRECTORY_PICKER__
+    if (desktop !== undefined) {
+      scope.effect(() => commands.register({
+        name: 'folder', label: () => t('input.folder'), icon: IconPaperclipOutlineRegular,
+        available: session => inputHub.canPickFiles(session.sessionId),
+        ui: { kind: 'action', run: ({ sessionId }) => {
+          const binding = sessions.binding(sessionId)
+          if (binding === undefined || !inputHub.canPickFiles(sessionId)) return
+          const shell = inputHub.shellFor(binding)
+          void desktop.pick().then((path) => {
+            if (path === null || sessions.binding(sessionId) !== binding || !inputHub.canPickFiles(sessionId)) return
+            const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
+            const mention = formatFileMention({ path: `${relativizeToCwd(path, cwd)}/`, kind: 'file' }, false)
+            if (mention === undefined) { shell.notify('error', t('attachment.pathUnsupported')); return }
+            if (!shell.addFiles([{
+              source: 'reference', ref: mention, label: `${workspaceTitleOf(path)}/`,
+              appearance: 'folder', clipboardText: mention,
+            }], [])) shell.notify('error', t('attachment.dropBlocked'))
+          }).catch((error: unknown) => {
+            if (sessions.binding(sessionId) === binding) shell.notify('error', error instanceof Error ? error.message : String(error))
+          })
+        } },
+      }), 'ui-conversation: Folder action')
+    }
+    scope.inject(['remote', 'remote.session'], (remoteScope) => {
+      const remote = remoteScope.remote.session
+      remoteScope.effect(() => commands.register({
+        name: 'connectors', label: () => t('input.connectors'), icon: IconPaperclipOutlineRegular,
+        available: session => sessions.binding(session.sessionId) !== undefined
+          && sessions.subagentAddress(session.sessionId) === undefined,
+        ui: {
+          kind: 'popupSelect',
+          options: async ({ sessionId }) => {
+            const result = await remote.listMcpConnectors()
+            if (!result.ok) throw new Error(result.error.message)
+            const projection = sessions.binding(sessionId)?.session.projections.faceOf('mcpSelection').getSnapshot() as McpSelectionProjection | undefined
+            const selection = projection?.current
+            const rows: { id: string; label: string; active?: boolean }[] = result.value.connectorIds
+              .map(id => ({ id, label: id, active: selection == null || selection.connectorIds.includes(id) }))
+            if (ctx.get('pluginNavigation') !== undefined) rows.push({ id: '$manage', label: t('input.manageConnectors') })
+            return rows
+          },
+          onSelect: async (option, { sessionId }) => {
+            if (option.id === '$manage') {
+              const navigation = ctx.get('pluginNavigation') as { openBundle(name: string): void } | undefined
+              if (navigation === undefined) throw new Error(t('input.connectorsUnavailable'))
+              navigation.openBundle('@deepseek-ai/dsh-mcp-client')
+              return
+            }
+            if (sessions.subagentAddress(sessionId) !== undefined) throw new Error(t('input.connectorsUnavailable'))
+            const binding = sessions.binding(sessionId)
+            if (binding === undefined) throw new Error(t('file.sessionUnavailable'))
+            const catalog = await remote.listMcpConnectors()
+            if (!catalog.ok) throw new Error(catalog.error.message)
+            if (sessions.binding(sessionId) !== binding) throw new Error(t('file.sessionUnavailable'))
+            const projection = binding.session.projections.faceOf('mcpSelection').getSnapshot() as McpSelectionProjection | undefined
+            const selection = projection?.current
+            const selected = new Set((selection?.connectorIds ?? catalog.value.connectorIds)
+              .filter(id => catalog.value.connectorIds.includes(id)))
+            if (selected.has(option.id)) selected.delete(option.id); else selected.add(option.id)
+            const result = await remote.selectMcp({ sessionId, connectorIds: [...selected] })
+            if (!result.ok) throw new Error(result.error.message)
+          },
+        },
+      }), 'ui-conversation: Session connectors')
+      const hookName = (command: string): string => {
+        const words = command.split(/\s+/).map(word => word.replaceAll('"', '').replaceAll("'", ''))
+        const script = words.find(word => /\.(m?js|cjs|ts|sh|ps1|py|cmd|bat|exe)$/i.test(word)) ?? words[0] ?? command
+        return (script.split(/[\\/]/).pop() ?? script).replace(/\.[^.]+$/, '')
+      }
+      const hookGroups = <H extends { dialect: string; command: string; description?: string }>(hooks: readonly H[]): Map<string, H[]> => {
+        const groups = new Map<string, H[]>()
+        for (const hook of hooks) {
+          const id = `${hook.dialect}/${hookName(hook.command)}`
+          groups.set(id, [...groups.get(id) ?? [], hook])
+        }
+        return groups
+      }
+      const hookOverrides = (sessionId: SessionId): Record<string, boolean> => {
+        const projection = sessions.binding(sessionId)?.session.projections.faceOf('hookOverrides').getSnapshot() as HookOverridesProjection | undefined
+        return { ...projection?.current?.overrides }
+      }
+      remoteScope.effect(() => commands.register({
+        name: 'hooks', label: () => t('input.hooks'), icon: IconPaperclipOutlineRegular,
+        available: session => sessions.binding(session.sessionId) !== undefined,
+        ui: {
+          kind: 'popupSelect',
+          options: async ({ sessionId }) => {
+            const result = await remote.listHooks()
+            if (!result.ok) throw new Error(result.error.message)
+            const overrides = hookOverrides(sessionId)
+            const groups = hookGroups(result.value.hooks)
+            if (groups.size === 0) return [{ id: '$empty', label: t('input.hooksEmpty') }]
+            return [...groups].map(([id, hooks]) => ({
+              id,
+              label: `${hookName(hooks[0]?.command ?? '')} — ${hooks.find(hook => hook.description !== undefined)?.description
+                ?? [...new Set(hooks.map(hook => hook.event))].join(', ')} (${hooks[0]?.dialect ?? ''})`,
+              active: hooks.every(hook => overrides[hook.key] ?? !hook.globallyDisabled),
+            }))
+          },
+          onSelect: async (option, { sessionId }) => {
+            if (option.id === '$empty') return
+            const catalog = await remote.listHooks()
+            if (!catalog.ok) throw new Error(catalog.error.message)
+            const hooks = hookGroups(catalog.value.hooks).get(option.id)
+            if (hooks === undefined) return
+            const overrides = hookOverrides(sessionId)
+            const on = !hooks.every(hook => overrides[hook.key] ?? !hook.globallyDisabled)
+            for (const hook of hooks) overrides[hook.key] = on
+            const result = await remote.setHookOverrides({ sessionId, overrides })
+            if (!result.ok) throw new Error(result.error.message)
+          },
+        },
+      }), 'ui-conversation: Session hooks')
+    })
   })
 
   // Conversation assembly and input share the Session binding lifecycle. The
@@ -327,7 +431,7 @@ export function apply(ctx: Context, config: Config = Config({})): void {
       trackBinding(binding)
       const shell = inputHub.shellFor(binding)
       const conversation = uiConversation.binding(binding)
-      restoreView(binding.sessionId)
+      restoreView(binding)
       return {
         hooks: {
           conversation: conversation.snapshot,
@@ -358,6 +462,7 @@ export function apply(ctx: Context, config: Config = Config({})): void {
       'conversation.hero.brand.mark': { kind: 'single', scope: 'root' },
       'conversation.hero.workspace': { kind: 'single', scope: 'root' },
       'conversation.hero.agentPreset': { kind: 'single', scope: 'session-maybe' },
+      'conversation.cli': { kind: 'single', scope: 'session' },
       'conversation.hero.options': { kind: 'list', scope: 'session' },
     },
     slots: {
@@ -571,7 +676,7 @@ export function apply(ctx: Context, config: Config = Config({})): void {
               span: { ...selection, draftRev: snapshot.draftRev },
             })
           },
-        stop: () => { stop(sessionId) },
+        stop: () => { uiConversation.stop(sessionId) },
         retry: (failureSeq) => { inputHub.retry(sessionId, failureSeq) },
         hooks: {
           stopShortcut,
@@ -599,11 +704,12 @@ export function apply(ctx: Context, config: Config = Config({})): void {
     yield registerComposerBar()
   })
 
-  ctx.plugin(ConversationController, {
+  const conversationFiber = ctx.plugin(ConversationController, {
     input: inputHub,
     blocks: composerBlocks,
     maxConcurrentFileUploads,
   })
+  await conversationFiber
   ctx.plugin(todoDockEntry)
   ctx.plugin(queueDockEntry)
 }

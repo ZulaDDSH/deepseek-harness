@@ -496,9 +496,9 @@ it.skipIf(MODE === 'record').each([1, 2])('keeps frozen headings without divider
     }
     await layout.evaluate(node => node.parentNode!.removeChild(node))
     await expectExcelLayout(excel)
-    expect(await canvas!.evaluate(node => node.isConnected)).toBe(true)
+    expect(await canvas.evaluate(node => node.isConnected)).toBe(true)
     expect(await excel.locator('.fortune-name-box').innerText()).toBe(selection)
-    await canvas!.dispose()
+    await canvas.dispose()
     expect(consoleErrors.pageErrors).toEqual([])
   } finally {
     try { await browser?.close() } finally { await scaffold.close() }
@@ -1613,10 +1613,10 @@ else process.exit(1);
 
     const rendered = await heading.elementHandle()
     await preview.locator('[data-textpreview-tool="reload"]').click()
-    await expect.poll(() => rendered!.evaluate(node => node.isConnected)).toBe(false)
+    await expect.poll(() => rendered.evaluate(node => node.isConnected)).toBe(false)
     await expect.poll(() => heading.textContent()).toBe('After  refresh')
     await expect.poll(() => body.evaluate((node, top) => Math.abs(node.scrollTop - top), original)).toBeLessThanOrEqual(1)
-    await rendered!.dispose()
+    await rendered.dispose()
     expect(tripwire.pageErrors).toEqual([])
   })
 })

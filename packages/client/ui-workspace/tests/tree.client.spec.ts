@@ -36,6 +36,15 @@ const list = (...items: SessionSummary[]): SessionListState => ({
   byId: Object.fromEntries(items.map(item => [item.id, item])),
   phase: 'ready', projectionsBySession: {},
 })
+
+it('keeps the reserved master home out of ordinary chat lists in every archive filter', () => {
+  const home = 'master-control-home-test'
+  const sessions = list(summary(home, 10), summary('ordinary', 5))
+  for (const filter of ['default', 'show', 'only'] as const) {
+    expect(visibleSessionIds(sessions, [], filter)).not.toContain(home)
+  }
+  expect(visibleSessionIds(sessions, [], 'show')).toEqual(['ordinary'])
+})
 const catalog = (...ids: string[]): SessionProjectionSnapshot => ({
   values: { subagentCatalog: ids.map(id => ({
     id: sid(id), mode: 'continuable', label: id,
@@ -193,26 +202,26 @@ describe('Session ordering', () => {
     expect(saved).toEqual(['saved-archive', 'saved-plain', 'saved-pin'])
   })
 
-  it('appends new forks by recency while preserving saved positions', () => {
+  it('inserts new forks before their saved source while preserving saved positions', () => {
     const sessions = list(
       summary('source', 1), summary('other', 2),
       { ...summary('older-fork', 3), parentId: sid('source') },
       { ...summary('newer-fork', 4), parentId: sid('source') },
     )
     const order = reconcileManualOrder(sessions.ids, ['other', 'source'], sessions.byId)
-    expect(order).toEqual(['other', 'source', 'newer-fork', 'older-fork'])
+    expect(order).toEqual(['other', 'older-fork', 'newer-fork', 'source'])
     expect(reconcileManualOrder(sessions.ids, ['source', 'other', 'older-fork', 'newer-fork'], sessions.byId))
       .toEqual(['source', 'other', 'older-fork', 'newer-fork'])
   })
 
-  it('orders unsaved nested forks by recency regardless of historical sources', () => {
+  it('places nested new forks before their parents even when catalog recency differs', () => {
     const sessions = list(
       summary('source', 1), summary('other', 2),
       { ...summary('parent', 4), parentId: sid('source') },
       { ...summary('child', 3), parentId: sid('parent') },
     )
     expect(reconcileManualOrder(sessions.ids, ['source', 'other'], sessions.byId))
-      .toEqual(['source', 'other', 'parent', 'child'])
+      .toEqual(['child', 'parent', 'source', 'other'])
   })
 
   it('appends forks with absent or self-referencing parents without duplicating rows', () => {
@@ -238,7 +247,7 @@ describe('Session ordering', () => {
         sessions, mode === 'workspace' ? [workspace('alpha', order)] : [], state, noAttention,
         view([mode === 'workspace' ? 'alpha' : UNGROUPED_KEY], order),
       )[0]!.sessions
-    expect(rows.map(row => row.id)).toEqual(['source', 'other-pin', 'ordinary', 'fork'])
+    expect(rows.map(row => row.id)).toEqual(['source', 'other-pin', 'fork', 'ordinary'])
   })
 
   it('keeps archive filtering out of complete flat membership', () => {
@@ -304,6 +313,14 @@ describe('deriveGroups', () => {
     )
     expect(groups.map(group => group.key)).toEqual(['first', UNGROUPED_KEY])
     expect(groups[1]!.sessions.map(session => session.id)).toEqual([sid('loose')])
+  })
+
+  it('lists a CLI terminal Session as an ordinary Ungrouped row once it is not blank', () => {
+    const cli: SessionSummary = { ...summary('cli', 5, '/projects/first'), cliProfile: 'gemini-cli' }
+    const groups = deriveGroups(list(cli), [], noRows, noAttention, view([UNGROUPED_KEY]))
+    expect(groups.find(group => group.key === UNGROUPED_KEY)?.sessions.map(session => session.id)).toEqual([sid('cli')])
+    const blankCli: SessionSummary = { ...cli, blank: true }
+    expect(deriveGroups(list(blankCli), [], noRows, noAttention, view([UNGROUPED_KEY])).flatMap(group => group.sessions)).toEqual([])
   })
 
   it('applies stored Ungrouped order and appends new loose Sessions by recency', () => {
@@ -739,6 +756,15 @@ describe('deriveSearchResults', () => {
       expect(updated.search(query).map(row => row.id)).toEqual(fresh.search(query).map(row => row.id))
     }
     expect(updated.search('sync').map(row => row.id)).toEqual([sid('third'), sid('second')])
+  })
+
+  it('carries unread runtime failure into matching search rows', () => {
+    const result = deriveSearchResults(
+      list(summary('failed', 1)), [], 'failed', noArchive, 'default',
+      new Map([[sid('failed'), { running: false, pendingInteraction: undefined, completionUnread: false, completionFailed: false, failureUnread: true }]]),
+      { items: [], hasMore: false }, 10,
+    )
+    expect(result.items[0]?.failed).toBe(true)
   })
 
   it('merges local title/Workspace matches before ranked content hits and enriches duplicates', () => {

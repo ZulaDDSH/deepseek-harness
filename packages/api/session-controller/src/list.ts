@@ -5,7 +5,7 @@ import { scheduler } from 'node:timers/promises'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type { ImageAttachmentLimits } from '@deepseek-ai/dsh-attachment'
-import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
+import { CLI_TERMINAL_PROFILE_IDS, type Session, type SessionEvent, type SessionHeader, type SessionId } from '@deepseek-ai/dsh-session'
 import type { ProjectionHandle, ProjectionSnapshot } from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
 import { SessionQueryError, type SessionRecord, type SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
@@ -16,9 +16,10 @@ import {
   SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS,
 } from './types.ts'
 import type {
-  SessionListMetadata, SessionProjectionHints, SessionSearchItem,
+  SessionProjectionHints, SessionSearchItem,
   SessionSearchValue, SessionSummary,
 } from './types.ts'
+import type { SessionListMetadata } from './list-metadata.ts'
 
 const SEARCH_PROVIDER_CALL_LIMIT = 100
 const SESSION_SEARCH_QUERY_MAX_CHARS = 500
@@ -27,6 +28,7 @@ const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])
 const sessionListMetadataSchema: z.ZodType<SessionListMetadata> = z.object({
   blank: z.boolean(),
   lastPromptAt: z.number().nullable(),
+  cliProfile: z.enum(CLI_TERMINAL_PROFILE_IDS).optional(),
 })
 
 const imageLimitsSchema = z.object({
@@ -48,13 +50,14 @@ export function applySessionListMetadata(
   state: SessionListMetadata,
   event: SessionEvent,
 ): SessionListMetadata {
-  const blank = state.blank && event.type !== 'turn/start'
+  const blank = state.blank && event.type !== 'turn/start' && event.type !== 'session/cli-terminal'
   const lastPromptAt = event.type === 'user/message' && event.data.source.kind === 'user'
     ? event.time
     : state.lastPromptAt
-  return blank === state.blank && lastPromptAt === state.lastPromptAt
+  const cliProfile = event.type === 'session/cli-terminal' ? event.data.profile : state.cliProfile
+  return blank === state.blank && lastPromptAt === state.lastPromptAt && cliProfile === state.cliProfile
     ? state
-    : { blank, lastPromptAt }
+    : { blank, lastPromptAt, ...cliProfile === undefined ? {} : { cliProfile } }
 }
 
 /**
@@ -92,10 +95,10 @@ export class ApiSessionList {
     this.listMetadata = await this.ctx.sessionProjections.register<'sessionListMetadata', SessionListMetadata>({
       key: 'sessionListMetadata',
       stateSchema: sessionListMetadataSchema,
-      init: () => ({ blank: true, lastPromptAt: null }),
+      init: header => ({ blank: !header.id.startsWith('master-control-home-') || header.agentPreset !== 'master', lastPromptAt: null }),
       apply: applySessionListMetadata,
       wire: { viewSchema: sessionListMetadataSchema, view: state => state },
-      stateVersion: 1,
+      stateVersion: 2,
     })
     await this.ctx.sessionProjections.register<'imageLimits', null>({
       key: 'imageLimits',
@@ -123,15 +126,21 @@ export class ApiSessionList {
    * @returns current list metadata and available projections.
    */
   summaryFor(session: Session): SessionSummary {
-    const metadata = this.listMetadata.stateOf(session)
+    const liveMetadata = this.listMetadata.stateOf(session)
     const projections = this.projectionsFor(session.header, session)
+    const cached = projections?.values.sessionListMetadata
+    const metadata = cached?.blank === true
+      ? this.ctx.sessionProjections.snapshot(session, ['sessionListMetadata']).values.sessionListMetadata ?? cached
+      : cached
+      ?? liveMetadata
     return {
       sessionId: session.id,
       updatedAt: updatedAt(session.header, metadata),
       agentAvailable: this.ctx.agents.get(session.id)?.session === session,
       formatStatus: 'current',
       running: this.ctx.agents.get(session.id)?.status === 'running',
-      blank: metadata.blank,
+      blank: metadata?.blank ?? session.seq === 0,
+      ...metadata?.cliProfile === undefined ? {} : { cliProfile: metadata.cliProfile },
       ...listFields(session.header),
       ...(projections === undefined ? {} : { projections }),
     }
@@ -188,6 +197,7 @@ export class ApiSessionList {
       running: false,
       // A large, metadata-less, or inaccessible cache miss remains unknown and visible.
       blank: metadata?.blank ?? false,
+      ...metadata?.cliProfile === undefined ? {} : { cliProfile: metadata.cliProfile },
       ...listFields(header),
       ...(projections === undefined ? {} : { projections }),
     }

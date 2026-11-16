@@ -98,7 +98,7 @@ async function expectHeadlessStream(normalized: string, expectedPath: string): P
 
 /** Serve one deterministic DeepSeek-compatible response while retaining its request body. */
 async function deepseekDefaultsServer(
-  options: { waitForTitleRequest?: boolean; piAiCompatibility?: true } = {},
+  options: { waitForTitleRequest?: boolean; piAiCompatibility?: true; keepAliveCount?: number } = {},
 ): Promise<DeepSeekDefaultsServer> {
   const requests: JsonObject[] = []
   const paths: string[] = []
@@ -110,7 +110,7 @@ async function deepseekDefaultsServer(
       requests.push(JSON.parse(body) as JsonObject)
       paths.push(request.url ?? '')
       response.writeHead(200, { 'content-type': 'text/event-stream' })
-      let keepAlives = 3
+      let keepAlives = options.keepAliveCount ?? 3
       const write = (): void => {
         // One-shot teardown may cancel background title work after the main response.
         if (keepAlives-- > 0
@@ -837,7 +837,7 @@ describe('headless stream-json snapshots', () => {
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('keeps provider comments alive and sends DeepSeek defaults through the one-shot app', async () => {
-    const server = await deepseekDefaultsServer()
+    const server = await deepseekDefaultsServer({ keepAliveCount: 25 })
     try {
       const result = await runLoaderSmoke({
         label: 'DeepSeek adapter defaults headless stream-json snapshot',
@@ -860,13 +860,14 @@ describe('headless stream-json snapshots', () => {
       })
 
       expect(result.stderr).toBe('')
-      expect(server.requests).toHaveLength(2)
-      expect(server.paths).toEqual(['/v1/messages', '/v1/messages'])
-      const agentRequest = server.requests.find(request => request.max_tokens === 256_000)
-      const titleRequest = server.requests.find(isTitleRequest)
-      expect(titleRequest?.max_tokens).toBe(TITLE_MAX_TOKENS)
-      expect(agentRequest?.output_config).toEqual({ effort: 'low' })
-      expect(titleRequest).toBeDefined()
+      expect(server.paths.every(path => path === '/v1/messages')).toBe(true)
+      const agentRequests = server.requests.filter(request => request.max_tokens === 256_000)
+      const titleRequests = server.requests.filter(isTitleRequest)
+      expect(agentRequests).toHaveLength(1)
+      expect(agentRequests[0]?.output_config).toEqual({ effort: 'low' })
+      expect(titleRequests).not.toHaveLength(0)
+      expect(titleRequests.every(request => request.max_tokens === TITLE_MAX_TOKENS)).toBe(true)
+      expect(server.requests).toHaveLength(agentRequests.length + titleRequests.length)
       const header = (parseJsonl(result.stdout)
         .map(record => record.event)
         .find((event): event is JsonObject => (

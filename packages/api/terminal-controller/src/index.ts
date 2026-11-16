@@ -6,10 +6,13 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
+import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-working-directory'
 import { Remote, RemoteError, TypertRemoteService, type RemoteStream } from '@deepseek-ai/dsh-typert-protocol'
 import { AgentTerminalHandle, type AgentTerminal, type AgentTerminalRequest } from './agent.ts'
-import { discoverShells, findShell, resolveShell } from './shells.ts'
+import { discoverShells, executableInstalled, findShell, resolveShell } from './shells.ts'
+import { CLI_TERMINAL_PROFILES, cliStartupArgv, cliTerminalProfile, type CliTerminalProfile, type CliTerminalProfileId } from './cli-profiles.ts'
+import type { CliTerminalStatus } from './types.ts'
 import { BrowserTerminal } from './terminal.ts'
 import { TerminalRetention } from './retention.ts'
 import type {
@@ -87,7 +90,9 @@ interface OwnedSession {
 /** Process launch and the metadata published once the process is committed. */
 interface TerminalLaunch {
   readonly argv: readonly string[]
-  readonly env: Record<string, string>
+  readonly env?: Record<string, string>
+  readonly inheritEnvironment?: boolean
+  readonly shellActivity?: boolean
   readonly info: WebTerminalInfo
   /** Removes files the launch created once the process has ended; it must not throw. */
   readonly release?: () => Promise<void>
@@ -171,6 +176,22 @@ export class TerminalController extends TypertRemoteService {
   }
 
   /**
+   * Report which CLI terminal profiles resolve in the Session's execution environment.
+   * @param agent - Session owner supplied by the Gateway.
+   * @param signal - request cancellation.
+   * @returns one status per profile, in table order.
+   */
+  @Remote
+  cliProfiles(agent: Agent, signal: AbortSignal): Promise<CliTerminalStatus[]> {
+    signal.throwIfAborted()
+    const { subprocess } = this.execution(agent)
+    if (!subprocess.inheritsUserEnvironment) return Promise.resolve([])
+    return Promise.all(CLI_TERMINAL_PROFILES.map(async profile => ({
+      profile: profile.id, installed: await executableInstalled(subprocess, profile.command, signal), installUrl: profile.installUrl,
+    })))
+  }
+
+  /**
    * List retained terminals without resolving or activating an Agent.
    * @param sessionId - displayed Session identity, including offline history.
    * @returns terminals retained for this Host lifetime.
@@ -194,6 +215,7 @@ export class TerminalController extends TypertRemoteService {
     this.lifetime.signal.throwIfAborted()
     if (!/^[\w-]{1,128}$/u.test(request.id)) throw new Error('Invalid terminal identity')
     this.dimensions(request.cols, request.rows)
+    if (request.cli !== undefined && request.shellPath !== undefined) throw new Error('A CLI terminal runs in the default shell and accepts no shell path')
     const owner = this.owner(agent)
     owner.lifetime.signal.throwIfAborted()
     this.requireOpen(owner, request.id)
@@ -369,6 +391,12 @@ export class TerminalController extends TypertRemoteService {
     this.changed(agent.id)
   }
 
+  private cliLaunch(agent: Agent, id: CliTerminalProfileId): CliTerminalProfile {
+    const profile = cliTerminalProfile(id)
+    if (this.ctx.get('sessionProjections')?.snapshot(agent.session, ['cliTerminal']).values.cliTerminal?.profile !== id) throw new RemoteError('terminal/cli-session-mismatch', 'This Session was not created for the requested CLI terminal', {})
+    return profile
+  }
+
   private owner(agent: Agent): OwnedSession {
     let owner = this.owners.get(agent.id)
     if (owner === undefined) {
@@ -439,9 +467,18 @@ export class TerminalController extends TypertRemoteService {
       ? await resolveShell(subprocess, this.config.shell, signal)
       : (await this.shells(agent, signal)).find(candidate => candidate.path === request.shellPath)
     if (shell === undefined) throw new Error('Selected shell is not available in this execution environment')
+    const cli = request.cli === undefined ? undefined : this.cliLaunch(agent, request.cli)
+    if (cli !== undefined && !subprocess.inheritsUserEnvironment) throw new Error('A CLI terminal runs only in a local execution environment')
+    const cliInfo = cli === undefined ? undefined : {
+      profile: cli.id, command: cli.command, installed: await executableInstalled(subprocess, cli.command, signal),
+      installUrl: cli.installUrl,
+    }
     return {
-      argv: [shell.path, ...shell.args], env: { DSH_SESSION_ID: agent.id },
-      info: { id: request.id, shell, title: shell.name, cwd, cols: request.cols, rows: request.rows, state: 'running', exitCode: null, origin: 'user', control: 'user' },
+      argv: cli === undefined ? [shell.path, ...shell.args] : cliStartupArgv(shell.path, cli),
+      ...(cli === undefined ? { env: { DSH_SESSION_ID: agent.id } } : { inheritEnvironment: true, shellActivity: false }),
+      info: { id: request.id, shell, title: cli?.command ?? shell.name, cwd, cols: request.cols, rows: request.rows,
+        state: 'running', exitCode: null, origin: 'user', control: 'user',
+        ...(cliInfo === undefined ? {} : { cli: cliInfo }) },
     }
   }
 
@@ -536,11 +573,12 @@ export class TerminalController extends TypertRemoteService {
   private async spawn(
     agent: Agent, owner: OwnedSession, id: WebTerminalId, prepare: (signal: AbortSignal) => Promise<TerminalLaunch>, signal: AbortSignal,
   ): Promise<BrowserTerminal> {
-    const { info, argv, env, release } = await prepare(signal)
+    const { info, argv, env, release, inheritEnvironment, shellActivity } = await prepare(signal)
     const handle = await this.execution(agent).subprocess.spawnTerminal({
       argv, cwd: info.cwd, cols: info.cols, rows: info.rows,
-      terminalType: 'xterm-256color', env,
-      shellActivity: true,
+      terminalType: 'xterm-256color', ...(env === undefined ? {} : { env }),
+      ...(inheritEnvironment === undefined ? {} : { inheritEnvironment }),
+      shellActivity: shellActivity ?? true,
       graceMs: this.config.disposeGraceMs, signal,
     })
     try {

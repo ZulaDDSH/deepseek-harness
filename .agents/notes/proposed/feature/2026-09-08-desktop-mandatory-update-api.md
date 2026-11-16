@@ -2,8 +2,6 @@
 
 Status: proposed
 
-English | [中文](2026-09-08-desktop-mandatory-update-api.zh.md)
-
 ## Problem
 
 Desktop requires mandatory-update decisions when its business server is local and when the user is not signed in. Mobile ordinary-update responses do not define Desktop artifact installation. Backend and Desktop owners need a self-contained protocol with explicit success, blocking, and error semantics, separate from updater artifact selection.
@@ -87,6 +85,8 @@ This means the current client does not require a mandatory update, not that its 
   }
 }
 ```
+
+The example `show_content` is zh-CN copy: "Please update DeepSeek Harness" / "This version is no longer supported; download and install the new version."
 
 The example URL is a placeholder, not an approved deployment destination. Desktop uses the flattened `data` fields, with no `alt_app` or `biz_data` wrapper. No Desktop has shipped, so no compatibility parser for the earlier nested proposal is required. Mobile `alt_app`, Android links, and iOS app identifiers retain their existing format.
 

@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-tool-subagent
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Use this package to give an agent a named tool that delegates work to a configured backend. Every call starts a managed activation and returns the child's name; the runtime owns completion notices and cleanup. Local children support messages and restoration, while external backends execute one task and return their final answer through the completion notice. Supported backends can expose approved child LLM routes. Each instance can select a child preset and depth limit.
@@ -135,6 +133,20 @@ Read these pages when the package-level contract is not enough; they move from t
 <a id="model-experience"></a>
 ## Model Experience
 
+### Role argument
+
+#### What the model sees
+
+The schema includes an optional `role` enum (`coder`, `reviewer`, `researcher`). When Agent Teams is enabled and the role has a saved fixed route, that route supplies the child defaults. Explicit provider, model, and reasoning_effort fields take precedence. Saved routes are checked against the Session's allowed model routes and provider credentials before the child starts.
+
+#### Token effect
+
+One enum property and its description in every subagent tool schema.
+
+#### KV Cache effect
+
+The schema changes once when the preset enables the property, which invalidates cached prefix tokens once after the upgrade; it is stable afterward.
+
 ### Tool schema
 
 #### What the model sees
@@ -223,7 +235,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 #### What the model sees
 
-Answer delivery follows the managed delegation rules above. The returned name addresses the child in `send_message`, `interrupt_agent`, and Team task owners; only backends with continuation support accept follow-up messages.
+Start returns exactly `started subagent <childId>` in configured continuable mode, or `started background subagent job <id>` in configured one-shot mode. In one-shot mode the generic task surface provides later status, final output, cancellation responses, and notices; failed status detail includes the provider diagnostic when the result supplied one. While a one-shot job runs, its job row shows the provider's latest advisory progress line; foreground runs report no progress. In continuable mode this tool returns no result of its own: the child's settlement reaches the parent as a service-owned notice, an independently loaded `send_message` tool delivers follow-ups, and the child's transcript by its id is the source of its detailed output. Answer delivery follows the managed delegation rules above. The returned child id addresses the child in `send_message`, `interrupt_agent`, and Team task owners, and identifies subsequent control and catalog operations; only backends with continuation support accept follow-up messages.
 
 #### Token effect
 
@@ -240,11 +252,14 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 These limits define what this tool does not return or enforce; they are current package constraints.
 
-- **This tool does not wait for results** — use the completion notice or child messages. Programmatic result waiting belongs to the subagent service.
+- **Background runs expose no result through this tool** — a one-shot task's final output is collected through the generic task surface, and a continuable child's output stays in its own session, read by its subagent id. The settlement notice states how that child ended and carries nonempty text from its final assistant output, but it is not this call's return value and cannot be awaited here. One-shot background jobs show the provider's latest advisory progress line while they run: Claude Code and Codex report tool and command activity, and in-process providers report none. Foreground runs report no progress.
+- **Duplicate names across waiting one-shot instances are detected late** (`TODO(subagent-dup-toolname)`) — continuable instances reserve their prompt-section name during plugin application, but preventing provider-registration rollback for waiting one-shot instances requires a registry of intended names.
+- **Shipped fork tools cannot select a child LLM route** — they inherit the parent's provider and model to keep the copied conversation prefix eligible for KV Cache reuse. Re-enable selection only when route changes preserve reuse or expose a bounded recomputation cost.
+- **Non-routing child policy is fixed per instance** — another persona, tool filter, or depth cap requires another distinctly named tool. LLM selection requires an enabled per-Session preference and a provider that advertises `agentOptions`; both in-process providers and DSH SDK advertise it, while ACP, Codex, and Claude Code reject it rather than ignore it.
+- **Role names are fixed** — `coder`, `reviewer`, and `researcher` are the only delegation roles; custom roles cannot be renamed or added yet.
+- **Claude CLI role routes need a per-run model provider** — the configured Claude CLI provider must accept a per-run model and be available when the role is selected.
 - **Preset choices omit descriptions** — `agent_preset` exposes ids and default or inheritance guidance only. The schema does not read candidate preset documents, so registration is independent of their declaration order. Use ids that convey each candidate's purpose.
 - **Preset references are checked on delegation** — Host-mounted and preset-mounted tools both resolve the target when starting a child. A target can be declared or replaced after tool registration, so loading the tool cannot establish its availability for a later call. Misspelled or unavailable ids remain undetected until selected; that call returns an error.
-- **Shipped fork tools omit model selection** — their configuration leaves `modelSelection` disabled to preserve inherited-prefix reuse. Custom fork tools may enable it under the same Session authorization and adapter validation as other delegation tools.
-- **Depth caps are fixed per instance** — another cap requires another distinctly named tool. Child personas and tools belong to the selected Agent Preset. Explicit LLM selection requires `modelSelection` and is restricted to the Session’s authorized routes, or the current parent route without an enabled policy.
 
 <a id="dev-note"></a>
 ### Dev Note

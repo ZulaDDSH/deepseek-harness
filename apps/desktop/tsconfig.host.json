@@ -47,8 +47,5 @@
     {
       "path": "../../packages/client/ui-file-actions"
     }
-  ],
-  "exclude": [
-    "src/client"
   ]
 }

@@ -17,6 +17,10 @@ export type AgentPresetSettingsKey =
   | 'presetStandardDescription'
   | 'presetPtcName'
   | 'presetPtcDescription'
+  | 'presetLeanName'
+  | 'presetLeanDescription'
+  | 'presetEconomyName'
+  | 'presetEconomyDescription'
   | 'presetMinimalName'
   | 'presetMinimalDescription'
   | 'presetCordisName'
@@ -53,6 +57,10 @@ export const en: Record<AgentPresetSettingsKey, string> = {
   presetPtcName: 'PTC mode',
   presetPtcDescription:
     'Includes all Standard mode capabilities. Better suited to tasks that call tools in batches and then filter, organize, deduplicate, count, or summarize the results.',
+  presetEconomyName: 'Economy mode',
+  presetEconomyDescription: 'Batch tool calls through PTC, prune large results sooner, and retain less history to reduce context usage.',
+  presetLeanName: 'Lean mode',
+  presetLeanDescription: 'Read, inspect, write files, and run foreground commands with a 200,000-token context cap.',
   presetMinimalName: 'Minimal mode',
   presetMinimalDescription:
     'The agent uses a terminal and image reading, with context compaction. Useful for testing and comparing its basic performance.',
@@ -96,6 +104,10 @@ export const zh: Record<AgentPresetSettingsKey, string> = {
   presetStandardDescription: '处理代码、文件和资料，适合大多数任务。Agent 会按需使用检索、编辑和终端等工具。',
   presetPtcName: 'PTC 模式',
   presetPtcDescription: '包含标准模式的所有能力，更适合批量调用工具，并对结果进行筛选、整理、去重、统计或汇总的任务。',
+  presetEconomyName: '节省模式',
+  presetEconomyDescription: '通过 PTC 批量调用工具，更早裁剪大型结果并减少保留历史，以降低上下文用量。',
+  presetLeanName: '精简模式',
+  presetLeanDescription: '读取、检索和写入文件，并运行前台命令，上下文上限为 200,000 token。',
   presetMinimalName: '极简模式',
   presetMinimalDescription: 'Agent 使用终端和图片读取工具，并支持上下文压缩，适合测试和对比其基础表现。',
   presetCordisName: '创造模式',
@@ -141,6 +153,10 @@ export const ja = {
   'presetStandardDescription': 'コード、ファイル、情報を扱います。検索、編集、ターミナルコマンドなどのツールを必要に応じて利用でき、ほとんどのタスクに適しています。',
   'presetPtcName': 'PTC モード',
   'presetPtcDescription': '標準モードのすべての機能を含みます。ツールを一括で呼び出し、その結果を絞り込み、整理、重複排除、集計、要約するタスクに適しています。',
+  'presetEconomyName': '節約モード',
+  'presetEconomyDescription': 'PTC でツール呼び出しをまとめて行い、大きな結果を早めに整理し、履歴の保持を減らしてコンテキストの使用量を抑えます。',
+  'presetLeanName': '軽量モード',
+  'presetLeanDescription': '読み取り、確認、ファイルの書き込み、フォアグラウンドでのコマンド実行を、20万トークンのコンテキスト上限で行います。',
   'presetMinimalName': '最小モード',
   'presetMinimalDescription': 'エージェントはターミナルと画像読み取りを使用し、コンテキスト圧縮にも対応します。基本的な性能のテストや比較に役立ちます。',
   'presetCordisName': 'クリエイターモード',
@@ -178,6 +194,10 @@ export const es = {
   presetPtcName: 'Modo PTC',
   presetPtcDescription:
     'Incluye todas las capacidades del modo Estándar. Más adecuado para tareas que llaman a herramientas en lotes y luego filtran, organizan, deduplican, cuentan o resumen los resultados.',
+  presetEconomyName: 'Modo económico',
+  presetEconomyDescription: 'Agrupa las llamadas a herramientas mediante PTC, poda antes los resultados grandes y conserva menos historial para reducir el uso de contexto.',
+  presetLeanName: 'Modo ligero',
+  presetLeanDescription: 'Lee, inspecciona y escribe archivos, y ejecuta comandos en primer plano con un límite de contexto de 200.000 tokens.',
   presetMinimalName: 'modo mínimo',
   presetMinimalDescription:
     'El agente utiliza un terminal y lectura de imágenes, con compactación de contexto. Útil para probar y comparar su rendimiento básico.',
@@ -223,6 +243,10 @@ export const fr = {
   presetPtcName: 'Mode PTC',
   presetPtcDescription:
     'Inclut toutes les fonctionnalités du mode Standard. Mieux adapté aux tâches qui appellent des outils par lots, puis filtrent, organisent, dédupliquent, comptent ou résument les résultats.',
+  presetEconomyName: 'Mode économique',
+  presetEconomyDescription: 'Regroupe les appels d’outils via PTC, élague plus tôt les gros résultats et conserve moins d’historique pour réduire l’usage du contexte.',
+  presetLeanName: 'Mode allégé',
+  presetLeanDescription: 'Lit, inspecte et écrit des fichiers, et exécute des commandes au premier plan, avec une limite de contexte de 200 000 jetons.',
   presetMinimalName: 'Mode minimal',
   presetMinimalDescription:
     "L'agent utilise un terminal et une lecture d'image, avec compactage du contexte. Utile pour tester et comparer ses performances de base.",
@@ -268,6 +292,10 @@ export const de = {
   presetPtcName: 'PTC-Modus',
   presetPtcDescription:
     'Beinhaltet alle Funktionen des Standardmodus. Besser geeignet für Aufgaben, bei denen Tools stapelweise aufgerufen und die Ergebnisse dann gefiltert, organisiert, dedupliziert, gezählt oder zusammengefasst werden.',
+  presetEconomyName: 'Sparmodus',
+  presetEconomyDescription: 'Bündelt Tool-Aufrufe über PTC, kürzt große Ergebnisse früher und behält weniger Verlauf, um die Kontextnutzung zu verringern.',
+  presetLeanName: 'Schlankmodus',
+  presetLeanDescription: 'Liest, prüft und schreibt Dateien und führt Befehle im Vordergrund aus, mit einer Kontextobergrenze von 200.000 Token.',
   presetMinimalName: 'Minimalmodus',
   presetMinimalDescription:
     'Der Agent verwendet ein Terminal und das Lesen von Bildern mit Kontextkomprimierung. Nützlich zum Testen und Vergleichen der Grundleistung.',
@@ -313,6 +341,10 @@ export const ru = {
   presetPtcName: 'Режим PTC',
   presetPtcDescription:
     'Включает все возможности стандартного режима. Лучше подходит для задач, которые вызывают инструменты в пакетном режиме, а затем фильтруют, организуют, дедуплицируют, подсчитывают или суммируют результаты.',
+  presetEconomyName: 'Экономичный режим',
+  presetEconomyDescription: 'Пакетные вызовы инструментов через PTC, более раннее сокращение больших результатов и хранение меньшей истории для экономии контекста.',
+  presetLeanName: 'Облегчённый режим',
+  presetLeanDescription: 'Чтение, проверка и запись файлов, а также выполнение команд на переднем плане с ограничением контекста в 200 000 токенов.',
   presetMinimalName: 'Минимальный режим',
   presetMinimalDescription:
     'Агент использует терминал и чтение изображений со сжатием контекста. Полезно для тестирования и сравнения его базовой производительности.',
@@ -358,6 +390,10 @@ export const pt = {
   presetPtcName: 'modo PTC',
   presetPtcDescription:
     'Inclui todos os recursos do modo Padrão. Mais adequado para tarefas que chamam ferramentas em lotes e depois filtram, organizam, desduplicam, contam ou resumem os resultados.',
+  presetEconomyName: 'Modo econômico',
+  presetEconomyDescription: 'Agrupa chamadas de ferramentas pelo PTC, reduz resultados grandes mais cedo e mantém menos histórico para diminuir o uso de contexto.',
+  presetLeanName: 'Modo enxuto',
+  presetLeanDescription: 'Lê, inspeciona e grava arquivos e executa comandos em primeiro plano, com limite de contexto de 200.000 tokens.',
   presetMinimalName: 'Modo mínimo',
   presetMinimalDescription:
     'O agente utiliza terminal e leitura de imagens, com compactação de contexto. Útil para testar e comparar seu desempenho básico.',

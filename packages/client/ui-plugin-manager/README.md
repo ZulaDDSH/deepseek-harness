@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-client-ui-plugin-manager
 
-English | [中文](README.zh.md)
-
 Desktop product events use the optional [product analytics service](../product-analytics/README.md); ordinary Web interactions are excluded.
 
 ## Summary
@@ -27,6 +25,10 @@ Use the **Plugins** entry in the Web sidebar to manage the profile's installed b
 <a id="use-this-package"></a>
 ## Use this package
 
+The Session composer **+ → Plugins** action opens this same profile-wide management page. Installing or enabling a plugin here applies to the profile, rather than only the current Session.
+
+Select **Plugins** in the sidebar. The information button uses an 11px caption-colored icon in a 20px square hover area, with a 4px gap after the subtitle. It explains that this page configures official plugins and installs or manages other plugins, while **Settings → Built-in plugins** shows the built-in inventory and runtime status. Hover or focus shows the shared tooltip; clicking keeps it open until another click, Escape, Tab, or an outside click. The page reads the inventory and the bundles through `api-remotes` when first opened; a Host without a managed profile shows the page as unavailable. **Official** comes first and lists the bundles the installation ships for switching on — off until switched on, without an uninstall, and tagged **Experimental** for experimental features — followed by the official plugins that registered a configuration page; **Installed** lists the bundles the profile holds. Cards are listed by name, so switching a bundle on or off does not move its card. A dependency without a bundle patch is not a plugin and is not listed unless the profile selects it, in which case it carries a problem tag. Global configuration remains in the Settings **Built-in plugins** section.
+
 Below 768px, the page uses 20px horizontal insets to align with the conversation header.
 
 [Ralph loops](../../experimental/ralph-bundle/README.md) and [Session search](../../experimental/session-search/README.md) remain bundled but are hidden from both plugin lists unless the profile enables or separately installs them. Existing selections remain manageable; switching off an installation-carried copy hides it again. Enter either exact package name in **Add plugin**, then choose **Enable now** to use the shipped copy without downloading it again. Sidebar session search is independent. LiveShare declares the same default-hidden intent in its bundle manifest (`dsh.bundle.listedByDefault: false`), so it stays out of both lists, including **More**, until a declared row runs or it is enabled. The page's manifest rule is generic: a bundle whose manifest does not declare `listedByDefault: false` is listed; one that does is listed only when the profile enables it, the installation carries it selected, or one of its declared rows runs; a hidden bundle is not opened by its ID either.
@@ -46,6 +48,12 @@ The first list read shows a short group-heading placeholder and four skeleton ca
 A bundle unavailable on the DSH Host operating system shows the reason on its card and details page. Its disabled switch prevents enabling it; an already selected bundle can still be switched off. [Plugin Manager](../../boot/plugin-manager/README.md#use-this-package) enforces the same restriction for direct requests.
 
 The **Refresh** button shows its tooltip after 500 ms of hovering or keyboard focus. It reads the list again, then checks every bundle installed from a registry for newer versions one after another; a failed read checks nothing. During a manual refresh, the button shows a spinner and stays disabled until all pending reads and those checks settle and at least 400 ms have elapsed, preventing a brief spinner flash; repeated refresh requests are ignored and the existing list remains visible. Success shows no toast. With a loaded list, a failed manual refresh keeps the cached content and shows a failure toast, including after leaving Plugins; select the button again to retry. Before any successful list read, failures show an in-place message with **Retry**. Background reads do not show the refresh spinner.
+
+### MCP servers in Settings
+
+**Settings → MCP servers** registers its settings with the Settings search (the server list, import, and adding a server). The add form marks the name and the command or address as required, and shows beside the field when the name is already taken or the address does not start with http:// or https://; the Add button stays disabled until the form is valid. The two connection types are labeled **Local command (stdio)** and **Remote URL (HTTP)**.
+
+The Plugins page also registers itself and every official plugin page (`plugins.item`) with the Settings search, by title, so searching Settings for a plugin such as Web search or Shell offers it; choosing the result closes Settings and opens that page here. Field-level words inside a plugin page are not indexed yet.
 
 ### Installing a bundle
 
@@ -194,6 +202,7 @@ These limits define the reach of the management view; they are current package c
 - **No version picker** — the spec is typed as pnpm accepts it; the page does not list registry versions. Official on-demand entries offer the [running installation’s target](../../boot/plugin-manager/README.md#use-this-package). Other profile-installed plugins use uninstall and reinstall to change versions; installation-carried bundles upgrade with DSH.
 - **The registry choice is this browser's** — it lives in `localStorage`, so another browser applies its own initial recommendation; the `dsh plugin` command and the agent tool use the Host's configured registry.
 - **Every registry read runs pnpm** — opening the dialog, the check, and the install each ask pnpm what its own configuration names; a machine without pnpm reads it as unknown and is offered no fallback.
+- **Plugin search is by title** — field-level words inside a plugin page are not indexed yet.
 
 <a id="dev-note"></a>
 ### Dev Note

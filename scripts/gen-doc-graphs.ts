@@ -17,14 +17,9 @@ import {
   graphNodeId as nodeId,
   type PackageGraphNode,
 } from './package-graph.ts'
-import { rewriteTranslationLinkLocales } from './translation-links.ts'
 import {
-  generatedRegions,
-  parseTranslationPairingManifest,
   renderGeneratedRegion,
-  spliceGeneratedRegion,
-  translationPairSourcePredicate,
-} from './translation-pairing.ts'
+} from './generated-regions.ts'
 import { TypeScriptProject } from './ts-project.ts'
 
 const root = resolve(import.meta.dirname, '..')
@@ -107,6 +102,19 @@ const GROUP_ORDER = [
 ]
 
 const SERVICE_ROLES: ServiceRole[] = [
+  {
+    key: 'memoryWorkspace', pkg: 'client-ui-memory-workspace', title: 'Local memory workspace',
+    mode: 'core', consumers: ['client-ui-memory-workspace'],
+    note: 'Browses the connected Memorix store, imports documents through its MCP provider, and exports the native Graphify viewer.',
+  },
+  {
+    key: 'knowledge',
+    pkg: 'knowledge-router',
+    title: 'Knowledge retrieval and explicit learning',
+    mode: 'service',
+    consumers: ['knowledge-router'],
+    note: 'Routes configured GitNexus and Graphify MCP tools; assisted delegation and learning writes require explicit enablement.',
+  },
   {
     key: 'actionCards',
     pkg: 'action-cards',
@@ -321,6 +329,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Adapters register provider implementations; the loop and compaction call the provider-neutral stream service.',
   },
   {
+    key: 'jevRouter',
+    pkg: 'llm-jev-router',
+    title: 'Optional Jev grep relevance ranking',
+    mode: 'core',
+    consumers: ['tool-fs-search'],
+    note: 'Consumers treat the service as optional and keep their normal output when it is absent, disabled, or fails.',
+  },
+  {
     key: 'sessionLogDeepSeek',
     pkg: 'session-log-deepseek',
     title: 'Session-log upload policy',
@@ -410,6 +426,21 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Host credential-surface Remote controller',
     mode: 'core',
     note: 'Projects the credential-reference seam onto the generated Remote namespace: batch fan-out, view projection, and refusal mapping live here, not on the seam Definition.',
+  },
+  {
+    key: 'quotaController',
+    pkg: 'api-quota-controller',
+    title: 'Host provider quota Remote controller',
+    mode: 'core',
+    consumers: ['client-ui-provider-quota'],
+    note: 'Resolves provider credentials on the Host and projects per-provider usage quotas onto the generated Remote namespace; concurrent reads for one provider share a request.',
+  },
+  {
+    key: 'authorizationController',
+    pkg: 'api-settings-controller',
+    title: 'Host authorization-surface Remote controller',
+    mode: 'core',
+    note: 'Projects the authorization seam onto the generated Remote namespace: key validation, per-attempt capability addressing, prompt correlation, and refusal mapping live here, not on the seam Definition.',
   },
   {
     key: 'settingsController',
@@ -1818,29 +1849,7 @@ function renderDocs(): GraphDoc[] {
     { rel: 'docs/tool-execution-pipeline.md', content: renderToolPipeline() },
   ]
   docs.unshift({ rel: 'docs/graph-atlas.md', content: renderIndex(docs) })
-  const events = docs.find(doc => doc.rel === 'docs/event-producer-consumer.md')
-  if (events !== undefined) docs.push(spliceChineseRegions(events))
   return docs
-}
-
-/**
- * Splice a generated page's regions into its authored Chinese counterpart,
- * localizing paired-document links; the surrounding Chinese prose stays authored.
- */
-function spliceChineseRegions(doc: GraphDoc): GraphDoc {
-  const rel = doc.rel.replace(/\.md$/, '.zh.md')
-  const context = {
-    repoRoot: root,
-    sourcePath: rel,
-    isTranslationPairSource: translationPairSourcePredicate(parseTranslationPairingManifest(
-      readFileSync(resolve(root, 'scripts/translation-pairing.manifest.json'), 'utf8'),
-    )),
-  }
-  let content = readFileSync(resolve(root, rel), 'utf8')
-  for (const region of generatedRegions(doc.content)) {
-    content = spliceGeneratedRegion(content, rewriteTranslationLinkLocales(region.text, context).content)
-  }
-  return { rel, content }
 }
 
 function renderIndex(docs: GraphDoc[]): string {

@@ -72,6 +72,20 @@ describe('createScrollHandoff', () => {
     expect(viewport.scrollTop).toBe(130)
   })
 
+  it('hands wheel events to the pane under the pointer', () => {
+    const { viewport, scroller } = bound()
+    const sections = scrollable(400)
+    sections.dataset.sidebarListArea = ''
+    viewport.append(sections)
+    const child = document.createElement('span')
+    sections.append(child)
+    expect(wheel(child, { deltaY: 200 }, 1000).defaultPrevented).toBe(true)
+    expect(viewport.scrollTop).toBe(130)
+    expect(sections.scrollTop).toBe(70)
+    expect(scroller.scrollTop).toBe(0)
+    expect(wheel(child, { deltaY: 40 }, 1200).defaultPrevented).toBe(false)
+  })
+
   it('returns the section scroller to its top before the navigation reappears', () => {
     const { viewport, scroller } = bound()
     viewport.scrollTop = 130

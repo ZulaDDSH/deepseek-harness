@@ -18,6 +18,8 @@ import {
 import type { Runtime } from './harness.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
 
+vi.setConfig({ testTimeout: 30_000 })
+
 const cleanups: (() => Promise<void>)[] = []
 
 afterEach(async () => {

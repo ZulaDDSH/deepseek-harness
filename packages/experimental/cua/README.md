@@ -5,10 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-cua
 
-English | [中文](README.zh.md)
-
-Providers install the app/window object API with `installCua`; callers connect through `connectCua`. The `cua` API discovers applications, and `CuaApp` objects activate the selected application and enumerate its windows. `CuaApp` and `CuaWindow` both extend `CuaSurface`; explicit window objects own screenshots and pointer input. The macOS and Windows providers execute native operations on their respective platforms.
-
 ## Summary
 
 Inspect and operate applications through retained objects: select an application, read its accessibility tree, capture explicit windows, and dispatch authorized input. Standard, Creator, and other non-PTC presets, and Agents without a preset, use `cua_run_code` with an automatically available `cua` object. Persistent PTC uses explicit bridge initialization. Platform providers supply native execution; CUA owns consent and image admission.

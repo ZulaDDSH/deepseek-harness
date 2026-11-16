@@ -26,12 +26,13 @@ function isTranscriptEcho(item: PendingInput): boolean {
 export const ChatFlow = memo(function ChatFlow({
   entries, pendingInputs, lastInputTurn, deferCollapse,
   useSession, useChat, useChatNode, useChatNodeBottom, useChatNodeProcess, useChatGroup, usePresentation, useConnectionState,
-  useStore, actions, renderSlot, renderFactorySlot, t, useGroupAction, useGroupHeaderAction,
-  cwd, openFile, inspectCall, forkAt, loadImage,
+  useStore, actions, renderSlot, renderFactorySlot, t, useGroupAction, useGroupHeaderAction, useAwaitingUser,
+  cwd, openFile, inspectCall, forkAt, loadImage, task, step, stop,
 }: ChatFlowSlotProps) {
   const nodeStore = useChat(snapshot => snapshot.nodes)
   const running = useSession(snapshot => snapshot.running)
   const disconnected = useConnectionState(state => state === 'disconnected' || state === 'connecting')
+  const awaitingUser = useAwaitingUser(pending => pending)
   const latestTurnAnchor = useChat(snapshot => snapshot.navigation.items().at(-1)?.anchorKey)
   const runningStartTime = useChatNode(latestTurnAnchor ?? '', (node) => {
     const location = node?.location
@@ -94,7 +95,7 @@ export const ChatFlow = memo(function ChatFlow({
   return [
     ...rows, ...leadingRows, ...openingRows,
     ...running || holding ? [<RunningStatus key="running" startTime={runningStartTime} paused={disconnected}
-      holding={holding} t={t} />] : [],
+      holding={holding} step={step} task={task} useChat={useChat} awaitingUser={awaitingUser} onStop={stop} t={t} />] : [],
     ...pendingRows,
   ]
 })

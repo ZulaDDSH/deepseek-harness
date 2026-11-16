@@ -76,6 +76,11 @@ const SAFE_HOST_DEPENDENCY_EXPORTS = {
 
 /** Runtime exports that require every consumer to resolve the provider's shared peer instance. */
 const PEER_REQUIRED_HOST_EXPORTS = {
+  '@deepseek-ai/dsh-office-to-pdf': ['OfficeSourceKey'],
+  '@deepseek-ai/dsh-knowledge-router': ['memorixInventory', 'memorixObservations', 'memorixPage', 'memorixRecent', 'memorixStoredChunk', 'registeredToolName'],
+  '@deepseek-ai/dsh-home-paths': ['dshHomePath'],
+  '@deepseek-ai/dsh-native-command': ['runNativeCommand'],
+  '@deepseek-ai/dsh-subprocess': ['SubprocessExecutableNotFoundError'],
   // Profile settings must match the installed Node provider's configuration schema.
   '@deepseek-ai/dsh-ptc-runtime-node/configuration': ['resolvePersistentExecution'],
   // CUA mounts the installed provider and shares executor error classes with PTC.
@@ -103,6 +108,7 @@ const PEER_REQUIRED_HOST_EXPORTS = {
   '@deepseek-ai/dsh-session-title': ['normalizeSessionTitle'],
   // Error classes have instance identity; CUA and Liveshare throw the registry's own copy so `instanceof` against it matches.
   '@deepseek-ai/dsh-tools': ['defineTool', 'ToolArgsError', 'ToolContextUnavailableError'],
+  '@deepseek-ai/dsh-agent': ['cliTerminalProfileOf'],
   // Readers recognize a deadline's TimeoutReason only by `instanceof` against their own copy.
   '@deepseek-ai/dsh-timeout': ['deadline', 'timeoutOf'],
   // Imported web tool results must render exactly like the installed web tools' results and cards.

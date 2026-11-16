@@ -13,7 +13,8 @@
     "src/stream.ts",
     "src/shells.ts",
     "src/agent.ts",
-    "src/screen.ts"
+    "src/screen.ts",
+    "src/cli-profiles.ts"
   ],
   "references": [
     {

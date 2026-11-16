@@ -2,8 +2,9 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { TeamProjection, TeamTaskId, TeamTaskView as TeamTask } from '@deepseek-ai/dsh-agent-team/client'
+import type { TeamMessageId, TeamProjection, TeamTaskId, TeamTaskView as TeamTask } from '@deepseek-ai/dsh-agent-team/client'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { bindSnapshotSelector, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
@@ -125,6 +126,31 @@ describe('TeamBoard', () => {
     expect(screen.queryByText(task.description)).toBeNull()
     expect(screen.queryByText(zh.owner)).toBeNull()
     expect(screen.queryByRole('button', { name: '展开' })).toBeNull()
+  })
+
+  it('shows historical records as read-only when the current Team mode is off', () => {
+    const b = bench({ value: {
+      enabled: false,
+      tasks: [],
+      historicalMembers: [{
+        id: WORKER, name: 'old-worker', description: 'Earlier helper', provider: 'spawn', context: 'fresh', phase: 'active',
+      }],
+      historicalMessages: [{
+        message: {
+          id: brandString<TeamMessageId>('legacy-message'), senderId: SESSION, senderName: 'lead', targetId: WORKER,
+          content: [{ type: 'text' as const, text: 'saved historical message' }],
+        },
+        delivered: true,
+      }],
+    } })
+    render(<TeamBoard {...b.props} />)
+
+    expect(screen.getByRole('region', { name: zh['history.title'] })).toBeTruthy()
+    expect(screen.getByText(zh['history.notice'])).toBeTruthy()
+    expect(document.querySelector('[data-historical-member="worker-id"]')?.textContent).toContain('old-worker')
+    expect(document.querySelector('[data-historical-message="legacy-message"]')?.textContent).toContain('saved historical message')
+    expect(document.querySelector('[data-historical-message="legacy-message"]')?.getAttribute('data-delivered')).toBe('true')
+    expect(document.querySelector('[data-historical-member] button, [data-historical-member] a')).toBeNull()
   })
 
   it('expands the full description before the owner and keeps only one task open', () => {

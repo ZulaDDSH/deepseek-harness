@@ -1,5 +1,6 @@
 /** Injected terminal commands and keyed observable state. */
 import type { WebTerminalId } from '@deepseek-ai/dsh-api-terminal-controller/types'
+import type { CliTerminalProfileId } from '@deepseek-ai/dsh-session/types'
 import type { TerminalView, TerminalViewState } from '@deepseek-ai/dsh-api-terminal-controller/client'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ThemeSnapshot } from '@deepseek-ai/dsh-client-ui-theme/client'
@@ -14,6 +15,15 @@ export interface TerminalInjected {
 
 /** The terminal screen follows the resolved application theme through a framework hook. */
 export interface TerminalBodyInjected extends TerminalInjected {
+  readonly hooks: { readonly theme: HostObservable<ThemeSnapshot> }
+}
+
+/** The full-page CLI terminal of a CLI terminal Session, keyed by its profile. */
+export interface CliTerminalInjected {
+  /** @param profile - CLI terminal profile the Session hosts. @returns its terminal model. */
+  readonly cli: (profile: CliTerminalProfileId) => TerminalView
+  /** @param profile - CLI terminal profile the Session hosts. */
+  readonly close: (profile: CliTerminalProfileId) => void
   readonly hooks: { readonly theme: HostObservable<ThemeSnapshot> }
 }
 

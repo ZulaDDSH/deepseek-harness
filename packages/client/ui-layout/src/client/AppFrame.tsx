@@ -171,7 +171,8 @@ export function AppFrame({
   const windowsTitlebar = document.documentElement.hasAttribute('data-windows-titlebar')
   const drawer = viewport < SIDEBAR_DRAWER_BREAKPOINT && !windowsTitlebar
   const centeredSidebar = foldedLandscape && viewport >= SIDEBAR_DRAWER_BREAKPOINT
-  const sidebarCollapsed = narrow ? !layoutInfo.narrowExpanded : layoutInfo.sidebar === 0
+  const focusMode = layoutInfo.focusMode
+  const sidebarCollapsed = focusMode || (narrow ? !layoutInfo.narrowExpanded : layoutInfo.sidebar === 0)
   const drawerOpen = drawer && !sidebarCollapsed
   // Entering drawer mode from a collapsed rail hides the backing immediately.
   const [sidebarTransition, setSidebarTransition] = useState({ drawer, collapsed: sidebarCollapsed, instant: true })
@@ -183,16 +184,18 @@ export function AppFrame({
     : layoutInfo.sidebar === 0 ? SIDEBAR_DEFAULT : layoutInfo.sidebar
   const rightbarPreference = layoutInfo.rightbar ?? viewport * RIGHTBAR_DEFAULT_RATIO
   // Desktop reopen controls occupy the frame's shell.leading seat (macOS) or
-  // the Windows caption row; neither platform keeps an icon rail.
+  // the Windows caption row; neither platform keeps an icon rail. Focus mode
+  // keeps the macOS rail, whose toggle is the direct focus exit.
   const darwin = document.documentElement.dataset.platform === 'darwin'
-  const collapsedWidth = drawer || darwin || windowsTitlebar ? 0 : SIDEBAR_COLLAPSED
+  const collapsedWidth = drawer || (darwin && !focusMode) || windowsTitlebar ? 0 : SIDEBAR_COLLAPSED
   // Opening on a narrow frame collapses the left sidebar. Eligibility must
   // include that space before the occupant's first shown report arrives.
   const normal = computeColumns(
     viewport, !layoutInfo.rightbarShown && narrow ? 0 : sidebarPreference, rightbarPreference, collapsedWidth, centeredSidebar,
   )
   const cols = computeColumns(
-    viewport, drawer ? 0 : sidebarPreference, layoutInfo.rightbarTrack ? rightbarPreference : 0, collapsedWidth, centeredSidebar,
+    viewport, drawer ? 0 : sidebarPreference, focusMode ? 0 : layoutInfo.rightbarTrack ? rightbarPreference : 0,
+    collapsedWidth, centeredSidebar,
   )
   const colsRef = useRef(cols)
   colsRef.current = cols
@@ -272,18 +275,29 @@ export function AppFrame({
     : cols.sidebar
   const sidebar = useMemo(() => renderSlot('sidebar', {
     collapsed: sidebarCollapsed,
+    focusMode,
+    toggleFocus: actions.toggleFocus,
     width: sidebarWidth,
     drawer,
-  }), [renderSlot, sidebarCollapsed, sidebarWidth, drawer])
+  }), [renderSlot, sidebarCollapsed, focusMode, actions.toggleFocus, sidebarWidth, drawer])
   const main = useMemo(() => (
     <MainPanel usePanelInfo={usePanelInfo} renderSlot={renderSlot} />
   ), [usePanelInfo, renderSlot])
   const overlays = useMemo(() => renderSlot('shell.overlay', {}), [renderSlot])
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key.toLowerCase() !== 'f' || !event.shiftKey || (!event.metaKey && !event.ctrlKey)) return
+      event.preventDefault()
+      actions.toggleFocus()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => { window.removeEventListener('keydown', onKeyDown) }
+  }, [actions])
   // The leading seat serves drawers and fully hidden macOS sidebars.
   // Windows native captions keep their controls in the caption row instead.
   // AppFrame.module.css reserves clearance for the seat's rendered controls.
   const leading = useMemo(() => renderSlot('shell.leading', {}), [renderSlot])
-  const leadingMounted = drawer || darwin && sidebarCollapsed
+  const leadingMounted = drawer || (darwin && sidebarCollapsed && !focusMode)
 
   return (
     <div
@@ -296,6 +310,7 @@ export function AppFrame({
           `${cols.sidebar}px minmax(${cols.rightbar === 0 ? 0 : CENTER_MIN}px, 1fr) minmax(0px, ${rightbarMax}px)`,
       }}
       data-sidebar-collapsed={sidebarCollapsed || undefined}
+      data-focus-mode={focusMode || undefined}
       data-sidebar-drawer={drawer || undefined}
       data-sidebar-instant={drawer && sidebarCollapsed && sidebarTransition.instant || undefined}
       data-rightbar-collapsed={cols.rightbar === 0 || undefined}
@@ -335,7 +350,7 @@ export function AppFrame({
       )}
       {/* The collapsed rail is fixed-width: no resize handle while closed. */}
       {!drawer && !centeredSidebar && !sidebarCollapsed && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
-      {layoutInfo.rightbarShown && !layoutInfo.rightbarFullscreen && normal.rightbar > 0 && (
+      {!focusMode && layoutInfo.rightbarShown && !layoutInfo.rightbarFullscreen && normal.rightbar > 0 && (
         <DragHandle side="rightbar" left={viewport - normal.rightbar} onStart={onRightbarStart} onDrag={onRightbarDrag} onEnd={onDragEnd} />
       )}
     </div>

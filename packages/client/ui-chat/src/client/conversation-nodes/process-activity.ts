@@ -1,26 +1,12 @@
 /** Tool-category and live-detail interpretation owned by Chat grouping. */
 import { reasoningText } from '../reasoning-text.ts'
 import type { ToolArgs } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { ProcessActivity, ProcessActivitySummary, RunningProcessActivity } from '../contract/process-groups.ts'
+import { diffTotals, type DiffHunk } from '@deepseek-ai/dsh-client-ui-primitives'
+import { PartialArguments } from '@deepseek-ai/dsh-util-values'
+import { activity, type ProcessActivity, type ProcessActivitySummary, type RunningProcessActivity } from '../contract/process-groups.ts'
 import type { ChatNode } from '../contract/chat-nodes.ts'
 import { isRunningTool } from '../contract/chat-nodes.ts'
 import type { ToolCallBlock } from '../contract/snapshot.ts'
-
-function activity(name: string): RunningProcessActivity {
-  if (name === 'read') return 'read'
-  if (name === 'read_image') return 'readImage'
-  if (name === 'grep' || name === 'glob' || name.endsWith('_inspect')) return 'search'
-  if (name === 'write') return 'write'
-  if (name === 'edit' || name === 'apply_patch') return 'edit'
-  if (['bash', 'pwsh', 'exec_command', 'write_stdin'].includes(name) || name.startsWith('terminal_')) return 'commands'
-  if (name === 'run_code' || name === 'cua_run_code') return 'code'
-  if (name === 'web_search') return 'webSearch'
-  if (name === 'web_fetch') return 'webFetch'
-  if (name === 'subagent' || name.startsWith('subagent_')) return 'subagents'
-  if (['todo_write', 'create_goal', 'update_goal', 'get_goal'].includes(name)) return 'plan'
-  if (name === 'ask_user_question' || name === 'request_user_input') return 'questions'
-  return 'tools'
-}
 
 const LIVE_TOOL_DETAIL_MAX_CHARS = 160
 const LIVE_TOOL_DETAIL_PREFIX_CHARS = 512
@@ -127,19 +113,61 @@ function liveToolDetail(name: string, args: ToolArgs): string {
   return args.closed() ? normalizeLiveToolDetail(name) : ''
 }
 
+const FILE_KINDS = new Set<ProcessActivity>(['read', 'readImage', 'write', 'edit'])
+
+function fileName(args: ToolArgs): string | undefined {
+  const path = args.text('file_path')
+  if (path === undefined) return undefined
+  const name = path.split(/[\\/]/).pop() ?? ''
+  return name === '' ? undefined : name
+}
+
+function isDiffHunk(value: unknown): value is DiffHunk {
+  if (typeof value !== 'object' || value === null) return false
+  const path: unknown = Reflect.get(value, 'path')
+  const oldText: unknown = Reflect.get(value, 'oldText')
+  const newText: unknown = Reflect.get(value, 'newText')
+  return typeof path === 'string' && (oldText === null || typeof oldText === 'string') && typeof newText === 'string'
+}
+
+function appliedHunks(meta: unknown): DiffHunk[] | undefined {
+  const diffs: unknown = typeof meta === 'object' && meta !== null ? Reflect.get(meta, 'diffs') : undefined
+  return Array.isArray(diffs) && diffs.every(isDiffHunk) ? diffs : undefined
+}
+
+function intendedHunks(kind: 'write' | 'edit', args: ToolArgs): DiffHunk[] {
+  const path = args.text('file_path')
+  if (path === undefined) return []
+  if (kind === 'write') {
+    const content = args.text('content')
+    return content === undefined ? [] : [{ path, oldText: null, newText: content }]
+  }
+  const oldText = args.text('old_string')
+  const newText = args.text('new_string')
+  return oldText === undefined || newText === undefined ? [] : [{ path, oldText, newText }]
+}
+
+function changedHunks(kind: ProcessActivity, tool: ToolCallBlock, args: ToolArgs): DiffHunk[] {
+  if (kind !== 'write' && kind !== 'edit') return []
+  if (isRunningTool(tool)) return intendedHunks(kind, args)
+  if (tool.isError) return []
+  const applied = appliedHunks(tool.meta)
+  return applied === undefined || (kind === 'write' && applied.length === 0) ? intendedHunks(kind, args) : applied
+}
+
 /**
- * Rank categories by distinct call count, breaking ties by first appearance.
- * A group whose members are all Context reports one `context` category counting those members; Context beside other members adds no count.
  * @param nodes - process members, including recursive tools.
- * @returns all ranked categories and the latest running tool category and bounded task detail.
+ * @returns ranked categories with file targets, line totals, and the latest running tool category and bounded task detail.
  */
 export function processActivity(nodes: readonly ChatNode[]): ProcessActivitySummary {
-  const counts = new Map<ProcessActivity, number>()
+  const tallies = new Map<ProcessActivity, { count: number; targets: string[] }>()
   const seen = new Set<string>()
   let running: RunningProcessActivity | undefined
   let runningDetail = ''
   let runningTime = -Infinity
   let preparing: boolean | undefined
+  let added = 0
+  let removed = 0
   const visit = (tool: ToolCallBlock): void => {
     if (seen.has(tool.callId)) return
     seen.add(tool.callId)
@@ -149,10 +177,20 @@ export function processActivity(nodes: readonly ChatNode[]): ProcessActivitySumm
       if (isRunningTool(tool) && tool.time >= runningTime) {
         running = kind
         preparing = tool.phase === 'preparing'
-        runningDetail = liveToolDetail(tool.name, tool.args)
+        const detail = liveToolDetail(tool.name, tool.args)
+        runningDetail = detail === '' && tool.phase === 'preparing' && kind === 'tools' ? tool.name : detail
         runningTime = tool.time
       }
-      counts.set(kind, (counts.get(kind) ?? 0) + 1)
+      const args = isRunningTool(tool) && tool.phase === 'preparing' ? PartialArguments.EMPTY : tool.args
+      const tally = tallies.get(kind) ?? { count: 0, targets: [] }
+      tallies.set(kind, tally)
+      tally.count++
+      const failedMutation = (kind === 'write' || kind === 'edit') && !isRunningTool(tool) && tool.isError
+      const target = FILE_KINDS.has(kind) && !failedMutation ? fileName(args) : undefined
+      if (target !== undefined && !tally.targets.includes(target)) tally.targets.push(target)
+      const totals = diffTotals(changedHunks(kind, tool, args))
+      added += totals.added
+      removed += totals.removed
     }
     for (const child of tool.subCalls) visit(child)
   }
@@ -160,11 +198,15 @@ export function processActivity(nodes: readonly ChatNode[]): ProcessActivitySumm
     if (node.kind === 'tool-call') visit(node.data.root)
   }
   if (running === undefined) runningDetail = liveReasoningDetail(nodes)
-  if (nodes.length > 0 && nodes.every(node => node.kind === 'context')) counts.set('context', nodes.length)
+  if (nodes.length > 0 && nodes.every(node => node.kind === 'context')) tallies.set('context', { count: nodes.length, targets: [] })
   return {
-    counts: [...counts].map(([kind, count]) => ({ kind, count })).sort((a, b) => b.count - a.count),
+    counts: [...tallies]
+      .map(([kind, { count, targets }]) => ({ kind, count, targets }))
+      .sort((a, b) => b.count - a.count),
     running,
     runningDetail,
     ...preparing ? { preparing: true } : {},
+    added,
+    removed,
   }
 }

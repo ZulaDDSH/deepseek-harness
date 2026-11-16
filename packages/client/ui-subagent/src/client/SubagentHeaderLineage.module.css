@@ -355,6 +355,13 @@
   overflow-wrap: anywhere;
 }
 
+.summary,
+.liveLine {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .label {
   color: inherit;
   font-size: 13px;
@@ -369,10 +376,15 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+.summary,
+.liveLine,
 .metrics {
   color: var(--dsw-alias-label-tertiary);
   font-size: 10px;
   line-height: 15px;
+}
+
+.metrics {
   display: grid;
   grid-template-rows: 17px 15px;
   flex: none;
@@ -525,4 +537,14 @@
   bottom: 16px;
   align-self: safe start;
   justify-self: safe start;
+}
+
+.clearFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 6px 8px 2px;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
 }

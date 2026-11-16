@@ -57,6 +57,7 @@ export function FileMutationRow({
       errorSummary={model.errorSummary}
       diff={diff}
       state={model.state}
+      startedAt={model.startedAt}
       filePath={model.filePath}
       fileTargets={model.fileTargets}
       fileTargetContextMenuProps={target => getTriggerProps(() => ({

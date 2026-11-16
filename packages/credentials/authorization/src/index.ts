@@ -36,25 +36,13 @@ import type {
 } from './types.ts'
 
 export type {
-  AuthorizationEntry, AuthorizationMethod, AuthorizationNotice, AuthorizationOutcome, AuthorizationPrompt,
-  AuthorizationPromptOption, AuthorizationSettlement, AuthorizationStatus,
+  AuthorizationEntry, AuthorizationMethod, AuthorizationNotice, AuthorizationOutcome,
+  AuthorizationPrompt, AuthorizationPromptOption, AuthorizationSettlement, AuthorizationStatus,
 } from './types.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
     authorization: AuthorizationService
-  }
-
-  interface Events {
-    /**
-     * One authorization attempt has finished and released its key. Fires for
-     * every terminal outcome, failures included, so a surface watching a key it
-     * did not start (a second browser tab) learns the attempt is over.
-     * @mode emit
-     * @param key - the credential record the finished attempt was authorizing.
-     * @param settlement - how it ended, including the `failed` case its caller sees as a thrown error.
-     */
-    'authorization/settled'(key: CredentialKey, settlement: AuthorizationSettlement): void
   }
 }
 
@@ -133,6 +121,11 @@ export interface AuthorizationFlow {
    * cannot be begun, and the type says so at the one place flows are written.
    */
   readonly methods: readonly [AuthorizationMethod, ...AuthorizationMethod[]]
+  /**
+   * The other product whose identity this sign-in borrows, when it does. A
+   * surface warns about a stored record this flow produced.
+   */
+  readonly borrowedFrom?: string
   /**
    * Run one attempt to obtain and commit the credential.
    * @param session - the chosen method, the cancellation signal, and the interaction callbacks.
@@ -249,6 +242,7 @@ export class AuthorizationService extends Service {
       label: flow.label,
       methods: flow.methods,
       inFlight: this.running.has(flow.key),
+      ...flow.borrowedFrom === undefined ? {} : { borrowedFrom: flow.borrowedFrom },
     }
   }
 

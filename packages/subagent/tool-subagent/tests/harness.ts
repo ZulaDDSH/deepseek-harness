@@ -8,7 +8,7 @@ import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import * as mock from './scripted-provider.ts'
 import type { Config as toolConfig } from '../src/index.ts'
 import * as tool from '../src/index.ts'
@@ -28,6 +28,11 @@ export function ownContext(ctx: Context): Context {
 
 /** Shared non-aborted tool signal for package-local integration tests. */
 export const testToolSignal = new AbortController().signal
+
+export function fakeAgent(id = 'parent-1'): Agent {
+  const sessionId = SessionId(id)
+  return { id: sessionId, options: {}, session: Session.create(sessionId) } as never
+}
 
 /** Mount the real tool and service stack around one scripted subagent provider. */
 const setupAgents = new WeakMap<Context, Agent>()

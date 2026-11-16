@@ -152,9 +152,13 @@ export function createSettlementMessage(
   const closingText = terminal.output.flatMap(block =>
     block.type === 'text' && block.text.length > 0 ? [block] : [],
   )
+  const failure = terminal.diagnostic === undefined
+    ? []
+    : [{ type: 'text' as const, text: `Its failure: ${terminal.diagnostic}` }]
   return createUserMessage({
     content: [
       { type: 'text' as const, text: summary },
+      ...failure,
       ...omitClosingText
         ? [{ type: 'text' as const, text: 'It sent you a message just before finishing, so its closing message is omitted.' }]
         : closingText.length === 0
@@ -162,8 +166,6 @@ export function createSettlementMessage(
           : [{ type: 'text' as const, text: 'Its closing message:' }, ...closingText],
       ...terminal.structured !== undefined
         ? [{ type: 'text' as const, text: `Structured result: ${JSON.stringify(terminal.structured)}` }] : [],
-      ...terminal.diagnostic !== undefined
-        ? [{ type: 'text' as const, text: terminal.diagnostic }] : [],
     ],
     source: {
       kind: 'subagent-settled' as const,

@@ -768,6 +768,20 @@ describe('subagent catalogs', () => {
     expect(manager.getListSnapshot().items).toEqual([])
   })
 
+  it('tracks whether the direct parent is available', ({ mock, remote }) => {
+    const manager = makeManager(mock, remote)
+    onTestFinished(() => manager.dispose())
+    manager.resolveTarget({ parentSessionId: S1, childSessionId: S2, mode: 'continuable' })
+    const child = manager.get(S2)
+    expect(child.getSnapshot().subagent?.parentAvailable).toBeUndefined()
+    manager.handleSessionAdded(summary(S1, { agentAvailable: false }))
+    expect(child.getSnapshot().subagent?.parentAvailable).toBe(false)
+    manager.handleSessionStatus(S1, false)
+    expect(child.getSnapshot().subagent?.parentAvailable).toBe(true)
+    manager.handleSessionRemoved(S1)
+    expect(child.getSnapshot().subagent?.parentAvailable).toBe(false)
+  })
+
   it('prefers retained and catalog addresses to header-derived unknown modes', ({ mock, remote }) => {
     const manager = makeManager(mock, remote)
     onTestFinished(() => manager.dispose())
@@ -862,6 +876,7 @@ describe('subagent catalogs', () => {
       address: {
         parentSessionId: S1, childSessionId: S2, mode: 'continuable',
       },
+      parentAvailable: true,
     })
     // Clicking the same child through an ordinary list-selection path must not
     // erase the catalog-derived address and fall back to session.* transport.
@@ -873,6 +888,7 @@ describe('subagent catalogs', () => {
       address: {
         parentSessionId: S1, childSessionId: S2, mode: 'continuable',
       },
+      parentAvailable: true,
     })
     await manager.get(S2).open()
     await manager.get(S2).prompt([{ type: 'text', text: 'continue' }], 'queue')
@@ -1581,6 +1597,7 @@ describe('connected generation', () => {
     })
     expect(manager.get(S2).getSnapshot().subagent).toEqual({
       address,
+      parentAvailable: true,
     })
     expect(manager.subagentAddress(S2)).toEqual(address)
   })

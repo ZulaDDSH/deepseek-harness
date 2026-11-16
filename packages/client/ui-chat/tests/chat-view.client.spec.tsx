@@ -24,7 +24,7 @@ import type {
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import type {
   ConversationGroupedView,
-  ConversationSnapshot, ConversationViewSnapshotStore, GroupKey, GroupSnapshot,
+  ConversationSnapshot, ConversationViewSnapshotStore, GroupKey, GroupSnapshot, InputState,
   MessageImagesOwnerProps, NodeKey, TurnLocation,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
@@ -290,12 +290,14 @@ const renderCommandSlot: React.ComponentProps<typeof CommandNodeView>['renderSlo
   (_key, _owner, opts) => opts?.fallback ?? null
 const renderTurnTailSlot: React.ComponentProps<typeof TurnTailNodeView>['renderSlot'] = () => null
 
-function HarnessChatFlow({ standard, owner, hookContext, renderSlot, useConnectionState }: {
+function HarnessChatFlow({ standard, owner, hookContext, renderSlot, useConnectionState, useAwaitingUser, stop }: {
   readonly standard: HarnessStandardProps
   readonly owner: ChatFlowOwnerProps
   readonly hookContext: ChatFlowHookContext
   readonly renderSlot: ChatFlowSlotProps['renderSlot']
   readonly useConnectionState: ChatFlowSlotProps['useConnectionState']
+  readonly useAwaitingUser: ChatFlowSlotProps['useAwaitingUser']
+  readonly stop: ChatFlowSlotProps['stop']
 }) {
   const hooks = useMemo(() => ({
     useGroupAction: CHAT_FLOW_INJECT.hooks.groupAction(standard, hookContext),
@@ -303,7 +305,7 @@ function HarnessChatFlow({ standard, owner, hookContext, renderSlot, useConnecti
   }), [standard, hookContext])
   const { renderSlot: _rootRenderSlot, __renders: _rootRenders, ...shared } = standard
   return <ChatFlow {...shared} {...owner} {...hooks} renderSlot={renderSlot}
-    useConnectionState={useConnectionState} />
+    useConnectionState={useConnectionState} useAwaitingUser={useAwaitingUser} stop={stop} />
 }
 
 function HarnessUserOrigin({ useRenderer, owner, options }: {
@@ -515,12 +517,16 @@ function makeHarness(
       throw new Error('Flow owner data must not replace its rendering or store authority')
     }
     return <HarnessChatFlow standard={props} owner={owner} hookContext={opts.hookContext} renderSlot={renderFlowSlot}
-      useConnectionState={useConnectionState} />
+      useConnectionState={useConnectionState} useAwaitingUser={useAwaitingUser} stop={stop} />
   }
   // SessionProvider seat arrives with the session-scope child declaration;
   // ChatView never invokes it (pass-through stub).
   const connection = createSnapshotStore<ConnectionState | undefined>('connected')
   const useConnectionState = bindSnapshotSelector(connection)
+  const awaitingUser = createSnapshotStore(false)
+  const useAwaitingUser = bindSnapshotSelector(awaitingUser)
+  const stop = vi.fn()
+  const composer: Pick<InputState, 'phase' | 'draft' | 'attachmentIds'> = { phase: 'plain', draft: '', attachmentIds: [] }
   const SessionProviderStub: ChatViewSlotProps['SessionProvider'] = ({ children }) => <>{children}</>
   const props: HarnessStandardProps = {
     fileDrag,
@@ -549,7 +555,7 @@ function makeHarness(
       const inbox = useTestSession(snapshot => snapshot.testInbox)
       return key === 'inbox' ? inbox : outlineValue
     },
-    useInput: (() => { throw new Error('unused') }),
+    useInput: bindSnapshotSelector(createSnapshotStore(composer as InputState)),
     inputActions: {
       insertQuote: () => false,
       captureInsertion: () => ({ start: 0, end: 0, draftRev: 0 }),
@@ -606,6 +612,8 @@ function makeHarness(
   return {
     set, setSession: session.set, setChat: chatSource.set, ChatView, props,
     setConnection: (state: ConnectionState) => { connection.set(state) },
+    setAwaitingUser: (value: boolean) => { awaitingUser.set(value) },
+    stop,
     openFile, openUserFile, loadOlder, consumeOlder, prepareOlder, loadThrough, openView,
     setOutline: (value: unknown) => { outlineValue = value },
     chatScroll, forkAt, toolOwners, fenceCalls,
@@ -675,7 +683,7 @@ function turnProcessControl(container: HTMLElement): HTMLButtonElement | null {
 }
 
 function runningContent(container: HTMLElement): HTMLElement | null {
-  return container.querySelector<HTMLElement>('[data-chat-running] > :last-child')
+  return container.querySelector<HTMLElement>('[data-chat-running-label]')
 }
 
 function withClock(time: number, run: () => void): () => void {
@@ -888,7 +896,7 @@ describe('ChatView', () => {
     if (outside === undefined || inside === undefined) throw new Error('expected two Nodes')
     const key = 'process' as GroupKey
     const groupStore = new ConversationGroupStore<ProcessGroupData>()
-    const record = { key, data: { turn: 1, closed: false, summary: { counts: [], running: undefined, runningDetail: '' } }, members: [inside] }
+    const record = { key, data: { turn: 1, closed: false, summary: { counts: [], running: undefined, runningDetail: '', added: 0, removed: 0 } }, members: [inside] }
     groupStore.prepareAndInstall({
       entries: [outside, { kind: 'group', key }],
       groups: { kind: 'replace', snapshots: [record] },
@@ -967,7 +975,7 @@ describe('ChatView', () => {
 
     for (const mode of ['standard', 'detailed', 'compact', 'detailed'] as const) {
       act(() => { h.setTranscriptView(mode) })
-      expect(bodies.map(body => body.hasAttribute('hidden'))).toEqual([false, true, mode !== 'detailed'])
+      expect(bodies.map(body => body.hasAttribute('hidden'))).toEqual([false, true, mode === 'compact'])
       expect(headers.map(header => header.closest('[hidden]') !== null)).toEqual([false, false, mode === 'detailed'])
       expect([...view.container.querySelectorAll('[data-chat-group-key]')]).toEqual(roots)
     }
@@ -1111,6 +1119,7 @@ describe('ChatView', () => {
       const root = view.container.querySelector<HTMLElement>('[data-chat-group-key][data-chat-turn="2"]')!
       const header = root.querySelector<HTMLButtonElement>('[data-process-activity]')!
       const body = root.querySelector<HTMLElement>('[data-step-process-body]')!
+      if (mode === 'standard') fireEvent.click(header)
       fireEvent.click(header)
       expect(body.hasAttribute('hidden')).toBe(false)
       expect(uncapped(body)).toBe(false)
@@ -1163,7 +1172,7 @@ describe('ChatView', () => {
     const groups = new ConversationGroupStore<ProcessGroupData>()
     const group: GroupSnapshot<ProcessGroupData> = {
       key, members: [{ kind: 'node', key: snapshot.order[0] as NodeKey }],
-      data: { turn: 1, closed, summary: { counts: [], running: undefined, runningDetail: '' } },
+      data: { turn: 1, closed, summary: { counts: [], running: undefined, runningDetail: '', added: 0, removed: 0 } },
     }
     groups.prepareAndInstall({
       entries: [{ kind: 'group', key }],
@@ -1290,7 +1299,7 @@ describe('ChatView', () => {
       key: `settled-${index}` as GroupKey,
       data: {
         turn: 1, closed: index < 40,
-        summary: { counts: [], running: index < 40 ? undefined : 'commands', runningDetail: index < 40 ? '' : 'pwd' },
+        summary: { counts: [], running: index < 40 ? undefined : 'commands', runningDetail: index < 40 ? '' : 'pwd', added: 0, removed: 0 },
       },
       members: [{ kind: 'node', key: nodeKey as NodeKey }],
     }))
@@ -1337,7 +1346,7 @@ describe('ChatView', () => {
     const groupStore = new ConversationGroupStore<ProcessGroupData>()
     groupStore.prepareAndInstall({
       entries: [{ kind: 'group', key }, { kind: 'node', key: nodeKey, groupPart: 'response' }],
-      groups: { kind: 'replace', snapshots: [{ key, data: { turn: 1, closed: false, summary: { counts: [], running: undefined, runningDetail: '' } }, members: [{ kind: 'node', key: nodeKey, groupPart: 'reasoning' }] }] },
+      groups: { kind: 'replace', snapshots: [{ key, data: { turn: 1, closed: false, summary: { counts: [], running: undefined, runningDetail: '', added: 0, removed: 0 } }, members: [{ kind: 'node', key: nodeKey, groupPart: 'reasoning' }] }] },
     }, id => snapshot.nodes.get(id))
     h.setGrouped(groupStore)
     h.setNodeRenderer((slot, owner) => {
@@ -1362,7 +1371,7 @@ describe('ChatView', () => {
     const groups = new ConversationGroupStore<ProcessGroupData>()
     groups.prepareAndInstall({
       entries: [{ kind: 'group', key }],
-      groups: { kind: 'replace', snapshots: [{ key, data: { turn: 1, closed: false, summary: { counts: [], running: undefined, runningDetail: '' } }, members }] },
+      groups: { kind: 'replace', snapshots: [{ key, data: { turn: 1, closed: false, summary: { counts: [], running: undefined, runningDetail: '', added: 0, removed: 0 } }, members }] },
     }, id => snapshot.nodes.get(id))
     groups.publish()
     h.setGrouped(groups)
@@ -2078,8 +2087,7 @@ describe('ChatView', () => {
     expect(writeText).toHaveBeenCalledWith('interrupt now')
     expect(within(pendingBubble as HTMLElement).queryByRole('button', { name: '在新对话中分支' })).toBeNull()
     expect(turnProcessControl(view.container)).toBeNull()
-    expect(runningContent(view.container)?.textContent).toMatch(/^深度求索中，用时 \d+秒 ···$/)
-    // The status stays on the running Turn's tail; the steering waiting for the next Step follows it.
+    expect(runningContent(view.container)?.textContent).toMatch(/^处理中 · \d+秒$/)
     expect(view.getByRole('status').compareDocumentPosition(view.getByText('interrupt now'))
       & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
 
@@ -2695,10 +2703,24 @@ describe('ChatView', () => {
     const view = render(<h.ChatView {...h.props} />)
     const statuses = view.getAllByRole('status')
     expect(statuses.map(status => status.textContent)).toEqual([
-      '已达到输出 token 上限回答被截断，已有输出保留在对话中。发送“继续”可让模型接着输出。',
+      '已达到输出 token 上限回答被截断，已有输出保留在对话中。发送“继续”可让模型接着输出。继续',
     ])
     expect(view.queryByText('本轮运行失败')).toBeNull()
   })
+
+  it('withholds the Stop hint while the Session waits on the user', withClock(1_000, () => {
+    const h = makeHarness({ chat: chatSnapshotFixture({
+      nodes: [userInTurn(1, 'try', 1)], turnTimings: new Map([[1, { startTime: 1_000 }]]),
+    }) }, { running: true })
+    const view = render(<h.ChatView {...h.props} />)
+    act(() => { h.setAwaitingUser(true) })
+    act(() => { vi.advanceTimersByTime(130_000) })
+    expect(view.container.querySelector('[data-chat-running-stuck]')).toBeNull()
+    act(() => { h.setAwaitingUser(false) })
+    act(() => { vi.advanceTimersByTime(120_000) })
+    fireEvent.click(view.getByRole('button', { name: '停止' }))
+    expect(h.stop).toHaveBeenCalledTimes(1)
+  }))
 
   it('removes Inspect when trajectory is unavailable and restores it with the view', () => {
     const h = makeHarness({ nodes: [toolResult(3, 'a')] })
@@ -2907,7 +2929,7 @@ describe('ChatView', () => {
     const view = render(<h.ChatView {...h.props} />)
     expect(renderedFlowKinds(view.container)).toEqual(['user', 'turn-process', 'context'])
     expect(turnProcessControl(view.container)).toBeNull()
-    expect(runningContent(view.container)?.textContent).toMatch(/^深度求索中，用时 \d+秒 ···$/)
+    expect(runningContent(view.container)?.textContent).toMatch(/^处理中 · \d+秒$/)
     expect(view.container.querySelector('[data-chat-flow-kind="system-prompt"]')).toBeNull()
 
     act(() => {
@@ -3054,7 +3076,7 @@ describe('ChatView', () => {
     })
     const view = render(<h.ChatView {...h.props} />)
     expect(turnProcessControl(view.container)).toBeNull()
-    expect(runningContent(view.container)?.textContent).toMatch(/^深度求索中，用时 \d+秒 ···$/)
+    expect(runningContent(view.container)?.textContent).toMatch(/^正在撰写回复 · 0秒 · 已生成约 4 词元 · 共 \d+秒$/)
     const processRow = view.getByText('inspect').closest('[data-chat-flow-kind="assistant-step"]') as HTMLElement
     expect(processRow.getAttribute('hidden')).toBeNull()
 
@@ -3880,9 +3902,9 @@ describe('ChatView', () => {
     const view = render(<h.ChatView {...h.props} />)
     expect(view.getByTestId('tool-seat-r1')).toBeTruthy()
     expect(h.toolOwners[0]?.block).toMatchObject({ callId: 'r1', argsRaw: '{"command":"cmd-r1"}' })
-    expect(view.getByRole('status').textContent).toBe('深度求索中')
+    expect(view.getByRole('status').textContent).toBe('处理中...')
     expect(turnProcessControl(view.container)).toBeNull()
-    expect(runningContent(view.container)?.textContent).toMatch(/^深度求索中，用时 \d+秒 ···$/)
+    expect(runningContent(view.container)?.textContent).toMatch(/^正在运行命令：cmd-r1 · 1秒 · 共 \d+秒$/)
   }))
 
   it('keeps the Tool renderer mounted when a running call settles into log order', () => {
@@ -3942,9 +3964,9 @@ describe('ChatView', () => {
     const view = render(<h.ChatView {...h.props} />)
     const status = view.getByRole('status')
     const content = runningContent(view.container)!
-    expect(content.textContent).toMatch(/^深度求索中，用时 \d+分\d+秒 ···$/)
+    expect(content.textContent).toMatch(/^处理中 · \d+分\d+秒$/)
     expect(turnProcessControl(view.container)).toBeNull()
-    expect(status.textContent).toBe('深度求索中')
+    expect(status.textContent).toBe('处理中...')
     expect(status.getAttribute('aria-live')).toBe('polite')
     expect(status.getAttribute('aria-atomic')).toBe('true')
     expect(content.closest('[aria-live]')).toBeNull()
@@ -3957,23 +3979,23 @@ describe('ChatView', () => {
         role: 'user', source: { kind: 'user' },
       }] } })
     })
-    expect(content.textContent).toMatch(/^深度求索中，用时 \d+分\d+秒 ···$/)
+    expect(content.textContent).toMatch(/^处理中 · \d+分\d+秒$/)
     const beforeTick = content.textContent
     act(() => { vi.advanceTimersByTime(2_000) })
-    expect(content.textContent).toMatch(/^深度求索中，用时 \d+分\d+秒 ···$/)
+    expect(content.textContent).toMatch(/^处理中 · \d+分\d+秒$/)
     expect(content.textContent).not.toBe(beforeTick)
     expect(view.getByRole('status')).toBe(status)
-    expect(status.textContent).toBe('深度求索中')
+    expect(status.textContent).toBe('处理中...')
     act(() => {
       h.setSession({ testInbox: { 'next-turn': [], 'next-step': [] } })
       h.setChat({ nodes: [trigger, { ...steering(2, 'also', 1), time: 128_000 }] })
     })
     expect(runningContent(view.container)).toBe(content)
-    expect(content.textContent).toMatch(/^深度求索中，用时 \d+分\d+秒 ···$/)
+    expect(content.textContent).toMatch(/^处理中 · \d+分\d+秒$/)
     expect(view.getByText('also').closest('[data-pending-steering]')).toBeNull()
     act(() => { vi.advanceTimersByTime(1_000) })
-    expect(content.textContent).toMatch(/^深度求索中，用时 \d+分\d+秒 ···$/)
-    expect(status.textContent).toBe('深度求索中')
+    expect(content.textContent).toMatch(/^处理中 · \d+分\d+秒$/)
+    expect(status.textContent).toBe('处理中...')
     view.unmount()
     expect(vi.getTimerCount()).toBe(0)
   }))
@@ -3985,15 +4007,15 @@ describe('ChatView', () => {
     )
     const view = render(<h.ChatView {...h.props} />)
     const content = runningContent(view.container)!
-    expect(content.textContent).toBe('深度求索中，用时 9秒 ···')
+    expect(content.textContent).toBe('处理中 · 9秒')
     act(() => { h.setConnection('connecting') })
     act(() => { vi.advanceTimersByTime(5_000) })
-    expect(content.textContent).toBe('深度求索中，用时 9秒 ···')
+    expect(content.textContent).toBe('处理中 · 9秒')
     act(() => { h.setConnection('disconnected') })
     act(() => { vi.advanceTimersByTime(5_000) })
-    expect(content.textContent).toBe('深度求索中，用时 9秒 ···')
+    expect(content.textContent).toBe('处理中 · 9秒')
     act(() => { h.setConnection('connected') })
-    expect(content.textContent).toBe('深度求索中，用时 19秒 ···')
+    expect(content.textContent).toBe('处理中 · 19秒')
   }))
 
   it('the running clock reads hours once the turn passes an hour', withClock(3_600_000, () => {
@@ -4005,14 +4027,14 @@ describe('ChatView', () => {
     )
     const view = render(<h.ChatView {...h.props} />)
     const content = runningContent(view.container)!
-    expect(content.textContent).toMatch(/^深度求索中，用时 \d+分\d+秒 ···$/)
+    expect(content.textContent).toMatch(/^处理中 · \d+分\d+秒$/)
     act(() => { vi.advanceTimersByTime(1_000) })
-    expect(content.textContent).toMatch(/^深度求索中，用时 \d+小时\d+分\d+秒 ···$/)
+    expect(content.textContent).toMatch(/^处理中 · \d+小时\d+分\d+秒$/)
     const hourlyText = content.textContent
     act(() => { vi.advanceTimersByTime(303_000) })
-    expect(content.textContent).toMatch(/^深度求索中，用时 \d+小时\d+分\d+秒 ···$/)
+    expect(content.textContent).toMatch(/^处理中 · \d+小时\d+分\d+秒$/)
     expect(content.textContent).not.toBe(hourlyText)
-    expect(view.getByRole('status').textContent).toBe('深度求索中')
+    expect(view.getByRole('status').textContent).toBe('处理中...')
     view.unmount()
     expect(vi.getTimerCount()).toBe(0)
   }))
@@ -4877,8 +4899,8 @@ describe('ChatView', () => {
     const column = view.container.querySelector('[data-chat-flow]')!
     const status = column.querySelector('[data-chat-running]')
     expect([...column.children].filter(child => !child.hasAttribute('data-text-interaction-surface')).at(-1)).toBe(status)
-    expect(within(status as HTMLElement).getByRole('status').textContent).toBe('深度求索中')
-    expect(status?.lastElementChild?.textContent).toBe('深度求索中')
+    expect(within(status as HTMLElement).getByRole('status').textContent).toBe('处理中...')
+    expect(status?.lastElementChild?.textContent).toBe('处理中...')
     const icon = status?.querySelector('svg')?.parentElement
     expect(icon?.getAttribute('aria-hidden')).toBe('true')
     expect(icon?.firstElementChild?.tagName).toBe('SPAN')

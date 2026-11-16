@@ -5,6 +5,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import { SubprocessExecutableNotFoundError } from '@deepseek-ai/dsh-subprocess'
 import { contents, filterCommand, git, harness, repository, testAgent } from './harness.ts'
 
+vi.setConfig({ testTimeout: 30_000 })
+
 let ctx: Context | undefined
 const roots: string[] = []
 

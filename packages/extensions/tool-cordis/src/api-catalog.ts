@@ -271,6 +271,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the current turn and step positions; do not mutate the returned value.',
       },
       {
+        signature: 'modelSelectionOf(session: Session): ModelSelectionProjectionState',
+        description: 'Read the Session\'s model selection state, including the pending choice.',
+        parameters: [{ name: 'session', description: 'Session whose committed events are read.' }],
+        returns: 'the current selection state; do not mutate the returned value.',
+      },
+      {
         signature: 'currentInitiator(): Agent | undefined',
         description: 'Read the Agent that initiated the inherited asynchronous driver chain. Use this optional form for logging, tracing, metrics, or host attribution that also supports agentless calls. When a parent creates a child, setup reports the causal parent while the setup callback\'s Agent parameter identifies the child.',
         parameters: [],
@@ -550,6 +556,38 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'request', description: 'the key, the method, the surface, and the cancel signal.' }],
         returns: '`authorized` once the flow\'s record is committed during this attempt and observed, or `cancelled` when the human declined or the caller withdrew.',
         throws: ['{AuthorizationError} code `NO_FLOW` when nothing claims the key, `UNKNOWN_METHOD` when the named method is not one the flow offers, `ALREADY_IN_FLIGHT` when an attempt is already running for the key, or `NOT_COMMITTED` when the flow resolved without committing a record during the attempt.'],
+      },
+    ],
+  },
+  {
+    key: 'authorizationController',
+    summary: 'Host service backing the generated `ctx.remote.authorization` namespace.',
+    description: 'Host service backing the generated `ctx.remote.authorization` namespace.\n\nThe registry itself lives on `ctx.authorization`, which an LLM adapter fills with the flows it can run; this controller adds the wire obligations — key validation, capability addressing, prompt correlation, and refusal mapping — and never knows which provider a flow signs into.',
+    methods: [
+      {
+        signature: '@Remote async list(): Promise<AuthorizationEntryView[]>',
+        description: 'Every flow a configuration surface can offer, joined with whether a credential is already stored for it. Credential state is read per key so the page can label a signed-in provider without a second round trip.',
+        parameters: [],
+        returns: 'one entry per registered flow, in registration order.',
+      },
+      {
+        signature: '@Remote({ mode: \'stream\' }) async *begin( key: string, method: string | undefined, signal: AbortSignal, ): AsyncIterable<AuthorizationStart | AuthorizationNotice | AuthorizationEnd>',
+        description: 'Run one attempt, delivering its notices to this caller alone.\n\nThe first item names the attempt capability and every later item is a notice from the flow. The caller answers through `answer` and withdraws through `cancel`, both addressed by that capability. The stream ends when the flow commits its credential, the human withdraws, or the flow fails.',
+        parameters: [{ name: 'key', description: 'the credential record to authorize; a flow must be registered for it.' }, { name: 'method', description: 'which of the flow\'s methods to run; omitted takes the first.' }, { name: 'signal', description: 'caller lifetime; aborting withdraws the attempt.' }],
+        returns: 'one start item followed by this attempt\'s notices.',
+        throws: ['RemoteError when the request is invalid or no flow claims the key.'],
+      },
+      {
+        signature: '@Remote answer(attempt: string, prompt: string, value: string): void',
+        description: 'Answer the question a running attempt asked. The value is the typed text, or the chosen option\'s id for a `select` question.',
+        parameters: [{ name: 'attempt', description: 'the capability the attempt\'s start item named.' }, { name: 'prompt', description: 'the question id carried by the question notice.' }, { name: 'value', description: 'the human\'s answer.' }],
+        throws: ['RemoteError when the capability is unknown or the question is not awaiting one.'],
+      },
+      {
+        signature: '@Remote cancel(attempt: string): void',
+        description: 'Withdraw a running attempt. The attempt\'s stream ends as `cancelled` rather than failing, because a withdrawal is an outcome.',
+        parameters: [{ name: 'attempt', description: 'the capability the attempt\'s start item named.' }],
+        throws: ['RemoteError when no attempt has that capability.'],
       },
     ],
   },
@@ -1975,6 +2013,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'jevRouter',
+    summary: 'Grep relevance ranking backed by the Jev client.',
+    description: 'Grep relevance ranking backed by the Jev client. Every failure path returns the input matches unchanged, so a consumer never loses grep output to Jev.',
+    methods: [
+      {
+        signature: 'async filterGrepMatches(input: { agent: Agent pattern: string matches: readonly JevGrepMatch[] signal: AbortSignal }): Promise<readonly JevGrepMatch[]>',
+        description: 'Keep the grep matches Jev ranks most relevant to the Agent\'s current task. Returns `input.matches` unchanged when routing is disabled, the signal is aborted, fewer than GREP_RELEVANCE_MIN_MATCHES matches arrive, the Agent has no recorded state, or scoring fails.',
+        parameters: [{ name: 'input', description: 'requesting Agent, grep pattern, candidate matches, and abort signal.' }],
+        returns: 'at most {@link GREP_RELEVANCE_KEEP_MATCHES} matches in input order, or the input matches.',
+      },
+    ],
+  },
+  {
     key: 'jobController',
     summary: 'Host service backing the generated `ctx.remote.job` namespace.',
     description: 'Host service backing the generated `ctx.remote.job` namespace.',
@@ -2061,6 +2112,38 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Attach an effect-scoped controller that can read and stop jobs. It serves the owners its registering context\'s scope covers, and start refuses an owner no attached controller serves.',
         parameters: [{ name: 'name', description: 'diagnostic label; duplicate names remain independent.' }],
         returns: 'disposer that detaches this controller.',
+      },
+    ],
+  },
+  {
+    key: 'knowledge',
+    summary: 'Bounded routing over MCP-backed knowledge providers.',
+    description: 'Bounded routing over MCP-backed knowledge providers.\n\nEvery method reads the live tool registry, so a provider that is disabled, absent, or filtered out reports as unavailable instead of failing a query.',
+    methods: [
+      {
+        signature: 'async learn(write: LearningWrite, signal: AbortSignal, agent?: Agent): Promise<LearningResult>',
+        description: 'Write one validated finding to the learned-knowledge provider.\n\nThis is the only path that persists knowledge and it never runs automatically. A delegated worker is refused here, in the operation that persists, so no caller can promote a worker\'s own answer.',
+        parameters: [{ name: 'write', description: 'the validated finding and its source references.' }, { name: 'signal', description: 'caller cancellation.' }, { name: 'agent', description: 'the calling agent, whose authority decides whether the write is allowed.' }],
+        returns: 'The written outcome and whether reflection ran.',
+        throws: ['when the caller is a delegated worker, when write-back is not configured, or when the provider command fails.'],
+      },
+      {
+        signature: 'status(agent?: ScopeKey): ProviderStatus[]',
+        description: 'Report every supported provider\'s configuration and live connection state.',
+        parameters: [{ name: 'agent', description: 'caller whose scope the registry is read in; omitted reads the global view.' }],
+        returns: 'One status per supported provider.',
+      },
+      {
+        signature: 'route(task: string): KnowledgeProviderName[]',
+        description: 'Decide which providers a task warrants.',
+        parameters: [{ name: 'task', description: 'the task text to classify.' }],
+        returns: 'Provider identities to query; empty when no cue matches.',
+      },
+      {
+        signature: 'async retrieve(task: string, options: RetrieveOptions): Promise<KnowledgePacket>',
+        description: 'Retrieve a bounded knowledge packet for one task.\n\nProviders that are disabled, unconfigured, or missing their query tool are reported as unavailable rather than raising, so a dead provider never fails the caller.',
+        parameters: [{ name: 'task', description: 'the task text to route and query.' }, { name: 'options', description: 'explicit providers, caller source references, and cancellation.' }],
+        returns: 'The bounded packet, including which providers answered.',
       },
     ],
   },
@@ -2331,6 +2414,49 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'memoryWorkspace',
+    summary: 'Authenticated GUI operations; provider calls remain Host-owned.',
+    description: 'Authenticated GUI operations; provider calls remain Host-owned.',
+    methods: [
+      {
+        signature: '@Remote async status(): Promise<MemoryStatus>',
+        description: 'Report the chat-memory switch, whether Memorix is ready, starting or unavailable, and the latest save and recall outcomes.',
+        parameters: [],
+        returns: 'the live status the Memory page shows; a connection failure is text, not an error.',
+      },
+      {
+        signature: '@Remote async retry(): Promise<MemoryStatus>',
+        description: 'Ask the Memorix client to try connecting again with a fresh retry budget; nothing happens while it is connected or still starting.',
+        parameters: [],
+        returns: 'the status right after the request.',
+      },
+      {
+        signature: '@Remote async inventory(): Promise<MemorixTable[]>',
+        description: 'Read the complete local provider inventory without modifying it.',
+        parameters: [],
+        returns: 'every stored table and record count across projects and statuses.',
+      },
+      {
+        signature: '@Remote async page(table: string, offset: number, query: string, view: MemorixView): Promise<MemorixPage>',
+        description: 'Browse or search a provider table with bounded pagination.',
+        parameters: [{ name: 'table', description: 'table from inventory.' }, { name: 'offset', description: 'nonnegative row offset.' }, { name: 'query', description: 'literal substring matched against every column.' }, { name: 'view', description: 'observation filter: all rows, saved memories only or imported document chunks only.' }],
+        returns: 'one complete page, newest record first, and the total matching count.',
+      },
+      {
+        signature: '@Remote graph(): Promise<MemoryGraph>',
+        description: 'Rebuild complete active Memorix documents with the Graphify adapter and load its bounded viewer.',
+        parameters: [],
+        returns: 'the official Graphify viewer, its graph source path and the imported document count; no Graphify run when the count is 0.',
+      },
+      {
+        signature: '@Remote importDocument(filename: string, data: string, signal?: AbortSignal): Promise<MemoryImportResult>',
+        description: 'Retain an uploaded document and import all chunks through Memorix.',
+        parameters: [{ name: 'filename', description: 'source filename displayed with the memory.' }, { name: 'data', description: 'canonical base64 encoding of complete original bytes.' }, { name: 'signal', description: 'caller lifetime; extraction and chunk import stop when it aborts.' }],
+        returns: 'verified chunk counts, original path and an explicit partial-failure message.',
+      },
+    ],
+  },
+  {
     key: 'messageFeedback',
     summary: 'Session-log service; cold operations never construct a Session or Agent.',
     description: 'Session-log service; cold operations never construct a Session or Agent.',
@@ -2563,21 +2689,45 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'Saved and runtime outcomes, including higher-priority overrides.',
       },
       {
+        signature: '@Remote async listMcpServers(): Promise<McpServerRow[]>',
+        description: 'List MCP servers configured as MCP client plugin entries.',
+        parameters: [],
+        returns: 'One row per server with its target, enablement and runtime phase.',
+      },
+      {
+        signature: '@Remote async discoverMcpServers(): Promise<McpServerCandidate[]>',
+        description: 'Find MCP servers configured for Claude Desktop, Claude Code and Codex.',
+        parameters: [],
+        returns: 'Importable servers, marking names already configured here.',
+      },
+      {
+        signature: '@Remote addMcpServer(config: McpServerConfig): Promise<ChangeResult>',
+        description: 'Add an MCP server as a new MCP client plugin entry in the profile.',
+        parameters: [{ name: 'config', description: 'Server name and stdio or streamable HTTP connection.' }],
+        returns: 'Persisted and runtime outcomes.',
+      },
+      {
+        signature: '@Remote removeMcpServer(id: PluginEntryId): Promise<ChangeResult>',
+        description: 'Remove an MCP server the profile added.',
+        parameters: [{ name: 'id', description: 'Loader entry identity returned by listMcpServers.' }],
+        returns: 'Persisted and runtime outcomes.',
+      },
+      {
         signature: '@Remote setBundleEnabled(name: string, enabled: boolean): Promise<ChangeResult>',
         description: 'Select or remove a bundle layer while retaining installed dependencies.',
         parameters: [{ name: 'name', description: 'Bundle package name.' }, { name: 'enabled', description: 'Whether the bundle contributes its patch layer.' }],
         returns: 'Persisted and runtime outcomes.',
       },
       {
-        signature: '@Remote installBundle(spec: string, options?: InstallBundleOptions): Promise<ChangeResult>',
+        signature: '@Remote installBundle(spec: string, options?: InstallBundleOptions, signal?: AbortSignal): Promise<ChangeResult>',
         description: 'Install a package using the same pnpm implementation as dsh plugin. GitHub repositories get a connection check bounded by githubConnectionTimeoutMs before pnpm starts; only network failures or timeouts stop installation, and a stop streams the check\'s diagnostic as the installation\'s install-log run under its request id, while pnpm owns authentication and transport fallback. An HTTP(S) Git URL on another host is installed over SSH instead when access probes bounded by gitTransportTimeoutMs find that only SSH can read it. A run that fails, is cancelled, or adds a package without a bundle patch restores `package.json` and `pnpm-lock.yaml` as they were; downloaded files can stay.',
-        parameters: [{ name: 'spec', description: 'One package spec, including local paths relative to the invocation directory.' }, { name: 'options', description: 'Whether to activate the installed bundle (defaults to true), the request id a cancellation names, the pending build scripts to allow, whether to save an exact dependency, and the registry asked first.' }],
+        parameters: [{ name: 'spec', description: 'One package spec, including local paths relative to the invocation directory.' }, { name: 'options', description: 'Whether to activate the installed bundle (defaults to true), the request id a cancellation names, the pending build scripts to allow for this profile before pnpm runs, whether to save an exact dependency, and the registry asked first.' }, { name: 'signal', description: 'Ends the caller\'s wait only; the installation keeps running until it ends or `cancelInstall` stops it.' }],
         returns: 'Package-manager diagnostics, the registries asked, and the observed activation outcome.',
       },
       {
-        signature: '@Remote async waitForInstall(requestId: PluginInstallRequestId): Promise<ChangeResult | null>',
+        signature: '@Remote async waitForInstall(requestId: PluginInstallRequestId, signal?: AbortSignal): Promise<ChangeResult | null>',
         description: 'Recover the result of an active installation without cancelling it.',
-        parameters: [{ name: 'requestId', description: 'The id supplied when installation started.' }],
+        parameters: [{ name: 'requestId', description: 'The id supplied when installation started.' }, { name: 'signal', description: 'Ends the caller\'s wait only; the installation keeps running.' }],
         returns: 'The installation\'s outcome after it settles, or null if no active request has that id. Completed results are not retained; null establishes neither success nor cancellation.',
       },
       {
@@ -2770,6 +2920,31 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'quotaController',
+    summary: 'requires credential-backed provider quota Remote service.',
+    description: 'requires credential-backed provider quota Remote service.',
+    methods: [
+      {
+        signature: 'registerSource(source: QuotaSource): () => void',
+        description: 'Register an account source whose provider owns authentication.',
+        parameters: [{ name: 'source', description: 'provider-owned source.' }],
+        returns: 'disposer that removes this source.',
+      },
+      {
+        signature: '@Remote listProviders(): Promise<readonly QuotaProviderView[]>',
+        description: 'List every provider the popover reports on, set up or not; `fetch` says which are configured. Connected model routes without a usage source are not listed.',
+        parameters: [],
+        returns: 'built-in providers, then registered sources.',
+      },
+      {
+        signature: '@Remote fetch(providerId: string): Promise<QuotaResult>',
+        description: 'Fetch quota state for one provider, coalescing concurrent requests.',
+        parameters: [{ name: 'providerId', description: 'provider identifier.' }],
+        returns: 'the provider quota result.',
+      },
+    ],
+  },
+  {
     key: 'remoteAccess',
     summary: 'Registry of access policies, the Gateway\'s access decisions, list filtering, and the per-Peer access snapshot.',
     description: 'Registry of access policies, the Gateway\'s access decisions, list filtering, and the per-Peer access snapshot. Every composition that mounts the Gateway mounts this service too.',
@@ -2958,6 +3133,30 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Host service backing the generated `ctx.remote.session` namespace.',
     methods: [
       {
+        signature: 'missingCredentialProviders(): Promise<readonly string[]>',
+        description: 'Provider routes whose named API-key reference has no configured credential, for Host-side route preflight.',
+        parameters: [],
+        returns: 'provider route ids that cannot authenticate; empty when credentials cannot be read.',
+      },
+      {
+        signature: 'defaultSubagentSetup(): SubagentSetup | undefined',
+        description: 'The global default Orchestrator & Subagent Setup, which a Session without its own setup inherits.',
+        parameters: [],
+        returns: 'the stored default, or undefined when none is set or the stored value fails {@link subagentSetupSchema}.',
+      },
+      {
+        signature: 'teamRoleDefaultOf(session: Session, role: SubagentTeamRole): SubagentTeamRoleRoute | undefined',
+        description: 'Resolve a Team role route from the first saved setup in the Session ancestry, or the global default when no ancestor has one.',
+        parameters: [{ name: 'session', description: 'Session whose ancestry supplies the role settings.' }, { name: 'role', description: 'Team role to resolve.' }],
+        returns: 'The saved route, or undefined when no enabled route exists.',
+      },
+      {
+        signature: 'missingCredentialProvider(provider: string): Promise<boolean>',
+        description: 'Report whether a provider’s named API-key credential is unconfigured.',
+        parameters: [{ name: 'provider', description: 'Provider identifier to check.' }],
+        returns: 'Whether the named credential is unconfigured; false when no named reference exists.',
+      },
+      {
         signature: 'resolveAgent(sessionId: SessionId): Promise<ApiSessionAgentResult>',
         description: 'Resolve or resume one ordinary Session for another Host API domain.',
         parameters: [{ name: 'sessionId', description: 'Session identity whose Agent owns the operation.' }],
@@ -2976,6 +3175,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'authorized bounded Session search results.',
       },
       {
+        signature: '@Remote(\'masterHome\') masterHome(): Promise<SessionCreateValue>',
+        description: 'Resolve the dedicated ungrouped home; concurrent requests share creation.',
+        parameters: [],
+        returns: 'the durable master session identity.',
+      },
+      {
+        signature: '@Remote(\'externalChats\') externalChats(): Promise<ExternalChatCatalog>',
+        description: 'Discover recent supported external chats without importing or running them.',
+        parameters: [],
+        returns: 'at most 100 rows with supported-text previews and per-file errors.',
+      },
+      {
+        signature: '@Remote(\'importChats\') importChats(request: ExternalChatImportRequest): Promise<ExternalChatImportValue>',
+        description: 'Import discovered text histories; preserve existing imports and isolate row failures.',
+        parameters: [{ name: 'request', description: 'keys returned by external chat discovery.' }],
+        returns: 'per-key outcomes after successful imports reach durable storage.',
+      },
+      {
         signature: '@Remote(\'create\') create(request: SessionCreateRequest): Promise<SessionCreateValue>',
         description: 'Create one ordinary Session for a new conversation, reusing the named blank Session while it is reusable.',
         parameters: [{ name: 'request', description: 'optional blank Session to reuse, location, and Agent preset.' }],
@@ -2986,6 +3203,36 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Select one Session-local model after explicitly resuming the Session; save the default in the background.',
         parameters: [{ name: 'request', description: 'Session identity and requested model selection.' }],
         returns: 'the normalized selection installed for the Session, without waiting for default persistence.',
+      },
+      {
+        signature: '@Remote(\'listMcpConnectors\') listMcpConnectors(): McpConnectorCatalog',
+        description: 'List connector namespaces exposed by globally connected MCP tools.',
+        parameters: [],
+        returns: 'connector namespaces available for Session selection.',
+      },
+      {
+        signature: '@Remote(\'listHooks\') listHooks(): SessionHookCatalog',
+        description: 'List hooks loaded by mounted hook bridges.',
+        parameters: [],
+        returns: 'every loaded hook with its global enablement.',
+      },
+      {
+        signature: '@Remote(\'setHookOverrides\') setHookOverrides(request: SessionSetHookOverridesRequest): Promise<HookOverrides>',
+        description: 'Replace the hook overrides of one Session.',
+        parameters: [{ name: 'request', description: 'Session identity and the complete override map.' }],
+        returns: 'the stored overrides.',
+      },
+      {
+        signature: '@Remote(\'setRunOptions\') setRunOptions(request: SessionSetRunOptionsRequest): Promise<SessionRunOptions>',
+        description: 'Replace the run options (ultracode, plus fast mode and effort for Claude Code runs) of one Session.',
+        parameters: [{ name: 'request', description: 'Session identity and the run options to store.' }],
+        returns: 'the stored run options.',
+      },
+      {
+        signature: '@Remote(\'selectMcp\') selectMcp(request: SessionSelectMcpRequest): Promise<SessionSelectMcpValue>',
+        description: 'Select MCP connector namespaces for one Session.',
+        parameters: [{ name: 'request', description: 'Session identity and selected connector namespaces.' }],
+        returns: 'the normalized Session selection.',
       },
       {
         signature: '@Remote async initializeDefaultModel(): Promise<void>',
@@ -3965,7 +4212,14 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     key: 'subagentModelSelection',
     summary: 'Host settings owner that records Session authorization before the first model request.',
     description: 'Host settings owner that records Session authorization before the first model request.',
-    methods: [],
+    methods: [
+      {
+        signature: 'current(): SubagentModelSelectionSettings',
+        description: 'Read a detached selection preference for the next fresh top-level Session.',
+        parameters: [],
+        returns: 'the enabled state and exact allowed routes.',
+      },
+    ],
   },
   {
     key: 'subagents',
@@ -4065,6 +4319,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the exact Cordis effect disposer.',
       },
       {
+        signature: 'activeSubagentLimit(): number',
+        description: 'The current per-parent live-child capacity (maxActiveSubagents).',
+        parameters: [],
+        returns: 'the configured limit.',
+      },
+      {
         signature: 'getProvider(name: string): SubagentProvider | undefined',
         description: 'Look up a provider by name.',
         parameters: [{ name: 'name', description: 'the provider name.' }],
@@ -4077,6 +4337,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Abstract subprocess service.',
     description: 'Abstract subprocess service. Subclass, implement spawn, and load the subclass as a plugin — it registers as `ctx.subprocess` (one implementation per context; loading a second throws, which is cordis\' standard duplicate-service behavior).\n\nImplementations must honor these semantics:\n\n- Executable paths belong to one execution world shared with the mounted filesystem provider.\n- spawn returns a live handle synchronously. Target identity remains provider-private; `done` resolves with the spawned command\'s exit facts and may reject for spawn or provider failures.\n- Collect-mode readers are offset-based and non-consuming, so independent readers never consume one another\'s output; lossy reads report truncation and the spill file holding the complete stream when one exists. Piped streams are handed to the caller raw and never buffered here.\n- SubprocessHandle.terminate (and the spec\'s abort signal) starts the provider\'s documented procedure against its managed range. SubprocessHandle.waitForExit observes that same range so a consumer-owned teardown ladder can hold each tier on real quiescence; each provider documents its signalling and observability limits.\n- Disposal of the service terminates all still-running managed processes and awaits their exit.\n- spawnTerminal owns terminal allocation, text transport, foreground groups, signalling, and whole-session quiescence behind one awaited termination method; readiness and persistent-shell policy stay in the PTY consumer. Its output stream ends after queued terminal output when the top-level process exits.',
     methods: [
+      {
+        signature: 'readonly inheritsUserEnvironment: boolean = false',
+        description: 'Whether spawnTerminal honors `inheritEnvironment`; a provider that cannot keeps this false.',
+        parameters: [],
+      },
       {
         signature: 'abstract resolveExecutable( command: string, env?: Readonly<Record<string, string>>, signal?: AbortSignal, ): Promise<string>',
         description: 'Resolve one configured executable in this provider\'s execution world. Absolute paths are verified; bare names use the provider\'s scrubbed PATH plus explicit environment overrides. Relative paths containing separators are rejected: the resolution base is undefined, so providers fail loud instead of guessing.',
@@ -4181,6 +4446,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Discover installed shells in the Session\'s execution environment.',
         parameters: [{ name: 'agent', description: 'Session owner supplied by the Gateway.' }, { name: 'signal', description: 'request cancellation.' }],
         returns: 'verified profiles, with the configured or system default first.',
+      },
+      {
+        signature: '@Remote cliProfiles(agent: Agent, signal: AbortSignal): Promise<CliTerminalStatus[]>',
+        description: 'Report which CLI terminal profiles resolve in the Session\'s execution environment.',
+        parameters: [{ name: 'agent', description: 'Session owner supplied by the Gateway.' }, { name: 'signal', description: 'request cancellation.' }],
+        returns: 'one status per profile, in table order.',
       },
       {
         signature: '@Remote list(sessionId: SessionId): WebTerminalInfo[]',
@@ -4814,14 +5085,26 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'workspaceChanges',
-    summary: 'Serves the summaries and file comparisons the recorder keeps for live Sessions.',
-    description: 'Serves the summaries and file comparisons the recorder keeps for live Sessions.',
+    summary: 'Serves live turn comparisons and current repository status for Sessions.',
+    description: 'Serves live turn comparisons and current repository status for Sessions.',
     methods: [
       {
-        signature: 'summary(sessionId: SessionId, seq: number): WorkspaceChangesSummary | undefined',
+        signature: 'status(workspaceId: WorkspaceId, signal: AbortSignal): Promise<WorkspaceStatus | undefined>',
+        description: 'Read the current git working-tree status for a registered Workspace.',
+        parameters: [{ name: 'workspaceId', description: 'registered workspace identity.' }, { name: 'signal', description: 'cancels git and filesystem work.' }],
+        returns: 'the repository status, or undefined when git is unavailable or the directory is not a repository.',
+      },
+      {
+        signature: 'summary(sessionId: SessionId, seq: number): Promise<WorkspaceChangesSummary | undefined>',
         description: 'The summary announced by one `workspace/changes` event.',
         parameters: [{ name: 'sessionId', description: 'the Session that appended the event.' }, { name: 'seq', description: 'the event\'s sequence number.' }],
-        returns: 'the summary, or undefined once its Session was disposed or when this Host never recorded it.',
+        returns: 'the summary, or undefined when this Host never recorded it or its records were pruned. A Session this process no longer holds is served from the durable records the previous process wrote.',
+      },
+      {
+        signature: 'workspaceDiff(workspaceId: WorkspaceId, index: number, signal: AbortSignal): Promise<WorkspaceFileDiff | undefined>',
+        description: 'Compare one current repository-status file against HEAD.',
+        parameters: [{ name: 'workspaceId', description: 'registered workspace identity.' }, { name: 'index', description: 'index in the current status response.' }, { name: 'signal', description: 'cancels git and filesystem work.' }],
+        returns: 'a current comparison, or undefined for an unknown workspace or file.',
       },
       {
         signature: 'diff(sessionId: SessionId, seq: number, index: number, signal: AbortSignal): Promise<WorkspaceFileDiff | undefined>',
@@ -5143,6 +5426,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'payload', description: '.signal - the turn abort signal. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.' }],
   },
   {
+    name: 'agent/route',
+    mode: 'waterfall',
+    signature: '\'agent/route\'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; messages: UserMessage[]; signal: AbortSignal }, next: () => Promise<ModelSelection | undefined>): Promise<ModelSelection | undefined>',
+    summary: 'Choose the model selection for one proposed step, or `undefined` to keep the Agent\'s own choice.',
+    description: 'Choose the model selection for one proposed step, or `undefined` to keep the Agent\'s own choice.',
+    parameters: [{ name: 'payload', description: '.signal - the current turn\'s cancellation signal. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.' }],
+  },
+  {
     name: 'agent/status',
     mode: 'emit',
     signature: '\'agent/status\'(this: Scoped<Agent>, payload: { agent: Agent; status: AgentStatus }): void',
@@ -5431,6 +5722,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'reloads', description: 'Replaced plugins and their module locations.' }],
   },
   {
+    name: 'hooks/inventory',
+    mode: 'emit',
+    signature: '\'hooks/inventory\'(reports: HookInventoryReport[]): void',
+    summary: 'Collect configuration snapshots from currently mounted hook bridges.',
+    description: 'Collect configuration snapshots from currently mounted hook bridges.',
+    parameters: [{ name: 'reports', description: 'Mutable destination for loaded bridge reports.' }],
+  },
+  {
     name: 'llm-pi-ai/request-headers',
     mode: 'waterfall',
     signature: '\'llm-pi-ai/request-headers\'(request: PiAiRequestHeaderContext, headers: Headers, next: () => Headers): Headers',
@@ -5455,6 +5754,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'provider', description: 'route whose model catalog changed.' }],
   },
   {
+    name: 'llm/rate-limit-observed',
+    mode: 'emit',
+    signature: '\'llm/rate-limit-observed\'(observation: LlmRateLimitObservation): void',
+    summary: 'A provider reported one rate-limit window on a response or stream event: subscription windows from Anthropic response headers, or Claude Agent SDK rate-limit events.',
+    description: 'A provider reported one rate-limit window on a response or stream event: subscription windows from Anthropic response headers, or Claude Agent SDK rate-limit events. Observers keep the latest value per window; publishers do not wait on them.',
+    parameters: [{ name: 'observation', description: 'the window as the publisher observed it.' }],
+  },
+  {
     name: 'llm/stream',
     mode: 'waterfall',
     signature: '\'llm/stream\'(this: LlmRuntime, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>',
@@ -5463,12 +5770,44 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'options', description: 'the full request. A LOOP-built request carries the process-local {@link markAgentLoopRequest} identity and arrives deep-frozen (mutation throws): its content is a pure function of the session log (the reconstructability Agent Note), so listeners read it, never rewrite it. Hand-built calls do not carry that marker; callers own their request inputs and must keep them unchanged until the stream settles.' }],
   },
   {
+    name: 'mcp-client/inventory',
+    mode: 'emit',
+    signature: '\'mcp-client/inventory\'(reports: McpConnectionReport[]): void',
+    summary: 'Collect connection reports from globally scoped MCP instances.',
+    description: 'Collect connection reports from globally scoped MCP instances.',
+    parameters: [{ name: 'reports', description: 'Mutable collection to which each instance adds its report.' }],
+  },
+  {
+    name: 'mcp-client/reconnect',
+    mode: 'emit',
+    signature: '\'mcp-client/reconnect\'(serverName: string): void',
+    summary: 'Request an immediate connection attempt for a named MCP server.',
+    description: 'Request an immediate connection attempt for a named MCP server.',
+    parameters: [{ name: 'serverName', description: 'Local namespace of the server to reconnect.' }],
+  },
+  {
     name: 'mcp-manager/status',
     mode: 'parallel',
     signature: '\'mcp-manager/status\'(name: string, status: McpManagedServerStatus): void | Promise<void>',
     summary: 'One managed server\'s status transitioned.',
     description: 'One managed server\'s status transitioned. Emitted for every published change while the manager is live and either the entry is configured or registered, or a runtime record remains. Removed entries may emit cleanup failures; `watch` and `list()` report removals. Lifecycle operations do not wait for listeners. Synchronous throws and returned promise rejections are logged without skipping other listeners.',
     parameters: [{ name: 'name', description: 'the configured `servers` key or registered name.' }, { name: 'status', description: 'the status now current for that server.' }],
+  },
+  {
+    name: 'mcp/human-operations',
+    mode: 'waterfall',
+    signature: '\'mcp/human-operations\'(server: string, next: () => Promise<McpHumanOperations | undefined>): Promise<McpHumanOperations | undefined>',
+    summary: 'Resolve the human operations exposed by a named MCP server.',
+    description: 'Resolve the human operations exposed by a named MCP server.',
+    parameters: [{ name: 'server', description: 'Local namespace of the requested server.' }],
+  },
+  {
+    name: 'memory/lookup',
+    mode: 'waterfall',
+    signature: '\'memory/lookup\'(query: string, session: Session, signal: AbortSignal, next: () => Promise<string | undefined>): Promise<string | undefined>',
+    summary: 'Read saved memory text for one session, such as Memorix notes for the auto responder.',
+    description: 'Read saved memory text for one session, such as Memorix notes for the auto responder.',
+    parameters: [{ name: 'query', description: 'literal search text.' }, { name: 'session', description: 'the session asking, so its own chat records are left out.' }, { name: 'signal', description: 'lookup lifetime.' }, { name: 'next', description: 'delegation to other providers.' }],
   },
   {
     name: 'permission-presets/catalog-changed',
@@ -5976,7 +6315,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AgentOptions',
-    declaration: 'export interface AgentOptions {\n    provider?: string;\n    model?: string;\n    reasoningEffort?: ReasoningEffortId | undefined;\n    maxTokens?: number;\n}',
+    declaration: 'export interface AgentOptions {\n    provider?: string;\n    model?: string;\n    reasoningEffort?: ReasoningEffortId | undefined;\n    maxTokens?: number;\n    pinnedSelection?: (session: Session) => ModelSelection | undefined;\n}',
   },
   {
     name: 'AgentPresetComposition',
@@ -6163,12 +6502,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface AuthenticationProvider {\n    authenticate(request: ConnectionTrustRequest): PeerScope | undefined;\n}',
   },
   {
+    name: 'AuthorizationEnd',
+    declaration: 'export interface AuthorizationEnd {\n    readonly type: \'end\';\n    readonly status: \'authorized\' | \'cancelled\';\n}',
+  },
+  {
     name: 'AuthorizationEntry',
-    declaration: 'export interface AuthorizationEntry {\n    key: CredentialKey;\n    label: string;\n    methods: readonly AuthorizationMethod[];\n    inFlight: boolean;\n}',
+    declaration: 'export interface AuthorizationEntry {\n    key: CredentialKey;\n    label: string;\n    methods: readonly AuthorizationMethod[];\n    inFlight: boolean;\n    borrowedFrom?: string;\n}',
+  },
+  {
+    name: 'AuthorizationEntryView',
+    declaration: 'export interface AuthorizationEntryView {\n    readonly key: string;\n    readonly label: string;\n    readonly methods: readonly {\n        readonly id: string;\n        readonly label: string;\n    }[];\n    readonly inFlight: boolean;\n    readonly configured: boolean;\n    readonly kind?: \'api-key\' | \'grant\';\n    readonly borrowedFrom?: string;\n}',
   },
   {
     name: 'AuthorizationFlow',
-    declaration: 'export interface AuthorizationFlow {\n    readonly key: CredentialKey;\n    readonly label: string;\n    readonly methods: readonly [\n        AuthorizationMethod,\n        ...AuthorizationMethod[]\n    ];\n    run(session: AuthorizationSession): Promise<void>;\n}',
+    declaration: 'export interface AuthorizationFlow {\n    readonly key: CredentialKey;\n    readonly label: string;\n    readonly methods: readonly [\n        AuthorizationMethod,\n        ...AuthorizationMethod[]\n    ];\n    readonly borrowedFrom?: string;\n    run(session: AuthorizationSession): Promise<void>;\n}',
   },
   {
     name: 'AuthorizationInteraction',
@@ -6177,14 +6524,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AuthorizationMethod',
     declaration: 'export interface AuthorizationMethod {\n    id: string;\n    label: string;\n}',
-  },
-  {
-    name: 'AuthorizationNotice',
-    declaration: 'export interface AuthorizationNotice {\n    message: string;\n    url?: string;\n    code?: string;\n}',
-  },
-  {
-    name: 'AuthorizationOutcome',
-    declaration: 'export interface AuthorizationOutcome {\n    status: AuthorizationStatus;\n}',
   },
   {
     name: 'AuthorizationPrompt',
@@ -6205,6 +6544,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AuthorizationSettlement',
     declaration: 'export type AuthorizationSettlement = AuthorizationStatus | \'failed\';',
+  },
+  {
+    name: 'AuthorizationStart',
+    declaration: 'export interface AuthorizationStart {\n    readonly type: \'start\';\n    readonly attempt: string;\n    readonly key: string;\n}',
   },
   {
     name: 'AuthorizationStatus',
@@ -6325,6 +6668,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ClientArtifactBaseline',
     declaration: 'export interface ClientArtifactBaseline {\n    readonly path: string;\n    readonly mtimeMs: number;\n    readonly ctimeMs: number;\n    readonly size: number;\n}',
+  },
+  {
+    name: 'CliTerminalProfileId',
+    declaration: 'export type CliTerminalProfileId = (typeof CLI_TERMINAL_PROFILE_IDS)[number];',
+  },
+  {
+    name: 'CliTerminalStatus',
+    declaration: 'export interface CliTerminalStatus {\n    readonly profile: CliTerminalProfileId;\n    readonly installed: boolean;\n    readonly installUrl: string;\n}',
   },
   {
     name: 'CollectedOutput',
@@ -6815,6 +7166,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface EncodedImageAttachment {\n    mediaType: ImageMediaType;\n    data: string;\n    name?: string;\n}',
   },
   {
+    name: 'EntryAnalyticsRegion',
+    declaration: 'export type EntryAnalyticsRegion = \'sidebar\' | \'conversation\' | \'rightbar\';',
+  },
+  {
     name: 'EpochHeader',
     declaration: 'export interface EpochHeader {\n    config: LlmCallConfig;\n    adapterDefaults?: LlmCallConfigAdapterDefaults;\n    tools?: ToolSchema[];\n    system?: never;\n}',
   },
@@ -6829,6 +7184,34 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'EveryScheduleRecord',
     declaration: 'export interface EveryScheduleRecord {\n    readonly id: ScheduleId;\n    readonly kind: \'every\';\n    readonly title: string;\n    readonly prompt: string;\n    readonly everySeconds: number;\n    readonly scheduledAt: string;\n}',
+  },
+  {
+    name: 'ExternalChat',
+    declaration: 'export interface ExternalChat {\n    readonly key: ExternalChatKey;\n    readonly source: ExternalChatSource;\n    readonly title: string;\n    readonly cwd?: string;\n    readonly updatedAt: number;\n    readonly messageCount: number;\n    readonly preview: string;\n    readonly error?: string;\n}',
+  },
+  {
+    name: 'ExternalChatCatalog',
+    declaration: 'export interface ExternalChatCatalog {\n    readonly items: readonly ExternalChat[];\n    readonly limited: boolean;\n}',
+  },
+  {
+    name: 'ExternalChatImportRequest',
+    declaration: 'export interface ExternalChatImportRequest {\n    readonly keys: readonly ExternalChatKey[];\n}',
+  },
+  {
+    name: 'ExternalChatImportResult',
+    declaration: 'export interface ExternalChatImportResult {\n    readonly key: ExternalChatKey;\n    readonly sessionId?: SessionId;\n    readonly duplicate?: boolean;\n    readonly error?: string;\n}',
+  },
+  {
+    name: 'ExternalChatImportValue',
+    declaration: 'export interface ExternalChatImportValue {\n    readonly items: readonly ExternalChatImportResult[];\n}',
+  },
+  {
+    name: 'ExternalChatKey',
+    declaration: 'export type ExternalChatKey = Branded<\'external-chat-key\'>;',
+  },
+  {
+    name: 'ExternalChatSource',
+    declaration: 'export type ExternalChatSource = \'claude\' | \'codex\';',
   },
   {
     name: 'FeedbackCategory',
@@ -7163,6 +7546,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ForgeWorktreeWaiting = \'creation\' | \'restoration\';',
   },
   {
+    name: 'Freshness',
+    declaration: 'export type Freshness = {\n    readonly kind: \'unknown\';\n} | {\n    readonly kind: \'current\';\n} | {\n    readonly kind: \'stale\';\n    readonly detail: string;\n};',
+  },
+  {
     name: 'FsDeleteOutcome',
     declaration: 'export interface FsDeleteOutcome {\n    before: string | null;\n}',
   },
@@ -7291,6 +7678,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface HookFailure {\n    readonly kind: \'throw\' | \'timeout\';\n    readonly message: string;\n}',
   },
   {
+    name: 'HookInventoryHandler',
+    declaration: 'export interface HookInventoryHandler {\n    readonly event: string;\n    readonly matcher?: string;\n    readonly command: string;\n    readonly key: string;\n    readonly disabled?: boolean;\n    readonly description?: string;\n}',
+  },
+  {
+    name: 'HookInventoryReport',
+    declaration: 'export interface HookInventoryReport {\n    readonly dialect: \'claude-code\' | \'codex\';\n    readonly source: string;\n    readonly status: \'loaded\' | \'configured\' | \'failed\';\n    readonly handlers: readonly HookInventoryHandler[];\n    readonly skipped: readonly string[];\n    readonly error?: string;\n    readonly settingsNs?: string;\n}',
+  },
+  {
     name: 'HookMatcher',
     declaration: 'export type HookMatcher = Readonly<Record<string, MatcherValue>>;',
   },
@@ -7301,6 +7696,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'HookOrigin',
     declaration: 'export interface HookOrigin {\n    readonly plugin: string;\n    readonly tier: ModTier;\n}',
+  },
+  {
+    name: 'HookOverrides',
+    declaration: 'export interface HookOverrides {\n    readonly overrides: Readonly<Record<string, boolean>>;\n}',
   },
   {
     name: 'HookRegistration',
@@ -7399,6 +7798,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface InvokeRemoteRequest {\n    readonly namespace: string;\n    readonly method: string;\n    readonly args: Readonly<Record<string, unknown>>;\n    readonly uplink?: AsyncIterable<unknown>;\n    readonly uplinkWindow?: RemoteUplinkWindow | undefined;\n    readonly peer: PeerScope;\n    readonly signal?: AbortSignal;\n}',
   },
   {
+    name: 'JevGrepMatch',
+    declaration: 'export interface JevGrepMatch {\n    readonly path: string;\n    readonly lineNumber: number;\n    readonly line: string;\n}',
+  },
+  {
     name: 'JobAppendOptions',
     declaration: 'export interface JobAppendOptions {\n    channel?: JobChannel;\n    gapBefore?: true;\n}',
   },
@@ -7460,7 +7863,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'JobKindMap',
-    declaration: 'export interface JobKindMap {\n    bash: \'bash\';\n}',
+    declaration: 'export interface JobKindMap {\n    bash: \'bash\';\n    subagent: \'subagent\';\n    watch: \'watch\';\n}',
   },
   {
     name: 'JobListFrame',
@@ -7527,6 +7930,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
   },
   {
+    name: 'KnowledgeItem',
+    declaration: 'export interface KnowledgeItem {\n    readonly provider: KnowledgeProviderName;\n    readonly serverName: string;\n    readonly task: string;\n    readonly text: string;\n    readonly freshness: Freshness;\n    readonly signals: KnowledgeSignals;\n    readonly retrievedAt: string;\n}',
+  },
+  {
+    name: 'KnowledgePacket',
+    declaration: 'export interface KnowledgePacket {\n    readonly task: string;\n    readonly requestedBy?: string;\n    readonly providers: KnowledgeProviderName[];\n    readonly unavailable: KnowledgeProviderName[];\n    readonly items: KnowledgeItem[];\n    readonly bytes: number;\n    readonly truncated: boolean;\n}',
+  },
+  {
+    name: 'KnowledgeProviderName',
+    declaration: 'export type KnowledgeProviderName = \'gitnexus\' | \'graphify\';',
+  },
+  {
+    name: 'KnowledgeSignals',
+    declaration: 'export interface KnowledgeSignals {\n    readonly lessonsObserved: number;\n    readonly staleLessons: number;\n    readonly lessonStatuses: string[];\n}',
+  },
+  {
     name: 'KnownSubagentCatalogFields',
     declaration: 'export type KnownSubagentCatalogFields = {\n    readonly mode: \'one-shot\';\n    readonly label?: string;\n} | {\n    readonly mode: \'external\';\n    readonly label?: string;\n    readonly name?: string;\n} | {\n    readonly mode: \'continuable\';\n    readonly label: string;\n    readonly name?: string;\n};',
   },
@@ -7545,6 +7964,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'KvUnitDescriptor',
     declaration: 'export interface KvUnitDescriptor {\n    readonly name: string;\n    readonly version: number;\n    readonly tables: readonly string[];\n    readonly hasGlobal: boolean;\n    readonly layout?: \'single\' | \'per-record\';\n    readonly compatibleVersions?: readonly number[];\n}',
+  },
+  {
+    name: 'LearningOutcome',
+    declaration: 'export type LearningOutcome = \'useful\' | \'dead_end\' | \'corrected\';',
+  },
+  {
+    name: 'LearningResult',
+    declaration: 'export interface LearningResult {\n    readonly outcome: LearningOutcome;\n    readonly reflected: boolean;\n    readonly stdout: string;\n    readonly reflectionError?: string;\n}',
+  },
+  {
+    name: 'LearningWrite',
+    declaration: 'export interface LearningWrite {\n    readonly question: string;\n    readonly answer: string;\n    readonly outcome: LearningOutcome;\n    readonly correction?: string;\n    readonly nodes?: readonly string[];\n    readonly validatedBy: string;\n}',
   },
   {
     name: 'ListVersionsOptions',
@@ -7621,6 +8052,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'LlmProviderInfo',
     declaration: 'export interface LlmProviderInfo {\n    id: string;\n    name: string;\n}',
+  },
+  {
+    name: 'LlmRateLimitObservation',
+    declaration: 'export interface LlmRateLimitObservation {\n    readonly route: string;\n    readonly window: string;\n    readonly utilization?: number;\n    readonly resetAt?: number;\n    readonly status?: string;\n    readonly observedAt: number;\n}',
   },
   {
     name: 'LlmReasoningEffortInfo',
@@ -7787,8 +8222,24 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface McpCloseResult {\n    closeConfirmed: boolean;\n    cleanupError?: string;\n}',
   },
   {
+    name: 'McpConnectionReport',
+    declaration: 'export interface McpConnectionReport {\n    serverName: string;\n    state: McpConnectionState;\n    toolCount: number;\n    error?: string;\n    authKey?: import(\'@deepseek-ai/dsh-credentials\').CredentialKey;\n}',
+  },
+  {
+    name: 'McpConnectionState',
+    declaration: 'export type McpConnectionState = \'connecting\' | \'connected\' | \'auth-required\' | \'failed\';',
+  },
+  {
     name: 'McpConnectionStatus',
     declaration: 'export type McpConnectionStatus = {\n    state: \'closed\';\n    result: McpCloseResult;\n} | {\n    state: \'waiting-credentials\';\n    lastError: string;\n} | {\n    state: \'connecting\';\n    attempt: number;\n} | {\n    state: \'connected\';\n    toolCount: number;\n    connectedAt: number;\n} | {\n    state: \'reconnecting\';\n    attempt: number;\n    maxAttempts: number;\n    nextRetryAtMs: number;\n    lastError: string;\n} | {\n    state: \'failed\';\n    reason: \'gave-up\' | \'reconnect-disabled\' | \'unclosed-generation\';\n    lastError?: string;\n};',
+  },
+  {
+    name: 'McpConnectorCatalog',
+    declaration: 'export interface McpConnectorCatalog {\n    readonly connectorIds: readonly string[];\n}',
+  },
+  {
+    name: 'McpHumanOperations',
+    declaration: 'export interface McpHumanOperations {\n    readonly local: boolean;\n    readonly cwd: string;\n    readonly env: Readonly<Record<string, string>>;\n    call(name: string, args: Record<string, JsonValue>, signal: AbortSignal): Promise<unknown>;\n}',
   },
   {
     name: 'McpManagedServerStatus',
@@ -7827,8 +8278,68 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type McpResourceRequest = {\n    method: \'resources/list\' | \'resources/templates/list\';\n    cursor?: string;\n} | {\n    method: \'resources/read\';\n    uri: string;\n};',
   },
   {
+    name: 'McpSelection',
+    declaration: 'export interface McpSelection {\n    readonly connectorIds: readonly string[];\n}',
+  },
+  {
+    name: 'McpServerCandidate',
+    declaration: 'export interface McpServerCandidate {\n    readonly source: McpServerSource;\n    readonly config: McpServerConfig;\n    readonly configured: boolean;\n}',
+  },
+  {
+    name: 'McpServerConfig',
+    declaration: 'export type McpServerConfig = {\n    readonly transport: \'stdio\';\n    readonly serverName: string;\n    readonly command: string;\n    readonly args: readonly string[];\n    readonly env: Readonly<Record<string, string>>;\n} | {\n    readonly transport: \'streamable-http\';\n    readonly serverName: string;\n    readonly url: string;\n    readonly headers: Readonly<Record<string, string>>;\n};',
+  },
+  {
+    name: 'McpServerConnection',
+    declaration: 'export interface McpServerConnection {\n    readonly state: \'connecting\' | \'connected\' | \'auth-required\' | \'failed\';\n    readonly toolCount: number;\n    readonly error?: string;\n    readonly authKey?: string;\n}',
+  },
+  {
     name: 'McpServerRegistration',
     declaration: 'export type McpServerRegistration = Omit<EntryInput, \'enabled\'>;',
+  },
+  {
+    name: 'McpServerRow',
+    declaration: 'export interface McpServerRow {\n    readonly entryId: string;\n    readonly patchId?: string;\n    readonly serverName: string;\n    readonly transport: string;\n    readonly target: string;\n    readonly enabled: boolean;\n    readonly phase: string | null;\n    readonly removable: boolean;\n    readonly connection?: McpServerConnection;\n}',
+  },
+  {
+    name: 'McpServerSource',
+    declaration: 'export type McpServerSource = \'claude-desktop\' | \'claude-code\' | \'codex\';',
+  },
+  {
+    name: 'MemorixCell',
+    declaration: 'export type MemorixCell = string | number | null | {\n    base64: string;\n};',
+  },
+  {
+    name: 'MemorixPage',
+    declaration: 'export interface MemorixPage {\n    table: string;\n    columns: string[];\n    rows: Record<string, MemorixCell>[];\n    total: number;\n    offset: number;\n    limit: number;\n}',
+  },
+  {
+    name: 'MemorixTable',
+    declaration: 'export interface MemorixTable {\n    name: string;\n    columns: string[];\n    count: number;\n}',
+  },
+  {
+    name: 'MemorixView',
+    declaration: 'export type MemorixView = \'all\' | \'memories\' | \'documents\';',
+  },
+  {
+    name: 'MemoryActivity',
+    declaration: 'export interface MemoryActivity {\n    lastSavedAt?: string | undefined;\n    saveFailure?: MemoryFailure | undefined;\n    lastRecalledAt?: string | undefined;\n    recallFailure?: MemoryFailure | undefined;\n}',
+  },
+  {
+    name: 'MemoryFailure',
+    declaration: 'export interface MemoryFailure {\n    message: string;\n    at: string;\n}',
+  },
+  {
+    name: 'MemoryGraph',
+    declaration: 'export interface MemoryGraph {\n    html: string;\n    path: string;\n    documents: number;\n}',
+  },
+  {
+    name: 'MemoryImportResult',
+    declaration: 'export interface MemoryImportResult {\n    filename: string;\n    originalPath: string;\n    completed: number;\n    total: number;\n    error: string | null;\n}',
+  },
+  {
+    name: 'MemoryStatus',
+    declaration: 'export interface MemoryStatus extends MemoryActivity {\n    chatMemory: boolean;\n    server: \'ready\' | \'starting\' | \'unavailable\';\n    connection?: string | undefined;\n}',
   },
   {
     name: 'Mergeability',
@@ -7948,7 +8459,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ModelCatalogModel',
-    declaration: 'export interface ModelCatalogModel {\n    readonly id: string;\n    readonly name: string;\n    readonly description?: string;\n    readonly reasoning?: ModelReasoning;\n    readonly badge?: LlmModelBadge;\n}',
+    declaration: 'export interface ModelCatalogModel {\n    readonly id: string;\n    readonly name: string;\n    readonly description?: string;\n    readonly reasoning?: ModelReasoning;\n    readonly ultracode?: boolean;\n    readonly badge?: LlmModelBadge;\n}',
   },
   {
     name: 'ModelMessageSource',
@@ -7964,7 +8475,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ModelProviderGroup',
-    declaration: 'export interface ModelProviderGroup {\n    readonly id: string;\n    readonly name: string;\n    readonly models: readonly ModelCatalogModel[];\n}',
+    declaration: 'export interface ModelProviderGroup {\n    readonly id: string;\n    readonly name: string;\n    readonly models: readonly ModelCatalogModel[];\n    readonly missingCredential?: boolean;\n}',
   },
   {
     name: 'ModelReasoning',
@@ -7973,6 +8484,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ModelReasoningEffort',
     declaration: 'export interface ModelReasoningEffort {\n    readonly id: string;\n    readonly name: string;\n    readonly description?: string;\n}',
+  },
+  {
+    name: 'ModelSelectionProjectionState',
+    declaration: 'export interface ModelSelectionProjectionState {\n    readonly lastUsed: ModelSelection | null;\n    readonly lastUsedSeq: SessionSeq | null;\n    readonly pending: ModelSelection | null;\n}',
   },
   {
     name: 'ModEvents',
@@ -8089,10 +8604,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'OfficeWorkbookExtension',
     declaration: 'export type OfficeWorkbookExtension = \'xls\' | \'xlsx\' | \'ods\';',
-  },
-  {
-    name: 'OnboardingPage',
-    declaration: 'export type OnboardingPage = \'onboarding_welcome\' | \'onboarding_recharge\' | \'onboarding_use_case\' | \'onboarding_process\';',
   },
   {
     name: 'OneShotScheduleRecord',
@@ -8356,7 +8867,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ProductEventMap',
-    declaration: 'export interface ProductEventMap {\n    desktop_app_launch: Record<string, never>;\n    auth_page_view: Record<string, never>;\n    auth_page_click: {\n        button_name: \'sign_in\' | \'api-key\';\n    };\n    api_key_save_click: Record<string, never>;\n    onboarding_page_view: {\n        page_name: OnboardingPage;\n    };\n    onboarding_page_click: {\n        page_name: OnboardingPage;\n        button_name: \'next\' | \'back\' | \'skip\' | \'charge\' | \'later\' | \'continue\';\n        selected_content?: \'office\' | \'code\' | \'code_office\' | \'focus_result\' | \'key_detail\' | \'full_process\';\n    };\n    onboarding_popup_view: {\n        popup_name: \'skip_charge\' | \'skip_setting\';\n    };\n    onboarding_popup_click: {\n        popup_name: \'skip_charge\' | \'skip_setting\';\n        button_name: \'charge\' | \'know\' | \'enter\' | \'setting\' | \'close\';\n    };\n    desktop_upgrade_click: Record<string, never>;\n    desktop_upgrade_download_result: {\n        is_success: boolean;\n        error_reason?: string;\n    };\n    desktop_upgrade_install_restart_click: Record<string, never>;\n    send_button_click: {\n        session_id?: SessionId;\n        model_name?: string;\n        thinking_effort?: string;\n        run_mode: \'plan\' | \'goal\' | \'default\';\n        msg_type: \'default\' | \'steer\' | \'queue\';\n        is_new_session: boolean;\n        agent_preset?: AnalyticsPreset | \'other\';\n    };\n    model_switch: {\n        session_id?: SessionId;\n        switch_from: string;\n        switch_to: string;\n    };\n    thinking_level_switch: {\n /* …truncated — full shape in source */',
+    declaration: 'export interface ProductEventMap {\n    desktop_app_launch: Record<string, never>;\n    desktop_upgrade_click: Record<string, never>;\n    desktop_upgrade_download_result: {\n        is_success: boolean;\n        error_reason?: string;\n    };\n    desktop_upgrade_install_restart_click: Record<string, never>;\n    send_button_click: {\n        session_id?: SessionId;\n        model_name?: string;\n        thinking_effort?: string;\n        run_mode: \'plan\' | \'goal\' | \'default\';\n        msg_type: \'default\' | \'steer\' | \'queue\';\n        is_new_session: boolean;\n        agent_preset?: AnalyticsPreset | \'other\';\n    };\n    model_switch: {\n        session_id?: SessionId;\n        switch_from: string;\n        switch_to: string;\n    };\n    thinking_level_switch: {\n        session_id?: SessionId;\n        switch_from: string;\n        switch_to: string;\n        model_name: string;\n    };\n    context_compression: {\n        session_id: SessionId;\n        trigger_type: \'auto\' | \'manual\';\n    };\n    branch_session_click: {\n        session_id: SessionId;\n        parent_session_id: SessionId;\n        parent_message_id?: MessageId;\n        click_position: \'footer\' | \'sidebar\';\n    };\n    sidebar_menu_click: {\n        menu_name: SidebarAnalyticsEntry;\n        position?: SidebarAnalyticsPosition;\n    };\n    more_menu_item_click: {\n        region: EntryAnalyticsRegion;\n        action: \'browse_plugins\' | \'create_plugin\';\n    };\n    agent_preset_switch: {\n        switch_from: AnalyticsPreset | \'other\';\n         /* …truncated — full shape in source */',
   },
   {
     name: 'ProductTelemetryRecord',
@@ -8451,6 +8962,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ProviderRequestId = Branded<\'ProviderRequestId\'>;',
   },
   {
+    name: 'ProviderStatus',
+    declaration: 'export interface ProviderStatus {\n    readonly provider: KnowledgeProviderName;\n    readonly enabled: boolean;\n    readonly serverName: string;\n    readonly connected: boolean;\n    readonly tools: string[];\n}',
+  },
+  {
     name: 'PrunedEntry',
     declaration: 'export interface PrunedEntry {\n    readonly originalSeq: SessionSeq;\n    readonly replacementSeq: SessionSeq;\n    readonly callId: ToolCallId;\n    readonly charsBefore: number;\n    readonly charsAfter: number;\n}',
   },
@@ -8505,6 +9020,38 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'QueueAction',
     declaration: 'export type QueueAction = {\n    readonly kind: \'edit\';\n    readonly content: readonly TextBlock[];\n} | {\n    readonly kind: \'remove\';\n} | {\n    readonly kind: \'steer\';\n};',
+  },
+  {
+    name: 'QuotaApiLimit',
+    declaration: 'export interface QuotaApiLimit {\n    readonly resetAt: number | null;\n    readonly observedAt: number;\n}',
+  },
+  {
+    name: 'QuotaBilling',
+    declaration: 'export interface QuotaBilling {\n    readonly active: \'subscription\' | \'api\';\n    readonly switch?: QuotaBillingSwitch;\n    readonly consoleUrl?: string;\n}',
+  },
+  {
+    name: 'QuotaBillingSwitch',
+    declaration: 'export interface QuotaBillingSwitch {\n    readonly settingsNs: string;\n    readonly settingsPath: readonly string[];\n    readonly apiKeyRef: string;\n    readonly apiKeyStored: boolean;\n}',
+  },
+  {
+    name: 'QuotaProviderView',
+    declaration: 'export interface QuotaProviderView {\n    readonly id: string;\n    readonly name: string;\n}',
+  },
+  {
+    name: 'QuotaResult',
+    declaration: 'export interface QuotaResult {\n    readonly providerId: string;\n    readonly providerName: string;\n    readonly configured: boolean;\n    readonly ok: boolean;\n    readonly error?: string;\n    readonly windows?: Partial<Record<QuotaWindowId, QuotaWindow>>;\n    readonly asOf?: number;\n    readonly awaitingUsage?: boolean;\n    readonly billing?: QuotaBilling;\n    readonly apiLimit?: QuotaApiLimit;\n    readonly subscriptionError?: string;\n}',
+  },
+  {
+    name: 'QuotaSource',
+    declaration: 'export interface QuotaSource {\n    readonly id: string;\n    readonly name: string;\n    configured(): Promise<boolean>;\n    fetch(fetchImpl: typeof fetch): Promise<QuotaResult>;\n}',
+  },
+  {
+    name: 'QuotaWindow',
+    declaration: 'export interface QuotaWindow {\n    readonly usedPercent: number | null;\n    readonly resetAt: number | null;\n    readonly valueLabel?: string;\n    readonly status?: string;\n}',
+  },
+  {
+    name: 'QuotaWindowId',
+    declaration: 'export type QuotaWindowId = \'5h\' | \'weekly\' | \'weekly-opus\' | \'weekly-sonnet\' | \'monthly\' | \'overage\' | \'credits\';',
   },
   {
     name: 'ReadFileLine',
@@ -8725,6 +9272,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ResumeAgentOptions',
     declaration: 'export interface ResumeAgentOptions {\n    readonly resumeSessionId: SessionId;\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: AgentSetup;\n}',
+  },
+  {
+    name: 'RetrieveOptions',
+    declaration: 'export interface RetrieveOptions {\n    readonly execution?: Pick<ToolExecution, \'token\' | \'rootCallId\'>;\n    readonly providers?: readonly KnowledgeProviderName[];\n    readonly requestedBy?: string;\n    readonly agent?: Agent;\n    readonly signal: AbortSignal;\n}',
   },
   {
     name: 'ReviewDecision',
@@ -9016,7 +9567,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionCreateRequest',
-    declaration: 'export interface SessionCreateRequest {\n    readonly workspaceId?: WorkspaceId;\n    readonly cwd?: string;\n    readonly sessionId?: SessionId;\n    readonly agentPreset?: string;\n}',
+    declaration: 'export interface SessionCreateRequest {\n    readonly workspaceId?: WorkspaceId;\n    readonly cwd?: string;\n    readonly sessionId?: SessionId;\n    readonly agentPreset?: string;\n    readonly cliProfile?: CliTerminalProfileId;\n}',
   },
   {
     name: 'SessionCreateValue',
@@ -9048,7 +9599,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEventMap',
-    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': UserMessage;\n    \'developer/message\': {\n        turn: number;\n        step: number;\n        message: DeveloperMessage;\n        headerSeq?: SessionSeq;\n    };\n    \'system/message\': {\n        turn: number;\n        step: number;\n        message: SystemMessage;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        message: AssistantMessage;\n        stream: AssistantStreamRecord[];\n        usage?: TokenUsage;\n        interrupted?: true;\n    };\n    \'assistant/attempt\': {\n        turn: number;\n        step: number;\n        stream: AssistantStreamRecord[];\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: ToolCallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        message: ToolResultMessage;\n        error?: {\n            name: string;\n            code: string;\n            reason?: string;\n        };\n        meta?: JsonValue;\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: RequestHeaderReason;\n        startsSeries?: true;\n    };\n    \'request/context\': RequestContext;\n    \'session/end-seed\': {\n   /* …truncated — full shape in source */',
+    declaration: 'export interface SessionEventMap {\n    \'session/cli-terminal\': {\n        profile: CliTerminalProfileId;\n    };\n    \'turn/start\': {\n        turn: number;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': UserMessage;\n    \'developer/message\': {\n        turn: number;\n        step: number;\n        message: DeveloperMessage;\n        headerSeq?: SessionSeq;\n    };\n    \'system/message\': {\n        turn: number;\n        step: number;\n        message: SystemMessage;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        message: AssistantMessage;\n        stream: AssistantStreamRecord[];\n        usage?: TokenUsage;\n        interrupted?: true;\n    };\n    \'assistant/attempt\': {\n        turn: number;\n        step: number;\n        stream: AssistantStreamRecord[];\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: ToolCallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        message: ToolResultMessage;\n        error?: {\n            name: string;\n            code: string;\n            reason?: string;\n        };\n        meta?: JsonValue;\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: RequestHeaderReason;\n        startsSeries?: true /* …truncated — full shape in source */',
   },
   {
     name: 'SessionEventMetadataFilter',
@@ -9173,6 +9724,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionHistoryRecord',
     declaration: 'export type SessionHistoryRecord = SessionEventEntry;',
+  },
+  {
+    name: 'SessionHookCatalog',
+    declaration: 'export interface SessionHookCatalog {\n    readonly hooks: readonly SessionHookRow[];\n}',
+  },
+  {
+    name: 'SessionHookRow',
+    declaration: 'export interface SessionHookRow {\n    readonly key: string;\n    readonly dialect: string;\n    readonly event: string;\n    readonly matcher?: string;\n    readonly command: string;\n    readonly globallyDisabled: boolean;\n    readonly description?: string;\n}',
   },
   {
     name: 'SessionId',
@@ -9423,6 +9982,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionResultRange {\n    from?: number;\n    to?: number;\n}',
   },
   {
+    name: 'SessionRunOptions',
+    declaration: 'export interface SessionRunOptions {\n    readonly fastMode?: boolean | undefined;\n    readonly ultracode?: boolean | undefined;\n    readonly effort?: (typeof SESSION_RUN_OPTION_EFFORTS)[number] | undefined;\n    readonly subagentSetup?: SubagentSetup | undefined;\n}',
+  },
+  {
     name: 'SessionSearchCursor',
     declaration: 'export type SessionSearchCursor = Branded<\'SessionSearchCursor\'>;',
   },
@@ -9451,6 +10014,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SessionSeedEventState = \'detached\' | \'shared-frozen\';',
   },
   {
+    name: 'SessionSelectMcpRequest',
+    declaration: 'export interface SessionSelectMcpRequest {\n    readonly sessionId: SessionId;\n    readonly connectorIds: readonly string[];\n}',
+  },
+  {
+    name: 'SessionSelectMcpValue',
+    declaration: 'export interface SessionSelectMcpValue {\n    readonly selected: McpSelection;\n}',
+  },
+  {
     name: 'SessionSelectModelRequest',
     declaration: 'export interface SessionSelectModelRequest extends ModelSelection {\n    readonly sessionId: SessionId;\n}',
   },
@@ -9465,6 +10036,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionSeqCursor',
     declaration: 'export type SessionSeqCursor = SessionSeq | -1;',
+  },
+  {
+    name: 'SessionSetHookOverridesRequest',
+    declaration: 'export interface SessionSetHookOverridesRequest {\n    readonly sessionId: SessionId;\n    readonly overrides: Readonly<Record<string, boolean>>;\n}',
+  },
+  {
+    name: 'SessionSetRunOptionsRequest',
+    declaration: 'export interface SessionSetRunOptionsRequest extends SessionRunOptions {\n    readonly sessionId: SessionId;\n}',
   },
   {
     name: 'SessionStartInput',
@@ -9492,7 +10071,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionSummary',
-    declaration: 'export interface SessionSummary {\n    readonly agentAvailable: boolean;\n    readonly formatStatus?: \'current\' | \'migration-required\';\n    readonly sessionId: SessionId;\n    readonly updatedAt: number;\n    readonly running: boolean;\n    readonly blank: boolean;\n    readonly parentSessionId?: SessionId;\n    readonly origin?: \'subagent\';\n    readonly cwd?: string;\n    readonly projections?: SessionProjectionHints;\n}',
+    declaration: 'export interface SessionSummary {\n    readonly agentAvailable: boolean;\n    readonly formatStatus?: \'current\' | \'migration-required\';\n    readonly sessionId: SessionId;\n    readonly updatedAt: number;\n    readonly running: boolean;\n    readonly blank: boolean;\n    readonly cliProfile?: CliTerminalProfileId;\n    readonly parentSessionId?: SessionId;\n    readonly origin?: \'subagent\';\n    readonly cwd?: string;\n    readonly projections?: SessionProjectionHints;\n}',
   },
   {
     name: 'SessionSurface',
@@ -9711,6 +10290,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ShellSandboxInfo {\n    mode: SandboxMode;\n    denied: boolean;\n    enforcement?: SandboxEnforcement;\n    runnerFailed?: boolean;\n}',
   },
   {
+    name: 'SidebarAnalyticsEntry',
+    declaration: 'export type SidebarAnalyticsEntry = \'new_session\' | \'plugin\' | \'cron\' | \'more\';',
+  },
+  {
+    name: 'SidebarAnalyticsPosition',
+    declaration: 'export type SidebarAnalyticsPosition = \'sidebar\' | \'sidebar_more\' | \'titlebar\';',
+  },
+  {
     name: 'SignInAttemptId',
     declaration: 'export type SignInAttemptId = Branded<\'SignInAttemptId\'>;',
   },
@@ -9915,8 +10502,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SubagentActivationSpec extends Omit<SubagentStartRequest, \'label\' | \'signal\'> {\n    readonly provider: string;\n    readonly label: string;\n    readonly name?: string;\n    readonly childId?: SessionId;\n    readonly signal: AbortSignal;\n    readonly delivery: \'parent\' | \'caller\';\n}',
   },
   {
+    name: 'SubagentAutoResponderSetup',
+    declaration: 'export interface SubagentAutoResponderSetup {\n    readonly enabled: boolean;\n}',
+  },
+  {
     name: 'SubagentCapabilities',
-    declaration: 'export interface SubagentCapabilities {\n    readonly agentOptions: boolean;\n    readonly agentPreset: boolean;\n    readonly outputSchema: boolean;\n    readonly depthLimit: boolean;\n}',
+    declaration: 'export interface SubagentCapabilities {\n    readonly agentOptions: boolean;\n    readonly agentPreset: boolean;\n    readonly outputSchema: boolean;\n    readonly depthLimit: boolean;\n    readonly persona?: boolean;\n    readonly toolFilter?: boolean;\n}',
   },
   {
     name: 'SubagentCatalogRow',
@@ -9929,6 +10520,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SubagentDescendantListEntry',
     declaration: 'export type SubagentDescendantListEntry = SubagentListEntry & {\n    readonly parentId: SessionId;\n    readonly depth: number;\n    readonly path?: string;\n};',
+  },
+  {
+    name: 'SubagentGsdSetup',
+    declaration: 'export interface SubagentGsdSetup {\n    readonly enabled: boolean;\n    readonly gates: (typeof GSD_GATES)[number];\n    readonly planAuthor: (typeof GSD_PLAN_AUTHORS)[number];\n    readonly planning: (typeof GSD_PLANNING_MODES)[number];\n    readonly checkRounds: number;\n    readonly parallelWaves: boolean;\n}',
   },
   {
     name: 'SubagentInterruptAuthority',
@@ -9967,6 +10562,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SubagentResult {\n    readonly output: readonly ContentBlock[];\n    readonly structured?: unknown;\n    readonly diagnostic?: string;\n    readonly stopReason: SubagentStopReason;\n}',
   },
   {
+    name: 'SubagentRoleRoute',
+    declaration: 'export type SubagentRoleRoute = {\n    readonly backend: \'claude-cli\';\n    readonly model: string;\n    readonly reasoningEffort?: (typeof SESSION_RUN_OPTION_EFFORTS)[number] | undefined;\n} | {\n    readonly backend: \'llm\';\n    readonly provider: string;\n    readonly model: string;\n    readonly reasoningEffort?: string | undefined;\n};',
+  },
+  {
+    name: 'SubagentRoleSetting',
+    declaration: 'export type SubagentRoleSetting = {\n    readonly mode: \'jev\';\n} | {\n    readonly mode: \'fixed\';\n    readonly route: SubagentRoleRoute;\n};',
+  },
+  {
     name: 'SubagentRun',
     declaration: 'export interface SubagentRun {\n    readonly id: SessionId;\n    readonly result: Promise<SubagentResult>;\n    dispose(): Promise<void>;\n}',
   },
@@ -9991,8 +10594,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SubagentSendMessageOptions {\n    readonly signal: AbortSignal;\n}',
   },
   {
+    name: 'SubagentSetup',
+    declaration: 'export interface SubagentSetup {\n    readonly enabled: boolean;\n    readonly reviewRounds: number;\n    readonly roles: Readonly<Partial<Record<SubagentSetupRole, SubagentRoleSetting>>>;\n    readonly gsd?: SubagentGsdSetup | undefined;\n    readonly autoResponder?: SubagentAutoResponderSetup | undefined;\n}',
+  },
+  {
+    name: 'SubagentSetupRole',
+    declaration: 'export type SubagentSetupRole = (typeof SUBAGENT_SETUP_ROLES)[number];',
+  },
+  {
     name: 'SubagentStartRequest',
-    declaration: 'export interface SubagentStartRequest {\n    readonly cwd?: string;\n    readonly agentPreset?: string;\n    readonly label?: string;\n    readonly prompt: ContentBlock[];\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n    readonly agentOptions?: AgentOptions;\n    readonly outputSchema?: ObjectJsonSchema;\n    readonly maxDepth?: number;\n}',
+    declaration: 'export interface SubagentStartRequest {\n    readonly cwd?: string;\n    readonly agentPreset?: string;\n    readonly label?: string;\n    readonly prompt: ContentBlock[];\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n    readonly agentOptions?: AgentOptions;\n    readonly routePinned?: true;\n    readonly persona?: string;\n    readonly toolFilter?: ToolRestriction;\n    readonly onProgress?: (line: string) => void;\n    readonly outputSchema?: ObjectJsonSchema;\n    readonly maxDepth?: number;\n}',
   },
   {
     name: 'SubagentStopReason',
@@ -10001,6 +10612,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SubagentStopReasonMap',
     declaration: 'export interface SubagentStopReasonMap {\n    completed: \'completed\';\n    aborted: \'aborted\';\n    error: \'error\';\n    \'max-tokens\': \'max-tokens\';\n    refusal: \'refusal\';\n}',
+  },
+  {
+    name: 'SubagentTeamRole',
+    declaration: 'export type SubagentTeamRole = (typeof SUBAGENT_TEAM_ROLES)[number];',
+  },
+  {
+    name: 'SubagentTeamRoleRoute',
+    declaration: 'export type SubagentTeamRoleRoute = SubagentRoleRoute;',
   },
   {
     name: 'SubprocessCollect',
@@ -10064,7 +10683,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubprocessTerminalSpawnSpec',
-    declaration: 'export interface SubprocessTerminalSpawnSpec {\n    argv: readonly string[];\n    cwd: string;\n    env?: Record<string, string> | undefined;\n    rows: number;\n    cols: number;\n    terminalType: string;\n    shellActivity?: boolean | undefined;\n    graceMs: number;\n    signal?: AbortSignal | undefined;\n}',
+    declaration: 'export interface SubprocessTerminalSpawnSpec {\n    argv: readonly string[];\n    cwd: string;\n    env?: Record<string, string> | undefined;\n    inheritEnvironment?: boolean | undefined;\n    rows: number;\n    cols: number;\n    terminalType: string;\n    shellActivity?: boolean | undefined;\n    graceMs: number;\n    signal?: AbortSignal | undefined;\n}',
   },
   {
     name: 'SurfaceEvent',
@@ -10144,7 +10763,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'TerminalCreateRequest',
-    declaration: 'export interface TerminalCreateRequest {\n    readonly shellPath?: string;\n    readonly id: WebTerminalId;\n    readonly cols: number;\n    readonly rows: number;\n}',
+    declaration: 'export interface TerminalCreateRequest {\n    readonly shellPath?: string;\n    readonly cli?: CliTerminalProfileId;\n    readonly id: WebTerminalId;\n    readonly cols: number;\n    readonly rows: number;\n}',
   },
   {
     name: 'TerminalEnvironment',
@@ -10292,7 +10911,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolBatchInput',
-    declaration: 'export interface ToolBatchInput {\n    readonly calls: readonly ToolCallBlock[];\n    readonly signal: AbortSignal;\n    readonly maxParallelToolCalls?: number;\n    readonly agent?: Agent;\n    readonly toolSet?: ResolvedToolSet;\n    readonly log?: {\n        readonly turn: number;\n        readonly step: number;\n    };\n}',
+    declaration: 'export interface ToolBatchInput {\n    readonly calls: readonly ToolCallBlock[];\n    readonly signal: AbortSignal;\n    readonly maxParallelToolCalls?: number;\n    readonly agent?: Agent;\n    readonly toolSet?: ResolvedToolSet;\n    readonly parent?: ToolExecutionToken;\n    readonly rootCallId?: ToolCallId;\n    readonly log?: {\n        readonly turn: number;\n        readonly step: number;\n    };\n}',
   },
   {
     name: 'ToolBatchResult',
@@ -10836,7 +11455,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'WebTerminalInfo',
-    declaration: 'export interface WebTerminalInfo {\n    readonly id: WebTerminalId;\n    readonly title: string;\n    readonly shell: TerminalShell;\n    readonly cwd: string;\n    readonly cols: number;\n    readonly rows: number;\n    readonly state: \'running\' | \'exited\' | \'failed\';\n    readonly exitCode: number | null;\n    readonly error?: string;\n    readonly origin: TerminalParty;\n    readonly control: TerminalParty;\n    readonly sandboxMode?: TerminalSandboxMode;\n}',
+    declaration: 'export interface WebTerminalInfo {\n    readonly id: WebTerminalId;\n    readonly title: string;\n    readonly shell: TerminalShell;\n    readonly cwd: string;\n    readonly cols: number;\n    readonly rows: number;\n    readonly state: \'running\' | \'exited\' | \'failed\';\n    readonly exitCode: number | null;\n    readonly error?: string;\n    readonly origin: TerminalParty;\n    readonly control: TerminalParty;\n    readonly sandboxMode?: TerminalSandboxMode;\n    readonly cli?: {\n        readonly profile: CliTerminalProfileId;\n        readonly command: string;\n        readonly installed: boolean;\n        readonly installUrl: string;\n    };\n}',
   },
   {
     name: 'WebUpgradeRoute',
@@ -11037,6 +11656,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WorkspaceRenameRequest',
     declaration: 'export interface WorkspaceRenameRequest {\n    readonly workspaceId: WorkspaceId;\n    readonly title: string;\n}',
+  },
+  {
+    name: 'WorkspaceStatus',
+    declaration: 'export interface WorkspaceStatus {\n    cwd: string;\n    root: string;\n    branch?: string;\n    files: WorkspaceStatusFile[];\n    total: number;\n    added: number;\n    deleted: number;\n}',
+  },
+  {
+    name: 'WorkspaceStatusFile',
+    declaration: 'export interface WorkspaceStatusFile {\n    path: string;\n    display: string;\n    index: string;\n    worktree: string;\n    oldPath?: string;\n    added: number;\n    deleted: number;\n    binary?: true;\n}',
   },
   {
     name: 'WorkspaceUnarchiveSessionRequest',

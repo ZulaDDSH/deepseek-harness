@@ -81,6 +81,8 @@ export interface Win32Bindings extends Win32ProcessBindings {
     sacl: NativePtr,
     descriptor: NativePtr,
   ): number
+  getFileSecurityW(path: string, information: number, descriptor: Buffer, length: number, needed: NativePtr): number
+  setFileSecurityW(path: string, information: number, descriptor: Buffer): number
   getTempPathW(length: number, buffer: Buffer): number
   setEnvironmentVariableW(name: string, value: string): number
   setConsoleCtrlHandler(handler: null, add: number): number
@@ -262,6 +264,10 @@ function bindings(): Win32Bindings {
     getNamedSecurityInfoW: bind(advapi32, 'GetNamedSecurityInfoW', 'uint32', [
       'str16', 'int', 'uint32', PPVOID, PPVOID, PPVOID, PPVOID, PPVOID,
     ]),
+    getFileSecurityW: bind(advapi32, 'GetFileSecurityW', 'int', [
+      'str16', 'uint32', PVOID, 'uint32', koffi.pointer('uint32'),
+    ]),
+    setFileSecurityW: bind(advapi32, 'SetFileSecurityW', 'int', ['str16', 'uint32', PVOID]),
     getTempPathW: bind(kernel32, 'GetTempPathW', 'uint32', ['uint32', PVOID]),
     setEnvironmentVariableW: bind(kernel32, 'SetEnvironmentVariableW', 'int', ['str16', 'str16']),
     setConsoleCtrlHandler: bind(kernel32, 'SetConsoleCtrlHandler', 'int', [PVOID, 'int']),

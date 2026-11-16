@@ -7,9 +7,11 @@ export interface MockServer {
   paths: string[]
   requests: unknown[]
   headers: IncomingMessage['headers'][]
+  /** Header names as the client wrote them, before Node lowercases them. */
+  rawHeaderNames: string[][]
   readonly closedResponses: number
   requestReceived: Promise<void>
-  responseClosed: Promise<void>
+  responseClosed: Promise<boolean>
 }
 
 const servers: Server[] = []
@@ -72,15 +74,16 @@ export async function mockServer(script: {
   const paths: string[] = []
   const requests: unknown[] = []
   const headers: IncomingMessage['headers'][] = []
+  const rawHeaderNames: string[][] = []
   let closedResponses = 0
   const requestReceived = Promise.withResolvers<undefined>()
-  const responseClosed = Promise.withResolvers<undefined>()
+  const responseClosed = Promise.withResolvers<boolean>()
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
     let timer: ReturnType<typeof setTimeout> | undefined
     response.on('close', () => {
       clearTimeout(timer)
       closedResponses += 1
-      responseClosed.resolve(undefined)
+      responseClosed.resolve(!response.writableFinished)
     })
     const chunks: Buffer[] = []
     request.on('data', (chunk: Buffer) => { chunks.push(chunk) })
@@ -91,6 +94,7 @@ export async function mockServer(script: {
       paths.push(request.url ?? '')
       requests.push(body.length === 0 ? undefined : JSON.parse(body))
       headers.push(request.headers)
+      rawHeaderNames.push(request.rawHeaders.filter((_value, index) => index % 2 === 0))
       requestReceived.resolve(undefined)
       const behavior = script.shift() ?? { status: 500, body: 'script exhausted' }
       if (behavior.status !== undefined && behavior.status !== 200) {
@@ -103,7 +107,7 @@ export async function mockServer(script: {
         response.end(behavior.body)
         return
       }
-      response.writeHead(200, { 'content-type': 'text/event-stream' })
+      response.writeHead(200, { 'content-type': 'text/event-stream', ...behavior.headers })
       response.flushHeaders()
       let index = 0
       const writeNext = (): void => {
@@ -112,7 +116,8 @@ export async function mockServer(script: {
           if (!behavior.holdOpen) response.end()
           return
         }
-        response.write(typeof event === 'string' ? `data: ${event}\n\n` : `event: ${event.event}\ndata: ${event.data}\n\n`)
+        if (typeof event !== 'string') response.write(`event: ${event.event}\ndata: ${event.data}\n\n`)
+        else response.write(event.startsWith('event:') ? `${event}\n\n` : `data: ${event}\n\n`)
         if (behavior.delayMs === undefined) writeNext()
         else timer = setTimeout(writeNext, behavior.delayMs)
       }
@@ -128,6 +133,7 @@ export async function mockServer(script: {
     paths,
     requests,
     headers,
+    rawHeaderNames,
     requestReceived: requestReceived.promise,
     responseClosed: responseClosed.promise,
     get closedResponses() { return closedResponses },

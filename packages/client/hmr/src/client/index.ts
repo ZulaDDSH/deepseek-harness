@@ -1,4 +1,4 @@
-/** Web SSE transport for page-owned client entry reconciliation and rebuilt code replacement. */
+/** Web SSE transport for page-owned client entry reconciliation; one leader tab per browser holds the events connection. */
 import type { Context } from '@deepseek-ai/cordis'
 import { EventSourceParserStream } from 'eventsource-parser/stream'
 import type { PluginsEventParseResult } from '../events.ts'
@@ -11,6 +11,13 @@ export const name = 'client-hmr'
 
 /** Required service: the client module system whose entry controller handles received frames. */
 export const inject = ['modules']
+
+/** Web Locks name electing the one tab per browser that holds `/plugins/events`. */
+const LEADER_LOCK = 'dsh-hmr-events'
+/** BroadcastChannel name relaying leader frames and joining-tab hellos. */
+const CHANNEL = 'dsh-hmr-events'
+
+type ChannelMessage = { type: 'hello' } | { type: 'frame'; data: string }
 
 /** Request carrier a shell installs when it owns the page transport, such as the worker preview's tunnel. */
 type PageTransportFetch = (input: string, init: RequestInit) => Promise<Response>
@@ -70,6 +77,11 @@ export function apply(ctx: Context): void {
       handle(parsed.frame)
     }
   }
+  const connect = (onData: (data: string) => void): (() => void) => {
+    const source = new EventSource(EVENTS_ROUTE)
+    source.addEventListener('message', (event: MessageEvent<string>) => { onData(event.data) })
+    return () => { source.close() }
+  }
 
   ctx.effect(() => {
     const transport = (globalThis as PageTransportGlobal).__DSH_TRANSPORT__
@@ -80,8 +92,24 @@ export function apply(ctx: Context): void {
       })
       return () => { controller.abort() }
     }
-    const source = new EventSource(EVENTS_ROUTE)
-    source.addEventListener('message', (event: MessageEvent<string>) => { receive(event.data) })
-    return () => { source.close() }
+    if (!('locks' in navigator) || typeof BroadcastChannel === 'undefined') return connect(receive)
+    const channel = new BroadcastChannel(CHANNEL)
+    const abort = new AbortController()
+    let reconnect: (() => void) | undefined
+    channel.addEventListener('message', (event: MessageEvent<ChannelMessage>) => {
+      if (event.data.type === 'frame') receive(event.data.data)
+      else reconnect?.()
+    })
+    void navigator.locks.request(LEADER_LOCK, { signal: abort.signal }, () => new Promise<void>((resolve) => {
+      const relay = (data: string): void => {
+        channel.postMessage({ type: 'frame', data } satisfies ChannelMessage)
+        receive(data)
+      }
+      let close = connect(relay)
+      reconnect = () => { close(); close = connect(relay) }
+      abort.signal.addEventListener('abort', () => { reconnect = undefined; close(); resolve() }, { once: true })
+    })).catch((error: unknown) => { if (!abort.signal.aborted) ctx.logger.error(error) })
+    channel.postMessage({ type: 'hello' } satisfies ChannelMessage)
+    return () => { abort.abort(); channel.close() }
   }, 'client-hmr: event source')
 }

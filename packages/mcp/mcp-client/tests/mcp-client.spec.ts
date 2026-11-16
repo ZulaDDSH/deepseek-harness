@@ -200,6 +200,22 @@ describe('syncTools', () => {
     expect(ctx.tools.get('add')).toBeUndefined()
   })
 
+  it('filters discovery by raw tool name', async () => {
+    const client = createMockClient([
+      { name: 'greet', inputSchema: { type: 'object' } },
+      { name: 'add', inputSchema: { type: 'object' } },
+    ])
+
+    const disposers = await syncTools(client as never, ctx, {
+      ...defaultOpts,
+      toolFilter: { allow: ['greet'], deny: ['add'] },
+    }, new Map())
+
+    expect(disposers.size).toBe(1)
+    expect(ctx.tools.get('mcp__srv__greet')).toBeDefined()
+    expect(ctx.tools.get('mcp__srv__add')).toBeUndefined()
+  })
+
   it('lets two servers publish the same raw name side by side', async () => {
     const clientA = createMockClient([{ name: 'search', inputSchema: { type: 'object' } }])
     const clientB = createMockClient([{ name: 'search', inputSchema: { type: 'object' } }])

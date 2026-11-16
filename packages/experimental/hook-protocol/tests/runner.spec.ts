@@ -99,6 +99,15 @@ describe('runHook — payload + env + stdin plumbing', () => {
     expect(specs[0]!.workdir).toBe('/work')
   })
 
+  it('threads the sandbox policy into the request and leaves it unset when omitted', async () => {
+    const { bash, specs } = recordingBash(async () => result())
+    const sandboxPolicy = { mode: 'danger-full-access' as const, workspaceRoot: '/work' }
+    await runHook(bash, { command: 'h' }, { payload: {}, sandboxPolicy, signal: testSignal(), defaultTimeoutMs: 1000, trailingNewline: true }, clock())
+    await runHook(bash, { command: 'h' }, { payload: {}, signal: testSignal(), defaultTimeoutMs: 1000, trailingNewline: true }, clock())
+    expect(specs[0]!.sandboxPolicy).toEqual(sandboxPolicy)
+    expect(specs[1]!.sandboxPolicy).toBeUndefined()
+  })
+
   it('a per-hook timeoutSec (seconds) overrides the default (ms)', async () => {
     const { bash, specs } = recordingBash(async () => result())
     await runHook(bash, { command: 'h', timeoutSec: 3 }, { payload: {}, signal: testSignal(), defaultTimeoutMs: 60000, trailingNewline: true }, clock())

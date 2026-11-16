@@ -25,6 +25,7 @@ import {
 } from '../models/tool-call-model.ts'
 import type { WebCardModelProps } from '../models/web-card-model.ts'
 import { AskQuestionCard } from './AskQuestionCard.tsx'
+import { ElapsedClock } from './ElapsedClock.tsx'
 import { ToolDetails, type ToolDetailsModel } from './ToolDetails.tsx'
 import { ExitCodeBadge } from './ExitCodeBadge.tsx'
 import css from './ToolRow.module.css'
@@ -82,6 +83,8 @@ export interface ToolRowProps {
   /** Read-only fields/list card derived from a successful recorded result. */
   details?: ToolDetailsModel | null | undefined
   state: ToolRowState
+  /** Epoch ms when the in-flight stage began; a running or preparing row shows its elapsed clock from it. */
+  startedAt?: number | undefined
   /**
    * Recorded file target or a supported argument fallback. With onOpenFile,
    * the summary opens that path through the owner's file-preview callback.
@@ -185,6 +188,7 @@ export const ToolRow = memo(function ToolRow({
   web,
   details,
   state,
+  startedAt,
   filePath,
   filePathLine,
   onOpenFile,
@@ -326,9 +330,10 @@ export const ToolRow = memo(function ToolRow({
           <span className={css.diffAdded}>{`+${totals.added}`}</span>{' '}<span className={css.diffRemoved}>{`-${totals.removed}`}</span>
         </TextShimmer>
       )}
+      {running && startedAt !== undefined && <ElapsedClock since={startedAt} />}
     </>
   ), [summaryLinkKeyDown, fileContextMenuProps, urlContextMenuProps, linkHref, openFile, fileTargets, openTarget,
-    fileTargetContextMenuProps, state, suffix, totals, summaryText, exitLabel])
+    fileTargetContextMenuProps, running, startedAt, state, suffix, totals, summaryText, exitLabel])
   const expandedContent = useMemo(() => open ? (
     <div className={clsx(css.bodyWrap, detailsBody !== null && css.detailsBodyWrap)}>
       {askQuestionBody !== null

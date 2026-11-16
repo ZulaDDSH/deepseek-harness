@@ -5,7 +5,6 @@ Status: implemented
 English | [中文](2026-08-27-adjacent-agent-steer-messaging.zh.md)
 
 The adjacency, discovery, and parent-lifetime restrictions below are superseded by [tree-wide communication](2026-10-16-tree-wide-agent-communication.md); the remaining decisions stay active. The tool identity marker and initial-task communication guidance below are superseded by [tool-owned communication](2026-10-22-subagent-tool-owned-communication.md).
-
 ## Problem
 
 Continuable Agents originally used direction-specific model controls. A parent called `send_message({ subagent_id, message })`, which delegated to a FIFO `followup` service operation. A child instead received a child-scoped `report({ output })` tool, a `tool:report` system-prompt section, and deployment-selected quiet or waking delivery. The tools described one adjacent-Agent operation through different schemas, service paths, source attribution, and scheduling.

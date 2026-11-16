@@ -114,9 +114,10 @@ export function ConversationSessionHeader({
   const selectedId = useStore(s => s.view)
   const active = resolveActiveView(tabs, selectedId)
   const ancestry = useSessions(s => deriveAncestry(s, sessionId), equalBreadcrumbs)
+  const cliProfile = useSessions(s => s.byId[sessionId]?.cliProfile)
   const unpinned = useEntryPins(ids => ids)
   const hasEntryActions = useEntryActions(registered => registered)
-  const showTabs = !hideChrome && tabs.length > 1
+  const showTabs = !hideChrome && tabs.length > 1 && cliProfile === undefined
   const tabRow = useRef<HTMLDivElement>(null)
   const [visibleViewLimit, setVisibleViewLimit] = useState(1)
   // Observe only the available row width; individual tabs are not measured.

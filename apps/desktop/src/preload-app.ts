@@ -1,10 +1,16 @@
+/**
+ * Origin-scoped boot, native directory selection, host paths of picked files, update presentation
+ * with native confirmation actions, and Session attention notifications.
+ */
 import type { FileSaveResult } from '@deepseek-ai/dsh-client-ui-file-actions/types'
-/** Origin-scoped boot, native directory selection, host paths of picked files, and update presentation with native confirmation actions. */
 
 import type { DesktopChannelState, DesktopChannelChangeResult } from '@deepseek-ai/dsh-client-ui-settings-general/types'
 import type { DesktopShortcutInput, ShortcutConfigSnapshot, ShortcutSaveResult } from '@deepseek-ai/dsh-client-shortcuts/protocol'
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import { DESKTOP_IPC, SCHEME, type DshDesktopProductApi, type DesktopUpdatePresentation } from './ipc.ts'
+import {
+  DESKTOP_IPC, SCHEME, type DesktopAttentionRequest, type DshDesktopProductApi,
+  type DesktopUpdatePresentation,
+} from './ipc.ts'
 import { PLATFORM_IPC } from './platform-ipc.ts'
 import { markDocumentPlatform, syncWindowFullscreen } from './preload-platform.ts'
 import { syncNativeTheme } from './preload-theme.ts'
@@ -83,22 +89,19 @@ function createProductApi(): DshDesktopProductApi {
         return () => { ipcRenderer.off(DESKTOP_IPC.updatesPresentation, handle) }
       },
     },
+    attention: {
+      notify: (request: DesktopAttentionRequest) =>
+        ipcRenderer.invoke(DESKTOP_IPC.attentionNotify, request) as Promise<void>,
+      subscribe(listener) {
+        const handle = (_event: Electron.IpcRendererEvent, sessionId: string): void => { listener(sessionId) }
+        ipcRenderer.on(DESKTOP_IPC.attentionActivate, handle)
+        return () => { ipcRenderer.off(DESKTOP_IPC.attentionActivate, handle) }
+      },
+    },
   }
 }
 
 if (location.protocol === `${SCHEME}:` && location.hostname === 'app') {
-  contextBridge.exposeInMainWorld('dshOnboarding', {
-    hasApiKey: () => ipcRenderer.invoke(DESKTOP_IPC.onboardingApiKey) as Promise<boolean>,
-    setActive: (active: boolean) => { ipcRenderer.send(DESKTOP_IPC.onboardingActive, active) },
-  })
-  ipcRenderer.on(DESKTOP_IPC.enterWorkspace, () => {
-    const body = document.body
-    const previous = body.getAttribute('tabindex')
-    body.tabIndex = -1
-    body.focus({ preventScroll: true })
-    if (previous === null) body.removeAttribute('tabindex')
-    else body.setAttribute('tabindex', previous)
-  })
   syncWindowsAppearance()
   if (process.platform === 'win32') installMandatoryUpdateOverlay()
   contextBridge.exposeInMainWorld('__DSH_DIRECTORY_PICKER__', {

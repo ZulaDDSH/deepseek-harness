@@ -274,6 +274,8 @@ describe('dsh-subagent-spawn-in-process', () => {
       agentPreset: true,
       outputSchema: true,
       depthLimit: true,
+      persona: true,
+      toolFilter: true,
     })
   })
 

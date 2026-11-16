@@ -394,10 +394,10 @@ describe('provider-routed retry policy', () => {
     expect(adapter.requests).toHaveLength(2)
   })
 
-  it('uses a bounded provider Retry-After verbatim and delegates an over-cap instruction', async () => {
+  it('waits a provider Retry-After above maxDelayMs up to the 120 s cap and delegates beyond it', async () => {
     vi.useFakeTimers()
     const accepted = new ScriptedAdapter([
-      new LlmError('wait', 'RATE_LIMIT', { providerRetryAfterMs: 2_000 }),
+      new LlmError('wait', 'RATE_LIMIT', { providerRetryAfterMs: 15_000 }),
       textResponse('done'),
     ])
     ;({ ctx: context } = await harness(accepted, { mock: normalConfig({
@@ -406,15 +406,15 @@ describe('provider-routed retry policy', () => {
     const acceptedAgent = await context.agentLoop.create(brandString<SessionId>('retry-after-accepted'), { provider: 'mock', model: 'mock' })
     const scheduled = waitForRetry(context, acceptedAgent, 1)
     acceptedAgent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
-    expect((await scheduled).data.delayMs).toBe(2_000)
+    expect((await scheduled).data.delayMs).toBe(15_000)
     const acceptedIdle = waitForIdle(context, acceptedAgent)
-    await vi.advanceTimersByTimeAsync(2_000)
+    await vi.advanceTimersByTimeAsync(15_000)
     await acceptedIdle
     expect(accepted.requests).toHaveLength(2)
 
     await context.fiber.dispose()
     const rejected = new ScriptedAdapter([
-      new LlmError('wait too long', 'RATE_LIMIT', { providerRetryAfterMs: 10_001 }),
+      new LlmError('wait too long', 'RATE_LIMIT', { providerRetryAfterMs: 120_001 }),
     ])
     ;({ ctx: context } = await harness(rejected))
     const rejectedAgent = await context.agentLoop.create(brandString<SessionId>('retry-after-rejected'), { provider: 'mock', model: 'mock' })

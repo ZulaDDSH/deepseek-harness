@@ -12,7 +12,8 @@
  * and `sidebar.workspaces.session.row.action` lists rendered through this
  * entry's `renderSlot`; the actions in them, this package's own included,
  * are slot entries with their own behavior, so this component threads no
- * action callbacks and hosts no action surface.
+ * action callbacks and hosts no action surface. The Chat Sections pane lives
+ * here and persists with the browser's view state.
  */
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
@@ -20,8 +21,8 @@ import { WorkspaceDialogs } from './WorkspaceDialogs.tsx'
 import {
   AnimatedRows, HoverCardGroup, IconArchiveCheckOutlineRegular, IconArchiveOffOutlineRegular, IconArchiveOutlineRegular,
   IconChevronsUpDownOutlineRegular, IconClockOutlineRegular, IconCloseFillRegular,
-  IconFlatListOutlineRegular, IconFolderCloseRegular, IconProjectAddOutlineRegular,
-  IconQueueOutlineRegular, IconSearchOutlineRegular, IconSlidersTwoOutlineRegular,
+  IconFlatListOutlineRegular, IconFolderCloseRegular, IconGaugeOutlineRegular, IconPlusOutlineRegular,
+  IconProjectAddOutlineRegular, IconQueueOutlineRegular, IconSearchOutlineRegular, IconSlidersTwoOutlineRegular,
   IconWorkspaceTreeOutlineRegular, Menu, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
@@ -32,14 +33,21 @@ import { workspaceDisplayTitle } from '@deepseek-ai/dsh-api-workspace-controller
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
-import type { ArchivedFilter, GroupNode, SessionNode, SessionOrderBy, SessionRowState } from '../tree.ts'
+import { WORKSPACE_COLORS, WORKSPACE_ICONS } from '../appearance.ts'
+import type { WorkspaceAppearance, WorkspaceColor, WorkspaceIcon } from '../appearance.ts'
+import type { ArchivedFilter, GroupAttention, GroupNode, SessionNode, SessionOrderBy, SessionRowState } from '../tree.ts'
 import {
-  deriveFlat, deriveGroups, deriveSearchResults, orderByRecency, sessionSearchIndex, owningGroupKey, owningParentFolder,
-  pinCurrentBlank, reconcileManualOrder, sessionMemberIds, UNGROUPED_KEY,
+  deriveFlat, deriveGroups, deriveSearchResults, mergeAttention, orderByRecency, sessionSearchIndex, owningGroupKey, owningParentFolder,
+  pinCurrentBlank, reconcileManualOrder, sessionMemberIds, UNGROUPED_KEY, visibleSessionIds,
 } from '../tree.ts'
 import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './Rows.tsx'
 import { FLAT_SESSION_ORDER_KEY, type SessionGroupBy } from '../stores.ts'
+import { sectionsActive } from '../sections.ts'
+import { ActivityList } from './ActivityList.tsx'
+import { SectionsList } from './SectionsList.tsx'
+import { useSectionDialogs } from './SectionDialogs.tsx'
 import { WorkspacePickFlow } from '../WorkspacePicker.tsx'
+import { sessionDragOrder, type SessionDragState, useNativeDragAcceptance } from './drag.ts'
 import css from './WorkspaceBrowser.module.css'
 
 /**
@@ -117,28 +125,10 @@ function sanitizeSearchQuery(value: string): string {
 }
 
 /**
- * Accept the native drag at document level while a row drag is active: row
- * hover still owns the insertion marker, and releasing outside the list must
- * not be rendered as a rejected drop before dragend commits that last marker.
+ * Render the view-options menu with local open state, so it resets with the wide chrome.
+ * @param props - current grouping/order/filter selections, selection callbacks, and locale seat.
+ * @returns the view-options menu anchored to the header control.
  */
-function useNativeDragAcceptance(active: boolean): void {
-  useEffect(() => {
-    if (!active) return
-    const acceptDrag = (event: DragEvent): void => {
-      event.preventDefault()
-      if (event.dataTransfer !== null) event.dataTransfer.dropEffect = 'move'
-    }
-    const acceptDrop = (event: DragEvent): void => { event.preventDefault() }
-    document.addEventListener('dragover', acceptDrag)
-    document.addEventListener('drop', acceptDrop)
-    return () => {
-      document.removeEventListener('dragover', acceptDrag)
-      document.removeEventListener('drop', acceptDrop)
-    }
-  }, [active])
-}
-
-/** Grouping, ordering, and archived-filter menu; own open state so it resets with the wide chrome. */
 function ViewOptionsMenu({ groupBy, orderBy, archivedFilter, onGroupPick, onOrderPick, onArchivedFilterPick, t }: {
   groupBy: SessionGroupBy
   orderBy: SessionOrderBy
@@ -158,6 +148,7 @@ function ViewOptionsMenu({ groupBy, orderBy, archivedFilter, onGroupPick, onOrde
         { id: 'workspace', label: t('groupBy.workspace'), icon: <IconFolderCloseRegular /> },
         { id: 'workspace-tree', label: t('groupBy.workspaceTree'), icon: <IconWorkspaceTreeOutlineRegular /> },
         { id: 'flat', label: t('groupBy.flat'), icon: <IconFlatListOutlineRegular /> },
+        { id: 'activity', label: t('groupBy.activity'), icon: <IconGaugeOutlineRegular /> },
         { type: 'separator' as const, id: 'order-by-separator' },
         { type: 'label' as const, id: 'order-by', text: t('orderBy.label') },
         { id: 'manual', label: t('orderBy.manual'), icon: <IconChevronsUpDownOutlineRegular /> },
@@ -174,7 +165,7 @@ function ViewOptionsMenu({ groupBy, orderBy, archivedFilter, onGroupPick, onOrde
         { default: 'hide-archived', show: 'show-archived', only: 'only-archived' }[archivedFilter],
       ]}
       onSelect={(id) => {
-        if (id === 'workspace' || id === 'workspace-tree' || id === 'flat') onGroupPick(id)
+        if (id === 'workspace' || id === 'workspace-tree' || id === 'flat' || id === 'activity') onGroupPick(id)
         else if (id === 'manual' || id === 'updated') onOrderPick(id)
         else if (id === 'hide-archived') onArchivedFilterPick('default')
         else if (id === 'show-archived') onArchivedFilterPick('show')
@@ -193,7 +184,7 @@ function ViewOptionsMenu({ groupBy, orderBy, archivedFilter, onGroupPick, onOrde
             type="button"
             className={clsx(css.iconButton, css.wide)}
             aria-label={t('viewOptions.label')}
-            onClick={() => { setOpen(v => !v) }}
+            onClick={() => { setOpen(value => !value) }}
           >
             <IconSlidersTwoOutlineRegular />
           </button>
@@ -203,39 +194,56 @@ function ViewOptionsMenu({ groupBy, orderBy, archivedFilter, onGroupPick, onOrde
   )
 }
 
-/** In-flight root-row drag: source identity plus the current insert marker. */
-interface DragState {
-  /** Workspace id, or {@link UNGROUPED_KEY} for the browser-local loose-session account. */
-  accountKey: string
-  sessionId: SessionNode['id']
-  /** Source row was pinned at drag start; drop targets share the pinned block. */
-  pinned: boolean
-  /** Row the marker sits on and which half (insert above/below it). */
-  over: { id: SessionNode['id']; half: 'before' | 'after' } | null
-}
-
-/** Apply a visible drop to the complete account without removing hidden members. */
-function sessionDragOrder(
-  order: readonly SessionId[],
-  rows: readonly SessionNode[],
-  drag: DragState,
-  over: NonNullable<DragState['over']>,
-): SessionId[] | undefined {
-  const source = rows.find(row => row.id === drag.sessionId)
-  const target = rows.find(row => row.id === over.id)
-  if (source === undefined || target === undefined || source.blank
-    || source.pinned !== drag.pinned || target.pinned !== drag.pinned
-    || source.id === target.id || !order.includes(source.id)) return
-  const section = rows.filter(row => row.pinned === drag.pinned)
-  const sourceIndex = section.findIndex(row => row.id === source.id)
-  const withoutSource = section.filter(row => row.id !== source.id)
-  const insertAt = withoutSource.findIndex(row => row.id === target.id) + (over.half === 'after' ? 1 : 0)
-  if (insertAt === sourceIndex) return
-  const next = order.filter(id => id !== source.id)
-  const targetIndex = next.indexOf(target.id)
-  if (targetIndex === -1) return
-  next.splice(targetIndex + (over.half === 'after' ? 1 : 0), 0, source.id)
-  return pinCurrentBlank(next, rows.find(row => row.blank)?.id)
+function WorkspaceFilterMenu({
+  color, icon, onColor, onIcon, t,
+}: {
+  color: WorkspaceColor | undefined
+  icon: WorkspaceIcon | undefined
+  onColor: (value: WorkspaceColor | undefined) => void
+  onIcon: (value: WorkspaceIcon | undefined) => void
+  t: WorkspaceBrowserProps['t']
+}) {
+  const [open, setOpen] = useState(false)
+  const items = [
+    { type: 'label' as const, id: 'filter-colors', text: t('filter.color') },
+    { id: 'color-all', label: t('filter.all') },
+    ...WORKSPACE_COLORS.map(value => ({ id: `color-${value}`, label: t(`appearance.color.${value}`) })),
+    { type: 'separator' as const, id: 'filter-icons-separator' },
+    { type: 'label' as const, id: 'filter-icons', text: t('filter.icon') },
+    { id: 'icon-all', label: t('filter.all') },
+    ...WORKSPACE_ICONS.map(value => ({ id: `icon-${value}`, label: t(`appearance.icon.${value}`) })),
+  ]
+  return (
+    <Menu
+      open={open}
+      onClose={() => { setOpen(false) }}
+      items={items}
+      selectedIds={[...(color === undefined ? [] : [`color-${color}`]), ...(icon === undefined ? [] : [`icon-${icon}`])]}
+      onSelect={(id) => {
+        if (id === 'color-all') onColor(undefined)
+        else if (id.startsWith('color-')) onColor(id.slice(6) as WorkspaceColor)
+        else if (id === 'icon-all') onIcon(undefined)
+        else if (id.startsWith('icon-')) onIcon(id.slice(5) as WorkspaceIcon)
+        setOpen(false)
+      }}
+      align="end"
+      dense
+      portal
+      anchor={(
+        <Tooltip label={t('filter.label')} side="bottom" delayMs={500} portal>
+          <button
+            type="button"
+            className={css.iconButton}
+            aria-label={t('filter.label')}
+            aria-expanded={open}
+            onClick={() => { setOpen(value => !value) }}
+          >
+            <span aria-hidden="true">#</span>
+          </button>
+        </Tooltip>
+      )}
+    />
+  )
 }
 
 /** In-flight Workspace-row drag: source identity plus the current marker. */
@@ -268,6 +276,10 @@ type SessionTreeProps = Pick<
   home?: string | undefined
   /** Workspaces in Host group order with browser-projected Session order. */
   workspaces: readonly WorkspaceView[]
+  /** Chosen color and icon per Workspace. */
+  appearanceByWorkspace: Readonly<Record<string, WorkspaceAppearance>>
+  /** Chosen color and icon per Session. */
+  appearanceBySession: Readonly<Record<string, WorkspaceAppearance>>
   /** Browser-projected order for Sessions outside every Workspace. */
   ungroupedSessionIds: readonly SessionId[]
   /** Whether the current Workspace stream has a complete Host baseline. */
@@ -292,6 +304,16 @@ type SessionTreeProps = Pick<
   revealSessionId?: SessionId | undefined
   /** Acknowledge that the chosen Session row has been revealed. */
   onSessionRevealed: (sessionId: SessionId) => void
+  /**
+   * Whether the Sections pane is present below this tree, which turns the
+   * workspace rows into drop targets for filing a Chat into a section. Absent
+   * or false leaves every row exactly as it was.
+   */
+  sectionDropTargets?: boolean | undefined
+  /** Publish a Session drag so the Sections pane can accept it as a filing drop. */
+  onChatDragStart: (sessionId: SessionId) => void
+  /** End a published Session drag. */
+  onChatDragEnd: () => void
 }
 
 /** The list-empty placeholder — a glyph over the text; the archived-only view names its filter and offers the way back. */
@@ -313,6 +335,7 @@ function EmptySessions({ rowState, onLeaveArchivedOnly, t }: Pick<SessionTreePro
 /** The scrolling session tree; unmounting drops the sessions subscription and the session watermarks. */
 function SessionTree({
   list, useSessionStatus, startSession, open, workspaces, ungroupedSessionIds,
+  appearanceByWorkspace, appearanceBySession,
   rowState, onLeaveArchivedOnly,
   workspaceReady, animationResetKey, usePanelInfo, useSessionAccess, useWorkspaceAccess,
   onSessionRenameRequest,
@@ -320,7 +343,7 @@ function SessionTree({
   insertWorkspaceBefore,
   nestWorkspaces, groupExpansion, setGroupExpanded,
   setSessionOrder, home, t,
-  revealSessionId, onSessionRevealed, shortcuts,
+  revealSessionId, onSessionRevealed, shortcuts, sectionDropTargets = false, onChatDragStart, onChatDragEnd,
 }: SessionTreeProps) {
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
   const statuses = useSessionStatus(s => s)
@@ -335,7 +358,7 @@ function SessionTree({
   // Advances on user-driven watermark changes so AnimatedRows settles them; automatic raises animate.
   const [watermarkMotionKey, setWatermarkMotionKey] = useState(0)
   // Transient drag marker state; the selected mode owns the resulting order.
-  const [drag, setDrag] = useState<DragState | null>(null)
+  const [drag, setDrag] = useState<SessionDragState | null>(null)
   const sessionDropCommitted = useRef(false)
   const [workspaceDrag, setWorkspaceDrag] = useState<WorkspaceDragState | null>(null)
   const workspaceDropCommitted = useRef(false)
@@ -412,7 +435,7 @@ function SessionTree({
     return false
   }
   const now = Date.now()
-  const commitSessionDrag = (activeDrag: DragState, over: NonNullable<DragState['over']>): void => {
+  const commitSessionDrag = (activeDrag: SessionDragState, over: NonNullable<SessionDragState['over']>): void => {
     if (sessionDropCommitted.current) return
     sessionDropCommitted.current = true
     setDrag(null)
@@ -463,6 +486,12 @@ function SessionTree({
     }
     return children
   }, [groups, parents])
+  // A collapsed row stands for its whole folded subtree: its own Sessions plus descendant Workspaces.
+  const subtreeAttention = (group: GroupNode): GroupAttention | undefined =>
+    (childrenByParent.get(group.key) ?? []).reduce<GroupAttention | undefined>(
+      (sum, child) => mergeAttention(sum, subtreeAttention(child)),
+      group.attention,
+    )
   const rootGroups = childrenByParent.get(undefined) ?? []
   const workspaceDropAtListStart = rootGroups[0]?.workspaceId !== undefined
     && workspaceDrag?.over?.id === rootGroups[0].workspaceId
@@ -555,6 +584,8 @@ function SessionTree({
           newShortcut={shortcuts.find(row => row.id === 'session.new')}
           group={group}
           renderFactorySlot={renderFactorySlot} useContextMenu={useContextMenu} useContextMenuTarget={useContextMenuTarget}
+          appearance={group.workspaceId === undefined ? undefined : appearanceByWorkspace[group.workspaceId]}
+          attention={group.expanded ? undefined : subtreeAttention(group)}
           useWorkspaceAccess={useWorkspaceAccess}
           containsCurrentDescendant={currentAncestors.has(group.key)}
           home={home}
@@ -585,6 +616,7 @@ function SessionTree({
             start: () => {
               sessionDropCommitted.current = false
               setDrag({ accountKey: group.key, sessionId: node.id, pinned: node.pinned, over: null })
+              if (sectionDropTargets) onChatDragStart(node.id)
             },
             active: compatibleTarget,
             marker: sameGroupDrag && drag.over?.id === node.id ? drag.over.half : null,
@@ -603,6 +635,7 @@ function SessionTree({
               if (drag?.over !== null && drag?.over !== undefined) commitSessionDrag(drag, drag.over)
               else setDrag(null)
               sessionDropCommitted.current = false
+              if (sectionDropTargets) onChatDragEnd()
             },
           }
           return (
@@ -616,6 +649,9 @@ function SessionTree({
               renderSlot={renderSlot}
               renderFactorySlot={renderFactorySlot} useContextMenu={useContextMenu}
               useContextMenuTarget={useContextMenuTarget}
+              appearance={group.workspaceId === undefined
+                ? appearanceBySession[node.id]
+                : { ...appearanceByWorkspace[group.workspaceId], ...appearanceBySession[node.id] }}
               onReveal={node.id === revealSessionId && group.key === revealGroup
                 ? () => { onSessionRevealed(node.id) }
                 : undefined}
@@ -677,7 +713,7 @@ function SessionTree({
 /** The flat "In one list" body: every session is one draggable top-level row. */
 function FlatList({
   list, sessionIds, rowState, onLeaveArchivedOnly, useSessionStatus, useSessionAccess, open, onSessionRenameRequest,
-  usePanelInfo, setSessionOrder, workspaceReady, animationResetKey,
+  usePanelInfo, setSessionOrder, workspaceReady, animationResetKey, appearanceBySession,
   revealSessionId, onSessionRevealed, renderSlot, renderFactorySlot, useContextMenuTarget, useContextMenu, home, t,
 }: Pick<
   SessionTreeProps,
@@ -700,6 +736,7 @@ function FlatList({
 > & {
   list: SessionListState
   sessionIds: readonly SessionId[]
+  appearanceBySession: Readonly<Record<string, WorkspaceAppearance>>
 }) {
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
   const statuses = useSessionStatus(s => s)
@@ -707,13 +744,13 @@ function FlatList({
     () => deriveFlat(list, sessionIds, rowState, statuses),
     [list, sessionIds, rowState, statuses],
   )
-  const [drag, setDrag] = useState<DragState | null>(null)
+  const [drag, setDrag] = useState<SessionDragState | null>(null)
   const dropCommitted = useRef(false)
   useNativeDragAcceptance(drag !== null)
   const currentId = panelActive
     ? undefined
     : Object.values(list.byId).find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
-  const commitDrag = (activeDrag: DragState, over: NonNullable<DragState['over']>): void => {
+  const commitDrag = (activeDrag: SessionDragState, over: NonNullable<SessionDragState['over']>): void => {
     if (dropCommitted.current) return
     dropCommitted.current = true
     setDrag(null)
@@ -749,6 +786,7 @@ function FlatList({
               renderSlot={renderSlot}
               renderFactorySlot={renderFactorySlot} useContextMenu={useContextMenu}
               useContextMenuTarget={useContextMenuTarget}
+              appearance={appearanceBySession[node.id]}
               onReveal={node.id === revealSessionId
                 ? () => { onSessionRevealed(node.id) }
                 : undefined}
@@ -914,16 +952,21 @@ export function WorkspaceBrowser({
   useWorkspaceAccess,
   useWorkspaces,
   useStore,
+  useAppearance,
+  useWorkspaceActionRequest,
+  useSectionActionRequest,
   actions,
   startSession,
   open,
   requestSessionRename,
   notifyArchivedNotOpenable,
-  renameWorkspace, useWorkspaceActionRequest, settleWorkspaceAction,
+  renameWorkspace,
+  settleWorkspaceAction,
   deleteWorkspace,
   insertWorkspaceBefore,
   unarchiveSession,
   createWorkspace,
+  newSectionId,
   searchSessions,
   searchResultLimit,
   useDirectoryFlow,
@@ -934,7 +977,7 @@ export function WorkspaceBrowser({
   requestAddWorkspace,
   closeAddWorkspace,
   setDirectoryBusy,
-  renderSlot, renderFactorySlot, useContextMenuTarget, useContextMenu,
+  renderSlot, renderFactorySlot, openSectionMenu, settleSectionAction, useContextMenuTarget, useContextMenu,
   t,
 }: WorkspaceBrowserProps) {
   const home = useHostInfo(info => info.home)
@@ -969,6 +1012,13 @@ export function WorkspaceBrowser({
   const archivedFilter = useStore(s => s.archivedFilter ?? 'default')
   const groupExpansion = useStore(s => s.groupExpansion)
   const sessionOrderByAccount = useStore(s => s.sessionOrderByAccount)
+  const chatSections = useStore(s => s.chatSections)
+  const appearances = useAppearance(value => value)
+  const [externalChatSessionId, setExternalChatSessionId] = useState<SessionId | null>(null)
+  // Sections render in their own pane below the Workspace pane, so this only
+  // decides whether that pane exists — never which Workspace projection shows.
+  const sectionsOn = sectionsActive(chatSections)
+  useNativeDragAcceptance(externalChatSessionId !== null)
   // Archived sessions are not openable: the row stays visible under the
   // filter but a click explains instead of navigating.
   const guardedOpen = (sessionId: SessionId): void => {
@@ -985,6 +1035,8 @@ export function WorkspaceBrowser({
   const currentBlank = mainSessionId !== undefined && list.byId[mainSessionId]?.blank === true
     ? mainSessionId
     : undefined
+  const [filterColor, setFilterColor] = useState<WorkspaceColor | undefined>(undefined)
+  const [filterIcon, setFilterIcon] = useState<WorkspaceIcon | undefined>(undefined)
   const ungroupedMemberIds = useMemo(() => {
     const accounted = new Set(workspaces.flatMap(workspace => workspace.sessionIds))
     return list.ids.filter(id => list.byId[id] !== undefined && !accounted.has(id))
@@ -998,6 +1050,11 @@ export function WorkspaceBrowser({
     [orderState, archivedFilter],
   )
   const flatMemberIds = useMemo(() => sessionMemberIds(list), [list])
+  // The Sections pane files visible Sessions only, so it follows the archived filter.
+  const sectionMemberIds = useMemo(
+    () => visibleSessionIds(list, archivedSessionIds, archivedFilter),
+    [archivedFilter, archivedSessionIds, list],
+  )
   const orderedWorkspaces = useMemo(() => workspaces.map((workspace) => {
     const memberIds = workspace.sessionIds
     const baseOrder = orderBy === 'updated'
@@ -1011,6 +1068,11 @@ export function WorkspaceBrowser({
       ),
     }
   }), [currentBlank, list.byId, orderBy, orderState, sessionOrderByAccount, workspaces])
+  const visibleWorkspaces = useMemo(() => orderedWorkspaces.filter((workspace) => {
+    const appearance = appearances.workspaces[workspace.workspaceId]
+    return (filterColor === undefined || appearance?.color === filterColor)
+      && (filterIcon === undefined || appearance?.icon === filterIcon)
+  }), [appearances.workspaces, filterColor, filterIcon, orderedWorkspaces])
   const orderedUngroupedSessionIds = useMemo(() => {
     const baseOrder = orderBy === 'updated'
       ? orderByRecency(ungroupedMemberIds, list.byId)
@@ -1124,6 +1186,7 @@ export function WorkspaceBrowser({
   const wsPickerOpen = shortcutState.addRequested
   const wsPlusRef = useRef<HTMLButtonElement>(null)
   const workspaceActionRequest = useWorkspaceActionRequest(value => value)
+  const sectionActionRequest = useSectionActionRequest(value => value)
 
   const openSearchResult = (sessionId: SessionId): void => {
     if (archivedSessionIds.includes(sessionId)) {
@@ -1228,13 +1291,55 @@ export function WorkspaceBrowser({
       console.warn('session unarchive rejected:', reason)
     })
   }
+  const {
+    dialogs: sectionDialogs,
+    onCreateRequest: onSectionCreate,
+    onRenameRequest: onSectionRename,
+    onDeleteRequest: onSectionDelete,
+  } = useSectionDialogs({
+    sections: chatSections.sections,
+    createSection: actions.createSection,
+    renameSection: actions.renameSection,
+    deleteSection: actions.deleteSection,
+    newSectionId,
+    expandSection: (sectionId) => { actions.setSectionCollapsed(sectionId, false) },
+    t,
+  })
+  useEffect(() => {
+    if (sectionActionRequest === null) return
+    if (sectionActionRequest.action === 'rename') onSectionRename(sectionActionRequest.sectionId, sectionActionRequest.displayTitle)
+    else onSectionDelete(sectionActionRequest.sectionId, sectionActionRequest.displayTitle)
+    settleSectionAction()
+  }, [sectionActionRequest])
+  // Section membership survives a Session leaving the visible list only while
+  // the Chat still exists; a departed Session's assignment and saved slot are
+  // dropped so the persisted layer cannot grow without bound.
+  const sessionAccountKeys = list.ids
+  useEffect(() => {
+    if (list.phase !== 'ready') return
+    actions.retainSectionSessions(sessionAccountKeys)
+  }, [actions.retainSectionSessions, list.phase, sessionAccountKeys])
+
   return (
     <div className={clsx(css.root, !wide && css.rail)}>
       <div className={clsx(css.sectionHeader, wide && searchSpacingMotionEnabled && css.searchSpacingMotion)} data-sidebar-workspace-header="">
         {wide && (
           <span className={clsx(css.sectionLabel, css.wide, searchExpanded && css.sectionLabelHidden)}>
-            {groupBy === 'flat' ? t('section.sessions') : t('section.workspaces')}
+            {groupBy === 'activity' ? t('groupBy.activity')
+              : groupBy === 'flat' ? t('section.sessions')
+                : t('section.workspaces')}
           </span>
+        )}
+        {/* The color/icon filter stays on screen in every mode: it narrows
+            workspace groups, and the Workspace pane is always present. */}
+        {wide && (
+          <WorkspaceFilterMenu
+            color={filterColor}
+            icon={filterIcon}
+            onColor={setFilterColor}
+            onIcon={setFilterIcon}
+            t={t}
+          />
         )}
         {wide && (
           <div className={clsx(css.searchSlot, searchExpanded && css.searchSlotExpanded)}>
@@ -1294,20 +1399,9 @@ export function WorkspaceBrowser({
           </div>
         )}
         <div className={clsx(css.headerActions, wide && searchExpanded && css.headerActionsHidden)}>
-          {wide && (
-            <ViewOptionsMenu
-              groupBy={groupBy}
-              orderBy={orderBy}
-              archivedFilter={archivedFilter}
-              onGroupPick={actions.setGroupBy}
-              onOrderPick={(mode) => { actions.setOrderBy(mode, activeSessionOrders) }}
-              onArchivedFilterPick={actions.setArchivedFilter}
-              t={t}
-            />
-          )}
-          {/* Adding is the button's one action, so a composition with no
-              picking affordance has nothing to offer here: the region hides the
-              button rather than leaving a dead one in the header. */}
+          {/* Established order: Add workspace, View options, then the section
+              action last. Add workspace leads with its folder-plus glyph, and
+              New section uses a plain plus so the two cannot be confused. */}
           {directoryFlowAvailable && (
             <Tooltip label={t('workspace.add')} shortcutKeys={addShortcut?.keys} side="bottom" delayMs={500} portal>
               <button
@@ -1321,6 +1415,29 @@ export function WorkspaceBrowser({
                 }}
               >
                 <IconProjectAddOutlineRegular size={wide ? 16 : 18} />
+              </button>
+            </Tooltip>
+          )}
+          {wide && (
+            <ViewOptionsMenu
+              groupBy={groupBy}
+              orderBy={orderBy}
+              archivedFilter={archivedFilter}
+              onGroupPick={actions.setGroupBy}
+              onOrderPick={(mode) => { actions.setOrderBy(mode, activeSessionOrders) }}
+              onArchivedFilterPick={actions.setArchivedFilter}
+              t={t}
+            />
+          )}
+          {wide && (
+            <Tooltip label={t('section.new')} side="bottom" delayMs={500}>
+              <button
+                type="button"
+                className={css.iconButton}
+                aria-label={t('section.new')}
+                onClick={onSectionCreate}
+              >
+                <IconPlusOutlineRegular size={16} />
               </button>
             </Tooltip>
           )}
@@ -1363,86 +1480,155 @@ export function WorkspaceBrowser({
       </div>}
 
       {/* Always-mounted seat keeps the region's flex slot while the list
-          itself is wide-only. */}
-      <div ref={wide ? bindScrollerRef : undefined} className={css.listArea} data-sidebar-list-area="">
-        {wide && (normalizedQuery !== ''
-          ? (
-            <SearchResults
-              usePanelInfo={usePanelInfo}
-              useSessionAccess={useSessionAccess}
-              useSessions={useSessions}
-              useSessionStatus={useSessionStatus}
-              open={openSearchResult}
-              onUnarchive={onSessionUnarchive}
-              workspaces={workspaces}
-              archivedSessionIds={archivedSessionIds}
-              archivedFilter={archivedFilter}
-              query={normalizedQuery}
-              remote={remoteSearch}
-              resultLimit={searchResultLimit}
-              t={t}
-            />
-          )
-          : groupBy === 'flat'
+          itself is wide-only. When sections exist this seat stacks two
+          independently scrolling panes: Workspaces above the divider, Chat
+          Sections below it. */}
+      <div ref={wide && !sectionsOn ? bindScrollerRef : undefined} className={clsx(css.listArea, wide && sectionsOn && css.listAreaStacked)} data-sidebar-list-area={sectionsOn ? undefined : ""}>
+        {wide && sectionsOn && (
+          <div className={css.paneHeading}>{t('section.workspaces')}</div>
+        )}
+        <div ref={wide && sectionsOn ? bindScrollerRef : undefined} className={css.workspacePane} data-sidebar-list-area={sectionsOn ? "" : undefined}>
+          {wide && (normalizedQuery !== ''
             ? (
-              <FlatList
-                useSessionAccess={useSessionAccess}
+              <SearchResults
                 usePanelInfo={usePanelInfo}
-                list={list}
-                sessionIds={orderedFlatSessionIds}
-                rowState={rowState}
-                onLeaveArchivedOnly={leaveArchivedOnly}
-                workspaceReady={workspaceReady}
-                animationResetKey={`${groupBy}/${orderBy}/${archivedFilter}`}
+                useSessionAccess={useSessionAccess}
+                useSessions={useSessions}
                 useSessionStatus={useSessionStatus}
-                open={guardedOpen}
-                onSessionRenameRequest={requestSessionRename}
-                renderSlot={renderSlot}
-                renderFactorySlot={renderFactorySlot} useContextMenu={useContextMenu}
-                useContextMenuTarget={useContextMenuTarget}
-                setSessionOrder={saveSessionOrder}
-                revealSessionId={revealSessionId}
-                onSessionRevealed={acknowledgeSessionReveal}
-                home={home}
+                open={openSearchResult}
+                onUnarchive={onSessionUnarchive}
+                workspaces={workspaces}
+                archivedSessionIds={archivedSessionIds}
+                archivedFilter={archivedFilter}
+                query={normalizedQuery}
+                remote={remoteSearch}
+                resultLimit={searchResultLimit}
                 t={t}
               />
             )
-            : (
-              <SessionTree
-                useSessionAccess={useSessionAccess}
-                useWorkspaceAccess={useWorkspaceAccess}
-                usePanelInfo={usePanelInfo}
-                list={list}
-                shortcuts={shortcuts}
-                useSessionStatus={useSessionStatus}
-                onSessionRenameRequest={requestSessionRename}
-                renderSlot={renderSlot}
-                renderFactorySlot={renderFactorySlot} useContextMenu={useContextMenu}
-                useContextMenuTarget={useContextMenuTarget}
-                workspaces={orderedWorkspaces}
-                ungroupedSessionIds={orderedUngroupedSessionIds}
-                workspaceReady={workspaceReady}
-                nestWorkspaces={groupBy === 'workspace-tree'}
-                animationResetKey={`${groupBy}/${orderBy}/${archivedFilter}`}
-                groupExpansion={groupExpansion}
-                setGroupExpanded={actions.setGroupExpanded}
-                setSessionOrder={saveSessionOrder}
-                rowState={rowState}
-                onLeaveArchivedOnly={leaveArchivedOnly}
-                startSession={startSession}
-                open={guardedOpen}
-                insertWorkspaceBefore={insertWorkspaceBefore}
-                revealSessionId={revealSessionId}
-                onSessionRevealed={acknowledgeSessionReveal}
-                home={home}
-                t={t}
-              />
-            ))}
+            : groupBy === 'activity'
+              ? (
+                <ActivityList
+                  list={list}
+                  sessionIds={orderedFlatSessionIds}
+                  rowState={rowState}
+                  appearanceBySession={appearances.sessions}
+                  useSessionStatus={useSessionStatus}
+                  usePanelInfo={usePanelInfo}
+                  open={guardedOpen}
+                  renderFactorySlot={renderFactorySlot}
+                  useContextMenu={useContextMenu}
+                  useContextMenuTarget={useContextMenuTarget}
+                  useSessionAccess={useSessionAccess}
+                  onSessionRenameRequest={requestSessionRename}
+                  renderSlot={renderSlot}
+                  t={t}
+                />
+              )
+              : groupBy === 'flat'
+                ? (
+                  <FlatList
+                    useSessionAccess={useSessionAccess}
+                    usePanelInfo={usePanelInfo}
+                    list={list}
+                    sessionIds={orderedFlatSessionIds}
+                    rowState={rowState}
+                    onLeaveArchivedOnly={leaveArchivedOnly}
+                    workspaceReady={workspaceReady}
+                    animationResetKey={`${groupBy}/${orderBy}/${archivedFilter}`}
+                    appearanceBySession={appearances.sessions}
+                    useSessionStatus={useSessionStatus}
+                    open={guardedOpen}
+                    onSessionRenameRequest={requestSessionRename}
+                    renderFactorySlot={renderFactorySlot}
+                    useContextMenu={useContextMenu}
+                    useContextMenuTarget={useContextMenuTarget}
+                    renderSlot={renderSlot}
+                    setSessionOrder={saveSessionOrder}
+                    revealSessionId={revealSessionId}
+                    onSessionRevealed={acknowledgeSessionReveal}
+                    home={home}
+                    t={t}
+                  />
+                )
+                : (
+                  <SessionTree
+                    useSessionAccess={useSessionAccess}
+                    useWorkspaceAccess={useWorkspaceAccess}
+                    usePanelInfo={usePanelInfo}
+                    list={list}
+                    shortcuts={shortcuts}
+                    useSessionStatus={useSessionStatus}
+                    onSessionRenameRequest={requestSessionRename}
+                    renderSlot={renderSlot}
+                    renderFactorySlot={renderFactorySlot}
+                    useContextMenu={useContextMenu}
+                    useContextMenuTarget={useContextMenuTarget}
+                    workspaces={visibleWorkspaces}
+                    appearanceByWorkspace={appearances.workspaces}
+                    appearanceBySession={appearances.sessions}
+                    ungroupedSessionIds={orderedUngroupedSessionIds}
+                    workspaceReady={workspaceReady}
+                    nestWorkspaces={groupBy === 'workspace-tree'}
+                    animationResetKey={`${groupBy}/${orderBy}/${archivedFilter}`}
+                    groupExpansion={groupExpansion}
+                    setGroupExpanded={actions.setGroupExpanded}
+                    setSessionOrder={saveSessionOrder}
+                    rowState={rowState}
+                    onLeaveArchivedOnly={leaveArchivedOnly}
+                    startSession={startSession}
+                    open={guardedOpen}
+                    insertWorkspaceBefore={insertWorkspaceBefore}
+                    revealSessionId={revealSessionId}
+                    onSessionRevealed={acknowledgeSessionReveal}
+                    home={home}
+                    t={t}
+                    sectionDropTargets={sectionsOn}
+                    onChatDragStart={setExternalChatSessionId}
+                    onChatDragEnd={() => { setExternalChatSessionId(null) }}
+                  />
+                ))}
+        </div>
+
+        {/* The Sections pane: a saved visual filter over the Workspace pane
+            above. Chats stay in their workspace folders; filing one only adds
+            it here, so nothing is ever lost from the list above. */}
+        {wide && sectionsOn && (
+          <SectionsList
+            usePanelInfo={usePanelInfo}
+            useSessionStatus={useSessionStatus}
+            list={list}
+            rowState={rowState}
+            visibleSessionIds={sectionMemberIds}
+            sections={chatSections}
+            appearanceBySection={appearances.sections}
+            appearanceBySession={appearances.sessions}
+            currentBlank={currentBlank}
+            open={guardedOpen}
+            onSessionRenameRequest={requestSessionRename}
+            renderSlot={renderSlot}
+            assignSession={actions.assignSession}
+            externalChatSessionId={externalChatSessionId}
+            onChatDragEnd={() => { setExternalChatSessionId(null) }}
+            setSectionOrder={actions.setSectionOrder}
+            toggleSection={(sectionId) => {
+              actions.setSectionCollapsed(sectionId, chatSections.collapse[sectionId] !== true)
+            }}
+            moveSection={actions.moveSection}
+            openSectionMenu={openSectionMenu}
+            renderFactorySlot={renderFactorySlot}
+            useContextMenu={useContextMenu}
+            useContextMenuTarget={useContextMenuTarget}
+            useSessionAccess={useSessionAccess}
+            t={t}
+          />
+        )}
       </div>
 
       {workspaceActionRequest !== null && <WorkspaceDialogs key={`${workspaceActionRequest.action}/${workspaceActionRequest.workspaceId}`}
         request={workspaceActionRequest} workspaces={workspaces} renameWorkspace={renameWorkspace} deleteWorkspace={deleteWorkspace}
         settleWorkspaceAction={settleWorkspaceAction} t={t} />}
+      {sectionDialogs}
     </div>
   )
 }

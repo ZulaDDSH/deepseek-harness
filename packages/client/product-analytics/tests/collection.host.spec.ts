@@ -45,11 +45,11 @@ it('disabled collection does not read identity or submit an event', async () => 
 
 it('reuses login identity and copies only approved common fields', async () => {
   const b = await setup(true)
-  await b.ctx.productAnalytics.report({ eventName: 'auth_page_click', timestamp: 100, attributes: { button_name: 'sign_in' } })
+  await b.ctx.productAnalytics.report({ eventName: 'sidebar_menu_click', timestamp: 100, attributes: { menu_name: 'plugin' } })
   expect(b.getDeviceIdentity).toHaveBeenCalledWith()
   expect(b.emit).toHaveBeenCalledExactlyOnceWith({
-    eventName: 'auth_page_click', body: 'auth_page_click', timestamp: 100,
-    attributes: { ...commonEnvironment, button_name: 'sign_in', device_id: 'login-device', user_id: 'user-1', app_version: 'test-version' },
+    eventName: 'sidebar_menu_click', body: 'sidebar_menu_click', timestamp: 100,
+    attributes: { ...commonEnvironment, menu_name: 'plugin', device_id: 'login-device', user_id: 'user-1', app_version: 'test-version' },
   })
   expect(JSON.stringify(b.emit.mock.calls)).not.toContain('private-')
   expect(b.emit.mock.calls[0]![0].attributes).not.toHaveProperty('missing_fields')
@@ -92,26 +92,11 @@ it('writes the selected event through the real exporter to an isolated collector
   ctx.provide('webServer', {} as never)
   await ctx.plugin(OTel)
   const exporter = await ctx.plugin(ProductTelemetry, TelemetryConfig({ endpoint: `http://127.0.0.1:${address.port}/v1/logs`, serviceName: 'test', serviceVersion: '1', compression: 'none' }))
-  const analytics = await ctx.plugin(Analytics, { enabled: true })
-  await ctx.productAnalytics.report({ eventName: 'api_key_save_click', timestamp: 1_800_000_000_000, attributes: {} })
-  await analytics.dispose()
-  const { cpu_physical_core_count: _cores, ...partialEnvironment } = environment
-  vi.mocked(collectEnvironment).mockResolvedValueOnce({ ...partialEnvironment, os_version_full: '10.0.26300.9458',
-    missing_fields: { cpu_physical_core_count: 'timeout' },
-  })
   await ctx.plugin(Analytics, { enabled: true })
-  await ctx.productAnalytics.report({ eventName: 'api_key_save_click', timestamp: 1_800_000_000_001, attributes: {} })
+  await ctx.productAnalytics.report({ eventName: 'desktop_app_launch', timestamp: 1_800_000_000_000, attributes: {} })
   await exporter.dispose()
   expect(captures).toHaveLength(1)
-  expect(JSON.parse(captures[0]!)).toMatchObject({ resourceLogs: [{ scopeLogs: [{ logRecords: [
-    { eventName: 'api_key_save_click', timeUnixNano: '1800000000000000000' },
-    { eventName: 'api_key_save_click', timeUnixNano: '1800000000001000000' },
-  ] }] }] })
-  expect(captures[0]).toContain('10.0.26300.9457')
-  expect(captures[0]).toContain('10.0.26300.9458')
-  expect(captures[0]).toContain('"stringValue":"cpu_physical_core_count=timeout"')
-  expect(captures[0]).not.toContain('kvlistValue')
-  expect(collectEnvironment).toHaveBeenCalledTimes(2)
+  expect(JSON.parse(captures[0]!)).toMatchObject({ resourceLogs: [{ scopeLogs: [{ logRecords: [{ eventName: 'desktop_app_launch', timeUnixNano: '1800000000000000000' }] }] }] })
   expect(captures[0]).not.toContain('device_id')
   expect(captures[0]).not.toContain('app_version')
 })
@@ -158,7 +143,7 @@ it('streams live policy changes and rejects intake disabled during identity look
   expect(await iterator.next()).toEqual({ value: true, done: false })
   const identity = Promise.withResolvers<undefined>()
   b.getDeviceIdentity.mockReturnValueOnce(identity.promise)
-  const report = b.ctx.productAnalytics.report({ eventName: 'auth_page_view', timestamp: 1, attributes: {} })
+  const report = b.ctx.productAnalytics.report({ eventName: 'desktop_app_launch', timestamp: 1, attributes: {} })
   const next = iterator.next()
   // Loader commits the stable Config reference before publishing this notification.
   const { updateVolatile, createVolatile } = await import('../../../../vendor/cosmokit/src/volatile.ts')
@@ -192,7 +177,7 @@ it('shares one environment query across concurrent events and keeps identity fre
   const b = await setup(true)
   const pending = Promise.withResolvers<EnvironmentAttributes>()
   vi.mocked(collectEnvironment).mockReturnValueOnce(pending.promise)
-  const first = b.ctx.productAnalytics.report({ eventName: 'auth_page_view', timestamp: 1, attributes: {} })
+  const first = b.ctx.productAnalytics.report({ eventName: 'desktop_upgrade_click', timestamp: 1, attributes: {} })
   b.getDeviceIdentity.mockResolvedValueOnce({ userId: 'user-2', osVersion: 'untrusted-os' })
   const second = b.ctx.productAnalytics.report({ eventName: 'desktop_app_launch', timestamp: 2, attributes: {} })
   expect(collectEnvironment).toHaveBeenCalledTimes(1)
@@ -202,7 +187,7 @@ it('shares one environment query across concurrent events and keeps identity fre
   expect(b.emit.mock.calls.map(([record]) => record.attributes?.user_id)).toEqual(['user-1', 'user-2'])
   expect(b.emit.mock.calls.map(([record]) => record.attributes?.os_version_full)).toEqual(['10.0.26300.9457', '10.0.26300.9457'])
   expect(b.emit.mock.calls).toHaveLength(2)
-  await b.ctx.productAnalytics.report({ eventName: 'auth_page_view', timestamp: 3, attributes: {} })
+  await b.ctx.productAnalytics.report({ eventName: 'desktop_upgrade_click', timestamp: 3, attributes: {} })
   expect(collectEnvironment).toHaveBeenCalledTimes(1)
   expect(b.getDeviceIdentity).toHaveBeenCalledTimes(3)
 })
@@ -210,7 +195,7 @@ it('shares one environment query across concurrent events and keeps identity fre
 it('caches failed environment fields without discarding the event or retrying each interaction', async () => {
   const b = await setup(true)
   vi.mocked(collectEnvironment).mockResolvedValue({ os_name: 'windows', app_arch: 'x64', missing_fields: { os_version_full: 'timeout' } })
-  for (const timestamp of [1, 2]) await b.ctx.productAnalytics.report({ eventName: 'auth_page_view', timestamp, attributes: {} })
+  for (const timestamp of [1, 2]) await b.ctx.productAnalytics.report({ eventName: 'desktop_upgrade_click', timestamp, attributes: {} })
   expect(collectEnvironment).toHaveBeenCalledTimes(1)
   expect(b.emit.mock.calls).toHaveLength(2)
   expect(b.emit.mock.calls[0]![0].attributes?.missing_fields).toBe('os_version_full=timeout')
@@ -238,6 +223,6 @@ it('encodes failed fields as a sorted scalar and omits an empty failure list', a
   vi.mocked(collectEnvironment).mockResolvedValueOnce({ ...environment,
     missing_fields: { os_version_full: 'timeout', cpu_physical_core_count: 'query-failed' },
   })
-  await b.ctx.productAnalytics.report({ eventName: 'auth_page_view', timestamp: 1, attributes: {} })
+  await b.ctx.productAnalytics.report({ eventName: 'desktop_upgrade_click', timestamp: 1, attributes: {} })
   expect(b.emit.mock.calls[0]![0].attributes?.missing_fields).toBe('cpu_physical_core_count=query-failed,os_version_full=timeout')
 })

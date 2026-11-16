@@ -25,9 +25,11 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-plugin-manager/types'
 import { PluginManagerPage } from './PluginManagerPage.tsx'
 import { createPluginHeaderRef } from './header-scroll.ts'
+import { McpServersSection, type McpServersSectionInjected } from './McpServersSection.tsx'
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { PluginRefreshToast, type PluginRefreshToastFace } from './PluginRefreshToast.tsx'
 import { PluginsPanelIcon } from './PluginsPanelIcon.tsx'
-import { configLedgerSource } from './config-ledger.ts'
+import { configLedgerSource, type ConfigLedger } from './config-ledger.ts'
 import { tabLedgerSource } from './tab-ledger.ts'
 import { PluginManagerController } from './manager-store.ts'
 import { en, ja, es, fr, de, ru, pt, zh, type PluginManagerLocaleKey } from './locales.ts'
@@ -83,7 +85,7 @@ export const NS = 'pluginManager'
 export const PANEL_ID = 'plugins' as MainPanelId
 
 /** Services required by the sidebar registration, the Remote methods, and access; the inventory says whether the Host manages a profile. */
-export const inject = ['slots', 'locale', 'remote', 'remote.pluginManager', 'remote.pluginInventory', 'remote.pluginRegistryProbe', 'configForms', 'layout', 'remoteAccess']
+export const inject = ['slots', 'locale', 'remote', 'remote.pluginManager', 'remote.pluginInventory', 'remote.pluginRegistryProbe', 'configForms', 'settingsDirectory', 'layout', 'remoteAccess']
 
 /**
  * Contribute the Plugins entry to the sidebar with the management page it
@@ -94,6 +96,15 @@ export const inject = ['slots', 'locale', 'remote', 'remote.pluginManager', 'rem
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en, ja, es, fr, de, ru, pt }), 'ui-plugin-manager: dictionaries')
   const t = ctx.locale.bind(NS)
+  ctx.inject(['commandUi'], (scope) => {
+    const commands = scope.get('commandUi') as {
+      register(entry: { name: string; label(): string; available(): boolean; ui: { kind: 'action'; run(): void } }): () => void
+    }
+    scope.effect(() => commands.register({
+      name: 'plugins', label: () => t('panel'), available: () => true,
+      ui: { kind: 'action', run: () => { ctx.layout.selectPanel(PANEL_ID) } },
+    }), 'ui-plugin-manager: composer navigation')
+  })
   const controller = new PluginManagerController(ctx)
   ctx.effect(() => () => { controller.dispose() }, 'ui-plugin-manager: controller')
   ctx.provide('pluginChanges', { bundle: packageName => controller.observeChanges(packageName) })
@@ -163,6 +174,27 @@ export function apply(ctx: ClientContext): void {
         },
       })
       yield () => { void disposeNavigation() }
+      let published: ConfigLedger | undefined
+      let withdraw = (): void => {}
+      const publishSearch = (): void => {
+        const ledger = configLedger.getSnapshot()
+        if (ledger === published) return
+        published = ledger
+        withdraw()
+        withdraw = ctx.settingsDirectory.register([
+          {
+            id: 'plugins.page', label: () => t('panel'), description: () => t('searchPageDescription'), keywords: () => t('searchPageKeywords'),
+            link: { place: () => t('panel'), open: () => { ctx.layout.selectPanel(PANEL_ID); instance.actions.setView({ kind: 'list' }) } },
+          },
+          ...ledger.items.map(item => ({
+            id: `plugins.item.${item.id}`, label: item.label, description: () => t('searchItemDescription'), keywords: () => t('searchItemKeywords'),
+            link: { place: () => t('panel'), open: () => { ctx.layout.selectPanel(PANEL_ID); instance.actions.setView({ kind: 'item', id: item.id }) } },
+          })),
+        ])
+      }
+      publishSearch()
+      const stopSearch = configLedger.subscribe(publishSearch)
+      yield () => { stopSearch(); withdraw() }
     })
     yield ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
       name: 'sidebar.panellist',
@@ -172,4 +204,45 @@ export function apply(ctx: ClientContext): void {
       locale: NS,
     }, PluginsPanelIcon))
   })
+  type ChangeAnswer = { ok: boolean; value?: { application: string; error?: { code: string } }; error?: { message: string } }
+  const changed = async (call: Promise<ChangeAnswer>): Promise<void> => {
+    const result = await call
+    if (!result.ok) throw new Error(result.error?.message ?? 'request failed')
+    if (result.value?.application === 'failed') throw new Error(result.value.error?.code ?? 'failed')
+  }
+  const mcp: McpServersSectionInjected = {
+    listMcpServers: async () => {
+      const result = await ctx.remote.pluginManager.listMcpServers()
+      if (!result.ok) throw new Error(result.error.message)
+      return result.value
+    },
+    discoverMcpServers: async () => {
+      const result = await ctx.remote.pluginManager.discoverMcpServers()
+      if (!result.ok) throw new Error(result.error.message)
+      return result.value
+    },
+    addMcpServer: config => changed(ctx.remote.pluginManager.addMcpServer(config)),
+    removeMcpServer: entryId => changed(ctx.remote.pluginManager.removeMcpServer(entryId as never)),
+    setMcpServerEnabled: (entryId, enabled) => changed(ctx.remote.pluginManager.setPluginEnabled(entryId as never, enabled)),
+    signInMcpServer: async (authKey, onNotice, signal) => {
+      const authorization = ctx.get('remote.authorization') as NonNullable<ClientContext['remote']['authorization']> | undefined
+      if (authorization === undefined) throw new Error('sign-in is not available on this host')
+      try {
+        for await (const item of authorization.begin(authKey, undefined, signal)) {
+          if (item.type === 'notice') onNotice({ message: item.message, ...item.url === undefined ? {} : { url: item.url } })
+        }
+      } catch (error: unknown) {
+        if (!signal.aborted) throw error
+      }
+    },
+  }
+  ctx.effect(() => ctx.settingsDirectory.register([
+    { id: 'mcp.servers', section: 'mcp', label: () => t('mcpYourServers'), description: () => t('mcpHelp'), keywords: 'model context protocol tools connectors enable disable' },
+    { id: 'mcp.import', section: 'mcp', label: () => t('mcpImportTitle'), description: () => t('mcpImportFind'), keywords: 'mcp claude desktop claude code codex copy existing' },
+    { id: 'mcp.add', section: 'mcp', label: () => t('mcpAddTitle'), keywords: 'mcp stdio http command url headers environment new connect' },
+  ]), 'ui-plugin-manager: MCP search entries')
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section', id: 'mcp', order: 60, label: () => t('mcpNav'), locale: NS,
+    inject: () => mcp,
+  }, McpServersSection))
 }

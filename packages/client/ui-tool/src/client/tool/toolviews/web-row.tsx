@@ -59,6 +59,7 @@ export function WebRow({ toolName, block, useContextMenu, sessionId, inspect, us
       web={web}
       href={href}
       state={model.state}
+      startedAt={model.startedAt}
       inspect={inspect}
     />
   )

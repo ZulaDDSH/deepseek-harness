@@ -74,7 +74,7 @@ function mountShell({ collapsed = false, width = 300, drawer = false, shortcuts 
   const root = () => (
     <SidebarRoot
       drawer={current.drawer}
-      collapsed={current.collapsed} width={current.width}
+      collapsed={current.collapsed} focusMode={false} toggleFocus={vi.fn()} width={current.width}
       useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
       usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector(panels)} useEntryPins={selector => selector([])}
       useEntryActions={selector => selector(false)} setPinned={vi.fn()}
@@ -172,6 +172,26 @@ describe('SidebarRoot shell', () => {
     expect(bound.defaultPrevented).toBe(true)
   })
 
+  it('uses the rail toggle as the direct Focus-mode exit', () => {
+    const toggleFocus = vi.fn()
+    const toggleSidebar = vi.fn()
+    render(<SidebarRoot
+      collapsed focusMode toggleFocus={toggleFocus} drawer={false} width={56}
+      useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
+      usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])}
+      useEntryPins={selector => selector([])} useEntryActions={selector => selector(false)} setPinned={vi.fn()}
+      useShortcuts={selector => selector([])}
+      useResource={useResource} useWorkspaces={neverHook}
+      useContextMenu={contextMenuHook()} {...allowAllAccess}
+      startSession={vi.fn()} toggleSidebar={toggleSidebar} trackEntryClick={vi.fn()} t={t}
+      renderSlot={(() => null) as SidebarRootComponentProps['renderSlot']}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Exit focus mode' }))
+    expect(toggleFocus).toHaveBeenCalledOnce()
+    expect(toggleSidebar).not.toHaveBeenCalled()
+  })
+
   it('advertises the effective new-session binding', () => {
     const shortcut: ShortcutCatalogEntry = { id: 'session.new' as ShortcutCommandId, label: 'New', aliases: [],
       binding: null, modified: true, conflicts: [], issue: null, keys: ['Ctrl', 'N'], aria: 'Control+N' }
@@ -198,6 +218,7 @@ describe('SidebarRoot shell', () => {
     fireEvent.focus(button)
     expect(Array.from(screen.getByRole('tooltip').querySelectorAll('kbd'), key => key.textContent)).toEqual(['Ctrl', 'N'])
   })
+
   it('routes New Session (capsule + wordmark) and the column toggle', () => {
     // Occupied brand slots keep New Session even when the build carries a version.
     vi.stubEnv('DSH_CLIENT_VERSION', '1.2.3')
@@ -231,7 +252,7 @@ describe('SidebarRoot shell', () => {
     const startSession = vi.fn()
     const useRemoteAccess = vi.fn((action: string) => action !== 'session/create')
     render(<SidebarRoot
-      collapsed={false} width={300} drawer={false}
+      collapsed={false} width={300} drawer={false} focusMode={false} toggleFocus={vi.fn()}
       useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
       usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])} useEntryPins={selector => selector([])}
       useEntryActions={selector => selector(false)} setPinned={vi.fn()}
@@ -264,7 +285,7 @@ describe('SidebarRoot shell', () => {
     vi.stubEnv('DSH_CLIENT_VERSION', '1.2.3-rc.4')
     const { container } = render(<SidebarRoot
       drawer={false}
-      collapsed={false} width={300}
+      collapsed={false} focusMode={false} toggleFocus={vi.fn()} width={300}
       useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
       usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])} useEntryPins={selector => selector([])}
       useEntryActions={selector => selector(false)} setPinned={vi.fn()}
@@ -289,7 +310,7 @@ describe('SidebarRoot shell', () => {
     for (const [name, value] of Object.entries(environment)) vi.stubEnv(name, value)
     render(<SidebarRoot
       drawer={false}
-      collapsed={false} width={300}
+      collapsed={false} focusMode={false} toggleFocus={vi.fn()} width={300}
       useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
       usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])} useEntryPins={selector => selector([])}
       useEntryActions={selector => selector(false)} setPinned={vi.fn()}
@@ -318,7 +339,7 @@ describe('SidebarRoot shell', () => {
     const startSession = vi.fn()
     const trackEntryClick = vi.fn<SidebarRootComponentProps['trackEntryClick']>()
     render(<SidebarRoot
-      collapsed={false} width={300} drawer={false}
+      collapsed={false} width={300} drawer={false} focusMode={false} toggleFocus={vi.fn()}
       useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
       usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])} useEntryPins={selector => selector([])}
       useEntryActions={selector => selector(false)} setPinned={vi.fn()}
@@ -370,7 +391,7 @@ describe('SidebarRoot shell', () => {
   it('retains the local-build fallback without complete build metadata', () => {
     render(<SidebarRoot
       drawer={false}
-      collapsed={false} width={300}
+      collapsed={false} focusMode={false} toggleFocus={vi.fn()} width={300}
       useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
       usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])} useEntryPins={selector => selector([])}
       useEntryActions={selector => selector(false)} setPinned={vi.fn()}
@@ -442,7 +463,7 @@ describe('SidebarRoot shell', () => {
     vi.useFakeTimers()
     render(<SidebarRoot
       drawer={false}
-      collapsed width={56}
+      collapsed focusMode={false} toggleFocus={vi.fn()} width={56}
       useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
       usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])} useEntryPins={selector => selector([])}
       useEntryActions={selector => selector(false)} setPinned={vi.fn()}

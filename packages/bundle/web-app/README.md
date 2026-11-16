@@ -5,8 +5,6 @@ kind: "package-bundle"
 
 # @deepseek-ai/dsh-web-app
 
-English | [中文](README.zh.md)
-
 Desktop analytics follows the [product collection policy](../../client/product-analytics/README.md), including its live application setting. Web usage is excluded.
 
 Desktop analytics schedules partial batches every 30 seconds, with a 15-second exporter timeout and a 20-second processor timeout. Shutdown allows 2 seconds to drain, then cancels pending requests and retry waits so telemetry does not keep the Host alive. Pending events may be lost on exit.
@@ -23,6 +21,10 @@ Run `dsh --profile web` for browser chat, model and settings management, and ses
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 - [Dev Note](#dev-note)
+
+Lean mode provides `read`, `write`, `glob`, `grep`, and foreground shell commands, a focused persona without runtime context, a 200,000-token compaction cap, and tool-result pruning.
+
+Economy mode batches tool calls through PTC, limits workspace instructions to 32,768 bytes and skill descriptions to 240 characters, compacts at 60% context pressure with 10% retention, and prunes tool results above 4,096 characters.
 
 -----
 
@@ -108,9 +110,7 @@ The packaged skill uses the custom skill root: a same-named project skill overri
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The bundle is one patch layer of five files plus one runtime glue plugin: `cordis.patch.yml` carries the host rows and the preset registry, and each `presets/<id>.patch.yml` inserts one shipped preset declaration, applied in the order `dsh.bundle.patch` lists them. The storage stack and projection cache come from `dsh-base`; the web overlay's workspace and message-feedback rows consume that shared `storageDomain` service. The patch restates the surface-specific values the base deliberately omits, inserts the web-only host rows and browser roster, then moves the agent plane behind presets. The glue plugin owns dist serving, the advertised application URL, the plain-HTTP exposure warning, and the bash variable. WebApp owns startup URL publication and browser handoff; the [Token authentication plugin](../../host/authentication-token/README.md) contributes its signed entry URL. The `office-kit` row mounts one lazy [Office conversion provider](../../document/office-kit/README.md) for Host consumers, including Desktop compositions using this bundle, and keeps converted files under `$DSH_HOME/office-kit/outputs`. The `standard` and `ptc` presets mount the [Office tools](../../document/tool-office/README.md) in every profile, whether or not Kit is installed, and declare them after an Office skill loads; the `minimal` preset omits them. The conversion service's Remote methods authorize preview reads, while Document Preview owns the Office viewer and Client cache.
-
-The `skill-office` row mounts the [Office skills](../../skill/skill-office/README.md) from their packaged assets in every profile. Desktop with a nonempty `DSH_PRIMARY_RUNTIME` also mounts the bundled dependency-query row and selects `pythonEnvironment: 'workspace-dependencies'`; other profiles, and Desktop without a primary runtime, select `pythonEnvironment: 'user'` and leave the dependency-query row disabled. The [Desktop application](../../../apps/desktop/README.md#bundled-workspace-dependencies) owns resource packaging.
+The bundle is one patch layer plus one runtime glue plugin: `cordis.patch.yml` carries the host rows and the preset registry, and each `presets/<id>.patch.yml` inserts one shipped preset declaration, applied in the order `dsh.bundle.patch` lists them. The storage stack and projection cache come from `dsh-base`; the web overlay's workspace and message-feedback rows consume that shared `storageDomain` service. The patch restates the surface-specific values the base deliberately omits, inserts the web-only host rows and browser roster, then moves the agent plane behind presets. The glue plugin owns dist serving, the advertised application URL, the plain-HTTP exposure warning, the bash variable, and the readiness announcements. WebApp owns startup URL publication and browser handoff; the [Token authentication plugin](../../host/authentication-token/README.md) contributes its signed entry URL. The `office-kit` row mounts one lazy [Office conversion provider](../../document/office-kit/README.md) for Host consumers, including Desktop compositions using this bundle, and keeps converted files under `$DSH_HOME/office-kit/outputs`. The `standard` and `ptc` presets mount the [Office tools](../../document/tool-office/README.md) in every profile, whether or not Kit is installed, and declare them after an Office skill loads; the `minimal` preset omits them. The `skill-office` row mounts the [Office skills](../../skill/skill-office/README.md) from their packaged assets. Desktop with a nonempty `DSH_PRIMARY_RUNTIME` also mounts the bundled dependency-query row and selects `pythonEnvironment: 'workspace-dependencies'`; other profiles select `pythonEnvironment: 'user'` and leave it disabled. The [Desktop application](../../../apps/desktop/README.md#bundled-workspace-dependencies) owns resource packaging. The conversion service's Remote methods authorize preview reads, while Document Preview owns the Office viewer and Client cache.
 
 ### Patch semantics
 
@@ -131,10 +131,12 @@ The URL line and browser handoff are readiness signals: supervisors RPC as soon 
 | [`src/index.ts`](src/index.ts) | The `web-app` glue plugin: dist resolution, advertised application URL, bash variable |
 | [`src/public-url.ts`](src/public-url.ts) | Advertised-root validation and trailing-slash normalization; a leaf module for local imports, not package API |
 | [`src/startup.ts`](src/startup.ts) | The `web-startup` provider: `--host`, `--port`, `--tls-cert`, `--tls-key`, `--public-url`, `--trusted-host`, `--no-open`, `--help` |
+| [`src/memorix.ts`](src/memorix.ts) | The `memorix-launch` provider: resolves the pinned Memorix package's CLI for the `memory-memorix` row and keeps a one-time copy of an existing Memorix database |
 | [`cordis.patch.yml`](cordis.patch.yml) | The web patch: restated base values, web host rows, browser roster, preset registry |
-| [`presets/`](presets) | One `@deepseek-ai/dsh-agent-preset` declaration per shipped preset (`standard`, `ptc`, `minimal`, `cordis`), each its own patch file |
-| [`tests/web-app.spec.ts`](tests/web-app.spec.ts) | Dist index anchoring, advertised-URL publication and warnings, bash variable |
+| [`presets/`](presets) | One `@deepseek-ai/dsh-agent-preset` declaration per shipped preset (`standard`, `ptc`, `lean`, `master`, `economy`, `minimal`, `cordis`), each its own patch file |
+| [`tests/web-app.spec.ts`](tests/web-app.spec.ts) | Dist index anchoring, advertised-URL publication and warnings, bash variable, readiness publication |
 | [`tests/startup.spec.ts`](tests/startup.spec.ts) | Command-line parsing over a real Loader tree |
+| [`tests/memorix.spec.ts`](tests/memorix.spec.ts) | Memorix launch recipe and the one-time database copy |
 | [`tests/public-url.spec.ts`](tests/public-url.spec.ts) | Advertised-root parsing and normalization |
 
 </details>
@@ -220,6 +222,7 @@ While resources and configuration stay unchanged, the built-in Office summaries 
 
 These limits tell you what to expect in unusual setups — a source checkout, SSH sessions, or strict networks. They are current package constraints, not a general browser comparison or a task backlog.
 
+- **Memorix runs from the installed package** — the `memory-memorix` row starts the pinned `memorix` dependency with the Host's own Node, so a layout that omits that dependency leaves the Memory page reporting Memorix as unavailable; chats run unchanged. The vector index and native SQLite binding of Memorix are not shipped.
 - **The frontend must be built** — a source checkout needs `pnpm run build` first; startup stops with a build hint when the dist is missing, and there is no source-serving fallback.
 - **TLS is opt-in and unmanaged** — the listener serves HTTPS only when `--tls-cert` and `--tls-key` name a full chain and its unencrypted key; DSH never obtains, renews, or watches certificates, and a changed file needs a listener reload or a process restart. The browser must trust that certificate, its names must cover the authority you open, and the certificate is independent of `--public-url`.
 - **Without TLS the external leg is plain HTTP** — protect it with a TLS-terminating proxy, and do not send the launch URL over a network you do not trust.
@@ -227,6 +230,7 @@ These limits tell you what to expect in unusual setups — a source checkout, SS
 - **SSH sessions keep the URL but skip the browser handoff** — without an advertised root the printed URL names the remote host's bind-address endpoint (loopback for a loopback bind); the SSH client or editor must expose and open the local forwarded address.
 - **`BROWSER` overrides only come from the environment** — a discovered `.env` cannot set `BROWSER`; only an inherited value can choose the executable for the automatic handoff.
 - **Binding all network interfaces is not supported** — a wildcard `--host`, including the IPv4-mapped forms Linux reads as IPv4 any, is rejected at startup for safety; bind one concrete IPv4 or IPv6 address of a local interface instead.
+- **One process per profile for session search** — the full-text index lives at `<home>/cache/session-query/<profile>.sqlite`; running two Web hosts on the same profile at once shares that derived index, which session-query-sqlite does not support.
 
 <a id="dev-note"></a>
 ### Dev Note

@@ -35,7 +35,6 @@ export type Mode =
   | 'hygiene'
   | 'doc-sync'
   | 'doc-quick'
-  | 'i18n'
 
 type GateResultStatus = 'passed' | 'failed' | 'skipped'
 type GateState = 'pending' | 'running' | GateResultStatus
@@ -174,12 +173,11 @@ function parseMode(raw: string | undefined): Mode {
     case 'check-all':
     case 'hygiene':
     case 'doc-sync':
-    case 'i18n':
     case 'doc-quick':
       return raw
     default:
       throw new Error(
-        `run-gates: expected mode ci-primary | ci-linux-primary | ci-static | ci-lint-contracts-ready | ci-coverage | ci-unit | ci-bench | ci-snapshot | ci-artifacts | ci-consumers | ci-windows-blocking | ci-windows-complete | ci-windows-observational-ready | node-compat | check-all | hygiene | doc-sync | doc-quick | i18n, got ${JSON.stringify(raw)}.`,
+        `run-gates: expected mode ci-primary | ci-linux-primary | ci-static | ci-lint-contracts-ready | ci-coverage | ci-unit | ci-bench | ci-snapshot | ci-artifacts | ci-consumers | ci-windows-blocking | ci-windows-complete | ci-windows-observational-ready | node-compat | check-all | hygiene | doc-sync | doc-quick, got ${JSON.stringify(raw)}.`,
       )
   }
 }
@@ -198,6 +196,7 @@ export function defaultConcurrency(
   cpus = availableParallelism(),
   env: NodeJS.ProcessEnv = process.env,
 ): ConcurrencyDefault {
+  if (selectedMode === 'ci-consumers') return { workers: total, source: 'ci-consumers gate count' }
   const budget = defaultParallelism(env, cpus)
   const budgetSource = describeDefaultParallelism(env, cpus)
   // These modes cap workers: several doc gates each build a full ts.Program,
@@ -356,7 +355,6 @@ export function gatesForMode(selected: Mode): Gate[] {
         pnpmScript('client-domain-graph', 'verify-client-domain-graph', { label: 'client domain graph' }),
         pnpmScript('test', 'test'),
         pnpmScript('approval-policy', 'test:approval-policy', { label: 'Weighted approval policy' }),
-        pnpmScript('issue-management', 'test:issue-management', { label: 'Issue management policy' }),
         pnpmScript('duplication', 'duplication'),
         snapshotGate(),
         expectedOutputGate(),
@@ -380,8 +378,6 @@ export function gatesForMode(selected: Mode): Gate[] {
       return docSyncLeafGates()
     case 'doc-quick':
       return docQuickLeafGates()
-    case 'i18n':
-      return i18nGates(true)
   }
 }
 
@@ -404,21 +400,12 @@ function ciSharedStaticGates(): Gate[] {
   ]
 }
 
-function i18nGates(includeDictionaries: boolean): Gate[] {
-  return [
-    pnpmScript('installer-locales', 'verify-installer-locales', { label: 'Windows installer locales' }),
-    pnpmScript('locale-metadata', 'verify-locale-metadata', { label: 'plugin locale metadata' }),
-    ...includeDictionaries ? [pnpmExec('locale-dictionaries', ['vitest', 'run', 'scripts/locale-dictionary-parity.spec.ts', 'scripts/shipped-locales.spec.ts', 'packages/client/locale/tests/apply.client.spec.ts'], { label: 'locale dictionaries' })] : [],
-  ]
-}
-
 function sharedHygieneGates(): Gate[] {
   return [
     pnpmScript('optional-dependency-imports', 'verify-optional-dependency-imports', {
       label: 'optional dependency imports',
     }),
     pnpmScript('client-packages', 'verify-client-packages', { label: 'client packages' }),
-    ...i18nGates(false),
     pnpmScript('client-ui-i18n', 'verify-client-ui-i18n', { label: 'client UI i18n' }),
     pnpmScript('client-route-resolution', 'verify-client-route-resolution', { label: 'client route resolution' }),
     pnpmScript('no-bare-dispatcher', 'verify-no-bare-dispatcher', { label: 'proxy-aware dispatchers' }),
@@ -529,8 +516,11 @@ function ciStaticGates(options: { ownsBuild: boolean }): Gate[] {
 }
 
 function ciArtifactGates(): Gate[] {
+  const typecheck = pnpmScript('typecheck', 'typecheck')
   return [
-    ciBuildGate(),
+    typecheck,
+    lintGate({ needs: ['typecheck'] }),
+    ciBuildGate('build', { needs: ['typecheck', 'lint'] }),
     pnpmScript('publint', 'publint', { needs: ['build'] }),
     pnpmScript('node-next-types', 'verify-node-next-types', {
       label: 'node-next types',
@@ -542,24 +532,19 @@ function ciArtifactGates(): Gate[] {
 
 function ciConsumerGates(): Gate[] {
   const builtTree = ['build']
+  // Dedicated PR jobs already own Node compatibility, lint/duplication,
+  // publint, Node-next types, and built-bin smokes.
+  // This lane keeps only the build-backed consumers that are unique to it.
   // The HMR web test starts `dev:web`, which rewrites the shared `lib/` and
   // `apps/web/dist/` trees. Let every build-artifact reader settle before that
   // writer starts; `after` preserves the web diagnostic even if a reader fails.
   const buildArtifactReaders = [
-    'publint',
     'snapshot',
     'expected-output',
     'doc-typecheck',
-    'node-next-types',
-    'built-bin-smoke',
   ]
   return [
     ciArtifactBuildGate(),
-    pnpmScript('node-compat', 'check:node-compat', {
-      label: 'Node compatibility',
-      env: { [CLIENT_BUILD_PROFILE_SELECTOR]: 'official' },
-    }),
-    pnpmScript('publint', 'publint', { needs: builtTree }),
     snapshotGate(builtTree),
     expectedOutputGate(builtTree),
     webSnapshotGate(builtTree, buildArtifactReaders),
@@ -567,11 +552,6 @@ function ciConsumerGates(): Gate[] {
       needs: builtTree,
       env: { DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1' },
     }),
-    pnpmScript('node-next-types', 'verify-node-next-types', {
-      label: 'node-next types',
-      needs: builtTree,
-    }),
-    builtBinSmokeGate(builtTree),
   ]
 }
 
@@ -726,12 +706,14 @@ function coverageWorkerArgs(): { instrumented: string[]; exempt: string[] } {
 function coverageGates(platform: NodeJS.Platform = process.platform): Gate[] {
   const electron = platform === 'win32' ? [electronInstallGate()] : []
   const workers = coverageWorkerArgs()
+  const coverageIncludes = coverageFileIncludes(process.env.DSH_COVERAGE_FILES)
   const partitions = parseCoveragePartitionCount(process.env[COVERAGE_PARTITIONS_ENV])
   const instrumented = partitions === undefined
     ? pnpmExec('coverage', [
       'vitest',
       'run',
       '--coverage',
+      ...coverageIncludes,
       ...workers.instrumented,
     ], {
       label: 'test:coverage',
@@ -739,8 +721,9 @@ function coverageGates(platform: NodeJS.Platform = process.platform): Gate[] {
     })
     : pnpmScript('coverage', 'test:coverage:partitioned', {
       label: 'test:coverage',
-      displayCommand: `${COVERAGE_PARTITIONS_ENV}=${partitions} pnpm run test:coverage:partitioned`,
+      displayCommand: `${COVERAGE_PARTITIONS_ENV}=${partitions} pnpm run test:coverage:partitioned${coverageIncludes.length ? ` -- ${coverageIncludes.join(' ')}` : ''}`,
       env: { [COVERAGE_EXEMPT_ENV]: '1' },
+      args: [...pnpmInvocation(['run', 'test:coverage:partitioned']).args, ...(coverageIncludes.length ? ['--', ...coverageIncludes] : [])],
       streamOutput: true,
     })
   return [
@@ -757,6 +740,27 @@ function coverageGates(platform: NodeJS.Platform = process.platform): Gate[] {
       needs: ['native-system'],
     }),
   ]
+}
+
+function coverageFileIncludes(raw: string | undefined): string[] {
+  if (raw === undefined || raw === '') return []
+  let files: unknown
+  try {
+    files = JSON.parse(raw)
+  } catch {
+    throw new Error('run-gates: DSH_COVERAGE_FILES must be a JSON array of source paths.')
+  }
+  if (!Array.isArray(files) || files.some(value =>
+    typeof value !== 'string'
+    || !/^packages\/[a-z0-9-]+\/[a-z0-9-]+\/src\/[A-Za-z0-9_./-]+\.(?:ts|tsx)$/.test(value)
+    || value.split('/').includes('..'))) {
+    throw new Error('run-gates: DSH_COVERAGE_FILES must contain package runtime source paths.')
+  }
+  const sourceFiles = files as string[]
+  return sourceFiles.flatMap(file => [
+    '--coverage.include',
+    file,
+  ])
 }
 
 // The uninstrumented unit inventory for a whole-inventory reference lane
@@ -860,7 +864,6 @@ function docSyncLeafGates(options: {
     pnpmScript('cordis-inspect-catalog', 'verify-cordis-inspect-catalog', { label: 'Cordis inspect catalog' }),
     pnpmScript('workflow-guest', 'verify-workflow-guest', { label: 'workflow guest source' }),
     pnpmScript('mermaid', 'verify-mermaid'),
-    pnpmScript('translation-pairing', 'verify-translation-pairing', { label: 'translation pairing', quick: true }),
     pnpmScript('markdown-wrap', 'verify-md-wrap', { label: 'markdown wrap', quick: true }),
     pnpmScript('client-catalog', 'verify-client-catalog', { label: 'client catalog' }),
     pnpmScript('export-jsdoc', 'verify-export-jsdoc', { label: 'export jsdoc' }),
@@ -876,6 +879,7 @@ function docSyncLeafGates(options: {
     pnpmScript('public-repository-links', 'verify-public-repository-links', { label: 'public repository links', quick: true }),
     pnpmScript('repository-references', 'verify-repository-references', { label: 'repository references', quick: true }),
     pnpmScript('concrete-terms', 'verify-concrete-terms', { label: 'concrete terms', quick: true }),
+    pnpmScript('english-only-docs', 'verify-english-only-docs', { label: 'English-only documentation', quick: true }),
     pnpmScript('doc-refs', 'verify-doc-refs', { label: 'doc refs', quick: true }),
     pnpmScript('subsystem-pages', 'verify-subsystem-pages', { label: 'subsystem pages' }),
     pnpmScript('package-paths', 'verify-package-paths', { label: 'package paths' }),
@@ -887,7 +891,6 @@ function docSyncLeafGates(options: {
     pnpmScript('agent-note-format', 'verify-agent-note-format', { label: 'agent note format', quick: true }),
     pnpmScript('archived-agent-notes', 'verify-archived-agent-notes', { label: 'archived agent notes', quick: true }),
     pnpmScript('skill-invocation-metadata', 'verify-skill-invocation-metadata', { label: 'skill invocation metadata', quick: true }),
-    pnpmScript('translation-prompt', 'verify-translation-prompt', { label: 'translation prompt', quick: true }),
     pnpmScript('doc-budgets', 'verify-doc-budgets', { label: 'doc budgets', quick: true }),
     pnpmScript('upgrade-guides', 'verify-upgrade-guides', { label: 'upgrade guides', quick: true }),
     pnpmExec('doc-standard-tests', ['vitest', 'run', 'scripts/doc-standard.spec.ts'], {
@@ -1248,8 +1251,7 @@ export async function runGate(gate: Gate, signal?: AbortSignal): Promise<GateRes
         child.kill(signalToSend)
       }
       // The captured list stays valid after the group kill reparents the
-      // detached descendants of a nested run-gates (the `check:node-compat`
-      // and `check:ci:lint:contracts-ready` gates in ci-consumers): pids do
+      // detached descendants of nested gate commands: pids do
       // not change on reparenting, so the escalation reaches leaves that
       // ignored SIGTERM without re-enumerating.
       for (const descendantPid of descendants) {

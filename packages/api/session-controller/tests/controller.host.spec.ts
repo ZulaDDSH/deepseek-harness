@@ -168,22 +168,23 @@ describe('SessionController facade', () => {
     expect(status).toHaveBeenCalledWith(sessionId, true)
     expect(failure).toHaveBeenCalledWith(sessionId, expect.stringContaining('fixture failure'))
     expect(activity).toHaveBeenCalledWith(sessionId, expect.any(Number))
-    session.append('request/header', {
+    // A request header carries no activity: only user messages do.
+    const usedHeader = session.append('request/header', {
       header: { config: { provider: 'fixture', model: 'fixture-model' } },
       reason: 'initial',
     })
     expect(ctx.sessionProjections.snapshot(session).values.modelSelection).toEqual({
-      lastUsed: { provider: 'fixture', model: 'fixture-model' }, next: { provider: 'fixture', model: 'fixture-model' },
+      lastUsed: { provider: 'fixture', model: 'fixture-model' }, lastUsedSeq: usedHeader.seq, next: { provider: 'fixture', model: 'fixture-model' },
     })
     const unowned = ctx.sessions.create(brandString<SessionId>('controller-unowned'), {
       meta: { cwd: '/workspace' },
     })
-    unowned.append('request/header', {
+    const otherHeader = unowned.append('request/header', {
       header: { config: { provider: 'fixture', model: 'other-model' } },
       reason: 'initial',
     })
     expect(ctx.sessionProjections.snapshot(unowned).values.modelSelection).toEqual({
-      lastUsed: { provider: 'fixture', model: 'other-model' }, next: { provider: 'fixture', model: 'other-model' },
+      lastUsed: { provider: 'fixture', model: 'other-model' }, lastUsedSeq: otherHeader.seq, next: { provider: 'fixture', model: 'other-model' },
     })
 
     const abort = new AbortController()

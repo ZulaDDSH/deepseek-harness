@@ -43,6 +43,7 @@ describe('product icon set', () => {
       'IconPlanOutlineRegular', 'IconCompactOutlineRegular', 'IconShieldOutlineRegular', 'IconDeliverDocRegular',
       'IconWarningTriangleOutlineRegular', 'IconCompareSplitOutlineRegular', 'IconCloseCircleFillRegular',
       'IconEyeOutlineRegular', 'IconEyeOffOutlineRegular',
+      'IconFolderOutlineMedium', 'IconWorkspaceDatabaseOutlineMedium',
     ]))
   })
 

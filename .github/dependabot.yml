@@ -7,9 +7,19 @@ updates:
       # Vendored Cordis sources follow vendor/README.md instead of registry updates.
       - "vendor/**"
     schedule:
-      interval: "cron"
-      cronjob: "0 4 * * *"
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
       timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 2
+    groups:
+      npm-security:
+        applies-to: security-updates
+        patterns: ["*"]
+      npm-minor-and-patch:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
     cooldown:
       default-days: 30
     labels:
@@ -19,9 +29,19 @@ updates:
   - package-ecosystem: "uv"
     directory: "/python/sdk"
     schedule:
-      interval: "cron"
-      cronjob: "0 4 * * *"
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
       timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 1
+    groups:
+      uv-security:
+        applies-to: security-updates
+        patterns: ["*"]
+      uv-minor-and-patch:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
     cooldown:
       default-days: 30
     labels:
@@ -31,9 +51,18 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "cron"
-      cronjob: "0 4 * * *"
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
       timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 1
+    groups:
+      actions-security:
+        applies-to: security-updates
+        patterns: ["*"]
+      actions-all:
+        applies-to: version-updates
+        patterns: ["*"]
     cooldown:
       default-days: 30
     labels:

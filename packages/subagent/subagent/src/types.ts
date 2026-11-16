@@ -11,7 +11,7 @@ import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { ContentBlock, MessageId } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
-import type { ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
+import type { ObjectJsonSchema, ToolRestriction } from '@deepseek-ai/dsh-tools'
 
 /** Identifies one subagent residency epoch across its lifecycle event pair. */
 export type SubagentRunId = Branded<'SubagentRunId'>
@@ -135,6 +135,10 @@ export interface SubagentCapabilities {
   readonly agentPreset: boolean
   readonly outputSchema: boolean
   readonly depthLimit: boolean
+  /** Honors a per-child `persona`; omitted means unsupported. */
+  readonly persona?: boolean
+  /** Honors a per-child `toolFilter`; omitted means unsupported. */
+  readonly toolFilter?: boolean
 }
 
 /**
@@ -175,6 +179,24 @@ export interface SubagentStartRequest {
    * before initializing the separate child runtime.
    */
   readonly agentOptions?: AgentOptions
+  readonly routePinned?: true
+  /**
+   * Per-child persona that shadows `deployment:persona-prefix`. Requires the
+   * provider's `persona` capability; omission preserves the deployment persona.
+   */
+  readonly persona?: string
+  /**
+   * Tool filter applied to every child. Filtered tools disappear from its
+   * prompt and reject execution. Requires the provider's `toolFilter`
+   * capability.
+   */
+  readonly toolFilter?: ToolRestriction
+  /**
+   * Optional advisory sink for short live progress lines such as `Edit: src/a.ts`.
+   * Providers that observe child tool activity may call it; others ignore it.
+   * It needs no capability and never affects the result.
+   */
+  readonly onProgress?: (line: string) => void
   /**
    * Object-rooted JSON Schema within `assertObjectJsonSchema`'s enforced subset. Start rejects
    * unsupported schemas or providers without the capability. Data must be plain host-realm JSON;

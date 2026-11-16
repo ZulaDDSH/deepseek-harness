@@ -5,9 +5,9 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Model, AgentOptions, PreStepDecision } from './runtime-types.ts'
 import type { ModelSelection } from './types.ts'
 import { boundContextSummary, createUserMessage, type ContextFormed } from '@deepseek-ai/dsh-llm'
-import { brandString } from '@deepseek-ai/dsh-brand'
-import type { ReasoningEffortId } from '@deepseek-ai/dsh-llm/types'
-import type { Session, EpochHeader } from '@deepseek-ai/dsh-session'
+import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { brandNumber } from '@deepseek-ai/dsh-brand'
+import type { Session, EpochHeader, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import { z } from 'zod'
 
@@ -19,7 +19,9 @@ import { z } from 'zod'
 export interface ModelSelectionProjectionState {
   /** Selection used by the latest recorded model request. */
   readonly lastUsed: ModelSelection | null
-  /** Later recorded selection not yet used by a matching model request. */
+  /** Seq of the `request/header` that recorded {@link lastUsed}; identifies its turn. */
+  readonly lastUsedSeq: SessionSeq | null
+  /** Latest selection the user recorded; request headers never clear it. */
   readonly pending: ModelSelection | null
 }
 
@@ -63,30 +65,30 @@ function selectionOfHeader({ config, adapterDefaults }: EpochHeader): ModelSelec
 const selectionSchema = z.object({
   provider: z.string().min(1),
   model: z.string().min(1),
-  reasoningEffort: z.string().min(1).transform(brandString<ReasoningEffortId>).exactOptional(),
+  reasoningEffort: z.string().min(1).transform(ReasoningEffortId).exactOptional(),
 }).nullable()
 
+const seqSchema = z.number().int().nonnegative().transform(brandNumber<SessionSeq>).nullable()
+
 /**
- * Session selection fold: recorded selections become
- * the pending choice, and each request header retires a matching one.
+ * Session selection fold: recorded selections become the pending choice, and
+ * each request header records what ran without touching that choice.
  */
 export const modelSelectionProjectionDefinition: Required<ProjectionDefinition<'modelSelection', ModelSelectionProjectionState>> = {
   key: 'modelSelection',
-  stateVersion: 3,
-  stateSchema: z.object({ lastUsed: selectionSchema, pending: selectionSchema }),
-  init: () => ({ lastUsed: null, pending: null }),
+  stateVersion: 4,
+  stateSchema: z.object({ lastUsed: selectionSchema, lastUsedSeq: seqSchema, pending: selectionSchema }),
+  init: () => ({ lastUsed: null, lastUsedSeq: null, pending: null }),
   apply: (state, event) => {
     if (event.type === 'model/selection') {
       return sameModelSelection(state.pending, event.data) ? state : { ...state, pending: event.data }
     }
     if (event.type !== 'request/header') return state
-    const lastUsed = selectionOfHeader(event.data.header)
-    const pending = sameModelSelection(state.pending, lastUsed) ? null : state.pending
-    return sameModelSelection(state.lastUsed, lastUsed) && pending === state.pending ? state : { lastUsed, pending }
+    return { ...state, lastUsed: selectionOfHeader(event.data.header), lastUsedSeq: event.seq }
   },
   wire: {
-    viewSchema: z.object({ lastUsed: selectionSchema, next: selectionSchema }),
-    view: state => ({ lastUsed: state.lastUsed, next: state.pending ?? state.lastUsed }),
+    viewSchema: z.object({ lastUsed: selectionSchema, lastUsedSeq: seqSchema, next: selectionSchema }),
+    view: state => ({ lastUsed: state.lastUsed, lastUsedSeq: state.lastUsedSeq, next: state.pending ?? state.lastUsed }),
   },
 }
 
@@ -94,7 +96,7 @@ export const modelSelectionProjectionDefinition: Required<ProjectionDefinition<'
  * Read and record one Agent's model choices without resolving adapter defaults.
  * @param readState - driver-owned reader for this Session's selection projection.
  * @param session - Session receiving durable model selections.
- * @param options - live route fallback until a selection or request is recorded.
+ * @param options - pinned selection that outranks recorded choices, then live route fallback until a selection or request is recorded.
  */
 export class AgentModel implements Model {
   constructor(
@@ -104,6 +106,8 @@ export class AgentModel implements Model {
   ) {}
 
   current(): Readonly<ModelSelection> | undefined {
+    const pinned = this.options.pinnedSelection?.(this.session)
+    if (pinned !== undefined) return { ...pinned }
     const recorded = this.recordedSelection()
     if (recorded !== null) return { ...recorded }
     const { provider, model, reasoningEffort } = this.options
@@ -113,6 +117,10 @@ export class AgentModel implements Model {
   select(selection: Readonly<ModelSelection>): void {
     if (sameModelSelection(this.recordedSelection(), selection)) return
     this.session.append('model/selection', toSelection(selection.provider, selection.model, selection.reasoningEffort))
+  }
+
+  selectionState(): ModelSelectionProjectionState {
+    return this.readState()
   }
 
   private recordedSelection(): ModelSelection | null {

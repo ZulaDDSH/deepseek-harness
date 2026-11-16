@@ -30,6 +30,7 @@ import type {
   TokenMeasurementBaseline,
   TokenMeterConfig,
 } from './types.ts'
+import { modelUsageProjectionDefinition } from './model-usage-projection.ts'
 import { contextBreakdownProjectionDefinition } from './breakdown-projection.ts'
 import { contextPressureProjectionDefinition, tokenUsageProjectionDefinition } from './usage-projection.ts'
 import type { ContextPressureState } from './usage-projection.ts'
@@ -41,6 +42,12 @@ import type { MeterSurfaceNode } from './surface-fold.ts'
 import { priceSurface } from './route-pricing.ts'
 
 export type * from './types.ts'
+// Module-edge re-export: forces the emitted index.d.ts to import the
+// projection-unit modules, so their SessionProjectionStateMap augmentations load
+// in aggregate programs that only import the package root.
+export type * from './usage-projection.ts'
+export type * from './model-usage-projection.ts'
+export type * from './breakdown-projection.ts'
 
 /** Rebuildable positional prices, excluded from projection checkpoints. */
 interface ReplayState {
@@ -104,6 +111,7 @@ export class TokenMeter extends Service {
     const ctx = this.ctx
     this.measurementProjectionHandle = await ctx.sessionProjections.register(measurementProjectionDefinition)
     await ctx.sessionProjections.register(tokenUsageProjectionDefinition)
+    await ctx.sessionProjections.register(modelUsageProjectionDefinition)
     this.contextPressureProjectionHandle = await ctx.sessionProjections.register(contextPressureProjectionDefinition)
     await ctx.sessionProjections.register(contextBreakdownProjectionDefinition)
 

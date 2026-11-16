@@ -33,6 +33,7 @@ export function ConversationContent(props: ConversationContentProps) {
     sessionId === undefined ? undefined : snapshot.get(sessionId)?.pendingInteraction)
   const inputState = useInput(s => s)
   const cwd = useSessions(s => sessionId === undefined ? undefined : s.byId[sessionId]?.cwd)
+  const cliProfile = useSessions(s => sessionId === undefined ? undefined : s.byId[sessionId]?.cliProfile)
   const workspaces = useWorkspaces(s => s)
   // A plugin this package cannot import (ui-model-selection) says this session cannot
   // send; its reason is already localized by whoever raised it.
@@ -146,7 +147,6 @@ export function ConversationContent(props: ConversationContentProps) {
   const blocked = !inert && composerBlock !== undefined
   const inputBar = renderSlot('conversation.composer.bar', {
     variant: hero ? 'hero' : 'composer',
-    occurrence: props.variant,
     ...(inert
       ? {
         disabled: true,
@@ -196,15 +196,16 @@ export function ConversationContent(props: ConversationContentProps) {
       data-conversation-region="chat"
       data-content-phase={phase}
     >
-      {/* The frame wraps the scroll body in every phase, so leaving the home keeps the composer mounted. */}
-      {renderSlot('conversation.hero.frame', { hero: hero && props.variant !== 'embedded' }, {
-        children: (
-          <div className={css.scrollBody} data-conversation-scroll="">
-            {sessionId === undefined ? null : <Views />}
-            {composerSeat}
-          </div>
-        ),
-      })}
+      {sessionId !== undefined && cliProfile !== undefined
+        ? renderSlot('conversation.cli', { sessionId, profile: cliProfile })
+        : renderSlot('conversation.hero.frame', { hero: hero && props.variant !== 'embedded' }, {
+          children: (
+            <div className={css.scrollBody} data-conversation-scroll="">
+              {sessionId === undefined ? null : <Views />}
+              {composerSeat}
+            </div>
+          ),
+        })}
       <WidthControls container={body} phase={phase} />
     </div>
   )

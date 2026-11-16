@@ -63,7 +63,7 @@ function standInAgent(id: SessionId, cwd: string): Omit<Agent, 'ctx'> {
   return {
     id,
     options: {},
-    model: { current: () => undefined, select: () => {} },
+    model: { current: () => undefined, select: () => {}, selectionState: () => ({ lastUsed: null, lastUsedSeq: null, pending: null }) },
     session: agentSession,
     inbox: {
       nextTurn: [], nextStep: [], clear: unsupported, append: unsupported,

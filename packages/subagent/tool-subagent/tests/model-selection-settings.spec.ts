@@ -65,7 +65,7 @@ async function boot(withPreset = true): Promise<Context> {
 
 /** Create one Agent joined to the test's standing preset. */
 async function createAgent(ctx: Context, id: string, options: {
-  meta?: { parentSession: SessionId; origin: 'subagent' }
+  meta?: { parentSession: SessionId; origin: 'subagent'; delegationDepth?: number }
   seed?: readonly SessionEvent[]
 } = {}) {
   const handle = await ctx.agents.create({
@@ -404,6 +404,40 @@ describe('SubagentModelSelectionConfig', () => {
     await ctx.fiber.dispose()
   })
 
+  it('requires both the Host setting owner and a scoped standing preset', async () => {
+    const withoutSettings = new Context()
+    await mountAgentLoopTestDependencies(withoutSettings)
+    await mountWorkingDirectoryFixture(withoutSettings)
+    await withoutSettings.plugin(SubagentRuntime)
+    await expect(tool.apply(withoutSettings, {
+      provider: 'missing',
+      modelSelectionSettings: true,
+      maxDepth: 'provider-managed',
+    })).rejects.toThrow('requires @deepseek-ai/dsh-tool-subagent/model-selection-settings')
+    await withoutSettings.fiber.dispose()
+
+    const withoutAgent = await boot(false)
+    await expect(tool.apply(withoutAgent, {
+      provider: 'spawn',
+      modelSelectionSettings: true,
+      backgroundMode: 'continuable',
+    })).rejects.toThrow('requires a scoped preset Context')
+
+    await withoutAgent.fiber.dispose()
+  })
+
+  it('withholds the standing delegation tool from a child at the default depth cap', async () => {
+    const ctx = await boot()
+    const parent = await createAgent(ctx, 'cap-parent')
+    const child = await createAgent(ctx, 'cap-child', {
+      meta: { parentSession: parent.id, origin: 'subagent', delegationDepth: 1 },
+    })
+    expect(ctx.tools.get('subagent', parent)).toBeDefined()
+    expect(ctx.tools.get('subagent', child)).toBeUndefined()
+    expect(ctx.tools.schemas(child).map(schema => schema.name)).not.toContain('subagent')
+    await ctx.fiber.dispose()
+  })
+
   it('permits independently configured delegation tools without a settings service', async () => {
     const ctx = ownContext(new Context())
     await mountAgentLoopTestDependencies(ctx)
@@ -438,12 +472,12 @@ it('reads the saved default depth at each delegation without remounting the tool
     const initial = await ctx.systemPrompt.assemble(assembleContextFor(agent))
     expect(initial.contexts.find(part => part.name === 'tool:subagent:depth')?.text)
       .toBe('')
-    await callSubagent(ctx, { description: 'first', prompt: 'work' })
+    await callSubagent(ctx, { description: 'first', prompt: 'work' }, { agent })
     await subagentConfigs.get(ctx)!.update({ maxDepth: 5 })
     const updated = ctx.systemPrompt.refreshContext(initial, assembleContextFor(agent))
     expect(updated.contexts.find(part => part.name === 'tool:subagent:depth')?.text)
       .toBe('')
-    await callSubagent(ctx, { description: 'second', prompt: 'work' })
+    await callSubagent(ctx, { description: 'second', prompt: 'work' }, { agent })
     await subagentConfigs.get(ctx)!.update({ maxDepth: 0 })
     const disabled = ctx.systemPrompt.refreshContext(initial, assembleContextFor(agent))
     expect(disabled.contexts.find(part => part.name === 'tool:subagent:depth')?.text)
@@ -454,7 +488,7 @@ it('reads the saved default depth at each delegation without remounting the tool
     expect(ctx.systemPrompt.refreshContext(disabled, assembleContextFor(agent))
       .contexts.find(part => part.name === 'tool:subagent:depth')?.text).toBe('')
     await subagentConfigs.get(ctx)!.update({ maxDepth: 0 })
-    await callSubagent(ctx, { description: 'disabled', prompt: 'work' })
+    await callSubagent(ctx, { description: 'disabled', prompt: 'work' }, { agent })
     expect(depths).toEqual([1, 5, 0])
   } finally {
     await ctx.fiber.dispose()

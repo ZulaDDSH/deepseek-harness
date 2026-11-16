@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-workflow-ptc
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Run JavaScript workflows in fresh Node processes under the calling Session's file sandbox policy. Scripts keep the `agent()`, `parallel()`, `pipeline()`, `phase()` and `log()` hooks while subagents perform delegated work. The same execution provider serves PTC and workflows, including the opt-in Ralph loop. Runs have no overall elapsed deadline; cancellation stops the managed process and disposes child agents. The selected sandbox and subprocess providers determine enforcement and cleanup limits.
@@ -39,7 +37,8 @@ With those dependencies available, mount the engine and its model-facing consume
 | Field | Default | Meaning |
 |---|---|---|
 | `provider` | `spawn` | Host-side subagent provider used by `agent()` calls. |
-| `maxConcurrentAgents` | `0` | Concurrent `agent()` ceiling; `0` resolves from available CPU parallelism. |
+| `claudeCliProvider` | `claude-code` | Provider that runs a Claude-subscription Orchestrator & Subagent Setup role. Keep it equal to the subagent tool's `claudeCliProvider`. |
+| `maxConcurrentAgents` | `0` | Concurrent `agent()` ceiling; `0` resolves from available CPU parallelism. Each run is also capped by the host `dsh-subagent` `maxActiveSubagents`, sampled at start, because every one-shot `agent()` occupies one of its slots. |
 | `maxTotalAgents` | `1000` | Total `agent()` calls one run may start. |
 | `maxItemsPerCall` | `4096` | Items accepted by one `parallel()` or `pipeline()` call. |
 | `syncTimeoutMs` | `5000` | VM timeout for the script's initial synchronous slice, in milliseconds. |
@@ -121,7 +120,7 @@ Use these references for the shared execution guarantees and workflow contracts.
 
 #### What the model sees
 
-Every script `agent()` call sends its prompt verbatim and optional model or structured-output schema to a subagent provider. Each child sees that provider's own context; phase and log narration stays on observer events.
+Every script `agent()` call sends its prompt verbatim and optional model, role, or structured-output schema to a subagent provider. Each child sees that provider's own context; phase and log narration stays on observer events.
 
 #### Token effect
 
@@ -155,8 +154,10 @@ These limits qualify workflow execution and cleanup.
 - **Workflow caps are cooperative** — helper counters limit ordinary scripts; they are not host-enforced security quotas or descendant token budgets.
 - **No overall elapsed deadline** — a run can remain active until it completes, fails or is cancelled. Caller deadlines still apply.
 - **Child cleanup follows provider contracts** — the adapter awaits disposal and pending starts without a separate abandonment timer.
+- **Workflow roles need a matching Claude CLI provider name** — a script `agent()` call that passes a `role` follows the subagent tool's Orchestrator & Subagent Setup rules and runs a Claude-subscription role on `claudeCliProvider`. The tool and the engine are separate plugins, so a deployment that renames the Claude CLI provider must set the same name on both.
 - **The VM is not a security boundary** — withheld globals guide script authors; OS policy governs code that reaches Node.
 - **Cross-realm errors fail `instanceof Error` inside scripts** — branch on stable fields such as `name` and `code`.
+- **Continuable children reduce fan-out further** — continuable children the parent already holds share the same `maxActiveSubagents` pool, so the effective `agent()` concurrency can be lower than the cap sampled when the run starts.
 
 <a id="dev-note"></a>
 ### Dev Note

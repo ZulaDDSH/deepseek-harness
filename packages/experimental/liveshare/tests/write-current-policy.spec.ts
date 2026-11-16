@@ -53,7 +53,7 @@ function standInAgent(id: SessionId, cwd: string): Omit<Agent, 'ctx'> {
   const unsupported = (): never => { throw new Error('this fixture does not drive an Inbox') }
   return {
     id, session, options: {}, status: 'idle',
-    model: { current: () => undefined, select: () => {} },
+    model: { current: () => undefined, select: () => {}, selectionState: () => ({ lastUsed: null, lastUsedSeq: null, pending: null }) },
     inbox: {
       nextTurn: [], nextStep: [], clear: unsupported, append: unsupported,
       prepend: unsupported, replace: unsupported, remove: unsupported, splice: unsupported,

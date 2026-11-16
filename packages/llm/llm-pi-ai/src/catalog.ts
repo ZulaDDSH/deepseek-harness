@@ -3,7 +3,9 @@
  * catalog supplies defaults keyed by model id, and a profile's own model
  * entries override them field by field, so a route naming a catalog provider
  * stays configuration-free while a route pi-ai has never heard of is fully
- * describable from `cordis.patch.yml`.
+ * describable from `cordis.patch.yml`. A model the pinned pi-ai release does not
+ * ship yet is merged from {@link ./catalog-supplement.ts}, so a catalog route
+ * serves a provider's newest model without a dependency upgrade.
  *
  * Strict resolution rejects unserviceable models before settings writes.
  * Deferred resolution retains their diagnostics so stored catalog drift does
@@ -29,6 +31,8 @@ import type {
   Provider,
   ThinkingLevelMap,
 } from '@earendil-works/pi-ai'
+import { correctCatalogModel, retiredCatalogIds } from './catalog-corrections.ts'
+import { catalogSupplements } from './catalog-supplement.ts'
 
 /**
  * Pricing for a model the installed catalog does not describe. The harness
@@ -210,14 +214,58 @@ export function catalogProviderIds(): readonly string[] {
 }
 
 /**
- * The installed catalog models for one route, indexed by model id.
+ * Catalog ids the Codex backend refuses to serve a ChatGPT subscription, so a
+ * route offering one fails the request instead of answering it.
+ *
+ * pi-ai's `openai-codex` catalog is transcribed from models.dev, which lists
+ * every model the *platform* serves rather than the subset one plan may use.
+ * The backend is the authority and answers `The '<id>' model is not supported
+ * when using Codex with a ChatGPT account.` for these, so a route defaulting to
+ * one of them fails on its first request with a provider error the user cannot
+ * act on. This set is observed from that refusal, not inferred: it is pinned to
+ * the ids measured against a subscription account and is expected to shrink as
+ * OpenAI widens plan access — delete an id once the backend serves it.
+ */
+const CHATGPT_UNSUPPORTED_CODEX_MODELS: ReadonlySet<string> = new Set([
+  'gpt-5.3-codex-spark',
+  'gpt-5.4',
+  'gpt-5.4-mini',
+])
+
+/**
+ * The catalog models a route may serve, by id.
+ *
+ * The installed catalog describes a provider's whole platform, which is wider
+ * than what every account may use: Codex is the case where the backend, not
+ * the catalog, decides. Withholding those ids here means a default route
+ * offers only models that answer, while a profile that names one explicitly in
+ * its `models` list still fails loud at the request it asked for rather than
+ * being silently dropped from the route.
+ * @param provider - provider route key.
+ * @returns the servable catalog ids for that route.
+ */
+function unsupportedIds(provider: string): ReadonlySet<string> {
+  return provider === 'openai-codex' ? CHATGPT_UNSUPPORTED_CODEX_MODELS : new Set()
+}
+
+/**
+ * The installed catalog models for one route, indexed by model id, plus the
+ * models {@link catalogSupplements} carries for ids the installed catalog does
+ * not describe. The installed entry wins a collision, so a pi-ai upgrade that
+ * ships a supplemented model retires its entry without a code change.
  * @param provider - provider route key.
  * @returns catalog models by id; empty for a route {@link catalogProvider} does not return.
  */
 export function catalogModels(provider: string): Map<string, Model<Api>> {
   if (!catalogProviders().has(provider)) return new Map()
   const models = getBuiltinModels(provider as BuiltinProvider) as Model<Api>[]
-  return new Map(models.map(model => [model.id, model]))
+  const merged = new Map(models.map(model => [model.id, { ...correctCatalogModel(provider, model), name: model.name.replace(/\s*\(latest\)/gi, '') }]))
+  for (const model of catalogSupplements(provider)) {
+    if (!merged.has(model.id)) merged.set(model.id, correctCatalogModel(provider, model))
+  }
+  for (const id of unsupportedIds(provider)) merged.delete(id)
+  for (const id of retiredCatalogIds(provider)) merged.delete(id)
+  return merged
 }
 
 /**
@@ -269,9 +317,9 @@ const COMPLETIONS_COMPAT_GATE = {
   vercelGatewayRouting: 'withhold',
   zaiToolStream: 'withhold',
   supportsOpenAIGrammarTools: 'withhold',
-  sendSessionAffinityHeaders: 'withhold',
   supportsMidConvoSystemMessages: 'withhold',
   supportsMidConvoToolAdditions: 'withhold',
+  sendSessionAffinityHeaders: 'withhold',
   sessionAffinityFormat: 'withhold',
 } as const satisfies Record<keyof OpenAICompletionsCompat, CompatDisposition>
 
@@ -637,6 +685,16 @@ export interface PiAiModelProfile {
   reasoningEfforts?: false | PiAiReasoningEfforts
   /** pi-ai wire-compatibility switches for this model, winning over the route's per field; one its protocol does not declare is refused. */
   compat?: PiAiCompatProfile
+  /** Additional selectable request modes, expanded from this model's existing fields. */
+  modes?: Readonly<Record<string, PiAiModeProfile>>
+}
+
+/** One selectable request mode offered beside a model. */
+export interface PiAiModeProfile {
+  /** Optional selector label; the mode name is appended to the model name by default. */
+  name?: string
+  /** Service tier added to requests through this mode. */
+  serviceTier: string
 }
 
 /**
@@ -652,6 +710,7 @@ export type PiAiModelOverride = Omit<PiAiModelProfile, 'id'>
 export interface RouteCatalogRequest {
   /** Provider route key, stamped onto every materialized model. */
   provider: string
+  base?: string
   /** Wire protocol override; absent defers to each catalog model's own API. */
   api?: string
   /** Endpoint override; absent defers to the catalog model, then the catalog provider. */
@@ -831,6 +890,8 @@ function resolveModelCompat(
 export interface RouteCatalog {
   /** The materialized models in configuration order. */
   models: readonly Model<Api>[]
+  /** Provider model and service tier for each additional mode entry. */
+  modeRequests: ReadonlyMap<string, PiAiModeRequest>
   /** Models that cannot be resolved, retained as diagnostics during stored-config reads. */
   modelErrors: ReadonlyMap<string, string>
   /**
@@ -846,6 +907,16 @@ export interface RouteCatalog {
   configuredMaxTokens: ReadonlyMap<string, number>
 }
 
+/** Provider-side model identity and service tier for one mode entry. */
+export interface PiAiModeRequest {
+  /** Model id the provider receives for a selected mode. */
+  model: string
+  /** Service tier the mode adds to each request. */
+  serviceTier: string
+}
+
+const SERVICE_TIER_APIS: ReadonlySet<string> = new Set(['openai-codex-responses', 'openai-responses'])
+
 /**
  * Materialize one route's catalog by merging the installed catalog defaults
  * under the configured entries. A route with no configured `models` serves the
@@ -860,8 +931,8 @@ export function resolveRouteModels(
   validation: 'strict' | 'deferred' = 'strict',
 ): RouteCatalog {
   const { provider } = request
-  const defaults = catalogModels(provider)
-  const providerBaseUrl = catalogProvider(provider)?.baseUrl
+  const defaults = catalogModels(request.base ?? provider)
+  const providerBaseUrl = catalogProvider(request.base ?? provider)?.baseUrl
   // An absent `models` key and an empty one are the same request: the config
   // schema materializes `[]` for the absent case, and an empty catalog could
   // serve no request anyway, so both mean "serve the installed catalog".
@@ -908,11 +979,15 @@ export function resolveRouteModels(
   // never reach the protocol that would have taken it.
   assertOfferedCompatFields(provider, 'route', request.compat)
   const seen = new Set<string>()
+  const invalidIds = new Set<string>()
   const configuredMaxTokens = new Map<string, number>()
   const resolveEntry = (entry: PiAiModelProfile): Model<Api> => {
     assertOfferedCompatFields(provider, `model "${entry.id}"`, entry.compat)
     if (entry.id.length === 0) invalid(provider, 'has a model with an empty id')
-    if (seen.has(entry.id)) invalid(provider, `lists model "${entry.id}" more than once`)
+    if (seen.has(entry.id)) {
+      invalidIds.add(entry.id)
+      invalid(provider, `lists model "${entry.id}" more than once`)
+    }
     seen.add(entry.id)
     const base = defaults.get(entry.id)
     const api = request.api ?? base?.api ?? routeApi
@@ -960,19 +1035,45 @@ export function resolveRouteModels(
     }
   }
   const models: Model<Api>[] = []
+  const modeRequests = new Map<string, PiAiModeRequest>()
   for (const entry of entries) {
-    let model: Model<Api>
     try {
-      model = resolveEntry(entry)
+      const model = resolveEntry(entry)
+      const modes = Object.entries(entry.modes ?? {}).map(([mode, profile]) => {
+        if (mode.length === 0) invalid(provider, `model "${entry.id}" has a mode with an empty name`)
+        if (profile.serviceTier.length === 0) {
+          invalid(provider, `model "${entry.id}" mode "${mode}" has an empty serviceTier`)
+        }
+        const id = `${entry.id}-${mode}`
+        if (seen.has(id)) {
+          invalidIds.add(id)
+          invalid(provider, `lists model "${id}" more than once`)
+        }
+        if (!SERVICE_TIER_APIS.has(model.api)) {
+          invalid(provider, `model "${entry.id}" mode "${mode}" sets a serviceTier, but protocol "${model.api}" has`
+            + ` no service-tier request option; a mode is servable only on ${[...SERVICE_TIER_APIS].join(', ')}`)
+        }
+        return {
+          model: { ...model, id, name: profile.name ?? `${model.name} ${mode.charAt(0).toUpperCase()}${mode.slice(1)}` },
+          request: { model: model.id, serviceTier: profile.serviceTier },
+        }
+      })
+      for (const mode of modes) {
+        seen.add(mode.model.id)
+        modeRequests.set(mode.model.id, mode.request)
+      }
+      models.push(model, ...modes.map(mode => mode.model))
     } catch (error) {
       if (validation === 'strict' || !(error instanceof PiAiCatalogError)) throw error
       modelErrors.set(entry.id, error.message)
-      continue
     }
-    models.push(model)
   }
   // A later duplicate invalidates the id, including an earlier resolved entry.
-  const serviceableModels = models.filter(model => !modelErrors.has(model.id))
+  const serviceableModels = models.filter(model => (
+    !invalidIds.has(model.id)
+    && !modelErrors.has(model.id)
+    && !modelErrors.has(modeRequests.get(model.id)?.model ?? model.id)
+  ))
   // Per field, not per block: a route may default a switch its completions
   // models take beside one only its anthropic models do, and neither should
   // fail for the other's sake. What is refused is a route default no model on
@@ -983,5 +1084,5 @@ export function resolveRouteModels(
     invalid(provider, `sets compat "${field}", but no model on the route speaks a protocol that takes it;`
       + ` it exists on ${takers.join(', ')}`)
   }
-  return { models: serviceableModels, configuredMaxTokens, modelErrors }
+  return { models: serviceableModels, configuredMaxTokens, modeRequests, modelErrors }
 }

@@ -8,6 +8,8 @@
   "include": [
     "src/client/**/*.ts",
     "src/types.ts",
+    "src/list-metadata.ts",
+    "src/subagent-setup.ts",
     "src/remote-events.ts"
   ],
   "references": [

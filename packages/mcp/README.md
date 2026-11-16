@@ -5,11 +5,9 @@ kind: "package-group"
 
 # MCP — Model Context Protocol
 
-English | [中文](README.zh.md)
-
 ## Summary
 
-The `mcp/` group lets the model call external Model Context Protocol (MCP) tools and read server resources. Configure `mcp-client` entries directly, or let `mcp-manager` run a settings-driven fleet of them that a management surface edits at runtime; shipped profiles already mount `mcp-resources` once. MCP tools and prompt text appear only for callers with a configured server in scope. Connections also supply server instructions. Package READMEs own configuration and limitations.
+The `mcp/` group lets the model call external Model Context Protocol (MCP) tools and read server resources. Configure `mcp-client` entries directly, or let `mcp-manager` manage a settings-driven fleet. Shipped profiles mount `mcp-resources` once. Tools and prompt text appear only for configured or registered servers in the caller’s scope. Server instructions are published by default and can be omitted per connection.
 
 ## Table of Contents
 
@@ -26,7 +24,7 @@ The client owns each configured connection, the manager runs a settings-driven f
 
 | Package | What it provides |
 |---|---|
-| [`mcp-client/`](mcp-client/README.md) | Connect one MCP server, expose its tools and instructions, and provide its resource operations |
+| [`mcp-client/`](mcp-client/README.md) | Connect one MCP server, expose its filtered tools and optional instructions, and provide its resource operations |
 | [`mcp-manager/`](mcp-manager/README.md) | Manage a settings-driven fleet of mcp-client instances: live add/edit/enable/disable/delete, status, restart, probe |
 | [`mcp-resources/`](mcp-resources/README.md) | Discover and read resources through shared tools with explicit server selection |
 

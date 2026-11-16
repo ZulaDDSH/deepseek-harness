@@ -3,8 +3,11 @@
   - navigation:
     - button "通用设置"
     - button "模型"
+    - button "Jev"
     - button "内置插件"
     - button "Agent 预设"
+    - button "MCP 服务器"
+    - button "钩子"
   - button "打开配置文件"
   - button "关闭"
   - heading "模型" [level=2]
@@ -58,6 +61,9 @@
       - option "xiaomi-token-plan-sgp"
       - option "zai"
       - option "zai-coding-cn"
+    - text: 登录 minimax-cn 未登录
+    - paragraph: 请在浏览器中完成登录，此窗口会自动更新。
+    - button "登录"
     - text: API 密钥
     - button "认证说明": "?"
     - textbox "API 密钥":

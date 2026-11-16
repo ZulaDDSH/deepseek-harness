@@ -17,6 +17,7 @@ import { installTurnArchiveAdmission } from './archive-admission.ts'
 import type { Agent, TurnBoundaryProjection } from './types.ts'
 import type { AgentOptions, SessionStartSource } from './runtime-types.ts'
 import { turnBoundaryProjectionDefinition } from './projection.ts'
+import type { ModelSelectionProjectionState } from './model-selection.ts'
 
 export * from './runtime-types.ts'
 export * from './types.ts'
@@ -24,6 +25,7 @@ export { AgentModel, modelSelectionProjectionDefinition, installModelSelection }
 export type { ModelSelectionProjectionState } from './model-selection.ts'
 export type * from './projection.ts'
 export * from './consumed-work.ts'
+export { cliTerminalProfileOf } from './cli-terminal.ts'
 export { agentCarrier, agentEvents, assembleContextFor, emitAgentEvent } from './dispatch.ts'
 export type { AgentEventDispatch, AgentSubjectEvent } from './dispatch.ts'
 
@@ -299,6 +301,15 @@ export class AgentRegistry extends Service {
    */
   turnBoundaryOf(session: Session): TurnBoundaryProjection {
     return this.turnBoundaryProjectionHandle.stateOf(session)
+  }
+
+  /**
+   * Read the Session's model selection state, including the pending choice.
+   * @param session - Session whose committed events are read.
+   * @returns the current selection state; do not mutate the returned value.
+   */
+  modelSelectionOf(session: Session): ModelSelectionProjectionState {
+    return this.store.get(session.id)?.agent.model.selectionState() ?? { lastUsed: null, lastUsedSeq: null, pending: null }
   }
 
   /**

@@ -21,7 +21,7 @@ describe('delegation depth context', () => {
     { depth: 1, maxDepth: 1, remaining: 0 },
     { depth: 1, maxDepth: 2, remaining: 1 },
     { depth: 2, maxDepth: 1, remaining: 0 },
-  ])('reports depth $depth with cap $maxDepth without changing system text or tools', async ({ depth, maxDepth, remaining }) => {
+  ])('withholds the delegation tool at depth $depth with cap $maxDepth without changing system text', async ({ depth, maxDepth, remaining }) => {
     const ctx = await setup({ provider: 'mock', maxDepth })
     const root = modelSelectionSetupAgent(ctx)
     const { agent } = await ctx.agents.create({
@@ -32,12 +32,12 @@ describe('delegation depth context', () => {
     })
     const baseline = await ctx.systemPrompt.assemble(assembleContextFor(root))
     const assembly = await ctx.systemPrompt.assemble(assembleContextFor(agent))
-    expect(assembly.sections).toEqual(baseline.sections)
-    expect(assembly.tools).toEqual(baseline.tools)
-    expect(await depthContext(ctx, agent)).toEqual(remaining === 0 ? [
-      `Delegation depth for \`subagent\`: current ${depth}, maximum ${maxDepth}, remaining levels 0.`
-        + ' Do not call `subagent` at this depth; carry out the work directly.',
-    ] : [])
+    const withheld = remaining === 0
+    expect(assembly.sections).toEqual(withheld
+      ? baseline.sections.map(section => section.name === 'tool:subagent' ? { ...section, text: '' } : section)
+      : baseline.sections)
+    expect(assembly.tools).toEqual(withheld ? baseline.tools.filter(tool => tool.name !== 'subagent') : baseline.tools)
+    expect(await depthContext(ctx, agent)).toEqual([])
     const restore = agent.ctx.systemPrompt.suppressRuntimeContext()
     try {
       expect(await depthContext(ctx, agent)).toEqual([])
@@ -46,18 +46,17 @@ describe('delegation depth context', () => {
     } finally {
       restore()
     }
-    expect(await depthContext(ctx, agent)).toHaveLength(remaining === 0 ? 1 : 0)
+    expect(await depthContext(ctx, agent)).toHaveLength(0)
   })
 
-  it('uses the runtime depth when it is deeper than the saved header', async () => {
+  it('withholds the tool when the runtime depth is deeper than the saved header', async () => {
     const ctx = await setup({ provider: 'mock', maxDepth: 2 })
     const { agent } = await ctx.agents.create({
       sessionId: brandString<SessionId>('deeper-runtime'),
       agentOptions: { subagentDepth: 2 },
     })
-    expect(await depthContext(ctx, agent)).toEqual([
-      'Delegation depth for `subagent`: current 2, maximum 2, remaining levels 0. Do not call `subagent` at this depth; carry out the work directly.',
-    ])
+    expect(ctx.tools.get('subagent', agent)).toBeUndefined()
+    expect(await depthContext(ctx, agent)).toEqual([])
   })
 
   it('omits unknown provider-managed limits and agentless diagnostics', async () => {
@@ -84,9 +83,7 @@ describe('delegation depth context', () => {
     const restore = root.ctx.tools.restrict({ deny: ['subagent'] })
     expect(await depthContext(ctx, root)).toEqual([])
     restore()
-    expect(await depthContext(ctx, root)).toEqual([
-      'Delegation depth for `subagent`: current 0, maximum 0, remaining levels 0. Do not call `subagent` at this depth; carry out the work directly.',
-    ])
+    expect(await depthContext(ctx, root)).toEqual([])
     const removeOverride = root.ctx.tools.register({ ...ctx.tools.get('subagent')!, description: 'Scoped replacement' })
     expect(await depthContext(ctx, root)).toEqual([])
     removeOverride()
@@ -100,8 +97,8 @@ describe('delegation depth context', () => {
     const ctx = await setup({ provider: 'mock', maxDepth: 0 })
     const agent = modelSelectionSetupAgent(ctx)
     const fiber = await ctx.plugin(tool, { provider: 'mock', toolName: 'extra', maxDepth: 0 })
-    expect(await depthContext(ctx, agent)).toHaveLength(2)
-    await fiber.dispose()
     expect(await depthContext(ctx, agent)).toHaveLength(1)
+    await fiber.dispose()
+    expect(await depthContext(ctx, agent)).toHaveLength(0)
   })
 })

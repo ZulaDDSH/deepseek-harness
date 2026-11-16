@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-compaction-basic
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 This package keeps long agent conversations working near the model's context limit. As token pressure builds, it condenses the oldest history into a summary while preserving recent messages; after a context-overflow error, it condenses and retries. You can also request condensation with `/compact` and optionally trim oversized tool outputs first. Condensation uses one extra model request and retains only its summary text. It cannot reduce the system prompt, tools, or session prefix, or split one indivisible unit such as a single huge tool call.
@@ -19,6 +17,8 @@ This package keeps long agent conversations working near the model's context lim
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 - [Dev Note](#dev-note)
+
+`maxContextWindow` optionally caps the adapter window before output reservation, headroom, pressure, and retention budgets are calculated. It must be a positive integer and can be overridden per model.
 
 -----
 
@@ -124,9 +124,11 @@ With `auto: true`, a serial `agent/pre-step` listener checks pressure before req
 
 Pressure policy resolves capacity from the adapter that owns the durable route. Missing capacity, output plus headroom exhausting the window, or a retained budget at least as large as the threshold makes the manual pressure path throw a target-specific configuration error. The `agent/pre-step` listener warns once for that exact target and continues the turn; provider-confirmed overflow recovery remains available. Model-switch checks instead reject the request with `MODEL_SWITCH_COMPACTION_FAILED`, including when capacity or adapter lookup fails.
 
+A failed automatic pressure attempt for a summarizer or other transient error is not retried on every step: the next 2^failures steps (at most 32) skip pressure on the same surface. The backoff clears after a successful pass, when the agent goes idle, or when the surface is replaced (including by `/compact`). Overflow recovery is unaffected.
+
 ### Summarization mechanics
 
-A direct `ctx.llm.stream()` call uses the configured provider/model pair and cap, falling back to the model that produced the latest assistant message, then the latest logged request target, and then the `AgentOptions` pair, without running the loop-only `agent/request` extension point. The call replays the derived `system/message` at surface node 0 as the leading entry of `messages`, followed by the shadowed-region messages (including a shadowed in-history `system/message` in its surface position), and supplies the latest request header's active tools for route-specific projection, including when the summary goes to a different model than that header names. The selected adapter must resolve image references in the replayed messages or explicitly reject them. The call appends the compaction instruction as the final user message, preserving the provider's warm prefix where projection permits. An empty-content system head contributes no message but remains outside the compacted range. The final instruction is a frozen `RequestUserInput` without durable identity or source; the replayed history and persisted checkpoint remain durable messages. The call sets `GenerateOptions.purpose` to `compaction`; only returned text enters the checkpoint, excluding reasoning and tool calls. Image output fails with `UNSUPPORTED_CONTENT` rather than disappearing. The replacement user message frames the summary with `<compacted-summary>` tags; the raw summary remains on the `compaction/summary` event. The call also carries `Session.toolHistory()` so the runtime can project deferred and retained definitions; a prefix missing update messages uses active declarations without developer updates.
+A direct `ctx.llm.stream()` call uses the configured provider/model pair and cap, falling back to the model that produced the latest assistant message, then the latest logged request target, and then the `AgentOptions` pair, without running the loop-only `agent/request` extension point. The call replays the derived `system/message` at surface node 0 as the leading entry of `messages`, followed by the shadowed-region messages (including a shadowed in-history `system/message` in its surface position), and supplies the latest request header's active tools for route-specific projection, including when the summary goes to a different model than that header names. The selected adapter must resolve image references in the replayed messages or explicitly reject them. The call appends the compaction instruction as the final user message, preserving the provider's warm prefix where projection permits. An empty-content system head contributes no message but remains outside the compacted range. The final instruction is a frozen `RequestUserInput` without durable identity or source; the replayed history and persisted checkpoint remain durable messages. The call sets `GenerateOptions.purpose` to `compaction`; only returned text enters the checkpoint, excluding reasoning and tool calls. Image output fails with `UNSUPPORTED_CONTENT` rather than disappearing. The replacement user message frames the summary with `<compacted-summary>` tags; the raw summary remains on the `compaction/summary` event. The call also carries `Session.toolHistory()` so the runtime can project deferred and retained definitions; a prefix missing update messages uses active declarations without developer updates. One transient `TRANSPORT`, `TIMEOUT`, or `SERVER` failure of the summarizer call is retried once before compaction fails.
 
 ### The region transaction
 
@@ -257,6 +259,8 @@ These limits define when automatic condensation is a poor fit or needs special c
 - **A summary request is not split** — when the summarizing model cannot hold the selected range plus the instruction, for example after its own history overflowed, the summary request fails and no checkpoint is written; configure a larger `summarizationModel`.
 - **Overflow classification is adapter-maintained** — provider wording can change; both DeepSeek adapters normalize recognized context-limit failures to `CONTEXT_WINDOW_EXCEEDED`.
 - **Some indivisible-unit and envelope-only overflow remains outside surface compaction** — recovery cannot shrink system/tools/prefix, split an indivisible non-tool node, or repair a tool unit whose non-prunable remainder still exceeds the window. The optional pruner can shrink text-bearing tool-result bulk inside an otherwise indivisible pair.
+- **The summarizer bound uses the routed model's window and heuristic pricing** — a separately configured `summarizationProvider`/`summarizationModel` with a smaller window is not accounted for, a single node larger than the bound cannot be compacted, a window no larger than the summary `maxTokens` disables the bound, and manual `/compact` is unbounded.
+- **Pressure backoff counts steps, not time** — after a failed pressure attempt the skip window is measured in agent steps, so a summarizer that recovers mid-turn is retried only when that window ends, and a turn that finishes first picks it up at the next turn.
 - **`compactRegion` requires an open turn** — a manual call on a fully-closed session throws ("no open turn") rather than compacting.
 - **Summarization failure preserves the latest durable surface** — pre-step pressure logs a warning and continues; model-switch pressure rejects the destination request. Completed pruning and earlier checkpoints survive either failure. Summarization truncation at `maxTokens`, which hidden reasoning tokens can consume, follows the same rule.
 - **Cross-model image pricing can reject a useful summary** — switch range selection uses destination pricing, while shrink validation uses the committed route. Different image prices can make a summary fail shrink validation even when it would reduce destination pressure.

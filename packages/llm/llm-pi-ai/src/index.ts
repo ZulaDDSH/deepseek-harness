@@ -54,13 +54,17 @@
  *
  * @module @deepseek-ai/dsh-llm-pi-ai
  */
+import type { QuotaSource } from '@deepseek-ai/dsh-api-quota-controller'
+import { createCodexQuotaSource } from './codex-quota.ts'
+import { CLAUDE_ROUTE, claudeObservationsFromHeaders, createClaudeQuotaSource, createClaudeUsage } from './claude-quota.ts'
 import type {} from '@deepseek-ai/dsh-settings'
 
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 
 import type { Context } from '@deepseek-ai/cordis'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
-import { assertUsableApiKey, LlmError, resolveImageAttachmentAccess } from '@deepseek-ai/dsh-llm'
+import { assertUsableApiKey, LlmError, providerUsageLimitOf, resolveImageAttachmentAccess } from '@deepseek-ai/dsh-llm'
 import type { AdapterRegistrationHandle, DirectoryRegistrationHandle, LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-fs'
 import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
@@ -150,7 +154,7 @@ function directoryEntries(
   settingsNs: string,
 ): LlmConfigurableProvider[] {
   const entries = new Map<string, LlmConfigurableProvider>()
-  const declare = (provider: string, displayName: string, error?: string): void => {
+  const declare = (provider: string, displayName: string, error?: string, aliased = false): void => {
     const installed = catalogProvider(provider)
     entries.set(provider, {
       provider,
@@ -160,13 +164,13 @@ function directoryEntries(
       // Membership of the installed catalog, not of the settings document:
       // narrowing a shipped provider's models stores a profile too, and that
       // route is still one pi-ai knows.
-      declared: installed === undefined,
+      declared: installed === undefined && !aliased,
       ...installed === undefined ? {} : providerDefaultsOf(installed),
       ...error === undefined ? {} : { error },
     })
   }
   for (const provider of catalogProviderIds()) declare(provider, provider)
-  for (const [provider, profile] of profiles) declare(provider, profile.displayName, profile.catalogError)
+  for (const [provider, profile] of profiles) declare(provider, profile.displayName, profile.catalogError, profile.base !== undefined)
   return [...entries.values()]
 }
 
@@ -234,10 +238,75 @@ export function apply(ctx: Context, config: Config): void {
   // through `ctx` per call, so they stay correct across the collection rebuilds
   // a configuration change causes, and a sign-in survives one.
   const auth = { credentials: credentialStoreFrom(ctx), authContext: authContextFrom(ctx) }
+  const claudeUsage = new Map<string, ReturnType<typeof createClaudeUsage>>()
+  const claudeUsageFor = (route: string): ReturnType<typeof createClaudeUsage> => {
+    let usage = claudeUsage.get(route)
+    if (usage === undefined) claudeUsage.set(route, usage = createClaudeUsage(route))
+    return usage
+  }
+  // Route to its profile, for every route that is a Claude account: the catalog route or an alias of it.
+  const claudeAccounts = (): Map<string, { label: string; apiKeyEnv: string | undefined }> => {
+    const accounts = new Map<string, { label: string; apiKeyEnv: string | undefined }>([[CLAUDE_ROUTE, { label: 'Anthropic (Claude)', apiKeyEnv: undefined }]])
+    for (const [route, profile] of profiles()) {
+      if (route === CLAUDE_ROUTE || profile.base === CLAUDE_ROUTE) {
+        accounts.set(route, { label: route === CLAUDE_ROUTE ? 'Anthropic (Claude)' : profile.displayName, apiKeyEnv: profile.apiKeyEnv })
+      }
+    }
+    return accounts
+  }
+  ctx.on('llm/rate-limit-observed', (observation) => {
+    if (claudeAccounts().has(observation.route)) claudeUsageFor(observation.route).observe(observation)
+  })
+  let quotaRegistry: { registerSource: (source: QuotaSource) => () => void } | undefined
+  const quotaSources = new Map<string, { label: string; dispose: () => void }>()
+  const syncQuotaSources = (): void => {
+    if (quotaRegistry === undefined) return
+    const accounts = claudeAccounts()
+    for (const [route, entry] of quotaSources) {
+      if (accounts.get(route)?.label === entry.label) continue
+      entry.dispose()
+      quotaSources.delete(route)
+      claudeUsage.delete(route)
+    }
+    for (const [route, { label }] of accounts) {
+      if (quotaSources.has(route)) continue
+      const dispose = quotaRegistry.registerSource(createClaudeQuotaSource({
+        usage: claudeUsageFor(route),
+        auth,
+        route,
+        name: label,
+        apiKeyEnv: () => claudeAccounts().get(route)?.apiKeyEnv,
+        keyStored: async ref => (await ctx.get('credentials')?.resolve(credentialRef(ref))) !== undefined,
+        settingsNs,
+      }))
+      quotaSources.set(route, { label, dispose })
+    }
+  }
+  ctx.inject(['quotaController'], (quota) => {
+    quota.effect(() => quota.quotaController.registerSource(createCodexQuotaSource(auth, () => profiles().has('openai-codex'))))
+    quota.effect(() => {
+      quotaRegistry = quota.quotaController
+      syncQuotaSources()
+      return () => {
+        for (const entry of quotaSources.values()) entry.dispose()
+        quotaSources.clear()
+        quotaRegistry = undefined
+      }
+    })
+  })
+  const windowWarnedRoutes = new Set<string>()
   const adapter = new PiAiAdapter({
     profiles,
     resolveApiKey,
     auth,
+    onResponseHeaders: ({ provider, headers }) => {
+      if (!claudeAccounts().has(provider)) return
+      for (const observation of claudeObservationsFromHeaders(provider, headers, Date.now())) claudeUsageFor(provider).observe(observation)
+    },
+    onRequestFailure: ({ provider, message }) => {
+      const limit = claudeAccounts().has(provider) ? providerUsageLimitOf(message) : undefined
+      if (limit !== undefined) claudeUsageFor(provider).observeApiLimit({ resetAt: limit.regainAt ?? null, observedAt: Date.now() })
+    },
     prepareHeaders: (request, headers) => ctx.waterfall('llm-pi-ai/request-headers', request, headers, () => headers),
     resolveAttachments: () => ctx.get('attachments'),
     resolveImageAccess: (attachments, ref) => resolveImageAttachmentAccess(
@@ -254,13 +323,29 @@ export function apply(ctx: Context, config: Config): void {
     onThinkingOmitted: ({ provider, model, count }) => {
       ctx.logger.debug(`llm-pi-ai: omitted stale thinking from ${count} assistant message(s) for route "${provider}/${model}"`)
     },
+    onUsageAboveWindow: ({ provider, model, contextWindow, inputTokens }) => {
+      const route = `${provider}/${model}`
+      if (windowWarnedRoutes.has(route)) return
+      windowWarnedRoutes.add(route)
+      ctx.logger.warn(
+        `llm-pi-ai: route "${route}" accepted ${inputTokens} input tokens, above its catalog contextWindow ${contextWindow};`
+        + ' raise contextWindow for that model so compaction budgets match the provider',
+      )
+    },
   })
   // Independent of the route set: signing in is what makes a route worth
   // adding, so the flows are offered before any profile names their provider.
   // Scoped to the authorization seam rather than injected outright, because a
   // composition without it (headless, ACP) simply has no surface to sign in
   // from, while everything else this plugin does still works.
-  ctx.inject(['authorization'], (authorized) => { registerPiAiFlows(authorized, auth) })
+  let syncAliasFlows: ((aliases: ReadonlyMap<string, { base: string; label: string }>) => void) | undefined
+  const aliasFlows = (): Map<string, { base: string; label: string }> => new Map(
+    [...profiles()].flatMap(([route, { base, displayName }]) =>
+      base === undefined ? [] : [[route, { base, label: displayName }] as const]))
+  ctx.inject(['authorization'], (authorized) => {
+    syncAliasFlows = registerPiAiFlows(authorized, auth)
+    syncAliasFlows(aliasFlows())
+  })
   // The full installed catalog is configurable from the moment the plugin
   // mounts — dormant or not — so configuration surfaces can offer every
   // pi-ai provider before any route exists. Hand-declared routes join it as
@@ -302,7 +387,11 @@ export function apply(ctx: Context, config: Config): void {
   // accepts neither, so an already-configured route supplies both inside the
   // Host rather than widening the discovery request.
   ctx.llm.registerModelDiscovery(settingsNs, (request, signal) => discoverModels(
-    { ...request, ...signal === undefined ? {} : { signal } },
+    {
+      ...request,
+      ...request.provider === undefined ? {} : { provider: profiles().get(request.provider)?.base ?? request.provider },
+      ...signal === undefined ? {} : { signal },
+    },
     () => storedDiscoveryProfile(request.provider),
   ))
   // Route effects bind to this apply fiber via the stable `ctx` reference,
@@ -337,10 +426,12 @@ export function apply(ctx: Context, config: Config): void {
   ensureRegistrationFacts()
 
   ctx.on('loader/volatile-update', () => {
-    try { ensureRegistrationFacts(); ensureDirectory() }
-    catch (error) {
-      ctx.logger.error('llm-pi-ai: configuration conflicts with an existing provider route')
-      ctx.logger.error(error)
+    for (const step of [ensureRegistrationFacts, ensureDirectory, () => { syncAliasFlows?.(aliasFlows()) }, syncQuotaSources]) {
+      try { step() }
+      catch (error) {
+        ctx.logger.error('llm-pi-ai: configuration update failed')
+        ctx.logger.error(error)
+      }
     }
   })
 }

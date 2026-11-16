@@ -55,6 +55,7 @@ interface SubagentDescriptorBase {
   readonly mode: 'one-shot' | 'continuable'
   /** The `ctx.subagents` provider name that established the child. */
   readonly provider: string
+  readonly routePinned?: true
 }
 
 /** A session-backed subagent that cannot be cold-resumed after its run. */
@@ -90,14 +91,50 @@ export type SubagentDescriptorData =
   | OneShotSubagentDescriptorData
   | ContinuableSubagentDescriptorData
 
-/** Continuable composition fields before the snapshot stamps their format version. */
-export type ContinuableSubagentDescriptorInput = Omit<ContinuableSubagentDescriptorData, 'version'>
+/** Fields shared by descriptor snapshot inputs. */
+interface SubagentDescriptorInputBase {
+  /** Whether the child is a terminal one-shot run or a resumable conversation. */
+  readonly mode: 'one-shot' | 'continuable'
+  /** The `ctx.subagents` provider name that will establish the child. */
+  readonly provider: string
+  readonly routePinned?: true
+}
+
+/** Input for a one-shot child's durable identity. */
+export interface OneShotSubagentDescriptorInput extends SubagentDescriptorInputBase {
+  readonly mode: 'one-shot'
+  /** Optional initial delegation `description` used as the durable creation label. */
+  readonly label?: string
+}
+
+/** Input for a continuable child's durable identity and resumable composition. */
+export interface ContinuableSubagentDescriptorInput extends SubagentDescriptorInputBase {
+  readonly mode: 'continuable'
+  /** Initial delegation `description` used for durable enumeration. */
+  readonly label: string
+  /** Requested child `agentOptions.provider`. */
+  readonly agentProvider?: string
+  /** Requested child `agentOptions.model`. */
+  readonly agentModel?: string
+  /** Requested child `agentOptions.reasoningEffort`. */
+  readonly agentReasoningEffort?: ReasoningEffortId
+  /** Requested per-child persona. */
+  readonly persona?: string
+  /** Requested child tool scoping. */
+  readonly toolFilter?: ToolRestriction
+}
+
+/** Inputs {@link snapshotSubagentDescriptor} validates and detaches. */
+export type SubagentDescriptorInput =
+  | OneShotSubagentDescriptorInput
+  | ContinuableSubagentDescriptorInput
 
 const DESCRIPTOR_BASE_KEYS = [
   'version',
   'mode',
   'provider',
   'label',
+  'routePinned',
 ] as const
 const ONE_SHOT_DESCRIPTOR_KEYS = new Set(DESCRIPTOR_BASE_KEYS)
 const CONTINUABLE_DESCRIPTOR_KEYS = new Set([
@@ -188,6 +225,10 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
   if (typeof provider !== 'string') {
     throw new Error('persisted subagent descriptor provider must be a string')
   }
+  const routePinned = value['routePinned']
+  if (routePinned !== undefined && routePinned !== true) {
+    throw new Error('persisted subagent descriptor routePinned must be true when present')
+  }
   if (mode === 'one-shot') {
     const label = optionalString(value, 'label')
     return {
@@ -195,6 +236,7 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
       mode,
       provider,
       ...label !== undefined ? { label } : {},
+      ...routePinned === true ? { routePinned } : {},
     }
   }
   const label = value['label']
@@ -218,9 +260,19 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
     ...agentReasoningEffort !== undefined ? { agentReasoningEffort } : {},
     ...persona !== undefined ? { persona } : {},
     ...toolFilter !== undefined ? { toolFilter } : {},
+    ...routePinned === true ? { routePinned } : {},
   }
 }
 
+/**
+ * Validate and detach a one-shot descriptor input.
+ * @param input - the caller-collected one-shot identity fields.
+ * @returns the versioned, detached one-shot descriptor payload.
+ * @throws when a field is not losslessly JSON-serializable.
+ */
+export function snapshotSubagentDescriptor(
+  input: OneShotSubagentDescriptorInput,
+): OneShotSubagentDescriptorData
 /**
  * Validate and detach a continuable descriptor input.
  * @param input - the caller-collected continuable composition fields.
@@ -229,18 +281,28 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
  */
 export function snapshotSubagentDescriptor(
   input: ContinuableSubagentDescriptorInput,
-): ContinuableSubagentDescriptorData {
-  const candidate: ContinuableSubagentDescriptorData = {
-    version: SUBAGENT_DESCRIPTOR_VERSION,
-    mode: input.mode,
-    provider: input.provider,
-    label: input.label,
-    ...input.agentProvider !== undefined ? { agentProvider: input.agentProvider } : {},
-    ...input.agentModel !== undefined ? { agentModel: input.agentModel } : {},
-    ...input.agentReasoningEffort !== undefined ? { agentReasoningEffort: input.agentReasoningEffort } : {},
-    ...input.persona !== undefined ? { persona: input.persona } : {},
-    ...input.toolFilter !== undefined ? { toolFilter: input.toolFilter } : {},
-  }
+): ContinuableSubagentDescriptorData
+export function snapshotSubagentDescriptor(input: SubagentDescriptorInput): SubagentDescriptorData {
+  const candidate: SubagentDescriptorData = input.mode === 'one-shot'
+    ? {
+      version: SUBAGENT_DESCRIPTOR_VERSION,
+      mode: input.mode,
+      provider: input.provider,
+      ...input.label !== undefined ? { label: input.label } : {},
+      ...input.routePinned === true ? { routePinned: true } : {},
+    }
+    : {
+      version: SUBAGENT_DESCRIPTOR_VERSION,
+      mode: input.mode,
+      provider: input.provider,
+      label: input.label,
+      ...input.routePinned === true ? { routePinned: true } : {},
+      ...input.agentProvider !== undefined ? { agentProvider: input.agentProvider } : {},
+      ...input.agentModel !== undefined ? { agentModel: input.agentModel } : {},
+      ...input.agentReasoningEffort !== undefined ? { agentReasoningEffort: input.agentReasoningEffort } : {},
+      ...input.persona !== undefined ? { persona: input.persona } : {},
+      ...input.toolFilter !== undefined ? { toolFilter: input.toolFilter } : {},
+    }
   const snapshot = snapshotJsonValue(candidate)
   if (snapshot === undefined) {
     throw new Error('subagent descriptor is not losslessly JSON-serializable')

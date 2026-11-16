@@ -1,7 +1,5 @@
 # Profile management
 
-English | [中文](boot.zh.md)
-
 The [boot package group](../../packages/boot/README.md) owns launcher-provided profile access and the plugin manager. [Plugin Manager](../../packages/boot/plugin-manager/README.md) documents persistence, reload and package-operation behavior.
 
 ## Management records
@@ -297,6 +295,28 @@ Manage profile files and apply their declared reload lifecycle.
  */
 @Remote setPluginEnabled(id: PluginEntryId, enabled: boolean): Promise<ChangeResult>
 
+/** List MCP servers configured as MCP client plugin entries.
+ * @returns One row per server with its target, enablement and runtime phase.
+ */
+@Remote async listMcpServers(): Promise<McpServerRow[]>
+
+/** Find MCP servers configured for Claude Desktop, Claude Code and Codex.
+ * @returns Importable servers, marking names already configured here.
+ */
+@Remote async discoverMcpServers(): Promise<McpServerCandidate[]>
+
+/** Add an MCP server as a new MCP client plugin entry in the profile.
+ * @param config Server name and stdio or streamable HTTP connection.
+ * @returns Persisted and runtime outcomes.
+ */
+@Remote addMcpServer(config: McpServerConfig): Promise<ChangeResult>
+
+/** Remove an MCP server the profile added.
+ * @param id Loader entry identity returned by listMcpServers.
+ * @returns Persisted and runtime outcomes.
+ */
+@Remote removeMcpServer(id: PluginEntryId): Promise<ChangeResult>
+
 /** Select or remove a bundle layer while retaining installed dependencies.
  * @param name Bundle package name.
  * @param enabled Whether the bundle contributes its patch layer.
@@ -315,17 +335,20 @@ Manage profile files and apply their declared reload lifecycle.
  * `package.json` and `pnpm-lock.yaml` as they were; downloaded files can stay.
  * @param spec One package spec, including local paths relative to the invocation directory.
  * @param options Whether to activate the installed bundle (defaults to true), the request id a cancellation names,
- * the pending build scripts to allow, whether to save an exact dependency, and the registry asked first.
+ * the pending build scripts to allow for this profile before pnpm runs, whether to save an exact dependency,
+ * and the registry asked first.
+ * @param signal Ends the caller's wait only; the installation keeps running until it ends or `cancelInstall` stops it.
  * @returns Package-manager diagnostics, the registries asked, and the observed activation outcome.
  */
-@Remote installBundle(spec: string, options?: InstallBundleOptions): Promise<ChangeResult>
+@Remote installBundle(spec: string, options?: InstallBundleOptions, signal?: AbortSignal): Promise<ChangeResult>
 
 /** Recover the result of an active installation without cancelling it.
  * @param requestId The id supplied when installation started.
  * @returns The installation's outcome after it settles, or null if no active request has that id.
  * Completed results are not retained; null establishes neither success nor cancellation.
+ * @param signal Ends the caller's wait only; the installation keeps running.
  */
-@Remote async waitForInstall(requestId: PluginInstallRequestId): Promise<ChangeResult | null>
+@Remote async waitForInstall(requestId: PluginInstallRequestId, signal?: AbortSignal): Promise<ChangeResult | null>
 
 /** Stop an installation this manager owns and wait until its files are back.
  * @param requestId The id the installation was started with.

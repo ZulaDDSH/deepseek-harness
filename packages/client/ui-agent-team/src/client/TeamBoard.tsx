@@ -83,30 +83,75 @@ export function TeamBoard({ sessionId, useProjection, useSessions, t }: TeamBoar
   const team = useProjection('agentTeam')
   const hasMembers = useSessions(state => (state.projectionsBySession[sessionId]?.values.subagentCatalog?.length ?? 0) > 0)
   const [expandedTaskId, setExpandedTaskId] = useState<TeamTaskId | null>(null)
-  if (!team?.enabled) return null
+  if (!team) return null
   const tasks = team.tasks.filter((task): task is VisibleTask => task.status !== 'deleted')
+  const historicalMembers = team.historicalMembers ?? []
+  const historicalMessages = team.historicalMessages ?? []
+  const hasHistory = historicalMembers.length > 0 || historicalMessages.length > 0
+  if (!team.enabled && !hasHistory) return null
   const failure = team.failure === undefined ? null : (
     <div className={css.error} role="alert"><StateDot state="error" />{t('failure', { message: team.failure })}</div>
   )
-  if (tasks.length === 0) return failure === null ? null : <div className={css.board}>{failure}</div>
-  return (
-    <section className={css.board} data-with-members={hasMembers} aria-label={t('trigger')} data-team-panel>
-      <h3 className={css.header}>
-        <span className={css.lead} aria-hidden><IconChecklistOutlineRegular size={14} /></span>
-        <span className={css.title}>{t('tasks')}</span>
-        <span className={css.progress}>{progressLabel(tasks, t)}</span>
-      </h3>
-      {failure}
-      <ul className={css.tasks}>
-        {tasks.map(task => (
-          <TaskRow
-            key={task.id} task={task} rootId={sessionId}
-            expanded={expandedTaskId === task.id}
-            onToggle={() => { setExpandedTaskId(current => current === task.id ? null : task.id) }}
-            t={t}
-          />
-        ))}
-      </ul>
+  const board = tasks.length === 0
+    ? failure === null ? null : <div className={css.board}>{failure}</div>
+    : (
+      <section className={css.board} data-with-members={hasMembers} aria-label={t('trigger')} data-team-panel>
+        <h3 className={css.header}>
+          <span className={css.lead} aria-hidden><IconChecklistOutlineRegular size={14} /></span>
+          <span className={css.title}>{t('tasks')}</span>
+          <span className={css.progress}>{progressLabel(tasks, t)}</span>
+        </h3>
+        {failure}
+        <ul className={css.tasks}>
+          {tasks.map(task => (
+            <TaskRow
+              key={task.id} task={task} rootId={sessionId}
+              expanded={expandedTaskId === task.id}
+              onToggle={() => { setExpandedTaskId(current => current === task.id ? null : task.id) }}
+              t={t}
+            />
+          ))}
+        </ul>
+      </section>
+    )
+  const history = !hasHistory ? null : (
+    <section className={css.history} aria-label={t('history.title')} data-team-history>
+      <h3>{t('history.title')}</h3>
+      <p>{t('history.notice')}</p>
+      {historicalMembers.length > 0 && (
+        <div>
+          <h4>{t('history.members')}</h4>
+          <ul>
+            {historicalMembers.map(member => (
+              <li key={member.id} data-historical-member={member.id}>
+                <strong>{member.name}</strong> <span>{member.phase}</span>
+                <p>{member.description}</p>
+                <code>{member.id}</code> <span>{member.provider} · {member.context}</span>
+                {member.error !== undefined && <p>{member.error}</p>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {historicalMessages.length > 0 && (
+        <div>
+          <h4>{t('history.messages')}</h4>
+          <ul>
+            {historicalMessages.map(({ message, delivered }) => (
+              <li key={message.id} data-historical-message={message.id} data-delivered={delivered}>
+                <details>
+                  <summary>
+                    {message.senderName} ({message.senderId}) → {message.targetId} · {t(delivered ? 'history.delivered' : 'history.queued')}
+                  </summary>
+                  <pre>{message.content.map(block => block.type === 'text' ? block.text : JSON.stringify(block)).join('\n')}</pre>
+                </details>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </section>
   )
+  if (board === null && history === null) return null
+  return <>{board}{history}</>
 }

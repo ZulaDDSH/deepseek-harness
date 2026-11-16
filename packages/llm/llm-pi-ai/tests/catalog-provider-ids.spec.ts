@@ -8,10 +8,10 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('@earendil-works/pi-ai/providers/all', async importOriginal => ({
   ...await importOriginal<typeof import('@earendil-works/pi-ai/providers/all')>(),
   builtinProviders: () => ['chat-provider', 'classifier-provider', 'uncataloged-provider'].map(id => ({ id })),
-  getBuiltinModels: (provider: string) => provider === 'chat-provider' ? [{ id: 'chat-model' }] : [],
+  getBuiltinModels: (provider: string) => provider === 'chat-provider' ? [{ id: 'chat-model', name: 'Chat model', baseUrl: '' }] : [],
   getAllBuiltinModels: (provider: string) => {
-    if (provider === 'chat-provider') return [{ id: 'chat-model' }]
-    if (provider === 'classifier-provider') return [{ id: 'classifier-model', type: 'classifier' }]
+    if (provider === 'chat-provider') return [{ id: 'chat-model', name: 'Chat model', baseUrl: '' }]
+    if (provider === 'classifier-provider') return [{ id: 'classifier-model', name: 'Classifier model', type: 'classifier', baseUrl: '' }]
     return []
   },
 }))

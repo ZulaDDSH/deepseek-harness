@@ -244,7 +244,9 @@ describe('optional bundles', () => {
       { id: 'optional-session-query-sqlite', name: '@deepseek-ai/dsh-session-query-sqlite', config: { path: ':memory:', openAt: 'first-search' } },
       { id: 'optional-tool-session-query', name: '@deepseek-ai/dsh-tool-session-query' },
     ])
-    expect(composed.find(row => row.id === 'session-query-sqlite')?.config).toEqual({ path: ':memory:', openAt: 'never' })
+    expect(composed.find(row => row.id === 'session-query-sqlite')?.config).toEqual({
+      path: { __jsExpr: expect.stringContaining("dshHomePath('cache', 'session-query'") as string }, openAt: 'first-search',
+    })
     expect(composed.find(row => row.id === 'session-title-llm')?.disabled).toBe(true)
     expect(composed.find(row => row.id === 'optional-session-title-all-prompts')?.name)
       .toBe('@deepseek-ai/dsh-session-title-all-prompts-llm')
@@ -300,6 +302,19 @@ describe('optional bundles', () => {
     // `minimal` declares neither, so it composes no clock reading and no reminder tool.
     expect(presetPlugins('preset-minimal').some(row => row.name === '@deepseek-ai/dsh-time-context'
       || row.name === '@deepseek-ai/dsh-tool-schedule')).toBe(false)
+  })
+
+  it('offers the native computer-use provider and adds its service and provider rows the shipped Web composition leaves out', () => {
+    const name = '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native'
+    expect(OPTIONAL_BUNDLES).toContain(name)
+    const { patches } = bundle(name)
+    const computerUseRows = (entries: ReturnType<typeof composeEntries>) =>
+      entries.filter(entry => ['computer-use', 'computer-use-cua-driver-native'].includes(entry.id))
+    expect(computerUseRows(composeEntries(shipped))).toEqual([])
+    expect(computerUseRows(composeEntries([...shipped, patches]))).toEqual([
+      { id: 'computer-use', name: '@deepseek-ai/dsh-computer-use' },
+      { id: 'computer-use-cua-driver-native', name: '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native' },
+    ])
   })
 
   it.each(OPTIONAL_BUNDLES)('%s resolves a title, description, and icon in both shipped languages', (name) => {

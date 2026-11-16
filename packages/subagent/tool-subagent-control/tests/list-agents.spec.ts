@@ -15,7 +15,7 @@ import type { SubagentCatalogEntry } from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'
-import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import * as tool from '../src/index.ts'
 import { parkParent } from './park-parent.ts'
 import { TestSessionQuery } from './test-session-query.ts'
@@ -83,6 +83,18 @@ async function setup(script: ConstructorParameters<typeof MockAdapter>[0]) {
 
 function text(result: { content: readonly { type: string; text?: string }[] }): string {
   return result.content.filter(block => block.type === 'text').map(block => block.text).join('')
+}
+
+/** Pin the wall-clock idle figure, which varies with test timing. */
+function withIdle(value: string): string {
+  return value.replace(/idle \d+s/gu, 'idle Ns')
+}
+
+/** A tool call whose arguments string is sent verbatim, so a test can stream non-object or malformed JSON. */
+function rawToolCall(callId: string, name: string, argumentsJson: string): StreamChunk[] {
+  return toolCallResponse(callId, name, {}).map(chunk => chunk.type === 'block-end' && chunk.block.type === 'tool-call'
+    ? { ...chunk, block: { ...chunk.block, arguments: argumentsJson } }
+    : chunk)
 }
 
 let calls = 0
@@ -202,7 +214,7 @@ describe('list_agents', () => {
       },
     ] satisfies SubagentCatalogEntry[]
     ctx.subagents.listDescendants = () => Promise.resolve(entries.map(entry => ({
-      ...entry, kind: 'child' as const, activity: 'inactive' as const, hasChildren: false,
+      ...entry, kind: 'child' as const, activity: 'running' as const, hasChildren: false,
       parentId: parent.id, depth: 1, ...'name' in entry ? { path: entry.name } : {},
     })))
     const agents = new Map<string, {

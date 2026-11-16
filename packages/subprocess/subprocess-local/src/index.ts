@@ -17,7 +17,7 @@ import { Context } from '@deepseek-ai/cordis'
 import type * as NodePty from 'node-pty'
 import type { IPtyForkOptions, IWindowsPtyForkOptions } from 'node-pty'
 import { createLazyRequire } from '@deepseek-ai/dsh-lazy-require'
-import { SubprocessRuntime, SubprocessError, SubprocessExecutableNotFoundError } from '@deepseek-ai/dsh-subprocess'
+import { SubprocessRuntime, SubprocessError, SubprocessExecutableNotFoundError, userParentEnv } from '@deepseek-ai/dsh-subprocess'
 import type {
   SubprocessHandle,
   SubprocessSpawnSpec,
@@ -75,6 +75,7 @@ function loadNodePty(): typeof NodePty {
  * JavaScript-observable host exit also performs synchronous final termination.
  */
 export class LocalSubprocessRuntime extends SubprocessRuntime {
+  override readonly inheritsUserEnvironment = true
   /** Live handles retained for normal disposal and synchronous host-exit finalization. */
   private live = new Set<LocalSubprocessHandle>()
   /** Live terminals retained through normal quiescence or host-exit finalization. */
@@ -308,7 +309,7 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
     spec.signal?.throwIfAborted()
     const inspector = this.terminalInspector ?? createProcessInspector()
     const containmentMode = this.selectContainmentMode('terminal')
-    const env = targetEnvironment(spec)
+    const env = targetEnvironment(spec, spec.inheritEnvironment === true ? userParentEnv() : undefined)
     const platform = this.internals.platform ?? process.platform
     const activity = prepareShellActivity(spec, env, platform)
     const launch = activity === undefined ? spec : { ...spec, argv: activity.argv, env: activity.env }

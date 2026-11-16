@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-mcp-client` lets the model use tools and resources from external Model Context Protocol (MCP) servers. Configure one server per entry; its tools use names such as `mcp__github__create_issue`. No server is enabled by default. Shipped profiles already provide [shared resource discovery and reading](../mcp-resources/README.md). An empty caller scope adds no MCP tools or prompt text. Server instructions join the logged system prompt as literal text; MCP prompt templates are unsupported. Slow or crashed servers can delay startup or fail calls until recovery.
+`dsh-mcp-client` lets the model use tools and resources from external Model Context Protocol (MCP) servers. Configure one server per entry; its tools use names such as `mcp__github__create_issue`. No server is enabled by default. Shipped profiles already provide [shared resource discovery and reading](../mcp-resources/README.md). An empty caller scope adds no MCP tools or prompt text. Server instructions join the logged system prompt as literal text unless `includeServerInstructions` is disabled; MCP prompt templates are unsupported. Slow or crashed servers can delay startup or fail calls until recovery.
 
 ## Table of Contents
 
@@ -57,12 +57,14 @@ Add one entry per server; nothing else is required. After the harness starts, th
 | `transport` | required | `stdio` or `streamable-http` |
 | `serverName` | required | Namespace for the server's tool names; `[A-Za-z0-9_-]{1,32}`, unique inside one registration scope |
 | `command` / `args` / `env` / `cwd` | — | stdio: executable, arguments, extra env merged over scrubbed ambient env, working directory |
-| `url` / `headers` | — | streamable-http: endpoint URL and extra request headers |
+| `url` / `headers` / `headerEnv` | — | streamable-http: endpoint URL, literal headers, and header names mapped to environment variables; literal headers win |
 | `toolCallTimeoutMs` | `60,000` | Timeout per `tools/call` or resource request |
 | `startupTimeoutMs` | unset | Optional budget for template resolution, negotiation, connection, and the initial tool sync |
 | `closeTimeoutMs` | `5,000` | Budget for transport closure and pending local work to settle |
 | `expandTemplates` | `false` | Resolve `${credential:REF}` in transport strings at runtime and redact resolved values from diagnostics |
 | `maxInstructionBytes` | `32,768` | Maximum UTF-8 bytes of server instructions including attribution; an oversized value rejects the connection |
+| `includeServerInstructions` | `true` | Publish nonblank server instructions into the system prompt |
+| `toolFilter.allow` / `toolFilter.deny` | — | Filter raw server tool names; allow applies before deny, and an empty allow list means unrestricted |
 | `failOnStartupError` | `false` | Reject plugin activation when the initial connection or tool synchronization fails |
 | `reconnect.enabled` | `true` | Reconnect automatically after a lost connection |
 | `reconnect.initialDelayMs` | `500` | First reconnect delay; doubles per consecutive failed attempt |
@@ -70,6 +72,8 @@ Add one entry per server; nothing else is required. After the harness starts, th
 | `reconnect.maxAttempts` | `10` | Consecutive failed attempts per outage before giving up |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-mcp-client) is the exhaustive source for every accepted field.
+
+An HTTP server without an `Authorization` header offers OAuth sign-in through the authorization service; an `Authorization` entry in `headers` or `headerEnv` disables that flow. OAuth grants are stored as credential records. A configured filter applies to both model tools and host-owned human operations. Global connections publish `mcp-client/inventory` and `mcp-client/reconnect` events and expose `mcp/human-operations`; Agent-scoped connections remain private.
 
 After startup, the server's tools appear as `mcp__<serverName>__<tool>` — try a prompt that uses one. If the initial connection fails, the harness still starts but no tools from that server appear, and an error is logged. Setting `failOnStartupError: true` rejects plugin activation; [app-boot's startup policy](../../boot/app-boot/README.md) still permits an optional MCP entry to fail without aborting the harness.
 
@@ -94,6 +98,8 @@ Images are supported when the current model accepts image input and the harness 
 The server's tools appear before the harness starts its first turn. Set `startupTimeoutMs` to bound each connection attempt, including template resolution and initial tool discovery; an omitted value adds no whole-attempt deadline. Tool-list notifications refresh the registered tools; discovery failures preserve the previous set, while registration conflicts close the connection and apply the reconnect policy.
 
 When a server connection drops — for example a local server process crashes — the plugin reconnects automatically with delays that double from 500 ms up to 30 s and then refreshes the tool set; reconnect progress is visible in the logs. During an outage the last known tools stay listed but calls to them fail until the server recovers. After ten consecutive failed attempts the server's tools are removed and reconnection stops until you reload the configuration or restart the harness; a server that stays connected for a while resets that counter. Set `reconnect.enabled: false` to disable automatic reconnection — tools then stay listed but fail until you reload. Editing the configuration entry reloads the server connection in place, and unchanged names stay unchanged.
+
+An HTTP 401 or insufficient-scope response waits for OAuth sign-in instead of consuming reconnect attempts; after the grant changes, the old generation closes before a new one starts. Host code can request a fresh attempt with `mcp-client/reconnect` after automatic retries stop. `includeServerInstructions: false` keeps server instructions out of prompt assembly without disabling resource access.
 
 <a id="runtime-templates-and-credentials"></a>
 ### Runtime templates and credentials
@@ -212,7 +218,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 #### What the model sees
 
-One server-labeled section contains the nonblank instructions returned by each successful connection. Absent or blank instructions add no prompt text. Braces remain literal. A replacement connection publishes its instructions only after discovery succeeds; disposal or exhausted recovery removes the section.
+Unless `includeServerInstructions` is disabled, one server-labeled section contains the nonblank instructions returned by each successful connection. Absent or blank instructions add no prompt text. Braces remain literal. A replacement connection publishes its instructions only after discovery succeeds; disposal or exhausted recovery removes the section.
 
 #### Token effect
 

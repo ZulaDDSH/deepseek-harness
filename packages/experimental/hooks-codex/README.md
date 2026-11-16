@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-hooks-codex
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 `dsh-hooks-codex` runs command hooks from an existing Codex `hooks.json` during agent runs, so prompt and tool gates work without being rewritten. It supports five Codex hook points: session start, prompt submission, before and after tool execution, and stop. Hooks can block prompts or tool calls with model-visible reasons, add conversation context, or force another agent step. Choose this package to reuse Codex command hooks in the harness; use a native plugin for behavior outside this supported subset.
@@ -24,6 +22,8 @@ English | [中文](README.zh.md)
 
 <a id="use-this-package"></a>
 ## Use this package
+
+Settings hook inventory reports the source and accepted commands captured when this bridge loads, including parser-reported skips and load errors. Editing the file requires reloading the bridge before its loaded commands change.
 
 Hook processes and their payload `cwd` use the Session's current working directory when each hook point starts.
 
@@ -48,6 +48,7 @@ Use it when you own a Codex `hooks.json` and its command hooks should gate promp
 | `model` | `''` | Model name stamped on every payload (Codex includes `model` on each event) |
 | `defaultTimeoutMs` | `600,000` | Per-hook timeout when a hook sets none (the Codex default) |
 | `stderrSummaryMaxChars` | `500` | Character cap on the persisted `hook/result` stderr summary |
+| `maxForcedStops` | `3` | Stop-hook forced continuations allowed per turn; the turn ends after that with a warning |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-hooks-codex) is the exhaustive source for every accepted field.
 
@@ -59,7 +60,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 | `UserPromptSubmit` | when the agent receives a prompt | block the prompt, or attach extra context |
 | `PreToolUse` | before a tool runs | block the tool |
 | `PostToolUse` | after a tool runs | block the result with feedback, or attach extra context |
-| `Stop` | when the run is about to stop | force another step with a reason |
+| `Stop` | when the run is about to stop | force another step with a reason, up to `maxForcedStops` times per turn |
 
 ### How hooks run and fail
 
@@ -86,11 +87,11 @@ Each supported event programs against one harness extension point: `SessionStart
 
 ### Payloads and environment
 
-Payloads are Codex-shaped: snake_case with `turn_id` on turn-scoped events, `model` and `permission_mode: "default"` on every event, and stdin written without a trailing newline. A tool call's payload carries the real `tool_name` and the `tool_input: { command }` shape (the `command` argument when present, else `''`), so non-shell tool arguments are not faithfully exposed. The base payload carries `session_id` and `transcript_path`; the latter keeps the Codex `string | null` shape but is always `null` — the persistence seam exposes no artifact paths, and the default-zstd session log is not readable by hook scripts. Codex performs no command substitution and injects no plugin environment.
+Payloads are Codex-shaped: snake_case with `turn_id` on turn-scoped events, `model` and `permission_mode: "default"` on every event, and stdin written without a trailing newline. A tool call's payload carries `tool_name` and the complete parsed arguments in `tool_input`, including file paths, edit replacements, write contents, and patch text, for both before- and after-tool hooks. `tool_name` is the Codex name for shells: DSH `bash` and `pwsh` report `Bash`, while other tools keep their DSH name. The base payload carries `session_id` and `transcript_path`; the latter keeps the Codex `string | null` shape but is always `null` — the persistence seam exposes no artifact paths, and the default-zstd session log is not readable by hook scripts. Codex performs no command substitution and injects no plugin environment.
 
 ### Matcher subjects and serial execution
 
-The matcher subject is the tool name (`PreToolUse` / `PostToolUse`) or the session source (`SessionStart`); `UserPromptSubmit` and `Stop` ignore matchers. Codex matchers are always unanchored regexes. Matched hooks run serially in config order, which keeps each hook's `hook/invoked` / `hook/result` pair adjacent in the log, and the most-restrictive fold is order-independent (`deny > ask > allow`).
+The matcher subject is the tool name (`PreToolUse` / `PostToolUse`) or the session source (`SessionStart`); `UserPromptSubmit` and `Stop` ignore matchers. Codex matchers are always unanchored regexes, and a tool subject also matches under its Codex shell name (`^Bash$` fires on DSH `bash` and `pwsh`). Matched hooks run serially in config order, which keeps each hook's `hook/invoked` / `hook/result` pair adjacent in the log, and the most-restrictive fold is order-independent (`deny > ask > allow`).
 
 ### Detached runs and disposal
 
@@ -170,11 +171,11 @@ These limits describe what your Codex hooks cannot do through this bridge yet, a
 
 - **Unsupported hook events (5 of Codex's current 10)** — `PermissionRequest`, `PreCompact`, `PostCompact`, `SubagentStart`, and `SubagentStop`. Config for these events is silently dropped during parsing. The comparison baseline is Codex's [official hook reference](https://learn.chatgpt.com/docs/hooks).
 - **`SessionStart` is partial** — plain stdout and JSON `additionalContext` work, but the hook runs detached, so context can miss the first request.
-- **`UserPromptSubmit` is partial** — blocking plus plain-stdout or JSON context work, but the common `systemMessage` and `{"continue": false}` controls are not enforced.
-- **`PreToolUse` is partial** — blocking works, but `additionalContext`, `permissionDecision: "allow"`, and `updatedInput` are ignored. Every tool is represented as `tool_input: { command }`, so non-shell tool arguments are not faithfully exposed to the hook.
-- **`PostToolUse` is partial** — blocking feedback and JSON `additionalContext` work, but `{"continue": false}` is not enforced, non-shell tool arguments are reduced to `{ command }`, and structured tool output is flattened to text in `tool_response`.
-- **`Stop` is partial** — blocking forces another model turn, but `stop_hook_active` is always `false`, `last_assistant_message` is always `null`, and `{"continue": false}` is not enforced. An unconditionally blocking hook therefore force-continues every step unless it self-limits.
-- **Common payload and output fields are partial** — every mapped event reports the statically configured `model` and `permission_mode: "default"` instead of current Codex runtime values, and `transcript_path` is never populated: it is always `null`, because the persistence seam exposes no artifact paths and the default-zstd session log is not readable by hook scripts. `systemMessage` is logged + warned but not surfaced, and `{"continue": false}` is recorded but does not apply Codex's event-specific stop behavior.
+- **`UserPromptSubmit` is partial** — blocking plus plain-stdout or JSON context work, and `{"continue": false}` rejects the prompt before any model call, but the common `systemMessage` is not surfaced.
+- **`PreToolUse` is partial** — blocking works, but `additionalContext`, `permissionDecision: "allow"`, and `updatedInput` are ignored.
+- **`PostToolUse` is partial** — blocking feedback, JSON `additionalContext`, and `{"continue": false}` (cancels the active turn with a `hook` cause and keeps queued input) work, but structured tool output is flattened to text in `tool_response`.
+- **`Stop` is partial** — blocking forces another model turn. `stop_hook_active` is `true` once this turn has been force-continued, and a turn ends after `maxForcedStops` forced continuations with a warning. `last_assistant_message` is always `null`. `{"continue": false}` ends the turn without steering.
+- **Common payload and output fields are partial** — every mapped event reports the statically configured `model` and `permission_mode: "default"` instead of current Codex runtime values, and `transcript_path` is never populated: it is always `null`, because the persistence seam exposes no artifact paths and the default-zstd session log is not readable by hook scripts. `systemMessage` is logged + warned but not surfaced. `{"continue": false}` cancels the active turn with a `hook` cause, denying the tool at `PreToolUse` (using `stopReason` as the reason when no other reason is given). It is a no-op for `SessionStart`, which runs before the turn starts.
 - **Config loading and execution are partial** — one process-level `configPath` is parsed at load; Codex's active user, project, session, system/managed, and plugin layers, trust controls, and inline `config.toml` hook form are not implemented. Only synchronous `command` handlers run, current metadata such as `statusMessage` and `commandWindows` is ignored, and matching handlers run serially rather than with Codex's concurrent launch semantics.
 
 <a id="dev-note"></a>
@@ -185,6 +186,6 @@ These limits describe what your Codex hooks cannot do through this bridge yet, a
 
 This Dev Note is working context for maintainers: open questions and directions that are not decided. It is explicitly non-authoritative — shipped behavior, limits, and accepted rationale live in the sections above, the package code, and the linked Agent Notes.
 
-The deferred gaps above are the working queue: per-session hook-config discovery, a session-start delivery gate, a stop loop-guard, and a run-level halt for `continue: false`. None has a design yet; the official Codex reference is the baseline for closing any of them.
+The deferred gaps above are the working queue: per-session hook-config discovery and a session-start delivery gate. None has a design yet; the official Codex reference is the baseline for closing any of them.
 
 </details>

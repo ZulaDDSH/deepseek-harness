@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, type KeyboardEvent } from 'react'
+import { memo, useCallback, useMemo, useState, type KeyboardEvent } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import clsx from 'clsx'
 import {
@@ -18,6 +18,7 @@ import {
   terminalExitLabel,
 } from '../models/terminal-card-model.ts'
 import { formatToolBody, toolRowModel, type ToolRowState } from '../models/tool-call-model.ts'
+import { ElapsedClock } from '../components/ElapsedClock.tsx'
 import { CONVERSATION_NS as NS } from '../../locale.ts'
 import { ExitCodeBadge } from '../components/ExitCodeBadge.tsx'
 import css from './bash-sample.module.css'
@@ -56,7 +57,8 @@ export const BashRow = memo(function BashRow({ toolName, block, sessionId, useSe
     ? 'error'
     : model.state
   const status = stateStatus(state, t)
-  const { expanded, toggle: toggleExpand } = useDisclosure()
+  const { expanded, setExpanded } = useDisclosure()
+  const [dismissed, setDismissed] = useState(false)
   const background = isBackgroundShellCall(block)
   // Failed or interrupted background launches retain raw input/output, as do
   // other execution failures, persistent results, and spill previews.
@@ -64,7 +66,12 @@ export const BashRow = memo(function BashRow({ toolName, block, sessionId, useSe
     && (model.state === 'error' || isSettledPersistentShellCall(block) || isSpilledShellCall(block) || background)
     && (model.bodyRaw !== null || model.output !== null)
   const expandable = terminal !== null || genericBody
-  const open = expanded && expandable
+  const running = state === 'running' || state === 'preparing'
+  const open = (expanded || (state === 'running' && !dismissed)) && expandable
+  const toggleExpand = useCallback(() => {
+    setExpanded(!open)
+    setDismissed(open)
+  }, [open, setExpanded])
   const body = useMemo(
     () => open && genericBody && model.bodyRaw !== null
       ? formatToolBody(model.variant, model.bodyRaw)
@@ -76,7 +83,6 @@ export const BashRow = memo(function BashRow({ toolName, block, sessionId, useSe
   const settlementLine = exitLabel !== null ? null : state === 'error'
     ? model.errorSummary ?? normalSummary
     : state === 'stopped' ? t('bash.stopped') : null
-  const running = state === 'running' || state === 'preparing'
   const toggleFromKeyboard = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
     if (!expandable || (event.key !== 'Enter' && event.key !== ' ')) return
     event.preventDefault()
@@ -120,6 +126,7 @@ export const BashRow = memo(function BashRow({ toolName, block, sessionId, useSe
           </span>
           {exitLabel !== null && <ExitCodeBadge label={exitLabel} />}
         </TextShimmer>
+        {running && model.startedAt !== undefined && <ElapsedClock since={model.startedAt} />}
       </div>
       {open && (
         <div className={css.bodyWrap}>

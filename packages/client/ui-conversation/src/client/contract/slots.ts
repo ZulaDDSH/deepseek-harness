@@ -14,7 +14,7 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionPendingInteraction } from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { SessionId, SessionSeq } from '@deepseek-ai/dsh-session/types'
+import type { CliTerminalProfileId, SessionId, SessionSeq } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type { ComposerBlock } from './composer-blocks.ts'
 import type { DraftAttachmentId, InputActions, InputNotice, InputState } from './input.ts'
@@ -296,6 +296,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'conversation.hero.brand.mark': { kind: 'single'; scope: 'root'; owner: HeroBrandMarkOwnerProps }
     /** Agent-preset control staged for a New Session. */
     'conversation.hero.agentPreset': { kind: 'single'; scope: 'session-maybe'; owner: HeroAgentPresetOwnerProps }
+    /** Full-page terminal that replaces the conversation of a CLI terminal Session. */
+    'conversation.cli': { kind: 'single'; scope: 'session'; owner: ConversationCliOwnerProps }
     /** Compact options right-aligned in the New Session row after the workspace and preset controls; rendered only with a Session. */
     'conversation.hero.options': { kind: 'list'; scope: 'session' }
     /**
@@ -376,6 +378,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
         'conversation.hero.brand.mark': { kind: 'single'; scope: 'root' }
         'conversation.hero.workspace': { kind: 'single'; scope: 'root' }
         'conversation.hero.agentPreset': { kind: 'single'; scope: 'session-maybe' }
+        'conversation.cli': { kind: 'single'; scope: 'session' }
         'conversation.hero.options': { kind: 'list'; scope: 'session' }
       }
       inject: ConversationInjected
@@ -539,6 +542,12 @@ export interface ConversationSessionHeaderInjected {
   open: (sessionId: SessionId) => void
   /** Select and activate one registered Conversation View. */
   selectView: (view: string) => void
+}
+
+/** Session and profile that select the full-page terminal of a CLI terminal Session. */
+export interface ConversationCliOwnerProps {
+  readonly sessionId: SessionId
+  readonly profile: CliTerminalProfileId
 }
 
 /** Owner share of the resident composer bar. */

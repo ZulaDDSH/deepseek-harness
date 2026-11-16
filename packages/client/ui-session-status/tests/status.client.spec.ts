@@ -22,9 +22,14 @@ function bench() {
   const ctx = new Context()
   roots.push(ctx)
   let statusListener: ((id: SessionId, running: boolean) => void) | undefined
+  let errorListener: ((id: SessionId) => void) | undefined
   const remoteMark = vi.fn(async () => ({ ok: true as const, value: undefined }))
   ctx.provide('remote', {
-    $on: (_event: string, listener: (id: SessionId, running: boolean) => void) => {
+    $on: (event: string, listener: (id: SessionId, running: boolean) => void) => {
+      if (event === 'api-session/error') {
+        errorListener = listener as (id: SessionId) => void
+        return () => { if (errorListener === listener) errorListener = undefined }
+      }
       statusListener = listener
       return () => { if (statusListener === listener) statusListener = undefined }
     },
@@ -64,11 +69,15 @@ function bench() {
     if (statusListener === undefined) throw new Error('api-session/status is not subscribed')
     statusListener(id, running)
   }
+  const emitError = (id: SessionId) => {
+    if (errorListener === undefined) throw new Error('api-session/error is not subscribed')
+    errorListener(id)
+  }
   const record = (id: SessionId, value: Partial<SessionReadState>): SessionReadState => ({
     sessionId: id, completedTurn: 0, failed: false, readTurn: 0, manualUnread: false, ...value,
   })
   return {
-    ctx, list, pending, reading, remoteMark, create, status, row, setMainView, emitStatus, record,
+    ctx, list, pending, reading, remoteMark, create, status, row, setMainView, emitStatus, emitError, record,
     subscribed: () => statusListener !== undefined,
   }
 }
@@ -144,6 +153,36 @@ describe('Session running status', () => {
     b.emitStatus(id, true)
     expect(service.getSnapshot()).not.toBe(before)
     expect(changed).toHaveBeenCalledOnce()
+  })
+})
+
+describe('Session runtime failures', () => {
+  it('clears background errors when viewed or restarted', () => {
+    const b = bench()
+    const id = sessionId('failure')
+    b.row(id)
+    const service = b.status()
+    b.emitError(id)
+    expect(service.getSnapshot().get(id)?.failureUnread).toBe(true)
+    b.setMainView(id, 1)
+    expect(service.getSnapshot().get(id)?.failureUnread).toBeUndefined()
+    b.emitError(id)
+    expect(service.getSnapshot().get(id)?.failureUnread).toBeUndefined()
+    b.setMainView(id, 0)
+    b.emitError(id)
+    b.emitStatus(id, true)
+    expect(service.getSnapshot().get(id)?.failureUnread).toBeUndefined()
+  })
+
+  it('retires an error without a running event after catalog reconciliation', () => {
+    const b = bench()
+    const id = sessionId('early-failure')
+    b.list.update((draft) => { draft.phase = 'pending' })
+    const service = b.status()
+    b.emitError(id)
+    expect(service.getSnapshot().get(id)?.failureUnread).toBe(true)
+    b.list.update((draft) => { draft.phase = 'ready' })
+    expect(service.getSnapshot().has(id)).toBe(false)
   })
 })
 

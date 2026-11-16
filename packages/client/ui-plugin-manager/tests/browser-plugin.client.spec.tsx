@@ -13,6 +13,7 @@ import { allowAllAccess, StaticRemoteAccess, TestRemote, usePinnedBrowserLanguag
 import * as settings from '@deepseek-ai/dsh-client-ui-settings/client'
 import { apply, inject, NS, PANEL_ID } from '../src/client/index.ts'
 import { PluginManagerPage } from '../src/client/PluginManagerPage.tsx'
+import { McpServersSection, type McpServersSectionInjected } from '../src/client/McpServersSection.tsx'
 import { PluginRefreshToast, type PluginRefreshToastFace } from '../src/client/PluginRefreshToast.tsx'
 import { PluginsPanelIcon } from '../src/client/PluginsPanelIcon.tsx'
 import type { PluginManagerFace } from '../src/client/manager-store.ts'
@@ -78,6 +79,14 @@ async function bench(allows: ((action: string) => boolean) | 'switchable' = () =
   }
   new LocaleHolder(ctx)
   const list = vi.fn(() => Promise.resolve({ ok: true as const, value: { entries: [], managementAvailable: true } }))
+  type Answer = { ok: boolean; value?: unknown; error?: { code: string; message: string } }
+  const mcp = {
+    listMcpServers: vi.fn<() => Promise<Answer>>(() => Promise.resolve({ ok: true, value: [] })),
+    discoverMcpServers: vi.fn<() => Promise<Answer>>(() => Promise.resolve({ ok: true, value: [] })),
+    addMcpServer: vi.fn<() => Promise<Answer>>(() => Promise.resolve({ ok: true, value: { application: 'applied' } })),
+    removeMcpServer: vi.fn<() => Promise<Answer>>(() => Promise.resolve({ ok: true, value: { application: 'failed', error: { code: 'not-removable' } } })),
+    setPluginEnabled: vi.fn<() => Promise<Answer>>(() => Promise.resolve({ ok: false, error: { code: 'gateway/internal', message: 'offline' } })),
+  }
   const remote = new TestRemote(ctx, {
     settings: { describe: vi.fn(async () => ({ ok: true as const, value: { writable: true, hasDocument: true, namespaces: [] } })) },
     pluginInventory: { list },
@@ -86,6 +95,7 @@ async function bench(allows: ((action: string) => boolean) | 'switchable' = () =
       listBundles: vi.fn(() => Promise.resolve({ ok: true as const, value: [] })),
       listPlugins: vi.fn(() => Promise.resolve({ ok: true as const, value: [] })),
       registries: vi.fn(() => Promise.resolve({ ok: true as const, value: { registry: null, fallbackRegistries: [], resolved: null } })),
+      ...mcp,
       readBundleDetail: vi.fn(() => Promise.resolve({ ok: true as const, value: { status: 'none' as const } })),
     },
   })
@@ -94,7 +104,11 @@ async function bench(allows: ((action: string) => boolean) | 'switchable' = () =
   ctx.provide('layout', { panelInfo, selectPanel, beginNavigation: () => new AbortController().signal,
     toggleSidebar: vi.fn(), openRightbar: vi.fn(), closeRightbar: vi.fn() })
   await ctx.plugin(settings).await()
-  return { ctx, slots: ctx.get('slots') as SlotRegistry, locale, list, remote, selectPanel, panelInfo, access }
+  return { ctx, slots: ctx.get('slots') as SlotRegistry, locale, list, remote, selectPanel, panelInfo, mcp, access }
+}
+
+function isMcpFace(face: Record<string, unknown>): face is Record<string, unknown> & McpServersSectionInjected {
+  return ['listMcpServers', 'discoverMcpServers', 'addMcpServer', 'removeMcpServer', 'setMcpServerEnabled', 'signInMcpServer'].every(name => typeof face[name] === 'function')
 }
 
 function declare(slots: SlotRegistry): () => void {
@@ -104,11 +118,30 @@ function declare(slots: SlotRegistry): () => void {
       'main': { kind: 'keyed', scope: 'root' },
       'shell.overlay': { kind: 'list', scope: 'root' },
       'sidebar.panellist': { kind: 'list', scope: 'root' },
+      'settings.section': { kind: 'list', scope: 'root' },
     },
   } as never, () => null)
 }
 
 describe('ui-plugin-manager browser plugin', () => {
+  it('opens plugin management from the session command menu and unregisters the shortcut on disposal', async () => {
+    const b = await bench()
+    const entries = new Map<string, { label(): string; available(): boolean; ui: { run(): void } }>()
+    b.ctx.provide('commandUi', {
+      register: (entry: { name: string; label(): string; available(): boolean; ui: { run(): void } }) => {
+        entries.set(entry.name, entry)
+        return () => { entries.delete(entry.name) }
+      },
+    })
+    const feature = b.ctx.plugin({ inject: [...inject], apply })
+    await feature.await()
+    expect(entries.get('plugins')!.label()).toBe('插件')
+    expect(entries.get('plugins')!.available()).toBe(true)
+    entries.get('plugins')!.ui.run()
+    expect(b.selectPanel).toHaveBeenCalledWith(PANEL_ID)
+    await feature.dispose()
+    expect(entries.size).toBe(0)
+  })
   it('resets bundle selection when leaving Plugins and releases its panel observer with the registration', async () => {
     const b = await bench()
     const removeRoot = declare(b.slots)
@@ -160,6 +193,24 @@ describe('ui-plugin-manager browser plugin', () => {
     expect(b.list).not.toHaveBeenCalled()
   })
 
+  it('lists the Plugins page and each plugin page in the Settings search and opens them on the Plugins page', async () => {
+    const b = await bench()
+    declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const removeItem = b.slots.register({ name: 'plugins.item', id: 'web-search', order: 40, label: () => 'Web search' } as never, () => null)
+    // Slot notifications batch per microtask, so the directory catches up after the registration.
+    await vi.waitFor(() => { expect(b.ctx.settingsDirectory.search('web search')).toHaveLength(1) })
+    const [hit] = b.ctx.settingsDirectory.search('web search')
+    expect(hit).toMatchObject({ id: 'plugins.item.web-search', section: undefined, label: 'Web search', link: { place: '插件' } })
+    hit!.link!.open()
+    expect(b.selectPanel).toHaveBeenCalledWith(PANEL_ID)
+    const entry = b.slots.entries('main')[0]!
+    assert(entry.store && 'create' in entry.store)
+    expect(entry.store.create().getSnapshot()).toEqual({ tab: 'installed', view: { kind: 'item', id: 'web-search' } })
+    expect(b.ctx.settingsDirectory.search('插件').map(item => item.id)).toContain('plugins.page')
+    removeItem()
+    await vi.waitFor(() => { expect(b.ctx.settingsDirectory.search('web search')).toEqual([]) })
+  })
   it('shares refresh failures with the overlay after navigation and releases both registrations across reloads', async () => {
     const b = await bench()
     const fiber = b.ctx.plugin({ inject: [...inject], apply })
@@ -196,8 +247,68 @@ describe('ui-plugin-manager browser plugin', () => {
     expect((reloadedInjected as PluginRefreshToastFace).hooks.pluginManager.getSnapshot().notice).toBeNull()
   })
 
+  it('registers the MCP servers settings section with Remote-backed callbacks', async () => {
+    const b = await bench()
+    declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const section = b.slots.entries('settings.section').find(entry => entry.options.id === 'mcp')
+    assert(section?.inject !== undefined)
+    expect(section.component).toBe(McpServersSection)
+    expect(resolveSlotLabel(section.options.label)).toBe('MCP 服务器')
+    const face = section.inject()
+    assert(isMcpFace(face))
+    await expect(face.listMcpServers()).resolves.toEqual([])
+    await expect(face.discoverMcpServers()).resolves.toEqual([])
+    await expect(face.addMcpServer({ transport: 'stdio', serverName: 'a', command: 'node', args: [], env: {} })).resolves.toBeUndefined()
+    await expect(face.removeMcpServer('include:mcp-a')).rejects.toThrow('not-removable')
+    await expect(face.setMcpServerEnabled('include:mcp-a', false)).rejects.toThrow('offline')
+    b.mcp.listMcpServers.mockResolvedValueOnce({ ok: false, error: { code: 'gateway/internal', message: 'list down' } })
+    await expect(face.listMcpServers()).rejects.toThrow('list down')
+    b.mcp.discoverMcpServers.mockResolvedValueOnce({ ok: false, error: { code: 'gateway/internal', message: 'scan down' } })
+    await expect(face.discoverMcpServers()).rejects.toThrow('scan down')
+    b.mcp.addMcpServer.mockResolvedValueOnce({ ok: true, value: { application: 'failed' } })
+    await expect(face.addMcpServer({ transport: 'stdio', serverName: 'a', command: 'node', args: [], env: {} })).rejects.toThrow('failed')
+    b.mcp.addMcpServer.mockResolvedValueOnce({ ok: false })
+    await expect(face.addMcpServer({ transport: 'stdio', serverName: 'a', command: 'node', args: [], env: {} })).rejects.toThrow('request failed')
+  })
+
+  it('finds the MCP import and add entries by the mcp keyword', async () => {
+    const b = await bench()
+    declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    await vi.waitFor(() => {
+      expect(b.ctx.settingsDirectory.search('mcp').map(item => item.id)).toEqual(expect.arrayContaining(['mcp.add', 'mcp.import']))
+    })
+  })
+
+  it('signs MCP servers in through the authorization Remote and treats a cancelled stream as settled', async () => {
+    const b = await bench()
+    declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const face = b.slots.entries('settings.section').find(entry => entry.options.id === 'mcp')?.inject?.()
+    assert(face !== undefined && isMcpFace(face))
+    const signal = new AbortController().signal
+    await expect(face.signInMcpServer('mcp:forge', vi.fn(), signal)).rejects.toThrow('sign-in is not available on this host')
+    const begin = vi.fn(async function* (_key: string, _input: unknown, abort: AbortSignal) {
+      yield { type: 'notice', message: 'Open', url: 'https://auth.test' }
+      yield { type: 'notice', message: 'Waiting' }
+      yield { type: 'other' }
+      if (abort.aborted) throw new Error('aborted')
+    })
+    b.remote.provideNamespaces({ authorization: { begin } })
+    const notices = vi.fn()
+    await face.signInMcpServer('mcp:forge', notices, signal)
+    expect(begin).toHaveBeenCalledWith('mcp:forge', undefined, signal)
+    expect(notices.mock.calls).toEqual([[{ message: 'Open', url: 'https://auth.test' }], [{ message: 'Waiting' }]])
+    const aborted = new AbortController()
+    aborted.abort()
+    await expect(face.signInMcpServer('mcp:forge', vi.fn(), aborted.signal)).resolves.toBeUndefined()
+    begin.mockImplementationOnce(async function* () { throw new Error('denied') })
+    await expect(face.signInMcpServer('mcp:forge', vi.fn(), signal)).rejects.toThrow('denied')
+  })
+
   it('declares only the services the page and its Remote methods use', () => {
-    expect(inject).toEqual(['slots', 'locale', 'remote', 'remote.pluginManager', 'remote.pluginInventory', 'remote.pluginRegistryProbe', 'configForms', 'layout', 'remoteAccess'])
+    expect(inject).toEqual(['slots', 'locale', 'remote', 'remote.pluginManager', 'remote.pluginInventory', 'remote.pluginRegistryProbe', 'configForms', 'settingsDirectory', 'layout', 'remoteAccess'])
   })
 
   it('reads the Host again on a later grant after showing the page, and not while access is withdrawn', async () => {

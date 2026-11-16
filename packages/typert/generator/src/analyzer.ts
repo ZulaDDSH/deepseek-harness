@@ -73,6 +73,8 @@ export interface WorkspaceAnalyzerOptions {
   readonly clientConfig?: string
   /** Optional package-name subset for an incremental generation pass. */
   readonly packages?: readonly string[]
+  /** Package names whose projects get the diagnostics pass; absent checks every analyzed project. */
+  readonly diagnosedPackages?: readonly string[]
   /** Independently compiled faces to materialize; both are analyzed by default. */
   readonly faces?: readonly TypertFace[]
   /** Whether to repeat TypeScript project diagnostics before model extraction. */
@@ -331,7 +333,7 @@ export class WorkspaceAnalyzer {
   private readonly options: Required<Pick<
     WorkspaceAnalyzerOptions,
     'root' | 'hostConfig' | 'clientConfig' | 'faces' | 'checkDiagnostics' | 'mode' | 'rejectBuildOutputs'
-  >> & Pick<WorkspaceAnalyzerOptions, 'packages'>
+  >> & Pick<WorkspaceAnalyzerOptions, 'packages' | 'diagnosedPackages'>
   private queuedEdit: SourceEdit | undefined
   private readonly crossFaceLinks = new Map<string, CrossFaceLink>()
   private readonly checkedProjects = new Set<string>()
@@ -348,6 +350,7 @@ export class WorkspaceAnalyzer {
       mode: options.mode ?? 'check',
       rejectBuildOutputs: options.rejectBuildOutputs ?? false,
       ...(options.packages === undefined ? {} : { packages: options.packages }),
+      ...(options.diagnosedPackages === undefined ? {} : { diagnosedPackages: options.diagnosedPackages }),
     }
     this.caches = options.caches ?? new WorkspaceCaches()
   }
@@ -362,6 +365,9 @@ export class WorkspaceAnalyzer {
     const selected = this.options.packages === undefined
       ? undefined
       : new Set(this.options.packages)
+    const diagnosed = this.options.diagnosedPackages === undefined
+      ? undefined
+      : new Set(this.options.diagnosedPackages)
     const faces: FaceModel[] = []
     try {
       for (const face of this.options.faces) {
@@ -369,7 +375,9 @@ export class WorkspaceAnalyzer {
           registration.face === face && (selected === undefined || selected.has(registration.name)))
         if (registrations.length === 0) continue
         if (this.options.checkDiagnostics) {
-          for (const registration of registrations) this.checkProject(registration)
+          for (const registration of registrations) {
+            if (diagnosed === undefined || diagnosed.has(registration.name)) this.checkProject(registration)
+          }
         }
         const aggregatePath = resolve(this.options.root, face === 'host' ? this.options.hostConfig : this.options.clientConfig)
         const aggregate = this.caches.aggregate(aggregatePath)
@@ -812,7 +820,7 @@ class FaceAnalyzer {
       if (target.includes('*') || subpath === './package.json'
         || subpath === './typert' || subpath === './client/typert' || subpath === './remote'
         // Data exports carry no TypeScript API; their owning readers validate the resources.
-        || /\.(?:json|ya?ml|svg|png|jpe?g|webp)$/iu.test(target)) continue
+        || /\.(?:css|json|ya?ml|svg|png|jpe?g|webp)$/iu.test(target)) continue
       const sourcePath = sourcePathForExport(registration.root, target)
       const sourceFile = this.sourceFiles.get(realPath(sourcePath))
       if (sourceFile === undefined) {

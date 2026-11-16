@@ -17,18 +17,24 @@
 
 import { Client } from '@modelcontextprotocol/client'
 import type { Context } from '@deepseek-ai/cordis'
+import type { CredentialKey } from '@deepseek-ai/dsh-credentials'
+import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { assertNever, deepEqualJson, type JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { ServerContext } from './server-context.ts'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { withDeadline } from './deadline.ts'
 import { McpLocalError, mcpRequestError, McpToolError } from './diagnostic.ts'
 import type { McpStatusCell } from './status.ts'
-import type { McpCloseResult } from './types.ts'
+import type { McpCloseResult, McpConnectionStatus } from './types.ts'
 import { McpGeneration } from './generation.ts'
 import { McpTemplateBinding } from './credentials.ts'
 import { MissingTemplateValue } from './templates.ts'
-import { McpToolRegistrationError, syncTools } from './tools.ts'
+import { McpToolRegistrationError, publicToolName, syncTools } from './tools.ts'
 import type { ToolDisposers } from './tools.ts'
+import { registerHumanOperations } from './human-operations.ts'
+import { isAuthRequired, type SignInProvider } from './oauth.ts'
+import { resolveToolFilter, toolAllowed } from './tool-filter.ts'
+import { buildChildEnv } from './transport.ts'
 import type { Config } from './index.ts'
 
 /** Automatic reconnect policy for one MCP server connection. */
@@ -102,6 +108,8 @@ export interface ConnectionOutcome {
 
 /** Handle for one plugin instance's supervised connection. */
 export interface ConnectionHandle extends ServerContext {
+  status(): McpConnectionStatus
+  authRequired(): boolean
   /**
    * Settles when the first connection attempt completes or the instance is disposed.
    * The supervisor applies its retry or credential-wait policy; the caller
@@ -114,6 +122,12 @@ export interface ConnectionHandle extends ServerContext {
    * the status cell and blocks replacement.
    */
   dispose(): Promise<void>
+  reconnect(): boolean
+}
+
+export interface ConnectionAuth {
+  key: CredentialKey
+  providerFor(url: string): SignInProvider
 }
 
 /**
@@ -127,7 +141,7 @@ export interface ConnectionHandle extends ServerContext {
  * @param status - Instance status cell this supervisor publishes transitions to.
  * @returns Handle with a `ready` promise for startup-await and a `dispose` for teardown.
  */
-export function startConnection(ctx: Context, config: Config, policy: ResolvedReconnectPolicy, status: McpStatusCell): ConnectionHandle {
+export function startConnection(ctx: Context, config: Config, policy: ResolvedReconnectPolicy, status: McpStatusCell, auth?: ConnectionAuth): ConnectionHandle {
   const label = `mcp-client(${config.serverName})`
   const binding = new McpTemplateBinding(ctx, config)
   const diagnostic = (error: unknown, operation: string): string => binding.diagnostic(error, operation)
@@ -141,11 +155,17 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
   let disposers: ToolDisposers = new Map()
   let syncChain: Promise<void> = Promise.resolve()
   let settling: Promise<void> = Promise.resolve()
+  let manualReconnectPending = false
   let reconnectTimer: NodeJS.Timeout | undefined
   let failedAttempts = 0
   let closureFailure: McpCloseResult | undefined
   let checkingCredentials: Promise<void> | undefined
   let credentialsDirty = false
+  let authPending = false
+  let authClosing: Promise<void> = Promise.resolve()
+  let authError = ''
+  let serverEnvironment: Record<string, string> = {}
+  const toolFilter = resolveToolFilter(config.toolFilter, `${label}: toolFilter`)
   const isCurrent = (record: Generation): boolean => !disposed && current === record && !record.wire.lifetime.signal.aborted
 
   function stopTimers(): void {
@@ -164,6 +184,20 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     }
     disposers = new Map()
     serverInstructions = ''
+  }
+
+  function waitForSignIn(error: unknown, record?: Generation): void {
+    authPending = true
+    authError = diagnostic(error, 'OAuth')
+    status.update({ state: 'waiting-credentials', lastError: authError })
+    syncChain = syncChain.then(clearTools)
+    if (record !== undefined && current === record) {
+      current = undefined
+      authClosing = close(record).then(() => {
+        if (closureFailure === undefined) status.update({ state: 'waiting-credentials', lastError: authError })
+      })
+    }
+    ctx.logger.warn(`${label}: sign-in required; waiting for a stored grant`)
   }
 
   async function close(record: Generation): Promise<boolean> {
@@ -187,6 +221,8 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
           serverName: config.serverName,
           toolCallTimeoutMs: config.toolCallTimeoutMs,
           signal,
+          toolFilter,
+          ...(auth === undefined ? {} : { onAuthRequired: (error: unknown) => waitForSignIn(error, record) }),
           ...config.expandTemplates ? { redact: (text: string) => binding.redact(text) } : {},
         }, disposers, () => isCurrent(record))
       })
@@ -228,10 +264,11 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
   function lost(record: Generation, error: string): void {
     if (!isCurrent(record)) return
     current = undefined
-    settling = close(record).then((confirmed) => {
+    const closing = close(record).then((confirmed) => {
       readiness.resolve({ error: new Error(error) })
-      if (confirmed) scheduleReconnect(error, record.connectedAt)
+      if (confirmed && !manualReconnectPending) scheduleReconnect(error, record.connectedAt)
     })
+    settling = closing
   }
 
   function isStopped(): boolean { return disposed || closureFailure !== undefined }
@@ -279,6 +316,17 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     })
   }
 
+  if (auth !== undefined) {
+    ctx.on('credentials/record-updated', key => {
+      if (key !== auth.key || !authPending || disposed || closureFailure !== undefined) return
+      failedAttempts = 0
+      settling = Promise.all([authClosing, syncChain]).then(() => {
+        authPending = false
+        return connectGeneration()
+      })
+    })
+  }
+
   async function connectGeneration(): Promise<void> {
     if (isStopped()) return
     const client = new Client({ name: 'dsh-mcp-client', version: '0.0.1' }, {
@@ -311,10 +359,14 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
         : config.startupTimeoutMs - (Date.now() - startedAt)
       const resolved = await record.wire.run(signal => binding.resolve(signal), remaining())
       bindingValue = { config: resolved }
-      await record.wire.connect(resolved, remaining())
+      serverEnvironment = resolved.transport === 'stdio' ? buildChildEnv(resolved.env) : {}
+      const authProvider = auth === undefined || resolved.transport !== 'streamable-http'
+        ? undefined
+        : auth.providerFor(resolved.url)
+      await record.wire.connect(resolved, remaining(), authProvider, serverEnvironment)
       if (!isCurrent(record)) return
       const text = client.getInstructions()?.trimEnd() ?? ''
-      const instructions = text ? `### MCP server: ${config.serverName}\n\n${text}` : ''
+      const instructions = text && config.includeServerInstructions !== false ? `### MCP server: ${config.serverName}\n\n${text}` : ''
       const maxInstructionBytes = config.maxInstructionBytes ?? DEFAULT_MAX_INSTRUCTION_BYTES
       if (Buffer.byteLength(instructions) > maxInstructionBytes) throw new McpLocalError(`${label}: server instructions exceed maxInstructionBytes (${maxInstructionBytes})`, 'MCP_INSTRUCTIONS_TOO_LARGE')
       const sync = enqueueSync(record)
@@ -338,12 +390,43 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
         status.update({ state: 'waiting-credentials', lastError: diagnostic(error, 'credential resolution') })
         return
       }
+      if (auth !== undefined && isAuthRequired(error)) {
+        waitForSignIn(error)
+        return
+      }
       ctx.logger.warn(`${label}: connection attempt failed: ${diagnostic(error, 'startup')}`)
-      scheduleReconnect(diagnostic(error, 'startup'))
+      if (!manualReconnectPending) scheduleReconnect(diagnostic(error, 'startup'))
     }
   }
 
   settling = Promise.resolve().then(connectGeneration)
+
+  registerHumanOperations(ctx, config.serverName, {
+    local: config.transport === 'stdio',
+    cwd: config.transport === 'stdio' ? config.cwd : '',
+    get env() { return serverEnvironment },
+    async call(name, args, signal) {
+      const record = current
+      if (record?.connectedAt === undefined) throw new McpToolError(`${label}: server is disconnected`, 'MCP_SERVER_UNAVAILABLE')
+      if (!toolAllowed(toolFilter, name) || !disposers.has(publicToolName(config.serverName, name))) {
+        throw new Error(`${label}: tool is unavailable`)
+      }
+      const definition = ctx.tools.get(publicToolName(config.serverName, name))
+      if (definition === undefined) throw new Error(`${label}: tool is unavailable`)
+      const errors = validateJsonSchemaValue(definition.parameters, args)
+      if (errors.length > 0) throw new Error(`${label}: invalid tool arguments: ${errors.join('; ')}`)
+      try {
+        return await record.wire.run(wireSignal => record.wire.client.callTool(
+          { name, arguments: args },
+          { signal: AbortSignal.any([wireSignal, signal]), timeout: config.toolCallTimeoutMs },
+        ))
+      } catch (error) {
+        signal.throwIfAborted()
+        if (auth !== undefined && isAuthRequired(error)) waitForSignIn(error, record)
+        throw mcpRequestError(error, `human tool "${name}"`, config.expandTemplates ? text => binding.redact(text) : undefined)
+      }
+    },
+  })
 
   return {
     ready: readiness.promise,
@@ -379,6 +462,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
           })
         } catch (error) {
           exec.signal.throwIfAborted()
+          if (auth !== undefined && isAuthRequired(error)) waitForSignIn(error, record)
           throw mcpRequestError(error, request.method, config.expandTemplates ? text => binding.redact(text) : undefined)
         }
       },
@@ -392,7 +476,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
       current = undefined
       if (record !== undefined) await close(record)
       try {
-        await withDeadline(Promise.all([settling, syncChain, checkingCredentials]), config.closeTimeoutMs, 'MCP cleanup did not settle')
+        await withDeadline(Promise.all([settling, syncChain, checkingCredentials, authClosing]), config.closeTimeoutMs, 'MCP cleanup did not settle')
       } catch (error) {
         closureFailure ??= { ...status.closure(), cleanupError: diagnostic(error, 'cleanup') }
       }
@@ -401,6 +485,22 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
       status.recordClosure(result)
       status.update({ state: 'closed', result })
       if (!result.closeConfirmed || result.cleanupError !== undefined) ctx.logger.error(`${label}: cleanup incomplete`)
+    },
+    status: () => status.current(),
+    authRequired: () => authPending,
+    reconnect(): boolean {
+      if (disposed || closureFailure !== undefined || current !== undefined || authPending || manualReconnectPending
+        || checkingCredentials !== undefined || bindingValue === undefined
+        || status.current().state === 'waiting-credentials') return false
+      stopTimers()
+      failedAttempts = 0
+      manualReconnectPending = true
+      const transition = settling
+      settling = transition.then(() => {
+        manualReconnectPending = false
+        if (!disposed && closureFailure === undefined && current === undefined && !authPending) return connectGeneration()
+      })
+      return true
     },
   }
 }

@@ -10,6 +10,7 @@ import type {
   LlmDiscoveredModel, LlmModelDiscoveryRequest,
   SettingsNamespaceView, SettingsPathOpView,
 } from '@deepseek-ai/dsh-api-remotes/client'
+import type { SettingsDescribeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 
 /** What one namespace write answered. */
 export type SettingsWriteOutcome =
@@ -71,9 +72,10 @@ export interface ModelsOperations {
  * Bind the page's Host operations to the plugin's own Remote namespaces.
  * @param ctx - the page plugin's context, which declares `remote.credentials`,
  * `remote.llm`, and `remote.settings` in its own `inject`.
+ * @param describeFace - the shared settings mirror used by the page store.
  * @returns the callbacks the section and its cards are injected with.
  */
-export function createModelsOperations(ctx: ClientContext): ModelsOperations {
+export function createModelsOperations(ctx: ClientContext, describeFace: SettingsDescribeFace): ModelsOperations {
   return {
     storeCredential: async (ref, value) => {
       const response = await ctx.remote.credentials.set(ref, value)
@@ -85,7 +87,10 @@ export function createModelsOperations(ctx: ClientContext): ModelsOperations {
     },
     writeSettings: async (ns, ops, expectedRevision) => {
       const response = await ctx.remote.settings.mutate(ns, ops, expectedRevision)
-      if (response.ok) return { kind: 'written', view: response.value }
+      if (response.ok) {
+        describeFace.acceptView(response.value)
+        return { kind: 'written', view: response.value }
+      }
       const { code, message } = response.error
       return code === 'settings/conflict' ? { kind: 'conflict', message } : { kind: 'refused', message }
     },

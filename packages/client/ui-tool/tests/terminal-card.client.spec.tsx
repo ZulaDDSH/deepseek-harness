@@ -523,6 +523,18 @@ describe('BashRow terminal card', () => {
     expect(view.getByText('List files')).toBeTruthy()
   })
 
+  it('opens a running command on its own and lets the user collapse it', () => {
+    const view = render(<BashRow {...rowProps(running())} />)
+    const row = () => view.container.querySelector('[data-expandable]')!
+    expect(row().getAttribute('aria-expanded')).toBe('true')
+    expect(view.container.querySelector('[data-terminal]')).not.toBeNull()
+    fireEvent.click(row())
+    expect(row().getAttribute('aria-expanded')).toBe('false')
+    expect(view.container.querySelector('[data-terminal]')).toBeNull()
+    fireEvent.click(row())
+    expect(row().getAttribute('aria-expanded')).toBe('true')
+  })
+
   it('expands a completed command that carries Host-accepted blank escalation fields', () => {
     const view = render(<BashRow {...rowProps(settled({
       call: { name: 'bash', argsRaw: shellArgs({ sandbox_permissions: 'danger-full-access', justification: '' }) },
@@ -536,7 +548,6 @@ describe('BashRow terminal card', () => {
   it('agrees with the summary row about the run state', () => {
     const runningView = render(<BashRow {...rowProps(running())} />)
     expect(runningView.container.querySelector('[data-variant="bash"]')?.getAttribute('data-state')).toBe('running')
-    fireEvent.click(runningView.container.querySelector('[data-expandable]')!)
     expect(runStateOf(runningView.container)).toBe('ongoing')
     cleanup()
     const settledView = render(<BashRow {...rowProps(settled())} />)
@@ -611,8 +622,12 @@ describe('BashRow terminal card', () => {
         getFileTriggerProps={() => ({})} />
     }
     const view = render(renderRow(running({ name, argsRaw, ...parent })))
-    const row = view.getByRole('button')
+    const row = view.container.querySelector('[aria-expanded]')!
     expect(view.getByText('Wait')).toBeTruthy()
+    if (name === 'bash') {
+      expect(row.getAttribute('aria-expanded')).toBe('true')
+      fireEvent.click(row)
+    }
     expect(row.getAttribute('aria-expanded')).toBe('false')
     if (name === 'bash') fireEvent.keyDown(row, { key: 'Enter' })
     else fireEvent.click(row)
@@ -664,10 +679,11 @@ describe('BashRow terminal card', () => {
     }
     const view = render(renderRow(running({ name, argsRaw })))
     const row = view.getByRole('button')
-    fireEvent.click(row)
+    if (name === 'pwsh') fireEvent.click(row)
     view.rerender(renderRow(settled({ call: { name, argsRaw }, isError: true,
       ...interrupted ? { error: { name: 'Interrupted', code: 'interrupted' } } : {},
       content: [{ type: 'text', text: 'Launch did not finish' }] })))
+    if (name === 'bash') fireEvent.click(row)
     expect(row.getAttribute('aria-expanded')).toBe('true')
     expect(view.container.querySelector('[data-terminal]')).toBeNull()
     expect(view.getByText(/"run_in_background": true/)).toBeTruthy()

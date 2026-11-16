@@ -1,7 +1,5 @@
 # LLM Streaming
 
-English | [中文](llm-streaming.zh.md)
-
 The conversation and streaming types from [`packages/llm`](../../packages/llm/README.md): durable `Message` values, request-only user inputs, shared `ContentBlock` variants, the fully assembled model request, the raw `StreamChunk` protocol, the adapter contract every adapter must implement, and the shared assembler. The [core packages](core.md) hold and log these values on every turn; this page declares them.
 
 Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
@@ -1017,6 +1015,28 @@ async prepare(request: DeepSeekLlmApiExtensionRequest): Promise<PreparedDeepSeek
 
 Source: [`packages/llm/deepseek-llm-api-extensions/src/index.ts`](../../packages/llm/deepseek-llm-api-extensions/src/index.ts)
 
+<a id="ctxjevrouter--jevrouter"></a>
+
+### `ctx.jevRouter` — `JevRouter`
+
+Grep relevance ranking backed by the Jev client. Every failure path returns the input matches unchanged, so a consumer never loses grep output to Jev.
+
+```ts cordis-catalog
+/**
+ * Keep the grep matches Jev ranks most relevant to the Agent's current task.
+ * Returns `input.matches` unchanged when routing is disabled, the signal is
+ * aborted, fewer than {@link GREP_RELEVANCE_MIN_MATCHES} matches arrive, the
+ * Agent has no recorded state, or scoring fails.
+ * @param input - requesting Agent, grep pattern, candidate matches, and abort signal.
+ * @returns at most {@link GREP_RELEVANCE_KEEP_MATCHES} matches in input order, or the input matches.
+ */
+async filterGrepMatches(input: { agent: Agent pattern: string matches: readonly JevGrepMatch[] signal: AbortSignal }): Promise<readonly JevGrepMatch[]>
+```
+
+Types: [Agent](core.md)
+
+Source: [`packages/llm/llm-jev-router/src/index.ts`](../../packages/llm/llm-jev-router/src/index.ts)
+
 <a id="ctxllm--llmruntime"></a>
 
 ### `ctx.llm` — `LlmRuntime`
@@ -1227,6 +1247,26 @@ A provider's advertised models or display metadata changed; consumers reload `li
  * @param provider - route whose model catalog changed.
  */
 'llm/models-updated'(provider: string): void
+```
+
+Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
+
+<a id="llmrate-limit-observed--emit"></a>
+
+#### `llm/rate-limit-observed` — emit
+
+A provider reported one rate-limit window on a response or stream event: subscription windows from Anthropic response headers, or Claude Agent SDK rate-limit events. Observers keep the latest value per window; publishers do not wait on them.
+
+```ts cordis-catalog
+/**
+ * A provider reported one rate-limit window on a response or stream event:
+ * subscription windows from Anthropic response headers, or Claude Agent SDK
+ * rate-limit events. Observers keep the latest value per window; publishers
+ * do not wait on them.
+ * @mode emit
+ * @param observation - the window as the publisher observed it.
+ */
+'llm/rate-limit-observed'(observation: LlmRateLimitObservation): void
 ```
 
 Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)

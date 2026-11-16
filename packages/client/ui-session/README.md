@@ -4,11 +4,9 @@ kind: "package-reference"
 ---
 # @deepseek-ai/dsh-client-ui-session
 
-English | [中文](README.zh.md)
-
 ## Summary
 
-Use this package to expose the Session catalog and retain information through standard Slot hooks. It materializes per-`SessionBinding` hooks and props, while `SessionProvider` can inherit an outer binding or bind an explicit `SessionReference`. It owns process-local pending-interaction policy without owning Controller transport, history, or references.
+Use this package to expose Session catalog, retain information, and unified UI status through standard Slot hooks. It materializes per-`SessionBinding` hooks and props, while `SessionProvider` can inherit an outer binding or bind an explicit `SessionReference`. It owns process-local pending-interaction, completion-reminder, and background-failure acknowledgement policy without owning Controller transport, history, or references. A background `api-session/error` sets `failureUnread`; opening that Session or observing it run again acknowledges the failure.
 
 Domain plugins publish requests awaiting the user through `ctx.uiSession.registerPendingInteraction(precedence)`, and `ctx.uiSession.pendingInteractions` exposes each Session's highest-precedence request read-only. The Session status table and `useSessionStatus` belong to [`dsh-client-ui-session-status`](../ui-session-status/README.md).
 

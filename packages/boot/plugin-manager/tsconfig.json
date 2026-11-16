@@ -72,6 +72,9 @@
       "path": "../../interaction/user-approval"
     },
     {
+      "path": "../../mcp/mcp-client"
+    },
+    {
       "path": "../../util/plugin-detail"
     },
     {

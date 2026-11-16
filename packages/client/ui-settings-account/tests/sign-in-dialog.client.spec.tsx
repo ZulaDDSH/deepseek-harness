@@ -179,7 +179,7 @@ it('keeps an outstanding start open until the request settles', async () => {
   expect(screen.getByRole('button', { name: en.signIn }).hasAttribute('disabled')).toBe(false)
 })
 
-// Workspace login remains outside native welcome analytics even if a caller forwards a sender.
+// Workspace login stays outside product analytics even if a caller forwards a sender.
 it('does not report workspace login views or login choices', async () => {
   const track = vi.fn()
   const props = { ...dialogProps(null), track }

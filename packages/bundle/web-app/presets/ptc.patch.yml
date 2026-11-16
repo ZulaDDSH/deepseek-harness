@@ -16,6 +16,7 @@
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
               maxBytes: 65536
+              endOfTurnRule: true
           - id: time-context
             name: '@deepseek-ai/dsh-time-context'
           - id: tool-bash
@@ -98,6 +99,8 @@
                 config:
                   provider: spawn
                   toolName: subagent
+                  modelSelectionSettings: true
+                  backgroundMode: continuable
                   modelSelection: true
                   modelDiscovery: true
               - id: tool-subagent-fork

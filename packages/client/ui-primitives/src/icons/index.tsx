@@ -627,7 +627,60 @@ export const IconSlidersTwoOutlineMedium = productIcon('sliders-two-outline', 'm
 /** Microphone with uniform one-pixel strokes. */
 export const IconMicrophoneOutlineRegular = productIcon('microphone-outline', 'regular')
 
-/** Microphone with uniform 1.3px strokes. */
+/** Regular one-pixel IconFolderOutline artwork (Workspace appearance choice `folder`). */
+export const IconFolderOutlineRegular = productIcon('folder-outline', 'regular')
+
+/** Medium IconFolderOutline artwork with a 1.3px stroke (Workspace appearance choice `folder`). */
+export const IconFolderOutlineMedium = productIcon('folder-outline', 'medium')
+
+/** Regular one-pixel IconWorkspaceCodeOutline artwork (Workspace appearance choice `code`). */
+export const IconWorkspaceCodeOutlineRegular = productIcon('workspace-code-outline', 'regular')
+
+/** Medium IconWorkspaceCodeOutline artwork with a 1.3px stroke (Workspace appearance choice `code`). */
+export const IconWorkspaceCodeOutlineMedium = productIcon('workspace-code-outline', 'medium')
+
+/** Regular one-pixel IconTerminalOutline artwork (Workspace appearance choice `terminal`). */
+export const IconTerminalOutlineRegular = productIcon('terminal-outline', 'regular')
+
+/** Medium IconTerminalOutline artwork with a 1.3px stroke (Workspace appearance choice `terminal`). */
+export const IconTerminalOutlineMedium = productIcon('terminal-outline', 'medium')
+
+/** Regular one-pixel IconWorkspaceBranchOutline artwork (Workspace appearance choice `branch`). */
+export const IconWorkspaceBranchOutlineRegular = productIcon('workspace-branch-outline', 'regular')
+
+/** Medium IconWorkspaceBranchOutline artwork with a 1.3px stroke (Workspace appearance choice `branch`). */
+export const IconWorkspaceBranchOutlineMedium = productIcon('workspace-branch-outline', 'medium')
+
+/** Regular one-pixel IconRocketOutline artwork (Workspace appearance choice `rocket`). */
+export const IconRocketOutlineRegular = productIcon('rocket-outline', 'regular')
+
+/** Medium IconRocketOutline artwork with a 1.3px stroke (Workspace appearance choice `rocket`). */
+export const IconRocketOutlineMedium = productIcon('rocket-outline', 'medium')
+
+/** Regular one-pixel IconWorkspaceSparkOutline artwork (Workspace appearance choice `spark`). */
+export const IconWorkspaceSparkOutlineRegular = productIcon('workspace-spark-outline', 'regular')
+
+/** Medium IconWorkspaceSparkOutline artwork with a 1.3px stroke (Workspace appearance choice `spark`). */
+export const IconWorkspaceSparkOutlineMedium = productIcon('workspace-spark-outline', 'medium')
+
+/** Regular one-pixel IconExperimentOutline artwork (Workspace appearance choice `experiment`). */
+export const IconExperimentOutlineRegular = productIcon('experiment-outline', 'regular')
+
+/** Medium IconExperimentOutline artwork with a 1.3px stroke (Workspace appearance choice `experiment`). */
+export const IconExperimentOutlineMedium = productIcon('experiment-outline', 'medium')
+
+/** Regular one-pixel IconWorkspaceDatabaseOutline artwork (Workspace appearance choice `database`). */
+export const IconWorkspaceDatabaseOutlineRegular = productIcon('workspace-database-outline', 'regular')
+
+/** Medium IconWorkspaceDatabaseOutline artwork with a 1.3px stroke (Workspace appearance choice `database`). */
+export const IconWorkspaceDatabaseOutlineMedium = productIcon('workspace-database-outline', 'medium')
+
+/** Regular one-pixel IconFilterOutline artwork (Workspace list filter control). */
+export const IconFilterOutlineRegular = productIcon('filter-outline', 'regular')
+
+/** Medium IconFilterOutline artwork with a 1.3px stroke (Workspace list filter control). */
+export const IconFilterOutlineMedium = productIcon('filter-outline', 'medium')
+
 export const IconMicrophoneOutlineMedium = productIcon('microphone-outline', 'medium')
 
 /** `compact` moves the tiles 0.5px inward, for glyphs drawn at card size. */

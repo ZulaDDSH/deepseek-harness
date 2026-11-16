@@ -22,16 +22,10 @@ export interface AccountSnapshot {
   avatar: AccountAvatarSnapshot | undefined
   /** Whether the state stream failed. */
   failed: boolean
-  /** Explicitly opened account dialog outside onboarding. */
+  /** Explicitly opened account dialog. */
   loginVisible?: boolean
   /** Latest explicit start request failed before a Host state was available. */
   loginFailed?: boolean
-  /** Model credential onboarding owns the login dialog and delays account notifications while mounted. */
-  onboarding?: boolean
-  /** Desktop introduction covers the workspace during loading, saving, and exit animation.
-   * True on Desktop until shell.overlay reports visibility, false in browsers; Desktop layouts must render that slot.
-   */
-  desktopOnboardingVisible?: boolean
 }
 
 /** Host operations injected into the Cordis-free account component. */
@@ -67,8 +61,6 @@ export interface AccountSectionInjected {
   contactUs: () => void
   /** Open or dismiss the login dialog. */
   showLogin: (visible: boolean) => void
-  /** Claim dialog ownership for the onboarding step. */
-  setOnboarding: (active: boolean) => void
   /** @returns after the login attempt is created. */
   start: () => Promise<void>
   /** @param id - attempt to cancel. @returns after cancellation or an already-admitted commit. */

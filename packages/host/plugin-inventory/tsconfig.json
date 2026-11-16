@@ -8,6 +8,7 @@
     "src"
   ],
   "references": [
+    { "path": "../../../vendor/schemastery" },
     {
       "path": "../../boot/app-boot"
     },

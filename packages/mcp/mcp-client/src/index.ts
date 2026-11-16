@@ -18,14 +18,18 @@ import z from '@deepseek-ai/schemastery'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { DEFAULT_MAX_INSTRUCTION_BYTES, RECONNECT_DEFAULTS, resolveReconnectPolicy, startConnection } from './connection.ts'
+import { resolveToolFilter } from './tool-filter.ts'
+import type { ToolFilterConfig } from './tool-filter.ts'
 
 export { resolveReconnectPolicy } from './connection.ts'
 import type { ReconnectConfig } from './connection.ts'
 import { registerServerContext } from './server-context.ts'
+import { offerSignIn } from './oauth-flow.ts'
 import { connectionStatusIn, registerStatusCell } from './status.ts'
 import type { McpConnectionStatusHandle } from './status.ts'
 // Side-effect type import: declaration-merges `ctx.tools` onto Context.
 import type {} from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-authorization'
 
 export { createMcpToolDefinition } from './tools.ts'
 export { McpLocalError, McpToolError } from './diagnostic.ts'
@@ -37,6 +41,9 @@ export type * from './types.ts'
 export { probeServer } from './probe.ts'
 export { assertTemplateSyntax } from './templates.ts'
 export type { McpProbeOptions } from './probe.ts'
+export type { ToolFilterConfig, ResolvedToolFilter } from './tool-filter.ts'
+export type { McpHumanOperations } from './human-operations.ts'
+export type { McpConnectionReport, McpConnectionState } from './status.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'mcp-client'
@@ -102,6 +109,8 @@ export interface StdioConfig {
   failOnStartupError: boolean
   /** Maximum UTF-8 bytes of attributed server instructions (default 32768). */
   maxInstructionBytes?: number
+  includeServerInstructions?: boolean
+  toolFilter?: ToolFilterConfig
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
 }
@@ -120,6 +129,7 @@ export interface StreamableHttpConfig {
   url: string
   /** Additional headers attached to MCP requests. */
   headers: Record<string, string>
+  headerEnv?: Record<string, string>
   /** Timeout per tool call or resource request in milliseconds. */
   toolCallTimeoutMs: number
   /** Optional budget for one connection attempt plus its initial tool sync, in milliseconds. */
@@ -132,6 +142,8 @@ export interface StreamableHttpConfig {
   failOnStartupError: boolean
   /** Maximum UTF-8 bytes of attributed server instructions (default 32768). */
   maxInstructionBytes?: number
+  includeServerInstructions?: boolean
+  toolFilter?: ToolFilterConfig
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
 }
@@ -139,10 +151,10 @@ export interface StreamableHttpConfig {
 /** Configuration for one stdio or Streamable HTTP MCP server. */
 export type Config = StdioConfig | StreamableHttpConfig
 
-type StdioConfigInput = Omit<StdioConfig, 'args' | 'env' | 'cwd' | 'toolCallTimeoutMs' | 'startupTimeoutMs' | 'failOnStartupError' | 'closeTimeoutMs' | 'expandTemplates'>
-  & Partial<Pick<StdioConfig, 'args' | 'env' | 'cwd' | 'toolCallTimeoutMs' | 'startupTimeoutMs' | 'failOnStartupError' | 'closeTimeoutMs' | 'expandTemplates'>>
-type StreamableHttpConfigInput = Omit<StreamableHttpConfig, 'headers' | 'toolCallTimeoutMs' | 'startupTimeoutMs' | 'failOnStartupError' | 'closeTimeoutMs' | 'expandTemplates'>
-  & Partial<Pick<StreamableHttpConfig, 'headers' | 'toolCallTimeoutMs' | 'startupTimeoutMs' | 'failOnStartupError' | 'closeTimeoutMs' | 'expandTemplates'>>
+type StdioConfigInput = Omit<StdioConfig, 'args' | 'env' | 'cwd' | 'toolCallTimeoutMs' | 'startupTimeoutMs' | 'failOnStartupError' | 'closeTimeoutMs' | 'expandTemplates' | 'includeServerInstructions' | 'toolFilter'>
+  & Partial<Pick<StdioConfig, 'args' | 'env' | 'cwd' | 'toolCallTimeoutMs' | 'startupTimeoutMs' | 'failOnStartupError' | 'closeTimeoutMs' | 'expandTemplates' | 'includeServerInstructions' | 'toolFilter'>>
+type StreamableHttpConfigInput = Omit<StreamableHttpConfig, 'headers' | 'headerEnv' | 'toolCallTimeoutMs' | 'startupTimeoutMs' | 'failOnStartupError' | 'closeTimeoutMs' | 'expandTemplates' | 'includeServerInstructions' | 'toolFilter'>
+  & Partial<Pick<StreamableHttpConfig, 'headers' | 'headerEnv' | 'toolCallTimeoutMs' | 'startupTimeoutMs' | 'failOnStartupError' | 'closeTimeoutMs' | 'expandTemplates' | 'includeServerInstructions' | 'toolFilter'>>
 type ConfigInput = StdioConfigInput | StreamableHttpConfigInput
 
 /**
@@ -174,6 +186,8 @@ export const Config = z.union([
     expandTemplates: z.boolean().default(false),
     failOnStartupError: z.boolean().default(false),
     maxInstructionBytes: z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES),
+    includeServerInstructions: z.boolean().default(true),
+    toolFilter: z.object({ allow: z.array(String), deny: z.array(String) }),
     reconnect: ReconnectSchema,
   }),
   z.object({
@@ -181,12 +195,15 @@ export const Config = z.union([
     serverName: z.string().required().pattern(SERVER_NAME_PATTERN),
     url: z.string().required(),
     headers: z.dict(String).default({}),
+    headerEnv: z.dict(String).default({}),
     toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
     startupTimeoutMs: z.number().min(1).max(MAX_TIMER_DELAY_MS),
     closeTimeoutMs: z.number().min(1).max(MAX_TIMER_DELAY_MS).default(DEFAULT_CLOSE_TIMEOUT_MS),
     expandTemplates: z.boolean().default(false),
     failOnStartupError: z.boolean().default(false),
     maxInstructionBytes: z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES),
+    includeServerInstructions: z.boolean().default(true),
+    toolFilter: z.object({ allow: z.array(String), deny: z.array(String) }),
     reconnect: ReconnectSchema,
   }),
 ]) as z<ConfigInput, Config>
@@ -207,6 +224,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // construction that bypassed Schemastery) rejects THIS instance before any
   // effect registers.
   const reconnect = resolveReconnectPolicy(config.reconnect, `mcp-client(${config.serverName}): reconnect`)
+  resolveToolFilter(config.toolFilter, `mcp-client(${config.serverName}): toolFilter`)
 
   // Namespace reservations are scope-local; status belongs to the actual
   // Fiber and survives its reloads and final disposal.
@@ -240,7 +258,25 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   if (!status.closure().closeConfirmed || status.closure().cleanupError !== undefined) {
     throw new Error(`mcp-client(${config.serverName}): previous connection cleanup is incomplete; restart the Host`)
   }
-  const connection = startConnection(ctx, config, reconnect, status)
+  const auth = offerSignIn(ctx, config)
+  const connection = startConnection(ctx, config, reconnect, status, auth)
+  ctx.on('mcp-client/inventory', reports => {
+    const current = connection.status()
+    const state = current.state === 'connected' ? 'connected'
+      : current.state === 'waiting-credentials' && connection.authRequired() ? 'auth-required'
+        : current.state === 'connecting' || current.state === 'reconnecting' ? 'connecting' : 'failed'
+    reports.push({
+      serverName: config.serverName,
+      state,
+      toolCount: current.state === 'connected' ? current.toolCount : 0,
+      ...current.state === 'failed' || current.state === 'reconnecting' || current.state === 'waiting-credentials'
+        ? { error: current.lastError } : {},
+      ...(auth === undefined ? {} : { authKey: auth.key }),
+    })
+  })
+  ctx.on('mcp-client/reconnect', serverName => {
+    if (serverName === config.serverName) connection.reconnect()
+  })
   let stopping: Promise<void> | undefined
   const dispose = (): Promise<void> => stopping ??= connection.dispose()
   // Cordis announces unload before awaiting an unfinished apply(). Closing

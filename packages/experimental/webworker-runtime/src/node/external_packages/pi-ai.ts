@@ -21,14 +21,14 @@ export const createProvider = notImplementedFail(MODULE, 'createProvider')
 /** Model-list factory (unavailable). */
 export const createModels = notImplementedFail(MODULE, 'createModels')
 
+/** Builtin model collection (unavailable). */
+export const builtinModels = notImplementedFail(MODULE, 'builtinModels')
+
 /** Thinking-level catalog (unavailable). */
 export const getSupportedThinkingLevels = notImplementedFail(MODULE, 'getSupportedThinkingLevels')
 
 /** Context-overflow predicate (unavailable). */
 export const isContextOverflow = notImplementedFail(MODULE, 'isContextOverflow')
-
-/** Collection of every builtin provider (unavailable). */
-export const builtinModels = notImplementedFail(MODULE, 'builtinModels')
 
 /**
  * Preview provider ids, in catalog order. This fixed subset must use valid
@@ -63,6 +63,14 @@ export function builtinProviders(): unknown[] {
 }
 
 /**
+ * Provider route ids of the installed catalog.
+ * @returns the builtin provider ids.
+ */
+export function getBuiltinProviders(): string[] {
+  return [...BUILTIN_PROVIDER_IDS]
+}
+
+/**
  * Models of one installed catalog provider.
  * @returns no models.
  */
@@ -92,6 +100,7 @@ export const __esModule = true
 
 /** CommonJS default export: the members `require()` hands a caller of this module. */
 export default {
-  createProvider, createModels, getSupportedThinkingLevels, isContextOverflow, builtinModels, builtinProviders,
-  getBuiltinModels, getAllBuiltinModels, anthropicMessagesApi, openAICompletionsApi, openAIResponsesApi,
+  createProvider, createModels, builtinModels, getSupportedThinkingLevels, isContextOverflow, builtinProviders,
+  getBuiltinModels, getBuiltinProviders, getAllBuiltinModels, anthropicMessagesApi, openAICompletionsApi,
+  openAIResponsesApi,
 }

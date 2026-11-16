@@ -6,8 +6,7 @@
 # deployment tag policy with required reviewers.
 #
 # The build signal does not depend on this workflow. Every pull request builds
-# the production site through `check:ci:static`, and ci-master.yml builds it
-# again on master.
+# the production site through `check:ci:static` in ci.yml.
 name: Deploy documentation
 
 on:
@@ -35,7 +34,7 @@ env:
 
 jobs:
   build:
-    runs-on: blacksmith-8vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       pages: read

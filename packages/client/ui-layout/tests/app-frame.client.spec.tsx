@@ -146,6 +146,7 @@ function drag(handle: Element, fromX: number, toX: number): void {
 }
 
 beforeEach(() => {
+  localStorage.clear()
   originalTitle = document.title
   frameWidth = 1920
   selectedSession = 's-test' as SessionId
@@ -209,9 +210,10 @@ describe('AppFrame', () => {
   })
 
   it('renders owner props for the default sidebar and prospective right panel', () => {
-    const { frame, rightOwner, sidebarOwner, slotCalls } = mountFrame()
+    const { frame, instance, rightOwner, sidebarOwner, slotCalls } = mountFrame()
     expect(tracks(frame)).toEqual([280, 0])
-    expect(sidebarOwner()).toEqual({ collapsed: false, width: 280, drawer: false })
+    expect(sidebarOwner()).toMatchObject({ collapsed: false, focusMode: false, width: 280, drawer: false })
+    expect(sidebarOwner().toggleFocus).toBe(instance.actions.toggleFocus)
     expect(rightOwner()).toEqual({ width: 864, viewportWidth: 1920, canShow: true })
     expect(slotCalls.find(c => c.key === 'main')).toEqual({ key: 'main', props: {}, options: { entryKey: 'conversation' } })
   })
@@ -255,7 +257,7 @@ describe('AppFrame', () => {
     const { frame, instance, sidebarOwner, getByTestId, queryByTestId } = mountFrame()
     act(() => { instance.actions.toggleSidebar() })
     expect(tracks(frame)).toEqual([56, 0])
-    expect(sidebarOwner()).toEqual({ collapsed: true, width: 56, drawer: false })
+    expect(sidebarOwner()).toMatchObject({ collapsed: true, focusMode: false, width: 56, drawer: false })
     expect(getByTestId('sidebar-content')).toBeTruthy()
     expect(frame.querySelector('[data-side="sidebar"]')).toBeNull()
     // The rail keeps the window chrome housed: no shell.leading seat.
@@ -272,11 +274,54 @@ describe('AppFrame', () => {
     expect(queryByTestId('shell.leading-content')).toBeNull()
     act(() => { instance.actions.toggleSidebar() })
     expect(tracks(frame)).toEqual([0, 0])
-    expect(sidebarOwner()).toEqual({ collapsed: true, width: 0, drawer: false })
+    expect(sidebarOwner()).toMatchObject({ collapsed: true, focusMode: false, width: 0, drawer: false })
     expect(frame.querySelector('[data-shell-leading]')).not.toBeNull()
     expect(queryByTestId('shell.leading-content')).toBeTruthy()
     act(() => { instance.actions.toggleSidebar() })
     expect(queryByTestId('shell.leading-content')).toBeNull()
+  })
+
+  it('focus mode collapses navigation and suppresses the right track without losing width preferences', () => {
+    const { frame, instance, sidebarOwner, rightOwner } = mountFrame()
+    act(() => {
+      instance.actions.setSidebar(400)
+      instance.actions.openRightbar(true, false)
+      instance.actions.setRightbar(500)
+      instance.actions.toggleFocus()
+    })
+    expect(tracks(frame)).toEqual([56, 0])
+    expect(sidebarOwner()).toMatchObject({ collapsed: true, focusMode: true, width: 56 })
+    expect(frame.dataset.focusMode).toBe('true')
+    expect(frame.querySelector('[data-side="sidebar"]')).toBeNull()
+    expect(frame.querySelector('[data-side="rightbar"]')).toBeNull()
+    expect(rightOwner().width).toBeGreaterThan(0)
+    expect(instance.getSnapshot().layoutInfo).toMatchObject({ sidebar: 400, rightbar: 500, rightbarShown: true })
+
+    act(() => { instance.actions.toggleFocus() })
+    expect(tracks(frame)).toEqual([400, 500])
+    expect(sidebarOwner()).toMatchObject({ collapsed: false, focusMode: false, width: 400 })
+    expect(frame.dataset.focusMode).toBeUndefined()
+  })
+
+  it('keeps Windows focus mode at zero sidebar width while its fixed exit control owns access', () => {
+    document.documentElement.setAttribute('data-windows-titlebar', '')
+    try {
+      const { frame, instance, sidebarOwner } = mountFrame()
+      act(() => { instance.actions.toggleFocus() })
+      expect(tracks(frame)).toEqual([0, 0])
+      expect(sidebarOwner()).toMatchObject({ collapsed: true, focusMode: true, width: 0 })
+    } finally {
+      document.documentElement.removeAttribute('data-windows-titlebar')
+    }
+  })
+
+  it('toggles focus from Ctrl/Cmd+Shift+F', () => {
+    const { frame, instance } = mountFrame()
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F', ctrlKey: true, shiftKey: true })) })
+    expect(frame.dataset.focusMode).toBe('true')
+    expect(instance.getSnapshot().layoutInfo.focusMode).toBe(true)
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', metaKey: true, shiftKey: true })) })
+    expect(instance.getSnapshot().layoutInfo.focusMode).toBe(false)
   })
 
   it('switches only the keyed main outlet when the active panel changes', () => {
@@ -309,7 +354,7 @@ describe('AppFrame normal width concessions', () => {
     act(() => { foldedLandscape.set(true) })
     expect(tracks(frame)).toEqual([475.5, 0])
     expect(frame.dataset.animating).toBe('true')
-    expect(sidebarOwner()).toEqual({ collapsed: false, width: 475.5, drawer: false })
+    expect(sidebarOwner()).toMatchObject({ collapsed: false, width: 475.5, drawer: false })
     expect(frame.querySelector('[data-side="sidebar"]')).toBeNull()
     expect(getByTestId('sidebar-content')).toBe(sidebar)
     act(() => { instance.actions.toggleSidebar() })
@@ -317,7 +362,7 @@ describe('AppFrame normal width concessions', () => {
     resize(767)
     expect(frame.dataset.animating).toBeUndefined()
     act(() => { instance.actions.toggleSidebar() })
-    expect(sidebarOwner()).toEqual({ collapsed: false, width: 360, drawer: true })
+    expect(sidebarOwner()).toMatchObject({ collapsed: false, width: 360, drawer: true })
     resize(951)
     act(() => { instance.actions.toggleSidebar() })
     expect(tracks(frame)[0]).toBe(475.5)
@@ -760,7 +805,7 @@ describe('sidebar drawer', () => {
     const main = getByTestId('main-content')
     const leading = getByTestId('shell.leading-content')
     expect(tracks(frame)).toEqual([0, 0])
-    expect(sidebarOwner()).toEqual({ collapsed: true, width: 280, drawer: true })
+    expect(sidebarOwner()).toMatchObject({ collapsed: true, width: 280, drawer: true })
     expect(sidebar.parentElement?.hasAttribute('inert')).toBe(true)
     const mask = frame.querySelector('[data-sidebar-mask]')
     expect(mask).not.toBeNull()
@@ -790,7 +835,7 @@ describe('sidebar drawer', () => {
     expect(sidebarOwner().collapsed).toBe(true)
     act(() => { instance.actions.toggleSidebar() })
     resize(768)
-    expect(sidebarOwner()).toEqual({ collapsed: true, width: 56, drawer: false })
+    expect(sidebarOwner()).toMatchObject({ collapsed: true, width: 56, drawer: false })
     expect(tracks(frame)).toEqual([56, 0])
     resize(767)
     expect(sidebarOwner().collapsed).toBe(true)

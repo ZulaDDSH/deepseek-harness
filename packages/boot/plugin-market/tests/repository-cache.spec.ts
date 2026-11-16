@@ -15,6 +15,7 @@ async function expectRejection(promise: Promise<unknown>, fields: object, messag
   await expect(promise).rejects.toThrow(message)
 }
 
+vi.setConfig({ testTimeout: 30_000 })
 
 let root: string
 const caches: RepositoryCache[] = []

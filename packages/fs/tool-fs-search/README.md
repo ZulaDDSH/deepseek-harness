@@ -5,11 +5,9 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-tool-fs-search
 
-English | [中文](README.zh.md)
-
 ## Summary
 
-Use `dsh-tool-fs-search` to give models `glob` file discovery and `grep` content search over a local workspace. Searches need no host `rg` installation or filesystem provider, return workdir-relative results, and include hidden and ignored files while excluding VCS metadata. Configurable caps bound inline output; with an optional spill store, capped results remain fully recoverable. Choose the sibling `dsh-tool-fs` package for reading, writing, or editing files.
+Use `dsh-tool-fs-search` to give models `glob` file discovery and `grep` content search over a local workspace. Searches need no host `rg` installation or filesystem provider, return workdir-relative results, and include hidden files while excluding VCS metadata. Ignore files and `node_modules` are respected unless a `glob` call sets `includeIgnored: true`. Configurable caps bound inline output; with an optional spill store, capped results remain fully recoverable. Choose the sibling `dsh-tool-fs` package for reading, writing, or editing files.
 
 ## Table of Contents
 
@@ -231,6 +229,8 @@ These limits define when the search tools are a poor fit or need special operati
 - **Directory wildcards retain workspace traversal** — patterns such as `src/**/*.ts` do not narrow the traversal root automatically; supply an explicit `path` to constrain them.
 - **The schemas expose one bounded page** — offset pagination, case-mode switches, alternate output modes, and provider-backed discovery remain outside this package; capped complete output requires a spill backend.
 - **Sampling, when enabled, groups by first path segment beneath the search root only** — an over-cap `glob` page balances across those top-level entries, so a result concentrated deeper is still shown unevenly below that level; recursive balancing is deferred.
+- **A `glob` that hits the tool timeout returns `SEARCH_ABORTED` without partial paths** — ripgrep's output is only returned once the process exits, so narrow `path` or `pattern` to finish within the budget.
+- **A `glob` `path` inside an ignored directory is searched** — ignore rules apply only to entries beneath the search root, so `path: "node_modules"` lists that tree even without `includeIgnored`.
 
 <a id="dev-note"></a>
 ### Dev Note

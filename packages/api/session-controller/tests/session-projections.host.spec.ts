@@ -193,22 +193,23 @@ describe('session.history projections block', () => {
     expect(snapshot.header).not.toHaveProperty('seedLength')
   })
 
-  it('tracks pending and used model selections across repeated request headers', async () => {
+  it('keeps the selected model durable while request headers record what ran', async () => {
     const { ctx, session } = await harness(true)
     await remote(ctx)
     await new Promise(resolve => setTimeout(resolve, 0))
     const selected = { provider: 'p', model: 'next' }
     session.append('model/selection', selected)
     session.append('model/selection', selected)
-    session.append('request/header', {
-      header: { config: { provider: 'p', model: 'used' } }, reason: 'initial',
-    })
-    session.append('request/header', {
+    const repeatedHeader = session.append('request/header', {
       header: { config: { provider: 'p', model: 'used' } }, reason: 'initial',
     })
 
+    // The pick survives a request that ran a different model: `next` is the
+    // user's choice, `lastUsed` is what actually ran.
+    /* The repeated header advances `lastUsedSeq` even though the model it names is unchanged. */
     expect(ctx.sessionProjections.snapshot(session).values.modelSelection).toEqual({
       lastUsed: { provider: 'p', model: 'used' },
+      lastUsedSeq: repeatedHeader.seq,
       next: selected,
     })
 
@@ -217,6 +218,17 @@ describe('session.history projections block', () => {
     })
     expect(ctx.sessionProjections.snapshot(session).values.modelSelection).toEqual({
       lastUsed: selected,
+      lastUsedSeq: session.seq - 1,
+      next: selected,
+    })
+
+    // A later divergent request still leaves the choice in force.
+    session.append('request/header', {
+      header: { config: { provider: 'router', model: 'routed' } }, reason: 'initial',
+    })
+    expect(ctx.sessionProjections.snapshot(session).values.modelSelection).toEqual({
+      lastUsed: { provider: 'router', model: 'routed' },
+      lastUsedSeq: session.seq - 1,
       next: selected,
     })
   })

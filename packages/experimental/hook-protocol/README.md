@@ -5,11 +5,9 @@ kind: "package-library"
 
 # @deepseek-ai/dsh-hook-protocol
 
-English | [中文](README.zh.md)
-
 ## Summary
 
-`dsh-hook-protocol` makes both bridges handle your hooks identically: it defines what a hook can do and what happens when it runs. You never install or configure it yourself — choose `dsh-hooks-claude-code` or `dsh-hooks-codex`, point it at your existing `hooks.json`, and these rules apply to your hooks. Through either bridge, a hook can block a prompt or tool call with a message the model sees, attach extra context to the conversation, or ask the run to stop. Only command hooks run; `http`, `mcp_tool`, `prompt`, and `agent` handlers are skipped with a warning.
+`dsh-hook-protocol` makes both bridges handle your hooks identically: it defines what a hook can do and what happens when it runs. You never install or configure it yourself — choose `dsh-hooks-claude-code` or `dsh-hooks-codex`, point it at your existing `hooks.json`, and these rules apply to your hooks. Through either bridge, a hook can block a prompt or tool call with a message the model sees, attach extra context to the conversation, or ask the run to stop. Command hooks run; `prompt` handlers run in the Claude Code bridge only. `http`, `mcp_tool`, and `agent` handlers are skipped with a warning.
 
 ## Table of Contents
 
@@ -25,6 +23,8 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
+`hooks/inventory` collects load-time reports from mounted bridges for Settings. `HookInventoryReport.status` distinguishes loaded bridge commands, externally configured files and read failures. `describeHookHandlers` projects accepted event groups into command, event and matcher rows without changing hook execution.
+
 You don't install or configure this package directly — mounting `dsh-hooks-claude-code` or `dsh-hooks-codex` applies these rules to your existing `hooks.json` hooks. Use this page to learn what a hook can do and what happens when it runs; the two bridge pages list which events each dialect supports.
 
 ### When to choose it
@@ -38,7 +38,7 @@ Choose `dsh-hooks-claude-code` or `dsh-hooks-codex` when you have existing Claud
 - **Attach context** — a hook can return extra text that the model sees in the next request.
 - **Run on chosen moments** — a hook config selects which events it fires on by name or pattern; an absent, empty, or `'*'` pattern means every event of that kind.
 - **Fail without stopping the run** — any exit code other than 2 is a non-blocking failure: the action proceeds and the failure is logged, and a hook that cannot be started at all is treated the same way.
-- **Ask the run to stop** — a hook can request that the run halt (`{"continue": false}`); the request is recorded but has no run-level effect (see Known Limitations).
+- **Ask the run to stop** — a hook can request a halt (`{"continue": false}`); the bridge cancels the agent's active turn and keeps queued prompts for later (see Known Limitations).
 
 ### What you see when hooks run
 
@@ -46,7 +46,7 @@ Choose `dsh-hooks-claude-code` or `dsh-hooks-codex` when you have existing Claud
 - When a hook attaches context, the model sees that text in its next request.
 - A hook that fails — a bad command, a crash, or any exit other than 2 — is logged and does not stop the agent.
 - If the hook config cannot be read or parsed, the bridge logs a warning and no hooks run; the agent still starts.
-- Configs that mix hook types still work: `http`, `mcp_tool`, `prompt`, and `agent` handlers are skipped with a warning, and their command hooks run.
+- Configs that mix hook types still work: `http`, `mcp_tool`, and `agent` handlers are skipped with a warning, `prompt` handlers are skipped with a warning by the Codex bridge only, and their command hooks run.
 
 -----
 
@@ -63,6 +63,8 @@ This section explains the design decisions behind the library and points at the 
 `selectHookGroups` selects nonempty matching groups in config order. Each bridge resolves the current working directory only when this selection contains commands to run. `appendHookInvoked` omits absent or undefined matchers from the recorded event.
 
 The library is a chain of single-purpose steps, one function each: validate the matcher pattern, run the command through the `dsh-shell` executor, decode the outcome, merge every matched hook's outcome into one most-restrictive result, and record the durable `hook/*` event pair. The matcher's `mode` parameter is the single axis the dialects differ on — `claude-code` interprets a pattern as literal alternatives or a regex, `codex` always as an unanchored regex. Every step degrades to a contained outcome instead of throwing, so a hook can never crash the calling turn: an invalid regex is a non-match, an executor rejection becomes a `HookOutput` with no exit code, exit 2 blocks with stderr as the reason, and every other failure stays non-blocking. Merging applies `deny > ask > allow` precedence, keeps the first `continue: false` stop sticky, and accumulates context in hook order. Detached runs are tracked so `fiber.dispose()` reaches quiescence. The steps live in [`src/matcher.ts`](src/matcher.ts), [`src/runner.ts`](src/runner.ts), [`src/codec.ts`](src/codec.ts), [`src/merge.ts`](src/merge.ts), [`src/events.ts`](src/events.ts), and [`src/detached.ts`](src/detached.ts).
+
+Tool-name subjects also match under the dialect's reference name: `matchesHookSubject` tests the DSH tool name and then its `hookToolName` alias. The claude-code dialect maps `bash` to `Bash`, `pwsh` to `PowerShell`, `read`, `write`, `edit`, `glob`, `grep`, `web_fetch` and `web_search` to their capitalized Claude names, and the codex dialect maps `bash` and `pwsh` to `Bash`. `str_replace_editor` has no alias (see Known Limitations), and names outside the table pass through unchanged. A per-turn cap on Stop-hook continuations lives in [`src/stop-guard.ts`](src/stop-guard.ts).
 
 ### `hook/*` session events
 
@@ -84,7 +86,8 @@ The [hook-protocol-lib Agent Note](../../../.agents/notes/archived/feature/2026-
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Public exports of every primitive and event helper |
-| [`src/matcher.ts`](src/matcher.ts) | Matcher validation, dialect matching, and nonempty command-group selection |
+| [`src/matcher.ts`](src/matcher.ts) | Match-all sentinels, literal-vs-regex mode, validation, runtime matching, dialect tool-name aliases (`hookToolName`, `matchesHookSubject`), and nonempty command-group selection |
+| [`src/stop-guard.ts`](src/stop-guard.ts) | Per-turn cap on Stop-hook forced continuations and the `stop_hook_active` flag |
 | [`src/runner.ts`](src/runner.ts) | `runHook` execution through `ctx.shell` and `DEFAULT_HOOK_TIMEOUT_MS` |
 | [`src/codec.ts`](src/codec.ts) | Exit-code and structured-stdout decoding into `HookOutput` |
 | [`src/merge.ts`](src/merge.ts) | Most-restrictive merge and the `MergedHookOutcome` type |
@@ -127,8 +130,9 @@ No direct invalidation; the named consumers own any request-prefix changes.
 These limits describe what hooks cannot do through the shared engine yet. They are current package constraints, not a task backlog.
 
 - **`HookOutput.updatedInput` is parsed but not honored** — input rewrite is a deferred consistency-design problem ([the pre-tool-input-rewrite Agent Note](../../../.agents/notes/proposed/feature/2026-06-30-pre-tool-input-rewrite.md)); a bridge logs and warns when a hook sets it.
-- **A folded halt has no run-level effect** — `mergeHookOutputs` folds `continue: false` into a sticky `stop`, but the interception points have no hard-halt primitive, so a bridge records the halt and keeps the hook's per-point effect.
-- **Only the command-hook shape runs** — the protocol executes `{ type: 'command', command, timeout? }`; a bridge parses-and-skips the other shapes its dialect defines (`http`, `mcp_tool`, `prompt`, `agent`).
+- **A halt cancels only the active turn** — `mergeHookOutputs` folds `continue: false` into a sticky `stop`, and the bridges honor it by cancelling the agent's active phase with a `hook` cancel cause while keeping its queued inbox. A halt never ends the session, and it does not discard queued prompts.
+- **`str_replace_editor` has no dialect alias** — its single `command` argument routes several actions through one tool name, so it cannot map to one Claude Code or Codex tool. Hooks match it by its DSH name only.
+- **Only the command-hook shape runs** — the protocol executes `{ type: 'command', command, timeout? }`; a bridge parses-and-skips the other shapes it does not run (`http`, `mcp_tool`, `agent`, and `prompt` in the Codex bridge). The Claude Code bridge runs `prompt` handlers itself, through a model call.
 
 <a id="dev-note"></a>
 ### Dev Note
@@ -140,6 +144,6 @@ This Dev Note is working context for maintainers: open questions and directions 
 
 #### Future: run-level halt
 
-A hook that asks to halt the whole run (`continue: false`) is folded into `MergedHookOutcome.stop` but not applied anywhere: the interception points lack a hard-halt primitive, and mid-turn requests record the halt in `hook/result` instead. A run-level halt mechanism would let the bridges honor it; no design exists yet.
+A hook that asks to halt (`continue: false`) is folded into `MergedHookOutcome.stop`, and the bridge cancels the active turn through `Agent.cancel`, so the halt is scoped to that turn. A session-level halt that also ends the session has no design yet.
 
 </details>

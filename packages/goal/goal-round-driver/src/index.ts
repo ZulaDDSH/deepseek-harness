@@ -10,6 +10,7 @@ import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { GoalMessageSource, GoalRef, GoalView } from '@deepseek-ai/dsh-goal'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-jobs'
 import type { Session, SessionEvent, UserMessage } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-subagent'
 import { renderGoalRoundPrompt } from './prompt.ts'
@@ -102,6 +103,25 @@ export function apply(ctx: Context): void {
     return ctx.goals.get(state.agent)
   }
 
+  let watchingSettlements = false
+
+  function awaitingWatch(agent: Agent): boolean {
+    const jobs = ctx.get('jobs')
+    if (jobs === undefined) return false
+    const waiting = jobs.list(agent.id).some(job => job.kind === 'watch' && job.status === 'running')
+    if (waiting && !watchingSettlements) {
+      watchingSettlements = true
+      jobs.events.subscribe({ owners: 'all' }, (event) => {
+        if (event.type !== 'settled' || event.job.kind !== 'watch' || event.job.owner === undefined) return
+        const owner = ctx.agents.get(event.job.owner)
+        if (owner === undefined) return
+        const state = stateFor(owner)
+        queueMicrotask(() => { requestDrive(state) })
+      })
+    }
+    return waiting
+  }
+
   /** Whether a goal may receive automatic rounds. */
   function drivable(goal: GoalView | undefined): goal is GoalView {
     return goal !== undefined && goal.phase === 'active' && goal.activation === 'armed'
@@ -171,6 +191,7 @@ export function apply(ctx: Context): void {
 
     const goal = currentGoal(state)
     if (!drivable(goal)) return
+    if (awaitingWatch(agent)) return
     // A round started while descendants progress would only wait for them.
     // Every goal mutation requests a checkpoint, so passing the recheck
     // proves this goal view is still current.

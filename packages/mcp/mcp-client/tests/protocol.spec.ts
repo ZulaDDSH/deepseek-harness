@@ -3,6 +3,7 @@ import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { z } from 'zod'
 
+import type * as TransportModule from '../src/transport.ts'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { InMemoryTransport, type Transport } from '@modelcontextprotocol/client'
@@ -18,7 +19,7 @@ import { McpStatusCell } from '../src/status.ts'
 import { Config } from '../src/index.ts'
 
 const { mockTransport } = vi.hoisted(() => ({ mockTransport: vi.fn<() => Transport>() }))
-vi.mock('../src/transport.ts', () => ({ createTransport: mockTransport }))
+vi.mock('../src/transport.ts', async importOriginal => ({ ...await importOriginal<typeof TransportModule>(), createTransport: mockTransport }))
 
 const config = Config({
   transport: 'stdio', serverName: 'fixture', command: 'fixture', args: [], env: {}, cwd: '',

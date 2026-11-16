@@ -1,12 +1,30 @@
 /* Feature-contributed rows own their chrome and separators; the section
- * strips the trailing separator wherever the column ends. */
+ * strips the trailing separator wherever a group ends. */
 
 .section {
   display: flex;
   flex-direction: column;
+  gap: 8px;
   width: 100%;
 }
 
-.section > :global([data-slot='settings.general.item']) > :last-child {
+.group {
+  display: flex;
+  flex-direction: column;
+}
+
+.groupTitle {
+  margin: 8px 0 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+}
+
+.item {
+  border-radius: var(--dsw-radius-sm);
+}
+
+.item:last-child > :global([data-slot='settings.general.item']) > :last-child {
   border-bottom: none;
 }

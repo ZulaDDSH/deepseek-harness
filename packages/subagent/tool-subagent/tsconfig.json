@@ -9,6 +9,9 @@
   ],
   "references": [
     {
+      "path": "../../team/agent-team"
+    },
+    {
       "path": "../../util/brand"
     },
     {
@@ -43,6 +46,9 @@
     },
     {
       "path": "../subagent"
+    },
+    {
+      "path": "../../api/session-controller/tsconfig.host.json"
     }
   ]
 }

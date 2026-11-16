@@ -62,7 +62,7 @@ async function fixture(mode: 'view' | 'write') {
     id: brandString<SessionId>('source'), cwd: directory, createdAt: 0, isSeeded: false })
   const unsupported = (): never => { throw new Error('this fixture does not drive the Inbox') }
   const key: Omit<Agent, 'ctx'> = { id: session.id, session, status: 'running', options: {},
-    model: { current: () => undefined, select: () => {} },
+    model: { current: () => undefined, select: () => {}, selectionState: () => ({ lastUsed: null, lastUsedSeq: null, pending: null }) },
     inbox: { nextTurn: [], nextStep: [], clear: unsupported, append: unsupported, prepend: unsupported,
       replace: unsupported, remove: unsupported, splice: unsupported },
     send: unsupported, followup: unsupported, steer: unsupported, inject: unsupported,

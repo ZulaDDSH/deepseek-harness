@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh-hook-protocol/runner
  */
 
-import type { ShellExecutor } from '@deepseek-ai/dsh-shell'
+import type { ShellExecRequest, ShellExecutor } from '@deepseek-ai/dsh-shell'
 import { parseHookOutput } from './codec.ts'
 import type { CommandHook, HookOutput } from './types.ts'
 
@@ -27,6 +27,8 @@ export interface RunHookOptions {
   env?: Record<string, string>
   /** Working directory for the hook (defaults to the executor's own default when omitted). */
   cwd?: string
+  /** Sandbox policy the executor applies to this run; omitted runs take the executor's deployment default. */
+  sandboxPolicy?: NonNullable<ShellExecRequest['sandboxPolicy']>
   /** Explicit owning-operation signal; firing it cancels the hook run. */
   readonly signal: AbortSignal
   /** Whether to append a trailing newline to the stdin payload (CC yes, Codex no). */
@@ -81,6 +83,7 @@ export async function runHook(
     signal: options.signal,
     ...options.cwd !== undefined ? { workdir: options.cwd } : {},
     ...options.env !== undefined ? { env: options.env } : {},
+    ...options.sandboxPolicy !== undefined ? { sandboxPolicy: options.sandboxPolicy } : {},
   }
 
   try {

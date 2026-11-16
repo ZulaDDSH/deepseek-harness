@@ -64,7 +64,7 @@ describe('viewer model seat', () => {
     render(
       <ViewerModelSeat t={t}
         locked
-        selection={observed({ lastUsed: null, next: { provider: 'internal', model: 'dsv41f', reasoningEffort: 'high' } })}
+        selection={observed({ lastUsed: null, lastUsedSeq: null, next: { provider: 'internal', model: 'dsv41f', reasoningEffort: 'high' } })}
         catalog={() => Promise.resolve(catalog)}
       />,
     )
@@ -86,7 +86,7 @@ describe('viewer model seat', () => {
     render(
       <ViewerModelSeat t={t}
         locked
-        selection={observed({ lastUsed: null, next: { provider: 'internal', model: 'dsv41f' } })}
+        selection={observed({ lastUsed: null, lastUsedSeq: null, next: { provider: 'internal', model: 'dsv41f' } })}
         catalog={() => Promise.resolve(catalog)}
       />,
     )
@@ -98,7 +98,7 @@ describe('viewer model seat', () => {
     const { unmount } = render(
       <ViewerModelSeat t={t}
         locked
-        selection={observed({ lastUsed: null, next: { provider: 'internal', model: 'dsv41f', reasoningEffort: 'future' } })}
+        selection={observed({ lastUsed: null, lastUsedSeq: null, next: { provider: 'internal', model: 'dsv41f', reasoningEffort: 'future' } })}
         catalog={() => Promise.resolve(catalog)}
       />,
     )
@@ -108,7 +108,7 @@ describe('viewer model seat', () => {
     render(
       <ViewerModelSeat t={t}
         locked
-        selection={observed({ lastUsed: null, next: { provider: 'internal', model: 'unknown-route' } })}
+        selection={observed({ lastUsed: null, lastUsedSeq: null, next: { provider: 'internal', model: 'unknown-route' } })}
         catalog={() => Promise.resolve(catalog)}
       />,
     )
@@ -120,7 +120,7 @@ describe('viewer model seat', () => {
     render(
       <ViewerModelSeat t={t}
         locked
-        selection={observed({ lastUsed: null, next: { provider: 'internal', model: 'plain' } })}
+        selection={observed({ lastUsed: null, lastUsedSeq: null, next: { provider: 'internal', model: 'plain' } })}
         catalog={() => Promise.resolve({
           default: { provider: 'internal', model: 'plain' },
           groups: [{ id: 'internal', models: [{ id: 'plain', name: 'Plain model' }] }],
@@ -135,7 +135,7 @@ describe('viewer model seat', () => {
     render(
       <ViewerModelSeat t={t}
         locked
-        selection={observed({ lastUsed: null, next: { provider: 'internal', model: 'dsv41f', reasoningEffort: 'high' } })}
+        selection={observed({ lastUsed: null, lastUsedSeq: null, next: { provider: 'internal', model: 'dsv41f', reasoningEffort: 'high' } })}
         catalog={() => Promise.reject(new Error('catalog unavailable'))}
       />,
     )

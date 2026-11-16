@@ -55,8 +55,8 @@ export interface SessionNode {
   runningSubagentCount: number
   /** Host-confirmed unread completion or explicit unread mark. */
   completed: boolean
-  /** Latest unread completion ended with an execution error. */
   failed: boolean
+  runtimeFailed?: boolean
   /** In the registry-global pin set: leads its section, reorderable only among pinned rows. */
   pinned: boolean
   /** In the registry-global archive set: shown grayed in place and not openable. */
@@ -68,6 +68,25 @@ export interface SessionNode {
 
 /** Session order selected by the Workspace browser. */
 export type SessionOrderBy = 'manual' | 'updated'
+
+/** Folded attention counts for a Workspace row: Sessions failed, awaiting the user, or running. */
+export interface GroupAttention {
+  failed: number
+  pending: number
+  running: number
+}
+
+/**
+ * Sum two attention counts.
+ * @param a - first count, if any.
+ * @param b - second count, if any.
+ * @returns the sum, or undefined when both are absent.
+ */
+export function mergeAttention(a: GroupAttention | undefined, b: GroupAttention | undefined): GroupAttention | undefined {
+  if (a === undefined) return b
+  if (b === undefined) return a
+  return { failed: a.failed + b.failed, pending: a.pending + b.pending, running: a.running + b.running }
+}
 
 /** One workspace group section: header row facts + visible top-level session rows. */
 export interface GroupNode {
@@ -86,6 +105,8 @@ export interface GroupNode {
   containsCurrent: boolean
   /** Visible session rows (empty while the group is folded). */
   sessions: readonly SessionNode[]
+  /** Attention over every visible member, set only when some member is failed, pending, or running. */
+  attention?: GroupAttention
 }
 
 /** One flat search row combining list metadata with an optional content match. */
@@ -100,8 +121,8 @@ export interface SearchResultNode {
   runningSubagentCount: number
   /** Host-confirmed unread completion or explicit unread mark. */
   completed: boolean
-  /** Latest unread completion ended with an execution error. */
   failed: boolean
+  runtimeFailed?: boolean
   /** In the registry-global archive set: shown grayed and not openable. */
   archived: boolean
   snippet?: string
@@ -165,12 +186,12 @@ export function orderByRecency(
 
 /**
  * Reconcile a browser-local manual order with current account membership.
- * Saved entries retain their relative order; new ordinary members follow them by recency.
+ * New ordinary forks precede their sources without changing saved entries' relative order.
  * @param memberIds - authoritative account membership.
  * @param savedOrder - previously saved browser-local order.
  * @param summaries - current Session metadata; unknown new members wait for their summaries.
  * @param rowState - global pin and archive membership; only account members can supplement the order.
- * @returns saved relative positions plus missing members ordered by pin, recency, and archive status.
+ * @returns saved relative positions plus missing members ordered by pin, fork source, recency, and archive status.
  */
 export function reconcileManualOrder(
   memberIds: readonly SessionId[],
@@ -201,7 +222,18 @@ export function reconcileManualOrder(
     if (archived.has(id)) archives.push(id)
     else ordinary.push(id)
   }
-  return [...pins, ...ordered, ...ordinary, ...archives]
+  const result = [...pins, ...ordered, ...ordinary, ...archives]
+  const pending = new Set(ordinary)
+  const placeFork = (id: SessionId): void => {
+    if (!pending.delete(id)) return
+    const parentId = summaries[id]?.parentId
+    if (parentId === undefined || parentId === id || !result.includes(parentId)) return
+    placeFork(parentId)
+    result.splice(result.indexOf(id), 1)
+    result.splice(result.indexOf(parentId), 0, id)
+  }
+  for (const id of [...ordinary].reverse()) placeFork(id)
+  return result
 }
 
 /**
@@ -237,7 +269,7 @@ function sessionVisible(
   archived: ReadonlySet<SessionId>,
   archivedFilter: ArchivedFilter,
 ): boolean {
-  if (session.origin === 'subagent') return false
+  if (session.origin === 'subagent' || session.id.startsWith('master-control-home-')) return false
   if (session.blank && session.id !== current) return false
   switch (archivedFilter) {
     case 'default':
@@ -406,13 +438,24 @@ function sessionNode(
     running: status?.running ?? s.running,
     runningSubagentCount: runningChildCount(list, s.id, statuses),
     completed: status?.completionUnread === true,
-    failed: status?.completionFailed === true,
+    failed: status?.completionFailed === true || status?.failureUnread === true,
+    ...(status?.failureUnread === true ? { runtimeFailed: true } : {}),
     pinned: !archived.has(s.id) && pinned.has(s.id),
     archived: archived.has(s.id),
     updatedAt: s.updatedAt,
     ...(s.cwd === undefined || s.cwd === '' ? {} : { cwd: s.cwd }),
     ...(pendingInteraction === undefined ? {} : { pendingInteraction }),
   }
+}
+
+/** Attention one visible Session contributes to its Workspace row; precedence matches sessionStatuses. */
+function sessionAttention(node: SessionNode): GroupAttention | undefined {
+  if (node.archived || node.blank) return undefined
+  if (node.runtimeFailed === true) return { failed: 1, pending: 0, running: 0 }
+  if (node.pendingInteraction !== undefined) return { failed: 0, pending: 1, running: 0 }
+  if (node.running || node.runningSubagentCount > 0) return { failed: 0, pending: 0, running: 1 }
+  if (node.failed && node.completed) return { failed: 1, pending: 0, running: 0 }
+  return undefined
 }
 
 /**
@@ -448,6 +491,12 @@ export function deriveGroups(
   const groups: GroupNode[] = []
   for (const g of groupByWorkspace(list, workspaces, archived, rowState.archivedFilter, view.ungroupedOrder)) {
     const expanded = expandedGroups.has(g.key)
+    const nodes = sectionMembers(g.sessions, pinned, archived)
+      .map(session => sessionNode(session, list, statuses, pinned, archived))
+    const attention = nodes.reduce<GroupAttention | undefined>(
+      (sum, node) => mergeAttention(sum, sessionAttention(node)),
+      undefined,
+    )
     groups.push({
       key: g.key,
       workspaceId: g.workspaceId,
@@ -457,10 +506,8 @@ export function deriveGroups(
       sessionCount: g.sessions.length,
       expanded,
       containsCurrent: g.key === currentGroup,
-      sessions: expanded
-        ? sectionMembers(g.sessions, pinned, archived)
-          .map(session => sessionNode(session, list, statuses, pinned, archived))
-        : [],
+      sessions: expanded ? nodes : [],
+      ...attention === undefined ? {} : { attention },
     })
   }
   return groups
@@ -630,7 +677,8 @@ export function deriveSearchResults(
           ? {}
           : { pendingInteraction }),
         completed: status?.completionUnread === true,
-        failed: status?.completionFailed === true,
+        failed: status?.completionFailed === true || status?.failureUnread === true,
+        ...(status?.failureUnread === true ? { runtimeFailed: true } : {}),
         archived: archived.has(summary.id),
         ...match === undefined ? {} : { snippet: match.snippet },
       }

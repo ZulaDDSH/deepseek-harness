@@ -91,7 +91,7 @@ it('stacks font fields at narrow widths while keeping font-size controls on the 
       const original = await field.elementHandle()
       for (const width of [1440, 390]) {
         await page.setViewportSize({ width, height: 844 })
-        expect(await original!.evaluate(input => input === document.activeElement && input.isConnected)).toBe(true)
+        expect(await original.evaluate(input => input === document.activeElement && input.isConnected)).toBe(true)
         expect(await field.inputValue()).toBe('Uncommitted font draft')
       }
     } finally {
@@ -129,10 +129,6 @@ it('uses 16px text for coarse-pointer font fields and preserves compact fine-poi
 it('shares settings card materials and control sizes in both palettes', async () => {
   const scaffold = await launchWebScaffold({})
   onTestFinished(() => scaffold.close())
-  await scaffold.ctx.settings.mutate('ui-settings-account', [
-    { op: 'set', path: ['step'], value: 'done' },
-    { op: 'set', path: ['completion'], value: 'completed' },
-  ])
   const account = scaffold.ctx.deepseekAccount
   const state: AccountView = {
     status: 'credential-stored', attempt: null,
