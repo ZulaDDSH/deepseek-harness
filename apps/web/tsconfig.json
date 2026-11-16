@@ -280,6 +280,12 @@
     },
     {
       "path": "../../packages/test-support/remote-mock"
+    },
+    {
+      "path": "../../packages/test-support/llm-replay"
+    },
+    {
+      "path": "../../packages/test-support/session-snapshot"
     }
   ]
 }
