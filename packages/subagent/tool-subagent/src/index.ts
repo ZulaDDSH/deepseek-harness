@@ -612,12 +612,12 @@ export async function apply(ctx: Context, config: Config, session?: Session): Pr
           const parentOptions = parentAgentOptionsForDelegation(parent)
           const teamEnabled = runtimeCtx.get('agentTeams')?.isEnabled(parent) === true
           let roleRoute: SubagentTeamRoleRoute | undefined
-          if (args.role !== undefined && teamEnabled && !hasDelegationModelRequest(modelRequest)) {
+          if (modelRequest.role !== undefined && teamEnabled && !hasDelegationModelRequest(modelRequest)) {
             const controller = runtimeCtx.get('sessionController')
             if (controller === undefined) {
               throw new Error('cannot resolve saved Team role defaults because the Session Controller is unavailable')
             }
-            roleRoute = controller.teamRoleDefaultOf(parent.session, args.role)
+            roleRoute = controller.teamRoleDefaultOf(parent.session, modelRequest.role)
           }
           if (roleRoute !== undefined) {
             assertAllowedModelSelection(modelSelectionPolicy, parentOptions, {
