@@ -24,7 +24,9 @@ import type {
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { GlobalStandardProps, SessionStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
-import type { ChatFileMentions, TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-chat/client'
+import {
+  EMPTY_CHAT_SNAPSHOT, type ChatFileMentions, type ChatSnapshot, type TurnTailOwnerProps,
+} from '@deepseek-ai/dsh-client-ui-chat/client'
 import { makeTranslate, sessionSnapshot, stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
 import type { InputZone } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { Deliverables, DeliverablesTail, selectDeliverables, type DeliverablesInjected } from '../src/client/Deliverables.tsx'
@@ -629,16 +631,17 @@ describe('ChangedFiles card', () => {
   it('shows the latest turn above the composer and opens its selected file', () => {
     const props = openProps(new PresentedOpenController(), servedStore())
     const turn = turnLocation(1, { produced: [], changes })
-    const snapshot = { timeline: { turnOrder: [1], turns: new Map([[1, turn]]) } }
-    const useChat = <T,>(select: (value: typeof snapshot) => T): T => select(snapshot)
+    const timeline = { turnOrder: [1], turns: new Map([[1, turn]]) }
+    const snapshot: ChatSnapshot = { ...EMPTY_CHAT_SNAPSHOT, timeline }
+    const useChat: SessionStandardProps['useChat'] = select => select(snapshot)
     const dock = { ...standardProps, ...props, ...dockZone, useChat, sessionId: childSessionId, t: makeTranslate(en) }
     const view = render(<ChangedFilesDock {...dock} />)
     expect(view.container.querySelector('[data-changed-files-dock]')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Edited 11 files' }))
     fireEvent.click(screen.getByRole('menuitem', { name: /config\/feature-flags\.json/ }))
     expect(props.openChangesReview).toHaveBeenCalledExactlyOnceWith({ sessionId: 'child-session', seq: 5, turn: 1 }, 1)
-    snapshot.timeline.turnOrder.push(2)
-    snapshot.timeline.turns.set(2, turnLocation(2, { produced: [] }))
+    timeline.turnOrder.push(2)
+    timeline.turns.set(2, turnLocation(2, { produced: [] }))
     view.rerender(<ChangedFilesDock {...dock} />)
     expect(view.container.querySelector('[data-changed-files-dock]')).toBeNull()
   })
@@ -647,8 +650,9 @@ describe('ChangedFiles card', () => {
     const single = servedStore({ turn: 1, files: [changedFile('src/example.scss', 3, 1)], total: 1, added: 3, deleted: 1 })
     const props = openProps(new PresentedOpenController(), single)
     const turn = turnLocation(1, { produced: [], changes })
-    const snapshot = { timeline: { turnOrder: [1], turns: new Map([[1, turn]]) } }
-    const useChat = <T,>(select: (value: typeof snapshot) => T): T => select(snapshot)
+    const timeline = { turnOrder: [1], turns: new Map([[1, turn]]) }
+    const snapshot: ChatSnapshot = { ...EMPTY_CHAT_SNAPSHOT, timeline }
+    const useChat: SessionStandardProps['useChat'] = select => select(snapshot)
     const dock = { ...standardProps, ...props, ...dockZone, useChat, sessionId: childSessionId, t: makeTranslate(en) }
     const view = render(<ChangedFilesDock {...dock} />)
     fireEvent.click(screen.getByRole('button', { name: 'Edited example.scss' }))

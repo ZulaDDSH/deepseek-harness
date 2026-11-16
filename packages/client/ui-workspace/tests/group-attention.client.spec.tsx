@@ -120,6 +120,7 @@ describe('ProjectRowItem attention dot', () => {
       group={group} attention={attention} onToggle={vi.fn()} onCreate={vi.fn()} t={t}
       useWorkspaceAccess={allowAllAccess.useWorkspaceAccess}
       useContextMenu={contextMenuHook()} useContextMenuTarget={select => select(null)}
+      renderFactorySlot={() => null}
     />)
   }
 
