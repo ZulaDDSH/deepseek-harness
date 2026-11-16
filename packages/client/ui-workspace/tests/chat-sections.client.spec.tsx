@@ -164,7 +164,7 @@ function createSection(name: string): void {
 const sectionsPane = (): HTMLElement => screen.getByRole('tree', { name: '分组' })
 /** A section's header row inside the pane. */
 const header = (name: string): HTMLElement =>
-  within(sectionsPane()).getByRole('treeitem', { name: `分组“${name}”的操作` })
+  within(sectionsPane()).getByRole('treeitem', { name })
 /** The Chat rows filed under one section. */
 const membersOf = (name: string): HTMLElement[] =>
   within(within(sectionsPane()).getByRole('group', { name })).getAllByRole('treeitem')
