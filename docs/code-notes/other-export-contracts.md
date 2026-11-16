@@ -92,3 +92,9 @@
 - `params.event`: Displayed frame, non-dismiss action click, or explicit dismissal.
 - `params.client`: Identity of the requesting UI for this call.
 - `returns`: True when Platform accepts the event; false when the account grant is absent or changed.
+
+### `packages/api/session-controller/src/subagent-setup.ts:SubagentRoleSetting`
+- `description`: Defines a fixed route for a configured subagent role.
+
+### `packages/client/ui-settings-models/src/client/search-entries.ts:modelsSearchEntries`
+- `description`: Builds localized search entries for the Models settings page.

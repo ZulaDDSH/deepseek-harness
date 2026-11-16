@@ -563,7 +563,8 @@ function documentedContract(
   anchor: string,
 ): string {
   const fields = notes?.get(anchor)
-  const description = fields?.get('description')
+  if (fields === undefined) return ''
+  const description = fields.get('description')
   if (description === undefined) return ''
   const lines = [`/** ${description}`]
   const mode = fields.get('mode')

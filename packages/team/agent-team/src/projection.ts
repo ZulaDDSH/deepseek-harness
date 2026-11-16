@@ -295,7 +295,7 @@ function buildTeamProjection(state: TeamProjectionState): TeamProjection {
     tasks: state.tasks
       .filter(task => task.status !== 'deleted')
       .map(task => projectTaskView(state, task)),
-    ...state.historicalMembers.length === 0 ? {} : { historicalMembers: state.historicalMembers },
+    ...state.historicalMembers.length === 0 ? {} : { historicalMembers: [...state.historicalMembers] },
     ...state.historicalMessages.length === 0 ? {} : {
       historicalMessages: state.historicalMessages.map(message => ({
         message,

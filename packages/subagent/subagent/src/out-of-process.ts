@@ -257,7 +257,7 @@ export function boundedProgress(sink: ((line: string) => void) | undefined): ((l
       : line
     try {
       sink(value)
-    } catch {
+    } catch (_progressSinkFailed) {
       // Advisory progress cannot fail the run.
     }
   }

@@ -166,7 +166,7 @@ async function footprintOf(path: string): Promise<SessionFootprint> {
   let modifiedMs = 0
   try {
     modifiedMs = (await stat(path)).mtimeMs
-  } catch {
+  } catch (_directoryRemoved) {
     // A directory removed under the walk is not a pruning candidate.
   }
   const walk = async (current: string): Promise<void> => {
@@ -186,7 +186,7 @@ async function footprintOf(path: string): Promise<SessionFootprint> {
         const info = await stat(full)
         bytes += info.size
         modifiedMs = Math.max(modifiedMs, info.mtimeMs)
-      } catch {
+      } catch (_fileRemoved) {
         // A file removed under the walk simply stops counting.
       }
     }

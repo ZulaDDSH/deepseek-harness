@@ -20,7 +20,7 @@ function saveCleared(parentSessionId: SessionId, cleared: ReadonlySet<SessionId>
   if (typeof localStorage === 'undefined') return
   try {
     localStorage.setItem(STORAGE_PREFIX + parentSessionId, JSON.stringify([...cleared]))
-  } catch { /* storage full or blocked: clearing lasts for this page only */ }
+  } catch (_storageUnavailable) { /* storage full or blocked: clearing lasts for this page only */ }
 }
 
 interface CatalogEntryLike {

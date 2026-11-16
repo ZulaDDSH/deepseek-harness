@@ -1081,6 +1081,3 @@ The configuration catalog fills missing field descriptions from anchored code no
 ## packages/typert/generator/src/cordis-catalog.ts:CordisCatalogPolicy
 
 The runtime type declaration override resolves distinct Office rendering generation brands in the shared catalog while identical declarations are deduplicated.
-packages/api/session-controller/src/subagent-setup.ts:SubagentRoleSetting requires a fixed route for each configured role.
-
-packages/client/ui-settings-models/src/client/search-entries.ts:modelsSearchEntries supplies localized entries for the Models settings page.
