@@ -37,13 +37,14 @@ class StubSubagents extends Service {
   startActivation(spec: {
     provider: string
     label: string
-    request: { prompt: { type: string; text: string }[]; maxDepth?: number }
+    prompt: { type: string; text: string }[]
+    maxDepth?: number
   }): Promise<{ childId: SessionId; messageId: MessageId }> {
     this.captured.push({
       provider: spec.provider,
       label: spec.label,
-      prompt: spec.request.prompt.map(block => block.text).join(''),
-      ...spec.request.maxDepth !== undefined ? { maxDepth: spec.request.maxDepth } : {},
+      prompt: spec.prompt.map(block => block.text).join(''),
+      ...spec.maxDepth !== undefined ? { maxDepth: spec.maxDepth } : {},
     })
     return Promise.resolve({ childId: SessionId('child-1'), messageId: MessageId('message-1') })
   }

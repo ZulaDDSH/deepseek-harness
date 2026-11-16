@@ -718,7 +718,7 @@ export async function apply(ctx: Context, config: Config, session?: Session): Pr
               const started = await runtimeCtx.subagents.startActivation({
                 provider: startProvider,
                 label: args.description,
-                request,
+                ...request,
                 signal: exec.signal,
                 delivery: 'parent',
               })
@@ -739,7 +739,8 @@ export async function apply(ctx: Context, config: Config, session?: Session): Pr
                 const start = runtimeCtx.subagents.startActivation({
                   provider: startProvider,
                   label: args.description,
-                  request: { ...request, onProgress: (line) => { job.updateProgress(line) } },
+                  ...request,
+                  onProgress: (line) => { job.updateProgress(line) },
                   signal: controller.signal,
                   delivery: 'caller',
                 })
@@ -759,7 +760,7 @@ export async function apply(ctx: Context, config: Config, session?: Session): Pr
           const started = await runtimeCtx.subagents.startActivation({
             provider: startProvider,
             label: args.description,
-            request,
+            ...request,
             signal: exec.signal,
             delivery: 'caller',
           })

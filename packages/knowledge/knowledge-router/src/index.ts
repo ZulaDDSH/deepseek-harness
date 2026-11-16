@@ -262,7 +262,9 @@ export class KnowledgeRouter extends Service {
           const started = await inner.subagents.startActivation({
             provider: this.config.delegationProvider,
             label,
-            request: { prompt: [{ type: 'text', text: prompt }], parent, ...maxDepth !== undefined ? { maxDepth } : {} },
+            prompt: [{ type: 'text', text: prompt }],
+            parent,
+            ...maxDepth !== undefined ? { maxDepth } : {},
             signal,
             delivery: 'parent',
           })

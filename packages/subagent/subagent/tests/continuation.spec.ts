@@ -134,7 +134,8 @@ function oneShotSpec(parent: Agent, signal: AbortSignal = testSignal) {
   return {
     provider: 'spawn',
     label: 'one-shot work',
-    request: { prompt: message('one-shot work'), parent },
+    prompt: message('one-shot work'),
+    parent,
     signal,
   }
 }
