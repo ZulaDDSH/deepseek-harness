@@ -4,8 +4,10 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Entry } from '@deepseek-ai/cordis-plugin-loader'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import { boot, initProfile, loadProfileDirectory, readProfileManifest, readProfilePatches, type ProfileContext } from '@deepseek-ai/dsh-app-boot'
+import type { McpConnectionReport } from '@deepseek-ai/dsh-mcp-client'
 import { parse } from 'yaml'
 import PluginManager, { type McpServerCandidate, type PluginInfo } from '../src/index.ts'
 import type * as McpServers from '../src/mcp-servers.ts'
@@ -107,7 +109,7 @@ it('attaches each server connection its MCP client reports to the listed row', a
   vi.spyOn(ctx.loader, 'entries').mockImplementation(function* () { yield* entries })
   vi.spyOn(manager, 'listPlugins').mockResolvedValue([row('include:mcp-a', 'mcp-a'), row('include:mcp-b', 'mcp-b')])
   ctx.on('mcp-client/inventory', (reports) => {
-    reports.push({ serverName: 'a', state: 'auth-required', toolCount: 0, authKey: 'mcp-client/srv-a-1' })
+    reports.push({ serverName: 'a', state: 'auth-required', toolCount: 0, authKey: brandString<NonNullable<McpConnectionReport['authKey']>>('mcp-client/srv-a-1') })
   })
   const [first, second] = await manager.listMcpServers()
   expect(first?.connection).toEqual({ state: 'auth-required', toolCount: 0, authKey: 'mcp-client/srv-a-1' })

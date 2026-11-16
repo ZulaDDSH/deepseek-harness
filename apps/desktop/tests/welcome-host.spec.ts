@@ -8,7 +8,7 @@ function transport(preference?: string) {
     { ns: 'locale', value: preference === undefined ? {} : { preference } },
   ]
   const send = vi.fn<Parameters<typeof connectDesktopWelcome>[1]>(async (_input, init) => {
-    const { rpcId, method } = JSON.parse(init.body as string) as { rpcId: string; method: string }
+    const { rpcId, method } = JSON.parse(init!.body as string) as { rpcId: string; method: string }
     let value: unknown
     if (method === 'settings/describe') value = { namespaces }
     else if (method === 'productAnalytics/enabled') value = true

@@ -4,6 +4,7 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import SessionStore, { type SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { runOptionsProjection } from '../src/run-options.ts'
+import type { SubagentSetup } from '../src/subagent-setup.ts'
 import { teamRoleDefaultOf } from '../src/team-role-defaults.ts'
 
 const contexts = new Set<Context>()
@@ -22,7 +23,7 @@ async function fixture() {
 }
 
 const route = { backend: 'llm', provider: 'alpha', model: 'coder-model', reasoningEffort: 'high' } as const
-const setup = {
+const setup: SubagentSetup = {
   enabled: true,
   reviewRounds: 2,
   roles: { coder: { mode: 'fixed', route } },

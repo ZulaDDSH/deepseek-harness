@@ -23,7 +23,7 @@ describe('dsh-base bundle', () => {
     const parsed = parseEntryYaml(readFileSync(resolve(root, manifest.dsh!.bundle!.patch!), 'utf8'))
     expect(Array.isArray(parsed)).toBe(true)
     // The base layer is one insert list over the empty profile root.
-    const rows = (parsed as { insert?: { id?: string; config?: Record<string, unknown>; disabled?: boolean }[] }[]).flatMap(
+    const rows = (parsed as { insert?: { id?: string; name?: string; config?: Record<string, unknown>; disabled?: boolean }[] }[]).flatMap(
       patch => patch.insert ?? [],
     )
     expect(rows.length).toBeGreaterThan(50)

@@ -174,8 +174,8 @@ describe('hooks-codex bridge', () => {
     const cliAgent = agentFake({ id: cli.id, session: cli, ctx, inject: injectCli })
     const plainAgent = agentFake({ id: plain.id, session: plain, ctx, inject: injectPlain })
 
-    ctx.effect(() => ctx.agents.enter(cliAgent, undefined))
-    ctx.effect(() => ctx.agents.enter(plainAgent, undefined))
+    ctx.effect(() => ctx.agents.enter(cliAgent))
+    ctx.effect(() => ctx.agents.enter(plainAgent))
     await ctx.agents.announce(cliAgent, 'resume')
     await ctx.agents.announce(plainAgent, 'resume')
 

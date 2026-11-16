@@ -120,7 +120,7 @@ describe.skipIf(!existsSync(builtHost))('built Desktop account session', () => {
       })
       await manager.applyRelease()
       writeFileSync(join(paths.profile, 'cordis.patch.yml'), `- id: webserver\n  config:\n    host: 127.0.0.1\n    port: 0\n- id: deepseek-account\n  config:\n${process.platform === 'linux' ? '    desktopPlatform: darwin\n' : ''}    platformOrigin: ${platform.origin}\n    allowLoopbackHttp: true\n    requestHeaders:\n      Cookie: test_gate=synthetic\n`)
-      let backend: DesktopWelcomeBackend
+      let backend!: DesktopWelcomeBackend
       let hostOrigin = ''
       const restart = async (): Promise<void> => {
         await host?.stop()
