@@ -70,33 +70,14 @@ function markers(): CommandMarkers {
   }
 }
 
-/**
- * Escape a command body for embedding in the wrapper's double-quoted string.
- * Backtick escapes keep every character literal: backtick first so the
- * escapes this function inserts are never re-escaped, `$` so no expansion
- * happens at wrapper construction, and `\r\n`/ESC so multi-line commands and
- * raw control bytes ride one physical input line without PSReadLine mangling.
- * @param value - the model's PowerShell command text.
- * @returns the escaped double-quoted-string body.
- */
-function quoteForPwsh(value: string): string {
-  return value
-    .replaceAll('`', '``')
-    .replaceAll('"', '`"')
-    .replaceAll('$', '`$')
-    .replaceAll('\r', '')
-    .replaceAll('\n', '`n')
-    .replaceAll('\x1b', '`e')
-}
-
 function wrapCommand(command: string, marker: CommandMarkers): string {
   // Keep the wrapper on one physical line: PSReadLine renders the echoed
   // input, and a wrapped line would split the echo the extraction strips.
   // The echoed END nonce can never fabricate completion because the status
   // regex needs digits immediately after it and the echo continues with
   // quote characters.
-  const body = quoteForPwsh(command)
-  return `Write-Output '${marker.start}'; $LASTEXITCODE = $null; $__s = 1; try { Invoke-Expression "${body}"; $__ok = $? } catch { $__ok = $false }; if ($null -ne $LASTEXITCODE) { $__s = [int]$LASTEXITCODE } else { $__s = if ($__ok) { 0 } else { 1 } }; Write-Output ('${marker.end}' + $__s)`
+  const body = Buffer.from(command, 'utf8').toString('base64')
+  return `Write-Output '${marker.start}'; $LASTEXITCODE = $null; $__s = 1; try { Invoke-Expression ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${body}'))); $__ok = $? } catch { $__ok = $false }; if ($null -ne $LASTEXITCODE) { $__s = [int]$LASTEXITCODE } else { $__s = if ($__ok) { 0 } else { 1 } }; Write-Output ('${marker.end}' + $__s)`
 }
 
 function trimTrailingNewline(text: string): string {
