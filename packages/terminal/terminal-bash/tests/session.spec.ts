@@ -1383,7 +1383,7 @@ describe('LocalPtySession readiness and output', () => {
     await Promise.resolve()
     await Promise.resolve()
 
-    await vi.advanceTimersByTimeAsync(10)
+    await vi.advanceTimersByTimeAsync(30)
     expect(await operation.done).toMatchObject({ waitReason: 'stdin_read' })
     await session.close('interactive child cleanup')
   })
@@ -1423,7 +1423,7 @@ describe('LocalPtySession readiness and output', () => {
     terminal.emitData(`\nSTART\n${'x'.repeat(100)}`)
     expect(session.read({}).text).not.toContain('START')
     inspector.waiting = true
-    await vi.advanceTimersByTimeAsync(10)
+    await vi.advanceTimersByTimeAsync(30)
     expect(await operation.done).toMatchObject({ waitReason: 'stdin_read' })
     await session.close('evicted readiness marker cleanup')
   })
