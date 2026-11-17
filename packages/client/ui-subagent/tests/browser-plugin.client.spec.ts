@@ -1,8 +1,6 @@
 /** ui-subagent browser half: catalog actions and read-only composer routing. */
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { Context } from '@deepseek-ai/cordis'
-import { stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import type {
   SessionListState, SessionSnapshot, SessionSummary,
 } from '@deepseek-ai/dsh-api-session-controller/client'
@@ -10,16 +8,13 @@ import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ComposerChainProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
-import { SettingsDirectory } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-directory.ts'
+import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import {
-  SubagentHeaderLineage, type SubagentCatalogInjected,
+  SubagentHeaderLineage, type SubagentCatalogInjected, type SubagentCatalogActionInjected,
 } from '../src/client/SubagentHeaderLineage.tsx'
 import {
   SubagentReadOnlyComposer, type SubagentReadOnlyMatch,
 } from '../src/client/SubagentReadOnlyComposer.tsx'
-import type { SubagentSetupViewInjected } from '../src/client/subagent-setup/SubagentSetupView.tsx'
-import type { GlobalSetupSection } from '../src/client/subagent-setup/global-setup.ts'
 import { apply, inject } from '../src/client/index.ts'
 
 function summary(partial: Partial<SessionSummary> & { id: SessionId }): SessionSummary {
@@ -71,7 +66,6 @@ async function provideSlotFaces(ctx: Context): Promise<void> {
       'conversation.composer': { kind: 'chain', scope: 'session' },
       'conversation.view': { kind: 'list', scope: 'session' },
       'settings.section': { kind: 'list', scope: 'root' },
-      'plugins.item': { kind: 'list', scope: 'root' },
     },
   } as never, () => null)
 }
@@ -81,6 +75,7 @@ async function fullBench(sessions: SessionSummary[]) {
   const ctx = new Context()
   const face = sessionsWith(sessions)
   ctx.provide('sessions', face)
+  ctx.provide('uiSession.sessionStatus', {} as never)
   ctx.provide('uiWorkspace', {
     openSession: (address: SubagentAddress) => {
       face.actionCalls.push({ method: 'openSession', args: [address] })
@@ -91,20 +86,10 @@ async function fullBench(sessions: SessionSummary[]) {
       face.actionCalls.push({ method: 'openResource', args: [address, options] })
     },
   } as never)
-  ctx.provide('remote', { $on: () => () => {} } as never)
-  ctx.reflect.provide('remote.session', {})
-  const served: { namespaces: readonly string[]; register: (served: ReadonlySet<string>) => () => void }[] = []
-  const whileServed = vi.fn((namespaces: readonly string[], register: (served: ReadonlySet<string>) => () => void) => {
-    served.push({ namespaces, register })
-    return () => {}
-  })
-  const globalForm = stubConfigForm<GlobalSetupSection>()
-  ctx.provide('configForms', { developerTools: { enabled: createSnapshotStore(true) }, get: () => globalForm.scope, whileServed } as never)
-  new SettingsDirectory(ctx)
   await provideSlotFaces(ctx)
-  await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
+  ctx.provide('locale', new LocaleRuntime(ctx))
   await ctx.plugin({ inject: [...inject], apply }).await()
-  return { face, ctx, served, globalForm }
+  return { face, ctx }
 }
 
 const FAMILY: SessionSummary[] = [
@@ -119,51 +104,20 @@ const FAMILY: SessionSummary[] = [
 
 describe('apply', () => {
   it('declares the services it binds', () => {
-    expect(inject).toEqual(['sessions', 'uiWorkspace', 'slots', 'locale', 'sidebarRight', 'remote', 'remote.session', 'configForms', 'settingsDirectory'])
+    expect(inject).toEqual(['sessions', 'uiWorkspace', 'slots', 'locale', 'sidebarRight', 'uiSession.sessionStatus'])
   })
 
-  it('registers the Subagent Setup View tab after Trajectory', async () => {
+  it('does not register a custom setup conversation tab or Settings page', async () => {
     const { ctx } = await fullBench(FAMILY)
-    const setupEntry = ctx.slots.entries('conversation.view').find(entry => entry.options.id === 'subagent-setup')!
-    expect(setupEntry.options.order).toBe(20)
-    expect(setupEntry.options.label).toBeTypeOf('function')
-  })
-
-  it('puts the global Orchestrator & Subagents page in Settings only while the Host serves session-controller, and no longer on the Plugins page', async () => {
-    const { ctx, served, globalForm } = await fullBench(FAMILY)
+    expect(ctx.slots.entries('conversation.view').some(entry => entry.options.id === 'subagent-setup')).toBe(false)
     expect(ctx.slots.entries('settings.section')).toEqual([])
-    const registration = served.find(entry => entry.namespaces.includes('session-controller'))!
-    const dispose = registration.register(new Set(['session-controller']))
-    const entry = ctx.slots.entries('settings.section').find(candidate => candidate.options.id === 'subagent-setup')!
-    expect(entry.options.label).toBeTypeOf('function')
-    expect(ctx.slots.entries('plugins.item')).toEqual([])
-    const injected = (entry.inject! as () => Pick<SubagentSetupViewInjected, 'hooks' | 'mode' | 'saveGlobal'>)()
-    expect(injected.mode).toBe('global')
-    expect(ctx.settingsDirectory.search('defaults').map(item => item.id)).toContain('subagent-setup.defaults')
-    expect(ctx.settingsDirectory.search('coder').map(item => item.id)).toContain('subagent-setup.roles')
-    expect(ctx.settingsDirectory.search('GSD').map(item => item.id)).toContain('subagent-setup.gsd')
-    expect(ctx.settingsDirectory.search('orchestrator').every(item => item.section === 'subagent-setup')).toBe(true)
-
-    const setup = { enabled: true, reviewRounds: 1, roles: { coder: { mode: 'jev' as const } } }
-    await expect(injected.saveGlobal(setup)).resolves.toBeUndefined()
-    expect(globalForm.mutate).toHaveBeenCalledWith([{ op: 'set', path: ['subagentSetup'], value: setup }], undefined)
-    globalForm.publish({ value: { subagentSetup: setup }, revision: 2 })
-    expect(injected.hooks.globalSetup.getSnapshot()).toEqual(setup)
-
-    dispose()
-    expect(ctx.slots.entries('settings.section')).toEqual([])
-    expect(ctx.settingsDirectory.search('defaults')).toEqual([])
-  })
-
-  it('follows the Claude Code settings namespace to learn whether the Claude CLI backend exists', async () => {
-    const { served } = await fullBench(FAMILY)
-    expect(served.some(entry => entry.namespaces.includes('subagent-claude-code'))).toBe(true)
   })
 
   it('registers catalog actions and selects read-only subagent composers from session facts', async () => {
     const { ctx, face } = await fullBench(FAMILY)
     const catalogEntry = ctx.slots.entries('conversation.session.header.lineage')
       .find(entry => entry.component === SubagentHeaderLineage)!
+    expect(catalogEntry).toBeDefined()
     const actions = (catalogEntry.inject as unknown as (id: SessionId) => SubagentCatalogInjected)(sid('parent'))
     const address: SubagentAddress = {
       parentSessionId: sid('parent'),
@@ -191,7 +145,9 @@ describe('apply', () => {
     const actionEntry = ctx.slots.entries('conversation.session.header.actions')
       .find(entry => entry.options.id === 'subagent-catalog')!
     expect(actionEntry.options.order).toBe(10)
-    expect(actionEntry.inject).toBe(catalogEntry.inject)
+    const actionProps = (actionEntry.inject as (id: SessionId) => SubagentCatalogActionInjected)(sid('parent'))
+    expect(actionProps.openChild).toBeTypeOf('function')
+    expect(actionProps.hooks.footerAvailable.getSnapshot()).toBe(false)
 
     const composerEntry = ctx.slots.entries('conversation.composer')
       .find(entry => entry.component === SubagentReadOnlyComposer)!

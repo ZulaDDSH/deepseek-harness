@@ -13,14 +13,14 @@ export interface HttpMcpFixture {
   close: () => Promise<void>
 }
 
-/** Handles a request itself, returning true, or lets the MCP endpoint answer it. */
 export type HttpIntercept = (request: IncomingMessage, response: ServerResponse) => boolean | Promise<boolean>
 
-/** Start a local stateless MCP endpoint exposing one `ping` tool. */
-export async function startHttpMcpFixture(intercept?: HttpIntercept): Promise<HttpMcpFixture> {
+export async function startHttpMcpFixture(input: HttpIntercept | { rejectToolCalls?: boolean } = {}): Promise<HttpMcpFixture> {
+  const intercept = typeof input === 'function' ? input : undefined
+  const options = typeof input === 'function' ? {} : input
   const calls: string[] = []
   const authorization: Array<string | undefined> = []
-  const handler = createMcpHandler(() => {
+  const handler = createMcpHandler(({ requestInfo }) => {
     const mcp = new McpServer(
       { name: 'http-fixture', version: '1.0.0' },
       { capabilities: { tools: {}, resources: {} } },
@@ -28,6 +28,9 @@ export async function startHttpMcpFixture(intercept?: HttpIntercept): Promise<Ht
     mcp.registerResource('note', 'note://one', { mimeType: 'text/plain' }, async uri => ({ contents: [{ uri: uri.href, text: 'one' }] }))
     mcp.registerTool('ping', { description: 'Replies pong.', inputSchema: z.object({}) }, async (): Promise<CallToolResult> => {
       calls.push('ping')
+      if (options.rejectToolCalls) {
+        return { isError: true, content: [{ type: 'text', text: `MCP fixture rejected ${requestInfo?.headers.get('authorization')}` }] }
+      }
       return { content: [{ type: 'text', text: 'pong' }] }
     })
     return mcp

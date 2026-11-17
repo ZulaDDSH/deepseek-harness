@@ -12,7 +12,7 @@ afterEach(cleanup)
 
 const tabs: ViewTab[] = [
   { id: 'chat', label: 'Chat' },
-  { id: 'subagent-setup', label: 'Orchestrator & Subagent Setup' },
+  { id: 'trajectory', label: 'Trajectory' },
 ]
 
 function renderViews(options: { blank: boolean; selected: string }) {
@@ -26,9 +26,9 @@ function renderViews(options: { blank: boolean; selected: string }) {
     useInput: (select: (value: { draft: string }) => unknown) => select({ draft: '' }),
     useInspectCall: (select: (value: undefined) => unknown) => select(undefined),
     useStore: (select: (value: { view: string; draft: string }) => unknown) => select({ view: options.selected, draft: '' }),
-    inputActions: {},
+    inputActions: { persistDraft: vi.fn() },
     actions: { setDraft: vi.fn(), completeViewRequest: vi.fn() },
-    bindDraftMirror: () => () => {},
+    bindDraftPersistence: () => () => {},
     openView: vi.fn(),
     renderSlot,
   } as never
@@ -37,9 +37,9 @@ function renderViews(options: { blank: boolean; selected: string }) {
 }
 
 describe('DefaultConversationViews on a blank Session', () => {
-  it('renders the Subagent Setup view before the first message', () => {
-    const { view } = renderViews({ blank: true, selected: 'subagent-setup' })
-    expect(view.getByTestId('view-subagent-setup')).toBeTruthy()
+  it('renders a registered non-Chat view before the first message', () => {
+    const { view } = renderViews({ blank: true, selected: 'trajectory' })
+    expect(view.getByTestId('view-trajectory')).toBeTruthy()
   })
 
   it('still renders nothing for the Chat view, so the hero stays alone', () => {

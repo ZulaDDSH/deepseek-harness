@@ -38,6 +38,9 @@ import {
   type HookInventoryReport,
   DEFAULT_HOOK_TIMEOUT_MS,
   DEFAULT_STDERR_SUMMARY_MAX_CHARS,
+  HOOK_BLOCKED,
+  HOOK_DENIED,
+  HOOK_ERROR_NAME,
   createStopLoopGuard,
   DEFAULT_MAX_FORCED_STOPS,
   hookToolName,
@@ -339,7 +342,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> => {
     const turn = lastTurn(ctx, exec.agent)
     const merged = await runPoint('PreToolUse', exec.name, preToolPayload(exec), { ...exec.agent ? { agent: exec.agent } : {}, turn, signal: exec.signal })
-    if (merged.decision === 'deny' || merged.stop) return { kind: 'deny', reason: merged.reason ?? merged.stopReason ?? 'blocked by PreToolUse hook' }
+    if (merged.decision === 'deny' || merged.stop) return { kind: 'deny', reason: merged.reason ?? merged.stopReason ?? 'blocked by PreToolUse hook', info: { name: HOOK_ERROR_NAME, code: HOOK_DENIED } }
     if (merged.decision === 'ask') return { kind: 'ask', ...merged.reason !== undefined ? { reason: merged.reason } : {} }
     return next()
   })
@@ -350,7 +353,12 @@ export function apply(ctx: Context, config: Config): void {
     const merged = await runPoint('PostToolUse', exec.name, postToolPayload(exec, result), { ...exec.agent ? { agent: exec.agent } : {}, turn, signal: exec.signal })
     const context = contextFrom(merged)
     if (merged.decision === 'deny') {
-      return { kind: 'block', feedback: [{ type: 'text', text: merged.reason ?? 'blocked by PostToolUse hook' }], ...context ? { additionalContexts: [context] } : {} }
+      return {
+        kind: 'block',
+        feedback: [{ type: 'text', text: merged.reason ?? 'blocked by PostToolUse hook' }],
+        info: { name: HOOK_ERROR_NAME, code: HOOK_BLOCKED },
+        ...context ? { additionalContexts: [context] } : {},
+      }
     }
     // Our hooks did not block. DELEGATE so a later listener can still block/replace,
     // then fold our context onto its decision (a downstream block carries it too).

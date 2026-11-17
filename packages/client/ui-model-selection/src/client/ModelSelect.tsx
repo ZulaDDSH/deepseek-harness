@@ -36,22 +36,22 @@ import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import type { ModelReasoningEffort, ModelSelection } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SessionRunOptions, SessionRunOptionsProjection } from '@deepseek-ai/dsh-api-session-controller/types'
+import { TextSearchIndex } from '@deepseek-ai/dsh-util-text-search'
 import {
   IconCheckOutlineRegular, IconChevronDownOutlineRegular, IconChevronRightOutlineRegular, IconCloseFillRegular,
-  IconDataOutlineRegular, IconWarningOutlineRegular, Input, isMobileDevice, Pill, rankByName, StateDot, Switch, Tag, Toast,
+  IconDataOutlineRegular, IconWarningOutlineRegular, Input, isMobileDevice, Pill, StateDot, Switch, Tag, Toast,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ModelDirectoryState } from './directory.ts'
 import type { ModelKey } from './locales.ts'
-import type { ModelLabelOwner, ModelSelectInjected } from './slots.ts'
+import type { ModelLabelOwner, ModelMenuControls, ModelMenuPaneRef, ModelSelectInjected } from './slots.ts'
 import { CliTerminalEntries } from './CliTerminalEntries.tsx'
 import { descriptionOf, rowId } from './descriptions.ts'
 import css from './ModelSelect.module.css'
 import { orderModelProviders } from './provider-order.ts'
-import { subagentLockOf } from './subagent-lock.ts'
 
 /** Which pane the dropdown shows: the two-row root or one drilled-in list. */
-type Pane = 'root' | 'model' | 'effort'
+type Pane = 'root' | 'model' | 'effort' | 'detail'
 
 /** One dynamic effort row; undefined means preserve the provider default. */
 interface EffortChoice {
@@ -110,23 +110,23 @@ const CLAUDE_EFFORTS = [
  */
 export function ModelSelect(
   { locked, useProjection, available, useModelDirectory, load, select, useModelFavorites, toggleFavorite, setRunOptions, openCliTerminal,
-    cliProfiles, openSubagentSetup, useGlobalSetup, resolveText, renderSlot, t }:
+    cliProfiles, resolveText, renderSlot, t }:
   Pick<PropsRuntime<'conversation.input.model'>, 'locked' | 'useProjection'> & InjectFace<ModelSelectInjected> & PropsLocale<'model'>
-    & Omit<PropsRenderSlots<'conversation.input.model.label'>, 'SessionProvider'>,
+    & Omit<PropsRenderSlots<'conversation.input.model.label' | 'conversation.input.model.options' | 'conversation.input.model.pane'>, 'SessionProvider'>,
 ) {
   const state = useModelDirectory(snapshot => snapshot)
   const [open, setOpen] = useState(false)
   const [pane, setPane] = useState<Pane>('root')
+  const [detailPane, setDetailPane] = useState<ModelMenuPaneRef | null>(null)
   const [query, setQuery] = useState('')
   const [providerFilter, setProviderFilter] = useState<string | null>(null)
+  const [showAllModels, setShowAllModels] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null)
   const [selectionFocus, setSelectionFocus] = useState(false)
   const favoriteIds = useModelFavorites(ids => ids)
   const favoriteSet = useMemo(() => new Set(favoriteIds), [favoriteIds])
   const projectedRunOptions = useProjection('runOptions')
   const claudeCodeRunOptions = useProjection('claudeCodeRunOptions', capability => capability !== undefined)
-  const globalSetup = useGlobalSetup(value => value)
-  const { on: subagentSetupOn, effortLocked, route: drivenRoute } = subagentLockOf(projectedRunOptions?.current?.subagentSetup, globalSetup)
   const runOptionsWritable = setRunOptions !== undefined && projectedRunOptions !== undefined
   const latestRunOptions = useRef(projectedRunOptions)
   useEffect(() => { latestRunOptions.current = projectedRunOptions }, [projectedRunOptions])
@@ -153,6 +153,9 @@ export function ModelSelect(
   const groupsRef = useRef<HTMLDivElement | null>(null)
   const [menuPos, setMenuPos] = useState<CSSProperties | null>(null)
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([])
+  const detailInvoker = useRef<string | null>(null)
+  const moreModelsRef = useRef<HTMLButtonElement | null>(null)
+  const rootProviderRef = useRef<string | null>(null)
   const id = useId()
 
   const accountProviderName = t('provider.account')
@@ -170,10 +173,15 @@ export function ModelSelect(
       selection: selectionFor(group.id, model),
     }))), [groups])
   const showSearch = choices.length > 4
+  const groupIndexes = useMemo(() => groups.map(group => ({
+    group, index: new TextSearchIndex(group.models, model => ({ fuzzy: [model.name, model.id], substring: [model.description] })),
+  })), [groups])
   const filteredSections = useMemo(() => {
-    const matching = groups
-      .filter(group => providerFilter === null || group.id === providerFilter)
-      .map(group => ({ group, models: rankByName(group.models, showSearch ? query.trim() : '') }))
+    const matching = groupIndexes
+      .filter(({ group }) => providerFilter === null || group.id === providerFilter)
+      .map(({ group, index }) => ({ group, models: index.search(showSearch ? query : '').filter(model =>
+        showAllModels || query.trim() !== '' || group.models.slice(0, 4).includes(model)
+        || favoriteSet.has(rowId(group.id, model.id)) || (state.current?.provider === group.id && state.current.model === model.id)) }))
     const providerSections = matching.map(({ group, models }) => ({
       key: group.id,
       label: group.provider.name,
@@ -188,12 +196,12 @@ export function ModelSelect(
     return favorites.length === 0
       ? providerSections
       : [{ key: 'favorites', label: t('favorites.title'), rows: favorites }, ...providerSections]
-  }, [groups, providerFilter, showSearch, query, favoriteSet, t])
+  }, [groupIndexes, providerFilter, showAllModels, showSearch, query, favoriteSet, state.current, t])
   const visibleRows = useMemo(() => filteredSections.flatMap(section => section.rows), [filteredSections])
   const currentVisibleIndex = visibleRows.findIndex(row =>
     row.group.id === state.current?.provider && row.model.id === state.current.model)
   const activeModelIndex = Math.min(highlightedIndex ?? Math.max(0, currentVisibleIndex), visibleRows.length - 1)
-  const shown = drivenRoute ?? state.current
+  const shown = state.current
   const selectedIndex = shown === null
     ? -1
     : choices.findIndex(c => c.selection.provider === shown.provider && c.selection.model === shown.model)
@@ -201,7 +209,7 @@ export function ModelSelect(
   const reasoning = currentChoice?.model.reasoning
   const effectiveEffort = shown?.reasoningEffort ?? reasoning?.defaultEffort
   const effortLabel = reasoning === undefined
-    ? drivenRoute === undefined ? state.retainedEffort : drivenRoute.reasoningEffort
+    ? state.retainedEffort
     : effectiveEffort === undefined
       ? t('effort.providerDefault')
       : reasoning.efforts.find(level => level.id === effectiveEffort)?.name ?? effectiveEffort
@@ -236,9 +244,15 @@ export function ModelSelect(
       if (rootRef.current?.contains(event.target as Node) === true) return
       if (menuRef.current?.contains(event.target as Node) === true) return
       setOpen(false)
+      setPane('root')
+      setDetailPane(null)
     }
+    document.addEventListener('pointerdown', closeOutside)
     document.addEventListener('mousedown', closeOutside)
-    return () => { document.removeEventListener('mousedown', closeOutside) }
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside)
+      document.removeEventListener('mousedown', closeOutside)
+    }
   }, [open])
 
   useLayoutEffect(() => {
@@ -250,7 +264,7 @@ export function ModelSelect(
 
   // Pane switches unmount the focused row; restore focus inside the menu so
   // keyboard navigation remains available.
-  const paneFocus = useRef<'drill' | 'model' | 'effort' | null>(null)
+  const paneFocus = useRef<'drill' | 'model' | 'effort' | 'detail' | null>(null)
   const previousShowSearch = useRef(showSearch)
   useEffect(() => {
     const changedSearchMode = previousShowSearch.current !== showSearch
@@ -259,6 +273,10 @@ export function ModelSelect(
     paneFocus.current = null
     if (!open || intent === null) return
     if (intent === 'drill') {
+      if (pane === 'detail') {
+        if (menuRef.current?.contains(document.activeElement) !== true) (menuRef.current ?? triggerRef.current)?.focus()
+        return
+      }
       if (pane === 'model' && showSearch && !isMobileDevice()) {
         searchRef.current?.focus()
         return
@@ -272,7 +290,17 @@ export function ModelSelect(
       ;(target ?? triggerRef.current)?.focus()
       return
     }
-    const cell = itemRefs.current[intent === 'effort' ? 1 : 0]
+    if (intent === 'detail') {
+      const invoker = [...menuRef.current?.querySelectorAll<HTMLButtonElement>('[data-model-menu-pane]') ?? []]
+        .find(button => button.dataset['modelMenuPane'] === detailInvoker.current)
+      ;(invoker ?? triggerRef.current)?.focus()
+      return
+    }
+    const providerCell = intent === 'model' && rootProviderRef.current !== null
+      ? [...menuRef.current?.querySelectorAll<HTMLButtonElement>('[data-model-provider]') ?? []]
+        .find(item => item.dataset['modelProvider'] === rootProviderRef.current)
+      : undefined
+    const cell = providerCell ?? itemRefs.current[intent === 'effort' ? 1 : 0]
     ;(cell !== null && cell !== undefined && !cell.disabled ? cell : triggerRef.current)?.focus()
   }, [open, pane, showSearch])
 
@@ -325,8 +353,11 @@ export function ModelSelect(
   const show = (): void => {
     setSelectionFocus(false)
     triggerRef.current?.focus()
+    setDetailPane(null)
     setQuery('')
     setProviderFilter(null)
+    setShowAllModels(false)
+    rootProviderRef.current = null
     setHighlightedIndex(null)
     if (currentChoice === undefined) paneFocus.current = 'drill'
     setPane(currentChoice === undefined ? 'model' : 'root')
@@ -342,6 +373,7 @@ export function ModelSelect(
   const close = (restoreFocus = false): void => {
     setOpen(false)
     setPane('root')
+    setDetailPane(null)
     if (restoreFocus) queueMicrotask(() => { triggerRef.current?.focus() })
   }
 
@@ -360,6 +392,7 @@ export function ModelSelect(
   /** Leave a drilled pane for the root one, handing the keyboard back to its cell. */
   const back = (from: Exclude<Pane, 'root'>): void => {
     paneFocus.current = from
+    if (from === 'detail') setDetailPane(null)
     setPane('root')
   }
 
@@ -381,15 +414,26 @@ export function ModelSelect(
     if (event.key === 'Escape' && open) {
       event.preventDefault()
       // Escape backs out of a drilled pane first, then closes.
-      if (pane !== 'root' && currentChoice !== undefined) back(pane)
+      if (pane === 'detail' || (pane !== 'root' && (currentChoice !== undefined || rootProviderRef.current !== null))) back(pane)
       else close(true)
       return
     }
     if (!open) return
-    if (pane === 'model' && showSearch && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+    if (pane === 'detail' && event.key === 'Tab') {
+      event.preventDefault()
+      close(true)
+      return
+    }
+    if (pane === 'model' && showSearch && event.target !== moreModelsRef.current
+      && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
       event.preventDefault()
       if (!busy && visibleRows.length > 0) {
         const direction = event.key === 'ArrowDown' ? 1 : -1
+        if (moreModelsRef.current !== null
+          && ((direction === 1 && activeModelIndex === visibleRows.length - 1) || (direction === -1 && activeModelIndex === 0))) {
+          moreModelsRef.current.focus()
+          return
+        }
         setHighlightedIndex((activeModelIndex + direction + visibleRows.length) % visibleRows.length)
         searchRef.current?.focus()
       }
@@ -409,7 +453,7 @@ export function ModelSelect(
     if (event.key === 'Tab') {
       if (event.shiftKey) {
         event.preventDefault()
-        if (pane !== 'root' && currentChoice !== undefined) back(pane)
+        if (pane !== 'root' && (currentChoice !== undefined || rootProviderRef.current !== null)) back(pane)
         else close(true)
         return
       }
@@ -425,7 +469,7 @@ export function ModelSelect(
       // trigger, Tab enters the menu at the value in use instead. Any other
       // control inside the card (a retry button) keeps the browser's traversal,
       // so the keystroke stays unconsumed there.
-      const rows = itemRefs.current.filter((item): item is HTMLButtonElement => item !== null)
+      const rows = rowsOf(menuRef.current).filter((item): item is HTMLButtonElement => item instanceof HTMLButtonElement)
       if (focused instanceof HTMLButtonElement && rows.includes(focused)) {
         event.preventDefault()
         focused.click()
@@ -449,6 +493,7 @@ export function ModelSelect(
   }
 
   const onBlur = (event: FocusEvent<HTMLDivElement>): void => {
+    if (pane === 'detail' && event.relatedTarget === null) return
     if (event.relatedTarget instanceof Node && (
       rootRef.current?.contains(event.relatedTarget) === true
       || menuRef.current?.contains(event.relatedTarget) === true
@@ -464,6 +509,21 @@ export function ModelSelect(
         ? t('error.sessionInUse')
         : t('error.action', { message: `${error.code}: ${error.message}` }),
     })
+  }
+
+  const controls: ModelMenuControls = {
+    locked: locked || busy,
+    dismiss: () => {
+      close()
+      triggerRef.current?.focus()
+    },
+    reportFailure: (message) => { setToast({ seq: ++toastSeq.current, text: message }) },
+  }
+  const openPane = (next: ModelMenuPaneRef): void => {
+    detailInvoker.current = next.key
+    paneFocus.current = 'drill'
+    setDetailPane(next)
+    setPane('detail')
   }
 
   const settleSelection = (result: Awaited<ReturnType<ModelSelectInjected['select']>>): void => {
@@ -527,7 +587,7 @@ export function ModelSelect(
     if (state.current === null) return
     const ultracode = level.ultracode === true
     if (ultracode !== ultracodeOn) writeRunOptions({ ultracode })
-    if (effortLocked || effectiveEffort === level.effort) {
+    if (effectiveEffort === level.effort) {
       closeAfterSelection()
       return
     }
@@ -565,9 +625,9 @@ export function ModelSelect(
     </span>
   )
   const waiting = currentChoice === undefined && state.status === 'loading'
-  const unroutedCurrent = shown !== null && state.routable === false && drivenRoute === undefined
+  const unroutedCurrent = shown !== null && state.routable === false
   const providerListed = shown !== null && state.groups.some(group => group.id === shown.provider)
-  const modelName = currentChoice?.model.name ?? (drivenRoute === undefined ? state.retainedName : undefined)
+  const modelName = currentChoice?.model.name ?? state.retainedName
   const modelLabel = waiting
     ? t('trigger.loading')
     : shown === null
@@ -651,16 +711,23 @@ export function ModelSelect(
       {open && createPortal(
         <MenuSurface
           ref={menuRef}
+          data-model-menu=""
+          tabIndex={pane === 'detail' ? -1 : undefined}
           id={`${id}-menu`}
-          className={css.menu}
+          className={clsx(css.menu, (pane === 'root' || pane === 'detail') && css.settingsMenu, pane === 'root' && css.rootMenu)}
           style={menuPos ?? MEASURE_STYLE}
-          role={pane === 'model' ? 'group' : 'menu'}
-          aria-label={t('menu.aria')}
+          role={pane === 'model' || pane === 'detail' ? 'group' : 'menu'}
+          aria-label={pane === 'detail' ? detailPane?.title : t('menu.aria')}
           aria-busy={state.status === 'loading' || busy}
         >
           {pane === 'root' && (
             <>
-              <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { drill('model') }}>
+              <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => {
+                rootProviderRef.current = null
+                setProviderFilter(null)
+                setShowAllModels(false)
+                drill('model')
+              }}>
                 <span className={css.cellLabel}>{t('menu.model')}</span>
                 <span className={css.cellValue}>
                   {currentChoice === undefined ? modelLabel : renderModelLabel(currentChoice.group.provider, currentChoice.model, 'menu', true)}
@@ -674,6 +741,18 @@ export function ModelSelect(
                   <IconChevronRightOutlineRegular className={css.cellChevron} />
                 </button>
               )}
+              {renderSlot('conversation.input.model.options', { ...controls, openPane })}
+              {groups.map(group => (
+                <button key={group.id} ref={itemRef()} type="button" role="menuitem" data-model-provider={group.id} className={css.cell} onClick={() => {
+                  rootProviderRef.current = group.id
+                  setProviderFilter(group.id)
+                  setShowAllModels(false)
+                  drill('model')
+                }}>
+                  <span className={css.cellLabel}>{group.provider.name}</span>
+                  <IconChevronRightOutlineRegular className={css.cellChevron} />
+                </button>
+              ))}
               <CliTerminalEntries t={t} probe={cliProfiles} onPick={(profile) => {
                 close()
                 openCliTerminal(profile).catch((error: unknown) => {
@@ -686,12 +765,6 @@ export function ModelSelect(
 
           {pane === 'model' && (
             <>
-              {subagentSetupOn && (
-                <div className={css.subagentNotice} role="note">
-                  <span className={css.note}>{t('subagentSetup.notice')}</span>
-                  <button type="button" className={css.subagentLink} onClick={() => { close(); openSubagentSetup?.() }}>{t('subagentSetup.open')}</button>
-                </div>
-              )}
               {showSearch && <div className={css.searchRow}>
                 <Input
                   ref={searchRef}
@@ -729,7 +802,7 @@ export function ModelSelect(
                       className={css.chip}
                       active={providerFilter === filter.id}
                       aria-pressed={providerFilter === filter.id}
-                      onClick={() => { setProviderFilter(filter.id) }}
+                      onClick={() => { setProviderFilter(filter.id); setShowAllModels(false) }}
                       onFocus={(event) => { event.currentTarget.scrollIntoView({ inline: 'nearest', block: 'nearest' }) }}
                     >
                       {filter.name}
@@ -805,7 +878,7 @@ export function ModelSelect(
                               else itemRefs.current[index]?.focus()
                             }}
                             title={model.name}
-                            disabled={busy || subagentSetupOn}
+                            disabled={busy}
                             onClick={() => { choose(selectionFor(group.id, model)) }}
                           >
                             <span className={css.optionCopy}>
@@ -834,6 +907,14 @@ export function ModelSelect(
                     })}
                   </MenuGroup>
                 ))}
+                {query.trim() === '' && groups.some(group => (providerFilter === null || group.id === providerFilter)
+                  && group.models.slice(4).some(model => !favoriteSet.has(rowId(group.id, model.id))
+                    && !(state.current?.provider === group.id && state.current.model === model.id))) && (
+                  <button ref={moreModelsRef} type="button" role="menuitem" aria-expanded={showAllModels} className={css.cell} onClick={() => { setShowAllModels(value => !value) }}>
+                    <span className={css.cellLabel}>{t(showAllModels ? 'models.showFewer' : 'models.showMore')}</span>
+                    <IconChevronRightOutlineRegular className={css.cellChevron} />
+                  </button>
+                )}
               </div>
               {state.status === 'ready' && filteredSections.length === 0 && (
                 <div className={css.empty} role="status">{t(choices.length === 0 ? 'empty.models' : 'search.empty')}</div>
@@ -862,7 +943,7 @@ export function ModelSelect(
                       className={clsx(css.option, checked && css.selected)}
                       title={level.ultracode === true ? t('runOptions.ultracodeCaption') : undefined}
                       key={level.key}
-                      disabled={busy || (effortLocked && level.ultracode !== true)}
+                      disabled={busy}
                       onClick={() => { chooseEffort(level) }}
                     >
                       <span className={css.optionCopy}>
@@ -915,6 +996,12 @@ export function ModelSelect(
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {pane === 'detail' && detailPane !== null && (
+            <div className={clsx(css.groups, 'scrollable')}>
+              {renderSlot('conversation.input.model.pane', controls, { entryKey: detailPane.key })}
             </div>
           )}
         </MenuSurface>,

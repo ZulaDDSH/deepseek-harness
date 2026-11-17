@@ -12,6 +12,7 @@ This package lets web-client features expose editable preferences backed by the 
 ## Table of Contents
 
 - [Use this package](#use-this-package)
+- [Settings search and save status](#settings-search-and-save-status)
 - [Understand the implementation](#understand-the-implementation)
 - [Further Exploration](#further-exploration)
 - [Model Experience](#model-experience)
@@ -43,9 +44,12 @@ A page that edits a namespace another plugin owns registers through `ctx.configF
 
 `ctx.configForms.saveStatus` is an observable `{ state: 'idle' | 'saving' | 'saved' | 'failed' }` over every Host write of every shared form. `saved` clears after 2.5 s and `failed` after 8 s; a batch of writes settles to `failed` if any write failed.
 
+<a id="filling-the-settings-slots"></a>
 ### Filling the settings slots
 
 A settings surface registers into the slot types this package declares. The shell (`sidebar.settings` occupant, navigation, chrome) lives in ui-settings-general; feature pages register `settings.section` contributions; the Plugins section hosts `settings.plugins.tab` pages. Cross-namespace surfaces (schema introspection, the served-namespace directory, `hasDocument`) read the same mirror through `ctx.configForms.describe()`.
+
+To customize a page's navigation icon, use `ctx.slots.inject('settings.section.icon', ...)` and register an icon component with the same `id` as its `settings.section` contribution. Unmatched ids never render, and the icon's `label` option is not displayed. The component receives `size` in pixels and `active`; the shell owns the button, label, and decorative icon wrapper. Without a matching icon registration, the shell renders its default glyph. Disposing the icon contribution restores that glyph.
 
 ### Observable success and failures
 
@@ -56,7 +60,7 @@ A committed write folds its answer into the shared mirror. Refused writes refres
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
-The optional `settings.launcher` contribution receives sidebar geometry, whether the open Settings panel covers the sidebar, the settings navigation callbacks, and the effective Settings key labels and accessible combination. The shell omits shortcut presentation for an unbound command and retains its plain Settings trigger when no launcher is registered.
+The optional `settings.launcher` contribution receives sidebar geometry, whether the open Settings panel covers the sidebar, the settings navigation callbacks, and the effective Settings key labels and accessible combination. The shell omits shortcut presentation for an unbound command and retains its plain Settings trigger when no launcher is registered. The launcher can pass a section ID to openSettings to open that section directly; an absent ID uses the default section.
 
 <details>
 <summary>Implementation internals — click to expand</summary>

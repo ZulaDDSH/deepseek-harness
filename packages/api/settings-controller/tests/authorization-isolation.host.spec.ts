@@ -9,9 +9,6 @@
  * what keeps one client's sign-in out of another's, and that the capability is
  * what keeps a second client from acting on it.
  *
- * The wire is real: a WebServer, the Typert gateway, Connection, the generated
- * Remote protocol, and two separate mux WebSockets. Only the flow and the
- * credential records are fixtures.
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
@@ -65,6 +62,14 @@ async function bootHost(script: (session: AuthorizationSession) => Promise<void>
   await ctx.plugin(RemoteAccessService)
   await ctx.plugin(TypertGatewayService, {})
   await ctx.plugin({ inject: [...connectionInject], apply: applyConnection })
+  const cookie = 'dsh-authorization-isolation=fixture'
+  const peer = ctx.connection.createPeer({ principal: { kind: 'owner' } })
+  await ctx.connection.authentication.register({
+    authenticate({ headers }) {
+      const value = headers instanceof Headers ? headers.get('cookie') : headers.cookie
+      return value === cookie ? peer : undefined
+    },
+  })
   await ctx.plugin(AuthorizationService)
   await ctx.plugin(AuthorizationController)
   ctx.authorization.registerFlow({
@@ -89,7 +94,7 @@ async function bootHost(script: (session: AuthorizationSession) => Promise<void>
   return {
     ctx,
     streamBaseUrl: `http://127.0.0.1:${String(ctx.webServer.port)}`,
-    cookie: browserCookie(ctx),
+    cookie,
   }
 }
 
@@ -115,25 +120,6 @@ const AUTHORIZATION_DESCRIPTORS: InvocationDescriptor[] = [{
   },
   cancellation: { parameter: 'signal' },
 }]
-
-/** Exchange this Host's process token for its browser Cookie header. */
-function browserCookie(ctx: Context): string {
-  const origin = `http://127.0.0.1:${String(ctx.webServer.port)}`
-  const target = new URL(ctx.connection.authenticatedUrl(origin))
-  let setCookie: string | undefined
-  ctx.connection.authorizeIndex({
-    method: 'GET',
-    url: `${target.pathname}${target.search}`,
-    headers: { host: target.host },
-  }, {
-    writeHead(_status: number, headers?: Readonly<Record<string, string>>) {
-      setCookie = headers?.['set-cookie']
-    },
-    end() {},
-  })
-  if (setCookie === undefined) throw new Error('the isolation fixture did not receive a browser cookie')
-  return setCookie.split(';', 1)[0]!
-}
 
 /** An in-memory credential-record owner the flows commit through. */
 function provideCredentialRecords(ctx: Context): void {

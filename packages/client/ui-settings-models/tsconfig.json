@@ -9,6 +9,12 @@
   ],
   "references": [
     {
+      "path": "../../util/text-search"
+    },
+    {
+      "path": "../../api/settings-controller"
+    },
+    {
       "path": "../../../vendor/schemastery"
     },
     {

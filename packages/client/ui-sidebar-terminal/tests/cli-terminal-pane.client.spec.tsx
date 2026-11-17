@@ -7,7 +7,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ThemeSnapshot } from '@deepseek-ai/dsh-client-ui-theme/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { TerminalView, TerminalViewState } from '@deepseek-ai/dsh-api-terminal-controller/client'
-import type { WebTerminalId } from '@deepseek-ai/dsh-api-terminal-controller/types'
+import type { WebTerminalId, WebTerminalInfo } from '@deepseek-ai/dsh-api-terminal-controller/types'
 import { CliTerminalPane, type CliTerminalPaneProps } from '../src/client/CliTerminalPane.tsx'
 import { en } from '../src/client/locales.ts'
 
@@ -40,7 +40,7 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 const environment = { cwd: '/workspace', maxCols: 200, maxRows: 100, scrollback: 1000, maxInputBytes: 1000, maxBufferedBytes: 100_000 }
-const cliInfo = { id: 'cli' as WebTerminalId, title: 'grok', shell: { path: '/bin/bash', name: 'bash', args: ['-i'] }, cwd: '/workspace', cols: 80, rows: 24, state: 'running' as const, exitCode: null }
+const cliInfo: WebTerminalInfo = { id: 'cli' as WebTerminalId, title: 'grok', shell: { path: '/bin/bash', name: 'bash', args: ['-i'] }, cwd: '/workspace', cols: 80, rows: 24, state: 'running', exitCode: null, origin: 'user', control: 'user' }
 
 function store(initial: TerminalViewState) {
   let current = initial
@@ -104,7 +104,7 @@ it('writes to the PTY only from the terminal input handler', () => {
   expect(model.write).not.toHaveBeenCalled()
   fake.terminals[0]!.input?.('ls\r')
   expect(model.write).toHaveBeenCalledOnce()
-  expect(model.write).toHaveBeenCalledWith('ls\r')
+  expect(model.write).toHaveBeenCalledWith('ls\r', false)
 })
 
 it('confines PTY writes in the CLI pane and terminal screen to the input handler', () => {
@@ -114,5 +114,5 @@ it('confines PTY writes in the CLI pane and terminal screen to the input handler
   expect(pane).not.toMatch(/model\.write\(|\.resize\(/u)
   const writes = terminalSource.split('\n').filter(line => /model\.write\(/u.test(line))
   expect(writes).toHaveLength(1)
-  expect(writes[0]).toContain('xterm.onData')
+  expect(terminalSource).toMatch(/xterm\.onData\([\s\S]*?model\.write\(data, performance\.now\(\)/u)
 })

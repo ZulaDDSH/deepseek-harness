@@ -29,7 +29,7 @@ A backend owns how one registered type starts and detects readiness. `TerminalSe
 interface TerminalBackend {
   /** Stable type selected by {@link TerminalSpawnRequest.type}. */
   readonly type: string
-  /** Create an unpublished session or reject after cleaning partial resources; cleanup failure uses {@link TerminalBackendCleanupError}. */
+  /** Create an unpublished session or reject after cleaning partial resources; cleanup failure uses `TerminalBackendCleanupError`. */
   spawn(spec: TerminalBackendSpawnSpec): Promise<TerminalBackendSession>
 }
 ```
@@ -43,6 +43,7 @@ interface TerminalBackendSession {
   readonly pid?: number
   /** Start one exclusive send operation. */
   startSend(request: TerminalSendRequest): TerminalSendOperation
+  watchLine?(line: string): { seen(): boolean; dispose(): void }
   /** Read one bounded page from retained scrollback. */
   read(request: TerminalReadRequest): TerminalReadResult
   /** Signal the verified foreground process group. */
@@ -140,6 +141,14 @@ hasOwnerActivity(owner: Agent): boolean
  * @returns live operation handle for foreground await or task registration.
  */
 startSend(owner: Agent, id: TerminalSessionId, request: TerminalSendRequest): TerminalSendOperation
+
+/** Watches an owned terminal for a complete output line when its backend supports it.
+ * @param owner - Agent that owns the terminal.
+ * @param id - Owned terminal identity.
+ * @param line - Complete output line to observe.
+ * @returns A watch handle, or undefined when the backend does not support watching.
+ */
+watchLine(owner: Agent, id: TerminalSessionId, line: string): { seen(): boolean; dispose(): void } | undefined
 
 /**
  * Read one bounded scrollback page from an owned session.

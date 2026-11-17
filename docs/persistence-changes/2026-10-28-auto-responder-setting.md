@@ -38,7 +38,7 @@ Same version. The `autoResponder` property is optional, so existing run-options 
 <a id="verification"></a>
 ## Verification
 
-`packages/api/session-controller/tests/auto-responder.host.spec.ts` covers the responder and `packages/client/ui-subagent/tests/subagent-setup-contract.client.spec.ts` covers the schema accepting and strictly rejecting extra keys. Run: `vitest packages/api/session-controller packages/client/ui-subagent`, then `npx tsx scripts/persistence-changes.ts --check`.
+`packages/api/session-controller/tests/auto-responder.host.spec.ts` covers the responder, and `packages/api/session-controller/tests/subagent-setup.host.spec.ts` covers the schema accepting and strictly rejecting extra keys. Run: `vitest packages/api/session-controller`, then `npx tsx scripts/persistence-changes.ts --check`.
 
 <a id="dev-note"></a>
 ## Dev Note

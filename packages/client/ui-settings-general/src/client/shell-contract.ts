@@ -73,6 +73,7 @@ export type SettingsRootComponentProps =
     | 'settings.action'
     | 'settings.close'
     | 'settings.section'
+    | 'settings.section.icon'
   >
   & InjectFace<SettingsRootInjected>
   & PropsLocale<'settings'>

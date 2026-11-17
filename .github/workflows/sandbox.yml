@@ -128,7 +128,7 @@ jobs:
   # The unit suite runs on ubuntu in ci.yml's Linux jobs; macos-latest is this
   # workflow's only darwin runner, so the platform-dependent unit expectations
   # (Seatbelt path canonicalization: /tmp IS /private/tmp — sandbox semantics,
-  # hence this workflow rather than ci-master.yml) take their darwin branch only
+  # hence this workflow) take their darwin branch only
   # here. A job of its own so the seatbelt e2e leg keeps the matrix budget. The
   # budget below is a completion ceiling, not a latency target: the full suite
   # takes 16 minutes on a fast macos-latest runner and was under half done at

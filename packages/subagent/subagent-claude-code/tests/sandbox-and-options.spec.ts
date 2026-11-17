@@ -10,7 +10,7 @@ import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 
 async function startAs(ctx: Context, provider: string, { signal, ...request }: SubagentStartRequest) {
   if (ctx.agents.get(request.parent.id) !== request.parent) await ctx.agents.register(request.parent)
-  return ctx.subagents.startActivation({ provider, label: 'provider task', request, signal, delivery: 'caller' })
+  return ctx.subagents.startActivation({ provider, ...request, label: 'provider task', signal, delivery: 'caller' })
 }
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as claudeCode from '../src/index.ts'

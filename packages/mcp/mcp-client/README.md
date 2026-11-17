@@ -7,7 +7,7 @@ kind: "package-reference"
 
 ## Summary
 
-`dsh-mcp-client` lets the model use tools and resources from external Model Context Protocol (MCP) servers. Configure one server per entry; its tools use names such as `mcp__github__create_issue`. No server is enabled by default. Shipped profiles already provide [shared resource discovery and reading](../mcp-resources/README.md). An empty caller scope adds no MCP tools or prompt text. Server instructions join the logged system prompt as literal text; MCP prompt templates are unsupported. Slow or crashed servers can delay startup or fail calls until recovery.
+`dsh-mcp-client` lets the model use tools and resources from external Model Context Protocol (MCP) servers. Configure one server per entry; its tools use names such as `mcp__github__create_issue`. No server is enabled by default. Shipped profiles already provide [shared resource discovery and reading](../mcp-resources/README.md). An empty caller scope adds no MCP tools or prompt text. Server instructions join the logged system prompt as literal text unless `includeServerInstructions` is disabled; MCP prompt templates are unsupported. Slow or crashed servers can delay startup or fail calls until recovery.
 
 ## Table of Contents
 
@@ -55,12 +55,14 @@ Add one entry per server; nothing else is required. After the harness starts, th
 | `transport` | required | `stdio` or `streamable-http` |
 | `serverName` | required | Namespace for the server's tool names; `[A-Za-z0-9_-]{1,32}`, unique inside one registration scope |
 | `command` / `args` / `env` / `cwd` | — | stdio: executable, arguments, extra env merged over scrubbed ambient env, working directory |
-| `url` / `headers` | — | streamable-http: endpoint URL and extra request headers |
+| `url` / `headers` / `headerEnv` | — | streamable-http: endpoint URL, literal headers, and header names mapped to environment variables; literal headers win |
 | `toolCallTimeoutMs` | `60,000` | Timeout per `tools/call` or resource request |
+| `startupTimeoutMs` | unset | Optional budget for template resolution, negotiation, connection, and the initial tool sync |
+| `closeTimeoutMs` | `5,000` | Budget for transport closure and pending local work to settle |
+| `expandTemplates` | `false` | Resolve `${credential:REF}` in transport strings at runtime and redact resolved values from diagnostics |
 | `maxInstructionBytes` | `32,768` | Maximum UTF-8 bytes of server instructions including attribution; an oversized value rejects the connection |
-| `includeServerInstructions` | `true` | Publish nonblank server instructions into the system prompt; set `false` to omit that repeated prompt text. |
-| `toolFilter.allow` | — | Exact raw-name allow list; omitted or empty means unrestricted, while a non-empty list admits only listed MCP tools. |
-| `toolFilter.deny` | — | Exact raw-name deny list applied after the optional allow list. |
+| `includeServerInstructions` | `true` | Publish nonblank server instructions into the system prompt |
+| `toolFilter.allow` / `toolFilter.deny` | — | Filter raw server tool names; allow applies before deny, and an empty allow list means unrestricted |
 | `failOnStartupError` | `false` | Reject plugin activation when the initial connection or tool synchronization fails |
 | `reconnect.enabled` | `true` | Reconnect automatically after a lost connection |
 | `reconnect.initialDelayMs` | `500` | First reconnect delay; doubles per consecutive failed attempt |
@@ -69,9 +71,7 @@ Add one entry per server; nothing else is required. After the harness starts, th
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-mcp-client) is the exhaustive source for every accepted field.
 
-Use a static `toolFilter` when a server publishes many tools but the agent needs only a stable subset. Filtering matches the server's raw MCP names before public-name normalization. An empty `allow` list is treated as omitted so Schemastery's materialized default preserves the historical allow-all behavior. A static subset removes the excluded tool descriptions and input schemas from every model request while keeping the remaining request prefix stable for cache reuse.
-
-Set `includeServerInstructions: false` only when the deployment does not need the server-provided guidance. Omitted instructions do not enter the system prompt and do not consume the `maxInstructionBytes` budget; tools and resources remain connected.
+An HTTP server without an `Authorization` header offers OAuth sign-in through the authorization service; an `Authorization` entry in `headers` or `headerEnv` disables that flow. OAuth grants are stored as credential records. A configured filter applies to both model tools and host-owned human operations. Global connections publish `mcp-client/inventory` and `mcp-client/reconnect` events and expose `mcp/human-operations`; Agent-scoped connections remain private.
 
 After startup, the server's tools appear as `mcp__<serverName>__<tool>` — try a prompt that uses one. If the initial connection fails, the harness still starts but no tools from that server appear, and an error is logged. Setting `failOnStartupError: true` rejects plugin activation; [app-boot's startup policy](../../boot/app-boot/README.md) still permits an optional MCP entry to fail without aborting the harness.
 
@@ -93,16 +93,25 @@ Images are supported when the current model accepts image input and the harness 
 
 ### Startup, updates, and reconnection
 
-The server's tools appear before the harness starts its first turn. When the server changes its tool list, the model's tool set updates automatically; if the update fails, the previous tool set keeps working.
+The server's tools appear before the harness starts its first turn. Set `startupTimeoutMs` to bound each connection attempt, including template resolution and initial tool discovery; an omitted value adds no whole-attempt deadline. Tool-list notifications refresh the registered tools; discovery failures preserve the previous set, while registration conflicts close the connection and apply the reconnect policy.
 
 When a server connection drops — for example a local server process crashes — the plugin reconnects automatically with delays that double from 500 ms up to 30 s and then refreshes the tool set; reconnect progress is visible in the logs. During an outage the last known tools stay listed but calls to them fail until the server recovers. After ten consecutive failed attempts the server's tools are removed and reconnection stops until you reload the configuration or restart the harness; a server that stays connected for a while resets that counter. Set `reconnect.enabled: false` to disable automatic reconnection — tools then stay listed but fail until you reload. Editing the configuration entry reloads the server connection in place, and unchanged names stay unchanged.
+
+An HTTP 401 or insufficient-scope response waits for OAuth sign-in instead of consuming reconnect attempts; after the grant changes, the old generation closes before a new one starts. Host code can request a fresh attempt with `mcp-client/reconnect` after automatic retries stop. `includeServerInstructions: false` keeps server instructions out of prompt assembly without disabling resource access.
+
+<a id="runtime-templates-and-credentials"></a>
+### Runtime templates and credentials
+
+With `expandTemplates: true`, `command`, `args`, `env` values, `cwd`, `url`, and `headers` values accept `${credential:REF}`. The current credentials provider resolves each reference; the [local provider](../../credentials/credentials-local/README.md) also reads the Host's inherited environment. Raw plugin configuration retains its template strings. A credential reference requires a credentials provider at load. Missing values enter `waiting-credentials` without consuming reconnect attempts unless strict startup rejects activation; a referenced credential update retries resolution.
+
+Credential notifications rebuild the connection only when the resolved values change; same-value notifications preserve the connection and its reconnect budget. The old connection must close and finish local cleanup before a replacement starts. Incomplete cleanup blocks replacement until the Host restarts.
+
+With template expansion enabled, failure diagnostics, tool-call failures, and MCP `isError` tool-result text keep upstream messages but replace every value the instance resolved, including earlier rotations and URL-encoded forms, with `[redacted]`; the failure keeps its `name` and `code`. Successful tool results retain their content.
 
 -----
 
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
-
-Root-scoped servers also publish Host-owned human operations for authenticated GUI services. Calls use the current connection, discovered tool filters, JSON-schema validation, configured deadlines and caller cancellation. Agent-scoped servers are excluded. This does not add a generic browser tool-call endpoint or change model execution policy.
 
 <details>
 <summary>Implementation internals — click to expand</summary>
@@ -122,12 +131,18 @@ This section explains the design decisions behind the bridge and points at the c
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `Config` schema, `serverName` reservation, activation await |
-| [`src/connection.ts`](src/connection.ts) | Connection supervisor: client generations, attempt budget, sign-in state, disposal |
-| [`src/reconnect-policy.ts`](src/reconnect-policy.ts) | Reconnect config, its defaults, and the resolve step that validates them |
+| [`src/connection.ts`](src/connection.ts) | Connection supervisor: client generations, reconnect policy, attempt budget, disposal |
+| [`src/generation.ts`](src/generation.ts) | Transport ownership, cancellation, pending work, and confirmed closure |
+| [`src/credentials.ts`](src/credentials.ts) | Runtime template binding and redaction of every resolved value |
+| [`src/templates.ts`](src/templates.ts) | Credential template syntax, substitution, and reference discovery |
 | [`src/server-context.ts`](src/server-context.ts) | Resource-provider registration and literal server instructions |
-| [`src/tool-filter.ts`](src/tool-filter.ts) | Static raw-name allow/deny resolution for discovered tools |
-| [`src/tools.ts`](src/tools.ts) | Tool bridge: discovery, filtering, naming, registration swap, execution, image projection |
+| [`src/tools.ts`](src/tools.ts) | Tool bridge: discovery, naming, registration swap, execution, image projection |
 | [`src/transport.ts`](src/transport.ts) | Transport factory: stdio spawn with scrubbed env, Streamable HTTP |
+| [`src/status.ts`](src/status.ts) | Status cell keyed by Fiber, retaining its final cleanup result |
+| [`src/probe.ts`](src/probe.ts) | One-shot probe: connect, identify, list tools, close — nothing registers |
+| [`src/deadline.ts`](src/deadline.ts) | Shared settlement deadline behind the startup and probe budgets |
+| [`src/diagnostic.ts`](src/diagnostic.ts) | Cause-chain diagnostics and secret-value redaction |
+| [`src/types.ts`](src/types.ts) | Client-safe connection status and probe outcome types (`./types`) |
 
 The exported `createMcpToolDefinition(ctx, options)` adapts an upstream tool schema and raw-result callback to the same canonical values, errors, and durable image projection. Each callback receives the exact `ToolExecution`, including its Agent and cancellation signal; SDK spec-type validation checks its result before projection. Callers own registration, cancellation deadlines, and provider teardown. The native Cua Driver provider uses this adapter without opening an MCP transport.
 
@@ -135,11 +150,15 @@ The exported `createMcpToolDefinition(ctx, options)` adapts an upstream tool sch
 
 `apply` resolves the reconnect policy, reserves the `serverName` inside the current registration scope, starts the supervisor, and awaits the initial connection plus discovery. Independent Agent scopes may reuse the same namespace because their tools and transports are isolated; a duplicate inside one scope fails at load. The supervisor serializes every sync — initial, notification, and reconnect — through one queue so two syncs can never interleave their dispose-previous/register-next swap. Disposal cancels pending reconnects, closes the negotiating transport or attached client, waits for the in-flight attempt and queued syncs to quiesce, and unregisters the current generation.
 
-The SDK receives tool-list changes through legacy notifications or a modern subscription. The supervisor queues each re-sync; a fetch failure keeps the previous generation registered, while a registration conflict rolls back the attempted generation. Each outage shares one attempt budget: after `maxAttempts` consecutive failures the tools are unregistered and reconnection stops, and a connection that stays up past `maxDelayMs` resets the budget.
+A manager composing instances (such as `dsh-mcp-manager`) observes one instance through `connectionStatusOf(fiber)`. The handle survives reloads of the same Fiber and retains the final connection and cleanup result after disposal; final disposal detaches its observers. Status observers may dispose the Fiber during a reload; cleanup still covers that connection attempt. `probeServer(ctx, config, options)` tests a server without reserving a name or registering tools. Its `timeoutMs` bounds template resolution, connection, and listing together, independently of runtime `startupTimeoutMs`; cleanup uses `closeTimeoutMs` and reports `closeConfirmed` separately. Confirmed transport closure can still carry a `cleanupError`; either unconfirmed closure or a cleanup error blocks replacement.
+
+The SDK receives tool-list changes through legacy notifications or a modern subscription. The supervisor queues each re-sync and republishes the connected tool count; a fetch failure keeps the previous generation registered, while a registration conflict rolls back the attempted generation and closes the connection before applying the reconnect policy. Each outage shares one attempt budget: after `maxAttempts` consecutive failures the tools are unregistered and reconnection stops, and a connection that stays up past `maxDelayMs` resets the budget.
+
+With `expandTemplates` enabled, failure diagnostics name the operation and keep the cause chain with every resolved value replaced by `[redacted]`. With expansion disabled, diagnostics retain the full error text.
 
 ### Tool execution internals
 
-A tool call uses the SDK with the raw name, complete tool definition, JSON arguments, abort signal, and configured timeout. The SDK owns protocol validation, advertised output-schema validation, and modern request headers. Canonical success is `{ content: JsonValue[], structuredContent? }`, preserving valid MCP JSON blocks for programmatic and PTC mode callers. An MCP `isError` result throws before image persistence. The bridge validates each image batch before saving it; a refusal projects every image as diagnostic text. For a server that does not advertise `resources`, resource and template lists return empty pages without calling the SDK, whose fallback writes a diagnostic to stdout, where the ACP profile carries JSON-RPC.
+A tool call uses the SDK with the raw name, complete tool definition, JSON arguments, abort signal, and configured timeout. The SDK owns protocol validation and modern request headers. The bridge checks structured content against the advertised output schema itself, with the SDK's Node Ajv validator, because the SDK reports its own check as a `ProtocolError` that cannot be told apart from a server's JSON-RPC error. Canonical success is `{ content: JsonValue[], structuredContent? }`, preserving valid MCP JSON blocks for programmatic and PTC mode callers. An MCP `isError` result throws `McpToolError` with `MCP_TOOL_ERROR` before image persistence. Other tool and resource request failures throw `McpToolError`: after `MCP_CONNECTION_CLOSED` or `MCP_TIMEOUT` the request's outcome is unknown, `MCP_SERVER_UNAVAILABLE` means the request was not sent, `MCP_INVALID_RESULT` rejects a result that violates the MCP result schema or the advertised output schema, or an output schema that cannot be compiled, `MCP_UNSUPPORTED_TASK_EXECUTION` rejects the tool, and `MCP_REQUEST_FAILED` carries the JSON-RPC or SDK code in its message. Closure of the connection generation surfaces as `McpLocalError` with `MCP_CONNECTION_CLOSED`, and caller cancellation as the tool registry's `ABORTED`. `McpLocalError` codes also report local connection failures: `MCP_TIMEOUT`, `MCP_CREDENTIALS_UNAVAILABLE`, `MCP_CREDENTIAL_NOT_FOUND`, `MCP_INSTRUCTIONS_TOO_LARGE`, and `MCP_TOOL_REGISTRATION_FAILED`. The bridge validates each image batch before saving it; a refusal projects every image as diagnostic text. For a server that does not advertise `resources`, resource and template lists return empty pages without calling the SDK, whose fallback writes a diagnostic to stdout, where the ACP profile carries JSON-RPC.
 
 ### Environment scrubbing (stdio)
 
@@ -169,15 +188,15 @@ Read these pages when the package-level contract is not enough. They move from t
 
 #### What the model sees
 
-After discovery succeeds, SDK-admitted MCP tools that survive the configured raw-name filter appear as native tools named `mcp__<serverName>__<rawName>` (or their deterministic normalized form), with the server description and input schema. A re-sync replaces the generation; disposal or an exhausted reconnect budget removes it. A server without the tools capability connects with an empty tool set.
+After discovery succeeds, SDK-admitted MCP tools appear as native tools named `mcp__<serverName>__<rawName>` (or their deterministic normalized form), with the server description and input schema. A re-sync replaces the generation; disposal or an exhausted reconnect budget removes it. A server without the tools capability connects with an empty tool set.
 
 #### Token effect
 
-The tool descriptions and input schemas enter every request while the tools are registered; a static `toolFilter` removes excluded schemas entirely. Re-syncs replace rather than accumulate schemas, and the server-qualified name adds tokens to every tool definition and call. A configured client also enables the [shared resource tools and server-name prompt](../mcp-resources/README.md#model-experience).
+The tool descriptions and input schemas enter every request while the tools are registered; re-syncs replace rather than accumulate schemas, and the server-qualified name adds tokens to every tool definition and call. A configured client also enables the [shared resource tools and server-name prompt](../mcp-resources/README.md#model-experience).
 
 #### KV Cache effect
 
-The tool-definition prefix stays stable while the filtered set and schemas are unchanged. A re-sync that adds, removes, renames, or changes a tool replaces definitions and may invalidate reuse from the first changed schema token onward; a reconnect that recovers an unchanged list reproduces identical definitions and stays prefix-stable.
+The tool-definition prefix stays stable while the discovered set and schemas are unchanged. A re-sync that adds, removes, renames, or changes a tool replaces definitions and may invalidate reuse from the first changed schema token onward; a reconnect that recovers an unchanged list reproduces identical definitions and stays prefix-stable.
 
 ### Tool-call history and results
 
@@ -197,11 +216,11 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 #### What the model sees
 
-When `includeServerInstructions` is enabled, one server-labeled section contains the nonblank instructions returned by each successful connection. Disabled, absent, or blank instructions add no prompt text. Braces remain literal. A replacement connection publishes its instructions only after discovery succeeds; disposal or exhausted recovery removes the section.
+Unless `includeServerInstructions` is disabled, one server-labeled section contains the nonblank instructions returned by each successful connection. Absent or blank instructions add no prompt text. Braces remain literal. A replacement connection publishes its instructions only after discovery succeeds; disposal or exhausted recovery removes the section.
 
 #### Token effect
 
-Server instructions contribute text to model requests while their scoped section is active; with `includeServerInstructions: false` their token cost is zero. Resource documents enter history only through explicit resource reads.
+Server instructions contribute text to model requests while their scoped section is active. Resource documents enter history only through explicit resource reads.
 
 #### KV Cache effect
 
@@ -214,11 +233,9 @@ Unchanged instructions retain identical prompt text. Updated or removed instruct
 
 These limits describe what you cannot do with this plugin and when it needs operational attention. They are current package constraints, not a comparison with other MCP clients or a task backlog.
 
-- **Instruction omission is all-or-nothing per server** — `includeServerInstructions: false` removes the complete server instruction section; it does not selectively keep individual paragraphs.
-- **Tool filtering is exact-name only** — `toolFilter` matches raw MCP names with no glob or regex expansion; changing the filter requires a configuration reload and therefore intentionally changes the model-visible tool prefix.
 - **Resources are read on demand** — shipped profiles provide the [shared resource service](../mcp-resources/README.md); resource subscriptions and MCP prompt templates are unsupported.
-- **Startup and discovery timeouts are inherited from the MCP SDK** — the plugin exposes no separate connection or discovery timeout. Negotiation and discovery use the SDK's 60-second request default; discovery also uses its page limit. Plugin unload closes the transport to interrupt pending startup requests before awaiting teardown.
-- **Reconnect handles failed negotiation and transport close** — a failed initial probe or crashed stdio child uses the configured reconnect budget. Once HTTP is connected, request failures use the SDK transport's recovery rather than respawning the connection.
+- **Whole-attempt startup budgets are opt-in** — `startupTimeoutMs` covers template resolution, negotiation, connect, and the initial tool sync when configured. A notification-driven re-sync's `tools/list` requests use the MCP SDK's 60-second request default and page limit. Plugin unload closes the transport to interrupt pending startup requests before awaiting teardown.
+- **Reconnect handles failed negotiation and transport close** — a failed initial connection or a crashed stdio child uses the configured reconnect budget. Ordinary HTTP request failures use the SDK transport's recovery; credential changes replace the connection.
 - **Image is the only durable rich-result bridge** — PNG, JPEG, WebP, and GIF enter Native context after exact capability proof. Audio and embedded-resource payloads remain execution-local with explicit diagnostics, while resource links preserve only their name and URI as text.
 - **Invalid protocol results or output schemas fail through the SDK** — the bridge does not accept legacy `toolResult` substitutes or bypass advertised schema validation.
 - **Task-required MCP tools are rejected at call time** — a tool that requires the task-based execution extension throws instead of bridging; the extension is not implemented.
@@ -232,8 +249,7 @@ These limits describe what you cannot do with this plugin and when it needs oper
 This Dev Note is working context for maintainers: open design questions and directions that are not decided. It is explicitly non-authoritative — shipped behavior, limits, and accepted rationale live in the sections above, the package code, and the linked Agent Notes.
 
 - The public-name algorithm is a v1 contract pinned by tests; changing it after release would break session history and permission rules.
-- An explicit DSH-owned connection and discovery timeout is an open direction; the SDK's 60-second default bounds startup requests.
-- Reconnect ownership for Streamable HTTP is open: per-request retry is SDK behavior, and the supervisor could also own the HTTP generation.
+- A DSH-owned budget for notification-driven re-syncs is an open direction; configured `startupTimeoutMs` bounds startup attempts, while the SDK's 60-second default bounds re-sync requests.
 - MCP prompt templates need a separate user-selection and invocation mechanism.
 - The pinned MCP SDK is still evolving; a breaking upstream change requires updating the bridge.
 

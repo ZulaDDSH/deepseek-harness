@@ -11,9 +11,8 @@
  * history outside the direct-parent continuation path.
  */
 // Type-only: the carrier types, the forwarded Host-event face and the ctx.remote merge.
-import type { ModelSelection, SessionRunOptionsProjection } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { ModelSelection } from '@deepseek-ai/dsh-api-session-controller/types'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
-import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { CommandUiContract, SelectOption } from '@deepseek-ai/dsh-client-ui-commands/client'
 // Type-only: pulls the ui-conversation SlotMap merge (the input.model seat).
@@ -23,16 +22,13 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
-import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-api-terminal-controller/client'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { IconDataOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ModelDirectoryState } from './directory.ts'
 import { ModelDirectoryResolver } from './service.ts'
 import type { ModelSelectInjected } from './slots.ts'
-import { JevRouting } from './JevRouting.tsx'
 import { ModelSelect } from './ModelSelect.tsx'
-import { subagentLockOf } from './subagent-lock.ts'
 import { descriptionOf, rowId } from './descriptions.ts'
 import { en, ja, es, fr, de, ru, pt, zh, type ModelKey } from './locales.ts'
 import { orderModelProviders } from './provider-order.ts'
@@ -110,27 +106,11 @@ function selectionOf(state: ModelDirectoryState, id: string): ModelSelection | u
   return undefined
 }
 
-/**
- * Whether a Session's effective Orchestrator & Subagent Setup is on, which hands its model choice to the setup view.
- * @param sessions - the client session service.
- * @param sessionId - the Session to read.
- * @param globalDefault - the raw global default the Session inherits when it has no setup of its own.
- * @returns true while subagent mode is enabled for the Session.
- */
-function subagentSetupOn(sessions: ClientContext['sessions'], sessionId: SessionId, globalDefault: unknown): boolean {
-  const projection = sessions.binding(sessionId)?.session.projections.faceOf('runOptions').getSnapshot() as
-    SessionRunOptionsProjection | undefined
-  return subagentLockOf(projection?.current?.subagentSetup, globalDefault).on
-}
-
-/** Settings namespace of the Session Controller entry that stores the global default setup. */
-const GLOBAL_SETUP_NS = 'session-controller'
-
 /** Dictionary namespace owned by this plugin. */
 const NS = 'model'
 
 /** Required services: the contribution registry, the seat's slot registry, locale, and the service's own faces. */
-export const inject = ['commandUi', 'locale', 'sessions', 'slots', 'remote', 'remote.session', 'configForms']
+export const inject = ['commandUi', 'locale', 'sessions', 'slots', 'remote', 'remote.session']
 
 /**
  * Client plugin body: mount ModelDirectoryResolver, register the `model` dictionaries,
@@ -144,12 +124,6 @@ export function apply(ctx: ClientContext): void {
   // Non-slot faces (the command description, the popup option builder) read
   // through the bound translate; the seat component reads the standard seat.
   const t = ctx.locale.bind(NS)
-  const globalScope = ctx.configForms.get<{ subagentSetup?: unknown }>(GLOBAL_SETUP_NS)
-  const globalSetup = {
-    getSnapshot: (): unknown => globalScope.getSnapshot().value?.subagentSetup,
-    subscribe: (listener: () => void) => globalScope.subscribe(listener),
-  }
-
   ctx.plugin(ModelDirectoryResolver)
 
   // Entry 1: the /model popupSelect over the shared directory.
@@ -162,11 +136,9 @@ export function apply(ctx: ClientContext): void {
       label: () => t('command.label'),
       description: () => t('command.description'),
       icon: IconDataOutlineRegular,
-      available: session => sessions.subagentAddress(session.sessionId) === undefined
-        && !subagentSetupOn(sessions, session.sessionId, globalSetup.getSnapshot()),
+      available: session => sessions.subagentAddress(session.sessionId) === undefined,
       ui: {
         kind: 'popupSelect',
-        searchMode: 'fuzzy-label',
         searchLabels: () => ({
           placeholder: t('search.placeholder'),
           empty: t('empty.models'),
@@ -198,7 +170,7 @@ export function apply(ctx: ClientContext): void {
   })
 
   // Entry 2: the composer's named model seat over the SAME directory.
-  ctx.inject(['slots', 'modelDirectories', 'uiWorkspace', 'uiConversation', 'webTerminals'], (scope: ClientContext) => {
+  ctx.inject(['slots', 'modelDirectories', 'uiWorkspace', 'webTerminals'], (scope: ClientContext) => {
     const models = scope.modelDirectories
     const sessions = scope.sessions
     scope.slots.inject('conversation.input.model', () => scope.slots.register({
@@ -206,13 +178,15 @@ export function apply(ctx: ClientContext): void {
       locale: NS,
       children: {
         'conversation.input.model.label': { kind: 'single', scope: 'session', inline: true },
+        'conversation.input.model.options': { kind: 'list', scope: 'session' },
+        'conversation.input.model.pane': { kind: 'keyed', scope: 'session' },
       },
       inject: (sessionId): ModelSelectInjected => {
         const directory = models.directoryFor(sessionId)
         const available = sessions.subagentAddress(sessionId) === undefined
         return {
           available,
-          hooks: { modelDirectory: directory.store, modelFavorites: models.favorites, globalSetup },
+          hooks: { modelDirectory: directory.store, modelFavorites: models.favorites },
           toggleFavorite: (key) => {
             models.favorites.update((ids) => {
               const at = ids.indexOf(key)
@@ -238,14 +212,8 @@ export function apply(ctx: ClientContext): void {
           setRunOptions: options => available
             ? scope.remote.session.setRunOptions({ sessionId, ...options })
             : Promise.resolve(undefined),
-          openSubagentSetup: () => { scope.uiConversation.binding(sessionId).activate('subagent-setup') },
         }
       },
     }, ModelSelect))
-    scope.slots.inject('conversation.input.right', () => scope.slots.register({
-      name: 'conversation.input.right',
-      id: 'model-routing',
-      locale: NS,
-    }, JevRouting))
   })
 }

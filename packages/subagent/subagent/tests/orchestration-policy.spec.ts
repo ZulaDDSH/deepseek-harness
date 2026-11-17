@@ -60,22 +60,6 @@ describe('root orchestration policy section', () => {
     expect(text).not.toContain("this deployment's router decides each agent's route")
   })
 
-  it('forbids naming a child route once an enabled router owns selection', async () => {
-    const ctx = await mount()
-    ctx.provide('jevRouter', { enabled: true })
-    const text = await sectionFor(ctx, agentAtDepth(0))
-    expect(text).toContain("Do not name a delegate's provider, model, or reasoning effort")
-    expect(text).not.toContain('A delegate inherits this agent\'s provider, model, and reasoning effort')
-  })
-
-  it('keeps the explicit route clause for a composed but disabled router', async () => {
-    const ctx = await mount()
-    ctx.provide('jevRouter', { enabled: false })
-    const text = await sectionFor(ctx, agentAtDepth(0))
-    expect(text).toContain("A delegate inherits this agent's provider, model, and reasoning effort")
-    expect(text).not.toContain("Do not name a delegate's provider, model, or reasoning effort")
-  })
-
   it('orders the policy after the team policy and before the knowledge policy', async () => {
     const ctx = await mount()
     const order = ctx.systemPrompt.getSectionOrder('ORCHESTRATION_POLICY')

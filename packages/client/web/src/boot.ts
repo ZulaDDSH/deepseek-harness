@@ -2,7 +2,7 @@
  * Web boot kernel. It owns only the module system, Cordis loader, and a
  * framework-free boot page; plugin composition and the renderer handoff are
  * `bootClient` and `mountClient`. The dynamic UI renderer receives the mount
- * point after every client entry activates.
+ * point after the activation audit accepts the client tree.
  * @module @deepseek-ai/dsh-client-web/src/boot
  */
 import { Context } from '@deepseek-ai/cordis'
@@ -26,7 +26,7 @@ export class AppWebEntry {
   private readonly page: BootPage
   private ctx: Context | undefined
   private stopDragRecall: (() => void) | undefined
-  private modules!: ClientModuleSystem
+  private modules: ClientModuleSystem | undefined
   private manifest!: BootManifest
 
   /**
@@ -40,17 +40,15 @@ export class AppWebEntry {
     this.page = new BootPage(container)
   }
 
-  /**
-   * Update the framework-free boot hint for a carrier-owned startup phase.
-   * @param text - Localized startup phase presented before plugin activation.
-   */
   setBootHint(text: string): void {
     this.page.setHint(text)
   }
 
   /**
-   * Load and activate every client entry, then hand the mount point to the
-   * UI renderer. Plugin failures remain visible on the boot page.
+   * Load and activate every client entry, audit activation, then hand the
+   * mount point to the UI renderer. A required-entry failure remains visible
+   * on the boot page; optional-entry failures are reported to the console and
+   * the application mounts without them.
    * @param onFailure - Optional carrier-owned fatal presentation; keeps the boot page visible.
    * @returns Resolves after application mount or failure reporting.
    */
@@ -76,26 +74,28 @@ export class AppWebEntry {
       const transport = (globalThis as {
         __DSH_TRANSPORT__?: Pick<ClientModuleCreateOptions, 'loadBundle' | 'resolveAsset'>
       }).__DSH_TRANSPORT__
-      this.modules = moduleLoader.create({
+      const modules = moduleLoader.create({
         boot: win.__DSH_BOOT__,
         staticModules: getStaticModules(),
         ...transport?.loadBundle === undefined ? {} : { loadBundle: transport.loadBundle },
         ...transport?.resolveAsset === undefined ? {} : { resolveAsset: transport.resolveAsset },
         ...this.seams,
       })
-      this.manifest = this.modules.manifest
+      this.modules = modules
+      this.manifest = modules.manifest
 
-      const prefetching = this.prefetchImmediateTier()
+      const prefetching = this.prefetchImmediateTier(modules)
       const ctx = new Context()
       this.ctx = ctx
       this.page.setTotal(this.manifest.plugins.length)
       await prefetching
       await bootClient({
         ctx,
-        modules: this.modules,
+        modules,
         manifest: this.manifest,
+        // A failed entry may be optional; only the audit decides whether the boot page reports a failure.
         onEntryState: (name, state) => {
-          if (onFailure === undefined || state !== 'failed') this.page.setState(name, state)
+          if (state !== 'failed') this.page.setState(name, state)
         },
       })
       // The shell owns the one watcher that keeps Electron's window drag rects in
@@ -117,15 +117,22 @@ export class AppWebEntry {
     this.stopDragRecall = undefined
     const ctx = this.ctx
     this.ctx = undefined
-    if (ctx !== undefined) await ctx.fiber.dispose()
-    this.page.dispose()
+    try {
+      if (ctx !== undefined) await ctx.fiber.dispose()
+    } finally {
+      try {
+        await this.modules?.dispose()
+      } finally {
+        this.page.dispose()
+      }
+    }
   }
 
   /** Prefetch stage-one bundles and their dynamic requests before concurrent plugin imports. */
-  private async prefetchImmediateTier(): Promise<void> {
+  private async prefetchImmediateTier(modules: ClientModuleSystem): Promise<void> {
     await Promise.all(this.manifest.plugins
       .filter(row => row.immediately)
-      .map(row => this.modules.prefetch(row.id).catch((_prefetchError: unknown) => {
+      .map(row => modules.prefetch(row.id).catch((_prefetchError: unknown) => {
         // Prefetch only starts transport early; the Loader import retries and reports this bundle failure.
       })))
   }

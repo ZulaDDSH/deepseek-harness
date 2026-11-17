@@ -1,4 +1,5 @@
 import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { ALL_HOOKS } from '@deepseek-ai/dsh-hook-protocol'
 import { provideWorkingDirectoryFixture, mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -94,9 +95,9 @@ describe('unmatched hooks and directory recovery', () => {
         parameters: { cd: { type: 'string', required: true } },
         async execute(args) { return [{ type: 'text', text: args.cd }] },
       }))
-      const agent = await ctx.agentLoop.create(SessionId('recovery'), { provider: 'mock', model: 'mock' })
+      const agent = await ctx.agentLoop.create(brandString<SessionId>('recovery'), { provider: 'mock', model: 'mock' })
       const result = await executeToolFixture(ctx, {
-        name: 'working_directory', callId: ToolCallId('recover'), arguments: { cd: dir },
+        name: 'working_directory', callId: brandString<ToolCallId>('recover'), arguments: { cd: dir },
         agent, signal: new AbortController().signal,
       })
       expect(result.isError).toBe(false)
@@ -123,6 +124,7 @@ describe('hooks-codex bridge', () => {
     })
     const ctx = new Context()
     contexts.push(ctx)
+    provideWorkingDirectoryFixture(ctx)
     await mountAgentLoopTestDependencies(ctx)
     await ctx.plugin(RecordingShell)
     await ctx.plugin(HooksCodex, { configPath: join(dir, 'hooks.json'), model: 'test-model', enabledHooks: [ALL_HOOKS] })
@@ -148,11 +150,11 @@ describe('hooks-codex bridge', () => {
     const capture = script(dir, 'resume.sh', '#!/usr/bin/env bash\necho "resumed context"\n')
     writeHooks(dir, { SessionStart: [{ matcher: 'resume', hooks: [{ type: 'command', command: capture }] }] })
     const ctx = await harness(dir, new MockAdapter([]))
-    const session = ctx.sessions.create(SessionId('registry-resume'))
+    const session = ctx.sessions.create(brandString<SessionId>('registry-resume'))
     const inject = vi.fn()
     const agent = { id: session.id, session, ctx, inject } as unknown as Agent
 
-    ctx.effect(() => ctx.agents.enter(agent, undefined))
+    ctx.effect(() => ctx.agents.enter(agent))
     await ctx.agents.announce(agent, 'resume')
 
     expect(inject).toHaveBeenCalledWith(expect.objectContaining({
@@ -173,8 +175,8 @@ describe('hooks-codex bridge', () => {
     const cliAgent = agentFake({ id: cli.id, session: cli, ctx, inject: injectCli })
     const plainAgent = agentFake({ id: plain.id, session: plain, ctx, inject: injectPlain })
 
-    ctx.effect(() => ctx.agents.enter(cliAgent, undefined))
-    ctx.effect(() => ctx.agents.enter(plainAgent, undefined))
+    ctx.effect(() => ctx.agents.enter(cliAgent))
+    ctx.effect(() => ctx.agents.enter(plainAgent))
     await ctx.agents.announce(cliAgent, 'resume')
     await ctx.agents.announce(plainAgent, 'resume')
 
@@ -192,7 +194,7 @@ describe('hooks-codex bridge', () => {
     const ctx = await harness(dir, adapter)
     let ran = false
     ctx.tools.register(defineContentToolFixture({ name: 'Bash', description: 'b', parameters: { command: { type: 'string' } }, async execute() { ran = true; return [{ type: 'text', text: 'no' }] } }))
-    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = await ctx.agentLoop.create(brandString<SessionId>('a1'), { provider: 'mock', model: 'mock' })
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'run ls' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
 
@@ -212,7 +214,7 @@ describe('hooks-codex bridge', () => {
 
     const adapter = new MockAdapter([textResponse('first answer'), textResponse('second answer after goal')])
     const ctx = await harness(dir, adapter)
-    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = await ctx.agentLoop.create(brandString<SessionId>('a1'), { provider: 'mock', model: 'mock' })
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
 
@@ -229,7 +231,7 @@ describe('hooks-codex bridge', () => {
 
     const adapter = new MockAdapter([textResponse('must not run')])
     const ctx = await harness(dir, adapter)
-    const agent = await ctx.agentLoop.create(SessionId('cancel-prompt-hook'), { provider: 'mock', model: 'mock' })
+    const agent = await ctx.agentLoop.create(brandString<SessionId>('cancel-prompt-hook'), { provider: 'mock', model: 'mock' })
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'cancel the hook' }], source: { kind: 'user' } }))
     await waitFor(() => existsSync(marker))
     const pid = Number(readFileSync(pidFile, 'utf8').trim())
@@ -252,7 +254,7 @@ describe('hooks-codex bridge', () => {
 
     const adapter = new MockAdapter([textResponse('fine')])
     const ctx = await harness(dir, adapter)
-    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = await ctx.agentLoop.create(brandString<SessionId>('a1'), { provider: 'mock', model: 'mock' })
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(1)
@@ -262,7 +264,7 @@ describe('hooks-codex bridge', () => {
     const dir = configDir() // no hooks.json written
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(dir, adapter)
-    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = await ctx.agentLoop.create(brandString<SessionId>('a1'), { provider: 'mock', model: 'mock' })
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(1)
@@ -277,7 +279,7 @@ describe('hooks-codex bridge', () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const warn = vi.fn()
     const ctx = await harness(dir, adapter, (ctx) => { ctx.logger.warn = warn as never })
-    const agent = await ctx.agentLoop.create(SessionId('invalid-codex-matcher'), { provider: 'mock', model: 'mock' })
+    const agent = await ctx.agentLoop.create(brandString<SessionId>('invalid-codex-matcher'), { provider: 'mock', model: 'mock' })
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(1)
@@ -304,7 +306,7 @@ describe('hooks-codex bridge', () => {
     const fiber = await ctx.plugin(HooksCodex, { configPath: join(dir, 'hooks.json'), model: 'm', enabledHooks: [ALL_HOOKS] })
     await fiber.dispose()
     ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = await ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    const agent = await ctx.agentLoop.create(brandString<SessionId>('a1'), { provider: 'mock', model: 'mock' })
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(1) // not blocked → the listener is gone
@@ -329,7 +331,7 @@ describe('hooks-codex bridge', () => {
     ctx.llm.registerAdapter(['mock'], new MockAdapter([]))
     const warn = vi.fn()
     ctx.logger.warn = warn as never
-    const creating = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    const creating = ctx.agentLoop.create(brandString<SessionId>('a1'), { provider: 'mock', model: 'mock' })
     try {
       await waitFor(() => existsSync(marker))
       const pid = Number(readFileSync(pidFile, 'utf8').trim())
@@ -494,6 +496,7 @@ describe('hooks-codex bridge — sandbox policy', () => {
 
     const ctx = new Context()
     contexts.push(ctx)
+    provideWorkingDirectoryFixture(ctx)
     await mountAgentLoopTestDependencies(ctx)
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(SandboxPolicyService, { mode: 'workspace-write', workspaceRoot: dir })

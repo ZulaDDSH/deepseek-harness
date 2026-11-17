@@ -277,6 +277,8 @@
   max-height: calc(100vh - 32px);
   padding: 16px 18px;
   overflow: auto;
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
   border: 0.5px solid var(--dsw-alias-settings-card-stroke);
   border-radius: var(--dsw-radius-xl);
   background: var(--dsw-alias-settings-card-fill);
@@ -457,7 +459,7 @@
   height: 650px;
   border: 0;
   border-radius: var(--dsw-radius-lg);
-  background: #0f0f1a;
+  background: var(--dsw-alias-bg-layer-1);
 }
 
 @media (max-width: 900px) {

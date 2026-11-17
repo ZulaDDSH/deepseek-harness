@@ -1,5 +1,5 @@
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
+import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session-status/client'
 import type { WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 
 /** Attention, failure, running, or idle state assigned to a session row. */

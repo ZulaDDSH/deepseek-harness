@@ -35,8 +35,9 @@ import type { CredentialsRevisionState, ModelsSettingsStore, ProviderRow } from 
 import type { ModelsOperations } from './operations.ts'
 import type { SettingsSchemaOperations } from './schema-operations.ts'
 import { ProviderEditor, type ProviderEditorProps } from './ProviderEditor.tsx'
+import { SignInCard } from './SignInCard.tsx'
 import type { AuthorizationOperations } from './authorization-operations.ts'
-import { keyConfiguredOf, needsSetup, providerCopy, providerModelOptions, targetOf } from './provider-rows.ts'
+import { keyConfiguredOf, needsSetup, providerCopy, targetOf } from './provider-rows.ts'
 import type { EditorTarget, ProviderIdentity } from './provider-rows.ts'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
@@ -108,7 +109,7 @@ interface CatalogDraft {
 interface ProviderEditorRenderProps extends Pick<
   ProviderEditorProps,
   'namespace' | 'schema' | 'operations' | 'authorization' | 'credentialsRevision' | 't' | 'readOnly'
-  | 'onCredentialChanged' | 'onClose' | 'modelOptions'
+  | 'onCredentialChanged' | 'onClose' | 'hideSignIn'
 > {
   target: EditorTarget
   row: ProviderRow
@@ -192,8 +193,7 @@ export function ModelsSection(props: ModelsSectionProps): ReactNode {
 function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderSlot: ModelsRenderSlot }): ReactNode {
   const { controller, useCredentialsRevision, operations, authorization, schema, t } = injected
   const snapshot = injected.useSnapshot(value => value)
-  const state = { ...snapshot, rows: snapshot.rows.filter(row => row.entry.provider !== 'jev-router')
-    .map(row => row.entry.provider === 'deepseek-account'
+  const state = { ...snapshot, rows: snapshot.rows.map(row => row.entry.provider === 'deepseek-account'
       ? { ...row, entry: { ...row.entry, displayName: t('deepSeekAccount') } } : row) }
   const credentialsRevision = useCredentialsRevision(value => value.revision)
   /** A new or failed surface waits for a current snapshot; background refreshes preserve its drafts. */
@@ -357,8 +357,6 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
   const addRow = draft === undefined
     ? undefined
     : state.rows.find(row => row.entry.provider === draft.target.provider)
-  const modelOptions = providerModelOptions(state, schema)
-
   return (
     <div className={styles['section']}>
       <h2 className={styles['title']}>{t('title')}</h2>
@@ -393,7 +391,6 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                   target,
                   row,
                   namespace,
-                  modelOptions,
                   schema,
                   operations,
                   ...authorization === undefined ? {} : { authorization },
@@ -500,6 +497,16 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                 </span>
               </div>
               {error}
+              {authorization !== undefined && target.settingsNs === 'llm-pi-ai' ? (
+                <SignInCard
+                  provider={target.provider}
+                  displayName={target.displayName}
+                  operations={authorization}
+                  t={t}
+                  refresh={credentialsRevision}
+                  onSignedIn={() => { void controller.load() }}
+                />
+              ) : null}
               {renderSlot(
                 'settings.models.provider-card',
                 { provider: row.entry, configured: row.configured, keyConfigured: keyConfiguredOf(row) },
@@ -510,13 +517,13 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                   target,
                   row,
                   namespace,
-                  modelOptions,
                   schema,
                   operations,
                   ...authorization === undefined ? {} : { authorization },
                   credentialsRevision,
                   t,
                   readOnly: !state.writable,
+                  hideSignIn: true,
                   onCredentialChanged: () => { void controller.load() },
                   onClose: (changed) => { closeEditor(changed, target) },
                 })
@@ -603,7 +610,6 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                       namespace={draft.namespace}
                       schema={schema}
                       settingsPath={draft.target.settingsPath}
-                      modelOptions={modelOptions}
                       operations={operations}
                       {...authorization === undefined ? {} : { authorization }}
                       credentialsRevision={credentialsRevision}

@@ -7,23 +7,8 @@
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 
-/** Internal exported basis for the public `TerminalSessionId` type/value pair. */
+/** Internal exported basis for the public `TerminalSessionId` type. */
 export type TerminalSessionIdValue = Branded<'TerminalSessionId'>
-
-/**
- * Backend-reported failure to clean partial resources after unpublished setup failed.
- * @param spawnError - original setup or cancellation failure.
- * @param cleanupError - failure that may leave backend-owned resources alive.
- */
-export class TerminalBackendCleanupError extends AggregateError {
-  constructor(
-    readonly spawnError: unknown,
-    readonly cleanupError: unknown,
-  ) {
-    super([spawnError, cleanupError], 'PTY backend startup and cleanup both failed')
-    this.name = 'TerminalBackendCleanupError'
-  }
-}
 
 /** Why one interactive send returned control to its caller. */
 export type TerminalWaitReason = 'stdin_read' | 'inferred_idle' | 'timeout' | 'session_exit'
@@ -66,6 +51,7 @@ export interface TerminalSendRequest {
   text: string
   /** Whether to write the backend's Enter sequence after {@link text}. */
   submit: boolean
+  readinessAfterLine?: string
   /** Cancellation for the wait; backends also interrupt the foreground command. */
   signal?: AbortSignal
 }
@@ -152,6 +138,7 @@ export interface TerminalBackendSession {
   readonly pid?: number
   /** Start one exclusive send operation. */
   startSend(request: TerminalSendRequest): TerminalSendOperation
+  watchLine?(line: string): { seen(): boolean; dispose(): void }
   /** Read one bounded page from retained scrollback. */
   read(request: TerminalReadRequest): TerminalReadResult
   /** Signal the verified foreground process group. */
@@ -166,7 +153,7 @@ export interface TerminalBackendSession {
 export interface TerminalBackend {
   /** Stable type selected by {@link TerminalSpawnRequest.type}. */
   readonly type: string
-  /** Create an unpublished session or reject after cleaning partial resources; cleanup failure uses {@link TerminalBackendCleanupError}. */
+  /** Create an unpublished session or reject after cleaning partial resources; cleanup failure uses `TerminalBackendCleanupError`. */
   spawn(spec: TerminalBackendSpawnSpec): Promise<TerminalBackendSession>
 }
 

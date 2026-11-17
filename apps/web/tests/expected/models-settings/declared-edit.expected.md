@@ -3,7 +3,6 @@
   - navigation:
     - button "通用设置"
     - button "模型"
-    - button "Jev"
     - button "内置插件"
     - button "Agent 预设"
     - button "MCP 服务器"
@@ -39,6 +38,13 @@
           - option "OpenAI Chat Completions" [selected]
           - option "OpenAI Responses"
           - option "Anthropic Messages"
+          - option "Gemini API"
+        - group "重试策略":
+          - text: 重试策略
+          - combobox "重试策略":
+            - option "默认（仅临时错误）" [selected]
+            - option "仅临时错误"
+            - option "所有错误"
         - region "模型目录":
           - text: 模型目录 已自定义模型目录
           - button "恢复默认模型"

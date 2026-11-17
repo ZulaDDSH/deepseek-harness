@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-provider-quota",
   "description": "Session-header provider quota usage popover",
-  "version": "0.2.2-alpha.2",
+  "version": "0.2.2-rc.3",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
@@ -20,7 +20,10 @@
   "files": [
     "lib/index.js",
     "lib/client.js",
-    "lib/types/**/*.d.ts"
+    "lib/types/**/*.d.ts",
+    "lib/types/**/*.d.ts.map",
+    "lib/**/*.js.map",
+    "src"
   ],
   "scripts": {
     "bundle": "tsdown",

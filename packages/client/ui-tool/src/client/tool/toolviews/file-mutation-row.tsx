@@ -59,6 +59,10 @@ export function FileMutationRow({
       state={model.state}
       startedAt={model.startedAt}
       filePath={model.filePath}
+      fileTargets={model.fileTargets}
+      fileTargetContextMenuProps={target => getTriggerProps(() => ({
+        kind: 'file', value: { sessionId, path: resolveFilePath(target) },
+      }))}
       onOpenFile={openFile}
       inspect={inspect}
     />

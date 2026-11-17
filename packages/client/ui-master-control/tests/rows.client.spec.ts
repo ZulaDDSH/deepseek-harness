@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
+import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session-status/client'
 import { groupMasterRows, masterRows } from '../src/client/rows.ts'
 
 function summary(id: string, over: Partial<SessionSummary> = {}): SessionSummary {

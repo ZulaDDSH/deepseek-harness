@@ -184,6 +184,21 @@ describe('billing choice on a route with a sign-in and an API key', () => {
     expect(writtenOps(writeSettings)).toEqual([{ op: 'set', path: [...SETTINGS_PATH, 'apiKeyEnv'], value: KEY_REF }])
   })
 
+  it('switches back to API credits when a key is typed after choosing the subscription', async () => {
+    const { writeSettings, storeCredential } = renderEditor({ flow: { configured: true, kind: 'grant' } })
+    const key = ['fake', 'anthropic', 'key'].join('-')
+
+    await screen.findByRole('group', { name: en.billingLabel })
+    fireEvent.click(buttonNamed(en.billingSubscription))
+    fireEvent.change(screen.getByLabelText(KEY_LABEL), { target: { value: key } })
+
+    expect(buttonNamed(en.billingApi).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: en.apply }))
+
+    await waitFor(() => { expect(storeCredential).toHaveBeenCalledWith(KEY_REF, key) })
+    expect(writtenOps(writeSettings)).toEqual([{ op: 'set', path: [...SETTINGS_PATH, 'apiKeyEnv'], value: KEY_REF }])
+  })
+
   it('keeps a key stored through the sign-in out of an unrelated save', async () => {
     const { writeSettings } = renderEditor({ flow: { configured: true, kind: 'api-key' } })
 

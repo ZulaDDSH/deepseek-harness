@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { makeTranslate, sessionSnapshot } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SessionListState, SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
+import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session-status/client'
 import { SubagentCatalogAction, type SubagentCatalogActionProps } from '../src/client/SubagentHeaderLineage.tsx'
 import { en } from '../src/client/locales.ts'
 
@@ -17,13 +17,13 @@ const PARENT = 'parent' as SessionId
 const RUNNING = 'running' as SessionId
 const DONE = 'done' as SessionId
 
-function props(): SubagentCatalogActionProps {
+function props(includeRunning = true): SubagentCatalogActionProps {
   const rows = [
-    { id: RUNNING, mode: 'continuable' as const, label: 'worker', createdAt: 1 },
+    ...(includeRunning ? [{ id: RUNNING, mode: 'continuable' as const, label: 'worker', createdAt: 1 }] : []),
     { id: DONE, mode: 'one-shot' as const, label: 'reviewer', createdAt: 1 },
   ]
   const state = {
-    ids: [RUNNING, DONE],
+    ids: rows.map(row => row.id),
     byId: Object.fromEntries(rows.map(row => [row.id, {
       id: row.id, displayTitle: row.label, running: row.id === RUNNING, blank: false, updatedAt: 1, retainedBy: {},
     }])),
@@ -38,7 +38,7 @@ function props(): SubagentCatalogActionProps {
     useSessionRetainInfo: unused,
     useWorkspaces: unused,
     useResource: unused,
-    useProjection: unused,
+    useProjection: ((_key: 'agentTeam', select: (value: undefined) => unknown) => select(undefined)) as SubagentCatalogActionProps['useProjection'],
     useAccess: unused,
     useRemoteAccess: unused,
     useSessionAccess: unused,
@@ -54,20 +54,32 @@ function props(): SubagentCatalogActionProps {
     },
     sessionId: PARENT,
     useSessions: <T,>(select: (value: SessionListState) => T): T => select(state),
+    useFooterAvailable: <T,>(select: (value: boolean) => T): T => select(false),
     useSessionStatus: <T,>(select: (value: SessionStatusSnapshot) => T): T => select(statuses),
     useSession: <T,>(select: (value: SessionSnapshot) => T): T => select(snapshot),
     openChild: vi.fn(),
     openChildAside: vi.fn(),
     refreshProjection: vi.fn(),
+    prepareCatalog: vi.fn().mockResolvedValue(undefined),
+    renderSlot: vi.fn(() => null),
     t: makeTranslate(en),
   }
 }
 
 describe('cleared subagents', () => {
+  it('keeps the menu available after clearing the last child', () => {
+    render(<SubagentCatalogAction {...props(false)} />)
+    fireEvent.click(screen.getByRole('button', { name: /1 subagent/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Clear finished (1)' }))
+    expect(screen.getByRole('button', { name: 'Show cleared (1)' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Show cleared (1)' }))
+    expect(screen.getByRole('treeitem', { name: /reviewer/ })).toBeTruthy()
+  })
+
   it('hides finished children, keeps running ones, reveals cleared ones for review, and remembers the choice', () => {
     const input = props()
     render(<SubagentCatalogAction {...input} />)
-    fireEvent.click(screen.getByRole('button', { name: /1 subagent running/ }))
+    fireEvent.click(screen.getByRole('button', { name: '1 subagent' }))
     expect(screen.getAllByRole('treeitem')).toHaveLength(2)
 
     fireEvent.click(screen.getByRole('button', { name: 'Clear finished (1)' }))
@@ -80,7 +92,7 @@ describe('cleared subagents', () => {
 
     cleanup()
     render(<SubagentCatalogAction {...props()} />)
-    fireEvent.click(screen.getByRole('button', { name: /1 subagent running/ }))
+    fireEvent.click(screen.getByRole('button', { name: '1 subagent' }))
     expect(screen.getAllByRole('treeitem')).toHaveLength(1)
     expect(screen.getByRole('button', { name: 'Show cleared (1)' })).toBeTruthy()
   })

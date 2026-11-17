@@ -44,6 +44,14 @@ export function accountView(value: unknown): AccountView {
   }
 }
 
+function accountUpdateView(value: unknown): AccountView {
+  if (typeof value !== 'object' || value === null || !('type' in value)
+    || !['snapshot', 'credentials-changed'].includes(String(value.type)) || !('state' in value)) {
+    throw new Error('desktop account: invalid update')
+  }
+  return accountView(value.state)
+}
+
 /** Only HTTP loopback or HTTPS destinations can leave the native app. */
 function validateBrowserDestination(value: string): void {
   const url = new URL(value)
@@ -80,7 +88,7 @@ export interface DesktopAccountBackend {
  * Connect native account operations to the standard authenticated Web backend.
  * @param origin - Host Web origin.
  * @param invoke - validated unary RPC caller.
- * @param cookies - Electron session cookie reader.
+ * @param cookies - Host-issued cookie provider, reread on each stream connection.
  * @returns account operations; watch callers own their subscriptions.
  */
 export function desktopAccountBackend(origin: string, invoke: AccountInvoke, cookies: () => Promise<string>): DesktopAccountBackend {
@@ -119,7 +127,7 @@ export function desktopAccountBackend(origin: string, invoke: AccountInvoke, coo
               }
               if (frame.streamId === expiryStreamId && frame.type === 'item' && frame.value === 'session-expired') { expired(); return }
               if (frame.streamId !== streamId) throw new Error('desktop account: unexpected stream')
-              if (frame.type === 'item') listener(accountView(frame.value))
+              if (frame.type === 'item') listener(accountUpdateView(frame.value))
               else socket?.close()
             } catch { socket?.close() }
           })

@@ -24,9 +24,6 @@
       "path": "../../llm/llm"
     },
     {
-      "path": "../../llm/llm-jev-router"
-    },
-    {
       "path": "../../core/session"
     },
     {
@@ -46,6 +43,9 @@
     },
     {
       "path": "../../session/working-directory"
+    },
+    {
+      "path": "../../util/ripgrep"
     }
   ]
 }

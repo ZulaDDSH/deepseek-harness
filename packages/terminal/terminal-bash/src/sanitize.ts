@@ -123,6 +123,10 @@ export class TerminalSanitizer {
     return `${normalized}\n`
   }
 
+  resetPromptTracking(): void {
+    this.trackingPromptTail = false
+  }
+
   private normalizeText(text: string): string {
     let complete = this.trailingCarriageReturn ? `\r${text}` : text
     this.trailingCarriageReturn = false

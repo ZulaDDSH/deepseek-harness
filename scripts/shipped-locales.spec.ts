@@ -36,7 +36,7 @@ it('matches Desktop dictionaries, resolution and installer resources to the ship
     expect(desktop.resolveDesktopLocale(id).id).toBe(id === 'zh' ? 'zh-CN' : id)
     expect(desktop.resolveDesktopStartupLocale(null, [id]).id).toBe(id === 'zh' ? 'zh-CN' : id)
   }
-  expect(readInstallerLocales().map(locale => locale.id.split('_')[0]).sort()).toEqual(dictionaries)
+  expect(readInstallerLocales().map(locale => locale.id.split('_')[0]).sort()).toEqual(dictionaries.filter(id => id !== 'zh'))
 })
 
 it('rejects invisible characters in the Desktop locale source', () => {

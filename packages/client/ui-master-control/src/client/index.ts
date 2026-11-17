@@ -5,7 +5,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
-import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+import type {} from '@deepseek-ai/dsh-client-ui-session-status/client'
 import type { UiWorkspace } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { MasterControlIcon } from './MasterControlIcon.tsx'
 import type { MasterControlInjected } from './MasterControlPage.tsx'
@@ -34,7 +34,7 @@ export const NS = 'masterControl'
 /** The id shared by the sidebar entry and the main panel it opens. */
 export const PANEL_ID = 'master-control' as MainPanelId
 
-export const inject = ['slots', 'locale', 'sessions', 'uiWorkspace', 'workspaces']
+export const inject = ['slots', 'locale', 'sessions', 'uiWorkspace', 'workspaces', 'uiSession.sessionStatus']
 
 export function apply(ctx: ClientContext): void {
   const sessions = ctx.get('sessions') as ISessions

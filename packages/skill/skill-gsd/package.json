@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-skill-gsd",
   "description": "Bundled GSD (Get Shit Done) phased workflow skills for DeepSeek Harness",
-  "version": "0.2.2-alpha.2",
+  "version": "0.2.2-rc.3",
   "publishConfig": {
     "access": "public"
   },
@@ -24,7 +24,10 @@
     "lib/index.js",
     "assets",
     "NOTICE-GSD.md",
-    "lib/types/**/*.d.ts"
+    "lib/types/**/*.d.ts",
+    "lib/types/**/*.d.ts.map",
+    "lib/**/*.js.map",
+    "src"
   ],
   "license": "MIT",
   "peerDependencies": {

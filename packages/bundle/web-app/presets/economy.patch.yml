@@ -95,7 +95,6 @@
                 config:
                   provider: spawn
                   toolName: subagent
-                  roles: true
                   modelSelectionSettings: true
                   backgroundMode: continuable
               - id: tool-subagent-fork

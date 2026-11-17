@@ -116,6 +116,7 @@ export interface CordisCatalogPolicy {
   readonly foundationTypeNames: ReadonlySet<string>
   /** Repository types deliberately documented outside the linked data catalog. */
   readonly typeLinkExemptions: Readonly<Record<string, string>>
+  readonly codeNotes?: ReadonlyMap<string, ReadonlyMap<string, string>>
   /** Framework Services included in the model-facing runtime catalog but not the harness documentation partition. */
   readonly runtimeServices?: readonly ServiceEntry[]
   /** Harness Services omitted from the model-facing runtime catalog because dynamic Plugins must not call them. */
@@ -126,6 +127,7 @@ export interface CordisCatalogPolicy {
   readonly inheritedServices: readonly InheritedEntry[]
   /** Maximum rendered characters per runtime type declaration. */
   readonly runtimeDeclarationMaxChars?: number
+  readonly runtimeTypeDeclarations?: Readonly<Record<string, string>>
 }
 
 /** Complete model-level Cordis projection used by every text renderer. */
@@ -185,7 +187,11 @@ export class CordisCatalogProjector {
     const typeLinkViolations: string[] = []
     for (const packageModel of this.face.packages) {
       for (const event of packageModel.events) {
-        const parsed = parseJsDoc(event.jsDoc ?? '')
+        const jsDoc = event.jsDoc || documentedContract(
+          this.policy.codeNotes,
+          `${event.location.file}:${event.name}`,
+        )
+        const parsed = parseJsDoc(jsDoc)
         if (parsed.deprecated) continue
         const source = pointer(event.location)
         const where = `event '${event.name}' (${source})`
@@ -197,7 +203,7 @@ export class CordisCatalogProjector {
         if (this.face.face === 'host') {
           checkTypeLinks(where, signatureTypeNames(this.renderer, node.signature), this.policy, typeLinkViolations)
         }
-        const mode = event.mode
+        const mode = event.mode ?? parsed.mode ?? undefined
         if (!isMode(mode)) {
           violations.push(`${where} is missing an @mode tag. Add '@mode emit|bail|waterfall|parallel|serial' to its JSDoc (see AGENTS.md).`)
         }
@@ -225,7 +231,7 @@ export class CordisCatalogProjector {
             name: event.name,
             scope: event.name.split('/')[0] ?? event.name,
             signature: event.text,
-            jsDoc: event.jsDoc ?? '',
+            jsDoc,
             mode,
             doc: parsed.doc,
             source,
@@ -293,11 +299,15 @@ export class CordisCatalogProjector {
       for (const memberId of service.members) {
         const member = this.renderer.member(memberId)
         if (member.name.startsWith('[')) continue
-        const parsed = parseJsDoc(member.jsDoc ?? '')
+        const jsDoc = member.jsDoc || documentedContract(
+          this.policy.codeNotes,
+          `${member.location.file}:${declaration.name}.${member.name}`,
+        )
+        const parsed = parseJsDoc(jsDoc)
         if (parsed.deprecated) continue
         if (member.kind === 'property') {
-          if (member.jsDoc === undefined) continue
-          methods.push({ kind: 'property', signature: member.text, jsDoc: member.jsDoc })
+          if (jsDoc === '') continue
+          methods.push({ kind: 'property', signature: member.text, jsDoc })
           continue
         }
         if (member.kind !== 'method') continue
@@ -305,8 +315,8 @@ export class CordisCatalogProjector {
         if (this.face.face === 'host') {
           checkTypeLinks(where, signatureTypeNames(this.renderer, member.signature), this.policy, typeLinkViolations)
         }
-        methods.push({ kind: 'method', signature: member.text, jsDoc: member.jsDoc ?? '' })
-        if (member.jsDoc === undefined) {
+        methods.push({ kind: 'method', signature: member.text, jsDoc })
+        if (jsDoc === '') {
           violations.push(`${where} has no JSDoc.`)
           continue
         }
@@ -334,22 +344,28 @@ export class CordisCatalogProjector {
     events: readonly EventEntry[],
   ): { name: string; declaration: string }[] {
     const declarations = new Map<string, string>()
+    const sourceTexts = new Map<string, string>()
     const ambiguous = new Set<string>()
     const maxDeclarationChars = this.policy.runtimeDeclarationMaxChars ?? DEFAULT_MAX_DECL_CHARS
     for (const declaration of this.sourceDeclarations) {
       if (declaration.face !== this.face.face
         || (!/^packages\/[^/]+\/[^/]+\/src\/.+\.tsx?$/.test(declaration.location.file)
           && !(declaration.kind === 'enum' && /^vendor\/[^/]+\/src\/.+\.ts$/.test(declaration.location.file)))) continue
-      if (declarations.has(declaration.name)) {
-        ambiguous.add(declaration.name)
+      const existing = sourceTexts.get(declaration.name)
+      if (existing !== undefined) {
+        if (existing !== declaration.text) ambiguous.add(declaration.name)
         continue
       }
-      declarations.set(
-        declaration.name,
-        declaration.text.length > maxDeclarationChars
-          ? `${declaration.text.slice(0, maxDeclarationChars)} /* …truncated — full shape in source */`
-          : declaration.text,
-      )
+      sourceTexts.set(declaration.name, declaration.text)
+      declarations.set(declaration.name, declaration.text.length > maxDeclarationChars
+        ? `${declaration.text.slice(0, maxDeclarationChars)} /* …truncated — full shape in source */`
+        : declaration.text)
+    }
+    for (const [name, text] of Object.entries(this.policy.runtimeTypeDeclarations ?? {})) {
+      if (declarations.has(name)) {
+        declarations.set(name, text)
+        ambiguous.delete(name)
+      }
     }
     for (const name of ambiguous) declarations.delete(name)
     return referencedTypes([
@@ -420,6 +436,7 @@ export function collectServices(scanRoot: string, policy: CordisCatalogPolicy): 
 
 interface ParsedJsDoc {
   readonly doc: string
+  readonly mode: string | null
   readonly params: ReadonlyMap<string, string>
   readonly returns: string | null
   readonly throws: readonly string[]
@@ -479,11 +496,18 @@ function parseJsDoc(raw: string): ParsedJsDoc {
   flushParagraph()
 
   const params = new Map<string, string>()
+  let mode: string | null = null
   let returns: string | null = null
   const throws: string[] = []
   let deprecated = false
   let sink: ((text: string) => void) | undefined
   for (const line of lines) {
+    const modeTag = /^@mode\s+(.+)$/.exec(line)
+    if (modeTag !== null) {
+      mode = modeTag[1]?.trim() ?? null
+      sink = undefined
+      continue
+    }
     if (/^@deprecated(?:\s|$)/.test(line)) {
       deprecated = true
       sink = undefined
@@ -526,11 +550,32 @@ function parseJsDoc(raw: string): ParsedJsDoc {
   }
   return {
     doc: blocks.join('\n\n').replace(/\{@link\s+([^}]+)\}/g, '$1').trim(),
+    mode,
     params,
     returns,
     throws,
     deprecated,
   }
+}
+
+function documentedContract(
+  notes: CordisCatalogPolicy['codeNotes'],
+  anchor: string,
+): string {
+  const fields = notes?.get(anchor)
+  if (fields === undefined) return ''
+  const description = fields.get('description')
+  if (description === undefined) return ''
+  const lines = [`/** ${description}`]
+  const mode = fields.get('mode')
+  if (mode !== undefined) lines.push(` * @mode ${mode}`)
+  for (const [field, value] of fields) {
+    if (field.startsWith('params.')) lines.push(` * @param ${field.slice('params.'.length)} - ${value}`)
+  }
+  const returns = fields.get('returns')
+  if (returns !== undefined) lines.push(` * @returns ${returns}`)
+  lines.push(' */')
+  return lines.join('\n')
 }
 
 function checkParams(

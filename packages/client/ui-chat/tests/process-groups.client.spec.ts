@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { SessionSeq } from '@deepseek-ai/dsh-session/types'
-import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
+import type { MessageId } from '@deepseek-ai/dsh-llm/types'
 import type { ConversationTimelineSnapshot, TurnLocation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { PartialArguments } from '@deepseek-ai/dsh-util-values'
 import type { ChatConversationViewNode, ChatNode } from '../src/client/contract/chat-nodes.ts'
@@ -103,6 +103,20 @@ describe('Definition-owned Chat process groups', () => {
     const argsRaw = JSON.stringify({ command })
     const root = { ...node.data.root, argsRaw, args: PartialArguments.fromText(argsRaw) }
     expect(processActivity([{ ...node, data: { root } }]).runningDetail).toBe(expected)
+  })
+
+  it('names a group by its Context only when no tool or Assistant evidence exists', () => {
+    const context: ChatNode<'context'> = {
+      key: 'context', id: 'context', kind: 'context', target: 'chat', anchorSeq: 1,
+      location: { kind: 'turn', turn }, visibility: 'visible',
+      data: {
+        kind: 'context', seq: 1, time: 1, content: [{ type: 'text', text: 'context' }], source: null,
+        producer: { role: 'inject', label: null }, form: null,
+      },
+    }
+    expect(processActivity([context, { ...context, key: 'second' }]).counts).toEqual([{ kind: 'context', count: 2, targets: [] }])
+    expect(processActivity([context, tool('call', 2)]).counts).toEqual([{ kind: 'commands', count: 1, targets: [] }])
+    expect(processActivity([context, assistant('thinking')]).counts).toEqual([])
   })
 
   it('keeps 160 graphemes when the bounded prefix splits a surrogate pair', () => {
@@ -214,6 +228,7 @@ describe('Definition-owned Chat process groups', () => {
 
   it.each([
     ['read', 'read'], ['read_image', 'readImage'], ['write', 'write'], ['edit', 'edit'], ['apply_patch', 'edit'],
+    ['run_code', 'code'], ['cua_run_code', 'code'],
     ['todo_write', 'plan'], ['create_goal', 'plan'], ['update_goal', 'plan'], ['get_goal', 'plan'],
     ['list_mcp_resources', 'tools'], ['list_mcp_resource_templates', 'tools'], ['read_mcp_resource', 'tools'],
   ] as const)('%s keeps its activity category through preparation, dispatch, and result', (name, kind) => {
@@ -564,6 +579,11 @@ describe('Definition-owned Chat process groups', () => {
     expect(source.getSnapshot()?.data.closed).toBe(true)
   })
 
+  it('does not count intended edit lines when the result reports no applied diffs', () => {
+    const node = settledTool('no-op', 2, 'edit', { file_path: 'same.ts', old_string: 'a', new_string: 'b' }, { diffs: [] })
+    expect(processActivity([node])).toMatchObject({ added: 0, removed: 0 })
+  })
+
   it('names distinct file targets per category and totals write and edit line changes', () => {
     const h = harness([
       settledTool('write', 2, 'write', { file_path: 'src/new.ts', content: 'a\nb' }, { diffs: [{ path: 'src/new.ts', oldText: null, newText: 'a\nb' }] }),
@@ -576,7 +596,7 @@ describe('Definition-owned Chat process groups', () => {
     if (group.kind !== 'group') throw new Error('expected group')
     const summary = h.store.groupSource(group.key).getSnapshot()?.data.summary
     expect(summary?.counts).toEqual([
-      { kind: 'edit', count: 2, targets: ['locales.ts', 'broken.ts'] },
+      { kind: 'edit', count: 2, targets: ['locales.ts'] },
       { kind: 'read', count: 2, targets: ['notes.md'] },
       { kind: 'write', count: 1, targets: ['new.ts'] },
     ])
@@ -608,6 +628,8 @@ describe('Chat process group titles', () => {
     ['one file read repeatedly', [{ kind: 'read', count: 3, targets: ['notes.md'] }], 'Read notes.md'],
     ['one tool call', [{ kind: 'tools', count: 1, targets: [] }], 'Used a tool'],
     ['repeated tool calls', [{ kind: 'tools', count: 2, targets: [] }], 'Called 2 tools'],
+    ['injected context', [{ kind: 'context', count: 1, targets: [] }], 'Injected context'],
+    ['repeated context injections', [{ kind: 'context', count: 2, targets: [] }], 'Injected context 2 times'],
   ])('titles %s', (_name, counts, expected) => {
     expect(processTitle(summary(counts), englishTitle)).toBe(expected)
   })

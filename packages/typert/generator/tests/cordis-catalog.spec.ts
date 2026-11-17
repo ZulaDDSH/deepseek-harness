@@ -33,7 +33,7 @@ const SOURCE_LINK_POLICY: CordisCatalogPolicy = {
   foundationTypeNames: new Set(),
   typeLinkExemptions: {},
   inheritedEvents: [{ name: 'ready', summary: 'Ready.', source: 'vendor/cordis/src/events.ts:9' }],
-  inheritedServices: [{ name: 'ctx.root', summary: 'Root.', source: 'vendor/cordis/src/context.ts:12' }],
+  inheritedServices: [{ name: 'ctx.events', summary: 'Events.', source: 'vendor/cordis/src/context.ts:12' }],
 }
 
 describe('Typert-backed Cordis catalog', () => {
@@ -94,6 +94,17 @@ describe('Typert-backed Cordis catalog', () => {
     expect(rendered).toContain('ACTIVE,')
   })
 
+  it('keeps shared Office types unique and both rendering generations in the runtime catalog', () => {
+    const { projector, model } = projection()
+    const rendered = projector.renderRuntimeApi(model)
+    for (const name of ['OfficeExtension', 'OfficeSourceKey', 'RenderedDocumentBytes']) {
+      expect(rendered.split(`name: '${name}'`).length - 1).toBe(1)
+    }
+    expect(rendered).toContain('generation: OfficeKitGeneration | OfficeToPdfGeneration;')
+    expect(rendered).toContain("name: 'OfficeKitGeneration'")
+    expect(rendered).toContain("name: 'OfficeToPdfGeneration'")
+  })
+
   it('keeps the Slots service declaration and its referenced types within the display budget', { timeout: 480_000 }, () => {
     const { projector, model } = clientProjection()
     const slots = model.services.find(service => service.key === 'slots')
@@ -126,6 +137,7 @@ describe('Typert-backed Cordis catalog', () => {
     // plugin that provides it" for a key where no such plugin exists.
     expect(byKey.has('headlessIo')).toBe(false)
     expect(byKey.has('dshHomePath')).toBe(false)
+    expect(byKey.has('dshPath')).toBe(false)
     expect(byKey.has('launcherEnvironment')).toBe(false)
   })
 })

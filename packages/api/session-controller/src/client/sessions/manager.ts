@@ -147,12 +147,7 @@ export class SessionManager {
       throw new Error(`sessions.retain: unknown session ${id}`)
     }
     if (address !== undefined) this.addresses.set(id, address)
-    this.sessions.get(id)?.configureSubagent(
-      address,
-      address === undefined
-        ? undefined
-        : this.agentAvailable(address.parentSessionId),
-    )
+    this.sessions.get(id)?.configureSubagent(address, address === undefined ? undefined : this.agentAvailable(address.parentSessionId))
     return id
   }
 
@@ -276,14 +271,9 @@ export class SessionManager {
 
   private createSession(sessionId: SessionId): Session {
     const address = this.addresses.get(sessionId)
-    const parentAvailable = address === undefined
-      ? undefined
-      : this.agentAvailable(address.parentSessionId)
+    const parentAvailable = address === undefined ? undefined : this.agentAvailable(address.parentSessionId)
     return new Session(sessionId, this.remote, {
-      ...(address === undefined ? {} : {
-        address,
-        ...parentAvailable === undefined ? {} : { parentAvailable },
-      }),
+      ...(address === undefined ? {} : { address, ...(parentAvailable === undefined ? {} : { parentAvailable }) }),
       // The sender's local first-send flip mirrors into the list row so the
       // session surfaces (lists filter on blank) before any host frame lands.
       onEngaged: (engaged) => {
@@ -447,6 +437,7 @@ export class SessionManager {
           this.listState = 'idle'
           this.listPhase = 'ready'
           this.updateParentAvailability()
+
           // Resident Sessions and list rows share one display blank, reconciled with the metadata projection.
           for (const s of this.summaries) {
             const session = this.sessions.get(s.sessionId)
@@ -645,15 +636,17 @@ export class SessionManager {
   // ---- Live control and Host-event sinks ----
 
   /**
-   * Apply a complete control baseline or one later replacement frame.
-   * @param frame - baseline or live control replacement from Session Controller.
+   * Apply a complete control baseline or one later per-event projection frame.
+   * @param frame - baseline or live per-event projection change from Session Controller.
    */
   handleControlFrame(frame: SessionControlFrame): void {
     if (frame.type === 'baseline') {
       this.replaceControlBaseline(frame.value)
       return
     }
-    this.projectionStore(frame.sessionId).apply(frame.key, frame.value, SessionSeq(frame.seq))
+    const store = this.projectionStore(frame.sessionId)
+    const seq = SessionSeq(frame.seq)
+    for (const change of frame.changes) store.apply(change.key, change.val, seq)
     this.notifier.markDirty()
   }
 
@@ -723,9 +716,7 @@ export class SessionManager {
     this.projectionInflight.delete(sessionId)
     this.projectionLoads.delete(sessionId)
     for (const [childId, address] of this.addresses) {
-      if (address.parentSessionId === sessionId) {
-        this.sessions.get(childId)?.handleSubagentParentAvailable(false)
-      }
+      if (address.parentSessionId === sessionId) this.sessions.get(childId)?.handleSubagentParentAvailable(false)
     }
   }
 

@@ -20,12 +20,15 @@ export interface ClaudeRunSelection {
 
 /**
  * Validate the per-run agent options of one Claude Code child start request.
- * @param options - the request's agent options; only `model` and `reasoningEffort` apply to a Claude Code run.
+ * @param options - the request's agent options; Claude Code accepts the Anthropic provider, `model`, and `reasoningEffort`.
  * @returns the model and effort the run sets, or an empty selection when neither is named.
  */
 export function claudeRunSelectionOf(options: AgentOptions | undefined): ClaudeRunSelection {
   if (options === undefined) return {}
-  if (options.provider !== undefined || options.maxTokens !== undefined) {
+  if (options.provider !== undefined && options.provider !== 'anthropic') {
+    throw new Error('subagent-claude-code: a Claude Code child may use only provider "anthropic"')
+  }
+  if (options.maxTokens !== undefined) {
     throw new Error('subagent-claude-code: a child run may set only model and reasoningEffort')
   }
   const model = options.model

@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
+import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session-status/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { MasterControlPage, type MasterControlPageProps } from '../src/client/MasterControlPage.tsx'
 import { en } from '../src/client/locales.ts'

@@ -3,7 +3,6 @@
   - navigation:
     - button "General"
     - button "Models"
-    - button "Jev"
     - button "Built-in plugins"
     - button "Agent presets"
     - button "MCP servers"

@@ -4,8 +4,8 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { unsupportedModel, provideWorkingDirectoryFixture, unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { Context } from '@deepseek-ai/cordis'
-import { ToolCallId } from '@deepseek-ai/dsh-llm'
-import { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
+import type { ToolCallId } from '@deepseek-ai/dsh-llm'
+import { SESSION_FORMAT_VERSION, Session, type SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import TerminalSessionService from '@deepseek-ai/dsh-terminal'
@@ -22,6 +22,7 @@ import type {
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import * as ToolPwshPersistent from '@deepseek-ai/dsh-tool-pwsh-persistent'
+import { brandString } from '@deepseek-ai/dsh-brand'
 
 const contexts: Context[] = []
 let callNumber = 0
@@ -32,7 +33,7 @@ afterEach(async () => {
 })
 
 async function agent(ctx: Context, cwd: string | undefined): Promise<Agent> {
-  const id = SessionId(`persistent-pwsh-owner-${callNumber}`)
+  const id = brandString<SessionId>(`persistent-pwsh-owner-${callNumber}`)
   const scope = ctx.plugin(() => {})
   const session = Session.create(id, [], {
     version: SESSION_FORMAT_VERSION,
@@ -73,7 +74,7 @@ function call(
 ) {
   return executeToolFixture(ctx, {
     signal,
-    callId: ToolCallId(`persistent-pwsh-${++callNumber}`),
+    callId: brandString<ToolCallId>(`persistent-pwsh-${++callNumber}`),
     name: 'pwsh',
     arguments: { command },
     ...owner === undefined ? {} : { agent: owner },
@@ -108,6 +109,8 @@ type StubMode =
   | 'with-echo'
   | 'exit-after-send'
   | 'prompt-collision'
+  | 'stale-prompt'
+  | 'interactive-overflow'
 
 const START_PATTERN = /__DSH_PERSISTENT_PWSH_START_[^_]+(?:-[^_]+)*__/
 const END_PATTERN = /__DSH_PERSISTENT_PWSH_END_[^:]+:/
@@ -116,10 +119,12 @@ class StubTerminalSession implements TerminalBackendSession {
   readonly motd = 'stub> '
   readonly pid = 123
   statusValue: TerminalSessionStatus = { kind: 'running' }
-  scrollback = this.motd
+  private scrollText = this.motd
+  private readonly watches = new Set<{ line: string; tail: string; matched: boolean }>()
   closed: string[] = []
   mode: StubMode
   sends = 0
+  readonly requests: TerminalSendRequest[] = []
   pendingText = ''
   historyTruncated = false
   throwOnSend = false
@@ -130,8 +135,27 @@ class StubTerminalSession implements TerminalBackendSession {
     this.mode = mode
   }
 
+  get scrollback(): string { return this.scrollText }
+
+  set scrollback(value: string) {
+    const chunk = value.startsWith(this.scrollText) ? value.slice(this.scrollText.length) : value
+    this.scrollText = value
+    for (const watch of this.watches) {
+      const received = watch.tail + chunk
+      watch.matched ||= received.includes(`\n${watch.line}\n`) || received.includes(`\n${watch.line}\r\n`)
+      watch.tail = received.slice(-(watch.line.length + 3))
+    }
+  }
+
+  watchLine(line: string): { seen(): boolean; dispose(): void } {
+    const watch = { line, tail: this.scrollText.endsWith('\n') || this.scrollText.length === 0 ? '\n' : '', matched: false }
+    this.watches.add(watch)
+    return { seen: () => watch.matched, dispose: () => { this.watches.delete(watch) } }
+  }
+
   startSend(request: TerminalSendRequest): TerminalSendOperation {
     this.sends += 1
+    this.requests.push(request)
     if (this.mode === 'send-error') throw new Error('stub send failed')
     if (this.throwOnSend) throw new Error('PTY session has exited')
     if (this.mode === 'wait-for-abort' || this.mode === 'end-on-abort') {
@@ -153,10 +177,23 @@ class StubTerminalSession implements TerminalBackendSession {
       this.pendingText = request.text
       return this.operation(Promise.resolve(this.result('', 'inferred_idle')))
     }
+    if (this.mode === 'stale-prompt') {
+      this.mode = 'normal'
+      this.pendingText = request.text
+      const output = `${request.text}\nprevious command output\n${this.motd}`
+      this.scrollback += output
+      return this.operation(Promise.resolve(this.result(output, 'stdin_read')))
+    }
+    if (this.mode === 'interactive-overflow') {
+      const start = START_PATTERN.exec(request.text)?.[0] ?? ''
+      this.scrollback += `\n${start}\n`
+      this.scrollback = 'retained interactive output\n'
+      return this.operation(Promise.resolve({ ...this.result(this.scrollback, 'stdin_read'), truncated: true }))
+    }
     if (this.mode === 'prompt-after-idle') {
       if (request.text.length > 0) {
         const start = START_PATTERN.exec(request.text)?.[0]
-        const output = `${start ?? ''}\npartial syntax output\n`
+        const output = `\n${start ?? ''}\npartial syntax output\n`
         this.scrollback += output
         return this.operation(Promise.resolve(this.result(output, 'inferred_idle')))
       }
@@ -166,7 +203,8 @@ class StubTerminalSession implements TerminalBackendSession {
     }
     if (this.mode === 'prompt-only' || this.mode === 'prompt-crlf') {
       const newline = this.mode === 'prompt-crlf' ? '\r\n' : '\n'
-      const output = `pwsh: syntax error${newline}${this.motd}${newline}`
+      const start = START_PATTERN.exec(request.text)?.[0]
+      const output = `${newline}${start ?? ''}${newline}pwsh: syntax error${newline}${this.motd}${newline}`
       this.scrollback += output
       return this.operation(Promise.resolve(this.result(output, 'stdin_read')))
     }
@@ -195,6 +233,7 @@ class StubTerminalSession implements TerminalBackendSession {
     }
     if (this.mode === 'incremental-fallback') {
       const incremental = `${start ?? ''}\nincrement\n${this.motd}`
+      for (const watch of this.watches) if (watch.line === start) watch.matched = true
       return this.operation(Promise.resolve(this.result(this.motd, 'stdin_read')), incremental)
     }
     if (this.mode === 'status-tail' || this.mode === 'continue-status-tail') {
@@ -228,7 +267,7 @@ class StubTerminalSession implements TerminalBackendSession {
         : this.mode === 'prompt-collision' ? this.motd
           : 'hello from stub'
     const exitCode = this.mode === 'nonzero' ? 7 : 0
-    const output = `${start ?? ''}\n${commandOutput}\n${end ?? ''}${exitCode}\n${this.motd}`
+    const output = `\n${start ?? ''}\n${commandOutput}\n${end ?? ''}${exitCode}\n${this.motd}`
     this.scrollback += output
     if (this.mode === 'exit' || this.mode === 'signal-exit' || this.mode === 'unknown-exit') {
       const exitedOutput = `${start ?? ''}\nhello from stub\n`
@@ -352,6 +391,8 @@ describe('tool-pwsh-persistent', () => {
       .toEqual({ card: 'terminal', title: 'pwd' })
 
     expect(text(await call(ctx, owner, 'Write-Output one'))).toBe('hello from stub')
+    const firstRequest = stub.sessions[0]?.requests[0]
+    expect(firstRequest?.readinessAfterLine).toBe(START_PATTERN.exec(firstRequest?.text ?? '')?.[0])
     expect(text(await call(ctx, owner, 'Write-Output two'))).toBe('hello from stub')
     expect(stub.sessions).toHaveLength(1)
     expect(stub.sessions[0]?.sends).toBe(2)
@@ -512,6 +553,24 @@ describe('tool-pwsh-persistent', () => {
     await ctx.terminals.kill(owner, externallyClosed!, 'external cleanup')
     await fiber.dispose()
     expect(stub.sessions[2]?.closed).toEqual(['external cleanup'])
+  })
+
+  it('waits for the current command after a delayed previous prompt', async () => {
+    const { ctx, owner, stub } = await setup({ backendType: 'stub' })
+    await call(ctx, owner, 'warm up')
+    const session = stub.sessions[0]!
+    session.mode = 'stale-prompt'
+    expect(text(await call(ctx, owner, 'current command'))).toBe('hello from stub')
+  })
+
+  it('returns partial output when an interactive command outgrows retained scrollback', async () => {
+    const { ctx, owner, stub } = await setup({ backendType: 'stub' })
+    await call(ctx, owner, 'warm up')
+    const session = stub.sessions[0]!
+    session.mode = 'interactive-overflow'
+    const result = text(await call(ctx, owner, 'large interactive command'))
+    expect(result).toContain('retained interactive output')
+    expect(session.closed).toEqual([])
   })
 
   it('clips a split surrogate pair instead of leaving a lone half', async () => {
@@ -828,8 +887,13 @@ describe('tool-pwsh-persistent', () => {
 
   it('rejects invalid config and invalid calls', async () => {
     const { ctx, owner, stub } = await setup()
-    expect((await call(ctx, undefined, 'pwd')).isError).toBe(true)
-    expect(text(await call(ctx, owner, ' '))).toContain('command must be a non-empty string')
+    expect(await call(ctx, undefined, 'pwd')).toMatchObject({
+      isError: true,
+      error: { info: { name: 'ToolContextUnavailableError', code: 'TOOL_CONTEXT_UNAVAILABLE' } },
+    })
+    const blank = await call(ctx, owner, ' ')
+    expect(text(blank)).toContain('command must be a non-empty string')
+    expect(blank).toMatchObject({ isError: true, error: { info: { name: 'ToolArgsError', code: 'INVALID_ARGS' } } })
 
     const controller = new AbortController()
     controller.abort(new Error('caller stopped'))

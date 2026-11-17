@@ -7,8 +7,9 @@ import { Context } from '@deepseek-ai/cordis'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { GitRunner, blobText, diffTrees, ignoredPaths, locateGitWorkspace, snapshotTree, treeBlob } from '../src/git.ts'
 import { TurnRecorder } from '../src/recorder.ts'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { type SessionId } from '@deepseek-ai/dsh-session'
 import { git, scratchDir, startTurn, toolCall } from './support.ts'
+import { brandString } from '@deepseek-ai/dsh-brand'
 
 /** An object directory factory under a scratch root. */
 const objectsIn = (root: string) => () => Promise.resolve(join(root, 'objects'))
@@ -171,7 +172,7 @@ describe('TurnRecorder', () => {
   it('stays silent when disposed while git work is pending, and warns on failures otherwise', async () => {
     const cwd = await scratchDir('dsh-recorder-', cleanups)
     const { ctx, git: runnerGit } = await runner()
-    const session = ctx.sessions.create(SessionId('recorder'), { meta: { cwd } })
+    const session = ctx.sessions.create(brandString<SessionId>('recorder'), { meta: { cwd } })
     const warnings: string[] = []
     let release!: (runner: GitRunner | null) => void
     const gate = new Promise<GitRunner | null>((resolve) => { release = resolve })
@@ -204,7 +205,7 @@ describe('TurnRecorder', () => {
       warn: (m: string) => { throw new Error(m) },
     }
     const plainDir = join(store, 'plain')
-    const plain = new TurnRecorder(ctx.sessions.create(SessionId('plain'), { meta: { cwd: store } }), store, env, plainDir)
+    const plain = new TurnRecorder(ctx.sessions.create(brandString<SessionId>('plain'), { meta: { cwd: store } }), store, env, plainDir)
     plain.start(1)
     await plain.settled()
     await plain.dispose()
@@ -214,7 +215,7 @@ describe('TurnRecorder', () => {
     const cwd = await scratchDir('dsh-recorder-repo-', cleanups)
     git(cwd, 'init', '-q', '-b', 'main')
     const repoDir = join(store, 'repo')
-    const repo = new TurnRecorder(ctx.sessions.create(SessionId('repo'), { meta: { cwd } }), cwd, env, repoDir)
+    const repo = new TurnRecorder(ctx.sessions.create(brandString<SessionId>('repo'), { meta: { cwd } }), cwd, env, repoDir)
     repo.start(1)
     await repo.settled()
     // Snapshot objects live in the Session's own durable directory...
@@ -233,7 +234,7 @@ describe('TurnRecorder', () => {
     const directory = join(cwd, 'tmp', 'recorder')
     await mkdir(join(cwd, 'tmp'))
     const { ctx, git: runnerGit } = await runner()
-    const session = ctx.sessions.create(SessionId('tmp-in-tree'), { meta: { cwd } })
+    const session = ctx.sessions.create(brandString<SessionId>('tmp-in-tree'), { meta: { cwd } })
     const env = {
       git: Promise.resolve(runnerGit), maxFiles: 10, maxFileBytes: 1024, diffTimeoutMs: 100,
       warn: (m: string) => { throw new Error(m) },

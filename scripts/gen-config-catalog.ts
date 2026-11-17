@@ -12,6 +12,7 @@ import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import ts from 'typescript'
 import { LINK_MAP } from './gen-cordis-catalog.ts'
 import { parseJsDoc, pointer, rawJsDoc } from './jsdoc.ts'
+import { loadAnchoredFieldNotes } from './code-notes.ts'
 import { renderGeneratedRegion } from './generated-regions.ts'
 import { githubSlug } from './verify-md-links.ts'
 
@@ -190,22 +191,29 @@ function collectTypeNames(node: ts.Node, out: Set<string>): void {
   visit(node)
 }
 
-/** The verbatim paste text of a declaration: leading JSDoc through the end. */
-function pasteText(ctx: FileCtx, decl: TypeDecl): string {
+function pasteText(ctx: FileCtx, decl: TypeDecl, fieldNotes: Map<string, Map<string, string>>, violations: string[]): string {
   const raw = rawJsDoc(ctx.text, decl)
   const start = raw ? ctx.text.indexOf(raw, decl.getFullStart()) : decl.getStart(ctx.sf)
-  return ctx.text.slice(start, decl.end)
-}
-
-/** Enforce non-empty JSDoc prose on every property of a pasted declaration,
- * recursing into nested type literals (e.g. an array-of-objects field). */
-function checkMemberDocs(ctx: FileCtx, decl: TypeDecl, violations: string[]): void {
+  const anchor = `${ctx.rel}:${decl.name.text}`
+  const notes = fieldNotes.get(anchor)
+  const insertions: { offset: number; text: string }[] = []
   const walkMembers = (members: ts.NodeArray<ts.TypeElement>, path: string): void => {
     for (const member of members) {
       if (!ts.isPropertySignature(member)) continue
       const name = member.name.getText(ctx.sf)
-      const where = `config field '${path}.${name}' (${pointer(ctx.rel, ctx.sf, member)})`
-      if (!parseJsDoc(rawJsDoc(ctx.text, member)).doc) violations.push(`${where} has no JSDoc prose.`)
+      const fieldPath = `${path}.${name}`
+      const where = `config field '${fieldPath}' (${pointer(ctx.rel, ctx.sf, member)})`
+      if (!parseJsDoc(rawJsDoc(ctx.text, member)).doc) {
+        const prose = notes?.get(fieldPath.slice(decl.name.text.length + 1))
+        if (!prose) {
+          violations.push(`${where} has no JSDoc prose or anchored code-note description (${anchor}).`)
+        } else {
+          const offset = member.getStart(ctx.sf)
+          const lineStart = ctx.text.lastIndexOf('\n', offset - 1) + 1
+          const indent = ctx.text.slice(lineStart, offset).match(/^[\t ]*/)?.[0] ?? ''
+          insertions.push({ offset, text: `/** ${prose} */\n${indent}` })
+        }
+      }
       if (member.type) walkNested(member.type, `${path}.${name}`)
     }
   }
@@ -215,6 +223,12 @@ function checkMemberDocs(ctx: FileCtx, decl: TypeDecl, violations: string[]): vo
   }
   if (ts.isInterfaceDeclaration(decl)) walkMembers(decl.members, decl.name.text)
   else if (ts.isTypeAliasDeclaration(decl)) walkNested(decl.type, decl.name.text)
+  let pasted = ctx.text.slice(start, decl.end)
+  for (const insertion of insertions.sort((a, b) => b.offset - a.offset)) {
+    const relativeOffset = insertion.offset - start
+    pasted = `${pasted.slice(0, relativeOffset)}${insertion.text}${pasted.slice(relativeOffset)}`
+  }
+  return pasted
 }
 
 /** Cross-file resolution context for the schema-path check. */
@@ -488,12 +502,68 @@ function unwrapExpr(expr: ts.Expression): ts.Expression {
   return e
 }
 
+/** Resolve object fields and ordered spreads through local or imported const aliases. */
+function schemaObjectFields(
+  world: World, ctx: FileCtx, expression: ts.Expression, where: string, violations: string[], aliases: Set<string>,
+): Map<string, { ctx: FileCtx; value?: ts.Expression }> {
+  const expr = unwrapExpr(expression)
+  if (ts.isPropertyAccessExpression(expr) && expr.name.text === 'dict' && ts.isIdentifier(expr.expression)) {
+    const name = expr.expression.text
+    const identity = `${ctx.abs}#${name}`
+    if (aliases.has(identity)) {
+      violations.push(`${where}: cyclic schema alias '${name}' in ${ctx.rel}.`)
+      return new Map()
+    }
+    try {
+      const target = schemaAlias(world, ctx, name)
+      const object = unwrapExpr(target.expr)
+      if (!ts.isCallExpression(object) || !ts.isPropertyAccessExpression(object.expression)
+        || object.expression.name.text !== 'object' || !object.arguments[0]) {
+        throw new Error(`schema spread '${expr.getText(ctx.sf)}' must refer directly to an object schema`)
+      }
+      return schemaObjectFields(world, target.ctx, object.arguments[0], where, violations, new Set([...aliases, identity]))
+    } catch (error) {
+      violations.push(`${where}: ${error instanceof Error ? error.message : String(error)}.`)
+      return new Map()
+    }
+  }
+  if (ts.isIdentifier(expr)) {
+    const identity = `${ctx.abs}#${expr.text}`
+    if (aliases.has(identity)) {
+      violations.push(`${where}: cyclic schema object alias '${expr.text}'.`)
+      return new Map()
+    }
+    try {
+      const target = schemaAlias(world, ctx, expr.text)
+      return schemaObjectFields(world, target.ctx, target.expr, where, violations, new Set([...aliases, identity]))
+    } catch (error) {
+      violations.push(`${where}: object schema fields: ${error instanceof Error ? error.message : String(error)}.`)
+      return new Map()
+    }
+  }
+  const fields = new Map<string, { ctx: FileCtx; value?: ts.Expression }>()
+  if (!ts.isObjectLiteralExpression(expr)) {
+    violations.push(`${where}: schema object fields must be an object literal or const alias.`)
+    return fields
+  }
+  for (const property of expr.properties) {
+    if (ts.isSpreadAssignment(property)) {
+      for (const [key, value] of schemaObjectFields(world, ctx, property.expression, where, violations, aliases)) fields.set(key, value)
+    } else if ((ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property))
+      && !ts.isComputedPropertyName(property.name)) {
+      const key = ts.isStringLiteral(property.name) ? property.name.text : property.name.getText(ctx.sf)
+      fields.set(key, { ctx, ...ts.isPropertyAssignment(property) ? { value: property.initializer } : {} })
+    } else violations.push(`${where}: schema object property '${property.getText(ctx.sf)}' is not a plain key.`)
+  }
+  return fields
+}
+
 /**
  * Statically walk a schemastery schema expression to its key paths plus the
  * packages whose schemas an intersect composes. A key path is the top-level
  * key or a nested path through object/array compositions (`agents[].id`).
  * Handles object/union calls, chained refinements, named const schema imports
- * through public workspace source paths, and `z.intersect([X.Config, …])`; errors on
+ * through public workspace source paths, object-schema dict spreads, and `z.intersect([X.Config, …])`; errors on
  * anything else, so a schema the walk cannot see fails the gate instead of
  * silently thinning it. Nested values that are neither `object` nor `array`
  * compositions (primitives, unions, dynamic-key dicts) contribute no paths.
@@ -510,25 +580,23 @@ function walkSchemaExpr(
   const composes: string[] = []
   // Nested paths under one object property's VALUE expression: recurse through
   // chained refinements toward the base call, descending into object/array.
-  const collectValuePaths = (value: ts.Expression, base: string): void => {
+  const collectValuePaths = (value: ts.Expression, base: string, valueCtx = ctx): void => {
     const call = unwrapExpr(value)
     if (!ts.isCallExpression(call) || !ts.isPropertyAccessExpression(call.expression)) return
     const method = call.expression.name.text
-    if (method === 'object' && call.arguments[0] && ts.isObjectLiteralExpression(call.arguments[0])) {
-      for (const prop of call.arguments[0].properties) {
-        if (!ts.isPropertyAssignment(prop)) continue
-        const key = ts.isStringLiteral(prop.name) ? prop.name.text : prop.name.getText(ctx.sf)
+    if (method === 'object' && call.arguments[0]) {
+      for (const [key, field] of schemaObjectFields(world, valueCtx, call.arguments[0], where, violations, aliases)) {
         keys.push(`${base}.${key}`)
-        collectValuePaths(prop.initializer, `${base}.${key}`)
+        if (field.value) collectValuePaths(field.value, `${base}.${key}`, field.ctx)
       }
       return
     }
     if (method === 'array' && call.arguments[0]) {
-      collectValuePaths(call.arguments[0], `${base}[]`)
+      collectValuePaths(call.arguments[0], `${base}[]`, valueCtx)
       return
     }
     const inner = unwrapExpr(call.expression.expression)
-    if (ts.isCallExpression(inner)) collectValuePaths(inner, base)
+    if (ts.isCallExpression(inner)) collectValuePaths(inner, base, valueCtx)
   }
   const visit = (e: ts.Expression): void => {
     const call = unwrapExpr(e)
@@ -553,15 +621,10 @@ function walkSchemaExpr(
       return
     }
     const method = call.expression.name.text
-    if (method === 'object' && call.arguments[0] && ts.isObjectLiteralExpression(call.arguments[0])) {
-      for (const prop of call.arguments[0].properties) {
-        if (ts.isPropertyAssignment(prop) || ts.isShorthandPropertyAssignment(prop)) {
-          const key = ts.isStringLiteral(prop.name) ? prop.name.text : prop.name.getText(ctx.sf)
-          keys.push(key)
-          if (ts.isPropertyAssignment(prop)) collectValuePaths(prop.initializer, key)
-        } else {
-          violations.push(`${where}: schema object property '${prop.getText(ctx.sf)}' is not a plain key.`)
-        }
+    if (method === 'object' && call.arguments[0]) {
+      for (const [key, field] of schemaObjectFields(world, ctx, call.arguments[0], where, violations, aliases)) {
+        keys.push(key)
+        if (field.value) collectValuePaths(field.value, key, field.ctx)
       }
       return
     }
@@ -700,6 +763,7 @@ export function collectConfigCatalog(scanRoot: string = root): CatalogEntry[] {
     manifests.push({ dir, pkg })
   }
   const world: World = { scanRoot, cache, pkgDirByName, pkgExportsByName }
+  const fieldNotes = loadAnchoredFieldNotes(scanRoot)
 
   for (const { dir, pkg } of manifests) {
     const entryRel = `${dir}/src/index.ts`
@@ -804,8 +868,7 @@ export function collectConfigCatalog(scanRoot: string = root): CatalogEntry[] {
         continue
       }
       pastedDeclByName.set(name, declKey)
-      pastes.push({ text: pasteText(resolved.ctx, resolved.decl), source: declKey })
-      checkMemberDocs(resolved.ctx, resolved.decl, violations)
+      pastes.push({ text: pasteText(resolved.ctx, resolved.decl, fieldNotes, violations), source: declKey })
       const names = new Set<string>()
       collectTypeNames(resolved.decl, names)
       for (const n of names) {

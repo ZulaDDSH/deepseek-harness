@@ -185,6 +185,7 @@ describe('web-search-perplexity plugin registration', () => {
     const ctx = new Context()
     await ctx.plugin(WebRuntime, { searchProvider: PERPLEXITY_PROVIDER_ID })
     const fiber = await ctx.plugin(perplexityPlugin, { apiKey: 'pplx-key' })
+    expect(ctx.web.listProviders().search).toContainEqual(expect.objectContaining({ id: 'perplexity', title: 'Perplexity' }))
     await expect(ctx.web.search({ query: 'q' })).resolves.toMatchObject({ content: 'a', sources: [] })
     await fiber.dispose()
     await expect(ctx.web.search({ query: 'q' }))

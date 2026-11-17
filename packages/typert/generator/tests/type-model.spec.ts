@@ -288,6 +288,24 @@ describe('WorkspaceAnalyzer', { timeout: 60_000 }, () => {
     expect(declarations.some(declaration => declaration.name === 'IgnoredDeclaration')).toBe(false)
   })
 
+  it('omits overloaded implementations from public class declaration text', () => {
+    const root = copyFixture('overloaded-class-')
+    const path = join(root, 'packages/host/src/index.ts')
+    writeFileSync(path, readFileSync(path, 'utf8').replace('  static {}', `
+  static dispatch(value: boolean): boolean { return value }
+  dispatch(value: string): string
+  dispatch(value: number): number
+  dispatch(value: string | number): string | number { return value }
+`))
+    const declarations = new WorkspaceAnalyzer({ root }).indexSourceDeclarations()
+    const text = declarations.find(declaration => declaration.name === 'Agent')?.text
+    expect(text).toContain('dispatch(value: string): string;')
+    expect(text).toContain('dispatch(value: number): number;')
+    expect(text).toContain('static dispatch(value: boolean): boolean;')
+    expect(text).not.toContain('dispatch(value: string | number)')
+    expect(text).toContain('run<Value>')
+  })
+
   it('covers every modeled discriminant with source-authored fixture syntax', () => {
     const model = analyzedFixture()
     const nodes = model.faces.flatMap(face => face.graph.nodes)
@@ -871,6 +889,24 @@ describe('WorkspaceAnalyzer', { timeout: 60_000 }, () => {
     expect(() => new WorkspaceAnalyzer({ root }).analyze()).toThrow(
       /packages\/host\/src\/index\.ts:\d+:\d+: TypeScript TS2322/,
     )
+  })
+
+  it('retains unresolved exports when declaration diagnostics are disabled', () => {
+    const root = copyFixture('typert-unresolved-export-')
+    const sourcePath = join(root, 'packages/host/src/index.ts')
+    writeFileSync(sourcePath, `${readFileSync(sourcePath, 'utf8')}\nexport { Missing as UnresolvedExport } from './missing.ts'\n`)
+
+    expect(() => new WorkspaceAnalyzer({ root, faces: ['host'], packages: ['@fixture/host'] }).analyze()).toThrow(
+      /TypeScript TS2307/,
+    )
+
+    const host = new WorkspaceAnalyzer({
+      root,
+      faces: ['host'],
+      packages: ['@fixture/host'],
+      checkDiagnostics: false,
+    }).analyze().faces[0]
+    expect(host?.packages[0]?.exports.map(exported => exported.name)).toContain('UnresolvedExport')
   })
 
   it('retains every authored part of a merged interface', () => {
@@ -1722,7 +1758,8 @@ describe('FaceModelEmitter', { timeout: 60_000 }, () => {
         skipLibCheck: false,
         target: ts.ScriptTarget.ES2024,
         lib: ['lib.es2024.d.ts'],
-        types: [],
+        // zod 4.6 declares its URL schemas with the global URL type; host consumers load node types.
+        types: ['node'],
         module: ts.ModuleKind.ESNext,
         moduleResolution: ts.ModuleResolutionKind.Bundler,
       },

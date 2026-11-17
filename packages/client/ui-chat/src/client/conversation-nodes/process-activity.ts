@@ -3,7 +3,7 @@ import { reasoningText } from '../reasoning-text.ts'
 import type { ToolArgs } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { diffTotals, type DiffHunk } from '@deepseek-ai/dsh-client-ui-primitives'
 import { PartialArguments } from '@deepseek-ai/dsh-util-values'
-import { activity, type ProcessActivity, type ProcessActivitySummary } from '../contract/process-groups.ts'
+import { activity, type ProcessActivity, type ProcessActivitySummary, type RunningProcessActivity } from '../contract/process-groups.ts'
 import type { ChatNode } from '../contract/chat-nodes.ts'
 import { isRunningTool } from '../contract/chat-nodes.ts'
 import type { ToolCallBlock } from '../contract/snapshot.ts'
@@ -132,7 +132,7 @@ function isDiffHunk(value: unknown): value is DiffHunk {
 
 function appliedHunks(meta: unknown): DiffHunk[] | undefined {
   const diffs: unknown = typeof meta === 'object' && meta !== null ? Reflect.get(meta, 'diffs') : undefined
-  return Array.isArray(diffs) && diffs.length > 0 && diffs.every(isDiffHunk) ? diffs : undefined
+  return Array.isArray(diffs) && diffs.every(isDiffHunk) ? diffs : undefined
 }
 
 function intendedHunks(kind: 'write' | 'edit', args: ToolArgs): DiffHunk[] {
@@ -151,18 +151,18 @@ function changedHunks(kind: ProcessActivity, tool: ToolCallBlock, args: ToolArgs
   if (kind !== 'write' && kind !== 'edit') return []
   if (isRunningTool(tool)) return intendedHunks(kind, args)
   if (tool.isError) return []
-  return appliedHunks(tool.meta) ?? intendedHunks(kind, args)
+  const applied = appliedHunks(tool.meta)
+  return applied === undefined || (kind === 'write' && applied.length === 0) ? intendedHunks(kind, args) : applied
 }
 
 /**
- * Rank categories by distinct call count, breaking ties by first appearance, and total the file work.
  * @param nodes - process members, including recursive tools.
  * @returns ranked categories with file targets, line totals, and the latest running tool category and bounded task detail.
  */
 export function processActivity(nodes: readonly ChatNode[]): ProcessActivitySummary {
   const tallies = new Map<ProcessActivity, { count: number; targets: string[] }>()
   const seen = new Set<string>()
-  let running: ProcessActivity | undefined
+  let running: RunningProcessActivity | undefined
   let runningDetail = ''
   let runningTime = -Infinity
   let preparing: boolean | undefined
@@ -185,7 +185,8 @@ export function processActivity(nodes: readonly ChatNode[]): ProcessActivitySumm
       const tally = tallies.get(kind) ?? { count: 0, targets: [] }
       tallies.set(kind, tally)
       tally.count++
-      const target = FILE_KINDS.has(kind) ? fileName(args) : undefined
+      const failedMutation = (kind === 'write' || kind === 'edit') && !isRunningTool(tool) && tool.isError
+      const target = FILE_KINDS.has(kind) && !failedMutation ? fileName(args) : undefined
       if (target !== undefined && !tally.targets.includes(target)) tally.targets.push(target)
       const totals = diffTotals(changedHunks(kind, tool, args))
       added += totals.added
@@ -197,6 +198,7 @@ export function processActivity(nodes: readonly ChatNode[]): ProcessActivitySumm
     if (node.kind === 'tool-call') visit(node.data.root)
   }
   if (running === undefined) runningDetail = liveReasoningDetail(nodes)
+  if (nodes.length > 0 && nodes.every(node => node.kind === 'context')) tallies.set('context', { count: nodes.length, targets: [] })
   return {
     counts: [...tallies]
       .map(([kind, { count, targets }]) => ({ kind, count, targets }))

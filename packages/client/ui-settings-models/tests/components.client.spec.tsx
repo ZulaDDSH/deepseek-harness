@@ -13,9 +13,9 @@ import type {
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { ModelsSection, removeProviderProfile } from '../src/client/ModelsSection.tsx'
 import type { ModelsSectionInjected, ModelsSectionProps } from '../src/client/ModelsSection.tsx'
+import { ApiKeyInput } from '../src/client/ApiKeyInput.tsx'
 import { needsSetup, providerCopy, providerTargetLabel } from '../src/client/provider-rows.ts'
 import { ProviderEditor, pathOps } from '../src/client/ProviderEditor.tsx'
-import { JevSettingsSection } from '../src/client/JevSettingsSection.tsx'
 import type { ProviderEditorProps } from '../src/client/ProviderEditor.tsx'
 import {
   DeepSeekModelsEditor, formatCapacity, modelDrafts, parseCapacity, validateDeepSeekModels,
@@ -93,71 +93,6 @@ const DEFAULT_DEEPSEEK_MODELS = [
     contextWindow: 1_000_000,
   },
   { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', contextWindow: 1_000_000 },
-]
-
-const JevConfig = Schema.object({
-  enabled: Schema.boolean().default(false),
-  apiKeyEnv: Schema.string().role('credential-ref').default('TYPESAFE_API_KEY'),
-  endpoint: Schema.string().default('https://api.typesafe.ai/v1/systemone'),
-  model: Schema.string().default('jev-latest'),
-  timeoutMs: Schema.number().step(1).min(1).default(1500),
-  minConfidence: Schema.number().min(0).max(1).default(0.8),
-  stateMaxChars: Schema.number().step(1).min(256).default(12000),
-  fallback: Schema.string().min(1).default('keep'),
-  failOpen: Schema.boolean().default(true),
-  routes: Schema.array(Schema.object({
-    id: Schema.string().min(1),
-    provider: Schema.string().min(1),
-    model: Schema.string().min(1),
-    description: Schema.string().min(1),
-    reasoningEffort: Schema.string().min(1),
-  })).default([]),
-})
-
-const JEV_ROUTE = {
-  id: 'opus-5-low',
-  provider: 'anthropic',
-  model: 'claude-opus-5',
-  description: 'Complex architecture and difficult debugging',
-  reasoningEffort: 'low',
-}
-
-/** The `llm-jev-router` entry view a Jev editor card renders against. */
-function jevNamespaceView(routes: JsonValue[] = [JEV_ROUTE]): {
-  namespace: SettingsNamespaceView
-  value: JsonValue
-} {
-  const value: JsonValue = {
-    enabled: false,
-    apiKeyEnv: 'TYPESAFE_API_KEY',
-    endpoint: 'https://api.typesafe.ai/v1/systemone',
-    model: 'jev-latest',
-    timeoutMs: 1500,
-    minConfidence: 0.8,
-    stateMaxChars: 12000,
-    fallback: 'keep',
-    failOpen: true,
-    routes,
-  }
-  return {
-    value,
-    namespace: {
-      ns: 'llm-jev-router',
-      autoGenerate: true,
-      schema: JSON.parse(JSON.stringify(JevConfig.toJSON())) as JsonValue,
-      value,
-      base: value,
-      user: {},
-      applies: 'live',
-      secrets: [],
-      revision: 0,
-    },
-  }
-}
-
-const JEV_MODEL_OPTIONS = [
-  { provider: 'deepseek', displayName: 'DeepSeek', models: ['deepseek-v4-flash'] },
-  { provider: 'anthropic', displayName: 'Anthropic', models: ['claude-opus-5'] },
 ]
 
 function wireNamespaces(): SettingsNamespaceView[] {
@@ -248,13 +183,8 @@ function scriptedFace(overrides: {
   mutate?: ReturnType<typeof vi.fn>
   set?: ReturnType<typeof vi.fn>
   unset?: ReturnType<typeof vi.fn>
-  withJev?: boolean
 } = {}) {
   const providerNamespace = wireNamespaces().find(view => view.ns === 'llm-pi-ai')!
-  const jevEntries = overrides.withJev === true
-    ? [{ provider: 'jev-router', displayName: 'TypeSafe / Jev', settingsNs: 'llm-jev-router', settingsPath: [] as string[] }]
-    : []
-  const jevNamespaces = overrides.withJev === true ? [jevNamespaceView().namespace] : []
   const update = overrides.update ?? vi.fn(() => Promise.resolve(remoteOk(providerNamespace)))
   const mutate = overrides.mutate ?? vi.fn(() => Promise.resolve(remoteOk(providerNamespace)))
   const set = overrides.set ?? vi.fn(() => Promise.resolve(remoteOk(undefined)))
@@ -279,12 +209,12 @@ function scriptedFace(overrides: {
         { provider: 'zombie', displayName: 'zombie', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'zombie'], active: false },
         { provider: 'broken', displayName: 'broken', settingsNs: 'llm-pi-ai', settingsPath: ['nope', 'x'], active: false },
         { provider: 'plain', displayName: 'plain', settingsNs: 'llm-plain', settingsPath: ['profiles', 'plain'], active: false },
-      ].map(({ active: _active, ...entry }) => entry).concat(jevEntries)))),
+      ].map(({ active: _active, ...entry }) => entry)))),
       discoverModels: vi.fn(() => Promise.resolve(remoteOk([]))),
     },
     settings: {
       describe: vi.fn(() => Promise.resolve(remoteOk({
-        writable: true, hasDocument: false, namespaces: [...wireNamespaces(), ...jevNamespaces],
+        writable: true, hasDocument: false, namespaces: wireNamespaces(),
       }))),
       update,
       mutate,
@@ -296,7 +226,7 @@ function scriptedFace(overrides: {
         Promise.resolve(remoteOk(
           Object.fromEntries(refs.map(ref => [ref, {
             configured: ref === 'OPENAI_API_KEY',
-            ...ref === 'OPENAI_API_KEY' ? { source: 'file' } : {},
+            ...ref === 'OPENAI_API_KEY' ? { source: 'file', masked: '••••••••' } : {},
             writable: true,
           }])),
         ))),
@@ -415,48 +345,6 @@ async function mountSection(overrides: Parameters<typeof scriptedFace>[0] = {}) 
   return mountFace(scriptedFace(overrides))
 }
 
-it('opens the dedicated Jev editor with configured routing controls', async () => {
-  const scripted = scriptedFace()
-  const jev = jevNamespaceView()
-  scripted.face.settings.describe.mockImplementation(async () => remoteOk({
-    writable: true, hasDocument: false, namespaces: [...wireNamespaces(), jev.namespace],
-  }))
-  scripted.face.llm.listConfigurableProviders.mockImplementation(async () => remoteOk([
-    { provider: 'jev-router', displayName: 'TypeSafe / Jev', settingsNs: 'llm-jev-router', settingsPath: [], active: false },
-  ]))
-  const ctx = ctxWith(scripted.face)
-  const mirror = new SettingsDescribeMirror(ctx)
-  const controller = new ModelsSettingsStore(ctx, settingsSchema, mirror)
-  render(<JevSettingsSection controller={controller}
-    useSnapshot={bindSnapshotSelector(controller.store)}
-    useCredentialsRevision={bindSnapshotSelector(createSnapshotStore({ revision: 0 }))}
-    operations={operationsWith(scripted.face, mirror)} schema={settingsSchema} t={t} />)
-  await screen.findByLabelText(en.jevEnabled)
-  expect(screen.getByRole('heading', { name: en.jevTitle })).toBeTruthy()
-  expect(screen.getByLabelText(en.jevEndpoint)).toHaveProperty('value', 'https://api.typesafe.ai/v1/systemone')
-  expect(screen.getByLabelText(en.jevRouteModel)).toHaveProperty('value', 'claude-opus-5')
-})
-
-it('reports a Jev load failure and reloads on retry', async () => {
-  const scripted = scriptedFace()
-  const listProviders = vi.fn(() => Promise.resolve(remoteFail('directory down', 'gateway/internal')))
-  scripted.face.llm.listProviders = listProviders
-  const ctx = ctxWith(scripted.face)
-  const mirror = new SettingsDescribeMirror(ctx)
-  const controller = new ModelsSettingsStore(ctx, settingsSchema, mirror)
-  render(<JevSettingsSection controller={controller}
-    useSnapshot={bindSnapshotSelector(controller.store)}
-    useCredentialsRevision={bindSnapshotSelector(createSnapshotStore({ revision: 0 }))}
-    operations={operationsWith(scripted.face, mirror)} schema={settingsSchema} t={t} />)
-  expect((await screen.findByRole('alert')).textContent).toMatch(/directory down/)
-  expect(screen.getByText(en.jevUnavailable)).toBeTruthy()
-  const calls = listProviders.mock.calls.length
-  listProviders.mockResolvedValue(remoteOk([]) as never)
-  fireEvent.click(screen.getByRole('button', { name: en.retry }))
-  await waitFor(() => { expect(screen.queryByRole('alert')).toBeNull() })
-  expect(listProviders.mock.calls.length).toBeGreaterThan(calls)
-})
-
 /**
  * Mount for a user who cannot reach any provider yet: no credential is stored
  * anywhere, so the whole-section DeepSeek route owns the first-run setup card.
@@ -482,26 +370,6 @@ async function mountDeepSeekCard(overrides: Parameters<typeof scriptedFace>[0] =
 }
 
 describe('ModelsSection', () => {
-  it('keeps the Jev router out of the provider list while Settings → Jev still serves it', async () => {
-    const { controller, face, mirror } = await mountSection({ withJev: true })
-    expect(screen.queryByText('TypeSafe / Jev')).toBeNull()
-    expect(screen.queryByRole('button', { name: /TypeSafe \/ Jev/ })).toBeNull()
-    expect(screen.queryByLabelText(en.jevEnabled)).toBeNull()
-    cleanup()
-    render(<JevSettingsSection controller={controller}
-      useSnapshot={bindSnapshotSelector(controller.store)}
-      useCredentialsRevision={bindSnapshotSelector(createSnapshotStore({ revision: 0 }))}
-      operations={operationsWith(face, mirror)} schema={settingsSchema} t={t} />)
-    expect(await screen.findByLabelText(en.jevEnabled)).toBeTruthy()
-  })
-
-  it('offers only model-provider setup on first run when the Jev router is present', async () => {
-    await mountFirstRun({ withJev: true })
-    expect(screen.queryByText('TypeSafe / Jev')).toBeNull()
-    expect(screen.queryByLabelText(en.jevEnabled)).toBeNull()
-    expect(screen.getAllByLabelText(en.keyInput)).toHaveLength(1)
-  })
-
   it('keeps the credential state unconfirmed when its redacted read fails', async () => {
     const scripted = scriptedFace()
     scripted.face.credentials.describe.mockResolvedValue(remoteFail('credentials unavailable', 'gateway/internal'))
@@ -981,6 +849,10 @@ describe('ModelsSection', () => {
       .toEqual([{ op: 'set', path: ['b'], value: 2 }, { op: 'set', path: ['d'], value: 3 }])
     expect(pathOps([], undefined, {})).toEqual([])
     expect(pathOps([], { a: 1 }, { a: 1 })).toEqual([])
+    expect(pathOps([], { p: { m: 'x', n: 1 } }, { p: { m: 'y' } }))
+      .toEqual([{ op: 'set', path: ['p', 'm'], value: 'y' }, { op: 'unset', path: ['p', 'n'] }])
+    expect(pathOps([], {}, { p: { m: 'x' } })).toEqual([{ op: 'set', path: ['p', 'm'], value: 'x' }])
+    expect(pathOps([], { p: 'x' }, { p: { m: 'x' } })).toEqual([{ op: 'set', path: ['p'], value: { m: 'x' } }])
   })
 
   it('stores a typed key write-only from the setup card without touching settings', async () => {
@@ -998,203 +870,6 @@ describe('ModelsSection', () => {
     )
     fireEvent.click(screen.getByText(en.add))
     expect(screen.queryByText(providerCopy(en.savedProvider, { provider: 'deepseek-official', displayName: 'DeepSeek' }))).toBeNull()
-  })
-
-  it('renders Jev route model suggestions while allowing manual values', async () => {
-    const { face, mutate } = scriptedFace()
-    const { ProviderEditor } = await import('../src/client/ProviderEditor.tsx')
-    const { namespace } = jevNamespaceView()
-    render(<ProviderEditor
-      provider="jev-router"
-      displayName="TypeSafe / Jev"
-      namespace={namespace}
-      schema={settingsSchema}
-      settingsPath={[]}
-      modelOptions={[...JEV_MODEL_OPTIONS]}
-      operations={operationsWith(face)}
-      t={t}
-      readOnly={false}
-      onClose={vi.fn()}
-    />)
-
-    expect(screen.getByLabelText(en.keyInput)).toBeTruthy()
-    expect(screen.getByLabelText(en.jevEnabled)).toBeTruthy()
-    const routeProvider = screen.getByLabelText<HTMLSelectElement>(`${en.jevRouteProvider} 1`)
-    const routeModel = screen.getByLabelText<HTMLSelectElement>(`${en.jevRouteModel} 1`)
-    expect(routeProvider.tagName).toBe('SELECT')
-    expect(routeModel.tagName).toBe('SELECT')
-    expect(routeProvider.querySelector('option[value="deepseek"]')).toBeTruthy()
-    expect(routeModel.querySelector('option[value="claude-opus-5"]')).toBeTruthy()
-    expect(screen.queryByText(en.customized)).toBeNull()
-    fireEvent.click(screen.getByLabelText(en.jevEnabled))
-    fireEvent.change(routeProvider, { target: { value: 'deepseek' } })
-    fireEvent.change(routeModel, { target: { value: '__custom__' } })
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>(`${en.jevRouteModel} 1`), { target: { value: 'custom-model' } })
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.keyInput), { target: { value: 'jev-test-key' } })
-    fireEvent.click(screen.getByText(en.apply))
-    await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
-    await waitFor(() => { expect(face.credentials.set).toHaveBeenCalledWith('TYPESAFE_API_KEY', 'jev-test-key') })
-    expect(mutate.mock.calls[0]).toEqual([
-      'llm-jev-router',
-      [
-        { op: 'set', path: ['enabled'], value: true },
-        {
-          op: 'set',
-          path: ['routes'],
-          value: [{ ...JEV_ROUTE, id: 'custom-model', provider: 'deepseek', model: 'custom-model' }],
-        },
-      ],
-      0,
-    ])
-  })
-
-  it('edits every Jev setting and route row as path ops', async () => {
-    const { face, mutate } = scriptedFace()
-    const { ProviderEditor } = await import('../src/client/ProviderEditor.tsx')
-    const { namespace } = jevNamespaceView()
-    render(<ProviderEditor
-      provider="jev-router"
-      displayName="TypeSafe / Jev"
-      namespace={namespace}
-      schema={settingsSchema}
-      settingsPath={[]}
-      modelOptions={[...JEV_MODEL_OPTIONS]}
-      operations={operationsWith(face)}
-      t={t}
-      readOnly={false}
-      onClose={vi.fn()}
-    />)
-
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.jevEndpoint), { target: { value: 'https://proxy.test/v1' } })
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.jevModel), { target: { value: 'jev-next' } })
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.jevTimeoutMs), { target: { value: '2500' } })
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.jevMinConfidence), { target: { value: '0.5' } })
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.jevStateMaxChars), { target: { value: '4096' } })
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.jevFallback), { target: { value: 'opus-5-low' } })
-    fireEvent.click(screen.getByLabelText(en.jevFailOpen))
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>(`${en.jevRouteId} 1`), { target: { value: 'strong' } })
-    // Clearing the optional effort drops the field instead of storing an empty string.
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>(`${en.jevRouteReasoningEffort} 1`), { target: { value: '' } })
-
-    fireEvent.click(screen.getByText(en.jevAddRoute))
-    // A row whose provider ships no catalog models offers manual entry alone.
-    expect(screen.getByLabelText<HTMLInputElement>(`${en.jevRouteModel} 2`).getAttribute('list')).toBeNull()
-    // Editing row 1 while row 2 exists leaves the untouched row as it was.
-    fireEvent.change(
-      screen.getByLabelText<HTMLInputElement>(`${en.jevRouteDescription} 1`),
-      { target: { value: 'Routine edits' } },
-    )
-    fireEvent.click(screen.getByLabelText(`${en.jevRemoveRoute} 2`))
-    expect(screen.queryByLabelText(`${en.jevRouteId} 2`)).toBeNull()
-
-    fireEvent.click(screen.getByText(en.apply))
-    await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
-    expect(mutate.mock.calls[0]).toEqual([
-      'llm-jev-router',
-      expect.arrayContaining([
-        { op: 'set', path: ['endpoint'], value: 'https://proxy.test/v1' },
-        { op: 'set', path: ['model'], value: 'jev-next' },
-        { op: 'set', path: ['timeoutMs'], value: 2500 },
-        { op: 'set', path: ['minConfidence'], value: 0.5 },
-        { op: 'set', path: ['stateMaxChars'], value: 4096 },
-        { op: 'set', path: ['fallback'], value: 'strong' },
-        { op: 'set', path: ['failOpen'], value: false },
-        {
-          op: 'set',
-          path: ['routes'],
-          value: [{
-            id: 'strong',
-            provider: 'anthropic',
-            model: 'claude-opus-5',
-            description: 'Routine edits',
-          }],
-        },
-      ]),
-      0,
-    ])
-  })
-
-  it.each([
-    ['a fallback that names no route', 'gone', [JEV_ROUTE], 'jevFallbackMissing'],
-    ['two routes with the same ID', 'keep', [JEV_ROUTE, { ...JEV_ROUTE, model: 'claude-sonnet-5' }], 'jevRouteIdDuplicate'],
-  ] as const)('refuses to apply %s, which the router would reject', async (_name, fallback, routes, message) => {
-    const { face, mutate } = scriptedFace()
-    const { ProviderEditor } = await import('../src/client/ProviderEditor.tsx')
-    const { namespace } = jevNamespaceView([...routes])
-    const stored = { ...namespace, value: { ...(namespace.value as Record<string, JsonValue>), fallback } }
-    render(<ProviderEditor
-      provider="jev-router" displayName="TypeSafe / Jev" namespace={stored} schema={settingsSchema} settingsPath={[]}
-      modelOptions={[...JEV_MODEL_OPTIONS]} operations={operationsWith(face)} t={t} readOnly={false} onClose={vi.fn()}
-    />)
-    fireEvent.click(screen.getByLabelText(en.jevEnabled))
-    fireEvent.click(screen.getByText(en.apply))
-    expect(await screen.findByText(en[message])).toBeTruthy()
-    expect(mutate).not.toHaveBeenCalled()
-  })
-
-  it('renders Jev defaults, stored-key copy, and the credential-only form', async () => {
-    const { face } = scriptedFace()
-    const { ProviderEditor } = await import('../src/client/ProviderEditor.tsx')
-    // A namespace with no layer values renders from the schema defaults alone.
-    const namespace: SettingsNamespaceView = {
-      ns: 'llm-jev-router',
-      autoGenerate: true,
-      schema: JSON.parse(JSON.stringify(JevConfig.toJSON())) as JsonValue,
-      value: {},
-      base: {},
-      user: {},
-      applies: 'live',
-      secrets: [],
-      revision: 0,
-    }
-    const { unmount } = render(<ProviderEditor
-      provider="jev-router"
-      displayName="TypeSafe / Jev"
-      credential={{ configured: true, source: 'env', writable: true }}
-      namespace={namespace}
-      schema={settingsSchema}
-      settingsPath={[]}
-      operations={operationsWith(face)}
-      t={t}
-      readOnly={false}
-      onClose={vi.fn()}
-    />)
-
-    const key = screen.getByLabelText<HTMLInputElement>(en.keyInput)
-    await waitFor(() => { expect(key.placeholder).toBe(en.keyStored) })
-    expect(screen.getByLabelText<HTMLInputElement>(en.jevEndpoint).value).toBe('https://api.typesafe.ai/v1/systemone')
-    expect(screen.getByLabelText<HTMLInputElement>(en.jevModel).value).toBe('jev-latest')
-    expect(screen.getByLabelText<HTMLInputElement>(en.jevTimeoutMs).value).toBe('1500')
-    expect(screen.getByLabelText<HTMLInputElement>(en.jevMinConfidence).value).toBe('0.8')
-    expect(screen.getByLabelText<HTMLInputElement>(en.jevStateMaxChars).value).toBe('12000')
-    expect(screen.getByLabelText<HTMLInputElement>(en.jevFallback).value).toBe('keep')
-    expect(screen.getByLabelText<HTMLInputElement>(en.jevFailOpen).checked).toBe(true)
-    expect(screen.queryByLabelText(`${en.jevRouteProvider} 1`)).toBeNull()
-    // An unusable number is unset, so the field falls back to the schema default.
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.jevTimeoutMs), { target: { value: '1e999' } })
-    expect(screen.getByLabelText<HTMLInputElement>(en.jevTimeoutMs).value).toBe('1500')
-    fireEvent.change(key, { target: { value: '"quoted"' } })
-    expect(screen.getByText(en.keyIllegalCharacters)).toBeTruthy()
-    unmount()
-
-    // The credential-only form renders the key field alone, against a locked reference.
-    render(<ProviderEditor
-      provider="jev-router"
-      displayName="TypeSafe / Jev"
-      hideTitle
-      credential={{ configured: true, source: 'env', writable: false }}
-      namespace={namespace}
-      schema={settingsSchema}
-      settingsPath={[]}
-      operations={operationsWith(face)}
-      t={t}
-      readOnly={false}
-      credentialOnly
-      onClose={vi.fn()}
-    />)
-    const locked = screen.getByLabelText<HTMLInputElement>(en.keyInput)
-    await waitFor(() => { expect(locked.placeholder).toBe(en.keyEnvLocked) })
-    expect(locked.disabled).toBe(true)
   })
 
   it('applies customized deepseek fields as path ops', async () => {
@@ -1744,7 +1419,7 @@ describe('ModelsSection', () => {
     fireEvent.click(screen.getByRole('button', { name: openaiCopy(en.editProvider) }))
     // The field names the profile's reference; a stored value stays hidden.
     const editorKey = await screen.findByLabelText<HTMLInputElement>(en.keyInput)
-    expect(editorKey.placeholder).toBe(en.keyPlaceholderSaved)
+    expect(editorKey.placeholder).toBe('••••••••')
     // pi-ai carries Base URL too: the stored override shows as the value and
     // the effective profile endpoint, ahead of the catalog's, as its placeholder.
     fireEvent.click(screen.getByText(en.customized))
@@ -1931,7 +1606,7 @@ describe('ModelsSection', () => {
     face.credentials.describe.mockImplementation(() => Promise.resolve(remoteFail('down', 'gateway/internal')))
     fireEvent.click(screen.getByRole('button', { name: openaiCopy(en.editProvider) }))
     const editorKey = await screen.findByLabelText<HTMLInputElement>(en.keyInput)
-    expect(editorKey.placeholder).toBe(en.keyPlaceholderSaved)
+    expect(editorKey.placeholder).toBe('••••••••')
     fireEvent.change(editorKey, { target: { value: 'sk-live' } })
     fireEvent.click(screen.getByText(en.apply))
     await waitFor(() => { expect(set).toHaveBeenCalledTimes(1) })
@@ -2497,31 +2172,256 @@ describe('apiKeyFailure', () => {
   })
 })
 
-it.each(['file', 'env', 'project-env', 'user-env'] as const)('shows only the blank-input environment detection for source %s', (source) => {
+it.each(['file', 'env', 'project-env', 'user-env'] as const)('shows the existing authentication with a blank input for source %s', (source) => {
   renderPiAiEditor('openai', piAiNamespaceWith('openai', { apiKeyEnv: 'OPENAI_API_KEY' }), {
-    credential: { configured: true, source, writable: true },
+    credential: { configured: true, source, writable: true, ...source === 'file' ? { masked: '••••••••' } : {} },
   })
   const hint = en.keyFallbackDetected.replace('{hint}', 'OPENAI_API_KEY')
   const input = screen.getByLabelText<HTMLInputElement>(en.keyInput)
   expect(screen.queryByText(/^API key source:/)).toBeNull()
-  if (source === 'file') expect(screen.queryByText(hint)).toBeNull()
+  if (source === 'file') expect(screen.getByText(en.keySaved)).toBeTruthy()
   else expect(screen.getAllByText(hint)).toHaveLength(1)
   expect(input.value).toBe('')
   expect(input.placeholder)
-    .toBe(source === 'file' ? en.keyPlaceholderSaved : en.keyPlaceholderFallback.replace('{hint}', 'OPENAI_API_KEY'))
+    .toBe(source === 'file' ? '••••••••' : en.keyPlaceholderFallback.replace('{hint}', 'OPENAI_API_KEY'))
   fireEvent.change(input, { target: { value: 'new-key' } })
   expect(screen.queryByText(hint)).toBeNull()
   expect(screen.queryByText(/^API key source:/)).toBeNull()
-  expect(input.getAttribute('aria-describedby')).toBeNull()
+  if (source === 'file') {
+    expect(document.getElementById(input.getAttribute('aria-describedby')!)?.textContent).toBe(en.keyReplacePending)
+  } else {
+    expect(screen.queryByText(en.keyReplacePending)).toBeNull()
+    expect(input.getAttribute('aria-describedby')).toBeNull()
+  }
   fireEvent.change(input, { target: { value: '' } })
-  if (source === 'file') expect(screen.queryByText(hint)).toBeNull()
+  if (source === 'file') expect(screen.getByText(en.keyRemovePendingEnvironment.replace('{hint}', 'OPENAI_API_KEY'))).toBeTruthy()
   else expect(screen.getAllByText(hint)).toHaveLength(1)
+})
+
+it.each([
+  ['openai', `sk-proj-${'•'.repeat(8)}wxyz`],
+  ['anthropic', `sk-ant-a${'•'.repeat(8)}wxyz`],
+  ['google', `AIzaS${'•'.repeat(8)}wxyz`],
+  ['deepseek', `sk-abcde${'•'.repeat(8)}wxyz`],
+  ['acme-gateway', `vendor_abcde${'•'.repeat(8)}wxyz`],
+] as const)('protects the saved %s key and reveals only its replacement', (provider, masked) => {
+  renderPiAiEditor(provider, piAiNamespaceWith(provider, { apiKeyEnv: 'TEAM_API_KEY' }), {
+    credential: { configured: true, source: 'file', writable: true, masked },
+  })
+  const input = screen.getByLabelText<HTMLInputElement>(en.keyInput)
+  expect(input.value).toBe('')
+  expect(input.type).toBe('password')
+  expect(input.placeholder).toBe(masked)
+  expect(screen.queryByRole('button', { name: 'Clear saved key' })).toBeNull()
+  expect(screen.queryByRole('button', { name: en.keyReveal })).toBeNull()
+  expect(fireEvent.copy(input)).toBe(false)
+  expect(fireEvent.cut(input)).toBe(false)
+  fireEvent.change(input, { target: { value: 'replacement-key' } })
+  expect(screen.queryByText(en.keySaved)).toBeNull()
+  expect(document.getElementById(input.getAttribute('aria-describedby')!)?.textContent).toBe(en.keyReplacePending)
+  fireEvent.click(screen.getByRole('button', { name: en.keyReveal }))
+  expect(input.type).toBe('text')
+  expect(input.value).toBe('replacement-key')
+  expect(fireEvent.copy(input)).toBe(true)
+  expect(fireEvent.cut(input)).toBe(true)
+  fireEvent.change(input, { target: { value: '' } })
+  expect(screen.getByText(en.keyRemovePendingEnvironment.replace('{hint}', 'TEAM_API_KEY'))).toBeTruthy()
+  expect(input.placeholder).toBe(en.keyPlaceholderFallback.replace('{hint}', 'TEAM_API_KEY'))
+  expect(screen.queryByLabelText(en.keyReveal)).toBeNull()
+})
+
+it('hides the reveal control and masks a disabled key draft', () => {
+  const view = render(<ApiKeyInput value="new-key" t={t} />)
+  fireEvent.click(screen.getByRole('button', { name: en.keyReveal }))
+  expect(screen.getByRole<HTMLInputElement>('textbox').type).toBe('text')
+  view.rerender(<ApiKeyInput value="new-key" t={t} disabled />)
+  expect(screen.queryByRole('button')).toBeNull()
+  expect(document.querySelector('input')?.type).toBe('password')
+})
+
+it('does not invent a preview when the credential provider omits it', () => {
+  renderPiAiEditor('openai', piAiNamespaceWith('openai', { apiKeyEnv: 'OPENAI_API_KEY' }), {
+    credential: { configured: true, source: 'file', writable: true },
+  })
+  const input = screen.getByLabelText<HTMLInputElement>(en.keyInput)
+  expect(input.value).toBe('')
+  expect(input.placeholder).toBe('')
+  expect(screen.getByText(en.keySaved)).toBeTruthy()
+  expect(screen.queryByRole('button', { name: en.keyReveal })).toBeNull()
+})
+
+it.each(['Backspace', 'Delete'])('stages whole saved-key deletion with %s and can cancel it', async (key) => {
+  const { unset } = await mountSection()
+  const edit = () => screen.getByRole('button', { name: openaiCopy(en.editProvider) })
+  fireEvent.click(edit())
+  let input = screen.getByLabelText<HTMLInputElement>(en.keyInput)
+  expect(input.placeholder).toBe('••••••••')
+  fireEvent.keyDown(input, { key: 'ArrowLeft' })
+  expect(input.placeholder).toBe('••••••••')
+  fireEvent.keyDown(input, { key })
+  expect(input.placeholder).toBe(en.keyPlaceholderFallback.replace('{hint}', 'OPENAI_API_KEY'))
+  expect(screen.getByText(en.keyRemovePendingEnvironment.replace('{hint}', 'OPENAI_API_KEY'))).toBeTruthy()
+  expect(unset).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: en.cancel }))
+  expect(unset).not.toHaveBeenCalled()
+  fireEvent.click(edit())
+  input = screen.getByLabelText<HTMLInputElement>(en.keyInput)
+  expect(input.placeholder).toBe('••••••••')
+  fireEvent.keyDown(input, { key })
+  fireEvent.click(screen.getByRole('button', { name: en.apply }))
+  await waitFor(() => { expect(unset).toHaveBeenCalledExactlyOnceWith('OPENAI_API_KEY') })
+})
+
+it('keeps a saved read-only credential masked when deletion is unavailable', () => {
+  renderPiAiEditor('openai', piAiNamespaceWith('openai', { apiKeyEnv: 'OPENAI_API_KEY' }), {
+    credential: { configured: true, source: 'file', writable: false, masked: '••••••••' },
+  })
+  const input = screen.getByLabelText<HTMLInputElement>(en.keyInput)
+  fireEvent.keyDown(input, { key: 'Delete' })
+  expect(input.placeholder).toBe('••••••••')
+  expect(screen.queryByText(en.keyRemovePending)).toBeNull()
+  fireEvent.change(input, { target: { value: 'replacement' } })
+  fireEvent.change(input, { target: { value: '' } })
+  expect(input.placeholder).toBe('••••••••')
+})
+
+it('keeps a hidden OAuth reference out of the saved API-key controls', () => {
+  renderPiAiEditor('anthropic', piAiNamespaceWith('anthropic', { apiKeyEnv: 'ANTHROPIC_OAUTH_TOKEN' }), {
+    credential: { configured: true, source: 'file', writable: true, masked: '••••••••' },
+  })
+  const input = screen.getByLabelText<HTMLInputElement>(en.keyInput)
+  expect(input.value).toBe('')
+  expect(input.placeholder).toBe(en.keyPlaceholder)
+  fireEvent.keyDown(input, { key: 'Delete' })
+  expect(screen.queryByText(en.keyRemovePending)).toBeNull()
+})
+
+it.each([
+  ['google', 'GOOGLE_API_KEY', { env: ['GEMINI_API_KEY'], oauth: false }, true],
+  ['openai', 'TEAM_API_KEY', { env: ['OPENAI_API_KEY'], oauth: false }, false],
+  ['acme', 'ACME_API_KEY', undefined, false],
+] as const)('clears %s through its saved reference and preserves the endpoint', async (provider, ref, nativeAuth, removesReference) => {
+  const { face, unset, set, mutate } = scriptedFace()
+  const namespace = piAiNamespaceWith(provider, { apiKeyEnv: ref, baseURL: 'https://gateway.example/v1' })
+  const closed = vi.fn()
+  render(<ProviderEditor provider={provider} displayName={provider} namespace={namespace}
+    settingsPath={['providers', provider]} schema={settingsSchema} operations={operationsWith(face)}
+    t={t} readOnly={false} onClose={closed} {...nativeAuth === undefined ? {} : { nativeAuth }}
+    credential={{ configured: true, source: 'file', writable: true, masked: '••••••••' }} />)
+  fireEvent.keyDown(screen.getByLabelText(en.keyInput), { key: 'Delete' })
+  const envRef = removesReference && nativeAuth !== undefined ? nativeAuth.env[0] : ref
+  expect(screen.getByLabelText<HTMLInputElement>(en.keyInput).placeholder)
+    .toBe(en.keyPlaceholderFallback.replace('{hint}', envRef))
+  expect(screen.getByText(en.keyRemovePendingEnvironment.replace('{hint}', envRef))).toBeTruthy()
+  fireEvent.click(screen.getByText(en.customized))
+  expect(screen.getByRole<HTMLButtonElement>('button', { name: en.fetchModels }).disabled).toBe(true)
+  fireEvent.click(screen.getByRole('button', { name: en.apply }))
+  await waitFor(() => { expect(closed).toHaveBeenCalledWith(true) })
+  expect(unset).toHaveBeenCalledExactlyOnceWith(ref)
+  expect(set).not.toHaveBeenCalled()
+  if (removesReference) expect(mutate.mock.calls[0]?.[1])
+    .toEqual([{ op: 'unset', path: ['providers', provider, 'apiKeyEnv'] }])
+  else expect(mutate).not.toHaveBeenCalled()
+})
+
+it('keeps the clear hint generic when native authentication has no visible environment reference', () => {
+  renderPiAiEditor('openai', piAiNamespaceWith('openai', { apiKeyEnv: 'OPENAI_API_KEY' }), {
+    nativeAuth: { env: [], oauth: false },
+    credential: { configured: true, source: 'file', writable: true, masked: '••••••••' },
+  })
+  fireEvent.keyDown(screen.getByLabelText(en.keyInput), { key: 'Delete' })
+  expect(screen.getByText(en.keyRemovePending)).toBeTruthy()
+  expect(screen.getByLabelText<HTMLInputElement>(en.keyInput).placeholder).toBe(en.keyPlaceholder)
+})
+
+it.each(['cancel', 'replace'])('keeps authentication unchanged after refused deletion, then %s', async (action) => {
+  const { face, unset, set, mutate } = scriptedFace({
+    unset: vi.fn(() => Promise.resolve(remoteFail('credential store locked'))),
+  })
+  const closed = vi.fn()
+  render(<ProviderEditor provider="google" displayName="Google"
+    namespace={piAiNamespaceWith('google', { apiKeyEnv: 'GOOGLE_API_KEY' })}
+    settingsPath={['providers', 'google']} schema={settingsSchema} operations={operationsWith(face)}
+    t={t} readOnly={false} onClose={closed} nativeAuth={{ env: ['GEMINI_API_KEY'], oauth: false }}
+    credential={{ configured: true, source: 'file', writable: true, masked: '••••••••' }} />)
+  fireEvent.keyDown(screen.getByLabelText(en.keyInput), { key: 'Delete' })
+  fireEvent.click(screen.getByRole('button', { name: en.apply }))
+  await screen.findByText('credential store locked')
+  expect(mutate).not.toHaveBeenCalled()
+  expect(screen.getByText(en.keyRemovePendingEnvironment.replace('{hint}', 'GEMINI_API_KEY'))).toBeTruthy()
+  if (action === 'cancel') {
+    fireEvent.click(screen.getByRole('button', { name: en.cancel }))
+    expect(closed).toHaveBeenCalledWith(false)
+  } else {
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: 'new-key' } })
+    expect(screen.queryByText('credential store locked')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: en.apply }))
+    await waitFor(() => { expect(closed).toHaveBeenCalledWith(true) })
+    expect(set).toHaveBeenCalledExactlyOnceWith('GOOGLE_API_KEY', 'new-key')
+  }
+  expect(unset).toHaveBeenCalledExactlyOnceWith('GOOGLE_API_KEY')
+  expect(mutate).not.toHaveBeenCalled()
+})
+
+it.each(['retry', 'close'])('reports a completed deletion when settings fail, then %s', async (action) => {
+  const namespace = piAiNamespaceWith('google', { apiKeyEnv: 'GOOGLE_API_KEY' })
+  const written = { ...namespace, revision: namespace.revision + 1,
+    user: { providers: { google: {} } }, value: { providers: { google: {} } } }
+  const mutate = vi.fn().mockResolvedValueOnce(remoteFail('settings locked')).mockResolvedValueOnce(remoteOk(written))
+  const { face, unset } = scriptedFace({ mutate })
+  const closed = vi.fn()
+  render(<ProviderEditor provider="google" displayName="Google" namespace={namespace}
+    settingsPath={['providers', 'google']} schema={settingsSchema} operations={operationsWith(face)}
+    t={t} readOnly={false} onClose={closed} nativeAuth={{ env: ['GEMINI_API_KEY'], oauth: false }}
+    credential={{ configured: true, source: 'file', writable: true, masked: '••••••••' }} />)
+  fireEvent.keyDown(screen.getByLabelText(en.keyInput), { key: 'Delete' })
+  fireEvent.click(screen.getByRole('button', { name: en.apply }))
+  await screen.findByText('settings locked')
+  expect(screen.getByText(en.keyRemoveApplied)).toBeTruthy()
+  expect(screen.getByLabelText<HTMLInputElement>(en.keyInput).disabled).toBe(true)
+  if (action === 'retry') {
+    fireEvent.click(screen.getByRole('button', { name: en.apply }))
+    await waitFor(() => { expect(closed).toHaveBeenCalledWith(true) })
+    expect(mutate).toHaveBeenCalledTimes(2)
+  } else {
+    fireEvent.click(screen.getByRole('button', { name: en.close }))
+    expect(closed).toHaveBeenCalledWith(false)
+    expect(mutate).toHaveBeenCalledOnce()
+  }
+  expect(unset).toHaveBeenCalledExactlyOnceWith('GOOGLE_API_KEY')
+})
+
+it('clears the selected reference when refreshed metadata names a different credential', async () => {
+  const { face, unset, mutate } = scriptedFace()
+  const props: ProviderEditorProps = {
+    provider: 'openai', displayName: 'OpenAI', namespace: piAiNamespaceWith('openai', { apiKeyEnv: 'OLD_KEY' }),
+    settingsPath: ['providers', 'openai'], schema: settingsSchema, operations: operationsWith(face),
+    t, readOnly: false, onClose: vi.fn(), credential: { configured: true, source: 'file', writable: true, masked: '••••••••' },
+  }
+  const view = render(<ProviderEditor {...props} />)
+  fireEvent.keyDown(screen.getByLabelText(en.keyInput), { key: 'Delete' })
+  view.rerender(<ProviderEditor {...props} namespace={piAiNamespaceWith('openai', { apiKeyEnv: 'NEW_KEY' })} />)
+  fireEvent.click(screen.getByRole('button', { name: en.apply }))
+  await waitFor(() => { expect(unset).toHaveBeenCalledExactlyOnceWith('OLD_KEY') })
+  expect(mutate).not.toHaveBeenCalled()
+})
+
+it('clears the detected native key instead of an unused derived reference', async () => {
+  const { face, unset, mutate } = scriptedFace()
+  render(<ProviderEditor provider="google" displayName="Google" namespace={piAiNamespaceWith('google', {})}
+    settingsPath={['providers', 'google']} schema={settingsSchema} operations={operationsWith(face)}
+    t={t} readOnly={false} onClose={vi.fn()} nativeAuth={{ env: ['GEMINI_API_KEY'], oauth: false }}
+    credentialChecks={{ GEMINI_API_KEY: { configured: true, source: 'file', writable: true, masked: '••••••••' } }} />)
+  fireEvent.keyDown(screen.getByLabelText(en.keyInput), { key: 'Delete' })
+  fireEvent.click(screen.getByRole('button', { name: en.apply }))
+  await waitFor(() => { expect(unset).toHaveBeenCalledExactlyOnceWith('GEMINI_API_KEY') })
+  expect(mutate).not.toHaveBeenCalled()
 })
 
 it.each([
   ['unconfigured', { apiKeyEnv: 'OPENAI_API_KEY' }, { configured: false, source: 'env', writable: true }],
   ['unknown source', { apiKeyEnv: 'OPENAI_API_KEY' }, { configured: true, source: 'oauth', writable: true }],
-  ['native authentication', {}, { configured: true, source: 'file', writable: true }],
+  ['native authentication', {}, { configured: true, source: 'file', writable: true, masked: '••••••••' }],
 ] as const)('does not guess a source for %s', (_label, profile, credential) => {
   renderPiAiEditor('openai', piAiNamespaceWith('openai', profile), { credential })
   expect(screen.queryByText(/^API key source:/)).toBeNull()
@@ -2532,7 +2432,7 @@ it('refreshes a blank editor from saved credentials to environment detection wit
   const { face, controller } = await mountSection()
   const reads = face.credentials.describe.mock.calls.length
   fireEvent.click(screen.getByRole('button', { name: openaiCopy(en.editProvider) }))
-  expect(screen.getByLabelText<HTMLInputElement>(en.keyInput).placeholder).toBe(en.keyPlaceholderSaved)
+  expect(screen.getByLabelText<HTMLInputElement>(en.keyInput).placeholder).toBe('••••••••')
   expect(screen.queryByText(/^API key source:/)).toBeNull()
   expect(screen.queryByText(/Env var detected/)).toBeNull()
   expect(face.credentials.describe).toHaveBeenCalledTimes(reads)

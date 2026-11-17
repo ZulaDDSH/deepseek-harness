@@ -162,15 +162,18 @@ class LocalSendOperation implements TerminalSendOperation {
   private cancellationRequested = false
   private initialForegroundLeftWait: boolean
   private initialForegroundPgid: number | undefined
+  private readinessLineSeen: boolean
 
   constructor(
     maxBytes: number,
     readonly startedAt: number,
     private readonly onCancel: () => void,
+    private readonly readinessWatch?: { seen(): boolean; dispose(): void },
   ) {
     this.output = new BoundedTextBuffer(maxBytes)
     this.promise = Promise.withResolvers<TerminalSendResult>()
     this.initialForegroundLeftWait = true
+    this.readinessLineSeen = readinessWatch === undefined
   }
 
   get done(): Promise<TerminalSendResult> {
@@ -183,6 +186,25 @@ class LocalSendOperation implements TerminalSendOperation {
 
   get cancelRequested(): boolean {
     return this.cancellationRequested
+  }
+
+  get readinessBlocked(): boolean {
+    return !this.readinessLineSeen && !this.cancellationRequested
+  }
+
+  get readinessLineMatched(): boolean {
+    return this.readinessLineSeen
+  }
+
+  observeReadinessLine(): boolean {
+    if (this.readinessLineSeen || this.readinessWatch?.seen() !== true) return false
+    this.readinessLineSeen = true
+    this.initialForegroundLeftWait = true
+    return true
+  }
+
+  disposeReadinessWatch(): void {
+    this.readinessWatch?.dispose()
   }
 
   append(text: string): void {
@@ -244,6 +266,8 @@ export class LocalPtySession implements TerminalBackendSession {
   private readonly sanitizer: TerminalSanitizer
   private readonly scrollback: BoundedTextBuffer
   private readonly outputEnded = Promise.withResolvers<void>()
+  private readonly lineWatches = new Set<{ line: string; tail: string; matched: boolean }>()
+  private atLineBoundary = true
   private readonly completion: Promise<void>
   private statusValue: TerminalSessionStatus = { kind: 'running' }
   // TODO(pty-send-state-consolidation): Fold the per-send fields below
@@ -314,8 +338,8 @@ export class LocalPtySession implements TerminalBackendSession {
     try {
       const operation = this.startSend({ text: '', submit: false, ...signal !== undefined ? { signal } : {} })
       const result = await operation.done
-      if (result.waitReason === 'session_exit') throw new Error('PTY shell exited during startup')
-      if (result.waitReason === 'timeout') throw new Error('PTY shell did not reach readiness before startup timeout')
+      if (result.waitReason === 'session_exit') throw new TerminalError('PTY shell exited during startup', 'STARTUP_EXITED')
+      if (result.waitReason === 'timeout') throw new TerminalError('PTY shell did not reach readiness before startup timeout', 'STARTUP_TIMEOUT')
       this.motd = result.viewport
     } catch (error: unknown) {
       signal?.throwIfAborted()
@@ -326,8 +350,8 @@ export class LocalPtySession implements TerminalBackendSession {
   }
 
   startSend(request: TerminalSendRequest): TerminalSendOperation {
-    if (this.closing) throw new Error('PTY session is closing')
-    if (this.statusValue.kind === 'exited') throw new Error('PTY session has exited')
+    if (this.closing) throw new TerminalError('PTY session is closing', 'SESSION_CLOSING')
+    if (this.statusValue.kind === 'exited') throw new TerminalError('PTY session has exited', 'SESSION_EXITED')
     if (this.active !== undefined) {
       const draining = this.activeWrite !== undefined
         ? ' or draining provider write'
@@ -336,12 +360,21 @@ export class LocalPtySession implements TerminalBackendSession {
           : ''
       throw new TerminalError(`PTY session already has an active send${draining}`, 'SEND_ACTIVE')
     }
-    if (request.signal?.aborted === true) throw new Error('PTY send aborted before write')
+    if (request.signal?.aborted === true) {
+      // Named as a cancellation so the tool registry classifies it as the caller's abort.
+      const aborted = new Error('PTY send aborted before write')
+      aborted.name = 'AbortError'
+      throw aborted
+    }
 
+    const readinessWatch = request.readinessAfterLine === undefined
+      ? undefined
+      : this.watchLine(request.readinessAfterLine)
     const operation = new LocalSendOperation(
       this.config.maxReadBytes,
       Date.now(),
       () => { this.interrupt(operation) },
+      readinessWatch,
     )
     this.active = operation
     this.resetReadinessEvidence()
@@ -451,8 +484,14 @@ export class LocalPtySession implements TerminalBackendSession {
     }
   }
 
+  watchLine(line: string): { seen(): boolean; dispose(): void } {
+    const watch = { line, tail: this.atLineBoundary ? '\n' : '', matched: false }
+    this.lineWatches.add(watch)
+    return { seen: () => watch.matched, dispose: () => { this.lineWatches.delete(watch) } }
+  }
+
   async signal(signal: TerminalSignal): Promise<TerminalSignalResult> {
-    if (this.closing) throw new Error('PTY session is closing')
+    if (this.closing) throw new TerminalError('PTY session is closing', 'SESSION_CLOSING')
     const targetPgid = await this.terminal.signalForeground(signal)
     return { delivered: true, targetPgid }
   }
@@ -483,11 +522,13 @@ export class LocalPtySession implements TerminalBackendSession {
   private readonly onTerminalEnd = (): void => {
     this.onData(this.decoder.decode())
     this.appendOutput(this.sanitizer.flush())
+    this.lineWatches.clear()
     this.closeEmulator()
     this.outputEnded.resolve()
   }
 
   private readonly onTerminalError = (error: Error): void => {
+    this.lineWatches.clear()
     this.closeEmulator()
     this.onTransportFailure(error)
     this.outputEnded.resolve()
@@ -495,8 +536,13 @@ export class LocalPtySession implements TerminalBackendSession {
 
   private onData(data: string): void {
     const sanitized = this.sanitizer.push(data)
-    this.appendOutput(sanitized.text)
-    if (sanitized.prompt) {
+    const readinessBoundary = this.appendOutput(sanitized.text)
+    const promptAfterReadinessBoundary = readinessBoundary
+      && sanitized.prompt
+      && sanitized.promptTail !== undefined
+      && CONTROLLED_PROMPT.startsWith(sanitized.promptTail)
+    if (readinessBoundary && !promptAfterReadinessBoundary) this.sanitizer.resetPromptTracking()
+    if (sanitized.prompt && (!readinessBoundary || promptAfterReadinessBoundary)) {
       // TODO(pty-delayed-signal-prompt): With a reproducer, define a marker-generation boundary
       // before attributing a signal-delayed prompt to a later send.
       // Bash can print PROMPT_COMMAND before the kernel publishes its return
@@ -506,7 +552,7 @@ export class LocalPtySession implements TerminalBackendSession {
       this.promptTail = ''
       this.lastOutputAt = Date.now()
     }
-    if (this.promptSeen && sanitized.promptTail !== undefined) {
+    if ((!readinessBoundary || promptAfterReadinessBoundary) && this.promptSeen && sanitized.promptTail !== undefined) {
       const remaining = Math.max(0, CONTROLLED_PROMPT.length + 1 - this.promptTail.length)
       this.promptTail += sanitized.promptTail.slice(0, remaining)
       if (sanitized.promptTail.length > remaining) this.promptTail = `${CONTROLLED_PROMPT}\0`
@@ -530,11 +576,23 @@ export class LocalPtySession implements TerminalBackendSession {
     void this.terminal.terminate().catch(() => {})
   }
 
-  private appendOutput(text: string): void {
-    if (text.length === 0) return
+  private appendOutput(text: string): boolean {
+    if (text.length === 0) return false
+    for (const watch of this.lineWatches) {
+      if (watch.matched) continue
+      const received = watch.tail + text
+      watch.matched = received.includes(`\n${watch.line}\n`) || received.includes(`\n${watch.line}\r\n`)
+      watch.tail = received.slice(-(watch.line.length + 3))
+    }
+    const readinessBoundary = this.active?.observeReadinessLine() ?? false
+    if (readinessBoundary) {
+      this.resetReadinessEvidence()
+    }
+    this.atLineBoundary = text.endsWith('\n')
     this.lastOutputAt = Date.now()
     this.scrollback.append(text)
     this.active?.append(text)
+    return readinessBoundary
   }
 
   private schedulePoll(operation: LocalSendOperation, delayMs = this.config.pollIntervalMs): void {
@@ -554,14 +612,20 @@ export class LocalPtySession implements TerminalBackendSession {
         this.settleActive('session_exit')
         return
       }
-      if (this.protocolWorkPending()) await this.drainTerminalProtocol()
-      const emulatorWrites = this.emulatorWrites
-      const responseWrites = this.responseWrites
-      let foreground = await this.terminal.inspectForeground()
-      if (this.protocolStateChanged(emulatorWrites, responseWrites)) {
-        foreground = await this.inspectForegroundAfterProtocol()
+      let foreground: SubprocessTerminalForeground | undefined
+      for (;;) {
+        const readinessBeforeInspect = operation.readinessLineMatched
+        if (this.protocolWorkPending()) await this.drainTerminalProtocol()
+        const emulatorWrites = this.emulatorWrites
+        const responseWrites = this.responseWrites
+        foreground = await this.terminal.inspectForeground()
+        if (this.protocolStateChanged(emulatorWrites, responseWrites)) {
+          foreground = await this.inspectForegroundAfterProtocol()
+        }
+        if (operation.readinessLineMatched === readinessBeforeInspect) break
       }
       if (this.active !== operation || this.closing || this.interrupting === operation) return
+      if (operation.readinessBlocked) return
       const idleFor = Date.now() - this.lastOutputAt
       if (this.promptSeen && foreground !== undefined && this.shellPgid === undefined) {
         this.shellPgid = foreground.processGroupId
@@ -730,6 +794,7 @@ export class LocalPtySession implements TerminalBackendSession {
 
   private clearActive(): void {
     const operation = this.active
+    operation?.disposeReadinessWatch()
     this.stopPolling()
     this.activeAbort?.()
     this.activeAbort = undefined

@@ -204,6 +204,7 @@ describe('web-search-exa plugin registration', () => {
     const ctx = new Context()
     await ctx.plugin(WebRuntime, { searchProvider: EXA_PROVIDER_ID })
     const fiber = await ctx.plugin(exaPlugin, { apiKey: 'exa-key' })
+    expect(ctx.web.listProviders().search).toContainEqual(expect.objectContaining({ id: 'exa', title: 'Exa' }))
     await expect(ctx.web.search({ query: 'q' })).resolves.toMatchObject({ sources: [], truncated: false })
     await fiber.dispose()
     await expect(ctx.web.search({ query: 'q' }))

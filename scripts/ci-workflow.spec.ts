@@ -8,6 +8,19 @@ const runnerPrivatePnpmDestination = /^\$\{\{ runner\.temp \}\}\/setup-pnpm-\$\{
 const nativeWindowsPnpmDestination = '${{ runner.temp }}/setup-pnpm-js-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}'
 
 describe('CI workflow', () => {
+  it('runs master-only Python runtime coverage on hosted targets', () => {
+    const workflow = loadWorkflow('.github/workflows/ci-master.yml')
+    expect(workflow.on).toMatchObject({ push: { branches: ['master'] } })
+    expect(workflow.jobs).toMatchObject({
+      'python-runtime': {
+        name: 'python runtime / macOS and Linux ARM64',
+        uses: './.github/workflows/build-exe-for-python-sdk.yml',
+        with: { targets: 'node24-linux-arm64,node24-macos-arm64,node24-macos-x64', ci: true },
+      },
+    })
+    expect(JSON.stringify(workflow)).not.toMatch(/self-hosted|blacksmith/i)
+  })
+
   it('requires lint, unit, consumer, and changed-file coverage gates', () => {
     const workflow = loadWorkflow('.github/workflows/ci.yml')
     const lint = workflowJob(workflow, 'node-24-lint')
@@ -98,7 +111,7 @@ describe('CI workflow', () => {
     expect(steps[preparation]).not.toHaveProperty('continue-on-error', true)
   })
 
-  it.each(['ci.yml', 'ci-master.yml', 'release.yml', 'release-vendor.yml'])(
+  it.each(['ci.yml', 'release.yml', 'release-vendor.yml'])(
     '%s cancels superseded validation runs without crossing workflow or ref boundaries', (name) => {
       const workflow = loadWorkflow('.github/workflows/' + name)
       expect(workflow.concurrency).toEqual({
@@ -129,7 +142,7 @@ describe('CI workflow', () => {
   })
 
   it('isolates every pnpm action setup destination per runner', () => {
-    const files = ['.github/workflows/ci.yml', '.github/workflows/ci-master.yml']
+    const files = ['.github/workflows/ci.yml']
     const setups: Array<{ jobName: string; step: unknown }> = []
     for (const file of files) {
       const workflow: unknown = yaml.load(readFileSync(resolve(root, file), 'utf8'))
@@ -214,18 +227,17 @@ describe('CI workflow', () => {
     }
   })
 
-  it('keeps hosted Windows validation required and post-merge runtime targets keyless', () => {
+  it('keeps hosted Windows validation and isolated publisher checks required in PR CI', () => {
     const workflow = loadWorkflow('.github/workflows/ci.yml')
-    const master = loadWorkflow('.github/workflows/ci-master.yml')
     const build = workflowJob(workflow, 'windows-build')
     const native = workflowJob(workflow, 'windows-native-tests')
     const aggregate = workflowJob(workflow, 'all-checks-passed')
-    expect(build['runs-on']).toContain('windows-2025')
-    expect(native['runs-on']).toContain('windows-2025')
-    expect(aggregate.needs).toEqual(expect.arrayContaining(['windows-build', 'windows-native-tests']))
-    expect(JSON.stringify([workflow, master])).not.toMatch(/DEEPSEEK_API_KEY|CLOUDFLARE_API_TOKEN|DSH_ISSUE_APP_PRIVATE_KEY/)
-    expect(Object.keys(master.on as Record<string, unknown>)).toEqual(['push'])
-    expect(Object.keys(master.jobs as Record<string, unknown>)).toEqual(['python-runtime'])
+    expect(build['runs-on']).toBe('windows-2025')
+    expect(native['runs-on']).toBe('windows-2025')
+    expect(aggregate.needs).toEqual(expect.arrayContaining([
+      'publisher-isolated', 'windows-publisher', 'windows-build', 'windows-native-tests',
+    ]))
+    expect(JSON.stringify(workflow)).not.toMatch(/DEEPSEEK_API_KEY|CLOUDFLARE_API_TOKEN|DSH_ISSUE_APP_PRIVATE_KEY/)
   })
 
   it('keeps performance measurements manual and outside the PR verdict', () => {
@@ -256,16 +268,6 @@ describe('CI workflow', () => {
     expect(wineGates).toContain(
       'wine_node "$scratch/logs/host-tsc.log" --max-old-space-size=8192 "$tsc_js" -p tsconfig.host.json --pretty false',
     )
-  })
-
-  it('keeps post-merge runtime coverage on hosted GitHub platforms', () => {
-    const workflow = loadWorkflow('.github/workflows/ci-master.yml')
-    const job = workflowJob(workflow, 'python-runtime')
-    expect(workflow.concurrency).toMatchObject({ 'cancel-in-progress': true })
-    expect(job.uses).toBe('./.github/workflows/build-exe-for-python-sdk.yml')
-    expect(job.with).toEqual({ targets: 'node24-linux-arm64,node24-macos-arm64,node24-macos-x64', ci: true })
-    expect(workflow.on).toHaveProperty('push')
-    expect(JSON.stringify(workflow)).not.toMatch(/DEEPSEEK_API_KEY|self-hosted|dsh-ubuntu|dsh-windows/)
   })
 
   it('redirects the Node compile cache to the data-volume runner temp before the first pnpm call', () => {
@@ -589,7 +591,8 @@ describe('Weighted approval workflow', () => {
       'cancel-in-progress': false,
     })
     expect(job).toMatchObject({
-      if: "(github.event_name != 'pull_request_target' || github.event.pull_request.state == 'open') && "
+      if: "github.repository == 'deepseek-harness/deepseek-harness' && "
+        + "(github.event_name != 'pull_request_target' || github.event.pull_request.state == 'open') && "
         + "(github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') && "
         + "(github.event_name != 'issue_comment' || (github.event.issue.pull_request && github.event.issue.state == 'open' &&\n"
         + "  (contains(github.event.comment.body, '/delegate') || contains(github.event.changes.body.from, '/delegate'))))",
@@ -633,7 +636,7 @@ describe('Weighted approval workflow', () => {
       run: 'node .github/review-ownership/check-approval.mjs',
     })
     expect(recordJob).toMatchObject({
-      if: "github.event.pull_request.state == 'open'",
+      if: "github.repository == 'deepseek-harness/deepseek-harness' && github.event.pull_request.state == 'open'",
       name: 'record weighted approval review event',
       'runs-on': 'ubuntu-latest',
       'timeout-minutes': 2,

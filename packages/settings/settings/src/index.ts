@@ -201,7 +201,6 @@ function member(node: unknown, key: string, own = false): unknown {
 const LEGACY_SECTION_ENTRIES: Record<string, string> = {
   'ui-developer-tools': 'ui-settings',
   'ui-onboarding': 'ui-settings-general',
-  'jev-router': 'llm-jev-router',
   /* v8 ignore next -- the base bundle composes one shell executor per platform */
   shell: process.platform === 'win32' ? 'pwsh-sandbox' : 'bash-sandbox',
 }
@@ -233,7 +232,7 @@ export class SettingsForms extends Service {
     const ctx = ownerContext
     ctx.effect(() => () => { this.closed = true })
     ctx.on('app-boot/config-reload', () => { this.invalidate() })
-    void ctx.root.loader.await().then(() => this.importLegacyDocument()).catch((error: unknown) => { ctx.logger.error(error) })
+    void ctx[Context.root].loader.await().then(() => this.importLegacyDocument()).catch((error: unknown) => { ctx.logger.error(error) })
   }
 
   /** Move the sections of the removed `settings.yaml` into the active profile once the Loader has settled every entry.

@@ -22,6 +22,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  publisher-isolated:
+    strategy:
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        os: [linux, macos]
+    runs-on: ${{ matrix.os == 'macos' && 'macos-latest' || 'ubuntu-latest' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+          path: publisher-isolated
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '24'
+      - name: Check preflights before dependency installation
+        working-directory: publisher-isolated
+        run: node apps/desktop-publisher/tests/preinstall.mjs
+      - uses: pnpm/action-setup@v5.0.0
+        with:
+          package_json_file: publisher-isolated/package.json
+          dest: ${{ runner.temp }}/setup-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Install only publisher production dependencies
+        working-directory: publisher-isolated
+        run: pnpm --filter @deepseek-ai/dsh-desktop-publisher --fail-if-no-match install --prod --frozen-lockfile --ignore-scripts
+      - name: Load publisher without Desktop or root development dependencies
+        working-directory: publisher-isolated/apps/desktop-publisher
+        run: node --import tsx tests/isolated-install.mjs
+
 
   change-scope:
     if: github.event_name == 'pull_request'
@@ -541,8 +571,7 @@ jobs:
         run: uv run --python 3.10 --group test --project python/sdk pytest
 
   # The reusable builder owns each published executable, wheel, clean-install,
-  # keyless black-box tests. Linux/Windows x64 block PRs;
-  # Linux ARM64 and both macOS architectures run in ci-master.yml.
+  # keyless black-box tests. Linux/Windows x64 block PRs; ARM64 and macOS remain release targets.
   python-runtime:
     if: github.event_name == 'pull_request'
     name: python runtime / release-shaped matrix
@@ -551,7 +580,36 @@ jobs:
       targets: node24-linux-x64,node24-win-x64
       ci: true
   # Hosted Windows runs retain native build and process coverage for every PR.
+  windows-publisher:
+    runs-on: windows-2025
+    defaults:
+      run:
+        shell: pwsh
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+          path: publisher-isolated
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '24'
+      - name: Check preflights before dependency installation
+        working-directory: publisher-isolated
+        run: node apps/desktop-publisher/tests/preinstall.mjs
+      - uses: pnpm/action-setup@v5.0.0
+        with:
+          package_json_file: publisher-isolated/package.json
+          dest: ${{ runner.temp }}/setup-pnpm-js-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+      - name: Install only publisher production dependencies
+        working-directory: publisher-isolated
+        run: pnpm --filter @deepseek-ai/dsh-desktop-publisher --fail-if-no-match install --prod --frozen-lockfile --ignore-scripts
+      - name: Load publisher without Desktop or root development dependencies
+        working-directory: publisher-isolated/apps/desktop-publisher
+        run: node --import tsx tests/isolated-install.mjs
+
   windows-build:
+    needs: [windows-publisher]
     if: github.event_name == 'pull_request'
     runs-on: windows-2025
     name: windows node 24 / build
@@ -617,11 +675,20 @@ jobs:
   all-checks-passed:
     name: all checks passed
     runs-on: ubuntu-latest
-    needs: [change-scope, node-24, node-24-lint, node-24-coverage, node-24-dependency-tests, node-24-consumers, node-compat, python-sdk, python-runtime, windows-build, windows-native-tests]
+    needs: [publisher-isolated, windows-publisher, change-scope, node-24, node-24-lint, node-24-coverage, node-24-dependency-tests, node-24-consumers, node-compat, python-sdk, python-runtime, windows-build, windows-native-tests]
     if: ${{ !cancelled() && github.event_name == 'pull_request' }}
     steps:
       - name: Fail if any needed job did not succeed
-        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || (needs.node-24-coverage.result == 'skipped' && needs.change-scope.outputs.coverage-files != '[]') || (needs.node-24-dependency-tests.result == 'skipped' && needs.change-scope.outputs.run-dependency-tests == 'true') || (needs.node-24-consumers.result == 'skipped' && needs.change-scope.outputs.run-consumers == 'true')
+        if: >-
+          contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+          || needs.publisher-isolated.result == 'skipped' || needs.windows-publisher.result == 'skipped'
+          || needs.change-scope.result == 'skipped' || needs.node-24.result == 'skipped'
+          || needs.node-24-lint.result == 'skipped' || needs.node-compat.result == 'skipped'
+          || needs.python-sdk.result == 'skipped' || needs.python-runtime.result == 'skipped'
+          || needs.windows-build.result == 'skipped' || needs.windows-native-tests.result == 'skipped'
+          || (needs.node-24-coverage.result == 'skipped' && needs.change-scope.outputs.coverage-files != '[]')
+          || (needs.node-24-dependency-tests.result == 'skipped' && needs.change-scope.outputs.run-dependency-tests == 'true')
+          || (needs.node-24-consumers.result == 'skipped' && needs.change-scope.outputs.run-consumers == 'true')
         run: |
           echo "::error::Needed job results: ${{ join(needs.*.result, ', ') }}"
           exit 1

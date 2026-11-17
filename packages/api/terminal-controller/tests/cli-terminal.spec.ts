@@ -16,7 +16,7 @@ import type { TerminalInput, WebTerminalId } from '../src/types.ts'
 
 const roots: Context[] = []
 afterEach(async () => { await Promise.all(roots.splice(0).map(ctx => ctx.fiber.dispose())) })
-const config: Config = { shellCandidates: ['bash'], shell: { path: '/bin/bash', name: 'bash', args: ['--noprofile', '--norc', '-i'] }, maxTerminals: 2, maxCols: 200, maxRows: 100, scrollback: 100, maxBufferedBytes: 100_000, maxInputBytes: 1000, disposeGraceMs: 100, unattendedTimeoutMs: 7_200_000, activityPollIntervalMs: 30_000, cleanupRetryMs: 60_000 }
+const config: Config = { shellCandidates: ['bash'], shell: { path: '/bin/bash', name: 'bash', args: ['--noprofile', '--norc', '-i'] }, maxTerminals: 2, maxAgentTerminals: 2, maxCols: 200, maxRows: 100, scrollback: 100, maxBufferedBytes: 100_000, maxInputBytes: 1000, disposeGraceMs: 100, unattendedTimeoutMs: 7_200_000, activityPollIntervalMs: 30_000, cleanupRetryMs: 60_000 }
 const id = 'cli-terminal' as WebTerminalId
 const request = { id, cols: 80, rows: 24 }
 const signal = (): AbortSignal => new AbortController().signal
@@ -176,11 +176,11 @@ describe('TerminalController CLI terminals', () => {
     await controller.close(agent, id)
   })
 
-  it('confines PTY write and resize calls in host source to the terminal input path', () => {
+  it('confines PTY write and resize calls in host source to the terminal controller', () => {
     const sites = hostSources().flatMap(file => readFileSync(file, 'utf8').split('\n')
       .filter(line => /handle\.(write|resize)\(/u.test(line))
       .map(() => basename(file)))
-    expect(sites.sort()).toEqual(['terminal.ts', 'terminal.ts'])
+    expect(sites.sort()).toEqual(['terminal.ts', 'terminal.ts', 'terminal.ts'])
   })
 
   it('never names the agent CLIs credential or config folders in host source', () => {

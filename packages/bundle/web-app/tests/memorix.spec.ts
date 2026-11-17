@@ -52,6 +52,32 @@ describe('Existing database backup', () => {
     expect(readFileSync(backup!, 'utf8')).toBe('one')
   })
 
+  it('rolls back failed sidecar publication without touching pre-existing backup data', () => {
+    const directory = dataDirectory()
+    const database = join(directory, 'memorix.db')
+    const backup = `${database}${BACKUP_SUFFIX}`
+    writeFileSync(database, 'one')
+    writeFileSync(`${database}-wal`, 'wal')
+    writeFileSync(`${database}-shm`, 'shm')
+    writeFileSync(`${backup}-shm`, 'keep')
+
+    expect(() => backupExistingDatabase(directory)).toThrow()
+    expect(existsSync(backup)).toBe(false)
+    expect(existsSync(`${backup}-wal`)).toBe(false)
+    expect(readFileSync(`${backup}-shm`, 'utf8')).toBe('keep')
+  })
+
+  it('does not publish the database backup until sidecar copies finish', () => {
+    const directory = dataDirectory()
+    const database = join(directory, 'memorix.db')
+    writeFileSync(database, 'one')
+    mkdirSync(`${database}-wal`)
+
+    expect(() => backupExistingDatabase(directory)).toThrow()
+    expect(existsSync(`${database}${BACKUP_SUFFIX}`)).toBe(false)
+    expect(existsSync(`${database}${BACKUP_SUFFIX}-wal`)).toBe(false)
+  })
+
   it('does nothing when there is no database yet', () => {
     const directory = dataDirectory()
     expect(backupExistingDatabase(directory)).toBeUndefined()
