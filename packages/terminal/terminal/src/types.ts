@@ -66,6 +66,7 @@ export interface TerminalSendRequest {
   text: string
   /** Whether to write the backend's Enter sequence after {@link text}. */
   submit: boolean
+  readinessAfterLine?: string
   /** Cancellation for the wait; backends also interrupt the foreground command. */
   signal?: AbortSignal
 }

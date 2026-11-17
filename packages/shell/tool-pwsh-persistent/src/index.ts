@@ -331,6 +331,7 @@ async function executeCommand(
       operation = ctx.terminals.startSend(owner, id, {
         text: first ? wrapped : '',
         submit: first,
+        ...(first ? { readinessAfterLine: marker.start } : {}),
         signal: commandDeadline.signal,
       })
       first = false
