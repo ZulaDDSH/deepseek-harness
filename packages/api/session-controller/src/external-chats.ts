@@ -178,7 +178,8 @@ export class ExternalChats {
       const size = info.size
       const rows: Record<string, unknown>[] = []
       const decoder = new StringDecoder('utf8')
-      let pending = ''
+      let fragments: string[] = []
+      let pendingBytes = 0
       let retained = 0
       let textBytes = 0
       let line = 0
@@ -201,19 +202,33 @@ export class ExternalChats {
         if (retained > 64 * 1024 * 1024) throw new Error('Transcript metadata exceeds the 64 MiB import limit')
         rows.push(compact)
       }
+      const append = (text: string): void => {
+        let start = 0
+        let end: number
+        while ((end = text.indexOf('\n', start)) !== -1) {
+          const part = text.slice(start, end)
+          fragments.push(part)
+          pendingBytes += Buffer.byteLength(part)
+          if (pendingBytes > 64 * 1024 * 1024) throw new Error('Transcript record exceeds the 64 MiB limit')
+          accept(fragments.join(''))
+          fragments = []
+          pendingBytes = 0
+          start = end + 1
+        }
+        const tail = text.slice(start)
+        if (tail !== '') {
+          fragments.push(tail)
+          pendingBytes += Buffer.byteLength(tail)
+          if (pendingBytes > 64 * 1024 * 1024) throw new Error('Transcript record exceeds the 64 MiB limit')
+        }
+      }
       if (size > 0) {
         const stream = handle.createReadStream({ autoClose: false, start: 0, end: size - 1, highWaterMark: 64 * 1024 })
         for await (const chunk of stream) {
-          pending += decoder.write(chunk as Buffer)
-          let end: number
-          while ((end = pending.indexOf('\n')) !== -1) {
-            accept(pending.slice(0, end))
-            pending = pending.slice(end + 1)
-          }
-          if (Buffer.byteLength(pending) > 64 * 1024 * 1024) throw new Error('Transcript record exceeds the 64 MiB limit')
+          append(decoder.write(chunk as Buffer))
         }
-        pending += decoder.end()
-        if (pending) accept(pending, true)
+        append(decoder.end())
+        if (fragments.length > 0) accept(fragments.join(''), true)
       }
       return { ...parseRecords(file.source, rows), updatedAt: info.mtimeMs }
     } finally { await handle.close() }
