@@ -43,16 +43,8 @@ export type McpConnectionStatus =
     lastError: string
   }
   | {
-    /**
-     * The supervisor stopped automatic attempts. `gave-up`
-     * exhausted the per-outage attempt budget and unregistered the tools;
-     * `reconnect-disabled` lost (or never made) the connection with reconnect
-     * off; `unclosed-generation` blocks replacement because transport closure
-     * or local cleanup is incomplete.
-     */
     state: 'failed'
-    /** Which supervisor stop produced this terminal state. */
-    reason: 'gave-up' | 'reconnect-disabled' | 'unclosed-generation'
+    reason: 'gave-up' | 'reconnect-disabled' | 'unclosed-generation' | 'authentication-rejected'
     /** Most recent connection failure, when one was observed. */
     lastError?: string
   }

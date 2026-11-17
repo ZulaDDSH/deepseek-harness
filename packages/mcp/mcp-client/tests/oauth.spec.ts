@@ -346,6 +346,22 @@ describe('MCP OAuth sign-in', () => {
     expect(ctx.authorization.list()).toEqual([])
   })
 
+  it('reconnects after a rejected static credential when reconnect is enabled', async () => {
+    const fixture = await startFixture()
+    fixture.accept('static-token')
+    const ctx = await mount(configFor(fixture.url, {
+      headers: { Authorization: 'Bearer static-token' },
+      reconnect: { enabled: true, initialDelayMs: 100, maxDelayMs: 100, maxAttempts: 5 },
+    }))
+    fixture.expire()
+    expect((await ping(ctx)).isError).toBe(true)
+    expect(['failed', 'connecting']).toContain(report(ctx).state)
+    expect(report(ctx).authKey).toBeUndefined()
+    fixture.accept('static-token')
+    await vi.waitFor(() => { expect(report(ctx).state).toBe('connected') })
+    expect((await ping(ctx)).isError).toBe(false)
+  })
+
   it('reports a connection failure with its reason', async () => {
     const ctx = await mount(configFor('http://127.0.0.1:1/mcp'))
     expect(report(ctx)).toMatchObject({ state: 'failed', toolCount: 0 })

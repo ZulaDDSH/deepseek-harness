@@ -222,7 +222,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
           toolCallTimeoutMs: config.toolCallTimeoutMs,
           signal,
           toolFilter,
-          ...(auth === undefined ? {} : { onAuthRequired: (error: unknown) => waitForSignIn(error, record) }),
+          onAuthRequired: (error: unknown) => authenticationRejected(error, record),
           ...config.expandTemplates ? { redact: (text: string) => binding.redact(text) } : {},
         }, disposers, () => isCurrent(record))
       })
@@ -269,6 +269,17 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
       if (confirmed && !manualReconnectPending) scheduleReconnect(error, record.connectedAt)
     })
     settling = closing
+  }
+
+  function authenticationRejected(error: unknown, record: Generation): void {
+    if (!isCurrent(record)) return
+    if (auth !== undefined) {
+      waitForSignIn(error, record)
+      return
+    }
+    const message = diagnostic(error, 'authentication')
+    status.update({ state: 'failed', reason: 'authentication-rejected', lastError: message })
+    lost(record, message)
   }
 
   function isStopped(): boolean { return disposed || closureFailure !== undefined }
@@ -422,7 +433,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
         ))
       } catch (error) {
         signal.throwIfAborted()
-        if (auth !== undefined && isAuthRequired(error)) waitForSignIn(error, record)
+        if (isAuthRequired(error)) authenticationRejected(error, record)
         throw mcpRequestError(error, `human tool "${name}"`, config.expandTemplates ? text => binding.redact(text) : undefined)
       }
     },
@@ -462,7 +473,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
           })
         } catch (error) {
           exec.signal.throwIfAborted()
-          if (auth !== undefined && isAuthRequired(error)) waitForSignIn(error, record)
+          if (isAuthRequired(error)) authenticationRejected(error, record)
           throw mcpRequestError(error, request.method, config.expandTemplates ? text => binding.redact(text) : undefined)
         }
       },

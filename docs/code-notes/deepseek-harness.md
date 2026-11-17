@@ -1071,3 +1071,9 @@ The runtime type declaration override resolves distinct Office rendering generat
 ## Model menu focus
 
 `packages/client/ui-model-selection/src/client/ModelSelect.tsx:ModelSelect` remembers the detail pane key and finds its matching root-menu button after returning, since the original button is unmounted while the pane is open.
+
+## MCP credential rejection
+
+`packages/mcp/mcp-client/src/connection.ts:startConnection` reports a rejected static credential immediately, closes the affected generation, and follows the configured reconnect policy only after cleanup. OAuth rejections instead wait for a new grant. Stale generations cannot change the current status.
+
+`packages/mcp/mcp-client/src/types.ts:McpConnectionStatus` uses `authentication-rejected` while a rejected static credential's generation is closing. `reconnect-disabled` and `gave-up` mean automatic attempts have stopped; `unclosed-generation` prevents replacement after incomplete cleanup.

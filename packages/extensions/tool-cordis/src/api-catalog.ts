@@ -8249,7 +8249,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'McpConnectionStatus',
-    declaration: 'export type McpConnectionStatus = {\n    state: \'closed\';\n    result: McpCloseResult;\n} | {\n    state: \'waiting-credentials\';\n    lastError: string;\n} | {\n    state: \'connecting\';\n    attempt: number;\n} | {\n    state: \'connected\';\n    toolCount: number;\n    connectedAt: number;\n} | {\n    state: \'reconnecting\';\n    attempt: number;\n    maxAttempts: number;\n    nextRetryAtMs: number;\n    lastError: string;\n} | {\n    state: \'failed\';\n    reason: \'gave-up\' | \'reconnect-disabled\' | \'unclosed-generation\';\n    lastError?: string;\n};',
+    declaration: 'export type McpConnectionStatus = {\n    state: \'closed\';\n    result: McpCloseResult;\n} | {\n    state: \'waiting-credentials\';\n    lastError: string;\n} | {\n    state: \'connecting\';\n    attempt: number;\n} | {\n    state: \'connected\';\n    toolCount: number;\n    connectedAt: number;\n} | {\n    state: \'reconnecting\';\n    attempt: number;\n    maxAttempts: number;\n    nextRetryAtMs: number;\n    lastError: string;\n} | {\n    state: \'failed\';\n    reason: \'gave-up\' | \'reconnect-disabled\' | \'unclosed-generation\' | \'authentication-rejected\';\n    lastError?: string;\n};',
   },
   {
     name: 'McpConnectorCatalog',
