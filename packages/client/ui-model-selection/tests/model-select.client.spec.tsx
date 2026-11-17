@@ -149,6 +149,8 @@ describe('ModelSelect label slot', () => {
     })
     await runtime.root.declare({
       'conversation.input.model.label': { kind: 'single', scope: 'session', inline: true },
+      'conversation.input.model.options': { kind: 'list', scope: 'session' },
+      'conversation.input.model.pane': { kind: 'keyed', scope: 'session' },
     }, ({ renderSlot, SessionProvider }) => <SessionProvider session={session}>
       <ModelSelect locked={false} available directory={directory} load={vi.fn()}
         resolveText={resolveText} select={select} t={t} renderSlot={renderSlot} />

@@ -44,6 +44,7 @@ async function bench() {
   ctx.provide('sessions', { using, masterHome: create, create, retain, list: sessionsList } as never)
   ctx.provide('uiWorkspace', { openSession } as never)
   ctx.provide('workspaces', { list: workspacesList } as never)
+  ctx.provide('uiSession.sessionStatus', {} as never)
   return { ctx, slots: ctx.get('slots') as SlotRegistry, cancel, using, openSession, create, retain, release, reference, sessionsList, workspacesList }
 }
 
@@ -63,7 +64,7 @@ describe('ui-master-control apply', () => {
   })
 
   it('declares the services the page and interrupt path use', () => {
-    expect(inject).toEqual(['slots', 'locale', 'sessions', 'uiWorkspace', 'workspaces'])
+    expect(inject).toEqual(['slots', 'locale', 'sessions', 'uiWorkspace', 'workspaces', 'uiSession.sessionStatus'])
   })
 
   it('registers the sidebar entry above Plugins and injects open/interrupt/openMasterChat', async () => {
