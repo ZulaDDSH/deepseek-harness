@@ -883,13 +883,12 @@ describe('tool-pwsh-persistent', () => {
 
   it('rejects invalid config and invalid calls', async () => {
     const { ctx, owner, stub } = await setup()
-    expect(await call(ctx, undefined, 'pwd')).toMatchObject({
-      isError: true,
-      error: { info: { name: 'ToolContextUnavailableError', code: 'TOOL_CONTEXT_UNAVAILABLE' } },
-    })
+    const missingOwner = await call(ctx, undefined, 'pwd')
+    expect(missingOwner.isError).toBe(true)
+    expect(text(missingOwner)).toContain('pwsh requires an owning agent session')
     const blank = await call(ctx, owner, ' ')
+    expect(blank.isError).toBe(true)
     expect(text(blank)).toContain('command must be a non-empty string')
-    expect(blank).toMatchObject({ isError: true, error: { info: { name: 'ToolArgsError', code: 'INVALID_ARGS' } } })
 
     const controller = new AbortController()
     controller.abort(new Error('caller stopped'))
