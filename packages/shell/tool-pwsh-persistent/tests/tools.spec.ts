@@ -108,6 +108,8 @@ type StubMode =
   | 'with-echo'
   | 'exit-after-send'
   | 'prompt-collision'
+  | 'stale-prompt'
+  | 'interactive-overflow'
 
 const START_PATTERN = /__DSH_PERSISTENT_PWSH_START_[^_]+(?:-[^_]+)*__/
 const END_PATTERN = /__DSH_PERSISTENT_PWSH_END_[^:]+:/
@@ -116,7 +118,8 @@ class StubTerminalSession implements TerminalBackendSession {
   readonly motd = 'stub> '
   readonly pid = 123
   statusValue: TerminalSessionStatus = { kind: 'running' }
-  scrollback = this.motd
+  private scrollText = this.motd
+  private readonly watches = new Set<{ line: string; tail: string; matched: boolean }>()
   closed: string[] = []
   mode: StubMode
   sends = 0
@@ -128,6 +131,24 @@ class StubTerminalSession implements TerminalBackendSession {
 
   constructor(mode: StubMode) {
     this.mode = mode
+  }
+
+  get scrollback(): string { return this.scrollText }
+
+  set scrollback(value: string) {
+    const chunk = value.startsWith(this.scrollText) ? value.slice(this.scrollText.length) : value
+    this.scrollText = value
+    for (const watch of this.watches) {
+      const received = watch.tail + chunk
+      watch.matched ||= received.includes(`\n${watch.line}\n`) || received.includes(`\n${watch.line}\r\n`)
+      watch.tail = received.slice(-(watch.line.length + 3))
+    }
+  }
+
+  watchLine(line: string): { seen(): boolean; dispose(): void } {
+    const watch = { line, tail: this.scrollText.endsWith('\n') || this.scrollText.length === 0 ? '\n' : '', matched: false }
+    this.watches.add(watch)
+    return { seen: () => watch.matched, dispose: () => { this.watches.delete(watch) } }
   }
 
   startSend(request: TerminalSendRequest): TerminalSendOperation {
@@ -153,10 +174,23 @@ class StubTerminalSession implements TerminalBackendSession {
       this.pendingText = request.text
       return this.operation(Promise.resolve(this.result('', 'inferred_idle')))
     }
+    if (this.mode === 'stale-prompt') {
+      this.mode = 'normal'
+      this.pendingText = request.text
+      const output = `${request.text}\nprevious command output\n${this.motd}`
+      this.scrollback += output
+      return this.operation(Promise.resolve(this.result(output, 'stdin_read')))
+    }
+    if (this.mode === 'interactive-overflow') {
+      const start = START_PATTERN.exec(request.text)?.[0] ?? ''
+      this.scrollback += `\n${start}\n`
+      this.scrollback = 'retained interactive output\n'
+      return this.operation(Promise.resolve({ ...this.result(this.scrollback, 'stdin_read'), truncated: true }))
+    }
     if (this.mode === 'prompt-after-idle') {
       if (request.text.length > 0) {
         const start = START_PATTERN.exec(request.text)?.[0]
-        const output = `${start ?? ''}\npartial syntax output\n`
+        const output = `\n${start ?? ''}\npartial syntax output\n`
         this.scrollback += output
         return this.operation(Promise.resolve(this.result(output, 'inferred_idle')))
       }
@@ -166,7 +200,8 @@ class StubTerminalSession implements TerminalBackendSession {
     }
     if (this.mode === 'prompt-only' || this.mode === 'prompt-crlf') {
       const newline = this.mode === 'prompt-crlf' ? '\r\n' : '\n'
-      const output = `pwsh: syntax error${newline}${this.motd}${newline}`
+      const start = START_PATTERN.exec(request.text)?.[0]
+      const output = `${newline}${start ?? ''}${newline}pwsh: syntax error${newline}${this.motd}${newline}`
       this.scrollback += output
       return this.operation(Promise.resolve(this.result(output, 'stdin_read')))
     }
@@ -195,6 +230,7 @@ class StubTerminalSession implements TerminalBackendSession {
     }
     if (this.mode === 'incremental-fallback') {
       const incremental = `${start ?? ''}\nincrement\n${this.motd}`
+      for (const watch of this.watches) if (watch.line === start) watch.matched = true
       return this.operation(Promise.resolve(this.result(this.motd, 'stdin_read')), incremental)
     }
     if (this.mode === 'status-tail' || this.mode === 'continue-status-tail') {
@@ -228,7 +264,7 @@ class StubTerminalSession implements TerminalBackendSession {
         : this.mode === 'prompt-collision' ? this.motd
           : 'hello from stub'
     const exitCode = this.mode === 'nonzero' ? 7 : 0
-    const output = `${start ?? ''}\n${commandOutput}\n${end ?? ''}${exitCode}\n${this.motd}`
+    const output = `\n${start ?? ''}\n${commandOutput}\n${end ?? ''}${exitCode}\n${this.motd}`
     this.scrollback += output
     if (this.mode === 'exit' || this.mode === 'signal-exit' || this.mode === 'unknown-exit') {
       const exitedOutput = `${start ?? ''}\nhello from stub\n`
@@ -512,6 +548,24 @@ describe('tool-pwsh-persistent', () => {
     await ctx.terminals.kill(owner, externallyClosed!, 'external cleanup')
     await fiber.dispose()
     expect(stub.sessions[2]?.closed).toEqual(['external cleanup'])
+  })
+
+  it('waits for the current command after a delayed previous prompt', async () => {
+    const { ctx, owner, stub } = await setup({ backendType: 'stub' })
+    await call(ctx, owner, 'warm up')
+    const session = stub.sessions[0]!
+    session.mode = 'stale-prompt'
+    expect(text(await call(ctx, owner, 'current command'))).toBe('hello from stub')
+  })
+
+  it('returns partial output when an interactive command outgrows retained scrollback', async () => {
+    const { ctx, owner, stub } = await setup({ backendType: 'stub' })
+    await call(ctx, owner, 'warm up')
+    const session = stub.sessions[0]!
+    session.mode = 'interactive-overflow'
+    const result = text(await call(ctx, owner, 'large interactive command'))
+    expect(result).toContain('retained interactive output')
+    expect(session.closed).toEqual([])
   })
 
   it('clips a split surrogate pair instead of leaving a lone half', async () => {

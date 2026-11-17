@@ -341,3 +341,15 @@ export class FixService {
     expect(services[0]?.methods).toHaveLength(0)
   })
 })
+
+describe('gen-cordis-catalog code-note method docs', () => {
+  it('uses a code-note contract when a service method has no source JSDoc', () => {
+    const note = '/**\n * Do the thing.\n * @param id - the requested item.\n * @returns the result.\n */'
+    const root = makeService('/** Fixture service. */\nexport class FixService {\n  run(id: string): string { return id }\n}')
+    const services = collectServicesWithPolicy(root, {
+      ...TEST_POLICY,
+      codeNotes: new Map([['packages/group/fix/src/index.ts:FixService.run', note]]),
+    })
+    expect(services[0]?.methods[0]?.jsDoc).toBe(note)
+  })
+})

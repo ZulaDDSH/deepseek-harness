@@ -244,6 +244,8 @@ export class LocalPtySession implements TerminalBackendSession {
   private readonly sanitizer: TerminalSanitizer
   private readonly scrollback: BoundedTextBuffer
   private readonly outputEnded = Promise.withResolvers<void>()
+  private readonly lineWatches = new Set<{ line: string; tail: string; matched: boolean }>()
+  private atLineBoundary = true
   private readonly completion: Promise<void>
   private statusValue: TerminalSessionStatus = { kind: 'running' }
   // TODO(pty-send-state-consolidation): Fold the per-send fields below
@@ -451,6 +453,12 @@ export class LocalPtySession implements TerminalBackendSession {
     }
   }
 
+  watchLine(line: string): { seen(): boolean; dispose(): void } {
+    const watch = { line, tail: this.atLineBoundary ? '\n' : '', matched: false }
+    this.lineWatches.add(watch)
+    return { seen: () => watch.matched, dispose: () => { this.lineWatches.delete(watch) } }
+  }
+
   async signal(signal: TerminalSignal): Promise<TerminalSignalResult> {
     if (this.closing) throw new Error('PTY session is closing')
     const targetPgid = await this.terminal.signalForeground(signal)
@@ -483,11 +491,13 @@ export class LocalPtySession implements TerminalBackendSession {
   private readonly onTerminalEnd = (): void => {
     this.onData(this.decoder.decode())
     this.appendOutput(this.sanitizer.flush())
+    this.lineWatches.clear()
     this.closeEmulator()
     this.outputEnded.resolve()
   }
 
   private readonly onTerminalError = (error: Error): void => {
+    this.lineWatches.clear()
     this.closeEmulator()
     this.onTransportFailure(error)
     this.outputEnded.resolve()
@@ -532,6 +542,13 @@ export class LocalPtySession implements TerminalBackendSession {
 
   private appendOutput(text: string): void {
     if (text.length === 0) return
+    for (const watch of this.lineWatches) {
+      if (watch.matched) continue
+      const received = watch.tail + text
+      watch.matched = received.includes(`\n${watch.line}\n`) || received.includes(`\n${watch.line}\r\n`)
+      watch.tail = received.slice(-(watch.line.length + 3))
+    }
+    this.atLineBoundary = text.endsWith('\n')
     this.lastOutputAt = Date.now()
     this.scrollback.append(text)
     this.active?.append(text)

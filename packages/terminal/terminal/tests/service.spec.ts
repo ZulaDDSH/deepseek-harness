@@ -171,6 +171,8 @@ describe('TerminalSessionService ownership and lifecycle', () => {
     expect(ctx.terminals.hasOwnerActivity(owner)).toBe(true)
     expect(ctx.terminals.list(owner)).toHaveLength(1)
     expect(ctx.terminals.list(foreign)).toEqual([])
+    expect(ctx.terminals.watchLine(owner, created.sessionId, 'marker')).toBeUndefined()
+    expect(() => ctx.terminals.watchLine(foreign, created.sessionId, 'marker')).toThrow('belongs to another agent')
     expect(() => ctx.terminals.read(foreign, created.sessionId)).toThrow('belongs to another agent')
     expect(() => ctx.terminals.signal(foreign, created.sessionId, 'SIGINT')).toThrow('belongs to another agent')
     await expect(Promise.resolve().then(() => ctx.terminals.kill(foreign, created.sessionId))).rejects.toThrow('belongs to another agent')
