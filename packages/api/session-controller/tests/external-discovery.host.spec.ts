@@ -42,6 +42,18 @@ it('keeps completed records when a live transcript has an unfinished final write
   expect(catalog.items[0]?.messageCount).toBe(1)
 })
 
+it('reads records when a multibyte character crosses a stream chunk boundary', async () => {
+  const { claude, chats } = await fixture()
+  const prefix = '{"type":"user","message":{"role":"user","content":"'
+  const content = `${'x'.repeat(65535 - prefix.length)}é`
+  const record = `${prefix}${content}"}}`
+  await writeFile(join(claude, 'project', 'chunks.jsonl'), `${record}\n${prompt}`)
+  const catalog = await chats.discover()
+  expect((await chats.read(catalog.items[0]!.key)).messages).toEqual([
+    { role: 'user', text: content }, { role: 'user', text: 'An active Claude chat' },
+  ])
+})
+
 it('preserves source activity independently of when a copy is imported', async () => {
   const { claude, chats } = await fixture()
   const file = join(claude, 'project', 'old.jsonl')
