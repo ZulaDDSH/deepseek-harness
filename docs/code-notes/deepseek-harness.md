@@ -1077,3 +1077,5 @@ The runtime type declaration override resolves distinct Office rendering generat
 `packages/mcp/mcp-client/src/connection.ts:startConnection` reports a rejected static credential immediately, closes the affected generation, and follows the configured reconnect policy only after cleanup. OAuth rejections instead wait for a new grant. Stale generations cannot change the current status.
 
 `packages/mcp/mcp-client/src/types.ts:McpConnectionStatus` uses `authentication-rejected` while a rejected static credential's generation is closing. `reconnect-disabled` and `gave-up` mean automatic attempts have stopped; `unclosed-generation` prevents replacement after incomplete cleanup.
+
+`packages/mcp/mcp-client/src/oauth.ts:grantAuthProvider` preserves token-refresh transport and server failures when the SDK falls back to interactive authorization. OAuth discovery, issuer and resource validation remain in the SDK, and invalid grants still require sign-in. The refresh observer recognizes the URLSearchParams request format used by SDK 2.2.0; revisit it when upgrading that SDK.

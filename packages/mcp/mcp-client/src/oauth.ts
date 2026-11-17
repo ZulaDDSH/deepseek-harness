@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import {
-  auth, extractWWWAuthenticateParams, InsufficientScopeError, OAuthError, SdkErrorCode, SdkHttpError, UnauthorizedError,
+  auth, extractWWWAuthenticateParams, InsufficientScopeError, OAuthError, parseErrorResponse, SdkErrorCode, SdkHttpError, UnauthorizedError,
   type AuthProvider, type OAuthClientMetadata, type OAuthClientProvider,
   type StoredOAuthClientInformation, type StoredOAuthTokens,
 } from '@modelcontextprotocol/client'
@@ -173,12 +173,31 @@ export function grantAuthProvider(serverName: string, store: GrantStore): SignIn
         throw new AuthRequiredError(serverName)
       }
       const { resourceMetadataUrl } = extractWWWAuthenticateParams(response)
+      let refreshOutcome: { response: Response } | { error: unknown } | undefined
+      const observingFetch: typeof fetch = async (input, init) => {
+        const refreshing = init?.method?.toUpperCase() === 'POST'
+          && init.body instanceof URLSearchParams && init.body.get('grant_type') === 'refresh_token'
+        try {
+          const result = await (fetchFn ?? fetch)(input, init)
+          if (refreshing) refreshOutcome = { response: result.clone() }
+          return result
+        } catch (error) {
+          if (refreshing) refreshOutcome = { error }
+          throw error
+        }
+      }
       try {
-        await auth(provider, { serverUrl, fetchFn, ...resourceMetadataUrl === undefined ? {} : { resourceMetadataUrl } })
+        await auth(provider, { serverUrl, fetchFn: observingFetch, ...resourceMetadataUrl === undefined ? {} : { resourceMetadataUrl } })
       } catch (error) {
-        throw error instanceof OAuthError && error.code === 'invalid_grant'
-          ? new AuthRequiredError(serverName)
-          : error
+        if (error instanceof OAuthError && error.code === 'invalid_grant') throw new AuthRequiredError(serverName)
+        if (error instanceof AuthRequiredError && refreshOutcome !== undefined) {
+          if ('error' in refreshOutcome) throw refreshOutcome.error
+          const refreshResponse = refreshOutcome.response
+          if (refreshResponse.ok || (await parseErrorResponse(refreshResponse)).code === 'server_error') {
+            throw new Error(`MCP token refresh failed (status ${refreshResponse.status})`)
+          }
+        }
+        throw error
       }
     },
   }

@@ -186,7 +186,22 @@ describe('MCP OAuth sign-in', () => {
     await vi.waitFor(() => { expect(report(ctx).state).toBe('connected') })
     fixture.dropAuthorizationServer()
     fixture.expire()
-    expect((await ping(ctx)).isError).toBe(true)
+    const refused = await ping(ctx)
+    expect(refused.isError).toBe(true)
+    expect(JSON.stringify(refused)).not.toContain('requires sign-in')
+    expect(report(ctx).state).toBe('connected')
+  })
+
+  it('does not require sign-in when the refresh request loses its connection', async () => {
+    const fixture = await startFixture()
+    const ctx = await mount(configFor(fixture.url))
+    await signIn(ctx, approve)
+    await vi.waitFor(() => { expect(report(ctx).state).toBe('connected') })
+    fixture.dropRefresh()
+    fixture.expire()
+    const refused = await ping(ctx)
+    expect(refused.isError).toBe(true)
+    expect(JSON.stringify(refused)).not.toContain('requires sign-in')
     expect(report(ctx).state).toBe('connected')
   })
 
