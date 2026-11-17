@@ -1364,7 +1364,7 @@ it('pins an unlisted selection as a disabled checked row under the current sessi
   expect(screen.getByRole('menuitemradio', { name: 'DeepSeek-V4-Flash' }).getAttribute('aria-checked')).toBe('false')
 })
 
-it('keeps normal model and effort selection available when a setup record exists', () => {
+it('keeps normal model and effort selection available when a setup record exists', async () => {
   const groups = modelGroups(2).map(group => ({
     ...group,
     models: group.models.map(model => model.id === 'model-2' ? { ...model, reasoning } : model),
@@ -1384,7 +1384,9 @@ it('keeps normal model and effort selection available when a setup record exists
   expect(model.hasAttribute('disabled')).toBe(false)
   fireEvent.click(model)
   expect(select).toHaveBeenCalledOnce()
-  fireEvent.click(screen.getByRole('button', { name: /选择模型，当前/ }))
+  const trigger = screen.getByRole('button', { name: /选择模型，当前/ })
+  await waitFor(() => { expect(trigger.getAttribute('aria-expanded')).toBe('false') })
+  fireEvent.click(trigger)
   fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
   expect(screen.getByRole('menuitemradio', { name: 'High' }).hasAttribute('disabled')).toBe(false)
 })

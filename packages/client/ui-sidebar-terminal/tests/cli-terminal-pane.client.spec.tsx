@@ -114,5 +114,5 @@ it('confines PTY writes in the CLI pane and terminal screen to the input handler
   expect(pane).not.toMatch(/model\.write\(|\.resize\(/u)
   const writes = terminalSource.split('\n').filter(line => /model\.write\(/u.test(line))
   expect(writes).toHaveLength(1)
-  expect(terminalSource).toMatch(/xterm\.onData\([\s\S]*?model\.write\(data, typed\)/u)
+  expect(terminalSource).toMatch(/xterm\.onData\([\s\S]*?model\.write\(data, performance\.now\(\)/u)
 })
