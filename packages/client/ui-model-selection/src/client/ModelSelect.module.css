@@ -144,6 +144,10 @@
   width: min(240px, calc(100vw - 24px));
 }
 
+.rootMenu {
+  overflow-y: auto;
+}
+
 .status,
 .empty {
   padding: 8px;

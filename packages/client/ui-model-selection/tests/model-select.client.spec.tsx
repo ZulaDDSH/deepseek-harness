@@ -551,6 +551,44 @@ describe('ModelSelect reasoning effort', () => {
 })
 
 describe('ModelSelect favorites and provider filter', () => {
+  it('limits an unselected catalog until more models are requested', () => {
+    const groups = [...modelGroups(6), { id: 'other', name: 'Other provider', models: [{ id: 'other-model', name: 'Other model' }] }]
+    render(<ModelSelect renderSlot={renderLabel} locked={false} available
+      directory={createSnapshotStore(state({ groups, current: null }))} load={vi.fn()}
+      resolveText={resolveText} select={vi.fn()} t={t} />)
+    fireEvent.click(screen.getByRole('button', { name: '请选择模型' }))
+    expect(screen.getAllByRole('menuitemradio')).toHaveLength(5)
+    fireEvent.click(screen.getByRole('menuitem', { name: zh['models.showMore'] }))
+    expect(screen.getAllByRole('menuitemradio')).toHaveLength(7)
+    fireEvent.click(screen.getByRole('menuitem', { name: zh['models.showFewer'] }))
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Model 6' } })
+    expect(screen.getByRole('menuitemradio', { name: 'Model 6' })).toBeTruthy()
+  })
+
+  it('opens a provider directly and reveals its remaining models', () => {
+    const directory = createSnapshotStore(state({ groups: [
+      ...modelGroups(6),
+      { id: 'other', name: 'Other provider', models: [{ id: 'other-model', name: 'Other model' }] },
+    ] }))
+    render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={directory} load={vi.fn()}
+      resolveText={resolveText} select={vi.fn().mockResolvedValue({ ok: true, value: undefined })} t={t} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /选择模型/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'DeepSeek' }))
+    expect(screen.getAllByRole('menuitemradio')).toHaveLength(4)
+    expect(screen.queryByRole('menuitemradio', { name: 'Model 5' })).toBeNull()
+    fireEvent.keyDown(screen.getByRole('searchbox'), { key: 'ArrowUp' })
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: zh['models.showMore'] }))
+    fireEvent.click(screen.getByRole('menuitem', { name: zh['models.showMore'] }))
+    expect(screen.getAllByRole('menuitemradio')).toHaveLength(6)
+    fireEvent.click(screen.getByRole('menuitem', { name: zh['models.showFewer'] }))
+    expect(screen.getAllByRole('menuitemradio')).toHaveLength(4)
+    fireEvent.keyDown(screen.getByRole('searchbox'), { key: 'Escape' })
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'DeepSeek' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /^模型/ }))
+    expect(screen.getByRole('menuitemradio', { name: 'Other model' })).toBeTruthy()
+  })
+
   it('moves favorited models into a top section and keeps them listed there', () => {
     const groups = [{
       id: 'provider',
@@ -783,9 +821,10 @@ describe('ModelSelect keyboard walk', () => {
 
   it('a backward step from outside the list enters at the last row, and a closed menu leaves Tab native', () => {
     mountOpen()
-    const [modelRow, effortRow] = screen.getAllByRole('menuitem')
+    const rows = screen.getAllByRole('menuitem')
+    const modelRow = rows[0]
     expect(fireEvent.keyDown(modelRow!, { key: 'ArrowUp' })).toBe(false)
-    expect(document.activeElement).toBe(effortRow)
+    expect(document.activeElement).toBe(rows.at(-1))
     const trigger = screen.getByRole('button', { name: /选择模型/ })
     fireEvent.keyDown(trigger, { key: 'Escape' })
     expect(screen.queryByRole('menu')).toBeNull()
@@ -928,7 +967,7 @@ describe('ModelSelect catalog size', () => {
     fireEvent.click(trigger)
     if (count > 0) fireEvent.click(screen.getByRole('menuitem', { name: /^模型/ }))
     const rows = screen.queryAllByRole('menuitemradio')
-    expect(rows).toHaveLength(count)
+    expect(rows).toHaveLength(Math.min(count, 4))
     if (count > 4) {
       const search = screen.getByRole('searchbox')
       expect(search).toBeInstanceOf(HTMLInputElement)
@@ -950,7 +989,11 @@ describe('ModelSelect catalog size', () => {
     const trigger = screen.getByRole('button', { name: '请选择模型' })
     fireEvent.click(trigger)
     const rows = screen.queryAllByRole('menuitemradio')
-    expect(rows).toHaveLength(count)
+    expect(rows).toHaveLength(Math.min(count, 4))
+    if (count > 4) {
+      fireEvent.click(screen.getByRole('menuitem', { name: zh['models.showMore'] }))
+      expect(screen.getAllByRole('menuitemradio')).toHaveLength(count)
+    }
     expect(rows.every(row => row.getAttribute('aria-checked') === 'false')).toBe(true)
     expect(document.activeElement).toBe(count > 4 ? screen.getByRole('searchbox') : rows[0] ?? trigger)
     if (count <= 4) expect(screen.queryByRole('searchbox')).toBeNull()
@@ -980,7 +1023,7 @@ describe('ModelSelect catalog size', () => {
     const restored = screen.getByRole('searchbox')
     expect(restored.getAttribute('value')).toBe('')
     expect(document.activeElement).toBe(restored)
-    expect(screen.getAllByRole('menuitemradio')).toHaveLength(5)
+    expect(screen.getAllByRole('menuitemradio')).toHaveLength(4)
     expect(restored.getAttribute('aria-activedescendant'))
       .toBe(screen.getAllByRole('menuitemradio')[checked ? 2 : 0]!.id)
   })
@@ -1063,7 +1106,7 @@ describe('ModelSelect search', () => {
     fireEvent.click(trigger)
     expect(screen.getByRole('searchbox').getAttribute('value')).toBe('')
     expect(document.activeElement).toBe(screen.getByRole('searchbox'))
-    expect(screen.getAllByRole('menuitemradio')).toHaveLength(5)
+    expect(screen.getAllByRole('menuitemradio')).toHaveLength(4)
   })
 
   it('hides empty provider headings and announces an empty catalog', () => {

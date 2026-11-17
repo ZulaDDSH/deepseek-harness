@@ -124,6 +124,7 @@ describe('hooks-codex bridge', () => {
     })
     const ctx = new Context()
     contexts.push(ctx)
+    provideWorkingDirectoryFixture(ctx)
     await mountAgentLoopTestDependencies(ctx)
     await ctx.plugin(RecordingShell)
     await ctx.plugin(HooksCodex, { configPath: join(dir, 'hooks.json'), model: 'test-model', enabledHooks: [ALL_HOOKS] })
@@ -495,6 +496,7 @@ describe('hooks-codex bridge — sandbox policy', () => {
 
     const ctx = new Context()
     contexts.push(ctx)
+    provideWorkingDirectoryFixture(ctx)
     await mountAgentLoopTestDependencies(ctx)
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(SandboxPolicyService, { mode: 'workspace-write', workspaceRoot: dir })
