@@ -544,7 +544,7 @@
   justify-content: flex-end;
   gap: 6px;
   padding: 6px 8px 2px;
-  border-top: 1px solid var(--dsw-alias-border-l1);
+  border-top: 0.5px solid var(--dsw-alias-border-l1);
   color: var(--dsw-alias-label-tertiary);
   font-size: 11px;
 }

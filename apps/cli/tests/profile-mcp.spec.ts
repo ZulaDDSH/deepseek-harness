@@ -10,9 +10,10 @@ import { PROFILE_TEMPLATES } from '@deepseek-ai/dsh-official-bundles'
 
 const installAnchor = fileURLToPath(new URL('../package.json', import.meta.url))
 const resourcePackage = '@deepseek-ai/dsh-mcp-resources'
+const clientPackage = '@deepseek-ai/dsh-mcp-client'
 
 describe('shipped MCP resource composition', () => {
-  it.each(Object.keys(PROFILE_TEMPLATES))('%s carries one shared resource consumer without a server', (name) => {
+  it.each(Object.keys(PROFILE_TEMPLATES))('%s carries its shared resource consumer and bundled clients', (name) => {
     const home = mkdtempSync(join(tmpdir(), 'dsh-profile-mcp-'))
     try {
       const profile = loadProfile('dsh', name, installAnchor, home)
@@ -25,7 +26,8 @@ describe('shipped MCP resource composition', () => {
       expect(rows.filter(row => row.name === resourcePackage)).toEqual([
         { id: 'mcp-resources', name: resourcePackage },
       ])
-      expect(rows.filter(row => row.name === '@deepseek-ai/dsh-mcp-client')).toEqual([])
+      expect(rows.filter(row => row.name === clientPackage).map(({ id, name }) => ({ id, name })))
+        .toEqual(name === 'web' ? [{ id: 'memory-memorix', name: clientPackage }] : [])
       expect(warnings).toEqual([])
 
       const owners = profile.layers.filter((layer) => {

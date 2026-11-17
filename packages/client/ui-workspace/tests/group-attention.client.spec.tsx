@@ -4,7 +4,7 @@ import { renderMenuButton } from './menu-button.tsx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
+import type { WorkspaceId, WorkspaceSnapshot, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionPendingInteraction } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session-status/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -153,6 +153,11 @@ describe('WorkspaceBrowser folded subtree attention', () => {
       workspaceId: wid('child'), path: '/projects/parent/child', title: 'child', sessionIds: [sid('awaiting')],
       createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
     }
+    const sessionSnapshot = list(summary('awaiting', 1))
+    const workspaceSnapshot: WorkspaceSnapshot = {
+      items: [parent, child], archivedSessionIds: [], pinnedSessionIds: [],
+      state: 'idle', phase: 'ready', error: null,
+    }
     const store = createWorkspaceViewStore().create()
     store.actions.setGroupBy('workspace-tree')
     store.actions.setGroupExpanded('parent', false)
@@ -164,15 +169,12 @@ describe('WorkspaceBrowser folded subtree attention', () => {
       useSectionScroller: () => ({ bindScrollerRef: () => {} }),
       expandSidebar: vi.fn(),
       usePanelInfo: selector => selector({ activePanelId: null }),
-      useSessions: bindSnapshotSelector({ getSnapshot: () => list(summary('awaiting', 1)), subscribe: () => () => {} }),
+      useSessions: bindSnapshotSelector({ getSnapshot: () => sessionSnapshot, subscribe: () => () => {} }),
       useSessionStatus: selector => selector(statuses),
       useSessionRetainInfo: () => undefined,
       useResource,
       useWorkspaces: bindSnapshotSelector({
-        getSnapshot: () => ({
-          items: [parent, child], archivedSessionIds: [], pinnedSessionIds: [],
-          state: 'idle', phase: 'ready', error: null,
-        }),
+        getSnapshot: () => workspaceSnapshot,
         subscribe: () => () => {},
       }),
       useStore: bindSnapshotSelector(store),
