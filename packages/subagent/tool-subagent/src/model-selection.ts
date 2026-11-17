@@ -161,7 +161,7 @@ export function assertAllowedModelSelection(
   if (allowed) return
   throw new SubagentError(`child LLM route "${provider}/${model}" is not allowed for this Session`
     + (policy === undefined
-      ? '; without a recorded model-selection policy, explicit selection is limited to the parent route'
+      ? '; without a recorded model-selection policy, explicit selection (including reasoning_effort) is limited to the parent route'
       : ''), 'MODEL_ROUTE_NOT_ALLOWED')
 }
 
