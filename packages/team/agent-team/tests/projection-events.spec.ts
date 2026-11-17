@@ -577,7 +577,7 @@ describe('Agent Teams projection events', () => {
       }, SessionSeq(7)))
       expect(teamProjectionView(withMember)).not.toBe(teamProjectionView(withMail))
       expect(teamProjectionView(withMember)).toMatchObject({
-        historicalMembers: [{ id: 'child-b', name: 'worker-b' }],
+        historicalMembers: [{ id: CHILD, name: 'worker-a' }, { id: 'child-b', name: 'worker-b' }],
       })
       expect(teamProjectionView(withMember).tasks).toEqual(view.tasks)
       expect(withMember).not.toBe(state)
