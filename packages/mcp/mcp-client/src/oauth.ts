@@ -173,16 +173,16 @@ export function grantAuthProvider(serverName: string, store: GrantStore): SignIn
         throw new AuthRequiredError(serverName)
       }
       const { resourceMetadataUrl } = extractWWWAuthenticateParams(response)
-      let refreshOutcome: { response: Response } | { error: unknown } | undefined
+      const refreshOutcome: { value?: { response: Response } | { error: unknown } } = {}
       const observingFetch: typeof fetch = async (input, init) => {
         const refreshing = init?.method?.toUpperCase() === 'POST'
           && init.body instanceof URLSearchParams && init.body.get('grant_type') === 'refresh_token'
         try {
           const result = await (fetchFn ?? fetch)(input, init)
-          if (refreshing) refreshOutcome = { response: result.clone() }
+          if (refreshing) refreshOutcome.value = { response: result.clone() }
           return result
         } catch (error) {
-          if (refreshing) refreshOutcome = { error }
+          if (refreshing) refreshOutcome.value = { error }
           throw error
         }
       }
@@ -190,9 +190,9 @@ export function grantAuthProvider(serverName: string, store: GrantStore): SignIn
         await auth(provider, { serverUrl, fetchFn: observingFetch, ...resourceMetadataUrl === undefined ? {} : { resourceMetadataUrl } })
       } catch (error) {
         if (error instanceof OAuthError && error.code === 'invalid_grant') throw new AuthRequiredError(serverName)
-        if (error instanceof AuthRequiredError && refreshOutcome !== undefined) {
-          if ('error' in refreshOutcome) throw refreshOutcome.error
-          const refreshResponse = refreshOutcome.response
+        if (error instanceof AuthRequiredError && refreshOutcome.value !== undefined) {
+          if ('error' in refreshOutcome.value) throw refreshOutcome.value.error
+          const refreshResponse = refreshOutcome.value.response
           if (refreshResponse.ok || (await parseErrorResponse(refreshResponse)).code === 'server_error') {
             throw new Error(`MCP token refresh failed (status ${refreshResponse.status})`)
           }
