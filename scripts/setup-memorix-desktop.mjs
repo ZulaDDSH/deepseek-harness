@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { backupExistingDatabase } from '../packages/bundle/web-app/src/memorix-backup.mjs'
+import { backupExistingDatabase } from '../packages/bundle/web-app/src/memorix.ts'
 import { hasMemorixEntry, mergeMemorixPatch } from './setup-memorix-desktop-lib.mjs'
 
 const MEMORIX_VERSION = '1.9.10'

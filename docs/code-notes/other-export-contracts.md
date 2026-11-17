@@ -107,3 +107,10 @@
 - `params.error`: Thrown value from the module-loading attempt.
 - `params.moduleId`: Internal module identifier requested by the caller.
 - `returns`: True only when a recognized Node error identifies the requested module itself as unavailable; false for unrelated or transitive failures.
+### `packages/bundle/web-app/src/memorix.ts:BACKUP_SUFFIX`
+- `description`: Suffix for the one-time database backup before Memorix 1.9.10 can update existing data.
+
+### `packages/bundle/web-app/src/memorix.ts:backupExistingDatabase`
+- `description`: Keeps one copy of an existing Memorix database and its SQLite sidecars.
+- `params.dataDirectory`: Database directory, defaulting to MEMORIX_DATA_DIR or ~/.memorix/data.
+- `returns`: The backup path, or undefined when no copy is needed.
