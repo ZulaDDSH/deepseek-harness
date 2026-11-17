@@ -27,7 +27,8 @@ const { mockConnect, mockClose, mockListTools, MockClient } = vi.hoisted(() => {
   return { mockConnect, mockClose, mockListTools, MockClient }
 })
 
-vi.mock('@modelcontextprotocol/client', () => ({
+vi.mock('@modelcontextprotocol/client', async importOriginal => ({
+  ...await importOriginal<typeof import('@modelcontextprotocol/client')>(),
   Client: MockClient,
   StreamableHTTPClientTransport: vi.fn(),
 }))
