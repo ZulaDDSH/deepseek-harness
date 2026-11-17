@@ -392,7 +392,7 @@ describe('gate graph validation', () => {
     expect(ids).toEqual([
       'rescope-vendor', 'publint', 'constraints', 'default-product-isolation', 'product-use', 'official-bundle-catalog', 'provider-data', 'package-dependencies', 'application-entrypoints',
       'dsh-package-licenses', 'node-next-types',
-      'optional-dependency-imports', 'client-packages', 'installer-locales', 'locale-metadata', 'client-ui-i18n', 'client-route-resolution', 'no-bare-dispatcher',
+      'optional-dependency-imports', 'client-packages', 'client-ui-i18n', 'client-route-resolution', 'no-bare-dispatcher',
       'plugin-record-callers', 'no-unknown-casts', 'empty-catch', 'no-top-level-await', 'plugin-entry-exports',
       'cordis-config', 'runtime-closure',
     ])
@@ -1019,18 +1019,7 @@ describe('Node 24 lane ownership', () => {
     expect(subject.find(item => item.id === 'doc-typecheck')?.env).toEqual({
       DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1',
     })
-    expect(subject.find(item => item.id === 'built-bin-smoke')?.args).toEqual(
-      expect.arrayContaining([
-        'apps/cli/tests/profiles/headless/tests/source-tool.built.e2e.ts',
-        'apps/desktop/tests/acl-skill.built.e2e.ts',
-        'apps/desktop/tests/installed-docs-asar.built.e2e.ts',
-        'packages/subprocess/subprocess-local/tests/spawn-runner-built.e2e.ts',
-        'packages/subagent/subagent-codex/tests/loader-composition.e2e.ts',
-        'packages/subagent/subagent-claude-code/tests/loader-composition.e2e.ts',
-        'packages/team/agent-team/tests/built-lib.e2e.ts',
-        'packages/experimental/browser-use-stagehand-native/tests/built-attachment.e2e.ts',
-      ]),
-    )
+    expect(subject.map(item => item.id)).not.toContain('built-bin-smoke')
     expect(subject.find(item => item.id === 'web-snapshot')).toMatchObject({
       displayCommand: 'DSH_SNAPSHOT=replay pnpm run test:web:built',
       env: { DSH_SNAPSHOT: 'replay' },
@@ -1051,10 +1040,12 @@ describe('Node 24 lane ownership', () => {
     expect(smoke?.args).toEqual(expect.arrayContaining([
       'apps/cli/tests/profiles/headless/tests/source-tool.built.e2e.ts',
       'apps/desktop/tests/acl-skill.built.e2e.ts',
+      'apps/desktop/tests/installed-docs-asar.built.e2e.ts',
       'packages/subprocess/subprocess-local/tests/spawn-runner-built.e2e.ts',
       'packages/subagent/subagent-codex/tests/loader-composition.e2e.ts',
       'packages/subagent/subagent-claude-code/tests/loader-composition.e2e.ts',
       'packages/team/agent-team/tests/built-lib.e2e.ts',
+      'packages/experimental/browser-use-stagehand-native/tests/built-attachment.e2e.ts',
     ]))
   })
 })
