@@ -37,6 +37,15 @@ const SOURCE_LINK_POLICY: CordisCatalogPolicy = {
 }
 
 describe('Typert-backed Cordis catalog', () => {
+  it('uses code-note contracts when projecting undocumented class service methods', { timeout: 480_000 }, () => {
+    const anchor = 'packages/terminal/terminal/src/index.ts:TerminalSessionService.watchLine'
+    expect(CORDIS_CATALOG_POLICY.codeNotes?.get(anchor)).toContain('@param line - complete output line to observe.')
+    const watchLine = projection().model.services
+      .flatMap(service => service.methods)
+      .find(method => method.signature.startsWith('watchLine('))
+    expect(watchLine?.jsDoc).toContain('Watch an owned terminal for one complete output line')
+  })
+
   it('omits subsystem source lines while preserving inherited Cordis source lines', () => {
     const page = renderPageRegion('fixture.md', [{
       key: 'fixture',

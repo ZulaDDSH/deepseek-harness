@@ -27,6 +27,46 @@ interface Walk {
   text: string
   checker: ts.TypeChecker
   violations: string[]
+  codeNoteDocs: ReadonlyMap<string, string>
+  usedCodeNoteDocs: Set<string>
+}
+
+export function readCodeNoteApiDocs(scanRoot: string, violations: string[]): Map<string, string> {
+  const docs = new Map<string, string>()
+  for (const rel of globSync('docs/code-notes/*.md', { cwd: scanRoot }).sort()) {
+    const source = readFileSync(resolve(scanRoot, rel), 'utf8')
+    const blocks = [...source.matchAll(/^```api-doc[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*\r?$/gmu)]
+    if ((source.match(/^```api-doc(?:[ \t].*)?\r?$/gmu) ?? []).length !== blocks.length) {
+      violations.push(`${rel} has an unterminated api-doc block.`)
+    }
+    for (const block of blocks) {
+      const lines = (block[1] ?? '').split(/\r?\n/u)
+      const key = lines.shift()?.trim() ?? ''
+      const [file, symbol, ...extra] = key.split(':')
+      if (extra.length > 0 || !file?.startsWith('packages/') || !file.includes('/src/')
+        || !/\.tsx?$/u.test(file) || file.split('/').includes('..')
+        || !symbol || !/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/u.test(symbol)) {
+        violations.push(`${rel} has an api-doc block with an invalid source anchor.`)
+        continue
+      }
+      if (docs.has(key)) {
+        violations.push(`${rel} defines the api-doc anchor '${key}' more than once.`)
+        continue
+      }
+      const body = lines.join('\n').trim()
+      docs.set(key, `/**\n${body.split('\n').map(line => ` * ${line}`).join('\n')}\n */`)
+    }
+  }
+  return docs
+}
+
+function exportJsDoc(w: Walk, name: string, node: ts.Node): string {
+  const source = rawJsDoc(w.text, node)
+  if (source) return source
+  const key = `${w.rel}:${name}`
+  const codeNote = w.codeNoteDocs.get(key)
+  if (codeNote !== undefined) w.usedCodeNoteDocs.add(key)
+  return codeNote ?? ''
 }
 
 function isExported(stmt: ts.Statement): boolean {
@@ -240,7 +280,7 @@ function checkClass(cls: ts.ClassDeclaration, name: string, w: Walk): void {
         }
         continue
       }
-      checkFunctionLike(where, rawJsDoc(w.text, m), m.parameters, m.type, false, w)
+      checkFunctionLike(where, exportJsDoc(w, `${name}.${mname}`, m), m.parameters, m.type, false, w)
     } else if (exemption !== null) {
       continue // the heritage declaration owns the doc (properties/accessors carry no own parameters)
     } else if (ts.isGetAccessorDeclaration(m) || ts.isPropertyDeclaration(m)) {
@@ -566,6 +606,8 @@ function loadCompilerOptions(scanRoot: string): ts.CompilerOptions {
  */
 export function collectExportJsdocViolations(scanRoot: string = root): string[] {
   const violations: string[] = []
+  const codeNoteDocs = readCodeNoteApiDocs(scanRoot, violations)
+  const usedCodeNoteDocs = new Set<string>()
   const rels = globSync('packages/*/*/src/**/*.ts', { cwd: scanRoot })
     .map(path => path.split(sep).join('/'))
     .sort()
@@ -582,10 +624,13 @@ export function collectExportJsdocViolations(scanRoot: string = root): string[] 
     checkScope(
       sf.statements,
       '',
-      { rel, sf, text: sf.text, checker, violations },
+      { rel, sf, text: sf.text, checker, violations, codeNoteDocs, usedCodeNoteDocs },
       sf.isDeclarationFile && !ts.isExternalModule(sf),
       allowedNames,
     )
+  }
+  for (const key of codeNoteDocs.keys()) {
+    if (!usedCodeNoteDocs.has(key)) violations.push(`code-notes API doc '${key}' does not match an undocumented exported declaration.`)
   }
   return violations
 }
