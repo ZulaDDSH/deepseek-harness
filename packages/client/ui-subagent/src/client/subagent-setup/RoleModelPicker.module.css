@@ -49,21 +49,25 @@
 }
 
 .popover {
-  position: absolute;
   z-index: 20;
   top: calc(100% + 4px);
   left: 0;
+  width: max-content;
+  max-width: min(420px, 90vw);
+  padding: 6px;
+  border: 0;
+  --dsw-elevation-stroke-color: var(--dsw-alias-border-l1);
+  box-shadow: var(--dsw-elevation-prominent);
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+.root > .popover {
+  position: absolute;
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-width: 100%;
-  width: max-content;
-  max-width: min(420px, 90vw);
-  padding: 6px;
-  border: 0.5px solid var(--dsw-alias-border-l4);
-  border-radius: var(--dsw-radius-lg);
-  background: var(--dsw-alias-bg-layer-2);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.28);
 }
 
 .search {
