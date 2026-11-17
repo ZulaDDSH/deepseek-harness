@@ -115,11 +115,6 @@
 - `params.dataDirectory`: Database directory, defaulting to MEMORIX_DATA_DIR or ~/.memorix/data.
 - `returns`: The backup path, or undefined when no copy is needed.
 
-### `packages/terminal/terminal/src/types.ts:TerminalBackendSession.watchLine`
-- `description`: Watches sanitized terminal output for an exact complete line before output retention can discard it.
-- `params.line`: Complete output line to observe.
-- `returns`: A handle to query the observation and remove the watch.
-
 ### `packages/terminal/terminal-bash/src/session.ts:LocalPtySession.watchLine`
 - `description`: Watches the sanitized output stream for an exact complete line.
 - `params.line`: Complete output line to observe.

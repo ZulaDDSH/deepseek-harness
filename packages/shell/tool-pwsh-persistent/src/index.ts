@@ -312,6 +312,7 @@ async function executeCommand(
   let fallbackTruncated = false
   const watch = ctx.terminals.watchLine(owner, id, marker.start)
   using watchCleanup = { [Symbol.dispose]: () => { watch?.dispose() } }
+  void watchCleanup
 
   while (true) {
     // The shell may flip to exited between iterations (a fast `exit` can
