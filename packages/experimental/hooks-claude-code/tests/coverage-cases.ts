@@ -251,7 +251,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
         inject: (input: { content: Array<{ type: string; text?: string }> }) => {
           injected.push(input.content.map(block => block.text ?? '').join(''))
         },
-        session: { id: SessionId('child-x'), header: { id: 'child-x' } },
+        session: ctx.sessions.create(SessionId('child-x')),
       } as unknown as Parameters<typeof ctx.agents.register>[0]
       await ctx.agents.register(child)
       ctx.emit(subagentCarrier(ctx), 'subagent/start', { runId: SubagentRunId('run-x'), provider: 'p', id: SessionId('child-x'), local: true })
@@ -268,7 +268,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const path = hooks(d, { SubagentStart: [{ hooks: [{ type: 'command', command: s }] }] })
       const ctx = await harness(path, new MockAdapter([]))
       const warn = vi.fn(); ctx.logger.warn = warn as never
-      const child = { id: SessionId('child-y'), inject: () => { throw new Error('inject boom') }, session: { id: SessionId('child-y'), header: { id: 'child-y' } } } as unknown as Parameters<typeof ctx.agents.register>[0]
+      const child = { id: SessionId('child-y'), inject: () => { throw new Error('inject boom') }, session: ctx.sessions.create(SessionId('child-y')) } as unknown as Parameters<typeof ctx.agents.register>[0]
       await ctx.agents.register(child)
       ctx.emit(subagentCarrier(ctx), 'subagent/start', { runId: SubagentRunId('run-y'), provider: 'p', id: SessionId('child-y'), local: true })
       await waitFor(() => warn.mock.calls.some(c => String(c[0]).includes('SubagentStart hook failed')))
