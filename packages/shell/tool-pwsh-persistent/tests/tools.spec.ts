@@ -124,6 +124,7 @@ class StubTerminalSession implements TerminalBackendSession {
   closed: string[] = []
   mode: StubMode
   sends = 0
+  readonly requests: TerminalSendRequest[] = []
   pendingText = ''
   historyTruncated = false
   throwOnSend = false
@@ -154,6 +155,7 @@ class StubTerminalSession implements TerminalBackendSession {
 
   startSend(request: TerminalSendRequest): TerminalSendOperation {
     this.sends += 1
+    this.requests.push(request)
     if (this.mode === 'send-error') throw new Error('stub send failed')
     if (this.throwOnSend) throw new Error('PTY session has exited')
     if (this.mode === 'wait-for-abort' || this.mode === 'end-on-abort') {
@@ -389,6 +391,8 @@ describe('tool-pwsh-persistent', () => {
       .toEqual({ card: 'terminal', title: 'pwd' })
 
     expect(text(await call(ctx, owner, 'Write-Output one'))).toBe('hello from stub')
+    const firstRequest = stub.sessions[0]?.requests[0]
+    expect(firstRequest?.readinessAfterLine).toBe(START_PATTERN.exec(firstRequest?.text ?? '')?.[0])
     expect(text(await call(ctx, owner, 'Write-Output two'))).toBe('hello from stub')
     expect(stub.sessions).toHaveLength(1)
     expect(stub.sessions[0]?.sends).toBe(2)

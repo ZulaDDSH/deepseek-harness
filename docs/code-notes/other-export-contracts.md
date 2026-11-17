@@ -126,3 +126,6 @@
 - `params.id`: Owned terminal identity.
 - `params.line`: Complete output line to observe.
 - `returns`: A watch handle, or undefined when the backend does not support watching.
+
+### `packages/terminal/terminal-bash/src/sanitize.ts:TerminalSanitizer.resetPromptTracking`
+- `description`: Discards a prompt-tail candidate observed before the active send's readiness boundary.

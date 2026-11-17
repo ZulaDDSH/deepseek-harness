@@ -1083,7 +1083,7 @@ The runtime type declaration override resolves distinct Office rendering generat
 `packages/mcp/mcp-client/src/index.ts:apply` exposes an OAuth sign-in request as an actionable state without an error message. `packages/mcp/mcp-client/src/connection.ts:startConnection` clears that pending state when a template credential becomes missing, so its diagnostic remains visible.
 # Persistent PowerShell prompt attribution
 
-`packages/shell/tool-pwsh-persistent/src/index.ts:executeCommand`: A prompt from an earlier command can arrive after the next send begins. On backends supporting line watches, an incomplete stdin-read result is returned only after the current command's emitted start marker has appeared on its own line; an echoed wrapper does not establish that the command started.
+`packages/shell/tool-pwsh-persistent/src/index.ts:executeCommand`, `packages/terminal/terminal/src/types.ts:TerminalSendRequest`, and `packages/terminal/terminal-bash/src/session.ts:LocalPtySession`: A prompt from an earlier command can arrive after the next send begins. The first wrapped send asks the backend to hold readiness until the current command's emitted start marker appears on its own line. The marker clears prompt and stdin-wait evidence from before command start; a foreground inspection spanning that marker is discarded and sampled again. Backends without the optional gate retain the tool's outer line-watch fallback.
 
 ### `packages/terminal/terminal/src/index.ts:TerminalSessionService.watchLine`
 - `description`: Watches an owned terminal for a complete output line when its backend supports it.
