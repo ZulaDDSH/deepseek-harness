@@ -294,15 +294,15 @@ export class CordisCatalogProjector {
       for (const memberId of service.members) {
         const member = this.renderer.member(memberId)
         if (member.name.startsWith('[')) continue
-        const jsDoc = member.jsDoc || this.policy.codeNotes?.get(`${member.location.file}:${declaration.name}.${member.name}`) || ''
-        const parsed = parseJsDoc(jsDoc)
-        if (parsed.deprecated) continue
         if (member.kind === 'property') {
-          if (jsDoc === '') continue
-          methods.push({ kind: 'property', signature: member.text, jsDoc })
+          if (member.jsDoc === undefined || parseJsDoc(member.jsDoc).deprecated) continue
+          methods.push({ kind: 'property', signature: member.text, jsDoc: member.jsDoc })
           continue
         }
         if (member.kind !== 'method') continue
+        const jsDoc = member.jsDoc || this.policy.codeNotes?.get(`${member.location.file}:${declaration.name}.${member.name}`) || ''
+        const parsed = parseJsDoc(jsDoc)
+        if (parsed.deprecated) continue
         const where = `service method ctx.${service.key}.${member.name} (${pointer(member.location)})`
         if (this.face.face === 'host') {
           checkTypeLinks(where, signatureTypeNames(this.renderer, member.signature), this.policy, typeLinkViolations)
