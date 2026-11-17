@@ -1063,3 +1063,5 @@ The configuration catalog fills missing field descriptions from anchored code no
 The runtime type declaration override resolves distinct Office rendering generation brands in the shared catalog while identical declarations are deduplicated.
 
 `apps/web/tests/scaffold.ts`: Type-only imports provide the Host Context service types used by the test scaffold.
+
+`scripts/plugin-preview-assets.spec.ts`: English plugin previews must remain self-contained 640 by 300 SVGs within the per-file size limit.

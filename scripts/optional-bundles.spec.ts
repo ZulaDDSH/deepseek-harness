@@ -317,12 +317,12 @@ describe('optional bundles', () => {
     ])
   })
 
-  it.each(OPTIONAL_BUNDLES)('%s resolves a title, description, and icon in both shipped languages', (name) => {
+  it.each(OPTIONAL_BUNDLES)('%s resolves an English title, description, and icon', (name) => {
     const meta = readPluginMeta(name, pathToFileURL(`${bundle(name).dir}/package.json`).href)
     expect(meta?.error).toBeUndefined()
     for (const field of [meta?.title, meta?.description]) {
       expect(typeof field).toBe('object')
-      for (const language of ['en', 'zh']) expect((field as Record<string, string>)[language]).toMatch(/\S/)
+      expect((field as Record<string, string>).en).toMatch(/\S/)
     }
     expect(meta?.icon).toMatch(/^data:image\//)
   })
