@@ -201,6 +201,7 @@ describe('hooks-claude-code bridge — PreToolUse', () => {
     writeFileSync(join(dir, 'hooks.json'), JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'danger', hooks: [{ type: 'command', command: deny }] }] } }))
 
     const ctx = new Context()
+    provideWorkingDirectoryFixture(ctx)
     await mountAgentLoopTestDependencies(ctx)
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(LocalSubprocessRuntime)
@@ -669,6 +670,7 @@ describe('hooks-claude-code bridge — sandbox policy', () => {
     const dir = writeConfig({ UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'policy-probe' }] }] })
 
     const ctx = new Context()
+    provideWorkingDirectoryFixture(ctx)
     await mountAgentLoopTestDependencies(ctx)
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(SandboxPolicyService, { mode: 'workspace-write', workspaceRoot: dir })
