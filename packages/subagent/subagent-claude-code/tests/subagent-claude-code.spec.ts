@@ -687,6 +687,7 @@ describe('task admission and package contracts', () => {
       id: 'parent-with-run-options',
       options: {},
       session: {
+        ...fakeParent.session,
         id: 'parent-with-run-options',
         header: { cwd: process.cwd() },
         requestHeader: () => ({ config: { provider: 'p', model: 'claude-opus-5-5', reasoningEffort: 'high' } }),
@@ -751,7 +752,7 @@ describe('task admission and package contracts', () => {
       return {
         id,
         options: {},
-        session: { id, header: { cwd: process.cwd() }, requestHeader: () => ({ config: { provider: 'p', model } }) },
+        session: { ...fakeParent.session, id, header: { cwd: process.cwd() }, requestHeader: () => ({ config: { provider: 'p', model } }) },
       } as Agent
     }
     const stale = await startAs(ctx, 'claude-code', { ...request(), parent: parentOn('deepseek-v4-pro') })
