@@ -1371,12 +1371,12 @@ it('keeps normal model and effort selection available when a setup record exists
     } } } },
   } as SessionRunOptionsProjection)
   const select = vi.fn(async (_selection: ModelSelection) => ({ ok: true as const, value: undefined }))
-  render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={createSnapshotStore(state())}
+  render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={createSnapshotStore(state({ groups: modelGroups(2) }))}
     load={vi.fn()} resolveText={resolveText} select={select} t={t}
     useProjection={projectionHook(runOptions)} setRunOptions={vi.fn()} />)
   fireEvent.click(screen.getByRole('button', { name: /选择模型，当前/ }))
   fireEvent.click(screen.getByRole('menuitem', { name: /^模型/ }))
-  const model = screen.getByRole('menuitemradio', { name: 'DeepSeek-V4-Flash' })
+  const model = screen.getByRole('menuitemradio', { name: 'Model 2' })
   expect(model.hasAttribute('disabled')).toBe(false)
   fireEvent.click(model)
   expect(select).toHaveBeenCalledOnce()

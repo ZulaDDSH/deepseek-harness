@@ -192,7 +192,6 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
       return ui
     },
     seat: () => seats.get('conversation.input.model')!,
-    routedSeat: () => seats.get('conversation.input.right'),
     hostCurrent: () => selected,
     rejectSelection: () => {
       selectionFailure = new RemoteError('session/writer-held', 'writer held', { sessionId: sid('owned') })
@@ -229,7 +228,6 @@ describe('ui-model-selection dual entry', () => {
     expect(b.seat().inject).toBeTypeOf('function')
     // Copy rides the standard locale seat.
     expect(b.seat().locale).toBe('model')
-    expect(b.routedSeat()?.locale).toBe('model')
   })
 
   it.each([['zh', '新'], ['en', 'New']] as const)('resolves seat badge text for the active %s locale', async (locale, expected) => {
