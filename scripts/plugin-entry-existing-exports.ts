@@ -10,11 +10,11 @@ export const EXISTING_PLUGIN_ENTRY_EXPORTS = {
   '@deepseek-ai/dsh-acp-app': ['ACP_APP_STARTUP_SERVICE'],
   '@deepseek-ai/dsh-action-cards': ['Config', 'isPluginStopping'],
   '@deepseek-ai/dsh-agent': [
-    'AgentModel', 'agentCarrier', 'agentEvents', 'assembleContextFor', 'emitAgentEvent', 'foldConsumedWork',
+    'AgentModel', 'agentCarrier', 'agentEvents', 'assembleContextFor', 'cliTerminalProfileOf', 'emitAgentEvent', 'foldConsumedWork',
     'installModelSelection', 'modelSelectionProjectionDefinition',
   ],
   '@deepseek-ai/dsh-agent-instructions': [
-    'discoverBaselineInstructionFiles', 'loadBaselineInstructions', 'renderAgentInstructions',
+    'discoverBaselineInstructionFiles', 'END_OF_TURN_RULE', 'loadBaselineInstructions', 'renderAgentInstructions',
   ],
   '@deepseek-ai/dsh-agent-loop': ['CONFIGURED_AGENT_IDENTITIES_KEY', 'DEFAULT_MAX_PARALLEL_TOOL_CALLS'],
   '@deepseek-ai/dsh-agent-preset-registry': [
@@ -23,6 +23,8 @@ export const EXISTING_PLUGIN_ENTRY_EXPORTS = {
   '@deepseek-ai/dsh-agent-team': ['TeamId', 'TeamMessageId', 'TeamTaskId'],
   '@deepseek-ai/dsh-api-remote-access': ['REMOTE_ACCESS_SNAPSHOT_KEY'],
   '@deepseek-ai/dsh-api-remotes': ['API_REMOTE_FORWARDED_EVENTS'],
+  '@deepseek-ai/dsh-api-quota-controller': ['createQuotaProviderRegistry'],
+  '@deepseek-ai/dsh-api-session-controller': ['effectiveSubagentSetupOf'],
   '@deepseek-ai/dsh-attachment-local': [
     'DEFAULT_IMAGE_COMPRESSION_CONCURRENCY', 'DEFAULT_MAX_IMAGES_PER_MESSAGE', 'DEFAULT_MAX_IMAGE_BYTES',
     'DEFAULT_MAX_IMAGE_DIMENSION', 'DEFAULT_MAX_IMAGE_PIXELS', 'DEFAULT_MAX_MESSAGE_IMAGE_BYTES',
@@ -85,6 +87,13 @@ export const EXISTING_PLUGIN_ENTRY_EXPORTS = {
     'bindUrlHost', 'isLoopbackHost', 'isWildcardHost', 'normalizeBindAddress', 'renderIndexInjections',
   ],
   '@deepseek-ai/dsh-jobs-local': ['TASK_WAIT_TIMEOUT'],
+  '@deepseek-ai/dsh-knowledge-router': [
+    'assertSupervisor', 'isWorker', 'PROVIDER_NAMES', 'PROVIDER_SPECS', 'providerStatuses', 'registeredToolName',
+    'serverToolNames', 'assemblePacket', 'byteLength', 'extractLessonSignals', 'freshnessFor', 'renderPacket',
+    'routeTask', 'memorixInventory', 'memorixObservations', 'memorixPage', 'memorixRecent', 'memorixStoredChunk',
+    'assertWritable', 'explainLesson', 'firstNodeLabel', 'parseLessonState', 'recordLearning', 'gitnexusFreshness',
+    'parseStaleness', 'resolveConfig',
+  ],
   '@deepseek-ai/dsh-llm': [
     'ACCOUNT_QUOTA_EXCEEDED_CODE', 'APP_IDENTITY', 'AssistantStreamAccumulator', 'BlockAssembler',
     'CONTEXT_SUMMARY_MAX_CHARS', 'CONTEXT_WINDOW_EXCEEDED_CODE', 'EMPTY_RESPONSE_CODE', 'IMAGE_OFFLOAD_REQUIRED_CODE',
@@ -92,14 +101,14 @@ export const EXISTING_PLUGIN_ENTRY_EXPORTS = {
     'QUOTA_EXCEEDED_CODE', 'RETRY_CODE_CHOICES', 'ReasoningEffortId', 'RetryPolicySchema', 'ToolCallId',
     'assembleAssistantStream', 'assertUsableApiKey', 'assistantStreamChunks', 'assistantStreamFirstTokenTime',
     'assistantStreamHasVisibleContent', 'assistantStreamHasVisibleText', 'attributionHeaders', 'boundContextSummary',
-    'callConfigEquals', 'chunkHasVisibleText', 'contentHasFile', 'contentHasImage', 'createAssistantMessage',
+    'callConfigEquals', 'chunkHasVisibleText', 'claudeCliUltracodeSupported', 'contentHasFile', 'contentHasImage', 'createAssistantMessage',
     'createDeveloperMessage', 'createMessage', 'createSystemMessage', 'createToolResultMessage', 'createUserMessage',
     'errorChain', 'expandAssistantStream', 'fileHandleText', 'freezeMessage', 'isAgentLoopRequest',
     'isContextWindowExceededError', 'isHarnessError', 'isQuotaExceededError', 'isTokenDelta', 'isVisibleChunk',
     'joinAssistantStreamText', 'lastAssistantStreamChunk', 'markAgentLoopRequest', 'normalizeApiKey',
     'offloadedImageText', 'projectFilesToText', 'projectImagesForTextModel', 'projectOffloadedImages',
-    'projectToolUpdates', 'requestImageHandleText', 'requiredImageOffload', 'resolveImageAttachmentAccess',
-    'resolveRetryPolicy', 'runFirstTokenTime', 'runFirstVisibleTime', 'textOnlyImageText', 'userAgent',
+    'projectToolUpdates', 'providerUsageLimitOf', 'requestImageHandleText', 'requiredImageOffload', 'resolveImageAttachmentAccess',
+    'resolveRetryPolicy', 'runFirstTokenTime', 'runFirstVisibleTime', 'textOnlyImageText', 'ultracodeSupported', 'userAgent',
   ],
   '@deepseek-ai/dsh-llm-deepseek-account': ['plainAccountOptions', 'resolveAccountOptions'],
   '@deepseek-ai/dsh-llm-deepseek-api-key': ['plainOptions', 'resolveAdapterOptions'],
@@ -115,12 +124,15 @@ export const EXISTING_PLUGIN_ENTRY_EXPORTS = {
     'probeServer', 'resolveReconnectPolicy',
   ],
   '@deepseek-ai/dsh-office-kit': ['Config', 'OfficeKitGeneration', 'OfficeKitKey', 'OfficeSourceKey'],
+  '@deepseek-ai/dsh-office-to-pdf': [
+    'Config', 'OfficeSourceKey', 'OfficeToPdfGeneration', 'OfficeToPdfKey',
+  ],
   '@deepseek-ai/dsh-permission-presets': ['AUTO_PRESET', 'CUSTOM_PRESET'],
   '@deepseek-ai/dsh-persona': ['PERSONA_PREFIX_SECTION', 'PERSONA_SUFFIX_SECTION'],
   '@deepseek-ai/dsh-plan-mode': ['EXIT_PLAN_MODE', 'planProjectionDefinition', 'resolveConfig'],
   '@deepseek-ai/dsh-plugin-manager': ['classifyInstallFailure', 'parseInstallSpec', 'pinnedGitOrigin'],
   '@deepseek-ai/dsh-pwsh-local': [
-    'ENCODING_PREAMBLE', 'ENV_OVERRIDES', 'assertServiceablePwshConfig', 'candidatePwshPaths', 'resolvePwshPath',
+    'ENCODING_PREAMBLE', 'ENV_OVERRIDES', 'EXIT_STATUS_EPILOGUE', 'assertServiceablePwshConfig', 'candidatePwshPaths', 'resolvePwshPath',
   ],
   '@deepseek-ai/dsh-sandbox-policy': ['SANDBOX_MODES', 'setSandboxMode'],
   '@deepseek-ai/dsh-schedule': [
@@ -135,11 +147,11 @@ export const EXISTING_PLUGIN_ENTRY_EXPORTS = {
   '@deepseek-ai/dsh-sdk-app': ['SDK_APP_STARTUP_SERVICE'],
   '@deepseek-ai/dsh-sdk-jsonrpc-server': ['HarnessSdkJsonRpcServer'],
   '@deepseek-ai/dsh-session': [
-    'KNOWN_SESSION_EVENT_TYPES', 'SESSION_FORMAT_VERSION', 'Session', 'SessionId', 'SessionLogOffset',
+    'CLI_TERMINAL_PROFILE_IDS', 'KNOWN_SESSION_EVENT_TYPES', 'SESSION_FORMAT_VERSION', 'Session', 'SessionId', 'SessionLogOffset',
     'SessionPreparation', 'SessionSeq', 'TOOL_NOT_STARTED', 'TOOL_OUTCOME_UNKNOWN', 'ToolCallRecovery',
     'adoptSessionEvent', 'appendPluginRecord', 'buildForkSeed', 'canonicalHeader', 'decodeSeqRanges',
     'deriveEventMessage', 'encodeSeqRanges', 'foldRequestHeader', 'foldSurface', 'headerEquals',
-    'interruptedTurnClosers', 'isAppendSurfaceEvent', 'isReplacementSurfaceEvent', 'isSurfaceEligibleType',
+    'interruptedTurnClosers', 'isAppendSurfaceEvent', 'isCliTerminalProfileId', 'isReplacementSurfaceEvent', 'isSurfaceEligibleType',
     'isSurfaceEvent', 'pluginRecordOf', 'snapshotSessionEvent',
   ],
   '@deepseek-ai/dsh-session-log-deepseek': ['acceptedThrough'],
@@ -173,6 +185,7 @@ export const EXISTING_PLUGIN_ENTRY_EXPORTS = {
     'BUNDLED_SKILL_RANK', 'escapeText', 'isModelInvocable', 'isSkillName', 'isUserInvocable', 'renderSkillContent',
   ],
   '@deepseek-ai/dsh-skill-filesystem': ['FileSystemSkillProvider'],
+  '@deepseek-ai/dsh-skill-gsd': ['SKILL_NAMES'],
   '@deepseek-ai/dsh-spill-local': [
     'DEFAULT_ROOT_PREFIX', 'discoverDefaultRoots', 'encodeSegment', 'isErrno', 'privateRoot', 'saveTextFile',
     'sessionDir', 'sweepSpillRoots',
@@ -182,11 +195,12 @@ export const EXISTING_PLUGIN_ENTRY_EXPORTS = {
   '@deepseek-ai/dsh-storage-json': ['JsonStorageBackend'],
   '@deepseek-ai/dsh-storage-sqlite': ['STORAGE_SQLITE_SCHEMA_VERSION', 'SqliteStorageBackend'],
   '@deepseek-ai/dsh-subagent': [
-    'AssistantOutputFold', 'NO_START_CAPABILITIES', 'ROOT_AGENT_NAME', 'STRUCTURED_OUTPUT_TOOL',
+    'AssistantOutputFold', 'boundedProgress', 'NO_START_CAPABILITIES', 'ROOT_AGENT_NAME', 'STRUCTURED_OUTPUT_TOOL',
     'SUBAGENT_DESCRIPTOR_VERSION', 'SubagentRunId', 'appendDelegatedPolicyOverrides', 'applyChildComposition',
     'assertPositiveFinite', 'assertSubagentMaxDepth', 'assertUsableCwd', 'captureDelegatedPolicyOverrides',
-    'childSessionMeta', 'delegationDepthOf', 'finalAssistantOutput', 'foldSubagentDescriptor',
-    'parentAgentOptionsForDelegation', 'resolveChildAgentOptions', 'resolveChildDepth', 'settleRunResult',
+    'childSessionMeta', 'delegationDepthOf', 'failureDiagnosticOf', 'finalAssistantOutput', 'foldSubagentDescriptor',
+    'parentAgentOptionsForDelegation', 'resolveChildAgentOptions', 'resolveChildDepth', 'resolveParentSandboxMode',
+    'runTimeLimit', 'settleRunResult',
     'snapshotSubagentDescriptor', 'subprocessRunHandle',
   ],
   '@deepseek-ai/dsh-system-prompt': [
@@ -212,7 +226,11 @@ export const EXISTING_PLUGIN_ENTRY_EXPORTS = {
     'LSP_PROMPT_TEXT', 'formatHover', 'formatLocations', 'parseLspArgs', 'presentLspCall', 'renderUri',
   ],
   '@deepseek-ai/dsh-tool-session-query': ['DEFAULT_MAX_SEARCH_RESULTS', 'DEFAULT_SEARCH_TIMEOUT_MS'],
+  '@deepseek-ai/dsh-tool-master-control': [
+    'MC_SEND_WAIT_MS', 'LAST_REPLY_MAX', 'MC_RELAY_LIMIT', 'MC_RELAY_WINDOW_MS',
+  ],
   '@deepseek-ai/dsh-tool-terminal': ['DEFAULT_MAX_RESULT_BYTES', 'MIN_MAX_RESULT_BYTES'],
+  '@deepseek-ai/dsh-tool-subagent': ['CLAUDE_CLI_PROVIDER'],
   '@deepseek-ai/dsh-tool-web': [
     'DEFAULT_FETCH_MAX_OUTPUT_CHARS', 'DEFAULT_WEB_TOOL_TIMEOUT_MS', 'WEB_SEARCH_MAX_QUERIES', 'WEB_SEARCH_MAX_RESULTS',
     'applyWebFetchTool', 'applyWebSearchTool', 'fetchMetaFromResult', 'fetchMetaFromValue', 'formatFetchOutput',
@@ -244,6 +262,14 @@ export const EXISTING_PLUGIN_ENTRY_EXPORTS = {
     'DEEPSEEK_DEFAULT_API_VERSION', 'DEEPSEEK_DEFAULT_BASE_URL', 'DEEPSEEK_DEFAULT_MAX_TOKENS',
     'DEEPSEEK_DEFAULT_MAX_USES', 'DEEPSEEK_DEFAULT_MODEL', 'DEEPSEEK_PROVIDER_ID', 'DeepSeekSearchProvider',
     'WEB_SEARCH_DEEPSEEK_SETTINGS_NAMESPACE',
+  ],
+  '@deepseek-ai/dsh-web-search-exa': [
+    'EXA_DEFAULT_BASE_URL', 'EXA_DEFAULT_HIGHLIGHTS_PER_RESULT', 'EXA_DEFAULT_SEARCH_TYPE', 'EXA_PROVIDER_ID',
+    'ExaSearchProvider',
+  ],
+  '@deepseek-ai/dsh-web-search-perplexity': [
+    'PERPLEXITY_DEFAULT_BASE_URL', 'PERPLEXITY_DEFAULT_MAX_TOKENS', 'PERPLEXITY_DEFAULT_MODEL',
+    'PERPLEXITY_PROVIDER_ID', 'PerplexitySearchProvider',
   ],
   '@deepseek-ai/dsh-webhook': ['WebhookDeliveryId', 'WebhookRuleId', 'WebhookSourceId'],
   '@deepseek-ai/dsh-workflow-ptc': ['materializeFromRealm', 'validateMeta'],
