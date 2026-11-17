@@ -10034,7 +10034,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'TerminalSendRequest',
-    declaration: 'export interface TerminalSendRequest {\n    text: string;\n    submit: boolean;\n    signal?: AbortSignal;\n}',
+    declaration: 'export interface TerminalSendRequest {\n    text: string;\n    submit: boolean;\n    readinessAfterLine?: string;\n    signal?: AbortSignal;\n}',
   },
   {
     name: 'TerminalSendResult',
