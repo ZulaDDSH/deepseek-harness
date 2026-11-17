@@ -28,7 +28,7 @@ function renderViews(options: { blank: boolean; selected: string }) {
     useStore: (select: (value: { view: string; draft: string }) => unknown) => select({ view: options.selected, draft: '' }),
     inputActions: {},
     actions: { setDraft: vi.fn(), completeViewRequest: vi.fn() },
-    bindDraftMirror: () => () => {},
+    bindDraftPersistence: () => () => {},
     openView: vi.fn(),
     renderSlot,
   } as never
