@@ -30,7 +30,7 @@ function fixture(files: Record<string, string>): string {
 const make = (content: string): string => fixture({ 'index.ts': content })
 
 function codeNotes(root: string, content: string): void {
-  const path = join(root, 'docs/code-notes/fixture.md')
+  const path = join(root, 'docs', 'code-notes', 'fixture.md')
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, content)
 }
