@@ -1081,3 +1081,13 @@ The runtime type declaration override resolves distinct Office rendering generat
 `packages/mcp/mcp-client/src/oauth.ts:grantAuthProvider` preserves token-refresh transport and server failures when the SDK falls back to interactive authorization. OAuth discovery, issuer and resource validation remain in the SDK, and invalid grants still require sign-in. The refresh observer recognizes the URLSearchParams request format used by SDK 2.2.0; revisit it when upgrading that SDK.
 
 `packages/mcp/mcp-client/src/index.ts:apply` exposes an OAuth sign-in request as an actionable state without an error message. `packages/mcp/mcp-client/src/connection.ts:startConnection` clears that pending state when a template credential becomes missing, so its diagnostic remains visible.
+# Persistent PowerShell prompt attribution
+
+`packages/shell/tool-pwsh-persistent/src/index.ts:executeCommand`: A prompt from an earlier command can arrive after the next send begins. On backends supporting line watches, an incomplete stdin-read result is returned only after the current command's emitted start marker has appeared on its own line; an echoed wrapper does not establish that the command started.
+
+### `packages/terminal/terminal/src/index.ts:TerminalSessionService.watchLine`
+- `description`: Watches an owned terminal for a complete output line when its backend supports it.
+- `params.owner`: Agent that owns the terminal.
+- `params.id`: Owned terminal identity.
+- `params.line`: Complete output line to observe.
+- `returns`: A watch handle, or undefined when the backend does not support watching.

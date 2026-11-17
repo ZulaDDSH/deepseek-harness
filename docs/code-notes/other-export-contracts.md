@@ -114,3 +114,20 @@
 - `description`: Keeps one copy of an existing Memorix database and its SQLite sidecars.
 - `params.dataDirectory`: Database directory, defaulting to MEMORIX_DATA_DIR or ~/.memorix/data.
 - `returns`: The backup path, or undefined when no copy is needed.
+
+### `packages/terminal/terminal/src/types.ts:TerminalBackendSession.watchLine`
+- `description`: Watches sanitized terminal output for an exact complete line before output retention can discard it.
+- `params.line`: Complete output line to observe.
+- `returns`: A handle to query the observation and remove the watch.
+
+### `packages/terminal/terminal-bash/src/session.ts:LocalPtySession.watchLine`
+- `description`: Watches the sanitized output stream for an exact complete line.
+- `params.line`: Complete output line to observe.
+- `returns`: A handle to query the observation and remove the watch.
+
+### `packages/terminal/terminal/src/index.ts:TerminalSessionService.watchLine`
+- `description`: Watches an owned terminal for a complete output line when its backend supports it.
+- `params.owner`: Agent that owns the terminal.
+- `params.id`: Owned terminal identity.
+- `params.line`: Complete output line to observe.
+- `returns`: A watch handle, or undefined when the backend does not support watching.

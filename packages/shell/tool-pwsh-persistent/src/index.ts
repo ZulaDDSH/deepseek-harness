@@ -310,6 +310,8 @@ async function executeCommand(
   let first = true
   let fallback = ''
   let fallbackTruncated = false
+  const watch = ctx.terminals.watchLine(owner, id, marker.start)
+  using watchCleanup = { [Symbol.dispose]: () => { watch?.dispose() } }
 
   while (true) {
     // The shell may flip to exited between iterations (a fast `exit` can
@@ -374,10 +376,12 @@ async function executeCommand(
     // spinning until the command deadline.
     if (result.waitReason === 'stdin_read') {
       const snapshot = retainedScrollback(ctx, owner, id, latest)
-      return renderCaptured(
-        partialOutput(snapshot, marker, wrapped, fallback, fallbackTruncated),
-        config.maxOutputChars,
-      )
+      if (watch === undefined || watch.seen()) {
+        return renderCaptured(
+          partialOutput(snapshot, marker, wrapped, fallback, fallbackTruncated),
+          config.maxOutputChars,
+        )
+      }
     }
     await pause()
   }
