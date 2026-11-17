@@ -1365,13 +1365,17 @@ it('pins an unlisted selection as a disabled checked row under the current sessi
 })
 
 it('keeps normal model and effort selection available when a setup record exists', () => {
+  const groups = modelGroups(2).map(group => ({
+    ...group,
+    models: group.models.map(model => model.id === 'model-2' ? { ...model, reasoning } : model),
+  }))
   const runOptions = createSnapshotStore<SessionRunOptionsProjection | undefined>({
     current: { subagentSetup: { enabled: true, roles: { orchestrator: {
       mode: 'fixed', route: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     } } } },
   } as SessionRunOptionsProjection)
   const select = vi.fn(async (_selection: ModelSelection) => ({ ok: true as const, value: undefined }))
-  render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={createSnapshotStore(state({ groups: modelGroups(2) }))}
+  render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={createSnapshotStore(state({ groups }))}
     load={vi.fn()} resolveText={resolveText} select={select} t={t}
     useProjection={projectionHook(runOptions)} setRunOptions={vi.fn()} />)
   fireEvent.click(screen.getByRole('button', { name: /选择模型，当前/ }))
