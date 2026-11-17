@@ -149,6 +149,11 @@ export const bad = (x: number) => x
 })
 
 describe('verify-export-jsdoc code notes', () => {
+  it('accepts anchored contracts for exported class methods', () => {
+    const root = make('/** An owned service. */\nexport class Service { watch(line: string): boolean { return !!line } }\n')
+    codeNote(root, apiNote('Service.watch', 'Watch output.\n@param line - line to watch.\n@returns whether the line appeared.'))
+    expect(collectExportJsdocViolations(root)).toEqual([])
+  })
   it('accepts anchored code-note contracts for exported functions and values', () => {
     const root = make('export const SUFFIX = ".bak"\nexport function copy(path: string): string { return path }\n')
     codeNote(root, [

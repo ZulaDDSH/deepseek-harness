@@ -22,7 +22,7 @@ interface Walk {
   usedCodeNoteDocs: Set<string>
 }
 
-function readCodeNoteApiDocs(scanRoot: string, violations: string[]): Map<string, string> {
+export function readCodeNoteApiDocs(scanRoot: string, violations: string[]): Map<string, string> {
   const docs = new Map<string, string>()
   for (const rel of globSync('docs/code-notes/*.md', { cwd: scanRoot }).sort()) {
     const source = readFileSync(resolve(scanRoot, rel), 'utf8')
@@ -271,7 +271,7 @@ function checkClass(cls: ts.ClassDeclaration, name: string, w: Walk): void {
         }
         continue
       }
-      checkFunctionLike(where, rawJsDoc(w.text, m), m.parameters, m.type, false, w)
+      checkFunctionLike(where, exportJsDoc(w, `${name}.${mname}`, m), m.parameters, m.type, false, w)
     } else if (exemption !== null) {
       continue // the heritage declaration owns the doc (properties/accessors carry no own parameters)
     } else if (ts.isGetAccessorDeclaration(m) || ts.isPropertyDeclaration(m)) {

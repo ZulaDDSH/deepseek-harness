@@ -110,6 +110,7 @@ export interface InheritedEntry {
 
 /** Repository policy consumed by the Cordis catalog parsing and rendering logic. */
 export interface CordisCatalogPolicy {
+  readonly codeNotes?: ReadonlyMap<string, string>
   /** Type names linked from signatures to their documentation pages. */
   readonly linkedTypePages: Readonly<Record<string, string>>
   /** TypeScript or framework types that need no repository documentation link. */
@@ -293,11 +294,12 @@ export class CordisCatalogProjector {
       for (const memberId of service.members) {
         const member = this.renderer.member(memberId)
         if (member.name.startsWith('[')) continue
-        const parsed = parseJsDoc(member.jsDoc ?? '')
+        const jsDoc = member.jsDoc || this.policy.codeNotes?.get(`${member.location.file}:${declaration.name}.${member.name}`) || ''
+        const parsed = parseJsDoc(jsDoc)
         if (parsed.deprecated) continue
         if (member.kind === 'property') {
-          if (member.jsDoc === undefined) continue
-          methods.push({ kind: 'property', signature: member.text, jsDoc: member.jsDoc })
+          if (jsDoc === '') continue
+          methods.push({ kind: 'property', signature: member.text, jsDoc })
           continue
         }
         if (member.kind !== 'method') continue
@@ -305,8 +307,8 @@ export class CordisCatalogProjector {
         if (this.face.face === 'host') {
           checkTypeLinks(where, signatureTypeNames(this.renderer, member.signature), this.policy, typeLinkViolations)
         }
-        methods.push({ kind: 'method', signature: member.text, jsDoc: member.jsDoc ?? '' })
-        if (member.jsDoc === undefined) {
+        methods.push({ kind: 'method', signature: member.text, jsDoc })
+        if (jsDoc === '') {
           violations.push(`${where} has no JSDoc.`)
           continue
         }

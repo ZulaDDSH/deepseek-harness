@@ -1132,3 +1132,16 @@ Forwards optional `agentPreset` on the Host create RPC so the UI can open a mast
 `McpServersSection` renders MCP sign-in notices in a wrapping `.notice` span instead of the one-line ellipsised `.detail`, because the trailing "Open sign-in page" link was being truncated away.
 
 `packages/shell/tool-pwsh-persistent/src/index.ts:wrapCommand` encodes command text as UTF-8 Base64 before embedding it in the persistent PowerShell input line. This preserves line endings and Unicode while preventing command text from changing the wrapper's quoting; execution still uses the existing shell and status markers.
+
+# Persistent PowerShell prompt attribution
+
+`packages/shell/tool-pwsh-persistent/src/index.ts:executeCommand`: A prompt from an earlier command can arrive after the next send begins. On backends supporting line watches, an incomplete stdin-read result is returned only after the current command's emitted start marker has appeared on its own line; an echoed wrapper does not establish that the command started.
+
+```api-doc
+packages/terminal/terminal/src/index.ts:TerminalSessionService.watchLine
+Watches an owned terminal for a complete output line when its backend supports it.
+@param owner - agent that owns the terminal.
+@param id - owned terminal identity.
+@param line - complete output line to observe.
+@returns a watch handle, or undefined when the backend does not support watching.
+```
