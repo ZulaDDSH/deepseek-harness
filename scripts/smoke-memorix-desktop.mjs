@@ -12,6 +12,9 @@ const home = join(temp, 'home')
 const profile = join(home, 'profiles', 'desktop')
 const project = join(temp, 'project')
 const data = join(temp, 'memorix-data')
+const backupFailureHome = join(temp, 'backup-failure-home')
+const backupFailureProfile = join(backupFailureHome, 'profiles', 'desktop')
+const backupFailureData = join(temp, 'backup-failure-data')
 const token = 'garden-memorix-' + Date.now() + '-' + process.pid
 
 function run(command, args, options = {}) {
@@ -177,14 +180,40 @@ try {
   writeFileSync(join(profile, 'cordis.patch.yml'), '# test profile patch\n[]\n')
   writeFileSync(join(profile, 'pnpm-workspace.yaml'), 'packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n')
 
-  run(process.execPath, ['scripts/setup-memorix-desktop.mjs'], { env: { DSH_HOME: home } })
+  mkdirSync(backupFailureProfile, { recursive: true })
+  writeFileSync(join(backupFailureProfile, 'package.json'), JSON.stringify({ name: 'dsh-profile-desktop', private: true, dependencies: {} }, null, 2) + '\n')
+  const failurePatch = '# unchanged on backup failure\n[]\n'
+  writeFileSync(join(backupFailureProfile, 'cordis.patch.yml'), failurePatch)
+  mkdirSync(backupFailureData)
+  mkdirSync(join(backupFailureData, 'memorix.db'))
+  const rejected = spawnSync(process.execPath, ['scripts/setup-memorix-desktop.mjs'], {
+    cwd: root,
+    env: { ...process.env, DSH_HOME: backupFailureHome, MEMORIX_DATA_DIR: backupFailureData },
+    encoding: 'utf8',
+    shell: false,
+  })
+  assert.notEqual(rejected.status, 0)
+  assert.match(rejected.stderr, /Could not back up the existing Memorix database/u)
+  assert.equal(JSON.parse(readFileSync(join(backupFailureProfile, 'package.json'), 'utf8')).dependencies.memorix, undefined)
+  assert.equal(readFileSync(join(backupFailureProfile, 'cordis.patch.yml'), 'utf8'), failurePatch)
+
+  mkdirSync(data, { recursive: true })
+  writeFileSync(join(data, 'memorix.db'), 'existing database')
+  writeFileSync(join(data, 'memorix.db-wal'), 'existing wal')
+  run(process.execPath, ['scripts/setup-memorix-desktop.mjs'], { env: { DSH_HOME: home, MEMORIX_DATA_DIR: data } })
+  assert.equal(readFileSync(join(data, 'memorix.db.dsh-pre-1.9.10.bak'), 'utf8'), 'existing database')
+  assert.equal(readFileSync(join(data, 'memorix.db.dsh-pre-1.9.10.bak-wal'), 'utf8'), 'existing wal')
+  rmSync(join(data, 'memorix.db'), { force: true })
+  rmSync(join(data, 'memorix.db-wal'), { force: true })
+  rmSync(join(data, 'memorix.db.dsh-pre-1.9.10.bak'), { force: true })
+  rmSync(join(data, 'memorix.db.dsh-pre-1.9.10.bak-wal'), { force: true })
   const firstPatch = readFileSync(join(profile, 'cordis.patch.yml'), 'utf8')
-  run(process.execPath, ['scripts/setup-memorix-desktop.mjs'], { env: { DSH_HOME: home } })
+  run(process.execPath, ['scripts/setup-memorix-desktop.mjs'], { env: { DSH_HOME: home, MEMORIX_DATA_DIR: data } })
   assert.equal(readFileSync(join(profile, 'cordis.patch.yml'), 'utf8'), firstPatch)
   assert.equal((firstPatch.match(/id:\s*memory-memorix/gu) ?? []).length, 1)
 
   const memorixManifest = JSON.parse(readFileSync(join(profile, 'node_modules', 'memorix', 'package.json'), 'utf8'))
-  assert.equal(memorixManifest.version, '1.3.0')
+  assert.equal(memorixManifest.version, '1.9.10')
 
   const patch = readFileSync(join(profile, 'cordis.patch.yml'), 'utf8')
   assert.match(patch, /id:\s*memory-memorix/u)

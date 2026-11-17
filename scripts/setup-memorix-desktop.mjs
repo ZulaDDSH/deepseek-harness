@@ -2,9 +2,10 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { backupExistingDatabase } from '../packages/bundle/web-app/src/memorix-backup.mjs'
 import { hasMemorixEntry, mergeMemorixPatch } from './setup-memorix-desktop-lib.mjs'
 
-const MEMORIX_VERSION = '1.3.0'
+const MEMORIX_VERSION = '1.9.10'
 
 function fail(message) {
   process.stderr.write(`${message}\n`)
@@ -32,6 +33,13 @@ try {
 if (installedVersion === MEMORIX_VERSION && existsSync(cliPath) && hasMemorixEntry(currentPatch)) {
   process.stdout.write(`Memorix ${MEMORIX_VERSION} is installed and already enabled in the Desktop profile.\n`)
   process.exit(0)
+}
+
+try {
+  const backup = backupExistingDatabase()
+  if (backup !== undefined) process.stdout.write(`Backed up the existing Memorix database to ${backup}.\n`)
+} catch (error) {
+  fail(`Could not back up the existing Memorix database; setup stopped before changing the Desktop profile: ${error instanceof Error ? error.message : String(error)}`)
 }
 
 const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
