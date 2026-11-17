@@ -79,6 +79,7 @@ async function bench(): Promise<SlotTestRuntime> {
   const runtime = await SlotTestRuntime.create()
   runtime.ctx.provide('shortcuts', { register: () => () => {}, catalog: createSnapshotStore([]) })
   runtime.ctx.provide('layout', { selectPanel: vi.fn(), beginNavigation: () => new AbortController().signal })
+  runtime.ctx.provide('commandUi', { quickCommands: vi.fn(async () => []), runQuick: vi.fn(() => true) } as never)
   runtime.releaseWorkspaceSource()
   // Directory picking goes through the probe occupant; the namespace only has
   // to be there for ui-workspace's inject to settle.

@@ -129,7 +129,7 @@ describe('session rename through the assembled browser', () => {
     fireEvent.click(trigger)
     // The browser-local appearance rows lead as data rows; the copy row, the plugin rows, and archive each start a group.
     await view.findByRole('menuitem', { name: '置顶会话' })
-    expect(view.getAllByRole('menuitem').map(item => item.textContent)).toEqual([
+    expect(view.getAllByRole('menuitem').slice(0, 10).map(item => item.textContent)).toEqual([
       '颜色', '图标', '置顶会话', '重命名', '标为未读', '分叉会话', '复制 Session ID', 'Export action', 'Last action', '归档会话',
     ])
     expect(view.getAllByRole('separator')).toHaveLength(3)

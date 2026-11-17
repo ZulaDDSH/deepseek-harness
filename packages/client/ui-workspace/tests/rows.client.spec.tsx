@@ -284,7 +284,7 @@ describe('workspace browser rows', () => {
       running: true,
       runningSubagentCount: 2,
       completed: true,
-    }, t)).toEqual([{ state: 'error', label: '失败', trailingLabel: '失败' }])
+    }, t)).toEqual([{ state: 'error', label: '运行出错', trailingLabel: '运行出错' }])
   })
 
   it('rejects an unknown pending interaction discriminator', () => {
