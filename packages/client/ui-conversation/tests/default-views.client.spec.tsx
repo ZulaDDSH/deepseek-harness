@@ -26,7 +26,7 @@ function renderViews(options: { blank: boolean; selected: string }) {
     useInput: (select: (value: { draft: string }) => unknown) => select({ draft: '' }),
     useInspectCall: (select: (value: undefined) => unknown) => select(undefined),
     useStore: (select: (value: { view: string; draft: string }) => unknown) => select({ view: options.selected, draft: '' }),
-    inputActions: {},
+    inputActions: { persistDraft: vi.fn() },
     actions: { setDraft: vi.fn(), completeViewRequest: vi.fn() },
     bindDraftPersistence: () => () => {},
     openView: vi.fn(),
