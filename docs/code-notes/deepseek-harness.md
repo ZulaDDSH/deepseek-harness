@@ -1131,3 +1131,8 @@ Watch an owned terminal for one complete output line when supported.
 @param line - complete output line to observe.
 @returns a watch handle, or undefined when the backend does not support watching.
 ```
+
+```api-doc
+packages/terminal/terminal-bash/src/sanitize.ts:TerminalSanitizer.resetPromptTracking
+Discards a prompt-tail candidate observed before the active send's readiness boundary.
+```
