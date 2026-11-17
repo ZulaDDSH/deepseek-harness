@@ -43,6 +43,7 @@ interface TerminalBackendSession {
   readonly pid?: number
   /** Start one exclusive send operation. */
   startSend(request: TerminalSendRequest): TerminalSendOperation
+  watchLine?(line: string): { seen(): boolean; dispose(): void }
   /** Read one bounded page from retained scrollback. */
   read(request: TerminalReadRequest): TerminalReadResult
   /** Signal the verified foreground process group. */
@@ -140,6 +141,15 @@ hasOwnerActivity(owner: Agent): boolean
  * @returns live operation handle for foreground await or task registration.
  */
 startSend(owner: Agent, id: TerminalSessionId, request: TerminalSendRequest): TerminalSendOperation
+
+/**
+ * Watch an owned terminal for one complete output line when supported.
+ * @param owner - owning Agent.
+ * @param id - owned terminal identity.
+ * @param line - complete output line to observe.
+ * @returns a watch handle, or undefined when the backend does not support watching.
+ */
+watchLine(owner: Agent, id: TerminalSessionId, line: string): { seen(): boolean; dispose(): void } | undefined
 
 /**
  * Read one bounded scrollback page from an owned session.

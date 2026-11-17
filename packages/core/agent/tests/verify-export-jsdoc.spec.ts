@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { collectExportJsdocViolations } from '../../../../scripts/verify-export-jsdoc.ts'
+import { collectExportJsdocViolations, readCodeNoteApiDocs } from '../../../../scripts/verify-export-jsdoc.ts'
 
 const roots: string[] = []
 
@@ -28,6 +28,52 @@ function fixture(files: Record<string, string>): string {
 
 /** Single-file fixture shorthand: the content becomes `src/index.ts`. */
 const make = (content: string): string => fixture({ 'index.ts': content })
+
+function codeNotes(root: string, content: string): void {
+  const path = join(root, 'docs', 'code-notes', 'fixture.md')
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, content)
+}
+
+const apiDoc = (anchor: string, body: string): string => `\`\`\`api-doc\n${anchor}\n${body}\n\`\`\``
+
+describe('verify-export-jsdoc code notes', () => {
+  it('accepts a documented exported class method through its code-note anchor', () => {
+    const root = make('/** Service. */\nexport class Service { watch(line: string): boolean { return !!line } }\n')
+    codeNotes(root, apiDoc(
+      'packages/group/fix/src/index.ts:Service.watch',
+      'Watch output.\n@param line - line to watch.\n@returns whether it appeared.',
+    ))
+    expect(collectExportJsdocViolations(root)).toEqual([])
+  })
+
+  it('reports duplicate and unmatched code-note anchors', () => {
+    const root = make('/** Service. */\nexport class Service { watch(line: string): boolean { return !!line } }\n')
+    const anchor = 'packages/group/fix/src/index.ts:Service.watch'
+    codeNotes(root, [
+      apiDoc(anchor, 'Watch output.\n@param line - line to watch.\n@returns whether it appeared.'),
+      apiDoc(anchor, 'Duplicate.'),
+      apiDoc('packages/group/fix/src/index.ts:Service.missing', 'Orphan.'),
+    ].join('\n\n'))
+    const violations = collectExportJsdocViolations(root)
+    expect(violations).toEqual([
+      expect.stringMatching(/defines the api-doc anchor .* more than once/),
+      expect.stringMatching(/code-notes API doc .* does not match an undocumented exported declaration/),
+    ])
+  })
+
+  it('returns parsed contracts for catalog consumers', () => {
+    const root = make('')
+    codeNotes(root, apiDoc(
+      'packages/group/fix/src/index.ts:Service.watch',
+      'Watch output.\n@param line - line to watch.\n@returns whether it appeared.',
+    ))
+    const violations: string[] = []
+    const docs = readCodeNoteApiDocs(root, violations)
+    expect(violations).toEqual([])
+    expect(docs.get('packages/group/fix/src/index.ts:Service.watch')).toContain('@param line - line to watch.')
+  })
+})
 
 describe('verify-export-jsdoc functions and consts', () => {
   it('limits packages without src/* exports to declarations reachable from package entrypoints', () => {

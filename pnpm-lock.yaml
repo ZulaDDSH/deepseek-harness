@@ -9904,6 +9904,9 @@ importers:
 
   packages/experimental/computer-use-cua-driver-native:
     dependencies:
+      '@deepseek-ai/dsh-computer-use':
+        specifier: workspace:*
+        version: link:../../computer-use/computer-use
       '@deepseek-ai/dsh-mcp-client':
         specifier: workspace:*
         version: link:../../mcp/mcp-client
@@ -9941,9 +9944,6 @@ importers:
       '@deepseek-ai/dsh-attachment-local':
         specifier: workspace:*
         version: link:../../attachment/attachment-local
-      '@deepseek-ai/dsh-computer-use':
-        specifier: workspace:*
-        version: link:../../computer-use/computer-use
       '@deepseek-ai/dsh-llm':
         specifier: workspace:*
         version: link:../../llm/llm
