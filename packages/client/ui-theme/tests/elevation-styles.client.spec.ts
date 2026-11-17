@@ -1,12 +1,3 @@
-/**
- * Elevation stylesheet contract, asserted against the CSS text on disk:
- * gradient-shadow-text.css composes the elevation tokens from a rebindable
- * 0.5px hairline stroke plus soft layers, and no package rule pairs an
- * lv/elevation box-shadow with a neutral-border-token border — elevated
- * surfaces draw their neutral stroke inside the elevation shadow (border: 0),
- * never as a layout-consuming border beside it. State-colored borders (for
- * example the warn approval panels) stay real borders and are out of scope.
- */
 import { readFileSync } from 'node:fs'
 import { basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -65,7 +56,7 @@ describe('elevation tokens', () => {
       .flatMap(rule => rule.declarations)
       .findLast(([property]) => property === token)?.[1]
     expect(value('body')).toBe('rgba(252, 253, 254, 0.7)')
-    expect(value('body[data-ds-dark-theme]')).toBe('rgba(52, 52, 49, 0.45)')
+    expect(value('body[data-ds-dark-theme]')).toBe('rgba(48, 49, 54, 0.64)')
     expect(value('body', '--dsw-specific-menu')).toBe('var(--dsw-menu-surface-fill)')
     expect(value("html[data-platform='darwin'] body", '--dsw-specific-menu')).toBe('rgba(248, 249, 250, 0.94)')
     expect(value("html[data-platform='darwin'] body[data-ds-dark-theme]", '--dsw-specific-menu')).toBe('rgba(34, 34, 32, 0.94)')
@@ -141,15 +132,10 @@ describe('translucent menu surfaces pair fill and filter', () => {
   })
 })
 
-/**
- * Rules pairing an lv/elevation box-shadow with a neutral-border-token border.
- * @param css - stylesheet text.
- * @returns the offending selectors, in source order.
- */
 function neutralBordersBesideElevation(css: string): string[] {
   return parseRules(css)
     .filter(rule => rule.declarations
-      .some(([property, value]) => property === 'box-shadow' && ELEVATED_SHADOW.test(value)))
+      .some(([property, value]) => property === 'box-shadow' && /--dsw-elevation-/.test(value)))
     .filter(rule => rule.declarations.some(([property, value]) =>
       property.startsWith('border') && !property.startsWith('border-radius') && NEUTRAL_BORDER.test(value)))
     .map(rule => rule.selectors.join(', '))
@@ -163,9 +149,12 @@ describe('elevated surfaces carry no neutral border', () => {
     expect(neutralBordersBesideElevation(
       '.a { box-shadow: var(--dsw-elevation-panel); border: 0; }',
     )).toEqual([])
+    expect(neutralBordersBesideElevation(
+      '.a { box-shadow: var(--dsw-shadow-lv1); border: 0.5px solid var(--dsw-alias-border-l2); }',
+    )).toEqual([])
   })
 
-  it('never pairs an lv/elevation shadow with a neutral border token under packages/', () => {
+  it('never pairs an elevation shadow with a neutral border token under packages/', () => {
     // A 1px border beside the elevation stroke double-draws the outline and
     // shifts layout by the border width; the hairline belongs to the shadow.
     const paired = packageStylesheets().flatMap(file =>

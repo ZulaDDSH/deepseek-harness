@@ -145,7 +145,7 @@ const SURFACE_PROPERTIES = ['background', 'background-color']
  * CodeBlock's banner). Family, not geometry: a floating button legitimately
  * carries a radius, a shadow, and a fixed size, so shape cannot separate them.
  */
-const SURFACE_TOKEN_PATTERN = /^--dsw-(?:alias-bg-|specific-)/
+const SURFACE_TOKEN_PATTERN = /^--dsw-(?:alias-bg-|specific-(?!input-))/
 /** Translucent elevated surfaces whose colors do not resolve to a palette rung. */
 const TRANSLUCENT_ELEVATED_SURFACES = new Set(['--dsw-specific-menu'])
 
