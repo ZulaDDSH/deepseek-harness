@@ -174,7 +174,7 @@ export function grantAuthProvider(serverName: string, store: GrantStore): SignIn
       }
       const { resourceMetadataUrl } = extractWWWAuthenticateParams(response)
       const refreshOutcome: { value?: { response: Response } | { error: unknown } } = {}
-      const observingFetch: typeof fetch = async (input, init) => {
+      const observingFetch: NonNullable<typeof fetchFn> = async (input, init) => {
         const refreshing = init?.method?.toUpperCase() === 'POST'
           && init.body instanceof URLSearchParams && init.body.get('grant_type') === 'refresh_token'
         try {
