@@ -591,15 +591,16 @@ describe('ChangedFiles card', () => {
     const turn = turnLocation(1, { produced: [], changes })
     const snapshot = { timeline: { turnOrder: [1], turns: new Map([[1, turn]]) } }
     const useChat = <T,>(select: (value: typeof snapshot) => T): T => select(snapshot)
-    const dock = { ...props, useChat, sessionId: SessionId('child-session'), t: makeTranslate(en) }
-    const view = render(<ChangedFilesDock {...dock as unknown as Parameters<typeof ChangedFilesDock>[0]} />)
+    const dock = { ...props, useChat, sessionId: SessionId('child-session'), t: makeTranslate(en),
+      session: {} as Parameters<typeof ChangedFilesDock>[0]['session'], input: {} as Parameters<typeof ChangedFilesDock>[0]['input'] }
+    const view = render(<ChangedFilesDock {...dock as Parameters<typeof ChangedFilesDock>[0]} />)
     expect(view.container.querySelector('[data-changed-files-dock]')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Edited 11 files' }))
     fireEvent.click(screen.getByRole('menuitem', { name: /config\/feature-flags\.json/ }))
     expect(props.openChangesReview).toHaveBeenCalledExactlyOnceWith({ sessionId: 'child-session', seq: 5, turn: 1 }, 1)
     snapshot.timeline.turnOrder.push(2)
     snapshot.timeline.turns.set(2, turnLocation(2, { produced: [] }))
-    view.rerender(<ChangedFilesDock {...dock as unknown as Parameters<typeof ChangedFilesDock>[0]} />)
+    view.rerender(<ChangedFilesDock {...dock as Parameters<typeof ChangedFilesDock>[0]} />)
     expect(view.container.querySelector('[data-changed-files-dock]')).toBeNull()
   })
 
@@ -609,13 +610,14 @@ describe('ChangedFiles card', () => {
     const turn = turnLocation(1, { produced: [], changes })
     const snapshot = { timeline: { turnOrder: [1], turns: new Map([[1, turn]]) } }
     const useChat = <T,>(select: (value: typeof snapshot) => T): T => select(snapshot)
-    const dock = { ...props, useChat, sessionId: SessionId('child-session'), t: makeTranslate(en) }
-    const view = render(<ChangedFilesDock {...dock as unknown as Parameters<typeof ChangedFilesDock>[0]} />)
+    const dock = { ...props, useChat, sessionId: SessionId('child-session'), t: makeTranslate(en),
+      session: {} as Parameters<typeof ChangedFilesDock>[0]['session'], input: {} as Parameters<typeof ChangedFilesDock>[0]['input'] }
+    const view = render(<ChangedFilesDock {...dock as Parameters<typeof ChangedFilesDock>[0]} />)
     fireEvent.click(screen.getByRole('button', { name: 'Edited example.scss' }))
     fireEvent.click(screen.getByRole('menuitem', { name: /src\/example\.scss/ }))
     expect(props.openChangesReview).toHaveBeenCalledExactlyOnceWith({ sessionId: 'child-session', seq: 5, turn: 1 }, 0)
     const off = { useShowCodeDiff: <T,>(select: (value: boolean) => T): T => select(false) }
-    view.rerender(<ChangedFilesDock {...dock as unknown as Parameters<typeof ChangedFilesDock>[0]} {...off} />)
+    view.rerender(<ChangedFilesDock {...dock as Parameters<typeof ChangedFilesDock>[0]} {...off} />)
     expect(view.container.querySelector('[data-changed-files-dock]')).toBeNull()
   })
 
