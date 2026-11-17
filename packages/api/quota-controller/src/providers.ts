@@ -1,6 +1,5 @@
 /** Extensible Host-side provider registry for credential-backed quota APIs. */
 
-import { credentialKey } from '@deepseek-ai/dsh-credentials'
 import type { CredentialKey, CredentialRef, ResolvedCredential } from '@deepseek-ai/dsh-credentials'
 import type { QuotaResult, QuotaWindow } from './types.ts'
 
@@ -92,7 +91,7 @@ function createDeepSeek(): QuotaProvider {
     id: 'deepseek-official',
     name: 'DeepSeek',
     credentialRef: 'DEEPSEEK_API_KEY' as CredentialRef,
-    credentialKey: credentialKey('llm-pi-ai', 'deepseek'),
+    credentialKey: 'llm-pi-ai/deepseek' as CredentialKey,
     async fetch(credential, fetchImpl = fetch) {
       try {
         const response = await fetchImpl('https://api.deepseek.com/user/balance', {
@@ -123,7 +122,7 @@ function createOpenCodeGo(): QuotaProvider {
     name: 'OpenCode Go',
     credentialRef: 'OPENCODE_API_KEY' as CredentialRef,
     credentialRefs: ['OPENCODE_API_KEY' as CredentialRef, 'OPENCODE_GO_API_KEY' as CredentialRef],
-    credentialKey: credentialKey('llm-pi-ai', 'opencode-go'),
+    credentialKey: 'llm-pi-ai/opencode-go' as CredentialKey,
     async fetch(credential, fetchImpl = fetch) {
       try {
         const response = await fetchImpl('https://opencode.ai/zen/go/v1/usage', {
