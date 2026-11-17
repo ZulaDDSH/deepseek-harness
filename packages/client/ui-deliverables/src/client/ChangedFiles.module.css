@@ -44,10 +44,12 @@ button.header:disabled { cursor: progress; }
 .card:not([data-single]) .tile { display: none; }
 .card:not([data-single]) .titles { flex-direction: row; align-items: center; gap: 6px; }
 .card:not([data-single]) .stat { font-size: 12px; }
-.card:not([data-single]) .header:hover .statCounts,
 .card:not([data-single]) .header:focus-visible .statCounts { display: inline-flex; }
-.card:not([data-single]) .header:hover .previewHint,
 .card:not([data-single]) .header:focus-visible .previewHint { display: none; }
+@media (hover: hover) {
+  .card:not([data-single]) .header:hover .statCounts { display: inline-flex; }
+  .card:not([data-single]) .header:hover .previewHint { display: none; }
+}
 .menuRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: min(220px, 60vw); }
 
 .dock { display: flex; justify-content: flex-end; }
