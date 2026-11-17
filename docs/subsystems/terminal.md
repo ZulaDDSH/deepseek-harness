@@ -60,6 +60,19 @@ interface TerminalBackendSession {
 One live session accepts one active send. Its operation exposes a consuming output cursor for generic background jobs and one terminal result for a foreground caller. `TerminalReadResult` separately pages the bounded session scrollback.
 
 ```ts type-equiv
+/** Input for one line-oriented terminal interaction. */
+interface TerminalSendRequest {
+  /** UTF-8 text to write. */
+  text: string
+  /** Whether to write the backend's Enter sequence after {@link text}. */
+  submit: boolean
+  readinessAfterLine?: string
+  /** Cancellation for the wait; backends also interrupt the foreground command. */
+  signal?: AbortSignal
+}
+```
+
+```ts type-equiv
 /** Live backend-owned send; exactly one may be active per PTY session. */
 interface TerminalSendOperation {
   /** Resolves after readiness, timeout, cancellation, or top-level process exit. */

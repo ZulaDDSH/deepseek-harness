@@ -1121,7 +1121,7 @@ Forwards optional `agentPreset` on the Host create RPC so the UI can open a mast
 
 # Persistent PowerShell prompt attribution
 
-`packages/shell/tool-pwsh-persistent/src/index.ts:executeCommand`: A prompt from an earlier command can arrive after the next send begins. On backends supporting line watches, an incomplete stdin-read result is returned only after the current command's emitted start marker has appeared on its own line; an echoed wrapper does not establish that the command started.
+`packages/shell/tool-pwsh-persistent/src/index.ts:executeCommand`, `packages/terminal/terminal/src/types.ts:TerminalSendRequest`, and `packages/terminal/terminal-bash/src/session.ts:LocalPtySession`: A prompt from an earlier command can arrive after the next send begins. The first wrapped send asks supporting backends to hold readiness until its start marker appears on its own line. The marker clears prompt and stdin-wait evidence from before command start; a foreground inspection spanning that marker is sampled again. Backends without the optional gate retain the tool's outer line-watch fallback.
 
 ```api-doc
 packages/terminal/terminal/src/index.ts:TerminalSessionService.watchLine
@@ -1130,4 +1130,9 @@ Watches an owned terminal for a complete output line when its backend supports i
 @param id - Owned terminal identity.
 @param line - Complete output line to observe.
 @returns A watch handle, or undefined when the backend does not support watching.
+```
+
+```api-doc
+packages/terminal/terminal-bash/src/sanitize.ts:TerminalSanitizer.resetPromptTracking
+Discards a prompt-tail candidate observed before the active send's readiness boundary.
 ```
