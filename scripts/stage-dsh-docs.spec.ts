@@ -124,7 +124,7 @@ describe('documentation staging', () => {
     const published = publishedDocuments()
 
     expect(published.has('architecture.md')).toBe(true)
-    expect(published.has('architecture.zh.md')).toBe(true)
+    expect(published.has('architecture.zh.md')).toBe(false)
     for (const excluded of ['AGENTS.md', 'testing.md', 'postmortem/README.md', 'persistence-changes/README.md', 'i18n/README.md']) {
       expect(published.has(excluded)).toBe(false)
     }
