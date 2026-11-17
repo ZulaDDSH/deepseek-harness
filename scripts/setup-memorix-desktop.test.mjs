@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { hasMemorixEntry, mergeMemorixPatch } from './setup-memorix-desktop-lib.mjs'
-import { BACKUP_SUFFIX, backupExistingDatabase } from '../packages/bundle/web-app/src/memorix-backup.mjs'
+import { BACKUP_SUFFIX, backupExistingDatabase } from '../packages/bundle/web-app/src/memorix.ts'
 
 const cli = 'C:\\\\Users\\\\dev\\\\.dsh\\\\profiles\\\\desktop\\\\node_modules\\\\memorix\\\\dist\\\\cli\\\\index.js'
 

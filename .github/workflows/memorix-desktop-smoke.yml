@@ -9,7 +9,6 @@ on:
       - 'scripts/smoke-memorix-desktop.mjs'
       - 'packages/bundle/web-app/package.json'
       - 'packages/bundle/web-app/src/memorix.ts'
-      - 'packages/bundle/web-app/src/memorix-backup.*'
       - 'packages/bundle/web-app/tests/memorix.spec.ts'
   workflow_dispatch:
 
