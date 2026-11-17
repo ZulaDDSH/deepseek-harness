@@ -193,6 +193,7 @@ describe('verify-export-jsdoc code notes', () => {
       expect.stringMatching(/defines the api-doc anchor .* more than once/),
       expect.stringMatching(/has an api-doc block with an invalid source anchor/),
       expect.stringMatching(/code-notes API doc .*missing.* does not match an undocumented exported declaration/),
+      expect.stringMatching(/code-notes API doc .*unterminated.* does not match an undocumented exported declaration/),
     ])
   })
 
