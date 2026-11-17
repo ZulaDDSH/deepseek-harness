@@ -215,6 +215,7 @@ describe('package dependency scope', () => {
       '@deepseek-ai/dsh-session',
     ])
     expect(PACKAGE_DEPENDENCY_POLICY.requiredServicePeers).toEqual({
+      '@deepseek-ai/dsh-api-quota-controller': ['@deepseek-ai/dsh-credentials'],
       '@deepseek-ai/dsh-api-terminal-controller': ['@deepseek-ai/dsh-subprocess'],
     })
     expect(PACKAGE_DEPENDENCY_POLICY.configurationOnlyDevDependencies).toEqual({
