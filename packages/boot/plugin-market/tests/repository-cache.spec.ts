@@ -152,8 +152,12 @@ it('reports an unreachable host as a network failure, a failed local command as 
   expect(readdirSync(join(root, 'cache'))).toEqual([])
   const other = repository('t2', { 'README.md': 'x' })
   const timedOut = cache()
-  vi.spyOn(Reflect.getPrototypeOf(timedOut) as { run: () => Promise<void> }, 'run').mockRejectedValue(new Error('timed out'))
-  await expectRejection(timedOut.read(other.url, other.commit, 'README.md', 100, signal), { reason: 'git-unavailable' }, 'timed out')
+  const run = vi.spyOn(Reflect.getPrototypeOf(timedOut) as { run: () => Promise<void> }, 'run').mockRejectedValue(new Error('timed out'))
+  try {
+    await expectRejection(timedOut.read(other.url, other.commit, 'README.md', 100, signal), { reason: 'git-unavailable' }, 'timed out')
+  } finally {
+    run.mockRestore()
+  }
   vi.stubEnv('PATH', join(root, 'no-git'))
   const missing = cache().read(other.url, other.commit, 'README.md', 100, signal)
   await expectRejection(missing, { reason: 'git-unavailable' }, 'git --version')
