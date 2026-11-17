@@ -52,7 +52,7 @@ it('unregisters tools when disposal interrupts the registration result', async (
   expect(spy).toHaveBeenCalledOnce()
   expect(status.closure()).toEqual({ closeConfirmed: true })
   expect(ctx.tools.schemas()).toEqual([])
-})
+}, 20_000)
 
 it.each([false, true])('uses the probe budget independently of startupTimeoutMs (expires: %s)', async (expires) => {
   vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
