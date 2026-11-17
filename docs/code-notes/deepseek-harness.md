@@ -1130,4 +1130,5 @@ Forwards optional `agentPreset` on the Host create RPC so the UI can open a mast
 ## packages/client/ui-plugin-manager/src/client/McpServersSection.tsx:McpServersSection
 
 `McpServersSection` renders MCP sign-in notices in a wrapping `.notice` span instead of the one-line ellipsised `.detail`, because the trailing "Open sign-in page" link was being truncated away.
+
 `packages/shell/tool-pwsh-persistent/src/index.ts:wrapCommand` encodes command text as UTF-8 Base64 before embedding it in the persistent PowerShell input line. This preserves line endings and Unicode while preventing command text from changing the wrapper's quoting; execution still uses the existing shell and status markers.
