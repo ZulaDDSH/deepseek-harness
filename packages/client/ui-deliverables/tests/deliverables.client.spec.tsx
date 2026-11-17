@@ -24,7 +24,7 @@ import type {
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import type { ChatFileMentions, TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-chat/client'
-import { makeTranslate, stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
+import { chatSnapshot, makeTranslate, stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
 import { Deliverables, DeliverablesTail, selectDeliverables, type DeliverablesInjected } from '../src/client/Deliverables.tsx'
 import { ChangedFilesDock } from '../src/client/ChangedFilesDock.tsx'
 import type { ReviewInjected } from '../src/client/ReviewTab.tsx'
@@ -589,18 +589,18 @@ describe('ChangedFiles card', () => {
   it('shows the latest turn above the composer and opens its selected file', () => {
     const props = openProps(new PresentedOpenController(), servedStore())
     const turn = turnLocation(1, { produced: [], changes })
-    const snapshot = { timeline: { turnOrder: [1], turns: new Map([[1, turn]]) } }
-    const useChat = <T,>(select: (value: typeof snapshot) => T): T => select(snapshot)
-    const dock = { ...props, useChat, sessionId: SessionId('child-session'), t: makeTranslate(en),
-      session: {} as Parameters<typeof ChangedFilesDock>[0]['session'], input: {} as Parameters<typeof ChangedFilesDock>[0]['input'] }
-    const view = render(<ChangedFilesDock {...dock as Parameters<typeof ChangedFilesDock>[0]} />)
+    const turns = new Map([[1, turn]])
+    let snapshot = chatSnapshot({ timeline: { turnOrder: [1], turns } })
+    const useChat: Parameters<typeof ChangedFilesDock>[0]['useChat'] = select => select(snapshot)
+    const dock = { ...props, useChat, sessionId: SessionId('child-session'), t: makeTranslate(en) }
+    const view = render(<ChangedFilesDock {...dock} />)
     expect(view.container.querySelector('[data-changed-files-dock]')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Edited 11 files' }))
     fireEvent.click(screen.getByRole('menuitem', { name: /config\/feature-flags\.json/ }))
     expect(props.openChangesReview).toHaveBeenCalledExactlyOnceWith({ sessionId: 'child-session', seq: 5, turn: 1 }, 1)
-    snapshot.timeline.turnOrder.push(2)
-    snapshot.timeline.turns.set(2, turnLocation(2, { produced: [] }))
-    view.rerender(<ChangedFilesDock {...dock as Parameters<typeof ChangedFilesDock>[0]} />)
+    turns.set(2, turnLocation(2, { produced: [] }))
+    snapshot = chatSnapshot({ timeline: { turnOrder: [1, 2], turns } })
+    view.rerender(<ChangedFilesDock {...dock} />)
     expect(view.container.querySelector('[data-changed-files-dock]')).toBeNull()
   })
 
@@ -608,16 +608,15 @@ describe('ChangedFiles card', () => {
     const single = servedStore({ turn: 1, files: [changedFile('src/example.scss', 3, 1)], total: 1, added: 3, deleted: 1 })
     const props = openProps(new PresentedOpenController(), single)
     const turn = turnLocation(1, { produced: [], changes })
-    const snapshot = { timeline: { turnOrder: [1], turns: new Map([[1, turn]]) } }
-    const useChat = <T,>(select: (value: typeof snapshot) => T): T => select(snapshot)
-    const dock = { ...props, useChat, sessionId: SessionId('child-session'), t: makeTranslate(en),
-      session: {} as Parameters<typeof ChangedFilesDock>[0]['session'], input: {} as Parameters<typeof ChangedFilesDock>[0]['input'] }
-    const view = render(<ChangedFilesDock {...dock as Parameters<typeof ChangedFilesDock>[0]} />)
+    const snapshot = chatSnapshot({ timeline: { turnOrder: [1], turns: new Map([[1, turn]]) } })
+    const useChat: Parameters<typeof ChangedFilesDock>[0]['useChat'] = select => select(snapshot)
+    const dock = { ...props, useChat, sessionId: SessionId('child-session'), t: makeTranslate(en) }
+    const view = render(<ChangedFilesDock {...dock} />)
     fireEvent.click(screen.getByRole('button', { name: 'Edited example.scss' }))
     fireEvent.click(screen.getByRole('menuitem', { name: /src\/example\.scss/ }))
     expect(props.openChangesReview).toHaveBeenCalledExactlyOnceWith({ sessionId: 'child-session', seq: 5, turn: 1 }, 0)
     const off = { useShowCodeDiff: <T,>(select: (value: boolean) => T): T => select(false) }
-    view.rerender(<ChangedFilesDock {...dock as Parameters<typeof ChangedFilesDock>[0]} {...off} />)
+    view.rerender(<ChangedFilesDock {...dock} {...off} />)
     expect(view.container.querySelector('[data-changed-files-dock]')).toBeNull()
   })
 
