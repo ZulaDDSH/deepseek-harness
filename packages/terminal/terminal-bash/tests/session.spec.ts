@@ -1371,12 +1371,15 @@ describe('LocalPtySession readiness and output', () => {
     const terminal = new FakeTerminal()
     const inspector = new FakeInspector()
     inspector.waiting = true
+    const writeCompleted = Promise.withResolvers<void>()
     terminal.write = async (data) => {
       terminal.writes.push(data)
       terminal.emitData('\nSTART\n')
+      writeCompleted.resolve()
     }
     const session = makeSession(terminal, inspector, config({ timeoutMs: 500 }))
     const operation = session.startSend({ text: 'run', submit: true, readinessAfterLine: 'START' })
+    await writeCompleted.promise
     await Promise.resolve()
     await Promise.resolve()
 
@@ -1406,8 +1409,14 @@ describe('LocalPtySession readiness and output', () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()
     const inspector = new FakeInspector()
+    const writeCompleted = Promise.withResolvers<void>()
+    terminal.write = async (data) => {
+      terminal.writes.push(data)
+      writeCompleted.resolve()
+    }
     const session = makeSession(terminal, inspector, config({ scrollbackMaxBytes: 16, maxReadBytes: 16, timeoutMs: 500 }))
     const operation = session.startSend({ text: 'run', submit: true, readinessAfterLine: 'START' })
+    await writeCompleted.promise
     await Promise.resolve()
     await Promise.resolve()
 
