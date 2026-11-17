@@ -176,11 +176,11 @@ describe('TerminalController CLI terminals', () => {
     await controller.close(agent, id)
   })
 
-  it('confines PTY write and resize calls in host source to the terminal input path', () => {
+  it('confines PTY write and resize calls in host source to the terminal controller', () => {
     const sites = hostSources().flatMap(file => readFileSync(file, 'utf8').split('\n')
       .filter(line => /handle\.(write|resize)\(/u.test(line))
       .map(() => basename(file)))
-    expect(sites.sort()).toEqual(['terminal.ts', 'terminal.ts'])
+    expect(sites.sort()).toEqual(['terminal.ts', 'terminal.ts', 'terminal.ts'])
   })
 
   it('never names the agent CLIs credential or config folders in host source', () => {

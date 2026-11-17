@@ -79,7 +79,7 @@ describe('cleared subagents', () => {
   it('hides finished children, keeps running ones, reveals cleared ones for review, and remembers the choice', () => {
     const input = props()
     render(<SubagentCatalogAction {...input} />)
-    fireEvent.click(screen.getByRole('button', { name: /1 subagent running/ }))
+    fireEvent.click(screen.getByRole('button', { name: '1 subagent' }))
     expect(screen.getAllByRole('treeitem')).toHaveLength(2)
 
     fireEvent.click(screen.getByRole('button', { name: 'Clear finished (1)' }))
@@ -92,7 +92,7 @@ describe('cleared subagents', () => {
 
     cleanup()
     render(<SubagentCatalogAction {...props()} />)
-    fireEvent.click(screen.getByRole('button', { name: /1 subagent running/ }))
+    fireEvent.click(screen.getByRole('button', { name: '1 subagent' }))
     expect(screen.getAllByRole('treeitem')).toHaveLength(1)
     expect(screen.getByRole('button', { name: 'Show cleared (1)' })).toBeTruthy()
   })

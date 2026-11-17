@@ -104,7 +104,7 @@ it('writes to the PTY only from the terminal input handler', () => {
   expect(model.write).not.toHaveBeenCalled()
   fake.terminals[0]!.input?.('ls\r')
   expect(model.write).toHaveBeenCalledOnce()
-  expect(model.write).toHaveBeenCalledWith('ls\r')
+  expect(model.write).toHaveBeenCalledWith('ls\r', false)
 })
 
 it('confines PTY writes in the CLI pane and terminal screen to the input handler', () => {
@@ -114,5 +114,5 @@ it('confines PTY writes in the CLI pane and terminal screen to the input handler
   expect(pane).not.toMatch(/model\.write\(|\.resize\(/u)
   const writes = terminalSource.split('\n').filter(line => /model\.write\(/u.test(line))
   expect(writes).toHaveLength(1)
-  expect(writes[0]).toContain('xterm.onData')
+  expect(terminalSource).toMatch(/xterm\.onData\([\s\S]*?model\.write\(data, typed\)/u)
 })

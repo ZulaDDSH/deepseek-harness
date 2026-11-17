@@ -545,7 +545,7 @@ describe('SubagentHeaderLineage', () => {
     expect(screen.getAllByRole('treeitem')).toHaveLength(2)
     expect(screen.getByText('worker')).toBeTruthy()
     expect(screen.queryByText('正在扫描项目文件')).toBeNull()
-    expect(screen.getByRole('treeitem', { name: /reviewer child-2 · 一次性 · 当前未运行/ })).toBeTruthy()
+    expect(screen.getByRole('treeitem', { name: /reviewer child-2 一次性 · 当前未运行/ })).toBeTruthy()
     expect(screen.queryByRole('button', { name: '展开 worker 的下级子智能体' })).toBeNull()
     expect(screen.queryByRole('button', { name: '展开 reviewer 的下级子智能体' })).toBeNull()
 
@@ -1101,7 +1101,7 @@ describe('SubagentHeaderLineage', () => {
       }]
     })) as Record<SessionId, SessionSummary>
     const input = props(catalog({ entries }), {}, summaries, undefined, {
-      [CHILD]: {
+      ['running' as SessionId]: {
         state: 'ready', error: null,
         values: { contextPressure: { pressureTokens: 1_500, projectedTokens: 1_800 } },
       },
@@ -1419,7 +1419,7 @@ describe('SubagentHeaderLineage', () => {
     }
   })
 
-  it.each([false, true])('keeps legacy rows navigable without a migration notice, with cached descendants=%s', (cached) => {
+  it.each([false, true])('shows migration status on navigable legacy rows, with cached descendants=%s', (cached) => {
     const input = props(catalog(), cached ? {
       [CHILD]: catalog({ entries: [{ id: GRANDCHILD, mode: 'continuable', label: 'indexer', activity: 'inactive' }] }),
     } : {}, {
@@ -1432,8 +1432,8 @@ describe('SubagentHeaderLineage', () => {
     hoverCatalog(trigger)
 
     const child = screen.getByRole('treeitem', { name: /worker/ })
-    expect(within(child).queryByText(/需要迁移/)).toBeNull()
-    expect(child.getAttribute('aria-label')).not.toContain('需要迁移')
+    expect(within(child).getByText(/需要迁移/)).toBeTruthy()
+    expect(child.getAttribute('aria-label')).toContain('需要迁移')
     expect(within(child).queryByRole('button', { name: /下级子智能体/ })).toBeNull()
     fireEvent.keyDown(child, { key: 'ArrowRight' })
     expect(input.refreshProjection).not.toHaveBeenCalled()
@@ -1490,8 +1490,8 @@ describe('SubagentHeaderLineage', () => {
     expect(screen.queryByRole('treeitem', { name: /grandchild/ })).toBeNull()
     expect(screen.queryByRole('treeitem', { name: /ordinary-fork/ })).toBeNull()
     const child = screen.getByRole('treeitem', { name: /worker/ })
-    expect(within(child).queryByText(/需要迁移/)).toBeNull()
-    expect(child.getAttribute('aria-label')).not.toContain('需要迁移')
+    expect(within(child).getByText(/需要迁移/)).toBeTruthy()
+    expect(child.getAttribute('aria-label')).toContain('需要迁移')
     expect(within(child).queryByText(/模式未知/)).toBeNull()
     expect(child.hasAttribute('aria-expanded')).toBe(false)
     expect(within(child).queryByRole('button', { name: /下级子智能体/ })).toBeNull()
@@ -1550,8 +1550,8 @@ describe('SubagentHeaderLineage', () => {
     fireEvent.keyDown(child, { key: 'ArrowRight' })
     fireEvent.keyDown(child, { key: 'ArrowRight' })
     expect(input.refreshProjection).not.toHaveBeenCalled()
-    expect(within(child).queryByText(/需要迁移/)).toBeNull()
-    expect(child.getAttribute('aria-label')).not.toContain('需要迁移')
+    expect(within(child).getByText(/需要迁移/)).toBeTruthy()
+    expect(child.getAttribute('aria-label')).toContain('需要迁移')
     expect(within(child).queryByText(/模式未知/)).toBeNull()
     expect(child.hasAttribute('aria-expanded')).toBe(false)
     expect(within(child).queryByRole('button', { name: /下级子智能体/ })).toBeNull()
