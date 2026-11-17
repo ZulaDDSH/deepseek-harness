@@ -89,6 +89,7 @@ async function bench(nodes: ToolResultNode[]) {
     session: {
       openWorkspacePath: vi.fn(async () => ({ ok: true, value: { opened: true } })),
     },
+    commands: { execute: vi.fn(async () => ({ ok: true as const, value: { result: { kind: 'success' as const } } })) },
   })
   runtime.ctx.provide('configForms', { developerTools: { enabled: createSnapshotStore(true) }, get: () => stubConfigForm().scope } as never)
   runtime.ctx.provide('connection', { state: createSnapshotStore('connected') } as never)
