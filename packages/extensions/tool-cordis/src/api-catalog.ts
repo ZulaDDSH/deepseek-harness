@@ -4198,6 +4198,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'live operation handle for foreground await or task registration.',
       },
       {
+        signature: 'watchLine(owner: Agent, id: TerminalSessionId, line: string): { seen(): boolean; dispose(): void } | undefined',
+        description: 'Watches an owned terminal for a complete output line when its backend supports it.',
+        parameters: [{ name: 'owner', description: 'agent that owns the terminal.' }, { name: 'id', description: 'owned terminal identity.' }, { name: 'line', description: 'complete output line to observe.' }],
+        returns: 'a watch handle, or undefined when the backend does not support watching.',
+      },
+      {
         signature: 'read(owner: Agent, id: TerminalSessionId, request: TerminalReadRequest = {}): TerminalReadResult',
         description: 'Read one bounded scrollback page from an owned session.',
         parameters: [{ name: 'owner', description: 'exact session owner.' }, { name: 'id', description: 'target PTY identity.' }, { name: 'request', description: 'optional newest-relative offset and line count.' }],
@@ -9976,7 +9982,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'TerminalBackendSession',
-    declaration: 'export interface TerminalBackendSession {\n    readonly motd: string;\n    readonly pid?: number;\n    startSend(request: TerminalSendRequest): TerminalSendOperation;\n    read(request: TerminalReadRequest): TerminalReadResult;\n    signal(signal: TerminalSignal): Promise<TerminalSignalResult>;\n    status(): TerminalSessionStatus;\n    close(reason: string): Promise<void>;\n}',
+    declaration: 'export interface TerminalBackendSession {\n    readonly motd: string;\n    readonly pid?: number;\n    startSend(request: TerminalSendRequest): TerminalSendOperation;\n    watchLine?(line: string): {\n        seen(): boolean;\n        dispose(): void;\n    };\n    read(request: TerminalReadRequest): TerminalReadResult;\n    signal(signal: TerminalSignal): Promise<TerminalSignalResult>;\n    status(): TerminalSessionStatus;\n    close(reason: string): Promise<void>;\n}',
   },
   {
     name: 'TerminalBackendSpawnSpec',
@@ -10028,7 +10034,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'TerminalSendRequest',
-    declaration: 'export interface TerminalSendRequest {\n    text: string;\n    submit: boolean;\n    signal?: AbortSignal;\n}',
+    declaration: 'export interface TerminalSendRequest {\n    text: string;\n    submit: boolean;\n    readinessAfterLine?: string;\n    signal?: AbortSignal;\n}',
   },
   {
     name: 'TerminalSendResult',

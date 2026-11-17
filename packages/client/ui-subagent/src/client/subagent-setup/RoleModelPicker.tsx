@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
+import { MenuSurface } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './RoleModelPicker.module.css'
 
 /** One pickable entry: a model, or a special choice such as "Not configured". */
@@ -121,7 +122,7 @@ export function RoleModelPicker({
         <span className={css.caret} aria-hidden="true">▾</span>
       </button>
       {open && (
-        <div className={css.popover}>
+        <MenuSurface className={css.popover}>
           <input
             ref={search}
             type="search"
@@ -157,7 +158,7 @@ export function RoleModelPicker({
             })}
             {visible.length === 0 && <li role="presentation" className={css.empty}>{emptyText}</li>}
           </ul>
-        </div>
+        </MenuSurface>
       )}
     </div>
   )

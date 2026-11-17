@@ -94,7 +94,21 @@ Reference: `packages/api/settings-controller/src/request.ts:settingsRequest.pars
 
 `packages/bundle/web-app/cordis.patch.yml:memory-memorix` runs the Memorix that ships with the bundle. `packages/bundle/web-app/package.json` pins `memorix` 1.9.10 as a regular dependency, and `packages/bundle/web-app/src/memorix.ts:memorixLaunch` resolves its `cli/index.js` with `import.meta.resolve('memorix')` (the package exports only `.`, so `package.json` cannot be resolved) and provides `process.execPath` plus `serve --allow-untracked` as the `memorixLaunch` service that the row reads. The child runs with `ELECTRON_RUN_AS_NODE=1` so Desktop's Electron behaves as Node, and `MEMORIX_SQLITE_DRIVER=node` so no native SQLite binding is needed; this avoids a global install, a `PATH` lookup and the Windows `.cmd` shim. Memorix's own entry re-spawns `process.execPath` with a larger heap, inheriting that environment and its stdio. `pnpm-workspace.yaml:ignoredOptionalDependencies` drops `@lancedb/lancedb` (with its Hugging Face and onnxruntime stack) and `better-sqlite3`, which Memorix treats as optional. Memorix pins React 19, so `package.json` and `packages/client/store/package.json` declare React 18 as a dev dependency; without that, pnpm auto-installs the newly present React 19 as the peer of the root and store importers' React 18 packages. `scripts/verify-npm-install-layout.ts` accepts `react` only when `memorix` is in the install. Open item for the npm-published install: npm ignores the pnpm setting and installs Memorix's optional dependencies.
 
-`packages/bundle/web-app/src/memorix.ts:backupExistingDatabase` copies an existing `memorix.db` (and its `-wal` and `-shm` files) once to `memorix.db.dsh-pre-1.9.10.bak` before the bundled server first starts, because Memorix 1.9.10 may upgrade an older database in place. It never overwrites an existing copy, and a failed copy is logged without blocking the launch recipe. The data directory follows `MEMORIX_DATA_DIR`, then `~/.memorix/data`, the same rule as `MemoryWorkspace.database`.
+`scripts/verify-export-jsdoc.ts:readCodeNoteApiDocs` reads fenced `api-doc` blocks in code-notes documents, keyed by exact `file:symbol` anchors, and validates their prose, parameter tags, and return tags with the same checks used for source JSDoc. Duplicate, malformed, and unused anchors fail the gate; `packages/core/agent/tests/verify-export-jsdoc.spec.ts:codeNote` covers those cases.
+
+`packages/bundle/web-app/src/memorix.ts:backupExistingDatabase` copies an existing `memorix.db` (and its `-wal` and `-shm` files) once to `memorix.db.dsh-pre-1.9.10.bak` because Memorix 1.9.10 may upgrade an older database in place. The bundled launch hook logs backup failures and continues; `scripts/setup-memorix-desktop.mjs` imports the same function and fails without changing the profile if copying fails. Both use `MEMORIX_DATA_DIR`, then `~/.memorix/data`, matching `packages/client/ui-memory-workspace/src/index.ts:MemoryWorkspace.database`.
+
+```api-doc
+packages/bundle/web-app/src/memorix.ts:BACKUP_SUFFIX
+Suffix appended to the database path for the one-time copy kept before Memorix 1.9.10 can update an existing database.
+```
+
+```api-doc
+packages/bundle/web-app/src/memorix.ts:backupExistingDatabase
+Keep one copy of an existing Memorix database and its SQLite sidecars.
+@param dataDirectory - database directory, defaulting to MEMORIX_DATA_DIR or ~/.memorix/data.
+@returns the backup path, or undefined when no copy is needed.
+```
 
 `packages/client/ui-memory-workspace/src/automation.ts:MemoryAutomation` hands the recall promise to the `system-prompt/assemble` hook, which waits for it or for `context.signal` to abort, whichever comes first, and returns an empty recall when the turn is aborted or `chatMemory` is off. Recall therefore never holds a turn longer than `RECALL_BUDGET_MS`, and turning the switch off removes notes that were already recalled for a session. `apps/cli/tests/bundled-memorix.e2e.ts` starts the real bundled server under a temporary home and proves a save followed by a recall in a second chat.
 
@@ -1116,3 +1130,23 @@ Forwards optional `agentPreset` on the Host create RPC so the UI can open a mast
 ## packages/client/ui-plugin-manager/src/client/McpServersSection.tsx:McpServersSection
 
 `McpServersSection` renders MCP sign-in notices in a wrapping `.notice` span instead of the one-line ellipsised `.detail`, because the trailing "Open sign-in page" link was being truncated away.
+
+`packages/shell/tool-pwsh-persistent/src/index.ts:wrapCommand` encodes command text as UTF-8 Base64 before embedding it in the persistent PowerShell input line. This preserves line endings and Unicode while preventing command text from changing the wrapper's quoting; execution still uses the existing shell and status markers.
+
+# Persistent PowerShell prompt attribution
+
+`packages/shell/tool-pwsh-persistent/src/index.ts:executeCommand`, `packages/terminal/terminal/src/types.ts:TerminalSendRequest`, and `packages/terminal/terminal-bash/src/session.ts:LocalPtySession`: A prompt from an earlier command can arrive after the next send begins. The first wrapped send asks the backend to hold readiness until the current command's emitted start marker appears on its own line. The marker clears prompt and stdin-wait evidence from before command start; a foreground inspection spanning that marker is discarded and sampled again. Backends without the optional gate retain the tool's outer line-watch fallback.
+
+```api-doc
+packages/terminal/terminal/src/index.ts:TerminalSessionService.watchLine
+Watches an owned terminal for a complete output line when its backend supports it.
+@param owner - agent that owns the terminal.
+@param id - owned terminal identity.
+@param line - complete output line to observe.
+@returns a watch handle, or undefined when the backend does not support watching.
+```
+
+```api-doc
+packages/terminal/terminal-bash/src/sanitize.ts:TerminalSanitizer.resetPromptTracking
+Discards a prompt-tail candidate observed before the active send's readiness boundary.
+```

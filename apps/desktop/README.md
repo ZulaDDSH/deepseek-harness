@@ -220,6 +220,18 @@ The knowledge service owns durable shared knowledge, retrieval, source attributi
 
 <a id="package"></a>
 
+### Optional Memorix memory integration
+
+For source-tree Desktop development, the repository can add Memorix to the existing Desktop profile after that profile has been created once:
+
+```sh
+pnpm run setup:memorix:desktop
+```
+
+Stop Desktop before running the setup command, then restart it. The helper pins `memorix@1.9.10`, keeps package scripts disabled, uses Node's built-in SQLite backend, and enables Memorix through the existing DSH MCP client in `lite` mode. Before changing the profile, it backs up any existing shared database and SQLite sidecars; a backup failure stops setup. Re-running the command is idempotent when the same version is already installed and enabled.
+
+The dedicated `Memorix Desktop smoke` workflow validates Linux and Windows installation, Electron RunAsNode MCP startup, tool discovery, memory writes, process restart, and recall from a fresh MCP process. Memorix remains an experience-memory layer; it does not replace verified GARDEN evidence or task state.
+
 ## Package
 
 <a id="release-versions"></a>

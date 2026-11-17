@@ -589,7 +589,8 @@ describe('Weighted approval workflow', () => {
       'cancel-in-progress': false,
     })
     expect(job).toMatchObject({
-      if: "(github.event_name != 'pull_request_target' || github.event.pull_request.state == 'open') && "
+      if: "github.repository == 'deepseek-harness/deepseek-harness' && "
+        + "(github.event_name != 'pull_request_target' || github.event.pull_request.state == 'open') && "
         + "(github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') && "
         + "(github.event_name != 'issue_comment' || (github.event.issue.pull_request && github.event.issue.state == 'open' &&\n"
         + "  (contains(github.event.comment.body, '/delegate') || contains(github.event.changes.body.from, '/delegate'))))",
@@ -633,7 +634,7 @@ describe('Weighted approval workflow', () => {
       run: 'node .github/review-ownership/check-approval.mjs',
     })
     expect(recordJob).toMatchObject({
-      if: "github.event.pull_request.state == 'open'",
+      if: "github.repository == 'deepseek-harness/deepseek-harness' && github.event.pull_request.state == 'open'",
       name: 'record weighted approval review event',
       'runs-on': 'ubuntu-latest',
       'timeout-minutes': 2,
