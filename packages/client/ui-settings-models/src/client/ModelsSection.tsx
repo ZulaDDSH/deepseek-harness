@@ -109,7 +109,7 @@ interface CatalogDraft {
 interface ProviderEditorRenderProps extends Pick<
   ProviderEditorProps,
   'namespace' | 'schema' | 'operations' | 'authorization' | 'credentialsRevision' | 't' | 'readOnly'
-  | 'onCredentialChanged' | 'onClose' | 'modelOptions' | 'hideSignIn'
+  | 'onCredentialChanged' | 'onClose' | 'hideSignIn'
 > {
   target: EditorTarget
   row: ProviderRow
