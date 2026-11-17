@@ -513,6 +513,7 @@ flowchart TD
   pkg_atomic_write --> pkg_error
   pkg_llm --> pkg_error
   pkg_session --> pkg_scope
+  pkg_api_quota_controller --> pkg_credentials
   pkg_api_remotes --> pkg_scope
   pkg_attachment --> pkg_error
   pkg_client_connection --> pkg_scope
@@ -1678,7 +1679,6 @@ flowchart TD
 | [`fs-patch`](../packages/fs/fs-patch) | `fs` | — |
 | [`api-gateway`](../packages/api/gateway) | `api` | — |
 | [`api-job-controller`](../packages/api/job-controller) | `api` | — |
-| [`api-quota-controller`](../packages/api/quota-controller) | `api` | — |
 | [`api-remote-access`](../packages/api/remote-access) | `api` | — |
 | [`api-workspace-files`](../packages/api/workspace-files) | `api` | — |
 | [`cmdline`](../packages/boot/cmdline) | `boot` | — |
@@ -1810,6 +1810,7 @@ flowchart TD
 | [`atomic-write`](../packages/util/atomic-write) | `util` | [`error`](../packages/util/error) |
 | [`llm`](../packages/llm/llm) | `llm` | [`error`](../packages/util/error) |
 | [`session`](../packages/core/session) | `core` | [`scope`](../packages/core/scope) |
+| [`api-quota-controller`](../packages/api/quota-controller) | `api` | [`credentials`](../packages/credentials/credentials) |
 | [`api-remotes`](../packages/api/remotes) | `api` | [`scope`](../packages/core/scope) |
 | [`attachment`](../packages/attachment/attachment) | `attachment` | [`error`](../packages/util/error) |
 | [`client-connection`](../packages/client/connection) | `client` | [`scope`](../packages/core/scope) |
