@@ -153,7 +153,7 @@ export function ModelSelect(
   const groupsRef = useRef<HTMLDivElement | null>(null)
   const [menuPos, setMenuPos] = useState<CSSProperties | null>(null)
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([])
-  const detailInvoker = useRef<HTMLButtonElement | null>(null)
+  const detailInvoker = useRef<string | null>(null)
   const moreModelsRef = useRef<HTMLButtonElement | null>(null)
   const rootProviderRef = useRef<string | null>(null)
   const id = useId()
@@ -291,7 +291,9 @@ export function ModelSelect(
       return
     }
     if (intent === 'detail') {
-      ;(detailInvoker.current ?? triggerRef.current)?.focus()
+      const invoker = [...menuRef.current?.querySelectorAll<HTMLButtonElement>('[data-model-menu-pane]') ?? []]
+        .find(button => button.dataset['modelMenuPane'] === detailInvoker.current)
+      ;(invoker ?? triggerRef.current)?.focus()
       return
     }
     const providerCell = intent === 'model' && rootProviderRef.current !== null
@@ -518,7 +520,7 @@ export function ModelSelect(
     reportFailure: (message) => { setToast({ seq: ++toastSeq.current, text: message }) },
   }
   const openPane = (next: ModelMenuPaneRef): void => {
-    detailInvoker.current = document.activeElement instanceof HTMLButtonElement ? document.activeElement : null
+    detailInvoker.current = next.key
     paneFocus.current = 'drill'
     setDetailPane(next)
     setPane('detail')

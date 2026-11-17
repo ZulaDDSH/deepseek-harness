@@ -1067,3 +1067,7 @@ The runtime type declaration override resolves distinct Office rendering generat
 `scripts/plugin-preview-assets.spec.ts`: English plugin previews must remain self-contained 640 by 300 SVGs within the per-file size limit.
 
 `packages/shell/tool-pwsh-persistent/src/index.ts:wrapCommand` encodes command text as UTF-8 Base64 before embedding it in the persistent PowerShell input line. This preserves line endings and Unicode while preventing command text from changing the wrapper's quoting; execution still uses the existing shell and status markers.
+
+## Model menu focus
+
+`packages/client/ui-model-selection/src/client/ModelSelect.tsx:ModelSelect` remembers the detail pane key and finds its matching root-menu button after returning, since the original button is unmounted while the pane is open.
