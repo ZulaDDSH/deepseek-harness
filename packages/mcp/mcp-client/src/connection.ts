@@ -496,7 +496,8 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
       const result = closureFailure ?? status.closure()
       status.recordClosure(result)
       status.update({ state: 'closed', result })
-      if (!result.closeConfirmed || result.cleanupError !== undefined) ctx.logger.error(`${label}: cleanup incomplete`)
+      if (!result.closeConfirmed) ctx.logger.error(`${label}: transport closure could not be confirmed`)
+      else if (result.cleanupError !== undefined) ctx.logger.error(`${label}: cleanup incomplete`)
     },
     status: () => status.current(),
     authRequired: () => authPending,
