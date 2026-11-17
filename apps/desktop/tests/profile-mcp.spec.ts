@@ -8,6 +8,8 @@ import { expect, it } from 'vitest'
 import { composeEntries, loadProfileDirectory } from '@deepseek-ai/dsh-app-boot'
 import { createPluginProfile } from '../src/project-manager.ts'
 
+const clientPackage = '@deepseek-ai/dsh-mcp-client'
+
 it('retains one shared resource consumer in the Desktop Web profile', () => {
   const home = mkdtempSync(join(tmpdir(), 'dsh-desktop-profile-mcp-'))
   try {
@@ -24,7 +26,9 @@ it('retains one shared resource consumer in the Desktop Web profile', () => {
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-mcp-resources')).toEqual([
       { id: 'mcp-resources', name: '@deepseek-ai/dsh-mcp-resources' },
     ])
-    expect(rows.filter(row => row.name === '@deepseek-ai/dsh-mcp-client')).toEqual([])
+    expect(rows.filter(row => row.name === clientPackage).map(({ id, name }) => ({ id, name }))).toEqual([
+      { id: 'memory-memorix', name: clientPackage },
+    ])
     expect(rows.find(row => row.id === 'webserver')).toMatchObject({ name: '@deepseek-ai/dsh-host-webserver' })
     expect(rows.find(row => row.id === 'webserver')?.disabled).not.toBe(true)
     expect(warnings).toEqual([])
