@@ -8,7 +8,7 @@ import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ComposerChainProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
+import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import {
   SubagentHeaderLineage, type SubagentCatalogInjected, type SubagentCatalogActionInjected,
 } from '../src/client/SubagentHeaderLineage.tsx'
@@ -87,7 +87,7 @@ async function fullBench(sessions: SessionSummary[]) {
     },
   } as never)
   await provideSlotFaces(ctx)
-  await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
+  ctx.provide('locale', new LocaleRuntime(ctx))
   await ctx.plugin({ inject: [...inject], apply }).await()
   return { face, ctx }
 }
@@ -117,6 +117,7 @@ describe('apply', () => {
     const { ctx, face } = await fullBench(FAMILY)
     const catalogEntry = ctx.slots.entries('conversation.session.header.lineage')
       .find(entry => entry.component === SubagentHeaderLineage)!
+    expect(catalogEntry).toBeDefined()
     const actions = (catalogEntry.inject as unknown as (id: SessionId) => SubagentCatalogInjected)(sid('parent'))
     const address: SubagentAddress = {
       parentSessionId: sid('parent'),
