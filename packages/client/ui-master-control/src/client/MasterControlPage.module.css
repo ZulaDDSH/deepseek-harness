@@ -518,6 +518,8 @@
 }
 
 .preview {
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   max-height: 180px;
