@@ -2,7 +2,7 @@ import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { ALL_HOOKS, type HookInventoryReport } from '@deepseek-ai/dsh-hook-protocol'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
-import { provideWorkingDirectoryFixture, mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { createInboxStub, provideWorkingDirectoryFixture, mountAgentLoopTestDependencies, unsupportedModel } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync, chmodSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -68,6 +68,25 @@ function waitForIdle(_ctx: Context, agent: Agent): Promise<void> {
   return agent.whenIdle()
 }
 function events(agent: Agent): readonly SessionEvent[] { return agent.session.snapshotEvents() }
+function subagent(ctx: Context, id: SessionId, inject: Agent['inject']): Agent {
+  const scope = ctx.plugin(() => {})
+  return {
+    id,
+    session: ctx.sessions.create(id),
+    options: {},
+    model: unsupportedModel(),
+    inbox: createInboxStub(),
+    status: 'idle',
+    ctx: scope.ctx,
+    send() {},
+    followup() {},
+    steer() {},
+    inject,
+    cancel() {},
+    whenIdle: () => Promise.resolve(),
+    runMaintenance: task => task(new AbortController().signal),
+  }
+}
 /** Poll until `predicate` holds or the deadline passes — robust to detached
  * emit-listener hooks firing on a `.then` (a fixed sleep flakes under load). */
 async function waitFor(predicate: () => boolean, timeout = 5000, interval = 10): Promise<void> {
@@ -246,13 +265,10 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const path = hooks(d, { SubagentStart: [{ hooks: [{ type: 'command', command: s }] }] })
       const ctx = await harness(path, new MockAdapter([]))
       const injected: string[] = []
-      const child = {
-        id: SessionId('child-x'),
-        inject: (input: { content: Array<{ type: string; text?: string }> }) => {
-          injected.push(input.content.map(block => block.text ?? '').join(''))
-        },
-        session: { id: SessionId('child-x'), header: { id: 'child-x' } },
-      } as unknown as Parameters<typeof ctx.agents.register>[0]
+      const childId = SessionId('child-x')
+      const child = subagent(ctx, childId, ({ content }) => {
+        injected.push(content.map(block => block.type === 'text' ? block.text : '').join(''))
+      })
       await ctx.agents.register(child)
       ctx.emit(subagentCarrier(ctx), 'subagent/start', { runId: SubagentRunId('run-x'), provider: 'p', id: SessionId('child-x'), local: true })
       await waitFor(() => injected.includes('child guidance'))
@@ -268,7 +284,8 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const path = hooks(d, { SubagentStart: [{ hooks: [{ type: 'command', command: s }] }] })
       const ctx = await harness(path, new MockAdapter([]))
       const warn = vi.fn(); ctx.logger.warn = warn as never
-      const child = { id: SessionId('child-y'), inject: () => { throw new Error('inject boom') }, session: { id: SessionId('child-y'), header: { id: 'child-y' } } } as unknown as Parameters<typeof ctx.agents.register>[0]
+      const childId = SessionId('child-y')
+      const child = subagent(ctx, childId, () => { throw new Error('inject boom') })
       await ctx.agents.register(child)
       ctx.emit(subagentCarrier(ctx), 'subagent/start', { runId: SubagentRunId('run-y'), provider: 'p', id: SessionId('child-y'), local: true })
       await waitFor(() => warn.mock.calls.some(c => String(c[0]).includes('SubagentStart hook failed')))

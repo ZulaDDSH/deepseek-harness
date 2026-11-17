@@ -43,6 +43,7 @@ interface TerminalBackendSession {
   readonly pid?: number
   /** Start one exclusive send operation. */
   startSend(request: TerminalSendRequest): TerminalSendOperation
+  watchLine?(line: string): { seen(): boolean; dispose(): void }
   /** Read one bounded page from retained scrollback. */
   read(request: TerminalReadRequest): TerminalReadResult
   /** Signal the verified foreground process group. */
@@ -57,6 +58,19 @@ interface TerminalBackendSession {
 ## Send and retained output
 
 One live session accepts one active send. Its operation exposes a consuming output cursor for generic background jobs and one terminal result for a foreground caller. `TerminalReadResult` separately pages the bounded session scrollback.
+
+```ts type-equiv
+/** Input for one line-oriented terminal interaction. */
+interface TerminalSendRequest {
+  /** UTF-8 text to write. */
+  text: string
+  /** Whether to write the backend's Enter sequence after {@link text}. */
+  submit: boolean
+  readinessAfterLine?: string
+  /** Cancellation for the wait; backends also interrupt the foreground command. */
+  signal?: AbortSignal
+}
+```
 
 ```ts type-equiv
 /** Live backend-owned send; exactly one may be active per PTY session. */
@@ -140,6 +154,15 @@ hasOwnerActivity(owner: Agent): boolean
  * @returns live operation handle for foreground await or task registration.
  */
 startSend(owner: Agent, id: TerminalSessionId, request: TerminalSendRequest): TerminalSendOperation
+
+/**
+ * Watches an owned terminal for a complete output line when its backend supports it.
+ * @param owner - Agent that owns the terminal.
+ * @param id - Owned terminal identity.
+ * @param line - Complete output line to observe.
+ * @returns A watch handle, or undefined when the backend does not support watching.
+ */
+watchLine(owner: Agent, id: TerminalSessionId, line: string): { seen(): boolean; dispose(): void } | undefined
 
 /**
  * Read one bounded scrollback page from an owned session.

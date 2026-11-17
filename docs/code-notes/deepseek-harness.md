@@ -1116,3 +1116,23 @@ Forwards optional `agentPreset` on the Host create RPC so the UI can open a mast
 ## packages/client/ui-plugin-manager/src/client/McpServersSection.tsx:McpServersSection
 
 `McpServersSection` renders MCP sign-in notices in a wrapping `.notice` span instead of the one-line ellipsised `.detail`, because the trailing "Open sign-in page" link was being truncated away.
+
+`packages/shell/tool-pwsh-persistent/src/index.ts:wrapCommand` encodes command text as UTF-8 Base64 before embedding it in the persistent PowerShell input line. This preserves line endings and Unicode while preventing command text from changing the wrapper's quoting; execution still uses the existing shell and status markers.
+
+# Persistent PowerShell prompt attribution
+
+`packages/shell/tool-pwsh-persistent/src/index.ts:executeCommand`, `packages/terminal/terminal/src/types.ts:TerminalSendRequest`, and `packages/terminal/terminal-bash/src/session.ts:LocalPtySession`: A prompt from an earlier command can arrive after the next send begins. The first wrapped send asks supporting backends to hold readiness until its start marker appears on its own line. The marker clears prompt and stdin-wait evidence from before command start; a foreground inspection spanning that marker is sampled again. Backends without the optional gate retain the tool's outer line-watch fallback.
+
+```api-doc
+packages/terminal/terminal/src/index.ts:TerminalSessionService.watchLine
+Watches an owned terminal for a complete output line when its backend supports it.
+@param owner - Agent that owns the terminal.
+@param id - Owned terminal identity.
+@param line - Complete output line to observe.
+@returns A watch handle, or undefined when the backend does not support watching.
+```
+
+```api-doc
+packages/terminal/terminal-bash/src/sanitize.ts:TerminalSanitizer.resetPromptTracking
+Discards a prompt-tail candidate observed before the active send's readiness boundary.
+```
