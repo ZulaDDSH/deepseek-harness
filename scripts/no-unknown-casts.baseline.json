@@ -1012,9 +1012,7 @@
     "38a7cf3dfd5da2f739390f5b233b97731f3bfa1ac3a51fdb8e1594735764bb80": 1
   },
   "packages/experimental/hooks-claude-code/tests/coverage-cases.ts": {
-    "38a7cf3dfd5da2f739390f5b233b97731f3bfa1ac3a51fdb8e1594735764bb80": 1,
-    "54f541ed10b92b1386306754b4a96741f6d9e40058ddac191f5aed03af30c32a": 1,
-    "593ac2fabae51a87153bf285d326f2de6ddb84bf2581f2ac280083b9bc130188": 1
+    "38a7cf3dfd5da2f739390f5b233b97731f3bfa1ac3a51fdb8e1594735764bb80": 1
   },
   "packages/experimental/hooks-codex/tests/bridge.spec.ts": {
     "bced8a97654435422589a4bdd1b46b5147d4120cd5b496dcf055c453494ce0ab": 1
