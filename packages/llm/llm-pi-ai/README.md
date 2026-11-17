@@ -110,6 +110,8 @@ A provider pi-ai ships a login for can be signed into through the harness author
 
 A profile's `models` list replaces the route's installed catalog rather than extending it; each entry defaults its unset fields from the installed model of the same id, so narrowing a route to two models, correcting one capacity, or adding a model newer than the installed catalog are one-line edits. `modelOverrides` reshapes individual installed-catalog models without that cost — correct one model, keep the other thirty-seven — and is refused when set beside a `models` list, on a hand-declared route, or naming a model the catalog does not describe, because a silently unchanged model would be a typo someone hunts for later.
 
+The bundled catalog also includes Claude Fable 5.2 until the installed pi-ai catalog supplies it. Its adaptive thinking is always enabled, with low through max effort levels.
+
 A model can declare selectable request modes under `modes`. The selector adds an entry named `<id>-<mode>`; for example, the configuration above offers `gpt-5.6-luna-fast`. A mode keeps the provider's base model id and sends its configured `serviceTier` as `service_tier`; modes are supported by `openai-codex-responses` and `openai-responses`.
 
 ### Run with reasoning and wire compatibility

@@ -84,6 +84,7 @@ export interface ProviderEditorProps {
    * mounting no authorization registry offers.
    */
   authorization?: AuthorizationOperations
+  hideSignIn?: boolean
   /**
    * Bumped when a credential record was written elsewhere — another tab's
    * sign-in — so a mounted sign-in card re-reads the state it shows.
@@ -540,7 +541,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
     }
     return (
       <>
-        {authorization === undefined || props.credentialOnly === true ? null : (
+        {authorization === undefined || props.credentialOnly === true || props.hideSignIn === true ? null : (
           <SignInCard
             provider={props.provider}
             displayName={props.displayName}

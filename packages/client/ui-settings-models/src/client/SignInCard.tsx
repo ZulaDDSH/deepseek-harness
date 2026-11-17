@@ -15,7 +15,7 @@
  * @module dsh-client-ui-settings-models/client/SignInCard
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { AuthorizationEntryView, AuthorizationNotice } from '@deepseek-ai/dsh-api-settings-controller/types'
 import type { AuthorizationOperations } from './authorization-operations.ts'
@@ -68,6 +68,7 @@ export interface SignInCardProps {
  */
 export function SignInCard(props: SignInCardProps): ReactNode {
   const { provider, displayName, operations, t, refresh, onSignedIn, onUseApiKey } = props
+  const answerId = useId()
   const [entry, setEntry] = useState<AuthorizationEntryView | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [phase, setPhase] = useState<SignInPhase>({ status: 'idle' })
@@ -278,9 +279,9 @@ export function SignInCard(props: SignInCardProps): ReactNode {
             </>
           ) : (
             <div className={styles['signInAnswerRow']}>
-              <label className={styles['signInQuestionLabel']} htmlFor="sign-in-answer">{question.message}</label>
+              <label className={styles['signInQuestionLabel']} htmlFor={answerId}>{question.message}</label>
               <input
-                id="sign-in-answer"
+                id={answerId}
                 className={styles['input']}
                 type={question.kind === 'secret' ? 'password' : 'text'}
                 value={draft}
