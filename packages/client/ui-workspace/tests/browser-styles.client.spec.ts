@@ -47,7 +47,8 @@ describe('WorkspaceBrowser.module.css list', () => {
 
   // The scroll-state rule repeats the expanded list-area selector, so ordinary rules are read before it.
   const [ordinaryCss = '', scrollStateCss = ''] = css.split('@container scroll-state(scrollable: bottom)')
-  const expandedListArea = declarationsFrom(ordinaryCss, '.root:not(.rail) .listArea')
+  const expandedSelectors = ['.root:not(.rail) .listArea:not(.listAreaStacked)', '.root:not(.rail) .listAreaStacked .workspacePane']
+  const expandedListArea = declarationsFrom(ordinaryCss, expandedSelectors[0]!)
 
   it('scrolls the expanded list area as the section\'s own scroller while rows keep natural height', () => {
     expect(list?.get('overflow')).toBe('visible')
@@ -64,6 +65,7 @@ describe('WorkspaceBrowser.module.css list', () => {
     expect(expandedListArea?.get('margin-right')).toBe('calc(2px - var(--dsh-sidebar-inline-padding))')
     expect(expandedListArea?.get('padding-right'))
       .toBe('calc(var(--dsh-sidebar-inline-padding) - var(--dsh-scrollbar-width) - 2px)')
+    expect(declarationsFrom(ordinaryCss, expandedSelectors[1]!)).toEqual(expandedListArea)
     expect(root?.get('padding-right')).toBeUndefined()
     expect(declarations('.rail .listArea')).toBeUndefined()
     expect(declarations('.list::-webkit-scrollbar')).toBeUndefined()
@@ -71,7 +73,7 @@ describe('WorkspaceBrowser.module.css list', () => {
 
   it('leaves user scrolling to the sidebar viewport until it reaches its end', () => {
     const block = /^ \{([\s\S]*?)\n\}/.exec(scrollStateCss)?.[1] ?? ''
-    expect(declarationsFrom(block, '.root:not(.rail) .listArea')?.get('overflow-y')).toBe('hidden')
+    for (const selector of expandedSelectors) expect(declarationsFrom(block, selector)?.get('overflow-y')).toBe('hidden')
   })
 
   it('keeps the expanded section at most one viewport tall, and exactly that tall while searching', () => {
@@ -237,10 +239,8 @@ describe('WorkspaceBrowser.module.css list', () => {
     // The two panes sit in one column, so their scrollbars must occupy the
     // same track width and offset or the divider reads as misaligned.
     const pane = declarations('.sectionsScroll')
-    const list = declarations('.list')
     expect(pane?.get('margin-right')).toBe('var(--dsh-session-list-scrollbar-offset)')
-    expect(pane?.get('margin-right')).toBe(list?.get('margin-right'))
-    expect(pane?.get('padding-right')).toBe(list?.get('padding-right'))
+    expect(pane?.get('padding-right')).toBe('calc( var(--dsh-session-list-edge-inset) - var(--dsh-session-list-scrollbar-width) - var(--dsh-session-list-scrollbar-offset) )')
     expect(pane?.get('scrollbar-gutter')).toBe('stable')
   })
 
