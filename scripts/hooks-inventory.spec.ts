@@ -22,7 +22,7 @@ it.each([Codex, Claude])('collects loaded hooks through the Loader without execu
   ctx.loader.builtins.hooks = bridge
   const source = join(root, 'hooks.json')
   writeFileSync(source, JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [
-    { type: 'command', command: 'check-policy' }, { type: 'prompt', prompt: 'unsupported' },
+    { type: 'command', command: 'check-policy' }, { type: 'unsupported' },
   ] }] } }))
   await ctx.loader.create({ name: 'cordis:hooks', config: { configPath: source } })
   const collect = (): HookInventoryReport[] => {
