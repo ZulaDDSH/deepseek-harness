@@ -14,9 +14,11 @@ export interface ChangedFilesDockInjected extends Pick<DeliverablesInjected, 'lo
   }
 }
 
+export type ChangedFilesDockProps = Pick<PropsRuntime<'conversation.input.dock'>, 'sessionId' | 'useChat'>
+  & Pick<GlobalStandardProps, 'useSessions'> & PropsLocale<typeof NS> & InjectFace<ChangedFilesDockInjected>
+
 export function ChangedFilesDock({ sessionId, useSessions, useChat, useShowCodeDiff, useChangesSummary, useChangesDiff,
-  loadChangesSummary, loadChangesDiff, openChangesReview, t }: PropsRuntime<'conversation.input.dock'>
-  & Pick<GlobalStandardProps, 'useSessions'> & PropsLocale<typeof NS> & InjectFace<ChangedFilesDockInjected>) {
+  loadChangesSummary, loadChangesDiff, openChangesReview, t }: ChangedFilesDockProps) {
   const show = useShowCodeDiff(value => value)
   const announced = useChat(snapshot => {
     const timeline = snapshot?.timeline
