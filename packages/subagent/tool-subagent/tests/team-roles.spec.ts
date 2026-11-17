@@ -21,8 +21,8 @@ describe('dsh-tool-subagent Team roles', () => {
       parentAgentOptions: { provider: 'alpha', model: 'parent-model' },
     }, { onStart: request => { requests.push(request) } })
     ctx.llm.registerAdapter(['alpha'], new MockAdapter([], REASONING))
-    ctx.set('agentTeams', { isEnabled: () => true } as never)
-    ctx.set('sessionController', {
+    ctx.provide('agentTeams', { isEnabled: () => true } as never)
+    ctx.provide('sessionController', {
       teamRoleDefaultOf: () => ({ backend: 'llm', provider: 'alpha', model: 'allowed-model', reasoningEffort: 'high' }),
       missingCredentialProvider: async () => false,
     } as never)
@@ -43,8 +43,8 @@ describe('dsh-tool-subagent Team roles', () => {
     const start = vi.fn()
     const ctx = await setup({ provider: 'mock', withModelSelection: true }, { onStart: start })
     ctx.llm.registerAdapter(['alpha'], new MockAdapter([], REASONING))
-    ctx.set('agentTeams', { isEnabled: () => true } as never)
-    ctx.set('sessionController', {
+    ctx.provide('agentTeams', { isEnabled: () => true } as never)
+    ctx.provide('sessionController', {
       teamRoleDefaultOf: () => ({ backend: 'llm', provider: 'alpha', model: 'allowed-model' }),
       missingCredentialProvider: async () => true,
     } as never)
@@ -60,8 +60,8 @@ describe('dsh-tool-subagent Team roles', () => {
     const start = vi.fn()
     const ctx = await setup({ provider: 'mock' }, { onStart: start })
     const lookup = vi.fn(() => { throw new Error('role lookup should not run') })
-    ctx.set('agentTeams', { isEnabled: () => false } as never)
-    ctx.set('sessionController', { teamRoleDefaultOf: lookup } as never)
+    ctx.provide('agentTeams', { isEnabled: () => false } as never)
+    ctx.provide('sessionController', { teamRoleDefaultOf: lookup } as never)
 
     const result = await callSubagent(ctx, { description: 'ordinary child', prompt: 'work', role: 'coder' })
 
