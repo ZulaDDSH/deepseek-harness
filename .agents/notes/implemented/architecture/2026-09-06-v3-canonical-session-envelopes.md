@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-09-06-v3-canonical-session-envelopes.zh.md)
-
 ## Problem
 
 A Session event can cross in-memory, durable, and browser-wire readers. If its type permits missing placement or unrelated surface metadata, a reader can silently omit a message or disagree about which fields affect reconstruction. Multiple spellings for replacement endpoints and empty request-header optionals also allow different stored records to describe the same request. Contradictory tool failure metadata can make model history and diagnostics report different outcomes.
@@ -14,7 +12,7 @@ Session format V3 uses one canonical event envelope. Every `system/message`, `us
 
 `SurfaceOp` is exactly `'append'` or `{ op: 'replace', startSeq, endSeq }`, with `SessionSeq` endpoints and no aliases or extra keys. Both endpoints precede the replacing event and identify an inclusive span in current surface order, not numeric sequence order. Session acceptance additionally verifies current membership, ordered endpoints, complete cited coverage, and content-only single-node tool-result replacement. Compaction payload fields such as `shadowedRange.start/end` and fold-result fields retain their own names; this is not a recursive payload rename.
 
-Current acceptance rejects every `request/header.header.system` and exactly empty `tools: []` or `adapterDefaults: {}`. System prompts belong to `system/message`; `request/header` remains the non-history request snapshot. Writers omit the two empty optionals. Whitespace-only system content, `config.stop: []`, nested header/source/data extras, and nested tool schema values remain intact. A `tool/result` with `data.error` requires `message.content[0].isError === true`; a failed result need not carry error identity. Neither current reads nor migration infer an error outcome from contradictory metadata.
+Current acceptance rejects every `request/header.header.system` and exactly empty `tools: []` or `adapterDefaults: {}`. System prompts belong to `system/message`; `request/header` remains the non-history request snapshot. Writers omit the two empty optionals. Whitespace-only system content, `config.stop: []`, nested header/source/data extras, and nested tool schema values remain intact. A `tool/result` with `data.error` requires `message.isError === true`; a failed result need not carry error identity. Neither current reads nor migration infer an error outcome from contradictory metadata.
 
 ### Validation ownership
 

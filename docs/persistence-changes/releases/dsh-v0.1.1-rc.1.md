@@ -5,8 +5,6 @@ kind: persistence-release
 
 # Persistence release: dsh-v0.1.1-rc.1
 
-English | [中文](dsh-v0.1.1-rc.1.zh.md)
-
 ## Summary
 
 permission/preset gains optional origin with default, selection, and inferred values. The writer format remains 0.
@@ -59,18 +57,18 @@ changes:
 
 <!-- persistence-release-changes:start -->
 
-Detected 1 changed root and 1 structural difference. The minimum below is calculated using current rules for comparison only; it does not assert historical compliance, migration correctness, or runtime compatibility.
+Detected 1 changed root and 1 structural difference. The review requirement below is calculated using current rules for comparison only; it does not assert historical compliance, migration correctness, or runtime compatibility.
 
-| Path | Change | Current minimum |
+| Path | Change | Review requirement |
 |---|---|---|
-| `event:permission/preset.data.origin` | `optional-property-added` | `same-version` |
+| `event:permission/preset.data.origin` | `optional-property-added` | `not-required` |
 
 <!-- persistence-release-changes:end -->
 
 <a id="verification"></a>
 ## Verification
 
-Extraction passed canonical-graph, root-digest, and reachable-type-digest validation, permitting the original optional `surfaceOp` only for historical surface events. The in-tree check reconstructs each tag from its predecessor and verifies before/after values, snapshot coverage, and bilingual machine declarations.
+Extraction passed canonical-graph, root-digest, and reachable-type-digest validation, permitting the original optional `surfaceOp` only for historical surface events. The in-tree check reconstructs each tag from its predecessor and verifies before/after values, snapshot coverage, and machine declarations.
 
 ```sh
 pnpm run verify-persistence-releases

@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-session-stats
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 This package gives clients whole-session turn and step counts plus LLM, tool, first-token, and decode wall times through the public `sessionStats` value. The figures come from the complete durable log, so paging and compaction do not change them. Use it when a client must display consistent conversation statistics across reloads and reduced history. When whole-session statistics are unavailable, clients can use window-scoped counting instead.
@@ -130,5 +128,3 @@ These limits define what the figures describe and when the unit is absent. They 
 None.
 
 </details>
-
-**Runtime invariant:** No companion is published. The package owns a single pure projection fold whose wire payload is schema-validated by the projection registry at every snapshot and change-feed emission, and the event relations the fold relies on (`step/end` exactly once per entered step, monotonic host-assigned turn numbers, chunk and tool events carrying their step coordinates and call ids) are owned and runtime-checked by dsh-agent-loop and the session surface, not here.

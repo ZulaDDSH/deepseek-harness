@@ -17,8 +17,8 @@ const root = resolve(import.meta.dirname, '..')
 export const GROUPS_WITHOUT_SUBSYSTEM_PAGE: Readonly<Record<string, string>> = {
   acp: 'Protocol transport entry point; the server package README owns its interoperability contract.',
   bundle: 'Composition patch carriers whose mounted packages own all runtime contracts.',
-  hooks: 'External hook-protocol bridges over existing interception points, not a new Harness service.',
   sdk: 'Out-of-process protocol and client packages whose package READMEs own the SDK contracts.',
+  'test-support': 'Repository test harnesses; docs/testing.md owns the testing policy they serve.',
   util: 'Low-level primitives whose business semantics remain with their consuming subsystems.',
 }
 
@@ -53,7 +53,7 @@ function subsystemLinks(source: string): string[] {
     if (node.type !== 'link') return
     const match = /^\.\.\/\.\.\/docs\/subsystems\/([^/#?]+\.md)(?:#[^?#]*)?$/.exec(node.url)
     const page = match?.[1]
-    if (page !== undefined && page !== 'README.md' && !page.endsWith('.zh.md')) links.add(`docs/subsystems/${page}`)
+    if (page !== undefined && page !== 'README.md') links.add(`docs/subsystems/${page}`)
   })
   return [...links].sort()
 }

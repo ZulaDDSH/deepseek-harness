@@ -27,11 +27,14 @@ const MODE = webSnapshotMode()
 
 interface OtlpCapture {
   resourceLogs: { scopeLogs: { logRecords: {
+    eventName: string
     attributes: { key: string; value: { stringValue?: string; intValue?: number | string } }[]
   }[] }[] }[]
 }
 
 const PROMPT = 'Reply with the single word LIGHTHOUSE and stop.'
+/* The mock route runs its turn on a model other than the selected one, so only it shows the Jev routing button. */
+const ROUTED_MODEL_LINE = /^\s*- 'button "Jev: .*\n/m
 
 describe.each(MODE === 'record' ? ['deepseek-official'] : ['deepseek-official', 'feedback-mock'])('web e2e: feedback release for %s', (provider) => {
   const official = provider === 'deepseek-official'
@@ -53,8 +56,11 @@ describe.each(MODE === 'record' ? ['deepseek-official'] : ['deepseek-official', 
       return capture.resourceLogs.flatMap(resource => resource.scopeLogs.flatMap(scope =>
         scope.logRecords.map((record) => {
           const attribute = (key: string) => record.attributes.find(value => value.key === key)?.value
-          return [attribute('session.id')?.stringValue, Number(attribute('event.seq')?.intValue),
-            attribute('event.type')?.stringValue] as [string | undefined, number, string | undefined]
+          expect(record.eventName).toBe('session-log')
+          const content = attribute('content')?.stringValue
+          expect(typeof content).toBe('string')
+          const event = JSON.parse(content!) as SessionEvent
+          return [attribute('sessionId')?.stringValue, event.seq, event.type] as [string | undefined, number, string | undefined]
         })))
     })
   }
@@ -71,6 +77,10 @@ describe.each(MODE === 'record' ? ['deepseek-official'] : ['deepseek-official', 
     const expected = authorized.map(event => [sessionId, event.seq, event.type])
     // No teardown, flush hook, or subsequent interaction may cause this delivery.
     await expect.poll(captured, { timeout: 10_000 }).toEqual(expected)
+    const uploadedEvents = uploads.flatMap(upload => (JSON.parse(upload) as OtlpCapture).resourceLogs
+      .flatMap(resource => resource.scopeLogs.flatMap(scope => scope.logRecords))
+      .map(record => JSON.parse(record.attributes.find(attribute => attribute.key === 'content')!.value.stringValue!) as SessionEvent))
+    expect(uploadedEvents).toEqual(authorized)
     suffixes.push(authorized.slice(releasedCount).map(event => event.type))
     releasedCount = authorized.length
     expect(scaffold.ctx.agents.get(sessionId)).toBe(agent)
@@ -79,7 +89,6 @@ describe.each(MODE === 'record' ? ['deepseek-official'] : ['deepseek-official', 
   async function selectModel(name: string): Promise<void> {
     const trigger = page.getByRole('button', { name: /^Select model, current/ })
     await trigger.click()
-    await page.getByRole('menuitem', { name: /^Model\b/ }).click()
     await page.getByRole('menuitemradio', { name, exact: true }).click()
     await expect.poll(() => trigger.getAttribute('aria-label')).toContain(name)
     // The durable projection can update the label before the selection reply closes the menu.
@@ -183,13 +192,14 @@ describe.each(MODE === 'record' ? ['deepseek-official'] : ['deepseek-official', 
     expect(await page.getByText(/Anonymous user: [0-9a-f-]+\.$/i).count()).toBe(1)
     await expectFeedbackRelease('feedback/record', 1)
 
-    const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
+    const shared = (aria: string): string => official ? aria : aria.replace(ROUTED_MODEL_LINE, '')
+    const snapshot = shared(await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
     await compareOrRefreshGolden(ACK_EXPECTED, snapshot, MODE)
-    const expanded = await captureExpandedTurnProcessAria(
+    const expanded = shared(await captureExpandedTurnProcessAria(
       page,
       '[class*="centerCol"]',
       scaffold.workspaceCwd,
-    )
+    ))
     await compareOrRefreshGolden(ACK_EXPANDED_EXPECTED, expanded, MODE)
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
@@ -268,7 +278,9 @@ describe.each(MODE === 'record' ? ['deepseek-official'] : ['deepseek-official', 
       }
     })
     await compareOrRefreshGolden(RELEASE_EXPECTED, JSON.stringify({
-      mode: 'FEEDBACK_ONLY', feedback,
+      mode: 'FEEDBACK_ONLY',
+      eventName: (JSON.parse(uploads[0]!) as OtlpCapture).resourceLogs[0]!.scopeLogs[0]!.logRecords[0]!.eventName,
+      feedback,
       // The prefix is compared with each provider's actual canonical log above.
       laterSubmissionSuffixes: suffixes.slice(1),
     }, null, 2), MODE)

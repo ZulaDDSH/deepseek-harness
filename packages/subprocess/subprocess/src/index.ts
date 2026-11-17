@@ -9,7 +9,7 @@
  */
 
 import { Context, Service } from '@deepseek-ai/cordis'
-import { proxyEnvironmentForChild } from '@deepseek-ai/dsh-http-proxy'
+import { inheritedProxyEnvironment, proxyEnvironmentForChild } from '@deepseek-ai/dsh-http-proxy'
 import { DSH_ENV_PREFIX } from './types.ts'
 import type { SubprocessHandle, SubprocessSpawnSpec } from './types.ts'
 import type { SubprocessTerminalEnvironment, SubprocessTerminalHandle, SubprocessTerminalSpawnSpec } from './types.ts'
@@ -79,6 +79,22 @@ export function scrubbedParentEnv(): Record<string, string> {
   return env
 }
 
+/**
+ * Build the host environment as the user launched it, without the DSH scrub.
+ * @returns entries whose `undefined` value removes the name.
+ */
+export function userParentEnv(): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined && !key.toUpperCase().startsWith(DSH_ENV_PREFIX)) env[key] = value
+  }
+  for (const [name, value] of Object.entries(inheritedProxyEnvironment())) {
+    for (const key of Object.keys(env)) if (key.toUpperCase() === name.toUpperCase()) Reflect.deleteProperty(env, key)
+    if (value !== undefined) env[name] = value
+  }
+  return env
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     subprocess: SubprocessRuntime
@@ -115,6 +131,9 @@ declare module '@deepseek-ai/cordis' {
  *   when the top-level process exits.
  */
 export abstract class SubprocessRuntime extends Service {
+  /** Whether {@link spawnTerminal} honors `inheritEnvironment`; a provider that cannot keeps this false. */
+  readonly inheritsUserEnvironment: boolean = false
+
   constructor(ctx: Context) {
     super(ctx, 'subprocess')
   }

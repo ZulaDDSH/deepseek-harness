@@ -15,8 +15,10 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, SearchResultView, ToolResult } from '@deepseek-ai/dsh-tools'
 import type { RetainedItems } from '@deepseek-ai/dsh-output-retention'
+import type {} from '@deepseek-ai/dsh-llm-jev-router'
 import type { SpillRef } from '@deepseek-ai/dsh-spill'
 import type { GrepMatch } from './search-core.ts'
+
 import { SearchError, previewLine, retainGrepMatches, runRipgrep, toWorkdirRelative, trySaveFormattedResult } from './search-core.ts'
 import { grepSearchMeta, searchViewFromMeta } from './presentation.ts'
 import { acceptedDirectCallValue } from './direct-call.ts'
@@ -80,20 +82,22 @@ function validateInclude(include: string): void {
 /**
  * Validate value constraints the schema DSL can't express: a non-EMPTY
  * `pattern` (whitespace is a legitimate regex), a non-blank `path` when given,
- * and a single positive `include` glob ({@link GrepInput}). Throws a plain
- * `Error` (an ordinary tool argument error) otherwise.
+ * and a single positive `include` glob ({@link GrepInput}). An exact empty
+ * `include` is treated as omitted; whitespace-only values remain invalid.
+ * Throws a plain `Error` (an ordinary tool argument error) otherwise.
  *
  * @param args - the schema-validated `grep` arguments.
- * @returns the accepted input, unchanged.
+ * @returns the accepted input with an empty `include` omitted.
  */
 export function parseGrepArgs(args: { pattern: string; path?: string; include?: string }): GrepInput {
   if (args.pattern.length === 0) throw new Error('pattern must be a non-empty string')
   if (args.path !== undefined && args.path.trim().length === 0) throw new Error('path must be a non-empty string when given')
-  if (args.include !== undefined) validateInclude(args.include)
+  const include = args.include === '' ? undefined : args.include
+  if (include !== undefined) validateInclude(include)
   return {
     pattern: args.pattern,
     ...args.path !== undefined ? { path: args.path } : {},
-    ...args.include !== undefined ? { include: args.include } : {},
+    ...include !== undefined ? { include } : {},
   }
 }
 
@@ -188,7 +192,7 @@ function matchNoun(count: number): string {
  * @param matches - the flat matches to render.
  * @returns the grouped body text.
  */
-export function formatGrepMatches(matches: GrepMatch[]): string {
+export function formatGrepMatches(matches: readonly GrepMatch[]): string {
   const byFile = new Map<string, GrepMatch[]>()
   for (const match of matches) {
     const group = byFile.get(match.path)
@@ -230,16 +234,24 @@ function formatRetainedGrep(retained: RetainedItems<GrepMatch>, spillRef?: Spill
   return formatGrepOutput(retained, spillRef)
 }
 
+function formatJevFilteredGrep(matches: readonly GrepMatch[], total: number, spillRef?: SpillRef): string {
+  const body = formatGrepMatches(matches)
+  const recovery = spillRef !== undefined
+    ? `Full grep result stored at: ${spillRef.locator}. ${spillRef.retrievalHint}`
+    : 'Jev filtered the remaining matches; narrow pattern, path, or include to inspect more.'
+  return `Jev kept ${matches.length} of ${total} grep matches\n\n${body}\n\n(${recovery})`
+}
+
 /**
  * Pending-call presentation: a search card titled by the pattern (and target /
- * include filter).
+ * include filter). An exact empty include contributes no filter suffix.
  *
  * @param args - the raw tool arguments; `pattern`, `path`, and `include` feed the title.
  * @returns the generic card view (`kind: 'search'`) shown while the call runs.
  */
 export function presentGrepCall(args: { pattern: string; path?: string; include?: string }): GenericCallView {
   const where = args.path !== undefined ? ` in ${args.path}` : ''
-  const filter = args.include !== undefined ? ` (${args.include})` : ''
+  const filter = args.include !== undefined && args.include !== '' ? ` (${args.include})` : ''
   return { card: 'generic', title: `Grep ${args.pattern}${where}${filter}`, kind: 'search', rawInput: args.pattern }
 }
 
@@ -284,8 +296,7 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
   const tool = defineTool({
     name: 'grep',
     description: 'Search file contents with a ripgrep regular expression. Returns matching lines with line numbers, grouped by file. '
-      + `Returns the first ${caps.maxMatches} matches inline; a capped result reports where the complete match list was saved. `
-      + 'Use read on a matched file for surrounding context.',
+      + `Returns up to ${caps.maxMatches} matches; a larger result reports where the complete match list was saved.`,
     parameters: {
       pattern: { type: 'string', required: true, description: 'Regular expression to search for (ripgrep syntax).' },
       path: { type: 'string', description: 'File or directory to search. Defaults to the session workspace; a relative path resolves against it.' },
@@ -345,9 +356,28 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
     const value = acceptedDirectCallValue(ctx, tool, exec, result, decision) as { matches: GrepMatch[] } | undefined
     if (value === undefined) return decision
     const matches = value.matches
-    if (matches.length <= caps.maxMatches) return decision
-    // The spill artifact holds the COMPLETE result: preview each line, but keep
-    // every match (no inline cap), so the recovery file is the full search.
+    const previewedInline = matches
+      .slice(0, caps.maxMatches)
+      .map(match => ({ ...match, line: previewLine(match.line, caps.maxLineBytes) }))
+    let relevant = previewedInline
+    if (exec.parent === undefined && exec.agent !== undefined) {
+      const jev = ctx.get('jevRouter')
+      if (jev !== undefined) {
+        try {
+          relevant = [...await jev.filterGrepMatches({
+            agent: exec.agent,
+            pattern: (exec.arguments as { pattern?: unknown }).pattern as string,
+            matches: previewedInline,
+            signal: exec.signal,
+          })]
+        } catch (error) {
+          ctx.logger.warn('grep: Jev relevance filter failed; preserving normal grep output')
+          ctx.logger.warn(error)
+        }
+      }
+    }
+    const jevFiltered = relevant.length < previewedInline.length
+    if (!jevFiltered && matches.length <= caps.maxMatches) return decision
     const previewedAll = matches.map(match => ({ ...match, line: previewLine(match.line, caps.maxLineBytes) }))
     const spillRef = await trySaveFormattedResult(
       ctx,
@@ -359,7 +389,9 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
       kind: 'accept',
       content: [{
         type: 'text',
-        text: formatRetainedGrep(retainGrepMatches(matches, caps.maxMatches, caps.maxLineBytes), spillRef),
+        text: jevFiltered
+          ? formatJevFilteredGrep(relevant, matches.length, spillRef)
+          : formatRetainedGrep(retainGrepMatches(matches, caps.maxMatches, caps.maxLineBytes), spillRef),
       }],
       ...decision.additionalContexts !== undefined ? { additionalContexts: decision.additionalContexts } : {},
     }

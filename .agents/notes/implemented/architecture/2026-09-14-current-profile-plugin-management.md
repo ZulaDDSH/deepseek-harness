@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-09-14-current-profile-plugin-management.zh.md)
-
 ## Problem
 
 Web and agent controls need to change a running profile without creating an independent package installer or overwriting user-authored YAML. A file watcher can otherwise load the intermediate manifest written during package installation, or report success before removed plugins finish releasing resources.
@@ -16,7 +14,7 @@ Configuration watches use Chokidar write stabilization by default. Its ordinary 
 
 Profile files remain the persisted state: entry toggles edit only `disabled` in the last override matching the entry id and any module-name assertion, appending when none matches, and bundle toggles edit the ordered string list. Dependency updates do not reactivate retained disabled bundles. A service removal first applies the composition without the bundle and waits for old fibers to finish before deleting the dependency. Saved configuration, pnpm completion and runtime activation have separate outcomes; a failed removal preserves the actual partial state and a diagnostic path, while a failed or cancelled installation restores the profile files it snapshotted.
 
-This extends the [profile bundle composition decision](2026-08-05-profile-plugin-bundles.md). Profiles without HMR keep their process composition, and Desktop package management remains shell-owned. Web controls and explicitly enabled agent tools call the same service. Management operations return results to callers without adding messages to live Agents. The agent tool is enabled in Creator mode and disabled by default in the base bundle and other shipped presets. The browser-only worker preview has no host package installer; its module-proxy table refuses `execa` calls explicitly while retaining the management module for inventory discovery.
+This extends the [profile bundle composition decision](2026-08-05-profile-plugin-bundles.md). Profiles without HMR keep their process composition, and Desktop package management remains shell-owned. Web controls and explicitly enabled agent tools call the same service. Management operations return results to callers without adding messages to live Agents. The agent tool is enabled in Standard and Creator modes and disabled by default in the base bundle and other shipped presets. The browser-only worker preview has no host package installer; its module-proxy table refuses `execa` calls explicitly while retaining the management module for inventory discovery.
 
 CLI calls inherit the terminal and authentication environment; service calls retain the subprocess credential scrub and bounded diagnostics. Management records carry error codes and parameters for locale-owned Web presentation. Reconciliation compares entry identity, fiber identity, configuration and diagnostics before and after updating: unchanged inactive entries remain warnings, while newly affected failures reject the operation. Explicit enablement targets must activate.
 

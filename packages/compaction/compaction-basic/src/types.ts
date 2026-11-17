@@ -4,13 +4,23 @@
  * @module @deepseek-ai/dsh-compaction-basic/types
  */
 
+declare module '@deepseek-ai/dsh-llm/types' {
+  interface LlmRequestPurposeMap {
+    'compaction': true
+  }
+}
+
 import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
 
 /** Policy fields shared by the default policy and exact model overrides. */
 export interface CompactionPolicyConfig {
-  /** Compact at this fraction of the model's context window. Defaults to `0.8`. */
+  /** Optional positive token cap on the adapter context window used for compaction budgets. */
+  maxContextWindow?: number
+  /** Window fraction for pressure; capped at context window minus reserved output and `headroomTokens`. Defaults to `0.8`. */
   thresholdRatio?: number
-  /** Recent context retained as a fraction of the model's window. Defaults to `0.16`. */
+  /** Additional pressure headroom beyond the routed output reservation. Non-negative integer; defaults to `65536`. */
+  headroomTokens?: number
+  /** Recent context retained as a fraction of context window minus reserved output tokens. Defaults to `0.16`. */
   retainRatio?: number
   /** Absolute recent-context budget; mutually exclusive with `retainRatio`. */
   retainTokens?: number
@@ -18,7 +28,7 @@ export interface CompactionPolicyConfig {
   summarizationProvider?: string
   /** Summary model; set together with `summarizationProvider`, or inherit the conversation target. */
   summarizationModel?: string
-  /** Provider generation cap for summarization. Defaults to `8192`. */
+  /** Provider generation cap for summarization. Defaults to the resolved `headroomTokens`; an explicit cap must be positive. */
   maxTokens?: number
   /** Extra attempts after the first compaction when pressure remains above threshold. Defaults to `1`. */
   compactionRetries?: number
@@ -38,8 +48,6 @@ export interface ModelCompactPolicyConfig extends CompactionPolicyConfig {
 export interface BasicCompactionConfig extends CompactionPolicyConfig {
   /** Exact provider/model overrides; duplicate targets fail plugin load. */
   modelPolicies?: ModelCompactPolicyConfig[]
-  /** Prune oversized tool results before pressure reaches the compaction threshold. Defaults to `false`. */
-  proactiveToolResultPruning?: boolean
   /** Enable automatic step-boundary pressure and overflow-recovery listeners. Defaults to `true`. */
   auto?: boolean
 }
@@ -51,7 +59,9 @@ export type ResolvedRetention =
 
 /** Validated policy fields shared before and after exact-target matching. */
 interface ResolvedPolicyFields {
+  readonly maxContextWindow: number | undefined
   readonly thresholdRatio: number
+  readonly headroomTokens: number
   readonly summarizationProvider: string
   readonly summarizationModel: string
   readonly maxTokens: number
@@ -62,7 +72,6 @@ interface ResolvedPolicyFields {
 /** Validated immutable config whose target-specific defaults remain unresolved. */
 export type ResolvedConfig = ResolvedPolicyFields & ResolvedRetention & {
   readonly modelPolicies: readonly Readonly<ModelCompactPolicyConfig>[]
-  readonly proactiveToolResultPruning: boolean
   readonly auto: boolean
 }
 
@@ -72,7 +81,8 @@ export type ResolvedTargetPolicy = ResolvedPolicyFields & ResolvedRetention & {
 }
 
 /** One routed model's concrete pressure and retention budget. */
-export type ResolvedCompactSpec = Omit<ResolvedTargetPolicy, 'retainRatio' | 'retainTokens'> & {
+export type ResolvedCompactSpec = Omit<ResolvedTargetPolicy, 'retainRatio' | 'retainTokens' | 'headroomTokens' | 'maxContextWindow'> & {
+  /** Adapter window limited by the configured cap; budgets exclude reserved output tokens. */
   readonly contextWindow: number
   readonly thresholdTokens: number
   readonly retainTokens: number

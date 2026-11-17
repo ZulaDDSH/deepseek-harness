@@ -90,6 +90,7 @@ export interface ProviderSpec {
   provider: string
   /** Display name for selectors and status labels. */
   displayName: string
+  base?: string
   /** Wire protocol override; absent means each model keeps its catalog protocol. */
   api?: string
   /** Endpoint override already applied to {@link models}; kept for provider-level display. */
@@ -165,7 +166,7 @@ function reuseCatalogProvider(base: Provider, spec: ProviderSpec): Provider {
  * @throws Error when the route names a wire protocol this build cannot serve.
  */
 export function buildProvider(spec: ProviderSpec): Provider {
-  const catalog = catalogProvider(spec.provider)
+  const catalog = catalogProvider(spec.base ?? spec.provider)
   // A catalog route keeping its catalog protocol reuses the catalog provider;
   // an explicit protocol means the deployment is repointing the route at a
   // different wire format, which only the protocol table can serve.

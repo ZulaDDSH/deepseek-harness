@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-08-26-published-dependency-faces.zh.md)
-
 ## Problem
 
 A package may contain a browser bundle, a Host entry, shared TypeScript declarations, and Cordis injection metadata. Encoding all of those relationships as required npm peers made the published CLI expensive to install: npm installs peers automatically and repeatedly evaluates placement through deep, converging peer paths. Changing ranges or making the peers optional did not remove that traversal.
@@ -14,7 +12,7 @@ The package that chooses a Client build input is the shipped profile, while a Ho
 
 ### Package selection
 
-[`verify-package-dependencies`](../../../../scripts/verify-package-dependencies.ts) owns dependency-section policy. It always covers packages under `packages/client/` and every non-experimental package that declares `dsh.client`. Inside the directory, `dsh.client` marks a Client/Host package whose Host entry is scanned; a package without that declaration is a Client-only static build input. Outside the directory, `dsh.client` selects the same Client/Host scan. A `"./client"` export alone is an API and does not select npm dependency policy.
+[`verify-package-dependencies`](../../../../scripts/verify-package-dependencies.ts) owns dependency-section policy. It always covers packages under `packages/client/` and every package that declares `dsh.client`, experimental packages included. Inside the directory, `dsh.client` marks a Client/Host package whose Host entry is scanned; a package without that declaration is a Client-only static build input. Outside the directory, `dsh.client` selects the same Client/Host scan. A `"./client"` export alone is an API and does not select npm dependency policy. [Experimental packages follow the same dependency declaration rules](2026-10-14-experimental-dependency-policy.md) records why the selection includes experimental packages.
 
 [`package-dependency-policy.ts`](../../../../scripts/package-dependency-policy.ts) provides explicit Client-face include and exclude lists. An include handles an exceptional package without `dsh.client`, while an exclude removes an automatically discovered dual-face package outside `packages/client/`. The verifier rejects unknown, stale, redundant, duplicate, overlapping, and ineffective entries. The include list is empty; the exclude list contains `@deepseek-ai/dsh-api-session-controller` and `@deepseek-ai/dsh-api-workspace-controller`. Adding Session Controller back would migrate nine more Host edges while its five-run candidate retest improved median resolution by only 0.15 seconds.
 
@@ -28,7 +26,7 @@ A workspace package reached by a runtime value import from the Host entry closur
 
 An export whose constructor identity or module state must be shared appears in `peerRequiredHostExports`; importing one such export keeps the whole package edge in matching `peerDependencies` and `devDependencies`. Each export-table key is an exact module specifier and each value is a reviewed export set. The verifier follows runtime local imports from the Host entry, records named and default imports and re-exports, and rejects exports covered by neither the package list nor an export table; namespace, dynamic, and side-effect imports remain unbounded unless the complete exact entry is package-classified.
 
-Workspace imports used by the Client bundle, type-only imports, module augmentations, `dsh.client.inject`, and existing metadata-only peers belong only in `devDependencies`. Host runtime imports, including additional Node entries, follow the Host classification. [Browser third-party build inputs](2026-09-08-browser-third-party-build-inputs.md) governs ordinary third-party declarations; it partially supersedes their preservation in this decision. Workspace references use `workspace:^`.
+Workspace imports used by the Client bundle, type-only imports, module augmentations, `dsh.client.inject`, and existing metadata-only peers belong only in `devDependencies`. Host runtime imports, including additional Node entries, follow the Host classification. Browser-only third-party build inputs belong in `devDependencies`; a Host runtime value import takes precedence as `dependencies`. Bundled implementations remain runtime license disclosures regardless of their npm section. Static browser libraries remain Web-shell build inputs, without an independent installed-library support promise. [Release-family rules](2026-08-10-npm-release-sequences.md) require `workspace:*` for DSH and `workspace:~` for vendor/native references.
 
 Some development relationships exist only in `dsh.client.inject` or TypeScript project references. The policy's `configurationOnlyDevDependencies` table names only those reviewed edges and keeps them in `devDependencies`.
 
@@ -48,7 +46,7 @@ Generate the managed manifests and every directly derived artifact with one comm
 
 ```sh
 pnpm run verify-package-dependencies -- --fix
-git diff -- packages pnpm-lock.yaml docs/module-graph.md docs/module-graph.zh.md docs/module-graph.i18n.yaml
+git diff -- packages pnpm-lock.yaml docs/module-graph.md
 ```
 
 Measure the working-tree graph and a Git ref through the local metadata-only registry. Each run creates a fresh consumer and npm cache, replaces inherited npm configuration with explicit peer, hoisting, and registry settings, executes `npm install --package-lock-only`, rejects archive downloads, and leaves the repository unchanged. `--runs` controls repetitions, `--timeout-ms` terminates the npm process tree after its deadline, and optional `--max-ms` makes the command fail when the slowest run exceeds a threshold.

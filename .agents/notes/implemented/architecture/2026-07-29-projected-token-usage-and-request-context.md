@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-07-29-projected-token-usage-and-request-context.zh.md)
-
 ## Problem
 
 The Web stats line derived token totals from the currently loaded conversation nodes. That window is paged, so scrolling changed the totals, and compaction replaces visible content without preserving the billing behind it. Durable provider billing needs a source that survives both.
@@ -26,7 +24,7 @@ Capacity deliberately stays out of `EpochHeader`. That type is the reconstructio
 
 Both units ride the standard projection lifecycle: history tail baselines, `session/projection` live frames, higher-seq-wins client storage, JSON checkpoints, cache recovery, and unit unload. There is no token-specific history field, mux frame, projector, revision counter, or client fence.
 
-The Web [`StatsPills`](../feature/2026-09-07-composer-session-stats-pills.md) reads both through the standard `useProjection` seat. Window nodes still supply turn and step counts plus LLM and tool wall times as the no-projection fallback — those answer "what is on screen" and are correctly window-scoped. The durable usage pill remains when compaction leaves no visible assistant step. Cache writes count in billed input and in the cache-hit denominator. A deployment without token-meter drops the usage pill; context occupancy lives on the composer's ContextMeter ring. Exact token figures show in the usage pill's click-open dialog rather than a hover tooltip.
+The Web [`StatsPills`](../../../../packages/client/ui-chat/src/client/chat/StatsPills.tsx) reads `tokenUsage` through the standard `useProjection` seat. Window nodes still supply turn and step counts plus LLM and tool wall times as the no-projection fallback — those answer "what is on screen" and are correctly window-scoped. The durable usage pill remains when compaction leaves no visible assistant step. Cache writes count in billed input and in the cache-hit denominator. A deployment without token-meter drops the usage pill; context occupancy lives on the composer's ContextMeter ring. Exact token figures show in the usage pill's click-open dialog rather than a hover tooltip.
 
 ## Context occupancy is approximate, and that is the decision
 

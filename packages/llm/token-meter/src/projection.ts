@@ -69,6 +69,8 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionMap {
     /** Provider-reported usage accumulated across the complete durable log. */
     tokenUsage: TokenUsageProjection
+    /** Provider-reported usage grouped by actual provider and model. */
+    modelUsage: readonly { readonly provider: string; readonly model: string; readonly usage: TokenUsageProjection }[]
     /** Newest request pressure paired with the newest known route capacity. */
     contextPressure: ContextPressureProjection
     /** Heuristic system/tools/message composition of the next request. */

@@ -12,7 +12,8 @@ import type { TodoItem } from '@deepseek-ai/dsh-tool-todo/client'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { TodoDockProps } from '../src/client/skeleton/TodoPanel.tsx'
 import { TodoDock, TodoPanel, todoDockEntry } from '../src/client/skeleton/TodoPanel.tsx'
-import { NS, zh } from '../src/client/locales.ts'
+import { en, NS, zh } from '../src/client/locales.ts'
+import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
 
 const t: TodoDockProps['t'] = makeTranslate(zh, commonZh)
 
@@ -34,9 +35,34 @@ const PARALLEL: TodoItem[] = [
 ]
 
 describe('TodoPanel', () => {
+  it('cancels one unfinished item or all remaining items without cancelling completed ones', async () => {
+    const onCancel = vi.fn().mockResolvedValue(undefined)
+    const todos: TodoItem[] = [{ content: 'Done', status: 'completed' }, { content: 'Build', status: 'in_progress' }, { content: 'Test', status: 'pending' }]
+    render(<TodoPanel todos={todos} t={makeTranslate(en, commonEn)} onCancel={onCancel} />)
+    fireEvent.click(screen.getByRole('button', { expanded: false }))
+    expect(screen.queryByRole('button', { name: 'Cancel: Done' })).toBeNull()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Cancel: Build' })) })
+    expect(onCancel).toHaveBeenLastCalledWith('Build')
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Cancel remaining' })) })
+    expect(onCancel).toHaveBeenLastCalledWith(null)
+  })
+
   it('renders nothing while the list is empty', () => {
     const { container } = render(<TodoPanel todos={[]} t={t} />)
     expect(container.innerHTML).toBe('')
+  })
+
+  it('disables cancellation while pending and shows failures without hiding the task', async () => {
+    let reject!: (reason: Error) => void
+    const onCancel = vi.fn(() => new Promise<void>((_resolve, fail) => { reject = fail }))
+    render(<TodoPanel todos={[{ content: 'Build', status: 'pending' }]} t={makeTranslate(en, commonEn)} onCancel={onCancel} />)
+    fireEvent.click(screen.getByRole('button', { expanded: false }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel: Build' }))
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Cancel: Build' }).disabled).toBe(true)
+    await act(async () => { reject(new Error('Plan changed')) })
+    expect(screen.getByRole('alert').textContent).toBe('Plan changed')
+    expect(screen.getByText('Build')).toBeTruthy()
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Cancel: Build' }).disabled).toBe(false)
   })
 
   it('starts collapsed with the per-status count summary visible', () => {
@@ -64,8 +90,10 @@ describe('TodoPanel', () => {
     expect(items.map(li => li.getAttribute('data-status'))).toEqual(['completed', 'in_progress', 'pending'])
     expect(screen.getByText('搭骨架')).toBeTruthy()
     expect(screen.getByText('写组件')).toBeTruthy()
-    // Each status row carries an SVG glyph (not a text bullet).
-    expect(items.every(li => li.querySelector('svg') !== null)).toBe(true)
+    expect(items.map(li => li.querySelector('[data-state]')?.getAttribute('data-state')))
+      .toEqual(['done', 'ongoing', 'idle'])
+    expect(screen.getAllByRole('img').map(node => node.getAttribute('aria-label')))
+      .toEqual(['已完成', '进行中', '待处理'])
   })
 
   it('collapse hides an expanded list; expand restores; header keeps the count summary', () => {
@@ -124,11 +152,11 @@ describe('TodoDock', () => {
 
   it('registers before the goal and queue entries', () => {
     expect(todoDockEntry.name).toBe('conversation-todo-dock')
-    expect(todoDockEntry.inject).toEqual(['slots'])
+    expect(todoDockEntry.inject).toEqual(['slots', 'remote.commands'])
     const register = vi.fn(() => () => undefined)
     const inject = vi.fn((_name: string, callback: () => () => void) => callback())
     todoDockEntry.apply({ slots: { inject, register } } as never)
     expect(inject).toHaveBeenCalledWith('conversation.input.dock', expect.any(Function))
-    expect(register).toHaveBeenCalledWith({ name: 'conversation.input.dock', id: 'todo', order: 0, locale: NS }, TodoDock)
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({ name: 'conversation.input.dock', id: 'todo', order: 0, locale: NS, inject: expect.any(Function) as never }), TodoDock)
   })
 })

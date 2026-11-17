@@ -1,5 +1,4 @@
 import { EventEmitter } from 'node:events'
-import type { BrowserWindow } from 'electron'
 import { afterEach, expect, it, vi } from 'vitest'
 import { parseDesktopAttentionRequest } from '../src/ipc.ts'
 import { resolveDesktopLocale } from '../src/locale.ts'
@@ -39,8 +38,8 @@ function bench() {
   })
   const activated = vi.fn()
   attention = new DesktopSessionAttention(
-    resolveDesktopLocale('en-US'),
-    () => window as unknown as BrowserWindow,
+    () => resolveDesktopLocale('en-US'),
+    () => window,
     activated,
   )
   return { window, activated }

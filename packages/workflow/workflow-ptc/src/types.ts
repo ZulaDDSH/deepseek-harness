@@ -44,6 +44,8 @@ export interface ChildStartRequest {
   provider?: string
   /** The per-child model override, if the call passed one. */
   model?: string
+  /** The delegation role whose Orchestrator & Subagent Setup route runs the child, if the call passed one. */
+  role?: string
 }
 
 /**

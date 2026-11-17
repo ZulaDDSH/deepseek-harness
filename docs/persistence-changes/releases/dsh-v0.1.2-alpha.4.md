@@ -5,8 +5,6 @@ kind: persistence-release
 
 # Persistence release: dsh-v0.1.2-alpha.4
 
-English | [中文](dsh-v0.1.2-alpha.4.zh.md)
-
 ## Summary
 
 The logical SessionHeader replaces optional seedLength with required isSeeded, while the physical JSONL header still declares seedLength. The subagent-report and coordinator user-message source variants become agent-message. The writer format remains 0.
@@ -68,22 +66,22 @@ changes:
 
 <!-- persistence-release-changes:start -->
 
-Detected 4 changed roots and 5 structural differences. The minimum below is calculated using current rules for comparison only; it does not assert historical compliance, migration correctness, or runtime compatibility.
+Detected 4 changed roots and 5 structural differences. The review requirement below is calculated using current rules for comparison only; it does not assert historical compliance, migration correctness, or runtime compatibility.
 
-| Path | Change | Current minimum |
+| Path | Change | Review requirement |
 |---|---|---|
-| `SessionHeader.seedLength` | `property-removed` | `version-bump` |
-| `SessionHeader.isSeeded` | `required-property-added` | `version-bump` |
-| `event:agent/inbox/spliced.data.inserted[].source` | `union-variants-changed` | `version-bump` |
-| `event:session/title-llm-request.data.messages[].source` | `union-variants-changed` | `version-bump` |
-| `event:user/message.data.source` | `union-variants-changed` | `version-bump` |
+| `SessionHeader.seedLength` | `property-removed` | `review-required` |
+| `SessionHeader.isSeeded` | `required-property-added` | `review-required` |
+| `event:agent/inbox/spliced.data.inserted[].source` | `union-variants-changed` | `review-required` |
+| `event:session/title-llm-request.data.messages[].source` | `union-variants-changed` | `review-required` |
+| `event:user/message.data.source` | `union-variants-changed` | `review-required` |
 
 <!-- persistence-release-changes:end -->
 
 <a id="verification"></a>
 ## Verification
 
-Extraction passed canonical-graph, root-digest, and reachable-type-digest validation, permitting the original optional `surfaceOp` only for historical surface events. The in-tree check reconstructs each tag from its predecessor and verifies before/after values, snapshot coverage, and bilingual machine declarations.
+Extraction passed canonical-graph, root-digest, and reachable-type-digest validation, permitting the original optional `surfaceOp` only for historical surface events. The in-tree check reconstructs each tag from its predecessor and verifies before/after values, snapshot coverage, and machine declarations.
 
 ```sh
 pnpm run verify-persistence-releases

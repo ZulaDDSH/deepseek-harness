@@ -8,6 +8,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { FsError } from '@deepseek-ai/dsh-fs'
 import type { FsInfo, FsTarget, FsWriteIntent } from '@deepseek-ai/dsh-fs'
+import { truncateWithoutSplittingSurrogatePair } from '@deepseek-ai/dsh-output-retention'
 import { sandboxDenialMarker } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
@@ -33,11 +34,21 @@ Notes for using the \`str_replace\` command:
 function maybeTruncate(content: string, maxOutputChars: number): string {
   return content.length <= maxOutputChars
     ? content
-    : content.slice(0, maxOutputChars) + TRUNCATED_MESSAGE
+    : truncateWithoutSplittingSurrogatePair(content, maxOutputChars) + TRUNCATED_MESSAGE
 }
 
 function codepointCompare(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0
+}
+
+// Constraint: CRLF only when it outnumbers bare LF; other files keep exact matching.
+function fileEol(content: string): '\r\n' | '\n' {
+  const crlf = content.split('\r\n').length - 1
+  return crlf > 0 && crlf >= content.split('\n').length - 1 - crlf ? '\r\n' : '\n'
+}
+
+function withEol(value: string, eol: '\r\n' | '\n'): string {
+  return eol === '\n' ? value : value.replace(/\r?\n/g, eol)
 }
 
 function matchOffsets(content: string, search: string): number[] {
@@ -293,7 +304,9 @@ async function replaceInFile(
     throw new FsError(`cannot edit "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
   }
   const before = await ctx.fs.readText(target, exec.signal)
-  const offsets = matchOffsets(before, oldValue)
+  const eol = fileEol(before)
+  const searchValue = withEol(oldValue, eol)
+  const offsets = matchOffsets(before, searchValue)
   const offset = offsets[0]
   if (offset === undefined) {
     throw new FsError(
@@ -312,7 +325,7 @@ async function replaceInFile(
   try {
     outcome = await ctx.fs.writeText(
       target,
-      before.slice(0, offset) + newValue + before.slice(offset + oldValue.length),
+      before.slice(0, offset) + withEol(newValue, eol) + before.slice(offset + searchValue.length),
       intent === undefined
         ? { kind: 'replaceIfVersion', version: info.version }
         : { kind: 'replaceIfVersion', version: intent.version },
@@ -344,6 +357,7 @@ async function insertInFile(
     throw new FsError(`cannot insert into "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
   }
   const before = await ctx.fs.readText(target, exec.signal)
+  const eol = fileEol(before)
   const lines = before.split('\n')
   if (!Number.isInteger(insertLine) || insertLine < 0 || insertLine > lines.length) {
     throw new Error(
@@ -352,7 +366,7 @@ async function insertInFile(
   }
   const after = [
     ...lines.slice(0, insertLine),
-    ...value.split('\n'),
+    ...value.split(/\r?\n/).map(line => eol === '\r\n' ? `${line}\r` : line),
     ...lines.slice(insertLine),
   ].join('\n')
   const expected: FsWriteIntent = intent === undefined

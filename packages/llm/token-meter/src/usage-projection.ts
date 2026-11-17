@@ -53,7 +53,7 @@ const projectionSchema = z.object({
  * The token-usage unit's state schema — the one definition of the state
  * shape; the state type is inferred from it.
  */
-const tokenUsageStateSchema = z.object({
+export const tokenUsageStateSchema = z.object({
   totals: projectionSchema,
   last: z.object({
     turn: z.number().int().nonnegative(),
@@ -85,13 +85,6 @@ function usageOf(event: SessionEvent): TokenUsage | undefined {
   return lastAssistantStreamChunk(event.data.stream, 'usage')?.usage
 }
 
-declare module '@deepseek-ai/dsh-session-projection/types' {
-  interface SessionProjectionStateMap {
-    tokenUsage: TokenUsageState
-    contextPressure: ContextPressureState
-  }
-}
-
 /** The context-pressure state schema and source of its inferred type. */
 const contextPressureStateSchema = z.object({
   contextWindow: z.number().int().positive().optional(),
@@ -105,7 +98,8 @@ const contextPressureStateSchema = z.object({
   }).optional(),
 }).strict()
 
-type ContextPressureState = z.infer<typeof contextPressureStateSchema>
+/** Host fold state for provider pressure and surface adjustments. */
+export type ContextPressureState = z.infer<typeof contextPressureStateSchema>
 
 /**
  * Token-meter's session projection unit.

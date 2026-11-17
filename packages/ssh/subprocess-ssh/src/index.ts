@@ -52,7 +52,7 @@ class RemoteProcess implements SubprocessHandle {
     const collect = (name: 'stdout' | 'stderr', stream: PassThrough, mode: SubprocessOutputMode) => {
       if (mode === 'pipe') return undefined
       if (mode === 'inherit') { stream.pipe(name === 'stdout' ? process.stdout : process.stderr, { end: false }); return undefined }
-      let collector = new OutputCollector(mode.maxBytes, undefined, name, '')
+      let collector = new OutputCollector(mode.maxBytes, name, undefined)
       let base = 0
       let total = 0
       let finalized = false
@@ -62,7 +62,7 @@ class RemoteProcess implements SubprocessHandle {
         if (finalized) return
         if (snapshot.totalBytes < total) throw new Error('SSH helper rewound collected output')
         finalized = final
-        collector = new OutputCollector(mode.maxBytes, undefined, name, '')
+        collector = new OutputCollector(mode.maxBytes, name, undefined)
         collector.push(bytes)
         base = snapshot.totalBytes - bytes.length
         total = snapshot.totalBytes
@@ -282,6 +282,7 @@ export class SshSubprocessRuntime extends SubprocessRuntime {
   }
 
   override async spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle> {
+    if (spec.inheritEnvironment === true) throw new Error('subprocess-ssh: inherited terminal environments are supported only by the local provider')
     this.lifetime.signal.throwIfAborted()
     const signal = spec.signal === undefined ? this.lifetime.signal : AbortSignal.any([spec.signal, this.lifetime.signal])
     signal.throwIfAborted()

@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-08-24-session-log-snapshot-corpus.zh.md)
-
 ## Problem
 
 The keyless snapshot corpus uses ACP as the controller for many scenarios whose asserted behavior belongs to the assembled Agent, tools, persistence, or another product interface. This makes an automation protocol look like the owner of backend behavior, retains test-only application entrypoints beside the supported `dsh` launcher, and scatters recorded sessions among example, SDK, Web, and script directories.
@@ -14,7 +12,7 @@ The term snapshot also covers unrelated ARIA, geometry, generator, and package-u
 
 Reserve the top-level `snapshots/` tree and `*.snapshot.ts` suffix for scenarios that own or explicitly reference recorded session JSONL. Each process-level scenario launches a shipped profile through `dsh`; a small adapter controls headless, SDK, ACP, or Web behavior without becoming another application entrypoint. A declarative `snapshot.yml` holds only profile, patch, lifecycle-control, platform, header-pin, and workspace facts that the completed session cannot express.
 
-This decision supersedes the ACP-specific placement and controller ownership in the [record-once/replay-deterministic decision](2026-06-19-acp-snapshot-tests.md), while that note remains authoritative for session-log replay, exceptional overrides, normalization, and ACP transcript comparison.
+This decision supersedes the ACP-specific placement and controller ownership in the [record-once/replay-deterministic reference](../../../../packages/test-support/session-snapshot/README.md), while that note remains authoritative for session-log replay, exceptional overrides, normalization, and ACP transcript comparison.
 
 The recorded session remains the primary input and, for current-generation scenarios, the expected output. Human-originated messages drive the selected public interface, recorded assistant chunks drive deterministic model replay, and the normalized persisted result must equal the fixture. Parent and child sessions share one typed redaction map. Committed fixtures contain relationship-preserving identity tokens and replace request system prompts and tool schemas with tokens; each distinct header class retains one explicit sidecar owner.
 

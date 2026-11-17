@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-workflow-ptc
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Run JavaScript workflows in fresh Node processes under the calling Session's file sandbox policy. Scripts keep the `agent()`, `parallel()`, `pipeline()`, `phase()` and `log()` hooks while subagents perform delegated work. The same execution provider serves PTC and workflows, including the opt-in Ralph loop. Runs have no overall elapsed deadline; cancellation stops the managed process and disposes child agents. The selected sandbox and subprocess providers determine enforcement and cleanup limits.
@@ -39,7 +37,8 @@ With those dependencies available, mount the engine and its model-facing consume
 | Field | Default | Meaning |
 |---|---|---|
 | `provider` | `spawn` | Host-side subagent provider used by `agent()` calls. |
-| `maxConcurrentAgents` | `0` | Concurrent `agent()` ceiling; `0` resolves from available CPU parallelism. |
+| `claudeCliProvider` | `claude-code` | Provider that runs a Claude-subscription Orchestrator & Subagent Setup role. Keep it equal to the subagent tool's `claudeCliProvider`. |
+| `maxConcurrentAgents` | `0` | Concurrent `agent()` ceiling; `0` resolves from available CPU parallelism. Each run is also capped by the host `dsh-subagent` `maxActiveSubagents`, sampled at start, because every one-shot `agent()` occupies one of its slots. |
 | `maxTotalAgents` | `1000` | Total `agent()` calls one run may start. |
 | `maxItemsPerCall` | `4096` | Items accepted by one `parallel()` or `pipeline()` call. |
 | `syncTimeoutMs` | `5000` | VM timeout for the script's initial synchronous slice, in milliseconds. |
@@ -50,13 +49,13 @@ The Node PTC provider's `maxPendingCalls` also limits workflow concurrency: chil
 
 ### Results and failures
 
-The script runs with top-level `await`; `meta` and `args` arrive as JSON data. Every `agent()` call uses the configured subagent provider and the run's fixed parent. The final lossless-JSON return value becomes the run result; an ordinary child failure resolves `agent()` to `null`.
+The script runs with top-level `await`; `meta` and `args` arrive as JSON data. Every `agent()` call starts a managed subagent Activation under the run's fixed parent and waits for its text or structured result. The workflow records its own members and collects their results without adding them to the parent's subagent catalog or sending child settlement notices to the parent model. The final lossless-JSON return value becomes the run result; an ordinary child failure resolves `agent()` to `null`.
 
 Invalid metadata, an unparseable body, an unavailable provider route or a per-run cap above the ceiling is rejected before a run is published. During execution, hook misuse and tripped cooperative caps fail the workflow. Process failures, unavailable required confinement and PTC output or control limits also fail the run.
 
 ### File policy and cancellation
 
-The engine resolves the calling Session's standing file policy and cwd for PTC execution. The VM retains the documented helper API, but it is not a security boundary: code that reaches Node remains subject to the selected OS file policy. The program-visible environment is empty. Network access is not restricted by the file policy.
+The engine captures the calling Session's effective working directory and standing file policy separately. The PTC process and every child started by that workflow retain the captured directory when the parent later moves. A runtime without confinement is accepted only for `danger-full-access`; `read-only` and `workspace-write` fail before execution. Node in-memory mode executes an async wrapper in a temporary environment, so workflow-local variables never join the Agent's retained REPL. Script mode uses an async function expression whose Promise completion carries the workflow result. The VM retains the documented helper API, but it is not a security boundary: code that reaches Node follows the selected runtime's file policy. The program-visible environment is empty. Network access is not restricted by the file policy.
 
 The workflow requests `timeoutMs: null` from PTC. Its initial VM slice still has `syncTimeoutMs`, and a caller's abort signal still applies, including an enclosing tool deadline. Cancellation immediately aborts the PTC process and pending or active subagents. The caller must dispose every run and await child cleanup; there is no separate workflow cleanup timer.
 
@@ -68,7 +67,7 @@ The workflow requests `timeoutMs: null` from PTC. Its initial VM slice still has
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The workflow engine owns orchestration; the PTC provider owns process launch, OS confinement, framed transport and managed process cleanup.
+The workflow engine owns orchestration; the PTC provider owns process launch, OS confinement, framed transport and managed process cleanup. Local children remain in the parent subagent catalog after completion, independently of caller-owned result collection; workflow runs add no parent completion notice. Local workflow children use the continuable catalog mode and accept messages while resident; cold continuation requires Session persistence and query, so an ephemeral child returns `NOT_RESUMABLE` after disposal.
 
 ### Design concept
 
@@ -85,13 +84,12 @@ One self-contained guest program runs the existing VM and workflow helpers insid
 | [`src/runtime.ts`](src/runtime.ts) | VM evaluation, helper contracts and combinators |
 | [`src/realm.ts`](src/realm.ts) | Lossless-JSON materialization across VM realms |
 | [`src/meta.ts`](src/meta.ts) | Metadata validation and normalization |
-| — | No runtime invariant companion is published; the workflow service owns event pairing and PTC owns managed-process observations. |
 
 ### Values and child ownership
 
 The guest materializes outbound values as lossless JSON before PTC transport. Exotic prototypes, functions, symbols, cycles, sparse arrays, non-finite numbers and nested `undefined` are rejected. Child results cross back as JSON; same-process observer events retain their own cloning and callback-containment rules.
 
-The host tracks pending provider starts separately from published children. A shared abort signal closes both paths; a child that becomes ready after cancellation is disposed. Each published child's disposal is shared by all cleanup paths. In-flight host bindings remain the workflow adapter's responsibility after PTC stops the program.
+The host tracks pending starts separately from accepted Activations. Cancellation aborts pending starts and disposes accepted Activations; a child that becomes ready after cancellation is also disposed. Each Activation's disposal addresses that execution and is shared by all cleanup paths. In-flight host bindings remain the workflow adapter's responsibility after PTC stops the program.
 
 ### Cancellation and outcomes
 
@@ -110,7 +108,7 @@ Use these references for the shared execution guarantees and workflow contracts.
 - [Workflow service](../workflow/README.md) — caller-owned runs and cleanup.
 - [Node PTC runtime](../../ptc-runtime/ptc-runtime-node/README.md) — file policy, process limits and deployment choices.
 - [workflow tool](../tool-workflow/README.md) — model-facing scripted orchestration.
-- [Ralph tool](../tool-ralph/README.md) — opt-in fixed fresh-agent iteration.
+- [Ralph tool](../../experimental/tool-ralph/README.md) — opt-in fixed fresh-agent iteration.
 - [Workflow sandbox reuse](../../../.agents/notes/implemented/architecture/2026-09-13-workflow-ptc-sandbox-reuse.md) — execution ownership and tradeoffs.
 
 -----
@@ -122,7 +120,7 @@ Use these references for the shared execution guarantees and workflow contracts.
 
 #### What the model sees
 
-Every script `agent()` call sends its prompt verbatim and optional model or structured-output schema to a subagent provider. Each child sees that provider's own context; phase and log narration stays on observer events.
+Every script `agent()` call sends its prompt verbatim and optional model, role, or structured-output schema to a subagent provider. Each child sees that provider's own context; phase and log narration stays on observer events.
 
 #### Token effect
 
@@ -156,8 +154,10 @@ These limits qualify workflow execution and cleanup.
 - **Workflow caps are cooperative** — helper counters limit ordinary scripts; they are not host-enforced security quotas or descendant token budgets.
 - **No overall elapsed deadline** — a run can remain active until it completes, fails or is cancelled. Caller deadlines still apply.
 - **Child cleanup follows provider contracts** — the adapter awaits disposal and pending starts without a separate abandonment timer.
+- **Workflow roles need a matching Claude CLI provider name** — a script `agent()` call that passes a `role` follows the subagent tool's Orchestrator & Subagent Setup rules and runs a Claude-subscription role on `claudeCliProvider`. The tool and the engine are separate plugins, so a deployment that renames the Claude CLI provider must set the same name on both.
 - **The VM is not a security boundary** — withheld globals guide script authors; OS policy governs code that reaches Node.
 - **Cross-realm errors fail `instanceof Error` inside scripts** — branch on stable fields such as `name` and `code`.
+- **Continuable children reduce fan-out further** — continuable children the parent already holds share the same `maxActiveSubagents` pool, so the effective `agent()` concurrency can be lower than the cap sampled when the run starts.
 
 <a id="dev-note"></a>
 ### Dev Note

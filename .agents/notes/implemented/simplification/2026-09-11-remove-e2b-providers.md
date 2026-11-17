@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-09-11-remove-e2b-providers.zh.md)
-
 ## Problem
 
 The E2B experiment supplied one remote filesystem/process world for file tools, Bash, PTY and language servers while the Harness, credentials, model transport and session state stayed on the host. Its three providers demonstrated that those consumers can share the existing filesystem and subprocess interfaces without provider-specific tools.
@@ -36,7 +34,7 @@ This decision removes one provider family. It changes neither PTC execution nor 
 
 Custom compositions that depend on the repository's E2B packages lose that supplied backend. External adoption is unknown. Removing the integration also removes its live remote composition evidence; remaining local and delayed-provider tests protect their own contracts, not an unimplemented replacement.
 
-The [native containment](../architecture/2026-08-28-subprocess-native-containment.md), [outbound proxy](../architecture/2026-08-27-outbound-proxy-policy.md) and [workspace-file service](../architecture/2026-09-05-workspace-files-service.md) decisions remain active. Their E2B implementation and verification inventories are retired while their process ownership, routing and file-access requirements remain intact. The portability decision is partially superseded only in its E2B realization.
+The [native containment](../../../../packages/subprocess/subprocess-local/README.md), [outbound proxy](../architecture/2026-08-27-outbound-proxy-policy.md) and [workspace-file service](../architecture/2026-09-05-workspace-files-service.md) decisions remain active. Their E2B implementation and verification inventories are retired while their process ownership, routing and file-access requirements remain intact. The portability decision is partially superseded only in its E2B realization.
 
 ## Reintroduction conditions
 

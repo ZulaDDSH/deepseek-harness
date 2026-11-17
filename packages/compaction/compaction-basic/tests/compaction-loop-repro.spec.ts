@@ -4,16 +4,13 @@ import { toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-a
 import { createUserMessage, createSystemMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, resolveRetryPolicy , createMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, LlmResolvedModelInfo, ResolvedRetryPolicy, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { ToolCallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
-import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import InvariantRegistry from '@deepseek-ai/dsh-invariants'
-import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
-import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
-import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
 import { BasicCompactionEngine } from '@deepseek-ai/dsh-compaction-basic'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
+import { estimateContent } from '@deepseek-ai/dsh-token-meter/estimate'
 import * as LlmRetry from '@deepseek-ai/dsh-llm-retry'
 import { Session, SessionId, type SessionEvent, type SurfaceEvent } from '@deepseek-ai/dsh-session'
 
@@ -82,6 +79,7 @@ class OverflowRecoveryAdapter extends LlmAdapter {
   constructor(
     private readonly delivery: 'thrown' | 'in-band',
     private readonly transientAfterOverflow = false,
+    private readonly transientSummaryFailures = 0,
   ) {
     super()
   }
@@ -91,7 +89,7 @@ class OverflowRecoveryAdapter extends LlmAdapter {
       provider,
       id: model,
       name: model,
-      context: { contextWindow: 128 },
+      context: { contextWindow: 100_000 },
     })
   }
 
@@ -107,6 +105,7 @@ class OverflowRecoveryAdapter extends LlmAdapter {
       .join('') ?? ''
     if (trailing.includes('acting as a compaction engine')) {
       this.summaryRequests.push(options)
+      if (this.summaryRequests.length <= this.transientSummaryFailures) throw new LlmError('summary socket dropped', 'TRANSPORT')
       yield { type: 'block-start', index: 0, blockType: 'text' }
       yield { type: 'block-end', index: 0, block: { type: 'text', text: 'RECOVERY CHECKPOINT' } }
       yield { type: 'finish', reason: { kind: 'stop' } }
@@ -139,17 +138,63 @@ class OverflowRecoveryAdapter extends LlmAdapter {
   }
 }
 
-async function mountInvariants(ctx: Context): Promise<void> {
-  await ctx.plugin(InvariantRegistry)
-  await ctx.plugin(SessionInvariant)
-  await ctx.plugin(AgentInvariant)
-  await ctx.plugin(AgentLoopInvariant)
+/** Rejects any request whose text, plus the requested output cap, exceeds a fixed window. */
+class WindowedOverflowAdapter extends LlmAdapter {
+  readonly conversationRequests: number[] = []
+  readonly summaryRequests: number[] = []
+  constructor(readonly window: number, private readonly answer = 'recovered') {
+    super()
+  }
+
+  override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+    return Promise.resolve({ provider, id: model, name: model, context: { contextWindow: this.window } })
+  }
+
+  override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    const size = options.messages.reduce((total, message) => total + estimateContent(message.content), 0)
+      + (options.maxTokens ?? 0)
+    const trailing = options.messages.at(-1)?.content
+      .map(block => (block.type === 'text' ? block.text : ''))
+      .join('') ?? ''
+    const isSummary = trailing.includes('acting as a compaction engine')
+    const sizes = isSummary ? this.summaryRequests : this.conversationRequests
+    sizes.push(size)
+    if (size > this.window) {
+      yield { type: 'finish', reason: { kind: 'error', failure: { message: 'request too large for model context', code: CONTEXT_WINDOW_EXCEEDED_CODE } } }
+      return
+    }
+    yield { type: 'block-start', index: 0, blockType: 'text' }
+    yield { type: 'block-end', index: 0, block: { type: 'text', text: isSummary ? 'CHUNK CHECKPOINT' : this.answer } }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  }
+}
+
+async function windowedOverflowHarness(
+  window: number,
+  maxOverflowRetries: number,
+  compactionRetries = 0,
+  answer?: string,
+): Promise<{ ctx: Context; adapter: WindowedOverflowAdapter }> {
+  const ctx = new Context()
+  const adapter = new WindowedOverflowAdapter(window, answer)
+  await mountAgentLoopTestDependencies(ctx)
+  await ctx.plugin(AgentLoop, { agents: [] })
+  await ctx.plugin(TokenMeter)
+  ctx.llm.registerAdapter(['mock'], adapter)
+  await ctx.plugin(BasicCompactionEngine, {
+    headroomTokens: 0,
+    thresholdRatio: 1,
+    retainTokens: 100,
+    maxTokens: 200,
+    compactionRetries,
+    maxOverflowRetries,
+  })
+  return { ctx, adapter }
 }
 
 async function harness(toolSteps: number): Promise<{ ctx: Context; compact: ReproCompactionEngine }> {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
-  await mountInvariants(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(TokenMeter)
   ctx.llm.registerAdapter(['mock'], new StepwiseToolAdapter(toolSteps))
@@ -165,6 +210,7 @@ async function harness(toolSteps: number): Promise<{ ctx: Context; compact: Repr
   // fires within the runaway turn after enough history can shrink.
   const compact = new ReproCompactionEngine(ctx, {
     auto: true,
+    headroomTokens: 0,
     thresholdRatio: 0.5,
     retainTokens: 50,
     maxTokens: 8192,
@@ -215,17 +261,49 @@ function overflowHistorySeed(): readonly SessionEvent[] {
   return session.snapshotEvents()
 }
 
+/** Turns of about 500 priced tokens each, optionally behind a system head, so the history spans several fixed windows. */
+function largeHistorySeed(turns: number, system?: string): readonly SessionEvent[] {
+  const session = Session.create(SessionId('large-history-seed'))
+  const firstTurn = system === undefined ? 1 : 2
+  if (system !== undefined) {
+    session.append('turn/start', { turn: 1 })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('system/message', { turn: 1, step: 1, message: createSystemMessage(system) }, { surfaceOp: 'append' })
+    session.append('step/end', { turn: 1, step: 1 })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+  }
+  for (let turn = firstTurn; turn < firstTurn + turns; turn += 1) {
+    session.append('turn/start', { turn })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: `turn ${turn} ${'w '.repeat(500)}` }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    session.append('step/start', { turn, step: 1 })
+    session.append('assistant/message', {
+      stream: [],
+      turn,
+      step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: `answer ${turn} ${'d '.repeat(500)}` }],
+        source: { kind: 'model', ...{ provider: 'mock', model: 'mock' } },
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('step/end', { turn, step: 1 })
+    session.append('turn/end', { turn, reason: { kind: 'completed' } })
+  }
+  return session.snapshotEvents()
+}
+
 describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', () => {
-  it('uses the model actually routed by agent/request for post-step pressure', async () => {
+  it('uses the recorded model selection for post-step pressure', async () => {
     const { ctx } = await harness(8)
-    ctx.on('agent/request', async (_payload, next) => ({
-      ...await next(), provider: 'mock', model: 'mock',
-    }))
     try {
       const agent = await ctx.agentLoop.create(SessionId('routed-pressure'), {
         provider: 'unconfigured-agent-fallback',
         model: 'unconfigured-agent-fallback',
       })
+      agent.model.select({ provider: 'mock', model: 'mock' })
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'do a routed multi-step task' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, agent)
 
@@ -336,7 +414,7 @@ describe('token pressure after loop-admitted system prompts', () => {
         agent.session.append('system/message', {
           turn,
           step,
-          message: createSystemMessage('retry guidance', '@deepseek-ai/dsh-system-prompt'),
+          message: createSystemMessage('retry guidance'),
         }, { surfaceOp: { op: 'replace', startSeq: node, endSeq: node }, sourceEventSeqs: [node] })
         return { kind: 'retry' }
       })
@@ -388,14 +466,11 @@ describe('context-overflow recovery across the real loop and compaction-basic', 
       const ctx = new Context()
       const adapter = new OverflowRecoveryAdapter(delivery)
       await mountAgentLoopTestDependencies(ctx)
-      await mountInvariants(ctx)
       await ctx.plugin(AgentLoop, { agents: [] })
       await ctx.plugin(TokenMeter)
       ctx.llm.registerAdapter(['mock'], adapter)
-      ctx.on('agent/request', async (_payload, next) => ({
-        ...await next(), provider: 'mock', model: 'mock',
-      }))
       await ctx.plugin(BasicCompactionEngine, {
+        headroomTokens: 0,
         thresholdRatio: 1,
         retainTokens: 100,
         maxTokens: 64,
@@ -413,6 +488,7 @@ describe('context-overflow recovery across the real loop and compaction-basic', 
           },
         })
 
+        agent.model.select({ provider: 'mock', model: 'mock' })
         agent.followup(createUserMessage({ content: [{ type: 'text', text: 'continue from history' }], source: { kind: 'user' } }))
         await agent.whenIdle()
 
@@ -462,16 +538,56 @@ describe('context-overflow recovery across the real loop and compaction-basic', 
     },
   )
 
+  it('retries one transient summarizer transport failure during overflow recovery', async () => {
+    const ctx = new Context()
+    const adapter = new OverflowRecoveryAdapter('thrown', false, 1)
+    await mountAgentLoopTestDependencies(ctx)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(TokenMeter)
+    ctx.llm.registerAdapter(['mock'], adapter)
+    await ctx.plugin(BasicCompactionEngine, {
+      headroomTokens: 0,
+      thresholdRatio: 1,
+      retainTokens: 100,
+      maxTokens: 64,
+      compactionRetries: 0,
+      maxOverflowRetries: 1,
+    })
+
+    try {
+      const { agent } = await ctx.agentLoop.createAgent(ctx, {
+        sessionId: SessionId('overflow-summary-transport'),
+        seed: overflowHistorySeed(),
+        agentOptions: {
+          provider: 'unconfigured-agent-fallback',
+          model: 'unconfigured-agent-fallback',
+        },
+      })
+      agent.model.select({ provider: 'mock', model: 'mock' })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'continue from history' }], source: { kind: 'user' } }))
+      await agent.whenIdle()
+
+      expect(adapter.summaryRequests).toHaveLength(2)
+      expect(adapter.conversationRequests).toHaveLength(2)
+      expect(agent.session.snapshotEvents().at(-1)).toMatchObject({
+        type: 'turn/end',
+        data: { reason: { kind: 'completed' } },
+      })
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('keeps context-overflow and transient retry budgets independent in one sequence', async () => {
     const ctx = new Context()
     const adapter = new OverflowRecoveryAdapter('thrown', true)
     await mountAgentLoopTestDependencies(ctx)
-    await mountInvariants(ctx)
     await ctx.plugin(LlmRetry)
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(TokenMeter)
     ctx.llm.registerAdapter(['mock'], adapter)
     await ctx.plugin(BasicCompactionEngine, {
+      headroomTokens: 0,
       thresholdRatio: 1,
       retainTokens: 100,
       maxTokens: 64,
@@ -497,6 +613,98 @@ describe('context-overflow recovery across the real loop and compaction-basic', 
       expect(agent.session.snapshotEvents().at(-1)).toMatchObject({
         type: 'turn/end',
         data: { reason: { kind: 'completed' } },
+      })
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('recovers an overflow twice the window by summarizing chunks that each fit', async () => {
+    const { ctx, adapter } = await windowedOverflowHarness(4_000, 3)
+    try {
+      const { agent } = await ctx.agentLoop.createAgent(ctx, {
+        sessionId: SessionId('windowed-overflow'),
+        seed: largeHistorySeed(16),
+        agentOptions: { provider: 'mock', model: 'mock' },
+      })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'continue' }], source: { kind: 'user' } }))
+      await agent.whenIdle()
+
+      expect(adapter.summaryRequests.length).toBeGreaterThanOrEqual(2)
+      expect(Math.max(...adapter.summaryRequests)).toBeLessThanOrEqual(4_000)
+      expect(adapter.conversationRequests.at(-1)).toBeLessThanOrEqual(4_000)
+      expect(agent.session.snapshotEvents().at(-1)).toMatchObject({
+        type: 'turn/end',
+        data: { reason: { kind: 'completed' } },
+      })
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('charges a system head against the summarizer bound before choosing the chunk', async () => {
+    const { ctx, adapter } = await windowedOverflowHarness(4_000, 3)
+    try {
+      const { agent } = await ctx.agentLoop.createAgent(ctx, {
+        sessionId: SessionId('windowed-overflow-system'),
+        seed: largeHistorySeed(16, `SYSTEM HEAD ${'p '.repeat(300)}`),
+        agentOptions: { provider: 'mock', model: 'mock' },
+      })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'continue' }], source: { kind: 'user' } }))
+      await agent.whenIdle()
+
+      expect(adapter.summaryRequests.length).toBeGreaterThanOrEqual(2)
+      expect(Math.max(...adapter.summaryRequests)).toBeLessThanOrEqual(4_000)
+      expect(agent.session.snapshotEvents().at(-1)).toMatchObject({
+        type: 'turn/end',
+        data: { reason: { kind: 'completed' } },
+      })
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('bounds pressure summaries to the window when the priced head exceeds the prefix limit', async () => {
+    const { ctx, adapter } = await windowedOverflowHarness(4_000, 3, 8, 'a '.repeat(900))
+    try {
+      const { agent } = await ctx.agentLoop.createAgent(ctx, {
+        sessionId: SessionId('windowed-pressure'),
+        seed: largeHistorySeed(7),
+        agentOptions: { provider: 'mock', model: 'mock' },
+      })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'continue' }], source: { kind: 'user' } }))
+      await agent.whenIdle()
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'next' }], source: { kind: 'user' } }))
+      await agent.whenIdle()
+
+      expect(adapter.summaryRequests.length).toBeGreaterThanOrEqual(1)
+      expect(Math.max(...adapter.summaryRequests)).toBeLessThanOrEqual(4_000)
+      expect(Math.max(...adapter.conversationRequests)).toBeLessThanOrEqual(4_000)
+      expect(agent.session.snapshotEvents().at(-1)).toMatchObject({
+        type: 'turn/end',
+        data: { reason: { kind: 'completed' } },
+      })
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('declines compaction when no balanced head span fits the summarizer bound', async () => {
+    // A 900-token window leaves a ~175-token prefix bound, below one ~254-token turn message.
+    const { ctx, adapter } = await windowedOverflowHarness(900, 3)
+    try {
+      const { agent } = await ctx.agentLoop.createAgent(ctx, {
+        sessionId: SessionId('windowed-overflow-declined'),
+        seed: largeHistorySeed(4),
+        agentOptions: { provider: 'mock', model: 'mock' },
+      })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'continue' }], source: { kind: 'user' } }))
+      await agent.whenIdle()
+
+      expect(adapter.summaryRequests).toHaveLength(0)
+      expect(agent.session.snapshotEvents().at(-1)).toMatchObject({
+        type: 'turn/end',
+        data: { reason: { kind: 'error' } },
       })
     } finally {
       await ctx.fiber.dispose()

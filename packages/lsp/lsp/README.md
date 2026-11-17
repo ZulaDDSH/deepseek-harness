@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-lsp
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Use `dsh-lsp` to give agents language-server navigation for definitions, references, implementations, and hover documentation. Queries select the configured provider by file extension and return normalized results with structured failures, so backend changes do not alter the navigation request or model-visible response. Navigation is read-only and deliberately excludes generic JSON-RPC access, rename, formatting, diagnostics, and symbol lists. This package must be combined with a provider such as `dsh-lsp-stdio` and the model-facing `dsh-tool-lsp`; alone it provides no navigation.
@@ -87,7 +85,6 @@ This section explains the design decisions behind the seam and where the code re
 | [`src/index.ts`](src/index.ts) | Plugin entry: `Lsp` service, `registerProvider`/`query`, `finalExtension`, `LspError` codes |
 | [`src/types.ts`](src/types.ts) | Seam vocabulary: request, result, provider, and service contracts |
 | [`src/brand.ts`](src/brand.ts) | `LspProviderId` branded-id type and factory |
-| — | No runtime invariant companion is published; provider ids and extension routes are private, atomically updated state; the seam exposes neither an enumerable snapshot nor lifecycle events to compare independently. |
 
 ### Registration and selection lifecycle
 

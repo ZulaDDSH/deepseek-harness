@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-command-feedback
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 `dsh-command-feedback` lets a user tell the harness what they think of a session. Typing `/feedback` plus a remark records it and acknowledges the session and anonymous user ids; the Web feedback dialog records a category and an optional description through the `sessionFeedback` Host Remote. Recording is immediate and never starts model work: the model neither sees the remark nor is interrupted by it. The package also owns the fixed category taxonomy every feedback surface files under. It ships with the standard `dsh` base and needs no configuration; headless, ACP, and JSON-RPC entry points provide no slash commands.
@@ -92,7 +90,6 @@ The producer trims the text, records blank text as absent, and writes one event 
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `recordFeedback` producer, the `sessionFeedback` Remote service, `/feedback` command registration |
 | [`src/types.ts`](src/types.ts) | `feedback/record` event declaration, the category taxonomy, and the Remote request and result types |
-| — | No runtime invariant companion is published; each `feedback/record` is an independent append-only fact with no cross-event or mutable-data relationship. |
 
 </details>
 

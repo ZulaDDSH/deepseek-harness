@@ -5,8 +5,6 @@ kind: "package-library"
 
 # @deepseek-ai/dsh-cmdline
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 `dsh-cmdline` lets an app parse its own flags, `--help`, and errors from the arguments left unchanged after launcher flags. Parsed values can override configuration defaults without rewriting configuration. The app can also request process exit through the launcher's shutdown path. Use this package for app bins with their own command-line interface. It adds no prompt, schema, or model-visible content.
@@ -97,7 +95,6 @@ The parse path is one small family with two owners: `provideCmdline` freezes the
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | `CmdlineArgs`/`AppExit` types, `provideCmdline`, `parseCmdline`, commander exit/output routing |
-| — | No runtime invariant companion is published; `cmdlineArgs` is an immutable launcher fact that any number of ordinary plugins may read. App-owned providers and consumers use normal Cordis service injection, whose missing dependencies are already reported by Loader settlement. |
 
 </details>
 

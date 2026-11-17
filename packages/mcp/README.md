@@ -5,8 +5,6 @@ kind: "package-group"
 
 # MCP — Model Context Protocol
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 The `mcp/` group lets the model call external Model Context Protocol (MCP) tools and read server resources. Configure only `mcp-client` entries; shipped profiles already mount `mcp-resources` once. MCP tools and prompt text appear only for callers with a configured server in scope. Server instructions are published by default and can be omitted per connection when that guidance is unnecessary. Package READMEs own configuration and limitations.
@@ -36,8 +34,8 @@ The client owns each configured connection; the shared resource package supplies
 
 Try the worked example configurations to see the plugin in action, then read the Agent Note for the behavior decisions behind it.
 
-- [MCP client plugin Agent Note](../../.agents/notes/implemented/feature/2026-07-07-mcp-client-plugin.md) — the bridge's design: server-qualified naming, discovery, execution, and environment scrubbing.
-- [Resources and instructions Agent Note](../../.agents/notes/implemented/feature/2026-09-12-mcp-resources-and-instructions.md) — on-demand resource access and scoped server guidance.
+- [historical MCP client plugin Agent Note](../../.agents/notes/archived/feature/2026-07-07-mcp-client-plugin.md) — the bridge's design: server-qualified naming, discovery, execution, and environment scrubbing.
+- [Resources and instructions reference](mcp-resources/README.md) — on-demand resource access and scoped server guidance.
 - [Third-party memory MCP guide](../../docs/user/guide/mcp-memory.md) — runnable overlay rows and setup instructions.
 - [Tools subsystem reference](../../docs/subsystems/tools.md) — the `ToolRuntime` that receives the registered tools.
 

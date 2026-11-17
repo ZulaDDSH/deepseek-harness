@@ -1,11 +1,14 @@
 /** Browser terminal identities, metadata and screen-stream frames. */
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type {} from '@deepseek-ai/dsh-typert-protocol'
+import type { CliTerminalProfileId } from '@deepseek-ai/dsh-session/types'
+import type { RemoteUplinkWindow } from '@deepseek-ai/dsh-typert-protocol'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface RemoteErrorDetailsMap {
     /** The terminal identity is missing or has begun process cleanup. */
     'terminal/unavailable': Record<string, never>
+    /** The Session was not created for the requested CLI terminal profile. */
+    'terminal/cli-session-mismatch': Record<string, never>
     /** Input or resize was refused without invalidating the output attachment. */
     'terminal/control-unavailable': { readonly reason: 'read-only' | 'not-running' }
     /** Retained screens and pending allocations consume the Session's terminal quota. */
@@ -15,8 +18,6 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
 
 /** A terminal identity scoped to one Session and one Host lifetime. */
 export type WebTerminalId = Branded<'WebTerminalId'>
-/** An attachment allowed to write and resize one terminal. */
-export type TerminalAttachmentId = Branded<'TerminalAttachmentId'>
 
 /** Acknowledges one physical window hold without taking screen or input control. */
 export interface TerminalRetentionFrame {
@@ -30,10 +31,13 @@ export interface TerminalShell {
   readonly name: string
 }
 
-/** Working directory and limits shared by new and restored terminals. */
+/** Current Session directory and terminal limits; retained terminals keep their own process directories. */
 export interface TerminalEnvironment {
+  /** Logged current directory, read without filesystem validation. */
   readonly cwd: string
   readonly maxInputBytes: number
+  /** Maximum complete encoded Client input bytes retained until acknowledgement. */
+  readonly maxBufferedBytes: number
   readonly maxCols: number
   readonly maxRows: number
   readonly scrollback: number
@@ -51,20 +55,43 @@ export interface WebTerminalInfo {
   readonly state: 'running' | 'exited' | 'failed'
   readonly exitCode: number | null
   readonly error?: string
-  readonly controllerId?: TerminalAttachmentId
+  readonly cli?: {
+    readonly profile: CliTerminalProfileId
+    readonly command: string
+    readonly installed: boolean
+    readonly installUrl: string
+  }
+}
+
+/** One CLI terminal profile's installed state on the Host and its vendor install page. */
+export interface CliTerminalStatus {
+  readonly profile: CliTerminalProfileId
+  readonly installed: boolean
+  readonly installUrl: string
 }
 
 /** Create is idempotent for an open identity; closed identities cannot be recreated. */
 export interface TerminalCreateRequest {
   /** A path returned by shell discovery; absent selects the execution default. */
   readonly shellPath?: string
+  /** CLI terminal profile whose command runs in the default shell. */
+  readonly cli?: CliTerminalProfileId
   readonly id: WebTerminalId
   readonly cols: number
   readonly rows: number
 }
 
-/** Every attachment begins with a complete bounded screen, then ordered output. */
+/** Commands are numbered consecutively from one within each attachment; acknowledgements never authorize replay. */
+export type TerminalInput =
+  | { readonly type: 'write'; readonly sequence: number; readonly data: string }
+  | { readonly type: 'resize'; readonly sequence: number; readonly cols: number; readonly rows: number }
+
+/**
+ * Every attachment begins with a complete bounded screen, then ordered output.
+ * inputWindow is absent when the carrier has no encoded-frame inbox limit.
+ */
 export type TerminalFrame =
-  | { readonly type: 'snapshot'; readonly sequence: number; readonly screen: string; readonly info: WebTerminalInfo }
+  | { readonly type: 'snapshot'; readonly sequence: number; readonly screen: string; readonly info: WebTerminalInfo; readonly writable: boolean; readonly inputWindow?: RemoteUplinkWindow }
   | { readonly type: 'output'; readonly sequence: number; readonly data: string }
-  | { readonly type: 'state'; readonly info: WebTerminalInfo }
+  | { readonly type: 'state'; readonly info: WebTerminalInfo; readonly writable: boolean }
+  | { readonly type: 'ack'; readonly sequence: number; readonly refusal?: 'read-only' | 'not-running' }

@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-file-reference
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Host-backed user interfaces use `dsh-file-reference` to offer `@file` completion: a UI asks for path candidates for the addressed agent, the model types `@path` or `@"path with spaces"`, and picking a candidate inserts the matching mention as ordinary prompt text. The seam itself owns no filesystem access — a concrete provider such as `@deepseek-ai/dsh-file-reference-local` supplies candidates, ranking, caching, and invalidation. Selecting a candidate never reads or attaches file contents; the model must call a filesystem tool to inspect a file. Session Controller exposes the same discovery to browser consumers through the `fileReferences/list` Remote.
@@ -29,7 +27,7 @@ Choose this package when a host-backed UI (web or terminal) should offer `@file`
 
 ### Mention grammar
 
-An `@path` token at the start of input or after whitespace triggers completion; an `@` inside another token, such as an email address, does not. `@"path with spaces"` opens a quoted mention, and a directory candidate keeps that quote open after its trailing slash so completion can descend another level. The formatter rejects paths with control characters or embedded quotes that the grammar cannot represent safely.
+An `@path` token at the start of input or after whitespace triggers completion; an `@` inside another token, such as an email address, does not. `@"path with spaces"` opens a quoted mention, and a directory candidate keeps that quote open after its trailing slash so completion can descend another level. Completed directory chips close the quote after the trailing slash. Relative mentions resolve from the workspace root; absolute mentions retain the host path. The formatter rejects paths with control characters or embedded quotes that the grammar cannot represent safely.
 
 ### Getting candidates
 
@@ -60,7 +58,6 @@ The package separates an abstract discovery service from a shared, browser-safe 
 | [`src/index.ts`](src/index.ts) | Abstract `FileReferenceService` and `FILE_REFERENCE_PROMPT` |
 | [`src/grammar.ts`](src/grammar.ts) | `activeAtToken` recognition and `formatFileMention` rendering |
 | [`src/types.ts`](src/types.ts) | `FileReferenceCandidate` path-only result type |
-| — | No runtime invariant companion is published; the interface retains no candidate or lifecycle state; concrete providers own their cache and invalidation relationships. |
 
 ### Main flow
 

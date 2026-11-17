@@ -5,8 +5,6 @@ kind: persistence-release
 
 # Persistence release: dsh-v0.1.3-alpha.2
 
-English | [中文](dsh-v0.1.3-alpha.2.zh.md)
-
 ## Summary
 
 feedback/message-put and feedback/message-delete are added without changing the existing persistence root digests. The writer format remains 2.
@@ -62,19 +60,19 @@ changes:
 
 <!-- persistence-release-changes:start -->
 
-Detected 2 changed roots and 2 structural differences. The minimum below is calculated using current rules for comparison only; it does not assert historical compliance, migration correctness, or runtime compatibility.
+Detected 2 changed roots and 2 structural differences. The review requirement below is calculated using current rules for comparison only; it does not assert historical compliance, migration correctness, or runtime compatibility.
 
-| Path | Change | Current minimum |
+| Path | Change | Review requirement |
 |---|---|---|
-| `event:feedback/message-delete` | `root-added` | `same-version` |
-| `event:feedback/message-put` | `root-added` | `same-version` |
+| `event:feedback/message-delete` | `root-added` | `not-required` |
+| `event:feedback/message-put` | `root-added` | `not-required` |
 
 <!-- persistence-release-changes:end -->
 
 <a id="verification"></a>
 ## Verification
 
-Extraction passed canonical-graph, root-digest, and reachable-type-digest validation, permitting the original optional `surfaceOp` only for historical surface events. The in-tree check reconstructs each tag from its predecessor and verifies before/after values, snapshot coverage, and bilingual machine declarations.
+Extraction passed canonical-graph, root-digest, and reachable-type-digest validation, permitting the original optional `surfaceOp` only for historical surface events. The in-tree check reconstructs each tag from its predecessor and verifies before/after values, snapshot coverage, and machine declarations.
 
 ```sh
 pnpm run verify-persistence-releases

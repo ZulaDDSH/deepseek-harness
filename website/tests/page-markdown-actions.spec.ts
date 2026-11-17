@@ -7,11 +7,13 @@ import { fireEvent, getByRole, queryAllByRole, queryByRole, waitFor } from '@tes
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Theme from '../.vitepress/theme/index.ts'
 
-vi.mock('vitepress', () => ({ useData: () => data, useRoute: () => route }))
+vi.mock('vitepress', () => ({ useData: () => data, useRoute: () => route, onContentUpdated() {}, getScrollOffset: () => 64 }))
 vi.mock('vitepress/theme', () => ({ default: { Layout: {
   setup: (_props: unknown, { slots }: { slots: Slots }) => () => h('main', null, slots['doc-before']?.()),
 } } }))
 vi.mock('../.vitepress/theme/mermaid-viewer.ts', () => ({ installMermaidViewer: () => ({ refresh() {}, dispose() {} }) }))
+vi.mock('../.vitepress/theme/image-viewer.ts', () => ({ ImageViewer: class { refresh() {} dispose() {} } }))
+vi.mock('../.vitepress/theme/media-viewer.ts', () => ({ MediaViewer: class { close() {} } }))
 
 const data = {
   lang: ref('en-US'), isDark: ref(false),
@@ -44,6 +46,15 @@ function deferred<T>() {
 
 function response(text = '# Quickstart\n\n[Reference](../reference/index.md)\n', status = 200, type = 'text/markdown') {
   return new Response(text, { status, headers: { 'content-type': `${type}; charset=utf-8` } })
+}
+
+function readBlob(blob: Blob): Promise<string | ArrayBuffer | null> {
+  const reader = new FileReader()
+  const done = new Promise<string | ArrayBuffer | null>((resolve) => {
+    reader.addEventListener('load', () => { resolve(reader.result) }, { once: true })
+  })
+  reader.readAsText(blob)
+  return done
 }
 
 async function mount() {
@@ -93,29 +104,28 @@ afterEach(async () => {
 })
 
 describe('page Markdown actions', () => {
-  it.each(['en-US', 'zh-CN'])('preserves the accessible controls and status in %s', async (lang) => {
-    data.lang.value = lang
-    data.frontmatter.value = { rawMarkdownPath: `${lang === 'en-US' ? 'en/' : ''}guide/quickstart.md` }
+  it('preserves the accessible controls and status', async () => {
+    data.lang.value = 'en-US'
+    data.frontmatter.value = { rawMarkdownPath: 'guide/quickstart.md' }
     await mount()
-    await expect(`${host.innerHTML}\n`).toMatchFileSnapshot(`./expected/page-markdown-actions.${lang}.html`)
-    fireEvent.click(getByRole(host, 'button', { name: lang === 'en-US' ? 'More page actions' : '更多页面操作' }))
+    await expect(`${host.innerHTML}\n`).toMatchFileSnapshot('./expected/page-markdown-actions.en-US.html')
+    fireEvent.click(getByRole(host, 'button', { name: 'More page actions' }))
     await nextTick()
-    await expect(`${host.innerHTML}\n`).toMatchFileSnapshot(`./expected/page-markdown-menu.${lang}.html`)
+    await expect(`${host.innerHTML}\n`).toMatchFileSnapshot('./expected/page-markdown-menu.en-US.html')
   })
 
-  it.each(['en-US', 'zh-CN'])('offers a working raw link before hydration in %s', async (lang) => {
-    data.lang.value = lang
+  it('offers a working raw link before hydration', async () => {
+    data.lang.value = 'en-US'
     data.site.value = { base: '/deepseek-harness/' }
-    const path = `${lang === 'en-US' ? 'en/' : ''}guide/quickstart.md`
+    const path = 'guide/quickstart.md'
     data.frontmatter.value = { rawMarkdownPath: path }
     host.innerHTML = await renderToString(createSSRApp(Theme.Layout))
     expect(queryAllByRole(host, 'button')).toHaveLength(0)
     const link = getByRole(host, 'link')
     expect(link.getAttribute('href')).toBe(`/deepseek-harness/${path}`)
     expect(link.getAttribute('target')).toBe('_blank')
-    expect(link.getAttribute('aria-label')).toBe(lang === 'en-US'
-      ? 'View as Markdown (opens in a new tab)' : '以 Markdown 格式查看（在新标签页打开）')
-    await expect(`${host.innerHTML}\n`).toMatchFileSnapshot(`./expected/page-markdown-static.${lang}.html`)
+    expect(link.getAttribute('aria-label')).toBe('View as Markdown (opens in a new tab)')
+    await expect(`${host.innerHTML}\n`).toMatchFileSnapshot('./expected/page-markdown-static.en-US.html')
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
@@ -294,14 +304,38 @@ describe('page Markdown actions', () => {
     pending.resolve(response())
     await waitFor(() => { expect(getByRole(host, 'status').textContent).toBe('Markdown copied.') })
     expect(copied?.type).toBe('text/plain')
-    const reader = new FileReader()
-    const text = new Promise((resolve) => { reader.addEventListener('load', () => { resolve(reader.result) }, { once: true }) })
     assert(copied !== undefined)
-    reader.readAsText(copied)
-    expect(await text).toBe('# Quickstart\n\n[Reference](../reference/index.md)\n')
+    expect(await readBlob(copied)).toBe('# Quickstart\n\n[Reference](../reference/index.md)\n')
     expect(button.getAttribute('aria-disabled')).toBe('false')
     expect(button.getAttribute('aria-busy')).toBe('false')
     expect(document.activeElement).toBe(button)
+  })
+
+  it('copies and links complete Markdown while the page table is filtered', async () => {
+    const content = document.createElement('div')
+    content.className = 'VPDoc'
+    const values = Array.from({ length: 10 }, (_, index) => `service-${index}`)
+    const markdown = `| Service |\n| --- |\n${values.map(value => `| ${value} |\n`).join('')}`
+    content.innerHTML = `<main><div class="vp-doc"><table><thead><tr><th>Service</th></tr></thead><tbody>${values.map(value => `<tr><td>${value}</td></tr>`).join('')}</tbody></table></div></main>`
+    for (const cell of content.querySelectorAll('td')) {
+      Object.defineProperty(cell, 'innerText', { get: () => cell.textContent })
+    }
+    document.body.append(content)
+    try {
+      fetchMock.mockResolvedValueOnce(response(markdown))
+      await mount()
+      fireEvent.input(getByRole(content, 'searchbox'), { target: { value: 'service-9' } })
+      expect(content.querySelectorAll('tbody tr:not([hidden])')).toHaveLength(1)
+      fireEvent.click(getByRole(host, 'button', { name: 'Copy page' }))
+      await waitFor(() => { expect(getByRole(host, 'status').textContent).toBe('Markdown copied.') })
+      assert(copied)
+      expect(await readBlob(copied)).toBe(markdown)
+      await openMenu()
+      expect(getByRole(host, 'menuitem', { name: 'View as Markdown (opens in a new tab)' }).getAttribute('href'))
+        .toBe('/en/guide/quickstart.md')
+    } finally {
+      content.remove()
+    }
   })
 
   it.each(['network', '404', 'html'])('reports a %s response failure without success and allows retry', async (failure) => {
@@ -382,7 +416,7 @@ describe('page Markdown actions', () => {
     expect(getByRole(host, 'status').textContent).toContain('Could not copy.')
   })
 
-  it.each(['route', 'locale', 'unmount'])('cancels old data and ignores its completion after %s changes', async (change) => {
+  it.each(['route', 'unmount'])('cancels old data and ignores its completion after %s changes', async (change) => {
     const pending = deferred<Response>()
     fetchMock.mockReturnValueOnce(pending.promise)
     await mount()
@@ -392,9 +426,8 @@ describe('page Markdown actions', () => {
     const signal = fetchMock.mock.calls[0]?.[1]?.signal
     if (change === 'unmount') { app?.unmount(); app = undefined }
     else {
-      route.path = change === 'route' ? '/en/reference/' : '/guide/quickstart'
-      data.lang.value = change === 'route' ? 'en-US' : 'zh-CN'
-      data.frontmatter.value = { rawMarkdownPath: change === 'route' ? 'en/reference/index.md' : 'guide/quickstart.md' }
+      route.path = '/reference/'
+      data.frontmatter.value = { rawMarkdownPath: 'reference/index.md' }
     }
     await nextTick()
     expect(signal?.aborted).toBe(true)
@@ -405,9 +438,9 @@ describe('page Markdown actions', () => {
     if (change === 'unmount') expect(host.textContent).toBe('')
     else {
       expect(getByRole(host, 'status').textContent).toBe('')
-      fireEvent.click(getByRole(host, 'button', { name: change === 'route' ? 'Copy page' : '复制页面' }))
-      await waitFor(() => { expect(getByRole(host, 'status').textContent).toBe(change === 'route' ? 'Markdown copied.' : '已复制 Markdown。') })
-      expect(fetchMock.mock.calls[1]?.[0]).toBe(change === 'route' ? '/en/reference/index.md?dsh-raw=1' : '/guide/quickstart.md?dsh-raw=1')
+      fireEvent.click(getByRole(host, 'button', { name: 'Copy page' }))
+      await waitFor(() => { expect(getByRole(host, 'status').textContent).toBe('Markdown copied.') })
+      expect(fetchMock.mock.calls[1]?.[0]).toBe('/reference/index.md?dsh-raw=1')
     }
   })
 })

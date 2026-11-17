@@ -25,7 +25,7 @@ import { waitWithAbort } from './managed-owner.ts'
 import { controlEnvironment, controlPipe } from './control-spawn.ts'
 import { SUBPROCESS_CONTROL_FD } from '@deepseek-ai/dsh-subprocess/control'
 import { linuxProcessGroupHasLiveMembers } from './process-inspector.ts'
-import { OutputCollector, prepareManagedProcessBinding } from './output.ts'
+import { OutputCollector, prepareManagedProcessBinding, type SpillFailureReporter } from './output.ts'
 
 type SpawnProcess = (
   program: string,
@@ -39,10 +39,14 @@ type SpawnProcess = (
  * deliberately restores or overrides an entry; an explicit `undefined`
  * tombstone removes an ordinary ambient entry.
  * @param extra - explicit caller entries and tombstones, merged after the scrub.
+ * @param base - ambient entries before the explicit entries; defaults to the credential-scrubbed parent environment.
  * @returns the environment to hand to `spawn` for the child process.
  */
-export function childEnv(extra?: Readonly<NodeJS.ProcessEnv>): NodeJS.ProcessEnv {
-  const env = scrubbedParentEnv()
+export function childEnv(
+  extra?: Readonly<NodeJS.ProcessEnv>,
+  base: Readonly<NodeJS.ProcessEnv> = scrubbedParentEnv(),
+): NodeJS.ProcessEnv {
+  const env = base
   if (process.platform !== 'win32') return { ...env, ...extra }
   let entries: [string, string | undefined][] = Object.entries(env)
   for (const [key, value] of Object.entries(extra ?? {})) {
@@ -59,6 +63,8 @@ export interface SpawnInternals {
   spawn?: SpawnProcess
   /** Directory for spill files (defaults to the OS temp dir). */
   spillDir?: string
+  /** Receives spill open/write failures; the runtime supplies its plugin logger, bare callers get a stderr line. */
+  onSpillFailure?: SpillFailureReporter
   /** Windows tree-termination runner (defaults to `taskkill /PID <pid> /T /F`). */
   taskkill?: (pid: number) => void
   /** Host platform override for signalling decisions. */
@@ -259,15 +265,15 @@ function fallbackOwner(
  * Bind platform launch facts to the existing stdio, outcome, abort, and termination lifecycle.
  * @param spec - fully resolved argv, cwd, stdio, grace, cancellation, environment.
  * @param launch - platform streams, direct outcome, and managed-range owner.
- * @param internals - test-only spill-directory override.
+ * @param internals - spill-directory override and spill failure reporter.
  * @returns live subprocess handle.
  */
 export function bindManagedProcess(
   spec: SubprocessSpawnSpec,
   launch: ManagedProcessLaunch,
-  internals: Pick<SpawnInternals, 'spillDir'> = {},
+  internals: Pick<SpawnInternals, 'spillDir' | 'onSpillFailure'> = {},
 ): LocalSubprocessHandle {
-  const { spillDir } = prepareManagedProcessBinding(internals)
+  const { spillDir, onSpillFailure } = prepareManagedProcessBinding(internals)
   const { stdin, stdout, stderr } = launch
 
   const isCollect = (mode: SubprocessOutputMode): mode is SubprocessCollect =>
@@ -278,7 +284,11 @@ export function bindManagedProcess(
 
   const collectStream = (mode: SubprocessOutputMode, stream: Readable | null, label: string): OutputCollector | undefined => {
     if (!isCollect(mode) || stream === null) return undefined
-    const collector = new OutputCollector(mode.maxBytes, mode.spill?.maxBytes, label, spillDir)
+    const collector = new OutputCollector(
+      mode.maxBytes,
+      label,
+      mode.spill === undefined ? undefined : { maxBytes: mode.spill.maxBytes, dir: spillDir, onFailure: onSpillFailure },
+    )
     stream.on('data', (chunk: Buffer) => { collector.push(chunk) })
     return collector
   }

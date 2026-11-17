@@ -7,7 +7,9 @@
  *
  * No API key needed — all servers are local/keyless.
  */
+import { executeModelToolFixture, executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -19,6 +21,7 @@ import { createMcpHandler, McpServer, type CallToolResult } from '@modelcontextp
 import { toNodeHandler, type NodeIncomingMessageLike } from '@modelcontextprotocol/node'
 import { z } from 'zod'
 import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
+import McpResources from '@deepseek-ai/dsh-mcp-resources'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { ToolCallId, LlmAdapter, LlmRuntime } from '@deepseek-ai/dsh-llm'
@@ -30,6 +33,7 @@ import type { Config } from '@deepseek-ai/dsh-mcp-client'
 const testToolSignal = new AbortController().signal
 
 const fixtureServerPath = fileURLToPath(new URL('./fixture-server.ts', import.meta.url))
+const resourcesServerPath = fileURLToPath(new URL('./fixtures/resources-server.ts', import.meta.url))
 
 // Resolve package-local .bin for pnpm-hoisted MCP server binaries.
 const packageDir = fileURLToPath(new URL('..', import.meta.url))
@@ -41,6 +45,7 @@ async function mountRegistry(): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(NativeToolExecutor)
   return ctx
 }
 
@@ -137,7 +142,7 @@ describe('fixture server — controlled scenarios', () => {
   })
 
   it('executes the dotted tool via its normalized public name', async () => {
-    const result = await ctx.tools.execute({
+    const result = await executeToolFixture(ctx, {
       signal: testToolSignal,
       callId: nextCallId(), name: publicToolName('fixture', 'admin.reset'), arguments: {},
     })
@@ -146,7 +151,7 @@ describe('fixture server — controlled scenarios', () => {
   })
 
   it('executes add(2, 3) → "5"', async () => {
-    const result = await ctx.tools.execute({
+    const result = await executeToolFixture(ctx, {
       signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__fixture__add', arguments: { a: 2, b: 3 },
     })
@@ -155,7 +160,7 @@ describe('fixture server — controlled scenarios', () => {
   })
 
   it('executes greet("World") → "Hello, World!"', async () => {
-    const result = await ctx.tools.execute({
+    const result = await executeToolFixture(ctx, {
       signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__fixture__greet', arguments: { name: 'World' },
     })
@@ -164,7 +169,7 @@ describe('fixture server — controlled scenarios', () => {
   })
 
   it('executes fail() → isError result', async () => {
-    const result = await ctx.tools.execute({
+    const result = await executeToolFixture(ctx, {
       signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__fixture__fail', arguments: {},
     })
@@ -173,7 +178,7 @@ describe('fixture server — controlled scenarios', () => {
   })
 
   it('executes image() → ordered durable image content', async () => {
-    const result = await ctx.tools.execute({
+    const result = await executeToolFixture(ctx, {
       signal: testToolSignal, agent: imageAgent() as never,
       callId: nextCallId(), name: 'mcp__fixture__image', arguments: {},
     })
@@ -257,14 +262,14 @@ describe('fixture server — crash recovery', () => {
     const ctx = await mountRegistry()
     await apply(ctx, crashConfig('crashy', { initialDelayMs: 50, maxDelayMs: 500, maxAttempts: 40 }))
 
-    const before = await ctx.tools.execute({
+    const before = await executeToolFixture(ctx, {
       signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__crashy__add', arguments: { a: 2, b: 3 },
     })
     expect(textOf(before.content[0])).toBe('5')
 
     // The crash tool replies, then kills the real child process.
-    const crash = await ctx.tools.execute({
+    const crash = await executeToolFixture(ctx, {
       signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__crashy__crash', arguments: {},
     })
@@ -273,7 +278,7 @@ describe('fixture server — crash recovery', () => {
     // Recovery is proven by the world: a post-crash call round-trips through
     // the respawned server process.
     await vi.waitFor(async () => {
-      const after = await ctx.tools.execute({
+      const after = await executeToolFixture(ctx, {
         signal: testToolSignal,
         callId: nextCallId(), name: 'mcp__crashy__add', arguments: { a: 20, b: 22 },
       })
@@ -298,7 +303,7 @@ describe('fixture server — crash recovery', () => {
     // Cordis awaits async apply() as startup work; wait for it.
     await vi.waitFor(() => { expect(ctx.tools.get('mcp__ephemeral__add')).toBeDefined() }, { timeout: 20_000 })
 
-    const crash = await ctx.tools.execute({
+    const crash = await executeToolFixture(ctx, {
       signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__ephemeral__crash', arguments: {},
     })
@@ -355,7 +360,7 @@ describe('server-everything — official test server', () => {
   })
 
   it('executes echo({ message: "hello" }) → "Echo: hello"', async () => {
-    const result = await ctx.tools.execute({
+    const result = await executeToolFixture(ctx, {
       signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__everything__echo', arguments: { message: 'hello' },
     })
@@ -364,7 +369,7 @@ describe('server-everything — official test server', () => {
   })
 
   it('executes get-sum({ a: 3, b: 7 }) → contains "10"', async () => {
-    const result = await ctx.tools.execute({
+    const result = await executeToolFixture(ctx, {
       signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__everything__get-sum', arguments: { a: 3, b: 7 },
     })
@@ -373,7 +378,7 @@ describe('server-everything — official test server', () => {
   })
 
   it('executes get-tiny-image → explicit refusal without a durable route', async () => {
-    const result = await ctx.tools.execute({
+    const result = await executeToolFixture(ctx, {
       signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__everything__get-tiny-image', arguments: {},
     })
@@ -424,7 +429,7 @@ describe('server-filesystem — real filesystem operations', () => {
     const filePath = join(tempDir, 'test.txt')
     const content = 'Hello from MCP e2e test!'
 
-    const writeResult = await ctx.tools.execute({
+    const writeResult = await executeToolFixture(ctx, {
       signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__filesystem__write_file', arguments: { path: filePath, content },
     })
@@ -434,7 +439,7 @@ describe('server-filesystem — real filesystem operations', () => {
     const onDisk = await readFile(filePath, 'utf8')
     expect(onDisk).toBe(content)
 
-    const readResult = await ctx.tools.execute({
+    const readResult = await executeToolFixture(ctx, {
       signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__filesystem__read_file', arguments: { path: filePath },
     })
@@ -445,13 +450,90 @@ describe('server-filesystem — real filesystem operations', () => {
   it('list_directory shows written file', async () => {
     await writeFile(join(tempDir, 'listed.txt'), 'listed')
 
-    const result = await ctx.tools.execute({
+    const result = await executeToolFixture(ctx, {
       signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__filesystem__list_directory', arguments: { path: tempDir },
     })
     expect(result.isError).toBe(false)
     expect(textOf(result.content[0])).toContain('listed.txt')
   })
+})
+
+// ---- Headless resource completion ----
+
+/** Live libuv handles owned by this process. */
+function activeHandles(): unknown[] {
+  return (process as NodeJS.Process & { _getActiveHandles(): unknown[] })._getActiveHandles()
+}
+
+/** Whether a handle keeps the event loop alive: sockets, child processes, and timers with an active ref. */
+function isLiveHandle(handle: unknown): boolean {
+  const name = (handle as { constructor?: { name?: string } }).constructor?.name
+  if (name !== 'Socket' && name !== 'ChildProcess' && name !== 'Timeout') return false
+  try {
+    return (handle as { hasRef?: () => boolean }).hasRef?.() !== false
+  } catch {
+    return true
+  }
+}
+
+describe('resources server — headless completion exits cleanly', () => {
+  it('serves the headless resource flow, then releases every connection handle on dispose', async () => {
+    const before = new Set(activeHandles())
+    const ctx = new Context()
+    try {
+      await ctx.plugin(SystemPrompt)
+      await ctx.plugin(ToolRuntime)
+      await ctx.plugin(McpResources)
+      await apply(ctx, {
+        transport: 'stdio',
+        serverName: 'catalog',
+        command: process.execPath,
+        args: [resourcesServerPath],
+        env: {},
+        cwd: packageDir,
+        toolCallTimeoutMs: 15_000,
+        failOnStartupError: true,
+        reconnect: { enabled: false },
+      })
+
+      const list = await executeModelToolFixture(ctx, {
+        signal: testToolSignal, callId: nextCallId(),
+        name: 'list_mcp_resources', arguments: { server: 'catalog' },
+      })
+      expect(list.isError).toBe(false)
+      expect(JSON.stringify(list.value)).toContain('memo://text')
+      const templates = await executeModelToolFixture(ctx, {
+        signal: testToolSignal, callId: nextCallId(),
+        name: 'list_mcp_resource_templates', arguments: { server: 'catalog' },
+      })
+      expect(templates.isError).toBe(false)
+      expect(JSON.stringify(templates.value)).toContain('memo://greeting/{name}')
+      for (const [uri, text] of [
+        ['memo://text', 'MCP resource text with {{braces}} intact.'],
+        ['memo://greeting/reader', 'Hello, reader.'],
+      ] as const) {
+        const read = await executeModelToolFixture(ctx, {
+          signal: testToolSignal, callId: nextCallId(),
+          name: 'read_mcp_resource', arguments: { server: 'catalog', uri },
+        })
+        expect(read.isError).toBe(false)
+        expect(JSON.stringify(read.value)).toContain(text)
+      }
+      const binary = await executeModelToolFixture(ctx, {
+        signal: testToolSignal, callId: nextCallId(),
+        name: 'read_mcp_resource', arguments: { server: 'catalog', uri: 'memo://binary' },
+      })
+      expect(binary.isError).toBe(false)
+      expect(JSON.stringify(binary.value)).toContain('bWNwLXJlc291cmNlLWJpbmFyeQ==')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+    await vi.waitFor(() => {
+      const leaked = activeHandles().filter(handle => !before.has(handle) && isLiveHandle(handle))
+      expect(leaked).toEqual([])
+    }, { timeout: 15_000, interval: 250 })
+  }, 60_000)
 })
 
 // ---- Streamable HTTP transport ----
@@ -531,7 +613,7 @@ describe('streamable-http — in-process MCP server', () => {
   })
 
   it('executes ping() → "pong" over HTTP', async () => {
-    const result = await ctx.tools.execute({
+    const result = await executeToolFixture(ctx, {
       signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__web__ping', arguments: {},
     })
@@ -540,7 +622,7 @@ describe('streamable-http — in-process MCP server', () => {
   })
 
   it('executes shout({ message }) with args over HTTP', async () => {
-    const result = await ctx.tools.execute({
+    const result = await executeToolFixture(ctx, {
       signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__web__shout', arguments: { message: 'quiet' },
     })

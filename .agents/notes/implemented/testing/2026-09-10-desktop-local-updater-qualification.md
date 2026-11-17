@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-09-10-desktop-local-updater-qualification.zh.md)
-
 ## Problem
 
 Desktop update interaction depends on feed parsing, network failures, download integrity, and platform preparation. Simulated updater events cannot establish that these operations work together. Requiring cloud cache configuration and hardware signing for each feedback cycle makes local product validation depend on release infrastructure.
@@ -30,7 +28,7 @@ The executable scenarios cover no update, downgrade rejection, HTTP 404/408 and 
 
 The ordinary polling regression uses the real coordinator with a fake clock, instance-local random samples, and deferred network completion. It verifies completion-based jitter, capped exponential backoff, successful reset, manual failure visibility while joining an automatic check, retained download failures and prepared packages, and no timer rearming after disposal. Main-entry tests connect the same deadline to focus, resume, explicit IPC, and application shutdown. Removing failure backoff makes the timing assertion fail. These deterministic tests establish request timing, not fleet capacity or startup-burst distribution.
 
-The actual [mandatory-update window](../feature/2026-09-11-desktop-mandatory-update-client.md), sandboxed preload, and renderer button handlers run against the policy server and updater. A stalled policy request reaches its real deadline without clearing the block. Owner-local DOM expectations pin Chinese text and actions. Screenshot failures are recorded separately; missing screenshots cannot establish visual acceptance.
+The actual [mandatory-update window](../../../../apps/desktop/README.md), sandboxed preload, and renderer button handlers run against the policy server and updater. A stalled policy request reaches its real deadline without clearing the block. Owner-local DOM expectations pin Chinese text and actions. Screenshot failures are recorded separately; missing screenshots cannot establish visual acceptance.
 
 The [workspace browser scenario](../../../../apps/web/tests/desktop-updates.e2e.ts) checks built sidebar composition in both locales against the production presentation function. A page-local carrier supplies update state and records actions; the Host, client plugins, styles, and connection remain real. This separates slot placement and click-guard evidence from Electron IPC, task authorization, and installation evidence. Screenshots and result files use an invocation-specific ignored directory and do not replace release qualification.
 

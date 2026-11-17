@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-09-01-v2-embedded-assistant-streams.zh.md)
-
 ## Problem
 
 Token-sized `assistant/chunk` events preserve exact stream order, timing, usage, terminal state, replay metadata, and partial failed output, but making each chunk a top-level Session event repeats envelopes throughout persistence, telemetry, history transport, indexing, and client assembly. Physical packed rows reduce JSONL bytes without reducing logical event count or the work of consumers that receive the canonical stream.
@@ -31,7 +29,7 @@ The migration publication verifier and frozen v2 fixture validator require the e
 
 The Web follow adapter opts into these process-local frames and adds the last durable sequence observed at each start. It presents chunks as Client-only `assistant/live-chunk` updates between durable cursors, stages only a later matching settlement until the committed end, and reopens follow on a revision gap. A committed end publishes a named settlement delta that removes the attempt's transient matches, adds the durable entry, and replays only affected Conversation Contexts; an abandoned end publishes the same delta without an entry. A reconnect baseline carries the active attempt's durable start cursor and compact prefix.
 
-The Client event source passes durable settlements through unchanged. Chat and Trajectory fold `assistant/live-chunk` while an attempt is active and build settled output directly from `assistant/message`. Chat does not reconstruct first-token timing after settlement retires the transient chunks. Trajectory reads timing from the [compact stream records](2026-09-06-embedded-stream-record-readers.md) in `assistant/message` and `assistant/attempt`, including when opening history. Neither target expands settled streams into per-delta objects for presentation; other consumers may expand the durable stream when they require its exact evidence.
+The Client event source passes durable settlements through unchanged. Chat and Trajectory fold `assistant/live-chunk` while an attempt is active and build settled output directly from `assistant/message`. Chat does not reconstruct first-token timing after settlement retires the transient chunks. Trajectory reads timing from the [compact stream records](../../../../packages/llm/llm/README.md) in `assistant/message` and `assistant/attempt`, including when opening history. Neither target expands settled streams into per-delta objects for presentation; other consumers may expand the durable stream when they require its exact evidence.
 
 ### Released v1 to v2 migration
 

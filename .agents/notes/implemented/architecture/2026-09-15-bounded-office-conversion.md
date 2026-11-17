@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-09-15-bounded-office-conversion.zh.md)
-
 ## Problem
 
 Office preview and explicit document inspection can request the same conversion. A completed-result cache alone leaves source reads, queued payloads, and concurrent readers unbounded. Speculation can also occupy capacity needed by a user, and canceling one consumer must not destroy another consumer's conversion.
@@ -37,3 +35,7 @@ The cache is transient and cannot bypass source authorization. Oversized PDFs ca
 Office preview checks source authorization and versions through Workspace Files, then reads raw input with `fs.readBytes` within its conversion reservation. Office input limits govern that read. The Host conversion path avoids base64 source allocation; PDF responses encode only the converted output.
 
 Controlled source and engine completions verify pre-read admission, content joining, priority, cancellation isolation, delayed resource release, LRU/alias limits, stale versions, and converter replacement. Loader composition and native conversion checks exercise the shared provider independently of presentation consumers.
+
+## Related
+
+The [background scheduling proposal](../../proposed/simplification/2026-09-17-defer-office-background-scheduling.md) questions the need for speculative priority without a production caller; this note remains the authority for the implemented behavior.

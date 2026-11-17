@@ -14,7 +14,9 @@ export type SubagentCatalogEntry =
   }
   & (
     | { readonly mode: 'one-shot'; readonly label?: string }
+    | { readonly mode: 'external'; readonly label?: string }
     | { readonly mode: 'continuable'; readonly label: string }
+    | { readonly mode: 'unknown'; readonly label?: string }
   )
 
 /** Durable active-turn timing for one descriptor-backed child session. */
@@ -27,6 +29,34 @@ export interface SubagentTimingProjection {
     since: number
     /** Latest event time folded into this projection cut. */
     through: number
+  }
+  /**
+   * Whether the latest closed turn after the child's own descriptor completed
+   * normally; absent while a turn is open or before one closes.
+   */
+  lastTurnCompleted?: boolean
+}
+
+/** One tool call a subagent has issued, as shown on its catalog row. */
+export interface SubagentToolActivity {
+  readonly callId: string
+  readonly name: string
+  /** Command, path, pattern, or URL the call acts on; empty when no argument says. */
+  readonly detail: string
+  readonly since: number
+}
+
+/** Live step count, the tool call awaiting a result, and the latest finished call of a subagent's open or last turn. */
+export interface SubagentActivityProjection {
+  readonly steps: number
+  readonly running?: SubagentToolActivity
+  readonly last?: {
+    readonly name: string
+    readonly detail: string
+    readonly isError: boolean
+    /** First line of the call's text result, bounded. */
+    readonly summary: string
+    readonly time: number
   }
 }
 
@@ -49,6 +79,7 @@ export type SubagentIdentityProjection =
      * not from a fork seed's replayed ancestor descriptor.
      */
     seq: SessionSeq
+    routePinned?: true
   }
   | {
     /** A resumable conversation. */
@@ -57,14 +88,17 @@ export type SubagentIdentityProjection =
     label: string
     /** Seq of the folded descriptor event; see the one-shot arm for the own-suffix proof. */
     seq: SessionSeq
+    routePinned?: true
   }
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionMap {
     /** Direct children in parent catalog event order, excluding fork-inherited facts. */
     subagentCatalog: SubagentCatalogEntry[]
-    /** Active-turn duration for a descriptor-backed subagent session. */
+    /** Active-turn duration and latest closed-turn completion for a descriptor-backed subagent session. */
     subagentTiming: SubagentTimingProjection
+    /** Tool call in flight, latest finished call, and step count for a subagent session. */
+    subagentActivity: SubagentActivityProjection
     /**
      * Identity of a descriptor-backed subagent session. `null` ⟺ no valid
      * descriptor (missing, malformed, or unrecognized-version — deliberately

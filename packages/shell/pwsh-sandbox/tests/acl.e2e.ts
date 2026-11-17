@@ -15,10 +15,18 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import { resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
 import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { SandboxPwshExecutor } from '../src/index.ts'
+import type { ShellExecSpec, ShellExecution, ShellRunResult } from '@deepseek-ai/dsh-shell'
+
+/** Historical foreground shorthand over the unified execute() seam. */
+async function run(x: { execute(spec: ShellExecSpec): Promise<ShellExecution> }, spec: ShellExecSpec): Promise<ShellRunResult> {
+  return (await x.execute(spec)).result()
+}
+
 
 const isWin32 = process.platform === 'win32'
 
@@ -47,6 +55,7 @@ describe.skipIf(!isWin32 || !pwshAvailable())('pwsh-sandbox real ACL confinement
     escapeFile = join(scratchRoot, 'escaped.txt')
 
     const ctx = new Context()
+    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(LocalSandboxProvider, {})
     await ctx.plugin(SandboxPolicyService, { mode: 'workspace-write', workspaceRoot: writableDir })
     await ctx.plugin(LocalSubprocessRuntime)
@@ -68,7 +77,7 @@ describe.skipIf(!isWin32 || !pwshAvailable())('pwsh-sandbox real ACL confinement
       `try{Set-Content -Path '${escapeFile}' -Value ok -ErrorAction Stop;'ESCAPE-WRITE: OK'}catch{'ESCAPE-WRITE: DENIED'};`,
       `try{Get-Content '${secretFile}' -ErrorAction Stop | Out-Null;'SECRET-READ: OK'}catch{'SECRET-READ: DENIED'}`,
     ].join('')
-    const result = await executor.run(executor.resolve({ command: probe, sandboxPolicy: policy }))
+    const result = await run(executor, executor.resolve({ command: probe, sandboxPolicy: policy }))
     expect(result.exitCode, `stderr: ${result.stderr.text}`).toBe(0)
     expect(result.stdout.text).toContain('TARGET-WRITE: DENIED')
     expect(result.stdout.text).toContain('TEMP-WRITE: DENIED')
@@ -79,7 +88,7 @@ describe.skipIf(!isWin32 || !pwshAvailable())('pwsh-sandbox real ACL confinement
     expect(result.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'partial' })
 
     // A raw failing write must classify as a denial of the ACL dialect.
-    const denied = await executor.run(executor.resolve({
+    const denied = await run(executor, executor.resolve({
       command: `Set-Content -Path '${escapeFile}' -Value x`,
       sandboxPolicy: policy,
     }))
@@ -98,7 +107,7 @@ describe.skipIf(!isWin32 || !pwshAvailable())('pwsh-sandbox real ACL confinement
       `try{Get-Content '${secretFile}' -ErrorAction Stop | Out-Null;'SECRET-READ: OK'}catch{'SECRET-READ: DENIED'};`,
       "'TEMP-PATH: ' + $env:TEMP",
     ].join('')
-    const result = await executor.run(executor.resolve({ command: probe, sandboxPolicy: policy }))
+    const result = await run(executor, executor.resolve({ command: probe, sandboxPolicy: policy }))
     expect(result.exitCode, `stderr: ${result.stderr.text}`).toBe(0)
     expect(result.stdout.text).toContain('TARGET-WRITE: OK')
     expect(result.stdout.text).toContain('TEMP-WRITE: OK')

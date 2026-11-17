@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-browser-use
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 A deployment can enable one browser-use provider at a time. Loading another provider fails with the registered provider name. Each provider supplies its own tools and owns browser sessions. This package adds no model-visible tools or browser operations.
@@ -44,8 +42,6 @@ Providers stop admitting tool calls, close their resources, and await owned work
 <summary>Implementation internals — click to expand</summary>
 
 One private name owns the slot. Cordis effects remove contributions when their plugin unloads; a repeated disposer cannot remove a later registration. The [source](src/index.ts) contains no browser object, operation interface, resource lifecycle, or provider selector.
-
-No runtime invariant companion is published: the registry has one authoritative field and exposes no independently maintained observation that can diverge. Duplicate rejection and plugin disposal are covered by the owning tests.
 
 </details>
 

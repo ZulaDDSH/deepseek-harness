@@ -1,7 +1,5 @@
 # Package and install a plugin
 
-English | [中文](publish.zh.md)
-
 The previous tutorials loaded a local plugin through a `--patch` overlay. This tutorial packages it as an installable **bundle**, installs it into a **profile** with `dsh plugin add`, and explains the layer order that determines the composed configuration. It assumes the `dsh` CLI is installed. Complete [plugin configuration](./config.md) first.
 
 To use a fresh source checkout instead, complete the [run-from-source section](../../../../README.md#run-from-source), keep this tutorial's `hello-plugin` directory at the repository root, and run the remaining `dsh ...` commands from there as `pnpm dsh ...`. See [source execution](../../../../apps/cli/reference/README.md#source-execution) for build and launcher behavior.
@@ -61,7 +59,9 @@ Create `hello-plugin/cordis.patch.yml`. The patch is a YAML array like the `--pa
       name: dsh-hello-plugin
 ```
 
-A package without the `dsh.bundle` declaration still installs, but only as a plain dependency: `dsh plugin` prints a warning and activates no layer. Use that package format for a library that plugin packages import rather than a plugin users enable.
+`patch` also accepts an ordered list of files, for example `["./base.patch.yml", "./web.patch.yml"]`; the launcher applies them in that order as one layer, and each file's relative plugin paths resolve beside that file. A package without the `dsh.bundle` declaration still installs, but only as a plain dependency: `dsh plugin` prints a warning and activates no layer. Use that package format for a library that plugin packages import rather than a plugin users enable.
+
+Declare the DSH releases the bundle supports with an `engines.dsh` SemVer range, for example `"engines": { "dsh": ">=0.2.0 <0.3.0" }`. Installation and profile startup refuse a bundle whose range the running DSH does not satisfy; without `engines.dsh`, they check its `@deepseek-ai/dsh*` peer dependency ranges instead ([rule](../../../../packages/boot/app-boot/README.md#profiles)).
 
 ### The profile manifest
 
@@ -70,7 +70,7 @@ A profile directory holds two files:
 - `package.json` — the profile's out-of-tree plugin dependencies (managed by pnpm) plus the `dsh.profile` manifest with its ordered `bundles` list.
 - `cordis.patch.yml` — the user's own patch layer, applied after every bundle layer.
 
-You never write a profile manifest by hand: `dsh --profile <name> --from-default-profile <template>` can create one from a shipped application template, while `dsh plugin` creates a base-backed profile and maintains its installed bundle list. The [CLI behavior reference](../../../../apps/cli/reference/README.md#profile-boot) owns the creation rules; the next section shows the plugin path.
+You never write a profile manifest by hand: `dsh --profile <name> --from-default-profile <template>` can create or reset one from a shipped application template, while `dsh plugin` creates a base-backed profile and maintains its installed bundle list. The [CLI behavior reference](../../../../apps/cli/reference/README.md#profile-boot) owns the creation rules; the next section shows the plugin path.
 
 ## Install into a profile
 
@@ -99,6 +99,12 @@ The first use initializes the profile (with `@deepseek-ai/dsh-base` as its first
   }
 }
 ```
+
+A linked checkout keeps its own `node_modules`. Declare dsh packages whose instances the plugin must share with the host under both `peerDependencies` and `devDependencies`, as the harness packages do. At that manifest's lookup position, peers present in the running dsh's runtime resolution use the installation's copy; the devDependency copy serves your type checker and standalone tests. Keep independently versioned third-party dependencies and stateless dsh utilities under `dependencies`.
+
+Ordinary linked imports follow Node's ancestor order and check each directory's current peer declarations. A nearer physical package wins before a higher peer declaration. A link target can lack `package.json`; ancestor peers still apply, even without a physical `node_modules` beside that manifest. Explicit `require.resolve(..., { paths })` is always native, including paths inside a profile. These rules are shared by npm, Desktop, and source launches; they do not invalidate loaded modules or validate peer version ranges. See the [resolution rules](../../../../.agents/notes/implemented/architecture/2026-09-19-profile-resolution-lookup-order.md) for scope and file-query behavior.
+
+Linking a broad checkout does not apply peer interception to the running installation's own package directories. Links whose targets stay inside the profile, including its pnpm store, remain profile-owned installation content rather than external linked roots. Overlapping external links do not change lookup order: each request still starts from its importer's directory.
 
 Verify the layer without booting, then boot:
 

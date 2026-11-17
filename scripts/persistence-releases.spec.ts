@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { dump } from 'js-yaml'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parsePersistenceSnapshot } from './persistence-changes.ts'
-import { canonicalizeSchema, schemaDigest } from './persistence-schema-model.ts'
+import { canonicalizeSchema, encodePersistenceSnapshot, schemaDigest } from './persistence-schema-model.ts'
 import type { PersistenceRoot, PersistenceSchemaInventory, PersistenceType, SchemaNode } from './persistence-schema-model.ts'
 import { loadPersistenceReleases, runPersistenceReleases } from './persistence-releases.ts'
 import type { PersistenceReleaseManifest, PersistenceReleaseRecord } from './persistence-releases.ts'
@@ -58,17 +58,14 @@ interface Fixture {
 
 function saveRecord(directory: string, record: PersistenceReleaseRecord): void {
   const block = dump(record, { lineWidth: -1, noRefs: true })
-  for (const suffix of ['.md', '.zh.md']) {
-    const switcher = suffix === '.md' ? `English | [中文](${record.tag}.zh.md)` : `[English](${record.tag}.md) | 中文`
-    writeFileSync(join(directory, record.tag + suffix), [
-      '---', 'kind: persistence-release', '---', '', '# Archived release', '', switcher, '',
-      '## Summary', '', 'Authored summary and evidence.', '',
-      '| Inventory | Count |', '|---|---|',
-      '| Reconstructed inventory | <!-- persistence-release-inventory:start -->pending<!-- persistence-release-inventory:end --> |', '',
-      '```yaml persistence-release', block.trimEnd(), '```', '',
-      '<!-- persistence-release-changes:start -->', '', 'Pending facts.', '', '<!-- persistence-release-changes:end -->', '',
-    ].join('\n'))
-  }
+  writeFileSync(join(directory, record.tag + '.md'), [
+    '---', 'kind: persistence-release', '---', '', '# Archived release', '',
+    '## Summary', '', 'Authored summary and evidence.', '',
+    '| Inventory | Count |', '|---|---|',
+    '| Reconstructed inventory | <!-- persistence-release-inventory:start -->pending<!-- persistence-release-inventory:end --> |', '',
+    '```yaml persistence-release', block.trimEnd(), '```', '',
+    '<!-- persistence-release-changes:start -->', '', 'Pending facts.', '', '<!-- persistence-release-changes:end -->', '',
+  ].join('\n'))
 }
 
 function fixture(): Fixture {
@@ -76,14 +73,10 @@ function fixture(): Fixture {
   temporary.push(root)
   const directory = join(root, 'docs/persistence-changes/releases')
   mkdirSync(directory, { recursive: true })
-  for (const suffix of ['.md', '.zh.md']) {
-    const switcher = suffix === '.md' ? 'English | [中文](README.zh.md)' : '[English](README.md) | 中文'
-    writeFileSync(join(directory, 'README' + suffix), [
-      '# Releases', '', switcher, '', 'Authored introduction.', '',
-      '<!-- persistence-release-index:start -->', '', 'Pending index.', '', '<!-- persistence-release-index:end -->', '',
-    ].join('\n'))
-  }
-  writeFileSync(join(directory, 'README.i18n.yaml'), 'schemaVersion: 1\n')
+  writeFileSync(join(directory, 'README.md'), [
+    '# Releases', '', 'Authored introduction.', '',
+    '<!-- persistence-release-index:start -->', '', 'Pending index.', '', '<!-- persistence-release-index:end -->', '',
+  ].join('\n'))
   const manifest: PersistenceReleaseManifest = {
     schemaVersion: 1, capturedAt: '2026-09-12',
     releases: TAGS.map((tag, index) => ({
@@ -108,20 +101,19 @@ function fixture(): Fixture {
   writeFileSync(join(directory, 'manifest.json'), JSON.stringify(manifest))
   for (const [index, record] of records.entries()) {
     saveRecord(directory, record)
-    writeFileSync(join(directory, record.tag + '.schema.json'), JSON.stringify(snapshots[index]))
-    writeFileSync(join(directory, record.tag + '.i18n.yaml'), 'schemaVersion: 1\n')
+    writeFileSync(join(directory, record.tag + '.schema.json'), encodePersistenceSnapshot(snapshots[index]!))
   }
   return { root, directory, manifest, records, snapshots }
 }
 
 function replaceSnapshot(fixture: Fixture, index: number, snapshot: PersistenceSchemaInventory): void {
-  writeFileSync(join(fixture.directory, TAGS[index]! + '.schema.json'), JSON.stringify(snapshot))
+  writeFileSync(join(fixture.directory, TAGS[index]! + '.schema.json'), encodePersistenceSnapshot(snapshot))
 }
 
 describe('pinned persistence releases', () => {
-  it.each(['.md', '.zh.md'])('rejects historical source coordinates in %s records', (suffix) => {
+  it('rejects historical source coordinates in records', () => {
     const data = fixture()
-    const path = join(data.directory, TAGS[0] + suffix)
+    const path = join(data.directory, TAGS[0] + '.md')
     const original = readFileSync(path, 'utf8')
     for (const position of [':36', ':36:2', '#L36', '#L36-L38']) {
       writeFileSync(path, original + `\nSource: \`packages/core/session/src/types.ts${position}\`.\n`)
@@ -145,19 +137,19 @@ describe('pinned persistence releases', () => {
     expect(archive.entries).toHaveLength(3)
     expect(archive.entries[0]!.roots.get('event:example/value')!.digest).toBe(event('string').digest)
     expect(archive.entries[1]!.roots.get('event:example/value')!.digest).toBe(event('number').digest)
-    expect(archive.entries[1]!.differences).toEqual([expect.objectContaining({ root: 'event:example/value', kind: 'type-changed', requiresVersionBump: true })])
+    expect(archive.entries[1]!.differences).toEqual([expect.objectContaining({ root: 'event:example/value', kind: 'type-changed', requiresCompatibilityReview: true })])
     expect(archive.entries[2]!.roots).toEqual(archive.entries[1]!.roots)
     expect(archive.entries[2]!.differences).toEqual([])
-    expect(() => parsePersistenceSnapshot(data.snapshots[1])).toThrow('surface metadata')
+    expect(() => parsePersistenceSnapshot(encodePersistenceSnapshot(data.snapshots[1]!))).toThrow('surface metadata')
   })
 
-  it.each(['.md', '.zh.md', '.i18n.yaml', '.schema.json'])('rejects a missing manifest release companion %s', (suffix) => {
+  it.each(['.md', '.schema.json'])('rejects a missing manifest release companion %s', (suffix) => {
     const data = fixture()
     rmSync(join(data.directory, TAGS[1] + suffix))
     expect(() => loadPersistenceReleases(data.root)).toThrow('missing release artifact')
   })
 
-  it.each(['README.md', 'README.zh.md', 'README.i18n.yaml'])('requires the fixed archive companion %s', (name) => {
+  it.each(['README.md'])('requires the fixed archive companion %s', (name) => {
     const data = fixture()
     rmSync(join(data.directory, name))
     expect(() => loadPersistenceReleases(data.root)).toThrow(`missing release artifact ${name}`)
@@ -249,7 +241,7 @@ describe('pinned persistence releases', () => {
     saveRecord(data.directory, { ...data.records[2]!, changes: [{ root: 'event:example/value', before: event('number').digest, after: null }] })
     const result = loadPersistenceReleases(data.root)
     expect(result.entries[2]!.roots.has('event:example/value')).toBe(false)
-    expect(result.entries[2]!.differences).toEqual([expect.objectContaining({ kind: 'root-removed', requiresVersionBump: true })])
+    expect(result.entries[2]!.differences).toEqual([expect.objectContaining({ kind: 'root-removed', requiresCompatibilityReview: true })])
   })
 
   it('rejects missing, duplicate, and unreferenced reachable types', () => {
@@ -262,16 +254,16 @@ describe('pinned persistence releases', () => {
     }
   })
 
-  it('rejects mismatched translations, duplicate blocks, and the wrong document kind', () => {
+  it('rejects duplicate blocks and the wrong document kind', () => {
     const data = fixture()
-    const path = join(data.directory, TAGS[1] + '.zh.md')
+    const path = join(data.directory, TAGS[1] + '.md')
     const source = readFileSync(path, 'utf8')
     for (const changed of [
-      source.replace('schemaVersion: 1', 'schemaVersion: 2'), source + source,
+      source + source,
       source.replace('kind: persistence-release', 'kind: persistence-change'),
     ]) {
       writeFileSync(path, changed)
-      expect(() => loadPersistenceReleases(data.root)).toThrow(/bilingual machine|exactly one|frontmatter kind/u)
+      expect(() => loadPersistenceReleases(data.root)).toThrow(/exactly one|frontmatter kind/u)
     }
   })
 
@@ -305,7 +297,8 @@ describe('release facts', () => {
     expect(after['README.md']).toContain(`| [${TAGS[1]}](${TAGS[1]}.md) | 2026-09-01 | 0 | 4 / 7 | 1 |`)
     expect(after[TAGS[1] + '.md']).toContain('4 roots / 7 types')
     expect(after[TAGS[1] + '.md']).toContain('Detected 1 changed root and 1 structural difference.')
-    expect(after[TAGS[1] + '.md']).toContain('| `event:example/value.data` | `type-changed` | `version-bump` |')
+    expect(after[TAGS[1] + '.md']).toContain('| `event:example/value.data` | `type-changed` | `review-required` |')
+    expect(after[TAGS[1] + '.md']).toContain('| Path | Change | Review requirement |')
     for (const [name, source] of Object.entries(before)) {
       if (name.endsWith('.json')) expect(after[name]).toBe(source)
       if (name.endsWith('.md')) {
@@ -314,7 +307,6 @@ describe('release facts', () => {
           .toBe(source.match(/```yaml persistence-release\n[\s\S]*?```/u)?.[0])
       }
     }
-    expect(after[TAGS[1] + '.i18n.yaml']).not.toBe(before[TAGS[1] + '.i18n.yaml'])
     expect(runPersistenceReleases(['--write'], data.root)).toContain('Refreshed 0 files.')
     expect(directoryBytes(data.directory)).toEqual(after)
   })
@@ -342,7 +334,7 @@ describe('release facts', () => {
     ['difference count', '1 structural difference', '9 structural differences'],
     ['path', '`event:example/value.data`', '`event:example/value.wrong`'],
     ['kind', '`type-changed`', '`optional-property-added`'],
-    ['minimum', '`version-bump`', '`same-version`'],
+    ['review requirement', '`review-required`', '`not-required`'],
   ])('rejects stale record %s', (_label, original, replacement) => {
     const data = fixture()
     runPersistenceReleases(['--write'], data.root)
@@ -353,26 +345,24 @@ describe('release facts', () => {
     expect(() => runPersistenceReleases([], data.root)).toThrow('Stale persistence release facts')
   })
 
-  it('checks Chinese facts too and allows authored prose outside generated regions to change', () => {
+  it('allows authored prose outside generated regions to change', () => {
     const data = fixture()
     runPersistenceReleases(['--write'], data.root)
-    const path = join(data.directory, TAGS[1] + '.zh.md')
+    const path = join(data.directory, TAGS[1] + '.md')
     writeFileSync(path, readFileSync(path, 'utf8').replace('Authored summary and evidence.', 'Revised authored explanation.'))
     expect(() => runPersistenceReleases([], data.root)).not.toThrow()
-    writeFileSync(path, readFileSync(path, 'utf8').replace('4 个根类型 / 7 种类型', '4 个根类型 / 999 种类型'))
-    expect(() => runPersistenceReleases([], data.root)).toThrow('Stale persistence release facts')
   })
 
-  it('does not write anything when machine data is corrupt or a later pair cannot be rendered', () => {
+  it('does not write anything when machine data is corrupt or a later document cannot be rendered', () => {
     const data = fixture()
     const snapshotPath = join(data.directory, TAGS[2] + '.schema.json')
     const snapshot = readFileSync(snapshotPath, 'utf8')
-    writeFileSync(snapshotPath, snapshot.replace('"formatVersion":1', '"formatVersion":2'))
+    writeFileSync(snapshotPath, snapshot.replace('"formatVersion": 1', '"formatVersion": 3'))
     const corrupt = directoryBytes(data.directory)
     expect(() => runPersistenceReleases(['--write'], data.root)).toThrow('normalization version')
     expect(directoryBytes(data.directory)).toEqual(corrupt)
     writeFileSync(snapshotPath, snapshot)
-    const path = join(data.directory, TAGS[2] + '.zh.md')
+    const path = join(data.directory, TAGS[2] + '.md')
     writeFileSync(path, readFileSync(path, 'utf8').replace('<!-- persistence-release-changes:end -->', ''))
     const missingMarker = directoryBytes(data.directory)
     expect(() => runPersistenceReleases(['--write'], data.root)).toThrow('expected one changes factual block')

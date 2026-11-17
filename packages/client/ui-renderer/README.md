@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-client-ui-renderer
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 `dsh-client-ui-renderer` mounts the assembled dsh web client GUI: after the complete client plugin roster settles, the boot kernel calls `ctx.uiRenderer.mount(container)`, which hydrates the framework-free boot page and switches to the full React application before the next paint. Business plugins stay plain React components that receive session and workspace data through typed props and never wire subscriptions themselves — the renderer binds the runtime's bare observable sources into selector hooks at the slot outlets. The web shell and the boot kernel are its only direct consumers, so a composition needs it exactly when it wants a React-rendered GUI.
@@ -69,7 +67,7 @@ These pages cover the surrounding machinery and the composition model.
 - [ui-slots](../ui-slots/README.md) — the slot registry pure core this renderer binds to React.
 - [web](../web/README.md) — the shell that loads the roster and calls `mount`.
 - [ui-session](../ui-session/README.md) — the adapter that supplies the standard Session sources and hooks this renderer binds.
-- [Web client architecture](../../../.agents/notes/implemented/architecture/2026-07-19-gui-web-client-architecture.md) — the loading chain, object layer, and layering red lines.
+- [Web client architecture](../../../docs/subsystems/web-client.md) — the loading chain, object layer, and layering red lines.
 - [Slot system standard](../../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md) — the definitive composition model.
 - [Component Factories](../../../.agents/notes/implemented/architecture/2026-09-10-component-factories-and-local-slots.md) — reusable definitions, local Component selection, and occurrence lifetimes.
 

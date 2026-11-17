@@ -1,0 +1,113 @@
+/** Host Remote owner for credential-backed provider quota usage. */
+
+import { Context, type Volatile } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
+import type { CredentialProvider } from '@deepseek-ai/dsh-credentials'
+import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { createQuotaProviderRegistry, type QuotaProvider, type QuotaSource } from './providers.ts'
+import type { QuotaProviderView, QuotaResult } from './types.ts'
+
+export type * from './types.ts'
+export { createQuotaProviderRegistry } from './providers.ts'
+export type { QuotaProvider, QuotaSource } from './providers.ts'
+
+declare module '@deepseek-ai/cordis' {
+  interface Context { quotaController: QuotaController }
+}
+
+/** Injectable Host dependencies used by quota controller tests and deployments. */
+export interface QuotaControllerInternals {
+  /** Fetch implementation used for provider quota requests. */
+  readonly fetch?: typeof fetch
+  /** Additional or replacement provider definitions available to the controller. */
+  readonly providers?: readonly QuotaProvider[]
+  /** Whole-percent share of a subscription window at which the composer warns; the loader supplies it from the namespace. */
+  readonly nearLimitPercent?: Volatile<number>
+}
+
+/** requires credential-backed provider quota Remote service. */
+export class QuotaController extends TypertRemoteService {
+  static Config = z.object({
+    nearLimitPercent: z.number().step(1).min(50).max(100).default(90).volatile(),
+  })
+  private readonly providers: ReadonlyMap<string, QuotaProvider>
+  private readonly fetchImpl: typeof fetch
+  private readonly sources = new Map<string, QuotaSource>()
+  private readonly pending = new Map<string, Promise<QuotaResult>>()
+
+  constructor(ctx: Context, internals: QuotaControllerInternals = {}) {
+    super(ctx, 'quotaController', { namespace: 'quota' })
+    this.providers = createQuotaProviderRegistry(internals.providers)
+    this.fetchImpl = internals.fetch ?? fetch
+  }
+
+  /**
+   * Register an account source whose provider owns authentication.
+   * @param source - provider-owned source.
+   * @returns disposer that removes this source.
+   */
+  registerSource(source: QuotaSource): () => void {
+    if (this.providers.has(source.id) || this.sources.has(source.id)) throw new Error(`Quota source already registered: ${source.id}`)
+    this.sources.set(source.id, source)
+    return () => { if (this.sources.get(source.id) === source) this.sources.delete(source.id) }
+  }
+
+  /**
+   * List every provider the popover reports on, set up or not; `fetch` says which are configured.
+   * Connected model routes without a usage source are not listed.
+   * @returns built-in providers, then registered sources.
+   */
+  @Remote
+  listProviders(): Promise<readonly QuotaProviderView[]> {
+    return Promise.resolve([...this.providers.values(), ...this.sources.values()].map(({ id, name }) => ({ id, name })))
+  }
+
+  /**
+   * Fetch quota state for one provider, coalescing concurrent requests.
+   * @param providerId - provider identifier.
+   * @returns the provider quota result.
+   */
+  @Remote
+  fetch(providerId: string): Promise<QuotaResult> {
+    const existing = this.pending.get(providerId)
+    if (existing !== undefined) return existing
+    const provider = this.providers.get(providerId)
+    const source = this.sources.get(providerId)
+    const operation = source !== undefined ? source.fetch(this.fetchImpl) : provider === undefined
+      ? Promise.resolve({ providerId, providerName: providerId, configured: false, ok: false, error: 'Unsupported provider' })
+      : this.fetchProvider(provider)
+    this.pending.set(providerId, operation)
+    const release = (): void => { this.pending.delete(providerId) }
+    void operation.then(release, release)
+    return operation
+  }
+
+  private async fetchProvider(provider: QuotaProvider): Promise<QuotaResult> {
+    const credential = await this.resolveCredential(provider)
+    if (credential === undefined) return { providerId: provider.id, providerName: provider.name, configured: false, ok: false, error: `Set up ${provider.name} in Settings > Models` }
+    return provider.fetch(credential, this.fetchImpl)
+  }
+
+  private async resolveCredential(provider: QuotaProvider): Promise<import('@deepseek-ai/dsh-credentials').ResolvedCredential | undefined> {
+    for (const ref of provider.credentialRefs ?? [provider.credentialRef]) {
+      const value = await this.credentials().resolve(ref)
+      if (value !== undefined) return value
+    }
+    const key = provider.credentialKey
+    if (key !== undefined) {
+      const record = await this.credentials().readRecord(key)
+      if (record?.kind === 'api-key' && record.key !== undefined && record.key.length > 0) {
+        return { value: record.key, source: `record:${key}` }
+      }
+    }
+    return undefined
+  }
+
+  private credentials(): CredentialProvider {
+    const credentials = this.ctx.get('credentials')
+    if (credentials === undefined) throw new RemoteError('gateway/internal', 'credentials service is absent', {})
+    return credentials
+  }
+}
+
+export default QuotaController

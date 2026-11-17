@@ -6,27 +6,28 @@
 
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, relative, resolve } from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
+import { join } from 'node:path'
+import { Context } from '@deepseek-ai/cordis'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import {
   assertPositiveFinite,
   assertUsableCwd,
+  boundedProgress,
   NO_START_CAPABILITIES,
-  resolveChildCwd,
+  resolveParentSandboxMode,
+  runTimeLimit,
   settleRunResult,
   subprocessRunHandle,
-  validateConfiguredCwd,
 } from '../src/index.ts'
 
 describe('NO_START_CAPABILITIES', () => {
   it('advertises nothing and is frozen (shared by every out-of-process backend)', () => {
     expect(NO_START_CAPABILITIES).toEqual({
       agentOptions: false,
+      agentPreset: false,
       outputSchema: false,
       depthLimit: false,
-      toolFilter: false,
-      persona: false,
     })
     expect(Object.isFrozen(NO_START_CAPABILITIES)).toBe(true)
   })
@@ -74,26 +75,8 @@ describe('child cwd resolution', () => {
     }
   })
 
-  it('validateConfiguredCwd: undefined passes through, empty fails, relative resolves at load', () => {
-    expect(validateConfiguredCwd('p', undefined)).toBeUndefined()
-    expect(() => validateConfiguredCwd('p', '')).toThrow('config cwd must not be empty')
-    const tmp = mkdtempSync(join(tmpdir(), 'oop-rel-'))
-    try {
-      const relativeCwd = relative(process.cwd(), tmp)
-      // Resolution is lexical against the launch directory; the probe then
-      // requires the resolved path to exist and be enterable.
-      expect(validateConfiguredCwd('p', relativeCwd)).toBe(resolve(relativeCwd))
-    } finally {
-      rmSync(tmp, { recursive: true, force: true })
-    }
-  })
 
-  it('resolveChildCwd: override wins, else the parent session cwd validates, else loud failure', () => {
-    expect(resolveChildCwd('p', tmpdir(), undefined)).toBe(tmpdir())
-    expect(resolveChildCwd('p', undefined, tmpdir())).toBe(tmpdir())
-    expect(() => resolveChildCwd('p', undefined, undefined)).toThrow('no working directory for the child')
-    expect(() => resolveChildCwd('p', undefined, 'relative/parent')).toThrow('parent session cwd must be an absolute path')
-  })
+
 })
 
 describe('settleRunResult', () => {
@@ -177,7 +160,6 @@ describe('subprocessRunHandle', () => {
       requestCancel,
       teardown,
     })
-    expect(run.localAgent).toBeUndefined()
     expect(String(run.id)).toBe('run-1')
     const disposal = run.dispose()
     expect(run.dispose()).toBe(disposal)
@@ -187,5 +169,117 @@ describe('subprocessRunHandle', () => {
     controller.abort()
     // dispose removed the abort listener before cancelling.
     expect(onAbort).not.toHaveBeenCalled()
+  })
+})
+
+describe('resolveParentSandboxMode', () => {
+  it('is undefined without a composed sandbox policy', () => {
+    expect(resolveParentSandboxMode(new Context(), {} as never)).toBeUndefined()
+  })
+
+  it('resolves the delegating parent session through the composed sandbox policy', () => {
+    const ctx = new Context()
+    const resolve = vi.fn(() => ({ mode: 'read-only', workspaceRoot: '/w' }))
+    ctx.provide('sandboxPolicy', { resolve } as never)
+    const session = {} as never
+    expect(resolveParentSandboxMode(ctx, session)).toBe('read-only')
+    expect(resolve).toHaveBeenCalledWith({ session })
+  })
+})
+
+describe('boundedProgress', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('passes an absent sink through as absent', () => {
+    expect(boundedProgress(undefined)).toBeUndefined()
+  })
+
+  it('forwards at most one line per 500 ms window', () => {
+    vi.useFakeTimers()
+    const sink = vi.fn()
+    const bounded = boundedProgress(sink)
+    if (bounded === undefined) throw new Error('expected a bounded sink')
+    bounded('Edit: src/a.ts')
+    bounded('Edit: src/b.ts')
+    expect(sink.mock.calls).toEqual([['Edit: src/a.ts']])
+    vi.advanceTimersByTime(500)
+    bounded('Edit: src/c.ts')
+    expect(sink.mock.calls).toEqual([['Edit: src/a.ts'], ['Edit: src/c.ts']])
+  })
+
+  it('keeps a 120-character line and truncates a 121-character line to 119 characters plus an ellipsis', () => {
+    vi.useFakeTimers()
+    const sink = vi.fn()
+    const bounded = boundedProgress(sink)
+    if (bounded === undefined) throw new Error('expected a bounded sink')
+    const exact = 'a'.repeat(120)
+    bounded(exact)
+    expect(sink).toHaveBeenLastCalledWith(exact)
+    vi.advanceTimersByTime(500)
+    bounded('b'.repeat(121))
+    expect(sink).toHaveBeenLastCalledWith(`${'b'.repeat(119)}…`)
+  })
+
+  it('truncates on code-point boundaries', () => {
+    vi.useFakeTimers()
+    const sink = vi.fn()
+    const bounded = boundedProgress(sink)
+    if (bounded === undefined) throw new Error('expected a bounded sink')
+    bounded('😀'.repeat(130))
+    const forwarded = sink.mock.calls[0]?.[0] as string
+    expect(Array.from(forwarded)).toHaveLength(120)
+    expect(forwarded.endsWith('…')).toBe(true)
+  })
+
+  it('contains a throwing sink', () => {
+    vi.useFakeTimers()
+    const bounded = boundedProgress(() => { throw new Error('sink failed') })
+    if (bounded === undefined) throw new Error('expected a bounded sink')
+    expect(() => { bounded('Edit: src/a.ts') }).not.toThrow()
+  })
+})
+
+describe('runTimeLimit', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('never fires without a timeout', () => {
+    vi.useFakeTimers()
+    const onTimeout = vi.fn()
+    const limit = runTimeLimit(undefined, onTimeout, () => new Error('exceeded'))
+    vi.advanceTimersByTime(60 * 60_000)
+    expect(limit.timedOut()).toBe(false)
+    expect(onTimeout).not.toHaveBeenCalled()
+    limit.clear()
+  })
+
+  it('fires once at the deadline and rejects the expiry with the failure', async () => {
+    vi.useFakeTimers()
+    const onTimeout = vi.fn()
+    const failure = new Error('exceeded timeoutMs (1000 ms)')
+    const limit = runTimeLimit(1000, onTimeout, () => failure)
+    vi.advanceTimersByTime(999)
+    expect(onTimeout).not.toHaveBeenCalled()
+    expect(limit.timedOut()).toBe(false)
+    vi.advanceTimersByTime(1)
+    expect(onTimeout).toHaveBeenCalledTimes(1)
+    expect(limit.timedOut()).toBe(true)
+    await expect(limit.expired).rejects.toBe(failure)
+    vi.advanceTimersByTime(5000)
+    expect(onTimeout).toHaveBeenCalledTimes(1)
+  })
+
+  it('never fires when cleared before the deadline', () => {
+    vi.useFakeTimers()
+    const onTimeout = vi.fn()
+    const limit = runTimeLimit(1000, onTimeout, () => new Error('exceeded'))
+    limit.clear()
+    limit.clear()
+    vi.advanceTimersByTime(5000)
+    expect(onTimeout).not.toHaveBeenCalled()
+    expect(limit.timedOut()).toBe(false)
   })
 })

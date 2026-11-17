@@ -2,27 +2,29 @@
 
 Status: implemented
 
-English | [中文](2026-08-10-session-log-version-mechanism.zh.md)
-
 ## Problem
 
 Session logs must be upgradable after release, and the runtime that ships first is the floor for every later decision: whatever refusal and degradation behavior is missing from the first released reader can never be added to the copies users already run. Release issue #1901 required at minimum that an old runtime reading a newer session format reports "unsupported" instead of misreading it. The pre-change reader did the opposite on both axes: `assertVersion` rejected any version mismatch with one direction-blind message, and the JSONL decoder passed unknown event types through untouched, so reconstruction silently skipped them — resuming a gutted session with no diagnostic at all.
 
 ## Decision
 
+The [reader-compatibility review decision](../process/2026-10-08-session-reader-compatibility-review.md) supersedes the structural bump criterion. This note owns the integer, unknown-event marker, direction-aware refusal, and generation-preservation decisions.
+
 **One monotonic integer, no major/minor split.** Whether a version step is auto-upgradable is a property of that step — expressed by whether its upgrader exists — not something a two-level numbering scheme should promise in advance; design time rarely reveals whether the next change will turn out "major".
 
-**The writer decides bumps, not the reader.** A bump is required exactly when an old runtime could no longer handle a new log with full semantic correctness. "Parses without error" is not the bar: silently skipping content that shapes reconstruction is a wrong read. Only structural changes qualify — header shape, event envelope, core event semantics, the surface mechanism (`SurfaceEventType` set, `SurfaceOp` variants). When unsure, bump: a near-identity upgrader is almost free, a missed bump silently corrupts old readers.
+**Bump when existing discriminators cannot prevent unsafe interpretation.** Successful parsing alone does not establish compatibility: silently skipping content required for reconstruction is a wrong read. Same-version changes require safe old-reader handling and preservation of historical meaning by new readers. The linked reader-compatibility decision defines the review obligations.
 
 **Read rules by direction.** Equal version: read normally. Newer than the reader: refuse, name the direction ("written by a newer harness — upgrade"), and point at the raw log artifact so the user can still see the text (`SessionFormatUnsupportedError`, distinct from `SessionPersistenceCorruptionError` because nothing is damaged). Older than the reader: every event-body operation first runs the complete adjacent chain in memory and leaves the source path, bytes, and inode unchanged. Read handles may consume that current logical result directly; a write open exclusively publishes the final current generation under its canonical versioned filename before append. Header-only listing remains non-mutating and reports the numerically highest canonical generation. Catalog generation and module initialization reject a missing adjacent step, so a published first-party build never exposes a partial historical chain. Retained lower generations are not automatic fallback or a downgrade compatibility promise.
 
 **A per-event `ignorable` marker covers vocabulary growth, so ordinary event additions never bump the version.** The event vocabulary is decided by which plugins are mounted, which a single version integer cannot describe. A reader meeting an unrecognized event type refuses to interpret the log unless the event carries `ignorable: true` in its envelope. The default is *required*: forgetting the marker over-refuses a resumable session (an inconvenience), while a default of ignorable would make the same mistake silently resume a gutted one (a safety failure). The architecture makes this sound: model-visible content flows only through the four `surfaceOp`-marked surface event types plus the `request/header`/`request/context` folds, so the dangerous unknowns are exactly the non-surface events that change how the rest of the log is read (`session/end-seed` is the existing example).
 
+**Accepted machine records remain immutable.** The [accepted compatibility checkpoint](../../../../docs/session-format-status.md#finalization-record) preserves accepted declarations and schemas. Later changes receive new acknowledgements, and a version-bump decision needs its own increasing header transition. The checkpoint does not change the unknown-event protocol.
+
 ### Writer and publication authority
 
-`SESSION_FORMAT_VERSION` owns the checkout writer number; the [release-status reference](../../../../docs/session-format-status.md) owns one bilingual `latestReleasedVersion` and `evidenceTag` record. Publication changes independently of source development, so status is derived by comparing those facts rather than maintaining a second `released` boolean. General documentation links to these authorities; fixed-version contracts and historical evidence keep their explicit numbers.
+`SESSION_FORMAT_VERSION` owns the checkout writer number; the [release-status reference](../../../../docs/session-format-status.md) owns one `latestReleasedVersion` and `evidenceTag` record. Publication changes independently of source development, so status is derived by comparing those facts rather than maintaining a second `released` boolean. General documentation links to these authorities; fixed-version contracts and historical evidence keep their explicit numbers.
 
-The [documentation-standard check](../../../../scripts/doc-standard.spec.ts) validates record structure, bilingual equality, evidence-link consistency, and the local release/writer ordering without network access. It proves internal consistency, not publication or freshness. The release operator verifies publication and updates the record after a higher format ships, as required by the [release process](../process/2026-08-10-npm-release-sequences.md). This keeps compatibility review independent of credentials and GitHub availability while making the manual freshness obligation explicit.
+The [documentation-standard check](../../../../scripts/doc-standard.spec.ts) validates record structure, declaration equality, evidence-link consistency, and the local release/writer ordering without network access. It proves internal consistency, not publication or freshness. The release operator verifies publication and updates the record after a higher format ships, as required by the [release process](../process/2026-08-10-npm-release-sequences.md). This keeps compatibility review independent of credentials and GitHub availability while making the manual freshness obligation explicit.
 
 ## Consequences
 

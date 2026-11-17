@@ -1,31 +1,48 @@
 /** Session Remote owner: cold reads, explicit Agent commands, and live control state. */
 
 import { hostname } from 'node:os'
-import { Context } from '@deepseek-ai/cordis'
+import { resolve } from 'node:path'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-fs'
+import { Context, Service, type Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { errorChain } from '@deepseek-ai/dsh-llm'
+import { errorChain, ReasoningEffortId, type MessageSource } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-client-file-upload'
-import { canOpenNativePath, nativeFileManager, openNativePath, revealNativePath } from '@deepseek-ai/dsh-native-command'
+import { canOpenNativePath, nativeFileManager, nativeFileApplications, openNativeFileApplication, openNativeAssociatedPath, revealNativePath } from '@deepseek-ai/dsh-native-command'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionInspection } from '@deepseek-ai/dsh-session-persistence'
+import type {} from '@deepseek-ai/dsh-session-projection-cache'
 import type { SessionObservation } from '@deepseek-ai/dsh-session-query'
-import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { Remote, RemoteError, TypertRemoteService, principalOf, type TypertResourceResolveInput } from '@deepseek-ai/dsh-typert-protocol'
+import { canonicalClientTimeZone } from '@deepseek-ai/dsh-util-time'
+import { assertNever } from '@deepseek-ai/dsh-util-values'
+import type {} from '@deepseek-ai/dsh-api-remote-access'
 import {
   ApiSessionAgentController,
-  inspectApiSession,
   type ApiSessionAgentResult,
 } from './agent.ts'
-import { SessionCommandController } from './commands.ts'
+import { SessionCommandController, hasPromptContent } from './commands.ts'
+import { MasterControlSessions } from './master-control.ts'
+import type { ExternalChatCatalog, ExternalChatImportRequest, ExternalChatImportValue } from './types.ts'
 import { SessionControlController } from './control.ts'
-import { SessionHistoryController } from './history.ts'
+import { HistoryController } from './history/controller.ts'
+import { StateController } from './state/controller.ts'
+import { WebController } from './web/controller.ts'
 import { SessionFileReferences } from './file-references.ts'
 import { ApiSessionList } from './list.ts'
-import { buildModelCatalog } from './catalog.ts'
-import { installModelSelectionProjection } from './model-selection-projection.ts'
+import { buildModelCatalog, hasProviderApiKey, missingCredentialProviders } from './catalog.ts'
+import { installMcpSelectionProjection } from './mcp-selection-projection.ts'
+import { installHookOverridesProjection } from './hook-overrides-projection.ts'
+import { installAutoResponder } from './auto-responder.ts'
+import { installRunOptions } from './run-options.ts'
+import { subagentSetupSchema, type SubagentSetup } from './subagent-setup.ts'
+import type { HookInventoryReport } from '@deepseek-ai/dsh-hook-protocol'
 import { SessionSkillCatalog } from './skill-catalog.ts'
 import { SessionMediaReferences } from './media-references.ts'
+import { ArchivedSessionGate } from './archived-session-gate.ts'
 import type {
   ModelCatalog,
+  SessionWorkspacePathApplication,
+  SessionAddress,
   SessionAttachmentRequest,
   SessionAttachmentValue,
   SessionCancelRequest,
@@ -41,16 +58,26 @@ import type {
   SessionListValue,
   SessionOpenWorkspacePathRequest,
   SessionOpenWorkspacePathValue,
-  SessionPage,
-  SessionPageRequest,
+  SessionEventsPage, SessionPageRequest, SessionEventFrame, SessionObserveEventRequest,
+  SessionProjectionFrame, SessionStateRequest, SessionState, SessionWaitRequest, SessionWaitValue,
   SessionPromptRequest,
   SessionPromptValue,
   SessionRenameRequest,
   SessionRenameValue,
   SessionSearchRequest,
   SessionSearchValue,
+  McpConnectorCatalog,
+  SessionHookCatalog,
+  SessionSetHookOverridesRequest,
+  HookOverrides,
+  SessionSelectMcpRequest,
+  SessionSelectMcpValue,
   SessionSelectModelRequest,
   SessionSelectModelValue,
+  SessionProjectionsRequest,
+  SessionProjectionsValue,
+  SessionSetRunOptionsRequest,
+  SessionRunOptions,
   SessionUpdateQueueRequest,
   SessionUpdateQueueValue,
 } from './types.ts'
@@ -59,6 +86,7 @@ export type * from './types.ts'
 export { ApiSessionNotFound } from './agent.ts'
 export { SessionFileReferences } from './file-references.ts'
 export { SessionSkillCatalog } from './skill-catalog.ts'
+export { effectiveSubagentSetupOf } from './run-options.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -67,16 +95,55 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
+/**
+ * Extract the Session resource from an ID or a history address.
+ *
+ * Registers as the `session` kind default, so it applies to every Remote method of
+ * every namespace: a top-level `sessionId` parameter, otherwise the first object
+ * parameter carrying `sessionId` or an `address`. A new request type whose first
+ * object parameter has an unrelated `address` field would be read as an address.
+ * @param input - validated wire arguments and their ordered parameter descriptions.
+ * @returns the named Session identity, otherwise the first object's Session identity or history address.
+ * @throws Error when the request object supplies both sessionId and address.
+ */
+function resolveSessionResource({ args, parameters }: TypertResourceResolveInput): SessionId | undefined {
+  const sessionParameter = parameters.find(parameter => parameter.name === 'sessionId' || parameter.wire === 'sessionId')
+  if (sessionParameter !== undefined) return args[sessionParameter.wire] as SessionId | undefined
+  for (const parameter of parameters) {
+    const value = args[parameter.wire]
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) continue
+    const request = value as { readonly sessionId?: SessionId; readonly address?: SessionAddress }
+    const address = request.address
+    if (request.sessionId !== undefined && address !== undefined) {
+      throw new Error('Session resource request must not contain both sessionId and address')
+    }
+    return request.sessionId ?? (address === undefined ? undefined
+      : address.kind === 'session' ? address.sessionId : address.childSessionId)
+  }
+  return undefined
+}
+
 /** Session Controller deployment policy. */
 export interface Config {
   /** Override platform desktop-opener detection. */
   readonly nativeOpen?: boolean
+  /** Global default Orchestrator & Subagent Setup for Sessions without their own; unset means subagent mode is off. */
+  readonly subagentSetup?: Volatile<unknown>
+  /** Positive integral milliseconds of list work before yielding between complete rows. */
+  readonly listWorkSliceMs?: number
 }
+
+/** Deployment policy after schema defaults have been applied. */
+type ResolvedConfig = Config & { readonly listWorkSliceMs: number }
 
 /** Host integrations replaceable by direct unit tests. */
 export interface SessionControllerInternals {
   /** Native default-application handoff. */
   readonly openPath?: (path: string, signal: AbortSignal) => Promise<void>
+  /** Native file-association query. */
+  readonly fileApplications?: typeof nativeFileApplications
+  /** Explicit registered-application handoff. */
+  readonly openFileApplication?: typeof openNativeFileApplication
   /** Native file-manager handoff. */
   readonly revealPath?: (path: string, signal: AbortSignal) => Promise<void>
   /** Native handoff availability probe. */
@@ -90,38 +157,71 @@ export class SessionController extends TypertRemoteService {
     'agents',
     'attachments',
     'fileUploads',
+    'fs',
     'llm',
+    'remoteAccess',
     'sessions',
     'sessionProjections',
     'sessionQuery',
     'typert',
+    'typertGateway',
     'workspaceRegistry',
   ]
 
-  static Config: z<Config> = z.object({
+  static Config: z<Config, ResolvedConfig> = z.object({
     nativeOpen: z.boolean(),
+    subagentSetup: z.any().volatile(),
+    listWorkSliceMs: z.natural().min(1).default(16),
   })
 
-  private readonly agents: ApiSessionAgentController
-  private readonly commands: SessionCommandController
-  private readonly controlState: SessionControlController
-  private readonly history: SessionHistoryController
-  private readonly listState: ApiSessionList
+  private readonly subagentSetupDefault: Volatile<unknown> | undefined
+  private warnedSubagentSetup: unknown
+  private historyController!: HistoryController
+  private stateController!: StateController
+  private webController!: WebController
+
+  private agents!: ApiSessionAgentController
+  private masterControl!: MasterControlSessions
+  private commands!: SessionCommandController
+  private controlState!: SessionControlController
+  private listState!: ApiSessionList
   private readonly openPath: (path: string, signal: AbortSignal) => Promise<void>
+  private readonly fileApplications: typeof nativeFileApplications
+  private readonly openFileApplication: typeof openNativeFileApplication
   private readonly revealPath: (path: string, signal: AbortSignal) => Promise<void>
   private readonly canOpenPath: () => boolean
+  private readonly listWorkSliceMs: number
   private readonly promotions = new Set<Promise<void>>()
 
   /**
    * @param ctx - Host context containing the Session capability assembly.
-   * @param config - native-opener deployment policy.
+   * @param config - native-opener and list-scheduling deployment policy.
    * @param internals - host integrations replaceable by direct unit tests.
    */
   constructor(ctx: Context, config: Config, internals: SessionControllerInternals = {}) {
     super(ctx, 'sessionController', { namespace: 'session' })
-    installModelSelectionProjection(ctx)
+    const { subagentSetup, ...listing } = config
+    this.subagentSetupDefault = subagentSetup
+    this.listWorkSliceMs = SessionController.Config(listing).listWorkSliceMs
+    this.fileApplications = internals.fileApplications ?? nativeFileApplications
+    this.openFileApplication = internals.openFileApplication ?? openNativeFileApplication
+    this.openPath = internals.openPath ?? openNativeAssociatedPath
+    this.revealPath = internals.revealPath ?? revealNativePath
+    this.canOpenPath = internals.canOpenPath
+      ?? (() => config.nativeOpen ?? (internals.openPath !== undefined || canOpenNativePath()))
+  }
+
+  protected async [Service.init](): Promise<void> {
+    const ctx = this.ctx
+    ctx.typert.resources.register('session', { resolve: resolveSessionResource })
+    installMcpSelectionProjection(ctx)
+    installHookOverridesProjection(ctx)
+    installRunOptions(ctx)
     this.agents = new ApiSessionAgentController(ctx)
+    this.agents.initialize()
+    installAutoResponder(ctx, agent => agent.model.current() ?? ctx.agentDefaultModel.currentSelection())
     this.commands = new SessionCommandController(ctx, this.agents, process.cwd())
+    this.masterControl = new MasterControlSessions(ctx, this.commands)
     ctx.effect(() => ctx.fileUploads.registerAgentResolver(async (sessionId) => {
       const result = await this.agents.resolveAgent(sessionId)
       if ('error' in result) throw result.error
@@ -133,15 +233,20 @@ export class SessionController extends TypertRemoteService {
     ctx.effect(() => async () => {
       await Promise.allSettled([...this.promotions])
     }, 'session-controller.promotions')
-    this.history = new SessionHistoryController(ctx, (observation) => { this.promote(observation) })
-    this.listState = new ApiSessionList(ctx)
-    this.openPath = internals.openPath ?? openNativePath
-    this.revealPath = internals.revealPath ?? revealNativePath
-    this.canOpenPath = internals.canOpenPath
-      ?? (() => config.nativeOpen ?? (internals.openPath !== undefined || canOpenNativePath()))
+    // Assistant-stream observation must be live before the list read yields: an Agent's
+    // opening frame arriving during that await would otherwise have no listener.
+    this.historyController = new HistoryController(ctx)
+    this.stateController = new StateController(ctx, this.historyController)
+    this.webController = new WebController(ctx, this.historyController, (observation) => { this.promote(observation) })
+    this.listState = new ApiSessionList(ctx, this.listWorkSliceMs)
+    await this.listState.initialize()
     ctx.plugin(SessionFileReferences)
     ctx.plugin(SessionMediaReferences)
     ctx.plugin(SessionSkillCatalog)
+    // An archived Session, or a subagent descendant of one, runs no model step
+    // until it is restored; what it still runs is stopped by the owners that
+    // answer the Workspace registry's archive-admission events.
+    ctx.plugin(ArchivedSessionGate)
 
     ctx.on('session/created', (session) => {
       ctx.emit('api-session/added', this.listState.summaryFor(session))
@@ -149,6 +254,13 @@ export class SessionController extends TypertRemoteService {
     ctx.on('session/disposed', (session) => {
       ctx.emit('api-session/removed', session.id)
     })
+    const publishAgentAvailability = ({ agent }: { agent: Agent }): undefined => {
+      if (ctx.sessions.get(agent.id) === agent.session) {
+        ctx.emit('api-session/added', this.listState.summaryFor(agent.session))
+      }
+    }
+    ctx.on('agent/created', publishAgentAvailability)
+    ctx.on('agent/disposed', publishAgentAvailability)
     ctx.on('agent/status', ({ agent, status }) => {
       ctx.emit('api-session/status', agent.id, status === 'running')
     })
@@ -156,20 +268,15 @@ export class SessionController extends TypertRemoteService {
       ctx.emit('api-session/error', agent.id, errorChain(error))
     })
     ctx.on('session/event', (session, event) => {
-      if (event.type === 'request/header') {
-        const agent = ctx.agents.get(session.id)
-        if (agent?.session === session) this.agents.consumeSelection(
-          agent,
-          event.data.header.config.provider,
-          event.data.header.config.model,
-          event.data.header.config.reasoningEffort,
-        )
-      }
       if (event.type !== 'user/message' || event.data.source.kind !== 'user') return
       ctx.emit('api-session/activity', session.id, event.time)
     })
   }
 
+  /**
+   * Request background activation through the existing Session Agent controller.
+   * @param observation - owned lease disposed by the background task; callers retain their own lease separately.
+   */
   private promote(observation: SessionObservation): void {
     const sessionId = observation.header.id
     const task = (async () => {
@@ -184,6 +291,30 @@ export class SessionController extends TypertRemoteService {
   }
 
   /**
+   * Provider routes whose named API-key reference has no configured credential, for Host-side route preflight.
+   * @returns provider route ids that cannot authenticate; empty when credentials cannot be read.
+   */
+  missingCredentialProviders(): Promise<readonly string[]> {
+    return missingCredentialProviders(this.ctx)
+  }
+
+  /**
+   * The global default Orchestrator & Subagent Setup, which a Session without its own setup inherits.
+   * @returns the stored default, or undefined when none is set or the stored value fails {@link subagentSetupSchema}.
+   */
+  defaultSubagentSetup(): SubagentSetup | undefined {
+    const stored = this.subagentSetupDefault?.get()
+    if (stored === undefined) return undefined
+    const parsed = subagentSetupSchema.safeParse(stored)
+    if (parsed.success) return parsed.data
+    if (this.warnedSubagentSetup !== stored) {
+      this.warnedSubagentSetup = stored
+      this.ctx.logger.warn('session-controller: stored default Orchestrator & Subagent Setup is invalid and is ignored')
+    }
+    return undefined
+  }
+
+  /**
    * Resolve or resume one ordinary Session for another Host API domain.
    * @param sessionId - Session identity whose Agent owns the operation.
    * @returns the live Agent or the stable Session-domain failure.
@@ -193,53 +324,63 @@ export class SessionController extends TypertRemoteService {
   }
 
   /**
-   * Inspect one attached or persisted Session without activating its Agent.
-   * @param sessionId - durable Session identity.
-   * @param signal - optional caller cancellation for persistence reads.
-   * @returns the current attached state or persisted header and event prefix.
-   */
-  inspect(
-    sessionId: SessionId,
-    signal?: AbortSignal,
-  ): Promise<SessionInspection> {
-    const attached = this.ctx.sessions.get(sessionId)
-    if (attached !== undefined) {
-      return Promise.resolve({
-        meta: attached.header,
-        inheritedEventCount: attached.inheritedEventCount,
-        // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
-        events: attached.snapshotEvents(),
-      })
-    }
-    return inspectApiSession(this.ctx, sessionId, signal)
-  }
-
-  /**
    * Read all visible Session rows without resuming an Agent.
    * @param _request - reserved empty list request.
-   * @param signal - cancellation for persistence reads.
+   * @param signal - cancellation for persistence reads and summary generation.
    * @returns visible Session summaries ordered by activity.
    */
   @Remote('list')
   async list(_request: SessionListRequest, signal: AbortSignal): Promise<SessionListValue> {
-    return { items: await this.listState.list(signal) }
+    const items = await this.listState.list(signal)
+    return { items: items.filter(item => this.ctx.remoteAccess.allows({ kind: 'session', id: item.sessionId })) }
   }
 
   /**
-   * Search visible Session content without resuming an Agent.
+   * Search visible Session content without resuming an Agent. A non-owner
+   * receives only the hits whose Session `allows()` admits; `hasMore`
+   * describes the bounded result before that filtering.
    * @param request - literal message-content query.
    * @param signal - cancellation for list and search reads.
    * @returns authorized bounded Session search results.
    */
   @Remote('search')
-  search(request: SessionSearchRequest, signal: AbortSignal): Promise<SessionSearchValue> {
-    return this.listState.search(request.query, signal)
+  async search(request: SessionSearchRequest, signal: AbortSignal): Promise<SessionSearchValue> {
+    const result = await this.listState.search(request.query, signal)
+    return { ...result, items: result.items.filter(item => this.ctx.remoteAccess.allows({ kind: 'session', id: item.sessionId })) }
   }
 
   /**
-   * Create or idempotently adopt one ordinary Session.
-   * @param request - requested identity, location, and Agent preset.
-   * @returns the Session identity and resolved preset when configured.
+   * Resolve the dedicated ungrouped home; concurrent requests share creation.
+   * @returns the durable master session identity.
+   */
+  @Remote('masterHome')
+  masterHome(): Promise<SessionCreateValue> {
+    return this.masterControl.openHome()
+  }
+
+  /**
+   * Discover recent supported external chats without importing or running them.
+   * @returns at most 100 rows with supported-text previews and per-file errors.
+   */
+  @Remote('externalChats')
+  externalChats(): Promise<ExternalChatCatalog> {
+    return this.masterControl.external.discover()
+  }
+
+  /**
+   * Import discovered text histories; preserve existing imports and isolate row failures.
+   * @param request - keys returned by external chat discovery.
+   * @returns per-key outcomes after successful imports reach durable storage.
+   */
+  @Remote('importChats')
+  importChats(request: ExternalChatImportRequest): Promise<ExternalChatImportValue> {
+    return this.masterControl.importChats(request.keys)
+  }
+
+  /**
+   * Create one ordinary Session for a new conversation, reusing the named blank Session while it is reusable.
+   * @param request - optional blank Session to reuse, location, and Agent preset.
+   * @returns the created or reused Session identity and its preset when configured.
    */
   @Remote('create')
   create(request: SessionCreateRequest): Promise<SessionCreateValue> {
@@ -247,13 +388,87 @@ export class SessionController extends TypertRemoteService {
   }
 
   /**
-   * Select one Session-local model after explicitly resuming the Session.
+   * Select one Session-local model after explicitly resuming the Session; save the default in the background.
    * @param request - Session identity and requested model selection.
-   * @returns the normalized selection installed for the Session.
+   * @returns the normalized selection installed for the Session, without waiting for default persistence.
    */
   @Remote('selectModel')
   selectModel(request: SessionSelectModelRequest): Promise<SessionSelectModelValue> {
     return this.commands.selectModel(request)
+  }
+
+  /**
+   * List connector namespaces exposed by globally connected MCP tools.
+   * @returns connector namespaces available for Session selection.
+   */
+  @Remote('listMcpConnectors')
+  listMcpConnectors(): McpConnectorCatalog {
+    return { connectorIds: this.agents.listMcpConnectorIds() }
+  }
+
+  /**
+   * List hooks loaded by mounted hook bridges.
+   * @returns every loaded hook with its global enablement.
+   */
+  @Remote('listHooks')
+  listHooks(): SessionHookCatalog {
+    const reports: HookInventoryReport[] = []
+    this.ctx.emit('hooks/inventory', reports)
+    return {
+      hooks: reports.filter(report => report.status === 'loaded').flatMap(report => report.handlers.map(handler => ({
+        key: handler.key, dialect: report.dialect, event: handler.event, command: handler.command,
+        globallyDisabled: handler.disabled === true, ...handler.matcher === undefined ? {} : { matcher: handler.matcher },
+        ...handler.description === undefined ? {} : { description: handler.description },
+      }))),
+    }
+  }
+
+  /**
+   * Replace the hook overrides of one Session.
+   * @param request - Session identity and the complete override map.
+   * @returns the stored overrides.
+   */
+  @Remote('setHookOverrides')
+  setHookOverrides(request: SessionSetHookOverridesRequest): Promise<HookOverrides> {
+    return this.commands.setHookOverrides(request)
+  }
+
+  /**
+   * Replace the run options (ultracode, plus fast mode and effort for Claude Code runs) of one Session.
+   * @param request - Session identity and the run options to store.
+   * @returns the stored run options.
+   */
+  @Remote('setRunOptions')
+  setRunOptions(request: SessionSetRunOptionsRequest): Promise<SessionRunOptions> {
+    return this.commands.setRunOptions(request)
+  }
+
+  /**
+   * Select MCP connector namespaces for one Session.
+   * @param request - Session identity and selected connector namespaces.
+   * @returns the normalized Session selection.
+   */
+  @Remote('selectMcp')
+  selectMcp(request: SessionSelectMcpRequest): Promise<SessionSelectMcpValue> {
+    return this.commands.selectMcp(request)
+  }
+
+  /**
+   * Select the first available account model after login when no provider API key is configured.
+   * @returns after saving the first available model or retaining the existing default.
+   */
+  @Remote
+  async initializeDefaultModel(): Promise<void> {
+    const provider = 'deepseek-account'
+    if (await hasProviderApiKey(this.ctx)) return
+    const catalog = await buildModelCatalog(this.ctx)
+    const model = catalog.groups.find(group => group.id === provider)?.models[0]
+    if (model === undefined) throw new RemoteError('session/provider-models-unavailable',
+      `provider "${provider}" has no available models`, { provider })
+    const selection = { provider, model: model.id,
+      ...model.reasoning?.defaultEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(model.reasoning.defaultEffort) },
+    }
+    await this.ctx.agentDefaultModel.saveSelection(selection)
   }
 
   /**
@@ -284,37 +499,68 @@ export class SessionController extends TypertRemoteService {
   }
 
   /**
-   * Open one path prepared by a Session-aware caller on the Host desktop.
+   * Verify one path through the composed filesystem and open it on the Host desktop.
    * @param request - path after best-effort Session workspace resolution.
    * @param signal - caller lifetime; abort terminates the native command.
    * @returns confirmation after the native opener accepts the path.
-   * @throws RemoteError when the request is invalid, cancelled, or the opener fails.
+   * @throws RemoteError when the request is invalid, has no verified Host mapping, is cancelled, or the opener fails.
    */
   @Remote('openWorkspacePath')
   async openWorkspacePath(
     request: SessionOpenWorkspacePathRequest,
     signal: AbortSignal,
   ): Promise<SessionOpenWorkspacePathValue> {
-    if (request.path.length === 0) {
-      throw new RemoteError(
-        'gateway/bad-request',
-        'session.openWorkspacePath requires a non-empty path',
-        {},
-      )
-    }
-    signal.throwIfAborted()
     try {
-      if (request.action === 'reveal') await this.revealPath(request.path, signal)
-      else await this.openPath(request.path, signal)
+      const path = await this.verifyDesktopPath(request.path, signal)
+      if (request.action === 'reveal') await this.revealPath(path, signal)
+      else if (request.application !== undefined) await this.openFileApplication(path, request.application, signal)
+      else await this.openPath(path, signal)
       return { opened: true }
     } catch (error: unknown) {
       if (signal.aborted) throw new RemoteError('gateway/cancelled', 'path open was aborted', {})
+      if (error instanceof RemoteError) throw error
       throw new RemoteError(
         'gateway/internal',
-        `path open failed: ${error instanceof Error ? error.message : String(error)}`,
+        'path open failed',
         {},
+        { cause: error },
       )
     }
+  }
+
+  /**
+   * Query current file handlers on the serving desktop without activating an Agent.
+   * @param request - file path in Host filesystem syntax.
+   * @param signal - caller lifetime, propagated to filesystem and desktop queries.
+   * @returns OS application names, icons, and default selection; empty when desktop opening is unavailable.
+   * @throws RemoteError when the path is invalid, the query is cancelled, or native discovery fails.
+   */
+  @Remote('workspacePathApplications')
+  async workspacePathApplications(
+    request: { readonly path: string }, signal: AbortSignal,
+  ): Promise<readonly SessionWorkspacePathApplication[]> {
+    if (!this.canOpenPath()) return []
+    try {
+      const path = await this.verifyDesktopPath(request.path, signal)
+      return await this.fileApplications(path, signal)
+    } catch (error: unknown) {
+      if (signal.aborted) throw new RemoteError('gateway/cancelled', 'application query was aborted', {})
+      if (error instanceof RemoteError) throw error
+      throw new RemoteError('gateway/internal', 'file application query failed', {}, { cause: error })
+    }
+  }
+
+  private async verifyDesktopPath(path: string, signal: AbortSignal): Promise<string> {
+    if (path.length === 0) throw new RemoteError('gateway/bad-request', 'A non-empty file path is required', {})
+    signal.throwIfAborted()
+    const hostPath = resolve(path)
+    const { fs } = this.ctx
+    const mapped = fs.processPathFromHostPath(hostPath)
+    if (mapped === undefined || fs.processPath(await fs.resolve(mapped, { signal })) !== hostPath) {
+      throw new RemoteError('gateway/bad-request', 'Path has no verified Host path', {})
+    }
+    signal.throwIfAborted()
+    return hostPath
   }
 
   /**
@@ -328,12 +574,22 @@ export class SessionController extends TypertRemoteService {
   }
 
   /**
-   * Fork one cold-readable completed-turn prefix into a new Session.
-   * @param request - source Session and optional event anchor.
+   * Fork one cold-readable exact event prefix into a new Session. An omitted
+   * boundary selects the latest completed-turn prefix; an open cut receives
+   * synthetic fork closers.
+   * @param request - source Session, optional exact inclusive event boundary, and migration preflight choice.
    * @returns the new Session identity.
    */
   @Remote('fork')
-  fork(request: SessionForkRequest): Promise<SessionForkValue> {
+  async fork(request: SessionForkRequest): Promise<SessionForkValue> {
+    if (request.allowMigration === false && this.ctx.sessions.get(request.sessionId) === undefined) {
+      const stored = await this.ctx.get('sessionPersistence')?.stat(request.sessionId)
+      if (stored?.formatStatus === 'migration-required' && this.ctx.sessions.get(request.sessionId) === undefined) {
+        throw new RemoteError('session/migration-required', 'Open the source Session to complete migration before forking', {
+          sessionId: request.sessionId,
+        })
+      }
+    }
     return this.commands.fork(request)
   }
 
@@ -344,14 +600,35 @@ export class SessionController extends TypertRemoteService {
    * @returns acknowledgement that the Agent accepted the prompt.
    */
   @Remote('prompt')
-  prompt(request: SessionPromptRequest, signal: AbortSignal): Promise<SessionPromptValue> {
+  async prompt(request: SessionPromptRequest, signal: AbortSignal): Promise<SessionPromptValue> {
     signal.throwIfAborted()
-    return this.commands.prompt(request)
+    if (!hasPromptContent(request.content)) {
+      throw new RemoteError('gateway/bad-request', 'prompt content must include non-whitespace text or an attachment', {})
+    }
+    const clientTimeZone = request.clientTimeZone === undefined
+      ? undefined
+      : canonicalClientTimeZone(request.clientTimeZone)
+    if (request.clientTimeZone !== undefined && clientTimeZone === undefined) {
+      throw new RemoteError(
+        'session/invalid-time-zone',
+        'clientTimeZone must be UTC or a valid IANA Area/Location name',
+        { value: request.clientTimeZone },
+      )
+    }
+    // The caller is recorded only when it is not the owner, so owner messages keep their exact source.
+    const principal = principalOf(this.ctx.invocation)
+    const source: MessageSource = {
+      kind: 'user',
+      rpcId: request.requestId,
+      ...(clientTimeZone === undefined ? {} : { clientTimeZone }),
+      ...(principal === undefined ? {} : { principal }),
+    }
+    return this.commands.prompt(request, source)
   }
 
   /**
-   * Read one image proven reachable from the addressed Session log.
-   * @param request - Session and attachment identities used for authorization.
+   * Read one image from the attachment store after gateway authorization.
+   * @param request - image reference and gateway permission scope; Session existence is not checked.
    * @returns the durable attachment reference and base64-encoded bytes.
    */
   @Remote('attachment')
@@ -381,13 +658,80 @@ export class SessionController extends TypertRemoteService {
 
   /**
    * Read one cold-safe, message-aligned Session history page.
-   * @param request - durable address, backward cursor, and page budget.
+   * @deprecated Use `events`; this entry point remains for existing Web callers.
+   * @param request - durable address, optional fixed cut, backward cursor, and page budget.
    * @param signal - cancellation for persistence reads.
-   * @returns one chronological page.
+   * @returns one chronological page with its inclusive cursor; an omitted `throughSeq` selects the observed log end.
    */
   @Remote('page')
-  page(request: SessionPageRequest, signal: AbortSignal): Promise<SessionPage> {
-    return this.history.page(request, signal)
+  page(request: SessionPageRequest, signal: AbortSignal): Promise<SessionEventsPage> {
+    return this.historyController.events(request, signal)
+  }
+
+  /**
+   * Read one cold-safe, message-aligned Session history page.
+   * @param request - durable address, optional fixed cut, backward cursor, and page budget.
+   * @param signal - cancellation for persistence reads.
+   * @returns one chronological page with its inclusive cursor.
+   */
+  @Remote
+  events(request: SessionPageRequest, signal: AbortSignal): Promise<SessionEventsPage> {
+    return this.historyController.events(request, signal)
+  }
+
+  /**
+   * Subscribe to Session events without reading a snapshot.
+   * @param request - Session address.
+   * @param signal - subscription cancellation.
+   * @returns readiness and subsequent events, without a snapshot.
+   */
+  @Remote({ mode: 'stream' })
+  observeEvent(request: SessionObserveEventRequest, signal: AbortSignal): AsyncIterable<SessionEventFrame> {
+    return this.historyController.observeEvent(request, signal)
+  }
+
+  /**
+   * Subscribe to sparse Session projection changes.
+   * @param request - target Session.
+   * @param signal - subscription cancellation.
+   * @returns readiness and sparse projection changes.
+   */
+  @Remote({ mode: 'stream' })
+  observeProjections(request: SessionProjectionsRequest, signal: AbortSignal): AsyncIterable<SessionProjectionFrame> {
+    return this.historyController.observeProjections(request, signal)
+  }
+
+  /**
+   * Read passive Session state.
+   * @param request - target Session.
+   * @param signal - read cancellation.
+   * @returns current passive state.
+   */
+  @Remote
+  state(request: SessionStateRequest, signal: AbortSignal): Promise<SessionState> {
+    return this.stateController.state(request, signal)
+  }
+
+  /**
+   * Subscribe to complete Session state replacements.
+   * @param request - target Session.
+   * @param signal - subscription cancellation.
+   * @returns complete passive state replacements.
+   */
+  @Remote({ mode: 'stream' })
+  observeState(request: SessionStateRequest, signal: AbortSignal): AsyncIterable<SessionState> {
+    return this.stateController.observeState(request, signal)
+  }
+
+  /**
+   * Wait for Session quiescence or pending input with bounded assistant output.
+   * @param request - Session, wait bounds and output window.
+   * @param signal - caller cancellation.
+   * @returns stopping state and bounded assistant output.
+   */
+  @Remote
+  wait(request: SessionWaitRequest, signal: AbortSignal): Promise<SessionWaitValue> {
+    return this.stateController.wait(request, signal)
   }
 
   /**
@@ -399,7 +743,18 @@ export class SessionController extends TypertRemoteService {
    */
   @Remote({ mode: 'stream' })
   follow(request: SessionFollowRequest, signal: AbortSignal): AsyncIterable<SessionFollowFrame> {
-    return this.history.follow(request, signal)
+    return this.webController.follow(request, signal)
+  }
+
+  /**
+   * Read exact projections, returning cached hints only when migration is required.
+   * @param request - Session whose current values are required.
+   * @param signal - cancellation for the Session read.
+   * @returns a sequenced baseline, cached hints when migration is deferred, or null when absent.
+   */
+  @Remote('projections')
+  projections(request: SessionProjectionsRequest, signal: AbortSignal): Promise<SessionProjectionsValue> {
+    return this.historyController.projections(request, signal)
   }
 
   /**
@@ -408,11 +763,24 @@ export class SessionController extends TypertRemoteService {
    * @returns one complete baseline followed by live replacement frames.
    */
   @Remote({ mode: 'stream' })
-  control(signal: AbortSignal): AsyncIterable<SessionControlFrame> {
-    return this.controlState.control(signal)
+  async *control(signal: AbortSignal): AsyncIterable<SessionControlFrame> {
+    for await (const frame of this.controlState.control(signal)) {
+      switch (frame.type) {
+        case 'baseline': {
+          const projections = Object.fromEntries(Object.entries(frame.value.projections)
+            .filter(([sessionId]) => this.ctx.remoteAccess.allows({ kind: 'session', id: sessionId as SessionId })))
+          yield { type: 'baseline', value: { ...frame.value, projections } }
+          break
+        }
+        case 'projection':
+          if (this.ctx.remoteAccess.allows({ kind: 'session', id: frame.sessionId })) yield frame
+          break
+        /* v8 ignore next -- closed control-frame union. */
+        default:
+          assertNever(frame)
+      }
+    }
   }
-
 }
 
-export { buildModelCatalog }
 export default SessionController

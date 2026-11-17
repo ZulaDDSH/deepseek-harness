@@ -26,7 +26,7 @@ export const GLOB_MAX_RESULTS = 100
 
 /**
  * Directory names ripgrep must never descend into for a discovery listing: VCS
- * metadata stores. `--no-ignore --hidden` would otherwise surface them in every
+ * metadata stores. `--hidden` would otherwise surface them in every
  * broad search. Each name is excluded with TWO negated `--glob`s (see
  * {@link buildGlobCommand}): an any-depth directory glob that matches — and
  * prunes — the directory during traversal, and a contents glob that still
@@ -58,6 +58,7 @@ export interface GlobToolCaps {
 export interface GlobInput {
   pattern: string
   path?: string
+  includeIgnored?: boolean
 }
 
 /**
@@ -68,10 +69,27 @@ export interface GlobInput {
  * @param args - the schema-validated `glob` arguments.
  * @returns the accepted input, unchanged.
  */
-export function parseGlobArgs(args: { pattern: string; path?: string }): GlobInput {
+export function parseGlobArgs(args: { pattern: string; path?: string; includeIgnored?: boolean }): GlobInput {
   if (args.pattern.trim().length === 0) throw new Error('pattern must be a non-empty string')
   if (args.path !== undefined && args.path.trim().length === 0) throw new Error('path must be a non-empty string when given')
-  return { pattern: args.pattern, ...args.path !== undefined ? { path: args.path } : {} }
+  return {
+    pattern: args.pattern,
+    ...args.path !== undefined ? { path: args.path } : {},
+    ...args.includeIgnored === true ? { includeIgnored: true } : {},
+  }
+}
+
+/**
+ * The ripgrep argv element(s) for the model's pattern: a file-name type filter
+ * when the pattern has no separator after any leading `**\/`, else an override.
+ *
+ * @param pattern - the raw `glob` pattern.
+ * @returns the argv elements that select the pattern's files.
+ */
+function patternFilter(pattern: string): string[] {
+  const base = pattern.replace(/^(?:\*\*\/)+/, '')
+  if (base.length === 0 || base.includes('/') || base.includes(':') || base.startsWith('!')) return [`--glob=${pattern}`]
+  return [`--type-add=dshglob:${base}`, '--type=dshglob']
 }
 
 /**
@@ -79,20 +97,37 @@ export function parseGlobArgs(args: { pattern: string; path?: string }): GlobInp
  * model-controlled value ({@link GlobInput.pattern}, {@link GlobInput.path})
  * is a plain argv element — no shell layer exists, so no quoting applies; the
  * search root rides behind `--` so a leading-dash path can never be parsed as
- * a flag. `--sort=modified` orders by modification time, `--no-ignore
- * --hidden` searches ignored and hidden files, and
- * {@link GLOB_VCS_EXCLUDES} keeps VCS metadata out.
+ * a flag. `--sort=modified` orders by modification time and `--hidden`
+ * includes hidden files. Ignore files (`.gitignore`, `.ignore`) and
+ * `node_modules` are respected unless {@link GlobInput.includeIgnored} drops
+ * the ignore rules with `--no-ignore`. {@link GLOB_VCS_EXCLUDES} keeps VCS
+ * metadata out in every mode. The pattern goes through {@link patternFilter}.
+ * Simple directory prefixes prune unrelated subtrees through directory-name globs without changing the
+ * search root, path separators, or symlink handling. The last matching glob
+ * wins. A fixed 8 KiB budget bounds added argv bytes; larger additions retain
+ * the original traversal, since even linear growth can exceed command-line limits.
  *
  * @param input - the validated arguments.
  * @returns the complete ripgrep argument vector (excluding the binary itself).
  */
 export function buildGlobCommand(input: GlobInput): string[] {
+  const directories = input.pattern.split('/').slice(0, -1)
+  const pruning: string[] = []
+  if (input.path === undefined && directories.length > 0
+    && directories.every(part => /^[\w .-]+$/.test(part) && part !== '.' && part !== '..' && !GLOB_VCS_EXCLUDES.includes(part))) {
+    // Trailing slashes admit directories only, never files with the same names.
+    const directoryGlob = `--glob={${[...new Set(directories)].join(',')}}/`
+    if (directoryGlob.length + '--glob=!**'.length + 2 <= 8 * 1024) {
+      pruning.push('--glob=!**', directoryGlob)
+    }
+  }
   const parts = [
     '--files',
-    `--glob=${input.pattern}`,
+    ...pruning,
+    ...patternFilter(input.pattern),
     '--sort=modified',
-    '--no-ignore',
     '--hidden',
+    ...input.includeIgnored === true ? ['--no-ignore'] : ['--glob=!**/node_modules'],
     // Two negated globs per VCS name: the bare form prunes the directory
     // during traversal; the /** form still excludes the contents when the
     // search root is AT or INSIDE the directory (where the bare form,
@@ -294,27 +329,20 @@ export function presentGlobResult(_args: { pattern: string; path?: string }, res
  * @param caps - the deployment's resolved glob caps (plugin config after defaulting).
  */
 export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
-  const overCapGuidance = caps.sampleOverCapGlobResults
-    ? 'while a larger one is sampled across top-level entries, so it spans the tree instead of one subtree.'
-    : 'while a larger one keeps the modification-time-ordered head.'
   ctx.systemPrompt.section({
     name: 'tool:glob',
     order: ctx.systemPrompt.getSectionOrder('TOOL_GLOB'),
     text: ({ scope }) => ctx.tools.get('glob', scope) === undefined
       ? ''
-      : 'Use the glob tool — not shell find — to discover files by path pattern. A pattern with no "/" matches basenames at any depth, so "*" matches every file in the tree rather than its top level. '
-      + `Results are files only, never directories, and include hidden and ignored files: a result that fits comes back in modification-time order, ${overCapGuidance}`,
+      : 'Use the glob tool — not shell find — to discover files by path pattern.',
   })
 
-  const overCapDescription = caps.sampleOverCapGlobResults
-    ? `a larger result instead returns ${caps.maxResults} paths sampled across top-level entries`
-    : `a larger result returns the first ${caps.maxResults} paths in modification-time order`
+  const overCapDescription = caps.sampleOverCapGlobResults ? 'is sampled across top-level entries' : 'keeps the first paths'
   const tool = defineTool({
     name: 'glob',
-    description: 'Find files whose paths match a glob pattern. Returns matching file paths — never directories — '
-      + 'including hidden and ignored files (VCS metadata directories are excluded). '
-      + `Up to ${caps.maxResults} paths come back in modification-time order; ${overCapDescription}, `
-      + 'says so, and reports where the complete sorted list was saved. This tool does not enumerate directory entries.',
+    description: 'Find files, not directories, whose paths match a glob pattern, including hidden files; files excluded by ignore rules and node_modules are skipped unless includeIgnored is true. '
+      + `Returns up to ${caps.maxResults} paths in modification-time order; a larger result ${overCapDescription} `
+      + 'and reports where the complete list was saved.',
     parameters: {
       pattern: {
         type: 'string',
@@ -323,6 +351,7 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
           + 'A pattern with no "/" matches the basename at any depth, so "*" and "*.ts" both search the whole tree; include a separator to anchor the depth.',
       },
       path: { type: 'string', description: 'Directory to search in. Defaults to the session workspace; a relative path resolves against it.' },
+      includeIgnored: { type: 'boolean', description: 'Also list files excluded by ignore files (.gitignore, .ignore) and node_modules. Defaults to false.' },
     },
     timeoutMs: caps.timeoutMs,
     output: {

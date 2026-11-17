@@ -1,9 +1,9 @@
 /**
  * The durable subagent-child descriptor: the versioned, model-hidden
  * `subagent/descriptor` session event that identifies every session-backed
- * subagent and records whether it is one-shot or continuable. Continuable
- * descriptors additionally preserve the declared composition required for
- * cold resume. Providers append it turn-enclosed in the child's initial turn.
+ * subagent, including historical one-shot records. The manager appends each
+ * continuable child's descriptor inside its initial turn, preserving the
+ * declared composition required for cold resume.
  *
  * The descriptor deliberately snapshots explicit fields rather than the
  * merge-extensible `AgentOptions` object: an unrelated extension value cannot
@@ -30,8 +30,8 @@ declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /**
      * Durable identity and lifecycle mode of a session-backed subagent child,
-     * appended once by the establishing provider inside the child's initial
-     * turn, before its first request. Continuable records also carry their
+     * appended once inside the child's initial turn, before its first
+     * request. Continuable records also carry their
      * resumable composition. Log-only: it carries no `surfaceOp`, never enters
      * model history, and survives compaction.
      */
@@ -55,6 +55,7 @@ interface SubagentDescriptorBase {
   readonly mode: 'one-shot' | 'continuable'
   /** The `ctx.subagents` provider name that established the child. */
   readonly provider: string
+  readonly routePinned?: true
 }
 
 /** A session-backed subagent that cannot be cold-resumed after its run. */
@@ -96,6 +97,7 @@ interface SubagentDescriptorInputBase {
   readonly mode: 'one-shot' | 'continuable'
   /** The `ctx.subagents` provider name that will establish the child. */
   readonly provider: string
+  readonly routePinned?: true
 }
 
 /** Input for a one-shot child's durable identity. */
@@ -132,6 +134,7 @@ const DESCRIPTOR_BASE_KEYS = [
   'mode',
   'provider',
   'label',
+  'routePinned',
 ] as const
 const ONE_SHOT_DESCRIPTOR_KEYS = new Set(DESCRIPTOR_BASE_KEYS)
 const CONTINUABLE_DESCRIPTOR_KEYS = new Set([
@@ -222,6 +225,10 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
   if (typeof provider !== 'string') {
     throw new Error('persisted subagent descriptor provider must be a string')
   }
+  const routePinned = value['routePinned']
+  if (routePinned !== undefined && routePinned !== true) {
+    throw new Error('persisted subagent descriptor routePinned must be true when present')
+  }
   if (mode === 'one-shot') {
     const label = optionalString(value, 'label')
     return {
@@ -229,6 +236,7 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
       mode,
       provider,
       ...label !== undefined ? { label } : {},
+      ...routePinned === true ? { routePinned } : {},
     }
   }
   const label = value['label']
@@ -252,16 +260,14 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
     ...agentReasoningEffort !== undefined ? { agentReasoningEffort } : {},
     ...persona !== undefined ? { persona } : {},
     ...toolFilter !== undefined ? { toolFilter } : {},
+    ...routePinned === true ? { routePinned } : {},
   }
 }
 
 /**
- * Validate and detach descriptor inputs into the durable payload, before any
- * Task or provider work begins — the same detached lossless-JSON boundary the
- * session log itself enforces, applied early so a synchronous validation
- * failure rejects the tool call without creating a Task.
- * @param input - the caller-collected composition fields.
- * @returns the versioned, detached descriptor payload.
+ * Validate and detach a one-shot descriptor input.
+ * @param input - the caller-collected one-shot identity fields.
+ * @returns the versioned, detached one-shot descriptor payload.
  * @throws when a field is not losslessly JSON-serializable.
  */
 export function snapshotSubagentDescriptor(
@@ -283,12 +289,14 @@ export function snapshotSubagentDescriptor(input: SubagentDescriptorInput): Suba
       mode: input.mode,
       provider: input.provider,
       ...input.label !== undefined ? { label: input.label } : {},
+      ...input.routePinned === true ? { routePinned: true } : {},
     }
     : {
       version: SUBAGENT_DESCRIPTOR_VERSION,
       mode: input.mode,
       provider: input.provider,
       label: input.label,
+      ...input.routePinned === true ? { routePinned: true } : {},
       ...input.agentProvider !== undefined ? { agentProvider: input.agentProvider } : {},
       ...input.agentModel !== undefined ? { agentModel: input.agentModel } : {},
       ...input.agentReasoningEffort !== undefined ? { agentReasoningEffort: input.agentReasoningEffort } : {},

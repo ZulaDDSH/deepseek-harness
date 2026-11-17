@@ -13,6 +13,7 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import * as WorkspaceChangesPlugin from '@deepseek-ai/dsh-workspace-changes'
 import { changes, endTurn, git, startTurn, toolCall } from './support.ts'
 
@@ -30,10 +31,16 @@ describe('real Loader composition', () => {
   it('loads the shipped rows and records a turn’s changes', async () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-workspace-changes-loader-'))
     const cwd = join(root, 'ws')
+    const store = join(root, 'store')
     await writeFile(join(root, 'cordis.yml'), [
       "- name: '@deepseek-ai/dsh-session'",
       "- name: '@deepseek-ai/dsh-subprocess-local'",
+      "- name: '@deepseek-ai/dsh-fs-local'",
       "- name: '@deepseek-ai/dsh-workspace-changes'",
+      '  config:',
+      // Records are durable now, so the row names its own root: the default is
+      // the operator's `$DSH_HOME/workspace-changes`.
+      `    root: ${JSON.stringify(store)}`,
       '',
     ].join('\n'))
     context = new Context()
@@ -43,6 +50,7 @@ describe('real Loader composition', () => {
     const modules = new Map<string, unknown>([
       ['@deepseek-ai/dsh-session', SessionStore],
       ['@deepseek-ai/dsh-subprocess-local', LocalSubprocessRuntime],
+      ['@deepseek-ai/dsh-fs-local', LocalFileSystem],
       ['@deepseek-ai/dsh-workspace-changes', WorkspaceChangesPlugin],
     ])
     context.loader.internal = {
@@ -71,7 +79,7 @@ describe('real Loader composition', () => {
     toolCall(session, 1, 'bash', { command: 'x' })
     endTurn(session, 1)
     await context.waterfall('tools/pre-execute', { agent: { session } } as never, () => Promise.resolve(undefined as never))
-    const [recorded, ...rest] = changes(context, session)
+    const [recorded, ...rest] = await changes(context, session)
     expect(rest).toEqual([])
     expect(recorded).toEqual({
       turn: 1, cwd, total: 1, added: 1, deleted: 0,

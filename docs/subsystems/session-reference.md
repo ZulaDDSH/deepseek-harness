@@ -1,7 +1,5 @@
 # Session References
 
-English | [中文](session-reference.zh.md)
-
 Host-backed file discovery plus structured cross-session reference requests and prepared message contexts. The [file-reference contract](../../packages/context/file-reference) owns path-only completion records and grammar; the [session-reference contract](../../packages/context/session-reference) defines canonical URIs, current-surface projection, tag-safe JSON and byte retention, stable errors, and the untrusted model prompt. Host adapters use these types instead of passing their UI mention syntax into the agent core.
 
 Sources: [`packages/context/file-reference/src/types.ts`](../../packages/context/file-reference/src/types.ts) · [`packages/context/session-reference/src/types.ts`](../../packages/context/session-reference/src/types.ts)
@@ -205,20 +203,21 @@ async listCandidates( agent: Agent, query: string = '', limit: number = this.con
 
 /**
  * Snapshot all references for one accepted direct message and return one aggregated durable context.
- * Automatic budgets use the last assembled route, or agent options before any assembly.
+ * Automatic budgets use the context capacity of `route`.
  * Missing model capacity or adapter uses 64 KiB; other metadata lookup failures and cancellation reject preparation.
  * Truncated previews include omission facts and a full-snapshot spill locator, or an explicit unavailable notice.
  * Cancellation prevents context publication, including when storage completes after cancellation.
  * @param agent - target agent; references to it are rejected.
  * @param content - already host-normalized readable message content.
  * @param references - structured source sessions in mention order.
+ * @param route - provider and model whose context capacity sizes the previews.
  * @param signal - optional cancellation boundary for the active turn.
  * @returns detached content and optional referenced-session context.
  */
-async prepare( agent: Agent, content: ContentBlock[], references: SessionReferenceInput[], signal?: AbortSignal, ): Promise<PreparedReferencedMessage>
+async prepare( agent: Agent, content: ContentBlock[], references: SessionReferenceInput[], route: Readonly<Pick<LlmCallConfig, 'provider' | 'model'>>, signal?: AbortSignal, ): Promise<PreparedReferencedMessage>
 ```
 
-Types: [Agent](core.md) · [ContentBlock](llm-streaming.md)
+Types: [Agent](core.md) · [ContentBlock](llm-streaming.md) · [LlmCallConfig](llm-streaming.md)
 
 Source: [`packages/context/session-reference/src/index.ts`](../../packages/context/session-reference/src/index.ts)
 <!-- END GENERATED cordis-surface -->

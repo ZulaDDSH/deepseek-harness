@@ -14,7 +14,66 @@ export function assertNever(value: never, context?: string): never {
   throw new Error(`unreachable variant${context ? ` in ${context}` : ''}: ${rendered}`)
 }
 
-/** Whether a realm-owned intrinsic prototype is backed by its native constructor. */
+const LIVE_TOOL_DETAIL_MAX_CHARS = 160
+const LIVE_TOOL_DETAIL_SEGMENTER = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+const LIVE_TOOL_DETAIL_KEYS = [
+  'title', 'description', 'objective', 'task', 'task_name', 'name', 'question', 'questions', 'prompt', 'message',
+  'command', 'cmd', 'queries', 'query', 'pattern', 'url', 'uri', 'file_path', 'path', 'target', 'action', 'status',
+] as const
+
+/**
+ * Flatten a streamed value to one line of at most 160 graphemes, ending in an ellipsis when cut.
+ * @param value - text, or an array of strings joined with commas; any other value yields empty text.
+ * @returns the normalized, length-bounded line; empty when the value has no text.
+ */
+export function normalizeLiveToolDetail(value: unknown): string {
+  const text = typeof value === 'string'
+    ? value
+    : Array.isArray(value) && value.every(item => typeof item === 'string')
+      ? value.join(', ')
+      : ''
+  const normalized = text.replace(/\s+/g, ' ').trim()
+  const chars = Array.from(LIVE_TOOL_DETAIL_SEGMENTER.segment(normalized), part => part.segment)
+  return chars.length <= LIVE_TOOL_DETAIL_MAX_CHARS
+    ? normalized
+    : `${chars.slice(0, LIVE_TOOL_DETAIL_MAX_CHARS - 1).join('').trimEnd()}…`
+}
+
+function questionDetail(value: unknown): string {
+  if (!Array.isArray(value)) return ''
+  for (const item of value) {
+    if (item === null || typeof item !== 'object') continue
+    const detail = normalizeLiveToolDetail(Reflect.get(item, 'question'))
+    if (detail !== '') return detail
+  }
+  return ''
+}
+
+/**
+ * Derive the one-line, length-bounded task detail of a running tool call.
+ * @param name - tool name, used as the fallback detail.
+ * @param argsRaw - raw JSON arguments as streamed so far.
+ * @returns the first recognised task-describing argument, or the tool name.
+ */
+export function liveToolDetail(name: string, argsRaw: string): string {
+  let args: unknown
+  try {
+    args = JSON.parse(argsRaw)
+  } catch (_error: unknown) {
+    return normalizeLiveToolDetail(name)
+  }
+  if (args === null || typeof args !== 'object') return normalizeLiveToolDetail(name)
+  for (const key of LIVE_TOOL_DETAIL_KEYS) {
+    if (key in args) {
+      const value: unknown = Reflect.get(args, key)
+      const detail = key === 'questions' ? questionDetail(value) : normalizeLiveToolDetail(value)
+      if (detail !== '') return detail
+    }
+  }
+  return normalizeLiveToolDetail(name)
+}
+
+/** Whether a realm-owned intrinsic prototype has a native constructor matching this engine's representation. */
 function hasIntrinsicConstructor(prototype: object, name: 'Array' | 'Object'): boolean {
   const descriptor = Object.getOwnPropertyDescriptor(prototype, 'constructor')
   const constructor: unknown = descriptor?.value
@@ -22,7 +81,7 @@ function hasIntrinsicConstructor(prototype: object, name: 'Array' | 'Object'): b
   try {
     return constructor.name === name
       && constructor.prototype === prototype
-      && Function.prototype.toString.call(constructor) === `function ${name}() { [native code] }`
+      && Function.prototype.toString.call(constructor) === Function.prototype.toString.call(name === 'Array' ? Array : Object)
   } catch {
     return false
   }
@@ -57,29 +116,23 @@ function enumerableStringKeys(value: object): string[] | undefined {
   return keys as string[]
 }
 
-type SnapshotDestination =
-  | { kind: 'root' }
-  | { kind: 'array'; target: JsonValue[]; index: number }
-  | { kind: 'object'; target: { [key: string]: JsonValue }; key: string }
-
-type JsonWalkTask =
-  | { kind: 'visit'; value: unknown; destination?: SnapshotDestination }
-  | { kind: 'array-item'; source: unknown[]; index: number; target?: JsonValue[] }
-  | { kind: 'object-property'; source: Record<string, unknown>; key: string; target?: { [key: string]: JsonValue } }
-  | { kind: 'leave'; source: object }
+/** One active container, with child reads in its captured key or index order. */
+type JsonWalkFrame =
+  | { kind: 'array'; source: unknown[]; length: number; index: number; key: number; indices: number[] | undefined; target: JsonValue[] | undefined }
+  | { kind: 'object'; source: Record<string, unknown>; keys: string[]; index: number; key: string; target: { [key: string]: JsonValue } | undefined }
 
 /** Validate lossless JSON iteratively, optionally materializing a detached snapshot. */
 function walkJsonValue(value: unknown, detach: boolean): JsonValue | true | undefined {
   const ancestors = new Set<object>()
   let root: JsonValue | undefined
-  const assign = (destination: SnapshotDestination | undefined, item: JsonValue): void => {
-    if (destination === undefined) return
-    if (destination.kind === 'root') {
-      root = item
-    } else if (destination.kind === 'array') {
-      destination.target[destination.index] = item
-    } else {
-      Object.defineProperty(destination.target, destination.key, {
+  let parent: JsonWalkFrame | undefined
+  const assign = (item: JsonValue): void => {
+    if (parent === undefined) {
+      if (detach) root = item
+    } else if (parent.kind === 'array') {
+      if (parent.target !== undefined) parent.target[parent.key] = item
+    } else if (parent.target !== undefined) {
+      Object.defineProperty(parent.target, parent.key, {
         value: item,
         enumerable: true,
         configurable: true,
@@ -88,80 +141,71 @@ function walkJsonValue(value: unknown, detach: boolean): JsonValue | true | unde
     }
   }
 
-  const tasks: JsonWalkTask[] = [{
-    kind: 'visit',
-    value,
-    ...(detach ? { destination: { kind: 'root' } as const } : {}),
-  }]
-  for (let task = tasks.pop(); task !== undefined; task = tasks.pop()) {
-    if (task.kind === 'leave') {
-      ancestors.delete(task.source)
-      continue
-    }
-    if (task.kind === 'array-item') {
-      if (!Object.prototype.hasOwnProperty.call(task.source, task.index)) return undefined
-      tasks.push({
-        kind: 'visit',
-        value: task.source[task.index],
-        ...(task.target === undefined ? {} : { destination: { kind: 'array', target: task.target, index: task.index } as const }),
-      })
-      continue
-    }
-    if (task.kind === 'object-property') {
-      tasks.push({
-        kind: 'visit',
-        value: task.source[task.key],
-        ...(task.target === undefined ? {} : { destination: { kind: 'object', target: task.target, key: task.key } as const }),
-      })
-      continue
-    }
-
-    const current = task.value
+  const frames: JsonWalkFrame[] = []
+  let current: unknown = value
+  for (;;) {
     if (current === null) {
-      assign(task.destination, null)
-      continue
-    }
-    if (typeof current === 'boolean' || typeof current === 'string') {
-      assign(task.destination, current)
-      continue
-    }
-    if (typeof current === 'number') {
+      assign(null)
+    } else if (typeof current === 'boolean' || typeof current === 'string') {
+      assign(current)
+    } else if (typeof current === 'number') {
       if (!Number.isFinite(current) || Object.is(current, -0)) return undefined
-      assign(task.destination, current)
-      continue
-    }
-    if (typeof current !== 'object') return undefined
-    if (ancestors.has(current)) return undefined
-
-    if (Array.isArray(current)) {
-      if (!hasPlainArrayPrototype(current)) return undefined
-      const length = current.length
-      if (Reflect.ownKeys(current).length !== length + 1) return undefined
-      const target = detach ? [] as JsonValue[] : undefined
-      if (target !== undefined) assign(task.destination, target)
-      ancestors.add(current)
-      tasks.push({ kind: 'leave', source: current })
-      for (let index = length - 1; index >= 0; index--) {
-        tasks.push({ kind: 'array-item', source: current, index, ...(target === undefined ? {} : { target }) })
+      assign(current)
+    } else {
+      if (typeof current !== 'object') return undefined
+      if (ancestors.has(current)) return undefined
+      if (Array.isArray(current)) {
+        if (!hasPlainArrayPrototype(current)) return undefined
+        const length = current.length
+        if (Reflect.ownKeys(current).length !== length + 1) return undefined
+        const target = detach ? [] as JsonValue[] : undefined
+        if (target !== undefined) assign(target)
+        let indices: number[] | undefined
+        if (!Number.isInteger(length)) {
+          // Capture indices with one subtraction for fractional or coercible Proxy lengths.
+          indices = []
+          for (let index = length - 1; index >= 0; index--) indices.push(index)
+        }
+        frames.push({ kind: 'array', source: current, length: indices?.length ?? length, index: 0, key: 0, indices, target })
+      } else {
+        if (!hasPlainObjectPrototype(current)) return undefined
+        const keys = enumerableStringKeys(current)
+        if (keys === undefined) return undefined
+        const target = detach ? {} as { [key: string]: JsonValue } : undefined
+        if (target !== undefined) assign(target)
+        frames.push({ kind: 'object', source: current as Record<string, unknown>, keys, index: 0, key: '', target })
       }
-      continue
+      ancestors.add(current)
     }
 
-    if (!hasPlainObjectPrototype(current)) return undefined
-    const keys = enumerableStringKeys(current)
-    if (keys === undefined) return undefined
-    const target = detach ? {} as { [key: string]: JsonValue } : undefined
-    if (target !== undefined) assign(task.destination, target)
-    ancestors.add(current)
-    tasks.push({ kind: 'leave', source: current })
-    for (let index = keys.length - 1; index >= 0; index--) {
-      const key = keys[index]
-      /* v8 ignore next -- the loop is bounded by the captured key count. */
-      if (key === undefined) return undefined
-      tasks.push({ kind: 'object-property', source: current as Record<string, unknown>, key, ...(target === undefined ? {} : { target }) })
+    for (;;) {
+      const frame = frames.at(-1)
+      if (frame === undefined) return detach ? root : true
+      const length = frame.kind === 'array' ? frame.length : frame.keys.length
+      if (frame.index >= length) {
+        ancestors.delete(frame.source)
+        frames.pop()
+        continue
+      }
+      const index = frame.index++
+      parent = frame
+      if (frame.kind === 'array') {
+        const key = frame.indices === undefined ? index : frame.indices[frame.indices.length - index - 1]
+        /* v8 ignore next -- the loop is bounded by the captured index count. */
+        if (key === undefined) return undefined
+        if (!Object.prototype.hasOwnProperty.call(frame.source, key)) return undefined
+        frame.key = key
+        current = frame.source[key]
+      } else {
+        const key = frame.keys[index]
+        /* v8 ignore next -- the loop is bounded by the captured key count. */
+        if (key === undefined) return undefined
+        frame.key = key
+        current = frame.source[key]
+      }
+      break
     }
   }
-  return detach ? root : true
 }
 
 /**
@@ -304,3 +348,5 @@ export class WeakMapWithValues<Key extends object, Value> {
     this.valueSet.clear()
   }
 }
+
+export { PartialArguments, type LengthReadOptions } from './partial-json.ts'

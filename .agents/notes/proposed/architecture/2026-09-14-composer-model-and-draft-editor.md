@@ -2,8 +2,6 @@
 
 Status: proposed
 
-English | [中文](2026-09-14-composer-model-and-draft-editor.zh.md)
-
 ## Problem
 
 One Client needs to edit the same Session's draft and pending attachments in multiple views. A Lexical editor binds only one DOM root; multiple presentation locations need multiple editor instances, but must not own unrelated drafts or upload tasks, or make the Session Controller understand carets, composition, or DOM state.
@@ -105,7 +103,7 @@ Existing text-draft restoration after refresh must remain, without implicitly pr
 
 ## Acceptance criteria
 
-Stage one completes the five extractions and required imports, JSDoc, and README updates; review compares original method bodies, branches, callback order, hooks, DOM, and cleanup. Existing editing, reference, claim, attachment, submission, failure-restoration, and unmount tests continue to pass; focused browser regressions run against built artifacts with unchanged expected output. Type and documentation checks cover relocated declarations and bilingual pairs. New dual-instance functionality is not a stage-one acceptance condition.
+Stage one completes the five extractions and required imports, JSDoc, and README updates; review compares original method bodies, branches, callback order, hooks, DOM, and cleanup. Existing editing, reference, claim, attachment, submission, failure-restoration, and unmount tests continue to pass; focused browser regressions run against built artifacts with unchanged expected output. Type and documentation checks cover relocated declarations. New dual-instance functionality is not a stage-one acceptance condition.
 
 Stage two uses two genuinely mounted Composers for one Session to verify bidirectional text and chip synchronization, skill highlights, shared attachments and progress, submission clearing/failure restoration, IME/Undo, origin routing, and continued operation after either view unmounts. Its diff contains behavior implementation and corresponding tests only, without mechanical cleanup.
 

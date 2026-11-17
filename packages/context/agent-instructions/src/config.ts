@@ -6,7 +6,7 @@
 
 import { relative } from 'node:path'
 import z from '@deepseek-ai/schemastery'
-import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
+import { resolveAgentsHome, resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 
 const DEFAULT_PROJECT_ROOT_MARKERS = ['.git'] as const
 const DEFAULT_INSTRUCTION_FILE_CANDIDATES = ['AGENTS.md', 'CLAUDE.md'] as const
@@ -16,12 +16,16 @@ const RESERVED_PATH_SEGMENTS = new Set(['', '.', '..'])
 
 /** User-facing workspace instruction loader configuration. */
 export interface Config {
-  /** Harness home containing the fixed user-global `AGENTS.md`; defaults to `$DSH_HOME` or `~/.dsh`. */
-  dshHome?: string
-  /** Directory entries that identify the project root while walking upward from the session cwd. */
+  /** Directory entries that identify the project root while walking upward from the current working directory. */
   projectRootMarkers?: string[]
-  /** UTF-8 byte cap for one rendered baseline or dynamic batch; non-positive or non-finite disables loading. */
+  /**
+   * UTF-8 byte cap for each instruction chain (user-global, project) within one
+   * rendered baseline or dynamic batch, so a baseline or batch holding both
+   * chains is at most twice this size; non-positive or non-finite disables loading.
+   */
   maxBytes: number
+  /** Prepend the fixed response rule; default false. */
+  endOfTurnRule?: boolean
   /** Maximum UTF-8 bytes read from one instruction file; larger files are ignored. */
   maxSourceBytes?: number
   /**
@@ -37,9 +41,9 @@ export interface Config {
 }
 
 export const Config: z<Config> = z.object({
-  dshHome: z.string(),
   projectRootMarkers: z.array(z.string()).default([...DEFAULT_PROJECT_ROOT_MARKERS]),
   maxBytes: z.number().required(),
+  endOfTurnRule: z.boolean().default(false),
   maxSourceBytes: z.number().step(1).min(1).default(DEFAULT_MAX_SOURCE_BYTES),
   instructionFileCandidates: z.array(z.string()).default([...DEFAULT_INSTRUCTION_FILE_CANDIDATES]),
   localInstructionFileCandidates: z.array(z.string()).default([...DEFAULT_LOCAL_INSTRUCTION_FILE_CANDIDATES]),
@@ -48,6 +52,7 @@ export const Config: z<Config> = z.object({
 /** Normalized instruction discovery configuration. */
 export interface ResolvedDiscoveryConfig {
   dshHome: string
+  agentsHome: string
   projectRootMarkers: string[]
   instructionFileCandidates: string[]
   localInstructionFileCandidates: string[]
@@ -57,6 +62,7 @@ export interface ResolvedDiscoveryConfig {
 export interface ResolvedConfig extends ResolvedDiscoveryConfig {
   maxBytes: number
   maxSourceBytes: number
+  endOfTurnRule: boolean
 }
 
 /**
@@ -76,34 +82,51 @@ export function workspaceBaselineIdentity(
     projectRootMarkers: config.projectRootMarkers,
     maxBytes: config.maxBytes,
     maxSourceBytes: config.maxSourceBytes,
+    ...config.endOfTurnRule ? { endOfTurnRule: true } : {},
     instructionFileCandidates: config.instructionFileCandidates,
     localInstructionFileCandidates: config.localInstructionFileCandidates,
   })
 }
 
 /**
- * Resolve defaults, the harness home, and valid same-directory candidates.
+ * Resolve row defaults, the process harness home, and valid same-directory candidates.
+ * Undeclared row fields cannot override the process home.
  * @param config - user-facing plugin configuration.
  * @returns normalized runtime configuration.
  */
 export function resolveConfig(config: Config): ResolvedConfig {
   return {
-    ...resolveDiscoveryConfig(config),
+    ...resolveDiscoveryConfig({
+      ...config.projectRootMarkers === undefined ? {} : { projectRootMarkers: config.projectRootMarkers },
+      ...config.instructionFileCandidates === undefined ? {} : { instructionFileCandidates: config.instructionFileCandidates },
+      ...config.localInstructionFileCandidates === undefined
+        ? {}
+        : { localInstructionFileCandidates: config.localInstructionFileCandidates },
+    }),
     maxBytes: config.maxBytes,
     maxSourceBytes: config.maxSourceBytes ?? DEFAULT_MAX_SOURCE_BYTES,
+    endOfTurnRule: config.endOfTurnRule ?? false,
   }
 }
 
 /**
  * Resolve the subset of configuration used before instruction content is rendered.
- * @param config - optional discovery controls.
+ *
+ * The harness home comes from the process environment through
+ * {@link resolveDshHome}; the row cannot point instruction loading at a second
+ * root that other harness consumers would not share. An owner that already
+ * resolved the homes passes them as `dshHome` and `agentsHome`, which are
+ * normalized here so discovery and reconciliation use the same values.
+ * @param config - optional discovery controls plus the already-resolved homes.
  * @returns normalized home, root markers, and instruction candidates.
  */
 export function resolveDiscoveryConfig(
-  config: Pick<Config, 'dshHome' | 'projectRootMarkers' | 'instructionFileCandidates' | 'localInstructionFileCandidates'>,
+  config: Pick<Config, 'projectRootMarkers' | 'instructionFileCandidates' | 'localInstructionFileCandidates'>
+    & { dshHome?: string; agentsHome?: string },
 ): ResolvedDiscoveryConfig {
   return {
     dshHome: resolveDshHome(config.dshHome),
+    agentsHome: resolveAgentsHome(config.agentsHome),
     projectRootMarkers: config.projectRootMarkers ?? [...DEFAULT_PROJECT_ROOT_MARKERS],
     instructionFileCandidates: resolveInstructionFileCandidates(
       config.instructionFileCandidates,

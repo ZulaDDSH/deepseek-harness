@@ -11,9 +11,12 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { SessionQueryError } from '@deepseek-ai/dsh-session-query'
 import type { SessionEventReadRequest } from '@deepseek-ai/dsh-session-query'
+import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
+import type { WorkspaceChanges, WorkspaceFileDiff, WorkspaceStatus } from '@deepseek-ai/dsh-workspace-changes/types'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { registerPresentOpen } from '../src/present-open.ts'
 import { presentedFileUrl, PRESENT_OPEN_PATH } from '../src/presented.ts'
+import { WORKSPACE_DIFF_PATH, WORKSPACE_STATUS_PATH } from '../src/changes.ts'
 
 const cleanups: Array<() => Promise<unknown>> = []
 afterEach(async () => {
@@ -45,25 +48,38 @@ async function fixture() {
     return { session, target: { type: 'deliverables/presented', data: { turn: 1, callId: 'present-call', files: [file] } } as SessionEvent }
   })
   ctx.provide('sessionQuery', { readEvent } as never)
+  const workspaceStatus = vi.fn<WorkspaceChanges['status']>()
+  const workspaceDiff = vi.fn<WorkspaceChanges['workspaceDiff']>()
+  const workspaceChanges = {
+    status: workspaceStatus,
+    summary: vi.fn<WorkspaceChanges['summary']>(),
+    workspaceDiff,
+    diff: vi.fn<WorkspaceChanges['diff']>(),
+  } satisfies WorkspaceChanges
+  ctx.provide('workspaceChanges', workspaceChanges)
   const opener = vi.fn(async (_request: { path: string; action?: 'reveal' }, _signal: AbortSignal) => ({ opened: true as const }))
-  ctx.provide('sessionController', { resolveAgent, openWorkspacePath: opener, workspaceDesktop: () => ({ name: 'desktop', available: true, fileManager: 'finder' }) } as never)
+  const applications = vi.fn(async () => [{ id: 'player', name: 'Player', default: true, icon: null }])
+  ctx.provide('sessionController', { workspacePathApplications: applications, resolveAgent, openWorkspacePath: opener, workspaceDesktop: () => ({ name: 'desktop', available: true, fileManager: 'finder' }) } as never)
   const connection = new HostConnectionService(ctx, [], {} as BrowserAuth)
   const fiber = ctx.plugin({ inject: ['connection', 'sessionQuery', 'sessionController', 'workspaceFiles', 'fs', 'sandboxPolicy'], apply: registerPresentOpen })
   await fiber
   const handler = connection.createSharedFetchHandler('/api')
   const open = (query = '?sessionId=owner&seq=7&index=0', signal?: AbortSignal) => handler.fetch(new Request(
     `http://localhost${PRESENT_OPEN_PATH}${query}`, { method: 'POST', signal: signal ?? null },
-  ))
-  return { root, cwd, ctx, fiber, file, session, readEvent, open, opener, handler, resolveAgent }
+  ), connection.browserPeer)
+  return {
+    browserPeer: connection.browserPeer, applications, root, cwd, ctx, fiber, file, session, readEvent, open, opener, handler, resolveAgent,
+    workspaceChanges,
+  }
 }
 
 describe('Presented workspace file native open route', () => {
   it('opens the source itself with current bytes and leaves it intact at disposal', async () => {
-    const { cwd, open, file, fiber, opener, handler, ctx } = await fixture()
+    const { browserPeer, cwd, open, file, fiber, opener, handler, ctx } = await fixture()
     const source = await realpath(join(cwd, file.path))
-    expect(presentedFileUrl(SessionId('owner'), 7, 0)).toBe(`${PRESENT_OPEN_PATH}?sessionId=owner&seq=7&index=0`)
-    expect((await handler.fetch(new Request(`http://localhost${PRESENT_OPEN_PATH}`))).status).toBe(404)
-    expect((await handler.fetch(new Request('http://localhost/api/present.download?sessionId=owner&seq=7&index=0'))).status).toBe(404)
+    expect(presentedFileUrl(SessionId('owner'), 7, 0)).toBe('api/present.open?sessionId=owner&seq=7&index=0')
+    expect((await handler.fetch(new Request(`http://localhost${PRESENT_OPEN_PATH}`), browserPeer)).status).toBe(400)
+    expect((await handler.fetch(new Request('http://localhost/api/present.download?sessionId=owner&seq=7&index=0'), browserPeer)).status).toBe(404)
     for (const contents of ['current source', 'edited source']) {
       await writeFile(source, contents)
       const response = await open()
@@ -134,7 +150,13 @@ describe('Presented workspace file native open route', () => {
     await writeFile(outside, 'outside')
     const source = join(cwd, file.path)
     await unlink(source)
-    await symlink(outside, source)
+    try {
+      await symlink(outside, source)
+    } catch (error: unknown) {
+      const code = error instanceof Error && 'code' in error ? error.code : undefined
+      if (code === 'EPERM' || code === 'EACCES') return
+      throw error
+    }
     expect((await open()).status).toBe(404)
     expect(opener).not.toHaveBeenCalled()
     for (const path of ['../outside.txt', outside]) {
@@ -186,10 +208,138 @@ describe('Presented workspace file native open route', () => {
   })
 })
 
+describe('Workspace status and comparison routes', () => {
+  it('serves current status without Host paths and disables caching', async () => {
+    const { browserPeer, handler, workspaceChanges } = await fixture()
+    const workspaceId = 'workspace-under-test' as WorkspaceId
+    const status: WorkspaceStatus = {
+      cwd: '/private/host/workspace', root: '/private/host/repository', branch: 'feature',
+      files: [{ path: 'src/app.ts', display: 'src/app.ts', index: ' ', worktree: 'M', added: 2, deleted: 1 }],
+      total: 1, added: 2, deleted: 1,
+    }
+    workspaceChanges.status.mockResolvedValueOnce(status)
+
+    const response = await handler.fetch(new Request(
+      `http://localhost${WORKSPACE_STATUS_PATH}?workspaceId=${workspaceId}`,
+    ), browserPeer)
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    const body = await response.text()
+    expect(body).not.toContain('/private/host')
+    expect(JSON.parse(body)).toEqual({
+      workspaceId, branch: 'feature', files: status.files,
+      total: 1, added: 2, deleted: 1,
+    })
+    expect(workspaceChanges.status).toHaveBeenCalledWith(workspaceId, expect.any(AbortSignal))
+  })
+
+  it('serves the selected current comparison without caching', async () => {
+    const { browserPeer, handler, workspaceChanges } = await fixture()
+    const workspaceId = 'workspace-under-test' as WorkspaceId
+    const diff: WorkspaceFileDiff = {
+      kind: 'text', path: 'src/app.ts', display: 'src/app.ts', before: true, after: true,
+      hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ['-before', '+after'] }],
+      coarse: false,
+    }
+    workspaceChanges.workspaceDiff.mockResolvedValueOnce(diff)
+
+    const response = await handler.fetch(new Request(
+      `http://localhost${WORKSPACE_DIFF_PATH}?workspaceId=${workspaceId}&index=0`,
+    ), browserPeer)
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    expect(await response.json()).toEqual(diff)
+    expect(workspaceChanges.workspaceDiff).toHaveBeenCalledWith(workspaceId, 0, expect.any(AbortSignal))
+  })
+
+  it('rejects invalid workspace coordinates before calling the service', async () => {
+    const { browserPeer, handler, workspaceChanges } = await fixture()
+
+    expect((await handler.fetch(new Request(`http://localhost${WORKSPACE_STATUS_PATH}`), browserPeer)).status).toBe(400)
+    for (const query of ['', '?index=0', '?workspaceId=workspace&index=-1', '?workspaceId=workspace&index=0.5']) {
+      expect((await handler.fetch(new Request(`http://localhost${WORKSPACE_DIFF_PATH}${query}`), browserPeer)).status).toBe(400)
+    }
+    expect(workspaceChanges.status).not.toHaveBeenCalled()
+    expect(workspaceChanges.workspaceDiff).not.toHaveBeenCalled()
+  })
+
+  it('returns 404 when the Workspace or comparison is no longer available', async () => {
+    const { browserPeer, handler, workspaceChanges } = await fixture()
+    workspaceChanges.status.mockResolvedValueOnce(undefined)
+    workspaceChanges.workspaceDiff.mockResolvedValueOnce(undefined)
+
+    expect((await handler.fetch(new Request(
+      `http://localhost${WORKSPACE_STATUS_PATH}?workspaceId=workspace`,
+    ), browserPeer)).status).toBe(404)
+    expect((await handler.fetch(new Request(
+      `http://localhost${WORKSPACE_DIFF_PATH}?workspaceId=workspace&index=0`,
+    ), browserPeer)).status).toBe(404)
+  })
+
+  it('hides private paths from service failures', async () => {
+    const { browserPeer, handler, workspaceChanges } = await fixture()
+    workspaceChanges.status.mockRejectedValueOnce(new Error('/private/host/workspace'))
+    workspaceChanges.workspaceDiff.mockRejectedValueOnce(new Error('/private/host/workspace'))
+
+    const status = await handler.fetch(new Request(
+      `http://localhost${WORKSPACE_STATUS_PATH}?workspaceId=workspace`,
+    ), browserPeer)
+    const diff = await handler.fetch(new Request(
+      `http://localhost${WORKSPACE_DIFF_PATH}?workspaceId=workspace&index=0`,
+    ), browserPeer)
+
+    expect(status.status).toBe(500)
+    expect(diff.status).toBe(500)
+    expect(await status.text()).not.toContain('/private/host/workspace')
+    expect(await diff.text()).not.toContain('/private/host/workspace')
+  })
+
+  it('propagates cancellation to both Workspace service calls', async () => {
+    const { browserPeer, handler, workspaceChanges } = await fixture()
+    const statusEntered = Promise.withResolvers<AbortSignal>()
+    workspaceChanges.status.mockImplementation((_workspaceId, signal) => {
+      statusEntered.resolve(signal)
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => {
+          reject(signal.reason instanceof Error ? signal.reason : new Error('status cancelled'))
+        }, { once: true })
+      })
+    })
+    const statusController = new AbortController()
+    const statusRequest = handler.fetch(new Request(
+      `http://localhost${WORKSPACE_STATUS_PATH}?workspaceId=workspace`, { signal: statusController.signal },
+    ), browserPeer)
+    const statusSignal = await statusEntered.promise
+    statusController.abort(new Error('status cancelled'))
+    expect(statusSignal.aborted).toBe(true)
+    await expect(statusRequest).rejects.toThrow('status cancelled')
+
+    const diffEntered = Promise.withResolvers<AbortSignal>()
+    workspaceChanges.workspaceDiff.mockImplementation((_workspaceId, _index, signal) => {
+      diffEntered.resolve(signal)
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => {
+          reject(signal.reason instanceof Error ? signal.reason : new Error('diff cancelled'))
+        }, { once: true })
+      })
+    })
+    const diffController = new AbortController()
+    const diffRequest = handler.fetch(new Request(
+      `http://localhost${WORKSPACE_DIFF_PATH}?workspaceId=workspace&index=0`, { signal: diffController.signal },
+    ), browserPeer)
+    const diffSignal = await diffEntered.promise
+    diffController.abort(new Error('diff cancelled'))
+    expect(diffSignal.aborted).toBe(true)
+    await expect(diffRequest).rejects.toThrow('diff cancelled')
+  })
+})
+
 
 it('reports the serving desktop and reveals only an authorized declared source', async () => {
-  const { cwd, file, open, opener, handler } = await fixture()
-  const info = await handler.fetch(new Request('http://localhost/api/present.host'))
+  const { browserPeer, cwd, file, open, opener, handler } = await fixture()
+  const info = await handler.fetch(new Request('http://localhost/api/present.host'), browserPeer)
   expect(await info.json()).toEqual({ name: 'desktop', available: true, fileManager: 'finder' })
   expect((await open('?sessionId=owner&seq=7&index=0&action=reveal')).status).toBe(204)
   expect(opener).toHaveBeenCalledWith({ path: await realpath(join(cwd, file.path)), action: 'reveal' }, expect.any(AbortSignal))
@@ -200,9 +350,9 @@ it('reports the serving desktop and reveals only an authorized declared source',
 })
 
 it('refuses native actions when the configured Host desktop is unavailable', async () => {
-  const { ctx, open, opener, handler } = await fixture()
+  const { browserPeer, ctx, open, opener, handler } = await fixture()
   vi.spyOn(ctx.sessionController, 'workspaceDesktop').mockReturnValue({ name: 'desktop', available: false, fileManager: 'finder' })
-  expect(await (await handler.fetch(new Request('http://localhost/api/present.host'))).json()).toMatchObject({ available: false })
+  expect(await (await handler.fetch(new Request('http://localhost/api/present.host'), browserPeer)).json()).toMatchObject({ available: false })
   for (const action of ['open', 'reveal']) {
     expect((await open(`?sessionId=owner&seq=7&index=0&action=${action}`)).status).toBe(409)
   }
@@ -232,4 +382,20 @@ it('uses the deployment workspace root when the viewed Session has no cwd', asyn
   delete session.cwd
   expect((await open()).status).toBe(204)
   expect(opener.mock.lastCall?.[0].path).toBe(await realpath(join(cwd, file.path)))
+})
+
+
+it('queries handlers only after file authorization and forwards explicit application choices', async () => {
+  const { browserPeer, handler, applications, opener, open, ctx } = await fixture()
+  const url = 'http://localhost/api/present.open?sessionId=owner&seq=7&index=0'
+  const response = await handler.fetch(new Request(url), browserPeer)
+  expect(response.status).toBe(200)
+  expect(await response.json()).toEqual([{ id: 'player', name: 'Player', default: true, icon: null }])
+  expect(opener).not.toHaveBeenCalled()
+  expect((await open('?sessionId=owner&seq=7&index=0&application=player')).status).toBe(204)
+  expect(opener.mock.lastCall?.[0]).toMatchObject({ application: 'player' })
+  expect((await handler.fetch(new Request(url.replace('index=0', 'index=999')), browserPeer)).status).toBe(404)
+  vi.spyOn(ctx.fs, 'processPathFromHostPath').mockReturnValue(undefined)
+  expect((await handler.fetch(new Request(url), browserPeer)).status).toBe(422)
+  expect(applications).toHaveBeenCalledOnce()
 })

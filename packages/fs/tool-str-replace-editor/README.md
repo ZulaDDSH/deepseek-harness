@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-tool-str-replace-editor
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 `dsh-tool-str-replace-editor` provides a standalone model-facing `str_replace_editor` tool over `ctx.fs`: `view` shows numbered file content or a shallow directory listing, `create` makes a new file, `str_replace` applies a unique literal replacement, and `insert` adds lines at a chosen boundary. It is composable with persistent Bash, one-shot Bash, sandboxed Bash, or another terminal surface. Mutations obey the same read-before-edit policy and sandbox fence as the rest of the fs family, enforced by whichever backend and policy plugins are mounted. Choose it when a deployment wants the Claude-Code-style single editor tool with absolute paths; the `dsh-tool-fs` package provides the alternative `read`/`write`/`edit` suite.
@@ -24,6 +22,8 @@ English | [中文](README.zh.md)
 
 <a id="use-this-package"></a>
 ## Use this package
+
+This nonexperimental standalone plugin is intended for custom compositions. It is not offered as an optional bundle in the Plugins page.
 
 Mount the tool alongside a `ctx.fs` backend (and, for guarded mutations, the policy plugin) when the model should edit files through the familiar `view`/`create`/`str_replace`/`insert` command vocabulary on absolute paths.
 
@@ -145,5 +145,3 @@ These limits define when the editor tool is a poor fit or needs special operatio
 None.
 
 </details>
-
-**Runtime invariant:** No companion is published. The tool adapter owns no independent durable state; filesystem mutation relations stay with the provider and policy plugins.

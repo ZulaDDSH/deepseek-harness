@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-07-31-goal-owned-durable-events.zh.md)
-
 ## Problem
 
 Goal state and inbox state have different lifecycles. A goal mutation must survive restart and fork whether or not any related model context is admitted, while an inbox message may be edited, claimed, rejected, or discarded as part of step scheduling. Encoding a goal mutation inside a round-zero inbox message made queue placement the domain commit point and required replay to reconcile insertion, admission, message identity, source metadata, and rendered content.
@@ -28,6 +26,6 @@ The domain does not automatically project each mutation into model input. Goal t
 
 ## Consequences
 
-Goal state is independent of inbox placement and admission. Replay has one mutation path, projections advance directly on `goal/change`, and continuation messages carry only round attribution. The model does not receive a mutation-only `<goal_state>` message; model-visible state appears through goal tools and scheduled continuation prompts. Direct session writers remain trusted and can append malformed changes, which the strict fold and invariant companion reject.
+Goal state is independent of inbox placement and admission. Replay has one mutation path, projections advance directly on `goal/change`, and continuation messages carry only round attribution. The model does not receive a mutation-only `<goal_state>` message; model-visible state appears through goal tools and scheduled continuation prompts. Direct session writers remain trusted and can append malformed changes, which the strict fold rejects.
 
 Focused goal, goal-round-driver, command, TUI, and Client RemoteMock tests pin durable replay, positive-round accounting, inbox independence, projection updates, and restored-session behavior. The keyless process test inspects the persisted `goal/change` event and verifies that creation alone starts no continuation round.

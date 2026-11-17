@@ -3,6 +3,23 @@ import { SubprocessExecutableNotFoundError, type SubprocessRuntime } from '@deep
 import type { TerminalShell } from './types.ts'
 
 /**
+ * Check whether a CLI command resolves on the execution environment's PATH.
+ * @param subprocess - target execution provider.
+ * @param command - program name from a CLI terminal profile.
+ * @param signal - check cancellation.
+ * @returns true when the executable resolves; false for a confirmed lookup miss.
+ */
+export async function executableInstalled(subprocess: SubprocessRuntime, command: string, signal: AbortSignal): Promise<boolean> {
+  try {
+    await subprocess.resolveExecutable(command, undefined, signal)
+    return true
+  } catch (error) {
+    if (error instanceof SubprocessExecutableNotFoundError) return false
+    throw error
+  }
+}
+
+/**
  * Resolve the configured shell or the execution environment's default shell.
  * @param subprocess - target execution provider.
  * @param configured - optional profile overriding the environment's default shell.
@@ -22,18 +39,26 @@ export async function resolveShell(
 }
 
 function profile(path: string): TerminalShell {
-  const name = path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1)
-  const kind = name.toLowerCase().replace(/\.exe$/u, '')
-  return { path, name, args: kind === 'cmd' ? [] : kind === 'pwsh' || kind === 'powershell' ? ['-NoLogo'] : ['-i'] }
+  const kind = shellKind(path)
+  return { path, name: executableName(path), args: kind === 'cmd' ? [] : kind === 'pwsh' || kind === 'powershell' ? ['-NoLogo'] : ['-i'] }
+}
+
+function executableName(path: string): string {
+  return path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1)
+}
+
+function shellKind(path: string): string {
+  return executableName(path).toLowerCase().replace(/\.exe$/u, '')
 }
 
 /**
- * List verified candidates after the configured or environment-default shell.
+ * List verified candidates after the configured or environment-default shell, one per executable name ignoring case and `.exe`.
+ * PATH lookup can reach the default through another directory, such as `/usr/bin/bash` for `/bin/bash` on merged-`/usr` systems.
  * @param subprocess - target execution provider.
  * @param configured - optional default profile.
  * @param candidates - executable names or paths permitted for shell selection.
  * @param signal - discovery cancellation.
- * @returns unique installed shells, with the default first; transport failures reject.
+ * @returns installed shells with the default first, keeping the earliest entry per name; transport failures reject.
  */
 export async function discoverShells(
   subprocess: SubprocessRuntime, configured: TerminalShell | undefined,
@@ -43,15 +68,16 @@ export async function discoverShells(
   const found = await Promise.all(candidates.map(async (candidate) => {
     try { return await resolveShell(subprocess, profile(candidate), signal) }
     catch (error) {
-      if (error instanceof SubprocessExecutableNotFoundError) return undefined
+      if (typeof error === 'object' && error !== null
+        && 'name' in error && error.name === 'SubprocessExecutableNotFoundError') return undefined
       throw error
     }
   }))
   const shells = new Map<string, TerminalShell>()
   for (const shell of [preferred, ...found]) {
     if (shell === undefined) continue
-    const key = shell.path.includes('\\') ? shell.path.toLowerCase() : shell.path
-    if (!shells.has(key)) shells.set(key, shell)
+    const kind = shellKind(shell.path)
+    if (!shells.has(kind)) shells.set(kind, shell)
   }
   return [...shells.values()]
 }

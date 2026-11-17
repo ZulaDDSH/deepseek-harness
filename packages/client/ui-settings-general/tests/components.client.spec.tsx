@@ -1,13 +1,18 @@
 // @vitest-environment jsdom
+import { contextMenuHook } from '@deepseek-ai/dsh-client-test-runtime'
 import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { bindSnapshotSelector, RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
+import { allowAllAccess, bindSnapshotSelector, makeTranslate, RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import type { GeneralSectionComponentProps } from '../src/client/GeneralSection.tsx'
 import { GeneralSection } from '../src/client/GeneralSection.tsx'
 import { CloseLabel, HeaderContent, TriggerContent } from '../src/client/chrome.tsx'
 import type { TriggerContentProps } from '../src/client/chrome.tsx'
 import { SettingsDocumentAction } from '../src/client/SettingsDocumentAction.tsx'
+import { DeveloperToolsRow } from '../src/client/DeveloperToolsRow.tsx'
+import { SessionSearchRow } from '../src/client/SessionSearchRow.tsx'
+import { ChatMemoryRow } from '../src/client/ChatMemoryRow.tsx'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
 import { SettingsDocumentStore } from '../src/client/settings-document-store.ts'
 
@@ -20,11 +25,13 @@ function derivedDocumentStore(remote: object) {
   const ctx = { remote } as never
   return new SettingsDocumentStore(ctx, new SettingsDescribeMirror(ctx))
 }
-import { en } from '../src/client/locales.ts'
+import { en, zh } from '../src/client/locales.ts'
+import { CurrentVersionRow } from '../src/client/CurrentVersionRow.tsx'
 import { DesktopUpdateBadge } from '../src/client/DesktopUpdateIndicator.tsx'
-import type { DesktopUpdateView } from '../src/client/desktop-update-bridge.ts'
+import { HostReleasePrompt, type HostReleasePromptProps } from '../src/client/HostReleasePrompt.tsx'
+import type { DesktopUpdateView } from '../src/types.ts'
 
-afterEach(cleanup)
+afterEach(() => { cleanup(); vi.unstubAllEnvs() })
 
 // The seat's key domain is settings ∪ common; the stub answers from the
 // package dictionary and falls back to the key like the real chain.
@@ -38,10 +45,12 @@ const useSessionStatus: TriggerContentProps['useSessionStatus'] = selector => se
 const kit = {
   useSessions: unusedHook, useSessionStatus,
   usePanelInfo, useSessionRetainInfo: () => undefined, useResource, useWorkspaces: unusedHook,
+  ...allowAllAccess,
+  useContextMenu: contextMenuHook(),
 }
 
 describe('Desktop collapsed update badge', () => {
-  it('shows update status, marks failures, and yields to connection feedback', () => {
+  it('shows update and retry status and yields to connection feedback', () => {
     let state: DesktopUpdateView = { failed: false, opening: false }
     let connection: 'connected' | 'connecting' | 'disconnected' = 'connected'
     const props = { ...kit, t,
@@ -52,23 +61,40 @@ describe('Desktop collapsed update badge', () => {
     expect(screen.queryByRole('img')).toBeNull()
     state = { ...state, presentation: { phase: 'available', version: '1.0.1' } }
     view.rerender(<DesktopUpdateBadge {...props} />)
-    expect(screen.getByRole('img', { name: 'Update' }).getAttribute('data-error')).toBeNull()
+    expect(screen.getByRole('img', { name: 'Update' })).toBeTruthy()
     expect(screen.queryByRole('button')).toBeNull()
     state = { ...state, failed: true }
     view.rerender(<DesktopUpdateBadge {...props} />)
-    expect(screen.getByRole('img', { name: en['desktop.update.retry'] }).getAttribute('data-error')).toBe('true')
+    expect(screen.getByRole('img', { name: en['desktop.update.retry'] })).toBeTruthy()
     state = { failed: true, opening: false }
     view.rerender(<DesktopUpdateBadge {...props} />)
-    expect(screen.getByRole('img', { name: en['desktop.update.retry'] }).getAttribute('data-error')).toBe('true')
+    expect(screen.getByRole('img', { name: en['desktop.update.retry'] })).toBeTruthy()
     state = { failed: false, opening: false, presentation: { phase: 'error', failure: 'install' } }
     view.rerender(<DesktopUpdateBadge {...props} />)
-    expect(screen.getByRole('img', { name: en['desktop.update.retry'] }).getAttribute('data-error')).toBe('true')
+    expect(screen.getByRole('img', { name: en['desktop.update.retry'] })).toBeTruthy()
     for (const value of ['connecting', 'disconnected'] as const) {
       connection = value
       view.rerender(<DesktopUpdateBadge {...props} />)
       expect(screen.queryByRole('img')).toBeNull()
     }
   })
+})
+
+it('toggles developer tools using the accepted setting and disables duplicate writes', async () => {
+  const state = createSnapshotStore(false)
+  let finish!: () => void
+  const setEnabled = vi.fn((enabled: boolean) => new Promise<void>((resolve) => {
+    finish = () => { state.set(enabled); resolve() }
+  }))
+  render(<DeveloperToolsRow {...kit} t={t} useDeveloperTools={bindSnapshotSelector(state)} setEnabled={setEnabled} />)
+  const toggle = screen.getByRole('switch', { name: 'Show coding view' })
+  expect(toggle.getAttribute('aria-checked')).toBe('false')
+  fireEvent.click(toggle)
+  expect(setEnabled).toHaveBeenCalledWith(true)
+  expect(toggle.hasAttribute('disabled')).toBe(true)
+  finish()
+  await waitFor(() => { expect(toggle.getAttribute('aria-checked')).toBe('true') })
+  expect(toggle.hasAttribute('disabled')).toBe(false)
 })
 
 describe('chrome content', () => {
@@ -97,15 +123,39 @@ describe('GeneralSection', () => {
     const renderSlot = vi.fn(
       ((key: string) => <div data-testid={`slot-${key}`} />) as GeneralSectionComponentProps['renderSlot'],
     )
-    const props: GeneralSectionComponentProps = { ...kit, renderSlot, close: vi.fn() }
+    const props: GeneralSectionComponentProps = {
+      ...kit, renderSlot, close: vi.fn(), t: makeTranslate(en),
+      useItems: select => select(ids),
+    }
     const view = render(<GeneralSection {...props} />)
     return { view, renderSlot }
   }
+  let ids: readonly string[] = ['language', 'appearance', 'developer-tools', 'current-version', 'acme-plugin-row']
 
-  it('renders the item slot as the section body', () => {
-    const { renderSlot } = mount()
-    expect(renderSlot).toHaveBeenCalledWith('settings.general.item', {})
-    expect(screen.getByTestId('slot-settings.general.item')).toBeTruthy()
+  it('renders one anchored slot per registered row under plain headings, keeping unknown rows', () => {
+    ids = ['language', 'appearance', 'developer-tools', 'current-version', 'acme-plugin-row']
+    const { renderSlot, view } = mount()
+    expect(renderSlot).toHaveBeenCalledWith('settings.general.item', {}, { only: 'language' })
+    expect(renderSlot).not.toHaveBeenCalledWith('settings.general.item', {})
+    const headings = [...view.container.querySelectorAll('h3')].map(heading => heading.textContent)
+    expect(headings).toEqual(['Preferences', 'Advanced', 'About'])
+    const anchored = [...view.container.querySelectorAll('[data-settings-entry]')].map(node => node.getAttribute('data-settings-entry'))
+    expect(anchored).toEqual(['language', 'appearance', 'developer-tools', 'acme-plugin-row', 'current-version'])
+    expect(screen.getByRole('region', { name: 'Advanced' })).toBeTruthy()
+  })
+
+  it('omits a heading whose rows are not registered', () => {
+    ids = ['shortcuts']
+    const { view } = mount()
+    expect([...view.container.querySelectorAll('h3')].map(heading => heading.textContent)).toEqual(['Conversation and input'])
+  })
+
+  it('renders a shadowed plugin row once', () => {
+    ids = ['acme-plugin-row', 'language', 'acme-plugin-row']
+    const { renderSlot, view } = mount()
+    const anchored = [...view.container.querySelectorAll('[data-settings-entry]')].map(node => node.getAttribute('data-settings-entry'))
+    expect(anchored).toEqual(['language', 'acme-plugin-row'])
+    expect(renderSlot.mock.calls.filter(([, , options]) => JSON.stringify(options) === JSON.stringify({ only: 'acme-plugin-row' }))).toHaveLength(1)
   })
 })
 
@@ -187,5 +237,133 @@ describe('SettingsDocumentAction', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Open configuration file' }))
     expect((await screen.findByRole('alert')).textContent).toBe('Could not open configuration file')
     expect(screen.getByRole('button', { name: 'Open configuration file' })).toBeTruthy()
+  })
+})
+
+it('reports a failed developer-tool write and allows retry', async () => {
+  const state = createSnapshotStore(false)
+  const setEnabled = vi.fn().mockRejectedValueOnce(new Error('offline')).mockImplementation(async (enabled: boolean) => { state.set(enabled) })
+  render(<DeveloperToolsRow {...kit} t={t} useDeveloperTools={bindSnapshotSelector(state)} setEnabled={setEnabled} />)
+  const toggle = screen.getByRole('switch', { name: 'Show coding view' })
+  fireEvent.click(toggle)
+  expect((await screen.findByRole('alert')).textContent).toBe('Could not save. Please try again.')
+  expect(toggle.hasAttribute('disabled')).toBe(false)
+  expect(toggle.getAttribute('aria-checked')).toBe('false')
+  fireEvent.click(toggle)
+  await waitFor(() => { expect(toggle.getAttribute('aria-checked')).toBe('true') })
+  expect(screen.queryByRole('alert')).toBeNull()
+})
+
+it('toggles session content search and keeps the setting when a write is refused', async () => {
+  const state = createSnapshotStore(true)
+  const setEnabled = vi.fn().mockRejectedValueOnce(new Error('offline')).mockImplementation(async (enabled: boolean) => { state.set(enabled) })
+  render(<SessionSearchRow {...kit} t={t} useContentSearch={bindSnapshotSelector(state)} setEnabled={setEnabled} />)
+  const toggle = screen.getByRole('switch', { name: 'Search session contents' })
+  expect(toggle.getAttribute('aria-checked')).toBe('true')
+  fireEvent.click(toggle)
+  expect((await screen.findByRole('alert')).textContent).toBe('Could not save. Please try again.')
+  expect(toggle.getAttribute('aria-checked')).toBe('true')
+  fireEvent.click(toggle)
+  await waitFor(() => { expect(toggle.getAttribute('aria-checked')).toBe('false') })
+  expect(setEnabled).toHaveBeenLastCalledWith(false)
+  expect(screen.queryByRole('alert')).toBeNull()
+})
+
+it('toggles chat memory and keeps the setting when a write is refused', async () => {
+  const state = createSnapshotStore(true)
+  const setEnabled = vi.fn().mockRejectedValueOnce(new Error('offline')).mockImplementation(async (enabled: boolean) => { state.set(enabled) })
+  render(<ChatMemoryRow {...kit} t={t} useChatMemory={bindSnapshotSelector(state)} setEnabled={setEnabled} />)
+  const toggle = screen.getByRole('switch', { name: 'Memory: save chats and recall them' })
+  expect(toggle.getAttribute('aria-checked')).toBe('true')
+  fireEvent.click(toggle)
+  expect((await screen.findByRole('alert')).textContent).toBe('Could not save. Please try again.')
+  expect(toggle.getAttribute('aria-checked')).toBe('true')
+  fireEvent.click(toggle)
+  await waitFor(() => { expect(toggle.getAttribute('aria-checked')).toBe('false') })
+  expect(setEnabled).toHaveBeenLastCalledWith(false)
+})
+
+describe('current version', () => {
+  it.each([
+    ['Current version: 1.2.3-rc.4', en],
+    ['当前版本：1.2.3-rc.4', zh],
+  ])('renders the localized release label %s', (expected, dictionary) => {
+    vi.stubEnv('DSH_CLIENT_VERSION', '1.2.3-rc.4')
+    const translate: TriggerContentProps['t'] = (key, params) => {
+      let text = (dictionary as Record<string, string>)[key] ?? key
+      for (const [name, value] of Object.entries(params ?? {})) text = text.replace(`{${name}}`, String(value))
+      return text
+    }
+    render(<CurrentVersionRow {...kit} t={translate} />)
+    expect(screen.getByText(expected)).toBeTruthy()
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
+  it('omits the row when a partial build has no version metadata', () => {
+    vi.stubEnv('DSH_CLIENT_VERSION', undefined)
+    const view = render(<CurrentVersionRow {...kit} t={t} />)
+    expect(view.container.textContent).toBe('')
+  })
+})
+
+describe('Host release change confirmation', () => {
+  type Release = { version: string; commit?: string }
+  type Change = { page: Release | undefined; previous: Release | undefined; host: Release | undefined } | undefined
+  function prompt(change: Change, dictionary: Record<string, string> = en) {
+    const dismissRelease = vi.fn()
+    const reloadPage = vi.fn()
+    const props: HostReleasePromptProps = {
+      ...kit,
+      t: key => dictionary[key] ?? key,
+      useReleaseChange: select => select(change),
+      dismissRelease,
+      reloadPage,
+    }
+    return { dismissRelease, reloadPage, view: render(<HostReleasePrompt {...props} />) }
+  }
+
+  it('stays hidden while no release change is announced', () => {
+    prompt(undefined)
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('shows the service and page transitions and either reloads or keeps the page', () => {
+    const { dismissRelease, reloadPage } = prompt({
+      page: { version: '0.2.1' }, previous: { version: '0.2.2' }, host: { version: '0.2.3', commit: 'abc1234' },
+    })
+    const dialog = screen.getByRole('dialog', { name: 'Service version changed' })
+    // Changed versions show only the versions.
+    expect(dialog.textContent).toContain('Service0.2.20.2.3Page0.2.10.2.3')
+    expect(dialog.textContent).toContain(en['hostRelease.description'])
+    // The dialog opens without a user gesture; initial focus keeps the page.
+    expect(document.activeElement?.textContent).toBe('Not now')
+    fireEvent.click(screen.getByRole('button', { name: 'Reload to load the new version' }))
+    expect(reloadPage).toHaveBeenCalledOnce()
+    expect(dismissRelease).not.toHaveBeenCalled()
+    const keep = screen.getAllByRole('button', { name: 'Not now' })
+    // The footer action and the dialog's close control both keep the page.
+    expect(keep).toHaveLength(2)
+    for (const button of keep) fireEvent.click(button)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(dismissRelease).toHaveBeenCalledTimes(3)
+  })
+
+  it('shows commits for a transition within one version and labels what the Host did not publish', () => {
+    prompt({
+      page: { version: '0.2.0' },
+      previous: { version: '0.2.1', commit: 'aaaaaaa' },
+      host: { version: '0.2.1', commit: 'bbbbbbb' },
+    })
+    expect(screen.getByRole('dialog').textContent).toContain('Serviceaaaaaaabbbbbbb' + 'Page0.2.00.2.1')
+    cleanup()
+    prompt({ page: { version: '0.2.1' }, previous: { version: '0.2.1' }, host: { version: '0.2.1', commit: 'bbbbbbb' } }, zh)
+    expect(screen.getByRole('dialog', { name: '服务版本变化' }).textContent)
+      .toContain('服务未解析bbbbbbb页面未解析bbbbbbb')
+    cleanup()
+    prompt({ page: undefined, previous: undefined, host: { version: '0.2.1' } })
+    expect(screen.getByRole('dialog').textContent).toContain('ServiceUnknown0.2.1PageUnknown0.2.1')
+    cleanup()
+    prompt({ page: { version: '0.2.1' }, previous: { version: '0.2.1' }, host: undefined })
+    expect(screen.getByRole('dialog').textContent).toContain('Service0.2.1UnknownPage0.2.1Unknown')
   })
 })

@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-06-18-session-surface.zh.md)
-
 ## Problem
 
 The event log is authoritative, but history manipulation had no durable shared mechanism. Without one, plugins such as compaction would rewrite derived requests through order-sensitive listeners without recording which events each replacement used. Every new history manipulation would also require changes to `deriveMessages()`.
@@ -45,7 +43,7 @@ The `repair.ts` module synthesizes `tool/result` closers for orphaned tool calls
 
 ### Invariants
 
-`Session` validates `sourceEventSeqs` and `surfaceOp` at the always-on seed/append boundary: source lists are non-empty, unique, earlier, and known; `assistant/message` carries no source list; replacement endpoints exist in surface order; and `sourceEventSeqs` covers every shadowed node. These are single-record acceptance and storage-projection rules, not optional invariant-service contributions.
+`Session` validates `sourceEventSeqs` and `surfaceOp` at the always-on seed/append boundary: source lists are non-empty, unique, earlier, and known; `assistant/message` carries no source list; replacement endpoints exist in surface order; and `sourceEventSeqs` covers every shadowed node. These are single-record acceptance and storage-projection rules.
 
 Every surface-eligible event must carry `surfaceOp` or it would disappear from derived history. Typed `append` overloads enforce this for literal event types; runtime checks in `append` and the seed constructor cover widened unions and current loaded logs. Released validation and conversion belong to their versioned migration edges rather than generic Session code; see the [V2-to-V3 placement rules](../../../../packages/session/session-format-v2-to-v3/README.md#canonical-envelopes).
 

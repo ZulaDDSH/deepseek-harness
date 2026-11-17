@@ -9,9 +9,10 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // dictionaries the shipped-preset name resolution below reads.
 import type {} from '@deepseek-ai/dsh-client-ui-agent-preset/client'
 // Inline-safe shared fold: shipped ids map to dictionary keys in one home.
-import { presetDisplayText } from '@deepseek-ai/dsh-agent-presets/display'
+import { presetDisplayText } from '@deepseek-ai/dsh-agent-preset-registry/display'
 import { PluginInventorySettingsTab, type PluginInventorySettingsTabInjected } from './PluginInventorySettingsTab.tsx'
-import { en, zh, type PluginInventoryLocaleKey } from './locales.ts'
+import { en, ja, es, fr, de, ru, pt, zh, type PluginInventoryLocaleKey } from './locales.ts'
+import { HooksSettingsSection, type HooksSettingsSectionInjected } from './HooksSettingsSection.tsx'
 
 export type { PluginInventorySettingsTabInjected, PluginInventorySettingsTabProps } from './PluginInventorySettingsTab.tsx'
 export type { PluginInventoryLocaleKey } from './locales.ts'
@@ -27,11 +28,11 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 export const NS = 'settings.pluginInventory'
 
 /** Services required by the Settings registration and generated Remote face. */
-export const inject = ['slots', 'locale', 'remote', 'remote.pluginInventory', 'modules']
+export const inject = ['slots', 'locale', 'remote', 'remote.pluginInventory', 'remote.settings', 'modules']
 
 /** Contribute the lazy inventory tab to the Plugins settings section. */
 export function apply(ctx: ClientContext): void {
-  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-settings-plugin-inventory: dictionaries')
+  ctx.effect(() => ctx.locale.register(NS, { zh, en, ja, es, fr, de, ru, pt }), 'ui-settings-plugin-inventory: dictionaries')
 
   const t = ctx.locale.bind(NS)
   const list: PluginInventorySettingsTabInjected['list'] = async () => {
@@ -41,6 +42,14 @@ export function apply(ctx: ClientContext): void {
     }
     return result.value
   }
+  const setEnabledHooks: HooksSettingsSectionInjected['setEnabledHooks'] = async (entryId, keys) => {
+    const result = await ctx.remote.settings.mutate(entryId, [{ op: 'set', path: ['enabledHooks'], value: [...keys] }], undefined)
+    if (!result.ok) throw new Error(`settings.mutate failed: ${result.error.code}: ${result.error.message}`)
+  }
+  const setHookDescriptions: HooksSettingsSectionInjected['setHookDescriptions'] = async (entryId, descriptions) => {
+    const result = await ctx.remote.settings.mutate(entryId, [{ op: 'set', path: ['hookDescriptions'], value: { ...descriptions } }], undefined)
+    if (!result.ok) throw new Error(`settings.mutate failed: ${result.error.code}: ${result.error.message}`)
+  }
   // Resolved per call over ui-agent-preset's dictionaries, so a language
   // switch re-resolves shipped names; user-authored metadata passes through.
   const agentPresetCopy = ctx.locale.bind('settings.agentPreset')
@@ -48,9 +57,15 @@ export function apply(ctx: ClientContext): void {
     presetDisplayText(preset, agentPresetCopy).name
   const injected = (): PluginInventorySettingsTabInjected => ({
     list, presetName,
+    resolveText: text => ctx.locale.resolveText(text),
     hooks: { clientSync: ctx.modules.entries.state },
     retryClient: () => { void ctx.modules.entries.retry().catch((error: unknown) => { ctx.logger.error(error) }) },
   })
+
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section', id: 'hooks', order: 70, label: () => t('hooksTitle'), locale: NS,
+    inject: () => ({ list, setEnabledHooks, setHookDescriptions }),
+  }, HooksSettingsSection))
 
   ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
     name: 'settings.plugins.tab',

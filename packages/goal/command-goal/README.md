@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-command-goal
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 `dsh-command-goal` gives users the `/goal` command to create, edit, pause, resume, clear, and inspect the current goal directly in an interactive UI. Commands and their direct output stay in the UI and do not enter model requests. Accepted changes persist, and ordered image or file attachments on a create or edit become one ordinary user message that later goal rounds can read. Use this package in interactive deployments with a command adapter; headless and automation apps without one do not need it.
@@ -84,7 +82,6 @@ This section explains how the command parses input and renders output; the obser
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: command grammar, status rendering, attachment submission |
-| — | No runtime invariant companion is published; this command adapter owns no event stream or state projection; accepted mutations are checked by the goal domain and command dispatch behavior is covered by package tests. |
 
 </details>
 
@@ -97,7 +94,7 @@ The command is a thin adapter over the goal domain; read these pages for the sta
 
 - [Goal service](../goal/README.md) — the state and lifecycle the command mutates.
 - [Commands service](../../interaction/commands/README.md) — the command registry contract and dispatch.
-- [Harness-level goal-execution Agent Note](../../../.agents/notes/implemented/feature/2026-07-16-harness-level-loop.md) — the UX and composition decisions.
+- [historical Harness-level goal-execution Agent Note](../../../.agents/notes/archived/feature/2026-07-16-harness-level-loop.md) — the UX and composition decisions.
 
 -----
 

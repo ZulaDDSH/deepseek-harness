@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-09-04-session-open-performance-gate.zh.md)
-
 ## Problem
 
 The Session format v2 rollout changed two paths whose cost scales with model output: the JSONL backend migrates and publishes a released-v0 log, and the Client folds each settled reply's embedded compact stream. Neither path had an executable performance check, so first open grew from about 35 ms to about 5 s on a 127,400-event synthetic log (and from about 0.3 s to 26 s on a 575,000-chunk real log, with 2.7 GB peak RSS and heap exhaustion under a 512 MB limit), while Client fold grew linearly with streamed deltas instead of compact records; these regressions reached master unnoticed.
@@ -12,7 +10,7 @@ Measuring only `SessionPersistence.open()` does not stably describe the result f
 
 ## Decision
 
-Linux pull requests run a required `node 24 / benchmarks` job that executes `pnpm run check:ci:bench` → `pnpm run test:bench`. The private `@deepseek-ai/dsh-benchmarks` workspace owns benchmark-only dependencies. The command first builds workspace libraries and dedicated workers under `benchmarks/.dsh-build/`, then invokes `vitest.bench.config.ts`. The [standard hosted runner decision](2026-09-06-standard-hosted-benchmark-runner.md) owns runner selection and the outer job timeout. The job runs the benchmark lane alone; Vitest runs one file at a time and only prepares input, starts measurement children, aggregates results, and enforces budgets. Every timed Node CPU path executes compiled JavaScript under plain Node with `NODE_OPTIONS` removed and no TypeScript loader; bare workspace imports therefore resolve from `benchmarks/node_modules` through package exports to built `lib/` entries.
+Linux pull requests run a required `node 24 / benchmarks` job that executes `pnpm run check:ci:bench` → `scripts/run-ci-bench.ts`. Its disposable library build omits repeated TypeScript diagnostics under the [PR artifact build policy](../process/2026-10-05-pr-artifact-typechecks.md); required full builds retain them. The private `@deepseek-ai/dsh-benchmarks` workspace owns benchmark-only dependencies. The command first builds workspace libraries and dedicated workers under `benchmarks/.dsh-build/`, then invokes `vitest.bench.config.ts`. The [standard hosted runner reference](../../../../.github/workflows/ci.yml) owns runner selection and the outer job timeout. The job runs the benchmark lane alone; Vitest runs one file at a time and only prepares input, starts measurement children, aggregates results, and enforces budgets. Every timed Node CPU path executes compiled JavaScript under plain Node with `NODE_OPTIONS` removed and no TypeScript loader; bare workspace imports therefore resolve from `benchmarks/node_modules` through package exports to built `lib/` entries.
 
 Required performance gates live under top-level `benchmarks/`, grouped by measured user path rather than package ownership. Host files use `*.bench.ts`, Client-face files use `*.bench.client.ts`, and scenario-specific workers and fixtures stay beside their benchmark without a benchmark suffix. Package-local `.perf.ts` files remain non-gating diagnostics; `scripts/` owns orchestration rather than benchmark cases.
 
@@ -58,7 +56,7 @@ The standard two-CPU run (run 34023970384, job 101461539961) for PR #3640 uses N
 
 A cold-verifier packaging change removes runtime workspace-module loading without changing these budgets or the measured endpoint. On macOS arm64, Node 24.18.0, the same 127,400-event fixture before verifier bundling takes 164.2, 162.4, 159.7, 149.3, and 167.7 ms for first writable resume (median 162.4 ms). Bundling the verifier through the workspace build gives 119.8, 120.9, 121.9, 122.3, and 121.8 ms (median 121.8 ms, 25% lower). Retained heap stays at 5.4 MB; median peak RSS changes from 144.9 to 143.7 MB. Reopen medians are 27.5 and 27.1 ms, and all 16 Session cases, including the 128 MB completion checks, pass. A CPU profile attributes part of the old verifier cost to module resolution and compilation. The isolated-package built-worker test fails on the original worker because its workspace imports cannot resolve, and passes with the bundled worker, including rejection of an incorrect event count. These local results do not establish Linux runner timing; those cases use the 450 ms CI limit.
 
-The hosted run (run 34265057987, job 102192211510) includes the bundled verifier and reports first-open Agent-resume samples of 454.2, 454.8, 455.4, 457.8, and 459.8 ms: median 455.4 ms against 450 ms. The code-equivalent preceding run (run 34263062688, job 102185561214) reports a 436.2 ms median; only the bilingual request-history README and its pairing record differ between those heads. The reviewed ceiling is 562 ms, `floor(450 × 1.25)`, a 24.89% increase that leaves 23.4% above the observed 455.4 ms median. Five fresh M4 Pro / Node 24.19 samples span 150.07–158.22 ms with a 152.57 ms median. A bounded main-thread profile identifies no obvious small optimization; it excludes verifier-thread CPU and does not establish the cause of hosted variation. Controls reject the recorded median at 450 ms, accept it at 562 ms, and reject 600 ms. The bundled-verifier improvement, workload, other time budgets, shared scaling, and memory limits remain intact.
+The hosted run (run 34265057987, job 102192211510) includes the bundled verifier and reports first-open Agent-resume samples of 454.2, 454.8, 455.4, 457.8, and 459.8 ms: median 455.4 ms against 450 ms. The code-equivalent preceding run (run 34263062688, job 102185561214) reports a 436.2 ms median; only the request-history README differs between those heads. The reviewed ceiling is 562 ms, `floor(450 × 1.25)`, a 24.89% increase that leaves 23.4% above the observed 455.4 ms median. Five fresh M4 Pro / Node 24.19 samples span 150.07–158.22 ms with a 152.57 ms median. A bounded main-thread profile identifies no obvious small optimization; it excludes verifier-thread CPU and does not establish the cause of hosted variation. Controls reject the recorded median at 450 ms, accept it at 562 ms, and reject 600 ms. The bundled-verifier improvement, workload, other time budgets, shared scaling, and memory limits remain intact.
 
 The calibrated source budgets are:
 
@@ -77,6 +75,22 @@ The calibrated source budgets are:
 | Client-fold absolute time | 16 ms | 40 ms |
 | Client-fold delta scaling | 2.5× | 3.125× |
 | Constrained old space | — | 128 MB |
+
+### Indexed traversal of stored JSON arrays
+
+The JSONL backend freezes decoded event graphs before memoization. Its native decoder and fixed migration catalog produce acyclic JSON graphs whose arrays contain only indexed values. Numeric array traversal preserves freezing of every nested object and array while avoiding string-key enumeration across the compact stream's 125,000 text entries and 124,600 time deltas. Object traversal still preserves own `__proto__` and `constructor` data. No admission, relationship validation, decoding, or freezing moves beyond the measured open endpoint, and a shallow `Object.isFrozen()` result never skips descendant traversal.
+
+On an Apple M4 Pro with Node 24.19.0, an open-only CPU profile attributes about 4.2 ms to complete event freezing. Separate fresh-process V4 runs give these results; the final column restores and rebuilds the exact original traversal as a negative control:
+
+| Reopen measurement | Original traversal | Indexed traversal | Original restored |
+|---|---|---|---|
+| `open` samples (ms) | 22.2, 22.4, 22.8, 22.6, 22.9 | 17.7, 18.4, 17.4, 17.8, 17.6 | 21.7, 22.4, 22.2, 21.7, 21.6 |
+| Median `open` (ms) | 22.6 | 17.7 | 21.7 |
+| Median first history (ms) | 35.0 | 30.6 | 33.6 |
+| Median Agent resume (ms) | 30.5 | 26.8 | 29.8 |
+| Agent retained heap (MB) | 4.5 | 4.5 | 4.5 |
+
+Each run passes all 17 Session cases, including the 128 MB completion checks. The original implementation remains below 63 ms on this local machine; the restored traversal demonstrates the removed cost, while the hosted benchmark remains the required budget verdict. The workload, time limits, memory limits, cold-process setup, and measurement endpoints are unchanged. The JSONL owner tests cover nested opaque JSON, rejected mutation, and immutable event sharing through historical V3 and current reads. These measurements establish a reopen improvement; they do not establish a consistent first-open improvement or hosted-runner timing.
 
 ## Alternatives considered
 

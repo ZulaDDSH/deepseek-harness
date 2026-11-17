@@ -2,15 +2,13 @@
 
 Status: implemented
 
-English | [中文](2026-09-14-desktop-installed-update-materials.zh.md)
-
 ## Problem
 
 An installed-update walkthrough needs two increasing versions with a shared application identity. Reusing normal release paths can expose test metadata to unrelated clients, while storing test state inside an installation directory loses evidence during replacement. A successful copy does not establish that a signed installer exists.
 
 ## Decision
 
-Version derivation follows the [release version decision](../process/2026-09-16-desktop-release-version-derivation.md); this record continues to govern material, application identity, and user-data isolation.
+Version derivation follows the [release version reference](../../../../apps/desktop/packaging/README.md#release-versions); this record continues to govern material, application identity, and user-data isolation.
 
 The [material preparer](../../../../apps/desktop/scripts/prepare-installed-update-runtime.ts) accepts a retained test-only manifest with a random identity and distribution namespace. It copies a verified source runtime into separate derived test versions, changes only release-family versions and matching dependency references, and seals and verifies both inventories. The original runtime is verified again and its descriptor hash must remain unchanged. Existing output directories are not overwritten; a failed copy retains a failure record and cannot create a completion receipt.
 

@@ -27,7 +27,13 @@
       "path": "../../subprocess/subprocess"
     },
     {
+      "path": "../../workspace/workspace"
+    },
+    {
       "path": "../../util/home-paths"
+    },
+    {
+      "path": "../../fs/fs"
     }
   ]
 }

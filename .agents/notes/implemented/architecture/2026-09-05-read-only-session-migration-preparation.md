@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-09-05-read-only-session-migration-preparation.zh.md)
-
 ## Problem
 
 The stateful Stage pipeline makes historical Decode and migration bounded and fast, but a serial persistence open still performs encode, sync, Worker verification, publication, and committed reopen before returning either handle kind. A read-only consumer therefore waits for about 2.2 seconds of work that it does not need and mutates storage merely to display history.
@@ -102,7 +100,7 @@ No external caller can append before the handle exists. `append`, `flush`, and `
 
 ### Follow and Agent promotion
 
-`session.follow` opens history through the read path, restores the Session and projections, emits the opening snapshot, and then starts Agent promotion. Agent resume uses write open, so it waits for publication before the Agent accepts a new turn. History visibility and write readiness are separate timing points without introducing an unpublished append state.
+`session.follow` opens history through the read path, restores the Session and projections, starts Agent promotion from the separately retained Observation when the caller requests activation, and then delivers the opening snapshot. Agent resume uses write open, so it waits for publication before the Agent accepts a new turn. History visibility and write readiness are separate timing points without introducing an unpublished append state.
 
 ## Problem-to-solution mapping
 

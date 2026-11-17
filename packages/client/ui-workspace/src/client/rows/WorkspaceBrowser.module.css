@@ -1,6 +1,6 @@
 .root {
   --dsh-session-list-edge-inset: var(--dsh-sidebar-inline-padding);
-  --dsh-session-list-scrollbar-width: 8px;
+  --dsh-session-list-scrollbar-width: 5px;
   --dsh-session-list-scrollbar-offset: 2px;
   flex: 1;
   min-height: 0;
@@ -22,16 +22,32 @@
   width: 28px;
   height: 28px;
   border: none;
-  border-radius: 50%;
-  corner-shape: round;
+  border-radius: var(--dsw-radius-sm);
   padding: 0;
   background: transparent;
   cursor: pointer;
   color: var(--dsw-alias-label-secondary);
 }
 
-.iconButton:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
+/* The action cluster animates its width and the search pill rounds its corners,
+ * so both clip an outer ring; these controls keep theirs inside instead. */
+.iconButton:focus-visible,
+.searchButton:focus-visible,
+.clearButton:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: -2px;
+}
+
+@media (hover: hover) {
+  .iconButton:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+/* View-options dropdown card: labels are short, so a content-sized card reads
+   cramped and its width shifts with the locale — hold a stable floor. */
+.viewOptionsMenu {
+  min-width: 200px;
 }
 
 /* Section header: title, an inline search control, and the two trailing
@@ -43,10 +59,10 @@
   justify-content: flex-end;
   gap: 4px;
   height: 36px;
-  padding-left: 4px;
+  padding-left: var(--dsh-sidebar-row-padding);
   margin-bottom: 4px;
   box-sizing: border-box;
-  border-radius: 12px;
+  border-radius: var(--dsw-radius-md);
   overflow: hidden;
   color: var(--dsw-alias-label-tertiary);
 }
@@ -56,7 +72,20 @@
   margin-right: -4px;
 }
 
+.root:not(.rail) .sectionHeader.searchSpacingMotion {
+  transition:
+    margin-right 180ms var(--ds-ease-in-out),
+    padding-inline 180ms var(--ds-ease-in-out),
+    gap 180ms var(--ds-ease-in-out);
+}
+
+.root:not(.rail) .sectionHeader:not(:has(.searchExpanded)) {
+  padding-right: 1px;
+}
+
 .sectionLabel {
+  position: relative;
+  left: -1px;
   flex: none;
   max-width: 45%;
   min-width: 0;
@@ -101,12 +130,17 @@
   padding-left: 0;
 }
 
+/* Header action cluster: Add workspace, New section, and View options, at
+   28px each with a 4px gap. The cap must cover every member — `overflow:
+   hidden` clips the remainder, so an undersized cap hides a control without
+   removing it from the DOM. Kept as a max-width so the search-expand
+   transition still animates to zero. */
 .headerActions {
   flex: none;
   display: flex;
   align-items: center;
   gap: 4px;
-  max-width: 60px;
+  max-width: 92px;
   opacity: 1;
   overflow: hidden;
   visibility: visible;
@@ -139,8 +173,7 @@
   padding: 0;
   box-sizing: border-box;
   border: none;
-  border-radius: 50%;
-  corner-shape: round;
+  border-radius: var(--dsw-radius-sm);
   background: transparent;
   cursor: text;
   color: var(--dsw-alias-label-secondary);
@@ -152,13 +185,23 @@
     background-color 180ms var(--ds-ease-in-out);
 }
 
+.root:not(.rail) .sectionHeader:has(.searchExpanded) {
+  margin-right: 0;
+  padding-inline: calc(var(--dsh-sidebar-paint-inset) + 1px);
+  gap: 0;
+}
+
+.sectionHeader:has(.searchExpanded) .sectionLabelHidden {
+  margin-right: 0;
+}
+
 .searchExpanded {
-  width: calc(100% + 4px);
-  height: 30px;
-  margin-inline: -2px;
+  width: 100%;
+  height: 32px;
+  margin-inline: 0;
   padding: 0 4px 0 0;
   border: 0.5px solid var(--dsw-alias-border-l4);
-  border-radius: 10px;
+  border-radius: var(--dsw-radius-md);
   background: transparent;
   color: var(--dsw-alias-label-caption);
 }
@@ -171,8 +214,7 @@
   width: 28px;
   height: 28px;
   border: none;
-  border-radius: 50%;
-  corner-shape: round;
+  border-radius: var(--dsw-radius-sm);
   padding: 0;
   background: transparent;
   cursor: pointer;
@@ -181,15 +223,17 @@
 
 .searchExpanded .searchButton {
   width: 28px;
-  height: 30px;
+  height: 32px;
 }
 
-.searchButton:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
+@media (hover: hover) {
+  .searchButton:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
 
-.searchExpanded .searchButton:hover {
-  background: transparent;
+  .searchExpanded .searchButton:hover {
+    background: transparent;
+  }
 }
 
 .searchInput {
@@ -225,16 +269,17 @@
   width: 24px;
   height: 24px;
   border: none;
-  border-radius: 50%;
-  corner-shape: round;
+  border-radius: var(--dsw-radius-sm);
   padding: 0;
   background: transparent;
   cursor: pointer;
   color: var(--dsw-alias-label-secondary);
 }
 
-.clearButton:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
+@media (hover: hover) {
+  .clearButton:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
 }
 
 /* Rail variant (own .rail class from the wide owner prop — the region never
@@ -256,7 +301,7 @@
   width: 36px;
   height: 36px;
   /* Rail hovers share the shell rail's 12px rounding. */
-  border-radius: 12px;
+  border-radius: var(--dsw-radius-md);
   color: var(--dsw-alias-label-primary);
 }
 
@@ -268,7 +313,7 @@
   gap: 0;
   /* The collapsed search frame clips its button's hover, so it must carry the
      rail's 12px rounding itself. */
-  border-radius: 12px;
+  border-radius: var(--dsw-radius-md);
   border-color: transparent;
   background: transparent;
 }
@@ -276,12 +321,14 @@
 .rail .searchButton {
   width: 36px;
   height: 36px;
-  border-radius: 12px;
+  border-radius: var(--dsw-radius-md);
   color: var(--dsw-alias-label-primary);
 }
 
-.rail .searchButton:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
+@media (hover: hover) {
+  .rail .searchButton:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
 }
 
 /* List seat: always mounted so the shell foot never moves. */
@@ -302,6 +349,86 @@
   margin-left: 0;
   margin-right: 0;
   padding-left: 0;
+}
+
+/* Stacked seat: the Workspaces pane above, the Chat Sections pane below.
+   The seat is a flex column with a bounded height, so the Workspace pane takes
+   exactly the leftover space (never more) and the Sections pane is sized from
+   its own content up to its cap.
+
+   `overflow: hidden` overrides the single-pane seat's `visible`. With two
+   stacked panes the upper pane's scrolled content would otherwise paint
+   outside its box and sit on top of the lower one, so a drop aimed at a
+   section header lands on a workspace row instead. */
+.listAreaStacked {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* The Workspaces pane. Each pane scrolls on its own, so filing a Chat never
+   moves the Workspace list's scroll position.
+
+   `overflow: hidden` is load-bearing, not cosmetic: the pane's scrolling list
+   is taller than the box the flex column gives it, and without clipping here
+   the rows paint over the Sections pane below. `elementFromPoint` then
+   resolves a drop aimed at a section header to a workspace row, so the drop
+   is silently lost even though the panes measure correctly. */
+.workspacePane {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  flex-direction: column;
+}
+
+.sectionsPane {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 0.5px solid var(--dsw-alias-border-l3);
+}
+
+/* The pane's scrolling region. It reserves the themed scrollbar exactly as the
+   Workspace list does, so the bar is visible and its appearance does not shift
+   the pane's rows. */
+.sectionsScroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin-right: var(--dsh-session-list-scrollbar-offset);
+  padding-right: calc(
+    var(--dsh-session-list-edge-inset)
+    - var(--dsh-session-list-scrollbar-width)
+    - var(--dsh-session-list-scrollbar-offset)
+  );
+  scrollbar-gutter: stable;
+  padding-bottom: 8px;
+}
+
+/* A pane's own heading, on the Activity view's section-heading rhythm. */
+.paneHeading {
+  flex: none;
+  padding: 0 8px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* Empty Sections pane: a quiet prompt rather than a full empty-state card. */
+.paneEmpty {
+  padding: 2px 8px 8px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
 }
 
 /* Relative for the bottom fade overlay. */
@@ -341,7 +468,7 @@
 }
 
 /* List: the only scrolling region. Block children keep their design heights
-   under content overflow. The 2px edge offset, stable 8px themed scrollbar,
+   under content overflow. The 2px edge offset, stable 5px themed scrollbar,
    and remaining padding equal the shell's right inset, with or without
    overflow, so moving the bar does not move the rows. */
 .list {
@@ -368,16 +495,64 @@
   margin-top: 2px;
 }
 
-.searchStatus,
-.searchWarning {
+.searchStatus {
   padding: 10px 12px;
   font-size: 12px;
   line-height: 18px;
   color: var(--dsw-alias-label-tertiary);
 }
 
-.searchWarning {
-  color: var(--dsw-alias-label-secondary);
+/* Pending content search: skeleton rows on searchResultRow metrics — a round
+   leading glyph beside a title bar and a wider snippet bar, breathing through
+   opacity (same pulse as the input-trigger menu skeleton). */
+.skeletonRow {
+  display: flex;
+  /* Top alignment lines the 16px dot up with the equally tall title bar;
+     the paddings center the 35px content in the 48px row. */
+  align-items: flex-start;
+  gap: var(--dsh-sidebar-label-gap);
+  box-sizing: border-box;
+  min-height: 48px;
+  padding: 6px var(--dsh-sidebar-row-padding) 7px;
+}
+
+.skeletonDot {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  corner-shape: round;
+}
+
+.skeletonBars {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.skeletonDot,
+.skeletonBar {
+  background: var(--dsw-alias-bg-skeleton);
+  animation: search-skeleton 2s cubic-bezier(0.36, 0, 0.64, 1) infinite;
+}
+
+.skeletonBar {
+  width: 65%;
+  height: 16px;
+  border-radius: var(--dsw-radius-xs);
+}
+
+.skeletonBarWide {
+  width: 90%;
+  height: 13px;
+}
+
+@keyframes search-skeleton {
+  0% { opacity: 1; }
+  40% { opacity: 0.6; }
+  80%, 100% { opacity: 1; }
 }
 
 /* One workspace section: header row + a compact expanded session run. */
@@ -441,8 +616,8 @@
   width: 100%;
   height: 28px;
   border: none;
-  border-radius: 8px;
-  padding: 0 12px 0 calc(28px + var(--dsh-workspace-indent, 0px));
+  border-radius: var(--dsw-radius-sm);
+  padding: 0 var(--dsh-sidebar-row-padding) 0 calc(var(--dsh-sidebar-row-padding) + 16px + var(--dsh-sidebar-label-gap) + var(--dsh-workspace-indent, 0px));
   background: transparent;
   cursor: pointer;
   text-align: left;
@@ -454,15 +629,44 @@
   margin-top: 0;
 }
 
-.sessionOverflowButton:hover {
-  background: transparent;
-  color: var(--dsw-alias-label-secondary);
+@media (hover: hover) {
+  .sessionOverflowButton:hover {
+    background: transparent;
+    color: var(--dsw-alias-label-secondary);
+  }
 }
 
 .empty {
   padding: 16px 12px;
   color: var(--dsw-alias-label-tertiary);
   font-size: 13px;
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 80px;
+  padding: 0 12px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.emptyState > svg {
+  margin-bottom: 4px;
+  color: var(--dsw-alias-label-caption);
+}
+
+.emptyAction {
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-link);
 }
 
 /* Rename dialog form (same figma dialog family as the create modals). */
@@ -472,7 +676,7 @@
   height: 44px;
   padding: 7px 14px;
   border: 0.5px solid var(--dsw-alias-border-l4);
-  border-radius: 22px;
+  border-radius: var(--dsw-radius-lg);
   outline: none;
   background: transparent;
   font-size: 14px;
@@ -502,11 +706,37 @@
   color: var(--dsw-alias-label-secondary);
 }
 
+/* The stop-and-archive dialog's list of work that will be stopped. */
+.archiveActivity {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.archiveActivity li {
+  overflow-wrap: anywhere;
+}
+
+@media (pointer: coarse) {
+  .searchInput,
+  .renameInput {
+    font-size: 16px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .wide {
     animation: none;
   }
 
+  .skeletonDot,
+  .skeletonBar {
+    animation: none;
+  }
+
+  .root:not(.rail) .sectionHeader.searchSpacingMotion,
   .search,
   .sectionLabel,
   .searchSlot,
@@ -514,6 +744,63 @@
   .headerActions {
     transition: none;
   }
+}
+/* Color swatch inside a filter-menu row and an appearance choice. */
+.colorSwatch {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  corner-shape: round;
+}
+
+/* The filter control carries a resting accent once either half is filtering. */
+.iconButtonActive {
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.appearanceForm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.appearanceLabel {
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.appearanceChoices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.appearanceChoice {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  cursor: pointer;
+  color: var(--dsw-alias-label-secondary);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .appearanceChoice:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+.appearanceChoiceSelected {
+  border-color: var(--dsw-alias-state-business-primary);
+  color: var(--dsw-alias-state-business-primary);
 }
 
 .activitySection + .activitySection {
@@ -530,4 +817,79 @@
 
 .activityRows > * + * {
   margin-top: 2px;
+}
+
+/* One Chat Section: header row plus its member rows. The block is the drop
+   body for its own header, so a Chat released anywhere inside the section
+   joins it — the pointer path for a collapsed or still-empty section. */
+.sectionGroup {
+  position: relative;
+  border-radius: var(--dsw-radius-sm);
+}
+
+.sectionGroup + .sectionGroup,
+.sectionGroup + .ungroupedBlock,
+.ungroupedBlock + .sectionGroup {
+  margin-top: 4px;
+}
+
+.sectionGroup > * + * {
+  margin-top: 2px;
+}
+
+/* Join affordance: the pointer is over this section with a Chat in hand, so
+   the whole block reads as one target rather than a stack of rows. */
+.sectionJoinActive {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.sectionGroup.dropInside,
+.sectionRow.dropInside {
+  box-shadow: inset 0 0 0 1px var(--dsw-alias-state-business-primary);
+}
+
+/* Collapsed sections keep a one-line hint: the header stays the drop target,
+   and the hint names what a drop there does. */
+.sectionHint {
+  height: 22px;
+  padding: 0 8px 0 calc(28px + var(--dsh-workspace-indent, 0px));
+  font-size: 11px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.sectionCount {
+  flex: none;
+  margin-right: 6px;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* The trailing member count yields to the hover actions, which occupy the
+   same cell: a row never widens when its actions appear. */
+@media (hover: hover) and (pointer: fine) {
+  .sectionRow:hover .sectionCount {
+    display: none;
+  }
+}
+
+.sectionRow.menuOpen .sectionCount {
+  display: none;
+}
+
+/* The Chats outside every section, under their own heading. */
+.ungroupedBlock {
+  display: flex;
+  flex-direction: column;
+}
+
+.ungroupedBlock > * + * {
+  margin-top: 2px;
+}
+
+/* A section header is a disclosure row, not a Workspace: it keeps the row
+   rhythm but carries no folder glyph, colour, or workspace hover card. */
+.sectionRow {
+  cursor: pointer;
 }

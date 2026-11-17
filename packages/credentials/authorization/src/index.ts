@@ -27,7 +27,7 @@
  */
 
 import { Context, Service } from '@deepseek-ai/cordis'
-import type { CredentialKey } from '@deepseek-ai/dsh-credentials'
+import type { CredentialKey, CredentialRecord } from '@deepseek-ai/dsh-credentials'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 
 import type {
@@ -36,25 +36,13 @@ import type {
 } from './types.ts'
 
 export type {
-  AuthorizationEntry, AuthorizationMethod, AuthorizationNotice, AuthorizationOutcome, AuthorizationPrompt,
-  AuthorizationPromptOption, AuthorizationSettlement, AuthorizationStatus,
+  AuthorizationEntry, AuthorizationMethod, AuthorizationNotice, AuthorizationOutcome,
+  AuthorizationPrompt, AuthorizationPromptOption, AuthorizationSettlement, AuthorizationStatus,
 } from './types.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
     authorization: AuthorizationService
-  }
-
-  interface Events {
-    /**
-     * One authorization attempt has finished and released its key. Fires for
-     * every terminal outcome, failures included, so a surface watching a key it
-     * did not start (a second browser tab) learns the attempt is over.
-     * @mode emit
-     * @param key - the credential record the finished attempt was authorizing.
-     * @param settlement - how it ended, including the `failed` case its caller sees as a thrown error.
-     */
-    'authorization/settled'(key: CredentialKey, settlement: AuthorizationSettlement): void
   }
 }
 
@@ -93,6 +81,12 @@ export interface AuthorizationSession {
   /** Aborted when the caller withdraws or `cancel()` is called for this key. */
   readonly signal: AbortSignal
   /**
+   * Commit a record while rejecting cancelled attempts. Once admitted, cancellation waits for completion.
+   * @param record - credential owned by this flow.
+   * @returns after the credential store commits the record.
+   */
+  commit(record: CredentialRecord): Promise<void>
+  /**
    * Report progress, or tell the human what to do next. Fire-and-forget: a
    * surface that cannot render a notice must not stall the flow.
    * @param notice - the message, and any page or code it refers to.
@@ -127,6 +121,11 @@ export interface AuthorizationFlow {
    * cannot be begun, and the type says so at the one place flows are written.
    */
   readonly methods: readonly [AuthorizationMethod, ...AuthorizationMethod[]]
+  /**
+   * The other product whose identity this sign-in borrows, when it does. A
+   * surface warns about a stored record this flow produced.
+   */
+  readonly borrowedFrom?: string
   /**
    * Run one attempt to obtain and commit the credential.
    * @param session - the chosen method, the cancellation signal, and the interaction callbacks.
@@ -173,6 +172,7 @@ export interface AuthorizationRequest {
 /** One attempt in flight, with the handle that withdraws it. */
 interface InFlight {
   readonly controller: AbortController
+  committing: boolean
 }
 
 /**
@@ -211,7 +211,7 @@ export class AuthorizationService extends Service {
         // A flow leaving mid-attempt takes its attempt with it: the runner
         // belongs to a plugin that is going away, so letting it keep prompting
         // would outlive the fiber that can answer for it.
-        this.running.get(flow.key)?.controller.abort()
+        this.cancel(flow.key)
       }
     }.bind(this), 'authorization.registerFlow()')
     return () => void dispose()
@@ -242,6 +242,7 @@ export class AuthorizationService extends Service {
       label: flow.label,
       methods: flow.methods,
       inFlight: this.running.has(flow.key),
+      ...flow.borrowedFrom === undefined ? {} : { borrowedFrom: flow.borrowedFrom },
     }
   }
 
@@ -252,7 +253,8 @@ export class AuthorizationService extends Service {
    * @param key - the credential record whose attempt should stop.
    */
   cancel(key: CredentialKey): void {
-    this.running.get(key)?.controller.abort()
+    const running = this.running.get(key)
+    if (running !== undefined && !running.committing) running.controller.abort()
   }
 
   /**
@@ -294,9 +296,12 @@ export class AuthorizationService extends Service {
     // not exist hears about it whether or not it also gave up.
     if (request.signal?.aborted === true) return { status: 'cancelled' }
     const controller = new AbortController()
-    const withdraw = (): void => { controller.abort(request.signal?.reason) }
+    const withdraw = (): void => {
+      const running = this.running.get(key)
+      if (running !== undefined && !running.committing) controller.abort(request.signal?.reason)
+    }
     request.signal?.addEventListener('abort', withdraw, { once: true })
-    this.running.set(key, { controller })
+    this.running.set(key, { controller, committing: false })
     let settlement: AuthorizationSettlement = 'failed'
     try {
       const outcome = await this.attempt(flow, method, controller.signal, request.interaction)
@@ -318,14 +323,12 @@ export class AuthorizationService extends Service {
   /**
    * Fan `authorization/settled` out with contained listener failures: every
    * listener runs, and a sync throw or async rejection is logged without
-   * changing the finished attempt's own outcome — except `INVARIANT`-coded
-   * failures, which rethrow after every listener ran. The attempt is already
+   * changing the finished attempt's own outcome. The attempt is already
    * over and its key released when this fires, so a broken watcher (that
    * second browser tab) can never turn the caller's settled result into a
    * failure of its own.
    */
   private settle(key: CredentialKey, settlement: AuthorizationSettlement): void {
-    let invariantFailure: unknown
     const args = ['authorization/settled', key, settlement]
     for (const listener of this.ctx.events.dispatch('emit', args) as Array<(...listenerArgs: unknown[]) => unknown>) {
       try {
@@ -336,14 +339,9 @@ export class AuthorizationService extends Service {
           })
         }
       } catch (error) {
-        if ((error as { code?: unknown } | null)?.code === 'INVARIANT') {
-          invariantFailure ??= error
-          continue
-        }
         this.warnSettledListenerFailure(key, error)
       }
     }
-    if (invariantFailure !== undefined) throw invariantFailure as Error
   }
   /* jscpd:ignore-end */
 
@@ -386,6 +384,15 @@ export class AuthorizationService extends Service {
       const running = flow.run({
         method,
         signal,
+        commit: async (record) => {
+          signal.throwIfAborted()
+          const attempt = this.running.get(flow.key)
+          if (attempt === undefined || attempt.controller.signal !== signal) {
+            throw new AuthorizationError('authorization attempt is no longer active', 'CANCELLED')
+          }
+          attempt.committing = true
+          await this.ctx.credentials.modifyRecord(flow.key, () => Promise.resolve(record))
+        },
         notify: (notice) => {
           try {
             interaction.notify(notice)

@@ -31,6 +31,8 @@ export interface TextPage {
 
 /** One tab's pages and view. */
 export interface TextTabState {
+  autoRefresh: boolean
+  resourcesDirty: boolean
   /** Explicit viewer choice for this tab; absence follows automatic matching. */
   rendererId?: string
   /** Current display-loading mode; absent before the first read. */
@@ -59,6 +61,12 @@ export interface TextTabState {
   wrap: boolean
   /** The `navigation.revision` the body already answered; absent before the first. */
   revision: number | undefined
+  /**
+   * A change comparison the reader asked for: the text shown when they asked,
+   * and the file's current text. Its presence switches the body to the diff
+   * view; a reload or a new file version drops it.
+   */
+  diff?: { readonly before: string; readonly after: string }
 }
 
 /** Every tab's state, keyed by tab id. */
@@ -72,6 +80,8 @@ export interface TextState {
  */
 export function fresh(): TextTabState {
   return {
+    autoRefresh: true,
+    resourcesDirty: false,
     loadRevision: 0,
     version: undefined,
     observedVersion: undefined,
@@ -92,9 +102,12 @@ function bucket(state: TextState, tabId: TabId): TextTabState {
 
 /** The preview store's write set; every action names the tab it writes. */
 type TextActions = {
+  toggledAutoRefresh: (draft: TextState, tabId: TabId) => void
+  resourceChanged: (draft: TextState, tabId: TabId) => void
   selected: (draft: TextState, tabId: TabId, rendererId: string | undefined) => void
   loading: (draft: TextState, tabId: TabId, mode?: DocumentLoadMode, observedVersion?: string, contentRendererId?: string) => void
   rendered: (draft: TextState, tabId: TabId, revision: number, version: string) => void
+  rendererFailed: (draft: TextState, tabId: TabId, revision: number) => void
   complete: (draft: TextState, tabId: TabId, file: DocumentFileBytes) => void
   page: (draft: TextState, tabId: TabId, page: WorkspaceFileText) => void
   failed: (draft: TextState, tabId: TabId, failure: RemoteFailure) => void
@@ -102,6 +115,8 @@ type TextActions = {
   scrolled: (draft: TextState, tabId: TabId, scrollTop: number) => void
   toggledWrap: (draft: TextState, tabId: TabId) => void
   navigated: (draft: TextState, tabId: TabId, revision: number) => void
+  diffed: (draft: TextState, tabId: TabId, before: string, after: string) => void
+  diffCleared: (draft: TextState, tabId: TabId) => void
   forget: (draft: TextState, tabId: TabId) => void
 }
 
@@ -116,6 +131,11 @@ export function createTextStore(): EngineStoreHandle<TextState, TextActions> {
   return defineStore({
     init: (): TextState => ({ byTab: {} }),
     actions: {
+      toggledAutoRefresh: (d, tabId: TabId) => {
+        const state = bucket(d, tabId)
+        state.autoRefresh = !state.autoRefresh
+      },
+      resourceChanged: (d, tabId: TabId) => { bucket(d, tabId).resourcesDirty = true },
       /** @param d - draft. @param tabId - owning tab. @param rendererId - manual choice, or automatic selection. */
       selected: (d, tabId: TabId, rendererId: string | undefined) => {
         if (rendererId === undefined) delete bucket(d, tabId).rendererId
@@ -146,6 +166,12 @@ export function createTextStore(): EngineStoreHandle<TextState, TextActions> {
         const state = d.byTab[tabId]
         if (state?.mode !== 'renderer' || state.loadRevision !== revision) return
         state.version = version
+        state.loading = false
+      },
+      /** @param d - draft. @param tabId - owning tab. @param revision - failed content revision. */
+      rendererFailed: (d, tabId: TabId, revision: number) => {
+        const state = d.byTab[tabId]
+        if (state?.mode !== 'renderer' || state.loadRevision !== revision) return
         state.loading = false
       },
       /** @param d - draft. @param tabId - owning tab. @param file - complete byte result for this view. */
@@ -191,9 +217,11 @@ export function createTextStore(): EngineStoreHandle<TextState, TextActions> {
        */
       reset: (d, tabId: TabId) => {
         const state = bucket(d, tabId)
+        state.resourcesDirty = false
         state.loadRevision++
         state.pages = {}
         delete state.complete
+        delete state.diff
         state.eof = false
         state.version = undefined
         state.observedVersion = undefined
@@ -227,6 +255,27 @@ export function createTextStore(): EngineStoreHandle<TextState, TextActions> {
        */
       navigated: (d, tabId: TabId, revision: number) => {
         bucket(d, tabId).revision = revision
+      },
+      /**
+       * Show the comparison the reader asked for.
+       * @param d - draft state.
+       * @param tabId - the tab being drawn.
+       * @param before - text shown when the comparison was requested.
+       * @param after - the file's current text.
+       */
+      diffed: (d, tabId: TabId, before: string, after: string) => {
+        const state = bucket(d, tabId)
+        state.diff = { before, after }
+        state.loading = false
+        state.failure = undefined
+      },
+      /**
+       * Return one tab's body from the diff view to the file itself.
+       * @param d - draft state.
+       * @param tabId - the tab being drawn.
+       */
+      diffCleared: (d, tabId: TabId) => {
+        delete bucket(d, tabId).diff
       },
       /**
        * Drop one tab's state, for a tab record that is gone.

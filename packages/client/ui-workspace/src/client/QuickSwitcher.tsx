@@ -2,8 +2,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import {
-  IconFolderOpenOutline16, IconNewChatOutline16, IconPlayOutline16, IconSearchOutline16,
-  Input, Modal,
+  IconFolderOpenOutlineRegular, IconNewChatOutlineRegular, IconPlayOutlineRegular, IconSearchOutlineRegular,
+  Input, MenuSurface, Modal,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -31,20 +31,37 @@ export type QuickSwitcherProps =
   & InjectFace<QuickSwitcherInjected>
   & PropsLocale<'workspace'>
 
+/** Session rows shown at once; the results surface scrolls. */
+const SESSION_ROW_LIMIT = 30
+
 type SwitcherRow =
   | { key: string; kind: 'session'; title: string; detail?: string; sessionId: SessionId }
   | { key: string; kind: 'workspace'; title: string; detail?: string; workspaceId: WorkspaceId }
-  | { key: string; kind: 'command'; title: string; detail?: string; command: QuickCommand }
+  | { key: string; kind: 'command'; title: string; detail?: string; command: QuickCommand; sessionId: SessionId }
 
 function includes(text: string | undefined, query: string): boolean {
   return text?.toLocaleLowerCase().includes(query) ?? false
 }
 
+/** Subsequence score of `query` in `text`: contiguous and leading hits score higher; undefined when `query` is not a subsequence. */
+function fuzzyScore(text: string, query: string): number | undefined {
+  const haystack = text.toLocaleLowerCase()
+  let score = 0
+  let next = 0
+  for (const char of query) {
+    const at = haystack.indexOf(char, next)
+    if (at === -1) return undefined
+    score += at === next ? 3 : 1
+    next = at + char.length
+  }
+  return score
+}
+
 function iconFor(kind: SwitcherRow['kind']) {
   switch (kind) {
-    case 'session': return <IconNewChatOutline16 />
-    case 'workspace': return <IconFolderOpenOutline16 />
-    case 'command': return <IconPlayOutline16 />
+    case 'session': return <IconNewChatOutlineRegular />
+    case 'workspace': return <IconFolderOpenOutlineRegular />
+    case 'command': return <IconPlayOutlineRegular />
   }
 }
 
@@ -70,6 +87,7 @@ export function QuickSwitcher({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.defaultPrevented || event.isComposing) return
       if (event.key.toLocaleLowerCase() !== 'k' || (!event.metaKey && !event.ctrlKey)) return
       event.preventDefault()
       setOpen(value => !value)
@@ -112,18 +130,21 @@ export function QuickSwitcher({
 
   const normalized = query.trim().toLocaleLowerCase()
   const archived = new Set(workspaces.archivedSessionIds)
+  const untitled = t('session.untitled')
   const sessionRows = sessions.ids
     .flatMap((id) => {
       const row = sessions.byId[id]
-      if (row === undefined || archived.has(row.id) || row.origin === 'subagent') return []
-      if (normalized !== '' && !includes(row.displayTitle, normalized) && !includes(row.cwd, normalized)) return []
-      return [row]
+      if (row === undefined || row.blank || archived.has(row.id) || row.origin === 'subagent') return []
+      const title = row.title?.trim() || untitled
+      const score = normalized === '' ? 0 : fuzzyScore(title, normalized) ?? (includes(row.cwd, normalized) ? 0 : undefined)
+      return score === undefined ? [] : [{ row, title, score }]
     })
-    .slice(0, 8)
-    .map((row): SwitcherRow => ({
+    .sort((a, b) => b.score - a.score || b.row.updatedAt - a.row.updatedAt)
+    .slice(0, SESSION_ROW_LIMIT)
+    .map(({ row, title }): SwitcherRow => ({
       key: `session:${row.id}`,
       kind: 'session',
-      title: row.displayTitle,
+      title,
       ...(row.cwd === undefined ? {} : { detail: row.cwd }),
       sessionId: row.id,
     }))
@@ -139,12 +160,13 @@ export function QuickSwitcher({
       detail: row.path,
       workspaceId: row.workspaceId,
     }))
-  const commandRows = commands.slice(0, 8).map((command): SwitcherRow => ({
+  const commandRows = currentSessionId === undefined ? [] : commands.slice(0, 8).map((command): SwitcherRow => ({
     key: `command:${command.name}`,
     kind: 'command',
     title: command.label ?? `/${command.name}`,
     ...(command.description === undefined ? {} : { detail: command.description }),
     command,
+    sessionId: currentSessionId,
   }))
   const rows = [...sessionRows, ...workspaceRows, ...commandRows]
   const selected = rows.length === 0 ? 0 : Math.min(active, rows.length - 1)
@@ -163,7 +185,7 @@ export function QuickSwitcher({
         void openWorkspace(row.workspaceId)
         break
       case 'command':
-        if (currentSessionId !== undefined) runQuick(currentSessionId, row.command.name)
+        runQuick(row.sessionId, row.command.name)
         break
     }
   }
@@ -183,7 +205,7 @@ export function QuickSwitcher({
         }
       }}>
         <Input
-          icon={<IconSearchOutline16 />}
+          icon={<IconSearchOutlineRegular />}
           value={query}
           onChange={(event) => {
             setQuery(event.currentTarget.value)
@@ -194,44 +216,33 @@ export function QuickSwitcher({
           autoComplete="off"
           autoFocus
         />
-        <div className={css.results} role="listbox" aria-label={t('quick.title')}>
-          {sessionRows.length > 0 && <div className={css.heading}>{t('quick.sessions')}</div>}
-          {sessionRows.map(row => (
-            <SwitcherItem
-              key={row.key}
-              row={row}
-              active={rows[selected]?.key === row.key}
-              onActivate={() => { setActive(rows.findIndex(item => item.key === row.key)) }}
-              onChoose={choose}
-            />
-          ))}
-          {workspaceRows.length > 0 && <div className={css.heading}>{t('quick.workspaces')}</div>}
-          {workspaceRows.map(row => (
-            <SwitcherItem
-              key={row.key}
-              row={row}
-              active={rows[selected]?.key === row.key}
-              onActivate={() => { setActive(rows.findIndex(item => item.key === row.key)) }}
-              onChoose={choose}
-            />
-          ))}
-          {(commandRows.length > 0 || commandBusy) && <div className={css.heading}>{t('quick.commands')}</div>}
-          {commandRows.map(row => (
-            <SwitcherItem
-              key={row.key}
-              row={row}
-              active={rows[selected]?.key === row.key}
-              onActivate={() => { setActive(rows.findIndex(item => item.key === row.key)) }}
-              onChoose={choose}
-            />
-          ))}
+        <MenuSurface className={css.results} role="listbox" aria-label={t('quick.title')}>
+          {renderGroup(sessionRows, t('quick.sessions'))}
+          {renderGroup(workspaceRows, t('quick.workspaces'))}
+          {(commandRows.length > 0 || commandBusy) && renderGroup(commandRows, t('quick.commands'))}
           {rows.length === 0 && !commandBusy && <div className={css.empty}>{t('quick.empty')}</div>}
           {rows.length === 0 && commandBusy && <div className={css.empty}>{t('quick.loading')}</div>}
-        </div>
+        </MenuSurface>
         <div className={css.footer}><span>↑↓</span><span>{t('quick.navigate')}</span><span>↵</span><span>{t('quick.open')}</span></div>
       </div>
     </Modal>
   )
+
+  function renderGroup(group: readonly SwitcherRow[], title: string) {
+    if (group.length === 0) return null
+    return <>
+      <div className={css.heading}>{title}</div>
+      {group.map(row => (
+        <SwitcherItem
+          key={row.key}
+          row={row}
+          active={rows[selected]?.key === row.key}
+          onActivate={() => { setActive(rows.findIndex(item => item.key === row.key)) }}
+          onChoose={choose}
+        />
+      ))}
+    </>
+  }
 }
 
 function SwitcherItem({ row, active, onActivate, onChoose }: {

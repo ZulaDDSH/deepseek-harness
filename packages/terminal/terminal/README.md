@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-terminal
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 `dsh-terminal` provides persistent, owner-scoped terminal sessions to the harness: a session keeps shell or REPL state across tool calls, and every operation is fenced to the exact agent that created it. It provides the `ctx.terminals` service, which mints opaque session ids, routes session creation through registered backends, and waits for quiescent cleanup when an owner or the service disposes. It defines no terminal mechanics itself: backends such as the shipped `dsh-terminal-bash` own spawning and readiness, and the model-facing tools in `dsh-tool-terminal` own presentation. Sessions are process-local: they do not survive a harness restart.
@@ -75,7 +73,6 @@ The service owns everything except terminal mechanics: session identity, publica
 |---|---|
 | [`src/index.ts`](src/index.ts) | `TerminalSessionService`: backend registry, spawn/send/read/signal/kill/list, owner cleanups, disposal |
 | [`src/types.ts`](src/types.ts) | Shared contracts: backend interface, session types, wait reasons, signal set, error codes |
-| — | No runtime invariant companion is published; backend and owner-scoped session registries are private mutable state, and the service exposes neither an independent lifecycle stream nor an unscoped snapshot. |
 
 ### Data model and lifecycle
 
@@ -103,7 +100,7 @@ Read these pages when the package-level contract is not enough. They move from t
 - [Terminal subsystem reference](../../../docs/subsystems/terminal.md) — shared types, backend and session contracts, and the generated `ctx.terminals` surface.
 - [terminal/ package map](../README.md) — the three-package family and how it composes.
 - [terminal-bash backend](../terminal-bash/README.md) — the shipped shell backend that provides the `shell` type.
-- [tool-terminal tools](../tool-terminal/README.md) — the six model-facing tools that operate sessions.
+- [tool-terminal tools](../../experimental/tool-terminal/README.md) — the six model-facing tools that operate sessions.
 - [Persistent PTY Agent Note](../../../.agents/notes/implemented/feature/2026-07-16-persistent-pty-sessions.md) — design rationale, alternatives, and deferred boundaries.
 
 -----

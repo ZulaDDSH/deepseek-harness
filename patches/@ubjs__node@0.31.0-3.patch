@@ -1,0 +1,15 @@
+diff --git a/typescript/dist/resolve-lib.js b/typescript/dist/resolve-lib.js
+index e8837bb2337c42eaffe15942923b8af39fca2b1a..370552091a7dd0e8ec5e63ec314af36cecec8d7b 100644
+--- a/typescript/dist/resolve-lib.js
++++ b/typescript/dist/resolve-lib.js
+@@ -157,6 +157,10 @@ function resolveNpmPackage(crateName, callerUrl, npmPackageBase, tripleStyle) {
+         });
+     }
+     const binaryPath = (0, node_path_1.join)((0, node_path_1.dirname)(pkgJsonPath), libFileName(crateName, process.platform));
++    // Constraint: LoadLibrary cannot open a file inside app.asar; Electron only redirects require() of .node files.
++    const unpackedPath = binaryPath.replace(/([\\/])app\.asar([\\/])/, "$1app.asar.unpacked$2");
++    if (unpackedPath !== binaryPath && (0, node_fs_1.existsSync)(unpackedPath))
++        return unpackedPath;
+     if (!(0, node_fs_1.existsSync)(binaryPath)) {
+         throw new ResolveLibPathError({
+             message: `Platform package "${pkgName}" is installed but does not contain ` +

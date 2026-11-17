@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-session-turn-outline
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 This package gives history clients a whole-session outline of every started turn, including bounded prompt and settled-response previews. Clients can navigate turns that are not yet loaded and page backward from the exact event sequence needed to load a selected turn. It fits assemblies that provide session projections; elsewhere, clients continue using loaded-window navigation. Previews exclude injected context and tool results, and a response appears only after its turn settles.
@@ -71,7 +69,6 @@ The unit is a pure fold over committed session events. `turn/start` — not the 
 | [`src/index.ts`](src/index.ts) | Plugin entry: `inject`, unit registration on the mounting fiber |
 | [`src/projection.ts`](src/projection.ts) | The fold: entry append, preview fill, wire view |
 | [`src/types.ts`](src/types.ts) | One home of the `turnOutline` projection-key declaration and entry types |
-| — | No runtime invariant companion is published: the package owns one pure projection fold, `session-projection` schema-validates its served values, and re-folding the same log would duplicate the implementation instead of comparing independently maintained observations; session and agent-loop own turn-boundary ordering. |
 
 ### Fold rules
 

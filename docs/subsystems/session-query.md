@@ -1,7 +1,5 @@
 # Session Query
 
-English | [中文](session-query.zh.md)
-
 Query vocabulary over the live-preferred logical session corpus. The [Service Definition package](../../packages/session-query/session-query) owns exact reads, source precedence, relationship tracing, semantic extraction, and provider-independent filters, while the [SQLite provider](../../packages/session-query/session-query-sqlite) owns the concrete full-text index lifecycle.
 
 Source: [`packages/session-query/session-query/src/types.ts`](../../packages/session-query/session-query/src/types.ts)
@@ -24,6 +22,8 @@ interface SessionRecord {
   live: boolean
   /** Whether the active persistence backend currently lists the id, including a created-but-unmaterialized session it already observes. */
   persisted: boolean
+  /** Current for live Sessions; otherwise the persistence format status when reported. */
+  formatStatus?: 'current' | 'migration-required'
 }
 ```
 

@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-tool-call-timeout-policy
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Use this package to give tool calls their configured cooperative time limits and return a clear timeout error to the model after cancellation settles. Calls that finish in time are unchanged. A tool that ignores or slowly handles cancellation can keep the caller waiting because the package cannot hard-stop downstream work. Each tool supplies its own limit; the package has no configuration and is enabled in the `dsh` base bundle.
@@ -77,7 +75,6 @@ Multiple `tools/execute` listeners compose by Cordis registration order, which c
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `TOOL_TIMEOUT`, `name`/`inject`/`apply`, the `tools/execute` wrapper |
-| — | No runtime invariant companion is published; this stateless policy plugin owns no package-local event history or mutable data relation beyond the seam it intercepts. |
 
 </details>
 

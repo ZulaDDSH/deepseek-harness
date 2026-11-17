@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { assertServiceable, Config, resolveProfiles } from '../src/config.ts'
+import { assertServiceable, Config, resolveProfiles, type Options } from '../src/config.ts'
 
 /** Validate one hand-declared route, with the caller's fields layered onto it. */
 const routeWith = (profile: Record<string, unknown>): (() => unknown) =>
-  () => Config({
+  () => ({ providers: Config({
     providers: {
       'acme-gateway': {
         api: 'openai-completions',
@@ -12,7 +12,7 @@ const routeWith = (profile: Record<string, unknown>): (() => unknown) =>
         ...profile,
       },
     },
-  })
+  }).providers.get() })
 
 /** Validate that route with the caller's fields on its single model entry. */
 const configWith = (model: Record<string, unknown>): (() => unknown) =>
@@ -68,7 +68,7 @@ describe('modality schema boundary', () => {
     // well-typed, and the namespace validator is what refuses it. Asserting
     // only the schema would report this route as writable.
     expect(routeWith({ defaultInput: [] })).not.toThrow()
-    expect(() => { assertServiceable(routeWith({ defaultInput: [] })() as Config) })
+    expect(() => { assertServiceable(routeWith({ defaultInput: [] })() as Options) })
       .toThrow(/defaultInput must name at least one modality/)
   })
 
@@ -101,9 +101,28 @@ describe('request image policy bounds', () => {
           [field]: value,
         },
       },
-    } as unknown as Config
+    } as Options
     expect(() => {
       assertServiceable(programmatic)
     }).toThrow(message)
+  })
+})
+
+describe('route aliases', () => {
+  it('serves the base catalog under the alias route key', () => {
+    const resolved = resolveProfiles({ anthropic: {}, 'claude-work': { base: 'anthropic', displayName: 'Claude (work)' } })
+    const base = resolved.get('anthropic')?.piProvider
+    const alias = resolved.get('claude-work')?.piProvider
+    expect(alias?.id).toBe('claude-work')
+    expect(alias?.name).toBe('Claude (work)')
+    expect(alias?.getModels().length).toBe(base?.getModels().length)
+    expect(alias?.getModels().every(model => model.provider === 'claude-work')).toBe(true)
+    expect(alias?.auth.oauth).toBe(base?.auth.oauth)
+  })
+
+  it('refuses a base that is itself or not an installed provider', () => {
+    expect(() => resolveProfiles({ anthropic: { base: 'anthropic' } })).toThrow('must not be an installed provider id')
+    expect(() => resolveProfiles({ 'claude-work': { base: 'no-such-provider' } })).toThrow('no-such-provider')
+    expect(() => resolveProfiles({ deepseek: { base: 'anthropic' } })).toThrow('must not be an installed provider id')
   })
 })

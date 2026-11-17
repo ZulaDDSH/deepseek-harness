@@ -5,8 +5,6 @@ kind: persistence-release
 
 # Persistence release: dsh-v0.1.3-alpha.1
 
-English | [中文](dsh-v0.1.3-alpha.1.zh.md)
-
 ## Summary
 
 The writer format advances from 0 to 2 across these tags: the JSONL header replaces seedLength with required isSeeded, and session/end-seed gains optional inherited. assistant/chunk is removed, assistant/attempt is added, and assistant/message gains a required stream array. Team event payload versions advance from 1 to 2, alongside changes to shared content types and optional capturedFormatVersion/sessionFormatVersion metadata.
@@ -107,42 +105,42 @@ changes:
 
 <!-- persistence-release-changes:start -->
 
-Detected 17 changed roots and 25 structural differences. The minimum below is calculated using current rules for comparison only; it does not assert historical compliance, migration correctness, or runtime compatibility.
+Detected 17 changed roots and 25 structural differences. The review requirement below is calculated using current rules for comparison only; it does not assert historical compliance, migration correctness, or runtime compatibility.
 
-| Path | Change | Current minimum |
+| Path | Change | Review requirement |
 |---|---|---|
-| `JsonlHeaderLine.seedLength` | `property-removed` | `version-bump` |
-| `JsonlHeaderLine.isSeeded` | `required-property-added` | `version-bump` |
-| `SessionHeader.version` | `type-changed` | `version-bump` |
-| `event:agent/inbox/spliced.data.inserted[].content[]` | `union-variants-changed` | `version-bump` |
-| `event:agent/inbox/spliced.data.inserted[].source.references[].capturedFormatVersion` | `optional-property-added` | `same-version` |
-| `event:assistant/attempt` | `root-added` | `same-version` |
-| `event:assistant/chunk` | `root-removed` | `version-bump` |
-| `event:assistant/message.data.message.content[]` | `union-variants-changed` | `version-bump` |
-| `event:assistant/message.data.stream` | `required-property-added` | `version-bump` |
-| `event:compaction/summary.data` | `union-variants-changed` | `version-bump` |
-| `event:session-log-deepseek/delivery-accepted.data.sessionFormatVersion` | `optional-property-added` | `same-version` |
-| `event:session/end-seed.data.inherited` | `optional-property-added` | `same-version` |
-| `event:session/end-seed.data` | `index-signature-changed` | `version-bump` |
-| `event:session/title-llm-request.data.messages[].content[]` | `union-variants-changed` | `version-bump` |
-| `event:session/title-llm-request.data.messages[].source.references[].capturedFormatVersion` | `optional-property-added` | `same-version` |
-| `event:team/member.data.version` | `type-changed` | `version-bump` |
-| `event:team/message/delivered.data.version` | `type-changed` | `version-bump` |
-| `event:team/message/queued.data.message.content[]` | `union-variants-changed` | `version-bump` |
-| `event:team/message/queued.data.message.delivery` | `property-removed` | `version-bump` |
-| `event:team/message/queued.data.version` | `type-changed` | `version-bump` |
-| `event:team/task.data.version` | `type-changed` | `version-bump` |
-| `event:tool/code-dispatch.data.content[]` | `union-variants-changed` | `version-bump` |
-| `event:tool/result.data.message.content[0].content[]` | `union-variants-changed` | `version-bump` |
-| `event:user/message.data.content[]` | `union-variants-changed` | `version-bump` |
-| `event:user/message.data.source.references[].capturedFormatVersion` | `optional-property-added` | `same-version` |
+| `JsonlHeaderLine.seedLength` | `property-removed` | `review-required` |
+| `JsonlHeaderLine.isSeeded` | `required-property-added` | `review-required` |
+| `SessionHeader.version` | `type-changed` | `review-required` |
+| `event:agent/inbox/spliced.data.inserted[].content[]` | `union-variants-changed` | `review-required` |
+| `event:agent/inbox/spliced.data.inserted[].source.references[].capturedFormatVersion` | `optional-property-added` | `not-required` |
+| `event:assistant/attempt` | `root-added` | `not-required` |
+| `event:assistant/chunk` | `root-removed` | `review-required` |
+| `event:assistant/message.data.message.content[]` | `union-variants-changed` | `review-required` |
+| `event:assistant/message.data.stream` | `required-property-added` | `review-required` |
+| `event:compaction/summary.data` | `union-variants-changed` | `review-required` |
+| `event:session-log-deepseek/delivery-accepted.data.sessionFormatVersion` | `optional-property-added` | `not-required` |
+| `event:session/end-seed.data.inherited` | `optional-property-added` | `not-required` |
+| `event:session/end-seed.data` | `index-signature-changed` | `review-required` |
+| `event:session/title-llm-request.data.messages[].content[]` | `union-variants-changed` | `review-required` |
+| `event:session/title-llm-request.data.messages[].source.references[].capturedFormatVersion` | `optional-property-added` | `not-required` |
+| `event:team/member.data.version` | `type-changed` | `review-required` |
+| `event:team/message/delivered.data.version` | `type-changed` | `review-required` |
+| `event:team/message/queued.data.message.content[]` | `union-variants-changed` | `review-required` |
+| `event:team/message/queued.data.message.delivery` | `property-removed` | `review-required` |
+| `event:team/message/queued.data.version` | `type-changed` | `review-required` |
+| `event:team/task.data.version` | `type-changed` | `review-required` |
+| `event:tool/code-dispatch.data.content[]` | `union-variants-changed` | `review-required` |
+| `event:tool/result.data.message.content[0].content[]` | `union-variants-changed` | `review-required` |
+| `event:user/message.data.content[]` | `union-variants-changed` | `review-required` |
+| `event:user/message.data.source.references[].capturedFormatVersion` | `optional-property-added` | `not-required` |
 
 <!-- persistence-release-changes:end -->
 
 <a id="verification"></a>
 ## Verification
 
-Extraction passed canonical-graph, root-digest, and reachable-type-digest validation, permitting the original optional `surfaceOp` only for historical surface events. The in-tree check reconstructs each tag from its predecessor and verifies before/after values, snapshot coverage, and bilingual machine declarations.
+Extraction passed canonical-graph, root-digest, and reachable-type-digest validation, permitting the original optional `surfaceOp` only for historical surface events. The in-tree check reconstructs each tag from its predecessor and verifies before/after values, snapshot coverage, and machine declarations.
 
 ```sh
 pnpm run verify-persistence-releases

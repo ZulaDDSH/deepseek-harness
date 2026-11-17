@@ -17,18 +17,25 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import { DEFAULT_MAX_INSTRUCTION_BYTES, RECONNECT_DEFAULTS, resolveReconnectPolicy, startConnection } from './connection.ts'
-import type { ReconnectConfig } from './connection.ts'
+import { DEFAULT_MAX_INSTRUCTION_BYTES, startConnection } from './connection.ts'
+import { RECONNECT_DEFAULTS, resolveReconnectPolicy } from './reconnect-policy.ts'
+import type { ReconnectConfig } from './reconnect-policy.ts'
+import { offerSignIn } from './oauth-flow.ts'
 import { registerServerContext } from './server-context.ts'
 import { resolveToolFilter } from './tool-filter.ts'
 import type { ToolFilterConfig } from './tool-filter.ts'
 // Side-effect type import: declaration-merges `ctx.tools` onto Context.
 import type {} from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-authorization'
+import type {} from '@deepseek-ai/dsh-credentials'
+import './status.ts'
 
 export { createMcpToolDefinition } from './tools.ts'
 export type { McpResult, McpToolDefinitionOptions } from './tools.ts'
-export type { ReconnectConfig, ResolvedReconnectPolicy } from './connection.ts'
+export type { ReconnectConfig, ResolvedReconnectPolicy } from './reconnect-policy.ts'
 export type { ToolFilterConfig, ResolvedToolFilter } from './tool-filter.ts'
+export type { McpHumanOperations } from './human-operations.ts'
+export type { McpConnectionReport, McpConnectionState } from './status.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'mcp-client'
@@ -97,6 +104,12 @@ export interface StreamableHttpConfig {
   url: string
   /** Additional headers attached to MCP requests. */
   headers: Record<string, string>
+  /**
+   * Header name to environment variable name; the variable supplies the header
+   * value so a committed configuration names the variable instead of holding a
+   * credential. A literal `headers` entry for the same name overrides it.
+   */
+  headerEnv?: Record<string, string>
   /** Timeout per tool call or resource request in milliseconds. */
   toolCallTimeoutMs: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
@@ -116,8 +129,8 @@ export type Config = StdioConfig | StreamableHttpConfig
 
 type StdioConfigInput = Omit<StdioConfig, 'args' | 'env' | 'cwd' | 'toolCallTimeoutMs' | 'failOnStartupError'>
   & Partial<Pick<StdioConfig, 'args' | 'env' | 'cwd' | 'toolCallTimeoutMs' | 'failOnStartupError'>>
-type StreamableHttpConfigInput = Omit<StreamableHttpConfig, 'headers' | 'toolCallTimeoutMs' | 'failOnStartupError'>
-  & Partial<Pick<StreamableHttpConfig, 'headers' | 'toolCallTimeoutMs' | 'failOnStartupError'>>
+type StreamableHttpConfigInput = Omit<StreamableHttpConfig, 'headers' | 'headerEnv' | 'toolCallTimeoutMs' | 'failOnStartupError'>
+  & Partial<Pick<StreamableHttpConfig, 'headers' | 'headerEnv' | 'toolCallTimeoutMs' | 'failOnStartupError'>>
 type ConfigInput = StdioConfigInput | StreamableHttpConfigInput
 
 const ToolFilter: z<ToolFilterConfig> = z.object({
@@ -132,32 +145,41 @@ const Reconnect: z<ReconnectConfig> = z.object({
   maxAttempts: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(RECONNECT_DEFAULTS.maxAttempts),
 })
 
-const SharedConfigFields = {
-  serverName: z.string().required().pattern(SERVER_NAME_PATTERN),
-  toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
-  failOnStartupError: z.boolean().default(false),
-  maxInstructionBytes: z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES),
-  includeServerInstructions: z.boolean().default(true),
-  toolFilter: ToolFilter,
-  reconnect: Reconnect,
-}
+const serverNameSchema = z.string().required().pattern(SERVER_NAME_PATTERN)
+const toolCallTimeoutMsSchema = z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS)
+const failOnStartupErrorSchema = z.boolean().default(false)
+const maxInstructionBytesSchema = z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES)
+const includeServerInstructionsSchema = z.boolean().default(true)
 
 export const Config = z.union([
   z.object({
     transport: z.const('stdio'),
-    ...SharedConfigFields,
+    serverName: serverNameSchema,
     command: z.string().required(),
     args: z.array(String).default([]),
     env: z.dict(String).default({}),
     cwd: z.string().default(''),
+    toolCallTimeoutMs: toolCallTimeoutMsSchema,
+    failOnStartupError: failOnStartupErrorSchema,
+    maxInstructionBytes: maxInstructionBytesSchema,
+    includeServerInstructions: includeServerInstructionsSchema,
+    toolFilter: ToolFilter,
+    reconnect: Reconnect,
   }),
   z.object({
     transport: z.const('streamable-http'),
-    ...SharedConfigFields,
+    serverName: serverNameSchema,
     url: z.string().required(),
     headers: z.dict(String).default({}),
+    headerEnv: z.dict(String).default({}),
+    toolCallTimeoutMs: toolCallTimeoutMsSchema,
+    failOnStartupError: failOnStartupErrorSchema,
+    maxInstructionBytes: maxInstructionBytesSchema,
+    includeServerInstructions: includeServerInstructionsSchema,
+    toolFilter: ToolFilter,
+    reconnect: Reconnect,
   }),
-]) as unknown as z<ConfigInput, Config>
+]) as z<ConfigInput, Config>
 
 // ---- Plugin apply ----
 
@@ -197,7 +219,14 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // The supervisor owns the client/transport generations, the reconnect
   // loop, and the live tool registrations; disposal stops reconnection,
   // quiesces in-flight work, and unregisters the current generation.
-  const connection = startConnection(ctx, config, reconnect)
+  const auth = offerSignIn(ctx, config)
+  const connection = startConnection(ctx, config, reconnect, auth)
+  ctx.on('mcp-client/inventory', (reports) => {
+    reports.push({ serverName: config.serverName, ...connection.status(), ...auth === undefined ? {} : { authKey: auth.key } })
+  })
+  ctx.on('mcp-client/reconnect', (serverName) => {
+    if (serverName === config.serverName) connection.reconnect()
+  })
   registerServerContext(ctx, config.serverName, connection)
   let stopping: Promise<void> | undefined
   const dispose = (): Promise<void> => stopping ??= connection.dispose()

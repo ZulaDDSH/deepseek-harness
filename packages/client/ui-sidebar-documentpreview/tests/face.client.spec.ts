@@ -14,7 +14,7 @@ import { textFace } from '../src/client/face.ts'
 import type { DocumentFileBytes, ReadDocumentBytes, ReadWorkspaceFilePage } from '../src/client/rpc.ts'
 import { hostFileOf } from '../src/client/rpc.ts'
 import { createTextStore } from '../src/client/store.ts'
-import { ABSOLUTE_PATH, FILE, PATH, SESSION, failure, page } from './fixtures.client.ts'
+import { ABSOLUTE_PATH, FILE, PATH, SESSION, createResources, failure, page } from './fixtures.client.ts'
 import type { TabId } from '@deepseek-ai/dsh-client-ui-dockkit'
 
 const TAB_1 = 'tab-1' as TabId
@@ -94,7 +94,8 @@ function bench(sessionId = 'other-session' as SessionId) {
   // The store's own `forget`, counted: the record's end must forget a tab exactly once.
   const forget = vi.fn(instance.actions.forget)
   // Injected for another session on purpose: the address's session must win.
-  const face = textFace(read, bytes)(sessionId, { ...instance.actions, forget })
+  const resources = createResources()
+  const face = textFace(read, bytes, resources)(sessionId, { ...instance.actions, forget })
   /** Settle the oldest outstanding read, or the oldest one for `offset`. */
   const settle = async (result: RemoteResult<WorkspaceFileText>, offset?: number): Promise<void> => {
     const at = offset === undefined ? 0 : pending.findIndex(call => call.offset === offset)
@@ -104,7 +105,7 @@ function bench(sessionId = 'other-session' as SessionId) {
     await call.promise
   }
   return {
-    instance, read, face, forget, settle, bytes, controller,
+    instance, read, face, forget, settle, bytes, controller, resources,
     settleAll: whole.settle,
     outstandingAll: whole.outstanding,
     outstanding: () => pending.map(call => call.offset),
@@ -120,6 +121,46 @@ const settlements = [
 ] as const
 
 describe('textFace', () => {
+  it('ignores comparisons after cancellation or a newer reading generation', async () => {
+    const retired = bench()
+    retired.controller.abort()
+    retired.face.showDiff(TAB_1, FILE, retired.controller.signal, 'before')
+    expect(retired.bytes).not.toHaveBeenCalled()
+
+    const current = bench()
+    current.face.showDiff(TAB_1, FILE, current.controller.signal, 'before')
+    current.face.reloadPages(TAB_1, FILE, current.controller.signal)
+    await current.settleAll(complete())
+    expect(current.tab()?.diff).toBeUndefined()
+  })
+  it('compares the shown text with the file current text, and reports a failed read', async () => {
+    const benchOne = bench()
+    benchOne.face.showDiff(TAB_1, FILE, benchOne.controller.signal, 'a\nb')
+    expect(benchOne.tab()?.loading).toBe(true)
+    await benchOne.settleAll(complete('v2', new TextEncoder().encode('a\nc')))
+    expect(benchOne.tab()?.diff).toEqual({ before: 'a\nb', after: 'a\nc' })
+    expect(benchOne.tab()?.loading).toBe(false)
+
+    const benchTwo = bench()
+    benchTwo.face.showDiff(TAB_1, FILE, benchTwo.controller.signal, 'a')
+    await benchTwo.settleAll(bytesFailure())
+    expect(benchTwo.tab()?.diff).toBeUndefined()
+    expect(benchTwo.tab()?.failure).toBeDefined()
+  })
+
+  it('subscribes to a dependency once and stops accepting members after the tab ends', () => {
+    const { face, resources, controller, forget } = bench()
+    const source = vi.spyOn(resources, 'source')
+    const address = sessionFileAddress(SESSION, 'style.css')
+    face.addResource(TAB_1, address, controller.signal)
+    face.addResource(TAB_1, address, controller.signal)
+    expect(source).toHaveBeenCalledExactlyOnceWith(address)
+    controller.abort()
+    expect(forget).toHaveBeenCalledExactlyOnceWith(TAB_1)
+    face.addResource(TAB_1, sessionFileAddress(SESSION, 'other.css'), controller.signal)
+    expect(source).toHaveBeenCalledTimes(1)
+  })
+
   it('marks the read in flight, then keeps the page', async () => {
     const { read, face, settle, tab } = bench()
     const controller = new AbortController()
@@ -223,6 +264,7 @@ describe('textFace', () => {
     expect(tab()?.complete).toBeUndefined()
     await settleAll(result)
     expect(tab()).toMatchObject({ mode: 'bytes-complete', loading: false, complete: result.value, version: 'v1', eof: true, pages: {} })
+    expect(tab()?.complete?.data).toBe(result.value.data)
   })
 
   it('records a complete-read failure and clears it when the read is retried', async () => {
@@ -403,7 +445,7 @@ it.each([new Error('invalid bytes'), 'invalid bytes'])('reports an active comple
   const controller = new AbortController()
   const read = vi.fn<ReadDocumentBytes>().mockRejectedValue(failure)
   try {
-    textFace(vi.fn(), read)(SESSION, instance.actions).loadAll(TAB_1, FILE, controller.signal)
+    textFace(vi.fn(), read, createResources())(SESSION, instance.actions).loadAll(TAB_1, FILE, controller.signal)
     await Promise.resolve()
     expect(instance.getSnapshot().byTab[TAB_1]?.failure).toMatchObject({ code: 'gateway/internal', message: 'invalid bytes' })
   } finally { controller.abort() }
@@ -413,7 +455,7 @@ it('ignores a complete-read rejection after renderer-owned loading takes over', 
   const instance = createTextStore().create()
   const controller = new AbortController()
   const pending = Promise.withResolvers<Awaited<ReturnType<ReadDocumentBytes>>>()
-  const face = textFace(vi.fn(), () => pending.promise)(SESSION, instance.actions)
+  const face = textFace(vi.fn(), () => pending.promise, createResources())(SESSION, instance.actions)
   try {
     face.loadAll(TAB_1, FILE, controller.signal)
     face.prepareRenderer(TAB_1, controller.signal, 'office')

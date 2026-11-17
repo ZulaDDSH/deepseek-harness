@@ -5,8 +5,6 @@ kind: persistence-release
 
 # Persistence release: dsh-v0.1.0-rc.8
 
-English | [中文](dsh-v0.1.0-rc.8.zh.md)
-
 ## Summary
 
 Four team/* events and the team-message user-message source variant are added; assistant/message gains optional interrupted. The writer format remains 0.
@@ -80,25 +78,25 @@ changes:
 
 <!-- persistence-release-changes:start -->
 
-Detected 8 changed roots and 8 structural differences. The minimum below is calculated using current rules for comparison only; it does not assert historical compliance, migration correctness, or runtime compatibility.
+Detected 8 changed roots and 8 structural differences. The review requirement below is calculated using current rules for comparison only; it does not assert historical compliance, migration correctness, or runtime compatibility.
 
-| Path | Change | Current minimum |
+| Path | Change | Review requirement |
 |---|---|---|
-| `event:agent/inbox/spliced.data.inserted[].source` | `union-variants-changed` | `version-bump` |
-| `event:assistant/message.data.interrupted` | `optional-property-added` | `same-version` |
-| `event:session/title-llm-request.data.messages[].source` | `union-variants-changed` | `version-bump` |
-| `event:team/member` | `root-added` | `same-version` |
-| `event:team/message/delivered` | `root-added` | `same-version` |
-| `event:team/message/queued` | `root-added` | `same-version` |
-| `event:team/task` | `root-added` | `same-version` |
-| `event:user/message.data.source` | `union-variants-changed` | `version-bump` |
+| `event:agent/inbox/spliced.data.inserted[].source` | `union-variants-changed` | `review-required` |
+| `event:assistant/message.data.interrupted` | `optional-property-added` | `not-required` |
+| `event:session/title-llm-request.data.messages[].source` | `union-variants-changed` | `review-required` |
+| `event:team/member` | `root-added` | `not-required` |
+| `event:team/message/delivered` | `root-added` | `not-required` |
+| `event:team/message/queued` | `root-added` | `not-required` |
+| `event:team/task` | `root-added` | `not-required` |
+| `event:user/message.data.source` | `union-variants-changed` | `review-required` |
 
 <!-- persistence-release-changes:end -->
 
 <a id="verification"></a>
 ## Verification
 
-Extraction passed canonical-graph, root-digest, and reachable-type-digest validation, permitting the original optional `surfaceOp` only for historical surface events. The in-tree check reconstructs each tag from its predecessor and verifies before/after values, snapshot coverage, and bilingual machine declarations.
+Extraction passed canonical-graph, root-digest, and reachable-type-digest validation, permitting the original optional `surfaceOp` only for historical surface events. The in-tree check reconstructs each tag from its predecessor and verifies before/after values, snapshot coverage, and machine declarations.
 
 ```sh
 pnpm run verify-persistence-releases

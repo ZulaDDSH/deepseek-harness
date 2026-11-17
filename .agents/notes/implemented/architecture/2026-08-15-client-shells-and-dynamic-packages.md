@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-08-15-client-shells-and-dynamic-packages.zh.md)
-
 > The [client plugin loading model](2026-07-23-client-plugin-loading-model.md) owns module arrival, Cordis lifecycle, and HMR. This note owns package placement, build faces, shared module requests, and npm dependency declarations; those decisions supersede the older package taxonomy and import-edge rules in the loading note.
 
 ## Problem
@@ -32,7 +30,7 @@ The `staticLinked` preset leaves every bare specifier as an external import in `
 
 ### Shared module requests
 
-Dynamic browser bundles implicitly externalize the common baseline: `PLATFORM_MODULES` names shell-seeded React, Cordis, and static UI identities, while `PRELOADED_CLIENT_EXTERNALS` is reserved for a dynamic identity that must arrive before shell boot and is currently empty. A package uses `dsh.client.external` only for an exact non-baseline value request. Type-only imports are erased and create no request; permitted third-party implementation libraries remain private bundle contents.
+Dynamic browser bundles implicitly externalize the common baseline: `PLATFORM_MODULES` names shell-seeded React, Cordis, selected third-party libraries, and static UI identities, while `PRELOADED_CLIENT_EXTERNALS` is reserved for a dynamic identity that must arrive before shell boot and is currently empty. A package uses `dsh.client.external` only for an exact non-baseline value request. Type-only imports are erased and create no request; non-baseline third-party implementation libraries remain private bundle contents. Shared third-party libraries use the shell's declared versions without per-plugin version negotiation; promotion into the baseline requires a measured reduction across the shell and shipped plugin bundles.
 
 A request has exactly two suppliers:
 

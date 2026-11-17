@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-client-ui-directory-picker-native
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 This package provides the native directory-picking surface for the Web GUI: when a workspace flow asks for a directory, a renderless browser occupant opens the operating system's own chooser on the local machine and reports the single outcome — a picked path, a cancellation, or a failure. It fills the two directory-flow slots declared by `ui-workspace`, composing the client side of the native picking interaction in one `cordis.yml` row. Choose it when the browser runs on the same machine as the Host; in-process and remote-browser deployments need the [`-browse`](../ui-directory-picker-browse/README.md) surface instead.
@@ -33,6 +31,8 @@ In the local Electron application, this flow uses the narrow preload directory-p
 
 Choose this surface when the browser runs on the same machine as the Host, so an OS dialog can open there. Choose the [`-browse`](../ui-directory-picker-browse/README.md) surface when the browser is remote or in-process and no local chooser exists. The two surfaces fill the same slots, so switching is a composition change, not a code change.
 
+Access: both directory flows are registered only while the current Peer may call `directoryPicker/pick`. The owner always has access.
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -55,7 +55,7 @@ Read these pages when the picking surface is not enough. They move from the brow
 - [dsh-host-directory-picker-native](../../host/directory-picker-native/README.md) — the OS chooser backend this surface drives.
 - [ui-workspace](../ui-workspace/README.md) — declares the directory-flow slots and owns the picking conversation.
 - [ui-directory-picker-browse](../ui-directory-picker-browse/README.md) — the in-app browsing alternative for remote and in-process deployments.
-- [Web client architecture](../../../.agents/notes/implemented/architecture/2026-07-19-gui-web-client-architecture.md) — how browser plugin rows load and register slots.
+- [Web client architecture](../../../docs/subsystems/web-client.md) — how browser plugin rows load and register slots.
 
 -----
 
@@ -88,5 +88,3 @@ These limits define when the native chooser fits. They are current package const
 None.
 
 </details>
-
-**Runtime invariant:** No companion is published. The plugin registers a renderless flow occupant into two workspace holes as one transactional effect, whose disposal the HMR-safety spec proves, and it retains no state between picks.

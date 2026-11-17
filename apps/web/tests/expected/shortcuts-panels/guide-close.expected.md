@@ -1,0 +1,11 @@
+- tablist:
+  - tab "Start" [selected]
+  - button "Split"
+  - button "Exit fullscreen"
+  - button "Collapse right sidebar"
+- button "Changes Review the current Git working tree"
+- button "Workspace files Browse files in this session's workspace"
+- button "New terminal Run commands in the Session workspace"
+- button "Choose shell"
+- button "Browser Browse web pages"
+- button "More tools"

@@ -26,13 +26,17 @@ export type {
 } from './transport.ts'
 export { createScope, scopeOf } from './scope.ts'
 export type { AgentContext, AgentScopeHandle } from './scope.ts'
+export { SUBAGENT_REVIEW_ROUNDS_MAX, SUBAGENT_SETUP_ROLES, subagentPolicyText } from '../subagent-setup.ts'
+export type {
+  SubagentGsdSetup, SubagentRoleRoute, SubagentRoleSetting, SubagentSetup, SubagentSetupRole,
+} from '../subagent-setup.ts'
 export { SessionCreateError, SessionForkError } from './sessions/service.ts'
 export type { SessionBinding, SessionListState, SessionSummary } from './sessions/service.ts'
 export type {
   SessionListPhase,
   SessionListSnapshot,
   SessionSearchResultItem,
-  SubagentCatalogSnapshot,
+  SessionProjectionSnapshot,
 } from './sessions/manager.ts'
 export type { Session } from './sessions/session.ts'
 export type {
@@ -147,3 +151,5 @@ export function apply(ctx: Context): void {
   })
   ctx.effect(() => async () => { await control.dispose() }, 'session-controller.client.control')
 }
+
+export type { ExternalChat, ExternalChatCatalog, ExternalChatImportValue, ExternalChatKey } from '../types.ts'

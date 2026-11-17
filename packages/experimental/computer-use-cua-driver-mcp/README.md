@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-experimental-computer-use-cua-driver-mcp
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 Let the model operate the local desktop through an already installed Cua Driver. Mount this package with the computer-use service to expose the driver's own tool descriptions, arguments, and results through MCP. Installation and desktop permissions remain with Cua Driver, and no driver activates by default. The provider reserves computer use until its connection and tools finish closing; callers coordinate concurrent Sessions themselves.
@@ -63,8 +61,6 @@ The model sees tools under the fixed `mcp__cua-driver-mcp__` namespace. Tool nam
 <summary>Implementation internals — click to expand</summary>
 
 [`src/index.ts`](src/index.ts) groups the computer-use reservation and owned MCP child into one ordered effect. Child teardown finishes before the reservation disposer runs, including during failed activation. The MCP client owns credential scrubbing, subprocess termination, tool synchronization, cancellation, and durable image projection.
-
-No runtime invariant companion is published: the provider exposes no independent driver state to compare with its registration, and the child owns its connection and tool generations.
 
 ### Verify an installed driver
 

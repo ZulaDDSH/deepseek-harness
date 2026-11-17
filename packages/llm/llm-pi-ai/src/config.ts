@@ -12,6 +12,7 @@
  *
  * @module dsh-llm-pi-ai/config
  */
+import type { Volatile } from '@deepseek-ai/cordis'
 
 import type { CacheRetention, ChatTemplateKwargValue, ModelThinkingLevel, Provider, ThinkingBudgets, Transport } from '@earendil-works/pi-ai'
 import z from '@deepseek-ai/schemastery'
@@ -23,6 +24,8 @@ import type { ResolvedRetryPolicy, RetryPolicyConfig } from '@deepseek-ai/dsh-ll
 import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import {
   CACHE_CONTROL_FORMATS,
+  catalogProvider,
+  catalogProviderIds,
   CHAT_TEMPLATE_VARS,
   MAX_TOKENS_FIELDS,
   MODALITIES,
@@ -35,6 +38,8 @@ import {
 import type {
   PiAiCompatProfile,
   PiAiModality,
+  PiAiModeProfile,
+  PiAiModeRequest,
   PiAiModelOverride,
   PiAiModelProfile,
   PiAiReasoningEfforts,
@@ -61,10 +66,10 @@ export const DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET = 2048 * 2048
 export const DEFAULT_REQUEST_IMAGE_MAX_BYTES = 1024 * 1024
 
 /** Context capacity assumed for a model neither configuration nor the catalog sizes. */
-export const DEFAULT_CONTEXT_WINDOW = 262_144
+export const DEFAULT_CONTEXT_WINDOW = 1_000_000
 
 /** Output capability assumed for a model neither configuration nor the catalog sizes. */
-export const DEFAULT_MAX_TOKENS = 32_768
+export const DEFAULT_MAX_TOKENS = 128_000
 
 /**
  * Modalities assumed for a model neither configuration nor the catalog
@@ -93,6 +98,11 @@ export interface PiAiProviderProfile {
   apiKeyEnv?: string
   /** Name shown by configuration surfaces; defaults to the route key. */
   displayName?: string
+  /**
+   * Makes this route an additional account of the named installed catalog provider;
+   * its models and auth methods come from that provider.
+   */
+  base?: string
   /**
    * Wire protocol every model on this route speaks. Omission keeps each
    * installed catalog model's own protocol, which is why a catalog route needs
@@ -126,13 +136,13 @@ export interface PiAiProviderProfile {
   compat?: PiAiCompatProfile
   /**
    * Context capacity for a model this route lists that neither the entry nor
-   * the installed catalog sizes (default 262,144). A guess by construction, so
+   * the installed catalog sizes (default 1,000,000). A guess by construction, so
    * a deployment whose gateway serves smaller models corrects it here.
    */
   defaultContextWindow?: number
   /**
    * Output capability for a model this route lists that neither the entry nor
-   * the installed catalog sizes (default 32,768). This sizes the model; it
+   * the installed catalog sizes (default 128,000). This sizes the model; it
    * never becomes a per-request cap on its own.
    */
   defaultMaxTokens?: number
@@ -215,6 +225,8 @@ export interface ResolvedPiAiProviderProfile
    * own, so a catalog capability must not appear here.
    */
   configuredMaxTokens: ReadonlyMap<string, number>
+  /** Base model id and request tier for each selectable mode id. */
+  modeRequests: ReadonlyMap<string, PiAiModeRequest>
 }
 
 /** Plugin configuration: the provider routes this instance owns. */
@@ -224,8 +236,11 @@ export interface Config {
    * the dormant settings-driven posture: the adapter mounts with no routes
    * and registers them the moment a settings section supplies profiles.
    */
-  providers?: Record<string, PiAiProviderProfile>
+  providers: Volatile<Record<string, PiAiProviderProfile>>
 }
+
+/** Plain options accepted by the provider resolver. */
+export type Options = { [K in keyof Config]?: Config[K] extends Volatile<infer T> ? T : never }
 
 const thinkingBudgets = z.object({
   minimal: z.number(),
@@ -295,6 +310,11 @@ const reasoningEfforts = z.dict(
   z.union(THINKING_LEVELS),
 ) as unknown as z<PiAiReasoningEfforts>
 
+const modeProfile: z<PiAiModeProfile> = z.object({
+  name: z.string(),
+  serviceTier: z.string().required(),
+})
+
 /** The fields a `models` entry and a `modelOverrides` value share; only the id's home differs. */
 const modelFields = {
   name: z.string(),
@@ -309,6 +329,7 @@ const modelFields = {
   // installed catalog's capability", while `false` disables reasoning.
   reasoningEfforts: z.union([z.const(false), reasoningEfforts]),
   compat: compatProfile,
+  modes: z.dict(modeProfile),
 }
 
 const modelProfile: z<PiAiModelProfile> = z.object({
@@ -322,6 +343,7 @@ const modelOverride: z<PiAiModelOverride> = z.object(modelFields)
 const profile = z.object({
   apiKeyEnv: z.string().role('credential-ref'),
   displayName: z.string(),
+  base: z.string(),
   api: z.union(supportedProtocols()),
   baseURL: z.string(),
   models: z.array(modelProfile),
@@ -345,8 +367,8 @@ const profile = z.object({
 })
 
 /** Runtime schema for {@link Config}. */
-export const Config: z<Config> = z.object({
-  providers: z.dict(profile).default({}),
+export const Config = z.object({
+  providers: z.dict(profile).default({}).volatile(),
 })
 
 /**
@@ -357,7 +379,7 @@ export const Config: z<Config> = z.object({
  * @param previous - current resolved section; omission checks every provider.
  * @throws Error naming the route and configuration entry that cannot be served.
  */
-export function assertServiceable(config: Config, previous?: Config): void {
+export function assertServiceable(config: Options, previous?: Options): void {
   const changed = Object.fromEntries(Object.entries(config.providers ?? {}).filter(([provider, profile]) =>
     !deepEqualJson(profile, previous?.providers?.[provider])))
   resolveProfiles(changed)
@@ -421,6 +443,13 @@ export function resolveProfiles(
     if (source.displayName !== undefined && source.displayName.length === 0) {
       throw new Error(`llm-pi-ai: provider "${provider}" has an empty displayName`)
     }
+    const badBase = source.base !== undefined
+      && (source.base === provider || catalogProviderIds().includes(provider) || catalogProvider(source.base) === undefined)
+    if (badBase) {
+      throw new Error(
+        `llm-pi-ai: provider "${provider}" base "${source.base}" must name an installed catalog provider, and the route itself must not be an installed provider id`,
+      )
+    }
     assertValidHeaders(provider, source.headers)
     const streamIdleTimeoutMs = source.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS
     if (!Number.isFinite(streamIdleTimeoutMs)
@@ -461,6 +490,7 @@ export function resolveProfiles(
     try {
       catalog = resolveRouteModels({
         provider,
+        ...source.base === undefined ? {} : { base: source.base },
         ...source.api === undefined ? {} : { api: source.api },
         ...source.baseURL === undefined ? {} : { baseURL: source.baseURL },
         ...source.models === undefined ? {} : { models: source.models },
@@ -474,6 +504,7 @@ export function resolveProfiles(
       piProvider = buildProvider({
         provider,
         displayName,
+        ...source.base === undefined ? {} : { base: source.base },
         ...source.api === undefined ? {} : { api: source.api },
         ...source.baseURL === undefined ? {} : { baseURL: source.baseURL },
         models: catalog.models,
@@ -497,6 +528,7 @@ export function resolveProfiles(
       ...rest.headers === undefined ? {} : { headers: { ...rest.headers } },
       ...rest.thinkingBudgets === undefined ? {} : { thinkingBudgets: { ...rest.thinkingBudgets } },
       configuredMaxTokens: catalog?.configuredMaxTokens ?? new Map(),
+      modeRequests: catalog?.modeRequests ?? new Map(),
       modelErrors: catalog?.modelErrors ?? new Map(),
       ...piProvider === undefined ? {} : { piProvider },
       ...catalogError === undefined ? {} : { catalogError },

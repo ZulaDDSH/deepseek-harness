@@ -1,3 +1,4 @@
+import type { ExternalChatCatalog, ExternalChatImportValue, ExternalChatKey } from '../../types.ts'
 /**
  * The outward sessions-service face — what `ctx.sessions` exposes to feature
  * packages. Transport entry points and implementation internals stay on
@@ -6,7 +7,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { CliTerminalProfileId, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { AgentContext } from '../scope.ts'
@@ -47,6 +48,22 @@ export interface SessionRetainInfo {
 
 /** The sessions-service face injected as `ctx.sessions`. */
 export interface ISessions {
+  /**
+   * Resolve the dedicated ungrouped Master Control home.
+   * @returns the durable master session identity.
+   */
+  masterHome(): Promise<SessionId>
+  /**
+   * Discover supported external chats without importing or running them.
+   * @returns recent transcript previews and per-file errors.
+   */
+  externalChats(): Promise<ExternalChatCatalog>
+  /**
+   * Import discovered text histories and preserve existing imports.
+   * @param keys - identities returned by external chat discovery.
+   * @returns per-key outcomes after successful imports reach durable storage.
+   */
+  importChats(keys: readonly ExternalChatKey[]): Promise<ExternalChatImportValue>
   /** Host catalog and local reference-source counts; navigation belongs to view owners. */
   readonly list: ObservableSnapshot<SessionListState>
   /**
@@ -79,33 +96,32 @@ export interface ISessions {
    */
   readonly searchResultLimit: number
   /**
-   * Create or adopt a Session on the Host.
-   * @param opts - target workspace, directory, and optional preallocated identity.
-   * @returns the catalogued identity; retain it before borrowing its binding.
+   * Create a Session for a new conversation on the Host. The Host reuses the
+   * named blank Session while it is reusable and otherwise creates another; the
+   * Session runs the named preset, or the Host default when none is named.
+   * @param opts - target workspace or directory, an optional blank Session to reuse, and an optional Agent preset.
+   * @returns the catalogued identity the Host created or reused; retain it before borrowing its binding.
    */
   create(opts?: {
     workspaceId?: WorkspaceId
     cwd?: string
     sessionId?: SessionId
+    agentPreset?: string
+    cliProfile?: CliTerminalProfileId
   }): Promise<SessionId>
   /**
    * Resolve an already discovered direct-parent address without opening it.
    * @param id - possible addressed child id.
-   * @returns the retained address, when present.
+   * @returns a retained, catalog-derived, or unknown-mode listed address, without retaining a new selection or scope.
    */
   subagentAddress(id: SessionId): SubagentAddress | undefined
+
   /**
-   * Mark whether a catalog menu is consuming live membership updates.
-   * @param parentSessionId - catalog owner.
-   * @param open - current menu state.
-   */
-  setSubagentCatalogOpen(parentSessionId: SessionId, open: boolean): void
-  /**
-   * Refresh one direct-child catalog.
-   * @param parentSessionId - catalog owner.
+   * Read projections without starting migration; retry failed or migration-deferred reads.
+   * @param sessionId - Session to inspect without opening its conversation.
    * @returns completion of the current or newly started refresh.
    */
-  refreshSubagents(parentSessionId: SessionId): Promise<void>
+  refreshProjections(sessionId: SessionId): Promise<void>
 
   /**
    * Refresh the Host-authoritative Session list.
@@ -124,16 +140,24 @@ export interface ISessions {
     signal: AbortSignal,
   ): Promise<RemoteResult<{ items: SessionSearchResultItem[]; hasMore: boolean }>>
   /**
-   * Fork a session from a completed-turn prefix of the source; on resolution
-   * the child is in the catalog and may be explicitly retained.
-   * @param opts - source session id, the optional event seq anchoring the
-   *   cut (the boundary is the first turn/end at or after it; an in-log
-   *   anchor in an open turn is unavailable rather than clipped backward),
-   *   and whether to increment an inherited durable title before resolving.
+   * Fork a session from an exact inclusive prefix of the source; on
+   * resolution the child is catalogued and can be explicitly retained.
+   * @param opts - source session id, the optional exact inclusive boundary
+   *   seq (a real event seq the caller already knows; a cut inside an open
+   *   turn is balanced Host-side with synthetic closers, and omission selects
+   *   the latest completed-turn prefix), and whether to increment an
+   *   inherited durable title before resolving. `onCreated` observes the catalogued child before that optional rename.
    * @returns the child session id.
    * @throws when the fork fails, or when a requested child-title rename fails after creation.
    */
-  fork(opts: { sessionId: SessionId; atSeq?: number; increaseTitle?: boolean }): Promise<SessionId>
+  fork(opts: {
+    sessionId: SessionId
+    atSeq?: number
+    increaseTitle?: boolean
+    onCreated?: (childId: SessionId) => void
+    /** False refuses source migration; omission preserves the Host default. */
+    allowMigration?: boolean
+  }): Promise<SessionId>
   /**
    * Borrow an already-retained Agent-scoped Context without extending its lifetime.
    * @param id - session id.

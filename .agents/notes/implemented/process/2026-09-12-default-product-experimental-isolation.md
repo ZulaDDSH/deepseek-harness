@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-09-12-default-product-experimental-isolation.zh.md)
-
 ## Problem
 
 Public npm availability does not make an experimental package part of the default product. Direct manifest checks miss dependency aliases, transitive installation paths, runtime imports declared only for development, and plugins loaded by configuration. The release smoke installs every tarball together, so the presence of experimental packages in its consumer directory does not identify what the default product requires.
@@ -22,7 +20,7 @@ Build-time input checks cover both browser bundling stages. The [client preset](
 
 [`verify-packed-install`](../../../../scripts/release/verify-packed-install.ts) follows the installed dependency graph from `@deepseek-ai/dsh`, using resolved manifest names to detect aliases and external transitive dependencies. Development dependencies and unrelated tarballs installed beside the product are excluded. Missing required dependencies fail; omitted optional dependencies remain allowed unless they name an experimental package.
 
-This check enforces the existing [experimental dependency isolation rules](../architecture/2026-08-18-experimental-agent-teams-packages.md). The [publication policy](2026-09-12-experimental-publication-denylist.md) independently determines which experimental packages explicit consumers may install.
+This check enforces the existing [experimental dependency isolation rules](../../../../packages/experimental/AGENTS.md). The [publication policy](../../../../packages/experimental/README.md) independently determines which experimental packages explicit consumers may install.
 
 ## Alternatives considered
 

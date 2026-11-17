@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-07-28-portable-execution-world-consumers.zh.md)
-
 ## Problem
 
 The filesystem and subprocess seams made file and ordinary process access replaceable, but PTY and LSP still reached host Node APIs directly. A remote execution provider therefore appeared to need separate PTY and LSP packages even though their domain behavior did not change. Those packages would be shallow adapters: each would duplicate an existing consumer merely to replace its file and process operations.
@@ -20,7 +18,7 @@ Foreground Bash and PowerShell calls use one executor deadline for asynchronous 
 
 The filesystem interface owns the path facts that another capability needs without exposing its opaque target identity: a canonical process path, canonical `file:` URI, and containment. Existing whole and streaming text operations remain filesystem-owned; protocol consumers enforce their own retention limits while consuming the stream.
 
-The subprocess interface owns executable lookup and process primitives: ordinary raw or collected process spawning and `spawnTerminal()`. An ordinary handle keeps target identity private: `.done` reports the direct target, while `terminate()` and `waitForExit()` control and observe the same provider-managed range. The [native-containment decision](2026-08-28-subprocess-native-containment.md) owns local Linux scopes, Windows Jobs, and their disclosed fallbacks. The terminal operation is one deep primitive whose handle owns text I/O, foreground groups, signalling, and one awaited TERM-to-KILL operation that settles in-flight handle calls and reaches quiescence for every member of its provider-owned range; an observational fallback limits that range to identities it can still observe. Its signal cancels allocation only; the published handle owns its lifetime. Prompt detection, idle inference, scrollback, sandbox policy, and owner lifecycle remain in the PTY consumer.
+The subprocess interface owns executable lookup and process primitives: ordinary raw or collected process spawning and `spawnTerminal()`. An ordinary handle keeps target identity private: `.done` reports the direct target, while `terminate()` and `waitForExit()` control and observe the same provider-managed range. The [native-containment reference](../../../../packages/subprocess/subprocess-local/README.md) owns local Linux scopes, Windows Jobs, and their disclosed fallbacks. The terminal operation is one deep primitive whose handle owns text I/O, foreground groups, signalling, and one awaited TERM-to-KILL operation that settles in-flight handle calls and reaches quiescence for every member of its provider-owned range; an observational fallback limits that range to identities it can still observe. Its signal cancels allocation only; the published handle owns its lifetime. Prompt detection, idle inference, scrollback, sandbox policy, and owner lifecycle remain in the PTY consumer.
 
 Generic consumers use that execution world:
 

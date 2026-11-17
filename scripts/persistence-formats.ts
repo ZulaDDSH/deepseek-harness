@@ -7,7 +7,7 @@ import { JSON_SCHEMA, load } from 'js-yaml'
 import { readCurrentSessionFormatVersion } from './gen-session-format-catalog.ts'
 import { parseHistoricalPersistenceSnapshot, parsePersistenceSnapshot } from './persistence-changes.ts'
 import { persistenceFormatFactArtifacts } from './persistence-format-facts.ts'
-import { canonicalizeSchema, schemaDigest } from './persistence-schema-model.ts'
+import { canonicalizeSchema, encodePersistenceSnapshot, schemaDigest } from './persistence-schema-model.ts'
 import type { PersistenceSchemaInventory } from './persistence-schema-model.ts'
 import { withoutPersistenceSourceLines } from './persistence-source-metadata.ts'
 
@@ -129,7 +129,7 @@ function validateDocument(
 }
 
 /**
- * Read every required format pair and complete inventory without Git or historical source extraction.
+ * Read every required format reference and complete inventory without Git or historical source extraction.
  * @param root - checkout root containing the writer declaration and format references.
  * @returns ordered historical references followed by the current generated catalog.
  */
@@ -139,12 +139,11 @@ export function loadPersistenceFormats(root: string): PersistenceFormats {
   const files = new Set(existsSync(directory) ? readdirSync(directory) : [])
   const expected = new Set<string>()
   for (let version = 0; version < currentVersion; version += 1) {
-    for (const suffix of ['.md', '.zh.md', '.schema.json']) {
+    for (const suffix of ['.md', '.schema.json']) {
       const name = `v${version}${suffix}`
       expected.add(name)
       if (!files.has(name)) throw new Error(`v${version}: missing persistence format artifact ${name}`)
     }
-    expected.add(`v${version}.i18n.yaml`)
   }
   for (const file of files) {
     if (file.startsWith('v') && !expected.has(file)) throw new Error(`unexpected persistence format artifact ${file}`)
@@ -159,14 +158,11 @@ export function loadPersistenceFormats(root: string): PersistenceFormats {
     const document = current ? CURRENT_DOCUMENT : `${DIRECTORY}/v${version}.md`
     const schemaPath = current ? CURRENT_SCHEMA : `${DIRECTORY}/v${version}.schema.json`
     const english = read(document)
-    const chinese = read(document.replace(/\.md$/u, '.zh.md'))
     let record: PersistenceFormatRecord | undefined
     if (!current) {
-      const block = machineBlock(english, document)
-      if (block !== machineBlock(chinese, document.replace(/\.md$/u, '.zh.md'))) throw new Error(`v${version}: bilingual machine records differ`)
-      record = parseRecord(block, version)
+      record = parseRecord(machineBlock(english, document), version)
     }
-    const inventory = (current ? parsePersistenceSnapshot : parseHistoricalPersistenceSnapshot)(JSON.parse(read(schemaPath)))
+    const inventory = (current ? parsePersistenceSnapshot : parseHistoricalPersistenceSnapshot)(read(schemaPath))
     validateInventory(inventory, version, current)
     const recordedRoots = record?.roots
     if (recordedRoots !== undefined && (recordedRoots.size !== inventory.roots.length
@@ -175,7 +171,6 @@ export function loadPersistenceFormats(root: string): PersistenceFormats {
     }
     const schemaName = current ? 'persistence-schema.json' : `v${version}.schema.json`
     validateDocument(english, schemaName, inventory, document, current)
-    validateDocument(chinese, schemaName, inventory, document.replace(/\.md$/u, '.zh.md'), current)
     entries.push({ version, document, schemaPath, inventory, ...(record === undefined ? {} : { source: record.source }) })
   }
   return { currentVersion, entries }
@@ -190,11 +185,11 @@ function archiveCurrentInventory(root: string, requestedVersion: string): string
   if (version !== currentVersion) throw new Error(`Cannot archive v${version}: current writer is v${currentVersion}`)
   const path = `${DIRECTORY}/v${version}.schema.json`
   if (existsSync(join(root, path))) throw new Error(`Cannot archive v${version}: ${path} already exists`)
-  const inventory = parsePersistenceSnapshot(JSON.parse(readFileSync(join(root, CURRENT_SCHEMA), 'utf8')))
+  const inventory = parsePersistenceSnapshot(readFileSync(join(root, CURRENT_SCHEMA), 'utf8'))
   const reachable = validateInventory(inventory, version, true)
   const archive = withoutPersistenceSourceLines({ ...inventory, types: inventory.types.filter(type => reachable.has(type.digest)) })
   mkdirSync(join(root, DIRECTORY), { recursive: true })
-  writeFileSync(join(root, path), JSON.stringify(archive, null, 2) + '\n', { flag: 'wx' })
+  writeFileSync(join(root, path), encodePersistenceSnapshot(archive), { flag: 'wx' })
   return `Archived Session format v${version} to ${path}.`
 }
 

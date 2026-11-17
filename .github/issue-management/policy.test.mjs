@@ -96,12 +96,7 @@ const projectGraphqlData = ({
 
 const mockGraphql = (t, resolve) => {
   const requests = []
-  const previousToken = process.env.GH_TOKEN
-  process.env.GH_TOKEN = 'test-token'
-  t.after(() => {
-    if (previousToken === undefined) delete process.env.GH_TOKEN
-    else process.env.GH_TOKEN = previousToken
-  })
+  useGhToken(t, 'test-token')
   t.mock.method(globalThis, 'fetch', async (url, options) => {
     assert.equal(url, 'https://api.github.com/graphql')
     assert.equal(options.headers.Authorization, 'Bearer test-token')
@@ -206,15 +201,16 @@ test('keeps Task Issues limited to summary and deliverables', () => {
   )
 })
 
-test('structures the pull request template around motivation, changes, and testing', () => {
+test('keeps the pull request template aligned with the dsh-pr-description skill', () => {
   const source = readFileSync(new URL('../pull_request_template.md', import.meta.url), 'utf8')
-  for (const heading of ['## Motivation', '## Changes', '## Testing']) {
-    assert.match(source, new RegExp(`^${heading.replaceAll('#', '\\#')}$`, 'm'))
-  }
+  const skillPath = '.agents/skills/dsh-pr-description/SKILL.md'
+  assert.ok(source.startsWith(`<!-- Fill in this PR description following ${skillPath}. -->\n`), 'the template points to the skill')
+  assert.deepEqual(source.match(/^## .+$/gm), ['## Motivation', '## Changes', '## Testing'])
   assert.doesNotMatch(source, /^### /m)
+  assert.match(source, /^## Motivation\n\n<!-- [^\n]*Fixes #N[^\n]* -->$/m, 'the template prompts for an Issue reference')
   assert.match(
     source,
-    /<!-- 高层次说明命令[^\n]+ -->\n<!-- 高层次说明用户[^\n]+ -->/,
+    /<!-- Describe at a high level any change to commands[^\n]+ -->\n<!-- Describe at a high level any change to behavior[^\n]+ -->/,
   )
   assert.match(source, /- <!-- [^\n]+ -->\n\n  <details>\n  <summary>Proof<\/summary>/)
   assert.equal(source.match(/<details>/g)?.length, 1)
@@ -256,13 +252,17 @@ test('reserves PR kind and legacy labels for pull requests', () => {
   assert.deepEqual(validateIssue({ ...legalIssue, labels: ['area/web', 'source/member'] }), [])
 })
 
-test('removes reserved labels from Issues before validation', async (t) => {
-  const previousToken = process.env.GH_TOKEN
-  process.env.GH_TOKEN = 'test-token'
+const useGhToken = (t, token) => {
+  const previous = process.env.GH_TOKEN
+  process.env.GH_TOKEN = token
   t.after(() => {
-    if (previousToken === undefined) delete process.env.GH_TOKEN
-    else process.env.GH_TOKEN = previousToken
+    if (previous === undefined) delete process.env.GH_TOKEN
+    else process.env.GH_TOKEN = previous
   })
+}
+
+test('removes reserved labels from Issues before validation', async (t) => {
+  useGhToken(t, 'test-token')
   const requests = []
   t.mock.method(globalThis, 'fetch', async (url, options) => {
     requests.push({ url, method: options.method })
@@ -296,12 +296,7 @@ test('removes reserved labels from Issues before validation', async (t) => {
 })
 
 test('deletes a stale audit comment after repairing its only violation', async (t) => {
-  const previousToken = process.env.GH_TOKEN
-  process.env.GH_TOKEN = 'test-token'
-  t.after(() => {
-    if (previousToken === undefined) delete process.env.GH_TOKEN
-    else process.env.GH_TOKEN = previousToken
-  })
+  useGhToken(t, 'test-token')
   const requests = []
   t.mock.method(globalThis, 'fetch', async (url, options) => {
     requests.push({ url, method: options.method ?? 'GET' })
@@ -889,125 +884,6 @@ test('performs no lifecycle requests for removed signals or title-only edits', a
     await runLifecycle('pull_request_review', { action: 'submitted', review: { state }, pull_request: { number: 10 } })
   }
   assert.deepEqual(fixture.requests, [])
-})
-
-test('keeps trusted preflight before token minting and required policy unconditional', () => {
-  const source = readFileSync(new URL('../workflows/issue-policy.yml', import.meta.url), 'utf8')
-  const job = source.slice(source.indexOf('  policy:'))
-  assert.ok(job.includes('    name: Issue policy'))
-  assert.ok(!job.slice(0, job.indexOf('    steps:')).includes('    if:'))
-  assert.ok(source.includes('types: [opened, edited, synchronize, reopened, labeled, unlabeled, ready_for_review, review_requested]'))
-  const steps = job.split('      - name: ').slice(1)
-  assert.equal(steps.length, 4)
-  assert.ok(steps[0].includes('ref: ${{ github.event.repository.default_branch }}'))
-  assert.ok(steps[0].includes('persist-credentials: false'))
-  assert.doesNotMatch(source, /pull_request\.head|pull_request_target/)
-  assert.ok(steps[1].includes('id: preflight'))
-  assert.ok(steps[1].includes('GITHUB_TOKEN: ${{ github.token }}'))
-  assert.ok(steps[1].includes('REPOSITORY_IS_FORK: ${{ github.event.repository.fork }}'))
-  assert.ok(steps[1].includes('node .github/issue-management/policy.mjs pr-preflight'))
-  assert.ok(steps[1].includes('if [ -f .github/issue-management/selective-preflight.json ]; then'))
-  assert.doesNotMatch(steps[1], /secrets\.|PROJECT_TOKEN|if:/)
-  assert.ok(steps[2].includes("if: ${{ steps.preflight.outputs.needs-project == 'true' }}"))
-  assert.ok(steps[2].includes('permission-organization-projects: read'))
-  assert.ok(steps[3].includes('PROJECT_TOKEN: ${{ steps.app-token.outputs.token }}'))
-  assert.ok(steps[3].includes('run: node .github/issue-management/policy.mjs pr'))
-  assert.ok(steps[3].includes("if: ${{ steps.preflight.outputs.legacy-automated != 'true' }}"))
-})
-
-test('runs trusted rollout selection with absent and present capability markers', { skip: process.platform === 'win32' ? 'The policy workflow executes under hosted Ubuntu bash' : false }, (t) => {
-  const directory = mkdtempSync(join(tmpdir(), 'dsh-policy-rollout-'))
-  t.after(() => rmSync(directory, { recursive: true, force: true }))
-  const source = readFileSync(new URL('../workflows/issue-policy.yml', import.meta.url), 'utf8')
-  const script = source.split('        run: |\n')[1].split('      - name: Create Project read token')[0]
-    .split('\n').map((line) => line.slice(10)).join('\n')
-  assert.deepEqual(JSON.parse(readFileSync(new URL('./selective-preflight.json', import.meta.url), 'utf8')), { version: 1 })
-  const cases = [
-    { name: 'fork repository', type: 'User', draft: false, marker: true, fork: true, expected: 'eligible=false\nexempt=true\nneeds-project=false\nlegacy-automated=true\n' },
-    { name: 'legacy human draft', type: 'User', draft: true, marker: false, expected: 'legacy-automated=false\nneeds-project=true\n' },
-    { name: 'legacy human ready', type: 'User', draft: false, marker: false, expected: 'legacy-automated=false\nneeds-project=true\n' },
-    { name: 'legacy bot', type: 'Bot', marker: false, expected: 'legacy-automated=true\nneeds-project=false\n' },
-    { name: 'legacy app', type: 'App', marker: false, expected: 'legacy-automated=true\nneeds-project=false\n' },
-    { name: 'modern exempt', type: 'Bot', marker: true, expected: 'exempt=true\nneeds-project=false\n' },
-    { name: 'modern failure', type: 'User', marker: true, failure: true, expected: '' },
-  ]
-  for (const [index, fixture] of cases.entries()) {
-    const cwd = join(directory, String(index))
-    const policyDirectory = join(cwd, '.github', 'issue-management')
-    mkdirSync(policyDirectory, { recursive: true })
-    const eventPath = join(cwd, 'event.json')
-    const outputPath = join(cwd, 'output')
-    writeFileSync(eventPath, JSON.stringify({ pull_request: { user: { type: fixture.type }, draft: fixture.draft } }))
-    writeFileSync(outputPath, '')
-    if (fixture.marker) writeFileSync(join(policyDirectory, 'selective-preflight.json'), '{"version":1}\n')
-    writeFileSync(join(policyDirectory, 'policy.mjs'), fixture.marker && !fixture.failure
-      ? "import fs from 'node:fs'; if (process.argv[2] !== 'pr-preflight') throw Error('wrong command'); fs.appendFileSync(process.env.GITHUB_OUTPUT, 'exempt=true\\nneeds-project=false\\n')\n"
-      : "throw new Error('preflight unavailable or failed')\n")
-    const result = spawnSync('bash', ['--noprofile', '--norc', '-eo', 'pipefail', '-c', script], {
-      cwd,
-      env: {
-        PATH: process.env.PATH,
-        GITHUB_EVENT_PATH: eventPath,
-        GITHUB_OUTPUT: outputPath,
-        REPOSITORY_IS_FORK: fixture.fork ? 'true' : 'false',
-      },
-      encoding: 'utf8',
-      timeout: 30_000,
-    })
-    assert.equal(result.error, undefined, fixture.name)
-    assert.equal(result.signal, null, fixture.name)
-    assert.equal(result.status, fixture.failure ? 1 : 0, fixture.name + ': ' + result.stderr)
-    assert.equal(readFileSync(outputPath, 'utf8'), fixture.expected, fixture.name)
-    if (fixture.fork) assert.match(result.stdout, /fork repositories do not share upstream Project governance/)
-    else if (fixture.marker) assert.doesNotMatch(result.stdout, /preserving legacy/)
-    else assert.match(result.stdout, /preserving legacy policy enforcement/)
-  }
-})
-
-test('fork workflow preflight exits before trusted policy lookup', { skip: process.platform === 'win32' ? 'The policy workflow executes under hosted Ubuntu bash' : false }, (t) => {
-  const directory = mkdtempSync(join(tmpdir(), 'dsh-policy-fork-'))
-  t.after(() => rmSync(directory, { recursive: true, force: true }))
-  const source = readFileSync(new URL('../workflows/issue-policy.yml', import.meta.url), 'utf8')
-  const script = source.split('        run: |\n')[1].split('      - name: Create Project read token')[0]
-    .split('\n').map((line) => line.slice(10)).join('\n')
-  const policyDirectory = join(directory, '.github', 'issue-management')
-  mkdirSync(policyDirectory, { recursive: true })
-  const eventPath = join(directory, 'event.json')
-  const outputPath = join(directory, 'output')
-  writeFileSync(eventPath, JSON.stringify({ pull_request: { user: { type: 'User' } } }))
-  writeFileSync(outputPath, '')
-  writeFileSync(join(policyDirectory, 'selective-preflight.json'), '{"version":1}\n')
-  writeFileSync(join(policyDirectory, 'policy.mjs'), "throw new Error('fork must not run upstream policy')\n")
-  const result = spawnSync('bash', ['--noprofile', '--norc', '-eo', 'pipefail', '-c', script], {
-    cwd: directory,
-    env: {
-      PATH: process.env.PATH,
-      GITHUB_EVENT_PATH: eventPath,
-      GITHUB_OUTPUT: outputPath,
-      GITHUB_REPOSITORY: 'ZulaDDSH/deepseek-harness',
-    },
-    encoding: 'utf8',
-    timeout: 30_000,
-  })
-  assert.equal(result.status, 0, result.stderr)
-  assert.equal(readFileSync(outputPath, 'utf8'), 'legacy-automated=true\nneeds-project=false\n')
-  assert.match(result.stdout, /fork PR is exempt/)
-})
-
-test('allocates lifecycle runners only for relevant reviews and PR body edits', () => {
-  const source = readFileSync(new URL('../workflows/issue-lifecycle.yml', import.meta.url), 'utf8')
-  const issues = source.split('  issues:')[1].split('  pull_request:')[0]
-  const pulls = source.split('  pull_request:')[1].split('  pull_request_review:')[0]
-  const actions = (block) => [...block.matchAll(/^      - (\w+)$/gm)].map((match) => match[1])
-  assert.deepEqual(actions(issues), ['opened', 'edited', 'labeled', 'unlabeled', 'closed', 'reopened', 'typed', 'untyped', 'field_added', 'field_removed'])
-  assert.deepEqual(actions(pulls), ['opened', 'edited', 'reopened', 'review_requested'])
-  const job = source.slice(source.indexOf('  lifecycle:'))
-  const beforeSteps = job.slice(0, job.indexOf('    steps:'))
-  assert.ok(beforeSteps.includes('    if: >-'))
-  assert.ok(beforeSteps.includes("(github.event_name != 'pull_request_review' || github.event.review.state == 'changes_requested') &&"))
-  assert.ok(beforeSteps.includes("(github.event_name != 'pull_request' || github.event.action != 'edited' || github.event.changes.body != null)"))
-  assert.ok(source.includes('ref: ${{ github.event.repository.default_branch }}'))
-  assert.ok(source.includes('persist-credentials: false'))
 })
 
 test('keeps REST headers, null responses, and transport errors unchanged', async (t) => {

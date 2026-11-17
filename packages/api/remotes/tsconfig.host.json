@@ -36,7 +36,10 @@
       "path": "../../goal/goal"
     },
     {
-      "path": "../../preset/agent-presets"
+      "path": "../../schedule/schedule"
+    },
+    {
+      "path": "../../preset/agent-preset-registry"
     },
     {
       "path": "../../extensions/cordis-host-runner"
@@ -66,6 +69,9 @@
       "path": "../workspace-files/tsconfig.host.json"
     },
     {
+      "path": "../quota-controller/tsconfig.host.json"
+    },
+    {
       "path": "../workspace-controller/tsconfig.host.json"
     },
     {
@@ -78,7 +84,16 @@
       "path": "../../boot/plugin-manager"
     },
     {
+      "path": "../../boot/plugin-market"
+    },
+    {
       "path": "../../host/plugin-inventory"
+    },
+    {
+      "path": "../account-controller"
+    },
+    {
+      "path": "../../credentials/deepseek-account"
     }
   ]
 }

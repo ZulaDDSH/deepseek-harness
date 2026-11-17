@@ -1,0 +1,43 @@
+.field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px 0;
+}
+
+.toggleRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-primary);
+}
+
+.toggleLabel {
+  flex: 1;
+  min-width: 0;
+}
+
+.hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.reset {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  color: var(--dsw-alias-brand-primary);
+  cursor: pointer;
+}
+
+.reset:disabled {
+  cursor: default;
+  opacity: 0.5;
+}

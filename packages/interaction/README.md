@@ -5,8 +5,6 @@ kind: "package-group"
 
 # interaction/ — the human-collaboration plane
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 The `interaction/` group covers the ways a person can guide a running agent. Use slash commands for immediate actions that do not require a model round trip, one-shot approvals for sensitive operations, permission presets to choose sandbox and approval behavior together, and questions when the agent needs information or a decision. Interactive applications expose these capabilities to people; automation handles its own approvals through ACP. The package map below distinguishes each capability and links to its full behavior and configuration.
@@ -42,7 +40,7 @@ Start with the subsystem references for the shared vocabularies, then the neighb
 - [Commands subsystem](../../docs/subsystems/commands.md) — command registry semantics and the `ctx.commands` Cordis surface.
 - [Approval subsystem](../../docs/subsystems/approval.md) — request/outcome vocabulary, the answerer waterfall, and per-session policy.
 - [Permission presets subsystem](../../docs/subsystems/permission-presets.md) — the preset table and the knob write-through.
-- [User interaction subsystem](../../docs/subsystems/user-questions.md) — question vocabulary, answerer waterfall, and presentation intent.
+- [User interaction subsystem](../../docs/subsystems/user-questions.md) — question vocabulary, answerer waterfall, and pending-question lifecycle.
 - [ACP group](../acp/README.md) — the automation-only transport that answers approval requests for its own agents.
 
 <a id="dev-note"></a>

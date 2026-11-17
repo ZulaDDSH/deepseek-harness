@@ -17,6 +17,7 @@
 export {
   clearedProxyEnv,
   installProxyFromEnvironment,
+  inheritedProxyEnvironment,
   proxyEnvironmentForChild,
   proxyRouteFor,
   type ProxyRoute,

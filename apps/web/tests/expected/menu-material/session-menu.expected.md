@@ -1,0 +1,11 @@
+- menu:
+  - menuitem "Color"
+  - menuitem "Icon"
+  - separator
+  - menuitem "Pin session"
+  - menuitem "Rename"
+  - menuitem "Fork session"
+  - separator
+  - menuitem "Copy Session ID"
+  - separator
+  - menuitem "Archive session"

@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-web-search-perplexity
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 With `dsh-web-search-perplexity`, the harness searches the web through Perplexity and gets a model-generated answer plus citeable sources in one call. Choose it when a deployment has a Perplexity API key and wants a generated answer. Perplexity has no result-count control, so the returned sources are truncated to the requested bound after the fact. When Perplexity omits structured result metadata, sources fall back to URL-only citations. The model-facing `web_search` tool lives in `dsh-tool-web`.
@@ -84,7 +82,6 @@ The provider is a thin adapter over Perplexity's chat-completions endpoint with 
 | [`src/index.ts`](src/index.ts) | Plugin entry: config schema, environment fallback, provider registration |
 | [`src/provider.ts`](src/provider.ts) | The `PerplexitySearchProvider`: request dispatch, abort classification, answer and source mapping |
 | [`src/types.ts`](src/types.ts) | Perplexity wire types for the chat-completions response |
-| — | No runtime invariant companion is published; this package exposes no independent event sequence or mutable data relation beyond contracts enforced at its owning seam. |
 
 ### Request and mapping flow
 

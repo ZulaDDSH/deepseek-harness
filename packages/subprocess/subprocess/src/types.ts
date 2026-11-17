@@ -218,6 +218,8 @@ export interface SubprocessTerminalSpawnSpec {
   cwd: string
   /** Explicit environment layered after the provider's ambient scrub. */
   env?: Record<string, string> | undefined
+  /** Host environment without the credential scrub or DSH overlays; a provider that cannot honor it rejects the spawn. */
+  inheritEnvironment?: boolean | undefined
   /** Initial terminal row count. */
   rows: number
   /** Initial terminal column count. */

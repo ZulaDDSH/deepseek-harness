@@ -7,9 +7,10 @@
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {
-  CredentialInfo, LlmDiscoveredModel, LlmModelDiscoveryRequest,
+  LlmDiscoveredModel, LlmModelDiscoveryRequest,
   SettingsNamespaceView, SettingsPathOpView,
 } from '@deepseek-ai/dsh-api-remotes/client'
+import type { SettingsDescribeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 
 /** What one namespace write answered. */
 export type SettingsWriteOutcome =
@@ -32,12 +33,6 @@ export type ModelDiscoveryOutcome =
 
 /** The Host operations the Models page and its cards invoke. */
 export interface ModelsOperations {
-  /**
-   * Read one credential reference's state.
-   * @param ref - credential reference name.
-   * @returns the state, or undefined when the reference is unknown or the read was refused.
-   */
-  describeCredential(ref: string): Promise<CredentialInfo | undefined>
   /**
    * Store one credential literal under its reference.
    * @param ref - credential reference name.
@@ -77,14 +72,11 @@ export interface ModelsOperations {
  * Bind the page's Host operations to the plugin's own Remote namespaces.
  * @param ctx - the page plugin's context, which declares `remote.credentials`,
  * `remote.llm`, and `remote.settings` in its own `inject`.
+ * @param describeFace - the shared settings mirror used by the page store.
  * @returns the callbacks the section and its cards are injected with.
  */
-export function createModelsOperations(ctx: ClientContext): ModelsOperations {
+export function createModelsOperations(ctx: ClientContext, describeFace: SettingsDescribeFace): ModelsOperations {
   return {
-    describeCredential: async (ref) => {
-      const response = await ctx.remote.credentials.describe([ref])
-      return response.ok ? response.value[ref] : undefined
-    },
     storeCredential: async (ref, value) => {
       const response = await ctx.remote.credentials.set(ref, value)
       return response.ok ? undefined : response.error.message
@@ -95,7 +87,10 @@ export function createModelsOperations(ctx: ClientContext): ModelsOperations {
     },
     writeSettings: async (ns, ops, expectedRevision) => {
       const response = await ctx.remote.settings.mutate(ns, ops, expectedRevision)
-      if (response.ok) return { kind: 'written', view: response.value }
+      if (response.ok) {
+        describeFace.acceptView(response.value)
+        return { kind: 'written', view: response.value }
+      }
       const { code, message } = response.error
       return code === 'settings/conflict' ? { kind: 'conflict', message } : { kind: 'refused', message }
     },

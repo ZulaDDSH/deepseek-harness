@@ -5,11 +5,9 @@ kind: "package-library"
 
 # @deepseek-ai/dsh-util-values
 
-English | [中文](README.zh.md)
-
 ## Summary
 
-`dsh-util-values` gives runtime packages one implementation for lossless JSON values, immutable object graphs, structural JSON equality, and exhaustive closed-union failures. Callers can validate untrusted values, detach a JSON snapshot, freeze a published value, compare JSON-compatible data, or terminate an unreachable branch without importing a capability package. The helpers hold no shared registry, constructor identity, or mutable module state.
+Callers can validate lossless JSON, read streamed arguments, detach a JSON snapshot, freeze a published value, compare JSON-compatible data, or terminate an unreachable branch without importing a capability package. Each streamed call uses its own `PartialArguments` reader; `PartialArguments.EMPTY` is a shared sealed view with no fields. The helpers hold no shared registry, constructor identity, or mutable module state.
 
 ## Table of Contents
 
@@ -37,6 +35,12 @@ if (!isJsonValue(input)) throw new TypeError('expected lossless JSON')
 const snapshot = snapshotJsonValue(input) as JsonValue
 ```
 
+### Read streamed arguments
+
+`PartialArguments` reads a JSON object's top-level fields lazily. `append()` retains separate fragments without scanning or concatenating them. Readers index new key/value ranges, skipping unrequested contents; only requested strings are decoded or counted, and only requested complete non-string values are parsed. `complete()` reports a closing delimiter, not validated contents; `invalid` reports errors already discovered by indexing or content reads. It is not a substitute for tool-input validation.
+
+`refresh()` reports changes to previously observed answers at publication time; intervening reads do not acknowledge pending changes. It evaluates content before comparing completion, so decoding errors cannot suppress a completion update. String readers provide decoded text, bounded prefixes, and exact UTF-16 length, with optional step and offset for change detection. `settle(finalText)` compares fragments directly against the complete text: equal input seals the same view and retains its caches; missing or conflicting deltas produce a new sealed view. `fromText()` and `fromObject()` also create sealed views that reject appends. `isSealed` reads that append restriction without scanning or observing content; `closed()` also covers a closed outer object or failed indexing. See [the readers](src/partial-json.ts) for return distinctions.
+
 ### Publish, compare, or retain keyed values
 
 `deepFreeze(value)` freezes an object graph in place and returns the same value. It walks enumerable string-keyed children and deliberately leaves live `AbortSignal` objects mutable. `deepEqualJson(a, b)` compares JSON-compatible arrays and records structurally; callers must validate hostile or unconstrained values before comparison.
@@ -47,6 +51,10 @@ const snapshot = snapshotJsonValue(input) as JsonValue
 
 Use `assertNever(value, context?)` in the default branch of a closed discriminated union. A newly added variant then fails TypeScript compilation at every exhaustive switch, while a runtime value that escaped its declared type throws with the optional context label.
 
+### Describe a streamed tool call
+
+`liveToolDetail(name, argsRaw)` parses streamed JSON tool arguments and returns the first task-describing value (title, description, command, path, query, and similar keys) as one line of at most 160 graphemes, ending in an ellipsis when cut. It falls back to the tool name when the arguments do not parse or name nothing usable. `normalizeLiveToolDetail(value)` applies the same flattening to one text value.
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -55,14 +63,14 @@ Use `assertNever(value, context?)` in the default branch of a closed discriminat
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The JSON validator uses an explicit work stack and tracks only the active ancestor chain, so deeply nested values do not consume the JavaScript call stack and repeated non-cyclic references remain valid. Snapshot writes use own data properties, including for names such as `__proto__`. Value operations derive their result only from their arguments; `WeakMapWithValues` stores only instance-owned associations.
+The JSON validator keeps one cursor per active container, reads one child at a time, and tracks only the active ancestor chain, so deeply nested values do not consume the JavaScript call stack and repeated non-cyclic references remain valid. Intrinsic arrays and plain objects are recognized across JavaScript realms using native constructor representations from the running engine. Snapshot writes use own data properties, including for names such as `__proto__`. Value operations derive their result only from their arguments; `WeakMapWithValues` stores only instance-owned associations.
 
 ### Source map
 
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | JSON value type, validation and snapshot traversal, structural equality, deep freezing, weak-key/strong-value associations, and exhaustive-union failure |
-| — | No runtime invariant companion is published because these value operations have no shared runtime state; unit tests cover their algebra. |
+| [`src/partial-json.ts`](src/partial-json.ts) | Lazy top-level argument scanning and observed-answer change detection |
 
 </details>
 

@@ -22,17 +22,16 @@ import {
 import type { DesktopPaths } from './paths.ts'
 import type { DesktopRelease } from './release.ts'
 import { readDesktopRuntime } from './runtime-tree.ts'
-import {
-  initProfile, PROFILE_TEMPLATES, sanitizeProfile, type ProfileTemplate,
-} from '@deepseek-ai/dsh-app-boot'
-import { migrateDesktopProfileLinks } from './profile-packages.ts'
-import { cleanProfileCorePackages } from './profile-core-cleanup.ts'
+import { initProfile, removeLinkProjections, sanitizeProfile } from '@deepseek-ai/dsh-app-boot'
+import { PROFILE_TEMPLATES, type ProfileTemplate } from '@deepseek-ai/dsh-official-bundles'
 
 const PROJECT_NAME = '@deepseek-ai/dsh-desktop-runtime'
 const DSH_PACKAGE = '@deepseek-ai/dsh'
 const CORE_BUILD_PACKAGE = '@deepseek-ai/dsh-subprocess-local'
 const WEB_PROFILE = PROFILE_TEMPLATES.web as ProfileTemplate
 const WORKSPACE_SETTINGS = 'nodeLinker: hoisted\nautoInstallPeers: false\n'
+const OPTIONAL_EXCLUSIONS = "ignoredOptionalDependencies:\n  - '@lancedb/lancedb'\n  - better-sqlite3\n"
+const RUNTIME_SECURITY_OVERRIDES: Readonly<Record<string, string>> = { '@deepseek-ai/libreoffice-kit>fflate': '0.8.3' }
 function writeJson(path: string, value: unknown): void {
   writeFileSync(path, `${JSON.stringify(value, undefined, 2)}\n`, { mode: 0o600 })
 }
@@ -47,7 +46,7 @@ function workspaceFile(overrides: Readonly<Record<string, string>> = {}): string
   const coreBuildKey = coreBuildSpec === undefined
     ? CORE_BUILD_PACKAGE
     : `${CORE_BUILD_PACKAGE}@${coreBuildSpec.replace('file:./', 'file:')}`
-  return `packages:\n  - .\n\n${overrideSection}${WORKSPACE_SETTINGS}allowBuilds:\n  node-pty: true\n  koffi: true\n  fs-ext: true\n  ${JSON.stringify(coreBuildKey)}: true\n  '@google/genai': false\n  protobufjs: false\n  node-addon-require-builtin: false\n`
+  return `packages:\n  - .\n\n${overrideSection}${WORKSPACE_SETTINGS}${OPTIONAL_EXCLUSIONS}allowBuilds:\n  node-pty: true\n  koffi: true\n  fs-ext: true\n  ${JSON.stringify(coreBuildKey)}: true\n  '@google/genai': false\n  protobufjs: false\n  node-addon-require-builtin: false\n`
 }
 
 function migrateProfileSettings(projectDir: string): void {
@@ -81,15 +80,14 @@ export class DesktopProjectManager {
 
   /**
    * Load application metadata and prepare the external plugin profile without installing packages.
-   * @param production - Remove application-owned profile packages before packaged Host startup.
    */
-  async applyRelease(production = false): Promise<void> {
+  async applyRelease(): Promise<void> {
     await this.withLock(() => {
-      const descriptor = readDesktopRuntime(this.runtime.dsh)
-      cleanProfileCorePackages(this.paths.profile, descriptor.sharedPackages.map(entry => entry.name), production)
+      // Validation only: an unreadable or mismatched runtime descriptor stops preparation before the Host starts.
+      readDesktopRuntime(this.runtime.dsh)
       migrateProfileSettings(this.paths.profile)
-      migrateDesktopProfileLinks(this.paths.profile)
       createPluginProfile(this.paths.profile)
+      removeLinkProjections(this.paths.profile)
     })
   }
 
@@ -147,7 +145,7 @@ export function createRuntimeProjectMetadata(projectDir: string, release: Deskto
   writeJson(join(projectDir, 'package.json'), manifest)
   writeFileSync(
     join(projectDir, 'pnpm-workspace.yaml'),
-    workspaceFile(desktopCorePackageOverrides(packageSet)),
+    workspaceFile({ ...desktopCorePackageOverrides(packageSet), ...RUNTIME_SECURITY_OVERRIDES }),
     { mode: 0o600 },
   )
 }

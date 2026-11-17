@@ -5,8 +5,6 @@ kind: persistence-release
 
 # Persistence release: dsh-v0.1.1-rc.2
 
-English | [中文](dsh-v0.1.1-rc.2.zh.md)
-
 ## Summary
 
 permission/preset removes origin, while attachment records gain optional originalDimensions across the message and tool payloads that reference them. The writer format remains 0.
@@ -86,28 +84,28 @@ changes:
 
 <!-- persistence-release-changes:start -->
 
-Detected 10 changed roots and 11 structural differences. The minimum below is calculated using current rules for comparison only; it does not assert historical compliance, migration correctness, or runtime compatibility.
+Detected 10 changed roots and 11 structural differences. The review requirement below is calculated using current rules for comparison only; it does not assert historical compliance, migration correctness, or runtime compatibility.
 
-| Path | Change | Current minimum |
+| Path | Change | Review requirement |
 |---|---|---|
-| `event:agent/inbox/spliced.data.inserted[].content[].attachment.originalDimensions` | `optional-property-added` | `same-version` |
-| `event:assistant/chunk.data.chunk.block.attachment.originalDimensions` | `optional-property-added` | `same-version` |
-| `event:assistant/message.data.message.content[].attachment.originalDimensions` | `optional-property-added` | `same-version` |
-| `event:compaction/summary.data.rawOutput[].attachment.originalDimensions` | `optional-property-added` | `same-version` |
-| `event:compaction/summary.data.summary[].attachment.originalDimensions` | `optional-property-added` | `same-version` |
-| `event:permission/preset.data.origin` | `property-removed` | `version-bump` |
-| `event:session/title-llm-request.data.messages[].content[].attachment.originalDimensions` | `optional-property-added` | `same-version` |
-| `event:team/message/queued.data.message.content[].attachment.originalDimensions` | `optional-property-added` | `same-version` |
-| `event:tool/code-dispatch.data.content[].attachment.originalDimensions` | `optional-property-added` | `same-version` |
-| `event:tool/result.data.message.content[0].content[].attachment.originalDimensions` | `optional-property-added` | `same-version` |
-| `event:user/message.data.content[].attachment.originalDimensions` | `optional-property-added` | `same-version` |
+| `event:agent/inbox/spliced.data.inserted[].content[].attachment.originalDimensions` | `optional-property-added` | `not-required` |
+| `event:assistant/chunk.data.chunk.block.attachment.originalDimensions` | `optional-property-added` | `not-required` |
+| `event:assistant/message.data.message.content[].attachment.originalDimensions` | `optional-property-added` | `not-required` |
+| `event:compaction/summary.data.rawOutput[].attachment.originalDimensions` | `optional-property-added` | `not-required` |
+| `event:compaction/summary.data.summary[].attachment.originalDimensions` | `optional-property-added` | `not-required` |
+| `event:permission/preset.data.origin` | `property-removed` | `review-required` |
+| `event:session/title-llm-request.data.messages[].content[].attachment.originalDimensions` | `optional-property-added` | `not-required` |
+| `event:team/message/queued.data.message.content[].attachment.originalDimensions` | `optional-property-added` | `not-required` |
+| `event:tool/code-dispatch.data.content[].attachment.originalDimensions` | `optional-property-added` | `not-required` |
+| `event:tool/result.data.message.content[0].content[].attachment.originalDimensions` | `optional-property-added` | `not-required` |
+| `event:user/message.data.content[].attachment.originalDimensions` | `optional-property-added` | `not-required` |
 
 <!-- persistence-release-changes:end -->
 
 <a id="verification"></a>
 ## Verification
 
-Extraction passed canonical-graph, root-digest, and reachable-type-digest validation, permitting the original optional `surfaceOp` only for historical surface events. The in-tree check reconstructs each tag from its predecessor and verifies before/after values, snapshot coverage, and bilingual machine declarations.
+Extraction passed canonical-graph, root-digest, and reachable-type-digest validation, permitting the original optional `surfaceOp` only for historical surface events. The in-tree check reconstructs each tag from its predecessor and verifies before/after values, snapshot coverage, and machine declarations.
 
 ```sh
 pnpm run verify-persistence-releases

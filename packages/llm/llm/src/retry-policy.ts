@@ -27,7 +27,10 @@ const DEFAULT_RETRYABLE_CODES = Object.freeze([
 export interface BackoffConfig {
   /** Initial local exponential-backoff delay in milliseconds (default 500). */
   initialDelayMs?: number
-  /** Maximum locally scheduled or accepted provider delay in milliseconds (default 10000). */
+  /**
+   * Maximum locally scheduled delay in milliseconds (default 10000). A provider
+   * Retry-After is accepted up to this value, or up to 120000 in normal mode.
+   */
   maxDelayMs?: number
   /** Symmetric random multiplier range around one (default 0.1). */
   jitterRatio?: number

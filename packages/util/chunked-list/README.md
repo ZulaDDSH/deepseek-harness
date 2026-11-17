@@ -5,8 +5,6 @@ kind: "package-library"
 
 # @deepseek-ai/dsh-chunked-list
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 `dsh-chunked-list` lets callers append values while retaining earlier list versions without copying the whole collection. Callers can iterate every value in insertion order and validate JSON checkpoints with their own value schema. The subagent catalog uses it for immutable projection state.
@@ -51,8 +49,6 @@ The newest chunk stores up to 64 values. Appends copy at most that chunk and sha
 |---|---|
 | [`src/index.ts`](src/index.ts) | Persistent list operations and checkpoint validation |
 | [`tests/chunked-list.spec.ts`](tests/chunked-list.spec.ts) | Version isolation, ordering, structural sharing, and checkpoint acceptance |
-
-No runtime invariant companion is published because this library has no independently changing observations; its operations return caller-owned immutable values.
 
 </details>
 

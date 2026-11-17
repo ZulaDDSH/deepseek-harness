@@ -14,7 +14,7 @@ kind: persistence-format
 ## Sections
 
 1. **Summary:** identify the format and its distinguishing persisted fields.
-2. **Table of Contents:** link subsequent sections with shared bilingual anchors.
+2. **Table of Contents:** link subsequent sections with shared anchors.
 3. **Source evidence:** name the tag or PR and enough context to select the source tree. A PR's intermediate tree must not be presented as its final merge or as a product release. Historical sources use file paths without line numbers and remain text unless linked to the exact source.
 4. **Format characteristics:** explain header, event, and physical encoding distinctions; link codec owners for behavior beyond the declared-type inventory.
 5. **Declaration:** include one identical `yaml persistence-format` block per language with `schemaVersion: 1`, numeric `sessionFormatVersion`, `source` containing exactly one `tag` or numeric `pullRequest`, and a `roots` mapping from every root key to its captured SHA-256 digest. Link the sibling `vN.schema.json`.

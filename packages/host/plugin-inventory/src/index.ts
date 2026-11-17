@@ -1,14 +1,20 @@
 /** Read-only projection of the current Cordis Loader plugin entries. */
 
 import type { Context, FiberState } from '@deepseek-ai/cordis'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+import z from '@deepseek-ai/schemastery'
+import { readHookFiles, type HookFileSource } from './hook-files.ts'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 // Type-only: the optional agent-preset roster resolved through `ctx.get`.
-import type {} from '@deepseek-ai/dsh-agent-presets'
+import type {} from '@deepseek-ai/dsh-agent-preset-registry'
+import type {} from '@deepseek-ai/dsh-app-boot'
 import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 // Typert-generated ./typert and ./remote artifacts import Zod at runtime.
 import type {} from 'zod'
 import type {
   AgentPresetPluginGroup,
+  HookInventoryReport,
   PluginEntryId,
   PluginFiberPhase,
   PluginInventoryEntry,
@@ -16,6 +22,12 @@ import type {
 } from './types.ts'
 
 export type * from './types.ts'
+
+/** External hook files shown by the inventory. */
+export interface Config {
+  /** Read-only Codex and Claude configuration sources. */
+  externalHookSources: readonly HookFileSource[]
+}
 
 /**
  * Brand an existing Loader-tree entry id at the owning boundary.
@@ -49,8 +61,15 @@ const FIBER_PHASE = {
 /** Remote-only service exposing the Loader's current non-group entry state. */
 export class PluginInventoryGateway extends TypertRemoteService {
   static inject = ['loader']
+  static Config = z.object({
+    externalHookSources: z.array(z.object({ dialect: z.union(['codex', 'claude-code']).required(), source: z.string().required() })).default([
+      { dialect: 'codex', source: join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'hooks.json') },
+      { dialect: 'claude-code', source: join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), 'settings.json') },
+      { dialect: 'claude-code', source: join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), 'settings.local.json') },
+    ]),
+  })
 
-  constructor(ctx: Context) {
+  constructor(ctx: Context, private readonly config: Config = { externalHookSources: [] }) {
     super(ctx, 'pluginInventory')
   }
 
@@ -63,12 +82,12 @@ export class PluginInventoryGateway extends TypertRemoteService {
    * preset's composition rows, because those rows — not the Loader's own
    * entries — are where a deployment that mounts the roster runs its
    * model-facing plugins.
-   * @returns Current non-group Loader entries in Loader order, with per-preset
-   * compositions when a roster is composed.
+   * @returns Current non-group Loader entries in Loader order, with optional display metadata
+   * and per-preset compositions when a roster is composed.
    */
   @Remote('list')
   async list(): Promise<PluginInventorySnapshot> {
-    return readPluginInventory(this.ctx)
+    return readPluginInventory(this.ctx, this.config.externalHookSources)
   }
 }
 
@@ -76,30 +95,51 @@ export default PluginInventoryGateway
 
 /** Read current Loader entries and optional preset compositions.
  * @param ctx Context with the Loader service.
- * @returns Current inventory without a separate runtime cache.
+ * @param hookSources External hook JSON files to inspect without executing.
+ * @returns Current inventory with optional display metadata and no separate runtime cache.
  */
-export async function readPluginInventory(ctx: Context): Promise<PluginInventorySnapshot> {
+export async function readPluginInventory(ctx: Context, hookSources: readonly HookFileSource[] = []): Promise<PluginInventorySnapshot> {
+  const hooks: HookInventoryReport[] = []
+  ctx.emit('hooks/inventory', hooks)
+  for (const report of await readHookFiles(hookSources)) {
+    if (!hooks.some(loaded => loaded.dialect === report.dialect && loaded.source === report.source)) hooks.push(report)
+  }
   const entries: PluginInventoryEntry[] = []
+  const packages = ctx.get('pluginPackages')
   for (const entry of ctx.loader.entries()) {
     if (entry.options.group) continue
+    const base = entry.parent.tree.ctx.baseUrl
+    const meta = base === undefined ? undefined : packages?.metaOf(entry.options.name, base)
+    const fiber = entry.fiber
+    const fiberPhase = fiber === undefined ? null : FIBER_PHASE[fiber.state]
+    let diagnostic: string | undefined
+    if (fiber !== undefined && fiberPhase === 'failed') {
+      try { await fiber.await() } catch (error) { diagnostic = error instanceof Error ? error.message : String(error) }
+    }
     entries.push({
       entryId: pluginEntryId(entry.id),
       moduleName: entry.options.name,
       enabled: !entry.disabled,
-      fiberPhase: entry.fiber === undefined ? null : FIBER_PHASE[entry.fiber.state],
+      fiberPhase,
+      ...diagnostic === undefined ? {} : { diagnostic },
+      ...meta === undefined ? {} : { meta },
     })
   }
   const presets = ctx.get('agentPresets')
   const management = ctx.get('pluginManager') === undefined ? {} : { managementAvailable: true }
-  if (presets === undefined) return { entries, ...management }
+  if (presets === undefined) return { entries, hooks, ...management }
   const agentPresets: AgentPresetPluginGroup[] = (await presets.compositionInventory()).map(
     composition => ({
       ...composition,
-      rows: composition.rows.map(({ fiberState, ...row }) => ({
-        ...row,
-        fiberPhase: fiberState === undefined ? null : FIBER_PHASE[fiberState],
-      })),
+      rows: composition.rows.map(({ fiberState, ...row }) => {
+        const meta = ctx.baseUrl === undefined ? undefined : packages?.metaOf(row.moduleName, ctx.baseUrl)
+        return {
+          ...row,
+          fiberPhase: fiberState === undefined ? null : FIBER_PHASE[fiberState],
+          ...meta === undefined ? {} : { meta },
+        }
+      }),
     }),
   )
-  return { entries, agentPresets, ...management }
+  return { entries, agentPresets, hooks, ...management }
 }

@@ -1,4 +1,4 @@
-/** Host loader entry for the browser implementation exported from `./client`. */
+/** Browser-only Models settings presentation plugin; the Host has no Models-specific options. */
 
-/** Host plugin body — no host-side behavior for the models settings plugin. */
+/** Node plugin body. */
 export function apply(): void {}

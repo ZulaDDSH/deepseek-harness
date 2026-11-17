@@ -1,29 +1,43 @@
 /**
  * Models settings section: the provider rows joined from the configurable
  * directory, settings namespaces, and credential states, with one editor
- * card at a time. Rows expose only confirmed API-key state through accessible
+ * card at a time. Rows retain the account-first order supplied by the store
+ * and expose only confirmed API-key state through accessible
  * solid configured or missing dots. A whole-section provider without a
  * configured key renders as its open setup card instead of a row, but only in
  * the first-run posture — no provider on the page can serve requests yet — and
- * only until the user closes that card; the add flow is a card carrying the
- * dormant-provider select. Each card kind owns its own open state, so closing
- * one never discards a draft in another. Every mutation writes through the
- * wire, while a provider removal first requires confirmation; the page
- * re-renders from pushed invalidations or the post-apply reload.
+ * only until the user closes that card. The add flow is one card behind one
+ * button: a mode switch chooses between adopting a dormant directory provider
+ * (the catalog select over the provider editor) and declaring a custom model
+ * API (the create form). A panel mounts the first time its mode is shown and
+ * stays mounted, hidden, while the card is open and its mode stays offered,
+ * so switching modes discards neither draft and an unvisited mode costs
+ * nothing; the switch holds still while either panel has a write or an
+ * endpoint interrogation in flight, since a switch underneath one would
+ * orphan the answer. Each card kind owns its own open state, so closing one
+ * never discards a draft in another. Every
+ * mutation writes through the wire, while a provider removal first requires
+ * confirmation; the page re-renders from pushed invalidations or the
+ * post-apply reload.
  */
 
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Button, IconPlusOutline16, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconPlusOutlineRegular, Modal, SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: pulls this package's SlotMap merge (the two Models child slots).
 import type {} from './slot-contract.ts'
 import { CustomProviderCard } from './CustomProviderCard.tsx'
-import { deriveKeyRef, protocolChoices, providerUsable } from './store.ts'
-import type { ModelsSettingsStore, ProviderRow } from './store.ts'
+import { protocolChoices, providerUsable, reasoningLevelChoices } from './store.ts'
+import type { CredentialsRevisionState, ModelsSettingsStore, ProviderRow } from './store.ts'
 import type { ModelsOperations } from './operations.ts'
 import type { SettingsSchemaOperations } from './schema-operations.ts'
 import { ProviderEditor, type ProviderEditorProps } from './ProviderEditor.tsx'
+import type { AuthorizationOperations } from './authorization-operations.ts'
+import { keyConfiguredOf, needsSetup, providerCopy, providerModelOptions, targetOf } from './provider-rows.ts'
+import type { EditorTarget, ProviderIdentity } from './provider-rows.ts'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
 
@@ -34,14 +48,32 @@ export interface ModelsSectionInjected {
   hooks: {
     /** Page snapshot bound by the UI renderer as useSnapshot. */
     snapshot: ModelsSettingsStore['store']
+    /**
+     * Credential-record revision bound by the UI renderer as
+     * useCredentialsRevision. A root entry's inject result is memoized for the
+     * life of that entry, so a card learns about a sign-in it did not perform
+     * only through a live source like this one.
+     */
+    credentialsRevision: SnapshotStore<CredentialsRevisionState>
   }
   /** The Host operations the section and its cards invoke. */
   operations: ModelsOperations
+  /**
+   * The Host authorization calls, when this deployment mounts a registry. An
+   * engine that mounts none leaves every card with its API-key field alone.
+   */
+  authorization?: AuthorizationOperations
   /** Settings schema and immutable path callbacks. */
   schema: SettingsSchemaOperations
   /** Section copy. */
   t: (key: keyof typeof en) => string
 }
+
+/**
+ * The two ways the add card gains a provider: adopt a directory row the
+ * adapter already knows, or declare a route it does not.
+ */
+type AddMode = 'catalog' | 'custom'
 
 /** The child slots this section declares and dispatches (see ./slot-contract.ts). */
 type ModelsChildSlots = 'settings.models.provider-card' | 'settings.models.footer'
@@ -60,40 +92,41 @@ export type ModelsSectionProps = Partial<InjectFace<ModelsSectionInjected>> & Pr
 
 type ModelsSectionFace = InjectFace<ModelsSectionInjected>
 
-/** Provider identity shared by row actions and confirmation copy. */
-export interface ProviderIdentity {
-  /** Stable provider route id. */
-  provider: string
-  /** Human-facing provider name. */
-  displayName: string
+/** A dormant directory row the add card can adopt, with its registered namespace. */
+interface AddableRow {
+  row: ProviderRow
+  namespace: SettingsNamespaceView
 }
 
-/** One existing row or dormant directory entry addressed by an editor action. */
-interface EditorTarget extends ProviderIdentity {
-  settingsNs: string
-  settingsPath: readonly string[]
-  /** Writable credential identified under this page's conventional reference. */
-  credentialRef?: string
-  /** The adapter reports this route as one it does not ship (see {@link ProviderEditorProps.declared}). */
-  declared?: boolean
+/** The catalog draft the add card shows: its editor target and the namespace that takes the write. */
+interface CatalogDraft {
+  target: EditorTarget
+  namespace: SettingsNamespaceView
 }
 
 /** Values that vary around the shared provider-editor rendering. */
 interface ProviderEditorRenderProps extends Pick<
   ProviderEditorProps,
-  'namespace' | 'schema' | 'operations' | 't' | 'readOnly' | 'onClose'
+  'namespace' | 'schema' | 'operations' | 'authorization' | 'credentialsRevision' | 't' | 'readOnly'
+  | 'onCredentialChanged' | 'onClose' | 'modelOptions'
 > {
   target: EditorTarget
+  row: ProviderRow
 }
 
 /** Render an editor for either the setup posture or an expanded provider row. */
-function renderProviderEditor({ target, ...props }: ProviderEditorRenderProps): ReactNode {
+function renderProviderEditor({ target, row, ...props }: ProviderEditorRenderProps): ReactNode {
   return (
     <ProviderEditor
       provider={target.provider}
       displayName={target.displayName}
       settingsPath={target.settingsPath}
       {...target.declared === true ? { declared: true } : {}}
+      {...target.defaultBaseURL === undefined ? {} : { defaultBaseURL: target.defaultBaseURL }}
+      {...target.baseURLEnv === undefined ? {} : { baseURLEnv: target.baseURLEnv }}
+      {...target.nativeAuth === undefined ? {} : { nativeAuth: target.nativeAuth }}
+      {...row.credential === undefined ? {} : { credential: row.credential }}
+      {...row.credentialChecks === undefined ? {} : { credentialChecks: row.credentialChecks }}
       {...props}
     />
   )
@@ -130,87 +163,57 @@ export async function removeProviderProfile(
 }
 
 /**
- * Whether a whole-section provider still needs its first key: an unconfigured
- * credential opens the setup card instead of showing a row. This is the
- * first-run posture alone — a user who can already reach some provider gets an
- * ordinary row with the missing-key dot, since nothing here is blocking them.
- * @param row - the joined provider row.
- * @param anyUsable - whether any joined row can already serve requests.
- * @returns whether to render the setup card.
- */
-export function needsSetup(row: ProviderRow, anyUsable: boolean): boolean {
-  if (anyUsable) return false
-  if (row.entry.settingsPath.length > 0) return false
-  return row.credential?.configured !== true
-}
-
-/**
- * The provider-card seat's credential fact: the reference this page would use
- * for the row — the profile's `apiKeyEnv`, or the page's derived
- * `<ROUTE>_API_KEY` while the profile names none — confirmed configured. The
- * derived half is what keeps the seat consistent with the editor on the
- * add-provider draft, whose dormant row names no reference yet.
- */
-function keyConfiguredOf(row: ProviderRow): boolean {
-  return row.apiKeyEnv !== undefined
-    ? row.credential?.configured === true
-    : row.derivedCredential?.configured === true
-}
-
-function targetOf(row: ProviderRow): EditorTarget {
-  const managedRef = deriveKeyRef(row.entry.provider)
-  const credentialRef = row.apiKeyEnv === managedRef
-    && row.credential?.configured === true
-    && row.credential.writable
-    ? managedRef
-    : undefined
-  return {
-    provider: row.entry.provider,
-    displayName: row.entry.displayName,
-    settingsNs: row.entry.settingsNs,
-    settingsPath: row.entry.settingsPath,
-    ...credentialRef === undefined ? {} : { credentialRef },
-    // Only declared routes may expose route-owned fields.
-    ...row.entry.declared === true ? { declared: true } : {},
-  }
-}
-
-/** Stable visible and accessible identity for one provider target. */
-export function providerTargetLabel(target: ProviderIdentity): string {
-  return target.provider === target.displayName
-    ? target.provider
-    : `${target.displayName} (${target.provider})`
-}
-
-/** Replace the one provider placeholder in localized destructive-action copy. */
-export function providerCopy(template: string, target: ProviderIdentity): string {
-  return template.replace('{provider}', () => providerTargetLabel(target))
-}
-
-/**
  * Render the Models section content column.
  * @param props - slot-delivered injected dependencies.
  * @returns the section, or null while the shell has not injected yet.
  */
 export function ModelsSection(props: ModelsSectionProps): ReactNode {
-  const { controller, useSnapshot, operations, schema, t, renderSlot } = props
+  const { controller, useSnapshot, useCredentialsRevision, operations, authorization, schema, t, renderSlot } = props
   if (
-    controller === undefined || useSnapshot === undefined || operations === undefined
-    || schema === undefined || t === undefined
+    controller === undefined || useSnapshot === undefined || useCredentialsRevision === undefined
+    || operations === undefined || schema === undefined || t === undefined
   ) return null
-  return <Loaded injected={{ controller, useSnapshot, operations, schema, t }} renderSlot={renderSlot} />
+  return (
+    <Loaded
+      injected={{
+        controller,
+        useSnapshot,
+        useCredentialsRevision,
+        operations,
+        ...authorization === undefined ? {} : { authorization },
+        schema,
+        t,
+      }}
+      renderSlot={renderSlot}
+    />
+  )
 }
 
 function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderSlot: ModelsRenderSlot }): ReactNode {
-  const { controller, operations, schema, t } = injected
-  const state = injected.useSnapshot(snapshot => snapshot)
+  const { controller, useCredentialsRevision, operations, authorization, schema, t } = injected
+  const snapshot = injected.useSnapshot(value => value)
+  const state = { ...snapshot, rows: snapshot.rows.filter(row => row.entry.provider !== 'jev-router')
+    .map(row => row.entry.provider === 'deepseek-account'
+      ? { ...row, entry: { ...row.entry, displayName: t('deepSeekAccount') } } : row) }
+  const credentialsRevision = useCredentialsRevision(value => value.revision)
+  /** A new or failed surface waits for a current snapshot; background refreshes preserve its drafts. */
+  const [hasReadySnapshot, setHasReadySnapshot] = useState(state.status === 'ready')
+  if (state.status === 'ready' && !hasReadySnapshot) setHasReadySnapshot(true)
+  if (state.status === 'error' && hasReadySnapshot) setHasReadySnapshot(false)
   const [editing, setEditing] = useState<EditorTarget | undefined>(undefined)
-  const [adding, setAdding] = useState(false)
+  const [addOpen, setAddOpen] = useState(false)
+  const [addMode, setAddMode] = useState<AddMode>('catalog')
+  /** The modes shown since the add card opened; each keeps its panel mounted. */
+  const [visited, setVisited] = useState<ReadonlySet<AddMode>>(() => new Set())
+  /** Whether each add panel has a write or an interrogation in flight. */
+  const [catalogBusy, setCatalogBusy] = useState(false)
+  const [customBusy, setCustomBusy] = useState(false)
+  /** Base of the add card's tab and panel ids. */
+  const addId = useId()
   const [deleteTarget, setDeleteTarget] = useState<EditorTarget | undefined>(undefined)
   const [deleting, setDeleting] = useState(false)
   const [deleteFailure, setDeleteFailure] = useState<string | undefined>(undefined)
   const [savedTarget, setSavedTarget] = useState<ProviderIdentity | undefined>(undefined)
-  const [declaring, setDeclaring] = useState(false)
   const [dismissedSetup, setDismissedSetup] = useState<ReadonlySet<string>>(() => new Set())
 
   const announceSaved = (target: ProviderIdentity): void => {
@@ -220,19 +223,31 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
     void controller.load().then(() => { setSavedTarget(target) })
   }
 
-  const closeEditor = (changed: boolean, target: ProviderIdentity): void => {
+  /**
+   * Close the add card whole. The catalog target is forgotten with it, since
+   * `editing` doubles as the row editor's target once the card is closed and a
+   * refresh could otherwise open the row of a provider the draft never saved.
+   * The busy flags reset here because a panel that closes itself on success
+   * unmounts before it can report idle.
+   */
+  const closeAdd = (): void => {
     setEditing(undefined)
-    setAdding(false)
-    setDeclaring(false)
+    setAddOpen(false)
+    setCatalogBusy(false)
+    setCustomBusy(false)
+  }
+
+  const closeEditor = (changed: boolean, target: ProviderIdentity): void => {
+    closeAdd()
     if (changed) announceSaved(target)
   }
 
   /**
-   * Close a setup card, which owns none of the state above: the row-editor,
-   * add, and declare cards each own one of those, so clearing them here would
-   * discard a draft the user opened beside this card. Dismissal is this card's
-   * own — the provider falls back to an ordinary row for the rest of the
-   * session, and reopens through Edit.
+   * Close a setup card, which owns none of the state above: the row-editor
+   * and add cards each own one of those, so clearing them here would discard
+   * a draft the user opened beside this card. Dismissal is this card's own —
+   * the provider falls back to an ordinary row for the rest of the session,
+   * and reopens through Edit.
    */
   const closeSetup = (changed: boolean, target: ProviderIdentity): void => {
     setDismissedSetup(previous => new Set([...previous, target.provider]))
@@ -274,6 +289,15 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
       </div>
     )
   }
+  if (!hasReadySnapshot && state.status !== 'ready') {
+    return (
+      <div className={styles['section']}>
+        <h2 className={styles['title']}>{t('title')}</h2>
+        <p className={styles['intro']}>{t('intro')}</p>
+        <p className={styles['notice']} role="status">{t('providersLoading')}</p>
+      </div>
+    )
+  }
 
   // The saved provider as the directory currently names it. The route id is
   // what the apply cannot change, so it is what the notice is keyed by; a row
@@ -286,29 +310,62 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
     ? savedTarget
     : { provider: savedRow.entry.provider, displayName: savedRow.entry.displayName }
 
-  // One fact decides both first-run postures on this page and the onboarding
-  // step: whether the user already has a provider to talk to.
+  // One fact decides the first-run posture on this page: whether the user
+  // already has a provider to talk to.
   const anyUsable = state.rows.some(providerUsable)
   const configured = state.rows.filter(row => row.configured)
   const configurable = state.rows.filter(row => state.namespaces.has(row.entry.settingsNs))
-  const addable = configurable.filter(row => !row.configured)
-  const addTarget = adding ? editing : undefined
-  const addNamespace = addTarget === undefined ? undefined : state.namespaces.get(addTarget.settingsNs)
+  const addable: AddableRow[] = state.rows.flatMap((row) => {
+    const namespace = state.namespaces.get(row.entry.settingsNs)
+    return namespace === undefined || row.configured ? [] : [{ row, namespace }]
+  })
+  // Hand-declared routes live in the pi-ai namespace, which is also the only
+  // one whose schema names the protocols one may speak; without it mounted
+  // there is nothing to declare and the mode is not offered.
+  const piAi = state.namespaces.get('llm-pi-ai')
+  const protocols = protocolChoices(piAi, schema)
+  const reasoningLevels = reasoningLevelChoices(piAi, schema)
+  // Each mode is offered while its namespace is mounted and enabled while it
+  // has something to offer; the card shows the chosen mode where both are
+  // offered, else the only one there is. A mode's panel is mounted while it is
+  // the shown mode or has been shown since the card opened — derived, so a
+  // refresh that changes which modes are offered can never leave the card
+  // without a panel.
+  const catalogOffered = configurable.length > 0
+  const catalogEnabled = addable.length > 0
+  const customOffered = piAi !== undefined
+  const customEnabled = protocols.length > 0
+  const bothOffered = catalogOffered && customOffered
+  const mode: AddMode = bothOffered ? addMode : customOffered ? 'custom' : 'catalog'
+  const mounted = (candidate: AddMode): boolean => mode === candidate || visited.has(candidate)
+  const switchLocked = catalogBusy || customBusy
+  // The catalog draft: the row the user chose, kept through a refresh that
+  // adopts or withdraws it elsewhere so a typed key is never discarded, for as
+  // long as its namespace can still take the write; else the first row still
+  // addable, since the mode can be entered by a refresh as well as by the
+  // switch and the button only picks a target when it opens the card.
+  const draft = ((): CatalogDraft | undefined => {
+    if (!addOpen || !catalogOffered) return undefined
+    const kept = editing === undefined ? undefined : state.namespaces.get(editing.settingsNs)
+    if (editing !== undefined && kept !== undefined) return { target: editing, namespace: kept }
+    const first = addable[0]
+    return first === undefined ? undefined : { target: targetOf(first.row), namespace: first.namespace }
+  })()
   // The draft's directory row, for the card extension seat. A refresh can drop
   // the row mid-draft (the route was adopted or withdrawn elsewhere); the
   // draft card stays while the seat simply has no row to dispatch.
-  const addRow = addTarget === undefined
+  const addRow = draft === undefined
     ? undefined
-    : state.rows.find(row => row.entry.provider === addTarget.provider)
-  // Hand-declared routes live in the pi-ai namespace, which is also the only
-  // one whose schema names the protocols one may speak; without it mounted
-  // there is nothing to declare and the entry point stays disabled.
-  const protocols = protocolChoices(state.namespaces.get('llm-pi-ai'), schema)
+    : state.rows.find(row => row.entry.provider === draft.target.provider)
+  const modelOptions = providerModelOptions(state, schema)
 
   return (
     <div className={styles['section']}>
       <h2 className={styles['title']}>{t('title')}</h2>
       <p className={styles['intro']}>{t('intro')}</p>
+      {state.status !== 'ready' && state.rows.length === 0
+        ? <p className={styles['notice']} role="status">{t('providersLoading')}</p>
+        : null}
       {!state.writable && state.status === 'ready' ? <p className={styles['notice']}>{t('readOnly')}</p> : null}
       {savedIdentity === undefined
         ? null
@@ -334,11 +391,16 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                 {error}
                 {renderProviderEditor({
                   target,
+                  row,
                   namespace,
+                  modelOptions,
                   schema,
                   operations,
+                  ...authorization === undefined ? {} : { authorization },
+                  credentialsRevision,
                   t,
                   readOnly: !state.writable,
+                  onCredentialChanged: () => { void controller.load() },
                   onClose: (changed) => { closeSetup(changed, target) },
                 })}
                 {renderSlot(
@@ -349,7 +411,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
               </li>
             )
           }
-          const open = !adding && editing?.provider === row.entry.provider
+          const open = !addOpen && editing?.provider === row.entry.provider
           const credentialConfigured = row.credential?.configured === true
           const credentialMissing = !credentialConfigured
             && row.apiKeyEnv !== undefined
@@ -364,6 +426,15 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                       follows its answer and stays off when it gives none. */}
                   {row.entry.declared === true
                     ? <span className={styles['rowTag']}>{t('customTag')}</span>
+                    : null}
+                  {/* The store keeps the account row only while the account lists models. */}
+                  {row.entry.provider === 'deepseek-account'
+                    ? (
+                      <span className={styles['accountStatus']}>
+                        <span className={`${styles['credentialDot']} ${styles['credentialDotConfigured']}`} aria-hidden="true" />
+                        {t('accountSignedIn')}
+                      </span>
+                    )
                     : null}
                   {credentialConfigured
                     ? (
@@ -386,30 +457,37 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                       : null}
                 </span>
                 <span className={styles['rowActions']}>
-                  <button
-                    type="button"
-                    className={styles['secondaryButton']}
-                    aria-label={providerCopy(t('editProvider'), target)}
-                    onClick={() => {
-                      setSavedTarget(undefined)
-                      // One card at a time: leaving `declaring` set would show
-                      // the create card beside this editor, and closing either
-                      // one discards the other's draft.
-                      setDeclaring(false)
-                      setAdding(false)
-                      setEditing(open ? undefined : target)
-                    }}
-                  >
-                    {t('edit')}
-                  </button>
+                  {/* The account catalog comes from the account listing; its model overrides live in cordis.patch.yml. */}
+                  {row.entry.provider === 'deepseek-account'
+                    ? null
+                    : (
+                      <button
+                        type="button"
+                        className={styles['secondaryButton']}
+                        aria-label={providerCopy(t('editProvider'), target)}
+                        disabled={!open && state.status !== 'ready'}
+                        onClick={() => {
+                          if (!open && controller.store.getSnapshot().status !== 'ready') return
+                          setSavedTarget(undefined)
+                          // One card at a time: the add card closes with whatever
+                          // it held, since closing either card would otherwise
+                          // discard the other's draft.
+                          setAddOpen(false)
+                          setEditing(open ? undefined : target)
+                        }}
+                      >
+                        {t('edit')}
+                      </button>
+                    )}
                   {row.removable
                     ? (
                       <button
                         type="button"
                         className={styles['dangerButton']}
                         aria-label={providerCopy(t('removeProvider'), target)}
-                        disabled={!state.writable}
+                        disabled={!state.writable || state.status !== 'ready'}
                         onClick={() => {
+                          if (controller.store.getSnapshot().status !== 'ready') return
                           setSavedTarget(undefined)
                           setDeleteFailure(undefined)
                           setDeleteTarget(target)
@@ -430,11 +508,16 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
               {open
                 ? renderProviderEditor({
                   target,
+                  row,
                   namespace,
+                  modelOptions,
                   schema,
                   operations,
+                  ...authorization === undefined ? {} : { authorization },
+                  credentialsRevision,
                   t,
                   readOnly: !state.writable,
+                  onCredentialChanged: () => { void controller.load() },
                   onClose: (changed) => { closeEditor(changed, target) },
                 })
                 : null}
@@ -443,110 +526,161 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
         })}
       </ul>
       <div className={styles['addBlock']}>
-        {addTarget !== undefined && addNamespace !== undefined
+        {addOpen
           ? (
             <div className={styles['addCard']}>
-              <div className={styles['field']}>
-                <span className={styles['fieldLabel']}>{t('provider')}</span>
-                <select
-                  className={`${styles['input']} ${styles['selectInput']}`}
-                  value={addTarget.provider}
-                  aria-label={t('provider')}
-                  onChange={(event) => {
-                    const row = addable.find(candidate => candidate.entry.provider === event.target.value)
-                    /* v8 ignore next -- the select only lists addable rows */
-                    if (row === undefined) return
-                    setEditing(targetOf(row))
-                  }}
-                >
-                  {addable.map(row => (
-                    <option key={row.entry.provider} value={row.entry.provider}>{row.entry.displayName}</option>
-                  ))}
-                </select>
+              <div className={styles['addModes']}>
+                {bothOffered
+                  ? (
+                    <SegmentedControl
+                      id={addId}
+                      label={t('addMode')}
+                      value={mode}
+                      disabled={switchLocked}
+                      options={[
+                        {
+                          value: 'catalog',
+                          label: t('addCatalog'),
+                          disabled: !catalogEnabled,
+                          ...catalogEnabled ? {} : { title: t('addCatalogExhausted') },
+                        },
+                        {
+                          value: 'custom',
+                          label: t('addCustom'),
+                          disabled: !customEnabled,
+                          ...customEnabled ? {} : { title: t('addCustomUnavailable') },
+                        },
+                      ]}
+                      onChange={(next) => {
+                        setAddMode(next)
+                        setVisited(previous => new Set([...previous, next]))
+                      }}
+                    />
+                  )
+                  : (
+                    // One mode alone has no switch to name it, so the card
+                    // carries the mode as its title instead.
+                    <div className={styles['editorHeader']}>
+                      <span className={styles['editorTitle']}>{t(mode === 'catalog' ? 'addCatalog' : 'addCustom')}</span>
+                    </div>
+                  )}
+                <p className={styles['advancedHint']}>
+                  {t(mode === 'catalog' ? 'addCatalogHint' : 'addCustomHint')}
+                </p>
               </div>
-              <ProviderEditor
-                key={addTarget.provider}
-                provider={addTarget.provider}
-                displayName={addTarget.displayName}
-                hideTitle
-                namespace={addNamespace}
-                schema={schema}
-                settingsPath={addTarget.settingsPath}
-                operations={operations}
-                t={t}
-                readOnly={!state.writable}
-                onClose={(changed) => { closeEditor(changed, addTarget) }}
-              />
-              {addRow === undefined
-                ? null
-                : renderSlot(
-                  'settings.models.provider-card',
-                  { provider: addRow.entry, configured: addRow.configured, keyConfigured: keyConfiguredOf(addRow) },
-                  { entryKey: addRow.entry.settingsNs },
-                )}
+              {mounted('catalog') && draft !== undefined
+                ? (
+                  <div
+                    id={`${addId}-catalog-panel`}
+                    {...bothOffered ? { role: 'tabpanel', 'aria-labelledby': `${addId}-catalog` } : {}}
+                    hidden={mode !== 'catalog'}
+                    className={styles['addPanel']}
+                  >
+                    <div className={styles['field']}>
+                      <span className={styles['fieldLabel']}>{t('provider')}</span>
+                      <select
+                        className={`${styles['input']} ${styles['selectInput']}`}
+                        value={draft.target.provider}
+                        aria-label={t('provider')}
+                        disabled={catalogBusy}
+                        onChange={(event) => {
+                          const picked = addable.find(candidate => candidate.row.entry.provider === event.target.value)
+                          /* v8 ignore next -- the select only lists addable rows */
+                          if (picked === undefined) return
+                          setEditing(targetOf(picked.row))
+                        }}
+                      >
+                        {addable.map(({ row }) => (
+                          <option key={row.entry.provider} value={row.entry.provider}>{row.entry.displayName}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <ProviderEditor
+                      key={draft.target.provider}
+                      provider={draft.target.provider}
+                      displayName={draft.target.displayName}
+                      hideTitle
+                      namespace={draft.namespace}
+                      schema={schema}
+                      settingsPath={draft.target.settingsPath}
+                      modelOptions={modelOptions}
+                      operations={operations}
+                      {...authorization === undefined ? {} : { authorization }}
+                      credentialsRevision={credentialsRevision}
+                      {...draft.target.defaultBaseURL === undefined ? {} : { defaultBaseURL: draft.target.defaultBaseURL }}
+                      {...draft.target.baseURLEnv === undefined ? {} : { baseURLEnv: draft.target.baseURLEnv }}
+                      {...draft.target.nativeAuth === undefined ? {} : { nativeAuth: draft.target.nativeAuth }}
+                      {...addRow?.credential === undefined ? {} : { credential: addRow.credential }}
+                      {...addRow?.credentialChecks === undefined ? {} : { credentialChecks: addRow.credentialChecks }}
+                      t={t}
+                      readOnly={!state.writable}
+                      onCredentialChanged={() => { void controller.load() }}
+                      onClose={(changed) => { closeEditor(changed, draft.target) }}
+                      onBusyChange={setCatalogBusy}
+                    />
+                    {addRow === undefined
+                      ? null
+                      : renderSlot(
+                        'settings.models.provider-card',
+                        { provider: addRow.entry, configured: addRow.configured, keyConfigured: keyConfiguredOf(addRow) },
+                        { entryKey: addRow.entry.settingsNs },
+                      )}
+                  </div>
+                )
+                : null}
+              {mounted('custom') && piAi !== undefined
+                ? (
+                  <div
+                    id={`${addId}-custom-panel`}
+                    {...bothOffered ? { role: 'tabpanel', 'aria-labelledby': `${addId}-custom` } : {}}
+                    hidden={mode !== 'custom'}
+                    className={styles['addPanel']}
+                  >
+                    <CustomProviderCard
+                      taken={state.rows.map(row => row.entry.provider)}
+                      protocols={protocols}
+                      reasoningLevels={reasoningLevels}
+                      revision={piAi.revision}
+                      operations={operations}
+                      t={t}
+                      readOnly={!state.writable}
+                      onClose={(changed) => {
+                        closeAdd()
+                        if (changed) void controller.load()
+                      }}
+                      onBusyChange={setCustomBusy}
+                    />
+                  </div>
+                )
+                : null}
             </div>
           )
-          : declaring
+          : catalogOffered || customOffered
             ? (
-              <div className={styles['addCard']}>
-                <CustomProviderCard
-                  taken={state.rows.map(row => row.entry.provider)}
-                  protocols={protocols}
-                  /* v8 ignore next -- the card only opens from a button disabled without this namespace */
-                  revision={state.namespaces.get('llm-pi-ai')?.revision ?? 0}
-                  operations={operations}
-                  t={t}
-                  readOnly={!state.writable}
-                  onClose={(changed) => {
-                    setDeclaring(false)
-                    if (changed) void controller.load()
+              // One entry for both ways to gain a provider; the card behind it
+              // splits them. Full width, so it lines up with the rows above.
+              <div className={styles['addActions']}>
+                <button
+                  type="button"
+                  className={styles['addButton']}
+                  disabled={!state.writable || state.status !== 'ready' || (!catalogEnabled && !customEnabled)}
+                  onClick={() => {
+                    if (controller.store.getSnapshot().status !== 'ready') return
+                    const first = addable[0]
+                    const initial: AddMode = catalogEnabled ? 'catalog' : 'custom'
+                    setSavedTarget(undefined)
+                    setEditing(first === undefined ? undefined : targetOf(first.row))
+                    setAddMode(initial)
+                    setVisited(new Set([initial]))
+                    setAddOpen(true)
                   }}
-                />
+                >
+                  <IconPlusOutlineRegular size={14} />
+                  {t('add')}
+                </button>
               </div>
             )
-            : (
-              // One row for the two ways to gain a provider: adopt one the
-              // adapter already knows, or declare one it does not. Side by side
-              // and equal-width so they read as siblings and line up with the
-              // rows above, rather than two pills of different lengths.
-              <div className={styles['addActions']}>
-                {configurable.length > 0 && (
-                  <button
-                    type="button"
-                    className={styles['addButton']}
-                    disabled={addable.length === 0 || !state.writable}
-                    onClick={() => {
-                      const first = addable[0]
-                      /* v8 ignore next -- the button is disabled while nothing is addable */
-                      if (first === undefined) return
-                      setSavedTarget(undefined)
-                      setDeclaring(false)
-                      setAdding(true)
-                      setEditing(targetOf(first))
-                    }}
-                  >
-                    <IconPlusOutline16 size={14} />
-                    {t('add')}
-                  </button>
-                )}
-                {state.namespaces.has('llm-pi-ai') && (
-                  <button
-                    type="button"
-                    className={styles['addButton']}
-                    disabled={protocols.length === 0 || !state.writable}
-                    onClick={() => {
-                      setSavedTarget(undefined)
-                      setAdding(false)
-                      setEditing(undefined)
-                      setDeclaring(true)
-                    }}
-                  >
-                    <IconPlusOutline16 size={14} />
-                    {t('customAdd')}
-                  </button>
-                )}
-              </div>
-            )}
+            : null}
       </div>
       {renderSlot('settings.models.footer', {})}
       <Modal
@@ -565,7 +699,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
         className={styles['deleteDialog'] as string}
         footer={(
           <>
-            <Button variant="outline" autoFocus disabled={deleting} onClick={closeDelete}>
+            <Button variant="outline" data-modal-autofocus disabled={deleting} onClick={closeDelete}>
               {t('cancel')}
             </Button>
             <Button

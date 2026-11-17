@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-message-feedback
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 This service records positive or negative ratings, an optional category from the fixed feedback taxonomy, and optional verbatim notes for finalized assistant messages. The canonical Session log owns every creation, edit, and deletion; `list`, `put`, and `delete` expose current feedback without constructing or waking an Agent. Feedback is log-only and does not enter model history.
@@ -63,8 +61,6 @@ Cold material mutations emit `feedback/committed` after flush with a borrowed re
 |---|---|
 | [`src/index.ts`](src/index.ts) | Remote service, payload validation, event projection, and persistence ownership |
 | [`src/types.ts`](src/types.ts) | Requests, results, and Session event declarations; types only |
-
-No runtime invariant companion is published: the service derives feedback directly from validated canonical events and owns no independently mutable projection.
 
 See the [feedback subsystem](../../../docs/subsystems/feedback.md), [Session persistence](../../../docs/subsystems/persistence.md), and [browser consumer](../../client/ui-message-feedback/README.md) for their respective APIs.
 

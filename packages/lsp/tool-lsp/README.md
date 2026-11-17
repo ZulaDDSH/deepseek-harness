@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-tool-lsp
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 `dsh-tool-lsp` lets a model navigate code through one read-only `lsp` tool: open a symbol's definition, find references and implementations, or read hover documentation. Requests use one-based UTF-16 line and character positions. Navigation results are bounded, grouped by file, and labeled when locations are omitted or text is truncated; hover results are normalized and distinguish missing information from errors. The package requires a configured LSP provider and a session workspace root. Choose it when textual search is ambiguous or a change needs precise symbol relationships; ordinary navigation should continue to use `search` and `read`.
@@ -24,6 +22,8 @@ English | [中文](README.zh.md)
 
 <a id="use-this-package"></a>
 ## Use this package
+
+Queries use the Session's current working directory as their workspace root. Changing directory affects subsequent queries without changing an already running server's root.
 
 An agent uses `lsp` when textual matches are ambiguous or before a change that needs precise definitions, implementations, or references; the tool's prompt guidance tells it to prefer `search`/`read` for ordinary navigation.
 
@@ -47,7 +47,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 ### Failures and recovery
 
-The tool requires a session workspace root (`header.cwd`) with no fallback; absence fails with `LSP_WORKSPACE_REQUIRED` before any query. When no provider handles the file's extension, the query fails with `LSP_UNAVAILABLE`; malformed provider payloads remain structured `LSP_MALFORMED_RESPONSE` errors. These surface to the model as error tool results it can read and route on.
+The tool requires an Agent Session; a non-agent call fails with `LSP_WORKSPACE_REQUIRED` before any query. The working-directory service supplies and validates its current root. When no provider handles the file's extension, the query fails with `LSP_UNAVAILABLE`; malformed provider payloads remain structured `LSP_MALFORMED_RESPONSE` errors. These surface to the model as error tool results it can read and route on.
 
 -----
 
@@ -74,8 +74,6 @@ This section explains the design decisions behind the tool and where the code re
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: config schema, tool registration, system-prompt section, execution |
 | [`src/render.ts`](src/render.ts) | Pure formatting, coordinate conversion, URI resolution, result caps, UI presentation |
-| [`src/session-cwd.ts`](src/session-cwd.ts) | Workspace root from the session `header.cwd` |
-| — | No runtime invariant companion is published; this stateless adapter contributes one tool and prompt section, while query lifecycle and result relations remain owned by the tool and LSP seams it composes. |
 
 </details>
 

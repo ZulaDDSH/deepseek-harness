@@ -1,24 +1,29 @@
 // @vitest-environment jsdom
+import { apply as applyMenus, inject as injectMenus } from '@deepseek-ai/dsh-client-ui-context-menu/client'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 /**
  * The session-rename assembly chain on SlotTestRuntime (real apply, real
- * WorkspaceBrowser occupying the sidebar hole): row menu → rename dialog →
- * the injected renameSession hop (sessions.binding → ISession.rename) → on
- * the accepted unary response the dialog closes and the row re-labels from
- * the list state — no push-frame wait. Coverage split: the assembled-app
- * snapshot (apps/web/tests/session-actions.snapshot.ts) pins the full-app
- * transcript; the
- * verb's wire behavior stays with the Session Controller client package
- * (session.spec.ts#rename), the dialog's own arms with rows.spec /
- * workspace-browser.spec.
+ * WorkspaceBrowser occupying the sidebar hole, the shipped row actions and
+ * the overlay surfaces registered by the same apply): row menu → rename
+ * request → the `shell.overlay` dialog → the injected renameSession hop
+ * (sessions.binding → ISession.rename) → on the accepted unary response the
+ * dialog closes and the row re-labels from the list state — no push-frame
+ * wait. Coverage split: the real Loader/Web e2e
+ * (apps/web/tests/client-plugin-live.e2e.ts, with the ARIA golden under
+ * apps/web/tests/expected/client-plugin-live/) pins the full-app menu;
+ * the verb's wire behavior stays with the Session Controller client package
+ * (session.spec.ts#rename), the entries' own arms with
+ * session-actions.client.spec, the row's list rendering with rows.client.spec.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, waitFor, within } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
+import { act, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 import type { ISession } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import { SessionSeq, type SessionId } from '@deepseek-ai/dsh-session/types'
-import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { RemoteError, SlotTestRuntime, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
+import { MenuItemButton } from '@deepseek-ai/dsh-client-ui-primitives'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-workspace/client'
 
 // The service reads its initial locale from the browser; these specs assert
@@ -33,7 +38,14 @@ beforeEach(() => { localStorage.clear() })
 /** Runtime with the locale face installed (the browser entry declares `locale:` — zh default backs the t seat). */
 async function createRuntime(): Promise<SlotTestRuntime> {
   const runtime = await SlotTestRuntime.create()
-  runtime.ctx.provide('layout', { selectPanel: vi.fn() })
+  runtime.ctx.provide('shortcuts', { register: () => () => {}, catalog: createSnapshotStore([]) })
+  runtime.ctx.provide('layout', { selectPanel: vi.fn(), beginNavigation: () => new AbortController().signal })
+  // The quick switcher consumes the command service structurally; its namespace
+  // only has to be present for ui-workspace's inject to settle.
+  runtime.ctx.provide('commandUi', {
+    quickCommands: vi.fn(async () => []),
+    runQuick: vi.fn(() => true),
+  } as never)
   runtime.releaseWorkspaceSource()
   // The rename flow never picks a directory; the namespace only has to be there
   // for ui-workspace's inject to settle.
@@ -42,16 +54,116 @@ async function createRuntime(): Promise<SlotTestRuntime> {
   const locale = new LocaleRuntime(runtime.ctx)
   runtime.ctx.provide('locale', locale)
   runtime.slots.installLocale(locale)
+  await runtime.mount({ inject: [...injectMenus], apply: applyMenus })
   return runtime
 }
 
-/** Test-owned sidebar shell role: declares and renders the browsing region. */
-type FrameProps = PropsRenderSlots<'sidebar.workspaces'>
+/** Test-owned shell role: declares and renders the browsing region and the frame-wide overlay list. */
+type FrameProps = PropsRenderSlots<'sidebar.workspaces' | 'shell.overlay'>
 function SidebarFrame({ renderSlot }: FrameProps) {
-  return <>{renderSlot('sidebar.workspaces', { wide: true, expandSidebar: () => {} })}</>
+  return (
+    <>
+      {renderSlot('sidebar.workspaces', { wide: true, expandSidebar: () => {} })}
+      {renderSlot('shell.overlay', {})}
+    </>
+  )
+}
+
+/** Declare the sidebar hole and the overlay list the rename dialog and the row notices mount in. */
+async function declareFrame(runtime: SlotTestRuntime): Promise<void> {
+  await runtime.root.declare(
+    {
+      'sidebar.workspaces': { kind: 'single', scope: 'root' },
+      'shell.overlay': { kind: 'list', scope: 'root' },
+    } as never,
+    SidebarFrame as never,
+  )
+}
+
+/** One Workspace holding the fixture Session. */
+async function seedWorkspace(runtime: SlotTestRuntime): Promise<void> {
+  await runtime.workspaces.update((draft) => {
+    draft.items = [{
+      workspaceId: 'w1' as WorkspaceId, title: 'alpha', path: '/w/alpha',
+      sessionIds: [SID], createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+    }] as never
+  })
 }
 
 describe('session rename through the assembled browser', () => {
+  it('renders independently registered Session actions in declared order', async () => {
+    const runtime = await createRuntime()
+    const selected = vi.fn()
+    await runtime.sessions.add({
+      id: SID,
+      summary: { title: 'Persisted title', displayTitle: 'Session title', cwd: '/w/alpha' },
+      session: { rename: vi.fn() },
+    })
+    await runtime.sessions.retainFor(runtime.ctx, SID, { source: 'mainView' }).ready
+    await seedWorkspace(runtime)
+    await declareFrame(runtime)
+    await runtime.mount({ inject: [...inject], apply })
+    const registerAction = (id: string, order: number, priority: number, label: string) => {
+      runtime.slots.register(
+        { name: 'sidebar.workspaces.session.menu.item', id, order, priority },
+        ({ sessionId, displayTitle, useMenuOpenState }: PropsRuntime<'sidebar.workspaces.session.menu.item'>) => {
+          const [, setMenuOpen] = useMenuOpenState()
+          return (
+            <MenuItemButton separatorBefore={order === 500} onSelect={() => {
+              setMenuOpen(false)
+              selected(id, sessionId, displayTitle)
+            }}>
+              {label}
+            </MenuItemButton>
+          )
+        },
+      )
+    }
+    registerAction('export', 500, -1, 'Export action')
+    registerAction('last', 700, -2, 'Last action')
+    const view = runtime.renderRoot()
+
+    const row = (await view.findByText('Persisted title')).closest('[role="treeitem"]')!
+    const trigger = within(row as HTMLElement).getByLabelText('会话“Persisted title”的操作')
+    fireEvent.click(trigger)
+    // The browser-local appearance rows lead as data rows; the copy row, the plugin rows, and archive each start a group.
+    await view.findByRole('menuitem', { name: '置顶会话' })
+    expect(view.getAllByRole('menuitem').map(item => item.textContent)).toEqual([
+      '颜色', '默认', '红色', '橙色', '绿色', '蓝色', '紫色', '图标', '置顶会话', '重命名', '分叉会话', '复制 Session ID', 'Export action', 'Last action', '归档会话',
+    ])
+    expect(view.getAllByRole('separator')).toHaveLength(3)
+    const last = view.getByRole('menuitem', { name: 'Last action' })
+    const exportRow = view.getByRole('menuitem', { name: 'Export action' })
+    trigger.focus()
+    fireEvent.keyDown(trigger, { key: 'End' })
+    const archive = view.getByRole('menuitem', { name: '归档会话' })
+    expect(document.activeElement).toBe(archive)
+    fireEvent.keyDown(archive, { key: 'ArrowUp' })
+    expect(document.activeElement).toBe(last)
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowUp' })
+    expect(document.activeElement).toBe(exportRow)
+    fireEvent.click(exportRow)
+    expect(selected).toHaveBeenCalledWith('export', SID, 'Persisted title')
+    // The plugin row dismissed the menu through the bound open-state hook;
+    // the list returns focus to the trigger.
+    expect(view.queryByRole('menu')).toBeNull()
+    await act(async () => { await Promise.resolve() })
+    expect(document.activeElement).toBe(trigger)
+    const writeText = vi.fn(async () => {})
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    onTestFinished(() => {
+      if (clipboard === undefined) Reflect.deleteProperty(navigator, 'clipboard')
+      else Object.defineProperty(navigator, 'clipboard', clipboard)
+    })
+    fireEvent.click(trigger)
+    fireEvent.click(await view.findByRole('menuitem', { name: '复制 Session ID' }))
+    expect(view.queryByRole('menu')).toBeNull()
+    expect(writeText).toHaveBeenCalledExactlyOnceWith(SID)
+    await view.findByText('Session ID 已复制')
+    await runtime.dispose()
+  })
+
   it('renames via the row menu: binding.session.rename fires, the dialog closes, the row re-labels from the list', async () => {
     const runtime = await createRuntime()
     const rename = vi.fn<ISession['rename']>(async title => ({
@@ -63,23 +175,17 @@ describe('session rename through the assembled browser', () => {
       session: { rename },
     })
     await runtime.sessions.retainFor(runtime.ctx, SID, { source: 'mainView' }).ready
-    await runtime.workspaces.update((draft) => {
-      draft.items = [{
-        workspaceId: 'w1' as WorkspaceId, title: 'alpha', path: '/w/alpha',
-        sessionIds: [SID], createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
-      }] as never
-    })
-    await runtime.root.declare(
-      { 'sidebar.workspaces': { kind: 'single', scope: 'root' } } as never,
-      SidebarFrame as never,
-    )
+    await seedWorkspace(runtime)
+    await declareFrame(runtime)
     await runtime.mount({ inject: [...inject], apply })
     const view = runtime.renderRoot()
 
     // The current session's group auto-expands; open the row's action menu.
     const row = (await view.findByText('旧标题')).closest('[role="treeitem"]')!
     fireEvent.click(within(row as HTMLElement).getByLabelText('会话“旧标题”的操作'))
-    fireEvent.click(view.getByRole('menuitem', { name: '重命名', hidden: true }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '重命名' }))
+    // The rename row dismissed the menu; the dialog lives in the overlay list.
+    expect(view.queryByRole('menu')).toBeNull()
 
     // The dialog seeds from the current title; submit a padded value.
     const input = await view.findByLabelText('会话名称') as HTMLInputElement
@@ -111,23 +217,15 @@ describe('session rename through the assembled browser', () => {
       session: { rename },
     })
     await runtime.sessions.retainFor(runtime.ctx, SID, { source: 'mainView' }).ready
-    await runtime.workspaces.update((draft) => {
-      draft.items = [{
-        workspaceId: 'w1' as WorkspaceId, title: 'alpha', path: '/w/alpha',
-        sessionIds: [SID], createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
-      }] as never
-    })
-    await runtime.root.declare(
-      { 'sidebar.workspaces': { kind: 'single', scope: 'root' } } as never,
-      SidebarFrame as never,
-    )
+    await seedWorkspace(runtime)
+    await declareFrame(runtime)
     await runtime.mount({ inject: [...inject], apply })
     const view = runtime.renderRoot()
     await runtime.flush()
 
     const row = (await view.findByText('旧标题')).closest('[role="treeitem"]')!
     fireEvent.click(within(row as HTMLElement).getByLabelText('会话“旧标题”的操作'))
-    fireEvent.click(view.getByRole('menuitem', { name: '重命名', hidden: true }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '重命名' }))
     const input = await view.findByLabelText('会话名称')
     fireEvent.change(input, { target: { value: '新名' } })
     fireEvent.click(view.getByRole('button', { name: '重命名' }))
@@ -138,6 +236,97 @@ describe('session rename through the assembled browser', () => {
     expect(alert.textContent).toContain('title write failed')
     expect(view.getByLabelText('会话名称')).toBeTruthy()
     expect(view.getByText('旧标题')).toBeTruthy()
+    await runtime.dispose()
+  })
+})
+
+describe('Chat Section and appearance menus through the assembled browser', () => {
+  async function assembled(): Promise<{ runtime: SlotTestRuntime; view: ReturnType<SlotTestRuntime['renderRoot']> }> {
+    const runtime = await createRuntime()
+    await runtime.sessions.add({
+      id: SID,
+      summary: { title: 'Persisted title', displayTitle: 'Session title', cwd: '/w/alpha' },
+      session: { rename: vi.fn() },
+    })
+    await runtime.sessions.retainFor(runtime.ctx, SID, { source: 'mainView' }).ready
+    await seedWorkspace(runtime)
+    await declareFrame(runtime)
+    await runtime.mount({ inject: [...inject], apply })
+    return { runtime, view: runtime.renderRoot() }
+  }
+
+  const stored = (): { workspaces?: object; sections?: object; sessions?: object } =>
+    JSON.parse(localStorage.getItem('dsh.workspace.appearance.v2') ?? '{}') as Record<string, object>
+
+  it('files a Session into a Chat Section and unfiles it from the pane', async () => {
+    const { runtime, view } = await assembled()
+    fireEvent.click(await view.findByRole('button', { name: '新建分组' }))
+    const create = view.getByRole('dialog', { name: '新建分组' })
+    fireEvent.change(within(create).getByRole('textbox'), { target: { value: 'Work' } })
+    fireEvent.click(within(create).getByRole('button', { name: '创建' }))
+
+    const row = (await view.findByText('Persisted title')).closest('[role="treeitem"]')!
+    fireEvent.click(within(row as HTMLElement).getByLabelText('会话“Persisted title”的操作'))
+    fireEvent.click(await view.findByRole('menuitem', { name: '移动到分组' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: 'Work' }))
+    expect(within(view.getByRole('group', { name: 'Work' })).getByText('Persisted title')).toBeTruthy()
+
+    fireEvent.click(within(view.getByRole('group', { name: 'Work' })).getByLabelText('会话“Persisted title”的操作'))
+    fireEvent.click(await view.findByRole('menuitem', { name: '移动到分组' }))
+    expect(view.getByRole('menuitem', { name: 'Work' }).hasAttribute('disabled')).toBe(true)
+    fireEvent.click(await view.findByRole('menuitem', { name: '从分组中移出' }))
+    expect(within(view.getByRole('group', { name: 'Work' })).queryByText('Persisted title')).toBeNull()
+    await runtime.dispose()
+  })
+
+  it('renames a Chat Section from its header menu', async () => {
+    const { runtime, view } = await assembled()
+    fireEvent.click(await view.findByRole('button', { name: '新建分组' }))
+    const create = view.getByRole('dialog', { name: '新建分组' })
+    fireEvent.change(within(create).getByRole('textbox'), { target: { value: 'Work' } })
+    fireEvent.click(within(create).getByRole('button', { name: '创建' }))
+
+    fireEvent.click(await view.findByRole('button', { name: '分组“Work”的操作' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '重命名' }))
+    const rename = await view.findByRole('dialog', { name: '重命名分组' })
+    fireEvent.change(within(rename).getByRole('textbox'), { target: { value: 'Server' } })
+    fireEvent.click(within(rename).getByRole('button', { name: '重命名' }))
+    expect(view.getByRole('group', { name: 'Server' })).toBeTruthy()
+    await runtime.dispose()
+  })
+
+  it('writes Chat Section, Workspace, and Session color choices to the appearance store', async () => {
+    const { runtime, view } = await assembled()
+    fireEvent.click(await view.findByRole('button', { name: '新建分组' }))
+    const create = view.getByRole('dialog', { name: '新建分组' })
+    fireEvent.change(within(create).getByRole('textbox'), { target: { value: 'Work' } })
+    fireEvent.click(within(create).getByRole('button', { name: '创建' }))
+
+    fireEvent.click(await view.findByRole('button', { name: '分组“Work”的操作' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '颜色' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '红色' }))
+    fireEvent.click(await view.findByRole('button', { name: '分组“Work”的操作' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '图标' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '火箭' }))
+    expect(Object.values(stored().sections ?? {})).toEqual([{ color: 'red', icon: 'rocket' }])
+    fireEvent.click(await view.findByRole('button', { name: '分组“Work”的操作' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '图标' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '默认' }))
+    expect(Object.values(stored().sections ?? {})).toEqual([{ color: 'red' }])
+
+    fireEvent.click(await view.findByRole('button', { name: '工作区“alpha”的操作' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '颜色' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '紫色' }))
+    expect(stored().workspaces).toEqual({ w1: { color: 'purple' } })
+
+    const row = (await view.findByText('Persisted title')).closest('[role="treeitem"]')!
+    fireEvent.click(within(row as HTMLElement).getByLabelText('会话“Persisted title”的操作'))
+    fireEvent.click(await view.findByRole('menuitem', { name: '颜色' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '蓝色' }))
+    fireEvent.click(within(row as HTMLElement).getByLabelText('会话“Persisted title”的操作'))
+    fireEvent.click(await view.findByRole('menuitem', { name: '图标' }))
+    fireEvent.click(await view.findByRole('menuitem', { name: '终端' }))
+    expect(stored().sessions).toEqual({ [SID]: { color: 'blue', icon: 'terminal' } })
     await runtime.dispose()
   })
 })

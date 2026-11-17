@@ -1,4 +1,6 @@
 /** Real SDK probe ownership, failed negotiation recovery, and subprocess quiescence. */
+import type * as TransportModule from '../src/transport.ts'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { once } from 'node:events'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
@@ -11,11 +13,12 @@ import { StreamableHTTPClientTransport, type Transport } from '@modelcontextprot
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
-import { startConnection, resolveReconnectPolicy } from '../src/connection.ts'
+import { startConnection } from '../src/connection.ts'
+import { resolveReconnectPolicy } from '../src/reconnect-policy.ts'
 import type { Config } from '../src/index.ts'
 
 const { mockTransport } = vi.hoisted(() => ({ mockTransport: vi.fn<() => Transport>() }))
-vi.mock('../src/transport.ts', () => ({ createTransport: mockTransport }))
+vi.mock('../src/transport.ts', async importOriginal => ({ ...await importOriginal<typeof TransportModule>(), createTransport: mockTransport }))
 
 const config: Config = {
   transport: 'stdio', serverName: 'fixture', command: 'fixture', args: [], env: {}, cwd: '',
@@ -28,6 +31,7 @@ async function connection(factory: () => Transport, retry: boolean) {
   onTestFinished(() => ctx.fiber.dispose())
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(NativeToolExecutor)
   const errors: string[] = []
   const warns: string[] = []
   ctx.logger.error = (message: unknown) => { errors.push(String(message)) }
@@ -127,6 +131,22 @@ describe('SDK negotiation lifecycle', () => {
     await vi.waitFor(() => { expect(handle.errors.some(line => line.includes('giving up after 3'))).toBe(true) })
     expect(handle.transports).toHaveLength(4)
     expect(handle.warns.filter(line => line.includes('connection failed; retrying'))).toHaveLength(3)
+  })
+
+  it('reconnects on request after giving up, with a fresh retry budget, and ignores the request while connecting or disposed', async () => {
+    const handle = await connection(() => new StdioClientTransport({
+      command: join(fixture, 'missing-command'), env: {},
+    }), true)
+    expect((await handle.ready).error).toBeDefined()
+    await vi.waitFor(() => { expect(handle.errors.some(line => line.includes('giving up after 3'))).toBe(true) })
+    expect(handle.transports).toHaveLength(4)
+    expect(handle.reconnect()).toBe(true)
+    expect(handle.reconnect()).toBe(false)
+    await vi.waitFor(() => { expect(handle.errors.filter(line => line.includes('giving up after 3'))).toHaveLength(2) })
+    expect(handle.transports).toHaveLength(8)
+    expect(handle.status().state).toBe('failed')
+    await handle.dispose()
+    expect(handle.reconnect()).toBe(false)
   })
 
   it('stops retries when a failed probe cannot confirm transport cleanup', async () => {

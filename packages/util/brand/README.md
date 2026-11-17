@@ -5,8 +5,6 @@ kind: "package-library"
 
 # @deepseek-ai/dsh-brand
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 `dsh-brand` makes structurally identical strings or numbers non-interchangeable at the type level: a `SessionId` cannot be passed where a `ToolCallId` is expected, and an event sequence cannot be passed where a log offset is required. `brandString<T>()` and `brandNumber<T>()` apply nominal brands without shared runtime state, so owning packages can define domain types without importing an unrelated capability.
@@ -72,7 +70,6 @@ The package defines two intersection types, `string & { readonly [BRAND]: B }` a
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Branded string and number types with stateless constructors |
-| — | No runtime invariant companion is published; this pure utility owns no event stream or mutable runtime data; its value algebra is enforced by unit tests. |
 
 ### How values stay portable
 

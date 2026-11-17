@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-09-14-unattended-browser-terminal-reclamation.zh.md)
-
 ## Problem
 
 A browser can disappear without closing its terminal tabs. Keeping every abandoned terminal retains shells, descendant processes and screen buffers indefinitely. Output subscriptions do not identify abandonment: hidden tabs and inactive Sessions legitimately stop following the screen.
@@ -33,7 +31,7 @@ The Host [terminal controller](../../../../packages/api/terminal-controller/READ
 
 Cleanup awaits provider quiescence and final screen output. Failure retains ownership, rejects new holders and schedules one retry without a new idle grace. Failed allocation cleanup follows the same retry policy. Owner disposal stops timers and streams and joins cleanup and observations before reporting failures, including when cleanup rejects before an observation settles. No Agent terminal tool, model input or Session event changes.
 
-Peer research on Codex thread unloading, OpenCode Location scopes and [VS Code PTY grace periods](https://github.com/microsoft/vscode/blob/main/src/vs/platform/terminal/node/ptyService.ts) informed separate references and delayed cleanup. The two-hour value is DSH product policy, not an industry default. The [browser-terminal decision](2026-09-09-web-sidebar-terminal.md) and [layout/provider recovery decision](../architecture/2026-09-14-sidebar-layout-provider-recovery.md) remain active because their resource ownership and persistence separation still apply.
+Peer research on Codex thread unloading, OpenCode Location scopes and [VS Code PTY grace periods](https://github.com/microsoft/vscode/blob/main/src/vs/platform/terminal/node/ptyService.ts) informed separate references and delayed cleanup. The two-hour value is DSH product policy, not an industry default. The [browser-terminal decision](2026-09-09-web-sidebar-terminal.md) and [layout/provider recovery reference](../../../../packages/client/ui-sidebar-right/README.md) define the resource ownership and persistence separation used here.
 
 ## Alternatives considered
 

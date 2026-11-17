@@ -5,8 +5,6 @@ kind: "package-bundle"
 
 # `@deepseek-ai/dsh-acp-app`
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 The automation-only ACP stdio application as a `dsh` profile bundle over [`dsh-base`](../base/README.md). It inherits the base's disabled module-HMR policy; its patch sets the coding-agent persona and default model route, mounts an app-owned zero-option command provider, and starts [`dsh-acp`](../../acp/acp/README.md) only after that provider accepts the invocation. `dsh --profile acp --help` therefore writes help and exits without claiming stdin or stdout.
@@ -44,7 +42,7 @@ The complete supported method matrix, MCP trust model, update mapping, and stop 
 
 #### What the model sees
 
-The profile supplies `You are a coding agent powered by the {{model}} model.` before first-party guidance and `Your working directory is {{cwd}}.` in a separate persona suffix. The ACP row's route and each `session/new` cwd resolve the placeholders.
+The profile supplies `You are a coding agent powered by the {{model}} model.` before first-party guidance; the ACP route resolves `{{model}}`. Each Session receives its current directory in required user-role context from [`dsh-working-directory`](../../session/working-directory/README.md).
 
 #### Token effect
 
@@ -72,5 +70,3 @@ Stable for a fixed profile, provider, model, and tool roster. Profile changes ta
 None.
 
 </details>
-
-**Runtime invariant:** No companion is published. The bundle adds a process transport and startup latch; source/built stdio tests own frame purity, help exclusion, and shutdown.

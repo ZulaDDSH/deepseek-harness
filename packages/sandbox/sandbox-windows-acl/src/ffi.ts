@@ -60,6 +60,8 @@ export interface Win32Bindings extends Win32ProcessBindings {
     newToken: NativePtr,
   ): number
   setEntriesInAclW(count: number, entries: Buffer, oldAcl: NativePtr | null, newAcl: NativePtr): number
+  initializeAcl(acl: NativePtr, length: number, revision: number): number
+  addMandatoryAce(acl: NativePtr, revision: number, aceFlags: number, policy: number, sid: NativePtr): number
   setNamedSecurityInfoW(
     path: string,
     objectType: number,
@@ -67,7 +69,7 @@ export interface Win32Bindings extends Win32ProcessBindings {
     owner: null,
     group: null,
     dacl: NativePtr | null,
-    sacl: null,
+    sacl: NativePtr | null,
   ): number
   getNamedSecurityInfoW(
     path: string,
@@ -79,6 +81,8 @@ export interface Win32Bindings extends Win32ProcessBindings {
     sacl: NativePtr,
     descriptor: NativePtr,
   ): number
+  getFileSecurityW(path: string, information: number, descriptor: Buffer, length: number, needed: NativePtr): number
+  setFileSecurityW(path: string, information: number, descriptor: Buffer): number
   getTempPathW(length: number, buffer: Buffer): number
   setEnvironmentVariableW(name: string, value: string): number
   setConsoleCtrlHandler(handler: null, add: number): number
@@ -252,12 +256,18 @@ function bindings(): Win32Bindings {
       PVOID, 'uint32', 'uint32', PVOID, 'uint32', PVOID, 'uint32', PVOID, PPVOID,
     ]),
     setEntriesInAclW: bind(advapi32, 'SetEntriesInAclW', 'uint32', ['uint32', PVOID, PVOID, PPVOID]),
+    initializeAcl: bind(advapi32, 'InitializeAcl', 'int', [PVOID, 'uint32', 'uint32']),
+    addMandatoryAce: bind(advapi32, 'AddMandatoryAce', 'int', [PVOID, 'uint32', 'uint32', 'uint32', PVOID]),
     setNamedSecurityInfoW: bind(advapi32, 'SetNamedSecurityInfoW', 'uint32', [
       'str16', 'int', 'uint32', PVOID, PVOID, PVOID, PVOID,
     ]),
     getNamedSecurityInfoW: bind(advapi32, 'GetNamedSecurityInfoW', 'uint32', [
       'str16', 'int', 'uint32', PPVOID, PPVOID, PPVOID, PPVOID, PPVOID,
     ]),
+    getFileSecurityW: bind(advapi32, 'GetFileSecurityW', 'int', [
+      'str16', 'uint32', PVOID, 'uint32', koffi.pointer('uint32'),
+    ]),
+    setFileSecurityW: bind(advapi32, 'SetFileSecurityW', 'int', ['str16', 'uint32', PVOID]),
     getTempPathW: bind(kernel32, 'GetTempPathW', 'uint32', ['uint32', PVOID]),
     setEnvironmentVariableW: bind(kernel32, 'SetEnvironmentVariableW', 'int', ['str16', 'str16']),
     setConsoleCtrlHandler: bind(kernel32, 'SetConsoleCtrlHandler', 'int', [PVOID, 'int']),
@@ -270,7 +280,7 @@ function bindings(): Win32Bindings {
     unlockFileEx: bind(kernel32, 'UnlockFileEx', 'int', [
       PVOID, 'uint32', 'uint32', 'uint32', PVOID,
     ]),
-  })) as unknown as Win32Bindings
+  })) as Win32Bindings
   return cached
 }
 

@@ -279,6 +279,14 @@ export function proxyEnvironmentForChild(): Readonly<Record<string, string | und
 }
 
 /**
+ * Read the proxy values the user exported before this process normalized them.
+ * @returns each proxy name with its exported value, or `undefined` when the user never set it; empty before a policy is installed.
+ */
+export function inheritedProxyEnvironment(): Readonly<Record<string, string | undefined>> {
+  return inheritedProxyEnv ?? {}
+}
+
+/**
  * Resolve this process's proxy policy from `env` and install it.
  *
  * Resolution, reporting, and installation are one operation because no caller needs them apart: the

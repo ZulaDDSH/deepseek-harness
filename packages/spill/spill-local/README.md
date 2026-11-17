@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-spill-local
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 `dsh-spill-local` saves a caller's oversized text to a private, session-scoped file on the host filesystem and returns that file's path as the locator, with retrieval guidance telling the model to read or grep it. Mount it whenever a composition needs spill storage on the same machine the agent runs on. Files are private to the current user, names are unpredictable, and each session's files group under a stable directory, so a shared root cannot leak output or be redirected by a planted symlink. Configuration selects the root and the startup-cleanup retention period; previews and spill decisions live in other packages.
@@ -85,7 +83,6 @@ The backend owns storage details only, on one principle: **a spilled artifact mu
 | [`src/index.ts`](src/index.ts) | Plugin entry: `Config`, the `LocalSpillStore` service, cleanup lifecycle, locator and retrieval-hint assembly |
 | [`src/cleanup.ts`](src/cleanup.ts) | One-shot age sweep, filesystem-identity checks, symlink and ownership safeguards |
 | [`src/store.ts`](src/store.ts) | Cordis-free storage mechanics: private root, session directory, safe-name encoding, exclusive write |
-| — | No runtime invariant companion is published; this package exposes no independent event sequence or mutable data relation beyond contracts enforced at its owning seam. |
 
 ### File naming and write
 

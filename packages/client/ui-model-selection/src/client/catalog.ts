@@ -1,7 +1,7 @@
 /** One Host-generation model catalog shared by every Session selector. */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-import type { ModelCatalog } from '@deepseek-ai/dsh-api-remotes/client'
+import type { ModelCatalog, ModelSelection, ModelProviderGroup } from '@deepseek-ai/dsh-api-remotes/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 
 /** Observable lifecycle of the shared model catalog. */
@@ -19,6 +19,26 @@ export class ModelCatalogDirectory {
     status: 'idle',
     error: null,
   })
+
+  private readonly models = new Map<string, ModelProviderGroup['models'][number]>()
+
+  /**
+   * Read the reasoning metadata cached from the last advertised catalog, including unavailable models.
+   * @param selection - provider and model whose effort is displayed.
+   * @returns reasoning metadata observed during this Host generation.
+   */
+  reasoningFor(selection: ModelSelection): ModelProviderGroup['models'][number]['reasoning'] {
+    return this.models.get(JSON.stringify([selection.provider, selection.model]))?.reasoning
+  }
+
+  /**
+   * Last advertised display name for one exact model this Host generation, including unavailable models.
+   * @param selection - provider and model.
+   * @returns the catalog name, if seen.
+   */
+  nameFor(selection: ModelSelection): string | undefined {
+    return this.models.get(JSON.stringify([selection.provider, selection.model]))?.name
+  }
 
   private generation = 0
   private inflight: Promise<ModelCatalog> | undefined
@@ -47,6 +67,11 @@ export class ModelCatalogDirectory {
         throw new Error(`${response.error.code}: ${response.error.message}`)
       }
       if (generation === this.generation) {
+        for (const group of response.value.groups) {
+          for (const model of group.models) {
+            this.models.set(JSON.stringify([group.id, model.id]), model)
+          }
+        }
         this.store.set({ value: response.value, status: 'ready', error: null })
       }
       return response.value
@@ -84,6 +109,7 @@ export class ModelCatalogDirectory {
 
   /** Clear Host-specific values and load the replacement Host generation. */
   resetGeneration(): void {
+    this.models.clear()
     this.invalidate(true)
     void this.load().catch(() => { /* the selector exposes the shared error */ })
   }

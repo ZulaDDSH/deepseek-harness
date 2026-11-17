@@ -15,6 +15,9 @@
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../../../vendor/schemastery"
+    },
+    {
       "path": "../../core/tools"
     },
     {
@@ -27,7 +30,7 @@
       "path": "../../session/session-projection"
     },
     {
-      "path": "../../runtime-diagnostics/invariants"
+      "path": "../../interaction/commands"
     }
   ]
 }

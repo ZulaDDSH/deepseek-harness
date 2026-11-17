@@ -9,6 +9,8 @@
  * `rankByName`). A host/contribution name collision fails loud. Every
  * execute addresses the session's agent by sessionId — sessions are always
  * agent-backed.
+ * Catalog RPCs retain an existing Client Session through completion and
+ * wait for its initial history open to succeed before contacting the Host.
  */
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
@@ -33,6 +35,13 @@ import { PopupSelectController } from './popup.ts'
 import { builtinRowFace, sectionRows } from './presentation.ts'
 import { claimToken } from './resolution.ts'
 import type { TokenSegment } from './popup.ts'
+
+declare module '@deepseek-ai/dsh-api-session-controller/client' {
+  interface SessionReferenceSourceMap {
+    /** A command-catalog fetch waiting for initial history and its RPC result. */
+    commandCatalog: unknown
+  }
+}
 
 declare module '@deepseek-ai/cordis' {
   interface Events {
@@ -86,10 +95,20 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
     if (locale === undefined) throw new Error('ui-commands: locale service unavailable')
     this.t = locale.bind('command')
     this.directory = new CommandDirectory(async (sessionId) => {
-      if (this.sessions().subagentAddress(sessionId) !== undefined) return []
-      const result = await ctx.remote.commands.list(sessionId)
-      if (!result.ok) throw new Error(`command.list failed: ${result.error.code}: ${result.error.message}`)
-      return result.value
+      const sessions = this.sessions()
+      if (sessions.subagentAddress(sessionId) !== undefined) return []
+      if (sessions.binding(sessionId) === undefined) {
+        throw new Error(`command catalog requires a retained session "${sessionId}"`)
+      }
+      return sessions.using(sessionId, { source: 'commandCatalog' }, async (reference) => {
+        const state = reference.binding.session.getSnapshot()
+        if (state.openState !== 'open') {
+          throw state.openError ?? new Error(`session "${sessionId}" is not open`)
+        }
+        const result = await ctx.remote.commands.list(sessionId)
+        if (!result.ok) throw new Error(`command.list failed: ${result.error.code}: ${result.error.message}`)
+        return result.value
+      })
     })
     const inputTriggers = ctx.get('inputTriggers')
     if (inputTriggers === undefined) throw new Error('ui-commands: slash service unavailable')
@@ -99,6 +118,7 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
       candidates: (session, req) => this.candidates(session, req),
       onPick: pick => this.dispatch(pick),
       matchSpace: (session, token) => this.matchSpace(session, token),
+      matchClaim: (session, token, signal) => this.matchClaim(session, token, signal),
       matchEnter: (session, line, signal, envelope) => this.matchEnter(session, line, signal, envelope),
       warm: (session) => { this.directory.warm(session.sessionId) },
     }), 'command: slash source')
@@ -172,18 +192,12 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
           : 'run',
       })
     }
-    for (const contribution of this.live.contributions.values()) {
-      if (!contribution.available(session)) continue
-      if (seen.has(contribution.name)) {
-        throw new Error(`ui-commands: contribution /${contribution.name} collides with a host command`)
-      }
+    this.forEachAvailableContribution(session, seen, (contribution) => {
       rows.push({
-        name: contribution.name,
-        ...(contribution.label === undefined ? {} : { label: contribution.label() }),
-        ...(contribution.description === undefined ? {} : { description: contribution.description() }),
+        ...this.contributionRowBase(contribution),
         kind: contribution.ui.kind === 'popupSelect' ? 'popup' : 'run',
       })
-    }
+    })
     return query === '' ? rows : rankByName(rows, query)
   }
 
@@ -278,20 +292,37 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
         ...(c.input !== undefined ? { hint: c.input.hint } : {}),
       })
     }
+    this.forEachAvailableContribution(session, seen, (contribution) => {
+      rows.push({
+        ...this.contributionRowBase(contribution),
+        ...(contribution.icon === undefined ? {} : { icon: contribution.icon }),
+      })
+    })
+    const visible = rows.filter(c => req.position === 'leading' || c.hint === undefined)
+    return req.query === '' ? sectionRows(visible, this.t) : rankByName(visible, req.query)
+  }
+
+  private forEachAvailableContribution(
+    session: ClientSessionContext,
+    seen: Set<string>,
+    visit: (contribution: CommandContribution) => void,
+  ): void {
     for (const contribution of this.live.contributions.values()) {
       if (!contribution.available(session)) continue
       if (seen.has(contribution.name)) {
         throw new Error(`ui-commands: contribution /${contribution.name} collides with a host command`)
       }
-      rows.push({
-        name: contribution.name,
-        ...(contribution.label === undefined ? {} : { label: contribution.label() }),
-        ...(contribution.description === undefined ? {} : { description: contribution.description() }),
-        ...(contribution.icon === undefined ? {} : { icon: contribution.icon }),
-      })
+      seen.add(contribution.name)
+      visit(contribution)
     }
-    const visible = rows.filter(c => req.position === 'leading' || c.hint === undefined)
-    return req.query === '' ? sectionRows(visible, this.t) : rankByName(visible, req.query)
+  }
+
+  private contributionRowBase(contribution: CommandContribution): Pick<InputTriggerCandidate, 'name' | 'label' | 'description'> {
+    return {
+      name: contribution.name,
+      ...(contribution.label === undefined ? {} : { label: contribution.label() }),
+      ...(contribution.description === undefined ? {} : { description: contribution.description() }),
+    }
   }
 
   /** Decision table, menu column: contribution/decorated-host → popup or action; host input → claim; host bare → detached execute. */
@@ -322,11 +353,27 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
 
   /** Decision table, space column: hot-key sync check; only host leadingInput claims. */
   private matchSpace(session: ClientSessionContext, token: string): PickOutcome {
+    const claim = this.claimOf(session, token)
+    return claim === undefined ? undefined : { claim }
+  }
+
+  /**
+   * Restore column: the space column's answer once the session's catalog is
+   * ready (a warmup failure rejects). It only resolves; nothing is invoked or
+   * executed.
+   */
+  private async matchClaim(session: ClientSessionContext, token: string, signal: AbortSignal): Promise<CommandClaim | undefined> {
+    await this.directory.ensureReady(session.sessionId, signal)
+    return this.claimOf(session, token)
+  }
+
+  /** The host leadingInput claim a token names in the hot catalog; popup and action kinds never claim. */
+  private claimOf(session: ClientSessionContext, token: string): CommandClaim | undefined {
     if (!token.startsWith('/')) return undefined
-    if (this.live.contributions.has(token.slice(1))) return undefined // popup and action kinds never claim on space
+    if (this.live.contributions.has(token.slice(1))) return undefined
     const desc = this.directory.resolve(session.sessionId, token.slice(1))
     if (desc === undefined || desc.input === undefined) return undefined
-    return { claim: this.leadingClaim(desc, session, token.slice(1)) }
+    return this.leadingClaim(desc, session, token.slice(1))
   }
 
   /**

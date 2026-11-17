@@ -5,11 +5,9 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-session-query-sqlite
 
-English | [中文](README.zh.md)
-
 ## Summary
 
-Use this package to add ranked SQLite FTS5 search across session history, either across sessions or within one session, with cursor pagination. It indexes live and persisted history in a separate derived database, so searches reflect current state without modifying the session-persistence store. Exact reads, filters, and traces remain available through the same query API. Search is opt-in in shipped compositions; configure `openAt` to open the index at startup, on first search, or never. Results match tokens and phrases rather than arbitrary substrings, and each index path has a single process owner.
+Use this package to add ranked SQLite FTS5 search across or within session history, with cursor pagination. It indexes live and persisted history in a separate derived database, leaving the session-persistence store unmodified. Exact reads, filters, and traces remain available through the same query API. Search is off in the base composition and deferred to the first search in the shipped Web bundle; configure `openAt` to open the index at startup, on first search, or never. Results match tokens and phrases, not arbitrary substrings, and each index path has one process owner.
 
 ## Table of Contents
 
@@ -44,6 +42,7 @@ Choose it when you want full-text recall over prior sessions with ranking and pa
 |---|---|---|
 | `path` | required | Dedicated derived-index SQLite path, or `:memory:`; missing paths are created owner-only on POSIX |
 | `openAt` | `startup` | `startup` opens at activation; `first-search` defers the SQLite module until the first search; `never` disables full-text search while inherited reads stay available |
+| `contentSearch` | `true` | Volatile. `false` turns full-text search off: searches fail with `SESSION_QUERY_SEARCH_DISABLED` and the index files are deleted at the next start |
 | `journalMode` | `wal` | `wal`, `delete`, `truncate`, or `persist` |
 | `defaultLimit` | `20` | Page size when a request omits `limit` |
 | `maxLimit` | `100` | Largest accepted request page size |
@@ -98,7 +97,6 @@ The design history lives in the [SQLite FTS5 session search note](../../../.agen
 | [`src/index.ts`](src/index.ts) | Service: config, openAt lifecycle, serialized reconciliation, query execution, cursors |
 | [`src/query.ts`](src/query.ts) | Request normalization, parameterized predicates, snippets, predicate and binding budgets |
 | [`src/schema.ts`](src/schema.ts) | Database schema, application-id ownership, in-place reset, owner-only file creation |
-| — | No runtime invariant companion is published; reconciliation, cursor generations, and derived-index ownership are validated at each serialized query boundary. |
 
 ### Index lifecycle
 
@@ -119,7 +117,7 @@ Read these pages when the package-level contract is not enough. They move from t
 
 - [Session Query subsystem reference](../../../docs/subsystems/session-query.md) — the full type-level contract this backend implements.
 - [dsh-session-query](../session-query/README.md) — the service definition: exact reads, filters, and traces this backend inherits.
-- [dsh-tool-session-query](../tool-session-query/README.md) — the model-facing consumer that calls these search methods.
+- [dsh-tool-session-query](../../experimental/tool-session-query/README.md) — the model-facing consumer that calls these search methods.
 - [SQLite FTS5 session search](../../../.agents/notes/archived/feature/2026-07-10-sqlite-session-query-provider.md) — search semantics, reconciliation, and the tokenizer decision.
 - [JSONL session persistence](../../session/session-persistence-jsonl/README.md) — the authoritative Session store this disposable index observes; keep its root separate from this package's database path.
 
@@ -145,6 +143,7 @@ These limits define when this package is a poor fit or needs special operational
 - **Synchronous query execution** — `DatabaseSync` blocks the JavaScript thread during MATCH execution and cannot interrupt a statement already running.
 - **Token recall, not arbitrary substrings** — the `unicode61` tokenizer does not match substrings inside a larger token; use `filterEvents()` for literal scans.
 - **Single-owner derived index** — one service in one process must own each index path; external writers and multi-process sharing are unsupported.
+- **Privacy: plaintext copy of session text** — the index stores message text unencrypted in `path`, separate from the session logs. Turning `contentSearch` off refuses searches at once and deletes the index files (the database, `-wal`, `-shm`, `-journal`) at the next start; a live off does not delete them until then. Deleting a session drops its rows on the next search, but SQLite does not shrink the file.
 
 <a id="dev-note"></a>
 ### Dev Note

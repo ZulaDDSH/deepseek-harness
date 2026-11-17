@@ -4,6 +4,8 @@
  * cap, the stability-window budget reset, and disposal stopping reconnection.
  * Isolated file so vi.mock of the MCP SDK doesn't pollute other test suites.
  */
+import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -56,7 +58,8 @@ vi.mock('@modelcontextprotocol/client/stdio', () => ({
 // vi.mock is hoisted above static imports, so the modules under test see the
 // mocked SDK even through a static import.
 import { apply } from '@deepseek-ai/dsh-mcp-client/src/index.ts'
-import { RECONNECT_DEFAULTS, resolveReconnectPolicy, startConnection } from '@deepseek-ai/dsh-mcp-client/src/connection.ts'
+import { startConnection } from '@deepseek-ai/dsh-mcp-client/src/connection.ts'
+import { RECONNECT_DEFAULTS, resolveReconnectPolicy } from '@deepseek-ai/dsh-mcp-client/src/reconnect-policy.ts'
 
 // ---- Helpers ----
 
@@ -66,6 +69,7 @@ async function mountRegistry(): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(NativeToolExecutor)
   return ctx
 }
 
@@ -164,7 +168,7 @@ describe('reconnect supervisor', () => {
       mockConnect.mockImplementationOnce(() => reconnectGate.promise)
       instances[0]!.onclose?.()
       await vi.waitFor(() => { expect(instances).toHaveLength(2) })
-      const result = await ctx.tools.execute({
+      const result = await executeToolFixture(ctx, {
         name: 'list_mcp_resources', arguments: { server: 'srv' },
         callId: nextCallId(), signal: testToolSignal,
       })
@@ -172,6 +176,37 @@ describe('reconnect supervisor', () => {
       expect(JSON.stringify(result.content)).toContain('server is disconnected')
     } finally {
       reconnectGate.resolve()
+      await handle.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('reports a failure that is not an Error, cut to a readable length', async () => {
+    mockConnect.mockRejectedValue('x'.repeat(500))
+    const config = stdioConfig({ enabled: false })
+    const handle = startConnection(ctx, config, resolveReconnectPolicy(config.reconnect, 'reconnect'))
+    try {
+      await handle.ready
+      expect(handle.status()).toEqual({ state: 'failed', toolCount: 0, error: 'x'.repeat(300) })
+    } finally {
+      await handle.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('reports connecting, not the previous failure, while a reconnect attempt is in flight', async () => {
+    const gate: PromiseWithResolvers<void> = Promise.withResolvers()
+    mockConnect.mockRejectedValueOnce(new Error('first attempt failed'))
+    mockConnect.mockImplementationOnce(() => gate.promise)
+    const config = stdioConfig({ initialDelayMs: 2, maxDelayMs: 8, maxAttempts: 3 })
+    const handle = startConnection(ctx, config, resolveReconnectPolicy(config.reconnect, 'reconnect'))
+    try {
+      await handle.ready
+      expect(handle.status()).toEqual({ state: 'failed', toolCount: 0, error: 'first attempt failed' })
+      await vi.waitFor(() => { expect(mockConnect).toHaveBeenCalledTimes(2) })
+      expect(handle.status()).toEqual({ state: 'connecting', toolCount: 0 })
+    } finally {
+      gate.resolve()
       await handle.dispose()
       await ctx.fiber.dispose()
     }
@@ -194,7 +229,7 @@ describe('reconnect supervisor', () => {
     expect(mockConnect).toHaveBeenCalledTimes(2)
 
     // Post-recovery calls execute through the re-registered definition.
-    const result = await ctx.tools.execute({
+    const result = await executeToolFixture(ctx, {
       signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__srv__revived', arguments: {},
     })
@@ -288,6 +323,7 @@ describe('reconnect supervisor', () => {
 
       const applying = apply(ctx, stdioConfig({ initialDelayMs: 2, maxDelayMs: 8, maxAttempts: 2 }))
       await vi.advanceTimersByTimeAsync(5_000)
+      await vi.advanceTimersByTimeAsync(5_000)
       await applying
 
       expect(instances).toHaveLength(1)
@@ -358,6 +394,7 @@ describe('reconnect supervisor', () => {
       const disposing = handle.dispose()
       await vi.advanceTimersByTimeAsync(5_000)
       gate.resolve()
+      await vi.advanceTimersByTimeAsync(5_000)
       await vi.advanceTimersByTimeAsync(5_000)
       await disposing
 

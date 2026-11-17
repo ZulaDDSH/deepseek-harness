@@ -8,7 +8,8 @@ import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-session-query'
 import type { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
-import { CHANGES_DIFF_PATH, CHANGES_OPEN_PATH, CHANGED_FILES_PATH, type ChangesSummary } from './changes.ts'
+import type { WorkspaceId } from '@deepseek-ai/dsh-workspace'
+import { CHANGES_DIFF_PATH, CHANGES_OPEN_PATH, CHANGED_FILES_PATH, WORKSPACE_DIFF_PATH, WORKSPACE_STATUS_PATH, type ChangesSummary, type WorkspaceStatusValue } from './changes.ts'
 import { isPresentedData, isPresentedFile, PRESENT_OPEN_PATH, PRESENT_HOST_PATH, type PresentedHost } from './presented.ts'
 
 /**
@@ -23,9 +24,10 @@ export function registerPresentOpen(ctx: Context): void {
     fetch: () => Promise.resolve(Response.json(ctx.sessionController.workspaceDesktop() satisfies PresentedHost,
       { headers: { 'cache-control': 'no-store' } })),
   })
+
   ctx.connection.fetch.register({
     path: CHANGED_FILES_PATH, methods: ['GET'], requestBody: 'buffered',
-    fetch: request => Promise.resolve(handleChangesSummary(ctx, request)),
+    fetch: request => handleChangesSummary(ctx, request),
   })
   const lifetime = new AbortController()
   const pending = new Set<Promise<Response>>()
@@ -34,12 +36,13 @@ export function registerPresentOpen(ctx: Context): void {
     await Promise.allSettled(pending)
   })
   const routes = [
-    [PRESENT_OPEN_PATH, 'POST', handlePresentOpen], [CHANGES_OPEN_PATH, 'POST', handleChangesOpen], [CHANGES_DIFF_PATH, 'GET', handleChangesDiff],
+    [PRESENT_OPEN_PATH, ['GET', 'POST'], handlePresentOpen], [CHANGES_OPEN_PATH, ['GET', 'POST'], handleChangesOpen], [CHANGES_DIFF_PATH, ['GET'], handleChangesDiff],
+    [WORKSPACE_STATUS_PATH, ['GET'], handleWorkspaceStatus], [WORKSPACE_DIFF_PATH, ['GET'], handleWorkspaceDiff],
   ] as const
-  for (const [path, method, handler] of routes) {
+  for (const [path, methods, handler] of routes) {
     ctx.connection.fetch.register({
       path,
-      methods: [method],
+      methods: [...methods],
       requestBody: 'buffered',
       fetch: (request) => {
         const task = handler(ctx, new Request(request, {
@@ -91,7 +94,13 @@ async function openVerified(ctx: Context, request: Request, path: string, action
     return new Response('Path has no verified Host path.', { status: 422 })
   }
   request.signal.throwIfAborted()
-  await ctx.sessionController.openWorkspacePath({ path, ...(action === 'reveal' ? { action } : {}) }, request.signal)
+  if (request.method === 'GET') {
+    return Response.json(await ctx.sessionController.workspacePathApplications({ path }, request.signal),
+      { headers: { 'cache-control': 'no-store' } })
+  }
+  const application = new URL(request.url).searchParams.get('application')
+  await ctx.sessionController.openWorkspacePath({ path, ...(action === 'reveal' ? { action }
+    : application === null ? {} : { application }) }, request.signal)
   return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } })
 }
 
@@ -121,13 +130,42 @@ async function handlePresentOpen(ctx: Context, request: Request): Promise<Respon
   }
 }
 
-/** The summary one `workspace/changes` event announced, without the Host working directory; 404 once the Host no longer serves it. */
-function handleChangesSummary(ctx: Context, request: Request): Response {
+/** Read current git status for one registered Workspace. */
+async function handleWorkspaceStatus(ctx: Context, request: Request): Promise<Response> {
+  const workspaceId = new URL(request.url).searchParams.get('workspaceId')
+  if (!workspaceId) return new Response('Invalid workspace status coordinates.', { status: 400 })
+  try {
+    const status = await ctx.workspaceChanges.status(workspaceId as WorkspaceId, request.signal)
+    if (status === undefined) return new Response('Workspace status unavailable.', { status: 404 })
+    const { cwd: _cwd, root: _root, ...value } = status
+    return Response.json({ workspaceId: workspaceId as WorkspaceId, ...value } satisfies WorkspaceStatusValue, { headers: { 'cache-control': 'no-store' } })
+  } catch (error: unknown) {
+    request.signal.throwIfAborted()
+    return new Response('Workspace status unavailable.', { status: failureStatus(error) })
+  }
+}
+
+/** Read current git comparison for one status-file index. */
+async function handleWorkspaceDiff(ctx: Context, request: Request): Promise<Response> {
+  const query = new URL(request.url).searchParams
+  const workspaceId = query.get('workspaceId')
+  const index = coordinate(query.get('index'))
+  if (!workspaceId || index === undefined) return new Response('Invalid workspace diff coordinates.', { status: 400 })
+  try {
+    const diff = await ctx.workspaceChanges.workspaceDiff(workspaceId as WorkspaceId, index, request.signal)
+    if (diff === undefined) return new Response('Workspace comparison unavailable.', { status: 404 })
+    return Response.json(diff, { headers: { 'cache-control': 'no-store' } })
+  } catch (error: unknown) {
+    request.signal.throwIfAborted()
+    return new Response('Workspace comparison unavailable.', { status: failureStatus(error) })
+  }
+}
+async function handleChangesSummary(ctx: Context, request: Request): Promise<Response> {
   const query = new URL(request.url).searchParams
   const id = query.get('sessionId')
   const seq = coordinate(query.get('seq'))
   if (!id || seq === undefined) return new Response('Invalid change summary coordinates.', { status: 400 })
-  const summary = ctx.workspaceChanges.summary(id as SessionId, seq)
+  const summary = await ctx.workspaceChanges.summary(id as SessionId, seq)
   if (summary === undefined) return new Response('Change summary unavailable.', { status: 404 })
   const { turn, files, total, added, deleted } = summary
   return Response.json({ turn, files, total, added, deleted } satisfies ChangesSummary, { headers: { 'cache-control': 'no-store' } })
@@ -159,19 +197,21 @@ async function handleChangesDiff(ctx: Context, request: Request): Promise<Respon
 }
 
 async function handleChangesOpen(ctx: Context, request: Request): Promise<Response> {
+  const action = new URL(request.url).searchParams.get('action') ?? 'open'
+  if (action !== 'open' && action !== 'reveal') return new Response('Invalid file action.', { status: 400 })
   const coordinates = changedFileCoordinates(request)
   if (coordinates instanceof Response) return coordinates
   const { id, seq, index } = coordinates
   try {
     request.signal.throwIfAborted()
     if (!ctx.sessionController.workspaceDesktop().available) return new Response('Host desktop unavailable.', { status: 409 })
-    const changes = ctx.workspaceChanges.summary(id, seq)
+    const changes = await ctx.workspaceChanges.summary(id, seq)
     if (changes === undefined) return new Response('Change summary unavailable.', { status: 404 })
     const workspaceRoot = changes.cwd
     const file = changes.files[index]
     if (file === undefined) return new Response('Changed file not found in this summary.', { status: 404 })
     const { absolutePath: path } = await ctx.workspaceFiles.stat({ sessionId: id, workspaceRoot }, file.path, request.signal)
-    return await openVerified(ctx, request, path, 'open')
+    return await openVerified(ctx, request, path, action)
   } catch (error: unknown) {
     request.signal.throwIfAborted()
     return new Response('Changed file unavailable.', { status: failureStatus(error) })

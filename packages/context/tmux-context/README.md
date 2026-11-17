@@ -5,8 +5,6 @@ kind: "package-reference"
 
 # @deepseek-ai/dsh-tmux-context
 
-English | [中文](README.zh.md)
-
 ## Summary
 
 `dsh-tmux-context` lets the model identify the tmux session, window, pane, and pane-tree layout containing its agent process. It adds a durable, source-attributed reading on the first step of a turn only when that location changed. Terminals that merely inherit tmux environment variables without running in the named pane add nothing; failed queries also add nothing and do not fail the turn. This package is opt-in and is not included in the shipped Web or headless profiles.
@@ -70,9 +68,10 @@ The plugin prepends an `agent/pre-step` listener that runs only on the first ste
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: first-step listener, shell query, change suppression, scheduling |
-| — | No runtime invariant companion is published; a reading is a per-turn snapshot of external tmux state, so the session holds no cross-event relation to check; scheduling and format are owned by pipeline tests. |
 
 ### Main flow
+
+The pre-step listener is installed before awaiting projection registration. Steps arriving during activation wait for the reader; registration failure or owner disposal stops the request, and cancellation while waiting performs no shell query or context injection.
 
 At the first step of a turn, the listener checks whether an injection is due, queries the location through `ctx.shell`, and compares the rendered state with the latest durable injection of this source. Change suppression and interval scheduling scan the raw durable session events, so the schedule survives compaction and resumed processes without process-local cache state; sessions schedule independently. A downstream pre-step listener that rejects or fails prevents the reading from being recorded.
 

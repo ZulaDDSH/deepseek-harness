@@ -2,8 +2,6 @@
 
 Status: implemented
 
-English | [中文](2026-09-10-public-package-manifest.zh.md)
-
 ## Problem
 
 Plugin authors need npm identity, runtime requirements, and DSH declarations from one public import. Internal image-packaging, Session catalog, and generated proxy metadata do not define extension points for community plugins. Exposing those fields together makes internal mechanisms appear available to external authors.
@@ -14,7 +12,7 @@ Plugin authors need npm identity, runtime requirements, and DSH declarations fro
 
 Runtime requirements live at top-level `engines`: `dsh`, `node`, and `npm` are optional version strings, and other engine names are allowed. `dsh.manifestVersion` identifies declaration format `1`. Format and DSH compatibility declarations are not enforced by current installers or loaders.
 
-The image packer owns `configTrees`, the workspace catalog generator owns Session migration declarations, and app-boot owns generated module-fallback metadata. Their existing on-disk keys remain readable by those internal tools, but the public manifest types do not expose them. This scope refines the [shared declaration ownership decision](2026-09-05-package-manifest-types.md), whose package placement and dependency rules remain active.
+The image packer owns `configTrees`, and the workspace catalog generator owns Session migration declarations. Their existing on-disk keys remain readable by those internal tools, but the public manifest types do not expose them.
 
 Each consumer owns JSON parsing, field validation, default resolution, and adaptation to runtime data. Interfaces do not validate parsed JSON. A helper belongs in the shared package only when multiple consumers need the same validation or normalization; getters that repeat property access add no shared policy.
 

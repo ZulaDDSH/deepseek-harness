@@ -3,7 +3,7 @@
  * stays valid, the consolidated `dsh-doc` skill carries no stale copied
  * website values or prototype-era language, and the kind system maps each
  * label to exactly one skill template. Session release records match the
- * writer bound, bilingual counterpart, and evidence links. These run in `pnpm run test` and
+ * writer bound and evidence links. These run in `pnpm run test` and
  * `pnpm run test:docs` to guard the standard between heavier corpus gates.
  * @module scripts/doc-standard.spec
  */
@@ -17,11 +17,8 @@ import { readCurrentSessionFormatVersion } from './gen-session-format-catalog.ts
 const root = resolve(import.meta.dirname, '..')
 const PACKAGE_README_GLOBS = [
   'packages/README.md',
-  'packages/README.zh.md',
   'packages/*/README.md',
-  'packages/*/README.zh.md',
   'packages/*/*/README.md',
-  'packages/*/*/README.zh.md',
 ] as const
 
 function packageReadmes(): string[] {
@@ -45,6 +42,7 @@ const KIND_TEMPLATES: Readonly<Record<string, string>> = {
   'persistence-change': '.agents/skills/dsh-doc/templates/persistence-change.md',
   'persistence-release': '.agents/skills/dsh-doc/templates/persistence-release.md',
   'persistence-format': '.agents/skills/dsh-doc/templates/persistence-format.md',
+  'upgrade-guide': '.agents/skills/dsh-doc/templates/upgrade-guide.md',
 }
 
 /**
@@ -54,9 +52,11 @@ const KIND_TEMPLATES: Readonly<Record<string, string>> = {
  * library; the check re-derives the entry shape so a stale entry fails loud.
  */
 const PACKAGE_LIBRARIES: Readonly<Record<string, string>> = {
+  'packages/util/file-drag': 'File naming and native transfer declarations without a plugin entry.',
   'packages/experimental/browser-use-runtime': 'Provider-owned browser resource management and MCP integration helpers; no plugin entry.',
   'packages/boot/app-boot': 'Boot library the app bins import; plain helper exports.',
   'packages/boot/cmdline': 'Command-line library the app bins import; plain module exports.',
+  'packages/util/official-bundles': 'Bundle-list data library the launcher and plugin manager import; plain constant exports.',
   'packages/client/store': 'Browser-side state primitives; plain function/type exports.',
   'packages/client/ui-primitives': 'Browser-side UI component library; plain component exports.',
   'packages/client/ui-slots': 'Browser-side slot-map declarations; plain type exports.',
@@ -64,21 +64,24 @@ const PACKAGE_LIBRARIES: Readonly<Record<string, string>> = {
   'packages/core/scope': 'Scoped-context primitives; exports functions and types without a plugin entry.',
   'packages/experimental/webworker-packer': 'Build-time VFS image packer and command library.',
   'packages/experimental/webworker-runtime': 'Browser worker runtime library with explicit host entry points.',
-  'packages/hooks/hook-protocol': 'Shared wire-protocol library between the hook bridges.',
+  'packages/experimental/hook-protocol': 'Shared wire-protocol library between the hook bridges.',
+  'packages/experimental/liveshare-protocol': 'Shared wire frames and identity contract; plain module exports with no plugin entry.',
   'packages/identity/anonymous-user-id': 'Harness-home identity helper with no plugin registration.',
   'packages/sandbox/sandbox-windows-acl': 'Windows ACL sandbox library consumed by sandbox-local.',
   'packages/sdk/client': 'Client-process library; the spawned runtime owns plugin behavior.',
   'packages/sdk/protocol': 'Wire-protocol library with type declarations only.',
+  'packages/ssh/ssh-helper-runtime': 'Private executable entry consumed by the packaging pipeline; no Cordis plugin export.',
   'packages/session/session-format': 'Pure Session format planning, codec dispatch, and lossless JSON library.',
   'packages/session/session-format-catalog': 'Generated build-static Session format inventory with no plugin registration.',
   'packages/session/session-format-v0-to-v1': 'Pure released-v0 codec and adjacent migration library.',
   'packages/session/session-format-v2-to-v3': 'Pure released-v2 codec and adjacent migration library.',
+  'packages/session/session-format-v3-to-v4': 'Released V3 codec reuse and adjacent migration library.',
   'packages/session/session-telemetry': 'Telemetry Service Definition and capture library; providers mount the backend.',
   'packages/session/session-title-llm': 'Shared LLM title-provider registration and request policy.',
-  'packages/subagent/subagent-in-process-driver': 'Shared one-shot child-agent driver used by provider plugins.',
   'packages/subprocess/win32-process': 'Low-level Win32 process and Job Object primitives.',
   'packages/test-support/session-snapshot': 'Test infrastructure; mounts nothing into a product composition.',
   'packages/test-support/agent-loop-testkit': 'Test helper library; mounts nothing into a product composition.',
+  'packages/test-support/tool-testkit': 'Tool fixture library; exports helpers without a plugin entry.',
   'packages/test-support/client-runtime': 'Browser-side test infrastructure.',
   'packages/test-support/llm-mock-server': 'Test server library; substitutes provider wire behavior.',
   'packages/test-support/loader-smoke': 'Test harness library; mounts nothing into a product composition.',
@@ -90,12 +93,16 @@ const PACKAGE_LIBRARIES: Readonly<Record<string, string>> = {
   'packages/util/crypto': 'Zero-dependency identifier minting utility.',
   'packages/util/deque': 'Zero-dependency circular deque utility.',
   'packages/util/chunked-list': 'Persistent collection operations and checkpoint validation without a plugin surface.',
+  'packages/util/code-language': 'Zero-dependency file-extension to syntax-highlighting language table.',
+  'packages/fs/fs-patch': 'Pure patch parsing and hunk application without plugin registration or filesystem I/O.',
   'packages/util/home-paths': 'Zero-dependency harness-home path resolver.',
   'packages/util/launch-environment': 'Zero-dependency environment resolver.',
   'packages/util/lazy-require': 'Caller-relative CommonJS-compatible dependency loader.',
   'packages/util/native-command': 'Host-side subprocess runner utility.',
   'packages/util/output-retention': 'Zero-dependency retention utility.',
   'packages/util/package-manifest': 'Shared package manifest declarations with type-only exports.',
+  'packages/util/plugin-detail': 'Plugin detail document library.',
+  'packages/util/plugin-market-index': 'Plugin market index validation library.',
   'packages/util/time': 'Zero-dependency time-zone canonicalization utility.',
   'packages/util/timeout': 'Zero-dependency timeout utility.',
   'packages/util/values': 'Stateless lossless-JSON and immutable-value helpers.',
@@ -146,11 +153,8 @@ function packageReadmeMetadataErrors(file: string, metadata: Record<string, unkn
   return errors
 }
 
-function packageReadmeStructureErrors(file: string, source: string): string[] {
-  const chinese = file.endsWith('.zh.md')
-  const required = chinese
-    ? [[/^## 概述$/m, '概述'], [/^## 目录$/m, '目录'], [/^#{2,3} 开发备注$/m, '开发备注']] as const
-    : [[/^## Summary$/m, 'Summary'], [/^## Table of Contents$/m, 'Table of Contents'], [/^#{2,3} Dev Note$/m, 'Dev Note']] as const
+function packageReadmeStructureErrors(source: string): string[] {
+  const required = [[/^## Summary$/m, 'Summary'], [/^## Table of Contents$/m, 'Table of Contents'], [/^#{2,3} Dev Note$/m, 'Dev Note']] as const
   return required.flatMap(([pattern, label]) => pattern.test(source) ? [] : [`missing ${label}`])
 }
 
@@ -207,11 +211,11 @@ function releaseDocument(body: string, evidence: string): string {
 }
 
 describe('Session format release authority', () => {
-  it('keeps bilingual release metadata consistent with the writer and tagged evidence', () => {
-    const records = ['docs/session-format-status.md', 'docs/session-format-status.zh.md'].map(file =>
-      validateSessionFormatRelease(readFileSync(resolve(root, file), 'utf8'), readCurrentSessionFormatVersion(root)),
-    )
-    expect(records[0]).toEqual(records[1])
+  it('keeps release metadata consistent with the writer and tagged evidence', () => {
+    expect(() => validateSessionFormatRelease(
+      readFileSync(resolve(root, 'docs/session-format-status.md'), 'utf8'),
+      readCurrentSessionFormatVersion(root),
+    )).not.toThrow()
   })
 
   it('accepts a released writer and a newer development writer, including format zero', () => {
@@ -298,7 +302,7 @@ describe('dsh-doc skill consolidation', () => {
   it('carries no prototype-era language', () => {
     const files = [
       '.agents/skills/dsh-doc/SKILL.md',
-      '.agents/skills/dsh-doc/references/metadata-links-i18n.md',
+      '.agents/skills/dsh-doc/references/metadata-links.md',
       '.agents/skills/dsh-doc/references/structure-hierarchy.md',
       '.agents/skills/dsh-doc/references/style.md',
       '.agents/skills/dsh-doc/references/review.md',
@@ -319,7 +323,6 @@ describe('dsh-doc skill consolidation', () => {
   it('keeps the reference example linked from the skill', () => {
     const skill = readFileSync(resolve(root, '.agents/skills/dsh-doc/SKILL.md'), 'utf8')
     expect(skill).toContain('session-persistence-jsonl/README.md')
-    expect(skill).toContain('session-persistence-jsonl/README.zh.md')
   })
 
   it('defines controlled English as a precision-preserving review discipline', () => {
@@ -373,7 +376,7 @@ describe('dsh-doc skill consolidation', () => {
 
   it('maps historical Session format references to their dedicated document kind', () => {
     const files = globSync('docs/persistence-changes/historical-formats/v*.md', { cwd: root })
-    expect(files.length).toBe(readCurrentSessionFormatVersion(root) * 2)
+    expect(files.length).toBe(readCurrentSessionFormatVersion(root))
     for (const file of files) {
       const metadata = readFrontmatter(file)
       expect(metadata.kind, file).toBe('persistence-format')
@@ -396,7 +399,7 @@ describe('dsh-doc skill consolidation', () => {
   it('keeps every package README on the summary, contents, and Dev Note skeleton', () => {
     for (const file of packageReadmes().filter(file => file.split('/').length === 4)) {
       const source = readFileSync(resolve(root, file), 'utf8')
-      expect(packageReadmeStructureErrors(file, source), file).toEqual([])
+      expect(packageReadmeStructureErrors(source), file).toEqual([])
     }
   })
 
@@ -432,21 +435,5 @@ describe('dsh-doc skill consolidation', () => {
     })).toEqual([
       'i18n is redundant or has no governed consumer',
     ])
-  })
-})
-
-describe('reference-example README pair', () => {
-  const dir = 'packages/session/session-persistence-jsonl'
-
-  it('keeps exact English/Chinese physical line alignment', () => {
-    const sourceLines = readFileSync(resolve(root, dir, 'README.md'), 'utf8').split('\n').length
-    const zhLines = readFileSync(resolve(root, dir, 'README.zh.md'), 'utf8').split('\n').length
-    expect(sourceLines).toBe(zhLines)
-  })
-
-  it('keeps the sidecar consistency record present', () => {
-    const sidecar = readFileSync(resolve(root, dir, 'README.i18n.yaml'), 'utf8')
-    expect(sidecar).toMatch(/^README\.md: [0-9a-f]{40}$/m)
-    expect(sidecar).toMatch(/^README\.zh\.md: [0-9a-f]{40}$/m)
   })
 })
