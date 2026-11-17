@@ -269,7 +269,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       serverName: config.serverName,
       state,
       toolCount: current.state === 'connected' ? current.toolCount : 0,
-      ...current.state === 'failed' || current.state === 'reconnecting' || current.state === 'waiting-credentials'
+      ...current.state === 'failed' || current.state === 'reconnecting' || (current.state === 'waiting-credentials' && state !== 'auth-required')
         ? { error: current.lastError } : {},
       ...(auth === undefined ? {} : { authKey: auth.key }),
     })

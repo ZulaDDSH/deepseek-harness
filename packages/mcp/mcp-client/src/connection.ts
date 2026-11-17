@@ -397,6 +397,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
       readiness.resolve({ error: config.expandTemplates ? new Error(diagnostic(error, 'startup')) : error })
       if (disposed || !confirmed) return
       if (error instanceof MissingTemplateValue) {
+        authPending = false
         bindingValue = {}
         status.update({ state: 'waiting-credentials', lastError: diagnostic(error, 'credential resolution') })
         return

@@ -1079,3 +1079,5 @@ The runtime type declaration override resolves distinct Office rendering generat
 `packages/mcp/mcp-client/src/types.ts:McpConnectionStatus` uses `authentication-rejected` while a rejected static credential's generation is closing. `reconnect-disabled` and `gave-up` mean automatic attempts have stopped; `unclosed-generation` prevents replacement after incomplete cleanup.
 
 `packages/mcp/mcp-client/src/oauth.ts:grantAuthProvider` preserves token-refresh transport and server failures when the SDK falls back to interactive authorization. OAuth discovery, issuer and resource validation remain in the SDK, and invalid grants still require sign-in. The refresh observer recognizes the URLSearchParams request format used by SDK 2.2.0; revisit it when upgrading that SDK.
+
+`packages/mcp/mcp-client/src/index.ts:apply` exposes an OAuth sign-in request as an actionable state without an error message. `packages/mcp/mcp-client/src/connection.ts:startConnection` clears that pending state when a template credential becomes missing, so its diagnostic remains visible.

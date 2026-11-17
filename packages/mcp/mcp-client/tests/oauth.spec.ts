@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AuthorizationService from '@deepseek-ai/dsh-authorization'
 import McpResources from '@deepseek-ai/dsh-mcp-resources'
-import { credentialKey, parseCredentialKey } from '@deepseek-ai/dsh-credentials'
+import { credentialKey, credentialRef, parseCredentialKey } from '@deepseek-ai/dsh-credentials'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -101,6 +101,20 @@ const listResources = (ctx: Context) => executeModelToolFixture(ctx, {
 })
 
 describe('MCP OAuth sign-in', () => {
+  it('reports a missing template credential after waiting for OAuth sign-in', async () => {
+    const fixture = await startFixture()
+    const ctx = await mount(configFor(fixture.url, {
+      headers: { 'X-Project': '${credential:MCP_PROJECT}' }, expandTemplates: true,
+    }))
+    const ref = credentialRef('MCP_PROJECT')
+    await ctx.credentials.set(ref, 'project-value')
+    await vi.waitFor(() => { expect(report(ctx).state).toBe('auth-required') })
+    await ctx.credentials.unset(ref)
+    await vi.waitFor(() => {
+      expect(report(ctx)).toMatchObject({ state: 'failed', error: expect.stringContaining('MCP_PROJECT') })
+    })
+  })
+
   it('waits for sign-in without retrying, then connects once the grant is stored', async () => {
     const fixture = await startFixture()
     const ctx = await mount(configFor(fixture.url, { reconnect: { enabled: true, initialDelayMs: 1, maxDelayMs: 2, maxAttempts: 3 } }))
