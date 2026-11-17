@@ -647,7 +647,7 @@ export async function apply(ctx: Context, config: Config, session?: Session): Pr
           const requiresRoutePreflight = !cliRole && (hasDelegationModelRequest(modelRequest)
             || hasConfiguredLlmSelection(config.agentOptions)
             || (roleRoute?.backend === 'llm' && hasConfiguredLlmSelection(roleAgentOptions)))
-          const configuredChildAgentOptions = cliRole
+          const combinedChildAgentOptions = cliRole
             ? {
               ...(config.agentOptions?.maxTokens === undefined ? {} : { maxTokens: config.agentOptions.maxTokens }),
               ...roleAgentOptions,
@@ -655,6 +655,7 @@ export async function apply(ctx: Context, config: Config, session?: Session): Pr
             : requiresRoutePreflight && providerRouteDefaults !== undefined
               ? { ...providerRouteDefaults, ...config.agentOptions, ...roleAgentOptions }
               : { ...config.agentOptions, ...roleAgentOptions }
+          const configuredChildAgentOptions = Object.keys(combinedChildAgentOptions).length > 0 ? combinedChildAgentOptions : undefined
           const requestedChildAgentOptions = requestedAgentOptions(
             configuredChildAgentOptions,
             modelRequest,
