@@ -253,6 +253,10 @@ export class TerminalSessionService extends Service {
     return operation
   }
 
+  watchLine(owner: Agent, id: TerminalSessionId, line: string): { seen(): boolean; dispose(): void } | undefined {
+    return this.expectOwned(owner, id).session.watchLine?.(line)
+  }
+
   /**
    * Read one bounded scrollback page from an owned session.
    * @param owner - exact session owner.

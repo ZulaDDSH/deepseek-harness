@@ -6,6 +6,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { loadAnchoredFieldNotes } from '../../../../scripts/code-notes.ts'
 import { collectExportJsdocViolations } from '../../../../scripts/verify-export-jsdoc.ts'
 
 const roots: string[] = []
@@ -224,6 +225,25 @@ export function f(x: number | boolean): string { return String(x) }
 })
 
 describe('verify-export-jsdoc classes', () => {
+  it('uses anchored code-note fields to document a class method', () => {
+    const root = make('/** Example API. */\nexport class C { run(value: string): string { return value } }\n')
+    const anchor = 'packages/group/fix/src/index.ts:C.run'
+    const notesPath = join(root, 'docs', 'code-notes', 'deepseek-harness.md')
+    mkdirSync(dirname(notesPath), { recursive: true })
+    writeFileSync(notesPath, `### \`${anchor}\`
+- \`description\`: Runs one operation.
+- \`params.value\`: Input value.
+- \`returns\`: The processed value.
+`)
+
+    expect(loadAnchoredFieldNotes(root).get(anchor)).toEqual(new Map([
+      ['description', 'Runs one operation.'],
+      ['params.value', 'Input value.'],
+      ['returns', 'The processed value.'],
+    ]))
+    expect(collectExportJsdocViolations(root)).toEqual([])
+  })
+
   it('flags an undocumented class, method, property, and accessor', () => {
     const violations = collectExportJsdocViolations(make(`
 export class C {

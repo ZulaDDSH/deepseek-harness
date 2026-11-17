@@ -1262,6 +1262,167 @@ describe('LocalPtySession readiness and output', () => {
     expect(await operation.done).toMatchObject({ waitReason: 'stdin_read' })
   })
 
+  it('holds prompt and silence readiness until the requested line is observed', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const session = new LocalPtySession(terminal, config({ idleSilenceMs: 50, timeoutMs: 500 }))
+    await initialize(session, terminal)
+    const watchLine = vi.spyOn(session, 'watchLine')
+
+    const operation = session.startSend({ text: 'run', submit: true, readinessAfterLine: 'START' })
+    const readinessWatch = watchLine.mock.results[0]?.value
+    const disposeReadinessWatch = readinessWatch === undefined ? undefined : vi.spyOn(readinessWatch, 'dispose')
+    let settled = false
+    void operation.done.then(() => { settled = true })
+    await Promise.resolve()
+    await Promise.resolve()
+    terminal.emitData('\x1b]133;D;0\x07dsh> ')
+    await vi.advanceTimersByTimeAsync(80)
+    expect(settled).toBe(false)
+
+    terminal.emitData('\nSTART\n')
+    await vi.advanceTimersByTimeAsync(40)
+    expect(settled).toBe(false)
+    await vi.advanceTimersByTimeAsync(20)
+    expect(await operation.done).toMatchObject({ waitReason: 'inferred_idle' })
+    expect(watchLine).toHaveBeenCalledWith('START')
+    expect(disposeReadinessWatch).toHaveBeenCalledOnce()
+    await session.close('readiness marker cleanup')
+  })
+
+  it('re-inspects when the readiness line arrives during a foreground inspection', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspection = Promise.withResolvers<{ processGroupId: number; inputWaiting: boolean }>()
+    const inspectionStarted = Promise.withResolvers<void>()
+    let inspectionCount = 0
+    terminal.inspectForeground = async () => {
+      inspectionCount += 1
+      if (inspectionCount === 2) {
+        inspectionStarted.resolve()
+        return inspection.promise
+      }
+      return { processGroupId: 456, inputWaiting: false }
+    }
+    const session = new LocalPtySession(terminal, config({ idleSilenceMs: 100, timeoutMs: 500 }))
+    const operation = session.startSend({ text: 'run', submit: true, readinessAfterLine: 'START' })
+    let settled = false
+    void operation.done.then(() => { settled = true })
+    await Promise.resolve()
+    await Promise.resolve()
+    await vi.advanceTimersByTimeAsync(10)
+    await inspectionStarted.promise
+
+    terminal.emitData('\nSTART\n')
+    inspection.resolve({ processGroupId: 456, inputWaiting: true })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(inspectionCount).toBeGreaterThanOrEqual(3)
+    expect(settled).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(40)
+    expect(settled).toBe(false)
+    terminal.emitData('delayed command output\r\n\x1b]133;D;0\x07dsh> ')
+    await vi.advanceTimersByTimeAsync(10)
+    expect(await operation.done).toMatchObject({ waitReason: 'stdin_read', viewport: expect.stringContaining('delayed command output') })
+    await session.close('overlapping inspection cleanup')
+  })
+
+  it('accepts a fresh stdin wait after the readiness line even when the initial wait persisted', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    inspector.waiting = true
+    const writeCompleted = Promise.withResolvers<void>()
+    terminal.write = async (data) => {
+      terminal.writes.push(data)
+      terminal.emitData('\nSTART\n')
+      writeCompleted.resolve()
+    }
+    const session = makeSession(terminal, inspector, config({ timeoutMs: 500 }))
+    const operation = session.startSend({ text: 'run', submit: true, readinessAfterLine: 'START' })
+    await writeCompleted.promise
+    await Promise.resolve()
+    await Promise.resolve()
+
+    await vi.advanceTimersByTimeAsync(30)
+    expect(await operation.done).toMatchObject({ waitReason: 'stdin_read' })
+    await session.close('interactive child cleanup')
+  })
+
+  it('accepts a prompt emitted after the readiness line in the same output chunk', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    terminal.write = async (data) => {
+      terminal.writes.push(data)
+      terminal.emitData('\nSTART\n\x1b]133;D;0\x07dsh> ')
+    }
+    const session = new LocalPtySession(terminal, config({ idleSilenceMs: 500, timeoutMs: 1_000 }))
+    const operation = session.startSend({ text: 'run', submit: true, readinessAfterLine: 'START' })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    await vi.advanceTimersByTimeAsync(10)
+    expect(await operation.done).toMatchObject({ waitReason: 'stdin_read' })
+    await session.close('same-chunk prompt cleanup')
+  })
+
+  it('keeps readiness-line evidence after scrollback evicts the line', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const writeCompleted = Promise.withResolvers<void>()
+    terminal.write = async (data) => {
+      terminal.writes.push(data)
+      writeCompleted.resolve()
+    }
+    const session = makeSession(terminal, inspector, config({ scrollbackMaxBytes: 16, maxReadBytes: 16, timeoutMs: 500 }))
+    const operation = session.startSend({ text: 'run', submit: true, readinessAfterLine: 'START' })
+    await writeCompleted.promise
+    await Promise.resolve()
+    await Promise.resolve()
+
+    terminal.emitData(`\nSTART\n${'x'.repeat(100)}`)
+    expect(session.read({}).text).not.toContain('START')
+    inspector.waiting = true
+    await vi.advanceTimersByTimeAsync(30)
+    expect(await operation.done).toMatchObject({ waitReason: 'stdin_read' })
+    await session.close('evicted readiness marker cleanup')
+  })
+
+  it('preserves cancellation, timeout, and session-exit outcomes before the readiness line', async () => {
+    vi.useFakeTimers()
+    const timed = new FakeTerminal()
+    const timedSession = new LocalPtySession(timed, config({ timeoutMs: 30 }))
+    const timedOperation = timedSession.startSend({ text: 'run', submit: true, readinessAfterLine: 'START' })
+    await Promise.resolve()
+    await Promise.resolve()
+    await vi.advanceTimersByTimeAsync(30)
+    expect(await timedOperation.done).toMatchObject({ waitReason: 'timeout' })
+    await timedSession.close('readiness timeout cleanup')
+
+    const aborted = new FakeTerminal()
+    const abortedSession = new LocalPtySession(aborted, config({ pollIntervalMs: 10, idleSilenceMs: 10, timeoutMs: 500 }))
+    const controller = new AbortController()
+    const abortedOperation = abortedSession.startSend({
+      text: 'run', submit: true, readinessAfterLine: 'START', signal: controller.signal,
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+    controller.abort(new Error('cancel command'))
+    await vi.advanceTimersByTimeAsync(20)
+    expect(await abortedOperation.done).toMatchObject({ waitReason: 'inferred_idle' })
+    await abortedSession.close('readiness abort cleanup')
+
+    const exited = new FakeTerminal()
+    const exitedSession = new LocalPtySession(exited, config())
+    const exitedOperation = exitedSession.startSend({ text: 'run', submit: true, readinessAfterLine: 'START' })
+    await Promise.resolve()
+    await Promise.resolve()
+    exited.emitExit(0)
+    expect(await exitedOperation.done).toMatchObject({ waitReason: 'session_exit' })
+    await exitedSession.close('readiness exit cleanup')
+  })
+
   it('retains a prompt marker until the startup shell regains the foreground group', async () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()

@@ -26,6 +26,7 @@ import {
 } from '@deepseek-ai/dsh-typert-generator'
 import type { CordisCatalogPolicy } from '@deepseek-ai/dsh-typert-generator'
 import { renderCordisCoreApiPages } from './cordis-core-api.ts'
+import { loadAnchoredFieldNotes } from './code-notes.ts'
 import { contextKeyMap, contextMergeFiles, eventNameList } from './cordis-walk.ts'
 
 const root = resolve(import.meta.dirname, '..')
@@ -1160,6 +1161,7 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
 
 /** Repository data policy consumed by the Cordis catalog projector. */
 export const CORDIS_CATALOG_POLICY: CordisCatalogPolicy = {
+  codeNotes: loadAnchoredFieldNotes(root),
   linkedTypePages: LINK_MAP,
   foundationTypeNames: FOUNDATION_TYPE_NAMES,
   typeLinkExemptions: TYPE_LINK_EXEMPTIONS,
