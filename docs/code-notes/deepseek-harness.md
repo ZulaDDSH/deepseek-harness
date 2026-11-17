@@ -1091,3 +1091,5 @@ The runtime type declaration override resolves distinct Office rendering generat
 - `params.id`: Owned terminal identity.
 - `params.line`: Complete output line to observe.
 - `returns`: A watch handle, or undefined when the backend does not support watching.
+
+packages/client/ui-workspace/package.json:dsh.client.inject includes the command UI provider required by packages/client/ui-workspace/src/client/index.ts:inject, so roster closure can activate the workspace.

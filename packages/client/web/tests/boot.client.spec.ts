@@ -130,7 +130,7 @@ describe('bootstrap failure rendering', () => {
         target.load({ id: 'broken', factory: () => ({ apply() { throw new Error('plugin activation failed') } }) })
         target.load({
           id: 'renderer',
-          factory: () => ({ apply: (ctx: Context) => { ctx.reflect.provide('uiRenderer', { mount: mounted }) } }),
+          factory: () => ({ apply: (ctx: Context) => { ctx.reflect.provide('uiSession', {}); ctx.reflect.provide('uiRenderer', { mount: mounted }) } }),
         })
       },
     })
