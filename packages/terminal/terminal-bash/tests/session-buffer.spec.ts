@@ -203,6 +203,30 @@ describe('LocalPtySession incremental output compatibility', () => {
     expect(operation.readOutput()).toEqual({ delta: '', truncated: false })
   })
 
+  it('remembers a split output line after scrollback evicts it', () => {
+    const { producer, session } = fixture({ scrollbackMaxBytes: 16, maxReadBytes: 16 })
+    const watch = session.watchLine('marker')
+    producer.emit("echo 'marker'\nmar")
+    expect(watch.seen()).toBe(false)
+    producer.emit('ker\r')
+    producer.emit('\n')
+    producer.emit('x'.repeat(100))
+    expect(session.read({}).text).not.toContain('marker')
+    expect(watch.seen()).toBe(true)
+    watch.dispose()
+  })
+
+  it('does not match a line that began before watching', () => {
+    const { producer, session } = fixture()
+    producer.emit('prefix')
+    const watch = session.watchLine('marker')
+    producer.emit('marker\n')
+    expect(watch.seen()).toBe(false)
+    producer.emit('marker\n')
+    expect(watch.seen()).toBe(true)
+    watch.dispose()
+  })
+
   it.each([[1, 1, 1], [17, 7, 3], [64, 13, 5]])(
     'matches eager reads and active output with byte caps %i/%i and %i lines',
     async (scrollbackMaxBytes, maxReadBytes, scrollbackLines) => {
