@@ -1065,3 +1065,5 @@ The runtime type declaration override resolves distinct Office rendering generat
 `apps/web/tests/scaffold.ts`: Type-only imports provide the Host Context service types used by the test scaffold.
 
 `scripts/plugin-preview-assets.spec.ts`: English plugin previews must remain self-contained 640 by 300 SVGs within the per-file size limit.
+
+`packages/shell/tool-pwsh-persistent/src/index.ts:wrapCommand` encodes command text as UTF-8 Base64 before embedding it in the persistent PowerShell input line. This preserves line endings and Unicode while preventing command text from changing the wrapper's quoting; execution still uses the existing shell and status markers.

@@ -248,6 +248,10 @@ describe.skipIf(!hasPwsh)('persistent pwsh through a real cordis.yml Loader comp
     ))
     expect(hereString).toBe('alpha\nbeta')
 
+    const encoded = text(await execute('encoded', "$env:ENCODED = 'smart “é” $literal `tick'\r\nWrite-Output $env:ENCODED"))
+    expect(encoded).toBe('smart “é” $literal `tick')
+    expect(text(await execute('encoded-state', 'Write-Output $env:ENCODED'))).toBe(encoded)
+
     const large = text(await execute('large-output', '1..12050 | ForEach-Object { $_ }'))
     expect(large.startsWith('1\n2\n3\n')).toBe(true)
     expect(large).toContain('<response clipped>')
@@ -264,7 +268,7 @@ describe.skipIf(!hasPwsh)('persistent pwsh through a real cordis.yml Loader comp
     // scrolled shell and the first command after restart. Extra sends can conceal a timeout.
     // Formatting probes host versions, so only a failed sequence pays that cost.
     const expected: TerminalWaitReason[] = [
-      'stdin_read', 'stdin_read', 'stdin_read', 'stdin_read',
+      'stdin_read', 'stdin_read', 'stdin_read', 'stdin_read', 'stdin_read', 'stdin_read',
       'stdin_read', 'stdin_read', 'session_exit', 'stdin_read',
     ]
     const degraded = settleReasons.length !== expected.length
