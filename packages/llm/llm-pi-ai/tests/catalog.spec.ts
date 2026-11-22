@@ -1501,6 +1501,7 @@ describe('configurable-provider directory', () => {
 
 describe('catalog supplement', () => {
   it.each([
+    ['anthropic', 'claude-fable-5-2', 'anthropic-messages'],
     ['anthropic', 'claude-opus-5-5', 'anthropic-messages'],
     ['anthropic', 'claude-sonnet-5-5', 'anthropic-messages'],
     ['openai', 'gpt-6.1-sol', 'openai-responses'],

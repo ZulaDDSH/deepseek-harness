@@ -28,6 +28,24 @@ import type { Api, Model } from '@earendil-works/pi-ai'
  * model carries its provider protocol and compatibility fields.
  */
 const SUPPLEMENT: Readonly<Record<string, readonly Model<Api>[]>> = {
+  anthropic: [
+    {
+      id: 'claude-fable-5-2',
+      name: 'Claude Fable 5.2',
+      api: 'anthropic-messages',
+      provider: 'anthropic',
+      baseUrl: 'https://api.anthropic.com',
+      reasoning: true,
+      input: ['text', 'image'],
+      cost: { input: 8, output: 40, cacheRead: 0.2, cacheWrite: 10 },
+      contextWindow: 1_000_000,
+      maxTokens: 128_000,
+      thinkingLevelMap: { off: null, xhigh: 'xhigh', max: 'max' },
+      compat: { forceAdaptiveThinking: true, supportsMidConvoEffort: true, supportsMidConvoSystemMessages: true, supportsMidConvoToolChanges: true, supportsStrictTools: true },
+      promptCache: { short: 300, long: 3600 },
+      inputLimits: { maxRequestBytes: 33_554_432, images: { maxPerRequest: 600, resize: { maxWidth: 2000, maxHeight: 2000, maxBytes: 4_718_592, jpegQuality: 80 } } },
+    },
+  ],
   deepseek: [
     {
       id: 'deepseek-v4-flash',
