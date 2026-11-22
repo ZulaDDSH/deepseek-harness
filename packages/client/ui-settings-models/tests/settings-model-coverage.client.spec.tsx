@@ -124,7 +124,7 @@ function authorization(): AuthorizationOperations {
   }
 }
 
-function mount(rows: ProviderRow[], namespaces: SettingsNamespaceView[], catalog: ModelsSettingsState['catalog'] = [], jevPage = false, ops: ModelsOperations = operations) {
+function mount(rows: ProviderRow[], namespaces: SettingsNamespaceView[], catalog: ModelsSettingsState['catalog'] = [], jevPage = false, ops: ModelsOperations = operations, auth: AuthorizationOperations = authorization()) {
   const ctx = new Context()
   const controller = new ModelsSettingsStore(ctx, settingsSchema, new SettingsDescribeMirror(ctx))
   controller.store.update((state) => {
@@ -142,7 +142,7 @@ function mount(rows: ProviderRow[], namespaces: SettingsNamespaceView[], catalog
     useSnapshot: bindSnapshotSelector(controller.store),
     useCredentialsRevision: bindSnapshotSelector(credentials),
     operations: ops,
-    authorization: authorization(),
+    authorization: auth,
     schema: settingsSchema,
     t,
     renderSlot,
@@ -246,6 +246,52 @@ describe('Models section integration branches', () => {
     fireEvent.click(screen.getByRole('button', { name: en.add }))
     await completeSignIn(screen.getByRole('tabpanel'))
     await waitFor(() => { expect(add.load).toHaveBeenCalledTimes(1) })
+  })
+
+  it('opens the row editor and focuses its key field from the row sign-in card', async () => {
+    const pi = namespace('llm-pi-ai', PiConfig, { providers: { openai: { models: [] } } })
+    const borrowed: AuthorizationOperations = {
+      ...authorization(),
+      list: async () => [{
+        key: 'llm-pi-ai/openai',
+        label: 'openai',
+        methods: [{ id: 'oauth', label: 'Sign in' }],
+        inFlight: false,
+        configured: true,
+        kind: 'grant',
+        borrowedFrom: 'Claude Code',
+      }],
+    }
+    mount([row('openai', 'llm-pi-ai', ['providers', 'openai'], true)], [pi], [], false, operations, borrowed)
+
+    expect(screen.queryByLabelText(en.keyInput)).toBeNull()
+    fireEvent.click(await screen.findByRole('button', { name: en.borrowedUseApiKey }))
+    const key = await screen.findByLabelText(en.keyInput)
+    await waitFor(() => { expect(document.activeElement).toBe(key) })
+    expect(screen.getAllByRole('button', { name: en.borrowedUseApiKey })).toHaveLength(1)
+
+    key.blur()
+    fireEvent.click(screen.getByRole('button', { name: en.borrowedUseApiKey }))
+    await waitFor(() => { expect(document.activeElement).toBe(key) })
+    expect(screen.getByLabelText(en.keyInput)).toBe(key)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit openai' }))
+    expect(screen.queryByLabelText(en.keyInput)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit openai' }))
+    expect(document.activeElement).not.toBe(await screen.findByLabelText(en.keyInput))
+  })
+
+  it('keeps the editor sign-in card for a provider outside the llm-pi-ai row card', async () => {
+    const deepseek = namespace('llm-deepseek', DeepSeekConfig, { models: [] })
+    const deepseekRow: ProviderRow = {
+      ...row('deepseek-official', 'llm-deepseek', [], true),
+      credential: { configured: true, writable: true },
+    }
+    mount([deepseekRow], [deepseek])
+
+    expect(screen.queryByRole('button', { name: en.signIn })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit deepseek-official' }))
+    expect(await screen.findByRole('button', { name: en.signIn })).toBeTruthy()
   })
 
   it('supports sign-in when the standalone editor has no revision or refresh callback', async () => {
