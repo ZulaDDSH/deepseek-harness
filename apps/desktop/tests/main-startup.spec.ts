@@ -301,6 +301,7 @@ vi.mock('../src/policy-test-auth.ts', () => ({ DesktopPolicyTestAuth: class {
 
 vi.mock('electron', () => ({
   app: harness.app,
+  Notification: { isSupported: () => false },
   BrowserWindow: harness.FakeWindow,
   WebContentsView: harness.FakeView,
   dialog: harness.dialog,
