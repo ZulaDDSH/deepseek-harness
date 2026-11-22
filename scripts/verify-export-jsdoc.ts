@@ -11,6 +11,7 @@ import { existsSync, globSync, readFileSync } from 'node:fs'
 import { relative, resolve, sep } from 'node:path'
 import ts from 'typescript'
 import { checkParams, checkReturns, parseJsDoc, parseTags, pointer, rawJsDoc } from './jsdoc.ts'
+import { loadAnchoredFieldNotes } from './code-notes.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -27,6 +28,37 @@ interface Walk {
   text: string
   checker: ts.TypeChecker
   violations: string[]
+  codeNotes: Map<string, Map<string, string>>
+  usedCodeNotes: Set<string>
+}
+
+function documentedRaw(raw: string, symbol: string, w: Walk): string {
+  const anchor = `${w.rel}:${symbol}`
+  const fields = w.codeNotes.get(anchor)
+  if (fields === undefined) return raw
+  w.usedCodeNotes.add(anchor)
+  for (const field of fields.keys()) {
+    if (field !== 'description' && field !== 'returns' && !/^params\.[\w$]+$/.test(field)) {
+      w.violations.push(`code-note '${anchor}' has unsupported field '${field}'.`)
+    }
+  }
+  const doc = parseJsDoc(raw).doc
+  const sourceTags = parseTags(raw)
+  const lines = ['/**']
+  const description = doc || fields.get('description')
+  if (description) lines.push(` * ${description}`)
+  const params = new Map(sourceTags.params)
+  let returns = sourceTags.returns
+  for (const [field, value] of fields) {
+    if (field.startsWith('params.')) {
+      const name = field.slice('params.'.length)
+      if (!params.get(name)?.trim()) params.set(name, value)
+    } else if (field === 'returns' && !returns?.trim()) returns = value
+  }
+  for (const [name, value] of params) lines.push(` * @param ${name} - ${value}`)
+  if (returns !== null) lines.push(` * @returns ${returns}`)
+  lines.push(' */')
+  return lines.join('\n')
 }
 
 function isExported(stmt: ts.Statement): boolean {
@@ -218,7 +250,7 @@ function checkClass(cls: ts.ClassDeclaration, name: string, w: Walk): void {
       if (m.body && overloadSigs.has(mname)) continue // overload implementation: the signatures carry the docs
       const where = `exported class method '${name}.${mname}' (${pointer(w.rel, w.sf, m)})`
       if (exemption !== null) {
-        const raw = rawJsDoc(w.text, m)
+        const raw = documentedRaw(rawJsDoc(w.text, m), `${name}.${mname}`, w)
         // The heritage declaration owns the prose; parameters the base never
         // names — including binding patterns, which no base declaration can
         // name — are new API and keep their @param duty.
@@ -240,7 +272,7 @@ function checkClass(cls: ts.ClassDeclaration, name: string, w: Walk): void {
         }
         continue
       }
-      checkFunctionLike(where, rawJsDoc(w.text, m), m.parameters, m.type, false, w)
+      checkFunctionLike(where, documentedRaw(rawJsDoc(w.text, m), `${name}.${mname}`, w), m.parameters, m.type, false, w)
     } else if (exemption !== null) {
       continue // the heritage declaration owns the doc (properties/accessors carry no own parameters)
     } else if (ts.isGetAccessorDeclaration(m) || ts.isPropertyDeclaration(m)) {
@@ -566,6 +598,8 @@ function loadCompilerOptions(scanRoot: string): ts.CompilerOptions {
  */
 export function collectExportJsdocViolations(scanRoot: string = root): string[] {
   const violations: string[] = []
+  const codeNotes = loadAnchoredFieldNotes(scanRoot)
+  const usedCodeNotes = new Set<string>()
   const rels = globSync('packages/*/*/src/**/*.ts', { cwd: scanRoot })
     .map(path => path.split(sep).join('/'))
     .sort()
@@ -582,10 +616,13 @@ export function collectExportJsdocViolations(scanRoot: string = root): string[] 
     checkScope(
       sf.statements,
       '',
-      { rel, sf, text: sf.text, checker, violations },
+      { rel, sf, text: sf.text, checker, violations, codeNotes, usedCodeNotes },
       sf.isDeclarationFile && !ts.isExternalModule(sf),
       allowedNames,
     )
+  }
+  for (const anchor of codeNotes.keys()) {
+    if (!usedCodeNotes.has(anchor)) violations.push(`code-note '${anchor}' does not match an exported declaration.`)
   }
   return violations
 }

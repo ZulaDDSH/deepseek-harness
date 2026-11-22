@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
+import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { expect, it, onTestFinished } from 'vitest'
 import * as Codex from '../packages/experimental/hooks-codex/src/index.ts'
 import * as Claude from '../packages/experimental/hooks-claude-code/src/index.ts'
@@ -16,12 +17,12 @@ it.each([Codex, Claude])('collects loaded hooks through the Loader without execu
     rmSync(root, { recursive: true, force: true })
   })
   ctx.provide('shell', {} as never)
-  ctx.provide('sessionProjections', {} as never)
+  await mountAgentLoopTestDependencies(ctx, { workingDirectory: true })
   await ctx.plugin(Loader)
   ctx.loader.builtins.hooks = bridge
   const source = join(root, 'hooks.json')
   writeFileSync(source, JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [
-    { type: 'command', command: 'check-policy' }, { type: 'prompt', prompt: 'unsupported' },
+    { type: 'command', command: 'check-policy' }, { type: 'unsupported' },
   ] }] } }))
   await ctx.loader.create({ name: 'cordis:hooks', config: { configPath: source } })
   const collect = (): HookInventoryReport[] => {
