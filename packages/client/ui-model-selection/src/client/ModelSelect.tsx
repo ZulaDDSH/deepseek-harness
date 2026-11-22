@@ -120,6 +120,7 @@ export function ModelSelect(
   const [query, setQuery] = useState('')
   const [providerFilter, setProviderFilter] = useState<string | null>(null)
   const [showAllModels, setShowAllModels] = useState(false)
+  const [compactProvider, setCompactProvider] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null)
   const [selectionFocus, setSelectionFocus] = useState(false)
   const favoriteIds = useModelFavorites(ids => ids)
@@ -177,7 +178,7 @@ export function ModelSelect(
     const matching = groups
       .filter(group => providerFilter === null || group.id === providerFilter)
       .map(group => ({ group, models: rankByName(
-        providerFilter !== null && !showAllModels && query.trim() === ''
+        providerFilter !== null && compactProvider && !showAllModels && query.trim() === ''
           ? group.models.filter((model, index) => index < 4 || (state.current?.provider === group.id && state.current.model === model.id))
           : group.models,
         showSearch ? query.trim() : '',
@@ -196,7 +197,7 @@ export function ModelSelect(
     return favorites.length === 0
       ? providerSections
       : [{ key: 'favorites', label: t('favorites.title'), rows: favorites }, ...providerSections]
-  }, [groups, providerFilter, showAllModels, showSearch, query, favoriteSet, state.current, t])
+  }, [groups, providerFilter, compactProvider, showAllModels, showSearch, query, favoriteSet, state.current, t])
   const visibleRows = useMemo(() => filteredSections.flatMap(section => section.rows), [filteredSections])
   const currentVisibleIndex = visibleRows.findIndex(row =>
     row.group.id === state.current?.provider && row.model.id === state.current.model)
@@ -340,6 +341,7 @@ export function ModelSelect(
     setQuery('')
     setProviderFilter(null)
     setShowAllModels(false)
+    setCompactProvider(false)
     rootProviderRef.current = null
     setHighlightedIndex(null)
     if (currentChoice === undefined) paneFocus.current = 'drill'
@@ -684,6 +686,7 @@ export function ModelSelect(
                 rootProviderRef.current = null
                 setProviderFilter(null)
                 setShowAllModels(false)
+                setCompactProvider(false)
                 drill('model')
               }}>
                 <span className={css.cellLabel}>{t('menu.model')}</span>
@@ -704,6 +707,7 @@ export function ModelSelect(
                   rootProviderRef.current = group.id
                   setProviderFilter(group.id)
                   setShowAllModels(false)
+                  setCompactProvider(true)
                   drill('model')
                 }}>
                   <span className={css.cellLabel}>{group.provider.name}</span>
@@ -765,7 +769,7 @@ export function ModelSelect(
                       className={css.chip}
                       active={providerFilter === filter.id}
                       aria-pressed={providerFilter === filter.id}
-                      onClick={() => { setProviderFilter(filter.id); setShowAllModels(false) }}
+                      onClick={() => { setProviderFilter(filter.id); setShowAllModels(false); setCompactProvider(false) }}
                       onFocus={(event) => { event.currentTarget.scrollIntoView({ inline: 'nearest', block: 'nearest' }) }}
                     >
                       {filter.name}
@@ -870,7 +874,7 @@ export function ModelSelect(
                     })}
                   </MenuGroup>
                 ))}
-                {providerFilter !== null && query.trim() === '' && groups.some(group => group.id === providerFilter && group.models.length > 4) && (
+                {providerFilter !== null && compactProvider && query.trim() === '' && groups.some(group => group.id === providerFilter && group.models.length > 4) && (
                   <button ref={moreModelsRef} type="button" role="menuitem" aria-expanded={showAllModels} className={css.cell} onClick={() => { setShowAllModels(value => !value) }}>
                     <span className={css.cellLabel}>{t(showAllModels ? 'models.showFewer' : 'models.showMore')}</span>
                     <IconChevronRightOutlineRegular className={css.cellChevron} />

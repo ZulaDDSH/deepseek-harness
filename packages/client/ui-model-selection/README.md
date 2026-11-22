@@ -55,7 +55,7 @@ The composer replaces the model and effort text with the Models icon when the ex
 
 ### Model label extensions
 
-The composer menu also lists providers directly. Choose one to see its first four catalog entries and the current model; **More models** reveals the rest. Search includes the full provider catalog. Catalog order supplies the compact list when release dates are unavailable.
+The composer menu also lists providers directly. Choose one to see its first four catalog entries and the current model; **More models** reveals the rest. Search includes the full provider catalog. The compact list follows catalog order.
 
 `conversation.input.model.label` is a session-scoped, inline `single` slot for the composer trigger (`placement: 'trigger'`), the root menu's current value (`'menu'`), and each model option (`'option'`). Its owner props provide `provider: { id, name }`, the exact catalog `model`, `placement`, and `selected`. Provider names are localized display names; match channels by `provider.id`, and identify a model by the provider/model ID pair. Connection URLs and credentials are not passed to the slot.
 

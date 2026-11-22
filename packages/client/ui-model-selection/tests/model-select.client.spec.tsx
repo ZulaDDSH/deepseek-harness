@@ -576,6 +576,9 @@ describe('ModelSelect favorites and provider filter', () => {
     expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'DeepSeek' }))
     fireEvent.click(screen.getByRole('menuitem', { name: /^模型/ }))
     expect(screen.getByRole('menuitemradio', { name: 'Other model' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek' }))
+    expect(screen.getAllByRole('menuitemradio')).toHaveLength(6)
+    expect(screen.queryByRole('menuitem', { name: zh['models.showMore'] })).toBeNull()
   })
 
   it('moves favorited models into a top section and keeps them listed there', () => {
