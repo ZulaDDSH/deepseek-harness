@@ -35,7 +35,7 @@ Mouse selection uses native browser clicks, including their cancellation behavio
 
 ### Pane layout
 
-The menu opens on its root pane, or directly on the model pane when no model in the displayed catalog is selected. The root pane has a Model row that shows the selected model and, when the model advertises reasoning levels, an Effort row. Below them, the Agent CLIs (terminal) group lists installed CLI profiles as entries and uninstalled ones as install links, followed by a note that the selection is saved to this Session.
+The menu opens on its root pane, or directly on the model pane when no model in the displayed catalog is selected. The root pane has a Model row that shows the selected model, an Effort row when reasoning levels are available, and a shortcut for each provider. The Agent CLIs (terminal) group lists installed CLI profiles as entries and uninstalled ones as install links, followed by a note that the selection is saved to this Session.
 
 The model pane shows the subagent notice while Orchestrator & Subagent Setup locks the list, then the search field (above four models), provider filter pills (with more than one provider), loading and load-error rows with Retry, and the provider groups. When any model is starred and no provider filter is active, a Favorites group comes first. A saved selection that the catalog no longer lists appears first under Current session as a disabled, checked row.
 
@@ -54,6 +54,8 @@ The picker's side column shows the selected model's effort levels as a segmented
 The composer replaces the model and effort text with the Models icon when the expanded controls cannot share one line, and restores the text when space permits. The trigger shows an Ultracode tag with the effective effort (for example "Ultracode · Max") while Ultracode is on for a model that supports it, and a Fast tag as well when a Claude Code provider is installed. The full selection remains available in the trigger's accessible name, tooltip, and menu.
 
 ### Model label extensions
+
+The composer menu also lists providers directly. Choose one to see its first four catalog entries and the current model; **More models** reveals the rest. Search includes the full provider catalog. The compact list follows catalog order.
 
 `conversation.input.model.label` is a session-scoped, inline `single` slot for the composer trigger (`placement: 'trigger'`), the root menu's current value (`'menu'`), and each model option (`'option'`). Its owner props provide `provider: { id, name }`, the exact catalog `model`, `placement`, and `selected`. Provider names are localized display names; match channels by `provider.id`, and identify a model by the provider/model ID pair. Connection URLs and credentials are not passed to the slot.
 

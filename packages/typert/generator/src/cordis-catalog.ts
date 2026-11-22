@@ -110,13 +110,13 @@ export interface InheritedEntry {
 
 /** Repository policy consumed by the Cordis catalog parsing and rendering logic. */
 export interface CordisCatalogPolicy {
-  readonly codeNotes?: ReadonlyMap<string, string>
   /** Type names linked from signatures to their documentation pages. */
   readonly linkedTypePages: Readonly<Record<string, string>>
   /** TypeScript or framework types that need no repository documentation link. */
   readonly foundationTypeNames: ReadonlySet<string>
   /** Repository types deliberately documented outside the linked data catalog. */
   readonly typeLinkExemptions: Readonly<Record<string, string>>
+  readonly codeNotes?: ReadonlyMap<string, ReadonlyMap<string, string>>
   /** Framework Services included in the model-facing runtime catalog but not the harness documentation partition. */
   readonly runtimeServices?: readonly ServiceEntry[]
   /** Harness Services omitted from the model-facing runtime catalog because dynamic Plugins must not call them. */
@@ -300,7 +300,10 @@ export class CordisCatalogProjector {
           continue
         }
         if (member.kind !== 'method') continue
-        const jsDoc = member.jsDoc || this.policy.codeNotes?.get(`${member.location.file}:${declaration.name}.${member.name}`) || ''
+        const jsDoc = member.jsDoc || documentedContract(
+          this.policy.codeNotes,
+          `${member.location.file}:${declaration.name}.${member.name}`,
+        )
         const parsed = parseJsDoc(jsDoc)
         if (parsed.deprecated) continue
         const where = `service method ctx.${service.key}.${member.name} (${pointer(member.location)})`
@@ -533,6 +536,24 @@ function parseJsDoc(raw: string): ParsedJsDoc {
     throws,
     deprecated,
   }
+}
+
+function documentedContract(
+  notes: CordisCatalogPolicy['codeNotes'],
+  anchor: string,
+): string {
+  const fields = notes?.get(anchor)
+  if (fields === undefined) return ''
+  const description = fields.get('description')
+  if (description === undefined) return ''
+  const lines = [`/** ${description}`]
+  for (const [field, value] of fields) {
+    if (field.startsWith('params.')) lines.push(` * @param ${field.slice('params.'.length)} - ${value}`)
+  }
+  const returns = fields.get('returns')
+  if (returns !== undefined) lines.push(` * @returns ${returns}`)
+  lines.push(' */')
+  return lines.join('\n')
 }
 
 function checkParams(

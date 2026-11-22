@@ -6,6 +6,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { loadAnchoredFieldNotes } from '../../../../scripts/code-notes.ts'
 import { collectExportJsdocViolations } from '../../../../scripts/verify-export-jsdoc.ts'
 
 const roots: string[] = []
@@ -28,14 +29,6 @@ function fixture(files: Record<string, string>): string {
 
 /** Single-file fixture shorthand: the content becomes `src/index.ts`. */
 const make = (content: string): string => fixture({ 'index.ts': content })
-
-function codeNote(root: string, body: string): void {
-  const path = join(root, 'docs', 'code-notes')
-  mkdirSync(path, { recursive: true })
-  writeFileSync(join(path, 'fixture.md'), body)
-}
-
-const apiNote = (symbol: string, body: string): string => `\`\`\`api-doc\npackages/group/fix/src/index.ts:${symbol}\n${body}\n\`\`\``
 
 describe('verify-export-jsdoc functions and consts', () => {
   it('limits packages without src/* exports to declarations reachable from package entrypoints', () => {
@@ -148,69 +141,6 @@ export const bad = (x: number) => x
   })
 })
 
-describe('verify-export-jsdoc code notes', () => {
-  it('accepts anchored contracts for exported class methods', () => {
-    const root = make('/** An owned service. */\nexport class Service { watch(line: string): boolean { return !!line } }\n')
-    codeNote(root, apiNote('Service.watch', 'Watch output.\n@param line - line to watch.\n@returns whether the line appeared.'))
-    expect(collectExportJsdocViolations(root)).toEqual([])
-  })
-  it('accepts anchored code-note contracts for exported functions and values', () => {
-    const root = make('export const SUFFIX = ".bak"\nexport function copy(path: string): string { return path }\n')
-    codeNote(root, [
-      apiNote('SUFFIX', 'Suffix of the retained database copy.'),
-      apiNote('copy', 'Keep a copy of the database.\n@param path - database path.\n@returns the copy path.'),
-    ].join('\n\n'))
-    expect(collectExportJsdocViolations(root)).toEqual([])
-  })
-
-  it('checks note-backed parameter and return coverage with the existing rules', () => {
-    const root = make('export function copy(path: string): string { return path }\n')
-    codeNote(root, apiNote('copy', 'Keep a copy.\n@param other - unrelated.'))
-    expect(collectExportJsdocViolations(root)).toEqual([
-      expect.stringMatching(/is missing @param path\./),
-      expect.stringMatching(/@param other does not match any parameter/),
-      expect.stringMatching(/is missing @returns \(return type: string\)\./),
-    ])
-  })
-
-  it('requires prose before code-note block tags', () => {
-    const root = make('export function copy(path: string): string { return path }\n')
-    codeNote(root, apiNote('copy', '@param path - database path.\n@returns the copy path.'))
-    expect(collectExportJsdocViolations(root)).toEqual([
-      expect.stringMatching(/has no description prose above its block tags/),
-    ])
-  })
-
-  it('rejects duplicate, malformed, and orphaned anchors', () => {
-    const root = make('export function copy(path: string): string { return path }\n')
-    codeNote(root, [
-      apiNote('copy', 'Keep a copy.\n@param path - database path.\n@returns the copy path.'),
-      apiNote('copy', 'Duplicate.'),
-      apiNote('missing', 'No matching export.'),
-      '```api-doc\nnot-a-source-anchor\nInvalid.\n```',
-      '```api-doc\npackages/group/fix/src/index.ts:unterminated\nMissing close.',
-      '```api-doc\npackages/group/fix/src/index.ts:badClose\nInvalid close.\n```garbage',
-      '```api-doc garbage\npackages/group/fix/src/index.ts:badOpen\nInvalid opener.\n```',
-      'Inline mention of ```api-doc should not count as an opening fence.',
-    ].join('\n\n'))
-    expect(collectExportJsdocViolations(root)).toEqual([
-      expect.stringMatching(/has an unterminated api-doc block/),
-      expect.stringMatching(/defines the api-doc anchor .* more than once/),
-      expect.stringMatching(/has an api-doc block with an invalid source anchor/),
-      expect.stringMatching(/code-notes API doc .*missing.* does not match an undocumented exported declaration/),
-      expect.stringMatching(/code-notes API doc .*unterminated.* does not match an undocumented exported declaration/),
-    ])
-  })
-
-  it('rejects note contracts that are duplicated by source JSDoc', () => {
-    const root = make('/** Copies a value. */\nexport const copy = 1\n')
-    codeNote(root, apiNote('copy', 'A second description.'))
-    expect(collectExportJsdocViolations(root)).toEqual([
-      expect.stringMatching(/code-notes API doc .*copy.* does not match an undocumented exported declaration/),
-    ])
-  })
-})
-
 describe('verify-export-jsdoc type-level exports', () => {
   it('requires description prose on interfaces, type aliases, and enums', () => {
     const violations = collectExportJsdocViolations(make(
@@ -295,6 +225,25 @@ export function f(x: number | boolean): string { return String(x) }
 })
 
 describe('verify-export-jsdoc classes', () => {
+  it('uses anchored code-note fields to document a class method', () => {
+    const root = make('/** Example API. */\nexport class C { run(value: string): string { return value } }\n')
+    const anchor = 'packages/group/fix/src/index.ts:C.run'
+    const notesPath = join(root, 'docs', 'code-notes', 'deepseek-harness.md')
+    mkdirSync(dirname(notesPath), { recursive: true })
+    writeFileSync(notesPath, `### \`${anchor}\`
+- \`description\`: Runs one operation.
+- \`params.value\`: Input value.
+- \`returns\`: The processed value.
+`)
+
+    expect(loadAnchoredFieldNotes(root).get(anchor)).toEqual(new Map([
+      ['description', 'Runs one operation.'],
+      ['params.value', 'Input value.'],
+      ['returns', 'The processed value.'],
+    ]))
+    expect(collectExportJsdocViolations(root)).toEqual([])
+  })
+
   it('flags an undocumented class, method, property, and accessor', () => {
     const violations = collectExportJsdocViolations(make(`
 export class C {

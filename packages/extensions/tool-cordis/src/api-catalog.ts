@@ -4200,8 +4200,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'watchLine(owner: Agent, id: TerminalSessionId, line: string): { seen(): boolean; dispose(): void } | undefined',
         description: 'Watches an owned terminal for a complete output line when its backend supports it.',
-        parameters: [{ name: 'owner', description: 'agent that owns the terminal.' }, { name: 'id', description: 'owned terminal identity.' }, { name: 'line', description: 'complete output line to observe.' }],
-        returns: 'a watch handle, or undefined when the backend does not support watching.',
+        parameters: [{ name: 'owner', description: 'Agent that owns the terminal.' }, { name: 'id', description: 'Owned terminal identity.' }, { name: 'line', description: 'Complete output line to observe.' }],
+        returns: 'A watch handle, or undefined when the backend does not support watching.',
       },
       {
         signature: 'read(owner: Agent, id: TerminalSessionId, request: TerminalReadRequest = {}): TerminalReadResult',

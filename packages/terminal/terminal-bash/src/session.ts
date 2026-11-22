@@ -479,16 +479,16 @@ export class LocalPtySession implements TerminalBackendSession {
     }
   }
 
-  watchLine(line: string): { seen(): boolean; dispose(): void } {
-    const watch = { line, tail: this.atLineBoundary ? '\n' : '', matched: false }
-    this.lineWatches.add(watch)
-    return { seen: () => watch.matched, dispose: () => { this.lineWatches.delete(watch) } }
-  }
-
   async signal(signal: TerminalSignal): Promise<TerminalSignalResult> {
     if (this.closing) throw new Error('PTY session is closing')
     const targetPgid = await this.terminal.signalForeground(signal)
     return { delivered: true, targetPgid }
+  }
+
+  watchLine(line: string): { seen(): boolean; dispose(): void } {
+    const watch = { line, tail: this.atLineBoundary ? '\n' : '', matched: false }
+    this.lineWatches.add(watch)
+    return { seen: () => watch.matched, dispose: () => { this.lineWatches.delete(watch) } }
   }
 
   status(): TerminalSessionStatus {
@@ -580,9 +580,7 @@ export class LocalPtySession implements TerminalBackendSession {
       watch.tail = received.slice(-(watch.line.length + 3))
     }
     const readinessBoundary = this.active?.observeReadinessLine() ?? false
-    if (readinessBoundary) {
-      this.resetReadinessEvidence()
-    }
+    if (readinessBoundary) this.resetReadinessEvidence()
     this.atLineBoundary = text.endsWith('\n')
     this.lastOutputAt = Date.now()
     this.scrollback.append(text)

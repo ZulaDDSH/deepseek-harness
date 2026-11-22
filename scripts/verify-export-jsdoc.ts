@@ -1,7 +1,17 @@
+/**
+ * Enforce JSDoc on every non-vendored package export. Functions and public
+ * class methods require parameter and non-void return documentation; exported
+ * declarations require description prose. Inline callable types, overload
+ * signatures, namespace members, and public class members are included;
+ * framework slots, constructors, inherited contracts, augmentations, and source
+ * re-exports keep their docs at the declaring contract. Unknown forms fail closed.
+ */
+
 import { existsSync, globSync, readFileSync } from 'node:fs'
 import { relative, resolve, sep } from 'node:path'
 import ts from 'typescript'
 import { checkParams, checkReturns, parseJsDoc, parseTags, pointer, rawJsDoc } from './jsdoc.ts'
+import { loadAnchoredFieldNotes } from './code-notes.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -18,46 +28,37 @@ interface Walk {
   text: string
   checker: ts.TypeChecker
   violations: string[]
-  codeNoteDocs: ReadonlyMap<string, string>
-  usedCodeNoteDocs: Set<string>
+  codeNotes: Map<string, Map<string, string>>
+  usedCodeNotes: Set<string>
 }
 
-export function readCodeNoteApiDocs(scanRoot: string, violations: string[]): Map<string, string> {
-  const docs = new Map<string, string>()
-  for (const rel of globSync('docs/code-notes/*.md', { cwd: scanRoot }).sort()) {
-    const source = readFileSync(resolve(scanRoot, rel), 'utf8')
-    const blocks = [...source.matchAll(/^```api-doc[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*\r?$/gmu)]
-    if ((source.match(/^```api-doc(?:[ \t].*)?\r?$/gmu) ?? []).length !== blocks.length) {
-      violations.push(`${rel} has an unterminated api-doc block.`)
-    }
-    for (const block of blocks) {
-      const lines = (block[1] ?? '').split(/\r?\n/u)
-      const key = lines.shift()?.trim() ?? ''
-      const [file, symbol, ...extra] = key.split(':')
-      if (extra.length > 0 || !file?.startsWith('packages/') || !file.includes('/src/')
-        || !/\.tsx?$/u.test(file) || file.split('/').includes('..')
-        || !symbol || !/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/u.test(symbol)) {
-        violations.push(`${rel} has an api-doc block with an invalid source anchor.`)
-        continue
-      }
-      if (docs.has(key)) {
-        violations.push(`${rel} defines the api-doc anchor '${key}' more than once.`)
-        continue
-      }
-      const body = lines.join('\n').trim()
-      docs.set(key, `/**\n${body.split('\n').map(line => ` * ${line}`).join('\n')}\n */`)
+function documentedRaw(raw: string, symbol: string, w: Walk): string {
+  const anchor = `${w.rel}:${symbol}`
+  const fields = w.codeNotes.get(anchor)
+  if (fields === undefined) return raw
+  w.usedCodeNotes.add(anchor)
+  for (const field of fields.keys()) {
+    if (field !== 'description' && field !== 'returns' && !/^params\.[\w$]+$/.test(field)) {
+      w.violations.push(`code-note '${anchor}' has unsupported field '${field}'.`)
     }
   }
-  return docs
-}
-
-function exportJsDoc(w: Walk, name: string, node: ts.Node): string {
-  const source = rawJsDoc(w.text, node)
-  if (source) return source
-  const key = `${w.rel}:${name}`
-  const codeNote = w.codeNoteDocs.get(key)
-  if (codeNote !== undefined) w.usedCodeNoteDocs.add(key)
-  return codeNote ?? ''
+  const doc = parseJsDoc(raw).doc
+  const sourceTags = parseTags(raw)
+  const lines = ['/**']
+  const description = doc || fields.get('description')
+  if (description) lines.push(` * ${description}`)
+  const params = new Map(sourceTags.params)
+  let returns = sourceTags.returns
+  for (const [field, value] of fields) {
+    if (field.startsWith('params.')) {
+      const name = field.slice('params.'.length)
+      if (!params.get(name)?.trim()) params.set(name, value)
+    } else if (field === 'returns' && !returns?.trim()) returns = value
+  }
+  for (const [name, value] of params) lines.push(` * @param ${name} - ${value}`)
+  if (returns !== null) lines.push(` * @returns ${returns}`)
+  lines.push(' */')
+  return lines.join('\n')
 }
 
 function isExported(stmt: ts.Statement): boolean {
@@ -249,7 +250,7 @@ function checkClass(cls: ts.ClassDeclaration, name: string, w: Walk): void {
       if (m.body && overloadSigs.has(mname)) continue // overload implementation: the signatures carry the docs
       const where = `exported class method '${name}.${mname}' (${pointer(w.rel, w.sf, m)})`
       if (exemption !== null) {
-        const raw = rawJsDoc(w.text, m)
+        const raw = documentedRaw(rawJsDoc(w.text, m), `${name}.${mname}`, w)
         // The heritage declaration owns the prose; parameters the base never
         // names — including binding patterns, which no base declaration can
         // name — are new API and keep their @param duty.
@@ -271,7 +272,7 @@ function checkClass(cls: ts.ClassDeclaration, name: string, w: Walk): void {
         }
         continue
       }
-      checkFunctionLike(where, exportJsDoc(w, `${name}.${mname}`, m), m.parameters, m.type, false, w)
+      checkFunctionLike(where, documentedRaw(rawJsDoc(w.text, m), `${name}.${mname}`, w), m.parameters, m.type, false, w)
     } else if (exemption !== null) {
       continue // the heritage declaration owns the doc (properties/accessors carry no own parameters)
     } else if (ts.isGetAccessorDeclaration(m) || ts.isPropertyDeclaration(m)) {
@@ -308,7 +309,7 @@ function checkDecl(
     const name = stmt.name?.text ?? 'default'
     if (prefix === '' && PROTOCOL_EXPORTS.has(name)) return // cordis plugin-protocol slot
     if (stmt.body && overloadSigs.has(name)) return // overload implementation: the signatures carry the docs
-    checkFunctionLike(`exported function '${prefix}${name}'${at(stmt)}`, exportJsDoc(w, `${prefix}${name}`, stmt),
+    checkFunctionLike(`exported function '${prefix}${name}'${at(stmt)}`, rawJsDoc(w.text, stmt),
       stmt.parameters, stmt.type, false, w)
     return
   }
@@ -329,12 +330,11 @@ function checkDecl(
     return
   }
   if (ts.isVariableStatement(stmt)) {
-    const statementDoc = rawJsDoc(w.text, stmt) // JSDoc sits on the statement, not the declarator
+    const raw = rawJsDoc(w.text, stmt) // JSDoc sits on the statement, not the declarator
     for (const d of stmt.declarationList.declarations) {
       const name = ts.isIdentifier(d.name) ? d.name.text : d.name.getText(w.sf)
       if (only !== null && !only.has(name)) continue // sibling declarator the export list never named: not exported API
       if (prefix === '' && PROTOCOL_EXPORTS.has(name)) continue // cordis plugin-protocol slot
-      const raw = statementDoc || exportJsDoc(w, `${prefix}${name}`, stmt)
       const where = `exported const '${prefix}${name}'${at(d)}`
       const annotation = d.type !== undefined ? callableAnnotation(d.type) : null
       const init = d.initializer !== undefined ? unwrapExpression(d.initializer) : undefined
@@ -598,8 +598,8 @@ function loadCompilerOptions(scanRoot: string): ts.CompilerOptions {
  */
 export function collectExportJsdocViolations(scanRoot: string = root): string[] {
   const violations: string[] = []
-  const codeNoteDocs = readCodeNoteApiDocs(scanRoot, violations)
-  const usedCodeNoteDocs = new Set<string>()
+  const codeNotes = loadAnchoredFieldNotes(scanRoot)
+  const usedCodeNotes = new Set<string>()
   const rels = globSync('packages/*/*/src/**/*.ts', { cwd: scanRoot })
     .map(path => path.split(sep).join('/'))
     .sort()
@@ -616,13 +616,13 @@ export function collectExportJsdocViolations(scanRoot: string = root): string[] 
     checkScope(
       sf.statements,
       '',
-      { rel, sf, text: sf.text, checker, violations, codeNoteDocs, usedCodeNoteDocs },
+      { rel, sf, text: sf.text, checker, violations, codeNotes, usedCodeNotes },
       sf.isDeclarationFile && !ts.isExternalModule(sf),
       allowedNames,
     )
   }
-  for (const key of codeNoteDocs.keys()) {
-    if (!usedCodeNoteDocs.has(key)) violations.push(`code-notes API doc '${key}' does not match an undocumented exported declaration.`)
+  for (const anchor of codeNotes.keys()) {
+    if (!usedCodeNotes.has(anchor)) violations.push(`code-note '${anchor}' does not match an exported declaration.`)
   }
   return violations
 }

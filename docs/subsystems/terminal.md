@@ -142,12 +142,11 @@ hasOwnerActivity(owner: Agent): boolean
  */
 startSend(owner: Agent, id: TerminalSessionId, request: TerminalSendRequest): TerminalSendOperation
 
-/**
- * Watches an owned terminal for a complete output line when its backend supports it.
- * @param owner - agent that owns the terminal.
- * @param id - owned terminal identity.
- * @param line - complete output line to observe.
- * @returns a watch handle, or undefined when the backend does not support watching.
+/** Watches an owned terminal for a complete output line when its backend supports it.
+ * @param owner - Agent that owns the terminal.
+ * @param id - Owned terminal identity.
+ * @param line - Complete output line to observe.
+ * @returns A watch handle, or undefined when the backend does not support watching.
  */
 watchLine(owner: Agent, id: TerminalSessionId, line: string): { seen(): boolean; dispose(): void } | undefined
 
