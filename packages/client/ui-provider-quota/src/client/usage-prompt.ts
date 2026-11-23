@@ -12,6 +12,8 @@ const WINDOW_HOURS: Readonly<Record<QuotaWindowId, number>> = { '5h': 5, weekly:
 /** How long a dismissal, or a switch to API credits, lasts for a window that reports no reset time. */
 export const OPEN_WINDOW_HOLD_MS = 24 * 60 * 60 * 1000
 
+export const BACK_DISMISSAL_HOLD_MS = 30 * 24 * 60 * 60 * 1000
+
 /** A switch to API credits, kept so the subscription can be offered back once its window resets. */
 export interface UsageSwitch {
   readonly providerId: string
@@ -161,6 +163,7 @@ export function withDismissed(keys: readonly string[], key: string, now: number)
   const scope = windowScope(key)
   const live = keys.filter((entry) => {
     const reset = Number(entry.slice(entry.lastIndexOf('|') + 1))
+    if (entry.startsWith('back|')) return Number.isFinite(reset) && reset + BACK_DISMISSAL_HOLD_MS >= now
     return !entry.endsWith(OPEN_KEY_TAIL) && !entry.startsWith(scope) && (!Number.isFinite(reset) || reset >= now)
   })
   const stored = key.endsWith(OPEN_KEY_TAIL) ? `${key}|${now + OPEN_WINDOW_HOLD_MS}` : key

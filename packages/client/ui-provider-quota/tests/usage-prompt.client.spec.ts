@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { QuotaBilling, QuotaBillingSwitch, QuotaResult } from '@deepseek-ai/dsh-api-quota-controller/types'
-import { hardLimited, localUsagePromptStore, NEAR_LIMIT_PERCENT, OPEN_WINDOW_HOLD_MS, usagePrompt, withDismissed } from '../src/client/usage-prompt.ts'
+import { BACK_DISMISSAL_HOLD_MS, hardLimited, localUsagePromptStore, NEAR_LIMIT_PERCENT, OPEN_WINDOW_HOLD_MS, usagePrompt, withDismissed } from '../src/client/usage-prompt.ts'
 import type { UsageSwitch } from '../src/client/usage-prompt.ts'
 
 const NOW = Date.UTC(2026, 9, 15, 12, 0)
@@ -139,6 +139,14 @@ describe('dismissed prompt memory', () => {
     const next = `limit|anthropic|monthly|${RESET}`
     expect(withDismissed([lapsed, live, permanent], next, NOW)).toEqual([live, next])
     expect(withDismissed([live], live, NOW)).toEqual([live])
+  })
+
+  it('keeps a dismissed switch-back offer after its reset has passed, then forgets it after the hold', () => {
+    const back = `back|anthropic|${RESET}`
+    const next = `limit|anthropic|monthly|${RESET + 1000}`
+    expect(withDismissed([back], next, RESET + 1)).toEqual([back, next])
+    expect(withDismissed([back], next, RESET + BACK_DISMISSAL_HOLD_MS)).toEqual([back, next])
+    expect(withDismissed([back], next, RESET + BACK_DISMISSAL_HOLD_MS + 1)).toEqual([next])
   })
 
   it('replaces an earlier dismissal of the same open-ended window instead of piling up', () => {
