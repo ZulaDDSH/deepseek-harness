@@ -8,3 +8,7 @@
 
 - `packages/mcp/mcp-client/src/tools.ts:registerTools` (the `call` closure) - the result of `client.callTool` is measured by `resultBytes` before output-schema validation, error redaction and conversion, and one over `MAX_TOOL_RESULT_BYTES` (8 MiB, the same figure as `connection.ts:MAX_RESOURCE_READ_BYTES`) is rejected as `MCP_INVALID_RESULT` with the measured size. The walk counts UTF-8 text bytes, image/blob string length and structured values, and stops as soon as the limit is crossed, so rejecting costs at most limit-sized work.
 - Limit: the SDK client has already received and parsed the whole JSON-RPC message when this runs, so the check bounds validation, conversion, image projection and retention but not the transient receive/parse memory; bounding that needs a limit inside the SDK's stdio and HTTP transports, which this bridge does not own. Aggregate in-flight budgeting across concurrent calls is not added.
+
+## Non-object tool arguments (finding 369)
+
+- `packages/mcp/mcp-client/src/tools.ts:createExecutor` - arguments that are not a JSON object (null, a primitive, malformed JSON preserved as its raw string by the batch scheduler, or an array) are rejected with `ToolArgsError` before `options.call`, so no `tools/call` reaches a server whose parameters are all optional; a valid `{}` still calls the server. `packages/experimental/browser-use-stagehand-native/src/index.ts` validates `exec.arguments` against the zod input unchanged, so it no longer reads non-objects as `{}` before acquiring a browser.

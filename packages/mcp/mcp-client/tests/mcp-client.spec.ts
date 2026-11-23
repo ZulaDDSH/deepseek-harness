@@ -1267,39 +1267,38 @@ describe('createTransport', () => {
   })
 })
 
-describe('tool execution — non-object args fallback', () => {
+describe('tool execution — non-object args rejection', () => {
   let ctx: Context
 
   beforeEach(async () => {
     ctx = await mountRegistry()
   })
 
-  it('coerces null args to empty object for callTool', async () => {
+  it.each([[null], ['bad'], ['{"a":'], [7], [true], [[]], [[{ a: 1 }]]])('rejects %j before calling the server', async (arguments_) => {
     const client = createMockClient(
-      [{ name: 'coerce', inputSchema: { type: 'object' } }],
+      [{ name: 'noargs', inputSchema: { type: 'object' } }],
       { content: [{ type: 'text', text: 'ok' }] },
     )
 
     await syncTools(client as never, ctx, defaultOpts, new Map())
-    await executeToolFixture(ctx, { signal: testToolSignal, callId: brandString<ToolCallId>('c1'), name: 'mcp__srv__coerce', arguments: null })
+    const result = await executeToolFixture(ctx, { signal: testToolSignal, callId: brandString<ToolCallId>('c1'), name: 'mcp__srv__noargs', arguments: arguments_ })
 
-    expect(client.callTool).toHaveBeenCalledWith(
-      { name: 'coerce', arguments: {} },
-      expect.anything(),
-    )
+    expect(result.isError).toBe(true)
+    expect(result.error?.message).toContain('expected a JSON object')
+    expect(client.callTool).not.toHaveBeenCalled()
   })
 
-  it('coerces primitive string args to empty object for callTool', async () => {
+  it('still calls the server for a valid empty object', async () => {
     const client = createMockClient(
-      [{ name: 'coerce2', inputSchema: { type: 'object' } }],
+      [{ name: 'noargs2', inputSchema: { type: 'object' } }],
       { content: [{ type: 'text', text: 'ok' }] },
     )
 
     await syncTools(client as never, ctx, defaultOpts, new Map())
-    await executeToolFixture(ctx, { signal: testToolSignal, callId: brandString<ToolCallId>('c1'), name: 'mcp__srv__coerce2', arguments: 'bad' })
+    await executeToolFixture(ctx, { signal: testToolSignal, callId: brandString<ToolCallId>('c1'), name: 'mcp__srv__noargs2', arguments: {} })
 
     expect(client.callTool).toHaveBeenCalledWith(
-      { name: 'coerce2', arguments: {} },
+      { name: 'noargs2', arguments: {} },
       expect.anything(),
     )
   })
