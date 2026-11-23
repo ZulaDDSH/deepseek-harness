@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import WebRuntime, {
+  readBoundedJson,
+  redactEndpoint,
+  WEB_SEARCH_FIELD_MAX_CHARS,
+  WEB_SEARCH_URL_MAX_CHARS,
   WebError,
   type WebFetchProvider,
   type WebFetchResult,
@@ -390,5 +394,77 @@ describe('live provider selection', () => {
       await expect(ctx.web.search({ query: 'q' })).resolves.toMatchObject({ content: 'second' })
       await expect(ctx.web.fetch({ url: 'https://example.com' })).resolves.toMatchObject({ body: { content: 'second' } })
     } finally { await ctx.fiber.dispose() }
+  })
+})
+
+describe('search result field bounds', () => {
+  it('cuts oversized fields with an ellipsis and drops sources with an over-long URL', async () => {
+    const { web } = await mountWeb()
+    web.registerSearchProvider(makeSearchProvider('big', available, () => Promise.resolve({
+      content: 'a'.repeat(WEB_SEARCH_FIELD_MAX_CHARS.content + 10),
+      sources: [
+        { url: 'https://ok.test', title: 't'.repeat(900), snippet: 's'.repeat(9000), summary: 'u'.repeat(9000), publishedAt: 'd'.repeat(300) },
+        { url: `https://long.test/${'p'.repeat(WEB_SEARCH_URL_MAX_CHARS)}` },
+      ],
+      truncated: false,
+    })))
+    const result = await web.search({ query: 'q' })
+    expect(result.content).toHaveLength(WEB_SEARCH_FIELD_MAX_CHARS.content)
+    expect(result.content?.endsWith('…')).toBe(true)
+    expect(result.sources).toHaveLength(1)
+    expect(result.truncated).toBe(true)
+    const [source] = result.sources
+    expect(source?.title).toHaveLength(WEB_SEARCH_FIELD_MAX_CHARS.title)
+    expect(source?.snippet).toHaveLength(WEB_SEARCH_FIELD_MAX_CHARS.snippet)
+    expect(source?.summary).toHaveLength(WEB_SEARCH_FIELD_MAX_CHARS.summary)
+    expect(source?.publishedAt).toHaveLength(WEB_SEARCH_FIELD_MAX_CHARS.publishedAt)
+  })
+
+  it('leaves in-bound results untouched', async () => {
+    const { web } = await mountWeb()
+    const result = searchResult('ok', { sources: [{ url: 'https://a.test', title: 'A', snippet: 's' }] })
+    web.registerSearchProvider(makeSearchProvider('small', available, () => Promise.resolve(result)))
+    await expect(web.search({ query: 'q' })).resolves.toEqual(result)
+  })
+})
+
+describe('readBoundedJson', () => {
+  const streamOf = (chunks: Uint8Array[]): Response => new Response(new ReadableStream({
+    start(controller) { for (const chunk of chunks) controller.enqueue(chunk); controller.close() },
+  }))
+
+  it('parses a body within the cap', async () => {
+    await expect(readBoundedJson(new Response('{"a":1}'), undefined, 100)).resolves.toEqual({ a: 1 })
+  })
+
+  it('rejects a streamed body that passes the cap without parsing it', async () => {
+    const chunk = new TextEncoder().encode('x'.repeat(60))
+    await expect(readBoundedJson(streamOf([chunk, chunk]), undefined, 100))
+      .rejects.toMatchObject({ code: 'WEB_RESPONSE_TOO_LARGE' })
+  })
+
+  it('rejects a declared content-length over the cap and cancels the stream', async () => {
+    const cancel = vi.fn()
+    const response = new Response(new ReadableStream({ cancel }), { headers: { 'content-length': '1000' } })
+    await expect(readBoundedJson(response, undefined, 100)).rejects.toMatchObject({ code: 'WEB_RESPONSE_TOO_LARGE' })
+    expect(cancel).toHaveBeenCalled()
+  })
+
+  it('stops reading and cancels the stream when the signal aborts during the read', async () => {
+    const controller = new AbortController()
+    const cancel = vi.fn()
+    const body = new ReadableStream<Uint8Array>({
+      pull() { controller.abort(new Error('stop')) },
+      cancel,
+    })
+    await expect(readBoundedJson(new Response(body), controller.signal, 100)).rejects.toThrow('stop')
+    expect(cancel).toHaveBeenCalled()
+  })
+})
+
+describe('redactEndpoint', () => {
+  it('removes user information, query, and fragment', () => {
+    expect(redactEndpoint('https://user:pw@host.test/v1/messages?key=secret#frag')).toBe('https://host.test/v1/messages')
+    expect(redactEndpoint('not a url')).toBe('[unparseable endpoint]')
   })
 })

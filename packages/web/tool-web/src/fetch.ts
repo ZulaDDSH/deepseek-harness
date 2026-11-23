@@ -28,10 +28,40 @@ const turndown = new TurndownService({
   bulletListMarker: '-',
 })
 turndown.use(gfm)
+const HIDING_DECLARATION = /(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*(?:hidden|collapse))\s*(?:!important\s*)?(?:;|$)/iu
+const MAX_STYLESHEET_CHARS = 20_000
+const MAX_HIDDEN_SELECTORS = 200
+const stylesheetHidden = new WeakMap<object, string[]>()
+
+function stylesheetHiddenSelectors(document: Document): string[] {
+  const cached = stylesheetHidden.get(document)
+  if (cached !== undefined) return cached
+  const selectors: string[] = []
+  for (const style of Array.from(document.querySelectorAll('style')).slice(0, 20)) {
+    const text = (style.textContent ?? '').slice(0, MAX_STYLESHEET_CHARS)
+    for (const [, selectorText = '', body = ''] of text.matchAll(/([^{}@]+)\{([^{}]*)\}/gu)) {
+      if (!HIDING_DECLARATION.test(body)) continue
+      for (const selector of selectorText.split(',')) {
+        if (/^[.#]?[\w-]+$/u.test(selector.trim())) selectors.push(selector.trim())
+      }
+    }
+  }
+  const bounded = selectors.slice(0, MAX_HIDDEN_SELECTORS)
+  stylesheetHidden.set(document, bounded)
+  return bounded
+}
+
+function hiddenByStylesheet(node: HTMLElement): boolean {
+  return stylesheetHiddenSelectors(node.ownerDocument).some((selector) => {
+    try { return node.matches(selector) } catch { return false }
+  })
+}
+
 turndown.addRule('removeNonVisibleContent', {
   filter(node) {
     if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'IFRAME', 'OBJECT', 'EMBED'].includes(node.nodeName)) return true
     if (node.hasAttribute('hidden') || node.getAttribute('aria-hidden')?.toLowerCase() === 'true') return true
+    if (hiddenByStylesheet(node)) return true
     if (node.nodeName === 'INPUT' && node.getAttribute('type')?.toLowerCase() === 'hidden') return true
     const declarations = node.getAttribute('style')?.split(';') ?? []
     return declarations.some((declaration) => {
@@ -128,6 +158,12 @@ const VOID_ELEMENTS = new Set([
 /** Elements whose contents HTML parses as text until their matching end tag. */
 const RAW_TEXT_ELEMENTS = new Set(['script', 'style', 'noscript'])
 
+const HTML_BREAKOUT_ELEMENTS = new Set([
+  'b', 'big', 'blockquote', 'body', 'br', 'center', 'code', 'dd', 'div', 'dl', 'dt', 'em', 'embed', 'h1', 'h2', 'h3', 'h4',
+  'h5', 'h6', 'head', 'hr', 'i', 'img', 'li', 'listing', 'menu', 'meta', 'nobr', 'ol', 'p', 'pre', 'ruby', 's', 'small',
+  'span', 'strong', 'strike', 'sub', 'sup', 'table', 'tt', 'u', 'ul', 'var', 'font',
+])
+
 /** Whether a character can occur after a raw-text end-tag name. */
 function isTagBoundary(char: string | undefined): boolean {
   return char === undefined || char === '>' || char === '/' || /\s/.test(char)
@@ -206,7 +242,9 @@ function exceedsConversionDepth(html: string): boolean {
     } else {
       let last = cursor - 2
       while (/\s/.test(html.charAt(last))) last -= 1
-      if (!VOID_ELEMENTS.has(name) && html[last] !== '/') {
+      const foreign = name === 'svg' || name === 'math' || openElements.some(open => open === 'svg' || open === 'math')
+      const selfClosing = html[last] === '/' && foreign && !HTML_BREAKOUT_ELEMENTS.has(name)
+      if (!VOID_ELEMENTS.has(name) && !selfClosing) {
         openElements.push(name)
         if (openElements.length > MAX_CONVERSION_DEPTH) return true
         if (!inComment && RAW_TEXT_ELEMENTS.has(name)) {
@@ -326,7 +364,8 @@ const renderCache = new WeakMap<WebFetchResult, Map<number, RenderedFetch>>()
  * @returns the bounded text and effective truncation.
  */
 function computeFetchOutput(result: WebFetchResult, maxOutputChars: number): RenderedFetch {
-  const header = `Fetched ${result.url} (HTTP ${result.statusCode})\n\n${EXTERNAL_WEB_CONTENT_NOTICE}\n\n`
+  const status = result.statusCode === undefined ? 'HTTP status and final URL not reported by the fetch service' : `HTTP ${result.statusCode}`
+  const header = `Fetched ${result.url} (${status})\n\n${EXTERNAL_WEB_CONTENT_NOTICE}\n\n`
   const rendered = renderBody(result.body, maxOutputChars)
   const prefix = `${header}${rendered.text}`
   const truncated = result.truncated || rendered.sourceTruncated || prefix.length > maxOutputChars
@@ -390,7 +429,11 @@ export interface WebFetchMeta {
  * @returns the URL, status code, and effective truncation flag.
  */
 export function fetchMetaFromValue(value: WebFetchResult, maxOutputChars: number): JsonValue {
-  return { url: value.url, statusCode: value.statusCode, truncated: renderFetchOutput(value, maxOutputChars).truncated }
+  return {
+    url: value.url,
+    ...value.statusCode === undefined ? {} : { statusCode: value.statusCode },
+    truncated: renderFetchOutput(value, maxOutputChars).truncated,
+  }
 }
 
 /**
@@ -467,7 +510,7 @@ export function applyWebFetchTool(ctx: Context, timeoutMs: number, maxOutputChar
         additionalProperties: false,
         properties: {
           url: { type: 'string', required: true },
-          statusCode: { type: 'integer', required: true },
+          statusCode: { type: 'integer' },
           body: {
             required: true,
             oneOf: [
@@ -506,7 +549,7 @@ export function applyWebFetchTool(ctx: Context, timeoutMs: number, maxOutputChar
       )
       return {
         url: result.url,
-        statusCode: result.statusCode,
+        ...result.statusCode === undefined ? {} : { statusCode: result.statusCode },
         body: { kind: result.body.kind, content: result.body.content },
         truncated: result.truncated,
       }

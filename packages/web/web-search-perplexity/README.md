@@ -143,10 +143,10 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 These limits define when the provider is a poor fit. They are current package constraints.
 
-- **Citation-fallback sources are URL-only** — when Perplexity omits structured `search_results[]`, sources carry no `title`/`snippet`/`publishedAt`, so the tool renders bare hostname labels.
+- **Citation-only sources are URL-only** — citations absent from structured `search_results[]` are appended after them, deduplicated, and carry no `title`/`snippet`/`publishedAt`, so the tool renders bare hostname labels.
 - **Over-returned sources still cost tokens and latency** — with no result-count control on the wire, `maxResults` is enforced only post-hoc by service truncation.
 - **Only `model`/`maxTokens`/`searchRecency` are exposed** — Perplexity's other search controls (domain filters, `web_search_options` context size, images) wait on provider-neutral service fields ([seam Agent Note](../../../.agents/notes/implemented/architecture/2026-06-24-web-capability-seam.md)).
-- **Abort classification is error-shape-based** — only a `DOMException` named `AbortError` maps to `WEB_ABORTED`; an abort carrying a custom reason (such as `dsh-timeout`'s `TimeoutReason`) surfaces as `WEB_PROVIDER_ERROR`.
+- **Cancellation follows the caller's signal** — an aborted `signal` maps to `WEB_ABORTED` with the signal's reason as `cause`, whatever the thrown value was, including during a bounded body read.
 
 <a id="dev-note"></a>
 ### Dev Note

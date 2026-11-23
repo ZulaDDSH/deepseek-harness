@@ -1021,6 +1021,9 @@ Upgrade guides require the Change and Migration sections and are limited to 500 
 ### `packages/context/tmux-context/src/index.ts:Config`
 - `queryTimeoutMs`: Milliseconds the whole tmux location query may take before it is abandoned as unknown. Defaults to 5000.
 
+### `packages/experimental/browser-use-stagehand-native/src/index.ts:Config`
+- `operationTimeoutMs`: Milliseconds for Chromium startup and for Stagehand navigation and model-assisted actions; the Worker connection, its initialization, tab operations and screenshots are also abandoned and the connection closed once the request has run this long plus 15 seconds. Defaults to 30000.
+
 ## Catalog event and service contracts
 
 ### `packages/mcp/mcp-client/src/status.ts:mcp-client/inventory`
@@ -1248,3 +1251,9 @@ The event JSDoc carries description, `@mode emit` and `@param outcome` because t
 
 ### `packages/api/quota-controller/src/index.ts:QuotaControllerInternals`
 - `timeoutMs`: Deadline in milliseconds for one whole quota read, credential lookup plus HTTP request; default 30000.
+
+### `packages/web/web-deepseek-api/src/index.ts:Config`
+- `sendOriginalQuestion`: Send the initiating Session's latest human prompt, cut to 128 characters, as the Search API's `ori_question`; default false because it discloses prompt text the model did not put in its query.
+
+### `packages/web/web-search-exa/src/index.ts:Config`
+- `highlightsPerResult`: Most non-blank highlights joined into each result's snippet; no longer sent to Exa as the deprecated `highlightsPerUrl`. Defaults to 1.

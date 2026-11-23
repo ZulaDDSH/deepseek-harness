@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh-web-search-exa/provider
  */
 
-import { WebError } from '@deepseek-ai/dsh-web'
+import { readBoundedJson, WebError } from '@deepseek-ai/dsh-web'
 import type {
   WebSearchProvider,
   WebSearchRequest,
@@ -44,40 +44,18 @@ export interface ExaSearchProviderOptions {
   highlightsPerResult: number
 }
 
-/**
- * Map one Exa result to a normalized source, or `undefined` when it carries no
- * portable snippet (an entry with no highlight is dropped — the seam has no
- * other field to derive a snippet from, and inventing one would lie).
- *
- * @param result - one entry of Exa's `results[]`.
- * @returns the normalized source, or `undefined` when the entry has no
- *   non-blank highlight.
- */
-export function mapExaResult(result: ExaResult): WebSearchSource | undefined {
-  const snippet = result.highlights?.find(highlight => highlight.trim().length > 0)
-  if (snippet === undefined) return undefined
+export function mapExaResult(result: ExaResult, highlights: number = EXA_DEFAULT_HIGHLIGHTS_PER_RESULT): WebSearchSource {
+  const snippet = (result.highlights ?? []).filter(highlight => highlight.trim().length > 0).slice(0, highlights).join(' … ')
   return {
     url: result.url,
     ...result.title != null && result.title.length > 0 ? { title: result.title } : {},
-    snippet,
+    ...snippet.length > 0 ? { snippet } : {},
     ...result.publishedDate != null && result.publishedDate.length > 0 ? { publishedAt: result.publishedDate } : {},
   }
 }
 
-/**
- * Map an Exa response envelope to a normalized search result.
- *
- * @param response - the parsed `POST /search` response body.
- * @returns the normalized result; snippet-less entries are dropped
- *   ({@link mapExaResult}).
- */
-export function mapExaResponse(response: ExaSearchResponse): WebSearchResult {
-  const sources = (response.results ?? [])
-    .map(mapExaResult)
-    .filter((source): source is WebSearchSource => source !== undefined)
-  // Exa returns no generated answer, so `content` is omitted. The web service owns the
-  // final `maxResults` truncation, so this provider reports `truncated: false`.
-  return { sources, truncated: false }
+export function mapExaResponse(response: ExaSearchResponse, highlights: number = EXA_DEFAULT_HIGHLIGHTS_PER_RESULT): WebSearchResult {
+  return { sources: (response.results ?? []).map(result => mapExaResult(result, highlights)), truncated: false }
 }
 
 /** The Exa-backed search provider; HTTP redirects fail as `WEB_PROVIDER_ERROR`. */
@@ -112,13 +90,13 @@ export class ExaSearchProvider implements WebSearchProvider {
         body: JSON.stringify({
           query: request.query,
           type: this.options.searchType,
-          contents: { highlights: { highlightsPerUrl: this.options.highlightsPerResult } },
+          contents: { highlights: true },
           ...numResults !== undefined ? { numResults } : {},
         }),
         ...signal !== undefined ? { signal } : {},
       })
     } catch (error: unknown) {
-      if (isAbortError(error)) throw new WebError('Exa search aborted', 'WEB_ABORTED', { cause: error })
+      if (isCancelled(signal, error)) throw cancelled(signal, error)
       throw new WebError(`Exa search request failed: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
     }
 
@@ -126,14 +104,14 @@ export class ExaSearchProvider implements WebSearchProvider {
       const status = response.status
       let message = `Exa API error (HTTP ${status})`
       try {
-        const parsed = await response.json() as ExaError
+        const parsed = await readBoundedJson(response, signal) as ExaError
         const detail = parsed.error ?? parsed.message
         if (detail !== undefined && detail.length > 0) message = detail
       } catch (error: unknown) {
         // An abort fired mid-body must surface as WEB_ABORTED, not be swallowed
         // into a generic HTTP-error message — cancellation is not a provider
         // error (the seam's cancellation contract).
-        if (isAbortError(error)) throw new WebError('Exa search aborted', 'WEB_ABORTED', { cause: error })
+        if (isCancelled(signal, error)) throw cancelled(signal, error)
         // Otherwise: the HTTP status is already captured in `message` above; a
         // malformed/non-JSON error body (normal for gateway 5xx/429s) can only
         // cost a richer provider message, never the real error.
@@ -142,10 +120,11 @@ export class ExaSearchProvider implements WebSearchProvider {
     }
 
     try {
-      const payload = await response.json() as ExaSearchResponse
-      return mapExaResponse(payload)
+      const payload = await readBoundedJson(response, signal) as ExaSearchResponse
+      return mapExaResponse(payload, this.options.highlightsPerResult)
     } catch (error: unknown) {
-      if (isAbortError(error)) throw new WebError('Exa search aborted', 'WEB_ABORTED', { cause: error })
+      if (isCancelled(signal, error)) throw cancelled(signal, error)
+      if (error instanceof WebError) throw error
       throw new WebError(`Exa returned an unprocessable response body: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
     }
   }
@@ -161,7 +140,10 @@ function isPositiveInteger(value: number): boolean {
   return Number.isInteger(value) && value > 0
 }
 
-/** True for a fetch/`AbortSignal` abort, surfaced as `WEB_ABORTED`. */
-function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError'
+function isCancelled(signal: AbortSignal | undefined, error: unknown): boolean {
+  return signal?.aborted === true || (error instanceof DOMException && error.name === 'AbortError')
+}
+
+function cancelled(signal: AbortSignal | undefined, error: unknown): WebError {
+  return new WebError('Exa search aborted', 'WEB_ABORTED', { cause: signal?.aborted === true ? signal.reason : error })
 }

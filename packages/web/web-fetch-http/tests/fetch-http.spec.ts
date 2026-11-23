@@ -494,6 +494,13 @@ describe('HttpFetchProvider body cancellation on error paths', () => {
     await closed
   })
 
+  it('cancels the body when the redirect Location cannot be parsed', async () => {
+    const closed = respondWithOpenBody(302, { location: 'http://[' })
+    await expect(provider().fetch({ url: base }))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR', message: 'invalid redirect Location "http://["' }))
+    await closed
+  })
+
   it('cancels the body when a redirect has no Location header', async () => {
     const closed = respondWithOpenBody(302, {})
     await expect(provider().fetch({ url: base }))

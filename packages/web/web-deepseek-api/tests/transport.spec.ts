@@ -269,11 +269,12 @@ describe('DeepSeek web account authentication', () => {
 
   it('invalidates the sent account token once when cancellation interrupts reading the 401 body', async () => {
     const controller = new AbortController()
-    const response = jsonResponse({ error: 'invalid token' }, { status: 401 })
-    vi.spyOn(response, 'json').mockImplementation(async (): Promise<unknown> => {
-      controller.abort(new Error('caller stopped'))
-      throw new DOMException('The operation was aborted.', 'AbortError')
-    })
+    const response = new Response(new ReadableStream({
+      pull(streamController) {
+        controller.abort(new Error('caller stopped'))
+        streamController.error(new DOMException('The operation was aborted.', 'AbortError'))
+      },
+    }, { highWaterMark: 0 }), { status: 401 })
     vi.stubGlobal('fetch', vi.fn(async () => response))
     const rejectToken = vi.fn(async (_token: string) => {})
     const error = await rejectedWebError(search([accountSource(async () => 'sent-token', rejectToken)], controller.signal))
@@ -283,11 +284,12 @@ describe('DeepSeek web account authentication', () => {
 
   it('reports cancellation during an API-key 401 body read without invalidating a token', async () => {
     const controller = new AbortController()
-    const response = jsonResponse({}, { status: 401 })
-    vi.spyOn(response, 'json').mockImplementation(async (): Promise<unknown> => {
-      controller.abort(new Error('caller stopped'))
-      throw new DOMException('The operation was aborted.', 'AbortError')
-    })
+    const response = new Response(new ReadableStream({
+      pull(streamController) {
+        controller.abort(new Error('caller stopped'))
+        streamController.error(new DOMException('The operation was aborted.', 'AbortError'))
+      },
+    }, { highWaterMark: 0 }), { status: 401 })
     vi.stubGlobal('fetch', vi.fn(async () => response))
     const rejectToken = vi.fn(async (_token: string) => {})
     const error = await rejectedWebError(search([accountSource(async () => undefined, rejectToken), keySource()], controller.signal))
@@ -460,16 +462,14 @@ describe('DeepSeek web cancellation and failures', () => {
   })
 
   it('surfaces an abort during success-body parse as WEB_ABORTED', async () => {
-    const body = new Response('', { status: 200 })
-    vi.spyOn(body, 'json').mockRejectedValue(new DOMException('aborted', 'AbortError'))
+    const body = new Response(new ReadableStream({ pull(streamController) { streamController.error(new DOMException('aborted', 'AbortError')) } }), { status: 200 })
     vi.stubGlobal('fetch', vi.fn(async () => body))
     await expect(search([keySource()]))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
   })
 
   it('surfaces an abort during error-body parse as WEB_ABORTED', async () => {
-    const body = new Response('', { status: 500 })
-    vi.spyOn(body, 'json').mockRejectedValue(new DOMException('aborted', 'AbortError'))
+    const body = new Response(new ReadableStream({ pull(streamController) { streamController.error(new DOMException('aborted', 'AbortError')) } }), { status: 500 })
     vi.stubGlobal('fetch', vi.fn(async () => body))
     await expect(search([keySource()]))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
@@ -480,5 +480,26 @@ describe('DeepSeek web cancellation and failures', () => {
     const error = await rejectedWebError(search([keySource()]))
     expect(error.code).toBe('WEB_PROVIDER_ERROR')
     expect(error.message).toContain('The web request used endpoint "https://api.deepseek.test/v1/tools/search".')
+  })
+})
+
+describe('DeepSeek web bounds and endpoint redaction', () => {
+  it('rejects a success body over the byte cap without parsing it', async () => {
+    captureFetch(() => new Response(JSON.stringify({ pad: 'x'.repeat(5 * 1024 * 1024) }), { status: 200 }))
+    const error = await rejectedWebError(search([keySource()]))
+    expect(error.message).toContain('exceeds the')
+  })
+
+  it('keeps the status-line message when an error body is over the byte cap', async () => {
+    captureFetch(() => new Response(JSON.stringify({ error: 'x'.repeat(5 * 1024 * 1024) }), { status: 500 }))
+    const error = await rejectedWebError(search([keySource()]))
+    expect(error.message).toMatch(/^DeepSeek API error \(HTTP 500\)\n/u)
+  })
+
+  it('names the endpoint in failure guidance without user information or query', async () => {
+    captureFetch(() => jsonResponse({ error: 'boom' }, { status: 500 }))
+    const error = await rejectedWebError(search([{ kind: 'api-key', baseURL: 'https://user:pw@api.deepseek.test/v1/tools', key: 'ds-key' }]))
+    expect(error.message).not.toContain('pw')
+    expect(error.message).toContain('https://api.deepseek.test/v1/tools/search')
   })
 })

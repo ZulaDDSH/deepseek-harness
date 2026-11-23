@@ -1328,3 +1328,38 @@ describe('web tool admission per model step', () => {
 function withPersona(...sections: string[]): string {
   return ['You are an AI agent powered by DeepSeek Harness.', ...sections].join('\n\n')
 }
+
+describe('web_fetch conversion safety and honesty', () => {
+  const NO_CAP = 1_000_000
+  const render = (content: string): string => formatFetchOutput({
+    url: 'https://a.test', statusCode: 200, truncated: false, body: { kind: 'html', content },
+  }, NO_CAP)
+  const OMITTED = '[HTML content omitted: unable to convert safely.]'
+
+  it('counts self-closing syntax on non-void HTML elements as nesting', () => {
+    expect(render('<div/>'.repeat(600))).toContain(OMITTED)
+    expect(render('<span />'.repeat(600))).toContain(OMITTED)
+    expect(render(`<svg>${'<div/>'.repeat(600)}`)).toContain(OMITTED)
+  })
+
+  it('still lets void elements and foreign self-closing syntax through', () => {
+    expect(render('<br/><img src="x"/><input/>'.repeat(600))).not.toContain(OMITTED)
+    expect(render(`<svg>${'<g/><path d="M0"/>'.repeat(600)}</svg><p>kept</p>`)).toContain('kept')
+  })
+
+  it('drops text hidden by a stylesheet rule', () => {
+    const html = '<style>.off, #gone { display:none } .dim{visibility:hidden !important} .ok{color:red}</style>'
+      + '<p class="off">hidden one</p><p id="gone">hidden two</p><p class="dim">hidden three</p><p class="ok">shown</p>'
+    const out = render(html)
+    expect(out).toContain('shown')
+    expect(out).not.toMatch(/hidden (one|two|three)/u)
+  })
+
+  it('reports an unobserved status and final URL instead of HTTP 200', () => {
+    const out = formatFetchOutput({ url: 'https://a.test', truncated: false, body: { kind: 'text', content: 'x' } }, NO_CAP)
+    expect(out).toContain('Fetched https://a.test (HTTP status and final URL not reported by the fetch service)')
+    expect(out).not.toContain('HTTP 200')
+    expect(fetchMetaFromValue({ url: 'https://a.test', truncated: false, body: { kind: 'text', content: 'x' } }, NO_CAP))
+      .toEqual({ url: 'https://a.test', truncated: false })
+  })
+})

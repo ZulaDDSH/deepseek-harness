@@ -55,7 +55,7 @@ export class DeepSeekFetchApiProvider implements WebFetchProvider {
       body: { url: request.url },
       decode: (payload): WebFetchResult => {
         if (!isRecord(payload) || typeof payload.content !== 'string') throw invalidResponse()
-        return { url: request.url, statusCode: 200, body: { kind: 'text', content: payload.content }, truncated: false }
+        return { url: request.url, body: { kind: 'text', content: payload.content }, truncated: false }
       },
       guidance: options.guidance,
     }, signal)

@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh-web-search-perplexity/provider
  */
 
-import { WebError } from '@deepseek-ai/dsh-web'
+import { readBoundedJson, WebError } from '@deepseek-ai/dsh-web'
 import type {
   WebSearchProvider,
   WebSearchRequest,
@@ -72,9 +72,13 @@ export function mapPerplexityResult(result: PerplexitySearchResult): WebSearchSo
  */
 export function mapPerplexityResponse(response: PerplexityResponse): WebSearchResult {
   const content = response.choices?.[0]?.message?.content
-  const sources: WebSearchSource[] = response.search_results !== undefined
-    ? response.search_results.map(mapPerplexityResult)
-    : (response.citations ?? []).map(url => ({ url }))
+  const sources = (response.search_results === undefined ? [] : response.search_results).filter(result => typeof result.url === 'string' && result.url.length > 0).map(mapPerplexityResult)
+  const seen = new Set(sources.map(source => source.url))
+  for (const url of response.citations ?? []) {
+    if (typeof url !== 'string' || url.length === 0 || seen.has(url)) continue
+    seen.add(url)
+    sources.push({ url })
+  }
   return {
     ...content != null && content.length > 0 ? { content } : {},
     sources,
@@ -121,7 +125,7 @@ export class PerplexitySearchProvider implements WebSearchProvider {
         ...signal !== undefined ? { signal } : {},
       })
     } catch (error: unknown) {
-      if (isAbortError(error)) throw new WebError('Perplexity search aborted', 'WEB_ABORTED', { cause: error })
+      if (isCancelled(signal, error)) throw cancelled(signal, error)
       throw new WebError(`Perplexity search request failed: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
     }
 
@@ -129,14 +133,14 @@ export class PerplexitySearchProvider implements WebSearchProvider {
       const status = response.status
       let message = `Perplexity API error (HTTP ${status})`
       try {
-        const parsed = await response.json() as PerplexityError
+        const parsed = await readBoundedJson(response, signal) as PerplexityError
         const detail = typeof parsed.error === 'string' ? parsed.error : parsed.error?.message ?? parsed.message
         if (detail !== undefined && detail.length > 0) message = detail
       } catch (error: unknown) {
         // An abort fired mid-body must surface as WEB_ABORTED, not be swallowed
         // into a generic HTTP-error message — cancellation is not a provider
         // error (the seam's cancellation contract).
-        if (isAbortError(error)) throw new WebError('Perplexity search aborted', 'WEB_ABORTED', { cause: error })
+        if (isCancelled(signal, error)) throw cancelled(signal, error)
         // Otherwise: the HTTP status is already captured in `message` above; a
         // malformed/non-JSON error body (normal for gateway 5xx/429s) can only
         // cost a richer provider message, never the real error.
@@ -145,10 +149,11 @@ export class PerplexitySearchProvider implements WebSearchProvider {
     }
 
     try {
-      const payload = await response.json() as PerplexityResponse
+      const payload = await readBoundedJson(response, signal) as PerplexityResponse
       return mapPerplexityResponse(payload)
     } catch (error: unknown) {
-      if (isAbortError(error)) throw new WebError('Perplexity search aborted', 'WEB_ABORTED', { cause: error })
+      if (isCancelled(signal, error)) throw cancelled(signal, error)
+      if (error instanceof WebError) throw error
       throw new WebError(`Perplexity returned an unprocessable response body: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
     }
   }
@@ -157,9 +162,12 @@ export class PerplexitySearchProvider implements WebSearchProvider {
 // These two predicates are intentionally local: exporting generic internals
 // from the public web seam would add more API than these pure checks.
 /* jscpd:ignore-start */
-/** True for a fetch/`AbortSignal` abort, surfaced as `WEB_ABORTED`. */
-function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError'
+function isCancelled(signal: AbortSignal | undefined, error: unknown): boolean {
+  return signal?.aborted === true || (error instanceof DOMException && error.name === 'AbortError')
+}
+
+function cancelled(signal: AbortSignal | undefined, error: unknown): WebError {
+  return new WebError('Perplexity search aborted', 'WEB_ABORTED', { cause: signal?.aborted === true ? signal.reason : error })
 }
 
 /** True for a request limit that can be sent to Perplexity (a positive whole number). */

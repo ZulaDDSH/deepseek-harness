@@ -82,13 +82,9 @@ export class HttpFetchProvider implements WebFetchProvider {
           await response.body?.cancel()
           throw new WebError(`redirect response (HTTP ${response.status}) without a Location header`, 'WEB_PROVIDER_ERROR')
         }
-        const target = resolveRedirect(location, currentUrl)
-        // Re-validate the target against the same transport hygiene a direct request gets: a
-        // redirect must not be a back door to a credentialed, non-http(s), or over-long URL
-        // that validateFetchUrl would reject.
         let validatedTarget: URL
         try {
-          validatedTarget = validateFetchUrl(target.toString())
+          validatedTarget = validateFetchUrl(resolveRedirect(location, currentUrl).toString())
           if (!isSameOrigin(validatedTarget, currentUrl)) {
             throw new WebError(
               `cross-origin redirect to ${validatedTarget.origin} is not followed automatically; retry against that URL directly`,
@@ -237,7 +233,6 @@ function resolveRedirect(location: string, base: URL): URL {
   try {
     return new URL(location, base)
   } catch (error: unknown) {
-    /* v8 ignore next 2 -- URL resolution against a valid absolute base effectively never throws; defensive guard. */
     throw new WebError(`invalid redirect Location "${location}"`, 'WEB_PROVIDER_ERROR', { cause: error })
   }
 }

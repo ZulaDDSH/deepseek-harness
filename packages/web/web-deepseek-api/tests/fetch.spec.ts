@@ -20,7 +20,7 @@ describe('DeepSeek Fetch API', () => {
     vi.stubGlobal('fetch', fetchMock)
     const provider = fetchProvider({ ...options, auth: auth('ds-key', `${BASE}/`) })
     expect(await provider.fetch({ url: 'https://example.com/article' })).toEqual({
-      url: 'https://example.com/article', statusCode: 200, body: { kind: 'text', content: '# Article\n\nBody' }, truncated: false,
+      url: 'https://example.com/article', body: { kind: 'text', content: '# Article\n\nBody' }, truncated: false,
     })
     const [url, init] = fetchMock.mock.calls[0]!
     expect(url).toBe('https://api.deepseek.test/api/v1/tools/fetch')
