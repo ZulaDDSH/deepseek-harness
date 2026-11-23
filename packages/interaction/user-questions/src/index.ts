@@ -300,6 +300,20 @@ export class UserQuestionService extends TypertRemoteService {
     }
     const agent = request.agent
     if (agent !== undefined) this.assertLiveRoot(agent)
+    const ids = new Set<string>()
+    for (const question of request.questions) {
+      if (question.id === '' || ids.has(question.id)) {
+        throw new UserQuestionError(`question ids must be unique and non-empty; received ${JSON.stringify(question.id)}`, 'BAD_QUESTION_ID')
+      }
+      ids.add(question.id)
+      const seen = new Set<string>()
+      for (const option of question.options ?? []) {
+        if (seen.has(option.label)) {
+          throw new UserQuestionError(`question ${question.id} offers option label ${JSON.stringify(option.label)} more than once`, 'DUPLICATE_OPTION')
+        }
+        seen.add(option.label)
+      }
+    }
     for (const question of request.questions) {
       const intent = question.intent
       if (intent === undefined) continue

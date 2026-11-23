@@ -682,6 +682,44 @@ describe('ask_user_question tool', () => {
     })
   })
 
+  it.each(['legacy', 'timed'] as const)('rejects repeated ids and repeated option labels in %s mode before any user interaction', async (mode) => {
+    const ctx = await setup({ mode, timeout: -1 })
+    const answerer = vi.fn(async (): Promise<AskUserQuestionAnswer> => ({ answers: [] }))
+    registerQuestionAnswerer(ctx, { ask: answerer })
+    const run = (id: string, questions: unknown[]) => executeToolFixture(ctx, {
+      signal: testToolSignal,
+      callId: brandString<ToolCallId>(id),
+      name: 'ask_user_question',
+      arguments: { questions, ...mode === 'timed' ? { timeout: -1 } : {} },
+    })
+
+    const ids = await run(`ask-ids-${mode}`, [{ id: 'scope', question: 'A?' }, { id: 'scope', question: 'B?' }])
+    expect(ids.isError).toBe(true)
+    const blank = await run(`ask-blank-${mode}`, [{ id: '', question: 'A?' }])
+    expect(blank.isError).toBe(true)
+    const labels = await run(`ask-labels-${mode}`, [{
+      id: 'pick', question: 'Which?', options: [{ label: 'Same', description: 'first' }, { label: 'Same', description: 'second' }],
+    }])
+    expect(labels).toMatchObject({ isError: true, error: { info: { name: 'UserQuestionError', code: 'DUPLICATE_OPTION' } } })
+    expect(answerer).not.toHaveBeenCalled()
+
+    const valid = await run(`ask-valid-${mode}`, [{ id: 'pick', question: 'Which?', options: [{ label: 'One' }, { label: 'Two' }] }])
+    expect(valid.isError).not.toBe(true)
+    expect(answerer).toHaveBeenCalledOnce()
+  })
+
+  it('rejects a blocking batch with repeated ids with a structured error', async () => {
+    const ctx = await setup({ mode: 'legacy' })
+    registerQuestionAnswerer(ctx, { ask: vi.fn(async (): Promise<AskUserQuestionAnswer> => ({ answers: [] })) })
+    const result = await executeToolFixture(ctx, {
+      signal: testToolSignal,
+      callId: brandString<ToolCallId>('ask-blocking-dup'),
+      name: 'ask_user_question',
+      arguments: { questions: [{ id: 'x', question: 'A?' }, { id: 'x', question: 'B?' }] },
+    })
+    expect(result).toMatchObject({ isError: true, error: { info: { name: 'UserQuestionError', code: 'BAD_QUESTION_ID' } } })
+  })
+
   it('unregisters the tool when its plugin fiber is disposed', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
