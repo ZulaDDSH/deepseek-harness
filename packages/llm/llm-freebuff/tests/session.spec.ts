@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { FreebuffPool, type TurnRequest } from '../src/session.ts'
 import { assistantMessage, collect, failureOf, harness, userMessage, type Harness } from './harness.ts'
 
-function chatOf(h: Harness, cwd: string): { chatId: string, rows: { id: string }[] } {
+function chatOf(h: Harness, cwd: string): { chatId: string; rows: { id: string }[] } {
   const dir = h.host.chatsDir(cwd)
   const chatId = readdirSync(dir)[0]!
   return { chatId, rows: JSON.parse(readFileSync(join(dir, chatId, 'chat-messages.json'), 'utf8')) as { id: string }[] }

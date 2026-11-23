@@ -13,7 +13,7 @@ const OUTPUT_WINDOW = 65_536
 const GRANT = { kind: 'grant', payload: { via: 'freebuff-cli' } } as const
 
 export class FreebuffAccount {
-  private cached: { readonly at: number, readonly status: DoctorStatus } | undefined
+  private cached: { readonly at: number; readonly status: DoctorStatus } | undefined
   private pending: Promise<DoctorStatus> | undefined
 
   constructor(private readonly ctx: Context, private readonly environment: FreebuffEnvironment) {}

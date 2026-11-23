@@ -323,7 +323,7 @@ export class FreebuffSession {
       const last = tail.filter(row => row.variant === 'ai').at(-1)
       if (at >= 0 && quiet && (last?.isComplete === true || ((sawBusy || !submitted) && state.ready))) {
         if (blocks.length === 0) throw new LlmError('Freebuff finished without an answer.', 'EMPTY_RESPONSE')
-        const end = { chatId: chatId as string, consumed: String(rows.at(-1)?.id) }
+        const end = { chatId: chatId, consumed: String(rows.at(-1)?.id) }
         this.consumed = end.consumed
         return end
       }

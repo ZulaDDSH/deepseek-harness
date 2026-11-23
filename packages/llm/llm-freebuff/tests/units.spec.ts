@@ -43,7 +43,7 @@ describe('renderBlocks', () => {
   })
 
   it('truncates long output and widens the fence around backticks', () => {
-    const long = `${'x'.repeat(3000)}`
+    const long = 'x'.repeat(3000)
     const [only] = renderBlocks([ai([{ type: 'tool', toolName: 'run_terminal_command', input: { command: 'cat' }, output: long }])])
     expect(only!.text).toContain('... (output truncated)')
     const [fenced] = renderBlocks([ai([{ type: 'tool', toolName: 'run_terminal_command', input: { command: 'cat' }, output: '```code```' }])])
@@ -57,8 +57,8 @@ describe('renderBlocks', () => {
     expect(running).toEqual([{ kind: 'text', text: 'before' }])
     const settled = renderBlocks([ai([{ type: 'tool', toolName: 'read_files', input: { paths: ['a'] } }, text('after')], false)])
     expect(settled[0]!.text).toBe('Read `a`\n\nafter')
-    expect(renderBlocks([ai([{ type: 'mode-divider' }, { type: 'ask-user' }, text('')]), { variant: 'user', content: 'x' } as never])).toEqual([])
-    expect(renderBlocks([{ variant: 'ai' } as never])).toEqual([])
+    expect(renderBlocks([ai([{ type: 'mode-divider' }, { type: 'ask-user' }, text('')]), { variant: 'user', content: 'x' }])).toEqual([])
+    expect(renderBlocks([{ variant: 'ai' }])).toEqual([])
   })
 })
 

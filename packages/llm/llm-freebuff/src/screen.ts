@@ -62,7 +62,7 @@ export class FreebuffScreen {
     const buffer = this.emulator.buffer.active
     const lines: string[] = []
     for (let row = 0; row < buffer.length; row += 1) {
-      lines.push(buffer.getLine(row)!.translateToString(true))
+      lines.push(String(buffer.getLine(row)?.translateToString(true)))
     }
     while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
     return lines.join('\n')

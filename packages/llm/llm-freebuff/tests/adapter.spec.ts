@@ -18,7 +18,8 @@ describe('Freebuff model route', () => {
     expect(spec.argv.slice(-2)).toEqual(['--cwd', cwd])
     expect(spec.cwd).toBe(cwd)
     const replay = (result.finish.replayState?.response ?? {}) as Record<string, unknown>
-    expect(replay).toMatchObject({ kind: 'freebuff', version: 1, chatId: expect.any(String) })
+    expect(replay).toMatchObject({ kind: 'freebuff', version: 1 })
+    expect(typeof replay.chatId).toBe('string')
     expect(h.host.prompts).toEqual(['hello there'])
   })
 
@@ -171,9 +172,9 @@ describe('Freebuff model route', () => {
   it('evicts the longest idle terminal beyond the limit and refuses when all are working', async () => {
     const h = await harness({ timing: { maxTerminals: 2 } })
     const ids = ['a', 'b', 'c'].map(name => h.session(name, h.workspace(name)))
-    await collect(h, ids[0]!, [userMessage('one')])
-    await collect(h, ids[1]!, [userMessage('two')])
-    await collect(h, ids[2]!, [userMessage('three')])
+    await collect(h, ids[0], [userMessage('one')])
+    await collect(h, ids[1], [userMessage('two')])
+    await collect(h, ids[2], [userMessage('three')])
     expect(h.host.killed).toBe(1)
     h.host.script = { hold: true }
     const abort = new AbortController()

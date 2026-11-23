@@ -82,7 +82,7 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
   await ctx.plugin(AuthorizationService)
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(LocalSubprocessRuntime)
-  const sessions = new Map<string, { id: string, cwd: string }>()
+  const sessions = new Map<string, { id: string; cwd: string }>()
   ctx.provide('sessions', { get: (id: string) => sessions.get(id) } as never)
   ctx.provide('workingDirectory', { get: (session: { cwd: string }) => session.cwd } as never)
   if (options.sandbox !== undefined) {
@@ -106,7 +106,7 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
       name: 'llm-freebuff-test',
       inject: ['authorization', 'credentials', 'llm', 'sessions', 'subprocess', 'workingDirectory'],
       apply: (child: Context) => {
-        mounted = installFreebuff(child, options.emptyConfig === true ? {} : { idleReapMs: { get: () => options.idleReapMs ?? 60_000 } as never }, {
+        mounted = installFreebuff(child, options.emptyConfig === true ? {} : { idleReapMs: { get: () => options.idleReapMs ?? 60_000 } }, {
           environment,
           spawnTerminal: host.spawnTerminal,
           ...options.quota === undefined ? {} : { quota: options.quota },
@@ -154,7 +154,12 @@ export interface Collected {
   readonly finish: Extract<StreamChunk, { type: 'finish' }>
 }
 
-export async function collect(h: Harness, sessionId: SessionId | undefined, messages: RequestMessage[], extra: { signal?: AbortSignal, purpose?: string } = {}): Promise<Collected> {
+export async function collect(
+  h: Harness,
+  sessionId: SessionId | undefined,
+  messages: RequestMessage[],
+  extra: { signal?: AbortSignal; purpose?: string } = {},
+): Promise<Collected> {
   const chunks: StreamChunk[] = []
   for await (const chunk of h.ctx.llm.stream({
     provider: 'freebuff',
@@ -170,7 +175,7 @@ export async function collect(h: Harness, sessionId: SessionId | undefined, mess
   return { chunks, text, finish }
 }
 
-export function failureOf(result: Collected): { message: string, code: string } {
+export function failureOf(result: Collected): { message: string; code: string } {
   if (result.finish.reason.kind !== 'error' && result.finish.reason.kind !== 'aborted') throw new Error(`expected a failure, got ${result.finish.reason.kind}`)
   return result.finish.reason.failure
 }

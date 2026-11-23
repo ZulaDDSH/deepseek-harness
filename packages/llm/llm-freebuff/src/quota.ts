@@ -87,9 +87,18 @@ export function credentialTarget(home: string): string {
 
 export type RunPowerShell = (script: string, env: Readonly<Record<string, string>>) => Promise<string>
 
-export type ExecFile = (file: string, args: readonly string[], options: ExecFileOptions, callback: (error: Error | null, stdout: string) => void) => unknown
+export type ExecFile = (
+  file: string,
+  args: readonly string[],
+  options: ExecFileOptions,
+  callback: (error: Error | null, stdout: string) => void,
+) => unknown
 
-export function runPowerShell(script: string, env: Readonly<Record<string, string>>, exec: ExecFile = execFile as ExecFile): Promise<string> {
+export function runPowerShell(
+  script: string,
+  env: Readonly<Record<string, string>>,
+  exec: ExecFile = execFile as ExecFile,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], {
       env: { ...process.env, ...env },
@@ -150,7 +159,9 @@ export function parseUsage(body: unknown): Usage | undefined {
     dailyLimit: limit,
     resetAt: instant(daily.resetAt) ?? null,
     openHours,
-    monthly: monthlyRemaining === undefined || monthlyLimit === undefined ? undefined : { remaining: monthlyRemaining, limit: monthlyLimit },
+    monthly: monthlyRemaining === undefined || monthlyLimit === undefined
+      ? undefined
+      : { remaining: monthlyRemaining, limit: monthlyLimit },
   }
 }
 

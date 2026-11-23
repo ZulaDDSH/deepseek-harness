@@ -79,8 +79,9 @@ export class FreebuffAdapter extends LlmAdapter {
   }
 
   override async *stream(options: GenerateOptions): AsyncGenerator<StreamChunk> {
-    if (options.purpose !== undefined) {
-      throw new LlmError(`Freebuff cannot serve the background request "${options.purpose}" because it would be typed into your visible Freebuff chat.`, 'UNSUPPORTED_OPTION')
+    const purpose = options.purpose as string | undefined
+    if (purpose !== undefined) {
+      throw new LlmError(`Freebuff cannot serve the background request "${purpose}" because it would be typed into your visible Freebuff chat.`, 'UNSUPPORTED_OPTION')
     }
     if (options.sessionId === undefined) throw new LlmError('Freebuff needs a harness session to keep its chat.', 'INVALID_REQUEST')
     const session = this.ctx.sessions.get(options.sessionId)
@@ -98,7 +99,7 @@ export class FreebuffAdapter extends LlmAdapter {
       consumed: resume?.consumed,
       signal: options.signal ?? new AbortController().signal,
     })
-    const shown: { kind: RenderedBlock['kind'], text: string }[] = []
+    const shown: { kind: RenderedBlock['kind']; text: string }[] = []
     try {
       for (;;) {
         const next = await turn.next()

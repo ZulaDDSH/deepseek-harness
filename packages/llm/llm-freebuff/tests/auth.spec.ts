@@ -45,7 +45,7 @@ describe('Freebuff sign-in flow', () => {
     const h = await harness({ mode: 'hang', signedIn: false })
     const abort = new AbortController()
     const ui = surface()
-    const original = ui.notify
+    const original = ui.notify.bind(ui)
     ui.notify = (notice) => {
       original(notice)
       abort.abort()

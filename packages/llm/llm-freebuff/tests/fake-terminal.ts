@@ -23,7 +23,7 @@ export interface FakeScript {
   askUser?: boolean
   silent?: boolean
   reasoning?: string
-  stages?: { reasoning?: string, content?: string }[]
+  stages?: { reasoning?: string; content?: string }[]
   failStop?: boolean
   failEscape?: boolean
   query?: boolean
