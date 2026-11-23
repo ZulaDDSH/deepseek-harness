@@ -27,6 +27,8 @@ The opaque popover shows providers returned by the Host registry, with the selec
 
 When a subscription window reaches the warning share (the `quota-controller` namespace's `nearLimitPercent`, default 90), the composer dock shows one prompt above the input that names the provider and the window. It offers a switch to the provider's API credits when the route has a billing switch, or "Pick another model" when it does not. "Not now" hides that window's prompt until the window resets. A hard limit reported by a provider's status is offered the same way. The share is edited on the Plugins page under Usage warnings, which appears only while the Host serves the namespace.
 
+Each refresh supersedes earlier ones: a provider list or quota result that arrives after a newer refresh was started is discarded, so the popover never shows an older snapshot over a newer one. One provider's request that does not answer within 45 seconds is shown as that provider's failed read (`Quota request timed out`) while the other providers' results are published; the abandoned request is not cancelled on the wire and its late answer is ignored.
+
 Escape closes the popover and returns focus to its trigger; a press outside the control closes it.
 
 -----

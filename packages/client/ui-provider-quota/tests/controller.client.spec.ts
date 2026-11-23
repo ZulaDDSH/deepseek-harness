@@ -151,3 +151,59 @@ describe('provider quota client requests', () => {
     expect(controller.dismissed.getSnapshot()).toEqual([key])
   })
 })
+
+describe('provider quota overlapping loads', () => {
+  const listing = (...ids: string[]): RemoteResult<readonly QuotaProviderView[]> => ({ ok: true, value: ids.map(id => ({ id, name: id })) })
+  const resultFor = (id: string, tag: string): QuotaResult => ({ providerId: id, providerName: id, configured: true, ok: true, windows: { credits: { usedPercent: null, resetAt: null, valueLabel: tag } } })
+
+  it('ignores an older provider list that arrives after a newer refresh', async () => {
+    const { controller, listProviders, fetch } = harness()
+    const older = Promise.withResolvers<RemoteResult<readonly QuotaProviderView[]>>()
+    listProviders.mockReturnValueOnce(older.promise)
+    fetch.mockImplementation(async id => ({ ok: true, value: resultFor(id, 'v') }))
+    const first = controller.load()
+    listProviders.mockResolvedValueOnce(listing('new'))
+    await controller.refresh()
+    older.resolve(listing('removed'))
+    await first
+
+    expect(controller.providers.getSnapshot()).toEqual([{ id: 'new', name: 'new' }])
+    expect(controller.state.getSnapshot().results.map(result => result.providerId)).toEqual(['new'])
+    expect(fetch).not.toHaveBeenCalledWith('removed')
+  })
+
+  it('ignores older quota results that arrive after a newer refresh', async () => {
+    const { controller, fetch } = harness()
+    const older = Promise.withResolvers<RemoteResult<QuotaResult>>()
+    fetch.mockReturnValueOnce(older.promise)
+    const first = controller.load()
+    await vi.waitFor(() => { expect(fetch).toHaveBeenCalledOnce() })
+    fetch.mockResolvedValueOnce({ ok: true, value: resultFor('fixture', 'new') })
+    await controller.refresh()
+    older.resolve({ ok: true, value: resultFor('fixture', 'old') })
+    await first
+
+    expect(controller.state.getSnapshot()).toEqual({ status: 'ready', results: [resultFor('fixture', 'new')] })
+  })
+
+  it('publishes completed providers when one call never settles', async () => {
+    const remote = {
+      quota: {
+        listProviders: async () => listing('stuck', 'done'),
+        fetch: (id: string) => id === 'stuck' ? new Promise<RemoteResult<QuotaResult>>(() => undefined) : Promise.resolve({ ok: true as const, value: resultFor(id, 'v') }),
+      },
+      settings: { mutate: async () => ({ ok: true as const, value: {} }) },
+    }
+    const memory = { dismissed: (): readonly string[] => [], saveDismissed: vi.fn(), switched: (): undefined => undefined, saveSwitched: vi.fn() }
+    const controller = new ProviderQuotaController(remote, memory, 20)
+    await controller.load()
+
+    expect(controller.state.getSnapshot()).toEqual({
+      status: 'ready',
+      results: [
+        { providerId: 'stuck', providerName: 'stuck', configured: true, ok: false, error: 'Quota request timed out' },
+        resultFor('done', 'v'),
+      ],
+    })
+  })
+})
