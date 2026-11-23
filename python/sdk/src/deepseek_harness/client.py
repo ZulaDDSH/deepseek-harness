@@ -8,6 +8,7 @@ import threading
 import time
 import uuid
 from collections import deque
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, TypeAlias, TypeVar
@@ -124,6 +125,10 @@ class HarnessClient:
         self._question_tasks: dict[str, tuple[threading.Event, threading.Thread]] = {}
         self._closing = False
         self._user_question_handler: UserQuestionHandler | None = None
+
+    @property
+    def lifecycle(self) -> AbstractContextManager[object]:
+        return self._lifecycle
 
     def __enter__(self) -> "HarnessClient":
         self.start()

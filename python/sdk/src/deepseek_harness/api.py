@@ -157,7 +157,7 @@ class DeepSeekHarness:
     def start(self) -> None:
         if self._initialized:
             return
-        with self._client._lifecycle:
+        with self._client.lifecycle:
             if self._initialized:
                 return
             self._client.start()
@@ -172,7 +172,7 @@ class DeepSeekHarness:
             self._initialized = True
 
     def close(self) -> None:
-        with self._client._lifecycle:
+        with self._client.lifecycle:
             self._client.close()
             self._initialized = False
 
