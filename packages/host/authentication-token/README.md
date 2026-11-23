@@ -28,6 +28,7 @@ Mount this function plugin beside Connection and Credentials. It also injects `c
 | Field | Default | Meaning |
 |---|---|---|
 | `cookieMaxAgeDays` | `30` | Absolute browser and API Cookie lifetime in days |
+| `sessionGeneration` | `0` | Raise and reload the plugin to revoke every browser and API Cookie at once; the signing secret is replaced |
 
 Configure `printUrl` and `openBrowser` on the WebApp runtime, not this plugin. Authentication remains available without startup publication.
 
@@ -35,7 +36,7 @@ A root request carrying the launch-token query is handled by the original token 
 
 Browser v1 Cookies authenticate to one shared Peer owned by this plugin. `/connect` declares anonymous route admission: Connection checks the source, then the handler verifies the launch token, creates an API Peer, and signs its ID in a v2 Cookie. A valid v2 Cookie authenticates pages and API requests through the same Provider. The Peer's principal and RemoteAccess determine permissions; there is no page/API purpose level. Token permits one `/api/remote.mux` Socket per API Peer: duplicate attachment returns 409 without revoking the first connection. Closing that Socket revokes the credential synchronously, then disposes the Peer; later requests using that Cookie are refused. Other upgrade routes, including Inspector CDP, neither claim the Peer nor revoke it on closure.
 
-The signing secret remains the `client-connection/browser-session` grant record in Credentials. Cookie names, signed audiences, expiry validation, and the listener-controlled `Secure` attribute follow the existing protocol. Reloading retains this root application's launch token and still-valid Cookies while creating a new plugin-owned shared Peer. Token activation failure may leave the application running without this verifier; it does not permit unauthenticated access to protected routes. Desktop can mount this Provider alongside its private-credential Provider.
+The signing secret remains the `client-connection/browser-session` grant record in Credentials. Each browser Cookie carries a session id that the same record also lists with its authority and expiry; a browser Cookie is accepted only while its id is listed, so one session can be ended without touching the others (`BrowserAuth.sessions()` and `revoke(id)`), and the removal survives a restart. Cookies minted before this change have no id and must be re-entered through the launch URL. There is no screen or command for listing and revoking yet, and a second Host process sharing the credentials file does not see another's revocations until it reloads. Cookie names, signed audiences, expiry validation, and the listener-controlled `Secure` attribute follow the existing protocol. Reloading retains this root application's launch token and still-valid Cookies while creating a new plugin-owned shared Peer. Token activation failure may leave the application running without this verifier; it does not permit unauthenticated access to protected routes. Desktop can mount this Provider alongside its private-credential Provider.
 
 -----
 

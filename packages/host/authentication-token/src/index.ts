@@ -16,11 +16,13 @@ export const inject = ['connection', 'connection.authentication', 'credentials']
 export interface Config {
   /** Absolute cookie lifetime in days; default 30. */
   cookieMaxAgeDays: number
+  sessionGeneration: number
 }
 
 /** Validate cookie lifetime before preparing the token implementation. */
 export const Config: z<Config> = z.object({
   cookieMaxAgeDays: z.natural().min(1).default(30),
+  sessionGeneration: z.natural().default(0),
 })
 
 /**
@@ -29,7 +31,7 @@ export const Config: z<Config> = z.object({
  * @param config - validated browser and API cookie lifetime.
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
-  const auth = await BrowserAuth.create(ctx[Context.root], ctx.credentials, config.cookieMaxAgeDays)
+  const auth = await BrowserAuth.create(ctx[Context.root], ctx.credentials, config.cookieMaxAgeDays, config.sessionGeneration)
   const peer = ctx.connection.createPeer({ principal: { kind: 'owner' } })
   const apiPeers = new Map<PeerScope['id'], PeerScope>()
   ctx.connection.authentication.register({

@@ -15,6 +15,7 @@ import type {
 const AUTH_RECORD_KEY = credentialKey('client-connection', 'browser-session')
 const DAY_MILLISECONDS = 24 * 60 * 60 * 1000
 const SECRET_BYTES = 32
+const SESSION_ID_BYTES = 16
 const TOKEN_QUERY = 'token'
 const COOKIE_PREFIX = 'dsh-auth-'
 const COOKIE_PAYLOAD_VERSION = 1
@@ -24,9 +25,23 @@ export const PENDING_API_PEER_DEADLINE_MS = 60_000
 export const MAX_PENDING_API_PEERS = 64
 const PROCESS_LAUNCH_TOKENS = new WeakMap<object, string>()
 
+interface StoredSession {
+  readonly authority: string
+  readonly issuedAt: number
+  readonly expiresAt: number
+}
+
 interface StoredSecretPayload {
   readonly version: typeof STORED_SECRET_VERSION
   readonly secret: string
+  readonly generation: number
+  readonly sessions: Readonly<Record<string, StoredSession>>
+}
+
+interface StoredState {
+  readonly secret: Buffer
+  readonly generation: number
+  readonly sessions: Map<string, StoredSession>
 }
 
 interface BrowserCookiePayload {
@@ -34,6 +49,7 @@ interface BrowserCookiePayload {
   readonly authority: string
   readonly issuedAt: number
   readonly expiresAt: number
+  readonly sid?: string
 }
 
 interface ApiCookiePayload extends Omit<BrowserCookiePayload, 'version'> {
@@ -97,7 +113,7 @@ function canonicalSecret(value: unknown): Buffer | undefined {
   return decoded
 }
 
-function storedSecret(record: CredentialRecord | undefined): Buffer | undefined {
+function storedState(record: CredentialRecord | undefined): StoredState | undefined {
   if (record === undefined) return undefined
   if (record.kind !== 'grant' || !isRecord(record.payload)
     || record.payload.version !== STORED_SECRET_VERSION) {
@@ -107,7 +123,26 @@ function storedSecret(record: CredentialRecord | undefined): Buffer | undefined 
   if (secret === undefined) {
     throw new Error('host-authentication-token: browser-session credential record has an invalid secret')
   }
-  return secret
+  const generation = record.payload.generation
+  const sessions = new Map<string, StoredSession>()
+  if (isRecord(record.payload.sessions)) {
+    for (const [id, entry] of Object.entries(record.payload.sessions)) {
+      if (isRecord(entry) && typeof entry.authority === 'string'
+        && typeof entry.issuedAt === 'number' && typeof entry.expiresAt === 'number') {
+        sessions.set(id, { authority: entry.authority, issuedAt: entry.issuedAt, expiresAt: entry.expiresAt })
+      }
+    }
+  }
+  return { secret, generation: typeof generation === 'number' ? generation : 0, sessions }
+}
+
+function storedPayload(secret: Buffer, generation: number, sessions: ReadonlyMap<string, StoredSession>): StoredSecretPayload {
+  return {
+    version: STORED_SECRET_VERSION,
+    secret: encodeBase64Url(secret),
+    generation,
+    sessions: Object.fromEntries(sessions),
+  }
 }
 
 function tokenMatches(actual: string, expected: string): boolean {
@@ -177,28 +212,27 @@ function decodeCookie(value: string, secret: Buffer): CookiePayload | undefined 
     || typeof decoded.issuedAt !== 'number' || !Number.isSafeInteger(decoded.issuedAt)
     || typeof decoded.expiresAt !== 'number' || !Number.isSafeInteger(decoded.expiresAt)) return undefined
   const payload = { authority: decoded.authority, issuedAt: decoded.issuedAt, expiresAt: decoded.expiresAt }
-  if (decoded.version === COOKIE_PAYLOAD_VERSION) return { version: COOKIE_PAYLOAD_VERSION, ...payload }
+  if (decoded.version === COOKIE_PAYLOAD_VERSION) {
+    return { version: COOKIE_PAYLOAD_VERSION, ...payload, ...typeof decoded.sid === 'string' ? { sid: decoded.sid } : {} }
+  }
   if (typeof decoded.id !== 'string' || decoded.id.length === 0) return undefined
   return { version: 2, ...payload, id: decoded.id as PeerId }
 }
 
-async function initializeSecret(credentials: CredentialProvider): Promise<Buffer> {
-  const generated: StoredSecretPayload = {
-    version: STORED_SECRET_VERSION,
-    secret: encodeBase64Url(randomBytes(SECRET_BYTES)),
-  }
+async function initializeSecret(credentials: CredentialProvider, generation: number): Promise<StoredState> {
   const record = await credentials.modifyRecord(AUTH_RECORD_KEY, (current) => {
-    if (current !== undefined) {
-      storedSecret(current)
-      return Promise.resolve(undefined)
-    }
-    return Promise.resolve({ kind: 'grant', payload: generated })
+    const state = storedState(current)
+    if (state !== undefined && state.generation === generation) return Promise.resolve(undefined)
+    return Promise.resolve({
+      kind: 'grant',
+      payload: storedPayload(randomBytes(SECRET_BYTES), generation, new Map()),
+    })
   })
-  const secret = storedSecret(record)
-  if (secret === undefined) {
+  const state = storedState(record)
+  if (state === undefined) {
     throw new Error('host-authentication-token: browser-session credential record was not created')
   }
-  return secret
+  return state
 }
 
 /**
@@ -209,12 +243,20 @@ async function initializeSecret(credentials: CredentialProvider): Promise<Buffer
 export class BrowserAuth {
   private readonly launchToken: string
   private readonly maxAgeMilliseconds: number
+  private secret: Buffer
+  private readonly generation: number
+  private readonly sessionTable: Map<string, StoredSession>
+  private writes: Promise<void> = Promise.resolve()
 
   private constructor(
     processOwner: object,
-    private readonly secret: Buffer,
+    private readonly credentials: CredentialProvider,
+    state: StoredState,
     maxAgeDays: number,
   ) {
+    this.secret = state.secret
+    this.generation = state.generation
+    this.sessionTable = state.sessions
     this.launchToken = processLaunchToken(processOwner)
     this.maxAgeMilliseconds = maxAgeDays * DAY_MILLISECONDS
     if (!Number.isSafeInteger(this.maxAgeMilliseconds)
@@ -235,8 +277,50 @@ export class BrowserAuth {
     processOwner: object,
     credentials: CredentialProvider,
     maxAgeDays: number,
+    generation = 0,
   ): Promise<BrowserAuth> {
-    return new BrowserAuth(processOwner, await initializeSecret(credentials), maxAgeDays)
+    return new BrowserAuth(processOwner, credentials, await initializeSecret(credentials, generation), maxAgeDays)
+  }
+
+  sessions(): Array<{ id: string } & StoredSession> {
+    const now = Date.now()
+    return [...this.sessionTable].filter(([, entry]) => entry.expiresAt > now).map(([id, entry]) => ({ id, ...entry }))
+  }
+
+  revoke(id: string): boolean {
+    const removed = this.sessionTable.delete(id)
+    if (removed) void this.persistSessions()
+    return removed
+  }
+
+  async revokeAll(): Promise<void> {
+    const secret = randomBytes(SECRET_BYTES)
+    await this.credentials.modifyRecord(AUTH_RECORD_KEY, () => Promise.resolve({
+      kind: 'grant',
+      payload: storedPayload(secret, this.generation, new Map()),
+    }))
+    this.secret = secret
+    this.sessionTable.clear()
+  }
+
+  settled(): Promise<void> {
+    return this.writes
+  }
+
+  private persistSessions(): Promise<void> {
+    this.writes = this.writes.then(async () => {
+      const secret = this.secret
+      const now = Date.now()
+      for (const [id, entry] of this.sessionTable) if (entry.expiresAt <= now) this.sessionTable.delete(id)
+      await this.credentials.modifyRecord(AUTH_RECORD_KEY, (current) => {
+        const state = storedState(current)
+        if (state === undefined || !state.secret.equals(secret)) return Promise.resolve(undefined)
+        return Promise.resolve({ kind: 'grant', payload: storedPayload(secret, this.generation, this.sessionTable) })
+      })
+    }).catch((error: unknown) => {
+      console.error('[host-authentication-token] browser session persistence failed:', error)
+    })
+    return this.writes
   }
 
   /**
@@ -273,11 +357,15 @@ export class BrowserAuth {
         && authority !== undefined && tokenMatches(tokens.join(''), this.launchToken)) {
         const issuedAt = Date.now()
         const expiresAt = issuedAt + this.maxAgeMilliseconds
+        const sid = encodeBase64Url(randomBytes(SESSION_ID_BYTES))
+        this.sessionTable.set(sid, { authority, issuedAt, expiresAt })
+        void this.persistSessions()
         const value = encodeCookie({
           version: COOKIE_PAYLOAD_VERSION,
           authority,
           issuedAt,
           expiresAt,
+          sid,
         }, this.secret)
         res.writeHead(303, {
           'cache-control': 'no-store',
@@ -387,6 +475,10 @@ export class BrowserAuth {
     const now = Date.now()
     if (payload.issuedAt > now || payload.expiresAt <= now || payload.expiresAt <= payload.issuedAt
       || payload.expiresAt - payload.issuedAt > this.maxAgeMilliseconds) return undefined
+    if (payload.version === COOKIE_PAYLOAD_VERSION) {
+      const session = payload.sid === undefined ? undefined : this.sessionTable.get(payload.sid)
+      if (session === undefined || session.authority !== authority) return undefined
+    }
     return payload
   }
 

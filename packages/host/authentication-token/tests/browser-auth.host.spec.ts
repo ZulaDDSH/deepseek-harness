@@ -165,6 +165,7 @@ describe('BrowserAuth', () => {
     const processOwner = {}
     const first = await createAuth(store, 30, processOwner)
     const login = exchange(first)
+    await first.settled()
 
     expect(login.state).toMatchObject({
       status: 303,
@@ -331,20 +332,73 @@ describe('BrowserAuth', () => {
     const store = new RecordCredentials()
     const auth = await createAuth(store)
     const first = exchange(auth)
-    expect(store).toMatchObject({ reads: 0, modifies: 1 })
+    await auth.settled()
+    expect(store).toMatchObject({ reads: 0, modifies: 2 })
 
     await store.deleteRecord()
     expect(auth.isAuthenticated(request('/', '127.0.0.1:3080', { cookie: first.cookie }))).toBe(true)
     const sameActivation = exchange(auth)
+    await auth.settled()
     expect(auth.isAuthenticated(request('/', '127.0.0.1:3080', { cookie: sameActivation.cookie }))).toBe(true)
-    expect(store).toMatchObject({ reads: 0, modifies: 1 })
+    expect(store.record).toBeUndefined()
 
     const reactivated = await createAuth(store)
     const second = exchange(reactivated)
     expect(second.cookie).not.toBe(first.cookie)
     expect(reactivated.isAuthenticated(request('/', '127.0.0.1:3080', { cookie: first.cookie }))).toBe(false)
     expect(reactivated.isAuthenticated(request('/', '127.0.0.1:3080', { cookie: second.cookie }))).toBe(true)
-    expect(store).toMatchObject({ reads: 0, modifies: 2 })
+    await reactivated.settled()
+    expect(store).toMatchObject({ reads: 0, modifies: 5 })
+  })
+
+  it('revokes one browser session, survives restart, and leaves the others valid', async () => {
+    const store = new RecordCredentials()
+    const auth = await createAuth(store)
+    const keep = exchange(auth)
+    const drop = exchange(auth)
+    await auth.settled()
+    const asRequest = (cookie: string): ConnectionIndexRequest => request('/', '127.0.0.1:3080', { cookie })
+    const sidOf = (cookie: string): string => {
+      const body = cookie.split('=')[1]!.split('.')[1]!
+      return (JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as { sid: string }).sid
+    }
+    expect(auth.sessions().map(entry => entry.id).sort()).toEqual([sidOf(keep.cookie), sidOf(drop.cookie)].sort())
+    expect(auth.revoke(sidOf(drop.cookie))).toBe(true)
+    expect(auth.revoke(sidOf(drop.cookie))).toBe(false)
+    expect(auth.isAuthenticated(asRequest(drop.cookie))).toBe(false)
+    expect(auth.isAuthenticated(asRequest(keep.cookie))).toBe(true)
+    await auth.settled()
+    const restarted = await createAuth(store)
+    expect(restarted.isAuthenticated(asRequest(drop.cookie))).toBe(false)
+    expect(restarted.isAuthenticated(asRequest(keep.cookie))).toBe(true)
+  })
+
+  it('refuses a browser cookie whose session id is unknown or missing', async () => {
+    const store = new RecordCredentials()
+    const auth = await createAuth(store)
+    const { cookie } = exchange(auth)
+    const [name] = cookie.split('=') as [string]
+    const now = Date.now()
+    for (const sid of [undefined, 'unknown']) {
+      const forged = signedCookie(store, name, { version: 1, authority: '127.0.0.1:3080', issuedAt: now, expiresAt: now + 1000, ...sid === undefined ? {} : { sid } })
+      expect(auth.isAuthenticated(request('/', '127.0.0.1:3080', { cookie: forged }))).toBe(false)
+    }
+  })
+
+  it('revokeAll and a raised generation invalidate every cookie', async () => {
+    const store = new RecordCredentials()
+    const auth = await createAuth(store)
+    const login = exchange(auth)
+    await auth.settled()
+    await auth.revokeAll()
+    expect(auth.isAuthenticated(request('/', '127.0.0.1:3080', { cookie: login.cookie }))).toBe(false)
+
+    const again = await createAuth(store)
+    const second = exchange(again)
+    await again.settled()
+    const bumped = await BrowserAuth.create({}, credentials(store), 30, 1)
+    expect(bumped.isAuthenticated(request('/', '127.0.0.1:3080', { cookie: second.cookie }))).toBe(false)
+    expect(bumped.sessions()).toEqual([])
   })
 
   it('fails loud on an invalid owner record instead of replacing it', async () => {
