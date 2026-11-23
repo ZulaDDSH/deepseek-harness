@@ -280,8 +280,14 @@ function workerTransport(): FileUploadTransport {
       const workerUrl = URL.createObjectURL(new Blob([
         `(${fileUploadWorker.toString()})()`,
       ], { type: 'text/javascript' }))
-      const worker = new Worker(workerUrl, { name: 'dsh-file-upload' })
-      URL.revokeObjectURL(workerUrl)
+      let worker: Worker
+      try {
+        worker = new Worker(workerUrl, { name: 'dsh-file-upload' })
+      } catch (error) {
+        return Promise.reject(error instanceof Error ? error : new Error(String(error)))
+      } finally {
+        URL.revokeObjectURL(workerUrl)
+      }
       return new Promise((resolve, reject) => {
         let settled = false
         const abort = (): void => {
@@ -324,8 +330,12 @@ function workerTransport(): FileUploadTransport {
           body: request.body,
           headers: request.headers ?? {},
         }
-        if (request.body instanceof ReadableStream) worker.postMessage(message, [request.body])
-        else worker.postMessage(message)
+        try {
+          if (request.body instanceof ReadableStream) worker.postMessage(message, [request.body])
+          else worker.postMessage(message)
+        } catch (error) {
+          finish(() => { reject(error instanceof Error ? error : new Error(String(error))) })
+        }
       })
     },
   }

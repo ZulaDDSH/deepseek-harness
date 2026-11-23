@@ -25,9 +25,11 @@ declare module '@deepseek-ai/cordis' {
 
 const MAX_STAGED_PER_SESSION = 100
 const MAX_STAGED_BYTES_PER_SESSION = 4 * 1024 * 1024 * 1024
+const UNBOUND_RECEIPT_TTL_MS = 24 * 60 * 60 * 1000
 
 interface StagedFileUpload {
   readonly attachment: StagedAttachment
+  readonly stagedAt: number
   /** Prompt that accepted this receipt; absent until successful admission. */
   requestId?: string
 }
@@ -257,6 +259,12 @@ export class FileUploads extends TypertRemoteService {
 
   private assertSessionQuota(agent: Agent, incomingBytes: number): void {
     const staged = this.stagedFiles.get(agent.session)
+    if (staged !== undefined) {
+      const cutoff = Date.now() - UNBOUND_RECEIPT_TTL_MS
+      for (const [receiptId, upload] of staged) {
+        if (upload.requestId === undefined && upload.stagedAt < cutoff) staged.delete(receiptId)
+      }
+    }
     let bytes = incomingBytes
     for (const { attachment } of staged?.values() ?? []) {
       bytes += attachment.type === 'file' ? attachment.attachment.bytes : attachment.encodedBytes
@@ -289,7 +297,7 @@ export class FileUploads extends TypertRemoteService {
       this.stagedFiles.set(agent.session, staged)
     }
     const receiptId = randomUUID() as FileUploadReceiptId
-    staged.set(receiptId, { attachment })
+    staged.set(receiptId, { attachment, stagedAt: Date.now() })
     return receiptId
   }
 

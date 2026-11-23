@@ -31,6 +31,20 @@ describe('FileUploads per-Session staging quota', () => {
     expect(saveFile).toHaveBeenCalledTimes(100)
   })
 
+  it('expires abandoned receipts after a day but keeps prompt-bound ones', async () => {
+    const { uploads, agent } = await harness(1)
+    const now = vi.spyOn(Date, 'now')
+    now.mockReturnValue(1_000_000)
+    const bound = await upload(uploads, agent)
+    for (let i = 1; i < 100; i += 1) await upload(uploads, agent)
+    uploads.bindPrompt(agent, [bound.receiptId], 'req-1').commit()
+    await expect(upload(uploads, agent)).rejects.toMatchObject({ details: { reason: 'TOO_MANY_STAGED_FILES' } })
+    now.mockReturnValue(1_000_000 + 25 * 60 * 60 * 1000)
+    const fresh = await upload(uploads, agent)
+    expect(uploads.resolve(agent, fresh.receiptId)).toBeDefined()
+    expect(uploads.resolve(agent, bound.receiptId)).toBeDefined()
+  })
+
   it('refuses a stage whose bytes would pass the Session byte cap and refuses storing once over it', async () => {
     const { uploads, agent, saveFile } = await harness(3 * 1024 ** 3)
     await upload(uploads, agent)
