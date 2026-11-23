@@ -438,6 +438,19 @@ it('retains ownership when both SDK drainage and owned Chromium cleanup fail', a
   expect(ctx.browserUse.providerName).toBe('stagehand-native')
 })
 
+it('keeps an attached connection blocked and its reservation retained when a deadline cleanup fails to drain', async () => {
+  acquisition.closeError = new StagehandDrainError('Extension request did not drain')
+  const provider = ctx.plugin(Provider, { model: nativeModel, mode: 'attach', cdpEndpoint: 'http://fixture' })
+  await provider
+  expect((await execute(first, 'tabs', { action: 'list' })).isError).toBe(false)
+  acquisition.timeout = true
+  expect((await execute(first, 'tabs', { action: 'list' })).error?.info).toEqual({ name: 'StagehandDrainError', code: 'STAGEHAND_CLEANUP_FAILED' })
+  expect((await execute(first, 'tabs', { action: 'list' })).error?.info).toEqual({ name: 'StagehandError', code: 'STAGEHAND_WORKER_FAILED' })
+  expect(fixture.browsers).toHaveLength(1)
+  await provider.dispose()
+  expect(ctx.browserUse.providerName).toBe('stagehand-native')
+})
+
 it('blocks reconnection and another owner after canceled native work fails to drain', async () => {
   const entered: PromiseWithResolvers<void> = Promise.withResolvers()
   const release: PromiseWithResolvers<void> = Promise.withResolvers()
