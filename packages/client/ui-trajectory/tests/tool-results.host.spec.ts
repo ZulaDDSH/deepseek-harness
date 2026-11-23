@@ -252,3 +252,46 @@ it('discards pending PTC values if the Session unloads before its result is comm
   })
   expect((await watch(committed.seq).next()).value).toEqual({ available: false })
 })
+
+it('defaults to byte budgets and rejects invalid byte limits', () => {
+  const config = SessionToolResults.Config({})
+  expect(config.maxValueBytes).toBe(4 * 1024 * 1024)
+  expect(config.maxBytesPerSession).toBe(32 * 1024 * 1024)
+  expect(config.maxTotalBytes).toBe(256 * 1024 * 1024)
+  for (const key of ['maxValueBytes', 'maxBytesPerSession', 'maxTotalBytes']) {
+    for (const bad of [0, -1, 1.5, Infinity]) expect(() => SessionToolResults.Config({ [key]: bad })).toThrow()
+  }
+})
+
+it('never retains a value above the per-value byte limit and shows it as unavailable', async () => {
+  const { execute, watch } = await setup({ blob: 'x'.repeat(200) }, { maxValueBytes: 100 })
+  const event = await execute()
+  expect((await watch(event.seq).next()).value).toEqual({ available: false })
+})
+
+it('evicts the oldest values of a Session once its retained bytes pass the Session budget', async () => {
+  const value = { blob: 'x'.repeat(100) }
+  const { execute, watch } = await setup(value, { maxBytesPerSession: 250 })
+  const first = await execute()
+  const second = await execute()
+  const observer = watch(first.seq)
+  expect((await observer.next()).value).toEqual({ available: true, value })
+  const evicted = observer.next()
+  const third = await execute()
+  expect((await evicted).value).toEqual({ available: false })
+  expect((await watch(second.seq).next()).value).toEqual({ available: true, value })
+  expect((await watch(third.seq).next()).value).toEqual({ available: true, value })
+})
+
+it('bounds retained bytes across Sessions and keeps an existing value when a new one does not fit', async () => {
+  const value = { blob: 'x'.repeat(100) }
+  const { ctx, execute, watch } = await setup(value, { maxTotalBytes: 150 })
+  const first = await execute()
+  const other = await ctx.agentLoop.create(brandString<SessionId>('other-bytes'))
+  await ctx.tools.execute({
+    agent: other, signal: new AbortController().signal, log: { turn: 1, step: 1 },
+    calls: [{ type: 'tool-call', id: brandString<ToolCallId>('other-bytes-call'), name: 'value', arguments: '{}' }],
+  })
+  expect((await watch(first.seq).next()).value).toEqual({ available: true, value })
+  expect((await watch(other.session.seq - 1, other.id).next()).value).toEqual({ available: false })
+})
