@@ -417,6 +417,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         },
       )
       manifests.set(pkgName, loading)
+      const forget = (): void => { if (manifests.get(pkgName) === loading) manifests.delete(pkgName) }
+      loading.catch(forget)
     }
     return loading
   }
@@ -432,6 +434,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   /** Reconcile one entry name against the live loader entries; a mount returns its async task. */
   const processOne = (entryName: string): Promise<void> | undefined => {
     if (!qualifies(entryName)) {
+      const unmounted = artifactPath.get(entryName)
+      artifactPath.delete(entryName)
+      if (unmounted !== null && unmounted !== undefined) manifests.delete(unmounted.packageName)
       const dispose = registered.get(entryName)
       if (dispose !== undefined) {
         registered.delete(entryName)
