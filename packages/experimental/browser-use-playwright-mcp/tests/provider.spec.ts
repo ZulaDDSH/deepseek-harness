@@ -30,7 +30,18 @@ it('supports headed launch and attaches without launching a browser or creating 
   Provider.apply(new Context(), Provider.Config({ mode: 'attach', endpoint: 'http://127.0.0.1:9222' }))
   const options = vi.mocked(mountSessionMcp).mock.calls[1]![1]
   expect(options.exclusive).toBe(true)
-  expect(options.args.slice(1)).toEqual(['--browser', 'chromium', '--cdp-endpoint', 'http://127.0.0.1:9222'])
+  expect(options.args.slice(1)).toEqual(['--browser', 'chromium'])
+  expect(options.env?.PLAYWRIGHT_MCP_CDP_ENDPOINT).toBe('http://127.0.0.1:9222')
+})
+
+it('keeps a token-bearing endpoint out of the launched arguments and replaces an ambient endpoint', () => {
+  vi.stubEnv('PLAYWRIGHT_MCP_CDP_ENDPOINT', 'http://ambient.example:1')
+  const endpoint = 'wss://user:pass@browser.example/devtools/browser/id?token=s3cr3t#frag'
+  Provider.apply(new Context(), Provider.Config({ mode: 'attach', endpoint }))
+  const options = vi.mocked(mountSessionMcp).mock.calls[0]![1]
+  expect(JSON.stringify(options.args)).not.toMatch(/s3cr3t|user:pass|browser\.example/u)
+  expect(options.env?.PLAYWRIGHT_MCP_CDP_ENDPOINT).toBe(endpoint)
+  expect(Object.keys(options.env ?? {}).filter(key => key.toUpperCase() === 'PLAYWRIGHT_MCP_CDP_ENDPOINT')).toHaveLength(1)
 })
 
 it('rejects malformed endpoints before mounting any browser resources', () => {

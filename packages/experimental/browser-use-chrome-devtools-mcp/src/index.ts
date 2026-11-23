@@ -2,7 +2,7 @@
 
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
-import { BrowserMcpConfig, mountSessionMcp, validateBrowserMcpConfig } from '@deepseek-ai/dsh-experimental-browser-use-runtime/mcp'
+import { BrowserMcpConfig, mountSessionMcp, rejectSecretBearingEndpoint, validateBrowserMcpConfig } from '@deepseek-ai/dsh-experimental-browser-use-runtime/mcp'
 import type {} from '@deepseek-ai/dsh-working-directory'
 
 /** Cordis identity for the Chrome DevTools MCP browser provider. */
@@ -25,6 +25,7 @@ export const Config: typeof BrowserMcpConfig = BrowserMcpConfig
  */
 export function apply(ctx: Context, config: Config): void {
   validateBrowserMcpConfig(config)
+  rejectSecretBearingEndpoint(config)
   const cli = fileURLToPath(import.meta.resolve('chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js'))
   const args = [cli, '--no-usage-statistics']
   if (config.mode === 'attach') {
