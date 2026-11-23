@@ -45,7 +45,6 @@ export const VIEWER_ENDPOINT_CLASSES = {
 
   // ── reader-session-read ─────────────────────────────────────────────────────────────
   'commands/list': 'reader-session-read', // the page lists slash commands for a visible Session (also granted globally)
-  'fileUploads/upload': 'reader-session-read', // the reader attaches a file to a Session it can see; visibility alone decides
   'session/control': 'reader-session-read', // the page follows a visible Session control stream (also granted globally)
   'session/list': 'reader-session-read', // the page lists Sessions (also granted globally)
   'goals/get': 'reader-session-read', // the page reads the goal of a visible Session
@@ -60,7 +59,6 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'session/observeState': 'reader-session-read', // the page follows a visible Session's passive state
   'session/state': 'reader-session-read', // the page reads a visible Session's passive state
   'session/wait': 'reader-session-read', // the page waits on a visible Session's passive state
-  'toolResults/watch': 'reader-session-read', // the page inspects retained tool results of a visible Session
 
   // ── reader-workspace-read ─────────────────────────────────────────────────────────────
   'workspace/follow': 'reader-workspace-read', // the page follows a Workspace holding a visible Session (also granted globally)
@@ -68,6 +66,7 @@ export const VIEWER_ENDPOINT_CLASSES = {
   // ── reader-session-input ─────────────────────────────────────────────────────────────
   'session/prompt': 'reader-session-input', // the reader prompts the confined source (either tier) or its own child under its ceiling
   'session/cancel': 'reader-session-input', // the reader stops its own child; a concrete source cancel is performed by the share host
+  'fileUploads/upload': 'reader-session-input',
 
   // ── reader-fork ─────────────────────────────────────────────────────────────
   'session/fork': 'reader-fork', // the owner allowsFork switch decides the source and the reader’s own forks
@@ -216,6 +215,7 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'mcpManager/watch': 'owner-only', // owner MCP server management
   'commands/execute': 'owner-only', // owner executes a slash command
   'permissionPresets/catalog': 'owner-only', // owner permission presets
+  'toolResults/watch': 'owner-only',
   'userQuestions/answer': 'owner-only', // owner answers a pending question
   'userQuestions/attachWait': 'owner-only', // owner answers a pending question
   'llm/discoverModels': 'owner-only', // owner discovers models

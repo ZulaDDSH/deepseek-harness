@@ -111,19 +111,11 @@ const VIEWER_GLOBAL_ROLE: RemoteAccessRole<'global'> = {
   ],
 }
 
-/**
- * Reads of one Session the reader can see, the Session notifications forwarded about it, and attachment
- * upload.
- *
- * The role binds every Session this share serves the reader — the shared source and each of its own
- * forks — so attachment upload follows visibility alone: neither the tier nor the fork switch decides it.
- */
 const VIEWER_SESSION_READ_ROLE: RemoteAccessRole<'session'> = {
   name: 'liveshare:viewer-session-read',
   resource: 'session',
   actions: [
     'commands/list',
-    'fileUploads/upload',
     'goals/get',
     'session/attachment',
     'session/control',
@@ -138,7 +130,6 @@ const VIEWER_SESSION_READ_ROLE: RemoteAccessRole<'session'> = {
     'session/state',
     'session/wait',
     'skills/list',
-    'toolResults/watch',
     'workspace/follow',
     'event:api-session/activity',
     'event:api-session/added',
@@ -165,7 +156,7 @@ const VIEWER_FORK_ROLE: RemoteAccessRole<'session'> = {
 const VIEWER_SOURCE_WRITE_ROLE: RemoteAccessRole<'session'> = {
   name: 'liveshare:viewer-source-write',
   resource: 'session',
-  actions: ['session/prompt', 'session/cancel'],
+  actions: ['session/prompt', 'session/cancel', 'fileUploads/upload'],
 }
 
 /**
@@ -179,7 +170,7 @@ const VIEWER_SOURCE_WRITE_ROLE: RemoteAccessRole<'session'> = {
 const VIEWER_CHILD_ROLE: RemoteAccessRole<'session'> = {
   name: 'liveshare:viewer-child',
   resource: 'session',
-  actions: ['session/prompt', 'session/cancel', 'session/rename'],
+  actions: ['session/prompt', 'session/cancel', 'session/rename', 'fileUploads/upload'],
 }
 
 /** Following one Workspace that holds a Session the reader can see. */
