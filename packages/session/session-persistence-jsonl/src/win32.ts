@@ -12,8 +12,8 @@
  */
 
 import { createHash } from 'node:crypto'
-import { mkdtemp, rm, stat } from 'node:fs/promises'
-import { join, parse, resolve, toNamespacedPath } from 'node:path'
+import { mkdtemp, realpath, rm, stat } from 'node:fs/promises'
+import { basename, dirname, join, parse, resolve, toNamespacedPath } from 'node:path'
 
 type MoveFileExW = (existing: string, replacement: string, flags: number) => number
 type CreateSemaphoreW = (security: null, initial: number, maximum: number, name: string) => number
@@ -150,7 +150,7 @@ export async function publishNewFileWin32(existing: string, replacement: string)
  */
 export async function acquireLockHandleWin32(path: string): Promise<number> {
   const api = await win32()
-  const name = `Local\\dsh-session-lock-${createHash('sha256').update(resolve(path).toLowerCase()).digest('hex')}`
+  const name = `Local\\dsh-session-lock-${createHash('sha256').update((await canonicalLockPath(path)).toLowerCase()).digest('hex')}`
   const handle = api.createSemaphoreW(null, 1, 1, name)
   if (handle === 0) throw win32Error('CreateSemaphoreW', api.getLastError(), path, name)
   const wait = api.waitForSingleObject(handle, 0)
@@ -204,5 +204,14 @@ async function createLeafDirectoryWin32(parent: string, target: string): Promise
     await rm(staging, { recursive: true, force: true })
     if (isEEXIST(error) && await assertDirectory(target)) return
     throw error
+  }
+}
+
+async function canonicalLockPath(path: string): Promise<string> {
+  const absolute = resolve(path)
+  try {
+    return join(await realpath(dirname(absolute)), basename(absolute))
+  } catch {
+    return absolute
   }
 }
