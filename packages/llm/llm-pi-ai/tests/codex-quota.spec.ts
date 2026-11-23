@@ -34,6 +34,13 @@ describe('Codex account usage', () => {
   it('keeps provider failures explicit', async () => {
     await expect(createCodexQuotaSource(auth(), () => true).fetch(async () => new Response('', { status: 401 }))).resolves.toMatchObject({ ok: false, error: 'Codex usage API returned HTTP 401' })
   })
+  it('cancels an unread error body before reporting the failure', async () => {
+    const cancelled = vi.fn()
+    const body = new ReadableStream<Uint8Array>({ cancel: cancelled })
+    const result = await createCodexQuotaSource(auth(), () => true).fetch(async () => new Response(body, { status: 500 }))
+    expect(result).toMatchObject({ ok: false, error: 'Codex usage API returned HTTP 500' })
+    expect(cancelled).toHaveBeenCalledTimes(1)
+  })
   it('redacts refresh failures before returning them to the client', async () => {
     const expired = auth()
     expired.stored.set('openai-codex', { type: 'oauth', access: token, refresh: 'secret-refresh-token', expires: 0 })
