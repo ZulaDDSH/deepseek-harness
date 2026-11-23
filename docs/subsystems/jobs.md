@@ -28,7 +28,7 @@ Owned jobs publish `job/registered` and `job/settled` in their original owner Se
 
 `job/settled` may follow `turn/end`. An SDK run result covers only its own observation window; consumers needing later settlements retain a Session subscription or read persisted history. Turn completion does not imply that every owned job stopped.
 
-Application teardown can stop Session event routing or close its writer before an owned job's final settlement reaches storage. This includes normal one-shot completion and signal shutdown, as well as hard process loss. A missing `job/settled` remains incomplete even if the live registry reported termination; consumers must not invent a finish timestamp.
+The headless runner disposes its Agent before output and exit, on success, failure, and signal shutdown, so owned jobs settle and their `job/settled` records drain with the Agent's writer. Other application teardown can still stop Session event routing or close its writer before an owned job's final settlement reaches storage, and hard process loss always can. A missing `job/settled` remains incomplete even if the live registry reported termination; consumers must not invent a finish timestamp.
 
 ```ts type-equiv
 /** Durable identity and registration time of one owned job execution. */
