@@ -4,6 +4,8 @@ import { canonicalizeTimeZone } from '@deepseek-ai/dsh-util-time'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 
+export const BROWSER_POLICY_PREFIX = 'Browser time zone for this request:'
+
 /** Browser-zone facts for the messages selected while preparing a request. */
 export type BrowserTimeZoneContext =
   | { readonly kind: 'resolved'; readonly timeZone: string }
@@ -81,13 +83,13 @@ export function deriveBrowserTimeZoneContext(
 export function renderBrowserTimeZoneContext(context: BrowserTimeZoneContext): string {
   switch (context.kind) {
     case 'resolved':
-      return `Browser time zone for this request: ${context.timeZone}. `
+      return `${BROWSER_POLICY_PREFIX} ${context.timeZone}. `
         + 'Interpret otherwise-unqualified dates and times in this zone.'
     case 'mixed':
-      return `Browser time zone for this request: mixed ${JSON.stringify(context.timeZones)}. `
+      return `${BROWSER_POLICY_PREFIX} mixed ${JSON.stringify(context.timeZones)}. `
         + 'Ask the user to clarify otherwise-unqualified dates and times.'
     case 'missing':
-      return 'Browser time zone for this request: unavailable. '
+      return `${BROWSER_POLICY_PREFIX} unavailable. `
         + 'Ask the user to clarify otherwise-unqualified dates and times.'
     /* v8 ignore next 2 -- the closed BrowserTimeZoneContext union is exhausted above. */
     default:

@@ -31,7 +31,7 @@ Each injected reading has three lines: an ISO-shaped timestamp with numeric offs
 
 ### Configuration
 
-The minimal mount needs no configuration. A positive `refreshIntervalMs` suppresses injections that fall within that many milliseconds of the latest one; omission uses 600000 ms (10 minutes), while `0` injects at every eligible entering pre-step whose signal is not already aborted.
+The minimal mount needs no configuration. A positive `refreshIntervalMs` suppresses injections that fall within that many milliseconds of the latest one unless the request's browser-zone policy line differs from the one the latest reading carried (a changed zone, mixed zones, or a missing zone), in which case a fresh reading is injected at once; omission uses 600000 ms (10 minutes), while `0` injects at every eligible entering pre-step whose signal is not already aborted.
 
 ```yaml
 - name: '@deepseek-ai/dsh-time-context'
@@ -138,7 +138,7 @@ These limits define when clock context is a poor fit. They are current package c
 - **Mixed turns ask** — if one open turn contains prompts from different browser zones, the model is told to clarify rather than guess which one owns an unqualified time.
 - **Fallback is not user authority** — the configured or process zone formats the clock when current-turn browser zones are missing or mixed, but the model-facing policy still says to clarify.
 - **Whole-second display** — timestamps and durations omit sub-second precision even though durable event times retain milliseconds.
-- **History cost between compactions** — `0` retains one reading for every eligible attempt; a positive interval reduces but does not eliminate this cost and may leave a later request without fresh browser-zone guidance.
+- **History cost between compactions** — `0` retains one reading for every eligible attempt; a positive interval reduces but does not eliminate this cost. A browser-zone policy change always produces a reading; a zone that fails validation during a step the interval would have suppressed does not fail that step and is reported at the next step that is not suppressed.
 
 <a id="dev-note"></a>
 ### Dev Note
