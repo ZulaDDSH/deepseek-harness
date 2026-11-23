@@ -32,7 +32,7 @@ import { record, requireString, stringify } from './values.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
-    'claude-code-mod': { readonly kind: 'claude-code-mod'; readonly mod: string }
+    'claude-code-mod': { readonly kind: 'claude-code-mod'; readonly mod?: string }
   }
 }
 import { z as zod } from 'zod'

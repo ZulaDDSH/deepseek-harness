@@ -129,7 +129,7 @@ The denial appends an ordinary tool result; it does not rewrite earlier context 
 <a id="known-limitations-and-deferred-work"></a>
 
 - Auto requires this layer explicitly enabled. Default Web and Headless, General settings, and new-session defaults do not select it.
-- Mods can submit user-sourced text. The [Claude Code mods bridge](../claude-code-mods/README.md#model-experience) gives both `$.prompt.submit` and `prompt.submit` hook context user authority, including framed submissions without `asUser: true`; text framing does not reduce that authority.
+- Mods can submit text. The [Claude Code mods bridge](../claude-code-mods/README.md#model-experience) queues `$.prompt.submit` text with user authority only when the mod passes `asUser: true`; framed submissions and `prompt.submit` hook context carry source `claude-code-mod` and are reviewed as facts.
 - Auto provides no file sandbox. The outer `run_code` transport and direct Node effects inside a PTC program do not pass through inner-tool review.
 - Model classification can be wrong. There are no deterministic tool exemptions, persistent grants, configurable policy, or retry layer.
 - In-process Auto children review their own calls. Out-of-process children retain their native permission systems after the parent delegation call is allowed.

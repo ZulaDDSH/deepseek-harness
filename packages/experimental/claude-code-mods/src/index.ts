@@ -15,6 +15,7 @@ import type {} from '@deepseek-ai/dsh-working-directory'
 import z from '@deepseek-ai/schemastery'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { AssistantMessage, ContentBlock, TokenUsage } from '@deepseek-ai/dsh-llm'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -112,15 +113,6 @@ function rewritePromptText(prompt: readonly UserMessage[], text: string): UserMe
   const first = rewritten[0]
   if (placement.placed || text.length === 0 || first === undefined) return rewritten
   return [{ ...first, content: [...first.content, { type: 'text', text }] }, ...rewritten.slice(1)]
-}
-
-/** Append the context a hook attached as blocks after the prompt as typed, on the last of the human's messages. */
-function appendContext(prompt: readonly UserMessage[], context: readonly string[]): UserMessage[] {
-  const last = prompt.at(-1)
-  /* v8 ignore next -- the caller only appends context to a prompt it raised, which has at least one human message */
-  if (last === undefined) return [...prompt]
-  const blocks: ContentBlock[] = context.map(line => ({ type: 'text', text: line }))
-  return [...prompt.slice(0, -1), { ...last, content: [...last.content, ...blocks] }]
 }
 
 /** Keep only the fields of a `prompt.submit` result a mod may set, each with its declared type. */
@@ -376,12 +368,21 @@ export class ClaudeCodeMods extends TypertRemoteService {
       if (downstream.kind !== 'enter' || messages.length === 0) return downstream
       const context = submitted.context ?? []
       if (submitted.text === text && context.length === 0) return downstream
-      // The rewritten text and the attached context replace the human's messages in place; every other message stays.
-      let edited = submitted.text === text ? [...prompt] : rewritePromptText(prompt, submitted.text)
-      if (context.length > 0) edited = appendContext(edited, context)
+      // Constraint: hook context must stay a separate mod-sourced message, never blocks inside the human's own.
+      const edited = submitted.text === text ? [...prompt] : rewritePromptText(prompt, submitted.text)
       const rewritten = new Map<UserMessage, UserMessage>()
       edited.forEach((message, index) => { rewritten.set(prompt[index] as UserMessage, message) })
-      return { ...downstream, messages: downstream.messages.map(message => rewritten.get(message) ?? message) }
+      const contextMessage = context.length === 0
+        ? undefined
+        : createUserMessage({ content: context.map((line): ContentBlock => ({ type: 'text', text: line })), source: { kind: 'claude-code-mod' } })
+      const last = prompt.at(-1)
+      return {
+        ...downstream,
+        messages: downstream.messages.flatMap(message => {
+          const next = rewritten.get(message) ?? message
+          return message === last && contextMessage !== undefined ? [next, contextMessage] : [next]
+        }),
+      }
     })
 
     ctx.on('tools/execute', async (exec, next): Promise<ToolExecutionResult> => {
