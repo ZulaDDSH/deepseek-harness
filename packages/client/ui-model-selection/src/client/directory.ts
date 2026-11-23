@@ -46,6 +46,7 @@ export class ModelDirectory {
 
   /** Latest selection operation wins; an older response never overwrites a newer one. */
   private generation = 0
+  private inflight: Promise<void> | undefined
   private disposed = false
   private readonly unsubscribeCatalog: () => void
   private readonly unsubscribeSelection: () => void
@@ -98,14 +99,22 @@ export class ModelDirectory {
     const nextEffort = selection.reasoningEffort ?? this.catalog.reasoningFor(selection)?.defaultEffort
     const generation = ++this.generation
     this.store.update((s) => { s.status = 'selecting'; s.pending = selection; s.error = null })
-    const result = await this.sessions.selectModel({
-      sessionId: this.sessionId,
-      provider: selection.provider,
-      model: selection.model,
-      ...selection.reasoningEffort === undefined
-        ? {}
-        : { reasoningEffort: selection.reasoningEffort },
-    })
+    const send = () => generation !== this.generation
+      ? Promise.resolve(undefined)
+      : this.sessions.selectModel({
+        sessionId: this.sessionId,
+        provider: selection.provider,
+        model: selection.model,
+        ...selection.reasoningEffort === undefined
+          ? {}
+          : { reasoningEffort: selection.reasoningEffort },
+      })
+    const request = this.inflight === undefined ? send() : this.inflight.then(send)
+    const settled = request.then(() => {}, () => {})
+    this.inflight = settled
+    void settled.then(() => { if (this.inflight === settled) this.inflight = undefined })
+    const result = await request
+    if (result === undefined) return { ok: true, value: undefined }
     if (this.disposed || generation !== this.generation) {
       return result.ok ? { ok: true, value: undefined } : result
     }
@@ -136,6 +145,7 @@ export class ModelDirectory {
   resetConnected(): void {
     if (this.disposed) return
     ++this.generation
+    this.inflight = undefined
     this.store.update((state) => {
       if (state.status === 'selecting') state.status = 'idle'
       state.pending = null
@@ -147,6 +157,7 @@ export class ModelDirectory {
   /** Scope teardown: late settlements lose write access to the store. */
   dispose(): void {
     this.disposed = true
+    this.inflight = undefined
     this.unsubscribeSelection()
     this.unsubscribeCatalog()
   }
