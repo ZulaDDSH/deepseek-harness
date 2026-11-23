@@ -163,6 +163,12 @@ async function readImage(image: Uint8Array | string): Promise<Uint8Array> {
   return await inflateImageStream(response.body, image)
 }
 
+async function readLazyArchive(url: string, name: string): Promise<Uint8Array> {
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`webworker host: lazy archive fetch failed with ${String(response.status)} for ${url}`)
+  return await inflateDigestedArchive(new Uint8Array(await response.arrayBuffer()), name)
+}
+
 /**
  * Build the worker host without touching the network or the image.
  * @param options - Assembly inputs.
