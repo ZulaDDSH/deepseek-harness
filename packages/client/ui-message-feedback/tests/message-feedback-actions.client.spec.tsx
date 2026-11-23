@@ -132,6 +132,7 @@ describe('MessageFeedbackActions', () => {
     const ui = mount({ current: item({ rating: 'positive' }) })
 
     fireEvent.click(ui.getByLabelText(zh['action.likeActive']))
+    fireEvent.click(await ui.findByText(zh['withdraw.confirm']))
 
     await waitFor(() => { expect(ui.retract).toHaveBeenCalledWith(MSG, 'positive') })
     await waitFor(() => { expect(ui.getByLabelText(zh['action.likeActive']).hasAttribute('disabled')).toBe(false) })
@@ -169,6 +170,7 @@ describe('MessageFeedbackActions', () => {
     const ui = mount({ committed: item({ rating: 'negative' }) })
 
     fireEvent.click(ui.getByLabelText(zh['action.dislike']))
+    fireEvent.click(await ui.findByText(zh['withdraw.confirm']))
 
     await waitFor(() => { expect(ui.retract).toHaveBeenCalledWith(MSG, 'negative') })
     expect(ui.openDialog).not.toHaveBeenCalled()
@@ -178,6 +180,7 @@ describe('MessageFeedbackActions', () => {
     const ui = mount({ current: item({ rating: 'negative' }) })
 
     fireEvent.click(ui.getByLabelText(zh['action.dislikeActive']))
+    fireEvent.click(await ui.findByText(zh['withdraw.confirm']))
 
     await waitFor(() => { expect(ui.retract).toHaveBeenCalledWith(MSG, 'negative') })
     expect(ui.openDialog).not.toHaveBeenCalled()
@@ -190,6 +193,7 @@ describe('MessageFeedbackActions', () => {
     })
 
     fireEvent.click(ui.getByLabelText(zh['action.likeActive']))
+    fireEvent.click(await ui.findByText(zh['withdraw.confirm']))
 
     await waitFor(() => { expect(ui.getByText(zh['error.conflict'])).toBeTruthy() })
   })
@@ -201,6 +205,7 @@ describe('MessageFeedbackActions', () => {
     })
 
     fireEvent.click(ui.getByLabelText(zh['action.likeActive']))
+    fireEvent.click(await ui.findByText(zh['withdraw.confirm']))
 
     await waitFor(() => { expect(ui.getByText(zh['error.generic'])).toBeTruthy() })
   })
@@ -212,6 +217,7 @@ describe('MessageFeedbackActions', () => {
     })
 
     fireEvent.click(ui.getByLabelText(zh['action.dislikeActive']))
+    fireEvent.click(await ui.findByText(zh['withdraw.confirm']))
 
     await waitFor(() => { expect(ui.getByText(zh['error.conflict'])).toBeTruthy() })
   })
@@ -240,6 +246,7 @@ describe('MessageFeedbackActions', () => {
     window.addEventListener('error', onError)
 
     fireEvent.click(ui.getByLabelText(zh['action.likeActive']))
+    fireEvent.click(await ui.findByText(zh['withdraw.confirm']))
     ui.unmount()
     release()
     await gate
@@ -304,6 +311,7 @@ describe('MessageFeedbackActions', () => {
     window.addEventListener('error', onError)
 
     fireEvent.click(ui.getByLabelText(zh['action.dislikeActive']))
+    fireEvent.click(await ui.findByText(zh['withdraw.confirm']))
     // The retraction starts only after the seeding read settles; unmount
     // while that retraction is in flight.
     await waitFor(() => { expect(props.retract).toHaveBeenCalledWith(MSG, 'negative') })
@@ -313,6 +321,19 @@ describe('MessageFeedbackActions', () => {
 
     window.removeEventListener('error', onError)
     expect(errors).toEqual([])
+  })
+
+  it('asks before withdrawing a rating and states the export, and cancelling retracts nothing', async () => {
+    const ui = mount({ current: item({ rating: 'positive' }) })
+
+    fireEvent.click(ui.getByLabelText(zh['action.likeActive']))
+
+    expect(await ui.findByText(zh['withdraw.body'])).toBeTruthy()
+    expect(ui.retract).not.toHaveBeenCalled()
+    fireEvent.click(ui.getByText(zh['withdraw.cancel']))
+    await waitFor(() => { expect(ui.queryByText(zh['withdraw.body'])).toBeNull() })
+    expect(ui.retract).not.toHaveBeenCalled()
+    expect(ui.getByLabelText(zh['action.likeActive']).hasAttribute('disabled')).toBe(false)
   })
 
   it('surfaces a failed list load next to the controls', () => {
@@ -329,6 +350,7 @@ describe('MessageFeedbackActions', () => {
     })
 
     fireEvent.click(ui.getByLabelText(zh['action.likeActive']))
+    fireEvent.click(await ui.findByText(zh['withdraw.confirm']))
 
     await waitFor(() => { expect(ui.getByText(zh['error.generic'])).toBeTruthy() })
     expect(ui.queryByText(zh['error.load'])).toBeNull()

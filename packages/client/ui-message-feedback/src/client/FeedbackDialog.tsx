@@ -114,6 +114,7 @@ export function FeedbackDialog({
             </button>
           ))}
         </div>
+        <p className={css.disclosure} role="note">{t('dialog.disclosure')}</p>
         <textarea
           className={css.detail}
           aria-label={t('dialog.detail')}

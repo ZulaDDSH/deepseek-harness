@@ -55,6 +55,12 @@ describe('FeedbackDialog', () => {
     expect(ui.queryByRole('alert')).toBeNull()
   })
 
+  it('keeps the export disclosure visible whether or not the draft has text', () => {
+    expect(mount().getByRole('note').textContent).toBe(zh['dialog.disclosure'])
+    cleanup()
+    expect(mount({ text: 'typed detail' }).getByRole('note').textContent).toBe(zh['dialog.disclosure'])
+  })
+
   it('shows every category, the detail box with the hint, and an enabled Submit for an empty draft', () => {
     const ui = mount()
 

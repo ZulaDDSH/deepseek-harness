@@ -104,3 +104,10 @@
     transition: none;
   }
 }
+
+.disclosure {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 16px;
+}

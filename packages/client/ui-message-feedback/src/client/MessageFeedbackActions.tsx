@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  IconDislikeFillRegular, IconDislikeOutlineRegular, IconLikeFillRegular, IconLikeOutlineRegular, Tooltip,
+  Button, IconDislikeFillRegular, IconDislikeOutlineRegular, IconLikeFillRegular, IconLikeOutlineRegular, Modal, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MessageFeedbackRating } from '@deepseek-ai/dsh-message-feedback/types'
 import type { MessageFeedbackActionFailure } from './controller.ts'
@@ -36,6 +36,7 @@ function FeedbackRatingButtons({
   const [pending, setPending] = useState(false)
   // A rating or load failure surfaces beside the rating buttons.
   const [failure, setFailure] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState<MessageFeedbackRating | null>(null)
   // The controls mount for every settled message in the transcript, so the
   // Session's feedback is read once on first hover/focus rather than on mount.
   const seeded = useRef(false)
@@ -65,13 +66,23 @@ function FeedbackRatingButtons({
         openDialog(messageId, nextRating)
         return
       }
-      void retract(messageId, nextRating).then((result) => {
-        if (!alive.current) return
-        setPending(false)
-        if (!result.ok) setFailure(errorCopy(result))
-      })
+      setPending(false)
+      setConfirming(nextRating)
     })
-  }, [current, ensure, errorCopy, messageId, openDialog, retract])
+  }, [current, ensure, messageId, openDialog])
+
+  const withdraw = useCallback(() => {
+    const target = confirming
+    setConfirming(null)
+    if (target === null) return
+    setPending(true)
+    void retract(messageId, target).then((result) => {
+      if (!alive.current) return
+      setPending(false)
+      if (!result.ok) setFailure(errorCopy(result))
+    })
+  }, [confirming, errorCopy, messageId, retract])
+  const cancelWithdraw = useCallback(() => { setConfirming(null) }, [])
 
   const onLike = useCallback(() => { choose('positive') }, [choose])
   const onDislike = useCallback(() => { choose('negative') }, [choose])
@@ -111,6 +122,20 @@ function FeedbackRatingButtons({
           {rating === 'negative' ? <IconDislikeFillRegular /> : <IconDislikeOutlineRegular />}
         </button>
       </Tooltip>
+      <Modal
+        open={confirming !== null}
+        title={t('withdraw.title')}
+        closeLabel={t('close')}
+        onClose={cancelWithdraw}
+        footer={(
+          <>
+            <Button onClick={cancelWithdraw}>{t('withdraw.cancel')}</Button>
+            <Button variant="primary" onClick={withdraw}>{t('withdraw.confirm')}</Button>
+          </>
+        )}
+      >
+        <p role="note">{t('withdraw.body')}</p>
+      </Modal>
       {failure === null && loadFailed && (
         <span className={css.failure} role="status">{t('error.load')}</span>
       )}
