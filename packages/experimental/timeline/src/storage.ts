@@ -62,6 +62,7 @@ declare module '@deepseek-ai/cordis' {
 export class TimelineStorage extends Service implements TimelineReader {
   private readonly pending = new Map<string, Promise<void>>()
   private readonly unflushed = new WeakMap<Session, boolean>()
+  private readonly undispatched = new Set<string>()
   private closed = false
 
   constructor(
@@ -363,7 +364,7 @@ export class TimelineStorage extends Service implements TimelineReader {
     let saved: Annotation | undefined
     const update = { dispatch: false }
     let context: Extract<UserEditResult, { action: 'control' }>['context'] = null
-    await this.append(session, 'plugin:timeline/annotation', (state) => {
+    const appended = this.append(session, 'plugin:timeline/annotation', (state) => {
       const existing = state.view.annotations.find(item => item.id === request.id)
       if (
         existing !== undefined &&
@@ -375,7 +376,10 @@ export class TimelineStorage extends Service implements TimelineReader {
       // A timeout is permission for an explicit new attempt, not an automatic retry or a failure.
       saved = existing ?? pendingControl(state.view.annotations, request.target, state.view.trees, Date.now())
       if (saved !== undefined) {
+        if (existing === undefined && saved.control?.action !== request.intent)
+          throw new TimelineError(`A ${saved.control?.action ?? 'different'} request is already waiting for this work. Wait for its confirmation or for two minutes, then send the new request.`)
         context = { target: saved.target }
+        if (this.undispatched.has(saved.id) && saved.control?.delivery === 'sending') update.dispatch = true
         return
       }
       const target = request.target
@@ -395,7 +399,16 @@ export class TimelineStorage extends Service implements TimelineReader {
       update.dispatch = true
       return { version: 1, sessionId: session.id, annotation: saved }
     })
+    try {
+      await appended
+    } catch (error: unknown) {
+      const lost = saved?.id
+      if (update.dispatch && lost !== undefined && this.stateOf(session).view.annotations.some(item => item.id === lost))
+        this.undispatched.add(lost)
+      throw error
+    }
     assert(saved !== undefined, 'Timeline request was not saved')
+    this.undispatched.delete(saved.id)
     // The reducer can observe that the requested plan state has already been reached.
     const id = saved.id
     const current = this.stateOf(session).view.annotations.find(item => item.id === id)

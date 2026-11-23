@@ -101,13 +101,12 @@ describe('durable asynchronous work requests', () => {
         status: 'active',
         done: [1, 4],
       })
-      expect(await f.edit(f.request('resume', { kind: 'tree', tree: f.tree }))).toMatchObject({
-        dispatch: false,
-        annotation: { id: request.id },
-      })
-      expect(
-        await f.edit(f.request('resume', { kind: 'task', tree: f.tree, task: taskId.parse('one') })),
-      ).toMatchObject({ dispatch: false })
+      await expect(f.edit(f.request('resume', { kind: 'tree', tree: f.tree }))).rejects.toThrow('already waiting')
+      await expect(
+        f.edit(f.request('resume', { kind: 'task', tree: f.tree, task: taskId.parse('one') })),
+      ).rejects.toThrow('already waiting')
+      expect(await f.edit(f.request('pause', { kind: 'task', tree: f.tree, task: taskId.parse('one') })))
+        .toMatchObject({ dispatch: false, annotation: { id: request.id } })
       const read = await f.call('timeline_read', { annotation: request.id })
       expect(JSON.stringify(read.content)).toContain('Recovery checks')
       await expect(f.edit({ ...request, intent: 'resume' })).rejects.toThrow('identity')
@@ -250,6 +249,22 @@ describe('durable asynchronous work requests', () => {
     }
   })
 
+  it('lets a retry dispatch a request whose post-append save failed', async () => {
+    const f = await fixture()
+    try {
+      const first = f.request()
+      const flush = vi.spyOn(f.ctx.sessions, 'flush').mockResolvedValueOnce(true).mockRejectedValueOnce(new Error('Disk full'))
+      await expect(f.edit(first)).rejects.toThrow('could not save')
+      flush.mockRestore()
+      const retry = await f.edit(f.request())
+      expect(retry).toMatchObject({ action: 'control', dispatch: true })
+      const again = await f.edit(f.request())
+      expect(again).toMatchObject({ dispatch: false })
+      expect(f.view().annotations).toHaveLength(1)
+    } finally {
+      await f.close()
+    }
+  })
   it('rejects failed saves and model-written requests, and exposes whole-plan requests to the model', async () => {
     const f = await fixture()
     try {
