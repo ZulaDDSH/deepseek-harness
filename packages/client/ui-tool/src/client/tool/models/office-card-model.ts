@@ -3,6 +3,7 @@ import type { LocaleKeysOf } from '@deepseek-ai/dsh-client-ui-slots'
 import { abbreviateHomePath, isAbsoluteWorkspacePath, relativizeToCwd } from '@deepseek-ai/dsh-util-workspace-path'
 import { recordedAbsolutePath } from './recorded-path.ts'
 import type { ToolCallBlock } from './tool-call-model.ts'
+import { extraTexts, fullyRendered, imageReferences, type ImageCardModel } from './image-card-model.ts'
 
 type OfficeTitleKey = Extract<LocaleKeysOf<'conversation'>, 'tool.title.officeRender' | 'tool.title.officeConvert'
   | 'tool.title.officeRecalculate' | 'tool.title.generic'>
@@ -45,4 +46,12 @@ export function officeRowModel(toolName: string, block: ToolCallBlock, cwd?: str
   const recorded = 'kind' in block ? recordedAbsolutePath(block.meta, 'path') : undefined
   const filePath = recorded ?? (input !== undefined && isAbsoluteWorkspacePath(input) ? input : undefined)
   return { titleKey, summary, filePath }
+}
+
+export function officeImageCard(toolName: string, block: ToolCallBlock, cwd?: string, home?: string): ImageCardModel | null {
+  if (toolName !== 'office_render' || !('kind' in block) || block.isError || !fullyRendered(block.content)) return null
+  const refs = imageReferences(block.content)
+  if (refs === null) return null
+  const office = officeRowModel(toolName, block, cwd, home)
+  return { path: office.filePath ?? office.summary, images: refs.map(attachment => ({ attachment })), extraText: extraTexts(block.content) }
 }
