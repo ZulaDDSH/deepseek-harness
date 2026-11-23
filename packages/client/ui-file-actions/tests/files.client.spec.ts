@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { Blob as NodeBlob } from 'node:buffer'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { BrowserFileActions, exportName, REMOTE_IMAGE_BYTES, REMOTE_IMAGE_MS } from '../src/client/files.ts'
+import { BrowserFileActions, exportName, readOriginalBytes, REMOTE_IMAGE_BYTES, REMOTE_IMAGE_MS } from '../src/client/files.ts'
 import type { DesktopFileActions } from '../src/types.ts'
 import { Context } from '@deepseek-ai/cordis'
 import { apply as clientApply } from '../src/client/index.ts'
@@ -290,5 +290,22 @@ describe('remote image reads are bounded', () => {
       expect(click).not.toHaveBeenCalled()
       actions.dispose()
     } finally { vi.useRealTimers() }
+  })
+})
+
+describe('original windows', () => {
+  it('refuses a file whose version changes between windows and one above the total limit', async () => {
+    const signal = new AbortController().signal
+    const changed = vi.fn(async (offset: number) => ({ absolutePath: '/w/a', version: offset === 0 ? 'v1' : 'v2', data: [1, 2], eof: offset > 0 }))
+    await expect(readOriginalBytes(changed, signal)).rejects.toThrow('changed')
+    const large = vi.fn(async (offset: number) => ({ absolutePath: '/w/b', version: 'v1', data: [1, 2, 3], eof: offset >= 3 }))
+    await expect(readOriginalBytes(large, signal, 4)).rejects.toThrow('too large')
+  })
+
+  it('concatenates windows until the end of file', async () => {
+    const signal = new AbortController().signal
+    const windows = [[1, 2], [3], []]
+    const read = vi.fn(async (offset: number) => ({ absolutePath: '/w/c', version: 'v', data: windows[offset === 0 ? 0 : offset === 2 ? 1 : 2] ?? [], eof: offset >= 2 }))
+    expect([...await readOriginalBytes(read, signal)]).toEqual([1, 2, 3])
   })
 })

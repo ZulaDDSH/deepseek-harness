@@ -8,6 +8,7 @@ import type { FileActions, FileActionSource } from '../types.ts'
 import { fileMediaUrl } from '@deepseek-ai/dsh-util-workspace-path'
 import mime from 'mime'
 import type { FileActionKey } from './locales.ts'
+import { MAX_FILE_ACTION_BYTES, readOriginalBytes } from './files.ts'
 
 /**
  * Register original-byte operations without requiring an application-opening plugin.
@@ -19,9 +20,12 @@ export function registerFileMenus(ctx: Context, actions: FileActions, t: (key: F
   const lifetime = new AbortController()
   ctx.effect(() => () => { lifetime.abort() }, 'file actions: feedback lifetime')
   const read = (sessionId: SessionId, path: string, mediaType: string, error: string) => async (signal: AbortSignal): Promise<Blob> => {
-    const result = await ctx.remote.workspaceFiles.readBytes(sessionId, path, {}, signal)
-    if (!result.ok) throw new Error(error)
-    return new Blob([new Uint8Array(result.value.data)], { type: mediaType })
+    const bytes = await readOriginalBytes(async (offset) => {
+      const result = await ctx.remote.workspaceFiles.readBytes(sessionId, path, { range: { offset } }, signal)
+      if (!result.ok) throw new Error(error)
+      return result.value
+    }, signal)
+    return new Blob([bytes], { type: mediaType })
   }
   const save = async (source: FileActionSource, mode: 'download' | 'saveAs'): Promise<void> => {
     const result = await actions.save(source, mode)
@@ -49,15 +53,17 @@ export function registerFileMenus(ctx: Context, actions: FileActions, t: (key: F
     id: 'file-actions.file', target: 'file', order: 200,
     resolve: async ({ sessionId, path }, signal) => {
       let absolutePath: string | undefined
+      let bytes: number | undefined
       try {
         const result = await ctx.remote.workspaceFiles.stat(sessionId, path, signal)
         absolutePath = result.ok ? result.value.absolutePath : undefined
+        bytes = result.ok ? result.value.bytes : undefined
       } catch (_error) {
         // Failed metadata disables operations that require the source file.
         signal.throwIfAborted()
       }
       signal.throwIfAborted()
-      const available = absolutePath !== undefined
+      const available = absolutePath !== undefined && (bytes === undefined || bytes <= MAX_FILE_ACTION_BYTES)
       const mediaType = mime.getType(path) ?? ''
       const source: FileActionSource = {
         url: fileMediaUrl(document.baseURI, absolutePath ?? path) ?? path,

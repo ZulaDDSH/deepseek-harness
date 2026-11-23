@@ -14,6 +14,42 @@ export function exportName(name: string | undefined, mediaType: string): string 
 
 export const REMOTE_IMAGE_BYTES = 64 * 1024 * 1024
 export const REMOTE_IMAGE_MS = 30_000
+export const MAX_FILE_ACTION_BYTES = 256 * 1024 * 1024
+
+export interface OriginalWindow {
+  readonly absolutePath: string
+  readonly version: string
+  readonly data: ArrayLike<number>
+  readonly eof: boolean
+}
+
+export async function readOriginalBytes(
+  readWindow: (offset: number) => Promise<OriginalWindow>, signal: AbortSignal, limit = MAX_FILE_ACTION_BYTES,
+): Promise<Uint8Array> {
+  const chunks: Uint8Array[] = []
+  let total = 0
+  let first: OriginalWindow | undefined
+  for (;;) {
+    signal.throwIfAborted()
+    const window = await readWindow(total)
+    if (first === undefined) first = window
+    else if (window.absolutePath !== first.absolutePath || window.version !== first.version) {
+      throw new Error('Original file changed while it was read')
+    }
+    const data = new Uint8Array(window.data)
+    total += data.byteLength
+    if (total > limit) throw new Error('Original file is too large')
+    chunks.push(data)
+    if (window.eof || data.byteLength === 0) break
+  }
+  const bytes = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes
+}
 
 async function readBounded(response: Response, limit: number): Promise<Blob> {
   const type = response.headers?.get('content-type') ?? ''
