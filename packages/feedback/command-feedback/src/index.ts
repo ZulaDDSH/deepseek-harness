@@ -41,7 +41,8 @@ export const FEEDBACK_CATEGORIES = [
 export const name = 'command-feedback'
 export const inject = ['commands']
 
-const USAGE = 'Usage: /feedback <text>'
+const USAGE = 'Usage: /feedback [--local] <text>'
+const LOCAL_FLAG = /^--local(?:\s+|$)/u
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -61,6 +62,7 @@ export function recordFeedback(session: Session, entry: FeedbackRecord): void {
   session.append('feedback/record', {
     ...(text.length === 0 ? {} : { text }),
     ...(entry.category === undefined ? {} : { category: entry.category }),
+    ...(entry.localOnly === true ? { localOnly: true as const } : {}),
   })
 }
 
@@ -72,10 +74,19 @@ export function recordFeedback(session: Session, entry: FeedbackRecord): void {
  * user ids, or a usage error when no feedback text was supplied.
  */
 function executeFeedbackCommand(invocation: CommandInvocation, telemetryMounted: boolean): CommandResult {
-  if (invocation.rawInput.trim().length === 0) {
+  const trimmed = invocation.rawInput.trim()
+  const localOnly = LOCAL_FLAG.test(trimmed)
+  const text = localOnly ? trimmed.replace(LOCAL_FLAG, '') : invocation.rawInput
+  if (text.trim().length === 0) {
     return { kind: 'error', text: `Feedback text is required. ${USAGE}` }
   }
-  recordFeedback(invocation.agent.session, { text: invocation.rawInput })
+  recordFeedback(invocation.agent.session, { text, ...(localOnly ? { localOnly: true } : {}) })
+  if (localOnly) {
+    return {
+      kind: 'success',
+      text: `Feedback recorded locally for session ${invocation.agent.session.id}; it was not shared with the telemetry collector.`,
+    }
+  }
   return {
     kind: 'success',
     text: `Feedback recorded for session ${invocation.agent.session.id}\nAnonymous user: ${getOrCreateAnonymousUserId()}.${telemetryMounted ? TELEMETRY_NOTICE : ''}`,
@@ -122,8 +133,8 @@ export function apply(ctx: Context): void {
   ctx.commands.register({
     definitionId: brandString<CommandDefinitionId>('@deepseek-ai/dsh-command-feedback'),
     name: 'feedback',
-    description: 'Record feedback about this session; with session telemetry enabled this also sends the conversation so far to its collector',
-    input: { hint: '<text>' },
+    description: 'Record feedback about this session; with session telemetry enabled this also sends the conversation so far to its collector unless --local is given',
+    input: { hint: '[--local] <text>' },
     recordInput: false,
     handler: invocation => executeFeedbackCommand(invocation, ctx.get('sessionTelemetry') !== undefined),
   })

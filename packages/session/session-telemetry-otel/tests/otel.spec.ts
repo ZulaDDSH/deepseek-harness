@@ -861,3 +861,52 @@ it('does not upload a record whose redaction policy removes its canonical envelo
     await ctx.fiber.dispose()
   }
 })
+
+describe('OpenTelemetrySessionBackend feedback privacy', () => {
+  async function bootWith(url: string, redactSecrets?: boolean) {
+    const ctx = new Context()
+    ctx.plugin(OTel)
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(OpenTelemetrySessionBackend, {
+      mode: SessionTelemetryMode.FEEDBACK_ONLY,
+      exporter: { url },
+      ...(redactSecrets === undefined ? {} : { redactSecrets }),
+    })
+    return { ctx, fiber }
+  }
+
+  it('exports nothing for local-only feedback and withholds its text from a later release', async () => {
+    const { url, captures } = await mockCollector()
+    const { ctx, fiber } = await bootWith(url)
+    const session = ctx.sessions.create(brandString<SessionId>('local'), { meta: {} })
+    session.append('turn/start', { turn: 1 })
+    recordFeedback(session, { text: 'private remark', localOnly: true })
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(captures).toEqual([])
+    recordFeedback(session, { text: 'shared remark' })
+    await fiber.dispose()
+
+    const wire = JSON.stringify(captures)
+    expect(wire).not.toContain('private remark')
+    expect(wire).toContain('shared remark')
+    expect(eventTypes(captures)).toEqual(['turn/start', 'feedback/record', 'feedback/record'])
+  })
+
+  it('scrubs recognisable secrets from exported bodies unless redactSecrets is off', async () => {
+    const secret = `sk${'-'}abcdefghijklmnopqrstuvwx`
+    const run = async (redactSecrets?: boolean): Promise<string> => {
+      const { url, captures } = await mockCollector()
+      const { ctx, fiber } = await bootWith(url, redactSecrets)
+      const session = ctx.sessions.create(brandString<SessionId>('secret'), { meta: {} })
+      recordFeedback(session, { text: `my key is ${secret} and ${'pass' + 'word'}=hunter22 via https://bob:pw12345@host/x` })
+      await fiber.dispose()
+      return JSON.stringify(captures)
+    }
+    const redacted = await run()
+    expect(redacted).not.toContain(secret)
+    expect(redacted).not.toContain('hunter22')
+    expect(redacted).not.toContain('pw12345')
+    expect(redacted).toContain('[redacted]')
+    expect(await run(false)).toContain(secret)
+  })
+})

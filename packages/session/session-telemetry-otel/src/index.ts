@@ -26,6 +26,7 @@ import { APP_IDENTITY } from '@deepseek-ai/dsh-llm'
 import { getOrCreateAnonymousUserId } from '@deepseek-ai/dsh-anonymous-user-id'
 import type { LogExporterOptions, SessionLogProcessorOptions, SessionLogReporter } from '@deepseek-ai/dsh-otel'
 import { SeverityNumber } from '@opentelemetry/api-logs'
+import { localOnlyFeedbackBody, redactSecrets } from './redaction.ts'
 
 /** Session-sharing policy selected by {@link Config.mode}. */
 export enum SessionTelemetryMode {
@@ -43,7 +44,7 @@ const NON_CANONICAL_EVENT_WARNING = 'session telemetry ignored an event absent f
 function isFeedback(session: Session, event: SessionEvent): boolean {
   if (event.seq < session.inheritedEventCount) return false
   switch (event.type) {
-    case 'feedback/record': return true
+    case 'feedback/record': return event.data.localOnly !== true
     case 'feedback/message-put':
     case 'feedback/message-delete': return event.data.sessionId === session.id
     default: return false
@@ -104,6 +105,7 @@ export interface Config {
   shutdownTimeoutMillis?: number
   /** Uncompressed OTLP request byte limit, at most 4,000,000. */
   maxRequestBytes?: number
+  redactSecrets?: boolean
 }
 
 /**
@@ -119,6 +121,7 @@ export const Config: z<Config> = z.object({
   processor: z.any(),
   shutdownTimeoutMillis: z.number(),
   maxRequestBytes: z.number().step(1).min(1).max(4_000_000),
+  redactSecrets: z.boolean(),
 })
 
 /** Default outer allowance for the SDK's complete shutdown sequence. */
@@ -200,6 +203,10 @@ export class OpenTelemetrySessionBackend extends SessionTelemetryBackend {
       onFailure: (message, error) => { ctx.logger.warn(message, error) },
     })
     this.provider = reporter
+    const exported = (type: string, body: unknown): unknown => {
+      const kept = localOnlyFeedbackBody(type, body)
+      return config.redactSecrets === false ? kept : redactSecrets(kept)
+    }
     const enqueue: SessionTelemetrySink['emit'] = (record) => {
       if (record.sourceEvent === undefined) {
         ctx.logger.warn('Session log record withheld: redaction removed sourceEvent')
@@ -207,7 +214,7 @@ export class OpenTelemetrySessionBackend extends SessionTelemetryBackend {
       }
       reporter.reportSessionLog({
         sessionId: record.sourceEvent.sessionId,
-        event: { ...record.sourceEvent.envelope, data: record.body },
+        event: { ...record.sourceEvent.envelope, data: exported(record.sourceEvent.envelope.type, record.body) },
         severityNumber: SEVERITY[record.severity],
         attributes: record.attributes,
       })
