@@ -8,7 +8,7 @@ Ownership is stored in `claude-accounts/.ownership.json` as an HMAC of the lower
 
 A sign-in that is not finished within five minutes is stopped and reported as timed out. Set `DSH_CLAUDE_LOGIN_TIMEOUT_MS` (milliseconds, clamped to 1000 .. 2147483647; an invalid value uses the default) before starting the Harness to change that.
 
-The notice about a managed profile displaced by the default profile is stored in the registry, so it survives a restart and disappears once that profile is signed in with another account. Other notices (duplicate sign-in, failed local sign-out) are shown once.
+The notice about a managed profile displaced by the default profile is stored in the registry, so it survives a restart and disappears once that profile is signed in with another account. Other notices (duplicate sign-in, failed local sign-out) are kept until the settings page acknowledges that it showed them.
 
 ## Build and test
 
@@ -38,6 +38,7 @@ Model discovery and inference use the official Claude executable and Agent SDK t
 - **Host-side browser login.** `claude auth login` runs on the machine that runs the Harness host and opens the browser there. Signing in from a remote browser session is not supported.
 - **Windows-focused patches.** `bridge.patch` fixes behavior of the pinned adapter on Windows. Other platforms use the adapter as published and are less exercised.
 - **Version pinning.** The adapter (0.2.5), the Agent SDK (0.3.322), and the Harness packages (`0.2.2-rc.3`, including `engines.dsh`) are pinned to exact versions. Upgrading any of them means updating the digest in `prepare-bridge.mjs`, re-checking `bridge.patch`, and re-running the tests.
+- **First-use race.** If two Harness processes first create or replace `.ownership-secret` at the same moment, one of them can keep using a different secret until it restarts; its ownership entries are then treated as new accounts and reassigned.
 - **No CI lane.** The repository's gates and CI do not build or test this directory. Run `npm test` here by hand.
 - **Adapter license.** The adapter is MIT-licensed according to the npm metadata and the tarball's `LICENSE`; the upstream repository was not checked. The Agent SDK is proprietary (see NOTICE.md).
 - **English only.** The settings page and the messages from the host side are English. Whether an out-of-tree browser bundle can use the Harness locale service was not verified, so no translations are provided.
