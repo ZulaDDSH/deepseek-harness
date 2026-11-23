@@ -25,7 +25,24 @@ const CONFIG_KEYS: ReadonlySet<string> = new Set([
  * @returns the Unicode code-point count.
  */
 export function codePointLength(text: string): number {
-  return Array.from(text).length
+  return codePointOffsetScan(text, Number.POSITIVE_INFINITY).count
+}
+
+function codePointOffsetScan(text: string, limit: number): { offset: number; count: number } {
+  let offset = 0
+  let count = 0
+  while (offset < text.length && count < limit) {
+    const high = text.charCodeAt(offset)
+    const low = offset + 1 < text.length ? text.charCodeAt(offset + 1) : 0
+    offset += high >= 0xd800 && high <= 0xdbff && low >= 0xdc00 && low <= 0xdfff ? 2 : 1
+    count += 1
+  }
+  return { offset, count }
+}
+
+/** UTF-16 offset after the given number of code points, or the text length when it is shorter. */
+export function codePointOffset(text: string, points: number): number {
+  return codePointOffsetScan(text, points).offset
 }
 
 /**
