@@ -25,6 +25,8 @@ export async function setup(t, { signedIn = [], dirs = [] } = {}) {
   const logouts = []
   const children = new Map()
   const unreadable = new Set()
+  const taskkills = []
+  const taskkill = { fails: false }
   let spawned = 0
   t.mock.module(new URL('../bridge/auth-process.js', import.meta.url).href, {
     namedExports: {
@@ -57,6 +59,11 @@ export async function setup(t, { signedIn = [], dirs = [] } = {}) {
   t.mock.module('node:child_process', {
     namedExports: {
       ...childProcess,
+      execFile(file, args, options, callback) {
+        const child = [...children.values()].find((c) => String(c.pid) === args[1])
+        taskkills.push({ file, args, options, killedAtCall: child?.killed })
+        setImmediate(() => callback(taskkill.fails ? new Error('taskkill failed') : null))
+      },
       spawn(exe, args, options) {
         assert.equal(options.cwd, options.env.CLAUDE_CONFIG_DIR)
         assert.ok(!Object.hasOwn(options.env, 'ANTHROPIC_API_KEY'))
@@ -64,6 +71,7 @@ export async function setup(t, { signedIn = [], dirs = [] } = {}) {
         else assert.deepEqual(args, ['auth', 'login', '--claudeai'])
         const child = new EventEmitter()
         child.killed = false
+        child.pid = 4001 + spawned
         child.kill = () => {
           child.killed = true
         }
@@ -101,6 +109,8 @@ export async function setup(t, { signedIn = [], dirs = [] } = {}) {
     logouts,
     children,
     unreadable,
+    taskkills,
+    taskkill,
     ctx,
     plugin,
     spawned: () => spawned,

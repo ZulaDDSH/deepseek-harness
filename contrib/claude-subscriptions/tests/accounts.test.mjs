@@ -24,6 +24,7 @@ test('browser sign-in registers one model route per distinct account across rest
   accounts.set(another, { email: 'TWO@example.test' })
   children.get(another).emit('close', 0)
   assert.match((await call('list')).notice, /already connected as Work/)
+  assert.equal((await call('list')).notice, '')
   assert.deepEqual(providers(), ['claude-code-session', 'claude-sub-work'])
   assert.ok(!accounts.has(another))
   await h.manager.dispose()

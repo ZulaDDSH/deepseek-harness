@@ -50,12 +50,12 @@ test('login lifecycle, registry recovery and profile names', { skip: !hasBridge 
   })
 
   await t.test('a login that never finishes is killed and reported', async () => {
-    process.env.DSH_CLAUDE_LOGIN_TIMEOUT_MS = '40'
+    process.env.DSH_CLAUDE_LOGIN_TIMEOUT_MS = '1000'
     t.after(() => delete process.env.DSH_CLAUDE_LOGIN_TIMEOUT_MS)
     await call('add', { label: 'Slow' })
     const child = children.get(h.dir('Slow'))
     assert.equal((await row('slow')).pending, true)
-    await sleep(200)
+    await sleep(1300)
     assert.equal(child.killed, true)
     const timedOut = await row('slow')
     assert.equal(timedOut.pending, false)
@@ -63,6 +63,47 @@ test('login lifecycle, registry recovery and profile names', { skip: !hasBridge 
     child.emit('close', null)
     assert.match((await row('slow')).error, /timed out/)
     delete process.env.DSH_CLAUDE_LOGIN_TIMEOUT_MS
+  })
+
+  await t.test('on Windows taskkill finishes before the plain kill, and a failure is still followed by it', { skip: process.platform !== 'win32' }, async () => {
+    h.taskkills.length = 0
+    process.env.DSH_CLAUDE_LOGIN_TIMEOUT_MS = '1000'
+    await call('add', { label: 'Tree' })
+    const child = children.get(h.dir('Tree'))
+    await sleep(1300)
+    const [first] = h.taskkills.splice(0)
+    assert.match(first.file, /\\System32\\taskkill\.exe$/i)
+    assert.deepEqual(first.args, ['/pid', String(child.pid), '/T', '/F'])
+    assert.equal(first.killedAtCall, false)
+    assert.equal(child.killed, true)
+    h.taskkill.fails = true
+    await call('add', { label: 'Tree2' })
+    const second = children.get(h.dir('Tree2'))
+    await sleep(1300)
+    assert.equal(h.taskkills.length, 1)
+    assert.equal(second.killed, true)
+    h.taskkill.fails = false
+    delete process.env.DSH_CLAUDE_LOGIN_TIMEOUT_MS
+  })
+
+  await t.test('the login timeout is clamped and invalid values use the default', () => {
+    const { loginTimeoutMs } = h.plugin
+    for (const bad of ['', 'undefined', 'abc', '0', '-5', 'NaN', 'Infinity', '-Infinity']) assert.equal(loginTimeoutMs(bad), 300000, String(bad))
+    assert.equal(loginTimeoutMs('1'), 1000)
+    assert.equal(loginTimeoutMs('999'), 1000)
+    assert.equal(loginTimeoutMs('60000'), 60000)
+    assert.equal(loginTimeoutMs('99999999999'), 2 ** 31 - 1)
+  })
+
+  await t.test('the PowerShell and taskkill paths fall back to the default Windows directory', () => {
+    const { windowsSystemPath } = h.plugin
+    assert.equal(windowsSystemPath({}, 'taskkill.exe'), 'C:\\Windows\\System32\\taskkill.exe')
+    assert.equal(windowsSystemPath({ windir: 'D:\\Win' }, 'taskkill.exe'), 'D:\\Win\\System32\\taskkill.exe')
+    assert.equal(windowsSystemPath({ SYSTEMROOT: 'E:\\W', windir: 'D:\\Win' }, 'x'), 'E:\\W\\System32\\x')
+    assert.equal(
+      windowsSystemPath({ SystemRoot: 'C:\\Windows' }, 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+      'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+    )
   })
 
   await t.test('a corrupt registry is backed up and treated as empty', async () => {
@@ -95,6 +136,13 @@ test('login lifecycle, registry recovery and profile names', { skip: !hasBridge 
     assert.match(listed.notice, /same account as Displaced/)
     assert.ok(!h.providers().includes('claude-sub-displaced'))
     assert.ok(h.providers().includes('claude-code-session'))
+    assert.match((await call('list')).notice, /same account as Displaced/)
+    await h.manager.dispose()
+    h.manager = await h.ctx.plugin(h.plugin)
+    assert.match((await call('list')).notice, /same account as Displaced/)
+    h.accounts.set(h.dir('Displaced'), { email: 'other@example.test' })
+    assert.equal((await call('list')).notice, '')
+    assert.ok(h.providers().includes('claude-sub-displaced'))
   })
 
   await t.test('disposing the plugin kills every running login', async () => {

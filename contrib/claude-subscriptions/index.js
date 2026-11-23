@@ -1,7 +1,7 @@
 import { execFile, spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join, resolve, win32 } from 'node:path'
 import { accountKey, legacyAccountKey, readOwnership, updateOwnership } from './ownership.js'
 
 const base = new URL('./bridge/index.js', import.meta.url)
@@ -28,7 +28,14 @@ const labelPattern = /^[a-z0-9][a-z0-9 -]{0,30}[a-z0-9]$|^[a-z0-9]$/i
 const caseInsensitiveFiles = process.platform === 'win32' || process.platform === 'darwin'
 const sameDirectory = (a, b) =>
   caseInsensitiveFiles ? resolve(a).toLowerCase() === resolve(b).toLowerCase() : resolve(a) === resolve(b)
-const loginTimeoutMs = () => Number(process.env.DSH_CLAUDE_LOGIN_TIMEOUT_MS) || 300000
+export function loginTimeoutMs(value = process.env.DSH_CLAUDE_LOGIN_TIMEOUT_MS) {
+  const ms = Number(value)
+  if (!Number.isFinite(ms) || ms <= 0) return 300000
+  return Math.min(Math.max(Math.floor(ms), 1000), 2 ** 31 - 1)
+}
+export function windowsSystemPath(env, ...parts) {
+  return win32.join(env.SystemRoot || env.SYSTEMROOT || env.windir || 'C:\\Windows', 'System32', ...parts)
+}
 
 function environment(account) {
   const env = buildChildEnvironment(process.env, home)
@@ -219,8 +226,7 @@ function startLogin(account) {
     return spawn(executable, ['auth', 'login', '--claudeai'], { cwd, env, stdio: 'ignore' })
   }
   env.DSH_LOGIN_CLI = executable
-  const systemRoot = env.SystemRoot || env.SYSTEMROOT || env.windir || 'C:\Windows'
-  const shell = join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+  const shell = windowsSystemPath(env, 'WindowsPowerShell', 'v1.0', 'powershell.exe')
   const command =
     '$ErrorActionPreference="Stop"; $p=Start-Process -FilePath $env:DSH_LOGIN_CLI -ArgumentList @("auth","login","--claudeai") -WorkingDirectory $env:DSH_LOGIN_CWD -PassThru -Wait; exit $p.ExitCode'
   env.DSH_LOGIN_CWD = cwd
@@ -232,10 +238,23 @@ function startLogin(account) {
   })
 }
 
-function killTree(child) {
-  if (process.platform === 'win32' && child.pid)
-    execFile('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true }, () => {})
-  child.kill()
+function killTree(child, warn) {
+  return new Promise((done) => {
+    const kill = () => {
+      child.kill()
+      done()
+    }
+    if (process.platform !== 'win32' || !child.pid) return kill()
+    execFile(
+      windowsSystemPath(process.env, 'taskkill.exe'),
+      ['/pid', String(child.pid), '/T', '/F'],
+      { windowsHide: true },
+      (err) => {
+        if (err) warn?.('Could not stop the Claude Code sign-in process tree: ' + err.message)
+        kill()
+      },
+    )
+  })
 }
 
 export function apply(ctx) {
@@ -289,14 +308,12 @@ export function apply(ctx) {
   async function refresh() {
     const { rows: accounts, state } = await updateOwnership(root, observe)
     if (!active) return []
-    const displaced = [...new Set(state.displaced)].map(
-      (id) => accounts.find((a) => a.id === id)?.label || id,
-    )
-    if (displaced.length)
-      displacedNotice =
-        'The default Claude Code sign-in uses the same account as ' +
+    const displaced = state.displaced.map((id) => accounts.find((a) => a.id === id)?.label || id)
+    displacedNotice = displaced.length
+      ? 'The default Claude Code sign-in uses the same account as ' +
         displaced.join(', ') +
         ', so that profile was disconnected. Sign it in with a different account to use it again.'
+      : ''
     const authorized = accounts.filter(
       (a) => a.status.signedIn && state.owners.get(a.status.accountKey) === a.id,
     )
@@ -353,12 +370,12 @@ export function apply(ctx) {
   ctx.effect(
     () => () => {
       active = false
-      for (const { child, timer } of logins.values()) {
+      const killed = [...logins.values()].map(({ child, timer }) => {
         clearTimeout(timer)
-        killTree(child)
-      }
+        return killTree(child, (text) => ctx.logger?.warn?.(text))
+      })
       logins.clear()
-      return Promise.all([...routes.values()].map((r) => r.adapter.closeOwnedSessions()))
+      return Promise.all([...killed, ...[...routes.values()].map((r) => r.adapter.closeOwnedSessions())])
     },
     'close account sessions',
   )
@@ -382,7 +399,6 @@ export function apply(ctx) {
           throw new Error('This Claude account is already connected. Refresh sign-ins and try again.')
         if (!status.signedIn && !logins.has(a.id)) {
           notice = ''
-          displacedNotice = ''
           loginErrors.delete(a.id)
           const child = startLogin(a)
           attempts.add(a.id)
@@ -396,7 +412,7 @@ export function apply(ctx) {
             if (active) void ordered(refresh).catch(() => {})
           }
           login.timer = setTimeout(() => {
-            killTree(child)
+            void killTree(child, (text) => ctx.logger?.warn?.(text))
             finish('Sign-in timed out. You can try again.')
           }, loginTimeoutMs())
           login.timer.unref?.()
@@ -406,6 +422,7 @@ export function apply(ctx) {
         return refresh()
       })
       const text = [displacedNotice, notice].filter(Boolean).join(' ')
+      if (args?.includeNotice) notice = ''
       return { ok: true, value: args?.includeNotice ? { accounts: value, notice: text } : value }
     } catch (err) {
       return { ok: false, error: { code: 'claude-accounts/error', message: err.message, details: {} } }
