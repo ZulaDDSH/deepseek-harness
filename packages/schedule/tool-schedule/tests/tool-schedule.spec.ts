@@ -126,6 +126,14 @@ async function createOther(test: Setup) {
   }, brandString<SessionId>('other-session')))
 }
 
+describe('Schedule tool config', () => {
+  it('defaults administrator to false and rejects a non-boolean value', () => {
+    expect(ToolSchedule.Config({})).toEqual({ administrator: false })
+    expect(ToolSchedule.Config({ administrator: true })).toEqual({ administrator: true })
+    expect(() => ToolSchedule.Config({ administrator: 'yes' })).toThrow()
+  })
+})
+
 describe('Schedule model tools', () => {
   it('registers the four tools only in the mounting Agent scope', async () => {
     const test = await setup()

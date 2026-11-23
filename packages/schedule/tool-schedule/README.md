@@ -52,7 +52,7 @@ One shared `tool:schedule` system-prompt section requires explicit user authoriz
 - name: '@deepseek-ai/dsh-tool-schedule'
 ```
 
-The package declares no `Config` fields. It injects `ctx.tools` and `ctx.systemPrompt` and registers the four tools and their shared guidance once the scope resolves the Host `ctx.schedule` service, so a composition that keeps that service off mounts no Schedule tool. Each call acts for the Agent that dispatched it.
+The package declares one `Config` field, `administrator` (boolean, default `false`; see the mount rule above), and rejects any other type. It injects `ctx.tools` and `ctx.systemPrompt` and registers the four tools and their shared guidance once the scope resolves the Host `ctx.schedule` service, so a composition that keeps that service off mounts no Schedule tool. Each call acts for the Agent that dispatched it.
 
 -----
 

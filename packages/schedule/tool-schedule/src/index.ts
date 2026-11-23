@@ -8,6 +8,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 // Type-only: make `ctx.get('agentPresets')` resolve to the preset roster when
 // composed. A rosterless deployment records no preset for a created Session.
@@ -361,6 +362,10 @@ export function apply(ctx: Context, config: Config = {}): void {
 export interface Config {
   administrator?: boolean
 }
+
+export const Config: z<Config> = z.object({
+  administrator: z.boolean().default(false),
+})
 
 /**
  * Register the tools and shared guidance in the scope that resolved Schedule.
