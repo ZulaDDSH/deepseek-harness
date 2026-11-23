@@ -1,4 +1,5 @@
 /** Current-profile plugin and bundle management over shared dsh plugin operations. */
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { readFile, rm } from 'node:fs/promises'
@@ -368,6 +369,9 @@ export class PluginManager extends TypertRemoteService {
   private readonly profile: ProfileContext
   private readonly outputBytes: number
   private readonly lockWaitMs: number
+  private profileQueue: Promise<void> = Promise.resolve()
+  private readonly transaction = new AsyncLocalStorage<true>()
+  private readonly selectionSlots = new Map<string, number>()
   private readonly inspectTimeoutMs: number
   private readonly githubConnectionTimeoutMs: number
   private readonly gitTransportTimeoutMs: number
@@ -804,22 +808,29 @@ export class PluginManager extends TypertRemoteService {
       }
     }
     // The removed version is installed again where it came from, else over the configured plan, as its removal asks.
-    const previousRegistry = this.installedFrom.get(name)
-    announce('removing')
-    const removal = await settled('remove', name, this.removeBundle(name))
-    if (removal.application === 'failed' || removal.application === 'cancelled') return { from, to: version, step: 'remove', result: removal }
-    announce('installing')
-    const result = await installTarget()
-    if (result.application !== 'failed' && result.application !== 'cancelled') return { from, to: version, step: 'install', result }
-    announce('restoring')
-    // A target that installed but failed to start is still a dependency; it goes before the removed version returns.
-    if (result.stage === 'enable') await settled('remove', name, this.removeBundle(name))
-    // The reinstallation carries no request id, so cancelling the update cannot leave the package removed.
-    const previous = target.kind === 'git' ? target.source : `${name}@${from}`
-    const restore = await settled('install', previous, this.installBundle(previous, {
-      saveExact, enabled, ...previousRegistry === undefined ? {} : { registry: previousRegistry },
-    }))
-    return { from, to: version, step: 'install', result, restore }
+    const replace = async (): Promise<PluginUpdateResult> => {
+      const slot = bundleSelection(readProfileManifest('dsh', this.profile.dir)).indexOf(name)
+      if (slot >= 0) this.selectionSlots.set(name, slot)
+      try {
+        const previousRegistry = this.installedFrom.get(name)
+        announce('removing')
+        const removal = await settled('remove', name, this.removeBundle(name))
+        if (removal.application === 'failed' || removal.application === 'cancelled') return { from, to: version, step: 'remove', result: removal }
+        announce('installing')
+        const result = await installTarget()
+        if (result.application !== 'failed' && result.application !== 'cancelled') return { from, to: version, step: 'install', result }
+        announce('restoring')
+        if (result.stage === 'enable') await settled('remove', name, this.removeBundle(name))
+        const previous = target.kind === 'git' ? target.source : `${name}@${from}`
+        const restore = await settled('install', previous, this.installBundle(previous, {
+          saveExact, enabled, ...previousRegistry === undefined ? {} : { registry: previousRegistry },
+        }))
+        return { from, to: version, step: 'install', result, restore }
+      } finally {
+        this.selectionSlots.delete(name)
+      }
+    }
+    return this.exclusive(() => this.transaction.run(true, replace))
   }
 
   /**
@@ -1359,6 +1370,13 @@ export class PluginManager extends TypertRemoteService {
     }
   }
 
+  private exclusive<T>(work: () => Promise<T>): Promise<T> {
+    const previous = this.profileQueue
+    let release!: () => void
+    this.profileQueue = new Promise<void>((resolve) => { release = resolve })
+    return previous.then(work).finally(release)
+  }
+
   private async selectBundle(name: string, enabled: boolean): Promise<void> {
     const manifest = readProfileManifest('dsh', this.profile.dir)
     const previous = bundleSelection(manifest)
@@ -1375,7 +1393,8 @@ export class PluginManager extends TypertRemoteService {
     if (!enabled && previous.includes(name)) {
       if (this.protectsManager(name)) throw new ManagementFailure('management-required')
     }
-    const bundles = enabled ? [...previous, ...previous.includes(name) ? [] : [name]] : previous.filter(item => item !== name)
+    const bundles = enabled ? [...previous] : previous.filter(item => item !== name)
+    if (enabled && !previous.includes(name)) bundles.splice(this.selectionSlots.get(name) ?? bundles.length, 0, name)
     if (JSON.stringify(previous) === JSON.stringify(bundles)) return
     manifest.dsh = { ...manifest.dsh, profile: { ...manifest.dsh?.profile, bundles } }
     await saveManifest(this.profile.dir, manifest)
@@ -1450,7 +1469,17 @@ export class PluginManager extends TypertRemoteService {
     return restart === undefined ? { warnings } : { warnings, restartReason: restart }
   }
 
-  private async change(
+  private change(
+    operation: (result: ChangeResult) => Promise<ChangeResult['application'] | void>,
+    request: Pick<ChangeResult, 'stage' | 'target' | 'enabled'>,
+    reason: PluginChange['reason'],
+    identity?: Pick<PluginOperation, 'target' | 'version'>,
+  ): Promise<ChangeResult> {
+    const run = (): Promise<ChangeResult> => this.changeLocked(operation, request, reason, identity)
+    return this.transaction.getStore() === true ? run() : this.exclusive(run)
+  }
+
+  private async changeLocked(
     operation: (result: ChangeResult) => Promise<ChangeResult['application'] | void>,
     request: Pick<ChangeResult, 'stage' | 'target' | 'enabled'>,
     reason: PluginChange['reason'],
