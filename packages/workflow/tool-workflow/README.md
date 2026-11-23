@@ -44,7 +44,7 @@ While the script runs, the parent turn waits: the tool starts the run, awaits it
 | Field | Default | Meaning |
 |---|---|---|
 | `toolName` | `workflow` | The model-facing tool name to register. |
-| `maxResultChars` | `50000` | Rendered-result ceiling; longer JSON is truncated with a notice. |
+| `maxResultChars` | `50000` | Rendered-result ceiling; longer JSON is truncated with a notice and, when a `ctx.spillStore` backend is loaded, saved in full behind a spill locator named in the notice. |
 | `enableRunInBackground` | `true` | Expose `run_in_background`; disabled calls are also rejected. |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-workflow) is the exhaustive source for every accepted field.
@@ -65,7 +65,7 @@ The consumer owns the model-facing schema, the `tool:<toolName>` system-prompt g
 
 ### Run lifecycle
 
-`execute` starts the run and awaits `run.result` inside a `try/finally` that always disposes the run. `exec.signal` is bridged to `run.cancel()`, including the already-aborted-before-start case. A non-`completed` stop reason maps to an `isError` result reporting the reason, rethrowing the caller's abort reason when `exec.signal` aborted and otherwise throwing a `WorkflowError`; completion renders `{ kind, runId, agentsStarted, result }`, with the Native renderer truncating only that projection at `maxResultChars`.
+`execute` starts the run and awaits `run.result` inside a `try/finally` that always disposes the run. `exec.signal` is bridged to `run.cancel()`, including the already-aborted-before-start case. A non-`completed` stop reason maps to an `isError` result reporting the reason, rethrowing the caller's abort reason when `exec.signal` aborted and otherwise throwing a `WorkflowError`; completion renders `{ kind, runId, agentsStarted, result }`, with the Native renderer truncating only that projection at `maxResultChars`. When the rendering exceeds the cap, the complete pretty-printed JSON is first saved through `ctx.spillStore.saveText()` (owner: the calling agent's session; best effort, logged and skipped when no backend is loaded or the save fails) and the reference rides the optional output field `spill` (`locator`, `bytes`, `retrievalHint`); a background run saves at settlement and names the reference in the job result text.
 
 ### Background lifecycle
 
@@ -148,7 +148,7 @@ Prefix-stable while `toolName`, definition, and visibility are unchanged. Renami
 
 #### What the model sees
 
-The full model-written script, metadata, and args remain in the assistant tool call. A foreground success is exactly `workflow "<name>" completed (<count> agent<optional-s>).`, newline, `Return value:`, newline, and pretty-printed data-dependent JSON; a cap adds `… [truncated: <omitted> more characters]` on a new line. A background acceptance is exactly `workflow "<name>" started in the background as job <jobId>. Its return value arrives with the completion notice; check on it with job_output, stop it with job_kill.`, and the same rendered value later reaches the model through the job's completion notice and `job_output`. Failures after a caller abort render the abort reason; other failures are exactly `Error: workflow run was cancelled`, optionally suffixed ` (<error>)`, `Error: workflow run failed: <error-or-unknown error>`, or defensively `Error: workflow run ended abnormally (<reason>)`; a call without an owning agent becomes `Error: workflow tool requires a calling agent (exec.agent was undefined)` (`ToolContextUnavailableError`). Intermediate child messages are omitted.
+The full model-written script, metadata, and args remain in the assistant tool call. A foreground success is exactly `workflow "<name>" completed (<count> agent<optional-s>).`, newline, `Return value:`, newline, and pretty-printed data-dependent JSON; a cap adds `… [truncated: <omitted> more characters]` on a new line, followed by `Full result stored at: <locator>. <retrievalHint>` when the complete value was saved. A background acceptance is exactly `workflow "<name>" started in the background as job <jobId>. Its return value arrives with the completion notice; check on it with job_output, stop it with job_kill.`, and the same rendered value later reaches the model through the job's completion notice and `job_output`. Failures after a caller abort render the abort reason; other failures are exactly `Error: workflow run was cancelled`, optionally suffixed ` (<error>)`, `Error: workflow run failed: <error-or-unknown error>`, or defensively `Error: workflow run ended abnormally (<reason>)`; a call without an owning agent becomes `Error: workflow tool requires a calling agent (exec.agent was undefined)` (`ToolContextUnavailableError`). Intermediate child messages are omitted.
 
 #### Token effect
 
@@ -166,7 +166,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 These limits define what the tool does not yet support. They are current constraints, not a task backlog.
 
 - **A background run reports no intermediate value to the model** — `job_output` before settlement returns status only; the return value arrives whole at completion, and cancellation still discards partial output.
-- **`args` must be an object and Native result text is bounded** — callers wrap top-level arrays and scalars in a field; the canonical workflow result stays complete, while JSON beyond `maxResultChars` is truncated in the model-facing projection rather than stored behind a retrieval handle.
+- **`args` must be an object and Native result text is bounded** — callers wrap top-level arrays and scalars in a field; the canonical workflow result stays complete, while JSON beyond `maxResultChars` is truncated in the model-facing projection. The complete JSON is saved through `ctx.spillStore` and referenced in the notice only when a spill backend is loaded and the save succeeds (it is looked up opportunistically, not injected, and this package does not depend on `dsh-spill`); otherwise the tail is not retrievable by the model. The model reads the saved file with its ordinary file tools; there is no paginated retrieval tool.
 - **Workflow policy is fixed per tool registration** — provider selection, caps, and tool name are deployment config, not model-call arguments.
 - **Durable records are top-level and observational** — nested PTC mode dispatches are not recorded, and a recording failure intentionally degrades to an incomplete prefix rather than changing execution.
 - **No recorded-session scenario replays a background run yet** — unit and real-engine composition suites cover the path; the snapshot tree pins only the schema and prompt text.
@@ -179,6 +179,6 @@ These limits define what the tool does not yet support. They are current constra
 
 This Dev Note is working context for maintainers: open directions that are not decided. It is explicitly non-authoritative — shipped behavior, limits, and accepted rationale live in the sections above, the package code, and the linked Agent Notes.
 
-Open directions: storing truncated JSON behind a retrieval handle instead of clipping the projection; recording nested dispatches beyond the top level; a recorded-session scenario for the background path.
+Open directions: recording nested dispatches beyond the top level; a recorded-session scenario for the background path.
 
 </details>
