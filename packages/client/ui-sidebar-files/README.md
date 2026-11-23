@@ -113,7 +113,7 @@ None; directory listings and searches travel over the Remote and assemble no mod
 - **Windows hides more in the search than in the tree.** The tree treats only names starting with `.` as hidden, while the Host's search on Windows also leaves out entries with the hidden file attribute, so such an entry is drawn in the tree but not found while the eye is closed.
 - **A query with `/` highlights nothing across names.** Each name is highlighted on its own, so a query that spans a `/` marks no row.
 - **Names with glob characters cannot be excluded.** A rule may not contain `* ? [ ] { } !`, so a literal path such as Next.js `app/[slug]` cannot be named.
-- **Preferences do not follow other browser tabs.** Each tab reads browser storage once when the plugin loads and writes the preferences of every root back as one value, so a tab that writes overwrites the changes other tabs made since it loaded to any workspace's preferences, until it reloads.
+- **Preferences follow other browser tabs on write.** A change reads the persisted value again and replaces only its own workspace root, so a tab no longer erases other tabs' changes to other roots or fields, and the `storage` event refreshes an open tab. Browser storage has no atomic read-modify-write, so two tabs writing in the same instant can still lose one change.
 - **One root.** The tree is rooted at the session's working directory; there is no way to browse above it, and the Host refuses paths outside the workspace root anyway.
 
 <a id="dev-note"></a>
