@@ -121,6 +121,7 @@ export function ModelSelect(
   const [query, setQuery] = useState('')
   const [providerFilter, setProviderFilter] = useState<string | null>(null)
   const [showAllModels, setShowAllModels] = useState(false)
+  const [compactProvider, setCompactProvider] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null)
   const [selectionFocus, setSelectionFocus] = useState(false)
   const favoriteIds = useModelFavorites(ids => ids)
@@ -180,7 +181,8 @@ export function ModelSelect(
     const matching = groupIndexes
       .filter(({ group }) => providerFilter === null || group.id === providerFilter)
       .map(({ group, index }) => ({ group, models: index.search(showSearch ? query : '').filter(model =>
-        showAllModels || query.trim() !== '' || group.models.slice(0, 4).includes(model)
+        !(providerFilter !== null && compactProvider && !showAllModels && query.trim() === '')
+        || group.models.slice(0, 4).includes(model)
         || favoriteSet.has(rowId(group.id, model.id)) || (state.current?.provider === group.id && state.current.model === model.id)) }))
     const providerSections = matching.map(({ group, models }) => ({
       key: group.id,
@@ -196,7 +198,7 @@ export function ModelSelect(
     return favorites.length === 0
       ? providerSections
       : [{ key: 'favorites', label: t('favorites.title'), rows: favorites }, ...providerSections]
-  }, [groupIndexes, providerFilter, showAllModels, showSearch, query, favoriteSet, state.current, t])
+  }, [groupIndexes, providerFilter, compactProvider, showAllModels, showSearch, query, favoriteSet, state.current, t])
   const visibleRows = useMemo(() => filteredSections.flatMap(section => section.rows), [filteredSections])
   const currentVisibleIndex = visibleRows.findIndex(row =>
     row.group.id === state.current?.provider && row.model.id === state.current.model)
@@ -357,6 +359,7 @@ export function ModelSelect(
     setQuery('')
     setProviderFilter(null)
     setShowAllModels(false)
+    setCompactProvider(false)
     rootProviderRef.current = null
     setHighlightedIndex(null)
     if (currentChoice === undefined) paneFocus.current = 'drill'
@@ -726,6 +729,7 @@ export function ModelSelect(
                 rootProviderRef.current = null
                 setProviderFilter(null)
                 setShowAllModels(false)
+                setCompactProvider(false)
                 drill('model')
               }}>
                 <span className={css.cellLabel}>{t('menu.model')}</span>
@@ -747,6 +751,7 @@ export function ModelSelect(
                   rootProviderRef.current = group.id
                   setProviderFilter(group.id)
                   setShowAllModels(false)
+                  setCompactProvider(true)
                   drill('model')
                 }}>
                   <span className={css.cellLabel}>{group.provider.name}</span>
@@ -802,7 +807,7 @@ export function ModelSelect(
                       className={css.chip}
                       active={providerFilter === filter.id}
                       aria-pressed={providerFilter === filter.id}
-                      onClick={() => { setProviderFilter(filter.id); setShowAllModels(false) }}
+                      onClick={() => { setProviderFilter(filter.id); setShowAllModels(false); setCompactProvider(false) }}
                       onFocus={(event) => { event.currentTarget.scrollIntoView({ inline: 'nearest', block: 'nearest' }) }}
                     >
                       {filter.name}
@@ -907,9 +912,7 @@ export function ModelSelect(
                     })}
                   </MenuGroup>
                 ))}
-                {query.trim() === '' && groups.some(group => (providerFilter === null || group.id === providerFilter)
-                  && group.models.slice(4).some(model => !favoriteSet.has(rowId(group.id, model.id))
-                    && !(state.current?.provider === group.id && state.current.model === model.id))) && (
+                {providerFilter !== null && compactProvider && query.trim() === '' && groups.some(group => group.id === providerFilter && group.models.length > 4) && (
                   <button ref={moreModelsRef} type="button" role="menuitem" aria-expanded={showAllModels} className={css.cell} onClick={() => { setShowAllModels(value => !value) }}>
                     <span className={css.cellLabel}>{t(showAllModels ? 'models.showFewer' : 'models.showMore')}</span>
                     <IconChevronRightOutlineRegular className={css.cellChevron} />

@@ -9,10 +9,16 @@ import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
+
+/** Suffix of the one-time pre-upgrade copy; must stay stable so an existing backup is never repeated. */
 export const BACKUP_SUFFIX = '.dsh-pre-1.9.10.bak'
 
 const SIDECARS = ['', '-wal', '-shm']
 
+/** Must run before Memorix 1.9.10 first opens the database, which can upgrade it in place.
+ * @param dataDirectory - directory that must hold memorix.db for a copy to be made; defaults to MEMORIX_DATA_DIR, then ~/.memorix/data.
+ * @returns the backup path, or undefined when no backup must be made (no database, or one already exists).
+ */
 export function backupExistingDatabase(dataDirectory = resolve(process.env['MEMORIX_DATA_DIR'] || join(homedir(), '.memorix', 'data'))): string | undefined {
   const database = join(dataDirectory, 'memorix.db')
   const backup = `${database}${BACKUP_SUFFIX}`

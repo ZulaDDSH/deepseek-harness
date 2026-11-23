@@ -109,7 +109,7 @@ interface CatalogDraft {
 interface ProviderEditorRenderProps extends Pick<
   ProviderEditorProps,
   'namespace' | 'schema' | 'operations' | 'authorization' | 'credentialsRevision' | 't' | 'readOnly'
-  | 'onCredentialChanged' | 'onClose' | 'hideSignIn'
+  | 'onCredentialChanged' | 'onClose' | 'hideSignIn' | 'focusKeyRequest'
 > {
   target: EditorTarget
   row: ProviderRow
@@ -214,6 +214,8 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
   const [deleting, setDeleting] = useState(false)
   const [deleteFailure, setDeleteFailure] = useState<string | undefined>(undefined)
   const [savedTarget, setSavedTarget] = useState<ProviderIdentity | undefined>(undefined)
+  const [keyFocusFor, setKeyFocusFor] = useState<string | undefined>(undefined)
+  const [keyFocusAsk, setKeyFocusAsk] = useState(0)
   const [dismissedSetup, setDismissedSetup] = useState<ReadonlySet<string>>(() => new Set())
 
   const announceSaved = (target: ProviderIdentity): void => {
@@ -232,9 +234,19 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
    */
   const closeAdd = (): void => {
     setEditing(undefined)
+    setKeyFocusFor(undefined)
     setAddOpen(false)
     setCatalogBusy(false)
     setCustomBusy(false)
+  }
+
+  const toggleEditor = (target: EditorTarget, open: boolean, focusKey: boolean): void => {
+    if (!open && controller.store.getSnapshot().status !== 'ready') return
+    setSavedTarget(undefined)
+    setAddOpen(false)
+    setKeyFocusFor(focusKey ? target.provider : undefined)
+    setKeyFocusAsk(ask => ask + 1)
+    setEditing(open && !focusKey ? undefined : target)
   }
 
   const closeEditor = (changed: boolean, target: ProviderIdentity): void => {
@@ -409,6 +421,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
             )
           }
           const open = !addOpen && editing?.provider === row.entry.provider
+          const rowSignIn = authorization !== undefined && target.settingsNs === 'llm-pi-ai'
           const credentialConfigured = row.credential?.configured === true
           const credentialMissing = !credentialConfigured
             && row.apiKeyEnv !== undefined
@@ -463,15 +476,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                         className={styles['secondaryButton']}
                         aria-label={providerCopy(t('editProvider'), target)}
                         disabled={!open && state.status !== 'ready'}
-                        onClick={() => {
-                          if (!open && controller.store.getSnapshot().status !== 'ready') return
-                          setSavedTarget(undefined)
-                          // One card at a time: the add card closes with whatever
-                          // it held, since closing either card would otherwise
-                          // discard the other's draft.
-                          setAddOpen(false)
-                          setEditing(open ? undefined : target)
-                        }}
+                        onClick={() => { toggleEditor(target, open, false) }}
                       >
                         {t('edit')}
                       </button>
@@ -497,7 +502,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                 </span>
               </div>
               {error}
-              {authorization !== undefined && target.settingsNs === 'llm-pi-ai' ? (
+              {rowSignIn ? (
                 <SignInCard
                   provider={target.provider}
                   displayName={target.displayName}
@@ -505,6 +510,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                   t={t}
                   refresh={credentialsRevision}
                   onSignedIn={() => { void controller.load() }}
+                  onUseApiKey={() => { toggleEditor(target, open, true) }}
                 />
               ) : null}
               {renderSlot(
@@ -523,7 +529,8 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                   credentialsRevision,
                   t,
                   readOnly: !state.writable,
-                  hideSignIn: true,
+                  hideSignIn: rowSignIn,
+                  ...keyFocusFor === target.provider ? { focusKeyRequest: keyFocusAsk } : {},
                   onCredentialChanged: () => { void controller.load() },
                   onClose: (changed) => { closeEditor(changed, target) },
                 })

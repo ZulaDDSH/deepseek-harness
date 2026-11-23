@@ -1085,6 +1085,8 @@ The runtime type declaration override resolves distinct Office rendering generat
 
 `packages/shell/tool-pwsh-persistent/src/index.ts:executeCommand`, `packages/terminal/terminal/src/types.ts:TerminalSendRequest`, and `packages/terminal/terminal-bash/src/session.ts:LocalPtySession`: A prompt from an earlier command can arrive after the next send begins. The first wrapped send asks the backend to hold readiness until the current command's emitted start marker appears on its own line. The marker clears prompt and stdin-wait evidence from before command start; a foreground inspection spanning that marker is discarded and sampled again. Backends without the optional gate retain the tool's outer line-watch fallback.
 
+`packages/shell/tool-pwsh-persistent/src/index.ts:wrapCommand` encodes command text as UTF-8 Base64 before embedding it in the persistent PowerShell input line. This preserves line endings and Unicode while preventing command text from changing the wrapper's quoting; execution still uses the existing shell and status markers.
+
 ### `packages/terminal/terminal/src/index.ts:TerminalSessionService.watchLine`
 - `description`: Watches an owned terminal for a complete output line when its backend supports it.
 - `params.owner`: Agent that owns the terminal.
@@ -1093,3 +1095,12 @@ The runtime type declaration override resolves distinct Office rendering generat
 - `returns`: A watch handle, or undefined when the backend does not support watching.
 
 packages/client/ui-workspace/package.json:dsh.client.inject includes the command UI provider required by packages/client/ui-workspace/src/client/index.ts:inject, so roster closure can activate the workspace.
+
+`packages/shell/tool-pwsh-persistent/src/index.ts:executeCommand`, `packages/terminal/terminal/src/types.ts:TerminalSendRequest`, `packages/terminal/terminal-bash/src/session.ts:LocalPtySession`, and `packages/terminal/terminal-bash/src/sanitize.ts:TerminalSanitizer.resetPromptTracking`: The first wrapped send asks a supporting backend to hold readiness until the command's emitted start marker appears on its own line. The marker clears prompt and stdin-wait evidence from before command start; a foreground inspection spanning the marker is discarded and sampled again. The tool's outer line watch remains the fallback for backends without the gate.
+
+### `packages/terminal/terminal-bash/src/sanitize.ts:TerminalSanitizer.resetPromptTracking`
+- `description`: Discards a prompt-tail candidate observed before the active send's readiness boundary.
+
+## packages/client/ui-settings-models/src/client/ModelsSection.tsx:Loaded
+
+`packages/client/ui-settings-models/src/client/ModelsSection.tsx:Loaded` renders one sign-in card in each `llm-pi-ai` row when the page has authorization operations, and hides the editor's own card (`ProviderEditor.tsx:ProviderEditor` prop `hideSignIn`) for exactly those rows through the shared `rowSignIn` value. A row of another namespace has no row card, so its editor keeps its own. `SignInCard.tsx:SignInCard` offers "Use an API key instead" only when `onUseApiKey` is passed; the row card passes `toggleEditor(target, open, true)`, which opens that row's editor (clearing the saved notice and closing the add card as the Edit button does) and records `keyFocusFor` and `keyFocusAsk`. The editor receives `focusKeyRequest` only for the asking row, and `ProviderEditor.tsx:ProviderEditor` focuses its key field in an effect keyed on that value, so the request works both when the editor mounts and when it is already open. `keyFocusAsk` increments on every toggle so a second ask repeats the focus; `keyFocusFor` is cleared by an Edit toggle and by `closeAdd`, so a later open without the card never focuses the field. `toggleEditor` closes the add card first because closing either card would discard the other's draft.

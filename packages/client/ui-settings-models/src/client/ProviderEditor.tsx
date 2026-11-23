@@ -85,6 +85,7 @@ export interface ProviderEditorProps {
    */
   authorization?: AuthorizationOperations
   hideSignIn?: boolean
+  focusKeyRequest?: number
   /**
    * Bumped when a credential record was written elsewhere — another tab's
    * sign-in — so a mounted sign-in card re-reads the state it shows.
@@ -235,6 +236,10 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   const [listBusy, setListBusy] = useState(false)
   const { onBusyChange } = props
   useEffect(() => { onBusyChange?.(busy || listBusy) }, [busy, listBusy, onBusyChange])
+  const { focusKeyRequest } = props
+  useEffect(() => {
+    if (focusKeyRequest !== undefined) keyFieldRef.current?.querySelector('input')?.focus()
+  }, [focusKeyRequest])
   const [failure, setFailure] = useState<string | undefined>(undefined)
   const [customizedOpen, setCustomizedOpen] = useState(false)
   // A settings success advances both retry baselines immediately. Keeping the
