@@ -1180,12 +1180,13 @@ export class SubagentManager {
           const message = createUserMessage({ content, source: options.source })
           this.sendWaking(root, message, options.delivery)
           options.onAccepted?.()
-          return { messageId: message.id }
+          return { messageId: message.id, agent: root }
         }
         const activation = this.resident.get(childId)
         if (activation === undefined) {
           const restored = await this.restoreTarget(root, childId, options.signal)
-          return { messageId: await this.submitMaterialized(restored, content, options, root) }
+          const messageId = await this.submitMaterialized(restored, content, options, root)
+          return { messageId, agent: requireLocalActivation(restored).handle.agent }
         }
         if (activation.root !== root) throw new SubagentError('target belongs to another subagent tree', 'UNAUTHORIZED')
         requireLocalActivation(activation)
@@ -1194,10 +1195,23 @@ export class SubagentManager {
         }
         if (activation.closing !== undefined) return { closing: activation.closing }
         const messageId = this.submitAdmitted(activation, content, options, root)
-        return { messageId }
+        return { messageId, agent: requireLocalActivation(activation).handle.agent }
       })
-      if ('messageId' in result) return result.messageId
+      if ('messageId' in result) {
+        await this.flushAccepted(result.agent, childId)
+        return result.messageId
+      }
       await Promise.allSettled([result.closing])
+    }
+  }
+
+  private async flushAccepted(agent: Agent, childId: SessionId): Promise<void> {
+    try {
+      await agent.ctx.sessions.flush(agent.session)
+    } catch (error: unknown) {
+      this.ctx.logger.warn(
+        `subagent "${childId}" accepted a message whose durable flush failed; it runs now but may be lost on a crash: ${errorChain(error)}`,
+      )
     }
   }
 

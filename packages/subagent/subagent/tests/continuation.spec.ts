@@ -1563,6 +1563,38 @@ describe('continuable child ownership', () => {
 })
 
 describe('continuable durability and teardown', () => {
+  it('returns a send_message id only after the target inbox insertion is flushed', async () => {
+    const releaseFirstTurn = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([
+      { chunks: textResponse('first answer'), gate: releaseFirstTurn.promise },
+      { chunks: textResponse('second answer') },
+    ])
+    const { ctx, parent } = await setupWith(adapter)
+    parkParent(ctx, parent)
+    const flushing = Promise.withResolvers<undefined>()
+    const releaseFlush = Promise.withResolvers<undefined>()
+    let childFlushes = 0
+    ctx.on('session/flush', async (session) => {
+        if (session.header.parentSession === undefined) return
+      childFlushes++
+      if (childFlushes !== 1) return
+      flushing.resolve(undefined)
+      await releaseFlush.promise
+    })
+
+    const started = await ctx.subagents.startActivation({ ...startSpec(parent), delivery: 'parent' })
+    let accepted = false
+    const sent = ctx.subagents.sendMessage(parent, started.childId, message('durable please'), { signal: testSignal })
+      .then((id) => { accepted = true; return id })
+    await flushing.promise
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(accepted).toBe(false)
+    releaseFlush.resolve(undefined)
+    await expect(sent).resolves.toBeTruthy()
+    releaseFirstTurn.resolve(undefined)
+    await waitNoActivation(ctx, started.childId)
+  })
+
   it('rechecks direct Agent inbox work accepted during the final flush', async () => {
     const releaseFirstTurn = Promise.withResolvers<undefined>()
     const adapter = new GatedAdapter([
@@ -2838,6 +2870,27 @@ describe('continuable review regressions', () => {
     await passSettlementCheck(ctx, started.childId)
     expect(ctx.agents.get(started.childId) !== undefined).toBe(true)
     expect(child.inbox.remove(parked.id)).toBe(true)
+    await waitNoActivation(ctx, started.childId)
+  })
+
+  it('runs a send_message accepted between interrupt and idle once the child converges', async () => {
+    const release = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([
+      { chunks: textResponse('working'), gate: release.promise },
+      { chunks: textResponse('woken answer') },
+    ])
+    const { ctx, parent } = await setupWith(adapter)
+    parkParent(ctx, parent)
+    const started = await ctx.subagents.startActivation({ ...startSpec(parent), delivery: 'parent' })
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+    const child = ctx.agents.get(started.childId)!
+    ctx.subagents.interrupt(started.childId, { kind: 'user' })
+    await ctx.subagents.sendMessage(parent, started.childId, message('after interrupt'), { signal: testSignal })
+    release.resolve(undefined)
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(2) })
+    await child.whenIdle()
+    expect(child.inbox.hasPending).toBe(false)
+    expect(hasUserText(child.session.snapshotEvents(), 'after interrupt')).toBe(true)
     await waitNoActivation(ctx, started.childId)
   })
 
