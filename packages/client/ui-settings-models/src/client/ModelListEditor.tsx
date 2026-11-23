@@ -28,11 +28,11 @@ import type { ModelsOperations } from './operations.ts'
 import type { DeepSeekModelDraft } from './DeepSeekModelsEditor.tsx'
 import type { en } from './locales.ts'
 import { ModelRow } from './ModelRow.tsx'
-
-const DISCOVERY_TIMEOUT_MS = 60_000
 import { useModelRows } from './useModelRows.ts'
 import type { CapacityField } from './useModelRows.ts'
 import styles from './ModelsSection.module.css'
+
+const DISCOVERY_TIMEOUT_MS = 60_000
 
 /**
  * One configured model row. Fields this card does not edit must survive an

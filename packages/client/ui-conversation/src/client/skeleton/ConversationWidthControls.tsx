@@ -19,7 +19,7 @@ let sessionWidth: number | null = null
 function readWidthPreference(): number | null {
   if (sessionWidth !== null) return sessionWidth
   let raw: string | null = null
-  try { raw = browserStorage()?.getItem(WIDTH_PREF_KEY) ?? null } catch { /* Unreadable storage reads as no preference. */ }
+  try { raw = browserStorage()?.getItem(WIDTH_PREF_KEY) ?? null } catch { raw = null }
   const value = Number(raw)
   return raw !== null && Number.isFinite(value) && value > 0 ? value : null
 }
@@ -167,9 +167,11 @@ export function ConversationWidthControls({ container, phase }: ConversationWidt
   const onCommit = useCallback((width: number): void => {
     if (container === null) return
     const resolved = resolveContentWidth(container.offsetWidth, width)
-    sessionWidth = resolved
     const storage = browserStorage()
-    try { if (storage !== undefined) { storage.setItem(WIDTH_PREF_KEY, `${resolved}`); sessionWidth = null } } catch { /* The width stays in memory when storage rejects the write. */ }
+    try {
+      if (storage === undefined) sessionWidth = resolved
+      else { storage.setItem(WIDTH_PREF_KEY, `${resolved}`); sessionWidth = null }
+    } catch { sessionWidth = resolved }
   }, [container])
   const onEnd = useCallback((): void => {
     if (container !== null) publishWidths(container)

@@ -120,7 +120,7 @@ export function localUsagePromptStore(storage: Storage | undefined = browserStor
     try { return storage?.getItem(key) ?? null } catch { return null }
   }
   const write = (action: (target: Storage) => void): void => {
-    try { if (storage !== undefined) action(storage) } catch { /* Persistence is best effort; prompt state stays in memory. */ }
+    try { if (storage !== undefined) action(storage) } catch { return }
   }
   return {
     dismissed() {

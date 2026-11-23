@@ -1044,6 +1044,11 @@ describe('ConversationRoot resident composer', () => {
       fireEvent.pointerMove(handle, { pointerId: 1, clientX: 810, clientY: 300 })
       expect(() => { fireEvent.pointerUp(handle, { pointerId: 1, clientX: 810, clientY: 300 }) }).not.toThrow()
       expect(root.style.getPropertyValue('--dsh-chat-user-width')).toBe('990px')
+      if (storage !== undefined) Object.defineProperty(globalThis, 'localStorage', storage)
+      fireEvent.pointerDown(handle, { pointerId: 1, clientX: 800, clientY: 300 })
+      fireEvent.pointerMove(handle, { pointerId: 1, clientX: 805, clientY: 300 })
+      fireEvent.pointerUp(handle, { pointerId: 1, clientX: 805, clientY: 300 })
+      localStorage.removeItem('dsh.conversation.contentWidth')
     } finally {
       if (storage === undefined) Reflect.deleteProperty(globalThis, 'localStorage')
       else Object.defineProperty(globalThis, 'localStorage', storage)

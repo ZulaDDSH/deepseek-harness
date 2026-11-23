@@ -19,7 +19,6 @@ export interface ProcessShutdown {
  * @param forceExit - Function that exits the process immediately, replaceable by tests.
  * @param complete - Function that records the natural completion code, replaceable by tests.
  * @param timeoutMs - Grace before forced exit, replaceable by tests.
- * @param report - Writes the incomplete-cleanup diagnostic, replaceable by tests.
  * @returns A controller whose normal calls coalesce and whose repeated signal call escalates.
  */
 export function createProcessShutdown(
