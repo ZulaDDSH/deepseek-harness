@@ -131,6 +131,18 @@ export interface ConnectionAuth {
 }
 
 const REFRESH_MIN_INTERVAL_MS = 250
+const MAX_RESOURCE_READ_BYTES = 8 * 1024 * 1024
+
+// Constraint: must total text bytes and blob length of one read and reject before the result is forwarded.
+function boundedResourceRead(result: { contents: readonly { uri: string; text?: string; blob?: string }[] }, uri: string): void {
+  let total = 0
+  for (const item of result.contents) {
+    total += (item.text === undefined ? 0 : Buffer.byteLength(item.text)) + (item.blob === undefined ? 0 : item.blob.length)
+  }
+  if (total > MAX_RESOURCE_READ_BYTES) {
+    throw new McpLocalError(`MCP resource ${uri} is ${total} bytes, over the ${MAX_RESOURCE_READ_BYTES} byte limit for one read`, 'MCP_RESOURCE_TOO_LARGE')
+  }
+}
 
 function pause(ms: number, signal: AbortSignal): Promise<void> {
   if (ms <= 0 || signal.aborted) return Promise.resolve()
@@ -502,7 +514,11 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
                     request.cursor === undefined ? undefined : { cursor: request.cursor }, options,
                   ) as JsonValue
                   : { resourceTemplates: [] }
-              case 'resources/read': return await generation.readResource({ uri: request.uri }, options) as JsonValue
+              case 'resources/read': {
+                const result = await generation.readResource({ uri: request.uri }, options)
+                boundedResourceRead(result, request.uri)
+                return result as JsonValue
+              }
               /* v8 ignore next -- exhaustive over the closed resource request union */
               default: return assertNever(request)
             }
