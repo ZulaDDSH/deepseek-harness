@@ -46,7 +46,7 @@ interface SetupEnv {
  * Mount the ACP backend pointed at the mock server, scripted by `mockEnv`.
  * `permission` selects the backend's auto-answer policy.
  */
-async function setup(mockEnv: SetupEnv = {}, permission: 'allow' | 'reject' = 'reject') {
+async function setup(mockEnv: SetupEnv = {}, permission: 'allow' | 'reject' = 'reject', allowRestrictedParent = false) {
   const ctx = new Context()
   await ctx.plugin(SessionProjectionRegistry)
   await mountWorkingDirectoryFixture(ctx)
@@ -58,6 +58,7 @@ async function setup(mockEnv: SetupEnv = {}, permission: 'allow' | 'reject' = 'r
     args: [mockServer],
     permission,
     env: mockEnv,
+    allowRestrictedParent,
   })
   return ctx
 }
@@ -1584,5 +1585,33 @@ describe('dsh-subagent-acp', () => {
     expect(unwrapped).toBe(acp)
     expect(unwrapped.name).toBe('subagent-acp')
     expect(typeof unwrapped.apply).toBe('function')
+  })
+})
+
+describe('parent sandbox restriction', () => {
+  function sandboxed(ctx: Context, mode: string) {
+    ctx.provide('sandboxPolicy', { resolve: () => ({ mode, workspaceRoot: process.cwd() }) } as never)
+  }
+
+  it.each(['read-only', 'workspace-write'])('refuses delegation from a %s parent session before spawning', async (mode) => {
+    const ctx = await setup({})
+    sandboxed(ctx, mode)
+    await expect(startExternalActivation(ctx, 'acp', request('p'))).rejects.toMatchObject({ code: 'PARENT_SANDBOX_MISMATCH' })
+  })
+
+  it('starts from a danger-full-access parent session', async () => {
+    const ctx = await setup({})
+    sandboxed(ctx, 'danger-full-access')
+    const run = await startExternalActivation(ctx, 'acp', request('p'))
+    await run.result
+    await run.dispose()
+  })
+
+  it('starts from a restricted parent only when the operator attests external containment', async () => {
+    const ctx = await setup({}, 'reject', true)
+    sandboxed(ctx, 'workspace-write')
+    const run = await startExternalActivation(ctx, 'acp', request('p'))
+    await run.result
+    await run.dispose()
   })
 })

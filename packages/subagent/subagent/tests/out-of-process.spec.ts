@@ -4,13 +4,14 @@
  * under their never-reject and idempotence contracts.
  */
 
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import {
+  assertExternalCwdWithinParentWorkspace,
   assertPositiveFinite,
   assertUsableCwd,
   boundedProgress,
@@ -282,5 +283,66 @@ describe('runTimeLimit', () => {
     vi.advanceTimersByTime(5000)
     expect(onTimeout).not.toHaveBeenCalled()
     expect(limit.timedOut()).toBe(false)
+  })
+})
+
+describe('assertExternalCwdWithinParentWorkspace', () => {
+  function sandboxed(mode: string, workspaceRoot: string, additionalWritableRoots?: string[]) {
+    const ctx = new Context()
+    ctx.provide('sandboxPolicy', { resolve: () => ({ mode, workspaceRoot, additionalWritableRoots }) } as never)
+    return ctx
+  }
+
+  function layout() {
+    const base = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-ext-cwd-')))
+    const workspace = join(base, 'workspace')
+    const outside = join(base, 'outside')
+    const extra = join(base, 'extra')
+    mkdirSync(join(workspace, 'inner'), { recursive: true })
+    mkdirSync(outside)
+    mkdirSync(extra)
+    afterEachCleanup.push(() => rmSync(base, { recursive: true, force: true }))
+    return { base, workspace, outside, extra }
+  }
+
+  const afterEachCleanup: Array<() => void> = []
+  afterEach(() => {
+    for (const cleanup of afterEachCleanup.splice(0)) cleanup()
+  })
+
+  it('allows the workspace, its subdirectories, and extra writable roots', async () => {
+    const { workspace, extra } = layout()
+    const ctx = sandboxed('workspace-write', workspace, [extra])
+    await expect(assertExternalCwdWithinParentWorkspace(ctx, {} as never, workspace)).resolves.toBeUndefined()
+    await expect(assertExternalCwdWithinParentWorkspace(ctx, {} as never, join(workspace, 'inner'))).resolves.toBeUndefined()
+    await expect(assertExternalCwdWithinParentWorkspace(ctx, {} as never, extra)).resolves.toBeUndefined()
+  })
+
+  it.each(['workspace-write', 'read-only'])('rejects an outside absolute path and .. traversal under %s', async (mode) => {
+    const { workspace, outside } = layout()
+    const ctx = sandboxed(mode, workspace)
+    await expect(assertExternalCwdWithinParentWorkspace(ctx, {} as never, outside)).rejects.toMatchObject({ code: 'INVALID_CWD' })
+    await expect(assertExternalCwdWithinParentWorkspace(ctx, {} as never, resolve(workspace, '..', 'outside'))).rejects.toMatchObject({ code: 'INVALID_CWD' })
+  })
+
+  it('rejects a sibling whose name starts with the workspace name and a symlink escape', async () => {
+    const { base, workspace, outside } = layout()
+    const sibling = join(base, 'workspace-evil')
+    mkdirSync(sibling)
+    const ctx = sandboxed('workspace-write', workspace)
+    await expect(assertExternalCwdWithinParentWorkspace(ctx, {} as never, sibling)).rejects.toMatchObject({ code: 'INVALID_CWD' })
+    const link = join(workspace, 'link')
+    try {
+      symlinkSync(outside, link, 'junction')
+    } catch {
+      return
+    }
+    await expect(assertExternalCwdWithinParentWorkspace(ctx, {} as never, link)).rejects.toMatchObject({ code: 'INVALID_CWD' })
+  })
+
+  it('does not apply to danger-full-access parents or compositions without a sandbox policy', async () => {
+    const { workspace, outside } = layout()
+    await expect(assertExternalCwdWithinParentWorkspace(sandboxed('danger-full-access', workspace), {} as never, outside)).resolves.toBeUndefined()
+    await expect(assertExternalCwdWithinParentWorkspace(new Context(), {} as never, outside)).resolves.toBeUndefined()
   })
 })

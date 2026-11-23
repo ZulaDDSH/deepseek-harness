@@ -36,6 +36,7 @@ import type { LifecycleEmitter } from './lifecycle.ts'
 import { ROOT_AGENT_NAME, SiblingNameReservations, agentAddress, joinAgentPath, parentAgentPath } from './names.ts'
 import type { SiblingNameReservation } from './names.ts'
 import type { SubagentCatalogEntry, SubagentIdentityProjection } from './projection-types.ts'
+import { assertExternalCwdWithinParentWorkspace } from './out-of-process.ts'
 import type { SubagentRunId } from './types.ts'
 import type {
   ContinuableCreateRequest, ContinuableCreateSpec, SubagentInterruptAuthority,
@@ -460,6 +461,7 @@ export class SubagentManager {
       let activation: Activation | undefined
       try {
         const cwd = await this.resolveDirectory(spec, signal)
+        await assertExternalCwdWithinParentWorkspace(this.ctx, parent.session, cwd)
         activation = await this.materialize({
           kind: 'external',
           provider,
