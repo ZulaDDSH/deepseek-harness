@@ -2,7 +2,8 @@
  * Search index contract: fuzzy and substring keys, every query term required,
  * multilingual values, folding, stable ranking, and updates.
  */
-import { describe, expect, it } from 'vitest'
+import fuzzysort from 'fuzzysort'
+import { describe, expect, it, vi } from 'vitest'
 import { localizedValues, TextSearchIndex, type SearchKeys } from '../src/index.ts'
 
 interface Row { readonly id: string; readonly title?: string; readonly description?: string }
@@ -199,5 +200,29 @@ describe('TextSearchIndex.update', () => {
     expect(calls).toBe(rows.length)
     index.update(rows, counted)
     expect(calls).toBe(rows.length * 2)
+  })
+})
+
+describe('TextSearchIndex bounded fuzzy work', () => {
+  it('prepares a bounded number of short targets for a long repeated unspaced label', () => {
+    const label = `${'你'.repeat(5000)} a b c`
+    const prepare = vi.spyOn(fuzzysort, 'prepare')
+    try {
+      const index = new TextSearchIndex([{ label }], item => ({ fuzzy: [item.label] }))
+      index.search('你ac')
+      index.search('你ac')
+      const lengths = prepare.mock.calls.map(([target]) => target.length)
+      expect(lengths.length).toBeGreaterThan(0)
+      expect(lengths.length).toBeLessThanOrEqual(32)
+      expect(Math.max(...lengths)).toBeLessThanOrEqual(128)
+    } finally {
+      prepare.mockRestore()
+    }
+  })
+
+  it('still finds a fuzzy subsequence within the bounded window of a long label', () => {
+    const label = `${'x'.repeat(5000)} Refactor build`
+    expect(search([{ label }], 'rb', item => ({ fuzzy: [item.label] }))).toHaveLength(1)
+    expect(search([{ label: '播放器 设置' }], '播设', item => ({ fuzzy: [item.label] }))).toHaveLength(1)
   })
 })

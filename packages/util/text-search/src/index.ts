@@ -33,6 +33,9 @@ export interface SearchKeys {
   readonly substring?: readonly (string | undefined)[]
 }
 
+const MAX_FUZZY_STARTS = 32
+const MAX_FUZZY_TAIL = 128
+
 /** Tier bases; a fuzzy subsequence hit adds its fuzzysort score in [0, 1) to its base. */
 const FUZZY_PREFIX = 4
 const FUZZY_SUBSTRING = 3
@@ -193,12 +196,14 @@ function fuzzyNameScore(term: Term, name: PreparedName): number | undefined {
   }
   const first = codePointAt(term.stripped, 0).toLowerCase()
   let best: number | undefined
+  let tried = 0
   for (const start of name.starts) {
     if (codePointAt(name.stripped, start).toLowerCase() !== first) continue
+    if (++tried > MAX_FUZZY_STARTS) break
     let tail = name.tails.get(start)
     if (tail === undefined) {
       // An uncached target: fuzzysort's own target cache would grow with every distinct name for the process lifetime.
-      tail = fuzzysort.prepare(name.stripped.slice(start))
+      tail = fuzzysort.prepare(name.stripped.slice(start, start + MAX_FUZZY_TAIL))
       name.tails.set(start, tail)
     }
     const result = fuzzysort.single(term.stripped, tail)
