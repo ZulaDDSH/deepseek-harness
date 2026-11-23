@@ -7,10 +7,12 @@ import { deepFreeze } from '@deepseek-ai/dsh-util-values'
  * Project selected image occurrences to immutable offloaded blocks.
  * @param message - message projected before this decision.
  * @param indexes - nonempty, strictly increasing depth-first image indexes.
- * @returns an immutable message with the same identity and selected images marked.
+ * @param event - `image/offload` marks unmarked images; `image/restore` unmarks marked ones.
+ * @returns an immutable message with the same identity and selected images changed.
  * @throws when a selected occurrence is missing or already offloaded.
  */
-export function offloadMessageImages(message: Message, indexes: readonly number[]): Message {
+export function setMessageImagesOffloaded(message: Message, indexes: readonly number[], event: 'image/offload' | 'image/restore'): Message {
+  const offload = event === 'image/offload'
   let imageIndex = 0
   let selected = 0
   const visit = (blocks: readonly ContentBlock[]): ContentBlock[] => {
@@ -19,8 +21,14 @@ export function offloadMessageImages(message: Message, indexes: readonly number[
       let projected = block
       if (block.type === 'image') {
         if (imageIndex === indexes[selected]) {
-          if (block.offloaded === true) throw new Error(`image/offload: image index ${imageIndex} is already offloaded`)
-          projected = { ...block, offloaded: true }
+          if ((block.offloaded === true) === offload) {
+            throw new Error(`${event}: image index ${imageIndex} is ${offload ? 'already offloaded' : 'not offloaded'}`)
+          }
+          if (offload) projected = { ...block, offloaded: true }
+          else {
+            const { offloaded: _offloaded, ...restored } = block
+            projected = restored
+          }
           selected += 1
         }
         imageIndex += 1
@@ -31,6 +39,6 @@ export function offloadMessageImages(message: Message, indexes: readonly number[
     return next ?? blocks as ContentBlock[]
   }
   const content = visit(message.content)
-  if (selected !== indexes.length) throw new Error(`image/offload: image index ${indexes[selected]} does not exist`)
+  if (selected !== indexes.length) throw new Error(`${event}: image index ${indexes[selected]} does not exist`)
   return deepFreeze({ ...message, content })
 }

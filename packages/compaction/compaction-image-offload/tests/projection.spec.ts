@@ -4,10 +4,10 @@ import { createAssistantMessage, createToolResultMessage, createUserMessage, typ
 import type { ContentBlock, ImageBlock } from '@deepseek-ai/dsh-llm'
 import { deriveEventMessage, foldSurface, Session, type SessionId, SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionEventMap } from '@deepseek-ai/dsh-session'
-import { imageOffloadProjection } from '../src/projection.ts'
+import { imageOffloadProjection, imageRestoreProjection } from '../src/projection.ts'
 
 function createSession(...args: Parameters<typeof Session.create>): Session {
-  args[4] = [imageOffloadProjection]
+  args[4] = [imageOffloadProjection, imageRestoreProjection]
   return Session.create(...args)
 }
 
@@ -137,5 +137,69 @@ describe('durable image selections', () => {
       message: createAssistantMessage({ content: [image], source: { provider: 'mock', model: 'mock' } }),
     }, { surfaceOp: 'append' })
     expect(() => session.append('image/offload', { targets: [{ seq: assistant.seq, imageIndexes: [0] }] })).toThrow(/must be user\/message/)
+  })
+})
+
+describe('durable image restore', () => {
+  it('clears only the selected marks, keeps identity, and replays through resume, restore, and fork', () => {
+    const session = createSession(brandString<SessionId>('restore'))
+    const source = input(session, [image, { type: 'text', text: 'between' }, image, image])
+    const plain = session.deriveMessages()
+    session.append('image/offload', { targets: [{ seq: source.seq, imageIndexes: [0, 1, 2] }] })
+    expect(marked(session)).toEqual([true, true, true])
+    const offloaded = session.deriveMessages()
+    session.append('image/restore', { targets: [{ seq: source.seq, imageIndexes: [0, 2] }] })
+    expect(marked(session)).toEqual([false, true, false])
+    const restored = session.deriveMessages()
+    expect(restored[0]?.id).toBe(plain[0]?.id)
+    expect(JSON.stringify(restored)).not.toContain('"offloaded":false')
+    expect(Object.isFrozen(restored[0]?.content)).toBe(true)
+    expect(offloaded[0]?.content[2]).toEqual({ ...image, offloaded: true })
+    expect(restored[0]?.content[1]).toBe(plain[0]?.content[1])
+    expect(restored[0]?.content[2]).toBe(offloaded[0]?.content[2])
+    expect(restored[0]?.content[3]).not.toHaveProperty('offloaded')
+    expect(session.surface.contentGeneration).toBe(2)
+    const events = session.snapshotEvents()
+    const fold = foldSurface(events, [imageOffloadProjection, imageRestoreProjection])
+    expect(deriveEventMessage(source, fold.projectedMessages)).toEqual(restored[0])
+    expect(marked(createSession(brandString<SessionId>('resume'), events))).toEqual([false, true, false])
+    const rebuilt = Session.fromRestore(session.id, events, session.header, SessionLogOffset(0), 'shared-frozen', [imageOffloadProjection, imageRestoreProjection])
+    expect(marked(rebuilt)).toEqual([false, true, false])
+    session.append('image/offload', { targets: [{ seq: source.seq, imageIndexes: [0] }] })
+    expect(marked(session)).toEqual([true, true, false])
+  })
+
+  it('requires the restore interpreter to replay a restore event', () => {
+    const session = createSession(brandString<SessionId>('restore-missing'))
+    const source = input(session)
+    session.append('image/offload', { targets: [{ seq: source.seq, imageIndexes: [0] }] })
+    session.append('image/restore', { targets: [{ seq: source.seq, imageIndexes: [0] }] })
+    expect(() => foldSurface(session.snapshotEvents(), [imageOffloadProjection])).toThrow(/requires a message projection/)
+  })
+
+  it.each([
+    [{ targets: [{ seq: 0, imageIndexes: [0] }] }, /not offloaded/],
+    [{ targets: [{ seq: 0, imageIndexes: [2] }] }, /image index 2 does not exist/],
+    [{ targets: [] }, /image\/restore: data must contain/],
+    [{ targets: [{ seq: 0, imageIndexes: [] }] }, /image\/restore: each target/],
+    [{ targets: [{ seq: 1, imageIndexes: [0] }] }, /not a current surface node/],
+    [{ targets: [{ seq: 0, imageIndexes: [1, 0] }] }, /strictly increasing/],
+  ])('rejects invalid restores at append and replay without partial application: %j', (data, message) => {
+    const session = createSession(brandString<SessionId>('restore-invalid'))
+    input(session)
+    const events = session.snapshotEvents()
+    const candidate = { type: 'image/restore', seq: SessionSeq(1), time: 0, data } as SessionEvent
+    expect(() => session.append('image/restore', data as SessionEventMap['image/restore'])).toThrow(message)
+    expect(() => foldSurface([...events, candidate], [imageOffloadProjection, imageRestoreProjection])).toThrow(message)
+    expect(session.snapshotEvents()).toEqual(events)
+    expect(marked(session)).toEqual([false, false])
+  })
+
+  it('rejects restoring an occurrence twice', () => {
+    const session = createSession(brandString<SessionId>('restore-twice'))
+    const source = input(session)
+    session.append('image/offload', { targets: [{ seq: source.seq, imageIndexes: [1] }] })
+    session.append('image/restore', { targets: [{ seq: source.seq, imageIndexes: [1] }] })
+    expect(() => session.append('image/restore', { targets: [{ seq: source.seq, imageIndexes: [1] }] })).toThrow(/not offloaded/)
   })
 })

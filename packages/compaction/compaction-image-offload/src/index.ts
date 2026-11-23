@@ -13,7 +13,9 @@ import type {} from '@deepseek-ai/dsh-compaction'
 import type { RequestErrorAction } from '@deepseek-ai/dsh-agent'
 import { IMAGE_OFFLOAD_REQUIRED_CODE, LlmError } from '@deepseek-ai/dsh-llm'
 import { offloadOldestImages } from './image-offload.ts'
-import { imageOffloadProjection } from './projection.ts'
+import { imageOffloadProjection, imageRestoreProjection } from './projection.ts'
+
+export { restoreOffloadedImages } from './image-offload.ts'
 
 export const name = 'compaction-image-offload'
 export const inject = ['agents', 'sessions']
@@ -24,6 +26,7 @@ export const inject = ['agents', 'sessions']
  */
 export function apply(ctx: Context): void {
   ctx.sessions.registerMessageProjection(imageOffloadProjection)
+  ctx.sessions.registerMessageProjection(imageRestoreProjection)
   ctx.on('agent/request-error', ({ agent, failure, signal }, next): Promise<RequestErrorAction> => {
     if (failure.code !== IMAGE_OFFLOAD_REQUIRED_CODE || failure.offloadImages === undefined || signal.aborted) return next()
     // A durable surface repair, not a provider retry: it spends no retry budget and logs no retry event.

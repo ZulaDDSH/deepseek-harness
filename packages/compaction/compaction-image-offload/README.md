@@ -7,7 +7,7 @@ kind: "package-reference"
 
 ## Summary
 
-Image-heavy conversations continue when older images exceed a model route's budget. The plugin permanently replaces those images with text naming each attachment and its available read-only path, then retries without spending the provider retry budget. Later requests retain that choice across route changes, resume, and replay. Token accounting follows the logged selections, and provider cache reuse ends at the first changed message.
+Image-heavy conversations continue when older images exceed a model route's budget. The plugin replaces those images with text naming each attachment and its available read-only path, then retries without spending the provider retry budget. Later requests retain that choice across route changes, resume, and replay until `restoreOffloadedImages` records an `image/restore`. Token accounting follows the logged selections, and provider cache reuse ends at the first changed message.
 
 ## Table of Contents
 
@@ -33,7 +33,7 @@ Mount this plugin in every composition that runs the agent loop with an image-ca
 
 ### What you can observe
 
-Each decision appends one `image/offload` event identifying the selected occurrences by current message-event sequence and depth-first image index. The message events and surface node identities remain unchanged. An agent retry follows a fresh `request/header` identifying a new message series. Summary retries remain inside the same compaction bracket.
+Each decision appends one `image/offload` (or, on restore, `image/restore`) event identifying the selected occurrences by current message-event sequence and depth-first image index. The message events and surface node identities remain unchanged. An agent retry follows a fresh `request/header` identifying a new message series. Summary retries remain inside the same compaction bracket.
 
 ### Failures and recovery
 
@@ -89,9 +89,9 @@ A selection turns earlier images into placeholder text, so provider cache reuse 
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- **Offloaded images never return automatically** — a larger budget, a larger route, or compaction lowering the total leaves the marks in place; recovery is the read-only path in the placeholder.
+- **Offloaded images return only on request** — a larger budget, a larger route, or compaction lowering the total leaves the marks in place until a caller invokes the exported `restoreOffloadedImages(session, seqs?)`, which appends one `image/restore` for every offloaded occurrence on the surface (or the given nodes). No command or UI calls it yet. A route that still rejects the restored images offloads them again at the cost of one failed attempt.
 - **Every offload costs one failed attempt** — nothing plans an offload before dispatch; the route's rejection is the signal, which matches the planned move to provider-reported uncacheable images.
-- **A temporary small budget offloads permanently** — a Files outage that forces the inline fallback, or a temporary switch to a small-budget route, offloads images a later route would have sent.
+- **A temporary small budget still offloads** — a Files outage that forces the inline fallback, or a temporary switch to a small-budget route, offloads images a later route would have sent; nothing detects that the cause is gone, so restoring is a deliberate call.
 
 <a id="dev-note"></a>
 ### Dev Note

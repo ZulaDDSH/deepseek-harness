@@ -415,6 +415,33 @@ describe('compaction-image-offload', () => {
     expect(agent.session.surface.contentGeneration).toBe(2)
   })
 
+  it('sends restored images again and offloads them anew when the route still rejects them', async () => {
+    const adapter = new ScriptedAdapter([offloadRequired(2), textResponse('sent'), textResponse('still'), textResponse('large'), offloadRequired(1), textResponse('small')])
+    const ctx = await harness(adapter)
+    const agent = await ctx.agentLoop.create(brandString<SessionId>('offload-restore'), { provider: 'mock', model: 'mock' })
+    const say = async (text: string): Promise<void> => {
+      agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
+      await agent.whenIdle()
+    }
+    agent.followup(createUserMessage({ content: [image('a'), image('b'), image('c')], source: { kind: 'user' } }))
+    await agent.whenIdle()
+    expect(offload.restoreOffloadedImages(agent.session, [99 as never])).toBe(false)
+    await say('still small')
+    expect(offloadedNames(adapter.requests[2]!)).toEqual(['a', 'b'])
+
+    expect(offload.restoreOffloadedImages(agent.session)).toBe(true)
+    expect(offload.restoreOffloadedImages(agent.session)).toBe(false)
+    await say('large route')
+    expect(offloadedNames(adapter.requests[3]!)).toEqual([])
+    const original = agent.session.snapshotEvents().find(event => event.type === 'user/message')!.seq
+    const [restore] = agent.session.snapshotEvents().filter(event => event.type === 'image/restore')
+    expect(restore?.data).toEqual({ targets: [{ seq: original, imageIndexes: [0, 1] }] })
+
+    await say('small route again')
+    expect(adapter.requests.slice(3).map(offloadedNames)).toEqual([[], [], ['a']])
+    expect(decisions(agent.session).map(event => event.data.targets[0]?.imageIndexes)).toEqual([[0, 1], [0]])
+  })
+
   it('removes the recovery listener when its plugin is disposed', async () => {
     const ctx = new Context()
     contexts.push(ctx)
