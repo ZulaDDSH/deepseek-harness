@@ -885,6 +885,7 @@ describe('tool execution', () => {
   it.each([
     ['text', { content: [{ type: 'text', text: 'x'.repeat(9 * 1024 * 1024) }] }],
     ['structured data', { content: [{ type: 'text', text: 'ok' }], structuredContent: { rows: Array.from({ length: 3 }, () => 'y'.repeat(3 * 1024 * 1024)) } }],
+    ['long array', { content: [{ type: 'text', text: 'ok' }], structuredContent: { rows: Array.from({ length: 500_000 }, () => 'y'.repeat(20)) } }],
     ['an error result', { isError: true, content: [{ type: 'text', text: 'z'.repeat(9 * 1024 * 1024) }] }],
   ])('rejects an oversized %s before conversion', async (_label, callResult) => {
     const client = createMockClient([{ name: 'big', inputSchema: { type: 'object' } }], callResult as MockCallResult)

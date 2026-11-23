@@ -426,7 +426,9 @@ function resultBytes(value: unknown, limit: number): number {
   while (pending.length > 0 && total <= limit) {
     const item = pending.pop()
     if (typeof item === 'string') total += Buffer.byteLength(item)
-    else if (Array.isArray(item)) pending.push(...item as unknown[])
+    else if (Array.isArray(item)) {
+      for (const child of item as unknown[]) pending.push(child)
+    }
     else if (typeof item === 'object' && item !== null) {
       for (const [key, child] of Object.entries(item)) {
         total += key.length
