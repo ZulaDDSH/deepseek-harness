@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
-import { chmod, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, readdir, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, parse, resolve } from 'node:path'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -19,6 +19,7 @@ import {
 const fsControl = vi.hoisted(() => ({
   readSignals: [] as AbortSignal[],
   syncedDirectories: [] as string[],
+  chmodded: [] as string[],
 }))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -32,6 +33,10 @@ vi.mock('node:fs/promises', async (importOriginal) => {
         if (signal !== undefined) fsControl.readSignals.push(signal)
       }
       return actual.readFile(...args)
+    },
+    async chmod(...args: Parameters<typeof actual.chmod>): ReturnType<typeof actual.chmod> {
+      fsControl.chmodded.push(String(args[0]))
+      return actual.chmod(...args)
     },
     async open(...args: Parameters<typeof actual.open>): ReturnType<typeof actual.open> {
       if (args[1] === constants.O_RDONLY) fsControl.syncedDirectories.push(String(args[0]))
@@ -80,6 +85,39 @@ afterEach(async () => {
 })
 
 describe('local attachment store', () => {
+  it('keeps the mode of an existing harness home and still restricts store-owned directories', async () => {
+    const storageRoot = await root()
+    const home = resolve(storageRoot, '..', '..')
+    fsControl.chmodded.length = 0
+
+    await saveImageFile(storageRoot, { data: PNG, mediaType: 'image/png' }, LIMITS, POLICY)
+
+    const changed = fsControl.chmodded.map(path => resolve(path))
+    expect(changed).not.toContain(home)
+    expect(changed).toContain(join(storageRoot, 'tmp'))
+  })
+
+  it('removes stale staging files once per process without touching live or foreign names', async () => {
+    const storageRoot = await root()
+    const staging = join(storageRoot, 'tmp')
+    await mkdir(staging, { recursive: true })
+    const stale = join(staging, '11111111-1111-4111-8111-111111111111')
+    const live = join(staging, '22222222-2222-4222-8222-222222222222')
+    const foreign = join(staging, 'notes.txt')
+    for (const path of [stale, live, foreign]) await writeFile(path, 'partial')
+    const old = new Date(Date.now() - 48 * 60 * 60 * 1000)
+    await utimes(stale, old, old)
+    await utimes(foreign, old, old)
+
+    await saveImageFile(storageRoot, { data: PNG, mediaType: 'image/png' }, LIMITS, POLICY)
+
+    await expect(readdir(staging)).resolves.toEqual(['22222222-2222-4222-8222-222222222222', 'notes.txt'])
+    await writeFile(stale, 'again')
+    await utimes(stale, old, old)
+    await saveImageFile(storageRoot, { data: PNG, mediaType: 'image/png' }, LIMITS, POLICY)
+    await expect(readFile(stale, 'utf8')).resolves.toBe('again')
+  })
+
   it('refuses an animated image instead of silently keeping its first frame', async () => {
     const header = Buffer.from('47494638396101000100800000000000ffffff', 'hex')
     const frame = Buffer.from('21f90401000000002c0000000001000100000202440100', 'hex')

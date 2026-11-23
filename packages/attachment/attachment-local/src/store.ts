@@ -2,7 +2,7 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 import { constants, createReadStream } from 'node:fs'
-import { chmod, link, mkdir, open, readFile, unlink } from 'node:fs/promises'
+import { chmod, link, mkdir, open, readFile, readdir, stat, unlink } from 'node:fs/promises'
 import { dirname, join, parse, resolve } from 'node:path'
 import { AttachmentError } from '@deepseek-ai/dsh-attachment'
 import type { AttachmentId } from '@deepseek-ai/dsh-attachment/types'
@@ -20,6 +20,9 @@ import type { DetectedImage } from './image.ts'
 
 const ID_PATTERN = /^sha256:([a-f0-9]{64})$/
 const durableHomes = new Set<string>()
+const sweptStaging = new Set<string>()
+const STALE_STAGING_MS = 24 * 60 * 60 * 1000
+const STAGING_NAME = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 function digest(data: Uint8Array): string {
   return createHash('sha256').update(data).digest('hex')
@@ -153,11 +156,11 @@ async function syncDirectory(path: string): Promise<void> {
  * @param path - absolute directory to create.
  * @param boundary - absolute ancestor the caller vouches is already durable.
  */
-async function ensureDurableDirectory(path: string, boundary: string): Promise<void> {
+async function ensureDurableDirectory(path: string, boundary: string, restrict = true): Promise<void> {
   const target = resolve(path)
   const stop = resolve(boundary)
   await mkdir(target, { recursive: true, mode: 0o700 })
-  await chmod(target, 0o700)
+  if (restrict) await chmod(target, 0o700)
   let level = target
   while (level !== stop) {
     const parent = dirname(level)
@@ -176,7 +179,7 @@ async function ensureDurableDirectory(path: string, boundary: string): Promise<v
 async function ensureDurableHome(path: string): Promise<string> {
   const home = resolve(path)
   if (!durableHomes.has(home)) {
-    await ensureDurableDirectory(home, parse(home).root)
+    await ensureDurableDirectory(home, parse(home).root, false)
     durableHomes.add(home)
   }
   return home
@@ -306,6 +309,18 @@ interface StagedImmutableObject extends StreamedImmutableObject {
   readonly boundary: string
 }
 
+async function sweepStagingDirectory(staging: string): Promise<void> {
+  if (sweptStaging.has(staging)) return
+  sweptStaging.add(staging)
+  const cutoff = Date.now() - STALE_STAGING_MS
+  const names = await readdir(staging).catch(() => [])
+  await Promise.all(names.filter(name => STAGING_NAME.test(name)).map(async (name) => {
+    const path = join(staging, name)
+    const info = await stat(path).catch(() => undefined)
+    if (info?.isFile() === true && info.mtimeMs < cutoff) await unlink(path).catch(() => {})
+  }))
+}
+
 async function stageImmutableObject(
   root: string,
   data: AsyncIterable<Uint8Array> | Iterable<Uint8Array>,
@@ -317,6 +332,7 @@ async function stageImmutableObject(
   // another process created can never be mistaken for durable publication.
   const boundary = await ensureDurableHome(dirname(dirname(resolve(root))))
   await ensureDurableDirectory(staging, boundary)
+  await sweepStagingDirectory(staging)
   const temporary = join(staging, randomUUID())
   let handle
   try {
