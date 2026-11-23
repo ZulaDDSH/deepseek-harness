@@ -320,7 +320,7 @@ export class ThemeRuntime {
   /** Queue one settings write, then adopt the durable section once no own write remains. */
   private write(operation: () => Promise<boolean>): void {
     this.pendingWrites += 1
-    void operation().finally(() => {
+    void operation().catch(() => false).finally(() => {
       this.pendingWrites -= 1
       this.adopt()
     })
