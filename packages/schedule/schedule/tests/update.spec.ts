@@ -102,6 +102,16 @@ it.each([false, true])('keeps the original error for an explicit past timing rep
     .toThrow(expect.objectContaining({ code: 'not_future', message: 'The scheduled time must be strictly in the future.' }))
 })
 
+it('retimes and resumes a task whose stored prompt is above the creation limit without changing that prompt', () => {
+  const legacy = 'x'.repeat(MAX_SCHEDULE_PROMPT_BYTES + 1)
+  const current = { ...createScheduleRecord(id, 'Title', 'Prompt', timings[2]!, now), prompt: legacy }
+  expect(updateScheduleRecord(current, { timing: { kind: 'every', every_seconds: 600 } }, now, false))
+    .toMatchObject({ everySeconds: 600, prompt: legacy })
+  expect(updateScheduleRecord(current, { active: true }, now + 86_400_000, true).prompt).toBe(legacy)
+  expect(() => updateScheduleRecord(current, { prompt: legacy }, now, false))
+    .toThrow(expect.objectContaining({ code: 'invalid_prompt' }))
+})
+
 it('limits a prompt to the byte budget at creation and at an edit that supplies one', () => {
   const limit = MAX_SCHEDULE_PROMPT_BYTES
   const oversized = { code: 'invalid_prompt', message: `prompt must be at most ${limit} bytes.` }

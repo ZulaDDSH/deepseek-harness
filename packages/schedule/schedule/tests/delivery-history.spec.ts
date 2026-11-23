@@ -5,8 +5,8 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import type { MessageId } from '@deepseek-ai/dsh-llm/types'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { ScheduleInputError, createAfterScheduleRecord } from '../src/domain.ts'
-import { scheduleDomain, type ScheduleTask } from '../src/storage.ts'
-import { MAX_HISTORY_PROMPT_BYTES, appendDelivery } from '../src/delivery-history.ts'
+import { promptIdOf, scheduleDomain, scheduleTaskSchema, type ScheduleTask } from '../src/storage.ts'
+import { MAX_HISTORY_PROMPT_BYTES, appendDelivery, deliveryHistoryPage } from '../src/delivery-history.ts'
 import type { ScheduleDeliveryRecord, ScheduleId } from '../src/types.ts'
 import { agentFor, boundTask, harness, seedTasks, taskTable } from './harness.ts'
 
@@ -160,9 +160,15 @@ it.each(['every', 'daily'] as const)('retains real %s receipts and immutable pro
   expect(await second.service.history({ id: record.id, limit: 100 })).toEqual({
     id: record.id, records: [secondReceipt, firstReceipt], ...metadata, earlierRecordsUnavailable: false,
   })
+  const { prompt: _firstPrompt, ...firstPlain } = firstReceipt
+  const { prompt: _secondPrompt, ...secondPlain } = secondReceipt
   expect(storedTask(second, record.id)).toMatchObject({
     deliveryHistory: {
-      records: [{ ...firstReceipt, targetSessionId: sessionId }, { ...secondReceipt, targetSessionId: sessionId }],
+      records: [
+        { ...firstPlain, targetSessionId: sessionId, promptId: promptIdOf(firstReceipt.prompt) },
+        { ...secondPlain, targetSessionId: sessionId, promptId: promptIdOf(secondReceipt.prompt) },
+      ],
+      prompts: { [promptIdOf(firstReceipt.prompt)]: 'Original prompt', [promptIdOf(secondReceipt.prompt)]: 'Next prompt' },
       earlierRecordsUnavailable: false,
     },
   })
@@ -257,7 +263,8 @@ it('retains the configured window and cap when an acknowledgment is appended', (
   expect(appended.deliveryHistory.records.map(record => record.messageId)).toEqual(['message-1', 'message-2', 'message-3'])
   expect(appended.deliveryHistory.earlierRecordsUnavailable).toBe(false)
   expect(appended.deliveryHistory.earlierRecordsPruned).toBe(false)
-  expect(appended.lastDelivery).toEqual(receipt(3))
+  const { prompt: _sent, ...plain } = receipt(3)
+  expect(appended.lastDelivery).toEqual(plain)
 })
 
 it('does not infer pruning from earlier unavailability when appending a receipt', () => {
@@ -312,13 +319,54 @@ it('drops records outside the day window and keeps the flag once it is set', () 
     .deliveryHistory.earlierRecordsPruned).toBe(true)
 })
 
-it('drops the oldest receipts once retained prompt text passes the byte budget, keeping the newest', () => {
-  const big = (index: number): ScheduleDeliveryRecord => ({ ...receipt(index), prompt: 'x'.repeat(MAX_HISTORY_PROMPT_BYTES / 4) })
+function distinct(index: number): string {
+  return `${index}`.padEnd(MAX_HISTORY_PROMPT_BYTES / 4, 'x')
+}
+function sending(task: ScheduleTask, prompt: string): ScheduleTask {
+  return { ...task, record: { ...task.record, prompt } }
+}
+
+it('drops the oldest receipts once distinct retained prompt text passes the byte budget, keeping the newest', () => {
+  const big = (index: number): ScheduleDeliveryRecord => ({ ...receipt(index), prompt: distinct(index) })
   const task = stored([big(1), big(2), big(3), big(4)])
-  const appended = appendDelivery(task, big(5), { days: 30, records: 200 })
+  const appended = appendDelivery(sending(task, distinct(5)), receipt(5), { days: 30, records: 200 })
   expect(appended.deliveryHistory.records.map(record => record.messageId)).toEqual(['message-2', 'message-3', 'message-4', 'message-5'])
   expect(appended.deliveryHistory.earlierRecordsUnavailable).toBe(true)
   expect(appended.deliveryHistory.earlierRecordsPruned).toBe(true)
-  const lone = appendDelivery(stored([]), { ...big(6), prompt: 'y'.repeat(MAX_HISTORY_PROMPT_BYTES * 2) }, { days: 30, records: 200 })
+  expect(Object.keys(appended.deliveryHistory.prompts ?? {})).toHaveLength(4)
+  const lone = appendDelivery(sending(stored([]), 'y'.repeat(MAX_HISTORY_PROMPT_BYTES * 2)), receipt(6), { days: 30, records: 200 })
   expect(lone.deliveryHistory.records.map(record => record.messageId)).toEqual(['message-6'])
+})
+
+it('keeps one snapshot for a prompt that repeats across receipts, so the byte budget counts it once', () => {
+  const repeated = 'x'.repeat(MAX_HISTORY_PROMPT_BYTES / 4)
+  let task: ScheduleTask = sending(stored([]), repeated)
+  for (let index = 1; index <= 8; index += 1) {
+    task = { ...task, ...appendDelivery(task, receipt(index), { days: 30, records: 200 }) }
+  }
+  expect(task.deliveryHistory.records.map(record => record.messageId)).toHaveLength(8)
+  expect(task.deliveryHistory.earlierRecordsPruned).toBe(false)
+  expect(task.deliveryHistory.prompts).toEqual({ [promptIdOf(repeated)]: repeated })
+  expect(new Set(task.deliveryHistory.records.map(record => record.promptId))).toEqual(new Set([promptIdOf(repeated)]))
+})
+
+it('reads a receipt with an inline prompt as a snapshot and pages it with the same prompt field', () => {
+  const { prompt: sent, ...plain } = receipt(1)
+  const task = stored([receipt(1)])
+  expect(task.deliveryHistory.records).toEqual([{ ...plain, promptId: promptIdOf(sent) }])
+  expect(task.deliveryHistory.prompts).toEqual({ [promptIdOf(sent)]: sent })
+  expect(deliveryHistoryPage(task, { id, limit: 10 }, { days: 30, records: 200 }))
+    .toMatchObject({ records: [{ ...plain, prompt: sent }] })
+})
+
+it('rejects a receipt that names a prompt snapshot the task does not hold', () => {
+  const { prompt: sent, ...plain } = receipt(1)
+  const raw = {
+    ...stored([]), lastDelivery: plain,
+    deliveryHistory: { records: [{ ...plain, promptId: promptIdOf(sent) }], earlierRecordsUnavailable: false, earlierRecordsPruned: false },
+  }
+  expect(scheduleTaskSchema.safeParse(raw).success).toBe(false)
+  expect(scheduleTaskSchema.safeParse({
+    ...raw, deliveryHistory: { ...raw.deliveryHistory, prompts: { [promptIdOf(sent)]: sent } },
+  }).success).toBe(true)
 })

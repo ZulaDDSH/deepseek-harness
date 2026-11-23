@@ -53,7 +53,7 @@ The service requires `agents`, `sessions`, `storageDomain`, and `sessionPersiste
 | Configuration | Default | Meaning |
 |---|---|---|
 | `deliveryHistoryDays` | `30` | Retain 1–3650 days of receipts, measured back from each appended delivery. |
-| `deliveryHistoryRecords` | `200` | Retain the newest 1–10,000 receipts per task. |
+| `deliveryHistoryRecords` | `200` | Retain the newest 1–10,000 receipts per task. Each distinct retained prompt is stored once per task; past 1 MiB of distinct prompt text the oldest receipts are dropped. |
 | `newSessionIntervalSeconds` | `60` | Delivery floor for `new` targets, from 60 through 604,800 seconds. |
 
 The [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-schedule) defines all fields. Remote `deliveryLimits()` exposes the effective new-Session interval for UI hints.
@@ -279,7 +279,7 @@ Notices append at the next step boundary and preserve the existing request prefi
 - Deletion removes saved task history and stops future delivery, retaining Sessions and messages. Session-log reminders require explicit recreation; missing historical prompts and timestamps cannot be recovered.
 - Management is Host-wide, without task-level authorization. The model tool layer refuses delegated callers; Schedule refuses delegated Session targets. Reads and deletion remain available for unavailable targets.
 - Cron uses five-field Vixie syntax; RRULE has a bounded RFC 5545 profile. Both use current IANA data. Restart preserves committed occurrences; exhaustion ends a task after its final delivery.
-- JSON serializes the whole unit including retained histories, and open loads all tasks. Pagination bounds response counts, not storage, memory, prompt bytes, or write cost.
+- JSON serializes the whole unit including retained histories, and open loads all tasks. Pagination bounds response counts, not storage, memory, or write cost. A task's retained history holds at most 1 MiB of distinct prompt text; a prompt over 64 KiB (65536 UTF-8 bytes) cannot be created or newly set.
 - The delivery floor is 60 seconds, or the configured interval for `new` targets, measured from the previous occurrence. Late deliveries collapse missed occurrences, including those that fall due while the task's run is active, and run-now is refused then. The limit is one active run per task and is not configurable; there is no Host-wide cap on task runs, so many tasks can still run at once; only delivery activations are capped, at 16 in flight. After a restart the slot is held again only while the last launch is still queued, because Agent run state is not persisted, so a run already underway at restart is not recognised.
 - Recovery checks the latest receipt Session before delivery. Change notices are best-effort and reach only loaded involved Agents.
 

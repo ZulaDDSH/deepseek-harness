@@ -37,6 +37,10 @@ function validateTiming(value: ScheduleTiming): ScheduleTiming {
  */
 export function createScheduleRecord(id: ScheduleId, title: string, prompt: string, value: ScheduleTiming, now: number): ScheduleRecord {
   assertPromptSize(prompt)
+  return buildScheduleRecord(id, title, prompt, value, now)
+}
+
+function buildScheduleRecord(id: ScheduleId, title: string, prompt: string, value: ScheduleTiming, now: number): ScheduleRecord {
   const timing = validateTiming(value)
   switch (timing.kind) {
     case 'after': return createAfterScheduleRecord(id, prompt, timing.after_seconds, now, title)
@@ -99,7 +103,7 @@ export function updateScheduleRecord(current: ScheduleRecord, patch: SchedulePat
         ...(changed ? { rrule: timing.rrule } : {}),
       }, now, changed || resume)
     }
-    if (changed || resume) return createScheduleRecord(current.id, title, prompt, timing, now)
+    if (changed || resume) return buildScheduleRecord(current.id, title, prompt, timing, now)
   } catch (error: unknown) {
     if (resume && !changed && error instanceof ScheduleInputError && error.code === 'not_future') {
       throw new ScheduleInputError('not_future', 'This task has no future occurrence. Set a future schedule before resuming it.')
