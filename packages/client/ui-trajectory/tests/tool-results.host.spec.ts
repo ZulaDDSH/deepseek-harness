@@ -283,6 +283,24 @@ it('evicts the oldest values of a Session once its retained bytes pass the Sessi
   expect((await watch(third.seq).next()).value).toEqual({ available: true, value })
 })
 
+it('counts a repeated pending call id once against the Session budget', async () => {
+  const value = { blob: 'x'.repeat(100) }
+  const { ctx, agent, watch } = await setup(value, { maxBytesPerSession: 250 })
+  for (const id of ['pending-1', 'pending-1', 'pending-2']) {
+    await ctx.tools.execute({
+      agent, signal: new AbortController().signal,
+      calls: [{ type: 'tool-call', id: brandString<ToolCallId>(id), name: 'value', arguments: '{}' }],
+    })
+  }
+  for (const id of ['pending-1', 'pending-2']) {
+    const event = agent.session.append('tool/ptc-dispatch', {
+      rootCallId: brandString<ToolCallId>('pending'), parentCallId: brandString<ToolCallId>('pending'), subCallId: brandString<ToolCallId>(id),
+      name: 'value', arguments: {}, content: [{ type: 'text', text: 'rendered' }], isError: false,
+    })
+    expect((await watch(event.seq).next()).value).toEqual({ available: true, value })
+  }
+})
+
 it('bounds retained bytes across Sessions and keeps an existing value when a new one does not fit', async () => {
   const value = { blob: 'x'.repeat(100) }
   const { ctx, execute, watch } = await setup(value, { maxTotalBytes: 150 })

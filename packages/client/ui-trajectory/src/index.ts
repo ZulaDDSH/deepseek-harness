@@ -84,6 +84,9 @@ export default class SessionToolResults extends TypertRemoteService {
       const size = jsonBytesUpTo(result.value, config.maxValueBytes)
       if (size > config.maxValueBytes) return
       const state = this.forSession(session)
+      state.bytes -= state.sizes.get(exec.callId) ?? 0
+      state.values.delete(exec.callId)
+      state.sizes.delete(exec.callId)
       const evictOldest = (): void => {
         for (const oldest of state.values.keys()) {
           state.values.delete(oldest)
