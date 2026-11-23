@@ -137,7 +137,7 @@ export class ModelDirectory {
     }
     this.store.update((s) => {
       s.status = 'ready'; s.pending = null; s.error = null
-      if (result.value.defaultSave === 'failed') s.defaultNotSaved = true
+      if (result.value.defaultSave === 'failed' || result.value.defaultSave === 'unavailable') s.defaultNotSaved = true
     })
     this.syncInputs()
     return { ok: true, value: undefined }

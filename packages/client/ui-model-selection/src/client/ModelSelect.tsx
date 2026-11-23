@@ -93,6 +93,8 @@ function StarIcon({ filled }: { filled: boolean }) {
 const MEASURE_STYLE: CSSProperties = { visibility: 'hidden', left: 0, top: 0 }
 
 const NO_RUN_OPTIONS: SessionRunOptions = {}
+
+const DEFAULT_NOT_SAVED_HOLD_MS = 30000
 /** Claude Code native effort levels with their labels, faster to smarter. */
 const CLAUDE_EFFORTS = [
   ['low', 'runOptions.effortLow'],
@@ -145,7 +147,7 @@ export function ModelSelect(
   // instead, so the strip renders only while the latest failure-capable
   // action was a load.
   const lastActionRef = useRef<'load' | 'select'>('load')
-  const [toast, setToast] = useState<{ seq: number; text: string } | null>(null)
+  const [toast, setToast] = useState<{ seq: number; text: string; retry?: () => void } | null>(null)
   const toastSeq = useRef(0)
   const ownSelection = useRef(false)
   const rootRef = useRef<HTMLDivElement | null>(null)
@@ -261,7 +263,16 @@ export function ModelSelect(
   const defaultNotSaved = state.pending === null && state.defaultNotSaved === true
   useEffect(() => {
     if (state.pending !== null) return
-    if (ownSelection.current && defaultNotSaved) setToast({ seq: ++toastSeq.current, text: t('warning.defaultNotSaved') })
+    if (ownSelection.current && defaultNotSaved) {
+      setToast({
+        seq: ++toastSeq.current,
+        text: t('warning.defaultNotSaved'),
+        retry: () => {
+          setToast(null)
+          if (state.current !== null) submit(state.current)
+        },
+      })
+    }
     ownSelection.current = false
   }, [state.pending, defaultNotSaved, t])
 
@@ -1024,6 +1035,8 @@ export function ModelSelect(
           key={toast.seq}
           text={toast.text}
           icon={<IconWarningOutlineRegular />}
+          holdMs={toast.retry === undefined ? undefined : DEFAULT_NOT_SAVED_HOLD_MS}
+          actions={toast.retry === undefined ? undefined : [{ label: t('warning.defaultRetry'), onClick: toast.retry }]}
           anchor={rootRef.current?.closest<HTMLElement>('[data-composer-card]') ?? null}
           onDone={() => { setToast(null) }}
         />

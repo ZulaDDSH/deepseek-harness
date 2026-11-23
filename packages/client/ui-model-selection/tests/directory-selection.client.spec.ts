@@ -69,7 +69,7 @@ describe('ModelDirectory selection ordering', () => {
 
 describe('ModelDirectory default persistence outcome', () => {
   it.each([
-    ['failed', true], ['saved', false], ['unavailable', false], ['pending', false], [undefined, false],
+    ['failed', true], ['saved', false], ['unavailable', true], ['pending', false], [undefined, false],
   ] as const)('defaultSave %s sets the store warning to %s and the next selection clears it', async (outcome, warned) => {
     const sessions = {
       selectModel: vi.fn(async (request: { model: string }) => ({

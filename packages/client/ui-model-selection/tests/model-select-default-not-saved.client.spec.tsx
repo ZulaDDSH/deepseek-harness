@@ -79,7 +79,7 @@ describe('ModelSelect default-not-saved notice', () => {
     chooseProModel()
 
     const notice = await screen.findByRole('alert')
-    expect(notice.textContent).toBe(zh['warning.defaultNotSaved'])
+    expect(notice.textContent).toContain(zh['warning.defaultNotSaved'])
   })
 
   it('shows no notice when the default was saved', async () => {
@@ -88,6 +88,29 @@ describe('ModelSelect default-not-saved notice', () => {
     await vi.waitFor(() => { expect(select).toHaveBeenCalled() })
     await act(async () => { await Promise.resolve() })
 
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('retries the default save from the notice and clears the notice once the save succeeds', async () => {
+    let saves = 0
+    const directory = createSnapshotStore<ModelDirectoryState>(initial)
+    const select = vi.fn(async (selection: ModelSelection) => {
+      saves += 1
+      directory.update((s) => { s.status = 'selecting'; s.pending = selection; delete s.defaultNotSaved })
+      await Promise.resolve()
+      directory.update((s) => {
+        s.status = 'ready'; s.pending = null; s.current = selection
+        if (saves === 1) s.defaultNotSaved = true
+      })
+      return { ok: true as const, value: undefined }
+    })
+    render(<Seat directory={directory} select={select} />)
+    chooseProModel()
+
+    fireEvent.click(await screen.findByRole('button', { name: zh['warning.defaultRetry'] }))
+    await vi.waitFor(() => { expect(select).toHaveBeenCalledTimes(2) })
+    expect(select.mock.calls[1]?.[0]).toMatchObject({ provider: 'deepseek-official', model: 'deepseek-v4-pro' })
+    await act(async () => { await Promise.resolve() })
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
