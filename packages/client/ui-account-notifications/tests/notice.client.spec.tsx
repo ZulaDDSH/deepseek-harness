@@ -258,6 +258,21 @@ it.each(['primary', 'secondary'] as const)('reports non-dismiss %s actions and k
   expect(onCtaClicked).toHaveBeenCalledOnce()
 })
 
+it('does not run a non-dismiss action once the card has passed its deadline while still rendered', () => {
+  const onOpenAccount = vi.fn()
+  const onCtaClicked = vi.fn()
+  const dateNow = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-27T00:00:00Z'))
+  render(<AccountNoticeStack closeLabel="Close" onOpenAccount={onOpenAccount} onShown={vi.fn()}
+    onCtaClicked={onCtaClicked} onDismiss={vi.fn()}
+    notices={[notification('notice', { displayUntil: '2026-10-27T00:00:05Z', actions: [
+      { label: 'View balance', style: 'primary', target: { type: 'app_route', name: 'account' } },
+    ] })]} />)
+  dateNow.mockReturnValue(Date.parse('2026-10-27T00:00:06Z'))
+  fireEvent.click(screen.getByRole('button', { name: 'View balance' }))
+  expect(onOpenAccount).not.toHaveBeenCalled()
+  expect(onCtaClicked).not.toHaveBeenCalled()
+})
+
 it('renders separate buttons for repeated action targets', () => {
   const output = vi.spyOn(console, 'error').mockImplementation(() => undefined)
   render(<>

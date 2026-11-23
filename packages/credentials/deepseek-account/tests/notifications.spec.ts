@@ -208,11 +208,52 @@ it.each([undefined, null, 0, -1, '300', 2_147_483.648])('rejects an invalid next
   await expect(f.account.getNotifications(clientMetadata())).rejects.toMatchObject({ code: 'protocol' })
 })
 
-it.each([0.5, 300, 2_147_483.647])('preserves the server polling delay in seconds: %s', async (delay) => {
+it.each([300, 2_147_483.647])('preserves the server polling delay in seconds: %s', async (delay) => {
   const f = await fixture()
   await f.grant('test-account-token')
   f.nextPollAfter(delay)
   expect((await f.account.getNotifications(clientMetadata()))?.nextPollAfterSeconds).toBe(delay)
+})
+
+it.each([0.5, 9.999])('raises a server polling delay of %s seconds to the ten second floor', async (delay) => {
+  const f = await fixture()
+  await f.grant('test-account-token')
+  f.nextPollAfter(delay)
+  expect((await f.account.getNotifications(clientMetadata()))?.nextPollAfterSeconds).toBe(10)
+})
+
+it('keeps the first notification for a repeated ID and skips later entries with that ID', async () => {
+  const f = await fixture()
+  await f.grant('test-account-token')
+  f.notifications([wire(ORDER, { title: 'First' }), wire(ORDER, { title: 'Second' }), wire(SECOND_ORDER)])
+  const result = await f.account.getNotifications(clientMetadata())
+  expect(result?.notifications.map(notice => [notice.id, notice.title])).toEqual([
+    [ORDER, 'First'],
+    [SECOND_ORDER, 'Product news'],
+  ])
+})
+
+it('shares one in-flight list request between concurrent reads for the same grant and locale', async () => {
+  const f = await fixture()
+  await f.grant('test-account-token')
+  const release = Promise.withResolvers<void>()
+  f.onList(() => release.promise)
+  const first = f.account.getNotifications(clientMetadata('en'))
+  const second = f.account.getNotifications(clientMetadata('en'))
+  await new Promise(resolve => setTimeout(resolve, 50))
+  release.resolve()
+  const results = await Promise.all([first, second])
+  expect(results[0]).toEqual(results[1])
+  expect(results[0]?.notifications).toHaveLength(2)
+  expect(f.requests.filter(request => request.url === '/api/v0/users/notifications/list')).toHaveLength(1)
+})
+
+it('issues a new list request after the shared read settles', async () => {
+  const f = await fixture()
+  await f.grant('test-account-token')
+  await f.account.getNotifications(clientMetadata('en'))
+  await f.account.getNotifications(clientMetadata('en'))
+  expect(f.requests.filter(request => request.url === '/api/v0/users/notifications/list')).toHaveLength(2)
 })
 
 it('reads generic notifications in server order with account and client headers', async () => {

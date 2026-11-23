@@ -820,3 +820,50 @@ it.each(['back-card', 'expired', 'signed-out'] as const)('ignores a CTA click fr
   controller.ctaClicked((state === 'back-card' ? 'second' : 'first') as AccountNotificationId)
   expect(clicked).not.toHaveBeenCalled()
 })
+
+it('removes a displayed card at its deadline and promotes the next card without another read', async () => {
+  vi.useFakeTimers()
+  vi.setSystemTime(new Date('2026-10-27T00:00:00Z'))
+  const { controller, read, stacks } = setup()
+  try {
+    read.mockResolvedValue({ ...batch('first', '2026-10-27T00:00:05Z'), notifications: [
+      ...batch('first', '2026-10-27T00:00:05Z').notifications, ...batch('second', null).notifications,
+    ] })
+    controller.begin()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(stacks.at(-1)?.map(notice => notice.id)).toEqual(['first', 'second'])
+    await vi.advanceTimersByTimeAsync(4_999)
+    expect(stacks.at(-1)?.map(notice => notice.id)).toEqual(['first', 'second'])
+    await vi.advanceTimersByTimeAsync(1)
+    expect(stacks.at(-1)?.map(notice => notice.id)).toEqual(['second'])
+    expect(read).toHaveBeenCalledTimes(1)
+  } finally { controller.end() }
+})
+
+it('reads at most four localized cards at once and publishes each update as it arrives', async () => {
+  const { controller, read, readContent, stacks } = setup()
+  const ids = ['a', 'b', 'c', 'd', 'e', 'f']
+  read.mockResolvedValue({ ...batch('a', null), notifications: ids.flatMap(id => batch(id, null).notifications) })
+  controller.begin()
+  await vi.waitFor(() => { expect(stacks.at(-1)).toHaveLength(ids.length) })
+  const settle = new Map<string, () => void>()
+  let inFlight = 0
+  let peak = 0
+  readContent.mockImplementation((id: AccountNotificationId) => new Promise<AccountNotice | null>((resolve) => {
+    inFlight++
+    peak = Math.max(peak, inFlight)
+    settle.set(id, () => { inFlight--; resolve(notification(id, { body: `zh ${id}` })) })
+  }))
+  const changing = controller.setLocale('zh')
+  expect(readContent).toHaveBeenCalledTimes(4)
+  settle.get('a')?.()
+  await vi.waitFor(() => { expect(readContent).toHaveBeenCalledTimes(5) })
+  expect(stacks.at(-1)?.find(notice => notice.id === 'a')?.body).toBe('zh a')
+  for (const id of ['b', 'c', 'd', 'e']) settle.get(id)?.()
+  await vi.waitFor(() => { expect(readContent).toHaveBeenCalledTimes(6) })
+  settle.get('f')?.()
+  await changing
+  expect(peak).toBe(4)
+  expect(stacks.at(-1)?.map(notice => notice.body)).toEqual(ids.map(id => `zh ${id}`))
+  controller.end()
+})
