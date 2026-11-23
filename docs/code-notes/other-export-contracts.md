@@ -457,13 +457,13 @@
 - `returns`: The time as `h:mm`.
 
 ### `packages/llm/llm-freebuff/src/quota.ts:decodeToken`
-- `description`: Decodes a Credential Manager blob as UTF-8, or as UTF-16 when it contains NUL characters, and trims it.
+- `description`: Decodes a Credential Manager blob as UTF-8, or as UTF-16 when it contains NUL characters, and trims it; `quota.ts:decodeToken` returns the `authToken` field of a JSON blob.
 - `params.blob`: Credential blob bytes.
-- `returns`: The token, or undefined when the blob is empty.
+- `returns`: The token, or undefined when `quota.ts:decodeToken` finds none.
 
 ### `packages/llm/llm-freebuff/src/quota.ts:credentialTarget`
 - `description`: Builds the Credential Manager target under which Freebuff stores its token.
-- `params.home`: User home directory.
+- `params.configDir`: Freebuff config directory for `quota.ts:credentialTarget` and `quota.ts:windowsTokenReader` (`FREEBUFF_CONFIG_DIR` or the default under the home directory).
 - `returns`: The target name.
 
 ### `packages/llm/llm-freebuff/src/quota.ts:RunPowerShell`
@@ -481,7 +481,7 @@
 
 ### `packages/llm/llm-freebuff/src/quota.ts:windowsTokenReader`
 - `description`: Builds a token reader that reads the Freebuff credential through PowerShell without putting the token on a command line.
-- `params.home`: User home directory.
+- `params.configDir`: Freebuff config directory for `quota.ts:credentialTarget` and `quota.ts:windowsTokenReader` (`FREEBUFF_CONFIG_DIR` or the default under the home directory).
 - `params.run`: PowerShell runner.
 - `returns`: The token reader.
 
