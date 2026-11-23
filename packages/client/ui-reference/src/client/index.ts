@@ -35,6 +35,15 @@ import type { SessionReferenceMentionCandidate } from '@deepseek-ai/dsh-session-
 import { abbreviateHomePath, fileAddressFor, resolveWorkspacePath } from '@deepseek-ai/dsh-util-workspace-path'
 import { en, ja, es, fr, de, ru, pt, NS, zh, type ReferenceKey } from './locales.ts'
 
+const REFERENCE_LOOKUP_WAIT_MS = 3000
+
+function boundedLookup<T>(lookup: Promise<{ ok: true; value: T[] } | { ok: false }>): Promise<T[]> {
+  return new Promise<T[]>((resolve, reject) => {
+    const timer = setTimeout(() => { resolve([]) }, REFERENCE_LOOKUP_WAIT_MS)
+    lookup.then(result => { resolve(result.ok ? result.value : []) }, reject).finally(() => { clearTimeout(timer) })
+  })
+}
+
 declare module '@deepseek-ai/dsh-api-session-controller/client' {
   interface SessionReferenceSourceMap {
     /** File and Session candidates waiting for initial history and their RPC results. */
@@ -88,12 +97,10 @@ export function apply(ctx: ClientContext): void {
           if (state.openState !== 'open') {
             throw state.openError ?? new Error(`session "${session.sessionId}" is not open`)
           }
-          const fileLookup = ctx.remote.fileReferences.list(session.sessionId, query, signal)
-            .then(result => result.ok ? result.value : [])
+          const fileLookup = boundedLookup(ctx.remote.fileReferences.list(session.sessionId, query, signal))
           const sessionLookup = quoted === true
             ? Promise.resolve([] as SessionReferenceMentionCandidate[])
-            : ctx.remote.sessionReferenceResolver.candidates(session.sessionId, query, signal)
-              .then(result => result.ok ? result.value : [])
+            : boundedLookup(ctx.remote.sessionReferenceResolver.candidates(session.sessionId, query, signal))
           return Promise.all([fileLookup, sessionLookup])
         },
       )
