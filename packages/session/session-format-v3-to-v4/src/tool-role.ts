@@ -20,7 +20,7 @@ function resultContent(value: SessionFormatJsonValue | undefined, subject: strin
   if (nested !== undefined) {
     const callId = isSessionFormatJsonObject(nested) ? JSON.stringify(nested['toolCallId']) : 'undefined'
     throw new SessionFormatUnsupportedMigrationError(
-      `${subject} contains a nested tool-result (call ${callId}) unsupported by this converter; the V3 generation is left unchanged`,
+      `${subject} contains a nested tool-result (call ${callId}) unsupported by this converter`,
     )
   }
   return value as SessionFormatJsonValue[]

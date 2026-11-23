@@ -216,7 +216,7 @@ describe('V4 tool-role view and lift', () => {
     expect(() => liftToolResult(row)).toThrow(SessionFormatUnsupportedMigrationError)
     expect(() => liftToolResult(row)).toThrow('unsupported by this converter')
     expect(() => liftToolResult(row)).toThrow('nested tool-result (call "nested-call")')
-    expect(() => liftToolResult(row)).toThrow('the V3 generation is left unchanged')
+    expect(() => liftToolResult(row)).not.toThrow('left unchanged')
     expect(row).toEqual(before)
   })
 
