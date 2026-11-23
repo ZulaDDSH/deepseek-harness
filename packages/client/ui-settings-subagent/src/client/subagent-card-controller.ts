@@ -52,6 +52,7 @@ export function subagentCardFace(
   limits: SubagentLimitsCardFace,
   models: SubagentModelSelectionCardFace,
 ): SubagentCardFace {
+  let leftDuringSave = false
   return {
     hooks: { ...limits.hooks, ...models.hooks },
     editLimit: limits.edit,
@@ -65,15 +66,26 @@ export function subagentCardFace(
       const state = subagentCardShell(limitState, modelState)
       if (!state.available || !state.writable || !state.dirty || state.invalid || state.saving) return
       void (async () => {
-        if (modelState.available && modelState.dirty) await models.saveSettled()
-        if (limitState.available && limitState.dirty) await limits.saveSettled()
+        try {
+          if (modelState.available && modelState.dirty) await models.saveSettled().catch(() => {})
+          if (limitState.available && limitState.dirty) await limits.saveSettled().catch(() => {})
+        } finally {
+          if (leftDuringSave) {
+            leftDuringSave = false
+            limits.discard()
+            models.discard()
+          }
+        }
       })()
     },
     discard: () => {
       if (subagentCardShell(
         limits.hooks.subagentLimitsCard.getSnapshot(),
         models.hooks.subagentModelSelectionCard.getSnapshot(),
-      ).saving) return
+      ).saving) {
+        leftDuringSave = true
+        return
+      }
       limits.discard()
       models.discard()
     },
