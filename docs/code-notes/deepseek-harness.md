@@ -1225,3 +1225,8 @@ The event JSDoc carries description, `@mode emit` and `@param outcome` because t
 - `description`: Decide what a tool call would get from the hook, approval and guard pipeline without executing it.
 - `params.input`: The tool execution input to evaluate.
 - `returns`: The preflight decision for that call.
+
+### `packages/core/agent-default-model/src/index.ts:AgentDefaultModelConfig.saveInitialSelection`
+- `description`: Save a computed first-run default only while no selection was ever saved to the profile and none is submitted while the selection is being computed.
+- `params.resolve`: Computes the selection to save, or undefined to leave the default alone.
+- `returns`: Fulfillment after the optional profile write settles; resolves without writing when a selection was saved before or during the computation.

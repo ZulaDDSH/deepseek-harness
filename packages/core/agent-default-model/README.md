@@ -52,7 +52,7 @@ const selection = ctx.agentDefaultModel.currentSelection()
 await ctx.agentDefaultModel.saveSelection({ provider, model, reasoningEffort: 'high' })
 ```
 
-Without a configuration editor, `saveSelection()` is a no-op. The service does not validate catalog membership; the consumer opening a model request owns availability diagnostics.
+`saveSelection()` resolves `true` once the profile is written and `false` without a configuration editor, where it is a no-op. `saveInitialSelection(resolve)` saves the selection `resolve` computes only while the profile holds no saved default and no `saveSelection()` is submitted during the computation. The service does not validate catalog membership; the consumer opening a model request owns availability diagnostics.
 
 -----
 

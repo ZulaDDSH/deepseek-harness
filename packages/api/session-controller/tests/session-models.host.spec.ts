@@ -391,7 +391,12 @@ describe('Web session model selection', () => {
     } finally { await ctx.fiber.dispose() }
   })
 
-  it.each([false, true])('account login replaces a saved default only without another API key: %s', async (configuredKey) => {
+  it.each([
+    { configuredKey: false, saved: false, replaced: true },
+    { configuredKey: true, saved: false, replaced: false },
+    { configuredKey: false, saved: true, replaced: false },
+    { configuredKey: true, saved: true, replaced: false },
+  ])('account login initializes only an unsaved default without another API key: %o', async ({ configuredKey, saved, replaced }) => {
     const { configurationFixture } = await import('../../../settings/settings/tests/configuration-fixture.ts')
     const configured = await configurationFixture({ hmr: false })
     const { ctx } = await harness(undefined, configured.ctx)
@@ -409,15 +414,35 @@ describe('Web session model selection', () => {
       ns: 'first' as never, autoGenerate: false, schema: {}, revision: 0, applies: 'live',
       value: { providers: { custom: { apiKeyEnv: 'CUSTOM_API_KEY', models: [] } } },
     }])
-    await ctx.agentDefaultModel.saveSelection({ provider: 'removed', model: 'saved' })
+    const original = ctx.agentDefaultModel.currentSelection()
+    if (saved) await ctx.agentDefaultModel.saveSelection({ provider: 'removed', model: 'saved' })
     const controller = await createSessionTestController(ctx, {
       defaultModelSelection: () => ctx.agentDefaultModel.currentSelection(), cwd: '/tmp',
     })
     await controller.initializeDefaultModel()
-    expect(describe).toHaveBeenCalledWith('CUSTOM_API_KEY')
-    expect(ctx.agentDefaultModel.currentSelection()).toEqual(configuredKey
-      ? { provider: 'removed', model: 'saved' }
-      : { provider: 'deepseek-account', model: 'first-model', reasoningEffort: 'high' })
+    if (!saved) expect(describe).toHaveBeenCalledWith('CUSTOM_API_KEY')
+    expect(ctx.agentDefaultModel.currentSelection()).toEqual(replaced
+      ? { provider: 'deepseek-account', model: 'first-model', reasoningEffort: 'high' }
+      : saved ? { provider: 'removed', model: 'saved' } : original)
+    await ctx.fiber.dispose()
+  })
+
+  it('account login does not overwrite an explicit selection submitted while it reads the catalog', async () => {
+    const { configurationFixture } = await import('../../../settings/settings/tests/configuration-fixture.ts')
+    const configured = await configurationFixture({ hmr: false })
+    const { ctx } = await harness(undefined, configured.ctx)
+    ctx.effect(() => ctx.llm.registerAdapter(['deepseek-account'], new CatalogAdapter('Account', [
+      { provider: 'deepseek-account', id: 'first-model', name: 'First' },
+    ], REASONING)))
+    ctx.provide('credentials', { describe: vi.fn(async () => ({ configured: false, writable: true })) } as never)
+    vi.spyOn(ctx.settings, 'describe').mockReturnValue([])
+    const controller = await createSessionTestController(ctx, {
+      defaultModelSelection: () => ctx.agentDefaultModel.currentSelection(), cwd: '/tmp',
+    })
+    const initializing = controller.initializeDefaultModel()
+    await ctx.agentDefaultModel.saveSelection({ provider: 'local', model: 'chosen' })
+    await initializing
+    expect(ctx.agentDefaultModel.currentSelection()).toEqual({ provider: 'local', model: 'chosen' })
     await ctx.fiber.dispose()
   })
 
@@ -972,18 +997,20 @@ it('initializes the account model without reasoning metadata and rejects an empt
   const configured = await configurationFixture({ hmr: false })
   const { ctx } = await harness(undefined, configured.ctx)
   ctx.provide('credentials', { describe: vi.fn() } as never)
-  const dispose = ctx.llm.registerAdapter(['deepseek-account'], new CatalogAdapter('Account', [
+  const account = new CatalogAdapter('Account', [
     { provider: 'deepseek-account', id: 'basic', name: 'Basic' },
-  ]))
+  ])
+  const dispose = ctx.llm.registerAdapter(['deepseek-account'], account)
   const controller = await createSessionTestController(ctx, {
     defaultModelSelection: () => ctx.agentDefaultModel.currentSelection(), cwd: '/tmp',
   })
-  await controller.initializeDefaultModel()
-  expect(ctx.agentDefaultModel.currentSelection()).toEqual({ provider: 'deepseek-account', model: 'basic' })
   dispose()
   await expect(controller.initializeDefaultModel()).rejects.toMatchObject({
     code: 'session/provider-models-unavailable', details: { provider: 'deepseek-account' },
   })
+  ctx.llm.registerAdapter(['deepseek-account'], account)
+  await controller.initializeDefaultModel()
+  expect(ctx.agentDefaultModel.currentSelection()).toEqual({ provider: 'deepseek-account', model: 'basic' })
 })
 
 it.each([new Error('catalog disconnected'), 'catalog disconnected'])('reports catalog rejection as an unavailable selection: %s', async (failure) => {
