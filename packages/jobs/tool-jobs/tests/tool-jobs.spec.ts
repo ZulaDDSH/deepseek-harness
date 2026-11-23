@@ -1375,6 +1375,25 @@ describe('completion notice output', () => {
     expect(text(await call(ctx, 'job_output', { job_id: id }, owner))).toBe('(no new output)\n[status: completed]')
   })
 
+  it('hands the output held for job_output to the owner when the plugin is torn down before delivery', async () => {
+    const { ctx, toolsFiber } = await setup()
+    const inject = vi.fn()
+    const remove = vi.fn(() => true)
+    const owner = await fakeAgent(ctx, 'sess-1', { inject, remove })
+    const p = producer({ owner: owner.id, kind: 'test-task', label: 'answer' })
+    const id = ctx.jobs.start(p.spec)
+    p.settle({ status: 'completed', result: 'r'.repeat(5_000) })
+    await tick()
+    const pointer = notice(inject)
+    expect(pointer.content[0].text).toContain('Read its output with job_output.')
+
+    await toolsFiber.dispose()
+
+    expect(remove).toHaveBeenCalledWith(pointer.id)
+    expect(inject).toHaveBeenCalledTimes(2)
+    expect(notice(inject, 1).content[0].text).toBe(`background job ${id} output, read at completion before the jobs plugin reloaded:\n${'r'.repeat(5_000)}`)
+  })
+
   it('never inlines when inlineOutputBytes is 0', async () => {
     const { ctx } = await setup({ inlineOutputBytes: 0 })
     const inject = vi.fn()

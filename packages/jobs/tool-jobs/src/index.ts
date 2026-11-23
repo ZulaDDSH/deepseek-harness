@@ -274,6 +274,23 @@ export function apply(ctx: Context, config: Config): void {
       if (message.source.kind === 'user') spentWakes.delete(agent)
     })
   }
+  ctx.effect(() => () => {
+    for (const [id, notice] of pending) {
+      if (notice.inline || notice.held === undefined || notice.held.length === 0) continue
+      try {
+        const owner = ctx.get('agents')?.get(notice.owner)
+        if (owner === undefined) continue
+        owner.inbox.remove(notice.messageId)
+        owner.inject(createUserMessage({
+          content: [{ type: 'text', text: `background job ${id} output, read at completion before the jobs plugin reloaded:\n${notice.held.replace(/\n$/, '')}` }],
+          source: { kind: 'tool-jobs', form: 'notice', summary: boundContextSummary(`background job ${id} output`) },
+        }))
+      } catch (error: unknown) {
+        ctx.logger.warn(`tool-jobs: held output of job ${id} was not handed over on teardown: ${String(error)}`)
+      }
+    }
+    pending.clear()
+  }, 'tool-jobs held output')
   ctx.on('session/event', (session, event) => {
     if (event.type !== 'user/message' || event.data.source.kind !== 'tool-jobs') return
     for (const [id, notice] of pending) {
