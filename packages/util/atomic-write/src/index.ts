@@ -12,7 +12,7 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto'
-import { link, lstat, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { link, lstat, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { setTimeout as wait } from 'node:timers/promises'
 import { HarnessError } from '@deepseek-ai/dsh-error'
@@ -73,7 +73,7 @@ export interface WriteFileAtomicOptions {
  * one filesystem. Windows replacement retries transient `EACCES`, `EBUSY`,
  * and `EPERM` failures for a bounded interval while the complete temp file
  * remains the rename source. On any remaining failure the temp file is
- * removed and the failure rethrown. Crash durability (fsync) is out of scope.
+ * removed and the failure rethrown. Ordering constraint: the temp file is synced before the rename and the directory after it.
  * @param filename - final path receiving the content.
  * @param content - complete next file content.
  * @param options - permission bits for the replacement inode.
@@ -83,15 +83,49 @@ export async function writeFileAtomic(filename: string, content: string | Uint8A
     recursive: true,
     ...options.dirMode === undefined ? {} : { mode: options.dirMode },
   })
-  // TODO(settings-atomic-durability): Use a replacement that fsyncs the file
-  // and parent directory and preserves owner-only permissions on Windows.
   const temp = `${filename}.${randomBytes(6).toString('hex')}.tmp`
   try {
-    await writeFile(temp, content, { mode: options.mode, flag: 'wx' })
+    const handle = await open(temp, 'wx', options.mode)
+    try {
+      await handle.writeFile(content)
+      await handle.sync()
+    } finally {
+      await handle.close()
+    }
     await renameAtomicTemp(temp, filename)
   } catch (error) {
     await rm(temp, { force: true })
     throw error
+  }
+  await syncDirectory(filename)
+}
+
+export class AtomicWriteSyncError extends HarnessError {
+  override readonly code: 'ATOMIC_WRITE_UNSYNCED'
+  readonly path: string
+
+  constructor(path: string, cause: unknown) {
+    super(`atomic-write: ${path} was replaced but its directory could not be synced: ${String(cause)}`, 'ATOMIC_WRITE_UNSYNCED', { cause })
+    this.name = 'AtomicWriteSyncError'
+    this.code = 'ATOMIC_WRITE_UNSYNCED'
+    this.path = path
+  }
+}
+
+const UNSUPPORTED_DIRECTORY_SYNC: ReadonlySet<string> = new Set(['EINVAL', 'ENOTSUP', 'ENOSYS', 'EISDIR', 'EPERM'])
+
+async function syncDirectory(filename: string): Promise<void> {
+  if (process.platform === 'win32') return
+  try {
+    const handle = await open(dirname(filename), 'r')
+    try {
+      await handle.sync()
+    } finally {
+      await handle.close()
+    }
+  } catch (error) {
+    if (UNSUPPORTED_DIRECTORY_SYNC.has((error as NodeJS.ErrnoException | null)?.code ?? '')) return
+    throw new AtomicWriteSyncError(filename, error)
   }
 }
 
