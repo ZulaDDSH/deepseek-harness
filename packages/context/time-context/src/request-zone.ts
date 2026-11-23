@@ -14,12 +14,12 @@ export type BrowserTimeZoneContext =
 
 /**
  * Read the raw zone reported by a user-rpc source; validation belongs to request preparation.
- * @param message - user message; only user sources with a string rpcId and clientTimeZone contribute.
+ * @param message - user message; only user and retry sources with a string rpcId and clientTimeZone contribute.
  * @returns the reported zone, or undefined when no user-rpc zone was reported.
  */
 export function reportedBrowserTimeZone(message: UserMessage): string | undefined {
   const source = message.source
-  return source.kind === 'user'
+  return (source.kind === 'user' || source.kind === 'retry')
     && 'rpcId' in source
     && typeof source.rpcId === 'string'
     && 'clientTimeZone' in source

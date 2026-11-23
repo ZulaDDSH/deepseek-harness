@@ -20,7 +20,25 @@ function browserMessage(timeZone: string): UserMessage {
   })
 }
 
+function retryMessage(timeZone: string): UserMessage {
+  return createUserMessage({
+    content: [],
+    source: { kind: 'retry', rpcId: `retry-${timeZone}`, clientTimeZone: timeZone } as never,
+  })
+}
+
 describe('browser request-zone context', () => {
+  it('reads the zone a continuation retry reports, alone and mixed with a user message', () => {
+    expect(deriveBrowserTimeZoneContext([retryMessage('Asia/Tokyo')]))
+      .toEqual({ kind: 'resolved', timeZone: 'Asia/Tokyo' })
+    expect(deriveBrowserTimeZoneContext([browserMessage('Asia/Tokyo'), retryMessage('Asia/Tokyo')]))
+      .toEqual({ kind: 'resolved', timeZone: 'Asia/Tokyo' })
+    expect(deriveBrowserTimeZoneContext([browserMessage('Asia/Shanghai'), retryMessage('America/New_York')]))
+      .toEqual({ kind: 'mixed', timeZones: ['America/New_York', 'Asia/Shanghai'] })
+    expect(() => deriveBrowserTimeZoneContext([retryMessage('+08:00')]))
+      .toThrow(/canonical UTC or IANA Area\/Location/)
+  })
+
   it('derives missing, unique, and sorted mixed zones from user-rpc messages only', () => {
     const plugin = createUserMessage({
       content: [{ type: 'text', text: 'plugin' }],
