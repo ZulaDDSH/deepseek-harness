@@ -3,6 +3,8 @@
 /** Maximum grace allowed for the application tree to dispose before process exit. */
 export const PROCESS_SHUTDOWN_TIMEOUT_MS = 5_000
 
+export const CLEANUP_INCOMPLETE_EXIT_CODE = 1
+
 /** Process-exit controller shared by normal completion and Unix signal handlers. */
 export interface ProcessShutdown {
   /** Start or join graceful disposal before allowing natural completion with `code`. */
@@ -17,6 +19,7 @@ export interface ProcessShutdown {
  * @param forceExit - Function that exits the process immediately, replaceable by tests.
  * @param complete - Function that records the natural completion code, replaceable by tests.
  * @param timeoutMs - Grace before forced exit, replaceable by tests.
+ * @param report - Writes the incomplete-cleanup diagnostic, replaceable by tests.
  * @returns A controller whose normal calls coalesce and whose repeated signal call escalates.
  */
 export function createProcessShutdown(
@@ -24,6 +27,8 @@ export function createProcessShutdown(
   forceExit: (code: number) => void = (code) => { process.exit(code) },
   complete: (code: number) => void = (code) => { process.exitCode = code },
   timeoutMs = PROCESS_SHUTDOWN_TIMEOUT_MS,
+  report: (message: string) => void = (message) => { process.stderr.write(`${message}
+`) },
 ): ProcessShutdown {
   let pending: Promise<void> | undefined
   let timeout: ReturnType<typeof setTimeout> | undefined
@@ -49,15 +54,21 @@ export function createProcessShutdown(
     complete(code)
   }
 
+  const incomplete = (code: number, reason: string): void => {
+    if (forceExited) return
+    report(`dsh: shutdown cleanup incomplete: ${reason}`)
+    forceExitOnce(code === 0 ? CLEANUP_INCOMPLETE_EXIT_CODE : code)
+  }
+
   const start = (code: number, forceAfterDispose: boolean): Promise<void> => {
     if (pending !== undefined) return pending
-    timeout = setTimeout(() => { forceExitOnce(code) }, timeoutMs)
+    timeout = setTimeout(() => { incomplete(code, `not finished after ${String(timeoutMs)} ms`) }, timeoutMs)
     pending = Promise.resolve().then(dispose).then(
       () => {
         if (forceAfterDispose) forceExitOnce(code)
         else completeOnce(code)
       },
-      () => { forceExitOnce(code) },
+      (error: unknown) => { incomplete(code, error instanceof Error ? error.message : String(error)) },
     )
     return pending
   }
