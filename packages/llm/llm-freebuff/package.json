@@ -56,6 +56,7 @@
     }
   },
   "dependencies": {
+    "@deepseek-ai/dsh-api-quota-controller": "workspace:*",
     "@deepseek-ai/dsh-brand": "workspace:*",
     "@deepseek-ai/dsh-lazy-require": "workspace:*",
     "@deepseek-ai/schemastery": "workspace:~",

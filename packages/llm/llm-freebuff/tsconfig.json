@@ -21,6 +21,9 @@
       "path": "../llm"
     },
     {
+      "path": "../../api/quota-controller/tsconfig.host.json"
+    },
+    {
       "path": "../../core/session"
     },
     {

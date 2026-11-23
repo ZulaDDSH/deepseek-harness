@@ -10,7 +10,7 @@ import LlmRuntime, { type RequestMessage, type StreamChunk } from '@deepseek-ai/
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { afterEach } from 'vitest'
-import { DEFAULT_TIMING, FreebuffAccount, installFreebuff, type FreebuffEnvironment, type FreebuffPool, type FreebuffTiming } from '../src/index.ts'
+import { DEFAULT_TIMING, FreebuffAccount, installFreebuff, type FreebuffEnvironment, type FreebuffQuotaOptions, type FreebuffPool, type FreebuffTiming } from '../src/index.ts'
 import { FakeFreebuff } from './fake-terminal.ts'
 
 export const FAKE_CLI = resolve(dirname(fileURLToPath(import.meta.url)), 'fixtures/fake-cli.mjs')
@@ -58,6 +58,7 @@ export interface HarnessOptions {
   readonly loginExit?: string
   readonly mode?: string
   readonly install?: boolean
+  readonly quota?: FreebuffQuotaOptions
   readonly signedIn?: boolean
   readonly sandbox?: 'read-only' | 'workspace-write' | 'danger-full-access'
   readonly idleReapMs?: number
@@ -100,6 +101,7 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
         mounted = installFreebuff(child, { idleReapMs: { get: () => options.idleReapMs ?? 60_000 } as never }, {
           environment,
           spawnTerminal: host.spawnTerminal,
+          ...options.quota === undefined ? {} : { quota: options.quota },
         })
       },
     } as never, {} as never)

@@ -45,6 +45,10 @@ Open the models settings page, choose the Freebuff row and press **Sign in with 
 
 The newest user-typed message is pasted into the Session's Freebuff terminal and the reply is streamed back as text, reasoning and short markdown lines for the tools Freebuff ran. Tools, system prompt and earlier history in the request are ignored because Freebuff keeps its own history. A prompt starting with `/` or `!`, and any image or file, is rejected.
 
+### Hours left
+
+On Windows the package registers a quota source with id `freebuff`, so the session-header usage popover shows today's hours left (h:mm, counting the unused part of a running open hour) and the monthly hours for a session on Freebuff. It reads `GET https://www.codebuff.com/api/v1/freebuff/session` with the Freebuff token from Credential Manager, caches the usage for five minutes, and reports an error rather than zero hours when the read fails. macOS and Linux report not configured.
+
 ### Failure and recovery
 
 | Failure | Code | When |
