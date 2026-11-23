@@ -3,6 +3,7 @@ import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import * as fs from 'node:fs/promises'
 import { lstat, mkdir, mkdtemp, readFile, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
+import { readlinkSync } from 'node:fs'
 import { hostname, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -554,10 +555,16 @@ describe('install lease', () => {
     await expect(lstat(`${root}.lock`)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
+  const lockHostId = (): string => {
+    let namespace = ''
+    try { namespace = readlinkSync('/proc/self/ns/pid') } catch { namespace = '' }
+    return `${hostname()}${namespace}`.replace(/\s/g, '_')
+  }
+
   it('waits for a live holder and fails after the wait limit', async () => {
     const { source, root } = await fixture()
     await mkdir(dirname(root), { recursive: true })
-    await writeFile(`${root}.lock`, `${process.pid} ${hostname()}\n`)
+    await writeFile(`${root}.lock`, `${process.pid} ${lockHostId()}\n`)
     await expect(installPrimaryRuntime(source, root, { leaseWaitMs: 150 })).rejects.toMatchObject({ code: 'WORKSPACE_DEPENDENCY_PREPARATION_FAILED' })
     expect((await lstat(`${root}.lock`)).isFile()).toBe(true)
   })
@@ -566,7 +573,7 @@ describe('install lease', () => {
     const { source, root } = await fixture()
     const child = spawnSync(process.execPath, ['-e', ''])
     await mkdir(dirname(root), { recursive: true })
-    await writeFile(`${root}.lock`, `${child.pid} ${hostname()}\n`)
+    await writeFile(`${root}.lock`, `${child.pid} ${lockHostId()}\n`)
     await installPrimaryRuntime(source, root, { leaseWaitMs: 2_000 })
     expect((await readPrimaryRuntime(root)).platform).toBe(process.platform)
   })

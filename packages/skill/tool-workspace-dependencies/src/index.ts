@@ -291,7 +291,7 @@ export async function resolvePrimaryRuntime(source: string): Promise<WorkspaceDe
 export async function installPrimaryRuntime(source: string, root: string, options: { leaseWaitMs?: number } = {}): Promise<WorkspaceDependencies> {
   const manifest = await compatibleManifest(source)
   await mkdir(dirname(root), { recursive: true })
-  return withInstallLease(`${root}.lock`, () => installUnderLease(source, root, manifest), options.leaseWaitMs)
+  return withInstallLease(root, () => installUnderLease(source, root, manifest), options.leaseWaitMs)
 }
 
 async function installUnderLease(source: string, root: string, manifest: PrimaryRuntimeManifest): Promise<WorkspaceDependencies> {
