@@ -61,6 +61,12 @@ interface ApiCookiePayload extends Omit<BrowserCookiePayload, 'version'> {
 
 type CookiePayload = BrowserCookiePayload | ApiCookiePayload
 
+export interface BrowserSocket {
+  readonly destroyed: boolean
+  destroy(): void
+  once(event: 'close', listener: () => void): void
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -262,6 +268,7 @@ export class BrowserAuth {
   private readonly sessionTable: Map<string, StoredSession>
   private readonly revokedTable: Map<string, number>
   private writes: Promise<void> = Promise.resolve()
+  private readonly browserSockets = new Map<string, Set<BrowserSocket>>()
 
   private constructor(
     processOwner: object,
@@ -308,11 +315,13 @@ export class BrowserAuth {
     if (session === undefined) return false
     this.sessionTable.delete(id)
     this.revokedTable.set(id, session.expiresAt)
+    this.destroySockets(id)
     await this.persistSessions()
     return true
   }
 
   async revokeAll(): Promise<void> {
+    for (const sid of [...this.browserSockets.keys()]) this.destroySockets(sid)
     const secret = randomBytes(SECRET_BYTES)
     await this.credentials.modifyRecord(AUTH_RECORD_KEY, () => Promise.resolve({
       kind: 'grant',
@@ -323,19 +332,53 @@ export class BrowserAuth {
     this.revokedTable.clear()
   }
 
+  browserSessionId(request: ConnectionTrustRequest, secure = false): string | undefined {
+    const payload = this.authenticate(request, secure)
+    return payload?.version === COOKIE_PAYLOAD_VERSION ? payload.sid : undefined
+  }
+
+  trackSocket(sid: string, socket: BrowserSocket): void {
+    if (socket.destroyed) return
+    let sockets = this.browserSockets.get(sid)
+    if (sockets === undefined) {
+      sockets = new Set()
+      this.browserSockets.set(sid, sockets)
+    }
+    sockets.add(socket)
+    socket.once('close', () => {
+      const current = this.browserSockets.get(sid)
+      current?.delete(socket)
+      if (current?.size === 0) this.browserSockets.delete(sid)
+    })
+  }
+
   settled(): Promise<void> {
     return this.writes
+  }
+
+  private destroySockets(sid: string): void {
+    const sockets = this.browserSockets.get(sid)
+    if (sockets === undefined) return
+    this.browserSockets.delete(sid)
+    for (const socket of sockets) socket.destroy()
+  }
+
+  private adoptStored(state: StoredState): void {
+    for (const [id, expiresAt] of state.revoked) if (!this.revokedTable.has(id)) this.revokedTable.set(id, expiresAt)
+    for (const [id, entry] of state.sessions) if (!this.sessionTable.has(id)) this.sessionTable.set(id, entry)
+    for (const id of this.revokedTable.keys()) this.sessionTable.delete(id)
+    const now = Date.now()
+    for (const [id, entry] of this.sessionTable) if (entry.expiresAt <= now) this.sessionTable.delete(id)
+    for (const [id, expiresAt] of this.revokedTable) if (expiresAt <= now) this.revokedTable.delete(id)
   }
 
   private persistSessions(): Promise<void> {
     const write = this.writes.then(async () => {
       const secret = this.secret
-      const now = Date.now()
-      for (const [id, entry] of this.sessionTable) if (entry.expiresAt <= now) this.sessionTable.delete(id)
-      for (const [id, expiresAt] of this.revokedTable) if (expiresAt <= now) this.revokedTable.delete(id)
       await this.credentials.modifyRecord(AUTH_RECORD_KEY, (current) => {
         const state = storedState(current)
         if (state === undefined || !state.secret.equals(secret)) return Promise.resolve(undefined)
+        this.adoptStored(state)
         return Promise.resolve({ kind: 'grant', payload: storedPayload(secret, this.generation, this.sessionTable, this.revokedTable) })
       })
     })

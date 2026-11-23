@@ -4,9 +4,10 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { ConnectionAuthentication, type AuthenticationProvider, type HostConnectionHandle, type PeerScope } from '@deepseek-ai/dsh-client-connection'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { once } from 'node:events'
-import { PassThrough } from 'node:stream'
+import { PassThrough, Readable, type Duplex } from 'node:stream'
 import type { WebEntryUrl, WebRoute, WebServer } from '@deepseek-ai/dsh-host-webserver'
 import * as Token from '../src/index.ts'
+import { FakeSocket } from './fake-socket.ts'
 import { RecordCredentials } from './browser-credentials.ts'
 import { BrowserAuth, MAX_PENDING_API_PEERS, PENDING_API_PEER_DEADLINE_MS } from '../src/browser-auth.ts'
 
@@ -226,6 +227,98 @@ it('contributes its complete login URL only while the provider is mounted', asyn
   const after: WebEntryUrl[] = []
   ctx.emit('webserver/entry-url', 'https://public.test/ui/', after)
   expect(after).toEqual([])
+})
+
+async function browserCookie(ctx: Context, auth: BrowserAuth): Promise<string> {
+  const url = new URL(auth.authenticatedUrl('http://localhost:3080/'))
+  const reply = response()
+  await ctx.waterfall('webserver/request', request(url.pathname + url.search), reply.res, vi.fn(async () => {}))
+  const cookie = reply.state.headers?.['set-cookie']?.split(';', 1)[0]
+  if (cookie === undefined) throw new Error('token exchange did not set a cookie')
+  return cookie
+}
+
+function sessionIdOf(cookie: string): string {
+  const body = cookie.split('=')[1]!.split('.')[1]!
+  return (JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as { sid: string }).sid
+}
+
+function sessionRequest(method: string, cookie?: string, body?: string): IncomingMessage {
+  const headers: Record<string, string> = { host: 'localhost:3080' }
+  if (cookie !== undefined) headers.cookie = cookie
+  return Object.assign(Readable.from(body === undefined ? [] : [Buffer.from(body)]), {
+    method, url: '/browser-sessions', headers, socket: { destroyed: false },
+  }) as unknown as IncomingMessage
+}
+
+it('lists and revokes browser sessions through the owner route and refuses other credentials', async () => {
+  const { ctx, routes, providers, auth } = await mounted()
+  const operator = routes[1]!
+  expect(operator.path).toBe('/browser-sessions')
+  expect(operator.auth).toBe('anonymous')
+  const first = await browserCookie(ctx, auth)
+  const second = await browserCookie(ctx, auth)
+
+  const listed = response()
+  await operator.handler(sessionRequest('GET', second), listed.res)
+  expect(listed.state.status).toBe(200)
+  const body = JSON.parse(listed.state.body ?? '{}') as { sessions: Array<{ id: string }> }
+  expect(body.sessions.map(entry => entry.id).sort()).toEqual([sessionIdOf(first), sessionIdOf(second)].sort())
+
+  const anonymous = response()
+  await operator.handler(sessionRequest('GET'), anonymous.res)
+  expect(anonymous.state.status).toBe(401)
+
+  const connect = new URL(auth.authenticatedUrl('http://localhost:3080/connect'))
+  const connectReply = response()
+  await routes[0]!.handler(request(connect.pathname + connect.search), connectReply.res)
+  const apiCookie = connectReply.state.headers?.['set-cookie']?.split(';', 1)[0]
+  const apiReply = response()
+  await operator.handler(sessionRequest('GET', apiCookie), apiReply.res)
+  expect(apiReply.state.status).toBe(401)
+
+  const revoke = response()
+  await operator.handler(sessionRequest('POST', second, JSON.stringify({ id: sessionIdOf(first) })), revoke.res)
+  expect(revoke.state.status).toBe(204)
+  expect(providers[0]!.authenticate({ headers: { host: 'localhost:3080', cookie: first } })).toBeUndefined()
+  const remaining = response()
+  await operator.handler(sessionRequest('GET', second), remaining.res)
+  const left = JSON.parse(remaining.state.body ?? '{}') as { sessions: Array<{ id: string }> }
+  expect(left.sessions.map(entry => entry.id)).toEqual([sessionIdOf(second)])
+
+  const unknown = response()
+  await operator.handler(sessionRequest('POST', second, JSON.stringify({ id: sessionIdOf(first) })), unknown.res)
+  expect(unknown.state.status).toBe(404)
+  for (const malformed of ['{', JSON.stringify({ id: 'x', extra: true }), JSON.stringify(['x']), JSON.stringify({ id: '' })]) {
+    const rejected = response()
+    await operator.handler(sessionRequest('POST', second, malformed), rejected.res)
+    expect(rejected.state.status).toBe(400)
+  }
+  const wrongMethod = response()
+  await operator.handler(sessionRequest('PUT', second), wrongMethod.res)
+  expect(wrongMethod.state.status).toBe(405)
+  const oversized = response()
+  await operator.handler(sessionRequest('POST', second, JSON.stringify({ id: 'x'.repeat(2048) })), oversized.res)
+  expect(oversized.state.status).toBe(413)
+})
+
+it('closes a browser mux socket when its session is revoked through the owner route', async () => {
+  const { ctx, routes, providers, auth } = await mounted()
+  const owned = await browserCookie(ctx, auth)
+  const shared = providers[0]!.authenticate({ headers: { host: 'localhost:3080', cookie: owned } })
+  if (shared === undefined) throw new Error('fixture browser Cookie was refused')
+  const socket = new FakeSocket()
+  const upgrade = Object.assign(request('/api/remote.mux'), { headers: { host: 'localhost:3080', cookie: owned } })
+  const next = vi.fn(async () => {})
+  await ctx.waterfall('webserver/upgrade', upgrade, socket as unknown as Duplex, Buffer.alloc(0), shared, next)
+  expect(next).toHaveBeenCalledOnce()
+  expect(socket.destroy).not.toHaveBeenCalled()
+
+  const other = await browserCookie(ctx, auth)
+  const revoke = response()
+  await routes[1]!.handler(sessionRequest('POST', other, JSON.stringify({ id: sessionIdOf(owned) })), revoke.res)
+  expect(revoke.state.status).toBe(204)
+  expect(socket.destroy).toHaveBeenCalledOnce()
 })
 
 async function exchange(routes: WebRoute[], auth: BrowserAuth) {

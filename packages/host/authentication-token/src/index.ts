@@ -1,4 +1,5 @@
 /** Default token authentication, HTTP exchanges, and entry URL contribution. */
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-credentials'
@@ -9,6 +10,37 @@ import { BrowserAuth, MAX_PENDING_API_PEERS, PENDING_API_PEER_DEADLINE_MS } from
 
 /** Stable plugin name. */
 export const name = 'host-authentication-token'
+const BROWSER_SESSIONS_PATH = '/browser-sessions'
+const MAX_SESSION_BODY_BYTES = 1024
+
+function writeJson(response: ServerResponse, status: number, body: unknown): void {
+  response.writeHead(status, { 'cache-control': 'no-store', 'content-type': 'application/json; charset=utf-8' })
+  response.end(JSON.stringify(body))
+}
+
+async function readBoundedBody(request: IncomingMessage): Promise<string | undefined> {
+  const chunks: Buffer[] = []
+  let total = 0
+  for await (const chunk of request) {
+    const buffer = Buffer.from(chunk as Uint8Array | string)
+    total += buffer.byteLength
+    if (total > MAX_SESSION_BODY_BYTES) return undefined
+    chunks.push(buffer)
+  }
+  return Buffer.concat(chunks).toString('utf8')
+}
+
+function parseSessionId(body: string): string | undefined {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(body)
+  } catch {
+    return undefined
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined
+  const id: unknown = Reflect.get(parsed, 'id')
+  return Object.keys(parsed).length === 1 && typeof id === 'string' && id.length > 0 ? id : undefined
+}
 /** Services owning request admission and the persistent signing key. */
 export const inject = ['connection', 'connection.authentication', 'credentials']
 
@@ -102,8 +134,57 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         })
       },
     }), 'host-authentication-token: API connect')
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact', path: BROWSER_SESSIONS_PATH, auth: 'anonymous',
+      async handler(request, response) {
+        const facts: ConnectionTrustRequest = request
+        if (facts.socket?.destroyed || response.destroyed || facts.signal?.aborted) return
+        if (!active || !auth.isAuthenticated(request, webCtx.webServer.protocol === 'https:')) {
+          response.writeHead(401, { 'cache-control': 'no-store', 'content-type': 'text/plain; charset=utf-8' })
+          response.end('unauthorized\n')
+          return
+        }
+        if (request.method === 'GET') {
+          writeJson(response, 200, { sessions: auth.sessions() })
+          return
+        }
+        if (request.method !== 'POST') {
+          response.writeHead(405, { 'allow': 'GET, POST', 'cache-control': 'no-store' })
+          response.end()
+          return
+        }
+        const body = await readBoundedBody(request)
+        if (body === undefined) {
+          response.writeHead(413, { 'cache-control': 'no-store', 'connection': 'close' })
+          response.end()
+          return
+        }
+        const id = parseSessionId(body)
+        if (id === undefined) {
+          writeJson(response, 400, { error: 'invalid_request' })
+          return
+        }
+        try {
+          if (!await auth.revoke(id)) {
+            writeJson(response, 404, { error: 'unknown_session' })
+            return
+          }
+        } catch {
+          writeJson(response, 500, { error: 'revocation_not_saved' })
+          return
+        }
+        response.writeHead(204, { 'cache-control': 'no-store' })
+        response.end()
+      },
+    }), 'host-authentication-token: browser sessions')
     webCtx.on('webserver/upgrade', async (request, socket, _head, admittedPeer, next) => {
       if (admittedPeer === undefined) { await next(); return }
+      if (admittedPeer === peer) {
+        const sid = auth.browserSessionId(request, webCtx.webServer.protocol === 'https:')
+        if (sid !== undefined) auth.trackSocket(sid, socket)
+        await next()
+        return
+      }
       if (new URL(request.url ?? '/', 'http://dsh.invalid').pathname !== '/api/remote.mux') {
         await next()
         return
