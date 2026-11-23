@@ -98,7 +98,7 @@ These limits define when watches are a poor fit. They are current package constr
 <details>
 <summary>Working context for maintainers — click to expand</summary>
 
-- The design decisions (abort reasons, the consecutive-failure rule, the goal gate placement, and the sandbox refusal) are recorded in [the code notes](../../../docs/code-notes/deepseek-harness.md#watch-tool-and-goal-waits), anchored to `poll.ts` and `index.ts` symbols.
+- The design decisions (abort reasons, the consecutive-failure rule, the goal gate placement, and the sandbox refusal) are recorded in [the code notes](https://github.com/ZulaDDSH/CodeNotes/blob/main/Deepseek%20Harness/deepseek-harness.md#watch-tool-and-goal-waits), anchored to `poll.ts` and `index.ts` symbols.
 - The check loop is tested through a scripted shell in `tests/tool-watch.spec.ts`; the pending-watch goal gate is tested in `packages/goal/goal-round-driver/tests/goal-watch-wait.spec.ts`.
 - After changing the `watch` parameters, `DESCRIPTION`, or `Config`, run `pnpm run gen-tool-catalog` and `pnpm run gen-config-catalog` so the generated catalogs stay current.
 

@@ -1,0 +1,17 @@
+name: Checkout code notes
+description: Check out ZulaDDSH/CodeNotes and point DSH_CODE_NOTES_DIR at its Deepseek Harness folder.
+inputs:
+  token:
+    description: Token with read access to ZulaDDSH/CodeNotes (secret CODE_NOTES_TOKEN).
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v7.0.1
+      with:
+        repository: ZulaDDSH/CodeNotes
+        path: code-notes
+        token: ${{ inputs.token }}
+        persist-credentials: false
+    - shell: bash
+      run: echo "DSH_CODE_NOTES_DIR=${{ github.workspace }}/code-notes/Deepseek Harness" >> "$GITHUB_ENV"

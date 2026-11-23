@@ -11,7 +11,7 @@ import { existsSync, globSync, readFileSync } from 'node:fs'
 import { relative, resolve, sep } from 'node:path'
 import ts from 'typescript'
 import { checkParams, checkReturns, parseJsDoc, parseTags, pointer, rawJsDoc } from './jsdoc.ts'
-import { loadAnchoredFieldNotes } from './code-notes.ts'
+import { exitIfCodeNotesMissing, loadAnchoredFieldNotes } from './code-notes.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -600,8 +600,8 @@ function loadCompilerOptions(scanRoot: string): ts.CompilerOptions {
 export function collectExportJsdocViolations(scanRoot: string = root): string[] {
   const violations: string[] = []
   const codeNotes = loadAnchoredFieldNotes(scanRoot, [
-    'docs/code-notes/mcp-export-contracts.md',
-    'docs/code-notes/other-export-contracts.md',
+    'mcp-export-contracts.md',
+    'other-export-contracts.md',
   ])
   const usedCodeNotes = new Set<string>()
   const rels = globSync('packages/*/*/src/**/*.ts', { cwd: scanRoot })
@@ -633,6 +633,7 @@ export function collectExportJsdocViolations(scanRoot: string = root): string[] 
 
 /** CLI entry: list every violation and exit 1, or confirm a documented API. */
 function main(): void {
+  exitIfCodeNotesMissing('verify-export-jsdoc')
   const violations = collectExportJsdocViolations()
   if (violations.length === 0) {
     console.log('verify-export-jsdoc: every exported name in each package API is documented.')

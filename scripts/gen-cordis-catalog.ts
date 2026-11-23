@@ -26,7 +26,7 @@ import {
 } from '@deepseek-ai/dsh-typert-generator'
 import type { CordisCatalogPolicy } from '@deepseek-ai/dsh-typert-generator'
 import { renderCordisCoreApiPages } from './cordis-core-api.ts'
-import { loadAnchoredFieldNotes } from './code-notes.ts'
+import { exitIfCodeNotesMissing, loadAnchoredFieldNotes } from './code-notes.ts'
 import { contextKeyMap, contextMergeFiles, eventNameList } from './cordis-walk.ts'
 
 const root = resolve(import.meta.dirname, '..')
@@ -1515,6 +1515,7 @@ export function computeOutputs(): [string, string][] {
  * @returns nothing; writes files or reports freshness through the process.
  */
 export function main(): void {
+  exitIfCodeNotesMissing('gen-cordis-catalog')
   const outputs: [string, string][] = [
     ...computeOutputs(),
     ...renderCordisCoreApiPages(),

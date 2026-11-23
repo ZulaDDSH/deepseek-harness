@@ -148,7 +148,7 @@ Read these pages when the package-level contract is not enough. They move from t
 - [skill package](../skill/README.md) — the registry this provider registers on.
 - [tool-skill package](../tool-skill/README.md) — how discovered skills reach the session catalog and the model.
 - [home-paths package](../../util/home-paths/README.md) — how `dshHome` and `agentsHome` resolve.
-- [Code notes](../../../docs/code-notes/deepseek-harness.md) — the source documentation for each other-agent root and the pinned-home test convention.
+- [Code notes](https://github.com/ZulaDDSH/CodeNotes/blob/main/Deepseek%20Harness/deepseek-harness.md) — the source documentation for each other-agent root and the pinned-home test convention.
 
 -----
 
