@@ -2,7 +2,7 @@ import { Context } from '@deepseek-ai/cordis'
 import type { AttachmentId } from '@deepseek-ai/dsh-attachment/types'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { existsSync } from 'node:fs'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -28,6 +28,26 @@ describe('local attachment file limits', () => {
       await expect(service.saveFileStream({ data: (async function* () { yield new Uint8Array(5) })() }))
         .rejects.toMatchObject({ code: 'FILE_TOO_LARGE' })
       await expect(service.saveFile({ data: new Uint8Array(4) })).resolves.toMatchObject({ bytes: 4 })
+    } finally {
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('local attachment file handles', () => {
+  it('offers a host path only while the stored file exists with its recorded length', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'dsh-local-file-handle-'))
+    try {
+      const service = new LocalAttachmentStore(new Context(), { dshHome: home })
+      const ref = await service.saveFile({ data: Uint8Array.of(1, 2, 3, 4), name: 'a.bin' })
+      const path = service.fileHostPath(ref)
+      expect(path).toBeDefined()
+      await chmod(path as string, 0o600)
+      await writeFile(path as string, Uint8Array.of(9, 9))
+      expect(service.fileHostPath(ref)).toBeUndefined()
+      await rm(path as string)
+      expect(service.fileHostPath(ref)).toBeUndefined()
+      expect(() => service.fileHostPath({ ...ref, attachmentId: brandString<AttachmentId>('invalid') })).toThrow()
     } finally {
       await rm(home, { recursive: true, force: true })
     }

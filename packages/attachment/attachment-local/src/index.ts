@@ -1,5 +1,6 @@
 /** Local durable attachment backend rooted below `DSH_HOME`. @module @deepseek-ai/dsh-attachment-local */
 
+import { statSync } from 'node:fs'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -266,8 +267,13 @@ export class LocalAttachmentStore extends AttachmentStore {
     return readFileStreamVerbatim(this.root, ref, signal)
   }
 
-  override fileHostPath(ref: FileAttachmentRef): string {
-    return storedFilePath(this.root, ref)
+  override fileHostPath(ref: FileAttachmentRef): string | undefined {
+    const path = storedFilePath(this.root, ref)
+    try {
+      return statSync(path).size === ref.bytes ? path : undefined
+    } catch {
+      return undefined
+    }
   }
 
   override async readImageRequest(
