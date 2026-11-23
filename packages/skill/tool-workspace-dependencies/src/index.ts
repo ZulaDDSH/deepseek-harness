@@ -6,6 +6,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { WorkspaceDependencyError } from './error.ts'
+import { withInstallLease } from './lease.ts'
 
 export { WorkspaceDependencyError, type WorkspaceDependencyErrorCode } from './error.ts'
 
@@ -273,9 +274,13 @@ export async function resolvePrimaryRuntime(source: string): Promise<WorkspaceDe
  * @param root - Fixed primary runtime directory under the Harness home.
  * @returns Paths into the installed payload; no PATH or package-manager configuration is changed.
  */
-export async function installPrimaryRuntime(source: string, root: string): Promise<WorkspaceDependencies> {
+export async function installPrimaryRuntime(source: string, root: string, options: { leaseWaitMs?: number } = {}): Promise<WorkspaceDependencies> {
   const manifest = await compatibleManifest(source)
   await mkdir(dirname(root), { recursive: true })
+  return withInstallLease(`${root}.lock`, () => installUnderLease(source, root, manifest), options.leaseWaitMs)
+}
+
+async function installUnderLease(source: string, root: string, manifest: PrimaryRuntimeManifest): Promise<WorkspaceDependencies> {
   const previous = `${root}.previous`
   const previousExists = await exists(previous)
   const rootExists = await exists(root)

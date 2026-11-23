@@ -2,10 +2,11 @@ import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import * as fs from 'node:fs/promises'
 import { lstat, mkdir, mkdtemp, readFile, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { spawnSync } from 'node:child_process'
+import { hostname, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
@@ -539,4 +540,34 @@ it.each(['flat', 'legacy'])('rejects pnpm without a Node.js interpreter in %s me
   const { manifest } = await fixture()
   const { node: _node, ...input } = manifest
   expect(() => parsePrimaryRuntime(format === 'legacy' ? legacyManifest(input) : input)).toThrow('invalid metadata')
+})
+
+describe('install lease', () => {
+  it('serializes concurrent installs of different payloads into one root', async () => {
+    const { source, root } = await fixture()
+    const other = await fixture()
+    await writeFile(join(other.source, 'runtime.json'), JSON.stringify({ ...other.manifest, payloadDigest: 'b'.repeat(64) }))
+    const results = await Promise.all([installPrimaryRuntime(source, root), installPrimaryRuntime(other.source, root), installPrimaryRuntime(source, root)])
+    expect(results).toHaveLength(3)
+    expect((await readPrimaryRuntime(root)).platform).toBe(process.platform)
+    await expect(lstat(`${root}.previous`)).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(lstat(`${root}.lock`)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('waits for a live holder and fails after the wait limit', async () => {
+    const { source, root } = await fixture()
+    await mkdir(dirname(root), { recursive: true })
+    await writeFile(`${root}.lock`, `${process.pid} ${hostname()}\n`)
+    await expect(installPrimaryRuntime(source, root, { leaseWaitMs: 150 })).rejects.toMatchObject({ code: 'WORKSPACE_DEPENDENCY_PREPARATION_FAILED' })
+    expect((await lstat(`${root}.lock`)).isFile()).toBe(true)
+  })
+
+  it('takes over a lock whose holder exited on this host', async () => {
+    const { source, root } = await fixture()
+    const child = spawnSync(process.execPath, ['-e', ''])
+    await mkdir(dirname(root), { recursive: true })
+    await writeFile(`${root}.lock`, `${child.pid} ${hostname()}\n`)
+    await installPrimaryRuntime(source, root, { leaseWaitMs: 2_000 })
+    expect((await readPrimaryRuntime(root)).platform).toBe(process.platform)
+  })
 })

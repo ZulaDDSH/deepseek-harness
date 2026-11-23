@@ -1,0 +1,7 @@
+# tool-workspace-dependencies code notes
+
+## Cross-process install lease (finding 129)
+
+- `packages/skill/tool-workspace-dependencies/src/lease.ts:withInstallLease` - `installPrimaryRuntime` checks, deletes, renames and restores the shared `<root>.previous` backup, so two Hosts installing into one root could remove or move each other's backup mid-publish. The whole sequence now runs under an exclusive-create lock file `<root>.lock` whose record is `<pid> <hostname>`. Staging was already unique (`mkdtemp`); the fixed `.previous` name stays because crash recovery looks for it, and the lease is what makes that single owner safe.
+- A contender takes over only a lock whose recorded PID no longer exists on the same host, through a `wx` claim file that is re-validated against the record it saw (the same pattern as `packages/util/atomic-write/src/index.ts:takeOverExitedLock`; that helper cannot be imported because this package does not depend on atomic-write and the lockfile may not change here). A lock from another host, or one with a live PID, is waited for until `leaseWaitMs` (default 5 minutes) and then fails with `WORKSPACE_DEPENDENCY_PREPARATION_FAILED`. A reused PID keeps a dead holder's lock until an operator removes the file.
+- Active users of the old tree are not protected: replacement renames the tree, which a POSIX process with files open survives and a Windows process holding the directory makes fail (the rename failure restores `.previous`). A Host that already resolved paths into the old tree keeps using them only until it is replaced.

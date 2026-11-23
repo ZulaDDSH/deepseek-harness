@@ -60,7 +60,7 @@ A container can copy that directory into an immutable image layer and set `DSH_P
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-`readPrimaryRuntime` and build smoke checks share `parsePrimaryRuntime`. It validates the flat manifest and rejects duplicate normalized distribution names. Legacy `components` metadata is normalized in memory, retaining its consistency checks; a missing legacy distribution map becomes empty. Mixed flat and legacy version fields are rejected. Reads do not rewrite metadata, and equivalent normalized manifests can reuse an installed payload. `workspaceDependencyPaths` derives the platform-specific entries. `installPrimaryRuntime` copies into a staging directory, requires declared interpreters and scripts to be files and package roots to be directories, and swaps it into place while retaining the previous tree on failure; `resolvePrimaryRuntime` verifies the same entries without copying. The tool memoizes the first successful preparation for the plugin's lifetime.
+`readPrimaryRuntime` and build smoke checks share `parsePrimaryRuntime`. It validates the flat manifest and rejects duplicate normalized distribution names. Legacy `components` metadata is normalized in memory, retaining its consistency checks; a missing legacy distribution map becomes empty. Mixed flat and legacy version fields are rejected. Reads do not rewrite metadata, and equivalent normalized manifests can reuse an installed payload. `workspaceDependencyPaths` derives the platform-specific entries. `installPrimaryRuntime` copies into a staging directory, requires declared interpreters and scripts to be files and package roots to be directories, and swaps it into place while retaining the previous tree on failure, all under a cross-process lock file `<root>.lock` so concurrent Hosts do not share the `<root>.previous` backup; `resolvePrimaryRuntime` verifies the same entries without copying. The tool memoizes the first successful preparation for the plugin's lifetime.
 
 | File | Responsibility |
 |---|---|
@@ -114,6 +114,7 @@ Append-only tool result in the turn history; no prompt section is added.
 <a id="known-limitations-and-deferred-work"></a>
 
 - Linux targets require glibc; musl payloads are not locked.
+- The install lock is a `<pid> <hostname>` file: a holder that exited on the same host is taken over, but a lock from another host (a home shared over a network) or a live process is waited for up to five minutes and then fails with `WORKSPACE_DEPENDENCY_PREPARATION_FAILED`; remove the file by hand when its holder is known gone. A process using the old tree during replacement is not protected: POSIX keeps open files, while a Windows process holding the directory makes the rename fail and the previous tree is restored.
 - Windows payloads used in place must already be executable from their carrier; the in-place mode performs no permission repair.
 
 <a id="dev-note"></a>
