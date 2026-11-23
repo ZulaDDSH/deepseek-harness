@@ -4,6 +4,9 @@ import { closeSync, mkdtempSync, openSync, rmdirSync, statSync, unlinkSync, writ
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { CollectedOutput } from '@deepseek-ai/dsh-subprocess'
+import { activeSpills, sweepSpillFilesThrottled } from './retention.ts'
+
+export { sweepSpillFiles } from './retention.ts'
 
 /**
  * Receives one spill failure so the owner can log it through its own logger.
@@ -40,6 +43,7 @@ let defaultSpillDir: string | undefined
 function privateSpillDir(): string {
   if (defaultSpillDir === undefined || statSync(defaultSpillDir, { throwIfNoEntry: false })?.isDirectory() !== true) {
     defaultSpillDir = mkdtempSync(join(tmpdir(), 'dsh-subprocess-'))
+    sweepSpillFilesThrottled(defaultSpillDir)
   }
   return defaultSpillDir
 }
@@ -220,6 +224,7 @@ export class OutputCollector {
         const fd = openSync(file, 'wx', 0o600)
         this.spillFile = file
         this.spillFd = fd
+        activeSpills.add(file)
         for (const prior of this.chunks) writeSync(fd, prior)
       }
       writeSync(this.spillFd, chunk)
@@ -245,6 +250,7 @@ export class OutputCollector {
     this.spillFd = undefined
     this.spillFile = undefined
     this.spillDisabled = true
+    if (file !== undefined) activeSpills.delete(file)
     if (fd !== undefined) {
       try {
         closeSync(fd)
@@ -302,6 +308,7 @@ export class OutputCollector {
   seal(): void {
     this.sealed = true
     if (this.spillFd === undefined) return
+    if (this.spillFile !== undefined) activeSpills.delete(this.spillFile)
     try {
       closeSync(this.spillFd)
     } catch {
@@ -310,6 +317,7 @@ export class OutputCollector {
       this.spillFile = undefined
     }
     this.spillFd = undefined
+    sweepSpillFilesThrottled(defaultSpillDir)
   }
 
   /**
