@@ -124,7 +124,7 @@ it('aborts pending Host authorization when the bridge closes', async () => {
   expect(await readdir(f.root)).toEqual([])
 })
 
-it('borrows only authorized unchanged files with the requested export name, never deleting the source', async () => {
+it('stages a private snapshot of authorized resources, so later source changes never reach the receiver', async () => {
   const f = await fixture()
   const bytes = Buffer.from('original PDF bytes')
   const path = join(f.root, 'report.pdf')
@@ -134,14 +134,35 @@ it('borrows only authorized unchanged files with the requested export name, neve
   const request = { kind: 'resource', address: 'dsh-resource://file/session/s/report.pdf', name: 'report.pdf', mediaType: 'application/pdf', sha256, size: bytes.length }
   const handle = await f.call(DESKTOP_IPC.fileDragPrepare, request)
   expect(f.resolve).toHaveBeenCalledWith(request.address, expect.any(AbortSignal))
-  expect(await readdir(f.root)).toEqual(['report.pdf'])
+  expect((await readdir(f.root)).filter(name => name.startsWith('dsh-file-drag-'))).toHaveLength(1)
   expect(await f.call(DESKTOP_IPC.fileDragStart, handle)).toBe(true)
-  expect(f.window.webContents.startDrag).toHaveBeenCalledWith({ file: path, icon: f.icon })
+  const [{ file, icon }] = f.window.webContents.startDrag.mock.calls[0] as [{ file: string; icon: NativeImage }]
+  expect(icon).toBe(f.icon)
+  expect(file).not.toBe(path)
+  expect(file).toContain('report.pdf')
+  await writeFile(path, 'changed in place')
+  expect(new Uint8Array(await readFile(file))).toEqual(new Uint8Array(bytes))
+  await rm(path)
+  await writeFile(path, 'replacement')
+  expect(new Uint8Array(await readFile(file))).toEqual(new Uint8Array(bytes))
   await f.dispose()
-  expect(await readFile(path)).toEqual(bytes)
+  expect(await readFile(path, 'utf8')).toBe('replacement')
+  expect(await readdir(f.root)).toEqual(['report.pdf'])
 })
 
-it('requests a copy for renamed, changed, and nonlocal resources', async () => {
+it('does not stage a source whose bytes differ from the verified digest', async () => {
+  const f = await fixture()
+  const path = join(f.root, 'report.pdf')
+  await writeFile(path, 'PDF')
+  const sha256 = createHash('sha256').update('PDF').digest('hex')
+  f.resolve.mockResolvedValue({ path, size: 3, sha256 })
+  await writeFile(path, 'PDX')
+  const request = { kind: 'resource', address: 'dsh-resource://file/session/s/report.pdf', name: 'report.pdf', mediaType: 'application/pdf' }
+  expect(await f.call(DESKTOP_IPC.fileDragPrepare, request)).toBeUndefined()
+  expect(await readdir(f.root)).toEqual(['report.pdf'])
+})
+
+it('requests a copy for renamed and nonlocal resources, and stages nothing over the budget', async () => {
   const f = await fixture()
   const path = join(f.root, 'report.pdf')
   const bytes = Buffer.from('PDF')
@@ -152,9 +173,9 @@ it('requests a copy for renamed, changed, and nonlocal resources', async () => {
   expect(await f.call(DESKTOP_IPC.fileDragPrepare, request)).toBeUndefined()
   expect(await f.call(DESKTOP_IPC.fileDragPrepare, { ...request, name: 'report.pdf', sha256: '0'.repeat(64) })).toBeUndefined()
   expect(await f.call(DESKTOP_IPC.fileDragPrepare, { ...request, name: 'report.pdf', size: 100 })).toBeUndefined()
-  const handle = await f.call(DESKTOP_IPC.fileDragPrepare, { ...request, name: 'report.pdf' })
-  await writeFile(path, 'changed')
-  expect(await f.call(DESKTOP_IPC.fileDragStart, handle)).toBe(false)
+  await writeFile(path, Buffer.alloc(64 * 1024 * 1024 + 1))
+  f.resolve.mockResolvedValue({ path, size: 64 * 1024 * 1024 + 1, sha256: '1'.repeat(64) })
+  expect(await f.call(DESKTOP_IPC.fileDragPrepare, { ...request, name: 'report.pdf' })).toBeUndefined()
   f.resolve.mockResolvedValue(null)
   expect(await f.call(DESKTOP_IPC.fileDragPrepare, request)).toBeUndefined()
 })

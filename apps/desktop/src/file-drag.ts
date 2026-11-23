@@ -1,12 +1,11 @@
 /** Native copy drags authorized only for the product main frame and the active Host. */
 import { createHash } from 'node:crypto'
-import { createReadStream, statSync, type Stats } from 'node:fs'
-import { stat } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { app, ipcMain, type BrowserWindow, type IpcMainInvokeEvent, type NativeImage } from 'electron'
 import { resolveDragFileName, type DesktopFileSource, type FileDragHandle } from '@deepseek-ai/dsh-util-file-drag'
 import { DESKTOP_IPC } from './ipc.ts'
-import { DragFiles } from './file-drag-files.ts'
+import { DragFiles, MAX_TOTAL_DRAG_FILE_BYTES } from './file-drag-files.ts'
 
 interface LocalResource { readonly path: string; readonly size: number; readonly sha256: string }
 
@@ -30,24 +29,12 @@ function requestOf(value: unknown): DesktopFileSource {
   throw new Error('Invalid file drag request')
 }
 
-function sameVersion(before: Stats, after: Stats): boolean {
-  return after.isFile() && before.dev === after.dev && before.ino === after.ino
-    && before.mtimeMs === after.mtimeMs && before.ctimeMs === after.ctimeMs && before.size === after.size
-}
-
-async function verifiedVersion(resource: LocalResource, signal: AbortSignal): Promise<Stats | undefined> {
+async function verifiedBytes(resource: LocalResource, signal: AbortSignal): Promise<Uint8Array | undefined> {
   signal.throwIfAborted()
   const info = await stat(resource.path)
-  if (!info.isFile() || info.size !== resource.size) return undefined
-  const hash = createHash('sha256')
-  const stream = createReadStream(resource.path, { signal })
-  const chunks: AsyncIterable<unknown> = stream
-  for await (const chunk of chunks) {
-    if (!(chunk instanceof Uint8Array)) throw new Error('File stream returned non-binary data')
-    hash.update(chunk)
-  }
-  const after = await stat(resource.path)
-  return sameVersion(info, after) && hash.digest('hex') === resource.sha256 ? after : undefined
+  if (!info.isFile() || info.size !== resource.size || resource.size > MAX_TOTAL_DRAG_FILE_BYTES) return undefined
+  const bytes = await readFile(resource.path, { signal })
+  return bytes.byteLength === resource.size && createHash('sha256').update(bytes).digest('hex') === resource.sha256 ? bytes : undefined
 }
 
 async function cancellable<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
@@ -74,7 +61,6 @@ export function installDesktopFileDrag(
   const files = new DragFiles(app.getPath('temp'))
   const pending = new Set<Promise<FileDragHandle | undefined>>()
   const icons = new Map<string, NativeImage>()
-  const borrowed = new Map<string, { resource: LocalResource; version: Stats }>()
   const authorize = (event: IpcMainInvokeEvent): BrowserWindow => {
     if (disposed) throw new Error('File transfer closed')
     return owner(event)
@@ -90,10 +76,9 @@ export function installDesktopFileDrag(
       if (resource === null || basename(resource.path) !== resolveDragFileName(source)
         || (source.sha256 !== undefined && source.sha256 !== resource.sha256)
         || (source.size !== undefined && source.size !== resource.size)) return undefined
-      const version = await verifiedVersion(resource, signal)
-      if (version === undefined) return undefined
-      handle = files.borrow(resource.path)
-      borrowed.set(handle, { resource, version })
+      const bytes = await verifiedBytes(resource, signal)
+      if (bytes === undefined) return undefined
+      handle = await files.prepare(bytes, source)
     }
     try {
       signal.throwIfAborted()
@@ -104,7 +89,6 @@ export function installDesktopFileDrag(
       icons.set(handle, icon)
       return handle
     } catch (error) {
-      borrowed.delete(handle)
       await files.release(handle)
       throw error
     }
@@ -130,24 +114,20 @@ export function installDesktopFileDrag(
     const file = files.take(handle, false)
     if (file === undefined) return false
     try {
-      const original = borrowed.get(handle)
-      if (original !== undefined && !sameVersion(original.version, statSync(original.resource.path))) throw new Error('File changed before dragging')
       authorize(event)
       window.webContents.startDrag({ file, icon })
       files.take(handle)
       icons.delete(handle)
-      borrowed.delete(handle)
       return true
     } catch (_error) {
       icons.delete(handle)
-      borrowed.delete(handle)
       void files.release(handle).catch((error: unknown) => { console.error(error) })
       return false
     }
   })
   ipcMain.handle(DESKTOP_IPC.fileDragRelease, async (event, handle: unknown) => {
     authorize(event)
-    if (typeof handle === 'string') { icons.delete(handle); borrowed.delete(handle) }
+    if (typeof handle === 'string') icons.delete(handle)
     await files.release(handle)
   })
   return async () => {
@@ -161,7 +141,6 @@ export function installDesktopFileDrag(
     }
     await Promise.allSettled(pending)
     icons.clear()
-    borrowed.clear()
     await files.dispose()
   }
 }

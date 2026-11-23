@@ -26,7 +26,7 @@ The service retains one original `File` for a browser drag. The random `applicat
 
 The desktop bridge is resolved once at activation for protocol version 1. File naming is shared with Desktop through [dsh-util-file-drag](../../util/file-drag/README.md): explicit output suffix wins, compatible suffixes survive, known conflicts use the declared MIME suffix, and unknown types retain the caller name. The plugin owns failure copy and its overlay, which survives source-panel closure.
 
-Managed browser transfers carry an application-local token and `DownloadURL` pointing to a plugin-owned Blob URL containing the prepared bytes. They do not expose the source workspace URL, filename, or alt text through `text/plain`. A drag started before preparation completes is cancelled quietly; a settled failure reports the localized retry message on the next attempt. Resource-backed images prepare on primary pointer down; other sources may prepare on hover. Releasing inside the source preserves preparation for a subsequent drag. Pointer leave without a pressed drag, release outside the source, blur, or unmount retires unused preparation. Cancellation reaches pending native requests, including Host reads and icon waits. Optional resource borrowing failures fall back to the supplied Blob or the authorized URL read; cancellation never starts that fallback.
+Managed browser transfers carry an application-local token and `DownloadURL` pointing to a plugin-owned Blob URL containing the prepared bytes. They do not expose the source workspace URL, filename, or alt text through `text/plain`. A drag started before preparation completes is cancelled quietly; a settled failure reports the localized retry message on the next attempt. Resource-backed images prepare on primary pointer down; other sources may prepare on hover. Releasing inside the source preserves preparation for a subsequent drag. Pointer leave without a pressed drag, release outside the source, blur, or unmount retires unused preparation. Cancellation reaches pending native requests, including Host reads and icon waits. Optional resource staging failures fall back to the supplied Blob or the authorized URL read; cancellation never starts that fallback.
 
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
@@ -34,7 +34,7 @@ Managed browser transfers carry an application-local token and `DownloadURL` poi
 <details>
 <summary>Implementation internals</summary>
 
-The Cordis plugin owns file preparation, transport choice, retained browser bytes, and transient feedback. [DraggableImage](../ui-primitives/README.md) handles image gestures; [Desktop](../../../apps/desktop/README.md) authorizes borrowed resources and owns temporary native exports. Images are the first consumer; the same callbacks accept PDF and other file content without an image MIME gate.
+The Cordis plugin owns file preparation, transport choice, retained browser bytes, and transient feedback. [DraggableImage](../ui-primitives/README.md) handles image gestures; [Desktop](../../../apps/desktop/README.md) authorizes resources, stages a verified private copy, and owns temporary native exports. Images are the first consumer; the same callbacks accept PDF and other file content without an image MIME gate.
 
 </details>
 
@@ -53,7 +53,7 @@ None; this plugin neither constructs nor sends model requests.
 
 - Browser tokens do not transfer between applications, windows, or tabs. External browser file delivery depends on Chromium `DownloadURL` and the receiving application; Desktop supplies native file delivery. Unreadable cross-origin images retain browser-native dragging.
 - The Blob `DownloadURL` path has no verified external-application delivery result. Receivers that read after the transfer ends may find its URL revoked; use Desktop native dragging when original-file delivery is required.
-- Desktop native dragging of a borrowed original hands the operating system the live source path after verifying its hash and metadata. A receiver that opens the path after the drag starts reads whatever is there then: another process that modifies, replaces, or removes the source in that window changes or breaks the delivery. Desktop does not copy borrowed originals into private storage.
+- Desktop native dragging of a resource-backed original stages a private copy of the bytes verified against the Host digest, so the receiver reads that snapshot. Resources above the 64 MiB shared drag budget are not staged: they fall back to the URL read, and a large original drag can fail once staged exports fill the budget until capacity is reclaimed.
 
 <a id="dev-note"></a>
 ### Dev Note
