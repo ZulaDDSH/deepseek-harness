@@ -2,7 +2,7 @@
 
 ## Launch and doctor
 
-`packages/llm/llm-freebuff/src/launch.ts:freebuffLaunch`: a Windows `.cmd` or `.bat` shim cannot be spawned directly (Node refuses it) and `cmd /s /c "<quoted path>" args` mis-parses a path that contains a space. The shim path travels in the `DSH_FREEBUFF_EXE` environment variable already wrapped in quotes and the command line names it as `%DSH_FREEBUFF_EXE%`, so `cmd` expands it into one correctly quoted program token. Arguments are passed through unchanged, which is why an argument containing a `cmd` metacharacter (`& | < > ^ % "`) is rejected before launch.
+`packages/llm/llm-freebuff/src/launch.ts:freebuffLaunch`: a Windows `.cmd` or `.bat` shim cannot be spawned directly (Node refuses it) and `cmd /s /c "<quoted path>" args` mis-parses a path that contains a space. The shim path travels in the `DSH_FREEBUFF_EXE` environment variable already wrapped in quotes and the command line names it as `%DSH_FREEBUFF_EXE%`, so `cmd` expands it into one correctly quoted program token. Arguments are passed through unchanged, which is why an argument containing a `cmd` metacharacter (`& | < > ^ % "`) or a carriage return or line feed is rejected before launch.
 
 `packages/llm/llm-freebuff/src/launch.ts:freebuffConfigDir`: copied from `subagent-freebuff` (`transcript.ts:freebuffConfigDir`). The package is deliberately self-contained so the two packages can change independently. Freebuff keys its keychain entry by the credentials path, so the harness never sets `FREEBUFF_CONFIG_DIR` itself; it only honours an absolute value that the user already exported.
 
