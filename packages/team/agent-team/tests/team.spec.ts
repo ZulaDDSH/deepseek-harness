@@ -180,7 +180,7 @@ describe('Tree-owned task boards', () => {
     if (kind === 'rejects') flush.mockRejectedValueOnce(new Error('disk full'))
     else flush.mockResolvedValueOnce(false)
     await expect(ctx.agentTeams.setEnabled(lead, true)).rejects.toMatchObject({
-      name: 'TeamError', code: 'TEAM_MODE_PERSISTENCE_UNCONFIRMED', message: expect.stringContaining('Team mode is now on') as string,
+      name: 'RemoteError', code: 'TEAM_MODE_PERSISTENCE_UNCONFIRMED', message: expect.stringContaining('Team mode is now on') as string,
     })
     expect(ctx.agentTeams.isEnabled(lead)).toBe(true)
     const appended = lead.session.ownEvents().filter(event => event.type === 'team/mode').length

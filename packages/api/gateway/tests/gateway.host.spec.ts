@@ -1349,6 +1349,29 @@ describe('TypertGatewayService', () => {
     }, new AbortController().signal)).resolves.toEqual({ ok: false, error: failure })
   })
 
+  it('passes a Team persistence-unconfirmed RemoteError through the Connection RPC result with its details', async () => {
+    const ctx = new Context()
+    await ctx.plugin(TypertRegistry)
+    await ctx.plugin(RemoteAccessService)
+    await ctx.plugin(FakeConnectionService)
+    await ctx.plugin(TypertGatewayService)
+    await ctx.plugin(GoalService)
+    registerStrict(ctx, [createDescriptor()])
+    ctx.typert.lookups.register('gatewayFixture', {
+      ...agentLookup({ id: 'agent-1' }),
+      resolve: () => { throw new RemoteError('TEAM_MODE_PERSISTENCE_UNCONFIRMED', 'Team mode is now on', { enabled: true }) },
+    })
+    const handler = rawConnection(ctx).handler
+    if (handler === undefined) throw new Error('fixture Connection did not retain the /api interceptor')
+
+    await expect(handler('goals/create', {
+      args: { agentId: 'agent-1', request: { title: 'ship' } },
+    }, new AbortController().signal)).resolves.toEqual({
+      ok: false,
+      error: { code: 'TEAM_MODE_PERSISTENCE_UNCONFIRMED', message: 'Team mode is now on', details: { enabled: true } },
+    })
+  })
+
   it('caches SRC ownership until the Cordis Service set changes', async () => {
     const ctx = new Context()
     await ctx.plugin(TypertRegistry)

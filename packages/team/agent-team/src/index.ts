@@ -2,7 +2,7 @@
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-session-persistence'
@@ -122,9 +122,10 @@ export class TeamService extends TypertRemoteService {
     } catch (error: unknown) {
       cause = error
     }
-    throw new TeamError(
-      `Team mode is now ${enabled ? 'on' : 'off'} for this Session, but persistence was not confirmed; select ${enabled ? 'on' : 'off'} again to retry saving it`,
+    throw new RemoteError(
       'TEAM_MODE_PERSISTENCE_UNCONFIRMED',
+      `Team mode is now ${enabled ? 'on' : 'off'} for this Session, but persistence was not confirmed; select ${enabled ? 'on' : 'off'} again to retry saving it`,
+      { enabled },
       { cause },
     )
   }
