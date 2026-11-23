@@ -162,4 +162,37 @@ describe('external activation ownership', () => {
     await expect(activation.result).resolves.toEqual(complete)
     expect((await disposal.catch((error: unknown) => error) as Error).message).not.toContain('SECRET_TOKEN')
   })
+
+  it.each([
+    ['honours the abort signal', true],
+    ['ignores the abort signal', false],
+  ])('times out a silent startup handshake, reaps the child and frees the slot (%s)', async (_name, honours) => {
+    vi.useFakeTimers()
+    try {
+      let aborted: unknown
+      const dispose = vi.fn(() => Promise.resolve())
+      const late = Promise.withResolvers<SubagentRun>()
+      const fixture = await setup((request) => {
+        request.signal.addEventListener('abort', () => { aborted = request.signal.reason }, { once: true })
+        if (!honours) return late.promise
+        return new Promise<SubagentRun>((_resolve, reject) => {
+          request.signal.addEventListener('abort', () => { reject(request.signal.reason as Error) }, { once: true })
+        })
+      })
+      const starting = fixture.start()
+      const failure = expect(starting).rejects.toMatchObject({
+        code: 'STARTUP_TIMEOUT',
+        message: expect.stringContaining('initialize and session creation'),
+      })
+      await vi.advanceTimersByTimeAsync(300_000)
+      await failure
+      expect(aborted).toMatchObject({ code: 'STARTUP_TIMEOUT' })
+      late.resolve(run('late-child', Promise.resolve(complete), dispose))
+      await vi.advanceTimersByTimeAsync(0)
+      if (!honours) expect(dispose).toHaveBeenCalledOnce()
+      await expect(fixture.ctx.subagents.waitForTreeWork(fixture.parent)).resolves.toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

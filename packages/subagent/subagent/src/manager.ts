@@ -49,6 +49,9 @@ import type { SubagentDelivery } from './control-types.ts'
 import { ActivationPool, ChildLock, activationAgent, captureLocalResult, observeLocalFailure, requireLocalActivation } from './activation.ts'
 import type { Activation, ActivationResource, LocalActivation } from './activation.ts'
 
+// Constraint: bounds a silent provider handshake so it cannot hold a tree slot.
+const EXTERNAL_STARTUP_TIMEOUT_MS = 300_000
+
 /** Inputs shared by model steering and human prompt delivery. */
 type ChildDeliveryOptions = {
   readonly delivery: SubagentDelivery
@@ -811,8 +814,18 @@ export class SubagentManager {
       const controller = new AbortController()
       const cancelStartup = (): void => { controller.abort(inputs.signal.reason) }
       inputs.signal.addEventListener('abort', cancelStartup, { once: true })
+      let timer: ReturnType<typeof setTimeout> | undefined
       try {
-        const run = await inputs.start(controller.signal)
+        const startup = inputs.start(controller.signal)
+        const deadline = new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => {
+            const error = new SubagentError(`external subagent "${provider}" did not finish provider start (initialize and session creation) within ${EXTERNAL_STARTUP_TIMEOUT_MS} ms`, 'STARTUP_TIMEOUT')
+            controller.abort(error)
+            void startup.then(late => late.dispose(), () => undefined)
+            reject(error)
+          }, EXTERNAL_STARTUP_TIMEOUT_MS)
+        })
+        const run = await Promise.race([startup, deadline])
         resource = { kind: 'external', run, controller }
         void run.result.catch(() => undefined)
         try { this.assertChildIdAvailable(run.id) } catch (error: unknown) {
@@ -820,6 +833,7 @@ export class SubagentManager {
           throw error
         }
       } finally {
+        clearTimeout(timer)
         inputs.signal.removeEventListener('abort', cancelStartup)
       }
     } else {
