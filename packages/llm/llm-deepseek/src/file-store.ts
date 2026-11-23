@@ -242,7 +242,12 @@ export class DeepSeekFileStore {
         expiresAfterSeconds: policy.expiresAfterSeconds,
         signal,
       }).finally(() => { delete shared.onUploadTimeout })
-      await this.index.markOwned(scope, remote.id, remote.expiresAt * 1_000, this.now())
+      try {
+        await this.index.markOwned(scope, remote.id, remote.expiresAt * 1_000, this.now())
+      } catch (error: unknown) {
+        await client.delete(remote.id).catch(() => undefined)
+        throw error
+      }
       if (remote.bytes !== version.data.byteLength) {
         throw new LlmError('DeepSeek Files API upload response does not match the submitted image.', 'INVALID_RESPONSE')
       }

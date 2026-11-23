@@ -549,6 +549,16 @@ describe('draft-provider model discovery', () => {
       .rejects.toThrow(/answered with more than 4194304 bytes/)
   })
 
+  it('states the remaining byte budget when a later page exceeds it', async () => {
+    const ctx = await harness()
+    const first = JSON.stringify({ data: [{ id: 'a', pad: 'x'.repeat(3 * 1024 * 1024) }], has_more: true, last_id: 'a' })
+    const second = JSON.stringify({ data: [{ id: 'b', pad: 'x'.repeat(2 * 1024 * 1024) }], has_more: false, last_id: 'b' })
+    const server = await listingServer({ bodies: [first, second] })
+
+    await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: server.url, api: 'anthropic-messages' }))
+      .rejects.toThrow(`answered with more than ${String(4 * 1024 * 1024 - Buffer.byteLength(first))} bytes`)
+  })
+
   it('reports an unreachable endpoint instead of an empty catalog', async () => {
     const ctx = await harness()
     // Port 9 is the discard service: nothing accepts a connection there.

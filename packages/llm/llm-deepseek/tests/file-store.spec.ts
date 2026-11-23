@@ -70,6 +70,20 @@ function uploadFetch(now: () => number = () => NOW) {
 }
 
 describe('DeepSeekFileStore', () => {
+  it('deletes a freshly uploaded file when recording its ownership fails', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-files-owned-'))
+    roots.push(dir)
+    const fetch = vi.fn(uploadFetch().fetchImpl)
+    const index = new DeepSeekUploadIndex(join(dir, 'index.json'))
+    const failure = new Error('index unavailable')
+    vi.spyOn(index, 'markOwned').mockRejectedValueOnce(failure)
+    const store = new DeepSeekFileStore({ fetch, now: () => NOW, index })
+    await expect(store.ensureUploaded(VERSION, CONNECTION, POLICY)).rejects.toBe(failure)
+    const deletes = fetch.mock.calls.filter(([, init]) => init?.method === 'DELETE')
+    expect(deletes).toHaveLength(1)
+    expect(requestUrl(deletes[0]![0])).toMatch(/\/files\/file-api-1$/)
+  })
+
   it('skips 1, 2, 4 and 8 upload-bearing requests between timeouts, and resets after an upload', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-files-backoff-'))
     roots.push(dir)

@@ -161,7 +161,7 @@ function modalities(value: unknown): readonly ModelModality[] | undefined {
  */
 async function readBounded(response: Response, url: string, limit: number): Promise<string> {
   const oversized = (): LlmError =>
-    new LlmError(`${url} answered with more than ${MAX_RESPONSE_BYTES} bytes`, 'DISCOVERY_FAILED')
+    new LlmError(`${url} answered with more than ${limit} bytes`, 'DISCOVERY_FAILED')
   const declared = Number(response.headers.get('content-length') ?? Number.NaN)
   if (Number.isFinite(declared) && declared > limit) {
     await response.body?.cancel()

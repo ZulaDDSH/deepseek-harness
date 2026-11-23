@@ -63,7 +63,7 @@ async function downloadResource(kind) {
   if (downloads === undefined) throw new Error('runtime download manifest is missing; rebuild or reinstall the runtime wheel')
   const destination = join(cache, kind)
   if (existsSync(join(destination, 'complete')) && await resourceProblem(kind, destination) !== undefined) {
-    if (await resourceProblem(kind, destination) !== undefined) await quarantineResource(kind, destination)
+    await quarantineResource(kind, destination)
   }
   if (!existsSync(join(destination, 'complete'))) {
     await mkdir(cache, { recursive: true })
