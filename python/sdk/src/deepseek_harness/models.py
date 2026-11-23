@@ -78,6 +78,7 @@ class ApprovalRequestParams(BaseModel):
     toolName: str
     callId: str | None = None
     reason: str | None = None
+    operation: str | None = None
 
 
 class ApprovalRequestResult(BaseModel):
