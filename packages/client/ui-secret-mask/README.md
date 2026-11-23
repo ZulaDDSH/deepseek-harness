@@ -23,7 +23,7 @@ Use `dsh-client-ui-secret-mask` when Web users paste API keys, tokens, or passwo
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount the package beside `dsh-client-ui-conversation`. The Web app bundle mounts it by default; removing its row draws credentials as written. Every caller of the [UserText Factory](../ui-conversation/README.md#sent-user-text) masks: message bubbles, steering messages, pending echoes, queued messages, and `/goal` input bubbles.
+Mount the package beside `dsh-client-ui-conversation`. The Web app bundle mounts it by default; removing its row draws credentials as written. Every caller of the [UserText Factory](../ui-conversation/README.md#sent-user-text) masks: message bubbles, steering messages, pending echoes, queued messages, `/goal` input bubbles, and the goal bar's objective.
 
 Each masked value is drawn in a monospace font, so revealing it does not move the surrounding text. Interactive text, which is a sent message or an admitted steering message, adds an eye control at the end of each run. The control reveals or hides that one value, and every mount starts masked. Other callers draw the masked value without a control.
 
@@ -83,7 +83,7 @@ None; this package neither assembles nor sends a provider request.
 These limits define when a credential is drawn as written; they are current package constraints.
 
 - **Recognition requires a published format** — a credential without one of the [recognized formats](#what-is-masked) is drawn as written. Named assignments stay plain because the same names also label ordinary values, such as token usage.
-- **Only UserText callers mask** — session titles, turn previews, search excerpts, the goal bar, tool cards, assistant replies, and the unsent composer draw credentials as written.
+- **Only UserText callers mask** — session titles, turn previews, search excerpts, tool cards, assistant replies, and the unsent composer draw credentials as written.
 - **An earlier reference draws its own text** — a credential inside a reference that starts before it, such as the file mention `@config/<key>.txt`, is drawn by that reference.
 
 <a id="dev-note"></a>
