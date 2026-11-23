@@ -1,5 +1,6 @@
 /** Usage prompts for the composer dock: a window nearing or at its limit, and the offer to switch back. */
 
+import { browserStorage } from '@deepseek-ai/dsh-client-store'
 import type { QuotaResult, QuotaWindow, QuotaWindowId } from '@deepseek-ai/dsh-api-quota-controller/types'
 
 /** Used share at which a window prompts. */
@@ -114,23 +115,31 @@ function parse(raw: string | null): unknown {
  * @param storage - the storage to use, or undefined when none is available.
  * @returns the prompt memory.
  */
-export function localUsagePromptStore(storage: Storage | undefined = typeof localStorage === 'undefined' ? undefined : localStorage): UsagePromptStore {
+export function localUsagePromptStore(storage: Storage | undefined = browserStorage()): UsagePromptStore {
+  const read = (key: string): string | null => {
+    try { return storage?.getItem(key) ?? null } catch { return null }
+  }
+  const write = (action: (target: Storage) => void): void => {
+    try { if (storage !== undefined) action(storage) } catch { /* Persistence is best effort; prompt state stays in memory. */ }
+  }
   return {
     dismissed() {
-      const value = parse(storage?.getItem(DISMISSED_KEY) ?? null)
+      const value = parse(read(DISMISSED_KEY))
       return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
     },
     saveDismissed(keys) {
-      storage?.setItem(DISMISSED_KEY, JSON.stringify(keys))
+      write(target => { target.setItem(DISMISSED_KEY, JSON.stringify(keys)) })
     },
     switched() {
-      const value = parse(storage?.getItem(SWITCHED_KEY) ?? null) as { providerId?: unknown; resetAt?: unknown } | null | undefined
+      const value = parse(read(SWITCHED_KEY)) as { providerId?: unknown; resetAt?: unknown } | null | undefined
       if (typeof value !== 'object' || value === null || typeof value.providerId !== 'string') return undefined
       return typeof value.resetAt === 'number' ? { providerId: value.providerId, resetAt: value.resetAt } : { providerId: value.providerId }
     },
     saveSwitched(value) {
-      if (value === undefined) storage?.removeItem(SWITCHED_KEY)
-      else storage?.setItem(SWITCHED_KEY, JSON.stringify(value))
+      write((target) => {
+        if (value === undefined) target.removeItem(SWITCHED_KEY)
+        else target.setItem(SWITCHED_KEY, JSON.stringify(value))
+      })
     },
   }
 }

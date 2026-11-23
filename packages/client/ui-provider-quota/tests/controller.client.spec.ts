@@ -3,7 +3,7 @@ import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import type { QuotaBillingSwitch, QuotaProviderView, QuotaResult } from '@deepseek-ai/dsh-api-quota-controller/types'
 import { ProviderQuotaController } from '../src/client/controller.ts'
-import type { UsageSwitch } from '../src/client/usage-prompt.ts'
+import { localUsagePromptStore, type UsageSwitch } from '../src/client/usage-prompt.ts'
 
 const provider = { id: 'fixture', name: 'Fixture' }
 const value: QuotaResult = { providerId: provider.id, providerName: provider.name, configured: true, ok: true }
@@ -104,6 +104,19 @@ describe('provider quota client requests', () => {
     expect(mutate).toHaveBeenCalledWith('llm', [{ op: 'set', path: ['providers', 'anthropic', 'apiKeyEnv'], value: 'ANTHROPIC_API_KEY' }], undefined)
     expect(memory.saveSwitched).toHaveBeenCalledWith({ providerId: 'anthropic', resetAt: 1_700_000_000_000 })
     expect(controller.switched.getSnapshot()).toEqual({ providerId: 'anthropic', resetAt: 1_700_000_000_000 })
+  })
+
+  it('completes a switch and a dismissal after the remote write when browser storage throws', async () => {
+    const failing = () => { throw new Error('quota exceeded') }
+    const memory = localUsagePromptStore({ getItem: failing, setItem: failing, removeItem: failing } as unknown as Storage)
+    const mutate = vi.fn(async () => ({ ok: true as const, value: {} }))
+    const remote = { quota: { listProviders: async () => ({ ok: true as const, value: [provider] }), fetch: async () => ({ ok: true as const, value }) }, settings: { mutate } }
+    const controller = new ProviderQuotaController(remote, memory)
+    await expect(controller.switchBilling(billing, 'api', 'anthropic', 7)).resolves.toBeUndefined()
+    expect(controller.switched.getSnapshot()).toEqual({ providerId: 'anthropic', resetAt: 7 })
+    expect(controller.state.getSnapshot()).toEqual({ status: 'ready', results: [value] })
+    expect(() => { controller.dismiss('limit|a|5h|1') }).not.toThrow()
+    expect(controller.dismissed.getSnapshot()).toEqual(['limit|a|5h|1'])
   })
 
   it('switches back to the subscription by unsetting the key and clears the switch', async () => {
