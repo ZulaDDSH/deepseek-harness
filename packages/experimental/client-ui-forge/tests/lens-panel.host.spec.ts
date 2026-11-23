@@ -11,6 +11,8 @@ import { lensVersion } from '../src/lens-version.ts'
 import { bench, follow, git, hold, pullUrl, repository, scratch, shellTurn } from './harness.ts'
 import type { Bench } from './harness.ts'
 
+vi.setConfig({ testTimeout: 30_000 })
+
 const cleanups: (() => Promise<void>)[] = []
 
 afterEach(async () => {

@@ -1105,9 +1105,9 @@ packages/client/ui-workspace/package.json:dsh.client.inject includes the command
 
 `packages/client/ui-primitives/src/useMenuSubmenu.ts:useMenuSubmenu` opens a submenu parent's child panel as soon as that row takes focus, and `packages/client/ui-primitives/src/Menu.tsx:Menu` focuses the first row of an auto-focus menu. A Session row menu therefore opens with the Color child already shown: its `menuitem` list is the parent rows (Color, Icon, then verbs) followed by the portaled Color swatches. The first Escape only collapses that child (`useMenuSubmenu.returnToParent`); a second Escape closes the menu. The viewer artifact specs `packages/experimental/liveshare/tests/viewer-shell-artifact.client.spec.tsx`, `viewer-fork-artifact.client.spec.tsx` and `viewer-write-artifact.client.spec.tsx` assert that order and send two Escapes.
 
-## packages/client/ui-workspace/src/client/rows/Rows.tsx:ProjectRow
+## packages/client/ui-workspace/src/client/rows/Rows.tsx:ProjectRowItem
 
-`packages/client/ui-workspace/src/client/rows/Rows.tsx:ProjectRow` renders its actions button through `renderFactorySlot('contextMenu.button', ...)` with a workspace target; the browser no longer calls `WorkspaceBrowserInjected.openWorkspaceMenu` from a row. `packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx` (Workspace tree grouping) therefore asserts the factory call, and the press-to-open behaviour belongs to `packages/client/ui-context-menu/src/client/Button.tsx`.
+`packages/client/ui-workspace/src/client/rows/Rows.tsx:ProjectRowItem` renders its actions button through `renderFactorySlot('contextMenu.button', ...)` with a workspace target; the browser no longer calls `WorkspaceBrowserInjected.openWorkspaceMenu` from a row. `packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx` (Workspace tree grouping) therefore asserts the factory call, and the press-to-open behaviour belongs to `packages/client/ui-context-menu/src/client/Button.tsx`.
 
 ## packages/client/ui-theme/src/styles/design-platform.css:--dsw-specific-menu
 
@@ -1124,4 +1124,17 @@ packages/client/ui-workspace/package.json:dsh.client.inject includes the command
 
 `packages/workflow/workflow-ptc/src/host.ts:roleRouteOf` rejects a role combined with a route with "omit provider and model", because a workflow child request carries no `reasoning_effort`; the host test asserts that text.
 
-`packages/subagent/tool-subagent-control/src/index.ts` `send_message` takes `agent` (a name, `lead`, or a Session id), not `agent_id`; `packages/knowledge/knowledge-router/tests/delegation-loop.spec.ts` passes `agent`.
+`packages/subagent/tool-subagent-control/src/index.ts:send_message` takes `agent` (a name, `lead`, or a Session id), not `agent_id`; `packages/knowledge/knowledge-router/tests/delegation-loop.spec.ts` passes `agent`.
+
+
+## Unit-lane repairs after merging the upstream integration (PR #137)
+
+`packages/llm/token-meter/tests/token-meter.spec.ts:TokenMeter configuration and registration` expects the Session's checkpoint rows from before the plugin fiber disposed, unchanged after a later event, and no rows for a Session created after disposal. `packages/session/session-projection/src/index.ts:SessionProjectionRegistry.checkpoint` keeps a released unit's last cell, so the former empty-checkpoint expectation was a conflict leftover from the token-meter and released-checkpoint changes.
+
+`packages/mcp/mcp-client/tests/generation.spec.ts:unregisters tools when disposal interrupts the registration result` keeps the real `buildChildEnv` export when it mocks `../src/transport.ts`, because `packages/mcp/mcp-client/src/connection.ts:startConnection` calls it on every stdio generation; a factory without it fails the connection attempt before tools register, and the test waits for a disposal that is never scheduled.
+
+`packages/mcp/mcp-client/tests/loader-composition.spec.ts:filters tool schemas and omits server instructions from YAML config` mocks a stdio transport with `start`, `send` and `close`, because `packages/mcp/mcp-client/src/generation.ts:McpGeneration.connect` wraps those methods; a bare `vi.fn()` transport made the connection attempt throw and the plugin loaded with no tools.
+
+`packages/mcp/mcp-client/tests/reconnect.spec.ts:bounds disposal during connect when the transport never reports closure` expects `transport closure could not be confirmed` when the transport never reports closure, as `packages/mcp/mcp-client/src/connection.ts:startConnection` (dispose) logs; `cleanup incomplete` is now reserved for confirmed closure with a cleanup error.
+
+`packages/experimental/worktree/tests/archive.spec.ts:removes the checkout after the Session moved elsewhere` and `packages/experimental/client-ui-forge/tests/lens-panel.host.spec.ts:forgePanel lenses over local changes` run real git repositories and subprocesses (about 2.5 s per archive test on CI; the archive test in question archives, restores and archives again). They raise the per-test timeout to 30 s like the other worktree and forge host specs.

@@ -34,7 +34,9 @@ vi.mock('@modelcontextprotocol/client', async importOriginal => ({
 }))
 
 vi.mock('@modelcontextprotocol/client/stdio', () => ({
-  StdioClientTransport: vi.fn(),
+  StdioClientTransport: vi.fn(function () {
+    return { start: () => Promise.resolve(), send: () => Promise.resolve(), close: () => Promise.resolve() }
+  }),
 }))
 
 import * as McpClient from '@deepseek-ai/dsh-mcp-client'

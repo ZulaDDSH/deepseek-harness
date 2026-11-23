@@ -687,7 +687,7 @@ describe('reconnect supervisor', () => {
 
       expect(mockListTools).toHaveBeenCalledTimes(phase === 'connect' ? 0 : 1)
       expect(ctx.tools.get('mcp__srv__late')).toBeUndefined()
-      expect(errors.some(line => line.includes('cleanup incomplete'))).toBe(true)
+      expect(errors.some(line => line.includes('transport closure could not be confirmed'))).toBe(true)
     } finally {
       vi.useRealTimers()
     }
