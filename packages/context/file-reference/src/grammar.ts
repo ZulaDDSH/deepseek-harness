@@ -38,7 +38,7 @@ export function formatFileMention(
 ): string | undefined {
   const path = candidate.kind === 'directory' ? `${candidate.path}/` : candidate.path
   if (/[\u0000-\u001f\u007f-\u009f"]/u.test(path)) return undefined
-  const quoted = preserveQuote || /\s/u.test(path)
+  const quoted = preserveQuote || /\s/u.test(path) || /[.,;:!?，。；：！？]$/u.test(path)
   if (!quoted) return `@${path}`
   if (candidate.kind === 'directory') return `@"${path}`
   return `@"${path}"`

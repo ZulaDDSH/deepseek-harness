@@ -2,6 +2,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { UserTextRule } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { UserTextRegistry } from '@deepseek-ai/dsh-client-ui-conversation/src/client/conversation/user-text-registry.ts'
+import { formatFileMention } from '@deepseek-ai/dsh-file-reference/grammar'
 import { fileReferenceRule, folderReferenceRule } from '../src/client/user-text-rules.ts'
 
 function setup(rules: readonly UserTextRule[] = [folderReferenceRule, fileReferenceRule]) {
@@ -59,6 +60,17 @@ describe('fileReferenceRule and folderReferenceRule', () => {
         { raw: '@"a!.md"', data: { path: 'a!.md', label: 'a!.md' } },
       ])
     expect(nodes.filter(node => node.id === 'folder').map(node => text.slice(node.start, node.end))).toEqual(['@dir/'])
+  })
+
+  it.each([...'.,;:!?，。；：！？'])('round-trips a selected filename ending in %s together with a same-prefix file', (mark) => {
+    const evaluate = setup()
+    const mention = formatFileMention({ path: `report${mark}`, kind: 'file' }, false)!
+    const text = `${mention} and @report`
+    const files = evaluate({ text, facts: {} }).filter(node => node.id === 'file')
+    expect(files.map(node => node.data)).toEqual([
+      { path: `report${mark}`, label: `report${mark}` },
+      { path: 'report', label: 'report' },
+    ])
   })
 
   it('keeps root-directory display fallback and requires a token boundary', () => {

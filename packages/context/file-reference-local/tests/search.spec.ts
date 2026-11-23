@@ -1,6 +1,6 @@
-import { chmod, mkdir, mkdtemp, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, opendir, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   activeAtToken,
@@ -12,18 +12,32 @@ import {
 const fsControl = vi.hoisted(() => ({
   /** Absolute path whose `readdir` rejects; the injectable stand-in for chmod 0. */
   denyReaddir: undefined as string | undefined,
+  fakeDirectories: new Map<string, { count: number; entry: (index: number) => { name: string; kind: 'file' | 'directory' } }>(),
+  yielded: 0,
+  onYield: undefined as ((yielded: number) => void) | undefined,
 }))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
   return {
     ...actual,
-    readdir: vi.fn((async (path: unknown, ...rest: never[]) => {
+    opendir: vi.fn((async (path: unknown, ...rest: never[]) => {
       if (fsControl.denyReaddir !== undefined && String(path) === fsControl.denyReaddir) {
         throw Object.assign(new Error('EACCES: injected unreadable directory'), { code: 'EACCES' })
       }
-      return (actual.readdir as (path: unknown, ...args: never[]) => Promise<unknown>)(path, ...rest)
-    }) as typeof actual.readdir),
+      const fake = fsControl.fakeDirectories.get(String(path))
+      if (fake !== undefined) {
+        return (async function* () {
+          for (let index = 0; index < fake.count; index += 1) {
+            fsControl.yielded += 1
+            fsControl.onYield?.(fsControl.yielded)
+            const { name, kind } = fake.entry(index)
+            yield { name, isDirectory: () => kind === 'directory', isFile: () => kind === 'file' }
+          }
+        })()
+      }
+      return (actual.opendir as (path: unknown, ...args: never[]) => Promise<unknown>)(path, ...rest)
+    }) as typeof actual.opendir),
   }
 })
 
@@ -68,7 +82,10 @@ afterEach(async () => {
   for (const locked of locks.splice(0)) await chmod(locked, 0o700).catch(() => undefined)
   for (const instance of searches.splice(0)) instance.dispose()
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
-  vi.mocked(readdir).mockClear()
+  vi.mocked(opendir).mockClear()
+  fsControl.fakeDirectories.clear()
+  fsControl.yielded = 0
+  fsControl.onYield = undefined
 })
 
 describe('file-reference grammar', () => {
@@ -94,6 +111,11 @@ describe('file-reference grammar', () => {
     expect(formatFileMention({ path: 'bad\nname', kind: 'file' }, false)).toBeUndefined()
     expect(formatFileMention({ path: 'bad "name".md', kind: 'file' }, false)).toBeUndefined()
     expect(formatFileMention({ path: 'bad"name.md', kind: 'file' }, false)).toBeUndefined()
+  })
+
+  it.each([...'.,;:!?，。；：！？'])('quotes a file whose name ends in %s so the sent-message parser keeps it', (mark) => {
+    expect(formatFileMention({ path: `src/report${mark}`, kind: 'file' }, false)).toBe(`@"src/report${mark}"`)
+    expect(formatFileMention({ path: `src/re${mark}port`, kind: 'file' }, false)).toBe(`@src/re${mark}port`)
   })
 })
 
@@ -214,7 +236,7 @@ describe('WorkspaceFileSearch', () => {
     const files = search(root)
     const signal = new AbortController().signal
     expect(await files.list('README', signal)).toEqual([{ path: 'README.md', kind: 'file' }])
-    const rootReads = () => vi.mocked(readdir).mock.calls.filter(([path]) => String(path) === root).length
+    const rootReads = () => vi.mocked(opendir).mock.calls.filter(([path]) => String(path) === root).length
     const initialReads = rootReads()
 
     // A root that vanishes under a live index: an unreadable branch costs its
@@ -287,9 +309,9 @@ describe('WorkspaceFileSearch', () => {
   it('enforces the entry cap', async () => {
     const root = await workspace()
     const capped = search(root, { maxEntries: 2 })
-    expect(await capped.list('README', new AbortController().signal)).toEqual([
-      { path: 'README.md', kind: 'file' },
-    ])
+    const found = await capped.list('e', new AbortController().signal)
+    expect(found.length).toBeGreaterThan(0)
+    expect(found.length).toBeLessThanOrEqual(2)
   })
 
   it('never traverses an excluded build output, so generated twins cannot outrank sources', async () => {
@@ -337,5 +359,59 @@ describe('WorkspaceFileSearch', () => {
     const nonErrorPending = files.list('tui', nonErrorAbort.signal)
     nonErrorAbort.abort('cancelled')
     await expect(nonErrorPending).rejects.toThrow('file search aborted')
+  })
+
+  function fakeRoot(root: string, count: number, entry: (index: number) => { name: string; kind: 'file' | 'directory' }): void {
+    fsControl.fakeDirectories.set(root, { count, entry })
+    fsControl.fakeDirectories.set(resolve(root), { count, entry })
+  }
+
+  it('stops reading a huge flat directory at the entry cap for live and indexed completion', async () => {
+    const root = await workspace()
+    fakeRoot(root, 1_000_000, index => ({ name: `file-${index}.ts`, kind: 'file' }))
+    const files = search(root, { maxEntries: 50, maxResults: 5 })
+    const signal = new AbortController().signal
+
+    expect(await files.list('', signal)).toHaveLength(5)
+    expect(fsControl.yielded).toBe(50)
+    fsControl.yielded = 0
+    expect((await files.list('file-1', signal)).length).toBeGreaterThan(0)
+    expect(fsControl.yielded).toBe(50)
+  })
+
+  it('cancels while a large directory is still being enumerated', async () => {
+    const root = await workspace()
+    fakeRoot(root, 1_000_000, index => ({ name: `file-${index}.ts`, kind: 'file' }))
+    const files = search(root, { maxEntries: 100_000 })
+    const controller = new AbortController()
+    fsControl.onYield = (yielded) => {
+      if (yielded === 10) controller.abort(new Error('stop enumerating'))
+    }
+    await expect(files.list('', controller.signal)).rejects.toThrow('stop enumerating')
+    expect(fsControl.yielded).toBe(10)
+  })
+
+  it('does not let a large hidden tree starve the index of visible paths', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-file-autocomplete-hidden-'))
+    roots.push(root)
+    await mkdir(join(root, '.cache'), { recursive: true })
+    await mkdir(join(root, 'src'), { recursive: true })
+    for (let index = 0; index < 30; index += 1) await writeFile(join(root, '.cache', `blob-${index}.bin`), 'x')
+    await writeFile(join(root, 'src', 'wanted.ts'), 'x')
+    const files = search(root, { maxEntries: 10 })
+    const signal = new AbortController().signal
+
+    expect(await files.list('wanted', signal)).toEqual([{ path: 'src/wanted.ts', kind: 'file' }])
+    expect(await files.list('.cache', signal)).toContainEqual({ path: '.cache', kind: 'directory' })
+  })
+
+  it('never offers a name containing a backslash, which addresses cannot represent', async () => {
+    const root = await workspace()
+    fakeRoot(root, 3, index => ({ name: ['a\\b.txt', 'ok.txt', 'dir\\sub'][index] ?? '', kind: index === 2 ? 'directory' : 'file' }))
+    const files = search(root)
+    const signal = new AbortController().signal
+
+    expect(await files.list('', signal)).toEqual([{ path: 'ok.txt', kind: 'file' }])
+    expect(await files.list('b.txt', signal)).toEqual([])
   })
 })
