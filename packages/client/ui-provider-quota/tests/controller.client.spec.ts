@@ -3,7 +3,7 @@ import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import type { QuotaBillingSwitch, QuotaProviderView, QuotaResult } from '@deepseek-ai/dsh-api-quota-controller/types'
 import { ProviderQuotaController } from '../src/client/controller.ts'
-import { localUsagePromptStore, type UsageSwitch } from '../src/client/usage-prompt.ts'
+import { localUsagePromptStore, OPEN_WINDOW_HOLD_MS, usagePrompt, type UsageSwitch } from '../src/client/usage-prompt.ts'
 
 const provider = { id: 'fixture', name: 'Fixture' }
 const value: QuotaResult = { providerId: provider.id, providerName: provider.name, configured: true, ok: true }
@@ -104,6 +104,34 @@ describe('provider quota client requests', () => {
     expect(mutate).toHaveBeenCalledWith('llm', [{ op: 'set', path: ['providers', 'anthropic', 'apiKeyEnv'], value: 'ANTHROPIC_API_KEY' }], undefined)
     expect(memory.saveSwitched).toHaveBeenCalledWith({ providerId: 'anthropic', resetAt: 1_700_000_000_000 })
     expect(controller.switched.getSnapshot()).toEqual({ providerId: 'anthropic', resetAt: 1_700_000_000_000 })
+  })
+
+  it('offers the switch back a day after a popover switch that names no reset, and keeps the offer across reload', async () => {
+    const now = Date.UTC(2026, 9, 15, 12, 0)
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(now)
+    try {
+      const data = new Map<string, string>()
+      const storage = {
+        getItem: (key: string) => data.get(key) ?? null,
+        setItem: (key: string, text: string) => { data.set(key, text) },
+        removeItem: (key: string) => { data.delete(key) },
+      } as unknown as Storage
+      const remote = {
+        quota: { listProviders: async () => ({ ok: true as const, value: [provider] }), fetch: async () => ({ ok: true as const, value }) },
+        settings: { mutate: vi.fn(async () => ({ ok: true as const, value: {} })) },
+      }
+      const controller = new ProviderQuotaController(remote, localUsagePromptStore(storage))
+      await expect(controller.switchBilling(billing, 'api', 'anthropic')).resolves.toBeUndefined()
+      expect(controller.switched.getSnapshot()).toEqual({ providerId: 'anthropic', resetAt: now + OPEN_WINDOW_HOLD_MS })
+      const reloaded = new ProviderQuotaController(remote, localUsagePromptStore(storage)).switched.getSnapshot()
+      expect(reloaded).toEqual({ providerId: 'anthropic', resetAt: now + OPEN_WINDOW_HOLD_MS })
+      const apiResult: QuotaResult = { providerId: 'anthropic', providerName: 'Anthropic', configured: true, ok: true, billing: { active: 'api', switch: billing } }
+      expect(usagePrompt([apiResult], { dismissed: new Set(), switched: reloaded, now: now + OPEN_WINDOW_HOLD_MS - 1 })).toBeUndefined()
+      expect(usagePrompt([apiResult], { dismissed: new Set(), switched: reloaded, now: now + OPEN_WINDOW_HOLD_MS })).toMatchObject({ kind: 'switch-back' })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('completes a switch and a dismissal after the remote write when browser storage throws', async () => {

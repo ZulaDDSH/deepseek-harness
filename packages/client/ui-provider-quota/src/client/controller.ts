@@ -4,7 +4,7 @@ import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client
 import type { ClientRemote } from '@deepseek-ai/dsh-api-gateway/client'
 import type { SettingsPathOpView } from '@deepseek-ai/dsh-api-remotes/client'
 import type { QuotaBillingSwitch, QuotaProviderView, QuotaResult } from '@deepseek-ai/dsh-api-quota-controller/types'
-import { localUsagePromptStore, withDismissed, type UsagePromptStore, type UsageSwitch } from './usage-prompt.ts'
+import { localUsagePromptStore, OPEN_WINDOW_HOLD_MS, withDismissed, type UsagePromptStore, type UsageSwitch } from './usage-prompt.ts'
 
 type QuotaFetchResponse = Awaited<ReturnType<ClientRemote['quota']['fetch']>>
 
@@ -101,7 +101,7 @@ export class ProviderQuotaController {
       : [{ op: 'unset', path }]
     const response = await this.remote.settings.mutate(billing.settingsNs, ops, undefined)
     if (!response.ok) return response.error.message
-    const switched: UsageSwitch | undefined = target === 'api' ? { providerId, ...resetAt === undefined ? {} : { resetAt } } : undefined
+    const switched: UsageSwitch | undefined = target === 'api' ? { providerId, resetAt: resetAt ?? Date.now() + OPEN_WINDOW_HOLD_MS } : undefined
     this.memory.saveSwitched(switched)
     this.switched.set(switched)
     await this.refresh()
