@@ -228,7 +228,7 @@ describe('verify-export-jsdoc classes', () => {
   it('uses anchored code-note fields to document a class method', () => {
     const root = make('/** Example API. */\nexport class C { run(value: string): string { return value } }\n')
     const anchor = 'packages/group/fix/src/index.ts:C.run'
-    const notesPath = join(root, 'docs', 'code-notes', 'deepseek-harness.md')
+    const notesPath = join(root, 'docs', 'code-notes', 'other-export-contracts.md')
     mkdirSync(dirname(notesPath), { recursive: true })
     writeFileSync(notesPath, `### \`${anchor}\`
 - \`description\`: Runs one operation.
@@ -236,7 +236,7 @@ describe('verify-export-jsdoc classes', () => {
 - \`returns\`: The processed value.
 `)
 
-    expect(loadAnchoredFieldNotes(root).get(anchor)).toEqual(new Map([
+    expect(loadAnchoredFieldNotes(root, 'other-export-contracts.md').get(anchor)).toEqual(new Map([
       ['description', 'Runs one operation.'],
       ['params.value', 'Input value.'],
       ['returns', 'The processed value.'],
