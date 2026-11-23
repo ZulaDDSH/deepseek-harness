@@ -3,7 +3,7 @@ import { isAbsolute, join } from 'node:path'
 
 const SHIM_VARIABLE = 'DSH_FREEBUFF_EXE'
 const SHIM_PATTERN = /\.(?:cmd|bat)$/i
-const SHELL_METACHARACTERS = /[&|<>^%"]/
+const SHELL_METACHARACTERS = /[&|<>^%"\r\n]/
 
 export interface FreebuffLaunch {
   readonly argv: string[]

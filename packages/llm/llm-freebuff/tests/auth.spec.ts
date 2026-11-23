@@ -164,6 +164,8 @@ describe('Freebuff doctor', () => {
     expect(launch.argv).toEqual(['C:\\Windows\\System32\\cmd.exe', '/d', '/c', '%DSH_FREEBUFF_EXE%', 'doctor', '--json'])
     expect(launch.env).toEqual({ DSH_FREEBUFF_EXE: '"C:\\Users\\a b\\AppData\\Roaming\\npm\\freebuff.cmd"' })
     expect(() => freebuffLaunch('C:\\f.cmd', ['--cwd', 'C:\\a&b'], 'win32', undefined)).toThrow()
+    expect(() => freebuffLaunch('C:\\f.cmd', ['--cwd', 'a\nb'], 'win32', undefined)).toThrow()
+    expect(() => freebuffLaunch('C:\\f.cmd', ['--cwd', 'a\rb'], 'win32', undefined)).toThrow()
     expect(freebuffLaunch('C:\\f.cmd', ['x'], 'win32', undefined).argv[0]).toBe(process.env.ComSpec ?? 'cmd.exe')
     expect(freebuffLaunch('/usr/bin/freebuff', ['--cwd', 'a&b'], 'linux', undefined)).toEqual({ argv: ['/usr/bin/freebuff', '--cwd', 'a&b'], env: {} })
   })
