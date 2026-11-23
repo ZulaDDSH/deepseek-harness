@@ -95,7 +95,7 @@ Every mutation is a durable `goal/change` session event whose payload is either 
 interface GoalSnapshotChangeMeta {
   readonly kind: 'goal/change'
   readonly version: 1
-  readonly operation: Exclude<GoalOperation, 'clear'>
+  readonly operation: Exclude<GoalOperation, 'clear' | 'refund'>
   readonly goal: GoalSnapshot
   readonly roundsStarted: number
   readonly createdAt: number

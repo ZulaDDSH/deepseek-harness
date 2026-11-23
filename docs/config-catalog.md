@@ -1997,7 +1997,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-host-authentication-token`
 
 - `inject`: `connection` · `connection.authentication` · `credentials`
-- `source`: [`packages/host/authentication-token/src/index.ts:16`](../packages/host/authentication-token/src/index.ts)
+- `source`: [`packages/host/authentication-token/src/index.ts:48`](../packages/host/authentication-token/src/index.ts)
 
 ```ts config-catalog
 /** Default browser and API cookie lifetime. */
@@ -4208,7 +4208,7 @@ export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 
 - `inject`: `workingDirectory` · `sessionProjections`
 - `refs`: `Volatile` (`@deepseek-ai/cordis`)
-- `source`: [`packages/subagent/subagent/src/index.ts:192`](../packages/subagent/subagent/src/index.ts)
+- `source`: [`packages/subagent/subagent/src/index.ts:193`](../packages/subagent/subagent/src/index.ts)
 
 ```ts config-catalog
 /** Host configuration for continuable subagent capacity. */
@@ -5516,7 +5516,7 @@ export type ApprovalPolicy = 'ask' | 'never'
 ## `@deepseek-ai/dsh-web`
 
 - `refs`: `Volatile` (`@deepseek-ai/cordis`)
-- `source`: [`packages/web/web/src/index.ts:71`](../packages/web/web/src/index.ts)
+- `source`: [`packages/web/web/src/index.ts:63`](../packages/web/web/src/index.ts)
 
 ```ts config-catalog
 /**

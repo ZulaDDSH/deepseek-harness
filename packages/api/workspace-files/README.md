@@ -7,7 +7,7 @@ kind: "package-reference"
 
 ## Summary
 
-Use this package to preview files readable through a Session's filesystem from the web client. It reads UTF-8 text by page, reads bounded byte windows or complete files, resolves related files from a base file's directory, and reports file metadata. Follow changes to a file or a directory's direct entries. Search the workspace for entries by name or relative path. For an owner or trusted in-process caller, file reads, stats and file watches reach any path the filesystem allows; for a non-owner principal (a share viewer or other restricted principal) they are confined to the workspace and the configured `readRoots` unless `confineReads` is turned off; directory listing, search, and directory watches always remain workspace-scoped. The service exposes no mutation operation.
+Use this package to preview files readable through a Session's filesystem from the web client. It reads UTF-8 text by page, bounded byte windows or whole files, and reports metadata. Follow file and directory changes. Search entries by name or relative path. For an owner or trusted in-process caller, file reads, stats and file watches reach any path the filesystem allows; for a non-owner principal (such as a share viewer) they are confined to the workspace and the configured `readRoots` unless `confineReads` is turned off; directory listing, search, and directory watches always remain workspace-scoped. The service exposes no mutation operation.
 
 ## Table of Contents
 

@@ -7,7 +7,7 @@ kind: "package-reference"
 
 ## Summary
 
-This plugin lists changed files, serves bounded comparisons, and provides live Git status and comparisons for registered Workspaces. Turn summaries use Git snapshots and whole-file captures for file-tool edits outside Git coverage. The Host stores each turn's record, captured file copies and snapshot objects in a durable directory that outlives the Session and a Host restart (see Retained data and cleanup) and announces one `workspace/changes` event. Without Git, only file-tool edits appear; the Web card renders summaries.
+This plugin lists changed files, serves bounded comparisons, and provides live Git status and comparisons for registered Workspaces. Turn summaries use Git snapshots and whole-file captures for file-tool edits outside Git coverage. The Host stores each turn's record, captured file copies and snapshot objects in a durable directory that outlives the Session and a Host restart and announces one `workspace/changes` event. Without Git, only file-tool edits appear; the Web card renders summaries.
 
 The Host also serves live status and comparisons for registered Workspaces without appending Session events. Unknown Workspaces and non-Git directories have no status or comparison.
 

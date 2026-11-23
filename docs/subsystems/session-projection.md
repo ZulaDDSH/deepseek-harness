@@ -84,6 +84,7 @@ interface ProjectionDefinition<K extends string, S> {
      * @returns the whole current value for this unit's key.
      */
     view(state: NoInfer<S>): SessionProjectionViewValue<SessionProjectionMap[K]>
+    appended?(prev: NoInfer<S>, next: NoInfer<S>): ProjectionAppend | undefined
     /**
      * Whether a Session summary carries this unit; omitted means `true`.
      * Declare `false` on a key whose map entry carries the
@@ -138,16 +139,9 @@ type ProjectionChangeListener = (
 ```
 
 ```ts type-equiv
-/**
- * Event-level change-feed listener: one committed event changed the raw `view`
- * result of at least one client-visible unit by `Object.is` for one session.
- * `changes` holds one entry per such unit in registration order, each with the
- * unit's `key` and its schema-validated view as `val`; `seq` is the seq of the
- * causing event.
- */
 type ProjectionEventChangeListener = (
   session: Session,
-  changes: readonly { readonly key: Extract<keyof SessionProjectionMap, string>; readonly val: unknown }[],
+  changes: readonly ProjectionValueChange[],
   seq: SessionSeq,
 ) => void
 ```

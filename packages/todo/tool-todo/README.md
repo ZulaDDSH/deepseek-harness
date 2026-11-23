@@ -7,7 +7,7 @@ kind: "package-reference"
 
 ## Summary
 
-`dsh-tool-todo` gives the agent a structured task list to plan with: break multi-step work into concrete tasks, mark the task you are working on, and check tasks off as they finish. Every list is recorded in the session log and survives reopened sessions, but the displayed current list is cleared when the next turn starts, so the UI shows the plan only until the following turn begins and the agent writes it again. One configuration flag decides whether several tasks may be in progress at once, for agents that run work in parallel. Use it wherever an agent should keep a visible task list; each update replaces the whole list, and only the owning agent session can change it.
+`dsh-tool-todo` gives the agent a structured task list to plan with: break multi-step work into concrete tasks, mark the task in progress, and check tasks off as they finish. Every list is recorded in the session log and survives reopened sessions, but the displayed list clears when the next turn starts. One configuration flag decides whether several tasks may be in progress at once. Use it wherever an agent should keep a visible task list; each update replaces the whole list, and only the owning agent session can change it.
 
 ## Table of Contents
 

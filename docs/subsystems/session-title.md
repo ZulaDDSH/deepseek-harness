@@ -142,6 +142,7 @@ interface SessionTitleProvider {
   readonly id: SessionTitleProviderId
   /** When new human prompts start automatic generation. */
   readonly automatic: SessionTitleAutomaticMode
+  readonly messageBudgetBytes?: number
   /**
    * Produce one title revision.
    * @param request - message snapshot, current title, current route, session, and cancellation.

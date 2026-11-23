@@ -82,6 +82,7 @@ interface WorkflowResult {
    * absent when the script's own exception or the engine runtime ended it.
    */
   errorCode?: WorkflowErrorCode
+  cleanupFailures?: string[]
   /**
    * How many `agent()` calls the run accepted over its whole lifetime. On a
    * graceful settlement this is the script-side count (calls still queued for

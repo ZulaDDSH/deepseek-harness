@@ -43,6 +43,7 @@ interface MessageFeedbackPut {
   readonly sessionId: SessionId
   /** Value after this mutation, including the original creation time. */
   readonly item: MessageFeedbackItem
+  readonly localOnly?: true
 }
 ```
 
@@ -53,6 +54,7 @@ interface MessageFeedbackDelete {
   readonly sessionId: SessionId
   /** Message whose feedback was removed. */
   readonly messageId: MessageId
+  readonly localOnly?: true
 }
 ```
 
@@ -87,6 +89,7 @@ interface MessageFeedbackPutRequest {
   readonly category?: FeedbackCategory
   /** Observed item version, or `null` to require that no item exists. */
   readonly ifVersion: MessageFeedbackVersion | null
+  readonly localOnly?: boolean
 }
 ```
 
@@ -99,6 +102,7 @@ interface MessageFeedbackDeleteRequest {
   readonly messageId: MessageId
   /** Observed item version; ignored when the item is already absent. */
   readonly ifVersion: MessageFeedbackVersion
+  readonly localOnly?: boolean
 }
 ```
 
@@ -232,6 +236,7 @@ interface FeedbackRecord {
   readonly text?: string
   /** Category the human filed the remark under. */
   readonly category?: FeedbackCategory
+  readonly localOnly?: boolean
 }
 ```
 
@@ -244,6 +249,7 @@ interface SessionFeedbackRecordRequest {
   readonly text?: string
   /** Category the human filed the remark under. */
   readonly category?: FeedbackCategory
+  readonly localOnly?: boolean
 }
 ```
 

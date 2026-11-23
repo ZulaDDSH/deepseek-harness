@@ -61,6 +61,7 @@ interface WorkspaceChangesSummary {
   deleted: number
   /** Git tree ids of the turn-start and turn-end snapshots; absent when no snapshot was taken. */
   snapshot?: { before: string; after: string }
+  incomplete?: { paths: string[] }
 }
 ```
 
@@ -132,11 +133,11 @@ interface WorkspaceChanges {
   /**
    * Compare one current repository-status file against HEAD.
    * @param workspaceId - registered workspace identity.
-   * @param index - index in the current status response.
+   * @param path - path of the file in the repository status listing.
    * @param signal - cancels git and filesystem work.
    * @returns a current comparison, or undefined for an unknown workspace or file.
    */
-  workspaceDiff(workspaceId: WorkspaceId, index: number, signal: AbortSignal): Promise<WorkspaceFileDiff | undefined>
+  workspaceDiff(workspaceId: WorkspaceId, path: string, signal: AbortSignal): Promise<WorkspaceFileDiff | undefined>
   /**
    * Compare one listed file's contents at turn start and turn end.
    * @param sessionId - the Session that appended the event.
