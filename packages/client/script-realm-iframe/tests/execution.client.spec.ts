@@ -71,7 +71,7 @@ it('settles loading only on its script event and removes the carrier element', a
   let finished = false
   void task.then(() => { finished = true })
   realm.window.dispatchEvent(new ErrorEvent('error', { filename: 'https://unrelated.invalid/other.js', message: 'unrelated' }))
-  await Promise.resolve()
+  await new Promise(resolve => setTimeout(resolve, 0))
   expect(finished).toBe(false)
   script.dispatchEvent(new Event('load'))
   await task
@@ -101,6 +101,28 @@ it.each([true, false])('reports matching execution errors with an error object: 
   realm.window.dispatchEvent(new ErrorEvent('error', { filename: script.src, message: cause.message, ...(withError ? { error: cause } : {}) }))
   await failure
   expect(script.isConnected).toBe(false)
+})
+
+it.each([['a sanitized cross-origin error', ''], ['an error from a redirected final URL', 'https://cdn.invalid/final.js']])(
+  'rejects when %s precedes the load event of the same task', async (_name, filename) => {
+    const { realm } = await fixture()
+    const task = realm.execute({ url: '/redirected.js' })
+    const failure = expect(task).rejects.toMatchObject({ stage: 'execute', cause: 'Script error.' })
+    const script = pendingScript(realm)
+    realm.window.dispatchEvent(new ErrorEvent('error', { filename, message: 'Script error.' }))
+    script.dispatchEvent(new Event('load'))
+    await failure
+    expect(script.isConnected).toBe(false)
+  })
+
+it('does not blame a script for an unrelated error from an earlier task', async () => {
+  const { realm } = await fixture()
+  const task = realm.execute({ url: '/fine.js' })
+  const script = pendingScript(realm)
+  realm.window.dispatchEvent(new ErrorEvent('error', { filename: '', message: 'Script error.' }))
+  await new Promise(resolve => setTimeout(resolve, 0))
+  script.dispatchEvent(new Event('load'))
+  await expect(task).resolves.toBeUndefined()
 })
 
 it('reports an invalid script address before creating a carrier element', async () => {

@@ -77,10 +77,15 @@ export class IFrameScriptRealm implements ScriptRealm {
         if (error === undefined) resolve()
         else reject(error)
       }
-      const onLoad = (): void => { finish() }
+      let unattributed: ErrorEvent | undefined
+      const onLoad = (): void => {
+        finish(unattributed === undefined ? undefined : this.executionError(url, unattributed.error ?? unattributed.message))
+      }
       const onError = (event: Event): void => { finish(this.executionError(url, event)) }
       const onExecutionError = (event: ErrorEvent): void => {
-        if (event.filename === url) finish(this.executionError(url, event.error ?? event.message))
+        if (event.filename === url) { finish(this.executionError(url, event.error ?? event.message)); return }
+        unattributed = event
+        setTimeout(() => { if (unattributed === event) unattributed = undefined }, 0)
       }
       const cancel = (): void => {
         finish(this.executionError(url, this.options.signal.reason ?? new Error('ScriptRealm disposed')))
