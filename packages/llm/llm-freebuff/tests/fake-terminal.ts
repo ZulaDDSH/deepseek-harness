@@ -15,6 +15,14 @@ export interface FakeScript {
   ignoreEscape?: boolean
   exitOnSubmit?: boolean
   replyDelayMs?: number
+  trust?: boolean
+  blocker?: string
+  stuck?: boolean
+  exitOnSpawn?: boolean
+  errorRow?: string
+  askUser?: boolean
+  silent?: boolean
+  reasoning?: string
 }
 
 interface Row {
@@ -31,6 +39,7 @@ export class FakeFreebuff {
   readonly terminals: FakeTerminal[] = []
   readonly prompts: string[] = []
   escapes = 0
+  trustAnswers = 0
   killed = 0
   script: FakeScript = {}
   private counter = 0
@@ -69,7 +78,12 @@ export class FakeTerminal {
     this.done = new Promise((resolve) => { this.finish = resolve })
     const at = spec.argv.indexOf('--continue')
     if (at >= 0) this.chatId = spec.argv[at + 1]
-    this.show(host.script.login === true ? ['Freebuff', 'Press ENTER to login'] : READY)
+    const { script } = host
+    if (script.exitOnSpawn === true) void this.terminate()
+    if (script.trust === true) this.show(['Freebuff', 'Load and run these?'])
+    else if (script.blocker !== undefined) this.show(['Freebuff', script.blocker])
+    else if (script.stuck === true) this.show(['Freebuff'])
+    else this.show(script.login === true ? ['Freebuff', 'Press ENTER to login'] : READY)
   }
 
   private show(lines: string[]): void {
@@ -100,6 +114,9 @@ export class FakeTerminal {
         this.busy = false
         this.show(READY)
       }
+    } else if (data === 'n\r') {
+      this.host.trustAnswers += 1
+      this.show(READY)
     } else if (data === '\r') {
       if (this.pending !== undefined) this.submit(this.pending)
       this.pending = undefined
@@ -118,10 +135,16 @@ export class FakeTerminal {
       mkdirSync(join(this.host.chatsDir(this.spec.cwd), this.chatId), { recursive: true })
       this.save([{ id: this.host.nextId('d'), variant: 'ai', blocks: [{ type: 'mode-divider' }], isComplete: true }])
     }
+    if (script.silent === true) return
     this.save([...this.rows(), { id: this.host.nextId('u'), variant: 'user', content: prompt }])
     this.turns += 1
     if (script.exitOnSubmit === true) {
       void this.terminate()
+      return
+    }
+    if (script.errorRow !== undefined || script.askUser === true) {
+      const row = (script.askUser === true ? { id: this.host.nextId('a'), variant: 'ai', blocks: [{ type: 'ask-user' }], isComplete: false } : { id: this.host.nextId('e'), variant: 'error', content: script.errorRow }) as Row
+      this.save([...this.rows(), row])
       return
     }
     if (script.refusal !== undefined) {
@@ -135,7 +158,9 @@ export class FakeTerminal {
     const turn = this.turns
     this.timer = setTimeout(() => {
       const content = script.reply?.(prompt, turn) ?? `echo: ${prompt}`
-      this.save([...this.rows(), { id: this.host.nextId('a'), variant: 'ai', blocks: [{ type: 'text', textType: 'text', content }], isComplete: true }])
+      const blocks: unknown[] = script.reasoning === undefined ? [] : [{ type: 'text', textType: 'reasoning', content: script.reasoning }]
+      blocks.push({ type: 'text', textType: 'text', content })
+      this.save([...this.rows(), { id: this.host.nextId('a'), variant: 'ai', blocks, isComplete: true }])
       this.busy = false
       this.show(READY)
     }, script.replyDelayMs ?? 20)

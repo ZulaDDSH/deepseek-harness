@@ -204,3 +204,66 @@ describe('Freebuff model route', () => {
     expect(h.ctx.authorization.describe(FREEBUFF_KEY)?.methods[0]).toMatchObject({ id: 'cli', label: 'Sign in with Freebuff' })
   })
 })
+
+describe('Freebuff startup and failure paths', () => {
+  it('answers the trust prompt with n and then runs the turn', async () => {
+    const h = await harness()
+    h.host.script = { trust: true }
+    const result = await collect(h, h.session('s1', h.workspace('proj')), [userMessage('go')])
+    expect(result.text).toBe('echo: go')
+    expect(h.host.trustAnswers).toBe(1)
+  })
+
+  it('fails on a blocking prompt, an unready screen and an exit before ready', async () => {
+    const blocked = await harness()
+    blocked.host.script = { blocker: 'Enter: retry' }
+    expect(failureOf(await collect(blocked, blocked.session('s1', blocked.workspace('p')), [userMessage('go')])).message).toContain('Enter: retry')
+    const stuck = await harness({ timing: { startupTimeoutMs: 200 } })
+    stuck.host.script = { stuck: true }
+    expect(failureOf(await collect(stuck, stuck.session('s1', stuck.workspace('p')), [userMessage('go')])).message).toContain('not ready')
+    const gone = await harness()
+    gone.host.script = { exitOnSpawn: true }
+    expect(failureOf(await collect(gone, gone.session('s1', gone.workspace('p')), [userMessage('go')])).code).toBe('STREAM_CLOSED')
+  })
+
+  it('fails on an error row, a question and a prompt Freebuff never records', async () => {
+    const errored = await harness()
+    errored.host.script = { errorRow: 'Network exploded' }
+    expect(failureOf(await collect(errored, errored.session('s1', errored.workspace('p')), [userMessage('go')])).message).toBe('Network exploded')
+    const asked = await harness()
+    asked.host.script = { askUser: true }
+    expect(failureOf(await collect(asked, asked.session('s1', asked.workspace('p')), [userMessage('go')])).message).toContain('asked a question')
+    const silent = await harness({ timing: { startupTimeoutMs: 200 } })
+    silent.host.script = { silent: true }
+    expect(failureOf(await collect(silent, silent.session('s1', silent.workspace('p')), [userMessage('go')])).message).toContain('did not record')
+  })
+
+  it('fails an empty reply and streams reasoning separately from text', async () => {
+    const empty = await harness()
+    empty.host.script = { reply: () => '' }
+    expect(failureOf(await collect(empty, empty.session('s1', empty.workspace('p')), [userMessage('go')])).code).toBe('EMPTY_RESPONSE')
+    const thinking = await harness()
+    thinking.host.script = { reasoning: 'hmm', reply: () => 'done' }
+    const result = await collect(thinking, thinking.session('s1', thinking.workspace('p')), [userMessage('go')])
+    expect(result.chunks.map(chunk => chunk.type)).toEqual([
+      'block-start', 'reasoning-delta', 'block-start', 'text-delta', 'block-end', 'block-end', 'finish',
+    ])
+  })
+
+  it('does not list the model when doctor cannot answer and no marker is stored', async () => {
+    const h = await harness({ mode: 'broken', signedIn: false })
+    expect(await h.ctx.llm.listModels('freebuff')).toEqual([])
+    await h.ctx.credentials.modifyRecord(FREEBUFF_KEY, () => Promise.resolve({ kind: 'grant', payload: { via: 'freebuff-cli' } }))
+    expect((await h.ctx.llm.listModels('freebuff')).map(model => model.id)).toEqual(['default'])
+  })
+
+  it('ignores replay state written by another route and resumes from the newest Freebuff reply', async () => {
+    const h = await harness()
+    const id = h.session('s1', h.workspace('proj'))
+    const foreign = { id: 'm', role: 'assistant', content: [], source: { kind: 'model', provider: 'other', model: 'x', replayState: { kind: 'freebuff', version: 1, chatId: 'zzz' } } }
+    const bad = assistantMessage('x', { kind: 'freebuff', version: 2, chatId: 'zzz' })
+    const result = await collect(h, id, [userMessage('a'), foreign as never, bad, userMessage('b')])
+    expect(result.text).toBe('echo: b')
+    expect(h.host.spawns[0]!.argv).not.toContain('--continue')
+  })
+})

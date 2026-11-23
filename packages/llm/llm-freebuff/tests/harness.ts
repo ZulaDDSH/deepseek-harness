@@ -102,7 +102,7 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
           spawnTerminal: host.spawnTerminal,
         })
       },
-    } as never)
+    } as never, {} as never)
   }
   return {
     ctx,
