@@ -1,6 +1,7 @@
 /** A delivery whose Session activation or flush never settles must not block unrelated schedule management. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { DELIVERY_STEP_TIMEOUT_MS } from '../src/runtime.ts'
@@ -109,6 +110,41 @@ describe('stalled Session flush', () => {
     expect(await within(test.service.edit({ id: created.id, action: 'delete' }))).toEqual({ id: created.id, deleted: true })
     expect(await within(test.service.view({ id: test.due.id }))).toMatchObject({ executionActive: true })
     expect(test.stalled.followup).toHaveBeenCalledTimes(1)
+  })
+
+  it('withdraws the enqueued reminder at the flush deadline so the retry leaves one copy', async () => {
+    const test = await setup()
+    test.activation.resolve({ agent: test.stalled })
+    const queue: UserMessage[] = []
+    vi.mocked(test.stalled.followup).mockImplementation((message) => { queue.push(message) })
+    Object.assign(test.stalled, {
+      inbox: { nextTurn: queue, nextStep: [], remove: (id: string) => {
+        const index = queue.findIndex(message => message.id === id)
+        if (index >= 0) queue.splice(index, 1)
+        return index >= 0
+      } },
+    })
+    test.flush.mockImplementationOnce(() => new Promise<undefined>(() => {}))
+    await vi.advanceTimersByTimeAsync(300_000)
+    expect(queue).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(DELIVERY_STEP_TIMEOUT_MS)
+    expect(queue).toHaveLength(0)
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(test.stalled.followup).toHaveBeenCalledTimes(2)
+    expect(queue).toHaveLength(1)
+    expect(taskTable(test.ctx).get(test.due.id)?.lastDelivery).toMatchObject({ messageId: queue[0]?.id })
+  })
+
+  it('still retries and logs when the inbox cannot withdraw the unacknowledged reminder', async () => {
+    const test = await setup()
+    const warn = vi.spyOn(test.ctx.logger, 'warn')
+    test.activation.resolve({ agent: test.stalled })
+    test.flush.mockImplementationOnce(() => new Promise<undefined>(() => {}))
+    await vi.advanceTimersByTimeAsync(300_000 + DELIVERY_STEP_TIMEOUT_MS)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not withdraw the unacknowledged reminder'))
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(test.stalled.followup).toHaveBeenCalledTimes(2)
+    expect(taskTable(test.ctx).get(test.due.id)?.lastDelivery).toBeDefined()
   })
 
   it('lets disposal wait only a short grace for a flush that never settles', async () => {

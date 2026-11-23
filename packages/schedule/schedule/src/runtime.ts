@@ -422,9 +422,22 @@ export class ScheduleRuntime {
   }
 
   private async flushed(sent: EnqueuedReminder): Promise<string> {
-    const acknowledged = await this.bounded(this.ctx.sessions.flush(sent.agent.session), true)
-    if (!acknowledged) throw new Error('Session persistence did not acknowledge the reminder')
+    try {
+      const acknowledged = await this.bounded(this.ctx.sessions.flush(sent.agent.session), true)
+      if (!acknowledged) throw new Error('Session persistence did not acknowledge the reminder')
+    } catch (error: unknown) {
+      this.withdraw(sent)
+      throw error
+    }
     return new Date(Date.now()).toISOString()
+  }
+
+  private withdraw(sent: EnqueuedReminder): void {
+    try {
+      sent.agent.inbox.remove(sent.messageId)
+    } catch (error: unknown) {
+      this.ctx.logger.warn(`schedule: could not withdraw the unacknowledged reminder ${sent.messageId}: ${String(error)}`)
+    }
   }
 
   private exclusive<T>(work: () => T): Promise<T> {
