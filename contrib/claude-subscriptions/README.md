@@ -6,7 +6,9 @@ The default profile uses the local Claude Code login. Named profiles live under 
 
 Ownership is stored in `claude-accounts/.ownership.json` as an HMAC of the lowercased email and organization id, keyed by a random per-install secret in `claude-accounts/.ownership-secret`. Profile directories hold Claude credentials and are created with mode `0700` where the platform supports it. A registry file that cannot be read is copied to `.ownership.json.corrupt-<time>` and rebuilt.
 
-A sign-in that is not finished within five minutes is stopped and reported as timed out. Set `DSH_CLAUDE_LOGIN_TIMEOUT_MS` (milliseconds) before starting the Harness to change that.
+A sign-in that is not finished within five minutes is stopped and reported as timed out. Set `DSH_CLAUDE_LOGIN_TIMEOUT_MS` (milliseconds, clamped to 1000 .. 2147483647; an invalid value uses the default) before starting the Harness to change that.
+
+The notice about a managed profile displaced by the default profile is stored in the registry, so it survives a restart and disappears once that profile is signed in with another account. Other notices (duplicate sign-in, failed local sign-out) are shown once.
 
 ## Build and test
 
