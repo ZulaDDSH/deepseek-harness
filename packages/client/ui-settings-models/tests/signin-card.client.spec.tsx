@@ -43,7 +43,7 @@ function surface(options: {
   /** Notices pushed after the first answer lands, for the sequential-prompt case. */
   laterNotices?: readonly AuthorizationNotice[]
   answer?: () => Promise<{ kind: 'accepted' } | { kind: 'refused'; message: string }>
-  outcome?: 'authorized' | 'cancelled' | { kind: 'failed'; message: string }
+  outcome?: 'authorized' | 'cancelled' | { kind: 'failed'; message: string } | { kind: 'interrupted' }
   configured?: boolean
   /** Overrides of the listed flow entry, such as a stored record kind or a withheld method list. */
   entry?: Partial<typeof ENTRY> & { kind?: 'grant' | 'api-key'; borrowedFrom?: string }
@@ -330,6 +330,67 @@ describe('the sign-in card', () => {
     await waitFor(() => { expect(screen.queryByLabelText('First code')).toBeNull() })
     expect(screen.getByLabelText('Second code')).toBeTruthy()
     operations.release()
+  })
+
+  it('reports an interrupted stream as an unknown outcome and re-reads the credential state', async () => {
+    const onSignedIn = vi.fn()
+    const operations = surface({ outcome: { kind: 'interrupted' } })
+    await start(operations, onSignedIn)
+
+    expect(await screen.findByText(en.signInInterrupted)).toBeTruthy()
+    expect(screen.queryByText(en.signInCancelled)).toBeNull()
+    expect(operations.listed()).toBeGreaterThan(1)
+    expect(onSignedIn).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: en.signInRetry })).toBeTruthy()
+  })
+
+  it('shows a retryable error instead of vanishing when the flow listing fails, then recovers', async () => {
+    const operations = surface()
+    let failing = true
+    const flaky: AuthorizationOperations = {
+      ...operations,
+      list: () => failing ? Promise.reject(new Error('host unavailable')) : operations.list(),
+    }
+    render(<SignInCard provider="openai-codex" displayName="OpenAI Codex" operations={flaky} t={t} />)
+
+    expect(await screen.findByText(t('signInLoadFailed', { message: 'host unavailable' }))).toBeTruthy()
+    failing = false
+    fireEvent.click(screen.getByRole('button', { name: en.signInLoadRetry }))
+    expect(await screen.findByRole('button', { name: en.signIn })).toBeTruthy()
+    expect(screen.queryByText(t('signInLoadFailed', { message: 'host unavailable' }))).toBeNull()
+  })
+
+  it('renders nothing for a successful empty flow listing', async () => {
+    const operations: AuthorizationOperations = { ...surface(), list: () => Promise.resolve([]) }
+    const { container } = render(
+      <SignInCard provider="openai-codex" displayName="OpenAI Codex" operations={operations} t={t} />,
+    )
+    await waitFor(() => { expect(container.innerHTML).toBe('') })
+    expect(screen.queryByRole('button', { name: en.signInLoadRetry })).toBeNull()
+  })
+
+  it('ignores an older overlapping listing that settles after a newer one', async () => {
+    const operations = surface()
+    const first = Promise.withResolvers<readonly (typeof ENTRY)[]>()
+    let calls = 0
+    const overlapping: AuthorizationOperations = {
+      ...operations,
+      list: () => {
+        calls += 1
+        return calls === 1 ? first.promise : Promise.resolve([{ ...ENTRY, configured: true }])
+      },
+    }
+    const { rerender } = render(
+      <SignInCard provider="openai-codex" displayName="OpenAI Codex" operations={overlapping} t={t} refresh={0} />,
+    )
+    rerender(
+      <SignInCard provider="openai-codex" displayName="OpenAI Codex" operations={overlapping} t={t} refresh={1} />,
+    )
+    expect(await screen.findByText(en.signedIn)).toBeTruthy()
+    first.resolve([{ ...ENTRY, configured: false }])
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(screen.getByText(en.signedIn)).toBeTruthy()
+    expect(screen.queryByText(en.signedOut)).toBeNull()
   })
 
   it('does not report a withdrawn attempt as a completed sign-in', async () => {

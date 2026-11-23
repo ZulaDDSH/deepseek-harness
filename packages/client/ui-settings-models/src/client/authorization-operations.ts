@@ -22,6 +22,7 @@ export type AuthorizationOutcome =
   | { readonly kind: 'authorized' }
   /** The human withdrew, or the flow was cancelled. */
   | { readonly kind: 'cancelled' }
+  | { readonly kind: 'interrupted' }
   /** The flow failed, with the Host's own diagnostic. */
   | { readonly kind: 'failed'; readonly message: string }
 
@@ -42,7 +43,7 @@ export type AttemptStreamItem =
 export interface AuthorizationOperations {
   /**
    * List every flow this deployment can sign into.
-   * @returns one entry per registered flow; empty when the surface cannot read them.
+   * @returns one entry per registered flow; rejects when the Host refused the listing.
    */
   list(): Promise<readonly AuthorizationEntryView[]>
   /**
@@ -88,12 +89,13 @@ export function createAuthorizationOperations(
   return {
     list: async () => {
       const response = await remote.list()
-      return response.ok ? response.value : []
+      if (!response.ok) throw new Error(response.error.message)
+      return response.value
     },
     begin: async (key, method, onItem, signal) => {
       // A stream call hands back the iterable itself; a refusal (an unknown
       // flow) rejects the iteration rather than returning a RemoteResult.
-      let status: 'authorized' | 'cancelled' = 'cancelled'
+      let status: 'authorized' | 'cancelled' | undefined
       try {
         for await (const item of remote.begin(key, method, signal)) {
           if (item.type === 'end') status = item.status
@@ -102,6 +104,7 @@ export function createAuthorizationOperations(
       } catch (error: unknown) {
         return { kind: 'failed', message: error instanceof Error ? error.message : String(error) }
       }
+      if (status === undefined) return { kind: 'interrupted' }
       return status === 'authorized' ? { kind: 'authorized' } : { kind: 'cancelled' }
     },
     answer: async (attempt, prompt, value) => {
