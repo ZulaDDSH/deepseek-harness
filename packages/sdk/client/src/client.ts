@@ -33,6 +33,10 @@ import type { HarnessClientOptions, HarnessNotification, NotificationFilter } fr
 
 /** Retained stderr lines used to diagnose an unexpected runtime death. */
 const STDERR_TAIL_LIMIT = 400
+export const STDERR_LINE_LIMIT = 8_192
+export const STDERR_TAIL_CHARS = 65_536
+export const SUBSCRIPTION_QUEUE_LIMIT = 10_000
+const STDERR_TRUNCATED_MARK = '...[truncated]'
 
 /** Grace for the runtime's stdio streams to settle after its exit edge. */
 const STREAM_SETTLE_MS = 100
@@ -68,6 +72,13 @@ export class SdkProtocolError extends Error {
   constructor(message: string) {
     super(message)
     this.name = 'SdkProtocolError'
+  }
+}
+
+export class NotificationOverflowError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'NotificationOverflowError'
   }
 }
 
@@ -165,8 +176,18 @@ class NotificationSubscriptionImpl implements NotificationSubscription {
     }
     if (!matches) return
     const waiter = this.state.waiters.shift()
-    if (waiter !== undefined) waiter.resolve(notification)
-    else this.state.queue.push(notification)
+    if (waiter !== undefined) {
+      waiter.resolve(notification)
+      return
+    }
+    if (this.state.queue.length >= SUBSCRIPTION_QUEUE_LIMIT) {
+      this.unsubscribe()
+      this.fail(new NotificationOverflowError(
+        `notification subscription exceeded ${String(SUBSCRIPTION_QUEUE_LIMIT)} unread notifications`,
+      ))
+      return
+    }
+    this.state.queue.push(notification)
   }
 
   /**
@@ -195,6 +216,9 @@ export class HarnessClient {
   private child: ChildProcess | undefined
   private transport: JsonRpcLineTransport | undefined
   private readonly stderrTail: string[] = []
+  private stderrChars = 0
+  private stderrLine = ''
+  private stderrLineCut = false
   private readonly subscriptions = new Map<string, NotificationSubscriptionImpl>()
   private readonly sessionParents = new Map<string, string>()
   private subscriptionSerial = 0
@@ -239,16 +263,8 @@ export class HarnessClient {
     // The timing of that race is not deterministically reproducible.
     /* v8 ignore next */
     child.stdin.on('error', () => {})
-    let stderrBuffer = ''
     child.stderr.setEncoding('utf8')
-    child.stderr.on('data', (chunk: string) => {
-      stderrBuffer += chunk
-      const newline = stderrBuffer.lastIndexOf('\n')
-      if (newline >= 0) {
-        this.appendStderr(stderrBuffer.slice(0, newline).split('\n'))
-        stderrBuffer = stderrBuffer.slice(newline + 1)
-      }
-    })
+    child.stderr.on('data', (chunk: string) => { this.readStderr(chunk) })
     let signalStreamsSettled!: () => void
     this.streamsSettled = new Promise((resolve) => { signalStreamsSettled = resolve })
     const settled = { stderr: false, exited: false }
@@ -256,7 +272,7 @@ export class HarnessClient {
       if (settled.stderr && settled.exited) signalStreamsSettled()
     }
     child.stderr.once('close', () => {
-      if (stderrBuffer.length > 0) this.appendStderr([stderrBuffer])
+      this.endStderrLine()
       settled.stderr = true
       maybeSettle()
     })
@@ -308,6 +324,10 @@ export class HarnessClient {
         this.userQuestions.get(params.requestId)?.abort(new Error('SDK runtime cancelled the user question'))
       }
       this.dispatchNotification({ method, params })
+    })
+    transport.onFailure((error) => {
+      this.failSubscriptions(this.closedError(error.message))
+      void this.close().catch(() => {})
     })
     transport.start()
     this.transport = transport
@@ -548,11 +568,38 @@ export class HarnessClient {
     for (const controller of this.userQuestions.values()) controller.abort(error)
   }
 
+  private readStderr(chunk: string): void {
+    let rest = chunk
+    while (rest.length > 0) {
+      const newline = rest.indexOf('\n')
+      const piece = newline < 0 ? rest : rest.slice(0, newline)
+      const room = STDERR_LINE_LIMIT - this.stderrLine.length
+      if (piece.length > room) {
+        this.stderrLine += piece.slice(0, room)
+        this.stderrLineCut = true
+      } else {
+        this.stderrLine += piece
+      }
+      if (newline < 0) return
+      this.endStderrLine()
+      rest = rest.slice(newline + 1)
+    }
+  }
+
+  private endStderrLine(): void {
+    const line = this.stderrLineCut ? `${this.stderrLine}${STDERR_TRUNCATED_MARK}` : this.stderrLine
+    this.stderrLine = ''
+    this.stderrLineCut = false
+    this.appendStderr([line])
+  }
+
   private appendStderr(lines: string[]): void {
     const kept = lines.filter(line => line.length > 0)
     this.stderrTail.push(...kept)
-    if (this.stderrTail.length > STDERR_TAIL_LIMIT) {
-      this.stderrTail.splice(0, this.stderrTail.length - STDERR_TAIL_LIMIT)
+    for (const line of kept) this.stderrChars += line.length
+    while (this.stderrTail.length > STDERR_TAIL_LIMIT
+      || (this.stderrChars > STDERR_TAIL_CHARS && this.stderrTail.length > 1)) {
+      this.stderrChars -= (this.stderrTail.shift() as string).length
     }
   }
 

@@ -185,6 +185,7 @@ These limits define when the client is a poor fit or needs special care. They ar
 - **No bundled-runtime resolution** — the client resolves the same-version `@deepseek-ai/dsh` package (or a caller-provided `dshBin`); packaged-executable discovery stays Python-side until a TypeScript distribution consumer exists.
 - **No runtime cancellation request** — an RPC timeout or observer failure ends local waiting without stopping runtime work. Stopping runtime work requires closing the harness (see the [protocol limitations](../protocol/README.md#known-limitations-and-deferred-work)).
 - **No exclusive model response** — prompt results cover receipt-to-idle activity and can include steering or other queued work. Concurrent calls observe the Session's actual event stream; a command result does not own a later turn.
+- **Notification and stderr retention are bounded** — a subscription holds at most 10,000 unread notifications; the one that would exceed it fails that subscription with `NotificationOverflowError` after its queued items drain, so a run whose observer stalls fails visibly. The stderr diagnostic keeps at most 8,192 characters of each line (a cut line ends with `...[truncated]`) and 65,536 characters in total. A frame or output limit failure in the transport fails every subscription with `TransportClosedError` and closes the client.
 - **Callbacks must release their own resources** — the SDK delivers cancellation through `AbortSignal`; application work that ignores it may continue after the SDK stops awaiting its answer.
 
 <a id="dev-note"></a>
