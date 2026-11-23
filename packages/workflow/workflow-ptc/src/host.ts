@@ -198,7 +198,7 @@ export class PtcWorkflowRun implements WorkflowRun {
     private readonly claudeCliProvider: string,
     private readonly policy: SandboxExecutionPolicy,
     private readonly observer: ExecutionObserver,
-    private readonly maxDurationMs: number,
+    maxDurationMs: number,
     private readonly signal?: AbortSignal,
   ) {
     this.externalAbort = () => { this.cancel('workflow signal aborted') }
