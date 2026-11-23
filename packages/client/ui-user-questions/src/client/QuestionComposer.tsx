@@ -230,7 +230,8 @@ function QuestionFlow({ pending, t, useStore, useQuestionCard, actions }: Questi
     if (card.closed) actions.clear(pending.key)
   }, [actions, card.closed, pending.key])
   useEffect(() => {
-    actions.prune(pending.liveKeys())
+    const keep = pending.liveKeys()
+    if (keep !== undefined) actions.prune(keep)
   }, [actions, pending])
   const waitDisposition = useRef<'editing' | 'waiting' | undefined>(restoredWait)
   useEffect(() => {

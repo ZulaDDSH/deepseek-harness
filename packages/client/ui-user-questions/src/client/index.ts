@@ -81,6 +81,7 @@ interface QuestionCard {
  */
 class QuestionCards {
   readonly #cards = new Map<string, QuestionCard>()
+  readonly #projected = new Map<SessionId, ReadonlySet<string>>()
 
   constructor(private readonly publish: PendingInteractionPublisher<PendingQuestion>) {}
 
@@ -102,6 +103,16 @@ class QuestionCards {
     return this.values().filter(card => card.pending.sessionId === sessionId).map(card => card.pending.key)
   }
 
+  restored(sessionId: SessionId, keys: ReadonlySet<string> | undefined): void {
+    if (keys === undefined) this.#projected.delete(sessionId)
+    else this.#projected.set(sessionId, keys)
+  }
+
+  liveKeysFor(sessionId: SessionId): readonly string[] | undefined {
+    const projected = this.#projected.get(sessionId)
+    return projected === undefined ? undefined : [...new Set([...this.keysFor(sessionId), ...projected])]
+  }
+
   /**
    * Return the card of a tool call, creating and publishing it when absent.
    * A request without a call id always gets a fresh card.
@@ -111,7 +122,7 @@ class QuestionCards {
       const existing = this.byCallId(sessionId, callId)
       if (existing !== undefined) return existing
     }
-    return this.#create(new PendingQuestion(sessionId, questions, callId, () => this.keysFor(sessionId)))
+    return this.#create(new PendingQuestion(sessionId, questions, callId, () => this.liveKeysFor(sessionId)))
   }
 
   /** Publish one carrier into the composer seat and register the card that owns it. */
@@ -184,7 +195,7 @@ class QuestionCards {
       sessionId,
       record.questions,
       brandString<ToolCallId>(callId),
-      () => this.keysFor(sessionId),
+      () => this.liveKeysFor(sessionId),
       record.answers,
     ))
     card.reveal()
@@ -305,6 +316,7 @@ function publishContinuedQuestions(ctx: ClientContext, cards: QuestionCards): ()
       if (bound.has(sessionId)) continue
       stop()
       stopProjections.delete(sessionId)
+      cards.restored(sessionId, undefined)
     }
     for (const [sessionId, binding] of bound) {
       if (stopProjections.has(sessionId)) continue
@@ -316,6 +328,9 @@ function publishContinuedQuestions(ctx: ClientContext, cards: QuestionCards): ()
     for (const [sessionId, binding] of bound) {
       const projected = binding.session.projections.faceOf('userQuestions').getSnapshot() as
         UserQuestionProjectionView | undefined
+      cards.restored(sessionId, projected === undefined
+        ? undefined
+        : new Set(projected.active.map(row => PendingQuestion.keyOf(sessionId, row.callId))))
       const inbox = binding.session.projections.faceOf('inbox').getSnapshot() as InboxWireState | undefined
       const queued = new Set<string>()
       for (const message of [...(inbox?.['next-step'] ?? []), ...(inbox?.['next-turn'] ?? [])]) {
