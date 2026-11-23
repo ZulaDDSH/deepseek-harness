@@ -41,7 +41,7 @@ const SECRET = new RegExp([
 ].join('|'), 'gi')
 const URL_USERINFO = /\b([a-z][\w+.-]*:\/\/)[^\s:/@]+:[^\s@/]+@/gi
 const BOUND_PROJECT = /^Project: .*\(([^()\n]+)\)\s*$/m
-const REBIND = /Cannot [^.\n]+ yet\.|memorix_session_start|projectRoot/
+const REBIND = /Cannot [^.\n]+ yet\.|\bcall memorix_session_start\b/
 
 class ProjectMismatch extends Error {}
 class MemoryDisabled extends Error {}
@@ -455,6 +455,7 @@ export class MemoryAutomation {
     return this.withProject(provider, cwd, signal, async (project) => {
       const stored = await storeObservation(provider, args, signal, subject)
       if (project !== undefined && stored.project !== project) {
+        await callMemorix(provider, 'memorix_resolve', { ids: [stored.id], status: 'archived' }, signal, subject).catch(() => undefined)
         throw new ProjectMismatch(`Memorix stored this ${subject} in project ${stored.project} instead of ${project}; the server's project binding changed`)
       }
       return stored

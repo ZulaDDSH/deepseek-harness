@@ -428,7 +428,12 @@ describe('Memory policy and first-message recall', () => {
     const server = { project: 'workspace-a', bound: true }
     const stored: string[] = []
     const bindings: unknown[] = []
+    const archived: unknown[] = []
     const { ctx, db } = await fixture({ search: '', call: async (name, args) => {
+      if (name === 'memorix_resolve') {
+        archived.push({ ...args, project: server.project })
+        return { content: [{ type: 'text', text: 'resolved' }] }
+      }
       if (name === 'memorix_session_start') {
         bindings.push(args.projectRoot)
         server.project = 'workspace-a'
@@ -453,6 +458,7 @@ describe('Memory policy and first-message recall', () => {
     await save('second', 3)
     expect(bindings).toHaveLength(2)
     expect(stored.slice(1)).toEqual([expect.stringMatching(/^other-project:/), expect.stringMatching(/^workspace-a:/)])
+    expect(archived).toEqual([{ ids: [expect.any(Number)], status: 'archived', project: 'other-project' }])
     server.bound = false
     await save('third', 4)
     expect(bindings).toHaveLength(3)
