@@ -20,6 +20,8 @@ const COOKIE_PREFIX = 'dsh-auth-'
 const COOKIE_PAYLOAD_VERSION = 1
 const STORED_SECRET_VERSION = 1
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]*$/
+export const PENDING_API_PEER_DEADLINE_MS = 60_000
+export const MAX_PENDING_API_PEERS = 64
 const PROCESS_LAUNCH_TOKENS = new WeakMap<object, string>()
 
 interface StoredSecretPayload {
@@ -316,7 +318,7 @@ export class BrowserAuth {
     req: ConnectionIndexRequest,
     res: ConnectionIndexResponse,
     secure: boolean,
-    publish: (interactions: ConnectionInteractions) => PeerId,
+    publish: (interactions: ConnectionInteractions) => PeerId | undefined,
   ): void {
     const url = new URL(req.url ?? '/', 'http://dsh.invalid')
     const declarations = url.searchParams.getAll('interactions')
@@ -336,6 +338,11 @@ export class BrowserAuth {
     const issuedAt = Date.now()
     const expiresAt = issuedAt + this.maxAgeMilliseconds
     const id = publish(interactions)
+    if (id === undefined) {
+      res.writeHead(503, { 'cache-control': 'no-store', 'content-type': 'text/plain; charset=utf-8', 'retry-after': String(PENDING_API_PEER_DEADLINE_MS / 1000) })
+      res.end('too many pending API connections; attach or retry later\n')
+      return
+    }
     const value = encodeCookie({ version: 2, authority, id, issuedAt, expiresAt }, this.secret)
     res.writeHead(302, {
       'cache-control': 'no-store',

@@ -5,7 +5,7 @@ import type {} from '@deepseek-ai/dsh-credentials'
 import { CONNECT_PATH } from '@deepseek-ai/dsh-client-connection'
 import type { ConnectionTrustRequest, PeerScope } from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import { BrowserAuth } from './browser-auth.ts'
+import { BrowserAuth, MAX_PENDING_API_PEERS, PENDING_API_PEER_DEADLINE_MS } from './browser-auth.ts'
 
 /** Stable plugin name. */
 export const name = 'host-authentication-token'
@@ -43,10 +43,25 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   ctx.inject(['webServer'], (webCtx) => {
     let active = true
     const sockets = new Map<PeerScope, () => Promise<void>>()
+    const pending = new Map<PeerScope['id'], { peer: PeerScope; timer: ReturnType<typeof setTimeout> }>()
+    const disposePeer = (peer: PeerScope): Promise<void> => peer.dispose().catch((error: unknown) => {
+      console.error('[host-authentication-token] Peer release failed:', error)
+    })
+    const settlePending = (id: PeerScope['id']): void => {
+      const entry = pending.get(id)
+      if (entry === undefined) return
+      clearTimeout(entry.timer)
+      pending.delete(id)
+    }
     webCtx.effect(() => async () => {
       active = false
       apiPeers.clear()
-      await Promise.all([...sockets.values()].map(release => release()))
+      const abandoned = [...pending.values()]
+      for (const { peer } of abandoned) settlePending(peer.id)
+      await Promise.all([
+        ...abandoned.map(({ peer }) => disposePeer(peer)),
+        ...[...sockets.values()].map(release => release()),
+      ])
     }, 'host-authentication-token: API sockets')
     webCtx.on('webserver/request', async (request, response, next) => {
       const facts: ConnectionTrustRequest = request
@@ -70,9 +85,17 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
           return
         }
         auth.authorizeConnect(request, response, webCtx.webServer.protocol === 'https:', (interactions) => {
+          if (pending.size >= MAX_PENDING_API_PEERS) return undefined
           const apiPeer = webCtx.connection.createPeer({ principal: { kind: 'owner' }, interactions })
           apiPeers.set(apiPeer.id, apiPeer)
-          apiPeer.ctx.effect(() => () => { apiPeers.delete(apiPeer.id) }, 'authentication-token: API credential')
+          const timer = setTimeout(() => {
+            pending.delete(apiPeer.id)
+            apiPeers.delete(apiPeer.id)
+            void disposePeer(apiPeer)
+          }, PENDING_API_PEER_DEADLINE_MS)
+          timer.unref()
+          pending.set(apiPeer.id, { peer: apiPeer, timer })
+          apiPeer.ctx.effect(() => () => { apiPeers.delete(apiPeer.id); settlePending(apiPeer.id) }, 'authentication-token: API credential')
           return apiPeer.id
         })
       },
@@ -92,6 +115,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         return
       }
       if (!active || admittedPeer.signal.aborted) { socket.destroy(); return }
+      settlePending(admittedPeer.id)
       if (sockets.has(admittedPeer)) {
         socket.end([
           'HTTP/1.1 409 Conflict',

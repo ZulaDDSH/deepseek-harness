@@ -76,6 +76,7 @@ None; authentication does not modify model requests.
 <a id="known-limitations-and-deferred-work"></a>
 
 - Browser Cookies share one plugin-owned Peer; ending the plugin scope ends its live connections together.
+- An API Peer created by `/connect` must attach its `/api/remote.mux` socket within 60 seconds; otherwise it is disposed and its Cookie is refused, and at most 64 unattached exchanges may be outstanding (further `/connect` requests receive 503 with `Retry-After`). Reconnect through `/connect` after either.
 - Plain HTTP transports bearer Cookies without encryption. Listener TLS determines the Cookie's `Secure` attribute.
 - The token middleware owns only the root token exchange. Other HTML or product paths keep their route owner's handling, including any token query on those paths.
 
