@@ -12,7 +12,7 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto'
-import { lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { link, lstat, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { setTimeout as wait } from 'node:timers/promises'
 import { HarnessError } from '@deepseek-ai/dsh-error'
@@ -127,6 +127,20 @@ function holderExited(record: string): boolean {
   }
 }
 
+/** An unfinished record older than this must be abandoned, since a live writer finishes it in microseconds. */
+const INCOMPLETE_RECORD_GRACE_MS = 30_000
+
+/** Whether a lock or claim record proves its writer is gone: the PID exited or the record stayed incomplete past the grace. */
+async function isAbandoned(path: string, record: string): Promise<boolean> {
+  if (holderExited(record)) return true
+  if (/^\d+\n$/.test(record)) return false
+  try {
+    return Date.now() - (await stat(path)).mtimeMs > INCOMPLETE_RECORD_GRACE_MS
+  } catch {
+    return false
+  }
+}
+
 /** The lock file's content, or undefined when it cannot be read. */
 async function readLockRecord(lockPath: string): Promise<string | undefined> {
   try {
@@ -135,6 +149,26 @@ async function readLockRecord(lockPath: string): Promise<string | undefined> {
     // A lock that vanished, or that Windows is still deleting, proves nothing about a holder.
     void error
     return undefined
+  }
+}
+
+/** Removes a takeover claim whose claimant exited; a claim held by a live contender must stay. */
+async function breakAbandonedClaim(claim: string): Promise<void> {
+  const stale = await readLockRecord(claim)
+  if (stale === undefined || !await isAbandoned(claim, stale)) return
+  const tombstone = `${claim}.dead-${randomBytes(6).toString('hex')}`
+  try {
+    await rename(claim, tombstone)
+  } catch {
+    return
+  }
+  try {
+    // A tombstone with other content must be a live contender's fresh claim, which is linked back.
+    if (await readLockRecord(tombstone) !== stale) await link(tombstone, claim)
+  } catch {
+    return
+  } finally {
+    await rm(tombstone, { force: true }).catch(() => undefined)
   }
 }
 
@@ -150,18 +184,21 @@ async function readLockRecord(lockPath: string): Promise<string | undefined> {
  */
 async function takeOverExitedLock(lockPath: string): Promise<boolean> {
   const record = await readLockRecord(lockPath)
-  if (record === undefined || !holderExited(record)) return false
+  if (record === undefined || !await isAbandoned(lockPath, record)) return false
   const claim = `${lockPath}.takeover-${createHash('sha256').update(record).digest('hex').slice(0, 16)}`
   try {
     await writeFile(claim, `${process.pid}\n`, { mode: 0o600, flag: 'wx' })
   } catch (error) {
     // Another contender owns the claim for this record, or Windows still deletes the claim it released.
     const code = (error as NodeJS.ErrnoException).code
-    if (code === 'EEXIST' || code === 'EPERM') return false
+    if (code === 'EEXIST' || code === 'EPERM') {
+      await breakAbandonedClaim(claim)
+      return false
+    }
     throw error
   }
   try {
-    if (await readLockRecord(lockPath) !== record || !holderExited(record)) return false
+    if (await readLockRecord(lockPath) !== record || !await isAbandoned(lockPath, record)) return false
     try {
       await rm(lockPath, { force: true })
     } catch (error) {

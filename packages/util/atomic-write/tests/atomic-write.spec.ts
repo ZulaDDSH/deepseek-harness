@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { once } from 'node:events'
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -427,10 +427,38 @@ describe('withFileLock', () => {
     const held = record(EXITED_PID)
     await writeFile(`${target}.lock`, held)
     const claim = `${target}.lock.takeover-${createHash('sha256').update(held).digest('hex').slice(0, 16)}`
-    await writeFile(claim, '1\n')
+    await writeFile(claim, record(process.ppid))
 
     await expect(withFileLock(target, async () => {}, { waitMs: 50 })).rejects.toThrow(/timed out waiting for the writer lock/)
     expect(await readFile(`${target}.lock`, 'utf8')).toBe(held)
+    expect(await readFile(claim, 'utf8')).toBe(record(process.ppid))
+  })
+
+  it('recovers a takeover whose claimant exited before removing the dead lock', async () => {
+    probeExited()
+    const dir = await scratch()
+    const target = join(dir, 'document')
+    const held = record(EXITED_PID)
+    await writeFile(`${target}.lock`, held)
+    const claim = `${target}.lock.takeover-${createHash('sha256').update(held).digest('hex').slice(0, 16)}`
+    await writeFile(claim, held)
+
+    await expect(withFileLock(target, async () => 'acquired', { waitMs: 10_000 })).resolves.toBe('acquired')
+    expect(await readdir(dir)).toEqual([])
+  })
+
+  it.each(['', '12'])('recovers a lock and a claim whose writer exited before finishing the record %j', async (partial) => {
+    const dir = await scratch()
+    const target = join(dir, 'document')
+    const old = new Date(Date.now() - 120_000)
+    await writeFile(`${target}.lock`, partial)
+    await utimes(`${target}.lock`, old, old)
+    const claim = `${target}.lock.takeover-${createHash('sha256').update(partial).digest('hex').slice(0, 16)}`
+    await writeFile(claim, partial)
+    await utimes(claim, old, old)
+
+    await expect(withFileLock(target, async () => 'acquired', { waitMs: 10_000 })).resolves.toBe('acquired')
+    expect(await readdir(dir)).toEqual([])
   })
 
   it('keeps a lock that another contender acquired while this one claimed the exited record', async () => {
