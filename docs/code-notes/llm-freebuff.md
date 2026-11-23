@@ -68,7 +68,7 @@
 
 `packages/llm/llm-freebuff/src/session.ts:refusal`: only the last failure row of a turn counts, and a later complete reply with visible text means Freebuff recovered, so the turn goes on. When no reply follows, the failure text is raised verbatim. This is the same rule as `subagent-freebuff` `readTranscript`, so a retry inside Freebuff does not kill the chat.
 
-`packages/llm/llm-freebuff/src/session.ts:FreebuffSession.spawn`: when the headless screen cannot be created after the terminal started, the terminal is terminated and its abort controller fired before the error is rethrown, so no terminal is left running with nobody to read it.
+`packages/llm/llm-freebuff/src/session.ts:FreebuffSession.spawn`: when the headless screen cannot be created after the terminal started, the terminal is terminated and its abort controller fired before the error is rethrown, so no terminal is left running with nobody to read it. The terminal's `done` promise is observed at the same point, because nothing else has subscribed to it yet and a rejection (for example when stopping failed) would otherwise surface as an unhandled rejection.
 
 `packages/llm/llm-freebuff/src/adapter.ts:resumeOf`: a chat id from replay state is used as a directory name and as the `--continue` argument, so it must match `^[\w.-]+$` and may not start with `-` or `.`. A state with any other chat id is ignored and the next older Freebuff reply is tried.
 
