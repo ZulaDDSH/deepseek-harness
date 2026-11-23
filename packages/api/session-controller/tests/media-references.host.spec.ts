@@ -113,7 +113,8 @@ describe('SessionMediaReferences /api/file', () => {
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toBe(mediaType)
     expect(response.headers.get('content-length')).toBe(String(PNG_BYTES.length))
-    expect(response.headers.get('cache-control')).toBe('private, max-age=31536000, immutable')
+    expect(response.headers.get('cache-control')).toBe('private, no-cache')
+    expect(response.headers.get('etag')).toMatch(/^".+"$/u)
     expect(response.headers.get('x-content-type-options')).toBe('nosniff')
     expect(response.headers.get('content-security-policy')).toBe("sandbox; default-src 'none'")
     expect(await responseBytes(response)).toEqual(PNG_BYTES)
@@ -150,6 +151,27 @@ describe('SessionMediaReferences /api/file', () => {
     const next = new URL(stale.headers.get('location')!, route.url(path))
     expect(next.searchParams.get('v')).not.toBe(location.searchParams.get('v'))
     expect((await responseBytes(await route.raw(next.href))).at(-1)).toBe(9)
+  })
+
+  it('revalidates versioned responses with an ETag and answers a match with an empty 304', async () => {
+    const route = await mount()
+    const path = join(root, 'chart.png')
+    await writeFile(path, PNG_BYTES)
+    const first = await route.raw(route.url(path))
+    const location = new URL(first.headers.get('location')!, route.url(path)).href
+    const versioned = await route.raw(location)
+    const etag = versioned.headers.get('etag')!
+    expect(versioned.headers.get('cache-control')).not.toContain('immutable')
+    const readBytes = vi.spyOn(route.fs, 'readBytes')
+    const matched = await route.raw(location, { headers: { 'if-none-match': etag } })
+    expect(matched.status).toBe(304)
+    expect(matched.body).toBeNull()
+    expect(matched.headers.get('cache-control')).toBe('private, no-cache')
+    expect(readBytes).not.toHaveBeenCalled()
+    const other = await route.raw(location, { headers: { 'if-none-match': '"other"' } })
+    expect(other.status).toBe(200)
+    await rm(path)
+    expect((await route.raw(location, { headers: { 'if-none-match': etag } })).status).toBe(404)
   })
 
   it('ignores Range headers and returns complete bodies without advertising ranges', async () => {
