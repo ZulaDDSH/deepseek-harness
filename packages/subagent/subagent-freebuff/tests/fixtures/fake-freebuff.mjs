@@ -76,7 +76,7 @@ function submit(task) {
     const answer = `FAKE-ANSWER lines=${lines.length} esc=${task.includes('\x1b')} trust=${trust} args=${process.argv.slice(2).join(',')}`
     const finish = text => writeChat('fake-chat', [user, { variant: 'ai', content: text, isComplete: true }])
     if (mode === 'error') {
-      writeChat('fake-chat', [user, { variant: 'ai', content: 'partial', userError: 'boom: usage policy refusal' }])
+      writeChat('fake-chat', [user, { variant: 'ai', content: 'partial', userError: process.env.FAKE_FREEBUFF_REFUSAL ?? 'boom: usage policy refusal' }])
     } else if (mode === 'recover') {
       writeChat('fake-chat', [user, { variant: 'ai', content: 'partial', userError: 'transient' }])
       setTimeout(() => writeChat('fake-chat', [user, { variant: 'ai', content: 'partial', userError: 'transient' }, { variant: 'ai', content: 'RECOVERED-ANSWER', isComplete: true }]), 100)

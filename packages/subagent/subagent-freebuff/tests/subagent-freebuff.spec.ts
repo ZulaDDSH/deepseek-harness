@@ -187,6 +187,16 @@ describe('Freebuff provider driving the TUI', () => {
     await run.dispose()
   }, TEST_TIMEOUT_MS)
 
+  it('reports a long refusal whole, keeping its line breaks', async () => {
+    const refusal = `Your request was refused by the usage policy.
+${'Detailed reason. '.repeat(60)}End of refusal.`
+    const { ctx } = await providerContext('error', { env: { FAKE_FREEBUFF_TRANSCRIPT: '1', FAKE_FREEBUFF_REFUSAL: refusal } })
+    const run = await startAs(ctx, request())
+    const result = await run.result
+    expect(result.diagnostic).toContain(`Freebuff reported an error: ${refusal}`)
+    await run.dispose()
+  }, TEST_TIMEOUT_MS)
+
   it('completes when a recoverable product error is followed by a complete answer', async () => {
     const { ctx } = await providerContext('recover', { env: { FAKE_FREEBUFF_TRANSCRIPT: '1' } })
     const run = await startAs(ctx, request())

@@ -86,7 +86,7 @@ The bundle inserts `tool-subagent-freebuff` as a Host row, so `subagent_freebuff
 
 ### What you get
 
-The completion notice contains the selected Freebuff answer, or the stop reason and a safe diagnostic. Diagnostics name the stage and category and, for a product error, Freebuff's own error text flattened and cut to 400 characters; they never include raw terminal text. The parent Session retains the external task identity and complete terminal result; no local child Session is created. Freebuff's reasoning, tool activity and workspace diffs do not enter the parent Session.
+The completion notice contains the selected Freebuff answer, or the stop reason and a safe diagnostic. Diagnostics name the stage and category and, for a product error, Freebuff's own error text in full, without control characters; they never include raw terminal text. The parent Session retains the external task identity and complete terminal result; no local child Session is created. Freebuff's reasoning, tool activity and workspace diffs do not enter the parent Session.
 
 ### Failure and recovery
 
@@ -191,7 +191,7 @@ These limits define when this provider is a poor fit or needs special operationa
 - **One fresh process and one turn per run** — there is no continuation, resume or pooling. Progress lines are not forwarded.
 - **A paused question or a waiting room ends at a timeout** — a Freebuff question to the user, or a free-tier waiting room, has no recognised marker, so the run ends at `timeoutMs` or `startupTimeoutMs`.
 - **No sandbox and no approval path** — Freebuff edits files and runs commands with the user's rights, so only `danger-full-access` parents are accepted.
-- **Windows is lightly verified** — the provider passes a `.cmd` shim from `PATH` straight to the pseudo-terminal, which started the installed Freebuff once, and runs it for the doctor call as `ComSpec /d /c` with the quoted path in an environment variable so a path with spaces works. ConPTY sessions sit outside Job containment, so descendant cleanup relies on the terminal handle's termination.
+- **Windows is lightly verified** — the provider starts a `.cmd` or `.bat` shim from `PATH`, in the pseudo-terminal and for the doctor call, as `ComSpec /d /c` with the quoted path in an environment variable so a path with spaces works. The pseudo-terminal start through that wrapper is covered by tests only; a direct start of the shim worked once with the installed Freebuff. ConPTY sessions sit outside Job containment, so descendant cleanup relies on the terminal handle's termination.
 - **Transcript lookup needs an exact task match** — a chat is used only when its last user message equals the task, so a concurrent Freebuff in the same project is not mistaken for this run; a Freebuff that rewrites the task text falls back to the screen.
 - **No optional shared capabilities** — `agentPreset`, `agentOptions`, output schemas and harness depth enforcement are rejected by the shared service for this provider.
 - **No side-effect rollback** — files changed before cancellation are not restored.

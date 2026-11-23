@@ -122,6 +122,8 @@ class FreebuffProvider implements SubagentProvider {
       timeoutMs: this.config.timeoutMs,
       disposeGraceMs: this.config.disposeGraceMs,
       configDir: freebuffConfigDir({ ...process.env, ...this.config.env }),
+      platform: process.platform,
+      comSpec: process.env.ComSpec,
       spawnTerminal: terminalSpec => subprocess.spawnTerminal(terminalSpec),
       onError: (error, stopReason) => {
         const tail = error instanceof FreebuffRunFailure && error.screenTail !== undefined

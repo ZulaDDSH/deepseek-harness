@@ -9,6 +9,8 @@ const SIGNED_OUT_FINDINGS: ReadonlySet<string> = new Set([
 const DOCTOR_STDOUT_MAX_BYTES = 1_048_576
 const DOCTOR_STDERR_MAX_BYTES = 4_096
 const SHIM_VARIABLE = 'DSH_FREEBUFF_DOCTOR_EXE'
+const SHIM_PATTERN = /\.(?:cmd|bat)$/i
+const SHELL_METACHARACTERS = /[&|<>^%"]/
 
 export interface LoginCheck {
   readonly spawn: (spec: SubprocessSpawnSpec) => SubprocessHandle
@@ -27,14 +29,24 @@ export interface DoctorCommand {
   readonly env: Record<string, string>
 }
 
-export function doctorCommand(executable: string, platform: NodeJS.Platform, comSpec: string | undefined): DoctorCommand {
-  if (platform === 'win32' && /\.(?:cmd|bat)$/i.test(executable)) {
-    return {
-      argv: [comSpec ?? 'cmd.exe', '/d', '/c', `%${SHIM_VARIABLE}%`, 'doctor', '--json'],
-      env: { [SHIM_VARIABLE]: `"${executable}"` },
-    }
+export function launchCommand(
+  executable: string,
+  args: readonly string[],
+  platform: NodeJS.Platform,
+  comSpec: string | undefined,
+): DoctorCommand {
+  if (platform !== 'win32' || !SHIM_PATTERN.test(executable)) return { argv: [executable, ...args], env: {} }
+  if (args.some(arg => SHELL_METACHARACTERS.test(arg))) {
+    throw new Error('subagent-freebuff: a Windows batch shim cannot be given an argument that contains & | < > ^ % or a double quote')
   }
-  return { argv: [executable, 'doctor', '--json'], env: {} }
+  return {
+    argv: [comSpec ?? 'cmd.exe', '/d', '/c', `%${SHIM_VARIABLE}%`, ...args],
+    env: { [SHIM_VARIABLE]: `"${executable}"` },
+  }
+}
+
+export function doctorCommand(executable: string, platform: NodeJS.Platform, comSpec: string | undefined): DoctorCommand {
+  return launchCommand(executable, ['doctor', '--json'], platform, comSpec)
 }
 
 export function freebuffLoginFailure(stdout: string): string | undefined {

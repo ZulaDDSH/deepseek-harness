@@ -17,6 +17,7 @@ import type {
   SubprocessTerminalSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
 import { FreebuffNotLoggedInError, FreebuffRunFailure } from './errors.ts'
+import { launchCommand, type DoctorCommand } from './login.ts'
 import { classifyScreen, CLIPPED_NOTICE, FreebuffScreen, screenAnswer, type ScreenState } from './screen.ts'
 import { findChatFile, readTranscript } from './transcript.ts'
 
@@ -32,7 +33,6 @@ const PASTE_SETTLE_MS = 150
 const PASTE_START = '\x1b[200~'
 const PASTE_END = '\x1b[201~'
 const SCREEN_TAIL_ROWS = 12
-const PRODUCT_ERROR_MAX_CHARS = 400
 
 export interface FreebuffRunSpec {
   readonly cwd: string
@@ -45,6 +45,8 @@ export interface FreebuffRunSpec {
   readonly timeoutMs: number
   readonly disposeGraceMs: number
   readonly configDir: string
+  readonly platform: NodeJS.Platform
+  readonly comSpec: string | undefined
   readonly spawnTerminal: (spec: SubprocessTerminalSpawnSpec) => Promise<SubprocessTerminalHandle>
   readonly onError?: (error: Error, stopReason: SubagentStopReason) => void
 }
@@ -86,9 +88,7 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 function productErrorDetail(text: string): string {
-  const flat = text.replace(/[\p{Cc}\s]+/gu, ' ').trim()
-  const shown = flat.length > PRODUCT_ERROR_MAX_CHARS ? `${flat.slice(0, PRODUCT_ERROR_MAX_CHARS)}...` : flat
-  return `Freebuff reported an error: ${shown}`
+  return `Freebuff reported an error: ${text.replace(/[^\P{Cc}\n\t]/gu, '').trim()}`
 }
 
 function exitDetail(outcome: SubprocessOutcome): string {
@@ -105,13 +105,18 @@ export async function startFreebuffRun(
   if (request.signal.aborted) throw new Error('subagent-freebuff: request was aborted before startup')
 
   const startedAt = Date.now()
-  const argv = [spec.executable, ...spec.args, ...spec.trustAgents ? ['--trust-agents'] : []]
+  let launch: DoctorCommand
+  try {
+    launch = launchCommand(spec.executable, [...spec.args, ...spec.trustAgents ? ['--trust-agents'] : []], spec.platform, spec.comSpec)
+  } catch (error: unknown) {
+    throw new FreebuffRunFailure('startup', 'process', 'the Freebuff command line cannot be passed through the Windows shell', undefined, error)
+  }
   let terminal: SubprocessTerminalHandle
   try {
     terminal = await spec.spawnTerminal({
-      argv,
+      argv: launch.argv,
       cwd: spec.cwd,
-      env: spec.env,
+      env: { ...spec.env, ...launch.env },
       rows: ROWS,
       cols: COLS,
       terminalType: 'xterm-256color',

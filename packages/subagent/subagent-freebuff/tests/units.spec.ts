@@ -4,7 +4,7 @@ import { PassThrough } from 'node:stream'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { SubprocessHandle, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+import type { SubprocessHandle, SubprocessSpawnSpec, SubprocessTerminalSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import Runtime from '@deepseek-ai/dsh-subprocess-local'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -13,8 +13,8 @@ import {
   FreebuffNotLoggedInError,
   FreebuffRunFailure,
 } from '../src/errors.ts'
-import { checkFreebuffLogin, doctorCommand, freebuffLoginFailure } from '../src/login.ts'
-import { startFreebuffRun, taskText } from '../src/run.ts'
+import { checkFreebuffLogin, doctorCommand, freebuffLoginFailure, launchCommand } from '../src/login.ts'
+import { startFreebuffRun, taskText, type FreebuffRunSpec } from '../src/run.ts'
 import { classifyScreen, FreebuffScreen, screenAnswer } from '../src/screen.ts'
 import { findChatFile, freebuffConfigDir, readTranscript } from '../src/transcript.ts'
 
@@ -400,8 +400,60 @@ describe('startFreebuffRun abort handling', () => {
       timeoutMs: 5_000,
       disposeGraceMs: 100,
       configDir: tmpdir(),
+      platform: process.platform,
+      comSpec: undefined,
       spawnTerminal,
     })).rejects.toThrow('aborted before run publication')
     expect(terminate).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('Freebuff launch through a Windows batch shim', () => {
+  const SHIM = 'C:\Program Files (x86)\Free buff\freebuff.cmd'
+
+  function runSpec(args: readonly string[], spawnTerminal: (spec: SubprocessTerminalSpawnSpec) => Promise<never>): FreebuffRunSpec {
+    return {
+      cwd: tmpdir(),
+      executable: SHIM,
+      args,
+      env: { KEEP: '1' },
+      trustAgents: true,
+      startupTimeoutMs: 400,
+      idleMs: 100,
+      timeoutMs: 5_000,
+      disposeGraceMs: 100,
+      configDir: tmpdir(),
+      platform: 'win32',
+      comSpec: 'C:\Windows\System32\cmd.exe',
+      spawnTerminal,
+    }
+  }
+
+  const request = { prompt: [{ type: 'text', text: 'task' }], signal: new AbortController().signal } as never
+
+  it('wraps the shim and refuses shell metacharacters only for a shim', () => {
+    expect(launchCommand(SHIM, ['--a'], 'win32', undefined)).toEqual({
+      argv: ['cmd.exe', '/d', '/c', '%DSH_FREEBUFF_DOCTOR_EXE%', '--a'],
+      env: { DSH_FREEBUFF_DOCTOR_EXE: `"${SHIM}"` },
+    })
+    expect(() => launchCommand(SHIM, ['a&b'], 'win32', undefined)).toThrow('cannot be given an argument')
+    expect(launchCommand('/usr/bin/freebuff', ['a&b'], 'linux', undefined).argv).toEqual(['/usr/bin/freebuff', 'a&b'])
+    expect(launchCommand('C:\bin\freebuff.exe', ['a&b'], 'win32', undefined).argv).toEqual(['C:\bin\freebuff.exe', 'a&b'])
+  })
+
+  it('starts the terminal through the command interpreter with the shim path in the environment', async () => {
+    let seen: SubprocessTerminalSpawnSpec | undefined
+    await expect(startFreebuffRun(request, runSpec(['--x'], async (spec) => {
+      seen = spec
+      throw new Error('stop here')
+    }))).rejects.toThrow('could not be started')
+    expect(seen?.argv).toEqual(['C:\Windows\System32\cmd.exe', '/d', '/c', '%DSH_FREEBUFF_DOCTOR_EXE%', '--x', '--trust-agents'])
+    expect(seen?.env).toEqual({ KEEP: '1', DSH_FREEBUFF_DOCTOR_EXE: `"${SHIM}"` })
+  })
+
+  it('fails the startup without spawning when an argument cannot pass through the shell', async () => {
+    const spawnTerminal = vi.fn(async (): Promise<never> => { throw new Error('unreachable') })
+    await expect(startFreebuffRun(request, runSpec(['--x=%PATH%'], spawnTerminal))).rejects.toThrow('cannot be passed through the Windows shell')
+    expect(spawnTerminal).not.toHaveBeenCalled()
   })
 })
