@@ -200,6 +200,19 @@ describe('observeJobOutput', () => {
     expect(() => ctx.jobs.get(job.id, owner.id)).toThrow(/unknown job/)
   })
 
+  it('marks unread output as a gap when the job is removed inside the flush window', async () => {
+    const ctx = await harness()
+    const owner = await registerAgent(ctx, 'observer-owner')
+    const job = startJob(ctx, { label: 'torn down', owner: owner.id })
+    const { frames, done } = observed(ctx, { jobId: job.id, sessionId: owner.id })
+    await wait(20)
+    job.append('late')
+    await owner.disposeScope()
+    await done
+    expect(frames.map(frame => frame.type)).toEqual(['opened', 'output', 'status'])
+    expect(frames[1]).toMatchObject({ type: 'output', chunks: [], next: 4, lossy: true })
+  })
+
   it('stops cleanly on abort while waiting for output', async () => {
     const ctx = await harness()
     const job = startJob(ctx, { label: 'idle' })
