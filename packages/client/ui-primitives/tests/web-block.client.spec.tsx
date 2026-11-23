@@ -209,4 +209,9 @@ describe('WebBlock fetch card', () => {
     const view = render(<WebBlock kind="fetch" url="https://example.com/missing" statusCode={404} truncated={false} />)
     expect(view.getByText('HTTP 404')).toBeTruthy()
   })
+
+  it('omits the status when the fetch service reported none', () => {
+    const view = render(<WebBlock kind="fetch" url="https://example.com/page" truncated={false} />)
+    expect(view.container.textContent).not.toContain('HTTP')
+  })
 })

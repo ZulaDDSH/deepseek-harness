@@ -20,7 +20,7 @@
 
 `packages/web/web-deepseek-api/src/index.ts:Config` (finding 342): `sendOriginalQuestion` defaults to false, so the Search API receives only the model's own query unless an operator opts in to sending the 128-character prompt prefix as `ori_question`.
 
-`packages/web/web-deepseek-api/src/fetch.ts:DeepSeekFetchApiProvider::fetch` (finding 343): the result carries no `statusCode` because the Fetch API reports neither the target's status nor a final URL; `WebFetchResult.statusCode` is optional, the tool header says the status and final URL were not reported, the tool output schema and card meta omit it, and a client whose card needs a status falls back to the generic card for such results.
+`packages/web/web-deepseek-api/src/fetch.ts:DeepSeekFetchApiProvider::fetch` (finding 343): the result carries no `statusCode` because the Fetch API reports neither the target's status nor a final URL; `WebFetchResult.statusCode` is optional, the tool header says the status and final URL were not reported, the tool output schema and card meta omit it, and the web fetch card (`packages/web/tool-web/src/fetch.ts:fetchMetaFromResult`, `packages/client/ui-tool/src/client/tool/models/web-card-model.ts:webCardModel`, `packages/client/ui-primitives/src/WebBlock.tsx:WebBlock`) accepts the absent status and renders no HTTP label instead of falling back to the generic card; a present but non-numeric status is still malformed.
 
 `packages/web/web-fetch-http/src/provider.ts:HttpFetchProvider::followAndRead` (finding 340): resolving the redirect `Location` happens inside the try block that cancels the unfinished redirect body, so an unparseable `Location` such as `http://[` closes the response and still fails as `WEB_PROVIDER_ERROR`.
 

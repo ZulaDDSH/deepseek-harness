@@ -379,7 +379,7 @@ export interface WebFetchResultView {
   /** The final URL after allowed redirects. */
   url: string
   /** HTTP status code of the fetched response. */
-  statusCode: number
+  statusCode?: number
   /**
    * True when the provider capped the decoded body, or the output cap or a
    * pre-conversion source cut trimmed the rendered text (the effective

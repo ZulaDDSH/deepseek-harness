@@ -72,11 +72,11 @@ export function webCardModel(block: ToolCallBlock): WebCardModelProps | null {
     }
   }
   if (typeof meta.url !== 'string') return null
-  if (typeof meta.statusCode !== 'number' || !Number.isInteger(meta.statusCode)) return null
+  if (meta.statusCode !== undefined && (typeof meta.statusCode !== 'number' || !Number.isInteger(meta.statusCode))) return null
   return {
     kind: 'fetch',
     url: meta.url,
-    statusCode: meta.statusCode,
+    ...meta.statusCode === undefined ? {} : { statusCode: meta.statusCode },
     truncated: meta.truncated,
   }
 }

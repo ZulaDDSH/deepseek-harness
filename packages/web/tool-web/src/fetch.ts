@@ -411,7 +411,7 @@ export interface WebFetchMeta {
   /** The final URL after allowed redirects. */
   url: string
   /** HTTP status code of the fetched response. */
-  statusCode: number
+  statusCode?: number
   /** True when the provider, a source cut, or the output cap trimmed the content. */
   truncated: boolean
 }
@@ -447,8 +447,8 @@ export function fetchMetaFromValue(value: WebFetchResult, maxOutputChars: number
 export function fetchMetaFromResult(meta: unknown): WebFetchMeta | undefined {
   if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) return undefined
   const { url, statusCode, truncated } = meta as Record<string, unknown>
-  if (typeof url !== 'string' || typeof statusCode !== 'number' || typeof truncated !== 'boolean') return undefined
-  return { url, statusCode, truncated }
+  if (typeof url !== 'string' || (statusCode !== undefined && typeof statusCode !== 'number') || typeof truncated !== 'boolean') return undefined
+  return { url, ...statusCode === undefined ? {} : { statusCode }, truncated }
 }
 
 /**
@@ -472,7 +472,7 @@ export function presentFetchResult(args: { url: string }, result: ToolResult): W
     kind: 'fetch',
     title: args.url,
     url: meta.url,
-    statusCode: meta.statusCode,
+    ...meta.statusCode === undefined ? {} : { statusCode: meta.statusCode },
     truncated: meta.truncated,
   }
 }

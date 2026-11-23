@@ -13,6 +13,7 @@ import ToolRuntime, { type ResolvedToolSet, type ToolExecutionInput, type ToolEx
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import WebRuntime from '@deepseek-ai/dsh-web'
 import type { WebFetchProvider, WebSearchProvider, WebSearchResult } from '@deepseek-ai/dsh-web'
+import { DeepSeekFetchApiProvider } from '@deepseek-ai/dsh-web-deepseek-api'
 import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
 import {
   formatSearchOutput,
@@ -473,6 +474,25 @@ describe('web_fetch presentation meta and result view', () => {
     })
   })
 
+  it('presents a result without a status code, as the DeepSeek Fetch API returns it', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ content: '# Title' }), { status: 200, headers: { 'content-type': 'application/json' } })))
+    try {
+      const provider = new DeepSeekFetchApiProvider(() => ({
+        auth: { sources: [{ kind: 'api-key', baseURL: 'https://api.deepseek.test/api/v1/tools', key: 'ds-key' }] },
+        guidance: {} as never,
+      }))
+      const value = await provider.fetch({ url: 'https://a.test' })
+      const meta = fetchMetaFromValue(value, NO_CAP)
+      expect(meta).toEqual({ url: 'https://a.test', truncated: false })
+      expect(fetchMetaFromResult(meta)).toEqual({ url: 'https://a.test', truncated: false })
+      expect(presentFetchResult({ url: 'https://a.test' }, toolResult(meta, '# Title'))).toEqual({
+        card: 'web', kind: 'fetch', title: 'https://a.test', url: 'https://a.test', truncated: false,
+      })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('falls back to the generic card on an error result', () => {
     const meta = fetchMetaFromValue({ url: 'https://a.test', statusCode: 200, truncated: false, body: { kind: 'text', content: 'ok' } }, NO_CAP)
     expect(presentFetchResult({ url: 'https://a.test' }, toolResult(meta, 'body', true))).toBeUndefined()
@@ -488,6 +508,7 @@ describe('web_fetch presentation meta and result view', () => {
     expect(fetchMetaFromResult({ url: 1, statusCode: 200, truncated: false })).toBeUndefined()
     expect(fetchMetaFromResult({ url: 'u', statusCode: 'x', truncated: false })).toBeUndefined()
     expect(fetchMetaFromResult({ url: 'u', statusCode: 200, truncated: 'no' })).toBeUndefined()
+    expect(fetchMetaFromResult({ url: 'u', truncated: false })).toEqual({ url: 'u', truncated: false })
   })
 })
 
