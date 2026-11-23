@@ -726,7 +726,7 @@ describe('Schedule dispatch failures and concurrent changes', () => {
         expect(stop).not.toHaveBeenCalled()
       })
       await entered.promise
-      expect(vi.getTimerCount()).toBe(1)
+      expect(vi.getTimerCount()).toBe(0)
       released.resolve(undefined)
       await retired
       await unloading
