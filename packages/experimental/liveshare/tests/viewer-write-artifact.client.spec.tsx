@@ -141,6 +141,7 @@ describe('Assembled liveshare viewer page on a writable share', () => {
     expect(screen.queryByRole('menuitem', { name: '重命名' })).toBeNull()
     expect(screen.queryByRole('menuitem', { name: '归档会话' })).toBeNull()
     await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }) })
+    await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }) })
     await waitFor(() => { expect(screen.queryByRole('menu')).toBeNull() })
 
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '停止生成' })) })
