@@ -23,6 +23,9 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
+const MAX_STAGED_PER_SESSION = 100
+const MAX_STAGED_BYTES_PER_SESSION = 4 * 1024 * 1024 * 1024
+
 interface StagedFileUpload {
   readonly attachment: StagedAttachment
   /** Prompt that accepted this receipt; absent until successful admission. */
@@ -235,6 +238,7 @@ export class FileUploads extends TypertRemoteService {
   /** Store one upload for an ordinary Agent; storage failures become Remote failures. */
   private async store<T>(agent: Agent, save: () => Promise<T>): Promise<T> {
     this.assertOrdinaryAgent(agent)
+    this.assertSessionQuota(agent, 0)
     try {
       return await save()
     } catch (error) {
@@ -251,6 +255,24 @@ export class FileUploads extends TypertRemoteService {
     }
   }
 
+  private assertSessionQuota(agent: Agent, incomingBytes: number): void {
+    const staged = this.stagedFiles.get(agent.session)
+    let bytes = incomingBytes
+    for (const { attachment } of staged?.values() ?? []) {
+      bytes += attachment.type === 'file' ? attachment.attachment.bytes : attachment.encodedBytes
+    }
+    const reason = (staged?.size ?? 0) >= MAX_STAGED_PER_SESSION
+      ? 'TOO_MANY_STAGED_FILES'
+      : bytes > MAX_STAGED_BYTES_PER_SESSION ? 'STAGED_FILES_TOO_LARGE' : undefined
+    if (reason !== undefined) {
+      throw new RemoteError(
+        'session/attachment-invalid' as never,
+        'This session holds too many uploaded files that have not been sent; send a message that uses them, or start a new session.',
+        { reason } as never,
+      )
+    }
+  }
+
   /** Stage one stored upload under a new receipt for the Agent's exact Session. */
   private stage(agent: Agent, attachment: StagedAttachment): FileUploadReceiptId {
     if (this.ctx.agents.get(agent.id) !== agent) {
@@ -260,6 +282,7 @@ export class FileUploads extends TypertRemoteService {
         { sessionId: agent.id },
       )
     }
+    this.assertSessionQuota(agent, attachment.type === 'file' ? attachment.attachment.bytes : attachment.encodedBytes)
     let staged = this.stagedFiles.get(agent.session)
     if (staged === undefined) {
       staged = new Map()

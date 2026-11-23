@@ -7,7 +7,7 @@ kind: "package-reference"
 
 ## Summary
 
-Attach images and generic files to prompts and commands, then reuse them after restarting the same session, without extra setup in the shipped `dsh` composition. Images are validated and normalized before the message is accepted; PNG, JPEG, WebP, and GIF are supported within deployment limits. Other files are stored byte-for-byte without format or size limits, and models read them on demand through saved read-only paths instead of receiving their bytes. Durable session events exclude browser paths, provider URLs, local storage paths, and base64. Stored attachments are never deleted automatically; audio and video have no dedicated handling.
+Attach images and generic files to prompts and commands, then reuse them after restarting the same session, without extra setup in the shipped `dsh` composition. Images are validated and normalized before the message is accepted; PNG, JPEG, WebP, and GIF are supported within deployment limits. Other files are stored byte-for-byte without a format limit and under the backend's file-size limits, and models read them on demand through saved read-only paths instead of receiving their bytes. Durable session events exclude browser paths, provider URLs, local storage paths, and base64. Stored attachments are never deleted automatically; audio and video have no dedicated handling.
 
 ## Table of Contents
 
@@ -35,7 +35,7 @@ Attach one or more images to a user prompt in the client UI. Each source is chec
 
 ### Attach any other file to a prompt
 
-Any non-image file attaches to a prompt as a generic file: the exact bytes are saved read-only under the harness home, the message records the file name, byte size, and content digest, and the model receives one line naming the saved path so it can read the content with its file tools only when needed. There is no file-type whitelist and no size limit; what you attach is stored verbatim.
+Any non-image file attaches to a prompt as a generic file: the exact bytes are saved read-only under the harness home, the message records the file name, byte size, and content digest, and the model receives one line naming the saved path so it can read the content with its file tools only when needed. There is no file-type whitelist; what you attach is stored verbatim unless it exceeds the backend's per-file or total file-size limit.
 
 ### Pass attachments to commands
 
@@ -66,7 +66,7 @@ This section explains the design decisions behind the seam and the service opera
 - **Verify on read.** Reads verify the immutable object against the supplied reference without consulting a Session. Optional display names and pre-normalization dimensions pass through as caller-supplied display information; the stored bytes do not verify these fields.
 - **Role-neutral image blocks.** The `ImageBlock` content block in `dsh-llm` carries an `ImageAttachmentRef`; provider adapters resolve it into deterministic request versions at an explicit route-chosen target size and byte target, while execution filesystems may map the immutable host object to a model-readable process path.
 - **Error routing by code.** `AttachmentError` extends `HarnessError` from the dependency-free `dsh-error`, so tool results keep its `name` and `code`; consumers use `isAttachmentError`, which matches the code across duplicate installations, and route on `code`.
-- **Files are verbatim, images are normalized.** `saveFile` commits an existing byte array, `saveFileStream` commits bounded chunks with backpressure and cancellation, `readFileStream` verifies and returns bounded chunks, and `fileHostPath` locates the stored object for read-on-demand projection; neither file write path applies admission limits. The image path keeps its separate normalization, limits, and request-version pipeline. The `FileBlock` content block in `dsh-llm` carries a `FileAttachmentRef`, and request assembly projects it to deterministic handle text for every route.
+- **Files are verbatim, images are normalized.** `saveFile` commits an existing byte array, `saveFileStream` commits bounded chunks with backpressure and cancellation, `readFileStream` verifies and returns bounded chunks, and `fileHostPath` locates the stored object for read-on-demand projection; neither file write path applies image admission limits, and a backend may refuse by size with `FILE_TOO_LARGE` or `FILE_STORE_FULL`. The image path keeps its separate normalization, limits, and request-version pipeline. The `FileBlock` content block in `dsh-llm` carries a `FileAttachmentRef`, and request assembly projects it to deterministic handle text for every route.
 
 ### Service operations
 
@@ -113,8 +113,8 @@ Adding an image changes the provider request and therefore invalidates the affec
 
 These limits describe what attachments can and cannot do; they are current package constraints, not a task backlog.
 
-- **Raster image limits apply to images only** — PNG, JPEG, WebP, and GIF are accepted as images under deployment limits; every other file is stored verbatim with no type or size limit, and audio and video have no dedicated handling yet.
-- **Attachments are never deleted** — stored images and files are retained indefinitely; nothing removes them automatically.
+- **Raster image limits apply to images only** — PNG, JPEG, WebP, and GIF are accepted as images under deployment limits; every other file is stored verbatim with no type limit and only the backend's per-file and total size limits (the local backend refuses past `FILE_TOO_LARGE` and `FILE_STORE_FULL`), and audio and video have no dedicated handling yet.
+- **Attachments are never deleted** — stored images and files are retained indefinitely; nothing removes them automatically, so unsent uploads keep counting against the backend's total file limit.
 - **Unsent drafts are not saved** — a composer draft stays in the browser until you submit the message.
 
 <a id="dev-note"></a>
