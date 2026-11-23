@@ -144,6 +144,8 @@ export class BasicCompactionEngine extends CompactionEngine {
   private readonly overflowAgents = new WeakMap<Session, Agent>()
   /** Registered at construction; `summarize()` awaits it, so no read precedes readiness. */
   private readonly answeredRoute: Promise<ProjectionHandle<AnsweredRoute>>
+  private readonly summaryRouteOverride = new WeakMap<Agent, SummaryRoute>()
+  private readonly conversationSummaryFailed = new WeakSet<Agent>()
   private readonly pressureBackoff = new WeakMap<Agent, { generation: number; failures: number; skipSteps: number }>()
 
   constructor(ctx: Context, config: BasicCompactionConfig = {}) {
@@ -214,7 +216,7 @@ export class BasicCompactionEngine extends CompactionEngine {
         || (previous.config.provider === config.provider && previous.config.model === config.model)) return config
       try {
         const header = { ...previous, config }
-        const result = await this.compactPressure(agent, header, signal, true)
+        const result = await this.compactForSwitch(agent, header, signal)
         if (result !== null) logResult(result, 'model switch')
       } catch (error: unknown) {
         signal.throwIfAborted()
@@ -323,11 +325,17 @@ export class BasicCompactionEngine extends CompactionEngine {
     agent: Agent,
     signal?: AbortSignal,
   ): Promise<SummaryResult> {
-    const target = conversationTarget(agent, (await this.answeredRoute).stateOf(agent.session))
+    const override = this.summaryRouteOverride.get(agent)
+    const target = override ?? conversationTarget(agent, (await this.answeredRoute).stateOf(agent.session))
     const config = target === undefined
       ? this.config
       : resolveTargetPolicy(this.config, target)
-    return summarizeWithLlm(this.ctx, config, input, agent, target, signal)
+    try {
+      return await summarizeWithLlm(this.ctx, config, input, agent, target, signal)
+    } catch (error: unknown) {
+      if (override === undefined && config.summarizationProvider.length === 0) this.conversationSummaryFailed.add(agent)
+      throw error
+    }
   }
 
   /**
@@ -371,12 +379,40 @@ export class BasicCompactionEngine extends CompactionEngine {
     }
   }
 
+  /** Constraint: the destination retry must run only after a conversation-route summary failure. */
+  private async compactForSwitch(
+    agent: Agent,
+    header: EpochHeader,
+    signal: AbortSignal,
+  ): Promise<CompactionResult | null> {
+    this.conversationSummaryFailed.delete(agent)
+    try {
+      return await this.compactPressure(agent, header, signal, true)
+    } catch (error: unknown) {
+      signal.throwIfAborted()
+      const destination = completeRoute(header.config)
+      if (destination === undefined || !this.conversationSummaryFailed.has(agent)) throw error
+      this.ctx.logger.warn(`summary on the previous route failed; retrying on ${destination.provider}/${destination.model}`)
+      this.summaryRouteOverride.set(agent, destination)
+      try {
+        return await this.compactPressure(agent, header, signal, true, true)
+      } catch (fallbackError: unknown) {
+        signal.throwIfAborted()
+        this.ctx.logger.warn(`summary on the destination route failed: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`)
+        throw error
+      } finally {
+        this.summaryRouteOverride.delete(agent)
+      }
+    }
+  }
+
   /** Price the proposed header; switch checks require history below its threshold. */
   private async compactPressure(
     agent: Agent,
     header: EpochHeader,
     signal: AbortSignal,
     requireBelowThreshold: boolean,
+    boundToTargetWindow = false,
   ): Promise<CompactionResult | null> {
     const target = header.config
     const policy = resolveTargetPolicy(this.config, target)
@@ -408,7 +444,9 @@ export class BasicCompactionEngine extends CompactionEngine {
     }
     if (measurement.totalTokens < spec.thresholdTokens) return null
 
-    const prefixLimit = requireBelowThreshold ? undefined : summaryPrefixLimit(spec.contextWindow, spec.maxTokens)
+    const prefixLimit = requireBelowThreshold && !boundToTargetWindow
+      ? undefined
+      : summaryPrefixLimit(spec.contextWindow, spec.maxTokens)
     let result: CompactionResult | null = null
     for (let attempt = 0; attempt <= spec.compactionRetries; attempt += 1) {
       const range = selectCompactableRange(agent.session, measurement, spec.retainTokens, prefixLimit)

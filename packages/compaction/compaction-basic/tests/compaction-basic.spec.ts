@@ -1968,9 +1968,56 @@ describe('model-switch pressure', () => {
     await expect(switching).rejects.toThrow('summary credentials expired')
     expect(session.requestHeader()).toEqual(previous)
     expect(session.surface.nodes).toEqual(nodes)
-    expect(session.snapshotEvents().at(-1)).toMatchObject({
+    expect(session.snapshotEvents().find(event => event.type === 'compaction/end')).toMatchObject({
       type: 'compaction/end', data: { error: 'summary credentials expired' },
     })
+  })
+
+  it('summarizes on the destination route when the previous route cannot run', async () => {
+    const { ctx } = harness({}, {
+      kind: 'error', failure: { code: 'AUTH', message: 'summary credentials expired' },
+    })
+    class DestinationAdapter extends ScriptedAdapter {
+      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+        return Promise.resolve({ provider, id: model, name: model, context: { contextWindow: 2_000 } })
+      }
+    }
+    const destination = new DestinationAdapter([{ type: 'text', text: 'checkpoint' }])
+    ctx.llm.registerAdapter(['dest'], destination)
+    const session = conversation(4, 'fixture '.repeat(80))
+    const previous = session.requestHeader()
+    const selected = { provider: 'dest', model: 'dest' }
+
+    await expect(request(ctx, session, selected)).resolves.toEqual(selected)
+
+    expect(destination.lastOptions).toMatchObject({ provider: 'dest', model: 'dest', purpose: 'compaction' })
+    expect(ctx.tokenMeter.measure(session, { config: selected }).totalTokens).toBeLessThan(500)
+    expect(session.requestHeader()).toEqual(previous)
+  })
+
+  it('keeps the previous-route failure when the destination route also cannot summarize', async () => {
+    const { ctx } = harness({}, {
+      kind: 'error', failure: { code: 'AUTH', message: 'summary credentials expired' },
+    })
+    const session = conversation(4, 'fixture '.repeat(80))
+    const previous = session.requestHeader()
+    const switching = request(ctx, session, { provider: 'small', model: 'small' })
+    await expect(switching).rejects.toMatchObject({ code: 'MODEL_SWITCH_COMPACTION_FAILED' })
+    await expect(switching).rejects.toThrow('summary credentials expired')
+    expect(session.requestHeader()).toEqual(previous)
+  })
+
+  it('never replaces a configured summary model with the destination route', async () => {
+    const { ctx } = harness({ summarizationProvider: 'summary', summarizationModel: 'summary' })
+    ctx.llm.registerAdapter(['summary'], new ScriptedAdapter([], {
+      kind: 'error', failure: { code: 'AUTH', message: 'summary credentials expired' },
+    }))
+    const destination = new ScriptedAdapter([{ type: 'text', text: 'checkpoint' }])
+    ctx.llm.registerAdapter(['dest'], destination)
+    const session = conversation(4, 'fixture '.repeat(80))
+    await expect(request(ctx, session, { provider: 'dest', model: 'dest' }))
+      .rejects.toMatchObject({ code: 'MODEL_SWITCH_COMPACTION_FAILED' })
+    expect(destination.lastOptions).toBeUndefined()
   })
 
   it('rejects an oversized indivisible tail instead of accepting the switch', async () => {
