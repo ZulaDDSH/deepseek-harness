@@ -37,10 +37,20 @@ import { en, ja, es, fr, de, ru, pt, NS, zh, type ReferenceKey } from './locales
 
 const REFERENCE_LOOKUP_WAIT_MS = 3000
 
-function boundedLookup<T>(lookup: Promise<{ ok: true; value: T[] } | { ok: false }>): Promise<T[]> {
+function boundedLookup<T>(
+  signal: AbortSignal,
+  lookup: (signal: AbortSignal) => Promise<{ ok: true; value: T[] } | { ok: false }>,
+): Promise<T[]> {
+  const request = new AbortController()
+  const forward = (): void => { request.abort(signal.reason) }
+  if (signal.aborted) forward()
+  else signal.addEventListener('abort', forward, { once: true })
   return new Promise<T[]>((resolve, reject) => {
-    const timer = setTimeout(() => { resolve([]) }, REFERENCE_LOOKUP_WAIT_MS)
-    lookup.then(result => { resolve(result.ok ? result.value : []) }, reject).finally(() => { clearTimeout(timer) })
+    const timer = setTimeout(() => { request.abort(new Error('reference lookup timed out')); resolve([]) }, REFERENCE_LOOKUP_WAIT_MS)
+    lookup(request.signal).then(result => { resolve(result.ok ? result.value : []) }, reject).finally(() => {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', forward)
+    })
   })
 }
 
@@ -97,10 +107,10 @@ export function apply(ctx: ClientContext): void {
           if (state.openState !== 'open') {
             throw state.openError ?? new Error(`session "${session.sessionId}" is not open`)
           }
-          const fileLookup = boundedLookup(ctx.remote.fileReferences.list(session.sessionId, query, signal))
+          const fileLookup = boundedLookup(signal, lookupSignal => ctx.remote.fileReferences.list(session.sessionId, query, lookupSignal))
           const sessionLookup = quoted === true
             ? Promise.resolve([] as SessionReferenceMentionCandidate[])
-            : boundedLookup(ctx.remote.sessionReferenceResolver.candidates(session.sessionId, query, signal))
+            : boundedLookup(signal, lookupSignal => ctx.remote.sessionReferenceResolver.candidates(session.sessionId, query, lookupSignal))
           return Promise.all([fileLookup, sessionLookup])
         },
       )

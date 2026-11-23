@@ -406,13 +406,19 @@ describe('candidates', () => {
   it('shows the Session matches when the file lookup never answers, after the bounded wait', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     onTestFinished(() => { vi.useRealTimers() })
-    const files = vi.fn(() => new Promise<never>(() => {}))
-    const { source } = await bench(files)
+    let lookupSignal: AbortSignal | undefined
+    const files = vi.fn((_session: unknown, _query: unknown, signal?: AbortSignal) => {
+      lookupSignal = signal
+      return new Promise<never>(() => {})
+    })
+    const { source } = await bench(files as never)
     let settled = false
     const pending = source.candidates(session, request('res')).then((items) => { settled = true; return items })
     await vi.advanceTimersByTimeAsync(2999)
     expect(settled).toBe(false)
+    expect(lookupSignal?.aborted).toBe(false)
     await vi.advanceTimersByTimeAsync(1)
+    expect(lookupSignal?.aborted).toBe(true)
     expect(await pending).toEqual([expect.objectContaining({ name: 'Research', icon: 'session' })])
   })
 
