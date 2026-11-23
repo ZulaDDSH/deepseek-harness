@@ -702,9 +702,11 @@ describe('Web session model selection', () => {
     await ctx.fiber.dispose()
   })
 
-  it('accepts consecutive model switches within a bounded wait while default persistence is blocked', async () => {
+  it('reports a stalled default save as not saved after the bounded wait and keeps each switch applied', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     const { ctx, sessionId } = await harness()
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    onTestFinished(() => { warn.mockRestore() })
     const release = Promise.withResolvers<undefined>()
     const saves: Promise<void>[] = []
     const operations: Promise<unknown>[] = []
@@ -729,10 +731,11 @@ describe('Web session model selection', () => {
         .then((result) => { outcome = expectValue(result).defaultSave })
       operations.push(operation)
       for (let step = 0; step < 20 && outcome === undefined; step++) await vi.advanceTimersByTimeAsync(500)
-      expect(outcome).toBe('pending')
+      expect(outcome).toBe('failed')
       expect(currentSelection(ctx, sessionId)).toMatchObject({ provider: 'deepseek-official', model })
     }
     expect(saves).toHaveLength(2)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('has not settled'))
   })
 
   it('reports an unsaved default when the deployment has no configuration editor', async () => {

@@ -274,7 +274,12 @@ export class SessionCommandController {
       }
     })
     let timer: ReturnType<typeof setTimeout> | undefined
-    const waited = new Promise<DefaultSave>((resolve) => { timer = setTimeout(resolve, DEFAULT_SAVE_WAIT_MS, 'pending') })
+    const waited = new Promise<DefaultSave>((resolve) => {
+      timer = setTimeout(() => {
+        this.ctx.logger.warn('session-controller: the default model save has not settled; reporting it as not saved')
+        resolve('failed')
+      }, DEFAULT_SAVE_WAIT_MS)
+    })
     try {
       return { ...value, defaultSave: await Promise.race([saving, waited]) }
     } finally {
