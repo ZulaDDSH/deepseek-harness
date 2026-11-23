@@ -102,7 +102,7 @@ Nothing here enters a request prefix; this package neither assembles nor sends a
 
 <a id="known-limitations-and-deferred-work"></a>
 
-Linux association discovery and explicit launching require GIO. Missing native commands reject the query, and missing artwork returns null; callers can retain file-manager reveal as their fallback.
+Linux association discovery and explicit launching require GIO. Missing native commands reject the query, and missing artwork returns null; callers can retain file-manager reveal as their fallback. A desktop entry GIO lists but that is unreadable or removed mid-query is skipped rather than failing the whole list, the XDG application trees are indexed once per query (stopping at 50,000 entries) and checked for cancellation, and icons over 1 MiB, or beyond 8 MiB in total per query, are returned as missing artwork; launch validation reads no icons.
 
 
 These limits define when this runner is not the right tool. They are current package constraints, not a task backlog.
