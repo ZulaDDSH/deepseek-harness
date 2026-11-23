@@ -63,8 +63,7 @@ describe('json backend specifics', () => {
     const root = await freshRoot()
     const child = spawnSync(process.execPath, ['-e', ''])
     expect(child.pid).toBeGreaterThan(0)
-    await writeFile(join(root, 'shape.json.lock'), `${child.pid}
-`, 'utf8')
+    await writeFile(join(root, 'shape.json.lock'), `${child.pid}\n`, 'utf8')
     const backend = new JsonStorageBackend(root)
     await backend.kv.open(descriptor)
     await backend.close()
