@@ -169,6 +169,22 @@ describe('Freebuff mid-turn screens', () => {
     expect(failureOf(await collect(h, h.session('s1', h.workspace('proj')), [userMessage('go')])).message).toContain('Enter: retry')
   })
 
+  it('keeps going when Freebuff recovers from an error row, and fails with its text when it does not', async () => {
+    const h = await harness()
+    h.host.script = { errorRow: 'Network hiccup', recovers: true }
+    const recovered = await collect(h, h.session('s1', h.workspace('proj')), [userMessage('go')])
+    expect(recovered.finish.reason.kind).toBe('stop')
+    expect(recovered.text).toBe('echo: go')
+    h.host.script = { errorRow: 'Network gone' }
+    expect(failureOf(await collect(h, h.session('s2', h.workspace('other')), [userMessage('go')])).message).toBe('Network gone')
+  })
+
+  it('does not treat a later incomplete reply as a recovery', async () => {
+    const h = await harness()
+    h.host.script = { errorRow: 'Out of hours', recovers: true, incomplete: true }
+    expect(failureOf(await collect(h, h.session('s1', h.workspace('proj')), [userMessage('go')])).message).toBe('Out of hours')
+  })
+
   it('gives an error row without text a generic message', async () => {
     const h = await harness()
     h.host.script = { errorRow: '' }

@@ -32,6 +32,7 @@ export interface FakeScript {
   midLogin?: boolean
   midBlocker?: string
   incomplete?: boolean
+  recovers?: boolean
 }
 
 interface Row {
@@ -162,7 +163,7 @@ export class FakeTerminal implements SubprocessTerminalHandle {
     if (script.errorRow !== undefined || script.askUser === true) {
       const row = (script.askUser === true ? { id: this.host.nextId('a'), variant: 'ai', blocks: [{ type: 'ask-user' }], isComplete: false } : { id: this.host.nextId('e'), variant: 'error', content: script.errorRow }) as Row
       this.save([...this.rows(), row])
-      return
+      if (script.recovers !== true) return
     }
     if (script.refusal !== undefined) {
       this.save([...this.rows(), { id: this.host.nextId('a'), variant: 'ai', blocks: [], isComplete: true, userError: script.refusal }])

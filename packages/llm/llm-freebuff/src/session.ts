@@ -84,15 +84,21 @@ function turnRow(rows: readonly ChatMessage[], consumed: string | undefined, pro
   return at < 0 ? -1 : start + at
 }
 
-function refusal(rows: readonly ChatMessage[]): string | undefined {
-  for (const row of rows) {
-    if (row.variant === 'error') return rowText(row) || 'Freebuff reported an error.'
-    if (row.variant === 'ai' && typeof row.userError === 'string' && row.userError.length > 0) return row.userError
-    if (row.variant === 'ai' && row.blocks?.some(block => block.type === 'ask-user') === true) {
-      return 'Freebuff asked a question that the harness cannot answer. Ask it again with the missing details.'
-    }
+function failureOf(row: ChatMessage): string | undefined {
+  if (row.variant === 'error') return rowText(row) || 'Freebuff reported an error.'
+  if (row.variant === 'ai' && typeof row.userError === 'string' && row.userError.length > 0) return row.userError
+  if (row.variant === 'ai' && row.blocks?.some(block => block.type === 'ask-user') === true) {
+    return 'Freebuff asked a question that the harness cannot answer. Ask it again with the missing details.'
   }
   return undefined
+}
+
+function refusal(rows: readonly ChatMessage[]): string | undefined {
+  const failures = rows.map(failureOf)
+  const failedAt = failures.findLastIndex(failure => failure !== undefined)
+  if (failedAt < 0) return undefined
+  const recovered = rows.slice(failedAt + 1).some(row => row.variant === 'ai' && row.isComplete === true && renderBlocks([row]).length > 0)
+  return recovered ? undefined : failures[failedAt]
 }
 
 export class FreebuffSession {
@@ -185,7 +191,14 @@ export class FreebuffSession {
         graceMs: environment.timing.graceMs,
         signal: abort.signal,
       })
-      const screen = new FreebuffScreen(COLS, ROWS, (data) => { terminal.write(data).catch(() => {}) })
+      let screen: FreebuffScreen
+      try {
+        screen = new FreebuffScreen(COLS, ROWS, (data) => { terminal.write(data).catch(() => {}) })
+      } catch (error: unknown) {
+        abort.abort()
+        await terminal.terminate().catch(() => {})
+        throw error
+      }
       terminal.output.setEncoding('utf8')
       const onOutput = (chunk: string): void => { screen.write(chunk) }
       const onError = (): void => {}
@@ -308,10 +321,11 @@ export class FreebuffSession {
         sawBusy = true
         lastBusyAt = now
       }
+      const quiet = !state.busy && now - lastBusyAt >= timing.quietMs
       const rows = rowsOf()
       const at = turnRow(rows, consumed, request.prompt)
       const tail = at < 0 ? [] : rows.slice(at + 1)
-      const failure = refusal(tail)
+      const failure = quiet ? refusal(tail) : undefined
       if (failure !== undefined) throw new LlmError(failure, 'UNKNOWN')
       const blocks = renderBlocks(tail)
       const key = JSON.stringify(blocks)
@@ -319,7 +333,6 @@ export class FreebuffSession {
         shown = key
         yield blocks
       }
-      const quiet = !state.busy && now - lastBusyAt >= timing.quietMs
       const last = tail.filter(row => row.variant === 'ai').at(-1)
       if (at >= 0 && quiet && (last?.isComplete === true || ((sawBusy || !submitted) && state.ready))) {
         if (blocks.length === 0) throw new LlmError('Freebuff finished without an answer.', 'EMPTY_RESPONSE')

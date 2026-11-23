@@ -258,6 +258,14 @@ describe('Freebuff startup and failure paths', () => {
     expect((await h.ctx.llm.listModels('freebuff')).map(model => model.id)).toEqual(['default'])
   })
 
+  it.each(['-rf', '../other', 'a/b', 'a b', '.', '..', ''])('ignores a replayed chat id that is not a safe directory name: %j', async (chatId) => {
+    const h = await harness()
+    const id = h.session('s1', h.workspace('proj'))
+    const result = await collect(h, id, [userMessage('a'), assistantMessage('x', { kind: 'freebuff', version: 1, chatId }), userMessage('b')])
+    expect(result.text).toBe('echo: b')
+    expect(h.host.spawns[0]!.argv).not.toContain('--continue')
+  })
+
   it('ignores replay state written by another route and resumes from the newest Freebuff reply', async () => {
     const h = await harness()
     const id = h.session('s1', h.workspace('proj'))

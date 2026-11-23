@@ -1,9 +1,9 @@
 import { execFile, type ExecFileOptions } from 'node:child_process'
-import { homedir } from 'node:os'
 import { win32 } from 'node:path'
 import type { QuotaSource } from '@deepseek-ai/dsh-api-quota-controller'
 import type { QuotaResult, QuotaWindow } from '@deepseek-ai/dsh-api-quota-controller/types'
 import { PROVIDER } from './auth.ts'
+import { freebuffConfigDir } from './launch.ts'
 
 export const SESSION_URL = 'https://www.codebuff.com/api/v1/freebuff/session'
 export const QUOTA_TTL_MS = 300_000
@@ -12,6 +12,7 @@ const REQUEST_TIMEOUT_MS = 15_000
 const NAME = 'Freebuff'
 const UNSUPPORTED = 'Freebuff usage is only read on Windows for now'
 const FREEBUCKS_PER_HOUR = 5
+const ABSENT_TTL_MS = 30_000
 const READ_FAILED = 'Could not read the Freebuff sign-in from Credential Manager'
 
 export type TokenReader = () => Promise<string | undefined>
@@ -78,11 +79,26 @@ export function decodeToken(blob: Buffer): string | undefined {
   const utf8 = blob.toString('utf8')
   const text = utf8.includes('\0') ? blob.toString('utf16le') : utf8
   const token = text.trim()
+  if (token.startsWith('{')) return tokenFromJson(token)
   return token === '' ? undefined : token
 }
 
-export function credentialTarget(home: string): string {
-  return `${CREDENTIAL_SERVICE}/${win32.join(home, '.config', 'manicode', 'credentials.json')}`
+function tokenFromJson(text: string): string | undefined {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch (_notJson) {
+    return undefined
+  }
+  for (const holder of [parsed, ...Object.values<unknown>(Object(parsed) as Record<string, unknown>)].map(record)) {
+    const token = holder?.authToken
+    if (typeof token === 'string' && token.trim() !== '') return token.trim()
+  }
+  return undefined
+}
+
+export function credentialTarget(configDir: string): string {
+  return `${CREDENTIAL_SERVICE}/${win32.join(configDir, 'credentials.json')}`
 }
 
 export type RunPowerShell = (script: string, env: Readonly<Record<string, string>>) => Promise<string>
@@ -112,9 +128,12 @@ export function runPowerShell(
   })
 }
 
-export function windowsTokenReader(home: string = homedir(), run: RunPowerShell = runPowerShell): TokenReader {
+export function windowsTokenReader(
+  configDir: string = freebuffConfigDir(process.env),
+  run: RunPowerShell = runPowerShell,
+): TokenReader {
   return async () => {
-    const encoded = (await run(READ_CREDENTIAL, { FB_CREDENTIAL_TARGET: credentialTarget(home) })).trim()
+    const encoded = (await run(READ_CREDENTIAL, { FB_CREDENTIAL_TARGET: credentialTarget(configDir) })).trim()
     return encoded === '' ? undefined : decodeToken(Buffer.from(encoded, 'base64'))
   }
 }
@@ -201,9 +220,20 @@ export function createFreebuffQuotaSource(options: FreebuffQuotaOptions): QuotaS
   const timeZone = options.timeZone ?? (() => Intl.DateTimeFormat().resolvedOptions().timeZone)
   const identity = { providerId: PROVIDER, providerName: NAME }
   let cached: { readonly at: number; readonly usage: Usage } | undefined
+  let remembered: { readonly at: number; readonly token: string | undefined } | undefined
+
+  const readToken = async (): Promise<string | undefined> => {
+    const at = now()
+    if (remembered !== undefined && at - remembered.at < (remembered.token === undefined ? ABSENT_TTL_MS : QUOTA_TTL_MS)) {
+      return remembered.token
+    }
+    const token = await options.readToken()
+    remembered = { at, token }
+    return token
+  }
 
   const read = async (fetchImpl: typeof fetch): Promise<QuotaResult> => {
-    const token = await options.readToken()
+    const token = await readToken()
     if (token === undefined) {
       cached = undefined
       return { ...identity, configured: false, ok: false, error: options.unconfigured ?? 'Not configured' }
@@ -216,6 +246,7 @@ export function createFreebuffQuotaSource(options: FreebuffQuotaOptions): QuotaS
       })
       if (!response.ok) {
         const rejected = response.status === 401 || response.status === 403 ? '; sign in to Freebuff again' : ''
+        if (rejected !== '') remembered = undefined
         return { ...identity, configured: true, ok: false, error: `Freebuff usage API returned HTTP ${response.status}${rejected}` }
       }
       const usage = parseUsage(await response.json())
@@ -230,7 +261,7 @@ export function createFreebuffQuotaSource(options: FreebuffQuotaOptions): QuotaS
     id: PROVIDER,
     name: NAME,
     configured: async () => {
-      try { return (await options.readToken()) !== undefined } catch { return false }
+      try { return (await readToken()) !== undefined } catch { return false }
     },
     fetch: async (fetchImpl) => {
       try {

@@ -1,5 +1,5 @@
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, win32 } from 'node:path'
 import { QuotaController } from '@deepseek-ai/dsh-api-quota-controller'
 import { describe, expect, it, vi } from 'vitest'
 import {
@@ -135,13 +135,44 @@ describe('Freebuff quota source', () => {
     await quota.fetch(fetchImpl)
     expect(fetchImpl).toHaveBeenCalledTimes(2)
     readToken.mockResolvedValueOnce(undefined)
-    await quota.fetch(fetchImpl)
+    now += QUOTA_TTL_MS
+    expect((await quota.fetch(fetchImpl)).configured).toBe(false)
+    now += QUOTA_TTL_MS
     await quota.fetch(fetchImpl)
     expect(fetchImpl).toHaveBeenCalledTimes(3)
     fetchImpl.mockResolvedValueOnce(new Response('x', { status: 503 }))
     now += QUOTA_TTL_MS
     expect((await quota.fetch(fetchImpl)).ok).toBe(false)
     expect((await quota.fetch(fetchImpl)).ok).toBe(true)
+  })
+
+  it('reads the credential once per TTL for fetch and configured together', async () => {
+    let now = NOW
+    const { source: quota, fetchImpl, readToken } = source(session(), { now: () => now })
+    await quota.configured()
+    await quota.fetch(fetchImpl)
+    await quota.configured()
+    expect(readToken).toHaveBeenCalledOnce()
+    now += QUOTA_TTL_MS
+    await quota.configured()
+    expect(readToken).toHaveBeenCalledTimes(2)
+  })
+
+  it('rechecks a missing credential after thirty seconds and drops a rejected one at once', async () => {
+    let now = NOW
+    const { source: quota, fetchImpl, readToken } = source(session(), { now: () => now, token: undefined })
+    await quota.configured()
+    now += 29_999
+    await quota.configured()
+    expect(readToken).toHaveBeenCalledOnce()
+    now += 1
+    await quota.configured()
+    expect(readToken).toHaveBeenCalledTimes(2)
+    const denied = source(session(), { now: () => now, status: 401 })
+    await denied.source.fetch(denied.fetchImpl)
+    await denied.source.fetch(denied.fetchImpl)
+    expect(denied.readToken).toHaveBeenCalledTimes(2)
+    expect(fetchImpl).not.toHaveBeenCalled()
   })
 
   it('never logs the token', async () => {
@@ -156,13 +187,29 @@ describe('Freebuff quota source', () => {
 
 describe('Freebuff credential reader', () => {
   it('targets the same Credential Manager entry as the CLI', () => {
-    expect(credentialTarget('C:\\Users\\Ricky')).toBe('freebuff-cli/C:\\Users\\Ricky\\.config\\manicode\\credentials.json')
+    expect(credentialTarget('C:\\Users\\Ricky\\.config\\manicode')).toBe('freebuff-cli/C:\\Users\\Ricky\\.config\\manicode\\credentials.json')
+  })
+
+  it('follows an absolute FREEBUFF_CONFIG_DIR and otherwise the default config directory', async () => {
+    const custom = join(tmpdir(), 'fb-config')
+    const run = vi.fn<RunPowerShell>(async () => '')
+    vi.stubEnv('FREEBUFF_CONFIG_DIR', custom)
+    await windowsTokenReader(undefined, run)()
+    vi.stubEnv('FREEBUFF_CONFIG_DIR', '')
+    await windowsTokenReader(undefined, run)()
+    vi.unstubAllEnvs()
+    expect(run.mock.calls[0]![1]).toEqual({ FB_CREDENTIAL_TARGET: `freebuff-cli/${win32.join(custom, 'credentials.json')}` })
+    expect(run.mock.calls[1]![1].FB_CREDENTIAL_TARGET).toMatch(/\.config[\\/]manicode[\\/]credentials\.json$/)
   })
 
   it('decodes UTF-8 and UTF-16 blobs and trims them', () => {
     expect(decodeToken(Buffer.from(`  ${TOKEN}\n`, 'utf8'))).toBe(TOKEN)
     expect(decodeToken(Buffer.from(TOKEN, 'utf16le'))).toBe(TOKEN)
     expect(decodeToken(Buffer.from('  \n'))).toBeUndefined()
+    expect(decodeToken(Buffer.from(JSON.stringify({ authToken: TOKEN })))).toBe(TOKEN)
+    expect(decodeToken(Buffer.from(JSON.stringify({ default: { id: 'u', authToken: ` ${TOKEN} ` } })))).toBe(TOKEN)
+    expect(decodeToken(Buffer.from(JSON.stringify({ default: { authToken: '' }, other: 5, none: null })))).toBeUndefined()
+    expect(decodeToken(Buffer.from('{ not json'))).toBeUndefined()
   })
 
   it('passes the target through the environment, reads the blob from stdout, and treats empty output as signed out', async () => {
