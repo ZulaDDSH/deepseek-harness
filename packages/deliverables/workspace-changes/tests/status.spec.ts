@@ -175,7 +175,7 @@ describe('workspaceChanges service registry access', () => {
 
     expect(await ctx.workspaceChanges.status(workspaceId, signal)).toBeUndefined()
     expect(asked).toEqual([workspaceId])
-    expect(await ctx.workspaceChanges.workspaceDiff(workspaceId, 0, signal)).toBeUndefined()
+    expect(await ctx.workspaceChanges.workspaceDiff(workspaceId, 'a.txt', signal)).toBeUndefined()
     expect(asked).toEqual([workspaceId, workspaceId])
   })
 })

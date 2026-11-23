@@ -170,11 +170,10 @@ export function workspaceStatusUrl(workspaceId: WorkspaceId): string {
 /**
  * Build the authenticated current-diff URL for one status-file index.
  * @param workspaceId - registered Workspace identity.
- * @param index - status-file index in the current status response.
  * @returns document-relative current-diff route.
  */
-export function workspaceDiffUrl(workspaceId: WorkspaceId, index: number): string {
-  return `${WORKSPACE_DIFF_ROUTE}?${new URLSearchParams({ workspaceId, index: String(index) })}`
+export function workspaceDiffUrl(workspaceId: WorkspaceId, path: string): string {
+  return `${WORKSPACE_DIFF_ROUTE}?${new URLSearchParams({ workspaceId, path })}`
 }
 
 /**

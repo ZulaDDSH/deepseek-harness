@@ -86,13 +86,13 @@ describe.each(['main', 'sidebar'] as const)('Source Control %s surface', (surfac
   it.each(['loading', 'missing', 'error', 'binary', 'oversized'] as const)('presents a %s comparison', (state) => {
     const f = fixture()
     f.statuses.state.set({ [workspaceStatusUrl(workspaceId)]: status })
-    f.diffs.state.set({ [workspaceDiffUrl(workspaceId, 0)]: state === 'binary' || state === 'oversized'
+    f.diffs.state.set({ [workspaceDiffUrl(workspaceId, 'src/app.ts')]: state === 'binary' || state === 'oversized'
       ? { kind: state, path: 'src/app.ts', display: 'src/app.ts' } : state })
     const view = render(<Page {...f.props} />)
     expect(view.getByText(en[`diff.${state}`])).toBeTruthy()
     if (state === 'error') {
       fireEvent.click(view.getByRole('button', { name: en['presented.retry'] }))
-      expect(f.loadDiff).toHaveBeenCalledWith(workspaceId, 0)
+      expect(f.loadDiff).toHaveBeenCalledWith(workspaceId, 'src/app.ts')
     }
   })
 
@@ -111,7 +111,7 @@ describe.each(['main', 'sidebar'] as const)('Source Control %s surface', (surfac
     expect(view.getByText('A')).toBeTruthy()
     expect(view.getAllByText('M')).toHaveLength(2)
     fireEvent.click(view.getByText('image.png'))
-    expect(f.loadDiff).toHaveBeenLastCalledWith(workspaceId, 2)
+    expect(f.loadDiff).toHaveBeenLastCalledWith(workspaceId, 'image.png')
     act(() => { f.statuses.state.set({ [workspaceStatusUrl(workspaceId)]: { ...status, files: [] } }) })
     expect(view.getByText(en['source.clean'])).toBeTruthy()
     expect(view.getByText(en['source.selectFile'])).toBeTruthy()
@@ -125,7 +125,7 @@ describe('SourceChangesPage', () => {
     const statuses = new WorkspaceStatusStore()
     const diffs = new WorkspaceDiffStore()
     statuses.state.set({ [workspaceStatusUrl(workspaceId)]: status })
-    diffs.state.set({ [workspaceDiffUrl(workspaceId, 0)]: diff })
+    diffs.state.set({ [workspaceDiffUrl(workspaceId, 'src/app.ts')]: diff })
     const refreshStatus = vi.fn<WorkspaceStatusStore['refresh']>(() => Promise.resolve())
     const loadStatus = vi.fn<WorkspaceStatusStore['load']>(() => Promise.resolve())
     const loadDiff = vi.fn<WorkspaceDiffStore['load']>(() => Promise.resolve())

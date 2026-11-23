@@ -48,18 +48,15 @@ export function SourceChangesPage({ useSessions, useWorkspaces, useWorkspaceStat
     if (selectedId !== undefined && statusState === undefined) void loadStatus(selectedId)
   }, [selectedId, statusState, loadStatus])
   const files = typeof statusState === 'object' ? statusState.files : []
-  const [selectedIndex, setSelectedIndex] = useState(0)
-  useEffect(() => {
-    if (selectedIndex >= files.length) setSelectedIndex(0)
-  }, [files.length, selectedIndex])
-  const file = files[selectedIndex]
+  const [selectedPath, setSelectedPath] = useState<string | undefined>()
+  const file = files.find(entry => entry.path === selectedPath) ?? files[0]
   const diffUrl = selectedId === undefined || file === undefined
     ? undefined
-    : workspaceDiffUrl(selectedId, selectedIndex)
+    : workspaceDiffUrl(selectedId, file.path)
   const diffState = useWorkspaceDiff(value => diffUrl === undefined ? undefined : value[diffUrl])
   useEffect(() => {
-    if (selectedId !== undefined && file !== undefined && diffState === undefined) void loadDiff(selectedId, selectedIndex)
-  }, [selectedId, file, diffState, selectedIndex, loadDiff])
+    if (selectedId !== undefined && file !== undefined && diffState === undefined) void loadDiff(selectedId, file.path)
+  }, [selectedId, file, diffState, loadDiff])
 
   return <div className={css.page} data-source-changes>
     <header className={css.header}>
@@ -91,8 +88,8 @@ export function SourceChangesPage({ useSessions, useWorkspaces, useWorkspaceStat
     </div>}
     {typeof statusState === 'object' && <div className={css.content}>
       <div className={css.files} role="list" aria-label={t('source.files')}>
-        {files.map((entry, index) => <button key={`${entry.path}:${index}`} type="button" className={css.file} data-selected={index === selectedIndex || undefined}
-          onClick={() => { setSelectedIndex(index) }}>
+        {files.map((entry, index) => <button key={`${entry.path}:${index}`} type="button" className={css.file} data-selected={entry.path === file?.path || undefined}
+          onClick={() => { setSelectedPath(entry.path) }}>
           <span className={css.marker}>{markerOf(entry.index, entry.worktree)}</span>
           <span className={css.path}>{entry.display}</span>
           <span className={css.counts}>
@@ -104,7 +101,7 @@ export function SourceChangesPage({ useSessions, useWorkspaces, useWorkspaceStat
       <div className={css.diff}>
         {file === undefined && <p className={css.status}>{t('source.selectFile')}</p>}
         {file !== undefined && <SourceDiff state={diffState}
-          retry={() => { void loadDiff(selectedId as WorkspaceId, selectedIndex) }} t={t} />}
+          retry={() => { void loadDiff(selectedId as WorkspaceId, file.path) }} t={t} />}
       </div>
     </div>}
   </div>

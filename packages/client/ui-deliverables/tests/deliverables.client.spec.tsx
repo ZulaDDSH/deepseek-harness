@@ -1014,8 +1014,11 @@ describe('plugin registration', () => {
       await readFace.refreshStatus(workspaceId)
       expect(readFace.hooks.workspaceStatus.getSnapshot()['api/workspace.status?workspaceId=workspace']).toMatchObject({ branch: 'main' })
       fetcher.mockResolvedValueOnce(Response.json({ kind: 'binary', path: 'image.png', display: 'image.png' }))
-      await readFace.loadDiff(workspaceId, 0)
-      expect(readFace.hooks.workspaceDiff.getSnapshot()['api/workspace.diff?workspaceId=workspace&index=0']).toMatchObject({ kind: 'binary' })
+      await readFace.loadDiff(workspaceId, 'image.png')
+      expect(readFace.hooks.workspaceDiff.getSnapshot()['api/workspace.diff?workspaceId=workspace&path=image.png']).toMatchObject({ kind: 'binary' })
+      fetcher.mockResolvedValueOnce(Response.json(status))
+      await readFace.refreshStatus(workspaceId)
+      expect(readFace.hooks.workspaceDiff.getSnapshot()['api/workspace.diff?workspaceId=workspace&path=image.png']).toBeUndefined()
     }
     const label = ctx.slots.entries('sidebar.panellist')[0]!.options.label
     expect(typeof label === 'function' ? label() : label).toBe('Changes')

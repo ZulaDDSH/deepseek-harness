@@ -77,12 +77,15 @@ describe('workspace-changes in a repository', () => {
     ctx.provide('workspaceRegistry', { get: () => ({ path }) } as never)
     const status = await ctx.workspaceChanges.status(workspaceId, signal)
     expect(status?.files).toContainEqual(expect.objectContaining({ path: 'a.txt' }))
-    const index = status!.files.findIndex(file => file.path === 'a.txt')
-    expect(await ctx.workspaceChanges.workspaceDiff(workspaceId, index, signal)).toMatchObject({ kind: 'text', path: 'a.txt' })
-    expect(await ctx.workspaceChanges.workspaceDiff(workspaceId, status!.files.length, signal)).toBeUndefined()
+    expect(await ctx.workspaceChanges.workspaceDiff(workspaceId, 'a.txt', signal)).toMatchObject({ kind: 'text', path: 'a.txt' })
+    expect(await ctx.workspaceChanges.workspaceDiff(workspaceId, 'missing.txt', signal)).toBeUndefined()
+    await writeFile(join(cwd, '0-first.txt'), 'new\n')
+    expect(await ctx.workspaceChanges.workspaceDiff(workspaceId, 'a.txt', signal)).toMatchObject({ kind: 'text', path: 'a.txt' })
+    await rm(join(cwd, 'a.txt'))
+    expect(await ctx.workspaceChanges.workspaceDiff(workspaceId, 'a.txt', signal)).toMatchObject({ kind: 'text', path: 'a.txt', after: false })
     path = outside
     expect(await ctx.workspaceChanges.status(workspaceId, signal)).toBeUndefined()
-    expect(await ctx.workspaceChanges.workspaceDiff(workspaceId, 0, signal)).toBeUndefined()
+    expect(await ctx.workspaceChanges.workspaceDiff(workspaceId, 'a.txt', signal)).toBeUndefined()
   })
 
   it('reports retention failures without failing plugin load', async () => {
@@ -679,7 +682,7 @@ describe('workspace-changes without git', () => {
     vi.spyOn(ctx.subprocess, 'resolveExecutable').mockRejectedValue(new Error('missing git'))
     ctx.provide('workspaceRegistry', { get: () => ({ path: '/unused' }) } as never)
     expect(await ctx.workspaceChanges.status('workspace' as WorkspaceId, signal)).toBeUndefined()
-    expect(await ctx.workspaceChanges.workspaceDiff('workspace' as WorkspaceId, 0, signal)).toBeUndefined()
+    expect(await ctx.workspaceChanges.workspaceDiff('workspace' as WorkspaceId, 'a.txt', signal)).toBeUndefined()
   })
   it('summarizes file-tool edits only, even inside a repository, and reports the absence once', async () => {
     const cwd = await repository()

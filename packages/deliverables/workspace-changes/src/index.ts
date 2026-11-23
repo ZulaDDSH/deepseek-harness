@@ -213,7 +213,7 @@ export function apply(ctx: Context, config: Config): void {
         ? undefined
         : readWorkspaceStatus(git, root, await canonicalPath(registered.path), config.maxFiles, signal)
     },
-    workspaceDiff: async (workspaceId, index, signal) => {
+    workspaceDiff: async (workspaceId, path, signal) => {
       const registered = ctx.get('workspaceRegistry')?.get(workspaceId)
       if (registered === undefined) return undefined
       const git = await gitRunner()
@@ -221,7 +221,7 @@ export function apply(ctx: Context, config: Config): void {
       const root = await resolveRepositoryRoot(git, registered.path, signal)
       if (root === null) return undefined
       const status = await readWorkspaceStatus(git, root, await canonicalPath(registered.path), config.maxFiles, signal)
-      const file = status.files[index]
+      const file = status.files.find(entry => entry.path === path)
       return file === undefined ? undefined : readWorkspaceDiff(git, root, file, config.maxFileBytes, config.diffTimeoutMs, signal)
     },
   }

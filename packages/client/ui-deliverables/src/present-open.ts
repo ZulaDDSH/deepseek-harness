@@ -149,10 +149,10 @@ async function handleWorkspaceStatus(ctx: Context, request: Request): Promise<Re
 async function handleWorkspaceDiff(ctx: Context, request: Request): Promise<Response> {
   const query = new URL(request.url).searchParams
   const workspaceId = query.get('workspaceId')
-  const index = coordinate(query.get('index'))
-  if (!workspaceId || index === undefined) return new Response('Invalid workspace diff coordinates.', { status: 400 })
+  const path = query.get('path')
+  if (!workspaceId || !path) return new Response('Invalid workspace diff coordinates.', { status: 400 })
   try {
-    const diff = await ctx.workspaceChanges.workspaceDiff(workspaceId as WorkspaceId, index, request.signal)
+    const diff = await ctx.workspaceChanges.workspaceDiff(workspaceId as WorkspaceId, path, request.signal)
     if (diff === undefined) return new Response('Workspace comparison unavailable.', { status: 404 })
     return Response.json(diff, { headers: { 'cache-control': 'no-store' } })
   } catch (error: unknown) {

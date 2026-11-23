@@ -34,6 +34,7 @@ export class HostReadStore<T> {
   /** The connection generation the current states belong to; a reset aborts it so no older read publishes. */
   private generation = new AbortController()
   private readonly pending = new Set<Promise<void>>()
+  private readonly latest = new Map<string, object>()
 
   constructor(private readonly policy: HostReadPolicy<T>) {}
 
@@ -46,7 +47,9 @@ export class HostReadStore<T> {
     const current = this.state.getSnapshot()[url]
     if (this.lifetime.signal.aborted || (current !== undefined && !this.policy.retryable(current))) return
     this.state.update((state) => { state[url] = this.policy.loading })
-    const task = this.read(url, AbortSignal.any([this.lifetime.signal, this.generation.signal]))
+    const token = {}
+    this.latest.set(url, token)
+    const task = this.read(url, AbortSignal.any([this.lifetime.signal, this.generation.signal]), token)
     this.pending.add(task)
     try {
       await task
@@ -57,6 +60,7 @@ export class HostReadStore<T> {
 
   /** Forget every state and abandon in-flight reads; a replaced connection may reach a Host that no longer serves them. */
   reset(): void {
+    this.latest.clear()
     this.generation.abort()
     this.generation = new AbortController()
     this.state.set({})
@@ -68,7 +72,17 @@ export class HostReadStore<T> {
     await Promise.all(this.pending)
   }
 
-  private async read(url: string, signal: AbortSignal): Promise<void> {
+  protected forgetWhere(match: (url: string) => boolean): void {
+    this.state.update((state) => {
+      for (const url of Object.keys(state)) {
+        if (!match(url)) continue
+        state[url] = undefined
+        this.latest.delete(url)
+      }
+    })
+  }
+
+  private async read(url: string, signal: AbortSignal, token: object): Promise<void> {
     let next: T
     try {
       next = await this.policy.decode(await fetch(url, { signal }))
@@ -76,6 +90,6 @@ export class HostReadStore<T> {
       // A transport failure publishes the policy's failed state until the connection is replaced and the store reset.
       next = this.policy.failed
     }
-    if (!signal.aborted) this.state.update((state) => { state[url] = next })
+    if (!signal.aborted && this.latest.get(url) === token) this.state.update((state) => { state[url] = next })
   }
 }

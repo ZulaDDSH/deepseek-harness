@@ -254,20 +254,20 @@ describe('Workspace status and comparison routes', () => {
     workspaceChanges.workspaceDiff.mockResolvedValueOnce(diff)
 
     const response = await handler.fetch(new Request(
-      `http://localhost${WORKSPACE_DIFF_PATH}?workspaceId=${workspaceId}&index=0`,
+      `http://localhost${WORKSPACE_DIFF_PATH}?workspaceId=${workspaceId}&path=src%2Fapp.ts`,
     ), browserPeer)
 
     expect(response.status).toBe(200)
     expect(response.headers.get('cache-control')).toBe('no-store')
     expect(await response.json()).toEqual(diff)
-    expect(workspaceChanges.workspaceDiff).toHaveBeenCalledWith(workspaceId, 0, expect.any(AbortSignal))
+    expect(workspaceChanges.workspaceDiff).toHaveBeenCalledWith(workspaceId, 'src/app.ts', expect.any(AbortSignal))
   })
 
   it('rejects invalid workspace coordinates before calling the service', async () => {
     const { browserPeer, handler, workspaceChanges } = await fixture()
 
     expect((await handler.fetch(new Request(`http://localhost${WORKSPACE_STATUS_PATH}`), browserPeer)).status).toBe(400)
-    for (const query of ['', '?index=0', '?workspaceId=workspace&index=-1', '?workspaceId=workspace&index=0.5']) {
+    for (const query of ['', '?path=a.ts', '?workspaceId=workspace', '?workspaceId=workspace&path=']) {
       expect((await handler.fetch(new Request(`http://localhost${WORKSPACE_DIFF_PATH}${query}`), browserPeer)).status).toBe(400)
     }
     expect(workspaceChanges.status).not.toHaveBeenCalled()
@@ -283,7 +283,7 @@ describe('Workspace status and comparison routes', () => {
       `http://localhost${WORKSPACE_STATUS_PATH}?workspaceId=workspace`,
     ), browserPeer)).status).toBe(404)
     expect((await handler.fetch(new Request(
-      `http://localhost${WORKSPACE_DIFF_PATH}?workspaceId=workspace&index=0`,
+      `http://localhost${WORKSPACE_DIFF_PATH}?workspaceId=workspace&path=src%2Fapp.ts`,
     ), browserPeer)).status).toBe(404)
   })
 
@@ -296,7 +296,7 @@ describe('Workspace status and comparison routes', () => {
       `http://localhost${WORKSPACE_STATUS_PATH}?workspaceId=workspace`,
     ), browserPeer)
     const diff = await handler.fetch(new Request(
-      `http://localhost${WORKSPACE_DIFF_PATH}?workspaceId=workspace&index=0`,
+      `http://localhost${WORKSPACE_DIFF_PATH}?workspaceId=workspace&path=src%2Fapp.ts`,
     ), browserPeer)
 
     expect(status.status).toBe(500)
@@ -326,7 +326,7 @@ describe('Workspace status and comparison routes', () => {
     await expect(statusRequest).rejects.toThrow('status cancelled')
 
     const diffEntered = Promise.withResolvers<AbortSignal>()
-    workspaceChanges.workspaceDiff.mockImplementation((_workspaceId, _index, signal) => {
+    workspaceChanges.workspaceDiff.mockImplementation((_workspaceId, _path, signal) => {
       diffEntered.resolve(signal)
       return new Promise((_resolve, reject) => {
         signal.addEventListener('abort', () => {
@@ -336,7 +336,7 @@ describe('Workspace status and comparison routes', () => {
     })
     const diffController = new AbortController()
     const diffRequest = handler.fetch(new Request(
-      `http://localhost${WORKSPACE_DIFF_PATH}?workspaceId=workspace&index=0`, { signal: diffController.signal },
+      `http://localhost${WORKSPACE_DIFF_PATH}?workspaceId=workspace&path=src%2Fapp.ts`, { signal: diffController.signal },
     ), browserPeer)
     const diffSignal = await diffEntered.promise
     diffController.abort(new Error('diff cancelled'))
