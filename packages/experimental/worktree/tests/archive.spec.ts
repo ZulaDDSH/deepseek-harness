@@ -202,7 +202,7 @@ describe('archive-triggered worktree cleanup', () => {
     expect(await f.ctx.workingDirectory.ensure(f.agent)).toBe(f.root)
   })
 
-  it('retains an untracked file but not ignored files', async () => {
+  it('retains an untracked file and ignored files', async () => {
     const f = await fixture()
     await writeFile(join(f.worktree.path, 'keep.txt'), 'keep')
     await f.ctx.workspaceRegistry.archiveSession(f.session.id)
@@ -214,7 +214,8 @@ describe('archive-triggered worktree cleanup', () => {
     await writeFile(join(f.root, 'exclude'), '.env\n')
     await writeFile(join(f.worktree.path, '.env'), 'private fixture')
     await f.ctx.workspaceRegistry.archiveSession(f.session.id)
-    expect(await settled(f)).toMatchObject({ status: 'removed' })
+    expect(await settled(f)).toMatchObject({ status: 'retained' })
+    await access(join(f.worktree.path, '.env'))
   })
 
   it('registers nothing for a Session that created no checkout or only inherited one', async () => {

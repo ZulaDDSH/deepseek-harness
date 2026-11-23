@@ -108,9 +108,9 @@ export async function removeCheckout(
 
 /**
  * Verify checkout identity and that `git status` reports no tracked changes or
- * untracked files; its output is read only up to the first entry. Ignored files
- * are not counted, nor are edits to skip-worktree or assume-unchanged files,
- * which `git status` hides; `git worktree remove` discards both. A checkout
+ * untracked files, no ignored files, and no skip-worktree or assume-unchanged
+ * tracked files, which `git status` hides but `git worktree remove` discards;
+ * each output is read only up to the first entry. A checkout
  * whose administrative directory holds submodule repositories is ineligible,
  * as Git refuses to remove it; a committed embedded repository is not
  * inspected, so Git's refusal of that removal rejects.
@@ -136,6 +136,8 @@ export async function inspectRemoval(
   if (head.stdout.trim() !== `refs/heads/${branch}`) return false
   const changed = await git.scan(path, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignore-submodules=none'], () => false)
   if (changed) return false
+  if (await git.scan(path, ['ls-files', '--others', '--ignored', '--exclude-standard', '-z'], () => false)) return false
+  if (await git.scan(path, ['ls-files', '-v', '-z'], field => field.startsWith('H '))) return false
   // Git refuses removal whenever this directory exists, populated or not.
   const modules = await git.read(path, ['rev-parse', '--git-path', 'modules'])
   return await ctx.fs.lstat(modules.stdout.replace(/\r?\n$/, ''), { cwd: path }, signal) === undefined
