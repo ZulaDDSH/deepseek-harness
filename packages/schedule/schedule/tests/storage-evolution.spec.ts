@@ -67,7 +67,7 @@ it.each([
   expect(row).not.toHaveProperty('sessionId')
   expect(row).not.toHaveProperty('legacyRule')
   expect(row).not.toHaveProperty('createdAt')
-  expect(await readdir(saved.root)).toEqual(['schedule.json'])
+  expect((await readdir(saved.root)).filter(name => !name.endsWith('.lock'))).toEqual(['schedule.json'])
   await expect(first.service.edit({ id, action: 'update', patch: { title: 'Stale' }, expectedUpdatedAt: null }))
     .resolves.toEqual({ id, code: 'schedule_conflict' })
   await first.ctx.fiber.dispose()

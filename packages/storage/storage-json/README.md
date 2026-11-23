@@ -138,7 +138,7 @@ None — the backend never touches live request prefixes.
 These limits define when this backend is a poor fit or needs special operational care. They are current package constraints, not a task backlog.
 
 - **`single` rewrites the whole unit** — each write republishes the complete unit file; use `per-record` or route the domain to SQLite when this cost is too high.
-- **No cross-process write locking** — two processes writing the same unit can interleave replacements; writes to the same file use last-completion wins.
+- **Only whole-document units are exclusive** — opening a `single`-layout unit holds `<unit>.json.lock` (PID lock) until close, and a second host fails with `StorageError` code `locked`. A lock left by an exited process is taken over; a lock whose PID a live process reused stays until an operator removes it. `per-record` units take no lock, so two processes writing the same record use last-completion wins, and a running host never refreshes its copy from another host. Hosts on different machines or PID namespaces are not excluded.
 - **Windows rename without explicit write-through** — durability relies on libuv's `rename()` (`MoveFileExW` with replacement); the stricter Win32 write-through publish helper from the session-log backend is planned to move down here when the `log` facet lands.
 - **No crash-atomic `per-record` batch** — a crash before deletion resolves can leave a partial batch and `.deleting` residue. Completed deletions sync the staged directory changes on POSIX; cleanup residue is unreadable.
 

@@ -24,12 +24,14 @@ import type { UnitState } from './format.ts'
  * @param descriptor - Static identity and shape of the unit.
  * @param root - Absolute backend root directory.
  * @param onClose - Backend callback releasing the unit's open-slot.
+ * @param releaseLock - Releases the unit's host lock after close.
  * @returns the opened unit.
  */
 export async function openSingleUnit(
   descriptor: KvUnitDescriptor,
   root: string,
   onClose: () => void,
+  releaseLock: () => Promise<void>,
 ): Promise<KvUnit> {
   const path = join(root, `${descriptor.name}.json`)
   let text: string | undefined
@@ -49,7 +51,7 @@ export async function openSingleUnit(
       : parse(text, descriptor)
   // Opening leaves the file untouched; the next atomic publish uses the current stamp.
   state.version = descriptor.version
-  return new SingleJsonUnit(descriptor, path, state, onClose)
+  return new SingleJsonUnit(descriptor, path, state, onClose, releaseLock)
 }
 
 class SingleJsonUnit implements KvUnit {
@@ -62,6 +64,7 @@ class SingleJsonUnit implements KvUnit {
     private readonly path: string,
     private readonly state: UnitState,
     private readonly onClose: () => void,
+    private readonly releaseLock: () => Promise<void>,
   ) {}
 
   // oxlint-disable-next-line typescript/require-await -- async keeps the closed guard a rejection, not a synchronous throw
@@ -132,6 +135,7 @@ class SingleJsonUnit implements KvUnit {
     }
     this.closed = true
     await Promise.allSettled(this.inFlight)
+    await this.releaseLock()
     this.onClose()
   }
 
