@@ -1,9 +1,10 @@
 /** Git working-tree snapshots, tree diffs, and ignore checks through the subprocess capability. */
-import { copyFile, mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { copyFile, mkdtemp, rm } from 'node:fs/promises'
 import { join, relative, resolve } from 'node:path'
 import type { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
 import { parseNumstat, type NumstatEntry } from './numstat.ts'
 import { canonicalPath, isInside, toPosix } from './paths.ts'
+import { ensurePrivateDirectory } from './store.ts'
 
 /** Milliseconds a git child gets to exit after termination starts; a fixed lifecycle constant. */
 const TERMINATE_GRACE_MS = 2_000
@@ -134,7 +135,7 @@ export async function locateGitWorkspace(
   // git reports the canonical root; compare the private directory in the same spelling.
   const directory = await canonicalPath(await scratch())
   const objects = join(directory, 'objects')
-  await mkdir(objects, { recursive: true })
+  await ensurePrivateDirectory(objects)
   const excludes = isInside(root, directory) ? [toPosix(relative(root, directory))] : []
   const env = { GIT_OBJECT_DIRECTORY: objects, GIT_ALTERNATE_OBJECT_DIRECTORIES: repositoryObjects }
   return { root, gitDir, scratch: directory, env, excludes }

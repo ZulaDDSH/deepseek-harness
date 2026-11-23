@@ -1,5 +1,5 @@
 /** Per-Session turn recorder: snapshots, captures around file-tool edits, the turn-end diff, and the records kept until disposal. */
-import { mkdir, readFile, realpath } from 'node:fs/promises'
+import { readFile, realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, join, relative, resolve } from 'node:path'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
@@ -9,7 +9,7 @@ import {
   blobText, diffTrees, gitlinkPaths, ignoredPaths, locateGitWorkspace, snapshotTree, treeBlob, type GitRunner, type GitWorkspace,
 } from './git.ts'
 import { canonicalPath, compareDisplay, displayPathOf, durablePathOf, isInside, isTemporaryPath, temporaryRoots, toPosix } from './paths.ts'
-import { STORE_VERSION, writeRecord, type StoredRecord, type StoredSide, type StoredSources } from './store.ts'
+import { STORE_VERSION, ensurePrivateDirectory, writeRecord, type StoredRecord, type StoredSide, type StoredSources } from './store.ts'
 import type { WorkspaceChangedFile, WorkspaceChangesSummary, WorkspaceFileDiff } from './types.ts'
 
 /** Facts shared by every recorder of one plugin instance. */
@@ -267,7 +267,7 @@ export class TurnRecorder {
    * Host process serves its earlier turns from the same content.
    */
   private scratchDir(): Promise<string> {
-    this.scratch ??= this.prepare().then(() => mkdir(this.directory, { recursive: true })).then(() => this.directory)
+    this.scratch ??= this.prepare().then(() => ensurePrivateDirectory(this.directory)).then(() => this.directory)
     return this.scratch
   }
 

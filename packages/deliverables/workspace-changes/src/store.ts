@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh-workspace-changes/store
  */
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { join, relative, isAbsolute, sep } from 'node:path'
 import type { WorkspaceChangesSummary } from './types.ts'
 
@@ -131,6 +131,11 @@ export async function migrateLegacyDirectory(root: string, sessionId: string): P
   }
 }
 
+export async function ensurePrivateDirectory(path: string): Promise<void> {
+  await mkdir(path, { recursive: true, mode: 0o700 })
+  if (process.platform !== 'win32') await chmod(path, 0o700)
+}
+
 const recordsDirectory = (directory: string): string => join(directory, 'records')
 
 /**
@@ -142,10 +147,10 @@ const recordsDirectory = (directory: string): string => join(directory, 'records
  */
 export async function writeRecord(directory: string, seq: number, record: StoredRecord): Promise<void> {
   const records = recordsDirectory(directory)
-  await mkdir(records, { recursive: true })
+  await ensurePrivateDirectory(records)
   const target = join(records, `${String(seq)}.json`)
   const temporary = `${target}.tmp`
-  await writeFile(temporary, JSON.stringify(record))
+  await writeFile(temporary, JSON.stringify(record), { mode: 0o600 })
   await rename(temporary, target)
 }
 

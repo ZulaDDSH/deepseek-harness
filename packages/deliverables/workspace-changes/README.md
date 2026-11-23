@@ -100,6 +100,7 @@ Nothing here enters a model request, so provider cache reuse is unaffected.
 - A comparison serves the listed file's complete text to the client, including ignored files, repository files above the working directory, and files outside the workspace; the summary route serves only paths and counts. A deployment that must keep such content on the Host composes this plugin out.
 - A comparison that degrades to whole-file replacement carries every line of both sides, up to twice `maxFileBytes`.
 - Windows paths keep native separators in `path`; `display` is always slash-separated.
+- On POSIX every directory this plugin creates is `0700` and every captured copy and record file is `0600`, whatever the umask; an existing custom root is left as it is and only the Session directories inside it are private. On Windows the modes are ignored and the stores rely on the inherited ACL of the root, which is not checked or repaired: point a custom root at a directory only your account can read.
 - Live path checks and reads are separate filesystem operations; concurrently replacing a parent directory can redirect a read.
 
 <a id="dev-note"></a>

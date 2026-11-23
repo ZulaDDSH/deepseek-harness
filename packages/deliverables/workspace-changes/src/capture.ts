@@ -5,8 +5,9 @@
  * survive later edits without depending on git.
  */
 import { createHash } from 'node:crypto'
-import { mkdir, open, writeFile } from 'node:fs/promises'
+import { open, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { ensurePrivateDirectory } from './store.ts'
 
 /** Bytes git inspects for a NUL byte before treating content as binary. */
 const BINARY_PROBE_BYTES = 8000
@@ -60,9 +61,9 @@ export async function captureFile(absolute: string, directory: string, maxBytes:
     await handle.close()
   }
   const file = join(directory, createHash('sha1').update(bytes).digest('hex'))
-  await mkdir(directory, { recursive: true })
+  await ensurePrivateDirectory(directory)
   // Identical content across paths and turns shares one copy; `wx` keeps an existing copy as is.
-  await writeFile(file, bytes, { flag: 'wx' }).catch((error: unknown) => {
+  await writeFile(file, bytes, { flag: 'wx', mode: 0o600 }).catch((error: unknown) => {
     /* v8 ignore next -- a copy that cannot be written needs a directory the tests cannot make unwritable on every host. */
     if ((error as { code?: unknown }).code !== 'EEXIST') throw error
   })
