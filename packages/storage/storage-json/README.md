@@ -71,7 +71,7 @@ The two layouts share atomic publication but assign state ownership differently.
 
 - **`single` keeps memory authoritative.** Each write changes the in-memory unit, serializes its complete state, and atomically replaces `<unit>.json`. A batch delete publishes once. Serialization failures restore every affected in-memory value; uncertain I/O outcomes require reopening instead of continuing from that snapshot.
 - **`per-record` keeps the directory authoritative.** Each put or delete changes one `<unit>/<table>/<key>.json` document, and `loadAll()` rereads the tree. A batch delete renames the batch's documents out of the readable set, syncs the directory on POSIX, then unlinks the staged copies. A failed staging or sync restores the documents and syncs the restored directory. If that restoration or sync fails, the unit rejects with `unknown-state` and every later operation on it except `close()` rejects. Each document stamps the unit version and carries one record value.
-- **Publication is durable per call.** A write uses a temporary file, fsync, atomic `rename()` replacement, and a parent-directory fsync on POSIX. The domain layer's write chain supplies ordering across calls.
+- **Publication is durable per call.** A write uses a temporary file, fsync, atomic `rename()` replacement, and a parent-directory fsync on POSIX. The domain layer's write chain supplies ordering across calls. A failure after the rename (the parent-directory fsync) is not a rollback: the new document is already visible, so the write rejects with `StorageError` code `unknown-state`, the unit rejects every later call, and the domain quarantines until it is reopened and re-reads the file system.
 
 ### File formats
 

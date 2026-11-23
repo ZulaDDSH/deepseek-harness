@@ -56,6 +56,7 @@ export async function openSingleUnit(
 
 class SingleJsonUnit implements KvUnit {
   private closed = false
+  private unusable: StorageError | undefined
   /** In-flight publishes; close() drains them before releasing the unit. */
   private readonly inFlight = new Set<Promise<void>>()
 
@@ -86,6 +87,7 @@ class SingleJsonUnit implements KvUnit {
     // Roll back on a failed publish: memory is authoritative, so a rejected
     // write must not survive in memory (or ride along with the next publish).
     await this.publish().catch((error: unknown) => {
+      if (this.poison(error)) throw error
       if (hadKey) records.set(key, previous)
       else records.delete(key)
       throw error
@@ -109,6 +111,7 @@ class SingleJsonUnit implements KvUnit {
     // One atomic publish applies the whole batch; a failed publish restores
     // every removed entry so memory and the medium stay together.
     await this.publish().catch((error: unknown) => {
+      if (this.poison(error)) throw error
       for (const [key, value] of removed) records.set(key, value)
       throw error
     })
@@ -122,6 +125,7 @@ class SingleJsonUnit implements KvUnit {
     const previous = this.state.global
     this.state.global = value
     await this.publish().catch((error: unknown) => {
+      if (this.poison(error)) throw error
       this.state.global = previous
       throw error
     })
@@ -143,8 +147,15 @@ class SingleJsonUnit implements KvUnit {
     if (this.closed) {
       throw new StorageError('closed', `unit '${this.descriptor.name}' is closed`)
     }
+    if (this.unusable !== undefined) throw this.unusable
   }
   /* jscpd:ignore-end */
+
+  private poison(error: unknown): boolean {
+    if (!(error instanceof StorageError) || error.code !== 'unknown-state') return false
+    this.unusable = error
+    return true
+  }
 
   private records(table: string): Map<string, unknown> {
     const records = this.state.tables.get(table)
