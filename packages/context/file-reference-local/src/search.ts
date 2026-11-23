@@ -223,7 +223,6 @@ export class WorkspaceFileSearch {
         cursor = 0
         continue
       }
-      // An unreadable root must reject, or an empty index would replace good entries and never retry.
       const entries = directory.relative === '' && !hiddenPhase
         ? await readEntries(directory.absolute, max, signal)
         : await readDirectory(directory.absolute, max, signal)

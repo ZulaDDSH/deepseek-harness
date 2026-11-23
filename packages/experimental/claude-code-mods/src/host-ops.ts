@@ -29,12 +29,6 @@ import type { AskUserQuestionOption } from '@deepseek-ai/dsh-user-questions'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { record, requireString, stringify } from './values.ts'
-
-declare module '@deepseek-ai/dsh-llm' {
-  interface MessageSourceMap {
-    'claude-code-mod': { readonly kind: 'claude-code-mod'; readonly mod?: string }
-  }
-}
 import { z as zod } from 'zod'
 import type { LoadedMod } from './chain.ts'
 import type { ModsEngine, OpContext, OpTable } from './engine.ts'
@@ -43,6 +37,12 @@ import type {
   CommandInfo, CommandRunInput, CommandRunResult, FsEntry, FsStat, HttpResponse, ProcessRunResult, SessionMessage,
   SessionUsage, SessionVersion, ToolCallResult, ToolInfo,
 } from './types.ts'
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'claude-code-mod': { readonly kind: 'claude-code-mod'; readonly mod?: string }
+  }
+}
 
 /** The binding every event of this bridge carries: the agent it belongs to, when one does. */
 export interface AgentBinding {

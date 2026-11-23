@@ -1575,7 +1575,7 @@ describe('continuable durability and teardown', () => {
     const releaseFlush = Promise.withResolvers<undefined>()
     let childFlushes = 0
     ctx.on('session/flush', async (session) => {
-        if (session.header.parentSession === undefined) return
+      if (session.header.parentSession === undefined) return
       childFlushes++
       if (childFlushes !== 1) return
       flushing.resolve(undefined)

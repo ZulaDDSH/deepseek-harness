@@ -221,7 +221,6 @@ async function breakAbandonedClaim(claim: string): Promise<void> {
     return
   }
   try {
-    // A tombstone with other content must be a live contender's fresh claim, which is linked back.
     if (await readLockRecord(tombstone) !== stale) await link(tombstone, claim)
   } catch {
     return
