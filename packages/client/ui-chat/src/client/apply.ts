@@ -301,6 +301,16 @@ export function apply(ctx: Context): void {
           loadOlder: () => { void session.loadOlder({ deferConsumption: true }) },
           consumeOlder: () => session.consumeOlder(),
           loadThrough: seq => session.loadThrough(seq),
+          loadOutline: async (beforeSeq) => {
+            const subagent = session.getSnapshot().subagent
+            const address = subagent === null ? { kind: 'session' as const, sessionId } : { kind: 'subagent' as const, ...subagent.address }
+            try {
+              const result = await ctx.remote.session.outline({ address, beforeSeq })
+              return result.ok ? result.value : null
+            } catch {
+              return null
+            }
+          },
           loadImage: Object.assign(
             (attachment: ImageAttachmentRef) => ctx.uiConversation.imageUrl(sessionId, attachment),
             { peek: (attachment: ImageAttachmentRef) => ctx.uiConversation.peekImageUrl(sessionId, attachment) },

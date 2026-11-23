@@ -18,6 +18,7 @@ import { markdownLabels } from '../markdown-labels.ts'
 import { TurnNavigator } from './TurnNavigator.tsx'
 import type {} from '@deepseek-ai/dsh-tool-todo/client'
 import { mergeTurnRailItems } from './turn-rail-items.ts'
+import { useKnownOutline } from './use-known-outline.ts'
 import { useTextInteraction } from './text-interaction.ts'
 import { useChatScroll } from './use-chat-scroll.ts'
 import { fileMediaUrl, resolveWorkspacePath, sessionFileAddress } from '@deepseek-ai/dsh-util-workspace-path'
@@ -64,7 +65,7 @@ const MOTION_TAIL_MS = 800
 export function ChatView({
   useSession, useChat, useConversation, useSessions, renderSlot,
   sessionId, openFile, openExternalLink, resolveFilePath, useContextMenu,
-  loadOlder, consumeOlder, loadThrough, loadImage, inspectCall, chatScroll, forkAt,
+  loadOlder, consumeOlder, loadThrough, loadOutline, loadImage, inspectCall, chatScroll, forkAt,
   usePresentation, useProjection, useInteractionIds, dispatchInteraction, t, fileDrag,
 }: ChatViewSlotProps) {
   const { getTriggerProps } = useContextMenu()
@@ -94,10 +95,6 @@ export function ChatView({
   // Host-computed whole-log outline; the merge is view-layer only (the
   // conversation snapshot never carries projection values).
   const turnOutline = useProjection('turnOutline')
-  const railItems = useMemo(
-    () => mergeTurnRailItems(turnNavigationItems, turnOutline),
-    [turnNavigationItems, turnOutline],
-  )
   const inbox = useProjection('inbox') as InboxState | undefined
   const openStep = useProjection('sessionStats', stats => stats === undefined ? undefined : stats.steps + 1)
   // Workspace root off the session list row: path summaries display relative to it.
@@ -211,6 +208,11 @@ export function ChatView({
 
   const firstKey = order[0]
   const firstSeq = firstKey === undefined ? null : nodeStore.get(firstKey)?.anchorSeq ?? null
+  const knownOutline = useKnownOutline(sessionId, turnOutline, firstSeq, hasMore, loadOutline)
+  const railItems = useMemo(
+    () => mergeTurnRailItems(turnNavigationItems, knownOutline),
+    [turnNavigationItems, knownOutline],
+  )
   const lastKey = order.at(-1) ?? null
   const latestSteering = pendingInputs.findLast(item => 'source' in item)
   const steeringId = latestSteering?.source.kind === 'user' && 'rpcId' in latestSteering.source
