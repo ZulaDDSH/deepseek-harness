@@ -77,7 +77,7 @@ function wrapCommand(command: string, marker: CommandMarkers): string {
   // regex needs digits immediately after it and the echo continues with
   // quote characters.
   const body = Buffer.from(command, 'utf8').toString('base64')
-  return `Write-Output '${marker.start}'; $LASTEXITCODE = $null; $__s = 1; try { Invoke-Expression ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${body}'))); $__ok = $? } catch { $__ok = $false }; if ($null -ne $LASTEXITCODE) { $__s = [int]$LASTEXITCODE } else { $__s = if ($__ok) { 0 } else { 1 } }; Write-Output ('${marker.end}' + $__s)`
+  return `Write-Output '${marker.start}'; $LASTEXITCODE = $null; $__s = 1; try { Invoke-Expression ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${body}'))); $__ok = $? } catch { $__ok = $false; Write-Output (($_ | Out-String).TrimEnd()) }; if (-not $__ok) { $__s = 1 } elseif ($null -ne $LASTEXITCODE) { $__s = [int]$LASTEXITCODE } else { $__s = 0 }; Write-Output ('${marker.end}' + $__s)`
 }
 
 function trimTrailingNewline(text: string): string {

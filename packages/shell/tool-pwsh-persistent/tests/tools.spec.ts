@@ -1,3 +1,7 @@
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
@@ -912,5 +916,38 @@ describe('tool-pwsh-persistent', () => {
     expect(() => {
       ToolPwshPersistent.apply(new Context(), { description: ' ' })
     }).toThrow('description must be non-empty')
+  })
+})
+
+const shellProbe = ['pwsh', 'powershell'].find(candidate => spawnSync(candidate, ['-NoProfile', '-Command', '1'], { stdio: 'ignore' }).status === 0)
+
+describe.skipIf(shellProbe === undefined)('completion status in a real PowerShell', () => {
+  async function statusOf(command: string): Promise<{ output: string; status: number }> {
+    const { ctx, owner, stub } = await setup({ backendType: 'stub' })
+    await call(ctx, owner, command)
+    const wrapper = stub.sessions[0]!.requests[0]!.text
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-pwsh-status-'))
+    try {
+      const file = join(dir, 'wrapper.ps1')
+      writeFileSync(file, wrapper)
+      const run = spawnSync(shellProbe as string, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', file], { encoding: 'utf8' })
+      const match = /__DSH_PERSISTENT_PWSH_END_[0-9a-f-]+:(\d+)\s*$/m.exec(run.stdout)
+      return { output: run.stdout, status: Number(match?.[1]) }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+
+  const node = `& '${process.execPath}'`
+
+  it('reports a terminating error after a successful native command as failure with its text', async () => {
+    const result = await statusOf(`${node} -e "process.exit(0)"; throw 'boom-after-native'`)
+    expect(result.status).toBe(1)
+    expect(result.output).toContain('boom-after-native')
+  })
+
+  it('keeps the last native exit code and reports success without a native command', async () => {
+    expect((await statusOf(`${node} -e "process.exit(3)"`)).status).toBe(3)
+    expect((await statusOf('Get-Date | Out-Null')).status).toBe(0)
   })
 })
