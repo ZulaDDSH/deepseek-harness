@@ -940,6 +940,18 @@ describe('glob results', () => {
   })
 })
 
+describe('glob non-UTF-8 names', () => {
+  it('counts listed paths with replacement characters and says so in the result text', async () => {
+    const { ctx, subprocess } = await setup()
+    const bad = `caf${String.fromCharCode(0xfffd)}.ts`
+    subprocess.handler = () => runResult(`ok.ts\n${bad}\n`)
+    const result = await call(ctx, 'glob', { pattern: '*.ts' })
+    if (result.isError) throw new Error('expected glob success')
+    expect(result.value).toEqual({ root: '.', paths: ['ok.ts', bad], undecodable: 1 })
+    expect(text(result)).toContain(`ok.ts\n${bad}\n\n(1 listed paths are not valid UTF-8;`)
+  })
+})
+
 describe('grep results', () => {
   it('groups matches by file with line numbers', async () => {
     const { ctx, subprocess } = await setup()
@@ -994,6 +1006,27 @@ describe('grep results', () => {
     const record = JSON.stringify({ type: 'match', data: { path: { text: 'bin.dat' }, lines: { bytes: 'AAECww==' }, line_number: 4 } })
     subprocess.handler = () => runResult(`${record}\n`)
     expect(text(await call(ctx, 'grep', { pattern: 'x' }))).toContain('Line 4: (line is not valid UTF-8)')
+  })
+
+  it('names the count of matches whose path or line is not valid UTF-8 (rg bytes form)', async () => {
+    const { ctx, subprocess } = await setup()
+    const pathBytes = JSON.stringify({ type: 'match', data: { path: { bytes: Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x2e, 0x74, 0x78, 0x74]).toString('base64') }, lines: { text: 'hit\n' }, line_number: 2 } })
+    const lineBytes = JSON.stringify({ type: 'match', data: { path: { text: 'bin.dat' }, lines: { bytes: 'AAECww==' }, line_number: 4 } })
+    subprocess.handler = () => runResult(`${pathBytes}\n${matchLine('ok.txt', 1, 'hit')}\n${lineBytes}\n`)
+    const result = await call(ctx, 'grep', { pattern: 'hit' })
+    if (result.isError) throw new Error('expected grep success')
+    expect(result.value).toMatchObject({ undecodable: 2 })
+    expect(text(result)).toContain(`caf${String.fromCharCode(0xfffd)}.txt\nLine 2: hit`)
+    expect(text(result)).toContain('(2 matches have a path or line that is not valid UTF-8;')
+  })
+
+  it('adds no undecodable note when every path and line decodes', async () => {
+    const { ctx, subprocess } = await setup()
+    subprocess.handler = () => runResult(`${matchLine('a.ts', 1, 'hit')}\n`)
+    const result = await call(ctx, 'grep', { pattern: 'hit' })
+    if (result.isError) throw new Error('expected grep success')
+    expect(result.value).toEqual({ matches: [{ path: 'a.ts', lineNumber: 1, line: 'hit' }] })
+    expect(text(result)).not.toContain('UTF-8')
   })
 
   it('strips a CRLF terminator from the matched line text', () => {

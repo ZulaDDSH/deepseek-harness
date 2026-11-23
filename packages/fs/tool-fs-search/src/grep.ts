@@ -18,7 +18,7 @@ import type { RetainedItems } from '@deepseek-ai/dsh-output-retention'
 import type { SpillRef } from '@deepseek-ai/dsh-spill'
 import type { GrepMatch } from './search-core.ts'
 
-import { SearchError, previewLine, retainGrepMatches, runRipgrep, toWorkdirRelative, trySaveFormattedResult } from './search-core.ts'
+import { SearchError, previewLine, undecodableNote, retainGrepMatches, runRipgrep, toWorkdirRelative, trySaveFormattedResult } from './search-core.ts'
 import { grepSearchMeta, searchViewFromMeta } from './presentation.ts'
 import { acceptedDirectCallValue } from './direct-call.ts'
 
@@ -148,16 +148,18 @@ function parseRecord(line: string): GrepMatch | undefined {
   if (record.type !== 'match') return undefined
   if (typeof record.data !== 'object' || record.data === null) throw malformedRecord('a match record has no data')
   const data = record.data as { path?: unknown; line_number?: unknown; lines?: unknown }
-  const pathText = typeof data.path === 'object' && data.path !== null ? (data.path as { text?: unknown }).text : undefined
+  const pathField = typeof data.path === 'object' && data.path !== null ? data.path as { text?: unknown; bytes?: unknown } : undefined
+  const pathBytes = typeof pathField?.bytes === 'string' ? pathField.bytes : undefined
+  const pathText = pathField?.text ?? (pathBytes === undefined ? undefined : Buffer.from(pathBytes, 'base64').toString('utf8'))
   if (typeof pathText !== 'string') throw malformedRecord('a match record has no path text')
   if (typeof data.line_number !== 'number') throw malformedRecord('a match record has no line number')
   if (typeof data.lines !== 'object' || data.lines === null) throw malformedRecord('a match record has no line content')
   const lines = data.lines as { text?: unknown; bytes?: unknown }
   if (typeof lines.text === 'string') {
-    return { path: pathText, lineNumber: data.line_number, line: lines.text.replace(/\r?\n$/, '') }
+    return { path: pathText, lineNumber: data.line_number, line: lines.text.replace(/\r?\n$/, ''), ...pathBytes === undefined ? {} : { undecodable: true } }
   }
   if (typeof lines.bytes === 'string') {
-    return { path: pathText, lineNumber: data.line_number, line: '(line is not valid UTF-8)' }
+    return { path: pathText, lineNumber: data.line_number, line: '(line is not valid UTF-8)', undecodable: true }
   }
   throw malformedRecord('a match record has neither line text nor bytes')
 }
@@ -225,6 +227,10 @@ export function formatGrepOutput(retained: RetainedItems<GrepMatch>, spillRef: S
     ? `Full grep result stored at: ${spillRef.locator}. ${spillRef.retrievalHint}`
     : 'The complete result could not be saved; narrow pattern, path, or include to see more.'
   return `${header}\n\n${body}\n\n(${recovery})`
+}
+
+function withUndecodable(text: string, undecodable: number | undefined): string {
+  return undecodable === undefined ? text : `${text}\n\n${undecodableNote(undecodable, 'matches have a path or line that is')}`
 }
 
 /** Format one already-retained match list for the Native surface. */
@@ -314,11 +320,12 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
               },
             },
           },
+          undecodable: { type: 'integer' },
         },
       },
       render: (_args, value) => [{
         type: 'text',
-        text: formatRetainedGrep(retainGrepMatches(value.matches, caps.maxMatches, caps.maxLineBytes)),
+        text: withUndecodable(formatRetainedGrep(retainGrepMatches(value.matches, caps.maxMatches, caps.maxLineBytes)), value.undecodable),
       }],
       presentationMeta: (_args, value) =>
         grepSearchMeta(retainGrepMatches(value.matches, caps.maxMatches, caps.maxLineBytes), caps.maxMetaBytes),
@@ -329,6 +336,7 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
       if (run.noMatches) return { matches: [] }
 
       const all: GrepMatch[] = []
+      let undecodable = 0
       for (const raw of parseGrepMatches(run.stdout)) {
         const match: GrepMatch = {
           path: toWorkdirRelative(raw.path, run.workdir),
@@ -336,8 +344,9 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
           line: raw.line,
         }
         all.push(match)
+        if (raw.undecodable === true) undecodable += 1
       }
-      return { matches: all }
+      return { matches: all, ...undecodable > 0 ? { undecodable } : {} }
     },
     presentCall: presentGrepCall,
     presentResult: presentGrepResult,
@@ -346,7 +355,7 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
 
   ctx.on('tools/post-execute', async (exec, result, next) => {
     const decision = await next()
-    const value = acceptedDirectCallValue(ctx, tool, exec, result, decision) as { matches: GrepMatch[] } | undefined
+    const value = acceptedDirectCallValue(ctx, tool, exec, result, decision) as { matches: GrepMatch[]; undecodable?: number } | undefined
     if (value === undefined) return decision
     const matches = value.matches
     if (matches.length <= caps.maxMatches) return decision
@@ -361,7 +370,7 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
       kind: 'accept',
       content: [{
         type: 'text',
-        text: formatRetainedGrep(retainGrepMatches(matches, caps.maxMatches, caps.maxLineBytes), spillRef),
+        text: withUndecodable(formatRetainedGrep(retainGrepMatches(matches, caps.maxMatches, caps.maxLineBytes), spillRef), value.undecodable),
       }],
       ...decision.additionalContexts !== undefined ? { additionalContexts: decision.additionalContexts } : {},
     }

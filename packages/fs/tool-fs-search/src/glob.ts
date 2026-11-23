@@ -14,7 +14,7 @@ import { sep } from 'node:path'
 import { ToolArgsError, defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, SearchResultView, ToolResult } from '@deepseek-ai/dsh-tools'
 import type { SpillRef } from '@deepseek-ai/dsh-spill'
-import { runRipgrep, toWorkdirRelative, trySaveFormattedResult } from './search-core.ts'
+import { runRipgrep, toWorkdirRelative, trySaveFormattedResult, undecodableNote, REPLACEMENT } from './search-core.ts'
 import { globSearchMeta, searchViewFromMeta } from './presentation.ts'
 import { acceptedDirectCallValue } from './direct-call.ts'
 
@@ -262,6 +262,10 @@ function formatGlobPage(items: readonly string[], seen: number, spillRef: SpillR
   return `${body}\n\n(Showing ${items.length} of ${seen} paths${basis} ${recovery})`
 }
 
+function withUndecodable(text: string, undecodable: number | undefined): string {
+  return undecodable === undefined ? text : `${text}\n\n${undecodableNote(undecodable, 'listed paths are')}`
+}
+
 /** Bound and format one canonical path list for the Native surface relative to its search root. */
 function renderGlobPaths(paths: string[], caps: GlobToolCaps, root: string, spillRef?: SpillRef): string {
   if (paths.length === 0) return 'No files found'
@@ -363,9 +367,10 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
         properties: {
           root: { type: 'string', required: true },
           paths: { type: 'array', required: true, items: { type: 'string' } },
+          undecodable: { type: 'integer' },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: renderGlobPaths(value.paths, caps, value.root) }],
+      render: (_args, value) => [{ type: 'text', text: withUndecodable(renderGlobPaths(value.paths, caps, value.root), value.undecodable) }],
       presentationMeta: (_args, value) => {
         const page = globCardPage(value.paths, caps, value.root)
         return globSearchMeta({ items: page.items, truncated: page.truncated, seen: value.paths.length }, caps.maxMetaBytes)
@@ -378,12 +383,14 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
       if (run.noMatches) return { root, paths: [] }
 
       const all: string[] = []
+      let undecodable = 0
       for (const line of run.stdout.split('\n')) {
         if (line.length === 0) continue
+        if (line.includes(REPLACEMENT)) undecodable += 1
         const displayPath = toWorkdirRelative(line, run.workdir)
         all.push(displayPath)
       }
-      return { root, paths: all }
+      return { root, paths: all, ...undecodable > 0 ? { undecodable } : {} }
     },
     presentCall: presentGlobCall,
     presentResult: presentGlobResult,
@@ -392,14 +399,14 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
 
   ctx.on('tools/post-execute', async (exec, result, next) => {
     const decision = await next()
-    const value = acceptedDirectCallValue(ctx, tool, exec, result, decision) as { root: string; paths: string[] } | undefined
+    const value = acceptedDirectCallValue(ctx, tool, exec, result, decision) as { root: string; paths: string[]; undecodable?: number } | undefined
     if (value === undefined) return decision
     const paths = value.paths
     if (paths.length <= caps.maxResults) return decision
     const spillRef = await trySaveFormattedResult(ctx, exec, 'glob-results.txt', paths.join('\n'))
     return {
       kind: 'accept',
-      content: [{ type: 'text', text: renderGlobPaths(paths, caps, value.root, spillRef) }],
+      content: [{ type: 'text', text: withUndecodable(renderGlobPaths(paths, caps, value.root, spillRef), value.undecodable) }],
       ...decision.additionalContexts !== undefined ? { additionalContexts: decision.additionalContexts } : {},
     }
   })

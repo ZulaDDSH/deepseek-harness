@@ -64,7 +64,7 @@ None directly; consumers own model-visible results and request assembly.
 <a id="known-limitations-and-deferred-work"></a>
 
 - **Co-located executable required** — resolution uses the Host's packaged binary path. A remote subprocess provider without that binary fails; there is no system-rg lookup or filesystem-traversal fallback.
-- **Record buffering** — streaming retains one incomplete record plus the current stream chunk; callers whose filenames may contain newlines use NUL separators rather than newlines. Records decode as UTF-8; a filename that is not valid UTF-8 arrives with U+FFFD replacements, cannot be opened by that string, and is counted in the result's `undecodable` so a consumer can report it instead of showing a misleading path. The package does not provide a lossless byte path, and consumers that ignore `undecodable` (the workspace file search and the filesystem search tool today) still show the replaced name.
+- **Record buffering** — streaming retains one incomplete record plus the current stream chunk; callers whose filenames may contain newlines use NUL separators rather than newlines. Records decode as UTF-8; a filename that is not valid UTF-8 arrives with U+FFFD replacements, cannot be opened by that string, and is counted in the result's `undecodable` so a consumer can report it instead of showing a misleading path. The package does not provide a lossless byte path, and consumers that ignore `undecodable` still show the replaced name; the workspace file search reports it as `undecodable` in its result and the filesystem search tool counts replacement characters itself because it reads already-decoded subprocess stdout.
 
 <a id="dev-note"></a>
 ### Dev Note
