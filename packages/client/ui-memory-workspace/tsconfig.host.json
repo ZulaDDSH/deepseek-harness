@@ -10,7 +10,9 @@
     "src/types.ts",
     "src/document-text.ts",
     "src/automation.ts",
-    "src/store.ts"
+    "src/store.ts",
+    "src/viewer.ts",
+    "src/vendor/vis-network.ts"
   ],
   "references": [
     {

@@ -14,6 +14,10 @@ import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { runNativeCommand } from '@deepseek-ai/dsh-native-command'
+import { offlineViewer } from '../src/viewer.ts'
+import vis from '../src/vendor/vis-network.ts'
+
+const POLICY = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:"
 
 vi.mock('@deepseek-ai/dsh-native-command', () => ({ runNativeCommand: vi.fn(async () => ({ stdout: '', stderr: '' })) }))
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -183,7 +187,7 @@ describe('Memory workspace', () => {
     const html = '<html><body>Graphify communities</body></html>'
     await writeFile(join(directory, 'graph.html'), html)
     const graph = await graphCtx.memoryWorkspace.graph()
-    expect(graph.html).toBe(html)
+    expect(graph.html).toBe(`<meta http-equiv="Content-Security-Policy" content="${POLICY}">${html}`)
     expect(graph.skipped).toBeUndefined()
     expect(graph.path).toBe(graphPath)
     expect(runNativeCommand).toHaveBeenLastCalledWith('graphify', [
@@ -252,7 +256,7 @@ describe('Memory workspace provider access', () => {
     await writeFile(join(directory, 'graph.html'), '<html>small</html>')
     const ctx = await connect({ graphPath, maxGraphBytes: 4 * 1024 * 1024 * 1024 }, localProvider(directory))
     const allocate = vi.spyOn(Buffer, 'alloc')
-    expect((await ctx.memoryWorkspace.graph()).html).toBe('<html>small</html>')
+    expect((await ctx.memoryWorkspace.graph()).html).toBe(`<meta http-equiv="Content-Security-Policy" content="${POLICY}"><html>small</html>`)
     expect(allocate.mock.calls.every(([size]) => size < 1024 * 1024)).toBe(true)
     allocate.mockRestore()
   })
@@ -286,7 +290,7 @@ describe('Memory workspace provider access', () => {
     await mkdir(output, { recursive: true })
     await writeFile(join(output, 'graph.json'), '{}')
     await writeFile(join(output, 'graph.html'), '<html></html>')
-    expect(await ctx.memoryWorkspace.graph()).toEqual({ path: resolve(output, 'graph.json'), html: '<html></html>', documents: 1 })
+    expect(await ctx.memoryWorkspace.graph()).toEqual({ path: resolve(output, 'graph.json'), html: `<meta http-equiv="Content-Security-Policy" content="${POLICY}"><html></html>`, documents: 1 })
   })
 
   it('returns an empty graph without running Graphify while no document is imported', async () => {
@@ -332,6 +336,25 @@ describe('Memory workspace provider access', () => {
     await expect(third).rejects.toThrow()
     expect(runNativeCommand).toHaveBeenCalledTimes(1)
     vi.mocked(runNativeCommand).mockImplementation(async () => ({ stdout: '', stderr: '' }))
+  })
+})
+
+describe('Offline Graphify viewer', () => {
+  const remote = '<html><head><title>Graph</title><script src="https://unpkg.com/vis-network@9.1.6/standalone/umd/vis-network.min.js"></script></head><body><script>new vis.Network()</script></body></html>'
+
+  it('inlines the pinned vis-network release and blocks every network request', async () => {
+    const html = await offlineViewer(remote)
+    expect(html).not.toContain('unpkg.com')
+    expect(html).toMatch(/^<html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none';/)
+    expect(html).toContain(`<script>${vis}</script>`)
+    expect(html).toContain('<body><script>new vis.Network()</script></body>')
+    expect(html.match(/<script/g)).toHaveLength(2)
+    expect(createHash('sha256').update(vis).digest('hex')).toBe('576bb887733eb01bb52ee75b90ef46d818454de5fddb5b616fb8a298d307ca12')
+    expect(vis).toContain('@version 9.1.6')
+  })
+
+  it('refuses a Graphify release that references another library version', async () => {
+    await expect(offlineViewer(remote.replace('9.1.6', '9.2.0'))).rejects.toThrow('bundles only vis-network 9.1.6')
   })
 })
 
