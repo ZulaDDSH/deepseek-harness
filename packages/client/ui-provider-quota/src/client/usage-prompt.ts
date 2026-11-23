@@ -47,16 +47,20 @@ export function hardLimited(window: QuotaWindow): boolean {
 
 const OPEN_KEY_TAIL = '|open'
 
+function windowScope(key: string): string {
+  return `${key.split('|').slice(0, 3).join('|')}|`
+}
+
 function isDismissed(dismissed: ReadonlySet<string>, key: string, now: number): boolean {
-  const provider = `${key.split('|').slice(0, 2).join('|')}|`
+  const scope = windowScope(key)
   for (const entry of dismissed) {
-    if (entry.startsWith(provider) && Number(entry.slice(entry.lastIndexOf('|') + 1)) > now) return true
+    if (entry.startsWith(scope) && Number(entry.slice(entry.lastIndexOf('|') + 1)) > now) return true
   }
   return false
 }
 
-function limitKey(providerId: string, windowId: QuotaWindowId, window: QuotaWindow): string {
-  return `limit|${providerId}|${windowId}|${window.resetAt ?? 'open'}`
+function limitKey(kind: 'hard-limit' | 'near-limit', providerId: string, windowId: QuotaWindowId, window: QuotaWindow): string {
+  return `${kind === 'hard-limit' ? 'hard' : 'limit'}|${providerId}|${windowId}|${window.resetAt ?? 'open'}`
 }
 
 /**
@@ -77,9 +81,10 @@ export function usagePrompt(results: readonly QuotaResult[], state: UsagePromptS
       if (window.resetAt !== null && window.resetAt <= state.now) continue
       const hard = hardLimited(window)
       if (!hard && (window.usedPercent === null || window.usedPercent < threshold)) continue
-      const key = limitKey(result.providerId, windowId, window)
+      const kind = hard ? 'hard-limit' : 'near-limit'
+      const key = limitKey(kind, result.providerId, windowId, window)
       if (isDismissed(state.dismissed, key, state.now)) continue
-      candidates.push({ kind: hard ? 'hard-limit' : 'near-limit', key, result, windowId, window })
+      candidates.push({ kind, key, result, windowId, window })
     }
   }
   candidates.sort((left, right) => Number(right.kind === 'hard-limit') - Number(left.kind === 'hard-limit')
@@ -153,9 +158,10 @@ export function localUsagePromptStore(storage: Storage | undefined = browserStor
  * @returns the remembered keys after the dismissal.
  */
 export function withDismissed(keys: readonly string[], key: string, now: number): string[] {
+  const scope = windowScope(key)
   const live = keys.filter((entry) => {
     const reset = Number(entry.slice(entry.lastIndexOf('|') + 1))
-    return !entry.endsWith(OPEN_KEY_TAIL) && !entry.startsWith(`${key}|`) && (!Number.isFinite(reset) || reset >= now)
+    return !entry.endsWith(OPEN_KEY_TAIL) && !entry.startsWith(scope) && (!Number.isFinite(reset) || reset >= now)
   })
   const stored = key.endsWith(OPEN_KEY_TAIL) ? `${key}|${now + OPEN_WINDOW_HOLD_MS}` : key
   return live.includes(stored) ? live : [...live, stored]

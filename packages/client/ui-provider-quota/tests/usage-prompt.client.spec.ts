@@ -87,6 +87,13 @@ describe('usage prompt decisions', () => {
       .toMatchObject({ kind: 'near-limit', key: `limit|anthropic|5h|${nextReset}` })
   })
 
+  it('offers a hard limit on a window whose near-limit warning was dismissed', () => {
+    const dismissed = withDismissed([], `limit|anthropic|5h|${RESET}`, NOW)
+    expect(decide([claude({ '5h': { usedPercent: 95, resetAt: RESET } })], { dismissed })).toBeUndefined()
+    expect(decide([claude({ '5h': { usedPercent: 95, resetAt: RESET, status: 'rejected' } })], { dismissed }))
+      .toMatchObject({ kind: 'hard-limit', key: `hard|anthropic|5h|${RESET}` })
+  })
+
   it('keeps a dismissed window with no reset time quiet for a day, then prompts again', () => {
     const results = [claude({ monthly: { usedPercent: 95, resetAt: null } })]
     const prompt = decide(results)
@@ -97,16 +104,17 @@ describe('usage prompt decisions', () => {
     expect(decide(results, { dismissed, now: NOW + OPEN_WINDOW_HOLD_MS + 1 })).toMatchObject({ kind: 'near-limit' })
   })
 
-  it('suppresses other windows and refreshed reset times for the dismissed provider until reset', () => {
+  it('keeps other windows of the dismissed provider prompting, and holds the dismissed window through a moved reset until its reset', () => {
     const dismissed = withDismissed([], `limit|anthropic|weekly|${RESET}`, NOW)
     const results = [claude({
       weekly: { usedPercent: 100, resetAt: RESET + 1000 },
       'weekly-opus': { usedPercent: 100, resetAt: RESET },
       '5h': { usedPercent: 100, resetAt: NOW + 3_600_000 },
     })]
-    expect(decide(results, { dismissed })).toBeUndefined()
+    expect(decide(results, { dismissed })).toMatchObject({ kind: 'near-limit', windowId: 'weekly-opus' })
+    expect(decide([claude({ weekly: { usedPercent: 100, resetAt: RESET + 1000 } })], { dismissed })).toBeUndefined()
     expect(decide(results, { dismissed, now: RESET + 1 })).toMatchObject({ windowId: 'weekly' })
-    expect(decide([...results, { ...claude({ weekly: { usedPercent: 100, resetAt: RESET } }), providerId: 'another' }], { dismissed }))
+    expect(decide([claude({ weekly: { usedPercent: 100, resetAt: RESET } }), { ...claude({ weekly: { usedPercent: 100, resetAt: RESET } }), providerId: 'another' }], { dismissed }))
       .toMatchObject({ result: { providerId: 'another' } })
   })
 
