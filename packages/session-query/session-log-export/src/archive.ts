@@ -21,6 +21,7 @@
  * @module
  */
 
+import { createHash } from 'node:crypto'
 import { Zip, ZipDeflate } from 'fflate'
 import type { Context } from '@deepseek-ai/cordis'
 import type {
@@ -310,8 +311,7 @@ function attachmentRefsInArtifact(content: string): {
  * One safe zip path segment from an untrusted session id. Session ids are
  * host-controlled, but the brand allows any non-empty string, so `../`, dot
  * segments, and separator characters are neutralized before they can shape
- * archive entries. Distinct ids may collapse onto one segment (id collision
- * is impossible for the host-minted UUIDs, so no uniqueness suffix is kept).
+ * archive entries.
  * @param id - the raw session id.
  * @returns a filesystem-safe single path segment.
  */
@@ -362,6 +362,15 @@ export async function* sessionLogZipEntries(
   yield { path: SESSION_LOG_FILENAME, content: rootContent }
   if (includeDescendants) {
     const seen = new Set<SessionId>([sessionId])
+    const usedDirectories = new Set<string>()
+    const entryDirectory = (id: string): string => {
+      const safe = safeSessionIdSegment(id)
+      const directory = safe !== id || usedDirectories.has(safe.toLowerCase())
+        ? `${safe}-${createHash('sha256').update(id).digest('hex').slice(0, 16)}`
+        : safe
+      usedDirectories.add(directory.toLowerCase())
+      return directory
+    }
     const collect = async function* (
       nodes: readonly SessionLineageNode[],
     ): AsyncGenerator<SessionLogZipEntry> {
@@ -378,7 +387,7 @@ export async function* sessionLogZipEntries(
         }
         rememberAttachments(content)
         yield {
-          path: `subagents/${safeSessionIdSegment(id)}/${SESSION_LOG_FILENAME}`,
+          path: `subagents/${entryDirectory(id)}/${SESSION_LOG_FILENAME}`,
           content,
         }
         yield* collect(node.descendants)
