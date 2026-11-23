@@ -157,7 +157,16 @@ describe('forgePanel lenses over local changes', () => {
     expect(lens.classify).toHaveBeenCalledTimes(1)
   })
 
-  it('reads the old side at HEAD, at the index, and before the first chosen commit', async () => {
+  type LocalScope = Extract<ForgeLensRequest['source'], { kind: 'local' }>['scope']
+  const OLD_SIDES: readonly { title: string; scope: LocalScope | 'chosen-commit'; old: string; new: string }[] = [
+    { title: 'a branch against its base', scope: { kind: 'branch', base: 'refs/remotes/origin/main', commits: null }, old: 'initial\n', new: 'working\n' },
+    { title: 'uncommitted changes', scope: { kind: 'uncommitted' }, old: 'initial\n', new: 'working\n' },
+    { title: 'staged changes', scope: { kind: 'staged' }, old: 'initial\n', new: 'staged\n' },
+    { title: 'unstaged changes', scope: { kind: 'unstaged' }, old: 'staged\n', new: 'working\n' },
+    { title: 'chosen commits', scope: 'chosen-commit', old: 'initial\n', new: 'staged\n' },
+  ]
+
+  it.each(OLD_SIDES)('reads the old side of $title', async ({ scope, old, new: next }) => {
     const repo = await project()
     await writeFile(join(repo, 'tracked.txt'), 'staged\n')
     await git(repo, 'add', 'tracked.txt')
@@ -165,24 +174,17 @@ describe('forgePanel lenses over local changes', () => {
     const opened = await open(repo)
     const reads: string[] = []
     await provideLens(opened.ctx, exportsLens(reads))
-    const ask = async (scope: Extract<ForgeLensRequest['source'], { kind: 'local' }>['scope']): Promise<void> => {
-      const { files } = await opened.ctx.forgePanel.localDiff(opened.session, scope, signal)
-      await frames(opened.ctx, opened.session, { source: { kind: 'local', scope }, version: lensVersion(files), lens: 'fixture/exports' })
+    let local: LocalScope
+    if (scope === 'chosen-commit') {
+      await git(repo, 'commit', '--quiet', '-m', 'staged')
+      const commit = await git(repo, 'rev-parse', 'HEAD')
+      local = { kind: 'branch', base: null, commits: { from: commit, to: commit } }
+    } else {
+      local = scope
     }
-    await ask({ kind: 'branch', base: 'refs/remotes/origin/main', commits: null })
-    await ask({ kind: 'uncommitted' })
-    await ask({ kind: 'staged' })
-    await ask({ kind: 'unstaged' })
-    await git(repo, 'commit', '--quiet', '-m', 'staged')
-    const commit = await git(repo, 'rev-parse', 'HEAD')
-    await ask({ kind: 'branch', base: null, commits: { from: commit, to: commit } })
-    expect(reads).toEqual([
-      'tracked.txt old="initial\\n" new="working\\n"',
-      'tracked.txt old="initial\\n" new="working\\n"',
-      'tracked.txt old="initial\\n" new="staged\\n"',
-      'tracked.txt old="staged\\n" new="working\\n"',
-      'tracked.txt old="initial\\n" new="staged\\n"',
-    ])
+    const { files } = await opened.ctx.forgePanel.localDiff(opened.session, local, signal)
+    await frames(opened.ctx, opened.session, { source: { kind: 'local', scope: local }, version: lensVersion(files), lens: 'fixture/exports' })
+    expect(reads).toEqual([`tracked.txt old=${JSON.stringify(old)} new=${JSON.stringify(next)}`])
   })
 
   it('reads a renamed file\'s old side at its previous path and a deleted file\'s new side as missing', async () => {

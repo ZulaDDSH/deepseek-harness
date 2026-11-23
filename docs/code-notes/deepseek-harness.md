@@ -1138,3 +1138,11 @@ packages/client/ui-workspace/package.json:dsh.client.inject includes the command
 `packages/mcp/mcp-client/tests/reconnect.spec.ts:bounds disposal during connect when the transport never reports closure` expects `transport closure could not be confirmed` when the transport never reports closure, as `packages/mcp/mcp-client/src/connection.ts:startConnection` (dispose) logs; `cleanup incomplete` is now reserved for confirmed closure with a cleanup error.
 
 `packages/experimental/worktree/tests/archive.spec.ts:removes the checkout after the Session moved elsewhere` and `packages/experimental/client-ui-forge/tests/lens-panel.host.spec.ts:forgePanel lenses over local changes` run real git repositories and subprocesses (about 2.5 s per archive test on CI; the archive test in question archives, restores and archives again). They raise the per-test timeout to 30 s like the other worktree and forge host specs.
+
+## packages/knowledge/knowledge-router/tests/delegation-loop.spec.ts:setup
+
+`packages/knowledge/knowledge-router/tests/delegation-loop.spec.ts:setup` mounts `TestSessionQuery` (from `packages/subagent/tool-subagent-control/tests/test-session-query.ts`) because `packages/subagent/tool-subagent-control/src/index.ts:send_message` resolves its target through the `sessionQuery` service and fails with `SUBAGENT_CONTROL_QUERY_UNAVAILABLE` without it. `@deepseek-ai/dsh-session-query` is therefore a devDependency of knowledge-router.
+
+## packages/experimental/client-ui-forge/tests/lens-panel.host.spec.ts:OLD_SIDES
+
+`packages/experimental/client-ui-forge/tests/lens-panel.host.spec.ts:OLD_SIDES` runs one local-diff scope per test. The former single test did five `localDiff` plus lens reads in sequence (about 16 s on a Windows developer machine, over its 30 s budget on a loaded Linux CI runner); each scope now takes about 3 to 4 s and keeps its own 30 s budget. It was slow, not hung: it passes locally and every Git call returns.
