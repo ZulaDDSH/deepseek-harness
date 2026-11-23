@@ -165,6 +165,17 @@ describe('Sidebar chat components', () => {
     expect(renderSlot).toHaveBeenCalledWith('sidebar.chat.conversation', {})
   })
 
+  it('shows the failure when the chat resource failed before it had a value', () => {
+    const props = {
+      useTabInfo: () => ({ tab: { contentId: subagentChatAddress(ADDRESS) } }),
+      useResource: () => ({ status: 'failed', value: undefined, failure: new Error('provider exploded') }),
+      SessionProvider: vi.fn(),
+      renderSlot: vi.fn(),
+    } as unknown as SidebarChatTabProps
+    const view = render(<SidebarChatTab {...props} />)
+    expect(view.getByRole('alert').textContent).toBe('provider exploded')
+  })
+
   it.each([
     {
       name: 'active',
