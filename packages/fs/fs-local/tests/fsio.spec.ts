@@ -968,6 +968,16 @@ describe('applyLiteralEdit', () => {
     expect(() => applyLiteralEdit('a a a', 'a', 'X', false, 'f')).toThrow(expect.objectContaining({ code: 'FS_AMBIGUOUS_EDIT' }))
   })
 
+  it('rejects a search string whose occurrences overlap', () => {
+    expect(() => applyLiteralEdit('aaa', 'aa', 'X', false, 'f')).toThrow(expect.objectContaining({ code: 'FS_AMBIGUOUS_EDIT' }))
+    expect(() => applyLiteralEdit('abab a', 'aba', 'X', false, 'f')).not.toThrow()
+    expect(() => applyLiteralEdit('ababa', 'aba', 'X', false, 'f')).toThrow(expect.objectContaining({ code: 'FS_AMBIGUOUS_EDIT' }))
+  })
+
+  it('replaceAll still replaces non-overlapping matches only', () => {
+    expect(applyLiteralEdit('aaa', 'aa', 'X', true, 'f')).toEqual({ content: 'Xa', replacements: 1 })
+  })
+
   it('replaces all matches with replaceAll', () => {
     expect(applyLiteralEdit('a a a', 'a', 'X', true, 'f')).toEqual({ content: 'X X X', replacements: 3 })
   })

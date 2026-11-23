@@ -732,10 +732,29 @@ function normalizeLineEndings(content: string): string {
 }
 
 function detectLineEndings(raw: string): LineEndings {
-  const sample = raw.slice(0, 4096)
-  const crlfCount = sample.split('\r\n').length - 1
-  const lfCount = sample.split('\n').length - 1 - crlfCount
+  const crlfCount = raw.split('\r\n').length - 1
+  const lfCount = raw.split('\n').length - 1 - crlfCount
   return crlfCount > lfCount ? 'CRLF' : 'LF'
+}
+
+function rawOffset(raw: string, normalizedOffset: number): number {
+  let index = 0
+  for (let seen = 0; seen < normalizedOffset; seen++) index += raw.startsWith('\r\n', index) ? 2 : 1
+  return index
+}
+
+function restoreEditedText(original: { raw: string; content: string; lineEndings: LineEndings }, after: string): string {
+  const { raw, content, lineEndings } = original
+  if (after === content) return raw
+  if (raw === content) return restoreLineEndings(after, lineEndings)
+  const limit = Math.min(content.length, after.length)
+  let prefix = 0
+  while (prefix < limit && content.charCodeAt(prefix) === after.charCodeAt(prefix)) prefix++
+  let suffix = 0
+  while (suffix < limit - prefix && content.charCodeAt(content.length - 1 - suffix) === after.charCodeAt(after.length - 1 - suffix)) suffix++
+  return raw.slice(0, rawOffset(raw, prefix))
+    + restoreLineEndings(after.slice(prefix, after.length - suffix), lineEndings)
+    + raw.slice(rawOffset(raw, content.length - suffix))
 }
 
 /**
@@ -750,14 +769,14 @@ function restoreLineEndings(content: string, lineEndings: LineEndings): string {
   return lineEndings === 'LF' ? content : normalizeLineEndings(content).split('\n').join('\r\n')
 }
 
-function countOccurrences(content: string, needle: string): number {
+function countOccurrences(content: string, needle: string, overlapping: boolean): number {
   let count = 0
   let index = 0
   while (true) {
     const found = content.indexOf(needle, index)
     if (found === -1) return count
     count += 1
-    index = found + needle.length
+    index = found + (overlapping ? 1 : needle.length)
   }
 }
 
@@ -773,13 +792,13 @@ export async function readForEdit(
   absolutePath: string,
   displayPath: string,
   signal?: AbortSignal,
-): Promise<{ content: string; lineEndings: LineEndings }> {
+): Promise<{ content: string; lineEndings: LineEndings; raw: string }> {
   throwIfAborted(signal, 'edit')
   const buffer = await readFileAbortable(absolutePath, displayPath, 'edit', signal)
   throwIfAborted(signal, 'edit')
   if (buffer.includes(0)) throw new FsError(`cannot edit "${displayPath}": binary file`, 'FS_NOT_TEXT')
   const raw = decodeUtf8(buffer, 'edit', displayPath)
-  return { content: normalizeLineEndings(raw), lineEndings: detectLineEndings(raw) }
+  return { content: normalizeLineEndings(raw), lineEndings: detectLineEndings(raw), raw }
 }
 
 /**
@@ -876,7 +895,7 @@ export function applyLiteralEdit(
     throw new FsError('old_string must be a non-empty string', 'FS_EDIT_NOT_FOUND')
   }
   const newNorm = normalizeLineEndings(newString)
-  const replacements = countOccurrences(content, oldNorm)
+  const replacements = countOccurrences(content, oldNorm, !replaceAll)
   if (replacements === 0) {
     throw new FsError(`old_string was not found in "${displayPath}"`, 'FS_EDIT_NOT_FOUND')
   }
@@ -886,4 +905,4 @@ export function applyLiteralEdit(
   return { content: content.split(oldNorm).join(newNorm), replacements }
 }
 
-export { normalizeLineEndings, restoreLineEndings }
+export { normalizeLineEndings, restoreEditedText, restoreLineEndings }
