@@ -60,7 +60,7 @@ Snapshot grants list, per resource the principal's bindings name, the sorted end
 
 The Client entry reads the baseline the index injected under `REMOTE_ACCESS_SNAPSHOT_KEY` synchronously, mounts the generated `remoteAccess` contribution itself through `mountAccess(ctx, contribution, initial)`, follows the snapshot stream, and provides:
 
-- the Client service `ctx.remoteAccess.source(kind, id, action)`, an identity-stable boolean source per `(kind, id, action)` for one resource of a declared kind;
+- the Client service `ctx.remoteAccess.source(kind, id, action)`, a boolean source per `(kind, id, action)` for one resource of a declared kind, identity-stable while it has subscribers; idle sources are kept in a bounded cache, so a source nobody subscribes to may be replaced by a new object, and a subscriber is notified only when its own answer changes;
 - `ctx.remoteAccess.whenAccess(action, callback)`, which keeps the callback's effects installed while the `global` resource allows `action`: the callback runs when the answer becomes true, its effects dispose in reverse order when it becomes false, and it runs again on the next true. The callback returns one disposer or an iterable of disposers, as with `ctx.slots.inject`; it runs synchronously when the answer is already true, as it always is for the owner; the controller belongs to the caller's fiber. A setup failure while allowed throws at once; a later one retires the controller and is rethrown in a microtask. `whenResourceAccess(kind, id, action, callback)` is the same for one resource of a declared kind;
 - the standard Hook `useRemoteAccess(action)`, which answers on the `global` resource.
 
