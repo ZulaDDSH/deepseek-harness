@@ -326,7 +326,7 @@ export interface QuotaResult {
 
 /** Client-safe provider quota views and usage windows. */
 
-export type QuotaWindowId = '5h' | 'weekly' | 'weekly-opus' | 'weekly-sonnet' | 'monthly' | 'overage' | 'credits'
+export type QuotaWindowId = '5h' | 'daily' | 'weekly' | 'weekly-opus' | 'weekly-sonnet' | 'monthly' | 'overage' | 'credits'
 
 /** One provider-defined quota window normalized for client presentation. */
 export interface QuotaWindow {
@@ -2362,6 +2362,23 @@ export interface Config extends ProtocolConfig, ModelListingConfig {
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-llm-deepseek-api-key -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-llm-freebuff -->
+<a id="deepseek-aidsh-llm-freebuff"></a>
+
+## `@deepseek-ai/dsh-llm-freebuff`
+
+- `inject`: `authorization` · `credentials` · `llm` · `sessions` · `subprocess` · `workingDirectory`
+- `refs`: `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/llm/llm-freebuff/src/index.ts:10`](../packages/llm/llm-freebuff/src/index.ts)
+
+```ts config-catalog
+export interface Config {
+  /** Idle time in milliseconds after which an unused Freebuff terminal is closed (default 600000). */
+  readonly idleReapMs?: Volatile<number>
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-llm-freebuff -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-llm-pi-ai -->
 <a id="deepseek-aidsh-llm-pi-ai"></a>

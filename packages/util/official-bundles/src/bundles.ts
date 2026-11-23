@@ -80,4 +80,5 @@ export const ON_DEMAND_BUNDLES: readonly string[] = [
   '@deepseek-ai/dsh-subagent-claude-code',
   '@deepseek-ai/dsh-subagent-codex',
   '@deepseek-ai/dsh-subagent-freebuff',
+  '@deepseek-ai/dsh-llm-freebuff',
 ]

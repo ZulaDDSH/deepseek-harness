@@ -62,6 +62,7 @@ export const MORE_BUNDLES: readonly string[] = [
   '@deepseek-ai/dsh-subagent-codex',
   '@deepseek-ai/dsh-subagent-claude-code',
   '@deepseek-ai/dsh-subagent-freebuff',
+  '@deepseek-ai/dsh-llm-freebuff',
 ]
 
 /** Official bundles the plugin manager marks with the Experimental badge. */

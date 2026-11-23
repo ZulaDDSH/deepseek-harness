@@ -33,6 +33,7 @@ export const PRODUCT_PACKAGE_POLICY: Readonly<Record<string, ProductPackagePolic
   'packages/subagent/subagent-acp': { category: 'optional', reason: 'Requires a configured external ACP agent command.' },
   'packages/subagent/subagent-claude-code': { category: 'optional', reason: 'Separately installed native Claude Code agent integration.' },
   'packages/subagent/subagent-codex': { category: 'optional', reason: 'Separately installed native Codex agent integration.' },
+  'packages/llm/llm-freebuff': { category: 'optional', reason: 'Requires the separately installed Freebuff terminal application and a Freebuff sign-in.' },
   'packages/subagent/subagent-freebuff': { category: 'optional', reason: 'Separately installed Freebuff terminal application integration.' },
   'packages/subagent/subagent-dsh-sdk': { category: 'optional', reason: 'Requires an explicitly configured external DSH home.' },
   'packages/context/tmux-context': { category: 'optional', reason: 'Context contribution requiring a tmux pane.' },
