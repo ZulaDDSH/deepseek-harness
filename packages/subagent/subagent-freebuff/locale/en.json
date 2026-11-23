@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Freebuff subagent",
+    "description": "Delegate one task to the installed Freebuff CLI using its own login."
+  }
+}

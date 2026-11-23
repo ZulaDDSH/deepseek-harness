@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Subagente Freebuff",
+    "description": "Delegue una tarea a la CLI de Freebuff instalada usando su propio inicio de sesión."
+  }
+}

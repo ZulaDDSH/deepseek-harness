@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Sous-agent Freebuff",
+    "description": "Déléguez une tâche à la CLI Freebuff installée à l’aide de sa propre connexion."
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Freebuff-Subagent",
+    "description": "Delegieren Sie eine Aufgabe an die installierte Freebuff-CLI und nutzen Sie deren eigene Anmeldung."
+  }
+}
