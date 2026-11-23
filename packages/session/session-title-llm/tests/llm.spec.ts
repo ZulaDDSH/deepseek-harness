@@ -72,6 +72,18 @@ class CooperativeAdapter extends LlmAdapter {
   }
 }
 
+class StalledPrepareAdapter extends LlmAdapter {
+  override prepareCall(): Promise<never> {
+    return new Promise<never>(() => {})
+  }
+}
+
+class StalledStreamAdapter extends LlmAdapter {
+  override async * stream(): AsyncIterable<StreamChunk> {
+    await new Promise<never>(() => {})
+  }
+}
+
 class DelayedSuccessAdapter extends LlmAdapter {
   constructor(private readonly delayMs: number) {
     super()
@@ -545,6 +557,60 @@ describe('executeSessionTitleLlm', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it.each([
+    ['preparation', () => new StalledPrepareAdapter()],
+    ['stream', () => new StalledStreamAdapter()],
+  ] as const)('settles at the deadline when a cancellation-ignoring adapter never settles its %s', async (_stage, makeAdapter) => {
+    vi.useFakeTimers()
+    try {
+      const ctx = new Context()
+      onTestFinished(() => ctx.fiber.dispose())
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(LlmRuntime)
+      ctx.llm.registerAdapter(['current-route'], makeAdapter())
+      const providerRequest = request(ctx)
+      const pending = executeSessionTitleLlm(
+        ctx,
+        resolveSessionTitleLlmConfig({ ...CONFIG, timeoutMs: 10 }),
+        providerRequest,
+        TITLE_PROVIDER,
+        prepared(providerRequest),
+      )
+      const rejected = expect(pending).rejects.toMatchObject({
+        code: SESSION_TITLE_TIMEOUT_CODE,
+        timeoutMs: 10,
+      })
+      await vi.advanceTimersByTimeAsync(10)
+      await rejected
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it.each([
+    ['preparation', () => new StalledPrepareAdapter()],
+    ['stream', () => new StalledStreamAdapter()],
+  ] as const)('settles on caller cancellation when a cancellation-ignoring adapter never settles its %s', async (_stage, makeAdapter) => {
+    const ctx = new Context()
+    onTestFinished(() => ctx.fiber.dispose())
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(LlmRuntime)
+    ctx.llm.registerAdapter(['current-route'], makeAdapter())
+    const controller = new AbortController()
+    const providerRequest = request(ctx, controller.signal)
+    const pending = executeSessionTitleLlm(
+      ctx,
+      resolveSessionTitleLlmConfig(CONFIG),
+      providerRequest,
+      TITLE_PROVIDER,
+      prepared(providerRequest),
+    )
+    const rejected = expect(pending).rejects.toThrow('caller stopped')
+    await new Promise<void>(resolve => setTimeout(resolve, 5))
+    controller.abort(new Error('caller stopped'))
+    await rejected
   })
 
   it('propagates caller cancellation through the composed request signal', async () => {
