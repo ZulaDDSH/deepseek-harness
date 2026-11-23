@@ -4385,6 +4385,42 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-subagent-fork-in-process -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-subagent-freebuff -->
+<a id="deepseek-aidsh-subagent-freebuff"></a>
+
+## `@deepseek-ai/dsh-subagent-freebuff`
+
+- `inject`: `subagents` · `subprocess`
+- `source`: [`packages/subagent/subagent-freebuff/src/index.ts:41`](../packages/subagent/subagent-freebuff/src/index.ts)
+
+```ts config-catalog
+export interface Config {
+  /** Provider name on `ctx.subagents` (default `freebuff`). */
+  providerName?: string
+  /** Freebuff executable resolved on PATH or an absolute path (default `freebuff`). */
+  executable?: string
+  /** Working directory of the Freebuff terminal; its basename keys the chat transcript folder. */
+  cwd?: string
+  /** Extra arguments appended to the Freebuff command line. */
+  args?: string[]
+  /** Explicit environment entries layered over the subprocess seam's credential-scrubbed parent environment. */
+  env?: Record<string, string>
+  /** Pass `--trust-agents` so project agents load without the trust prompt (default false). */
+  trustAgents?: boolean
+  /** Run `freebuff doctor --json` before starting and fail fast when signed out (default true). */
+  loginCheck?: boolean
+  /** Milliseconds to wait for the ready screen and for the task to start being worked on. */
+  startupTimeoutMs?: number
+  /** Milliseconds without a busy marker before a turn counts as finished. */
+  idleMs?: number
+  /** Wall-clock limit in milliseconds for one published run; expiry settles it as an error with category `limit`. */
+  timeoutMs?: number
+  /** Grace in milliseconds between terminal termination tiers. */
+  disposeGraceMs?: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-subagent-freebuff -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-subagent-spawn-in-process -->
 <a id="deepseek-aidsh-subagent-spawn-in-process"></a>
 

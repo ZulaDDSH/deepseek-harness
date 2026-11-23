@@ -7,7 +7,7 @@ kind: "package-bundle"
 
 ## Summary
 
-Install `@deepseek-ai/dsh-subagent-freebuff` into a Profile when delegated work should run in the user's own installed Freebuff CLI, in the parent Session's workspace. Freebuff is an interactive terminal application with no prompt argument, one-shot mode, ACP mode or server mode, so the provider starts the real `freebuff` binary in a pseudo-terminal, types one self-contained text task into it, waits for the turn to finish, and returns only the selected answer or a safe failure diagnostic. Freebuff keeps its own account: the user signs in once with `freebuff login`, and the provider never reads, copies, proxies or stores a Freebuff credential. The Bundle adds its delegation tool as a global tool.
+Install `@deepseek-ai/dsh-subagent-freebuff` into a Profile when delegated work should run in the user's own installed Freebuff CLI, in the parent Session's workspace. Freebuff has no prompt argument, one-shot mode, ACP mode or server mode, so the provider starts the real `freebuff` binary in a pseudo-terminal, types one self-contained text task, waits for the turn to finish, and returns the selected answer or a failure diagnostic. The user signs in once with `freebuff login`; the provider never handles a Freebuff credential. The Bundle adds its delegation tool as a global tool.
 
 ## Table of Contents
 
@@ -86,7 +86,7 @@ The bundle inserts `tool-subagent-freebuff` as a Host row, so `subagent_freebuff
 
 ### What you get
 
-The completion notice contains the selected Freebuff answer, or the stop reason and a safe diagnostic. Diagnostics name only a fixed stage and category, never terminal text. The parent Session retains the external task identity and complete terminal result; no local child Session is created. Freebuff's reasoning, tool activity and workspace diffs do not enter the parent Session.
+The completion notice contains the selected Freebuff answer, or the stop reason and a safe diagnostic. Diagnostics name the stage and category and, for a product error, Freebuff's own error text flattened and cut to 400 characters; they never include raw terminal text. The parent Session retains the external task identity and complete terminal result; no local child Session is created. Freebuff's reasoning, tool activity and workspace diffs do not enter the parent Session.
 
 ### Failure and recovery
 
@@ -97,6 +97,8 @@ The completion notice contains the selected Freebuff answer, or the stop reason 
 | Freebuff exits, waits on an admission prompt, never becomes ready, reports an error or times out | `FREEBUFF_RUN_FAILED` | At startup, or as the error result of a published run |
 
 A startup failure rejects the delegation. A failure after the run is published settles as `stopReason: error` with the diagnostic. A cancelled run settles as `aborted` and terminates the terminal session. The provider never confirms an admission prompt such as taking over another session or confirming a send, because those spend session capacity; sign out of the other terminal or finish the pending prompt and retry.
+
+Freebuff's server may refuse prompts that are driven by another agent under its usage policy. The provider does not disguise the prompt or work around that check: the refusal arrives as Freebuff's `userError` text in the run failure diagnostic, with category `product-error`. Use this provider only with the Freebuff developer's permission. A task that starts with `/` or `!` is rejected before anything starts, because Freebuff would run it as a command; rephrase it. An error that Freebuff recovers from, followed by a complete answer, does not fail the run.
 
 -----
 
@@ -132,7 +134,7 @@ A start accepts only text blocks, removes control characters other than newline 
 
 ### Verified and unverified markers
 
-The screen markers (`Press ENTER to login...`, `thinking...`, `working...`, `■ Esc`, `/model to change`, `for history`, `Enter: take over`, `Load and run these? [y/N]`) and the transcript layout were read from the Freebuff CLI source. They are not checked against a running binary; the tests drive a fake terminal script that prints the same markers.
+The footer markers `/model to change` and `for history`, the busy status row `thinking... <n>s ■ Esc`, the idle row `✕ End session`, and the transcript layout were observed once on Freebuff 0.2.36 with a trivial task. The login markers (`Press ENTER to login`, `to login:`, `Waiting for login`, `Please log in again`), the admission prompts (`Enter: take over` and the others) and `Load and run these?` were read from the Freebuff CLI source and are not checked against a running binary. The tests drive a fake terminal script that prints frames laid out like the observed ones.
 
 </details>
 
@@ -170,7 +172,7 @@ Independent of the parent request cache; reuse depends only on Freebuff's own re
 
 #### What the model sees
 
-Through `dsh-tool-subagent`, the parent model first receives the child's name, then the selected Freebuff answer or a failure notice with its stop reason and safe diagnostic. Diagnostics contain only a fixed stage and category. Terminal text, reasoning, tool activity, paths and product identifiers are not copied into the parent Session.
+Through `dsh-tool-subagent`, the parent model first receives the child's name, then the selected Freebuff answer or a failure notice with its stop reason and safe diagnostic. Diagnostics contain the stage, the category and, for a product error, Freebuff's own error text. Raw terminal text, reasoning, tool activity, paths and product identifiers are not copied into the parent Session.
 
 #### Token effect
 
@@ -180,18 +182,17 @@ Parent input grows by the start acknowledgement and completion notice, including
 
 Start acknowledgements and completion notices append after the reusable parent request prefix; a notice may wake another turn without rewriting the existing prefix.
 
-<a id="known-limitations-and-deferred-work"></a>
 ## Known Limitations and Deferred Work
 
 These limits define when this provider is a poor fit or needs special operational care.
 
 - **Screen scraping is the fallback** — Freebuff has no machine-readable done signal, so the provider depends on the TUI markers listed above. A Freebuff release that changes them makes runs fail at a timeout, never hang, but the provider needs updating.
-- **The screen answer may be clipped** — without a persisted transcript the answer is the rendered text, which is limited to the 50-row viewport. The transcript is found only when Freebuff stores chats under `<config dir>/projects/<basename of the workspace>/chats`; a different project root name falls back to the screen.
+- **The screen answer may be clipped** — without a persisted transcript the answer is the rendered text, which is limited to the 50-row viewport. When the task echo is no longer visible the answer starts with a notice that it may be incomplete. The transcript is found only when Freebuff stores chats under `<config dir>/projects/<basename of the workspace>/chats`; a different project root name falls back to the screen.
 - **One fresh process and one turn per run** — there is no continuation, resume or pooling. Progress lines are not forwarded.
 - **A paused question or a waiting room ends at a timeout** — a Freebuff question to the user, or a free-tier waiting room, has no recognised marker, so the run ends at `timeoutMs` or `startupTimeoutMs`.
 - **No sandbox and no approval path** — Freebuff edits files and runs commands with the user's rights, so only `danger-full-access` parents are accepted.
-- **Windows is unverified** — the provider passes a `.cmd` shim from `PATH` straight to the pseudo-terminal and wraps it in `ComSpec /d /s /c` for the doctor call; neither path was run on Windows. ConPTY sessions sit outside Job containment, so descendant cleanup relies on the terminal handle's termination.
-- **A concurrent Freebuff in the same project can confuse transcript lookup** — the newest chat written after the run started is taken.
+- **Windows is lightly verified** — the provider passes a `.cmd` shim from `PATH` straight to the pseudo-terminal, which started the installed Freebuff once, and runs it for the doctor call as `ComSpec /d /c` with the quoted path in an environment variable so a path with spaces works. ConPTY sessions sit outside Job containment, so descendant cleanup relies on the terminal handle's termination.
+- **Transcript lookup needs an exact task match** — a chat is used only when its last user message equals the task, so a concurrent Freebuff in the same project is not mistaken for this run; a Freebuff that rewrites the task text falls back to the screen.
 - **No optional shared capabilities** — `agentPreset`, `agentOptions`, output schemas and harness depth enforcement are rejected by the shared service for this provider.
 - **No side-effect rollback** — files changed before cancellation are not restored.
 
@@ -203,7 +204,7 @@ These limits define when this provider is a poor fit or needs special operationa
 
 This Dev Note is working context for maintainers: open questions and undecided directions. It is explicitly non-authoritative — shipped behavior and limits live in the sections above and in the package code.
 
-- **Marker verification** — run a real Freebuff once under the provider and record the actual footer, working indicator and admission strings; the table in `src/screen.ts` is the only place to change.
+- **Marker verification** — the footer and status strings were observed once; record the actual login and admission strings when they next appear. The constants at the top of `src/screen.ts` are the only place to change.
 - **Launcher update restart** — the npm launcher can restart itself after an update; whether that surfaces as an early exit under the pseudo-terminal is unobserved.
 
 </details>
