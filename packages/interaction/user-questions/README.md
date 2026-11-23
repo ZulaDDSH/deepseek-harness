@@ -35,7 +35,7 @@ While the tool call is open, the only answer path is that request; a browser tha
 <a id="role"></a>
 ## Role
 
-`UserQuestionService` owns each `TimedQuestionWait`, its cancellable Client claims, and its unattended timer. A claimed wait leaves countdown and focus/edit decisions to the Client. An unattended timeout aborts only the foreground request signal and returns pending, never aborting the Turn. The `userQuestions` projection records open, continued, and settled timed calls from existing Session events: native calls use the logged tool schema, while PTC sub-calls enter when their result is pending. The `answer` RPC validates one answer per question and accepts one queued reply per continued call; a second reply fails with `REPLY_QUEUED`. A discarded reply leaves the question answerable. A late batch stays in the projection because the original tool result contains the timeout, not that answer.
+`UserQuestionService` owns each `TimedQuestionWait`, its cancellable Client claims, and its unattended timer. A claimed wait leaves countdown and focus/edit decisions to the Client. An unattended timeout aborts only the foreground request signal and returns pending, never aborting the Turn. The `userQuestions` projection records open, continued, and settled timed calls from existing Session events: native calls use the logged tool schema, while PTC sub-calls enter as open when their dispatch starts and stay answerable when their result is pending or when resume repair marks the interrupted `run_code` outcome unknown. The `answer` RPC validates one answer per question and accepts one queued reply per continued call; a second reply fails with `REPLY_QUEUED`. A discarded reply leaves the question answerable. A late batch stays in the projection because the original tool result contains the timeout, not that answer.
 
 <a id="model-experience"></a>
 ## Model Experience
@@ -52,6 +52,7 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 
 - **Agent-scoped Web answering** — Remote Events route the shipped Web answerer only when the request carries a live Agent scope; agentless callers need an unscoped local waterfall listener.
 - **The vocabulary is the question-form shape only** — selectable options plus optional custom text; richer interaction shapes (file pickers, diff-preview confirmations) have no seam vocabulary yet.
+- **PTC sub-calls are admitted without a schema check** — a PTC dispatch carries no tool schema, so an `ask_user_question` sub-call made under the blocking legacy tool is also admitted at start, and after an interrupted `run_code` it shows as continued. Sub-calls whose ids do not follow `<run_code call id>:ptc:<n>` (older logs) are reconstructed only from a pending dispatch result.
 - **Draft text is not part of Host question persistence** — the question survives restart across clients through the projection; unfinished input remains local to one browser profile.
 
 
