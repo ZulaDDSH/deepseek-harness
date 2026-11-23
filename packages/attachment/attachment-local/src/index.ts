@@ -64,6 +64,7 @@ export const DEFAULT_MAX_STORED_FILE_BYTES = 20 * 1024 * 1024 * 1024
 export const DEFAULT_IMAGE_COMPRESSION_CONCURRENCY = 2
 /** Maximum configurable native image transformations per store. */
 export const MAX_IMAGE_COMPRESSION_CONCURRENCY = 8
+const QUEUED_IMAGE_BATCHES = 2
 
 /** Local attachment backend configuration. */
 export interface Config {
@@ -217,24 +218,32 @@ export class LocalAttachmentStore extends AttachmentStore {
       )
     }
     this.imageCompressionConcurrency = compressionConcurrency
-    this.compression = new CompressionLimiter(compressionConcurrency)
+    this.compression = new CompressionLimiter(compressionConcurrency, {
+      tasks: QUEUED_IMAGE_BATCHES * this.imageLimits.maxImagesPerMessage,
+      bytes: QUEUED_IMAGE_BATCHES * this.imageLimits.maxMessageImageBytes,
+    })
   }
 
   async validateImage(input: SaveImageAttachment): Promise<void> {
-    await this.compression.run(() => validateImageFile(input, this.imageLimits, this.normalizationPolicy))
+    await this.compression.run(
+      () => validateImageFile(input, this.imageLimits, this.normalizationPolicy),
+      { bytes: input.data.byteLength },
+    )
   }
 
   override async saveImages(inputs: readonly SaveImageAttachment[]): Promise<readonly ImageAttachmentRef[]> {
     this.validateImageBatch(inputs)
+    this.compression.admit(inputs.map(input => input.data.byteLength))
     const batch = new AbortController()
     const prepared = await Promise.all(inputs.map(input => this.compression.run(async () => {
+      batch.signal.throwIfAborted()
       try {
         return await prepareImageFile(input, this.imageLimits, this.normalizationPolicy)
       } catch (error) {
         batch.abort(error)
         throw error
       }
-    }, batch.signal)))
+    }, { signal: batch.signal, bytes: input.data.byteLength })))
     const refs: ImageAttachmentRef[] = []
     for (const image of prepared) refs.push(await commitPreparedImageFile(this.root, image))
     return refs
@@ -243,6 +252,7 @@ export class LocalAttachmentStore extends AttachmentStore {
   async saveImage(input: SaveImageAttachment): Promise<ImageAttachmentRef> {
     const prepared = await this.compression.run(
       () => prepareImageFile(input, this.imageLimits, this.normalizationPolicy),
+      { bytes: input.data.byteLength },
     )
     return commitPreparedImageFile(this.root, prepared)
   }
@@ -307,7 +317,7 @@ export class LocalAttachmentStore extends AttachmentStore {
           sharedSignal,
         )
         return request
-      }, sharedSignal))
+      }, { signal: sharedSignal, bytes: ref.bytes }))
       operation = shared
       this.requestInflight.set(key, shared)
       void shared.promise.finally(() => {

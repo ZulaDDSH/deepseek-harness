@@ -44,7 +44,7 @@ Mount the plugin with no required configuration. The defaults below define what 
 | `normalizedImageMaxPixels` | `2048 × 2048` | Total-pixel budget of the stored normalized image |
 | `normalizedImageMaxDimension` | `8192` | Maximum long edge after applying the total-pixel budget |
 | `normalizedImageMaxBytes` | `4 MiB` | Encoded-byte target; the smallest quality-ladder output is kept when none fits |
-| `imageCompressionConcurrency` | `2` | FIFO limit for concurrent normalization and request transforms |
+| `imageCompressionConcurrency` | `2` | FIFO limit for concurrent normalization and request transforms. Work waiting for a slot is bounded to two batches of the image limits (`2 × maxImagesPerMessage` images and `2 × maxMessageImageBytes`); a request past that is refused with `IMAGE_QUEUE_FULL` and retried by the caller |
 | `maxFileBytes` | `1 GiB` | Maximum bytes accepted for one verbatim file; an upload past it is refused while streaming (`FILE_TOO_LARGE`) |
 | `maxStoredFileBytes` | `20 GiB` | Maximum total bytes of stored verbatim file objects; an upload that would pass it is refused (`FILE_STORE_FULL`). Re-uploading an existing file costs nothing |
 
