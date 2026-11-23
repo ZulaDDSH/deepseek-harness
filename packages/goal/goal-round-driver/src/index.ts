@@ -41,6 +41,7 @@ interface DriverState {
   readonly agent: Agent
   attempt: RoundAttempt | undefined
   competingQueued: boolean
+  abandoned: MessageId | undefined
   needsCheckpoint: boolean
   requested: boolean
   run: Promise<void> | undefined
@@ -88,6 +89,7 @@ export function apply(ctx: Context): void {
       agent,
       attempt: undefined,
       competingQueued: false,
+      abandoned: undefined,
       needsCheckpoint: false,
       requested: false,
       run: undefined,
@@ -361,6 +363,11 @@ export function apply(ctx: Context): void {
     ctx.on('agent/inbox/inserted', ({ agent, message }) => {
       if (!agent.inbox.nextTurn.some(candidate => candidate.id === message.id)) return
       const state = stateFor(agent)
+      if (state.abandoned === message.id) {
+        state.abandoned = undefined
+        agent.inbox.remove(message.id)
+        return
+      }
       const attempt = state.attempt
       if (attempt !== undefined && sameQueued(message.content, message.source, attempt)) return
       state.competingQueued = true
@@ -462,6 +469,7 @@ export function apply(ctx: Context): void {
         // reservation before the balanced no-step turn returns to idle so the
         // next drive pass can reschedule the round.
         state.attempt = undefined
+        state.abandoned = submitted.id
         requestDrive(state)
         throw error
       }
