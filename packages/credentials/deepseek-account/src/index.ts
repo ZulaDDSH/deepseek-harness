@@ -27,8 +27,8 @@ declare module '@deepseek-ai/cordis' {
      * @mode emit
      */
     'deepseek-account/signed-out'(): void
-    /** @mode emit; constraint: listeners are not awaited */
-    'deepseek-account/revocation'(outcome: RevocationOutcome): void
+    /** Constraint: revocation settled, read getRevocationStatus(). @mode emit */
+    'deepseek-account/revocation'(): void
   }
 }
 
@@ -667,12 +667,13 @@ export class DeepSeekAccount extends TypertRemoteService {
       this.logoutLifetime.signal, { ...this.requestHeaders, ...headers }).then((outcome) => {
       this.revocationStatus = outcome
       if (outcome !== 'revoked') this.ctx.logger.warn('deepseek-account: remote revocation of the signed-out token %s; revoke it at the issuer', outcome)
-      this.ctx.emit('deepseek-account/revocation', outcome)
+      this.ctx.emit('deepseek-account/revocation')
     }).finally(() => { this.revocations.delete(revocation) })
     this.revocations.add(revocation)
   }
 
-  getRevocationStatus(): 'none' | 'pending' | RevocationOutcome {
+  /** Constraint: state of the background token revocation after sign-out. */
+  getRevocationStatus():'none' | 'pending' | RevocationOutcome {
     return this.revocationStatus
   }
 

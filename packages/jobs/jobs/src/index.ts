@@ -139,7 +139,7 @@ export abstract class JobRegistry extends Service {
    */
   abstract read(id: JobId, caller?: SessionId): JobRead
 
-  /** Invariant: returns what the next read returns and consumes nothing. */
+  /** Invariant: returns what the next read returns and consumes nothing. @param id the job. @param caller the reading session. @returns the unconsumed read. */
   abstract peek(id: JobId, caller?: SessionId): JobRead
 
   /**

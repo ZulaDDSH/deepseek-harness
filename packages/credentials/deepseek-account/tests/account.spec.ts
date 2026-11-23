@@ -588,7 +588,7 @@ it('reports the background revocation outcome after sign-out', async () => {
   const f = await fixture()
   expect(f.account.getRevocationStatus()).toBe('none')
   const outcomes: string[] = []
-  f.ctx.on('deepseek-account/revocation', (outcome) => { outcomes.push(outcome) })
+  f.ctx.on('deepseek-account/revocation', () => { outcomes.push(f.account.getRevocationStatus()) })
   await storeAccount(f)
   await f.account.signOut(clientMetadata())
   await expect.poll(() => f.account.getRevocationStatus()).toBe('revoked')
