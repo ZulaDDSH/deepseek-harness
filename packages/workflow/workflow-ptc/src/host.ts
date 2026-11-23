@@ -179,6 +179,8 @@ export class PtcWorkflowRun implements WorkflowRun {
   private started = 0
   private terminal = false
   private cancelReason: string | undefined
+  private deadlineError: string | undefined
+  private deadlineTimer: NodeJS.Timeout | undefined
   private readonly cleanupFailures: string[] = []
   private disposed: Promise<void> | undefined
   private readonly externalAbort: () => void
@@ -196,12 +198,21 @@ export class PtcWorkflowRun implements WorkflowRun {
     private readonly claudeCliProvider: string,
     private readonly policy: SandboxExecutionPolicy,
     private readonly observer: ExecutionObserver,
+    private readonly maxDurationMs: number,
     private readonly signal?: AbortSignal,
   ) {
     this.externalAbort = () => { this.cancel('workflow signal aborted') }
     if (signal?.aborted) this.externalAbort()
     else signal?.addEventListener('abort', this.externalAbort, { once: true })
     this.cwd = ctx.workingDirectory.ensure(parent, this.controller.signal)
+    if (maxDurationMs > 0) {
+      this.deadlineTimer = setTimeout(() => {
+        if (this.terminal || this.cancelReason !== undefined) return
+        this.deadlineError = `workflow run exceeded its overall deadline of ${maxDurationMs} ms`
+        this.cancel(this.deadlineError)
+      }, maxDurationMs)
+      this.deadlineTimer.unref()
+    }
     // Consumers attach durable run recording after start() returns.
     this.result = Promise.resolve().then(() => this.drive())
   }
@@ -339,6 +350,7 @@ export class PtcWorkflowRun implements WorkflowRun {
   }
 
   private cancelled(): WorkflowResult {
+    if (this.deadlineError !== undefined) return { value: null, stopReason: 'error', error: this.deadlineError, errorCode: 'RUN_FAILED', agentsStarted: this.started }
     return { value: null, stopReason: 'cancelled', error: `workflow run cancelled: ${this.cancelReason}`, agentsStarted: this.started }
   }
 
@@ -374,6 +386,7 @@ export class PtcWorkflowRun implements WorkflowRun {
         : this.cancelled()
     } finally {
       this.terminal = true
+      clearTimeout(this.deadlineTimer)
       this.signal?.removeEventListener('abort', this.externalAbort)
       this.controller.abort('workflow settled')
       // Disposing published children releases binding waits; pending starts may publish more.

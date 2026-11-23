@@ -624,6 +624,35 @@ describe('dsh-workflow-ptc', { timeout: 120_000 }, () => {
       expect(() => ctx.workflowEngine.start({ ...scripted("export const meta = { name: 'x', description: 'd' }\nreturn 1"), parent })).toThrow(/meta rides the `meta` request field/)
     })
 
+    it('ends a run with a pending child as an error at the overall deadline and disposes the child', async () => {
+      const { ctx, parent, provider } = await setup({ manual: true, config: { maxDurationMs: 300 } })
+      const runEnds: WorkflowResultInfo[] = []
+      ctx.on('workflow/end', (_info, result) => { runEnds.push(result) })
+      const handle = ctx.workflowEngine.start({ ...scripted("return await agent('long job')"), parent })
+      const result = await handle.result
+      expect(result).toMatchObject({ stopReason: 'error', errorCode: 'RUN_FAILED', value: null })
+      expect(result.error).toContain('overall deadline of 300 ms')
+      await handle.dispose()
+      expect(provider.runs[0]!.disposed).toBe(true)
+      expect(runEnds).toEqual([expect.objectContaining({ stopReason: 'error', error: result.error })])
+    })
+
+    it('ends an asynchronous infinite loop at the overall deadline', async () => {
+      const { ctx, parent } = await setup({ config: { maxDurationMs: 500 } })
+      const result = await run(ctx, parent, scripted('await Promise.resolve(); while (true) {}'))
+      expect(result).toMatchObject({ stopReason: 'error', errorCode: 'RUN_FAILED' })
+      expect(result.error).toContain('overall deadline of 500 ms')
+    })
+
+    it('applies no deadline when maxDurationMs is 0 and keeps a user cancellation as cancelled', async () => {
+      const { ctx, parent } = await setup({ manual: true, config: { maxDurationMs: 0 } })
+      const handle = ctx.workflowEngine.start({ ...scripted("return await agent('long job')"), parent })
+      await new Promise(resolve => setTimeout(resolve, 400))
+      handle.cancel('user stopped it')
+      expect(await handle.result).toMatchObject({ stopReason: 'cancelled' })
+      await handle.dispose()
+    })
+
     it('cancel() aborts in-flight children and settles after their cleanup', async () => {
       const { ctx, parent, provider } = await setup({ manual: true })
       const starts: number[] = []

@@ -46,6 +46,7 @@ export interface Config {
   maxItemsPerCall?: number
   /** VM timeout for the script's initial synchronous slice (default 5000 ms). */
   syncTimeoutMs?: number
+  maxDurationMs?: number
 }
 
 type ResolvedConfig = Required<Config>
@@ -115,6 +116,7 @@ class PtcWorkflowEngine extends WorkflowEngine {
     maxTotalAgents: z.natural().min(1).default(1000),
     maxItemsPerCall: z.natural().min(1).default(4096),
     syncTimeoutMs: z.natural().min(1).default(5000),
+    maxDurationMs: z.natural().max(2_147_483_647).default(3_600_000),
   })
 
   private readonly config: ResolvedConfig
@@ -179,6 +181,7 @@ class PtcWorkflowEngine extends WorkflowEngine {
         agentStart: (agent) => { this.emitWorkflowEvent('workflow/agent-start', info, agent) },
         agentEnd: (agent) => { this.emitWorkflowEvent('workflow/agent-end', info, agent) },
       },
+      this.config.maxDurationMs,
       request.signal,
     )
 

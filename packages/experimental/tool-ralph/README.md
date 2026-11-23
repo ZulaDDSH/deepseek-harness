@@ -68,7 +68,7 @@ Status-specific semantics and the serialized `maxHandoffChars` ceiling are valid
 
 ### Lifecycle and cancellation
 
-The caller's agent is the parent of every fresh child, preserving cwd and lineage without copying its conversation. `exec.signal` enters the workflow engine and is also bridged to `run.cancel()` for implementation independence. The tool awaits `run.result` and calls `run.dispose()` in `finally`, so a cancelled parent step waits for process and child cleanup before returning. The PTC engine sets no overall workflow elapsed deadline; caller cancellation still applies.
+The caller's agent is the parent of every fresh child, preserving cwd and lineage without copying its conversation. `exec.signal` enters the workflow engine and is also bridged to `run.cancel()` for implementation independence. The tool awaits `run.result` and calls `run.dispose()` in `finally`, so a cancelled parent step waits for process and child cleanup before returning. The PTC engine applies its overall `maxDurationMs` deadline (one hour by default) to each workflow run, so a long loop needs a larger value or `0`; caller cancellation still applies.
 
 ### Render intent
 
