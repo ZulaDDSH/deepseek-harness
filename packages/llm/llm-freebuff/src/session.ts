@@ -23,7 +23,7 @@ export interface TurnRequest {
 
 export interface TurnEnd {
   readonly chatId: string
-  readonly consumed: string | undefined
+  readonly consumed: string
 }
 
 export interface PoolOptions {
@@ -270,7 +270,7 @@ export class FreebuffSession {
       this.consumed = request.consumed
     }
     let chatId = this.chatId
-    const rowsOf = (): ChatMessage[] => (chatId === undefined ? undefined : readChat(chatsDir, chatId)) ?? []
+    const rowsOf = (): ChatMessage[] => readChat(chatsDir, chatId as string) ?? []
     const consumedAt = (): string | undefined => {
       const rows = rowsOf()
       return indexAfter(rows, request.consumed) > indexAfter(rows, this.consumed) ? request.consumed : this.consumed
@@ -323,8 +323,9 @@ export class FreebuffSession {
       const last = tail.filter(row => row.variant === 'ai').at(-1)
       if (at >= 0 && quiet && (last?.isComplete === true || ((sawBusy || !submitted) && state.ready))) {
         if (blocks.length === 0) throw new LlmError('Freebuff finished without an answer.', 'EMPTY_RESPONSE')
-        this.consumed = rows.at(-1)?.id ?? consumed
-        return { chatId: chatId as string, consumed: this.consumed }
+        const end = { chatId: chatId as string, consumed: String(rows.at(-1)?.id) }
+        this.consumed = end.consumed
+        return end
       }
       if (!state.busy) {
         if (state.loginRequired) await this.signedOut()

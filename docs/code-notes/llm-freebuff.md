@@ -48,7 +48,7 @@
 
 ## Settings row
 
-`packages/llm/llm-freebuff/src/index.ts:apply`: the provider directory entry reports OAuth native authentication so the models settings row offers the registered `Sign in with Freebuff` method. The settings surface finds the flow whose key ends with `/<provider>`, which is why the credential key is `llm-freebuff/freebuff`. `idleReapMs` is the only configuration field; it is volatile so a changed value applies without restarting the plugin.
+`packages/llm/llm-freebuff/src/install.ts:installFreebuff`: the provider directory entry reports OAuth native authentication so the models settings row offers the registered `Sign in with Freebuff` method. The settings surface finds the flow whose key ends with `/<provider>`, which is why the credential key is `llm-freebuff/freebuff`. `idleReapMs` is the only configuration field; it is volatile so a changed value applies without restarting the plugin.
 
 ## Hours left (quota source)
 

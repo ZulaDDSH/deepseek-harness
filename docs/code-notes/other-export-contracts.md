@@ -256,3 +256,326 @@
 
 ### `packages/terminal/terminal-bash/src/sanitize.ts:TerminalSanitizer.resetPromptTracking`
 - `description`: Discards a prompt-tail candidate observed before the active send's readiness boundary.
+
+### `packages/llm/llm-freebuff/src/adapter.ts:MODEL_ID`
+- `description`: Model id of the single Freebuff route; Freebuff chooses the actual model itself.
+
+### `packages/llm/llm-freebuff/src/adapter.ts:FreebuffReplay`
+- `description`: Replay state carried on a Freebuff assistant message: the chat transcript id and the id of the last chat row already consumed.
+
+### `packages/llm/llm-freebuff/src/adapter.ts:promptOf`
+- `description`: Extracts the prompt of a turn: the text of the newest user-sourced message, rejecting slash and bang commands, images and files.
+- `params.messages`: Request messages of the turn.
+- `returns`: The prompt text to paste into the Freebuff terminal.
+
+### `packages/llm/llm-freebuff/src/adapter.ts:resumeOf`
+- `description`: Finds the Freebuff replay state on the newest assistant message that carries one.
+- `params.messages`: Request messages of the turn.
+- `returns`: The replay state, or undefined for a new conversation.
+
+### `packages/llm/llm-freebuff/src/adapter.ts:FreebuffAdapter`
+- `description`: Model adapter that runs each turn through a pooled Freebuff terminal and streams the rendered chat rows.
+
+### `packages/llm/llm-freebuff/src/auth.ts:PROVIDER`
+- `description`: Provider id of the Freebuff route and quota source.
+
+### `packages/llm/llm-freebuff/src/auth.ts:FREEBUFF_KEY`
+- `description`: Credential key under which the Freebuff sign-in marker is stored.
+
+### `packages/llm/llm-freebuff/src/auth.ts:FreebuffAccount`
+- `description`: Freebuff sign-in state: reads the doctor report, keeps the stored marker in step with it, and offers the sign-in authorization flow.
+
+### `packages/llm/llm-freebuff/src/auth.ts:FreebuffAccount.status`
+- `description`: Reports whether Freebuff is signed in, reusing a recent doctor result unless forced.
+- `params.force`: Skip the cached doctor result.
+- `returns`: The doctor status.
+
+### `packages/llm/llm-freebuff/src/auth.ts:FreebuffAccount.reconcile`
+- `description`: Runs the doctor check and writes or clears the stored sign-in marker to match it.
+- `params.force`: Skip the cached doctor result.
+- `returns`: The doctor status.
+
+### `packages/llm/llm-freebuff/src/auth.ts:FreebuffAccount.signedOut`
+- `description`: Clears the stored sign-in marker after a turn found Freebuff signed out.
+
+### `packages/llm/llm-freebuff/src/auth.ts:FreebuffAccount.flow`
+- `description`: Builds the authorization flow that runs `freebuff login` in a terminal and relays its first sign-in URL.
+- `returns`: The authorization flow registered under the Freebuff credential key.
+
+### `packages/llm/llm-freebuff/src/chat.ts:ChatBlock`
+- `description`: One block of a Freebuff chat message as stored in the chat transcript file.
+
+### `packages/llm/llm-freebuff/src/chat.ts:ChatMessage`
+- `description`: One row of a Freebuff chat transcript file.
+
+### `packages/llm/llm-freebuff/src/chat.ts:squash`
+- `description`: Collapses every whitespace run to one space and trims the ends.
+- `params.text`: Text to normalize.
+- `returns`: The normalized text.
+
+### `packages/llm/llm-freebuff/src/chat.ts:chatsDirOf`
+- `description`: Locates the directory where Freebuff stores the chats of a working directory, keyed by its basename.
+- `params.configDir`: Freebuff configuration directory.
+- `params.cwd`: Working directory of the session.
+- `returns`: The chats directory path.
+
+### `packages/llm/llm-freebuff/src/chat.ts:listChats`
+- `description`: Lists the chat ids stored in a chats directory.
+- `params.chatsDir`: Directory returned by `chatsDirOf`.
+- `returns`: The chat ids, or an empty list when the directory is missing.
+
+### `packages/llm/llm-freebuff/src/chat.ts:readChat`
+- `description`: Reads the messages of one chat transcript.
+- `params.chatsDir`: Directory returned by `chatsDirOf`.
+- `params.chatId`: Id of the chat.
+- `returns`: The messages, or undefined when the transcript is missing or unreadable.
+
+### `packages/llm/llm-freebuff/src/chat.ts:rowText`
+- `description`: Extracts the visible text of a chat row.
+- `params.message`: Chat row.
+- `returns`: The row text, empty when the row has none.
+
+### `packages/llm/llm-freebuff/src/chat.ts:bindChat`
+- `description`: Finds the chat created for a submitted prompt by comparing the chat list with the list taken before submitting.
+- `params.chatsDir`: Directory returned by `chatsDirOf`.
+- `params.before`: Chat ids that existed before the prompt was submitted.
+- `params.prompt`: Prompt text that was submitted.
+- `returns`: The id of the chat whose first user row matches the prompt, or undefined when none does yet.
+
+### `packages/llm/llm-freebuff/src/doctor.ts:DoctorStatus`
+- `description`: Sign-in state from `freebuff doctor --json`: signed in, signed out, or unknown when the report cannot be read.
+
+### `packages/llm/llm-freebuff/src/doctor.ts:DoctorRun`
+- `description`: Inputs of one `freebuff doctor --json` run: the spawn function, executable, arguments, environment, working directory and time limits.
+
+### `packages/llm/llm-freebuff/src/doctor.ts:doctorFindings`
+- `description`: Reads the `auth.ok` finding from a doctor report.
+- `params.stdout`: Standard output of `freebuff doctor --json`.
+- `returns`: Signed in or signed out when the report names the finding, otherwise unknown.
+
+### `packages/llm/llm-freebuff/src/doctor.ts:doctorStatus`
+- `description`: Runs `freebuff doctor --json` with time and output limits and classifies the result.
+- `params.run`: Doctor run inputs.
+- `returns`: The doctor status; unknown when the run fails, times out or prints no report.
+
+### `packages/llm/llm-freebuff/src/environment.ts:FreebuffTiming`
+- `description`: Time limits and polling intervals of the Freebuff terminal driver, in milliseconds, plus the terminal cap.
+
+### `packages/llm/llm-freebuff/src/environment.ts:DEFAULT_TIMING`
+- `description`: Production values of `FreebuffTiming`.
+
+### `packages/llm/llm-freebuff/src/environment.ts:FreebuffEnvironment`
+- `description`: Everything the driver needs from the host: executable lookup, arguments, environment, configuration and home directories, platform, command interpreter and timing.
+
+### `packages/llm/llm-freebuff/src/environment.ts:defaultEnvironment`
+- `description`: Builds the production environment from the subprocess service and the process environment.
+- `params.ctx`: Plugin context providing the subprocess service.
+- `returns`: The Freebuff environment.
+
+### `packages/llm/llm-freebuff/src/environment.ts:probeSignIn`
+- `description`: Runs the doctor check inside the given environment.
+- `params.ctx`: Plugin context providing the subprocess service.
+- `params.environment`: Freebuff environment.
+- `params.signal`: Aborts the check.
+- `returns`: The doctor status.
+
+### `packages/llm/llm-freebuff/src/install.ts:PLUGIN_NAME`
+- `description`: Plugin name; also the settings namespace fallback of the Freebuff provider row.
+
+### `packages/llm/llm-freebuff/src/install.ts:DEFAULT_IDLE_REAP_MS`
+- `description`: Default idle time in milliseconds after which an unused Freebuff terminal is closed.
+
+### `packages/llm/llm-freebuff/src/index.ts:Config`
+- `description`: Deployment-owned idle timeout of pooled Freebuff terminals.
+
+### `packages/llm/llm-freebuff/src/install.ts:FreebuffWiring`
+- `description`: Host seams of the plugin: the Freebuff environment, the terminal spawner and, optionally, the quota reading options.
+
+### `packages/llm/llm-freebuff/src/install.ts:installFreebuff`
+- `description`: Registers the Freebuff sign-in flow, model route, settings row, terminal pool disposer and, when wired, the quota source.
+- `params.ctx`: Plugin context.
+- `params.config`: Plugin configuration.
+- `params.wiring`: Host seams.
+- `returns`: The terminal pool.
+
+### `packages/llm/llm-freebuff/src/launch.ts:FreebuffLaunch`
+- `description`: Argument vector and extra environment entries that start Freebuff.
+
+### `packages/llm/llm-freebuff/src/launch.ts:freebuffLaunch`
+- `description`: Builds the Freebuff command line, wrapping a Windows `.cmd` or `.bat` shim in the command interpreter and rejecting arguments that the interpreter would reinterpret.
+- `params.executable`: Freebuff executable path or name.
+- `params.args`: Arguments after the executable.
+- `params.platform`: Platform the command runs on.
+- `params.comSpec`: Command interpreter path on Windows.
+- `returns`: The argument vector and the environment entries it needs.
+
+### `packages/llm/llm-freebuff/src/launch.ts:freebuffConfigDir`
+- `description`: Locates the Freebuff configuration directory.
+- `params.env`: Process environment.
+- `params.home`: User home directory.
+- `returns`: The `.config/manicode` directory under the home directory.
+
+### `packages/llm/llm-freebuff/src/launch.ts:stripAnsi`
+- `description`: Removes terminal escape sequences from text.
+- `params.text`: Text that may contain escape sequences.
+- `returns`: The text without escape sequences.
+
+### `packages/llm/llm-freebuff/src/markdown.ts:RenderedBlock`
+- `description`: One text or reasoning block rendered from Freebuff chat rows.
+
+### `packages/llm/llm-freebuff/src/markdown.ts:renderBlocks`
+- `description`: Renders chat rows as text and reasoning blocks, fencing tool output and bounding its length.
+- `params.messages`: Chat rows to render.
+- `returns`: The rendered blocks in row order.
+
+### `packages/llm/llm-freebuff/src/quota.ts:SESSION_URL`
+- `description`: Freebuff usage endpoint that reports the hours left.
+
+### `packages/llm/llm-freebuff/src/quota.ts:QUOTA_TTL_MS`
+- `description`: Milliseconds a usage reading is reused before the endpoint is called again.
+
+### `packages/llm/llm-freebuff/src/quota.ts:TokenReader`
+- `description`: Reads the Freebuff token on demand; resolves undefined when Freebuff is not signed in.
+
+### `packages/llm/llm-freebuff/src/quota.ts:FreebuffQuotaOptions`
+- `description`: Token reader plus optional clock, time zone and not-configured message for the Freebuff quota source.
+
+### `packages/llm/llm-freebuff/src/quota.ts:OpenHour`
+- `description`: An open hour of the day: freebucks held and the instant it ends.
+
+### `packages/llm/llm-freebuff/src/quota.ts:Usage`
+- `description`: Daily and monthly freebucks parsed from the usage endpoint.
+
+### `packages/llm/llm-freebuff/src/quota.ts:hours`
+- `description`: Converts freebucks to whole hours at five freebucks per hour.
+- `params.freebucks`: Freebucks; negative values count as zero.
+- `returns`: The whole hours.
+
+### `packages/llm/llm-freebuff/src/quota.ts:hoursMinutes`
+- `description`: Formats freebucks as hours and minutes, rounding down to the minute.
+- `params.freebucks`: Freebucks; negative values count as zero.
+- `returns`: The time as `h:mm`.
+
+### `packages/llm/llm-freebuff/src/quota.ts:decodeToken`
+- `description`: Decodes a Credential Manager blob as UTF-8, or as UTF-16 when it contains NUL characters, and trims it.
+- `params.blob`: Credential blob bytes.
+- `returns`: The token, or undefined when the blob is empty.
+
+### `packages/llm/llm-freebuff/src/quota.ts:credentialTarget`
+- `description`: Builds the Credential Manager target under which Freebuff stores its token.
+- `params.home`: User home directory.
+- `returns`: The target name.
+
+### `packages/llm/llm-freebuff/src/quota.ts:RunPowerShell`
+- `description`: Runs a PowerShell script with extra environment entries and resolves its standard output.
+
+### `packages/llm/llm-freebuff/src/quota.ts:ExecFile`
+- `description`: The part of `execFile` that the PowerShell runner uses, so a test can stand in for the process.
+
+### `packages/llm/llm-freebuff/src/quota.ts:runPowerShell`
+- `description`: Runs an encoded PowerShell script with extra environment entries and resolves its standard output; any failure rejects with a fixed message that carries neither output nor error text.
+- `params.script`: PowerShell source.
+- `params.env`: Environment entries added to the process environment.
+- `params.exec`: Process runner, `execFile` by default.
+- `returns`: The standard output.
+
+### `packages/llm/llm-freebuff/src/quota.ts:windowsTokenReader`
+- `description`: Builds a token reader that reads the Freebuff credential through PowerShell without putting the token on a command line.
+- `params.home`: User home directory.
+- `params.run`: PowerShell runner.
+- `returns`: The token reader.
+
+### `packages/llm/llm-freebuff/src/quota.ts:defaultQuotaOptions`
+- `description`: Chooses the production quota options: the Windows reader, or a reader that reports not configured on other platforms.
+- `params.platform`: Platform name.
+- `returns`: The quota options.
+
+### `packages/llm/llm-freebuff/src/quota.ts:parseUsage`
+- `description`: Validates the usage endpoint response and extracts its daily and monthly freebucks.
+- `params.body`: Parsed JSON body.
+- `returns`: The usage, or undefined when the daily figures are missing.
+
+### `packages/llm/llm-freebuff/src/quota.ts:quotaWindows`
+- `description`: Builds the `daily` and `monthly` quota windows, counting the unused part of each open hour as still left.
+- `params.usage`: Parsed usage.
+- `params.now`: Current time in milliseconds.
+- `returns`: The windows keyed by window id.
+
+### `packages/llm/llm-freebuff/src/quota.ts:createFreebuffQuotaSource`
+- `description`: Builds the quota source that reads the hours left with the stored Freebuff token and never exposes it.
+- `params.options`: Token reader and clock seams.
+- `returns`: The quota source with id `freebuff`.
+
+### `packages/llm/llm-freebuff/src/screen.ts:ScreenState`
+- `description`: Classification of the Freebuff terminal screen: login prompt, trust prompt, blocker text, busy and ready.
+
+### `packages/llm/llm-freebuff/src/screen.ts:classifyScreen`
+- `description`: Classifies the rendered terminal text.
+- `params.text`: Rendered screen text.
+- `params.task`: Prompt being worked on, used to tell the echoed prompt from a blocker.
+- `returns`: The screen state.
+
+### `packages/llm/llm-freebuff/src/screen.ts:FreebuffScreen`
+- `description`: Headless terminal that renders the Freebuff screen from its output stream.
+
+### `packages/llm/llm-freebuff/src/screen.ts:FreebuffScreen.write`
+- `description`: Feeds terminal output to the renderer.
+- `params.data`: Output bytes as text.
+
+### `packages/llm/llm-freebuff/src/screen.ts:FreebuffScreen.text`
+- `description`: Reads the rendered screen.
+- `returns`: The visible rows joined by newlines.
+
+### `packages/llm/llm-freebuff/src/screen.ts:FreebuffScreen.dispose`
+- `description`: Releases the renderer.
+
+### `packages/llm/llm-freebuff/src/session.ts:TurnRequest`
+- `description`: One turn: the prompt, working directory, resumed chat and consumed marker, and the abort signal.
+
+### `packages/llm/llm-freebuff/src/session.ts:TurnEnd`
+- `description`: Chat id and consumed marker at the end of a turn, returned in the replay state.
+
+### `packages/llm/llm-freebuff/src/session.ts:PoolOptions`
+- `description`: Environment, account, terminal spawner and idle reap time of the terminal pool.
+
+### `packages/llm/llm-freebuff/src/session.ts:FreebuffSession`
+- `description`: One Freebuff terminal and chat bound to a harness session.
+
+### `packages/llm/llm-freebuff/src/session.ts:FreebuffSession.chatId`
+- `description`: Id of the Freebuff chat this session writes to, once known.
+
+### `packages/llm/llm-freebuff/src/session.ts:FreebuffSession.consumed`
+- `description`: Id of the last chat row already returned to the harness.
+
+### `packages/llm/llm-freebuff/src/session.ts:FreebuffSession.lastUsed`
+- `description`: Time in milliseconds of the last use, for idle reaping and eviction.
+
+### `packages/llm/llm-freebuff/src/session.ts:FreebuffSession.running`
+- `description`: Whether a turn is running.
+
+### `packages/llm/llm-freebuff/src/session.ts:FreebuffSession.occupied`
+- `description`: Whether the session holds or is starting a terminal.
+
+### `packages/llm/llm-freebuff/src/session.ts:FreebuffSession.turn`
+- `description`: Runs one turn: submits the prompt and yields rendered blocks as chat rows appear.
+- `params.request`: The turn to run.
+- `returns`: An async generator of rendered blocks that returns the chat id and consumed marker.
+
+### `packages/llm/llm-freebuff/src/session.ts:FreebuffSession.kill`
+- `description`: Terminates the terminal of this session.
+
+### `packages/llm/llm-freebuff/src/session.ts:FreebuffPool`
+- `description`: Bounded set of Freebuff sessions keyed by harness session id.
+
+### `packages/llm/llm-freebuff/src/session.ts:FreebuffPool.session`
+- `description`: Finds or creates the session of a harness session id.
+- `params.id`: Harness session id.
+- `returns`: The Freebuff session.
+
+### `packages/llm/llm-freebuff/src/session.ts:FreebuffPool.makeRoom`
+- `description`: Closes the least recently used idle terminal when the terminal cap is reached.
+- `params.requester`: Session that needs a terminal and is never evicted.
+- `returns`: A promise that settles once a slot is free.
+
+### `packages/llm/llm-freebuff/src/session.ts:FreebuffPool.dispose`
+- `description`: Terminates every terminal and stops idle reaping.

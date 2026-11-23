@@ -6,11 +6,15 @@ import { Context } from '@deepseek-ai/cordis'
 import AuthorizationService from '@deepseek-ai/dsh-authorization'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
-import LlmRuntime, { type RequestMessage, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { type MessageId, type RequestMessage, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { afterEach } from 'vitest'
-import { DEFAULT_TIMING, FreebuffAccount, installFreebuff, type FreebuffEnvironment, type FreebuffQuotaOptions, type FreebuffPool, type FreebuffTiming } from '../src/index.ts'
+import { FreebuffAccount } from '../src/auth.ts'
+import { DEFAULT_TIMING, type FreebuffEnvironment, type FreebuffTiming } from '../src/environment.ts'
+import { installFreebuff } from '../src/install.ts'
+import type { FreebuffQuotaOptions } from '../src/quota.ts'
+import type { FreebuffPool } from '../src/session.ts'
 import { FakeFreebuff } from './fake-terminal.ts'
 
 export const FAKE_CLI = resolve(dirname(fileURLToPath(import.meta.url)), 'fixtures/fake-cli.mjs')
@@ -48,6 +52,7 @@ export interface Harness {
   readonly state: string
   readonly environment: FreebuffEnvironment
   readonly account: FreebuffAccount
+  readonly settingsCalls: unknown[][]
   pool(): FreebuffPool
   workspace(name: string, parent?: string): string
   session(id: string, cwd: string): SessionId
@@ -62,6 +67,7 @@ export interface HarnessOptions {
   readonly signedIn?: boolean
   readonly sandbox?: 'read-only' | 'workspace-write' | 'danger-full-access'
   readonly idleReapMs?: number
+  readonly emptyConfig?: boolean
   readonly resolveExecutable?: () => Promise<string>
 }
 
@@ -82,6 +88,8 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
   if (options.sandbox !== undefined) {
     ctx.provide('sandboxPolicy', { resolve: () => ({ mode: options.sandbox, workspaceRoot: root }) } as never)
   }
+  const settingsCalls: unknown[][] = []
+  ctx.provide('settings', { configure: (...args: unknown[]) => { settingsCalls.push(args); return () => {} } } as never)
   const environment: FreebuffEnvironment = {
     resolveExecutable: options.resolveExecutable ?? (() => Promise.resolve(process.execPath)),
     args: [FAKE_CLI, state, options.loginExit ?? '0', options.mode ?? 'normal'],
@@ -98,7 +106,7 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
       name: 'llm-freebuff-test',
       inject: ['authorization', 'credentials', 'llm', 'sessions', 'subprocess', 'workingDirectory'],
       apply: (child: Context) => {
-        mounted = installFreebuff(child, { idleReapMs: { get: () => options.idleReapMs ?? 60_000 } as never }, {
+        mounted = installFreebuff(child, options.emptyConfig === true ? {} : { idleReapMs: { get: () => options.idleReapMs ?? 60_000 } as never }, {
           environment,
           spawnTerminal: host.spawnTerminal,
           ...options.quota === undefined ? {} : { quota: options.quota },
@@ -113,6 +121,7 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
     state,
     environment,
     account: new FreebuffAccount(ctx, environment),
+    settingsCalls,
     pool: () => mounted as FreebuffPool,
     workspace: (name, parent = root) => {
       const path = join(parent, name)
@@ -132,11 +141,11 @@ export function userMessage(text: string): RequestMessage {
 
 export function assistantMessage(text: string, replayState: unknown): RequestMessage {
   return {
-    id: 'm',
+    id: brandString<MessageId>('m'),
     role: 'assistant',
     content: [{ type: 'text', text }],
     source: { kind: 'model', provider: 'freebuff', model: 'default', replayState },
-  } as unknown as RequestMessage
+  }
 }
 
 export interface Collected {

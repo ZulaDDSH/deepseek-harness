@@ -7,7 +7,7 @@ kind: "package-reference"
 
 ## Summary
 
-Install `@deepseek-ai/dsh-llm-freebuff` when a Session should talk to the user's own installed Freebuff CLI as if it were a model. The package adds a `freebuff` provider route with one model, `default` (shown as Freebuff), and a Freebuff row in the models settings page whose **Sign in with Freebuff** button runs `freebuff login`. Freebuff keeps its own account and token: the package never reads, copies or stores a Freebuff credential, it only stores a marker that says "Freebuff reports a saved sign-in". Each harness Session owns one persistent Freebuff terminal in the Session's workspace, so Freebuff keeps its own chat, tools and history.
+Install `@deepseek-ai/dsh-llm-freebuff` when a Session should talk to the user's own installed Freebuff CLI as if it were a model. It adds a `freebuff` provider route with one model, `default`, and a Freebuff row in the models settings page whose **Sign in with Freebuff** button runs `freebuff login`. Freebuff keeps its own account: the package stores only a marker that Freebuff reports a saved sign-in, and on Windows reads the Freebuff token solely to show hours left. Each harness Session owns one persistent Freebuff terminal, so Freebuff keeps its own chat, tools and history.
 
 ## Table of Contents
 
@@ -80,7 +80,9 @@ The route declares no retries: a retry would paste the prompt into a chat that a
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Plugin entry, configuration, registration |
+| [`src/index.ts`](src/index.ts) | Plugin entry and configuration |
+| [`src/install.ts`](src/install.ts) | Registration of the route, sign-in flow, pool and quota source |
+| [`src/quota.ts`](src/quota.ts) | Hours-left quota source and Windows token reader |
 | [`src/auth.ts`](src/auth.ts) | Sign-in flow and marker reconciliation |
 | [`src/doctor.ts`](src/doctor.ts) | `freebuff doctor --json` tri-state probe |
 | [`src/adapter.ts`](src/adapter.ts) | The model route, prompt selection and replay state |
@@ -119,7 +121,7 @@ Only the fake Freebuff in `tests/` was run against this code. See the Dev Note.
 
 #### What the model sees
 
-Only the newest user-typed text reaches Freebuff, as one pasted message. Freebuff chooses its own model and tools.
+Only the newest user-typed text reaches Freebuff, as one pasted message in the workspace given by `--cwd`. Freebuff chooses its own model and runs its own tools in the workspace; the harness tool list is not sent, and the reply shows those tools as short markdown lines. The hours-left reading never enters model context.
 
 #### Token effect
 
@@ -129,12 +131,9 @@ Replies carry no token counts; the work is paid from the user's Freebuff subscri
 
 None for the harness: the harness request is not what Freebuff receives.
 
-### Tools
-
-The harness tool list is not sent. Freebuff runs its own tools in the workspace and the reply shows them as short markdown lines.
+## Known Limitations and Deferred Work
 
 <a id="known-limitations-and-deferred-work"></a>
-## Known Limitations and Deferred Work
 
 - **No sandbox** — Freebuff edits files and runs commands with the user's rights, so a Session whose file sandbox is not `danger-full-access` is refused.
 - **Usage-policy refusals** — Freebuff's server may refuse prompts that another program drives. The package does not disguise the prompt or work around the check; the refusal is raised as an error with Freebuff's own text.

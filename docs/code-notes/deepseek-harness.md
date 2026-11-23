@@ -1147,3 +1147,6 @@ packages/client/ui-workspace/package.json:dsh.client.inject includes the command
 - `idleMs`: Milliseconds without a busy marker before a turn counts as finished.
 - `timeoutMs`: Wall-clock limit in milliseconds for one published run; expiry settles it as an error with category `limit`.
 - `disposeGraceMs`: Grace in milliseconds between terminal termination tiers.
+
+### `packages/llm/llm-freebuff/src/index.ts:Config`
+- `idleReapMs`: Idle time in milliseconds after which an unused Freebuff terminal is closed (default 600000).

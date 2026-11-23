@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process'
+import { execFile, type ExecFileOptions } from 'node:child_process'
 import { homedir } from 'node:os'
 import { win32 } from 'node:path'
 import type { QuotaSource } from '@deepseek-ai/dsh-api-quota-controller'
@@ -23,12 +23,12 @@ export interface FreebuffQuotaOptions {
   readonly timeZone?: () => string
 }
 
-interface OpenHour {
+export interface OpenHour {
   readonly amount: number
   readonly endsAt: number
 }
 
-interface Usage {
+export interface Usage {
   readonly dailyRemaining: number
   readonly dailyLimit: number
   readonly resetAt: number | null
@@ -87,9 +87,11 @@ export function credentialTarget(home: string): string {
 
 export type RunPowerShell = (script: string, env: Readonly<Record<string, string>>) => Promise<string>
 
-function runPowerShell(script: string, env: Readonly<Record<string, string>>): Promise<string> {
+export type ExecFile = (file: string, args: readonly string[], options: ExecFileOptions, callback: (error: Error | null, stdout: string) => void) => unknown
+
+export function runPowerShell(script: string, env: Readonly<Record<string, string>>, exec: ExecFile = execFile as ExecFile): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], {
+    exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], {
       env: { ...process.env, ...env },
       timeout: 15_000,
       windowsHide: true,
@@ -166,7 +168,7 @@ export function quotaWindows(usage: Usage, now: number): Partial<Record<'daily' 
   }
   const left = usage.dailyRemaining + unused
   const runningLabel = running === undefined ? '' : `, running hour ends in ${Math.floor((running - now) / 60_000)} min`
-  const windows: Partial<Record<'credits' | 'monthly', QuotaWindow>> = {
+  const windows: Partial<Record<'daily' | 'monthly', QuotaWindow>> = {
     daily: {
       usedPercent: usedPercent(left, usage.dailyLimit),
       resetAt: usage.resetAt,
@@ -195,8 +197,8 @@ export function createFreebuffQuotaSource(options: FreebuffQuotaOptions): QuotaS
       cached = undefined
       return { ...identity, configured: false, ok: false, error: options.unconfigured ?? 'Not configured' }
     }
-    let usage = cached !== undefined && now() - cached.at < QUOTA_TTL_MS ? cached.usage : undefined
-    if (usage === undefined) {
+    let entry = cached !== undefined && now() - cached.at < QUOTA_TTL_MS ? cached : undefined
+    if (entry === undefined) {
       const response = await fetchImpl(SESSION_URL, {
         headers: { Authorization: `Bearer ${token}`, 'x-fb-timezone': timeZone() },
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
@@ -205,11 +207,12 @@ export function createFreebuffQuotaSource(options: FreebuffQuotaOptions): QuotaS
         const rejected = response.status === 401 || response.status === 403 ? '; sign in to Freebuff again' : ''
         return { ...identity, configured: true, ok: false, error: `Freebuff usage API returned HTTP ${response.status}${rejected}` }
       }
-      usage = parseUsage(await response.json())
+      const usage = parseUsage(await response.json())
       if (usage === undefined) return { ...identity, configured: true, ok: false, error: 'Freebuff usage response had no daily hours' }
-      cached = { at: now(), usage }
+      entry = { at: now(), usage }
+      cached = entry
     }
-    return { ...identity, configured: true, ok: true, windows: quotaWindows(usage, now()), asOf: cached?.at ?? now() }
+    return { ...identity, configured: true, ok: true, windows: quotaWindows(entry.usage, now()), asOf: entry.at }
   }
 
   return {

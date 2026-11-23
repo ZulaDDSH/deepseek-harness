@@ -1,7 +1,7 @@
 import { writeFileSync } from 'node:fs'
 import { setTimeout as delay } from 'node:timers/promises'
 import { describe, expect, it } from 'vitest'
-import { FREEBUFF_KEY } from '../src/index.ts'
+import { FREEBUFF_KEY } from '../src/auth.ts'
 import { assistantMessage, collect, failureOf, harness, userMessage } from './harness.ts'
 
 describe('Freebuff model route', () => {
@@ -18,7 +18,7 @@ describe('Freebuff model route', () => {
     expect(spec.argv.slice(-2)).toEqual(['--cwd', cwd])
     expect(spec.cwd).toBe(cwd)
     const replay = (result.finish.replayState?.response ?? {}) as Record<string, unknown>
-    expect(replay).toMatchObject({ kind: 'freebuff', version: 1, chatId: expect.any(String) as unknown })
+    expect(replay).toMatchObject({ kind: 'freebuff', version: 1, chatId: expect.any(String) })
     expect(h.host.prompts).toEqual(['hello there'])
   })
 

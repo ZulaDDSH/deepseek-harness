@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { QuotaController } from '@deepseek-ai/dsh-api-quota-controller'
 import { describe, expect, it, vi } from 'vitest'
 import {
-  QUOTA_TTL_MS, SESSION_URL, createFreebuffQuotaSource, credentialTarget, decodeToken, defaultQuotaOptions, hours, hoursMinutes, parseUsage, quotaWindows, windowsTokenReader,
+  QUOTA_TTL_MS, SESSION_URL, createFreebuffQuotaSource, credentialTarget, decodeToken, defaultQuotaOptions, hours, hoursMinutes, parseUsage, quotaWindows, runPowerShell, windowsTokenReader, type ExecFile, type RunPowerShell,
 } from '../src/quota.ts'
 import { harness } from './harness.ts'
 
@@ -60,6 +60,11 @@ describe('Freebuff hours math', () => {
     expect(usage.openHours).toHaveLength(1)
     expect(quotaWindows(usage, NOW).daily!.valueLabel).toBe('Today 8:00 left of 16 h')
     expect(parseUsage(session({ openHours: null }))!.openHours).toEqual([])
+  })
+
+  it('reports the latest of several running hours', () => {
+    const usage = parseUsage(session({ openHours: [{ amount: 5, endsAt: '2026-11-23T10:30:00Z' }, { amount: 5, endsAt: '2026-11-23T11:00:00Z' }, { amount: 5, endsAt: '2026-11-23T10:15:00Z' }] }))!
+    expect(quotaWindows(usage, NOW).daily!.valueLabel).toBe('Today 9:45 left of 16 h, running hour ends in 60 min')
   })
 
   it('clamps usedPercent and omits the monthly window when the wallet is missing', () => {
@@ -158,12 +163,23 @@ describe('Freebuff credential reader', () => {
   })
 
   it('passes the target through the environment, reads the blob from stdout, and treats empty output as signed out', async () => {
-    const run = vi.fn(async () => Buffer.from(TOKEN, 'utf16le').toString('base64'))
+    const run = vi.fn<RunPowerShell>(async () => Buffer.from(TOKEN, 'utf16le').toString('base64'))
     await expect(windowsTokenReader('C:\\Users\\Ricky', run)()).resolves.toBe(TOKEN)
-    const [script, env] = run.mock.calls[0]! as unknown as [string, Record<string, string>]
+    const [script, env] = run.mock.calls[0]!
     expect(env).toEqual({ FB_CREDENTIAL_TARGET: credentialTarget('C:\\Users\\Ricky') })
     expect(script).not.toContain(TOKEN)
     await expect(windowsTokenReader('C:\\Users\\Ricky', async () => '')()).resolves.toBeUndefined()
+  })
+
+  it('runs PowerShell encoded with the target in its environment, and hides why it failed', async () => {
+    const exec = vi.fn<ExecFile>((_file, _args, _options, callback) => { callback(null, 'out') })
+    await expect(runPowerShell('Write-Output 1', { FB_CREDENTIAL_TARGET: 't' }, exec)).resolves.toBe('out')
+    const [file, args, options] = exec.mock.calls[0]!
+    expect(file).toBe('powershell.exe')
+    expect(args).toEqual(['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from('Write-Output 1', 'utf16le').toString('base64')])
+    expect(options.env).toMatchObject({ FB_CREDENTIAL_TARGET: 't' })
+    const failing: ExecFile = (_file, _args, _options, callback) => { callback(new Error(`secret ${TOKEN}`), '') }
+    await expect(runPowerShell('x', {}, failing)).rejects.toThrow('Could not read the Freebuff sign-in from Credential Manager')
   })
 
   it('reads nothing and says why off Windows', async () => {

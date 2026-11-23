@@ -1,7 +1,9 @@
 import { writeFileSync } from 'node:fs'
 import type { AuthorizationInteraction, AuthorizationNotice } from '@deepseek-ai/dsh-authorization'
 import { describe, expect, it } from 'vitest'
-import { FREEBUFF_KEY, freebuffLaunch, doctorStatus } from '../src/index.ts'
+import { FREEBUFF_KEY } from '../src/auth.ts'
+import { doctorStatus } from '../src/doctor.ts'
+import { freebuffLaunch } from '../src/launch.ts'
 import { harness, scratch } from './harness.ts'
 
 function surface(): AuthorizationInteraction & { notices: AuthorizationNotice[] } {
@@ -129,6 +131,32 @@ describe('Freebuff doctor', () => {
       graceMs: 10,
     })
     expect(result).toBe('unknown')
+  })
+
+  it('treats a run without collected output as unknown and honours the caller signal', async () => {
+    const result = await doctorStatus({
+      spawn: () => ({ done: Promise.resolve(), collected: {} }) as never,
+      executable: 'x',
+      args: [],
+      env: {},
+      cwd: scratch(),
+      platform: 'linux',
+      comSpec: undefined,
+      timeoutMs: 100,
+      graceMs: 10,
+      signal: new AbortController().signal,
+    })
+    expect(result).toBe('unknown')
+  })
+
+  it('falls back to cmd.exe when no command shell is configured', () => {
+    const saved = process.env.ComSpec
+    delete process.env.ComSpec
+    try {
+      expect(freebuffLaunch('C:\\f.cmd', ['x'], 'win32', undefined).argv[0]).toBe('cmd.exe')
+    } finally {
+      if (saved !== undefined) process.env.ComSpec = saved
+    }
   })
 
   it('wraps a Windows shim in cmd with the path in an environment variable', () => {

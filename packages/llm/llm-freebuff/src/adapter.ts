@@ -108,7 +108,7 @@ export class FreebuffAdapter extends LlmAdapter {
             kind: 'freebuff',
             version: 1,
             chatId: next.value.chatId,
-            ...next.value.consumed === undefined ? {} : { consumed: next.value.consumed },
+            consumed: next.value.consumed,
           }
           yield { type: 'finish', reason: { kind: 'stop' }, replayState: { response: replay } }
           return
@@ -127,7 +127,7 @@ export class FreebuffAdapter extends LlmAdapter {
         }
       }
     } finally {
-      await turn.return({ chatId: '', consumed: undefined })
+      await turn.return({ chatId: '', consumed: '' })
     }
   }
 }
