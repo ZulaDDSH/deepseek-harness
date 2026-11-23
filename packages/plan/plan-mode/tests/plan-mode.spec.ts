@@ -431,6 +431,29 @@ describe('the boundary flush', () => {
     expect(ctx.planMode.get(agent).pending).toBeUndefined()
   })
 
+  it('keeps the request and tool admission on the committed mode while the selection append fails', async () => {
+    const ctx = await setup()
+    ctx.logger.warn = vi.fn() as never
+    registerNamedTools(ctx, ['read'])
+    const agent = await agentWithSession(ctx)
+    agent.session.append('plan/mode', { active: true })
+    openTurn(agent.session)
+    ctx.planMode.set(agent, false)
+    const original = agent.session.append.bind(agent.session)
+    agent.session.append = (((type: string, ...rest: unknown[]) => {
+      if (type === 'plan/mode') throw new Error('backend gone')
+      return (original as (...args: unknown[]) => unknown)(type, ...rest)
+    }) as unknown) as typeof agent.session.append
+    await boundary(ctx, agent, 'pre-step')
+    const failed = await assembleFor(ctx, agent)
+    expect(failed.sections.find(section => section.name === 'plan:policy')?.text).toBe(TEST_PLAN_SECTION)
+    expect(failed.tools.map(tool => tool.name)).toContain(EXIT_PLAN_MODE)
+    agent.session.append = original
+    await boundary(ctx, agent, 'pre-step')
+    const recovered = await assembleFor(ctx, agent)
+    expect(recovered.sections.find(section => section.name === 'plan:policy')?.text).toBe('')
+  })
+
   it('contains a pre-step append failure and keeps the intent pending', async () => {
     const ctx = await setup()
     const warn = vi.fn()

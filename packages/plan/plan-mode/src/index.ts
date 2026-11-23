@@ -188,6 +188,7 @@ export class PlanModeController extends Service {
    * result already narrates the transition.
    */
   private readonly pendingIntents = new WeakMap<Session, { active: boolean; narrate: boolean }>()
+  private readonly failedSelections = new WeakSet<Session>()
 
   constructor(ctx: Context, config: PlanModeConfig = { section: '' }) {
     super(ctx, 'planMode')
@@ -218,9 +219,11 @@ export class PlanModeController extends Service {
       const pending = this.pendingIntents.get(agent.session)
       if (decision.kind === 'reject' || signal.aborted || pending === undefined) return decision
       const narration = this.narration(agent.session, pending.active)
+      this.failedSelections.delete(agent.session)
       try {
         this.onBoundary(agent.session)
       } catch (error) {
+        this.failedSelections.add(agent.session)
         ctx.logger.warn('dsh-plan-mode: failed to append selected plan mode at step start: %o', error)
         return decision
       }
@@ -391,6 +394,7 @@ export class PlanModeController extends Service {
 
   /** The state a proposed step presents: a pending selection, else the logged state. */
   private selectedActive(session: Session): boolean {
+    if (this.failedSelections.has(session)) return this.loggedActive(session)
     return this.pendingIntents.get(session)?.active ?? this.loggedActive(session)
   }
 
@@ -444,6 +448,7 @@ export class PlanModeController extends Service {
     const target = pending?.active ?? this.loggedActive(session)
     if (active === target) return 'noop'
     if (this.hasOpenTurn(session)) {
+      this.failedSelections.delete(session)
       this.pendingIntents.set(session, { active, narrate: true })
       return this.loggedActive(session) === active ? 'cancelled' : 'queued'
     }
