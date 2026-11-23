@@ -37,6 +37,28 @@ describe('OpenInAppController availability', () => {
     expect(malformed.apps.getSnapshot()).toEqual([])
   })
 
+  it('retries a failed availability read on the next load and keeps a successful empty answer', async () => {
+    const fetcher = vi.fn<() => Promise<Response>>()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce(jsonResponse({}, 503))
+      .mockResolvedValueOnce(jsonResponse({ apps: ['finder'] }))
+    const controller = new OpenInAppController(fetcher)
+    await controller.load()
+    expect(controller.apps.getSnapshot()).toEqual([])
+    await controller.load()
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    await controller.load()
+    expect(controller.apps.getSnapshot()).toEqual(['finder'])
+    await controller.load()
+    expect(fetcher).toHaveBeenCalledTimes(3)
+
+    const empty = vi.fn(async () => jsonResponse({ apps: [] }))
+    const unavailable = new OpenInAppController(empty)
+    await unavailable.load()
+    await unavailable.load()
+    expect(empty).toHaveBeenCalledOnce()
+  })
+
   it('requests the document-relative availability route', async () => {
     const fetcher = vi.fn(async (input: string | URL) => { void input; return jsonResponse({ apps: [] }) })
     const controller = new OpenInAppController(fetcher)

@@ -56,7 +56,7 @@ export class OpenInAppController {
    * @returns after availability is published.
    */
   load(): Promise<void> {
-    this.loading ??= this.run()
+    this.loading ??= this.run().then((succeeded) => { if (!succeeded) this.loading = undefined })
     return this.loading
   }
 
@@ -97,19 +97,24 @@ export class OpenInAppController {
     }
   }
 
-  private async run(): Promise<void> {
+  private async run(): Promise<boolean> {
     let apps: readonly string[] = []
+    let succeeded = false
     try {
       const response = await this.fetcher(OPEN_IN_APP_APPS_ROUTE, {
         headers: { accept: 'application/json' },
       })
       if (response.ok) {
         const payload = await response.json() as OpenInAppAppsPayload
-        if (Array.isArray(payload.apps)) apps = payload.apps.filter(id => typeof id === 'string')
+        if (Array.isArray(payload.apps)) {
+          apps = payload.apps.filter(id => typeof id === 'string')
+          succeeded = true
+        }
       }
     } catch (_error) {
-      // An unreachable Host supplies no directory openers in menus or controls.
+      succeeded = false
     }
     this.apps.set(apps)
+    return succeeded
   }
 }
