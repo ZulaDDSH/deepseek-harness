@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import CommandRuntime from '@deepseek-ai/dsh-commands'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
@@ -440,6 +441,39 @@ describe('compaction-image-offload', () => {
     await say('small route again')
     expect(adapter.requests.slice(3).map(offloadedNames)).toEqual([[], [], ['a']])
     expect(decisions(agent.session).map(event => event.data.targets[0]?.imageIndexes)).toEqual([[0, 1], [0]])
+  })
+
+  it('restores offloaded images through the /restore-images command', async () => {
+    const adapter = new ScriptedAdapter([offloadRequired(2), textResponse('sent'), textResponse('again')])
+    const ctx = await harness(adapter)
+    await ctx.plugin(CommandRuntime)
+    const agent = await ctx.agentLoop.create(brandString<SessionId>('offload-command'), { provider: 'mock', model: 'mock' })
+    const run = (input: string) => ctx.commands.execute(agent, input, [], new AbortController().signal)
+    agent.followup(createUserMessage({ content: [image('a'), image('b'), image('c')], source: { kind: 'user' } }))
+    await agent.whenIdle()
+    expect((await run('/restore-images now'))?.result).toEqual({ kind: 'error', text: 'Usage: /restore-images (no arguments)' })
+    expect(agent.session.snapshotEvents().some(event => event.type === 'image/restore')).toBe(false)
+
+    const restored = await run('/restore-images')
+    expect(restored?.result.kind).toBe('success')
+    expect(restored?.result).toMatchObject({ text: expect.stringContaining('Restored') })
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'image/restore')).toHaveLength(1)
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'next' }], source: { kind: 'user' } }))
+    await agent.whenIdle()
+    expect(offloadedNames(adapter.requests[2]!)).toEqual([])
+
+    expect((await run('/restore-images'))?.result).toEqual({ kind: 'success', text: 'No images are offloaded in this session.' })
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'image/restore')).toHaveLength(1)
+  })
+
+  it('loads without a command runtime', async () => {
+    const adapter = new ScriptedAdapter([offloadRequired(1), textResponse('sent')])
+    const ctx = await harness(adapter)
+    expect(ctx.get('commands')).toBeUndefined()
+    const agent = await ctx.agentLoop.create(brandString<SessionId>('offload-no-commands'), { provider: 'mock', model: 'mock' })
+    agent.followup(createUserMessage({ content: [image('a')], source: { kind: 'user' } }))
+    await agent.whenIdle()
+    expect(decisions(agent.session)).toHaveLength(1)
   })
 
   it('removes the recovery listener when its plugin is disposed', async () => {

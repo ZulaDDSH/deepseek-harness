@@ -23,7 +23,7 @@ Image-heavy conversations continue when older images exceed a model route's budg
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount this plugin in every composition that runs the agent loop with an image-capable route. The shipped `dsh` base does. Without it, an `IMAGE_OFFLOAD_REQUIRED` failure reaches ordinary recovery and ends the turn as an error. The plugin has no configuration: the DeepSeek adapter enforces its file-mode and inline-fallback budgets, the pi-ai adapter its base64 bound, and each reports the count it needs offloaded.
+Mount this plugin in every composition that runs the agent loop with an image-capable route. The shipped `dsh` base does. Without it, an `IMAGE_OFFLOAD_REQUIRED` failure reaches ordinary recovery and ends the turn as an error. The plugin has no configuration: the DeepSeek adapter enforces its file-mode and inline-fallback budgets, the pi-ai adapter its base64 bound, and each reports the count it needs offloaded. When a command runtime (`dsh-commands`) is mounted it also registers `/restore-images`.
 
 ### Minimal configuration
 
@@ -89,9 +89,9 @@ A selection turns earlier images into placeholder text, so provider cache reuse 
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- **Offloaded images return only on request** — a larger budget, a larger route, or compaction lowering the total leaves the marks in place until a caller invokes the exported `restoreOffloadedImages(session, seqs?)`, which appends one `image/restore` for every offloaded occurrence on the surface (or the given nodes). No command or UI calls it yet. A route that still rejects the restored images offloads them again at the cost of one failed attempt.
+- **Offloaded images return only on request** — a larger budget, a larger route, or compaction lowering the total leaves the marks in place until the user runs `/restore-images` or a caller invokes the exported `restoreOffloadedImages(session, seqs?)`, which appends one `image/restore` for every offloaded occurrence on the surface (or the given nodes). The command takes no arguments, restores the whole session, and says so when nothing was offloaded; no UI beyond the command runtime calls it. A route that still rejects the restored images offloads them again at the cost of one failed attempt.
 - **Every offload costs one failed attempt** — nothing plans an offload before dispatch; the route's rejection is the signal, which matches the planned move to provider-reported uncacheable images.
-- **A temporary small budget still offloads** — a Files outage that forces the inline fallback, or a temporary switch to a small-budget route, offloads images a later route would have sent; nothing detects that the cause is gone, so restoring is a deliberate call.
+- **A temporary small budget still offloads** — a Files outage that forces the inline fallback, or a temporary switch to a small-budget route, offloads images a later route would have sent; nothing detects that the cause is gone, so restoring is a deliberate `/restore-images`.
 
 <a id="dev-note"></a>
 ### Dev Note

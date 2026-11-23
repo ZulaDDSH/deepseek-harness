@@ -8109,6 +8109,9 @@ importers:
 
   packages/compaction/compaction-image-offload:
     dependencies:
+      '@deepseek-ai/dsh-brand':
+        specifier: workspace:*
+        version: link:../../util/brand
       '@deepseek-ai/dsh-util-values':
         specifier: workspace:*
         version: link:../../util/values
@@ -8128,9 +8131,9 @@ importers:
       '@deepseek-ai/dsh-attachment':
         specifier: workspace:*
         version: link:../../attachment/attachment
-      '@deepseek-ai/dsh-brand':
+      '@deepseek-ai/dsh-commands':
         specifier: workspace:*
-        version: link:../../util/brand
+        version: link:../../interaction/commands
       '@deepseek-ai/dsh-compaction':
         specifier: workspace:*
         version: link:../compaction
