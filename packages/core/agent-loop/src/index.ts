@@ -497,7 +497,12 @@ export class AgentLoop extends Service implements AgentFactory {
     // Reverse teardown, memoized so every racing owner awaits one quiescence:
     // stop the machine, unwind the scope, drain and close the session's write
     // path, leave the registries, release bookkeeping.
-    const teardown = (): Promise<void> => (disposing ??= (async () => {
+    const retainedFailures: unknown[] = []
+    let cancelAttempted = false
+    let scopeReleased = false
+    let sessionClosed = false
+    let detached = false
+    const runTeardown = async (): Promise<void> => {
       abort.abort(new Error(this.ownership.isActive()
         ? `agent "${id}" lifecycle disposed`
         : 'agent loop is not active'))
@@ -506,7 +511,7 @@ export class AgentLoop extends Service implements AgentFactory {
       // Teardown failures are collected, never swallowed: registry, scope,
       // and ownership cleanup always run to quiescence, then the memoized
       // disposal rejects with what failed so every racing owner observes it.
-      const failures: unknown[] = []
+      const failures: unknown[] = [...retainedFailures]
       try {
         // Creation listeners retain the session and scope through their awaits.
         if (publication !== undefined) await publication.promise
@@ -516,11 +521,15 @@ export class AgentLoop extends Service implements AgentFactory {
         /* v8 ignore next -- Cordis effect teardown waits for synchronous setup before observing the machine slot. */
         if (machine === undefined) await machineReady.promise
         /* v8 ignore next -- setup failure untracks this disposer before resolving without a machine. */
-        if (machine !== undefined) {
-          try {
-            machine.cancel({ kind: 'disposed' }, { keepInbox: !ready })
-          } catch (error: unknown) {
-            failures.push(error)
+        if (machine !== undefined && !scopeReleased) {
+          if (!cancelAttempted) {
+            cancelAttempted = true
+            try {
+              machine.cancel({ kind: 'disposed' }, { keepInbox: !ready })
+            } catch (error: unknown) {
+              retainedFailures.push(error)
+              failures.push(error)
+            }
           }
           // A failed queue write must not release resources underneath work.
           await machine.whenIdle()
@@ -528,28 +537,47 @@ export class AgentLoop extends Service implements AgentFactory {
       } catch (error: unknown) {
         failures.push(error)
       }
-      try {
-        await machine?.scope.dispose()
-      } catch (error: unknown) {
-        failures.push(error)
+      if (!scopeReleased) {
+        try {
+          await machine?.scope.dispose()
+          scopeReleased = true
+        } catch (error: unknown) {
+          failures.push(error)
+        }
       }
       // Close drains events already routed into the handle. The backend's
       // live-event listeners must stay mounted through driver shutdown to
       // receive all closing events. A failed final drain is retained here
       // rather than logged away.
-      try {
-        await stored?.handle.close()
-      } catch (error: unknown) {
-        failures.push(error)
+      if (!sessionClosed) {
+        try {
+          await stored?.handle.close()
+          sessionClosed = true
+        } catch (error: unknown) {
+          failures.push(error)
+        }
       }
-      try {
-        detachAgent?.()
-        detachSession?.()
-      } finally {
-        untrack()
+      if (!detached) {
+        detached = true
+        try {
+          detachAgent?.()
+          detachSession?.()
+        } finally {
+          untrack()
+        }
       }
       throwCollectedFailures(failures, `agent "${id}" disposal failed`)
-    })())
+    }
+    const teardown = (): Promise<void> => {
+      if (disposing === undefined) {
+        const attempt: Promise<void> = runTeardown().catch((error: unknown) => {
+          disposing = undefined
+          throw error
+        })
+        disposing = attempt
+      }
+      return disposing
+    }
     let unfollowScope: (() => Promise<void> | void) | undefined
     let unfollowOwner: () => Promise<void> | void
     const dispose = async (): Promise<void> => {

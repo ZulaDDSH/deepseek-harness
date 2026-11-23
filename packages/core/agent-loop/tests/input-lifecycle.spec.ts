@@ -162,3 +162,41 @@ it('keeps creation resources alive until an interrupted creation listener finish
     stop()
   }
 })
+
+it('retries a failed idle wait from the failed step without appending to the closed Session', async () => {
+  const { ctx, agent, handle } = await harness()
+  const failure = new Error('idle wait failed')
+  const idle = vi.spyOn(agent, 'whenIdle').mockRejectedValueOnce(failure)
+  try {
+    await expect(handle.dispose()).rejects.toThrow('idle wait failed')
+    expect(ctx.agents.get(agent.id)).toBeUndefined()
+    const events = agent.session.snapshotEvents().length
+    await expect(handle.dispose()).resolves.toBeUndefined()
+    expect(agent.session.snapshotEvents().length).toBe(events)
+  } finally {
+    idle.mockRestore()
+  }
+})
+
+it('keeps reporting a queue-clear failure on every later dispose without repeating the cancel', async () => {
+  const { ctx, agent, handle } = await harness()
+  agent.inject(input('pending'))
+  let failures = 1
+  const stopRejecting = ctx.on('internal/dispatch', (_mode, name, args) => {
+    if (name !== 'session/event') return
+    const [session, event] = args as [Session, SessionEvent]
+    if (session !== agent.session || event.type !== 'agent/inbox/spliced' || (event.data.removedCount ?? 0) === 0) return
+    if (failures === 0) return
+    failures -= 1
+    throw new Error('queue clear failed')
+  })
+  try {
+    await expect(handle.dispose()).rejects.toThrow('queue clear failed')
+    const events = agent.session.snapshotEvents().length
+    await expect(handle.dispose()).rejects.toThrow('queue clear failed')
+    expect(agent.session.snapshotEvents().length).toBe(events)
+    expect(failures).toBe(0)
+  } finally {
+    stopRejecting()
+  }
+})

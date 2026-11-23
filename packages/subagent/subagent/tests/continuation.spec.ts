@@ -568,6 +568,30 @@ describe('continuable activation capacity', () => {
       await ctx.fiber.dispose()
     }
   })
+
+  it('retries a failed idle wait inside the real local handle teardown without a handle stub', async () => {
+    const releaseRun = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('busy'), gate: releaseRun.promise }])
+    const { ctx, parent } = await setupWith(adapter, { maxActiveSubagents: 1 })
+    parkParent(ctx, parent)
+    const ended = vi.fn()
+    ctx.on('subagent/end', ended)
+    const started = await ctx.subagents.startActivation({ ...startSpec(parent), delivery: 'parent' })
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+    const activation = managerState(ctx).resident.get(started.childId)!
+    const { agent } = requireLocalActivation(activation).handle
+    const idleWait = agent.whenIdle.bind(agent)
+    let closingIdleWaits = 0
+    vi.spyOn(agent, 'whenIdle').mockImplementation(() => {
+      if (activation.closing !== undefined) closingIdleWaits += 1
+      if (closingIdleWaits === 2) return Promise.reject(new Error('idle wait failed'))
+      return idleWait()
+    })
+    releaseRun.resolve(undefined)
+    await expect(started.dispose()).resolves.toBeUndefined()
+    expect(closingIdleWaits).toBe(2)
+    expect(ended).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('SubagentRuntime.startActivation', () => {
