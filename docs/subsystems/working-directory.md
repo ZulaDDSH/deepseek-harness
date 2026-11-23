@@ -80,7 +80,7 @@ Coordinate directory validation and publication with a resource operation on the
  * wait awaits that operation, then calls `next()`; every other listener
  * calls `next()` at once. A rejection fails this access and leaves the
  * recorded directory unchanged; it is not a fallback.
- * @param request - owner, requested path (null validates the current directory), and the access's cancellation.
+ * @param request - owner, canonical absolute requested path (null validates the current directory), and the access's cancellation.
  * @param next - perform validation and commit.
  * @mode waterfall
  */

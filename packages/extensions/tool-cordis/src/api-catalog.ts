@@ -6243,7 +6243,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'working-directory/access\'( request: { agent: Agent; path: string | null; signal: AbortSignal }, next: () => Promise<string>, ): Promise<string>',
     summary: 'Coordinate directory validation and publication with a resource operation on the directory, such as a checkout being removed.',
     description: 'Coordinate directory validation and publication with a resource operation on the directory, such as a checkout being removed. A listener that must wait awaits that operation, then calls `next()`; every other listener calls `next()` at once. A rejection fails this access and leaves the recorded directory unchanged; it is not a fallback.',
-    parameters: [{ name: 'request', description: 'owner, requested path (null validates the current directory), and the access\'s cancellation.' }, { name: 'next', description: 'perform validation and commit.' }],
+    parameters: [{ name: 'request', description: 'owner, canonical absolute requested path (null validates the current directory), and the access\'s cancellation.' }, { name: 'next', description: 'perform validation and commit.' }],
   },
   {
     name: 'workspace/session-activity',
@@ -8331,7 +8331,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'McpHumanOperations',
-    declaration: 'export interface McpHumanOperations {\n    readonly local: boolean;\n    readonly cwd: string;\n    readonly env: Readonly<Record<string, string>>;\n    call(name: string, args: Record<string, JsonValue>, signal: AbortSignal): Promise<unknown>;\n}',
+    declaration: 'export interface McpHumanOperations {\n    readonly local: boolean;\n    readonly cwd: string;\n    readonly env: Readonly<Record<string, string>>;\n    call(name: string, args: Record<string, JsonValue>, signal: AbortSignal): Promise<unknown>;\n    redact?(text: string): string;\n}',
   },
   {
     name: 'McpManagedServerStatus',
@@ -10475,7 +10475,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SkillListValue',
-    declaration: 'export interface SkillListValue {\n    readonly skills: readonly SkillEntry[];\n}',
+    declaration: 'export interface SkillListValue {\n    readonly skills: readonly SkillEntry[];\n    readonly incomplete?: true;\n}',
   },
   {
     name: 'SkillLookupOptions',
@@ -11515,11 +11515,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'WebFetchResult',
-    declaration: 'export interface WebFetchResult {\n    readonly url: string;\n    readonly statusCode: number;\n    readonly body: WebFetchBody;\n    readonly truncated: boolean;\n}',
+    declaration: 'export interface WebFetchResult {\n    readonly url: string;\n    readonly statusCode?: number;\n    readonly body: WebFetchBody;\n    readonly truncated: boolean;\n}',
   },
   {
     name: 'WebFetchResultView',
-    declaration: 'export interface WebFetchResultView {\n    card: \'web\';\n    kind: \'fetch\';\n    title?: string;\n    url: string;\n    statusCode: number;\n    truncated: boolean;\n}',
+    declaration: 'export interface WebFetchResultView {\n    card: \'web\';\n    kind: \'fetch\';\n    title?: string;\n    url: string;\n    statusCode?: number;\n    truncated: boolean;\n}',
   },
   {
     name: 'WebhookDeliveryId',
