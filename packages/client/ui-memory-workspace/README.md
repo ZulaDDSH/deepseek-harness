@@ -96,6 +96,9 @@ The policy section is constant while the Memorix store tool stays visible. It ap
 - The digest secret scrub is pattern-based. It can over-redact assignments such as `max_tokens=4096`, and it can miss credential formats it does not list.
 - `importDocument` declares a trailing `AbortSignal`, so the Client applies no unary deadline to an upload that is still extracting or importing. The upload panel passes no signal, so a slow import runs until it finishes or the Host lifetime ends, and the panel cannot cancel it.
 - Graphify and the supplied adapter must be installed. The derived graph rebuilds when opened or refreshed; uploads remain successful if later graph generation fails. Local browsing includes private and team records owned by the local user and is intended for an authenticated personal Host.
+- The Context graph viewer still loads its pinned visualization library from unpkg, so the graph tab needs network access and trusts that host; vendoring it needs the library added as a dependency or checked-in asset and a content-security-policy meta in the adapter output (finding 191, not done).
+- The Memorix server holds one project binding per connection. Automation verifies the project in each store acknowledgement and rebinds once on a mismatch, but a write made before the binding changed can still land in the previous project; a reconnect carries no generation the client can observe.
+- An upload is read whole into the browser before it is sent (the page refuses files above the Host's `maxDocumentBytes` first), and concurrent Context graph rebuilds queue one after another rather than being coalesced. The Graphify run stops at `graphTimeoutMs` (default 120 s); the adapter refuses stores with more than `maxGraphDocuments` (default 500) imported documents or `maxGraphSourceBytes` (default 64 MiB) of text. Damaged chunks are left out and listed under the viewer.
 
 <a id="dev-note"></a>
 ### Dev Note
