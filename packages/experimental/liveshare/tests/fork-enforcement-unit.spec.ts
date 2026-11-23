@@ -540,7 +540,7 @@ describe('source-session sandbox', () => {
 
     const guard = h.guardFunction() as (execution: { readonly name: string }) => ForkToolDenial | undefined
     for (const name of sharedToolNames('view')) expect(guard({ name })).toBeUndefined()
-    for (const name of ['write', 'edit', 'bash', 'pwsh', 'cua', 'plugin_manager', 'schedule_create', 'ghost']) {
+    for (const name of ['write', 'edit', 'bash', 'pwsh', 'cua', 'plugin_manager', 'schedule_create', 'web_fetch', 'run_code', 'ghost']) {
       expect(guard({ name })).toEqual(denial('may not use', 'FORK_TOOL_NOT_PERMITTED'))
       expect(h.installed.has(name)).toBe(false)
     }
@@ -590,7 +590,6 @@ describe('source-session sandbox', () => {
     await expect(h.call('todo_write', { todos: [{ content: 'one' }] })).resolves.toBe('ran')
     await expect(h.call('skill', { name: 'one' })).resolves.toBe('ran')
     await expect(h.call('web_search', { queries: ['q'] })).resolves.toBe('ran')
-    await expect(h.call('web_fetch', { url: 'https://example.test' })).resolves.toBe('ran')
     expect(h.fs.resolve).not.toHaveBeenCalled()
     expect(h.deployments.get('todo_write')!.execute).toHaveBeenCalledWith(
       { todos: [{ content: 'one' }] }, expect.anything(),

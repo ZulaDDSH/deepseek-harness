@@ -14,8 +14,9 @@ import {
 describe('shared tool surface', () => {
   it('admits the view surface at both tiers and the two mutation tools only at write', () => {
     expect(sharedToolNames('view')).toEqual([
-      'read', 'read_image', 'glob', 'grep', 'present', 'todo_write', 'skill', 'web_search', 'web_fetch',
+      'read', 'read_image', 'glob', 'grep', 'present', 'todo_write', 'skill', 'web_search',
     ])
+    expect(sharedToolProfile('web_fetch')).toBeUndefined()
     expect(sharedToolNames('write')).toEqual([...sharedToolNames('view'), 'edit', 'write'])
     expect(sharedToolProfile('read')).toMatchObject({ tier: 'view', noFileEffect: false })
     expect(sharedToolProfile('glob')).toMatchObject({ defaultsToWorkspace: true })
@@ -82,7 +83,7 @@ describe('shared tool surface', () => {
   })
 
   it('declares the tools that touch no workspace file and leaves their arguments alone', () => {
-    for (const name of ['todo_write', 'skill', 'web_search', 'web_fetch']) {
+    for (const name of ['todo_write', 'skill', 'web_search']) {
       const profile = sharedToolProfile(name)
       if (profile === undefined) throw new Error(`no profile for ${name}`)
       expect(profile.noFileEffect).toBe(true)

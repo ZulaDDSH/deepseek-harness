@@ -168,7 +168,6 @@ export const SHARED_TOOL_PROFILES: readonly SharedToolProfile[] = [
   { name: 'todo_write', tier: 'view', noFileEffect: true, defaultsToWorkspace: false, call: noFileCall },
   { name: 'skill', tier: 'view', noFileEffect: true, defaultsToWorkspace: false, call: noFileCall },
   { name: 'web_search', tier: 'view', noFileEffect: true, defaultsToWorkspace: false, call: noFileCall },
-  { name: 'web_fetch', tier: 'view', noFileEffect: true, defaultsToWorkspace: false, call: noFileCall },
   { name: 'edit', tier: 'write', noFileEffect: false, defaultsToWorkspace: false, call: filePathCall },
   { name: 'write', tier: 'write', noFileEffect: false, defaultsToWorkspace: false, call: filePathCall },
 ]
