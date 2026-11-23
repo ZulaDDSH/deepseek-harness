@@ -885,6 +885,26 @@ describe('ToolRuntime', () => {
     expect(result.content[0]).toMatchObject({ text: 'Error: needs approval' })
   })
 
+  it('preflight applies pre-execute policy to a derived call without running the tool', async () => {
+    const ctx = await setup()
+    let ran = 0
+    ctx.tools.register(defineTool({
+      name: 'echo', description: 'echo', parameters: { text: { type: 'string', required: true, description: 'text' } },
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      execute() { ran++; return Promise.resolve('ran') },
+    }))
+    ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> =>
+      (exec.name === 'echo' && (exec.arguments as { text: string }).text === 'bad'
+        ? { kind: 'deny', reason: 'denied by hook' }
+        : next()))
+    const input = { signal: testToolSignal, callId: brandString<ToolCallId>('pf'), name: 'echo' }
+    await expect(ctx.tools.preflight({ ...input, arguments: { text: 'ok' } })).resolves.toEqual({ allowed: true })
+    await expect(ctx.tools.preflight({ ...input, arguments: { text: 'bad' } })).resolves.toEqual({ allowed: false, reason: 'denied by hook' })
+    ctx.on('tools/pre-execute', async (): Promise<PreToolDecision> => ({ kind: 'ask', reason: 'needs approval' }))
+    await expect(ctx.tools.preflight({ ...input, arguments: { text: 'ok' } })).resolves.toMatchObject({ allowed: false, reason: 'needs approval' })
+    expect(ran).toBe(0)
+  })
+
   it('an ask decision with no reason degrades to deny with a default message', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)

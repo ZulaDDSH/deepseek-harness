@@ -11,7 +11,7 @@ import { TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH, ToolNotFoundError, ToolOutp
 import { APPROVAL_CANCELLED, APPROVAL_ERROR_NAME, APPROVAL_REJECTED, APPROVAL_UNAVAILABLE, type ApprovalErrorCode } from './error-codes.ts'
 import { validateJsonSchemaValue } from './json-schema.ts'
 import type { ToolsService } from './index.ts'
-import type { ResolvedToolSet, ToolDefinition, ToolExecutionInput, ToolExecutionMode, ToolExecution, ToolRunContext, ToolExecutionResult, ToolExecutionSuccess, ToolErrorInfo, ToolExecutionToken, PreToolDecision, PostToolDecision } from './contracts.ts'
+import type { ResolvedToolSet, ToolDefinition, ToolExecutionInput, ToolExecutionMode, ToolExecution, ToolRunContext, ToolExecutionResult, ToolExecutionSuccess, ToolErrorInfo, ToolExecutionToken, PreToolDecision, PostToolDecision, ToolPreflightResult } from './contracts.ts'
 
 /** Executor-owned lookup and restrictions applied before extensible execution policy. */
 export interface ToolExecutionSource {
@@ -231,6 +231,14 @@ export class ToolExecutionPipeline {
     } catch (error: unknown) {
       return { kind: 'final-result', exec, result: toolErrorResult(error) }
     }
+  }
+
+  async preflight(input: ToolExecutionInput): Promise<ToolPreflightResult> {
+    const prepared = await this.prepare(input)
+    if (prepared.kind === 'dispatch') return { allowed: true }
+    const { result } = prepared
+    const text = result.content.flatMap(block => block.type === 'text' ? [block.text] : []).join(' ')
+    return { allowed: false, reason: result.error?.message ?? (text.length > 0 ? text : `tool "${input.name}" was not allowed`) }
   }
 
   /** Whether the original caller signal is currently aborted. */
