@@ -672,7 +672,6 @@ export class DeepSeekAccount extends TypertRemoteService {
     this.revocations.add(revocation)
   }
 
-  /** Constraint: state of the background token revocation after sign-out. */
   getRevocationStatus():'none' | 'pending' | RevocationOutcome {
     return this.revocationStatus
   }

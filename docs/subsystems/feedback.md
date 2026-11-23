@@ -384,6 +384,11 @@ Host Remote through which a product surface records a Session-level remark.
  * Session carries the id.
  */
 @Remote('record') record(request: SessionFeedbackRecordRequest): Promise<SessionFeedbackRecordResult>
+
+/** Report the live feedback sharing policy the feedback dialog shows.
+ * @returns The current sharing policy.
+ */
+@Remote('sharing') sharing(): Promise<SessionFeedbackSharing>
 ```
 
 Source: [`packages/feedback/command-feedback/src/index.ts`](../../packages/feedback/command-feedback/src/index.ts)

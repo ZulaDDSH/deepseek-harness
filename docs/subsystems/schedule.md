@@ -122,7 +122,7 @@ History follows append order despite clock rollback. Acknowledgment appends and 
 <a id="host-delivery"></a>
 ## Host delivery
 
-One Host timer drives active tasks. Runtime and management writes share one FIFO. Existing and reserved Sessions resolve through `schedule/resolve-agent`, so the embedding owns activation and the injected Web controller is the fallback. Reused-Session tasks hold their execution slot until the target Agent becomes idle; intervening occurrences coalesce. A `new` target permits executions beside one another. Due recurring records targeting the same existing Session share one message; `after` and `at` deliver separately.
+One Host timer drives active tasks. Runtime and management writes share one FIFO. Existing and reserved Sessions resolve through `schedule/resolve-agent`, so the embedding owns activation and the injected Web controller is the fallback. Reused-Session tasks hold their execution slot until the target Agent becomes idle; intervening occurrences coalesce. A `new` target also holds its slot until the launched Agent is idle, so a task has at most one active run. Due recurring records targeting the same existing Session share one message; `after` and `at` deliver separately.
 
 Timed and manual deliveries obey a per-task minimum interval of 60 seconds. `newSessionIntervalSeconds` can raise it for `new` targets, up to one week. The floor uses the last occurrence when the saved successor preserves the interval, otherwise the last acknowledgment, so delivery latency does not move the rule's anchor. Reads expose `executionActive` and `deliveryFloorEndsAt` only while applicable.
 

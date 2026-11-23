@@ -583,6 +583,13 @@ snapshotFor(principal: Principal): RemoteAccessBaseline
  * @returns the access frames of one generation.
  */
 @Remote({ mode: 'stream' }) async *follow(signal: AbortSignal): AsyncIterable<RemoteAccessFrame>
+
+/** Stream one notice per invalidate() that reaches the principal, coalesced until the reader pulls. The first pull registers the reader, so pull before reading the state to filter. The owner receives none. The stream ends when the signal aborts or this service unloads.
+ * @param principal - The caller identity to watch.
+ * @param signal - Cancels the stream.
+ * @returns An iterable yielding once per coalesced invalidation.
+ */
+async *changes(principal: Principal, signal: AbortSignal): AsyncIterable<void>
 ```
 
 Source: [`packages/api/remote-access/src/index.ts`](../../packages/api/remote-access/src/index.ts)

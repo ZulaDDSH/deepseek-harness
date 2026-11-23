@@ -1346,7 +1346,7 @@ Source: [`packages/fs/tool-fs/src/index.ts`](../packages/fs/tool-fs/src/index.ts
 
 ### `edit`
 
-Edit an existing UTF-8 text file by replacing literal text.
+Edit an existing UTF-8 text file by replacing literal text, or append text to its end.
 
 ```json
 {
@@ -1358,7 +1358,7 @@ Edit an existing UTF-8 text file by replacing literal text.
     },
     "old_string": {
       "type": "string",
-      "description": "Literal text to replace."
+      "description": "Literal text to replace. Send an empty string when append is true."
     },
     "new_string": {
       "type": "string",
@@ -1367,6 +1367,10 @@ Edit an existing UTF-8 text file by replacing literal text.
     "replace_all": {
       "type": "boolean",
       "description": "Replace all matches. Defaults to false; when false, old_string must appear exactly once."
+    },
+    "append": {
+      "type": "boolean",
+      "description": "Add new_string verbatim to the end of the existing file instead of replacing text; send old_string as an empty string. Include any newline you need. Also fills an empty file."
     }
   },
   "required": [

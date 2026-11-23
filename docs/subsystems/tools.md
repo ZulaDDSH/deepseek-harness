@@ -736,6 +736,12 @@ setExecutor(executor: ToolExecutor): () => void
  */
 async execute(input: ToolBatchInput): Promise<ToolBatchResult>
 
+/** Decide what a tool call would get from the hook, approval and guard pipeline without executing it.
+ * @param input - The tool execution input to evaluate.
+ * @returns The preflight decision for that call.
+ */
+async preflight(input: ToolExecutionInput): Promise<ToolPreflightResult>
+
 /**
  * Register a monotonic denial in the calling scope.
  * @param guard - evaluated after extensible pre-execute policy by the shared pipeline.

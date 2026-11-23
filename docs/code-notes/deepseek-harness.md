@@ -1125,3 +1125,100 @@ packages/client/ui-workspace/package.json:dsh.client.inject includes the command
 
 ## packages/credentials/deepseek-account/src/index.ts:Events['deepseek-account/revocation']
 The event JSDoc carries description, `@mode emit` and `@param outcome` because the cordis catalog generator rejects events without them; listeners are not awaited.
+
+
+### `packages/api/workspace-files/src/index.ts:Config`
+- `confineReads`: Refuse reads, stats and file change targets that resolve outside the Session workspace for a non-owner principal; default true. The owner and trusted in-process callers are never confined.
+- `readRoots`: Extra absolute directories a confined non-owner principal may read besides the Session workspace root.
+
+### `packages/client/ui-memory-workspace/src/index.ts:Config`
+- `graphTimeoutMs`: Time in milliseconds a Graphify run may take before it is stopped; default 120000.
+- `maxGraphDocuments`: Most imported documents the adapter accepts from one Graphify store; default 500.
+- `maxGraphSourceBytes`: Most source text bytes the adapter accepts from one Graphify store; default 64 MiB.
+
+### `packages/experimental/hooks-claude-code/src/index.ts:Config`
+- `mandatory`: Treat the hook configuration as required: a missing, invalid or partly unsupported configuration refuses plugin activation instead of logging a warning and registering no hooks.
+
+### `packages/experimental/hooks-codex/src/index.ts:Config`
+- `mandatory`: Treat the hook configuration as required: it refuses plugin activation on a missing, unreadable, invalid or skipped-handler configuration, and a PreToolUse `updatedInput` denies the call instead of being ignored.
+
+### `packages/experimental/webhook-github/src/index.ts:Config`
+- `maxConcurrentRequests`: Requests allowed to read and verify a body at once; further requests get 429. Default 16.
+- `bodyTimeoutMs`: Milliseconds allowed to receive one request body before it is dropped. Default 30000.
+- `replayWindowMs`: Milliseconds a verified body is remembered so an identical replay is acknowledged but not dispatched again; 0 disables. Default 3600000.
+
+### `packages/experimental/webhook/src/types.ts:WebhookRuntimeConfig`
+- `journalFile`: Absolute path of the delivery journal, or false to disable it; omitted uses the Host data directory when one is available.
+
+### `packages/host/authentication-token/src/index.ts:Config`
+- `sessionGeneration`: Raise and reload the plugin to revoke every browser and API cookie at once; the signing secret is replaced. Default 0.
+
+### `packages/jobs/tool-watch/src/index.ts:Config`
+- `denyCommands`: JavaScript regular expressions; a watch command matching any is refused.
+- `allowCommands`: JavaScript regular expressions; when non-empty, a watch command must match at least one.
+
+### `packages/sandbox/sandbox-local/src/index.ts:Config`
+- `requireFullEnforcement`: Refuse a built-in runner that reports partial enforcement instead of running on it. Default false.
+
+### `packages/schedule/tool-schedule/src/index.ts:Config`
+- `administrator`: When true the schedule tools reach every Host task instead of only tasks the calling Session is involved in. Default false.
+
+### `packages/session/session-persistence-jsonl/src/index.ts:Config`
+- `retention`: Opt-in deletion of sessions whose log was last written more than `maxAgeDays` days ago; absent deletes nothing.
+
+### `packages/session/session-persistence-jsonl/src/index.ts:JsonlRetention`
+- `maxAgeDays`: Age in days after the last write beyond which a session is deleted.
+- `intervalHours`: Hours between retention sweeps after the sweep at mount; default 24.
+
+### `packages/session/session-telemetry-otel/src/index.ts:Config`
+- `redactSecrets`: Scrub recognisable secrets from exported bodies; default true.
+
+### `packages/team/agent-team/src/index.ts:TeamService.pendingHistoricalMessages`
+- `description`: List the historical Team messages of the caller's root Session that were sent before a restart and are not yet acknowledged.
+- `params.caller`: Agent whose root Session's Team state is read.
+- `returns`: The unacknowledged historical message snapshots; empty when none are pending.
+
+### `packages/team/agent-team/src/index.ts:TeamService.recoverHistoricalMessage`
+- `description`: Resolve one pending historical Team message by replaying it or discarding it; the acknowledgement is appended only after a replayed send was accepted. Throws TEAM_LEAD_REQUIRED unless the caller is the root Session.
+- `params.caller`: Agent resolving the message; must be the root Session.
+- `params.messageId`: The pending historical message to resolve.
+- `params.decision`: `replay` sends the message again, `discard` drops it.
+- `params.signal`: Cancels the replayed send.
+- `returns`: What happened: replayed, discarded, already-delivered or already-resolved.
+
+### `packages/api/remote-access/src/index.ts:RemoteAccessService.changes`
+- `description`: Stream one notice per invalidate() that reaches the principal, coalesced until the reader pulls. The first pull registers the reader, so pull before reading the state to filter. The owner receives none. The stream ends when the signal aborts or this service unloads.
+- `params.principal`: The caller identity to watch.
+- `params.signal`: Cancels the stream.
+- `returns`: An iterable yielding once per coalesced invalidation.
+
+### `packages/api/session-controller/src/index.ts:SessionController.outline`
+- `description`: Read one page of older turn-outline entries of a visible Session, newest first, bounded by `maxEntries`.
+- `params.request`: The Session address, the exclusive `beforeSeq` cursor and the optional entry bound.
+- `params.signal`: Cancels the read.
+- `returns`: The outline entries of the page and the cursor for the next older page.
+
+### `packages/feedback/command-feedback/src/index.ts:SessionFeedbackService.sharing`
+- `description`: Report the live feedback sharing policy the feedback dialog shows.
+- `returns`: The current sharing policy.
+
+### `packages/credentials/deepseek-account/src/index.ts:DeepSeekAccount.getRevocationStatus`
+- `description`: State of the background token revocation after sign-out.
+- `returns`: none when no revocation ran, pending while one is in flight, otherwise its outcome.
+
+### `packages/goal/goal/src/index.ts:GoalService.refundRound`
+- `description`: Durably refund the admitted round the host or an unload aborted, keeping the goal's phase and activation. Refuses a stale ref, a goal with no admitted round and a completed goal.
+- `params.agent`: Agent that owns the goal.
+- `params.ref`: The goal reference the caller last observed.
+- `returns`: The goal view after the refund.
+
+### `packages/jobs/jobs/src/index.ts:JobRegistry.peek`
+- `description`: Return what the next read returns and consume nothing: the model cursor does not move.
+- `params.id`: The job to peek at.
+- `params.caller`: The reading session checked against the owner.
+- `returns`: The unconsumed read.
+
+### `packages/core/tools/src/index.ts:ToolsService.preflight`
+- `description`: Decide what a tool call would get from the hook, approval and guard pipeline without executing it.
+- `params.input`: The tool execution input to evaluate.
+- `returns`: The preflight decision for that call.

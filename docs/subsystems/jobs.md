@@ -491,6 +491,13 @@ abstract get(id: JobId, caller?: SessionId): JobView
  */
 abstract read(id: JobId, caller?: SessionId): JobRead
 
+/** Return what the next read returns and consume nothing: the model cursor does not move.
+ * @param id - The job to peek at.
+ * @param caller - The reading session checked against the owner.
+ * @returns The unconsumed read.
+ */
+abstract peek(id: JobId, caller?: SessionId): JobRead
+
 /**
  * Read retained ring output without moving the model cursor. Resume with
  * a previous read's `next`; an offset inside a retained chunk returns the

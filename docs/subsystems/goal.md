@@ -253,6 +253,13 @@ block(agent: Agent, ref: GoalRef, reason: GoalBlockReason): GoalView
  */
 @Remote('clear') clear(agent: Agent, ref: GoalRef): GoalRef
 
+/** Durably refund the admitted round the host or an unload aborted, keeping the goal's phase and activation. Refuses a stale ref, a goal with no admitted round and a completed goal.
+ * @param agent - Agent that owns the goal.
+ * @param ref - The goal reference the caller last observed.
+ * @returns The goal view after the refund.
+ */
+refundRound(agent: Agent, ref: GoalRef): GoalView
+
 /**
  * Create one Goal through the remote boundary.
  * @param agent - exact live Agent resolved from the wire identity.

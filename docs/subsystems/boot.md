@@ -100,7 +100,7 @@ view(session: Session): ActionCardView
 /**
  * Apply a user action to a logged card. Shared checks run first, then the kind reconciles the card; `dismiss` is
  * recorded here and every other verb goes to the card's kind. `dismiss` also works on an unstarted card whose kind
- * is no longer registered. Concurrent actions on one card share one operation.
+ * is no longer registered. An identical concurrent action shares the running operation and a different one is refused as busy.
  * @param agent - live root resolved from the displayed Session.
  * @param callId - the card's `propose_action` call id.
  * @param verb - `dismiss` or one of the kind's verbs.

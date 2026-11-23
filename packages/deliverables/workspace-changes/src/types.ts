@@ -135,6 +135,7 @@ export interface WorkspaceChanges {
   /**
    * Compare one current repository-status file against HEAD.
    * @param workspaceId - registered workspace identity.
+   * @param path - path of the file in the repository status listing.
    * @param signal - cancels git and filesystem work.
    * @returns a current comparison, or undefined for an unknown workspace or file.
    */
