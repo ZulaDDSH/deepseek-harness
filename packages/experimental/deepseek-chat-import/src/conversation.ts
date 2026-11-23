@@ -247,17 +247,21 @@ class LogBuilder {
   private userMessage(message: ExportMessage): UserMessage {
     const attachments: ContentBlock[] = []
     const lines: string[] = []
+    const unavailable: string[] = []
     for (const fragment of fragmentsOf(message)) {
       if (fragment.type === 'REQUEST') {
         lines.push(fragment.content)
       } else if (fragment.type === 'FILE') {
         for (const file of fragment.files) {
           const image = file.is_image ? this.options.images?.get(file.id) : undefined
-          attachments.push(image === undefined ? { type: 'file', attachment: syntheticFileRef(file) } : { type: 'image', attachment: image })
+          if (image !== undefined) { attachments.push({ type: 'image', attachment: image }); continue }
+          const ref = syntheticFileRef(file)
+          attachments.push({ type: 'file', attachment: ref })
+          unavailable.push(`[Not imported: the export does not include the contents of the attached file "${ref.name}" (${ref.bytes} bytes).]`)
         }
       }
     }
-    const text = lines.join('\n')
+    const text = [...lines, ...unavailable].join('\n')
     // A user message without any content keeps one empty text block: the row
     // renders, and the request assembly drops it like any empty user message.
     const content: ContentBlock[] = text.trim().length > 0

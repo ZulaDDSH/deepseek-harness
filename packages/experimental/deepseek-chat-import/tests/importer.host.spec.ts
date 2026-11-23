@@ -518,6 +518,11 @@ describe('image attachments', () => {
     attachment: { attachmentId: AttachmentId(`sha256:${createHash('sha256').update(`deepseek-chat-export:${id}`).digest('hex')}`), name, bytes: 3 },
   })
 
+  const explained = (...names: string[]): { type: 'text'; text: string } => ({
+    type: 'text',
+    text: ['Explain', ...names.map(name => `[Not imported: the export does not include the contents of the attached file "${name}" (3 bytes).]`)].join('\n'),
+  })
+
   it('reports a conversation with an image when adding it to the workspace fails', async () => {
     const path = `chat_sessions/pictured_files/${uuid(1)}_chart.png`
     const conversation = withFiles('pictured', [
@@ -572,7 +577,7 @@ describe('image attachments', () => {
       { type: 'image', attachment: ref('plan.png') },
       card(uuid(3), 'never.png'),
       card(uuid(4), 'report.pdf'),
-      { type: 'text', text: 'Explain' },
+      explained('never.png', 'report.pdf'),
     ])
     expect(warnings).toEqual([`deepseek-chat-import: image ${never} is not stored: not in the export`])
   })
@@ -674,7 +679,7 @@ describe('image attachments', () => {
       extra: { [path]: new Uint8Array([1]) },
     })))
     expect(result.skipped).toEqual([])
-    expect(userContent(stored[0])).toEqual([card(uuid(1), 'chart.png'), { type: 'text', text: 'Explain' }])
+    expect(userContent(stored[0])).toEqual([card(uuid(1), 'chart.png'), explained('chart.png')])
     expect(warnings).toEqual([])
   })
 
@@ -691,7 +696,7 @@ describe('image attachments', () => {
       extra: { [bomb]: new Uint8Array(LIMITS.maxEntryBytes + 1) },
     })))
     expect(saveImage).not.toHaveBeenCalled()
-    expect(userContent(stored[0])).toEqual([card(uuid(1), 'gone.png'), card(uuid(2), 'bomb.png'), { type: 'text', text: 'Explain' }])
+    expect(userContent(stored[0])).toEqual([card(uuid(1), 'gone.png'), card(uuid(2), 'bomb.png'), explained('gone.png', 'bomb.png')])
     expect(warnings).toEqual([
       `deepseek-chat-import: image ${gone} is not stored: not in the export`,
       `deepseek-chat-import: image ${bomb} is not stored: ${bomb} declares ${LIMITS.maxEntryBytes + 1} uncompressed bytes, more than the ${LIMITS.maxEntryBytes}-byte entry limit`,
@@ -714,7 +719,7 @@ describe('image attachments', () => {
       },
     })))
     expect(saveImage).toHaveBeenCalledOnce()
-    expect(userContent(stored[0])).toEqual([card(uuid(1), 'old.bmp'), card(uuid(2), 'huge.JPG'), { type: 'text', text: 'Explain' }])
+    expect(userContent(stored[0])).toEqual([card(uuid(1), 'old.bmp'), card(uuid(2), 'huge.JPG'), explained('old.bmp', 'huge.JPG')])
     expect(warnings).toEqual([
       `deepseek-chat-import: image ${bitmap} is not stored: unsupported image type`,
       `deepseek-chat-import: image ${rejected} is not stored: image too large`,
@@ -780,7 +785,7 @@ describe('image attachments', () => {
     expect(userContent(stored[0])).toEqual([
       { type: 'image', attachment: ref('chart.png') },
       card(uuid(2), 'gone.png'), card(uuid(3), 'bomb.png'), card(uuid(4), 'old.bmp'), card(uuid(5), 'huge.JPG'), card(uuid(6), 'report.pdf'),
-      { type: 'text', text: 'Explain' },
+      explained('gone.png', 'bomb.png', 'old.bmp', 'huge.JPG', 'report.pdf'),
     ])
     expect(warnings).toEqual([
       'deepseek-chat-import: conversation withdrawn was not imported: every question of the conversation was withdrawn by content filtering',
