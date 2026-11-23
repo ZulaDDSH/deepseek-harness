@@ -7,7 +7,7 @@ kind: persistence-change
 
 ## Summary
 
-Adds the claude-code-mod message source kind, optional localOnly on feedback events, a version 2 goal refund payload, and the image/restore event.
+Adds the claude-code-mod message source kind, optional localOnly on feedback events, a version 2 goal refund payload, and the image/restore event. The claude-code-mod source member (`{ kind: 'claude-code-mod', mod?: string }`) is the only change to the message source of agent/inbox/spliced, developer/message, session/title-llm-request and user/message.
 
 ## Table of Contents
 
