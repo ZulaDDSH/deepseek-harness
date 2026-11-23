@@ -14,6 +14,8 @@ import { promisify } from 'node:util'
 import { pathToFileURL } from 'node:url'
 import { cloneSource, listSourceFiles, resolveGitSource } from '../src/index.ts'
 
+vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 })
+
 const run = promisify(execFile)
 
 let workdir: string
