@@ -34,7 +34,6 @@ import { readPluginMetadata, shareableViewerCatalog } from './shareable-catalog.
 import { shareViewerOf } from './viewer-principal.ts'
 import { loadOwnerCredential } from './owner-credential-file.ts'
 
-const SESSION_REFERENCE = /dsh-session:[A-Za-z0-9_-]/u
 import { ForkRegistry } from './fork-registry.ts'
 import { OwnerAuthorizations } from './owner-authorization.ts'
 import {
@@ -51,6 +50,8 @@ import {
   identityKeyOf,
   type IdentityActor,
 } from '@deepseek-ai/dsh-experimental-liveshare-protocol'
+
+const SESSION_REFERENCE = /dsh-session:[A-Za-z0-9_-]/u
 
 export const name = 'liveshare-share-host'
 export const inject = ['connection']
