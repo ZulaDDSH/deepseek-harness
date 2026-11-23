@@ -328,6 +328,72 @@ describe('approve', () => {
     expect(bench.orchestrator.activeRuns.getSnapshot().size).toBe(0)
   })
 
+  it('re-drives a success the host refused as stale and answers with the current run', async () => {
+    const refusals = [{ accepted: false }, { accepted: true }]
+    const bench = boot({ resolve: () => Promise.resolve(refusals.shift() ?? { accepted: true }) })
+    ask(bench)
+    await bench.orchestrator.approve(REQ, false)
+    expect(bench.host.runHostHalf).toHaveBeenCalledTimes(2)
+    expect(bench.answers).toEqual([{ ok: true, pluginRunId: RUN }, { ok: true, pluginRunId: RUN }])
+    expect(bench.orchestrator.lastRunError.getSnapshot().size).toBe(0)
+  })
+
+  it('settles a request visibly when the host keeps refusing its answer', async () => {
+    const bench = boot({ resolve: () => Promise.resolve({ accepted: false }) })
+    ask(bench)
+    await bench.orchestrator.approve(REQ, false)
+    expect(bench.host.runHostHalf).toHaveBeenCalledTimes(3)
+    expect(bench.orchestrator.lastRunError.getSnapshot().get(PLUGIN))
+      .toMatchObject({ reason: 'client-half-failed', message: expect.stringContaining('run changed') as string })
+  })
+
+  it('answers the host with the failure when a re-drive finds the request no longer matches the run', async () => {
+    const hostHalves = [HOST_OK, { ok: false as const, message: 'run request "rr-1" no longer identifies the latest run' }]
+    const refusals = [{ accepted: false }, { accepted: true }]
+    const bench = boot({
+      hostHalf: () => Promise.resolve(hostHalves.shift() ?? HOST_OK),
+      resolve: () => Promise.resolve(refusals.shift() ?? { accepted: true }),
+    })
+    ask(bench)
+    await bench.orchestrator.approve(REQ, false)
+    expect(bench.answers).toEqual([
+      { ok: true, pluginRunId: RUN },
+      { ok: false, reason: 'host-half-failed', message: 'run request "rr-1" no longer identifies the latest run' },
+    ])
+    expect(bench.orchestrator.lastRunError.getSnapshot().get(PLUGIN)).toMatchObject({ reason: 'host-half-failed' })
+  })
+
+  it('does not re-drive a refused answer for a request another page already settled', async () => {
+    const bench = boot({
+      resolve: () => {
+        bench.orchestrator.close(REQ)
+        return Promise.resolve({ accepted: false })
+      },
+    })
+    ask(bench)
+    await bench.orchestrator.approve(REQ, false)
+    expect(bench.host.runHostHalf).toHaveBeenCalledTimes(1)
+    expect(bench.orchestrator.lastRunError.getSnapshot().size).toBe(0)
+  })
+
+  it('retries an answer lost in transport and reports it when every attempt fails', async () => {
+    const outcomes = [() => Promise.reject(new Error('stream gone')), () => Promise.resolve({ accepted: true })]
+    const bench = boot({ resolve: () => (outcomes.shift() ?? (() => Promise.resolve({ accepted: true })))() })
+    ask(bench)
+    await bench.orchestrator.approve(REQ, false)
+    expect(bench.host.resolveRequestRun).toHaveBeenCalledTimes(2)
+    expect(bench.orchestrator.lastRunError.getSnapshot().size).toBe(0)
+
+    const lost = boot({ resolve: () => Promise.reject(new Error('stream gone')) })
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    ask(lost)
+    await lost.orchestrator.approve(REQ, false)
+    logged.mockRestore()
+    expect(lost.host.resolveRequestRun).toHaveBeenCalledTimes(3)
+    expect(lost.orchestrator.lastRunError.getSnapshot().get(PLUGIN))
+      .toMatchObject({ reason: 'client-half-failed', message: expect.stringContaining('stream gone') as string })
+  })
+
   it('clears a previous failure when the same definition is tried again', async () => {
     const outcomes: DynamicCordisLoadResult[] = [
       { ok: false, cause: 'activate', message: 'first try' },

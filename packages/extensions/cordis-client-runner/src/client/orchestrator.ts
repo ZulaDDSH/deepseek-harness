@@ -112,9 +112,14 @@ export interface CordisUserRunRequest {
   hasClientHalf: boolean
 }
 
+const MAX_STALE_REDRIVES = 2
+const ANSWER_ATTEMPTS = 3
+const SETTLED_ELSEWHERE_LIMIT = 256
+
 interface RunPlan extends CordisUserRunRequest {
   requestId?: ApprovalRequestId
   approveFutureVersions?: boolean
+  redrives?: number
 }
 
 /** Drives Host → Client activation and publishes Plugin-keyed activity. */
@@ -124,6 +129,7 @@ export class CordisRunOrchestrator {
   private readonly failures = new Map<CordisDynamicPluginId, CordisRunFailure>()
   private readonly inFlight = new Map<CordisDynamicPluginId, Promise<void>>()
   private readonly listeners = new Set<() => void>()
+  private readonly settledElsewhere = new Set<ApprovalRequestId>()
   private activityCache: ReadonlyMap<CordisDynamicPluginId, CordisRunActivity> | undefined
   private failureCache: ReadonlyMap<CordisDynamicPluginId, CordisRunFailure> | undefined
 
@@ -247,6 +253,10 @@ export class CordisRunOrchestrator {
    */
   close(requestId: ApprovalRequestId): void {
     const request = this.requests.get(requestId)
+    this.settledElsewhere.add(requestId)
+    if (this.settledElsewhere.size > SETTLED_ELSEWHERE_LIMIT) {
+      this.settledElsewhere.delete(this.settledElsewhere.values().next().value as ApprovalRequestId)
+    }
     if (request === undefined) return
     this.requests.delete(requestId)
     const current = this.activity.get(request.pluginId)
@@ -335,7 +345,7 @@ export class CordisRunOrchestrator {
     if (!started.ok) {
       this.fail(plan, 'host-half-failed', started)
       if (plan.requestId !== undefined) {
-        await this.answer(plan.requestId, { ...started, reason: 'host-half-failed' })
+        await this.answer(plan.requestId, { ...started, reason: 'host-half-failed' }, plan)
       }
       return
     }
@@ -375,10 +385,29 @@ export class CordisRunOrchestrator {
       ...loaded.waitingFor === undefined ? {} : { waitingFor: loaded.waitingFor },
     }
     if (plan.requestId !== undefined) {
-      await this.answer(plan.requestId, resolution)
+      await this.settleRequest(plan, plan.requestId, resolution)
       return
     }
     await this.settleDirect(plan, resolution)
+  }
+
+  private async settleRequest(
+    plan: RunPlan,
+    requestId: ApprovalRequestId,
+    resolution: DynamicCordisRunResolution,
+  ): Promise<void> {
+    const ack = await this.answer(requestId, resolution, plan)
+    const namesRun = resolution.pluginRunId !== undefined
+    if (ack?.accepted !== false || !namesRun || this.settledElsewhere.has(requestId)) return
+    const redrives = plan.redrives ?? 0
+    if (redrives >= MAX_STALE_REDRIVES) {
+      this.fail(plan, 'client-half-failed', {
+        message: 'The host no longer accepts this activation because its run changed while the page was loading.',
+      })
+      return
+    }
+    this.failures.delete(plan.pluginId)
+    await this.drive({ ...plan, redrives: redrives + 1 })
   }
 
   private async startHost(plan: RunPlan): Promise<DynamicCordisHostHalfResult> {
@@ -415,7 +444,7 @@ export class CordisRunOrchestrator {
       startedHere,
       ...failure,
     }
-    if (plan.requestId !== undefined) await this.answer(plan.requestId, resolution)
+    if (plan.requestId !== undefined) await this.settleRequest(plan, plan.requestId, resolution)
     else await this.settleDirect(plan, resolution)
   }
 
@@ -428,12 +457,22 @@ export class CordisRunOrchestrator {
     }
   }
 
-  private async answer(requestId: ApprovalRequestId, resolution: DynamicCordisRunResolution): Promise<void> {
-    try {
-      await this.env.host.resolveRequestRun(requestId, resolution)
-    } catch (error) {
-      console.error(`[cordis-client-runner] answering run request ${requestId} failed:`, error)
+  private async answer(
+    requestId: ApprovalRequestId,
+    resolution: DynamicCordisRunResolution,
+    plan?: RunPlan,
+  ): Promise<DynamicCordisResolveAck | undefined> {
+    let failure: unknown
+    for (let attempt = 0; attempt < ANSWER_ATTEMPTS; attempt += 1) {
+      try {
+        return await this.env.host.resolveRequestRun(requestId, resolution)
+      } catch (error) {
+        failure = error
+      }
     }
+    console.error(`[cordis-client-runner] answering run request ${requestId} failed:`, failure)
+    if (plan !== undefined) this.fail(plan, 'client-half-failed', errorDetails(failure))
+    return undefined
   }
 
   private fail(
