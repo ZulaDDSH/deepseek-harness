@@ -480,6 +480,26 @@ describe('apply (plugin lifecycle)', () => {
     await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__updated')).toBeDefined() })
   })
 
+  it('coalesces a notification burst during a stalled listing into one rerun that reads the final list', async () => {
+    await apply(ctx, stdioConfig)
+    const initialCalls = mockListTools.mock.calls.length
+    const stalled = Promise.withResolvers<unknown>()
+    mockListTools.mockReturnValueOnce(stalled.promise)
+    const handler = mockSetNotificationHandler.mock.calls[0]![1] as () => void
+
+    for (let n = 0; n < 200; n++) handler()
+    await sleep(20)
+    expect(mockListTools).toHaveBeenCalledTimes(initialCalls + 1)
+
+    mockListTools.mockResolvedValue({ tools: [{ name: 'final', inputSchema: { type: 'object' } }], nextCursor: undefined })
+    stalled.resolve({ tools: [{ name: 'stale', inputSchema: { type: 'object' } }], nextCursor: undefined })
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__final')).toBeDefined() })
+    await sleep(400)
+
+    expect(mockListTools).toHaveBeenCalledTimes(initialCalls + 2)
+    expect(ctx.tools.get('mcp__srv__stale')).toBeUndefined()
+  })
+
   it('keeps the previous generation when a re-sync fails', async () => {
     await apply(ctx, stdioConfig)
     expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()

@@ -130,6 +130,21 @@ export interface ConnectionAuth {
   providerFor(url: string): SignInProvider
 }
 
+const REFRESH_MIN_INTERVAL_MS = 250
+
+function pause(ms: number, signal: AbortSignal): Promise<void> {
+  if (ms <= 0 || signal.aborted) return Promise.resolve()
+  return new Promise((resolve) => {
+    const timer = setTimeout(done, ms)
+    function done(): void {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', done)
+      resolve()
+    }
+    signal.addEventListener('abort', done, { once: true })
+  })
+}
+
 /**
  * Start the supervised connection for one MCP server and keep it alive per
  * the reconnect policy. The first attempt starts in a microtask; the caller
@@ -351,8 +366,9 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     client.onclose = () => {
       if (record.connectedAt !== undefined) lost(record, 'connection closed')
     }
-    async function refreshTools(): Promise<void> {
-      if (!isCurrent(record)) return
+    let refreshing = false
+    let refreshPending = false
+    async function syncOnce(): Promise<void> {
       ctx.logger.info(`${label}: tool list changed, re-syncing`)
       try {
         await enqueueSync(record)
@@ -362,6 +378,25 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
       } catch (error) {
         if (error instanceof McpToolRegistrationError) lost(record, diagnostic(error, 'tool synchronization'))
         else if (isCurrent(record)) ctx.logger.error(`${label}: tool re-sync failed: ${diagnostic(error, 'tool synchronization')}`)
+      }
+    }
+    // Constraint: one active refresh plus at most one pending rerun per generation, at least REFRESH_MIN_INTERVAL_MS apart.
+    async function refreshTools(): Promise<void> {
+      if (!isCurrent(record)) return
+      if (refreshing) {
+        refreshPending = true
+        return
+      }
+      refreshing = true
+      try {
+        do {
+          refreshPending = false
+          const startedAt = Date.now()
+          await syncOnce()
+          if (refreshPending && isCurrent(record)) await pause(REFRESH_MIN_INTERVAL_MS - (Date.now() - startedAt), record.wire.lifetime.signal)
+        } while (refreshPending && isCurrent(record))
+      } finally {
+        refreshing = false
       }
     }
     try {
