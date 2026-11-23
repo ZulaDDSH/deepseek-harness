@@ -29,6 +29,7 @@ import type {
 } from '@deepseek-ai/dsh-fs'
 import {
   applyLiteralEdit,
+  assertVersion,
   expandHomePrefix,
   listDirectory,
   localDisplayPath,
@@ -234,7 +235,11 @@ export class LocalFileSystem extends FileSystem {
         ? await readTextForDiff(target.targetKey, this.config.diffBasisMaxBytes, signal)
         : null
       await writeFileAtomic(target.targetKey, content, existing?.mode, signal, this.internals,
-        { displayPath: target.displayPath, createIfAbsent: expected?.kind === 'createIfAbsent' })
+        {
+          displayPath: target.displayPath,
+          createIfAbsent: expected?.kind === 'createIfAbsent',
+          ...expected?.kind === 'replaceIfVersion' ? { expectedVersion: expected.version } : {},
+        })
       const after = await probe(target.targetKey)
       return {
         operation: existing ? 'update' : 'create',
@@ -271,7 +276,8 @@ export class LocalFileSystem extends FileSystem {
       const original = await readForEdit(target.targetKey, target.displayPath, signal)
       const edited = applyLiteralEdit(original.content, edit.oldString, edit.newString, edit.replaceAll, target.displayPath)
       const content = restoreLineEndings(edited.content, original.lineEndings)
-      await writeFileAtomic(target.targetKey, content, existing.mode, signal, this.internals, { displayPath: target.displayPath })
+      await writeFileAtomic(target.targetKey, content, existing.mode, signal, this.internals,
+        { displayPath: target.displayPath, expectedVersion: existing.version })
 
       const after = await probe(target.targetKey)
       return {
@@ -292,18 +298,18 @@ export class LocalFileSystem extends FileSystem {
       const original = await readForEdit(target.targetKey, target.displayPath, signal)
       const after = this.patchContent(target, original.content, hunks)
       await writeFileAtomic(target.targetKey, restoreLineEndings(after, original.lineEndings), existing.mode, signal, this.internals,
-        { displayPath: target.displayPath })
+        { displayPath: target.displayPath, expectedVersion: existing.version })
       return { version: this.versionAfterWrite(await probe(target.targetKey), target), before: original.content, after }
     })
   }
 
   override async deleteFile(target: FsTarget, expected?: { version: FsVersion }, signal?: AbortSignal): Promise<FsDeleteOutcome> {
     return this.withLock(target.targetKey, async () => {
-      await this.requireFile(target, expected, 'delete')
+      const existing = await this.requireFile(target, expected, 'delete')
       const before = await readTextForDiff(target.targetKey, this.config.diffBasisMaxBytes, signal)
       await this.internals.inspectBeforeMutation?.(target)
       if (signal?.aborted) throw new FsError('delete aborted', 'FS_ABORTED')
-      await removeFile(target.targetKey, target.displayPath, this.internals)
+      await removeFile(target.targetKey, target.displayPath, this.internals, existing.version)
       return { before }
     })
   }
@@ -324,11 +330,13 @@ export class LocalFileSystem extends FileSystem {
         ? await readTextForDiff(destination.targetKey, this.config.diffBasisMaxBytes, signal) : null
       await this.internals.inspectBeforeMutation?.(source)
       if (signal?.aborted) throw new FsError('move aborted', 'FS_ABORTED')
+      await assertVersion(source.targetKey, source.displayPath, sourceInfo.version, 'move')
       // After this checkpoint, complete both effects and report them even if cancellation arrives.
       await writeFileAtomic(destination.targetKey, content, sourceInfo.mode, undefined, this.internals, {
         displayPath: destination.displayPath,
         createIfAbsent: options.expectedDestination?.kind === 'createIfAbsent',
         existingDestination: existing !== null,
+        ...options.expectedDestination?.kind === 'replaceIfVersion' ? { expectedVersion: options.expectedDestination.version } : {},
       })
       const outcome: FsWriteOutcome = {
         operation: existing ? 'update' : 'create',
@@ -336,7 +344,7 @@ export class LocalFileSystem extends FileSystem {
       }
       const sourceBefore = Buffer.byteLength(original.content, 'utf8') < this.config.diffBasisMaxBytes ? original.content : null
       try {
-        await removeFile(source.targetKey, source.displayPath, this.internals)
+        await removeFile(source.targetKey, source.displayPath, this.internals, sourceInfo.version)
       } catch (error) {
         // removeFile maps I/O failures; unexpected defects must still reject.
         if (!(error instanceof FsError)) throw error

@@ -608,7 +608,7 @@ export async function writeFileAtomic(
   mode: number | undefined,
   signal: AbortSignal | undefined,
   internals: FsIoInternals = {},
-  options: { displayPath?: string; createIfAbsent?: boolean; existingDestination?: boolean } = {},
+  options: { displayPath?: string; createIfAbsent?: boolean; existingDestination?: boolean; expectedVersion?: FsVersion } = {},
 ): Promise<void> {
   const displayPath = options.displayPath ?? absolutePath
   const existingDestination = options.existingDestination ?? mode !== undefined
@@ -649,6 +649,7 @@ export async function writeFileAtomic(
     handle = undefined
 
     throwIfAborted(signal, 'write')
+    if (options.expectedVersion !== undefined) await assertVersion(absolutePath, displayPath, options.expectedVersion, 'write')
     if (options.createIfAbsent) {
       try {
         await linkFile(tempPath, absolutePath)
@@ -693,14 +694,25 @@ export async function writeFileAtomic(
  * @param absolutePath - resolved file identity; a concurrently substituted directory is refused.
  * @param displayPath - caller-facing source path for diagnostics.
  * @param internals - optional source-removal fault injection; omission uses non-recursive rm.
+ * @param expectedVersion - rejects FS_STALE_VERSION when the file drifted before removal.
  * @returns once removal completes; permission and other failures use filesystem error codes.
  */
-export async function removeFile(absolutePath: string, displayPath: string, internals: FsIoInternals = {}): Promise<void> {
+export async function removeFile(
+  absolutePath: string, displayPath: string, internals: FsIoInternals = {}, expectedVersion?: FsVersion,
+): Promise<void> {
+  if (expectedVersion !== undefined) await assertVersion(absolutePath, displayPath, expectedVersion, 'delete')
   try {
     await (internals.removeFile ?? rm)(absolutePath)
   } catch (error: unknown) {
     throw new FsError(`cannot delete "${displayPath}": ${errorMessage(error)}`,
       isPermissionError(error) ? 'FS_PERMISSION_DENIED' : 'FS_IO_ERROR', { cause: error })
+  }
+}
+
+export async function assertVersion(absolutePath: string, displayPath: string, version: FsVersion, verb: string): Promise<void> {
+  const current = await probe(absolutePath)
+  if (!current || current.version !== version) {
+    throw new FsError(`cannot ${verb} "${displayPath}": file changed since it was read`, 'FS_STALE_VERSION')
   }
 }
 
