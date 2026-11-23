@@ -53,6 +53,7 @@ None; this plugin neither constructs nor sends model requests.
 
 - Browser tokens do not transfer between applications, windows, or tabs. External browser file delivery depends on Chromium `DownloadURL` and the receiving application; Desktop supplies native file delivery. Unreadable cross-origin images retain browser-native dragging.
 - The Blob `DownloadURL` path has no verified external-application delivery result. Receivers that read after the transfer ends may find its URL revoked; use Desktop native dragging when original-file delivery is required.
+- Desktop native dragging of a borrowed original hands the operating system the live source path after verifying its hash and metadata. A receiver that opens the path after the drag starts reads whatever is there then: another process that modifies, replaces, or removes the source in that window changes or breaks the delivery. Desktop does not copy borrowed originals into private storage.
 
 <a id="dev-note"></a>
 ### Dev Note

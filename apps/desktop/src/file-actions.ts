@@ -1,7 +1,7 @@
 /** Trusted-window Chromium downloads and clipboard fallback reads. */
 import { app, ipcMain, session } from 'electron'
 import type { BrowserWindow, IpcMainInvokeEvent } from 'electron'
-import { closeSync, openSync, rmSync } from 'node:fs'
+import { closeSync, fstatSync, openSync, rmSync, statSync } from 'node:fs'
 import { extname, join } from 'node:path'
 import { resolveDragFileName } from '@deepseek-ai/dsh-util-file-drag'
 import { randomUUID } from 'node:crypto'
@@ -24,6 +24,28 @@ function saveRequest(value: unknown): { url: URL; name?: string; mediaType?: str
   }
 }
 
+interface Reservation { readonly path: string; readonly dev: bigint; readonly ino: bigint }
+
+/** @param path - unused destination. @returns the identity of the empty file created there. */
+function reserveFile(path: string): Reservation {
+  const fd = openSync(path, 'wx')
+  try {
+    const { dev, ino } = fstatSync(fd, { bigint: true })
+    return { path, dev, ino }
+  } finally { closeSync(fd) }
+}
+
+/** @param reservation - file created by `reserveFile`; a missing or replaced file is left alone. */
+function removeReserved(reservation: Reservation): void {
+  let info
+  try { info = statSync(reservation.path, { bigint: true }) }
+  catch (error) {
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') return
+    throw error
+  }
+  if (info.isFile() && info.dev === reservation.dev && info.ino === reservation.ino) rmSync(reservation.path, { force: true })
+}
+
 /**
  * Install trusted-window original-file operations.
  * @param assertOwner - rejects shell pages, subframes, and unowned windows.
@@ -43,6 +65,7 @@ export function installFileActions(
     started: () => void
     item?: Electron.DownloadItem
   }>()
+  const stallTimeoutMs = resolveDurationMs(process.env, 'DSH_DESKTOP_FILE_DOWNLOAD_STALL_TIMEOUT_MS', 300_000)
   session.defaultSession.on('will-download', (_event, item, contents) => {
     const url = item.getURLChain()[0]
     if (url === undefined || !new URL(url).hash.startsWith('#dsh-download=')) return
@@ -50,7 +73,15 @@ export function installFileActions(
     if (entry === undefined || entry.owner.webContents !== contents) { item.cancel(); return }
     entry.started()
     entry.item = item
-    let reserved: string | undefined
+    let reserved: Reservation | undefined
+    let idle: ReturnType<typeof setTimeout> | undefined
+    const arm = (): void => {
+      clearTimeout(idle)
+      idle = setTimeout(() => {
+        entry.finish(new Error('File download stalled'))
+        item.cancel()
+      }, stallTimeoutMs)
+    }
     try {
       assertOwner(entry.event)
       const name = resolveDragFileName({
@@ -60,24 +91,27 @@ export function installFileActions(
       let destination = join(app.getPath('downloads'), name)
       if (entry.request.mode === 'saveAs') {
         item.setSaveDialogOptions({ defaultPath: destination, properties: ['showOverwriteConfirmation', 'createDirectory'] })
+        item.on('updated', arm)
       } else {
         const extension = extname(destination)
         const stem = destination.slice(0, destination.length - extension.length)
         for (let index = 0; ; index++) {
           destination = index === 0 ? `${stem}${extension}` : `${stem} (${index})${extension}`
-          try { closeSync(openSync(destination, 'wx')); break }
+          try { reserved = reserveFile(destination); break }
           catch (error) {
             if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'EEXIST') continue
             throw error
           }
         }
-        reserved = destination
         item.setSavePath(destination)
+        item.on('updated', arm)
+        arm()
       }
       item.once('done', (_event, state) => {
+        clearTimeout(idle)
         try {
           if (state !== 'completed') {
-            if (reserved !== undefined) rmSync(reserved, { force: true })
+            if (reserved !== undefined) removeReserved(reserved)
             entry.finish(state === 'cancelled' ? { status: 'cancelled' } : new Error('File download interrupted'))
             return
           }
@@ -87,8 +121,9 @@ export function installFileActions(
         } catch (error) { entry.finish(error instanceof Error ? error : new Error('File download unavailable')) }
       })
     } catch (error) {
+      clearTimeout(idle)
       item.cancel()
-      try { if (reserved !== undefined) rmSync(reserved, { force: true }) }
+      try { if (reserved !== undefined) removeReserved(reserved) }
       catch (cleanupError) {
         entry.finish(new AggregateError([error, cleanupError], 'File download failed and its partial file could not be removed'))
         return
