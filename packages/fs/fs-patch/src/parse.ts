@@ -123,6 +123,7 @@ function readUpdate(operation: Extract<PatchOperation, { kind: 'update' }>, line
   const hunk = previous ?? newHunk(line.number)
   if (previous === undefined) operation.hunks.push(hunk)
   const content = line.text.slice(1)
+  hunk.marks = (hunk.marks ?? '') + (prefix === '+' || prefix === '-' ? prefix : ' ')
   if (prefix === '+') hunk.newLines.push(content)
   else if (prefix === '-') hunk.oldLines.push(content)
   else {

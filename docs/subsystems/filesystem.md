@@ -127,6 +127,7 @@ interface PatchHunk {
   newLines: string[]
   /** Whether `*** End of File` follows this hunk. */
   isEndOfFile: boolean
+  marks?: string
 }
 
 ```
@@ -161,7 +162,7 @@ interface HunkApplyFailure {
   /** One-based line of the failing hunk in the patch input. */
   hunkLineNumber: number
   /** The failed anchor or old-content search. */
-  stage: 'context' | 'oldLines'
+  stage: 'context' | 'oldLines' | 'overlap' | 'insertion' | 'budget'
   /** Zero-based sequential search cursor; EOF searches override it with the tail candidate. */
   searchStart: number
   /** Original anchor or old lines, including any trailing empty line retried without its sentinel. */

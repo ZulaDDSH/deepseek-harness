@@ -25,10 +25,10 @@ describe('parsePatch', () => {
         hunks: [
           {
             lineNumber: 7, context: 'hello', oldLines: ['hello', 'same', 'same'],
-            newLines: ['hi', 'there', 'same', 'same'], isEndOfFile: false,
+            newLines: ['hi', 'there', 'same', 'same'], isEndOfFile: false, marks: '-++ -+',
           },
           {
-            lineNumber: 14, oldLines: ['last'], newLines: ['last', 'tail'], isEndOfFile: true,
+            lineNumber: 14, oldLines: ['last'], newLines: ['last', 'tail'], isEndOfFile: true, marks: ' +',
           },
         ],
       },
@@ -67,10 +67,10 @@ describe('parsePatch', () => {
         kind: 'update', path: 'a', lineNumber: 2,
         hunks: [
           {
-            lineNumber: 3, oldLines: ['a\t ', '', '\t'], newLines: ['b  ', '', '\t'], isEndOfFile: false,
+            lineNumber: 3, oldLines: ['a\t ', '', '\t'], newLines: ['b  ', '', '\t'], isEndOfFile: false, marks: '-+  ',
           },
           {
-            lineNumber: 7, context: 'anchor', oldLines: [], newLines: ['c'], isEndOfFile: false,
+            lineNumber: 7, context: 'anchor', oldLines: [], newLines: ['c'], isEndOfFile: false, marks: '+',
           },
         ],
       },
@@ -103,7 +103,7 @@ describe('parsePatch', () => {
       {
         kind: 'update', path: 'a', lineNumber: 2, moveTo: 'b',
         hunks: [{
-          lineNumber: 4, context: 'anchor\uFEFF', oldLines: [], newLines: [content], isEndOfFile: false,
+          lineNumber: 4, context: 'anchor\uFEFF', oldLines: [], newLines: [content], isEndOfFile: false, marks: '+',
         }],
       },
     ])
@@ -119,7 +119,7 @@ describe('parsePatch', () => {
       {
         kind: 'update', path: 'b', lineNumber: 4,
         hunks: [{
-          lineNumber: 5, oldLines: [content], newLines: [`${content}y`], isEndOfFile: false,
+          lineNumber: 5, oldLines: [content], newLines: [`${content}y`], isEndOfFile: false, marks: '-+',
         }],
       },
     ])

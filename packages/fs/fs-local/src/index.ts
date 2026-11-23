@@ -4,7 +4,7 @@
  * @module @deepseek-ai/dsh-fs-local
  */
 
-import { applyHunks } from '@deepseek-ai/dsh-fs-patch'
+import { applyHunks, describeHunkFailure } from '@deepseek-ai/dsh-fs-patch'
 import type { PatchHunk } from '@deepseek-ai/dsh-fs-patch'
 import { Context } from '@deepseek-ai/cordis'
 import { constants as bufferConstants } from 'node:buffer'
@@ -388,7 +388,7 @@ export class LocalFileSystem extends FileSystem {
   private patchContent(target: FsTarget, before: string, hunks: readonly PatchHunk[]): string {
     const result = applyHunks(before, hunks)
     if (!result.ok) {
-      throw new FsError(`cannot patch "${target.displayPath}": hunk at patch line ${result.failure.hunkLineNumber} (${result.failure.stage}) does not match`, 'FS_PATCH_MISMATCH')
+      throw new FsError(`cannot patch "${target.displayPath}": hunk at patch line ${result.failure.hunkLineNumber} (${result.failure.stage}) ${describeHunkFailure(result.failure)}`, 'FS_PATCH_MISMATCH')
     }
     return result.after
   }
