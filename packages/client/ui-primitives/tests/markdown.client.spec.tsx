@@ -355,6 +355,7 @@ describe('MarkdownText', () => {
       '![plain diagram](http://example.com/plain.png)',
     ].join('\n\n')
     const { container } = render(<MarkdownText text={markdown} />)
+    for (const button of container.querySelectorAll('button')) fireEvent.click(button)
     const images = [...container.querySelectorAll('img')]
     expect(images.map(image => image.getAttribute('src'))).toEqual([
       'https://example.com/secure.png',

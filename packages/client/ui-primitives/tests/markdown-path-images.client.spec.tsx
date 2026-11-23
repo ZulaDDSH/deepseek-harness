@@ -117,6 +117,7 @@ describe('MarkdownText local-path images', () => {
     const remote = '![remote](https://example.com/a.png)'
     const pathImages: MarkdownPathImages = { resolve: () => 'https://cdn.example.com/b.png' }
     const { container } = render(<MarkdownText text={remote} pathImages={pathImages} />)
+    fireEvent.click(screen.getByRole('button', { name: 'remote' }))
     expect(container.querySelector('img')?.getAttribute('src')).toBe('https://example.com/a.png')
   })
 

@@ -697,6 +697,13 @@ function MarkdownImage({ destination, alt, pathImages, streaming, inLink }: {
   const [load] = useState(nextImageLoad)
   const file = streaming ? undefined : parseFileLink(destination)
   const resolved = file === undefined ? undefined : fileImages?.resolve(file.path)
+  const remote = resolved === undefined ? remoteImageUrl(sanitizeUrl(normalizeUri(destination))) : undefined
+  const [consented, setConsented] = useState(false)
+  if (remote !== undefined && !consented) {
+    if (inLink) return <span className={css.imageAlt}>{alt}</span>
+    return <button type="button" className={css.remoteImage} title={remote}
+      onClick={() => { setConsented(true) }}>{alt || new URL(remote).host}</button>
+  }
   const src = resolved === undefined ? imageSource(destination, pathImages, load) : freshImageUrl(resolved, load)
   if (src === undefined) return <span className={css.imageAlt}>{alt}</span>
   return <LoadedMarkdownImage key={src} src={src} alt={alt} destination={destination} preview={inLink ? undefined : fileImages} />

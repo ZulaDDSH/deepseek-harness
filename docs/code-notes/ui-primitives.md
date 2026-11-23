@@ -1,0 +1,14 @@
+# ui-primitives code notes
+
+## packages/client/ui-primitives/src/markdown/render.tsx:MarkdownImage
+
+Finding 184. An authored absolute HTTP(S) image destination used to become an `<img>` at once, so an
+untrusted Markdown document could make the viewer's browser contact an attacker host with a unique URL
+(address and view disclosure). `referrerPolicy: no-referrer` hides the referrer only. Remote authored
+images now render a click-to-load button (label: alt text, else the URL host; `title` is the URL) and
+the request happens only after that click, one image at a time. Consent is component state, so a
+remount asks again. Images inside a link cannot hold a nested button, so they stay inert alt text
+and the link remains the way to open the target. Not covered by the gate: images produced by the
+owner-supplied `pathImages` vocabulary and `fileImages.resolve` (owner-vouched URLs, including Host
+file routes), and local attachment previews. Residual limit: after the click the host sees the
+viewer's address; the gate is consent, not anonymisation (no proxy).

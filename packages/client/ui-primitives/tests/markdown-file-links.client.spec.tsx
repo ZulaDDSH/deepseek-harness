@@ -286,17 +286,18 @@ describe('Markdown file links', () => {
 })
 
 it.each(['src/main.ts#L42', 'src/main.ts:42', 'src/main.ts:42:5', 'src/main.ts:42-48'])(
-  'captures %s and other link targets without activating them; linked images take priority', (path) => {
+  'captures %s and other link targets without activating them; a remote image loads on click', (path) => {
     const openFile = vi.fn(), openExternalLink = vi.fn(), openContextMenu = vi.fn()
     const view = render(<MarkdownDelegateProvider {...{ openFile, openExternalLink }}
       getTriggerProps={contextMenuHook(openContextMenu)().getTriggerProps}>
-      <MarkdownText text={`[file](${path}) [web](https://example.com/a?q=1#part) [![picture](https://example.com/original.gif)](https://example.com/target)`} />
+      <MarkdownText text={`[file](${path}) [web](https://example.com/a?q=1#part) ![picture](https://example.com/original.gif)`} />
     </MarkdownDelegateProvider>)
     fireEvent.contextMenu(view.getByRole('button', { name: 'file' }), { clientX: 2, clientY: 3 })
     expect(openContextMenu).toHaveBeenLastCalledWith({ kind: 'file', path: 'src/main.ts', line: 42 }, { x: 2, y: 3 })
     fireEvent.contextMenu(view.getByRole('link', { name: 'web' }))
     expect(openContextMenu).toHaveBeenLastCalledWith({ kind: 'url', url: 'https://example.com/a?q=1#part' }, expect.any(Object))
     openContextMenu.mockClear()
+    fireEvent.click(view.getByRole('button', { name: 'picture' }))
     fireEvent.contextMenu(view.getByRole('img', { name: 'picture' }))
     expect(openContextMenu).toHaveBeenCalledExactlyOnceWith({ kind: 'image', url: 'https://example.com/original.gif' }, expect.any(Object))
     expect(openFile).not.toHaveBeenCalled()
