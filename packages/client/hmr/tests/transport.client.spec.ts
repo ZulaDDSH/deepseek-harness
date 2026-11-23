@@ -237,3 +237,85 @@ it('stays silent when disposal aborts a page-transport request in flight', async
   await Promise.resolve()
   expect(errors).not.toHaveBeenCalled()
 })
+
+it('reopens a browser EventSource the Host closed with an error status, with growing delay', async () => {
+  vi.useFakeTimers()
+  vi.stubGlobal('navigator', {})
+  const ctx = new Context()
+  const sync = vi.fn(async () => {})
+  provideModules(ctx, sync, vi.fn())
+  vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+  const sources: Array<{ readyState: number; onerror?: () => void; emit: (value: unknown) => void; closed: boolean }> = []
+  vi.stubGlobal('EventSource', class {
+    readyState = 0
+    closed = false
+    onerror: (() => void) | undefined
+    private listener: ((event: { data: string }) => void) | undefined
+    constructor() { sources.push(this) }
+    addEventListener(_name: string, listener: (event: { data: string }) => void) { this.listener = listener }
+    emit(value: unknown) { this.listener?.({ data: JSON.stringify(value) }) }
+    close() { this.closed = true }
+  })
+  const fiber = ctx.plugin({ apply, inject })
+  try {
+    await fiber.await()
+    expect(sources).toHaveLength(1)
+    sources[0]!.readyState = 2
+    sources[0]!.onerror?.()
+    await vi.advanceTimersByTimeAsync(999)
+    expect(sources).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(sources).toHaveLength(2)
+    sources[1]!.readyState = 2
+    sources[1]!.onerror?.()
+    await vi.advanceTimersByTimeAsync(1999)
+    expect(sources).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(sources).toHaveLength(3)
+    const graph = { rev: 'r', entries: [], batches: [] }
+    sources[2]!.emit({ type: 'graph', graph })
+    await vi.waitFor(() => { expect(sync).toHaveBeenCalledWith(graph) })
+    sources[2]!.readyState = 0
+    sources[2]!.onerror?.()
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(sources).toHaveLength(3)
+  } finally {
+    await fiber.dispose()
+    await ctx.fiber.dispose()
+    vi.useRealTimers()
+  }
+  expect(sources.every(source => source.closed || source.readyState === 2)).toBe(true)
+})
+
+it('retries a page-transport stream that failed or closed, and stops on an authentication refusal', async () => {
+  vi.useFakeTimers()
+  const ctx = new Context()
+  const sync = vi.fn(async () => {})
+  provideModules(ctx, sync, vi.fn())
+  vi.spyOn(ctx.logger, 'error').mockImplementation(() => {})
+  const graph = { rev: 'r', entries: [], batches: [] }
+  const answers = [
+    () => new Response('restarting', { status: 502 }),
+    () => new Response(`data: ${JSON.stringify({ type: 'graph', graph })}\n\n`, { status: 200 }),
+    () => new Response('denied', { status: 401 }),
+  ]
+  const fetch = vi.fn(() => Promise.resolve((answers.shift() ?? (() => new Response('', { status: 401 })))()))
+  vi.stubGlobal('__DSH_TRANSPORT__', { fetch })
+  const fiber = ctx.plugin({ apply, inject })
+  try {
+    await fiber.await()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(sync).toHaveBeenCalledWith(graph)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(fetch).toHaveBeenCalledTimes(3)
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(fetch).toHaveBeenCalledTimes(3)
+  } finally {
+    await fiber.dispose()
+    await ctx.fiber.dispose()
+    vi.useRealTimers()
+  }
+})

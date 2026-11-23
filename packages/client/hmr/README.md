@@ -113,6 +113,7 @@ These limits define what the reload driver does not preserve or restore. They ar
 
 - **Reload is coarse by design** — a fresh fiber and fresh components; React state inside the reloaded plugin is lost while the data layer (connection/runtime fibers, Session objects) is untouched. react-refresh-grade state preservation conflicts with re-executing the bundle and is deliberately out.
 - **No failure rollback** — after the old fiber is torn down, a failed replacement does not restore the previous bundle.
+- **Reconnection is unbounded** — a refused or closed `/plugins/events` stream is retried with a delay doubling from 1 s to 30 s, reset by the next frame, for as long as the page lives. The shell transport stops on a 401 or 403 answer; the browser `EventSource` does not expose its status, so a permanently refused stream there keeps retrying at the 30 s cap.
 - **Web transport only** — Electron installation and backend restart handling do not use this SSE path. Entry reconciliation itself is transport-independent.
 - **One connection per tab in non-secure contexts** — pages served over plain HTTP (for example LAN access) have no `navigator.locks`, so each tab opens its own `/plugins/events` connection instead of sharing the leader's.
 
