@@ -1,6 +1,5 @@
 /** Local durable attachment backend rooted below `DSH_HOME`. @module @deepseek-ai/dsh-attachment-local */
 
-import { statSync } from 'node:fs'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -21,7 +20,7 @@ import type { NormalizationPolicy } from './normalization.ts'
 import { CompressionLimiter, compressionFailure } from './compression-limiter.ts'
 import { commitPreparedImageFile, normalizedImagePath, prepareImageFile, readImageFile, validateImageFile } from './store.ts'
 import {
-  readFileStreamVerbatim, saveFileStreamVerbatim, saveFileVerbatim, storedFilePath,
+  readFileStreamVerbatim, saveFileStreamVerbatim, saveFileVerbatim, verifiedStoredFilePath,
 } from './file-store.ts'
 import { FileStoreQuota } from './file-quota.ts'
 import { readRequestImageFile, requestImageVariantId } from './request-image.ts'
@@ -278,12 +277,7 @@ export class LocalAttachmentStore extends AttachmentStore {
   }
 
   override fileHostPath(ref: FileAttachmentRef): string | undefined {
-    const path = storedFilePath(this.root, ref)
-    try {
-      return statSync(path).size === ref.bytes ? path : undefined
-    } catch {
-      return undefined
-    }
+    return verifiedStoredFilePath(this.root, ref)
   }
 
   override async readImageRequest(

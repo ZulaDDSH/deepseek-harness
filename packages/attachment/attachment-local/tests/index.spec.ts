@@ -52,6 +52,24 @@ describe('local attachment file handles', () => {
       await rm(home, { recursive: true, force: true })
     }
   })
+
+  it('withholds a host path whose stored bytes changed without changing length, and restores it when the bytes return', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'dsh-local-file-handle-'))
+    try {
+      const service = new LocalAttachmentStore(new Context(), { dshHome: home })
+      const original = Uint8Array.of(1, 2, 3, 4)
+      const ref = await service.saveFile({ data: original, name: 'a.bin' })
+      const path = service.fileHostPath(ref) as string
+      expect(path).toBeDefined()
+      await chmod(path, 0o600)
+      await writeFile(path, Uint8Array.of(9, 9, 9, 9))
+      expect(service.fileHostPath(ref)).toBeUndefined()
+      await writeFile(path, original)
+      expect(service.fileHostPath(ref)).toBe(path)
+    } finally {
+      await rm(home, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('local attachment service', () => {

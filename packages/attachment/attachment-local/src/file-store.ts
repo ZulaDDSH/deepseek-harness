@@ -1,7 +1,10 @@
 /** Verbatim content-addressed local file storage. @module @deepseek-ai/dsh-attachment-local/file-store */
 
 import { createHash } from 'node:crypto'
-import { createReadStream, existsSync } from 'node:fs'
+import type { Stats } from 'node:fs'
+import {
+  closeSync, createReadStream, existsSync, openSync, readSync, statSync,
+} from 'node:fs'
 import { join } from 'node:path'
 import { AttachmentError } from '@deepseek-ai/dsh-attachment'
 import type { AttachmentId } from '@deepseek-ai/dsh-attachment/types'
@@ -202,4 +205,61 @@ export async function* readFileStreamVerbatim(
   if (bytes !== ref.bytes || hash.digest('hex') !== sha256) {
     throw new AttachmentError('Stored file attachment failed integrity verification.', 'ATTACHMENT_CORRUPT')
   }
+}
+
+const VERIFIED_HOST_PATH_LIMIT = 512
+const verifiedHostPathIdentities = new Map<string, string>()
+
+function storedFileIdentity(stat: Stats): string {
+  return [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs].join(':')
+}
+
+function digestFileSync(path: string): { sha256: string, bytes: number } {
+  const fd = openSync(path, 'r')
+  try {
+    const hash = createHash('sha256')
+    const buffer = Buffer.allocUnsafe(1 << 16)
+    let bytes = 0
+    for (;;) {
+      const read = readSync(fd, buffer, 0, buffer.length, null)
+      if (read === 0) break
+      hash.update(buffer.subarray(0, read))
+      bytes += read
+    }
+    return { sha256: hash.digest('hex'), bytes }
+  } finally {
+    closeSync(fd)
+  }
+}
+
+export function verifiedStoredFilePath(root: string, ref: FileAttachmentRef): string | undefined {
+  const path = storedFilePath(root, ref)
+  const sha256 = ensureFileReference(ref)
+  let stat: Stats
+  try {
+    stat = statSync(path)
+  } catch {
+    verifiedHostPathIdentities.delete(path)
+    return undefined
+  }
+  if (!stat.isFile() || stat.size !== ref.bytes) {
+    verifiedHostPathIdentities.delete(path)
+    return undefined
+  }
+  const identity = storedFileIdentity(stat)
+  if (verifiedHostPathIdentities.get(path) === identity) return path
+  let digest: { sha256: string, bytes: number }
+  try {
+    digest = digestFileSync(path)
+  } catch {
+    verifiedHostPathIdentities.delete(path)
+    return undefined
+  }
+  if (digest.bytes !== ref.bytes || digest.sha256 !== sha256) {
+    verifiedHostPathIdentities.delete(path)
+    return undefined
+  }
+  if (verifiedHostPathIdentities.size >= VERIFIED_HOST_PATH_LIMIT) verifiedHostPathIdentities.clear()
+  verifiedHostPathIdentities.set(path, identity)
+  return path
 }
