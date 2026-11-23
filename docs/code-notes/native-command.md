@@ -1,9 +1,0 @@
-# native-command code notes
-
-`packages/util/native-command/src/file-applications-linux.ts:linuxFileApplications` - a desktop entry GIO lists but whose read fails (permissions, removed after indexing, dangling) is skipped as a stale candidate so the remaining handlers still list and a valid selection can still launch; the read failure is swallowed only when the caller has not cancelled, because cancellation must still reject. The package has no logging channel, so the skip is silent (finding 344).
-
-`packages/util/native-command/src/file-applications-linux.ts:desktopIndex` - the XDG `applications` trees are walked once per discovery into an id-to-path map instead of once per reported id, in the old lookup order (files of a directory before its subdirectories, data-home before system dirs, first hit wins), checking the signal before every directory read. The walk stops descending after MAX_DESKTOP_ENTRIES entries, so ids beyond that point read as unregistered; there is no cross-query cache, so a changed tree is always seen (finding 367).
-
-`packages/util/native-command/src/file-applications-linux.ts:linuxFileApplications` - `icons` is false for launch validation, which only needs ids, and display queries share an aggregate MAX_TOTAL_ICON_BYTES budget across applications; an icon that does not fit the remaining budget is missing artwork, not an error (finding 368).
-
-`packages/util/native-command/src/desktop-entry.ts:readIcon` - an icon file over `maxBytes` (never above MAX_ICON_BYTES, 1 MiB) is treated as absent, checked by stat before reading and by length after, and the lookup then continues with the next candidate path. The open-in-app icon route shares this helper, so it gets the per-icon limit by default. Reads take the caller's signal and rethrow cancellation instead of reporting missing artwork (finding 368).

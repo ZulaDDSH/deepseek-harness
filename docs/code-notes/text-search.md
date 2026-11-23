@@ -1,3 +1,0 @@
-# text-search code notes
-
-`packages/util/text-search/src/index.ts:fuzzyNameScore` - each fuzzy key prepares fuzzysort targets only for its first MAX_FUZZY_STARTS word starts that match the term's first character, and each target is at most MAX_FUZZY_TAIL UTF-16 units. Every CJK character is a word start, so a long repeated-CJK label used to prepare and retain one suffix per character (quadratic text); the bound caps it at 32 x 128 units per label. A subsequence match that lies only beyond those windows of a very long label is not found (substring and prefix tiers still scan the whole label); ordinary labels are far under both bounds. Labels themselves are not length-capped here; a caller that accepts unbounded text should cap it at its schema (finding 374).

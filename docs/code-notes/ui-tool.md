@@ -1,7 +1,0 @@
-# ui-tool code notes
-
-## Office render images reach the user through the shared gallery factory (finding 82)
-
-- `packages/client/ui-tool/src/client/tool/toolviews/office-row.tsx:OfficeRow` - the `tool.call.images` child slot can be declared by exactly one registrant and `read_image` owns it (`read-image-row.tsx:readImageToolview`), so the three Office registrations cannot declare it too. They instead call the root-scope factory `conversation.images.content` (declared by ui-attachment, `renderFactorySlot` is injected into every entry) through a small adapter passed to ToolRow's `renderSlot`; the gallery, labels, authorized `loadImage`, and error placeholders are the same attachment gallery `read_image` shows. No ui-slots or ui-attachment change was needed.
-- `packages/client/ui-tool/src/client/tool/models/office-card-model.ts:officeImageCard` - derives the ToolRow image card from a settled `office_render` result: image references via `image-card-model.ts:imageReferences` (the content stays the source of truth, same validation as `read_image`), all text blocks (summary and per-page labels) as the card's extra text, and the input path. A malformed image block, an error result, a running call, or a result without images returns null and the row keeps its text output.
-- Not covered: `office_convert` and `office_recalculate` return no images; a missing durable image is handled by the attachment gallery's own error state, not by this row.

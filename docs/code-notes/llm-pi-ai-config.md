@@ -1,7 +1,0 @@
-# llm-pi-ai config code notes
-
-## Profile headers are secret-role values (finding 58)
-
-- `packages/llm/llm-pi-ai/src/config.ts:profile` - `headers` is `z.dict(z.string().role('secret'))`, the same shape `packages/credentials/deepseek-account/src/index.ts` uses for `requestHeaders`. The settings Remote reads with `redactSecrets: true` (`packages/settings/settings/src/redact.ts:redactSecrets`), which removes every dict entry whose value schema is `role('secret')`, so a bearer token or vendor key an operator put in `headers` (for example `Authorization`, `x-api-key`) is no longer returned in settings views. Header names are not secret but the redactor reports each entry as a secret slot, so the view shows that a header exists and hides its value.
-- Per-name redaction is not possible: a dict's value schema cannot depend on its key, and the header names that carry credentials are open-ended and vendor specific. Redacting every value is the safe restriction; non-secret headers (for example routing tags) are also hidden from the settings view but still reach the provider unchanged.
-- Remaining limit: the values are still stored as ordinary profile configuration in the profile file, not in the credential store, and there is no credential-reference form for a header value yet. `apiKeyEnv` (a `credential-ref`) stays the supported way to hold an API key. Settings-controller and `stream.ts` need no change: the controller already redacts by schema role.

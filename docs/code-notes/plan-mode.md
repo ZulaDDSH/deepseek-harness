@@ -1,4 +1,0 @@
-
-## A failed mode append keeps requests on the committed mode (finding 150)
-
-- `packages/plan/plan-mode/src/index.ts:selectedActive` - prompt guidance and tool admission read the pending selection, but resume and fork recover only the logged `plan/mode` event. When the pre-step append failed, the next request therefore ran with a stance the durable log did not record, and (entering) advertised `exit_plan_mode` while execution checked the still-inactive committed state. The pre-step catch now records the session in `failedSelections`; while it is there `selectedActive` returns the committed state, so the system prompt section and the `when` admission of the exit tool match what a replay would see. The intent stays pending and is retried at the next accepted pre-step; `set` (a new selection) clears the flag, and a successful retry leaves it cleared.
