@@ -124,3 +124,25 @@ describe('selectHookGroups', () => {
     expect(selectHookGroups([group], 'BashOutput', 'codex')).toEqual([group])
   })
 })
+
+describe('matchers with nested unbounded repetition', () => {
+  const hostile = '(a+)+$'
+  const name = `${'a'.repeat(40)}!`
+  for (const mode of ['claude-code', 'codex'] as const) {
+    it(`${mode}: rejects the pattern and never evaluates it`, () => {
+      expect(matcherDiagnostic(hostile, mode)).toMatch(/invalid/)
+      const started = performance.now()
+      expect(matchesMatcher(hostile, name, mode)).toBe(false)
+      expect(performance.now() - started).toBeLessThan(500)
+    })
+  }
+
+  it('still accepts repeated groups without inner repetition and plain repetition', () => {
+    for (const pattern of ['^(foo|bar)+$', '^mcp__[a-z]+__.*$', '(ab){2,}', '[(]+x*', String.raw`\(a+\)+`]) {
+      expect(matcherDiagnostic(pattern, 'codex'), pattern).toBeUndefined()
+    }
+    expect(matcherDiagnostic('(a*)*', 'codex')).toBeDefined()
+    expect(matcherDiagnostic('((a+)b)*', 'codex')).toBeDefined()
+    expect(matcherDiagnostic('(a{1,})+', 'codex')).toBeDefined()
+  })
+})

@@ -91,11 +91,11 @@ Payloads are Codex-shaped: snake_case with `turn_id` on turn-scoped events, `mod
 
 ### Matcher subjects and serial execution
 
-The matcher subject is the tool name (`PreToolUse` / `PostToolUse`) or the session source (`SessionStart`); `UserPromptSubmit` and `Stop` ignore matchers. Codex matchers are always unanchored regexes, and a tool subject also matches under its Codex shell name (`^Bash$` fires on DSH `bash` and `pwsh`). Matched hooks run serially in config order, which keeps each hook's `hook/invoked` / `hook/result` pair adjacent in the log, and the most-restrictive fold is order-independent (`deny > ask > allow`).
+The matcher subject is the tool name (`PreToolUse` / `PostToolUse`) or the session source (`SessionStart`); `UserPromptSubmit` and `Stop` ignore matchers. Codex matchers are always unanchored regexes evaluated by the Host's backtracking engine, so a pattern with a repeated group that itself contains an unbounded repetition (for example `(a+)+$`) is rejected as invalid at config load to keep it from blocking the Host; other super-linear patterns such as overlapping alternations in a repeated group are not detected, so keep matchers simple, and a tool subject also matches under its Codex shell name (`^Bash$` fires on DSH `bash` and `pwsh`). Matched hooks run serially in config order, which keeps each hook's `hook/invoked` / `hook/result` pair adjacent in the log, and the most-restrictive fold is order-independent (`deny > ask > allow`).
 
 ### Detached runs and disposal
 
-`SessionStart` is the one emit point and runs detached — no extension point awaits it. Each run chain is tracked, and disposing the bridge aborts a still-running hook process, then drains the continuation before the dispose resolves (`createDetachedRuns` in `dsh-hook-protocol`).
+`SessionStart` runs inside the awaited `agent/created` listener chain, so Agent creation waits for every matching `SessionStart` hook, one after another, each for up to its configured timeout (default 10 minutes); a stuck hook delays the Agent's first request, and its context is injected before that request. A hook failure is logged and does not block creation. Each run chain is tracked, and disposing the bridge aborts a still-running hook process, then drains the continuation before the dispose resolves (`createDetachedRuns` in `dsh-hook-protocol`).
 
 ### Design philosophy
 
@@ -170,7 +170,7 @@ A blocked prompt sends no request and invalidates nothing. Denial, feedback, and
 These limits describe what your Codex hooks cannot do through this bridge yet, and where behavior differs from the reference tool. They are current package constraints, not a task backlog.
 
 - **Unsupported hook events (5 of Codex's current 10)** — `PermissionRequest`, `PreCompact`, `PostCompact`, `SubagentStart`, and `SubagentStop`. Config for these events is silently dropped during parsing. The comparison baseline is Codex's [official hook reference](https://learn.chatgpt.com/docs/hooks).
-- **`SessionStart` is partial** — plain stdout and JSON `additionalContext` work, but the hook runs detached, so context can miss the first request.
+- **`SessionStart` is partial** — plain stdout and JSON `additionalContext` work, but the hook is awaited during Agent creation, so a slow hook delays startup (see Detached runs and disposal).
 - **`UserPromptSubmit` is partial** — blocking plus plain-stdout or JSON context work, and `{"continue": false}` rejects the prompt before any model call, but the common `systemMessage` is not surfaced.
 - **`PreToolUse` is partial** — blocking works, but `additionalContext` and `permissionDecision: "allow"` are ignored, and `updatedInput` is ignored unless `mandatory: true`, which denies the call. `mandatory: true` also refuses plugin activation (the plugin throws) when the config is missing, unreadable, invalid or contains a skipped handler; without it those cases log a warning and register no hooks.
 - **`PostToolUse` is partial** — blocking feedback, JSON `additionalContext`, and `{"continue": false}` (cancels the active turn with a `hook` cause and keeps queued input) work, but structured tool output is flattened to text in `tool_response`.
