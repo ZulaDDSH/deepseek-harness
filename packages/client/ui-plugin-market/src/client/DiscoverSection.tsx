@@ -56,6 +56,7 @@ function sourceFailureText(failure: SourceFailure, t: Translate): string {
     case 'invalid': return t('sourceInvalid')
     case 'duplicate': return t('sourceDuplicate')
     case 'unavailable': return t('sourceUnavailable')
+    case 'changed': return t('sourceChanged')
     case 'other': return t('sourceFailed')
   }
 }

@@ -481,7 +481,7 @@ describe('DiscoverSection', () => {
     expect(actions.addSource).toHaveBeenCalledOnce()
     for (const [failure, text] of [
       [{ kind: 'invalid' }, en.sourceInvalid], [{ kind: 'duplicate' }, en.sourceDuplicate],
-      [{ kind: 'unavailable' }, en.sourceUnavailable], [{ kind: 'other', reason: 'boom' }, en.sourceFailed],
+      [{ kind: 'unavailable' }, en.sourceUnavailable], [{ kind: 'changed' }, en.sourceChanged], [{ kind: 'other', reason: 'boom' }, en.sourceFailed],
     ] as const) {
       set({ sourceFailure: failure })
       expect(screen.getByRole('alert').textContent).toBe(text)
