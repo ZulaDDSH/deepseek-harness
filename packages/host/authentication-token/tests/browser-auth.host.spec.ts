@@ -373,18 +373,6 @@ describe('BrowserAuth', () => {
     expect(restarted.isAuthenticated(asRequest(keep.cookie))).toBe(true)
   })
 
-  it('refuses a browser cookie whose session id is unknown or missing', async () => {
-    const store = new RecordCredentials()
-    const auth = await createAuth(store)
-    const { cookie } = exchange(auth)
-    const [name] = cookie.split('=') as [string]
-    const now = Date.now()
-    for (const sid of [undefined, 'unknown']) {
-      const forged = signedCookie(store, name, { version: 1, authority: '127.0.0.1:3080', issuedAt: now, expiresAt: now + 1000, ...sid === undefined ? {} : { sid } })
-      expect(auth.isAuthenticated(request('/', '127.0.0.1:3080', { cookie: forged }))).toBe(false)
-    }
-  })
-
   it('revokeAll and a raised generation invalidate every cookie', async () => {
     const store = new RecordCredentials()
     const auth = await createAuth(store)

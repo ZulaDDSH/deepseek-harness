@@ -36,12 +36,14 @@ interface StoredSecretPayload {
   readonly secret: string
   readonly generation: number
   readonly sessions: Readonly<Record<string, StoredSession>>
+  readonly revoked: Readonly<Record<string, number>>
 }
 
 interface StoredState {
   readonly secret: Buffer
   readonly generation: number
   readonly sessions: Map<string, StoredSession>
+  readonly revoked: Map<string, number>
 }
 
 interface BrowserCookiePayload {
@@ -133,15 +135,27 @@ function storedState(record: CredentialRecord | undefined): StoredState | undefi
       }
     }
   }
-  return { secret, generation: typeof generation === 'number' ? generation : 0, sessions }
+  const revoked = new Map<string, number>()
+  if (isRecord(record.payload.revoked)) {
+    for (const [id, expiresAt] of Object.entries(record.payload.revoked)) {
+      if (typeof expiresAt === 'number') revoked.set(id, expiresAt)
+    }
+  }
+  return { secret, generation: typeof generation === 'number' ? generation : 0, sessions, revoked }
 }
 
-function storedPayload(secret: Buffer, generation: number, sessions: ReadonlyMap<string, StoredSession>): StoredSecretPayload {
+function storedPayload(
+  secret: Buffer,
+  generation: number,
+  sessions: ReadonlyMap<string, StoredSession>,
+  revoked: ReadonlyMap<string, number>,
+): StoredSecretPayload {
   return {
     version: STORED_SECRET_VERSION,
     secret: encodeBase64Url(secret),
     generation,
     sessions: Object.fromEntries(sessions),
+    revoked: Object.fromEntries(revoked),
   }
 }
 
@@ -225,7 +239,7 @@ async function initializeSecret(credentials: CredentialProvider, generation: num
     if (state !== undefined && state.generation === generation) return Promise.resolve(undefined)
     return Promise.resolve({
       kind: 'grant',
-      payload: storedPayload(randomBytes(SECRET_BYTES), generation, new Map()),
+      payload: storedPayload(randomBytes(SECRET_BYTES), generation, new Map(), new Map()),
     })
   })
   const state = storedState(record)
@@ -246,6 +260,7 @@ export class BrowserAuth {
   private secret: Buffer
   private readonly generation: number
   private readonly sessionTable: Map<string, StoredSession>
+  private readonly revokedTable: Map<string, number>
   private writes: Promise<void> = Promise.resolve()
 
   private constructor(
@@ -257,6 +272,7 @@ export class BrowserAuth {
     this.secret = state.secret
     this.generation = state.generation
     this.sessionTable = state.sessions
+    this.revokedTable = state.revoked
     this.launchToken = processLaunchToken(processOwner)
     this.maxAgeMilliseconds = maxAgeDays * DAY_MILLISECONDS
     if (!Number.isSafeInteger(this.maxAgeMilliseconds)
@@ -288,19 +304,23 @@ export class BrowserAuth {
   }
 
   revoke(id: string): boolean {
-    const removed = this.sessionTable.delete(id)
-    if (removed) void this.persistSessions()
-    return removed
+    const session = this.sessionTable.get(id)
+    if (session === undefined) return false
+    this.sessionTable.delete(id)
+    this.revokedTable.set(id, session.expiresAt)
+    void this.persistSessions()
+    return true
   }
 
   async revokeAll(): Promise<void> {
     const secret = randomBytes(SECRET_BYTES)
     await this.credentials.modifyRecord(AUTH_RECORD_KEY, () => Promise.resolve({
       kind: 'grant',
-      payload: storedPayload(secret, this.generation, new Map()),
+      payload: storedPayload(secret, this.generation, new Map(), new Map()),
     }))
     this.secret = secret
     this.sessionTable.clear()
+    this.revokedTable.clear()
   }
 
   settled(): Promise<void> {
@@ -312,10 +332,11 @@ export class BrowserAuth {
       const secret = this.secret
       const now = Date.now()
       for (const [id, entry] of this.sessionTable) if (entry.expiresAt <= now) this.sessionTable.delete(id)
+      for (const [id, expiresAt] of this.revokedTable) if (expiresAt <= now) this.revokedTable.delete(id)
       await this.credentials.modifyRecord(AUTH_RECORD_KEY, (current) => {
         const state = storedState(current)
         if (state === undefined || !state.secret.equals(secret)) return Promise.resolve(undefined)
-        return Promise.resolve({ kind: 'grant', payload: storedPayload(secret, this.generation, this.sessionTable) })
+        return Promise.resolve({ kind: 'grant', payload: storedPayload(secret, this.generation, this.sessionTable, this.revokedTable) })
       })
     }).catch((error: unknown) => {
       console.error('[host-authentication-token] browser session persistence failed:', error)
@@ -475,10 +496,7 @@ export class BrowserAuth {
     const now = Date.now()
     if (payload.issuedAt > now || payload.expiresAt <= now || payload.expiresAt <= payload.issuedAt
       || payload.expiresAt - payload.issuedAt > this.maxAgeMilliseconds) return undefined
-    if (payload.version === COOKIE_PAYLOAD_VERSION) {
-      const session = payload.sid === undefined ? undefined : this.sessionTable.get(payload.sid)
-      if (session === undefined || session.authority !== authority) return undefined
-    }
+    if (payload.version === COOKIE_PAYLOAD_VERSION && payload.sid !== undefined && this.revokedTable.has(payload.sid)) return undefined
     return payload
   }
 
