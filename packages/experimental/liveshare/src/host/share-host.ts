@@ -33,6 +33,8 @@ import { createRelayTransport, processRelayEnvironment } from './relay-fetch.ts'
 import { readPluginMetadata, shareableViewerCatalog } from './shareable-catalog.ts'
 import { shareViewerOf } from './viewer-principal.ts'
 import { loadOwnerCredential } from './owner-credential-file.ts'
+
+const SESSION_REFERENCE = /dsh-session:[A-Za-z0-9_-]/u
 import { ForkRegistry } from './fork-registry.ts'
 import { OwnerAuthorizations } from './owner-authorization.ts'
 import {
@@ -511,6 +513,10 @@ export async function apply(ctx: Context, config: Config): Promise<() => Promise
       const viewer = shareViewerOf(message.source.principal)
       return viewer === undefined ? [] : [viewer]
     })
+    const citing = decision.messages.some(message => message.source.kind === 'user' && 'principal' in message.source
+      && shareViewerOf(message.source.principal) !== undefined
+      && message.content.some(block => block.type === 'text' && SESSION_REFERENCE.test(block.text)))
+    if (citing) return { kind: 'reject' }
     const shareIds = new Set(requests.map(origin => origin.shareId))
     if (child !== undefined) shareIds.add(child.shareId)
     try {
