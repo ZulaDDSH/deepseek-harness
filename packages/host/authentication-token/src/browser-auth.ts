@@ -303,12 +303,12 @@ export class BrowserAuth {
     return [...this.sessionTable].filter(([, entry]) => entry.expiresAt > now).map(([id, entry]) => ({ id, ...entry }))
   }
 
-  revoke(id: string): boolean {
+  async revoke(id: string): Promise<boolean> {
     const session = this.sessionTable.get(id)
     if (session === undefined) return false
     this.sessionTable.delete(id)
     this.revokedTable.set(id, session.expiresAt)
-    void this.persistSessions()
+    await this.persistSessions()
     return true
   }
 
@@ -328,7 +328,7 @@ export class BrowserAuth {
   }
 
   private persistSessions(): Promise<void> {
-    this.writes = this.writes.then(async () => {
+    const write = this.writes.then(async () => {
       const secret = this.secret
       const now = Date.now()
       for (const [id, entry] of this.sessionTable) if (entry.expiresAt <= now) this.sessionTable.delete(id)
@@ -338,10 +338,11 @@ export class BrowserAuth {
         if (state === undefined || !state.secret.equals(secret)) return Promise.resolve(undefined)
         return Promise.resolve({ kind: 'grant', payload: storedPayload(secret, this.generation, this.sessionTable, this.revokedTable) })
       })
-    }).catch((error: unknown) => {
+    })
+    this.writes = write.catch((error: unknown) => {
       console.error('[host-authentication-token] browser session persistence failed:', error)
     })
-    return this.writes
+    return write
   }
 
   /**
@@ -380,7 +381,7 @@ export class BrowserAuth {
         const expiresAt = issuedAt + this.maxAgeMilliseconds
         const sid = encodeBase64Url(randomBytes(SESSION_ID_BYTES))
         this.sessionTable.set(sid, { authority, issuedAt, expiresAt })
-        void this.persistSessions()
+        this.persistSessions().catch(() => undefined)
         const value = encodeCookie({
           version: COOKIE_PAYLOAD_VERSION,
           authority,

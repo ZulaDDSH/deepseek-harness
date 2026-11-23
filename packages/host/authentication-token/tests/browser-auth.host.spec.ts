@@ -363,14 +363,27 @@ describe('BrowserAuth', () => {
       return (JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as { sid: string }).sid
     }
     expect(auth.sessions().map(entry => entry.id).sort()).toEqual([sidOf(keep.cookie), sidOf(drop.cookie)].sort())
-    expect(auth.revoke(sidOf(drop.cookie))).toBe(true)
-    expect(auth.revoke(sidOf(drop.cookie))).toBe(false)
+    await expect(auth.revoke(sidOf(drop.cookie))).resolves.toBe(true)
+    await expect(auth.revoke(sidOf(drop.cookie))).resolves.toBe(false)
     expect(auth.isAuthenticated(asRequest(drop.cookie))).toBe(false)
     expect(auth.isAuthenticated(asRequest(keep.cookie))).toBe(true)
     await auth.settled()
     const restarted = await createAuth(store)
     expect(restarted.isAuthenticated(asRequest(drop.cookie))).toBe(false)
     expect(restarted.isAuthenticated(asRequest(keep.cookie))).toBe(true)
+  })
+
+  it('reports a failed revoke persistence to the caller', async () => {
+    const store = new RecordCredentials()
+    const auth = await createAuth(store)
+    const { cookie } = exchange(auth)
+    await auth.settled()
+    const sid = (JSON.parse(Buffer.from(cookie.split('=')[1]!.split('.')[1]!, 'base64url').toString('utf8')) as { sid: string }).sid
+    const failure = new Error('credential store unavailable')
+    vi.spyOn(console, 'error').mockImplementationOnce(() => undefined)
+    vi.spyOn(store, 'modifyRecord').mockRejectedValueOnce(failure)
+    await expect(auth.revoke(sid)).rejects.toBe(failure)
+    await auth.settled()
   })
 
   it('revokeAll and a raised generation invalidate every cookie', async () => {
