@@ -738,6 +738,34 @@ describe('Web session model selection', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('has not settled'))
   })
 
+  it('keeps a default save that rejects after the bounded wait reported as failed and logs the late rejection', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const { ctx, sessionId } = await harness()
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    onTestFinished(() => { warn.mockRestore() })
+    const write = Promise.withResolvers<undefined>()
+    onTestFinished(async () => {
+      await ctx.fiber.dispose()
+      vi.useRealTimers()
+    })
+    const remote = await createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      saveDefaultModelSelection: () => write.promise,
+      cwd: '/tmp',
+    })
+    let outcome: string | undefined
+    const operation = remote.selectModel({ sessionId, provider: 'deepseek-official', model: 'deepseek-reasoner' })
+      .then((result) => { outcome = expectValue(result).defaultSave })
+    for (let step = 0; step < 20 && outcome === undefined; step++) await vi.advanceTimersByTimeAsync(500)
+    expect(outcome).toBe('failed')
+    write.reject(new Error('profile write rejected late'))
+    await operation
+    await vi.advanceTimersByTimeAsync(0)
+    expect(outcome).toBe('failed')
+    expect(currentSelection(ctx, sessionId)).toMatchObject({ provider: 'deepseek-official', model: 'deepseek-reasoner' })
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('profile write rejected late'))
+  })
+
   it('reports an unsaved default when the deployment has no configuration editor', async () => {
     const { default: DefaultModel } = await import('@deepseek-ai/dsh-agent-default-model')
     const standalone = new Context()

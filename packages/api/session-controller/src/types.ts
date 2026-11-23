@@ -375,7 +375,7 @@ export interface SessionSelectModelRequest extends ModelSelection {
 /** Accepted model selection after Host resolution. */
 export interface SessionSelectModelValue {
   readonly selected: ModelSelection
-  readonly defaultSave?: 'saved' | 'unavailable' | 'failed' | 'pending'
+  readonly defaultSave?: 'saved' | 'unavailable' | 'failed'
 }
 
 /** Per-Session hook overrides keyed by `hookKey`; true enables, false disables. */

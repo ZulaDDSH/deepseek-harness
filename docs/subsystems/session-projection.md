@@ -375,7 +375,10 @@ onChanged(listener: ProjectionChangeListener): () => void
  */
 onEventChanged(listener: ProjectionEventChangeListener): () => void
 
-/** Append-aware event feed: `{ key, append }` for appended array units, `{ key, val }` otherwise. */
+/** Subscribes a listener to the append-aware change feed. The listener runs once per committed event that produced at least one change and receives each change as a replacement value or an append to the stored value. The subscription is an effect on the calling context's fiber; the returned disposer removes it.
+ * @param listener - Called with the Session, the event's change entries, and the event sequence. Errors thrown by a listener are collected and rethrown after every listener has run.
+ * @returns The exact disposer that unsubscribes.
+ */
 onAppendEventChanged(listener: ProjectionAppendEventChangeListener): () => void
 
 /**

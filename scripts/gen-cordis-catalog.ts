@@ -1045,6 +1045,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   ProjectionKeySelection: 'session-projection.md',
   ProjectionChangeListener: 'session-projection.md',
   ProjectionEventChangeListener: 'session-projection.md',
+  ProjectionAppendEventChangeListener: 'session-projection.md',
   ProjectionSnapshot: 'session-projection.md',
   ProjectionCheckpoint: 'session-projection.md',
   DirectoryPickerCapability: 'workspace.md',

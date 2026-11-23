@@ -3587,6 +3587,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the exact disposer that unsubscribes.',
       },
       {
+        signature: 'onAppendEventChanged(listener: ProjectionAppendEventChangeListener): () => void',
+        description: 'Subscribes a listener to the append-aware change feed. The listener runs once per committed event that produced at least one change and receives each change as a replacement value or an append to the stored value. The subscription is an effect on the calling context\'s fiber; the returned disposer removes it.',
+        parameters: [{ name: 'listener', description: 'Called with the Session, the event\'s change entries, and the event sequence. Errors thrown by a listener are collected and rethrown after every listener has run.' }],
+        returns: 'The exact disposer that unsubscribes.',
+      },
+      {
         signature: 'snapshot( session: Session, keys?: ProjectionKeySelection, ): ProjectionSnapshot',
         description: 'One consistent cut over every registered client-visible unit for one session, read from the watermark cache (missing cells fold lazily over the in-memory log). Only the returned units are computed: other units, including Host-only units without `wire`, are neither folded nor advanced by this read. Fully synchronous — every value and `asOfSeq` reflect the same log position. Each value passes its unit\'s `viewSchema` before leaving.',
         parameters: [{ name: 'session', description: 'the session whose projection values are read.' }, { name: 'keys', description: 'optional client-visible outputs; only these units are computed.' }],
@@ -8994,6 +9000,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ProfileReconciliation {\n    warnings: string[];\n    pending: PendingModule[];\n    restartReason?: \'module-comparison\' | \'package-moved\';\n}',
   },
   {
+    name: 'ProjectionAppend',
+    declaration: 'export interface ProjectionAppend {\n    readonly from: number;\n    readonly items: readonly unknown[];\n}',
+  },
+  {
+    name: 'ProjectionAppendEventChangeListener',
+    declaration: 'export type ProjectionAppendEventChangeListener = (session: Session, changes: readonly ProjectionChangeEntry[], seq: SessionSeq) => void;',
+  },
+  {
+    name: 'ProjectionChangeEntry',
+    declaration: 'export type ProjectionChangeEntry = {\n    readonly key: Extract<keyof SessionProjectionMap, string>;\n    readonly val: unknown;\n    readonly append?: undefined;\n} | {\n    readonly key: Extract<keyof SessionProjectionMap, string>;\n    readonly val?: undefined;\n    readonly append: ProjectionAppend;\n};',
+  },
+  {
     name: 'ProjectionChangeListener',
     declaration: 'export type ProjectionChangeListener = (session: Session, key: Extract<keyof SessionProjectionMap, string>, value: unknown, seq: SessionSeq) => void;',
   },
@@ -9007,11 +9025,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ProjectionDefinition',
-    declaration: 'export interface ProjectionDefinition<K extends string, S> {\n    key: K;\n    stateSchema: ZodType<S>;\n    init(header: SessionHeader, inheritedEventCount: SessionLogOffset): NoInfer<S>;\n    apply(state: NoInfer<S>, event: SessionEvent): NoInfer<S>;\n    wire?: K extends keyof SessionProjectionMap ? {\n        viewSchema: ZodType<SessionProjectionViewValue<SessionProjectionMap[K]>>;\n        view(state: NoInfer<S>): SessionProjectionViewValue<SessionProjectionMap[K]>;\n        summary?: boolean;\n    } : never;\n    stateVersion: number;\n}',
+    declaration: 'export interface ProjectionDefinition<K extends string, S> {\n    key: K;\n    stateSchema: ZodType<S>;\n    init(header: SessionHeader, inheritedEventCount: SessionLogOffset): NoInfer<S>;\n    apply(state: NoInfer<S>, event: SessionEvent): NoInfer<S>;\n    wire?: K extends keyof SessionProjectionMap ? {\n        viewSchema: ZodType<SessionProjectionViewValue<SessionProjectionMap[K]>>;\n        view(state: NoInfer<S>): SessionProjectionViewValue<SessionProjectionMap[K]>;\n        appended?(prev: NoInfer<S>, next: NoInfer<S>): ProjectionAppend | undefined;\n        summary?: boolean;\n    } : never;\n    stateVersion: number;\n}',
   },
   {
     name: 'ProjectionEventChangeListener',
-    declaration: 'export type ProjectionEventChangeListener = (session: Session, changes: readonly {\n    readonly key: Extract<keyof SessionProjectionMap, string>;\n    readonly val: unknown;\n}[], seq: SessionSeq) => void;',
+    declaration: 'export type ProjectionEventChangeListener = (session: Session, changes: readonly ProjectionValueChange[], seq: SessionSeq) => void;',
   },
   {
     name: 'ProjectionHandle',
@@ -9024,6 +9042,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ProjectionSnapshot',
     declaration: 'export interface ProjectionSnapshot {\n    asOfSeq: SessionSeqCursor;\n    values: Partial<SessionProjectionMap>;\n}',
+  },
+  {
+    name: 'ProjectionValueChange',
+    declaration: 'export interface ProjectionValueChange {\n    readonly key: Extract<keyof SessionProjectionMap, string>;\n    readonly val: unknown;\n}',
   },
   {
     name: 'PromptAssembly',
@@ -10003,7 +10025,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionProjectionChange',
-    declaration: 'export type SessionProjectionChange = {\n    readonly type: \'projection\';\n} & Omit<SessionProjectionUpdate, \'sessionId\'>;',
+    declaration: 'export type SessionProjectionChange = {\n    readonly type: \'projection\';\n    readonly seq: number;\n    readonly changes: readonly {\n        readonly key: string;\n        readonly val: SessionProjectionValue;\n    }[];\n};',
   },
   {
     name: 'SessionProjectionFrame',
@@ -10039,7 +10061,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionProjectionUpdate',
-    declaration: 'export interface SessionProjectionUpdate {\n    readonly sessionId: SessionId;\n    readonly seq: number;\n    readonly changes: readonly {\n        readonly key: string;\n        readonly val: SessionProjectionValue;\n    }[];\n}',
+    declaration: 'export interface SessionProjectionUpdate {\n    readonly sessionId: SessionId;\n    readonly seq: number;\n    readonly changes: readonly ({\n        readonly key: string;\n        readonly val: SessionProjectionValue;\n        readonly append?: undefined;\n    } | {\n        readonly key: string;\n        readonly val?: undefined;\n        readonly append: {\n            readonly from: number;\n            readonly items: readonly SessionProjectionValue[];\n        };\n    })[];\n}',
   },
   {
     name: 'SessionProjectionValue',
@@ -10163,7 +10185,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionSelectModelValue',
-    declaration: 'export interface SessionSelectModelValue {\n    readonly selected: ModelSelection;\n    readonly defaultSave?: \'saved\' | \'unavailable\' | \'failed\' | \'pending\';\n}',
+    declaration: 'export interface SessionSelectModelValue {\n    readonly selected: ModelSelection;\n    readonly defaultSave?: \'saved\' | \'unavailable\' | \'failed\';\n}',
   },
   {
     name: 'SessionSeq',
@@ -10251,7 +10273,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionTitleProvider',
-    declaration: 'export interface SessionTitleProvider {\n    readonly id: SessionTitleProviderId;\n    readonly automatic: SessionTitleAutomaticMode;\n    generate(request: SessionTitleProviderRequest): Promise<SessionTitleProviderResult>;\n}',
+    declaration: 'export interface SessionTitleProvider {\n    readonly id: SessionTitleProviderId;\n    readonly automatic: SessionTitleAutomaticMode;\n    readonly messageBudgetBytes?: number;\n    generate(request: SessionTitleProviderRequest): Promise<SessionTitleProviderResult>;\n    readonly messageBudgetBytes?: number;\n}',
   },
   {
     name: 'SessionTitleProviderId',
@@ -11515,11 +11537,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'WebFetchResult',
-    declaration: 'export interface WebFetchResult {\n    readonly url: string;\n    readonly statusCode?: number;\n    readonly body: WebFetchBody;\n    readonly truncated: boolean;\n}',
+    declaration: 'export interface WebFetchResult {\n    readonly url: string;\n    readonly finalUrl: string | null;\n    readonly statusCode: number | null;\n    readonly body: WebFetchBody;\n    readonly truncated: boolean;\n}',
   },
   {
     name: 'WebFetchResultView',
-    declaration: 'export interface WebFetchResultView {\n    card: \'web\';\n    kind: \'fetch\';\n    title?: string;\n    url: string;\n    statusCode?: number;\n    truncated: boolean;\n}',
+    declaration: 'export interface WebFetchResultView {\n    card: \'web\';\n    kind: \'fetch\';\n    title?: string;\n    url: string;\n    statusCode?: number;\n    finalUrlUnreported?: true;\n    truncated: boolean;\n}',
   },
   {
     name: 'WebhookDeliveryId',
