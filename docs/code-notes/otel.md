@@ -1,0 +1,5 @@
+# otel code notes
+
+## packages/telemetry/otel/src/session-log.ts:SessionLogProcessor::onEmit (issue 152)
+
+The queue was bounded by record count only (`maxQueueSize`, default 2048) while each record may measure up to `maxRequestBytes` (4,000,000), so a stalled collector let the queue hold gigabytes. `maxQueueBytes` now caps the summed measured sizes of queued records (default `DEFAULT_QUEUE_BYTES`, 64 MiB). A record that would pass the budget is rejected with the `onFailure` warning, the same overflow policy as the count limit; the earliest records are kept so the retained prefix stays contiguous. The budget counts queued records only: the batch handed to the transport (at most one request, `maxRequestBytes`) is already out of the queue and is not included. `resolveSessionLogLimits` requires `maxQueueBytes >= maxRequestBytes` so a record that fits one request can always be admitted to an empty queue. Durable or streaming backpressure for an authorized prefix is not implemented; the producer is not slowed, records are dropped.
