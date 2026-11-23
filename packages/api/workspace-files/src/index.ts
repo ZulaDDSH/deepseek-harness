@@ -61,6 +61,7 @@ export interface WorkspaceFileScope {
   readonly sessionId: SessionId
   /** Session workspace root, or the deployment fallback when its header has no cwd. */
   readonly workspaceRoot: string
+  readonly trusted?: boolean
 }
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
@@ -87,6 +88,7 @@ export interface Config {
   /** Cap on returned directory entries; the rest is dropped and reported cut. */
   readonly maxEntries: number
   readonly confineReads: boolean
+  readonly readRoots: readonly string[]
   /** Budgets on one search's matches, listed files, deadline and ripgrep process. */
   readonly search: SearchLimits
 }
@@ -195,7 +197,8 @@ export class WorkspaceFiles extends TypertRemoteService {
     maxFileBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER - 1).default(32 * 1024 * 1024),
     maxLines: z.number().step(1).min(1).default(5000),
     maxEntries: z.number().step(1).min(1).default(2000),
-    confineReads: z.boolean().default(false),
+    confineReads: z.boolean().default(true),
+    readRoots: z.array(z.string().min(1)).default([]),
     search: z.object({
       maxResults: z.number().step(1).min(1).default(512),
       maxEntries: z.number().step(1).min(1).default(100000),
@@ -400,7 +403,9 @@ export class WorkspaceFiles extends TypertRemoteService {
    */
   @Remote({ mode: 'stream' })
   changes(workspaceFileScope: WorkspaceFileScope, path: string, signal: AbortSignal): AsyncIterable<WorkspaceFileWatchFrame> {
-    return this.feed.follow(workspaceFileScope.workspaceRoot, path, signal, this.config.confineReads)
+    const { workspaceRoot } = workspaceFileScope
+    const confined = this.config.confineReads && workspaceFileScope.trusted !== true
+    return this.feed.follow(workspaceRoot, path, signal, confined ? target => this.inReadRoot(workspaceRoot, target, signal) : undefined)
   }
 
   private async relativePath(scope: WorkspaceFileScope, baseFile: string, path: string, signal: AbortSignal): Promise<string> {
@@ -463,10 +468,17 @@ export class WorkspaceFiles extends TypertRemoteService {
   /** Resolve an inspected path and refuse it unless the workspace contains it. */
   private async confine(root: FsTarget, workspaceRoot: string, path: string, signal: AbortSignal): Promise<FsTarget> {
     const target = await this.ctx.fs.resolve(path, { cwd: workspaceRoot, signal })
-    if (!this.ctx.fs.contains(root, target)) {
+    if (!this.ctx.fs.contains(root, target) && !await this.inReadRoot(workspaceRoot, target, signal)) {
       throw new RemoteError('workspace-file/outside-workspace', `"${path}" is outside the workspace`, { path })
     }
     return target
+  }
+
+  private async inReadRoot(workspaceRoot: string, target: FsTarget, signal: AbortSignal): Promise<boolean> {
+    for (const allowed of this.config.readRoots) {
+      if (this.ctx.fs.contains(await this.ctx.fs.resolve(allowed, { cwd: workspaceRoot, signal }), target)) return true
+    }
+    return false
   }
 
   /**
@@ -483,7 +495,7 @@ export class WorkspaceFiles extends TypertRemoteService {
     if (entry.type !== 'file') {
       throw new RemoteError('workspace-file/not-regular-file', `"${path}" is a ${entry.type}`, { path, kind: entry.type })
     }
-    const target = this.config.confineReads
+    const target = this.config.confineReads && workspaceFileScope.trusted !== true
       ? await this.confine(root, workspaceRoot, path, signal)
       : await this.ctx.fs.resolve(path, { cwd: workspaceRoot, signal })
     const info = await this.ctx.fs.stat(target, signal)

@@ -122,6 +122,7 @@ async function handlePresentOpen(ctx: Context, request: Request): Promise<Respon
     const { absolutePath: path } = await ctx.workspaceFiles.stat({
       sessionId: id as SessionId,
       workspaceRoot: session.cwd ?? ctx.sandboxPolicy.workspaceRoot,
+      trusted: true,
     }, file.path, request.signal)
     return await openVerified(ctx, request, path, action)
   } catch (error: unknown) {
@@ -210,7 +211,7 @@ async function handleChangesOpen(ctx: Context, request: Request): Promise<Respon
     const workspaceRoot = changes.cwd
     const file = changes.files[index]
     if (file === undefined) return new Response('Changed file not found in this summary.', { status: 404 })
-    const { absolutePath: path } = await ctx.workspaceFiles.stat({ sessionId: id, workspaceRoot }, file.path, request.signal)
+    const { absolutePath: path } = await ctx.workspaceFiles.stat({ sessionId: id, workspaceRoot, trusted: true }, file.path, request.signal)
     return await openVerified(ctx, request, path, action)
   } catch (error: unknown) {
     request.signal.throwIfAborted()

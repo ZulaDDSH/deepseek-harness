@@ -7,7 +7,7 @@ kind: "package-reference"
 
 ## Summary
 
-Use this package to preview files readable through a Session's filesystem from the web client. It reads UTF-8 text by page, reads bounded byte windows or complete files, resolves related files from a base file's directory, and reports file metadata. Follow changes to a file or a directory's direct entries. Search the workspace for entries by name or relative path. File reads and watches may target paths outside the workspace; directory listing, search, and directory watches remain workspace-scoped. The service exposes no mutation operation.
+Use this package to preview files readable through a Session's filesystem from the web client. It reads UTF-8 text by page, reads bounded byte windows or complete files, resolves related files from a base file's directory, and reports file metadata. Follow changes to a file or a directory's direct entries. Search the workspace for entries by name or relative path. File reads, stats and file watches are confined to the workspace and the configured `readRoots` unless `confineReads` is turned off; directory listing, search, and directory watches always remain workspace-scoped. The service exposes no mutation operation.
 
 ## Table of Contents
 
@@ -36,7 +36,7 @@ Mount the package beside `dsh-fs`, `dsh-sandbox-policy`, the Session store, and 
 
 ### Addressing and paths
 
-`read`, `readBytes`, and `stat` accept an absolute path or one relative to the selected Session's workspace root. The composed filesystem decides whether the path is readable; the service does not impose workspace containment on file reads. `readBytes` with `options.baseFile` resolves the relative target `path` from that file's directory, including when either file is outside the workspace. The base file itself accepts an absolute or workspace-relative path. Both files receive the same regular-file checks; an empty target, absolute target, URL, or NUL-containing target is rejected. File results report the absolute path in the filesystem's execution world. `list` remains workspace-scoped and reports the listed directory relative to that root. `changes` uses the same path resolution: file watches follow file-read authority, while directory watches remain workspace-scoped.
+`read`, `readBytes`, and `stat` accept an absolute path or one relative to the selected Session's workspace root. The composed filesystem decides whether the path is readable, and by default (`confineReads`) the resolved path must also lie inside the workspace root or a configured `readRoots` entry, otherwise the call fails with `workspace-file/outside-workspace`. `readBytes` with `options.baseFile` resolves the relative target `path` from that file's directory, including when either file lies in an allowed read root (or anywhere, with `confineReads` off). The base file itself accepts an absolute or workspace-relative path. Both files receive the same regular-file checks; an empty target, absolute target, URL, or NUL-containing target is rejected. File results report the absolute path in the filesystem's execution world. `list` remains workspace-scoped and reports the listed directory relative to that root. `changes` uses the same path resolution and the same confinement for file watches, while directory watches remain workspace-scoped.
 
 ### Pages
 
@@ -50,7 +50,7 @@ Pass the required options object as `{}` for a complete file under `maxFileBytes
 
 ### File-read and directory checks
 
-Every path-taking operation first uses `lstat` to reject a missing path or the wrong file kind; the file-reading operations also refuse a final symlink, even one pointing back inside the workspace. `list` instead follows a final link — a directory symlink on any platform, including a Windows junction — and requires it to resolve to a directory inside the workspace root, so a linked directory lists like its target; `changes` confines the watched directory the same way. File operations then resolve and read through the composed filesystem; unless `confineReads` is set they apply no workspace-containment check. The configured page, window, complete-file, and listing caps still apply. Text pages additionally reject invalid UTF-8 and NUL bytes; byte reads do not decode content. An empty read or listing path is a `gateway/bad-request`.
+Every path-taking operation first uses `lstat` to reject a missing path or the wrong file kind; the file-reading operations also refuse a final symlink, even one pointing back inside the workspace. `list` instead follows a final link — a directory symlink on any platform, including a Windows junction — and requires it to resolve to a directory inside the workspace root, so a linked directory lists like its target; `changes` confines the watched directory the same way. File operations then resolve and read through the composed filesystem; unless `confineReads` is turned off they require the resolved path to lie inside the workspace or a `readRoots` entry. The configured page, window, complete-file, and listing caps still apply. Text pages additionally reject invalid UTF-8 and NUL bytes; byte reads do not decode content. An empty read or listing path is a `gateway/bad-request`.
 
 <a id="search"></a>
 ### Search
@@ -73,7 +73,8 @@ Each call obtains `subprocess` on demand and runs packaged `rg --files --sort=pa
 | `maxFileBytes` | `33554432` (32 MiB) | Inclusive complete-file cap for `readBytes` without `range`; larger files fail with `too-large` |
 | `maxLines` | `5000` | Default and largest page size in lines; a larger `limit` is refused |
 | `maxEntries` | `2000` | Cap on returned directory entries; the rest is dropped and reported cut |
-| `confineReads` | `false` | When true, `read`, `readBytes`, `stat`, and file `changes` targets that resolve outside the Session workspace fail with `workspace-file/outside-workspace`; links are resolved first, so a linked directory leaving the workspace is refused |
+| `confineReads` | `true` | Default on. When true, `read`, `readBytes`, `stat`, and file `changes` targets that resolve outside the Session workspace fail with `workspace-file/outside-workspace`; links are resolved first, so a linked directory leaving the workspace is refused; `false` restores reads of any path the filesystem backend allows |
+| `readRoots` | `[]` | Absolute directories, beyond the Session workspace, whose files `read`, `readBytes`, `stat` and file `changes` may reach while `confineReads` is true; each is resolved through the composed filesystem, so a link inside one cannot leave it |
 | `search.maxResults` | `512` | Returned match cap; additional matches set `truncated` |
 | `search.maxEntries` | `100000` | Cap on files considered from rg output; an extra file terminates the process and sets `incomplete` |
 | `search.graceMs` | `3000` | Process termination grace in milliseconds |
@@ -154,7 +155,7 @@ None; this package neither assembles nor sends a provider request.
 
 - **Provider watch support** — unsupported backends, including SSH, report `watch-unsupported`; ordinary reads and manual refresh remain available, without polling for external changes.
 - **Linux parent-directory recreation** — automatic watch recovery after a parent directory is deleted and recreated is deferred; see [fs-local](../../fs/fs-local/README.md).
-- **File reads are unconfined by default** — directory listing and directory watches stay inside the Session workspace; file reads, stats, and file watches use the filesystem backend's read authority unless `confineReads` is set. The Remote methods see only the Session scope, not the caller, so the switch applies to every caller; a deployment that grants these methods to a non-owner must set it. The owner Web client's previews of files outside the workspace stop working under it.
+- **File reads are confined to the workspace by default** — a path outside the Session workspace and the `readRoots` allowlist is refused with `workspace-file/outside-workspace`. The Remote methods see only the Session scope, not the caller, so the setting applies to every caller. The owner Web client's previews of files outside the workspace (a document under the home directory, a generated file in a temporary directory) fail until their directory is listed in `readRoots`, and a deployment that wants the previous behavior must set `confineReads: false`, which exposes every file the Host process can read to any principal granted these methods. Host code that has already authorized a file (the native-open routes of `@deepseek-ai/dsh-client-ui-deliverables`) calls `stat` with a `trusted` scope it builds itself; the scope a Remote call receives never carries that flag.
 - **No total line count** — a page reports `eof`, not how many lines follow; a consumer that needs the total pages to the end or estimates from `bytes`.
 - **One giant line has no page** — a single line above `maxBytes` fails `too-large` at every window that includes it, because pages are cut by lines, not bytes.
 - **Reads are not transactional** — result metadata comes from stat before content is read; a concurrent write can make the reported version and returned contents differ.

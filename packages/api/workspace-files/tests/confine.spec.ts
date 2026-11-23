@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdir, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { WorkspaceFiles } from '../src/index.ts'
 import { failureOf, openWorkspace, signal, type Harness } from './harness.ts'
 
 let harness: Harness
@@ -57,6 +58,31 @@ describe('workspaceFiles confineReads', () => {
     const files = harness.endpoint({ confineReads: true })
     const stream = files.changes(harness.scope, join(harness.outside, 'secret.txt'), signal())[Symbol.asyncIterator]()
     expect(await failureOf(stream.next())).toMatchObject(refused)
+  })
+
+  it('confines reads under the schema defaults', async () => {
+    const { confineReads, readRoots } = new WorkspaceFiles.Config({} as never)
+    expect(confineReads).toBe(true)
+    expect(readRoots).toEqual([])
+    const files = harness.endpoint({ confineReads, readRoots })
+    expect(await failureOf(files.read(harness.scope, join(harness.outside, 'secret.txt'), {}, signal()))).toMatchObject(refused)
+  })
+
+  it('admits only files under a configured read root', async () => {
+    await mkdir(join(harness.outside, 'shared'))
+    await writeFile(join(harness.outside, 'shared', 'note.txt'), 'shared')
+    const files = harness.endpoint({ confineReads: true, readRoots: [join(harness.outside, 'shared')] })
+    expect((await files.read(harness.scope, join(harness.outside, 'shared', 'note.txt'), {}, signal())).text).toBe('shared')
+    expect((await files.stat(harness.scope, join(harness.outside, 'shared', 'note.txt'), signal())).bytes).toBe(6)
+    expect(await failureOf(files.read(harness.scope, join(harness.outside, 'secret.txt'), {}, signal()))).toMatchObject(refused)
+    expect(await failureOf(files.read(harness.scope, join(harness.outside, 'shared', '..', 'secret.txt'), {}, signal()))).toMatchObject(refused)
+  })
+
+  it('lets a Host-built trusted scope stat an outside file', async () => {
+    const files = harness.endpoint({ confineReads: true })
+    const path = join(harness.outside, 'secret.txt')
+    expect((await files.stat({ ...harness.scope, trusted: true }, path, signal())).bytes).toBe(6)
+    expect(await failureOf(files.stat(harness.scope, path, signal()))).toMatchObject(refused)
   })
 
   it('keeps reading outside files while the switch is off', async () => {

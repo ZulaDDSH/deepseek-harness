@@ -79,6 +79,7 @@ async function ownedEndpoint() {
       maxLines: 10,
       maxEntries: 10,
       confineReads: false,
+      readRoots: [],
       search: { maxResults: 100, maxEntries: 1000, graceMs: 3000, timeoutMs: 30000, stderrMaxBytes: 65536 },
     })
   }, { inject: ['fs', 'sandboxPolicy'] }))

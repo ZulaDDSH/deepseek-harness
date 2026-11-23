@@ -35,7 +35,7 @@ export class WorkspaceChangeFeed {
    * @returns `ready` after watching starts, then current metadata for target invalidations.
    */
   async *follow(
-    workspaceRoot: string, path: string, signal: AbortSignal, confineFiles = false,
+    workspaceRoot: string, path: string, signal: AbortSignal, admitsOutside?: (target: FsTarget) => Promise<boolean>,
   ): AsyncIterable<WorkspaceFileWatchFrame> {
     signal.throwIfAborted()
     // Instrumented observations remain queued while the target resolves.
@@ -69,7 +69,8 @@ export class WorkspaceChangeFeed {
           if (aborted()) return undefined
           throw error
         })
-        if ((confineFiles || info?.type === 'directory') && !this.ctx.fs.contains(root, target)) {
+        if (!this.ctx.fs.contains(root, target)
+          && (info?.type === 'directory' || (admitsOutside !== undefined && !await admitsOutside(target)))) {
           throw new RemoteError('workspace-file/outside-workspace', 'Directory is outside the workspace', { path })
         }
         return info
