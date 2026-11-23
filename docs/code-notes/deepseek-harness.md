@@ -1112,7 +1112,8 @@ packages/client/ui-workspace/package.json:dsh.client.inject includes the command
 ## packages/client/ui-theme/src/styles/design-platform.css:--dsw-specific-menu
 
 `packages/client/ui-theme/src/styles/design-platform.css:--dsw-specific-menu` on `html[data-platform='darwin'] body[data-ds-dark-theme]` is `rgba(48, 49, 54, 0.94)`, matching the dark `--dsw-menu-surface-fill` hue after the charcoal-to-bluish palette change; `packages/client/ui-theme/tests/elevation-styles.client.spec.ts` asserts that value.
-## Merged upstream test alignment (area C)
+
+## packages/subagent/subagent/src/continuation-messages.ts:createSettlementMessage
 
 `packages/subagent/subagent/tests/continuation.spec.ts` "reports a turn that failed before reaching its first step" expects the settlement notice to carry the child's recorded failure (`continuation-messages.ts:createSettlementMessage` emits `Its failure: <diagnostic>` from `failure-diagnostic.ts:failureDiagnosticOf`); that notice line is a master feature the upstream test lacked.
 
@@ -1126,8 +1127,7 @@ packages/client/ui-workspace/package.json:dsh.client.inject includes the command
 
 `packages/subagent/tool-subagent-control/src/index.ts:send_message` takes `agent` (a name, `lead`, or a Session id), not `agent_id`; `packages/knowledge/knowledge-router/tests/delegation-loop.spec.ts` passes `agent`.
 
-
-## Unit-lane repairs after merging the upstream integration (PR #137)
+## packages/llm/token-meter/tests/token-meter.spec.ts:TokenMeter configuration and registration
 
 `packages/llm/token-meter/tests/token-meter.spec.ts:TokenMeter configuration and registration` expects the Session's checkpoint rows from before the plugin fiber disposed, unchanged after a later event, and no rows for a Session created after disposal. `packages/session/session-projection/src/index.ts:SessionProjectionRegistry.checkpoint` keeps a released unit's last cell, so the former empty-checkpoint expectation was a conflict leftover from the token-meter and released-checkpoint changes.
 
