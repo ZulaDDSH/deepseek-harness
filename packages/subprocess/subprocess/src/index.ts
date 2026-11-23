@@ -51,7 +51,7 @@ export type {
  * deliberately supplied entry survives because explicit env layers merge
  * after the scrub.
  */
-export const SENSITIVE_ENV_PATTERN = /KEY|PASSWORD|SECRET|TOKEN/i
+export const SENSITIVE_ENV_PATTERN = /KEY|PASSWORD|PASSWD|PASSPHRASE|SECRET|TOKEN|CREDENTIAL|DATABASE_URL|CONNECTION_STRING|(?:^|_)DSN$/i
 
 /**
  * The ambient parent environment minus credential-shaped names and minus all
@@ -81,9 +81,13 @@ export function scrubbedParentEnv(): Record<string, string> {
   // `undefined` removes a name the user never set.
   for (const [name, value] of Object.entries(proxyEnvironmentForChild())) {
     if (value === undefined) Reflect.deleteProperty(env, name)
-    else env[name] = value
+    else env[name] = stripUrlUserinfo(value)
   }
   return env
+}
+
+function stripUrlUserinfo(value: string): string {
+  return value.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/@?#]*@/iu, '$1')
 }
 
 /**

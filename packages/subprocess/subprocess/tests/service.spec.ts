@@ -78,6 +78,24 @@ describe('SubprocessRuntime seam', () => {
     await expect(ctx.plugin(SecondService)).rejects.toThrow(/service "subprocess" has been registered/)
   })
 
+  it('scrubbedParentEnv also drops passphrase, credential and connection-string names and strips proxy userinfo', () => {
+    const names = ['SCRUB_PROBE_PASSPHRASE', 'SCRUB_PROBE_PASSWD', 'SCRUB_PROBE_CREDENTIALS', 'DATABASE_URL', 'SCRUB_PROBE_CONNECTION_STRING', 'SCRUB_PROBE_DSN']
+    for (const name of names) process.env[name] = 'secret'
+    process.env.SSH_AUTH_SOCK = '/tmp/agent.sock'
+    process.env.HTTPS_PROXY = 'http://user:hunter2@proxy.example:8080'
+    try {
+      const env = scrubbedParentEnv()
+      for (const name of names) expect(env[name]).toBeUndefined()
+      expect(env.SSH_AUTH_SOCK).toBe('/tmp/agent.sock')
+      expect(env.HTTPS_PROXY).toBe('http://proxy.example:8080')
+      expect(JSON.stringify(env)).not.toContain('hunter2')
+    } finally {
+      for (const name of names) delete process.env[name]
+      delete process.env.SSH_AUTH_SOCK
+      delete process.env.HTTPS_PROXY
+    }
+  })
+
   it('scrubbedParentEnv drops credential-shaped and DSH_ names (case-insensitively) but keeps PATH', () => {
     process.env.DSH_SCRUB_PROBE = 'stale'
     process.env.dsh_scrub_probe_lower = 'stale'
