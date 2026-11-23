@@ -7,7 +7,7 @@ import type { SessionEvent, SessionEventMap } from '@deepseek-ai/dsh-session'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-tool-executor-ptc/types'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
-import { changeRequestUrls, commandEvidence, commandIn, commandOf, ownChangeRequestUrls, pushedBranches, sameChangeRequestUrl } from './commands.ts'
+import { commandEvidence, commandIn, commandOf, createdChangeRequestUrls, ownChangeRequestUrls, pushedBranches, sameChangeRequestUrl } from './commands.ts'
 import type { PushedRef } from './commands.ts'
 import type { BindingOrigin, BindingRecord, BindingState, CommandEvidence, ForgeChangeRequestsState, PushedBranch } from './types.ts'
 
@@ -75,7 +75,7 @@ const stateSchema: z.ZodType<ForgeChangeRequestsState> = z.object({
  */
 export const forgeChangeRequestsProjection = {
   key: 'forgeChangeRequests',
-  stateVersion: 4,
+  stateVersion: 5,
   stateSchema,
   init: () => EMPTY,
   apply,
@@ -130,7 +130,7 @@ function textOf(content: readonly ContentBlock[]): string {
 
 /** Bind the URLs and record the pushes one successful shell result carries; returns the input state when nothing changes. */
 function settle(state: ForgeChangeRequestsState, evidence: CommandEvidence, text: string, seq: SessionSeq): ForgeChangeRequestsState {
-  const printed = evidence.urls === 'created' ? changeRequestUrls(text) : ownChangeRequestUrls(text)
+  const printed = evidence.urls === 'created' ? createdChangeRequestUrls(text) : ownChangeRequestUrls(text)
   const bindings = evidence.urls === null ? state.bindings : bind(state.bindings, [...evidence.named, ...printed], evidence.urls)
   const pushes = evidence.pushes ? recordPushes(state.pushes, pushedBranches(text), seq) : state.pushes
   return bindings === state.bindings && pushes === state.pushes ? state : { ...state, bindings, pushes }

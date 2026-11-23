@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { changeRequestUrls, commandEvidence, commandOf, ownChangeRequestUrls, pushedBranches, sameChangeRequestUrl } from '../src/commands.ts'
+import { changeRequestUrls, commandEvidence, commandOf, createdChangeRequestUrls, ownChangeRequestUrls, pushedBranches, sameChangeRequestUrl } from '../src/commands.ts'
 
 describe('commandOf', () => {
   it('reads the string command argument', () => {
@@ -38,6 +38,10 @@ describe('commandEvidence', () => {
     [`gh pr checkout ${url} && git push`, { urls: 'referenced', pushes: true, named: [url] }],
     [`gh pr view --json url ${url}`, { urls: 'referenced', pushes: false, named: [url] }],
     [`gh pr create --fill && gh pr view ${url}`, { ...created, named: [url] }],
+    ['cd repo\ngh pr create --fill', created],
+    ['(gh pr create --fill)', created],
+    ['FOO=1 env BAR=2 gh pr create --fill', created],
+    ['git status; gh pr new', created],
   ])('classifies %j', (command, evidence) => {
     expect(commandEvidence(command)).toEqual(evidence)
   })
@@ -48,6 +52,9 @@ describe('commandEvidence', () => {
     'gh pr list --head feat',
     'gh pr status',
     'git-push origin',
+    'grep -rn "gh pr create" docs',
+    'echo gh pr create --fill',
+    'printf "%s" "gh pr new"',
   ])('ignores %j', (command) => {
     expect(commandEvidence(command)).toBeUndefined()
   })
@@ -65,9 +72,21 @@ describe('ownChangeRequestUrls', () => {
     expect(ownChangeRequestUrls(`{\n  "url": "${pull(4)}/"\n}`)).toEqual([pull(4)])
   })
 
+  it('reads no URL from a nested url member or from JSON after the description separator', () => {
+    expect(ownChangeRequestUrls(JSON.stringify({ number: 6, comments: [{ url: pull(6) }] }))).toEqual([])
+    expect(ownChangeRequestUrls(`title:\tAdd it\n--\n{"url": "${pull(8)}"}`)).toEqual([])
+  })
+
   it('finds nothing in output that names no change request of its own', () => {
     expect(ownChangeRequestUrls("Switched to branch 'feat'\n")).toEqual([])
     expect(ownChangeRequestUrls(`see ${pull(3)} for details`)).toEqual([])
+  })
+})
+
+describe('createdChangeRequestUrls', () => {
+  it('reads only the URLs alone on their lines', () => {
+    const text = ['Creating pull request for feat into main', 'https://github.com/octo/demo/pull/12', 'see https://github.com/octo/demo/pull/3 and', 'https://github.com/octo/demo/pull/4/files'].join('\n')
+    expect(createdChangeRequestUrls(text)).toEqual(['https://github.com/octo/demo/pull/12'])
   })
 })
 

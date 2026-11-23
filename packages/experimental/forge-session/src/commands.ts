@@ -1,5 +1,6 @@
 /** Recognition of shell commands and output that bind change requests to a Session. */
 
+import parse from 'shell-quote/parse.js'
 import type { CommandEvidence } from './types.ts'
 import { ghReferences } from './references.ts'
 
@@ -11,10 +12,10 @@ export interface PushedRef {
   readonly branch: string
 }
 
-const CREATE_COMMAND = /\bgh\s+pr\s+(?:create|new)\b/
 const REFERENCE_COMMAND = /\bgh\s+pr\s+(?:view|edit|checkout)\b/
 const OWN_URL_LINE = /^(?:url:\s+)?(https?:\/\/[^\s"'<>]+?\/pull\/\d+)\/?$/
-const OWN_URL_MEMBER = /"url"\s*:\s*"(https?:\/\/[^\s"'<>]+?\/pull\/\d+)\/?"/g
+const LINE_URL = /^(https?:\/\/[^\s"'<>]+?\/pull\/\d+)\/?$/
+const ASSIGNMENT = /^[A-Za-z_][A-Za-z\d_]*=/
 const PUSH_COMMAND = /\bgit(?:\s+(?:-[Cc]\s+\S+|--[\w-]+(?:=\S+)?))*\s+push\b/
 const CHANGE_REQUEST_URL = /\bhttps?:\/\/[^\s"'<>]+?\/pull\/\d+(?![\w-])/g
 const PUSH_TARGET_LINE = /^To (\S+)$/
@@ -49,19 +50,19 @@ export function commandIn(args: unknown): string | undefined {
 
 /**
  * Classify the binding evidence a command and its output can carry.
- * `gh pr create` (or its alias `gh pr new`) prints the change request URL;
- * `gh pr view`, `gh pr edit`, and `gh pr checkout` act on one change request,
- * which a URL or a number with an explicit repository and host can name;
- * their output can also print its URL. `git push`,
+ * `gh pr create` (or its alias `gh pr new`) as a simple command prints the
+ * change request URL; `gh pr view`, `gh pr edit`, and `gh pr checkout` act on
+ * one change request, which a URL or a number with an explicit repository and
+ * host can name; their output can also print its URL. `git push`,
  * with or without leading `-C`, `-c`, and long options, prints the updated
  * refs. When a command does both, the URLs a result prints bind as created.
- * The match is textual, so quoted mentions also classify; the result parsers
- * then find no evidence in their output.
+ * Create detection reads shell words, so quoted or echoed mentions do not
+ * classify; the other forms still match text.
  * @param command - shell command text.
  * @returns the evidence, or undefined when the command has none of these forms.
  */
 export function commandEvidence(command: string): CommandEvidence | undefined {
-  const create = CREATE_COMMAND.test(command)
+  const create = createsChangeRequest(command)
   const references = ghReferences(command)
   const reference = REFERENCE_COMMAND.test(command) || references.length > 0
   const pushes = PUSH_COMMAND.test(command)
@@ -82,20 +83,68 @@ export function changeRequestUrls(text: string): string[] {
 /**
  * Find the URLs that `gh pr view`, `gh pr edit`, or `gh pr checkout` output
  * prints for the change request it acts on: gh's `url:` field or a URL alone
- * on a line before the `--` line that starts a description, and JSON `url`
- * members. Links in a description or in other fields name other pages.
+ * on a line before the `--` line that starts a description. Links in a
+ * description or in other fields name other pages.
  * @param text - rendered shell result.
  * @returns distinct URLs in order of first appearance.
  */
 export function ownChangeRequestUrls(text: string): string[] {
+  const json = topLevelUrl(text)
+  if (json !== undefined) return json
   const urls: string[] = []
   for (const line of text.split(/\r?\n/)) {
     if (line === '--') break
     const [, own] = OWN_URL_LINE.exec(line.trim()) ?? []
     if (own !== undefined) urls.push(own)
   }
-  for (const [, member = ''] of text.matchAll(OWN_URL_MEMBER)) urls.push(member)
   return [...new Set(urls)]
+}
+
+export function createdChangeRequestUrls(text: string): string[] {
+  const urls: string[] = []
+  for (const line of text.split(/\r?\n/)) {
+    const [, url] = LINE_URL.exec(line.trim()) ?? []
+    if (url !== undefined) urls.push(url)
+  }
+  return [...new Set(urls)]
+}
+
+function topLevelUrl(text: string): string[] | undefined {
+  let value: unknown
+  try {
+    value = JSON.parse(text)
+  } catch {
+    return undefined
+  }
+  if (typeof value !== 'object' || value === null || !('url' in value) || typeof value.url !== 'string') return []
+  const [, url] = OWN_URL_LINE.exec(value.url) ?? []
+  return url === undefined ? [] : [url]
+}
+
+function createsChangeRequest(command: string): boolean {
+  let tokens: parse.ParseEntry[]
+  try {
+    tokens = parse(command.replace(/\r?\n/g, ';'), () => '')
+  } catch {
+    return false
+  }
+  const segments: string[][] = [[]]
+  for (const token of tokens) {
+    if (typeof token === 'string') segments.at(-1)?.push(token)
+    else segments.push([])
+  }
+  return segments.some(words => {
+    let start = skipAssignments(words, 0)
+    if (words[start] === 'env') start = skipAssignments(words, start + 1)
+    const [resource, operation, verb] = words.slice(start, start + 3)
+    return resource === 'gh' && operation === 'pr' && (verb === 'create' || verb === 'new')
+  })
+}
+
+function skipAssignments(words: readonly string[], start: number): number {
+  let index = start
+  while (index < words.length && ASSIGNMENT.test(words[index] ?? '')) index++
+  return index
 }
 
 /**
