@@ -20,7 +20,6 @@ const CREDENTIAL_PREFIX = /^(?:sk|pk|rk)[-_]|^gh[pousr]_|^github_pat_|^xox[abprs
 const OPAQUE_TOKEN = /^[a-z0-9_]{32,}$/iu
 
 function isCredentialShaped(spec: string): boolean {
-  const version = spec.slice(spec.lastIndexOf('@') + 1)
-  return CREDENTIAL_PREFIX.test(spec) || CREDENTIAL_PREFIX.test(version)
-    || (OPAQUE_TOKEN.test(spec) && /[a-z]/iu.test(spec) && /[0-9]/u.test(spec))
+  return spec.split('@').some(segment => CREDENTIAL_PREFIX.test(segment)
+    || (OPAQUE_TOKEN.test(segment) && /[a-z]/iu.test(segment) && /[0-9]/u.test(segment)))
 }

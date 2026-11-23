@@ -24,6 +24,8 @@ it.each([
   'AKIAFIXTURES',
   'plugin@sk-proj-abc123DEF456',
   'abcdef0123456789abcdef0123456789',
+  'abcdef0123456789abcdef0123456789@latest',
+  'plugin@abcdef0123456789abcdef0123456789',
 ])('classifies a credential-shaped identifier without echoing it: %s', (spec) => {
   expect(sanitizeInstallInput(spec)).toBe('[credential-like]')
 })

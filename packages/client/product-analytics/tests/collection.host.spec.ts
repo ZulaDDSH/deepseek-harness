@@ -274,15 +274,32 @@ it('stops waiting for a stalled identity lookup and submits the event without id
   expect(b.emit.mock.calls[0]![0].attributes).toEqual({ ...commonEnvironment, app_version: 'test-version' })
 })
 
-it('caps reports waiting on a stalled identity and drops the overflow without a lookup', async () => {
+it('caps pending reports and outstanding identity lookups, dropping reports beyond 256', async () => {
   const b = await setup(true)
   const identity = Promise.withResolvers<undefined>()
   b.getDeviceIdentity.mockReturnValue(identity.promise)
   const reports = Array.from({ length: 257 }, (_, timestamp) => b.ctx.productAnalytics.report({ eventName: 'desktop_app_launch', timestamp, attributes: {} }))
-  expect(b.getDeviceIdentity).toHaveBeenCalledTimes(256)
+  expect(b.getDeviceIdentity).toHaveBeenCalledTimes(64)
   identity.resolve(undefined)
   await Promise.all(reports)
   expect(b.emit).toHaveBeenCalledTimes(256)
+})
+
+it('bounds stalled identity lookups across repeated deadlines', async () => {
+  const b = await setup(true)
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  try {
+    b.getDeviceIdentity.mockReturnValue(new Promise<undefined>(() => {}))
+    for (let round = 0; round < 3; round += 1) {
+      const reports = Array.from({ length: 64 }, (_, index) => b.ctx.productAnalytics.report({ eventName: 'desktop_app_launch', timestamp: round * 64 + index, attributes: {} }))
+      await vi.advanceTimersByTimeAsync(5000)
+      await Promise.all(reports)
+    }
+  } finally {
+    vi.useRealTimers()
+  }
+  expect(b.getDeviceIdentity).toHaveBeenCalledTimes(64)
+  expect(b.emit).toHaveBeenCalledTimes(192)
 })
 
 it('replaces string attributes over 256 UTF-8 bytes before they reach the exporter', async () => {

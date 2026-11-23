@@ -83,9 +83,9 @@ Delivery is best effort.
 - Environment sampling is one-shot: startup contention can cause a cached timeout for the whole run. `missing_fields` describes sampling failure, not hardware absence; a later event does not retry. Deployments can increase the query deadline; remount or restart samples again.
 - Host security policies can block or terminate the fixed PowerShell queries, producing `query-failed` on managed Windows machines.
 - Disabling stops new collection; it does not clear the exporter queue. A report admitted before a disable and re-enable is discarded rather than submitted.
-- Identity lookup stops waiting after 5 seconds, and the event is submitted without identity fields. At most 256 reports may wait for identity or environment at once; further reports are dropped.
+- Identity lookup stops waiting after 5 seconds, and the event is submitted without identity fields. At most 64 identity lookups may be outstanding at once, counting stalled calls until they settle; beyond that, events are submitted without identity and no lookup is started. At most 256 reports may wait for identity or environment at once; further reports are dropped.
 - String attributes over 256 UTF-8 bytes are replaced with `[oversized]`; the exporter queue has a record-count bound only.
-- No in-product disclosure or persistent control exists for this collection yet; the default policy and control surface need a product decision.
+- There is no in-product disclosure or persistent control for this collection; the policy is set through Cordis configuration.
 - Renderer failures are discarded, and the exporter has no durable outbox or warehouse acknowledgement.
 - Native startup reporting waits for Host authentication; a process that fails before Host readiness cannot report its launch.
 

@@ -13,6 +13,7 @@ import { collectEnvironment, type EnvironmentAttributes } from './environment.ts
 
 const IDENTITY_DEADLINE_MILLIS = 5000
 const MAX_PENDING_REPORTS = 256
+const MAX_IDENTITY_LOOKUPS = 64
 const MAX_STRING_ATTRIBUTE_BYTES = 256
 
 async function settleWithin<T>(work: Promise<T>, millis: number): Promise<T | undefined> {
@@ -62,6 +63,7 @@ export default class ProductAnalytics extends TypertRemoteService {
   private readonly listeners = new Set<() => void>()
   private pending = 0
   private policyGeneration = 0
+  private identityLookups = 0
 
   constructor(ctx: Context, private readonly config: Config) {
     super(ctx, 'productAnalytics')
@@ -133,7 +135,7 @@ export default class ProductAnalytics extends TypertRemoteService {
       })
       const [environment, identity] = await Promise.all([
         this.environment,
-        settleWithin(this.ctx.deepseekAccount.getDeviceIdentity().catch(() => undefined), IDENTITY_DEADLINE_MILLIS),
+        settleWithin(this.identityLookups < MAX_IDENTITY_LOOKUPS ? this.trackIdentity() : Promise.resolve(undefined), IDENTITY_DEADLINE_MILLIS),
       ])
       if (!this.enabled() || generation !== this.policyGeneration) return
       const { missing_fields: missingFields, ...metadata } = environment
@@ -155,5 +157,12 @@ export default class ProductAnalytics extends TypertRemoteService {
     } finally {
       this.pending -= 1
     }
+  }
+
+  private trackIdentity() {
+    const lookup = this.ctx.deepseekAccount.getDeviceIdentity()
+    this.identityLookups += 1
+    void lookup.finally(() => { this.identityLookups -= 1 }).catch(() => undefined)
+    return lookup.catch(() => undefined)
   }
 }
