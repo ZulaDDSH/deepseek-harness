@@ -1,0 +1,3 @@
+# Timeline code notes
+
+- `packages/experimental/timeline/src/checkpoint.ts:Checkpoint::toJson` (finding 166): a task's remaining-time estimate and its serial or parallel mode are exported as optional `remaining` and `mode` task fields, written only when they differ from the import defaults (no estimate, serial). The format stays version 1 because the new fields are optional: a file without them restores exactly as before, and a file that uses them is rejected by an older strict reader instead of silently losing the estimate. Groups derive `remaining` from their children, so only leaves export `remaining`; `mode` is exported for groups as well because it selects how child durations combine. Done tasks always restore with zero remaining and omit the field.
