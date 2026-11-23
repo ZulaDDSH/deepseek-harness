@@ -110,6 +110,7 @@ None; this service does not construct or modify model requests.
 
 <a id="known-limitations-and-deferred-work"></a>
 
+- Kit parses each document in a disposable helper process (native engines) or Node Worker (WASM), bounded by `timeoutMs`, `maxInputBytes`, `maxOutputBytes`, and for OOXML `maxArchiveEntries` and `maxUncompressedBytes`. The helper inherits the Host user's token and Job restrictions, so it is not filesystem- or network-confined, the kit has no memory cap, and legacy `.doc`, `.xls`, and `.ppt` files have no archive limits beyond size and time.
 - Conversion fidelity and installed native/WASM assets belong to `@deepseek-ai/libreoffice-kit`; this provider neither searches for system LibreOffice nor downloads an engine at runtime.
 - Queue waiting time is not bounded by `timeoutMs`, which starts only when kit conversion begins.
 - The provider locates only the Kit installation it resolves itself; it does not search other locations or install Kit or engines.
