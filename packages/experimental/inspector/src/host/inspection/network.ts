@@ -102,6 +102,7 @@ export function installFetchObserver(
     let response: Response
     try {
       const dispatcher = (init as { dispatcher?: unknown } | undefined)?.dispatcher
+      // proxy-exempt: constraint, forwards the caller's own dispatcher
       response = await Reflect.apply(original, globalThis, dispatcher === undefined ? [request] : [request, { dispatcher }])
     } catch (error) {
       publisher.publish('fetch/error', {
