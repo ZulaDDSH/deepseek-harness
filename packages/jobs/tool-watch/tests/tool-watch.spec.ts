@@ -486,26 +486,36 @@ describe('watch command policy', () => {
     await expect(setup({ config: { denyCommands: ['('] } })).rejects.toThrow('tool-watch: denyCommands has an invalid pattern')
   })
 
-  it('shows every repeat to a registered pre-tool hook and stops the watch when it denies one', async () => {
+  it('shows the first check to a registered pre-tool hook once and stops the watch when it denies it', async () => {
     const { ctx, shell } = await setup({ steps: [{ exit: 1 }] })
     const owner = await fakeOwner(ctx, 'alice', 'idle')
     const seen: { name: string; command: unknown }[] = []
-    let deny = false
     ctx.on('tools/pre-execute', async (exec, next) => {
       seen.push({ name: exec.name, command: (exec.arguments as { command?: unknown }).command })
-      return deny ? { kind: 'deny', reason: 'shell hook denied ci-check' } : next()
+      return exec.name === 'bash' ? { kind: 'deny', reason: 'shell hook denied ci-check' } : next()
     })
     expect((await call(ctx, 'watch', base, owner.agent)).isError).toBe(false)
     await advance(0)
-    expect(shell.calls()).toBe(1)
+    expect(shell.calls()).toBe(0)
     expect(seen.filter(entry => entry.name === 'bash')).toEqual([{ name: 'bash', command: 'ci-check' }])
-    deny = true
-    await advance(30_000)
-    expect(shell.calls()).toBe(1)
-    expect(seen.filter(entry => entry.name === 'bash')).toHaveLength(2)
-    await advance(0)
     const output = await call(ctx, 'job_output', { job_id: jobIdOf(ctx, owner) }, owner.agent)
     expect(text(output)).toContain('shell hook denied ci-check')
+  })
+
+  it('asks the pre-tool hook once per watch, not at every repeat', async () => {
+    const { ctx, shell } = await setup({ steps: [{ exit: 1 }] })
+    const owner = await fakeOwner(ctx, 'alice', 'idle')
+    let asked = 0
+    ctx.on('tools/pre-execute', async (exec, next) => {
+      if (exec.name === 'bash') asked += 1
+      return next()
+    })
+    expect((await call(ctx, 'watch', base, owner.agent)).isError).toBe(false)
+    await advance(0)
+    await advance(30_000)
+    await advance(30_000)
+    expect(shell.calls()).toBe(3)
+    expect(asked).toBe(1)
   })
 
   it('stops a running watch at the next repeat once the policy refuses its command', async () => {
