@@ -111,6 +111,8 @@ function abortedCancelCause(signal: AbortSignal): AgentCancelCause | undefined {
   }
 }
 
+const MAX_CLAIM_RESTORES = 3
+
 /** Drives one session through turn and step boundaries. */
 export class ReactLoopAgent implements Agent {
   readonly model: AgentModel
@@ -137,6 +139,7 @@ export class ReactLoopAgent implements Agent {
   /** Identities fully frozen by this loop; weak references do not retain replaced history. */
   private readonly frozenMessages = new WeakSet<Message>()
   private drained = false
+  private readonly restoreCounts = new Map<MessageId, number>()
 
   constructor(
     private loopCtx: Context,
@@ -308,29 +311,43 @@ export class ReactLoopAgent implements Agent {
     try {
       prepared = await this.routeAndPrepare(claimed, position, signal)
     } catch (error: unknown) {
-      this.releaseClaim(claimed, signal, error)
-      throw error
+      throw this.releaseClaim(claimed, signal, error)
     }
     if (prepared.kind === 'reject') this.discardClaim(claimed)
     return prepared
   }
 
-  private releaseClaim(claimed: ClaimedInput, signal: AbortSignal, cause: unknown): void {
+  private releaseClaim(claimed: ClaimedInput, signal: AbortSignal, cause: unknown): unknown {
     if (abortedCancelCause(signal) !== undefined) {
       this.discardClaim(claimed)
-      return
+      return cause
     }
+    let exhausted = 0
+    const retry = (messages: readonly UserMessage[]): UserMessage[] => messages.filter((message) => {
+      const restores = (this.restoreCounts.get(message.id) ?? 0) + 1
+      if (restores <= MAX_CLAIM_RESTORES) {
+        this.restoreCounts.set(message.id, restores)
+        return true
+      }
+      exhausted++
+      this.discardMessage(message)
+      return false
+    })
     try {
-      this.inbox.restore(claimed)
+      this.inbox.restore({ 'next-step': retry(claimed['next-step']), 'next-turn': retry(claimed['next-turn']) })
     } catch (restoreError: unknown) {
-      throw new AggregateError([cause, restoreError], 'Claimed input could not be restored to the inbox', { cause })
+      return new AggregateError([cause, restoreError], 'Claimed input could not be restored to the inbox', { cause })
     }
+    return exhausted === 0 ? cause : new Error(`Discarded ${exhausted} claimed input message(s) after ${MAX_CLAIM_RESTORES} failed restores`, { cause })
   }
 
   private discardClaim(claimed: ClaimedInput): void {
-    for (const message of [...claimed['next-step'], ...claimed['next-turn']]) {
-      this.dispatch.emit('agent/inbox/discarded', { message })
-    }
+    for (const message of [...claimed['next-step'], ...claimed['next-turn']]) this.discardMessage(message)
+  }
+
+  private discardMessage(message: UserMessage): void {
+    this.restoreCounts.delete(message.id)
+    this.dispatch.emit('agent/inbox/discarded', { message })
   }
 
   private async routeAndPrepare(
@@ -449,8 +466,7 @@ export class ReactLoopAgent implements Agent {
             this.session.append('step/end', { turn, step })
           }
         } catch (error: unknown) {
-          this.releaseClaim(this.unadmittedInput(decision), signal, error)
-          throw error
+          throw this.releaseClaim(this.unadmittedInput(decision), signal, error)
         } finally {
           // Admission closes once the step's tool batch settles or no step opens.
           decision.toolSet.dispose()
@@ -546,6 +562,7 @@ export class ReactLoopAgent implements Agent {
           } else {
             this.session.append('user/message', message, { surfaceOp: 'append' })
             decision.admitted.add(message.id)
+            this.restoreCounts.delete(message.id)
           }
         }
       }

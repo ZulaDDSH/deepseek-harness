@@ -186,6 +186,42 @@ describe('claimed input recovery', () => {
     expect(pendingTexts(agent)).toEqual([])
   })
 
+  it('discards a prompt that keeps failing before admission after a bounded number of restores', async () => {
+    const adapter = new MockAdapter([textResponse('healthy reply')])
+    const ctx = await harness(adapter)
+    const agent = await ctx.agentLoop.create(brandString<SessionId>('bounded-restore'), { provider: 'mock', model: 'mock' })
+    const errors = collectErrors(ctx)
+    const discarded: string[] = []
+    ctx.on('agent/inbox/discarded', ({ message }) => { discarded.push(...message.content.map(block => block.type === 'text' ? block.text : '')) })
+    ctx.on('agent/pre-step', async ({ messages }, next) => {
+      if (messages.some(message => message.content.some(block => block.type === 'text' && block.text === 'poison'))) throw new Error('hook failed')
+      return next()
+    })
+
+    agent.followup(prompt('poison'))
+    for (const wake of ['wake 1', 'wake 2']) {
+      await agent.whenIdle()
+      expect(pendingTexts(agent)[0]).toBe('poison')
+      expect(discarded).toEqual([])
+      agent.followup(prompt(wake))
+    }
+    await agent.whenIdle()
+    expect(pendingTexts(agent)).toEqual(['poison', 'wake 1', 'wake 2'])
+    expect(discarded).toEqual([])
+    agent.followup(prompt('wake 3'))
+    await agent.whenIdle()
+
+    expect(discarded).toEqual(['poison'])
+    expect(pendingTexts(agent)).not.toContain('poison')
+    expect(errors).toHaveLength(4)
+    expect(String(errors[3])).toContain('Discarded 1 claimed input message(s)')
+    expect(admittedTexts(agent)).toEqual([])
+
+    agent.followup(prompt('wake 4'))
+    await agent.whenIdle()
+    expect(admittedTexts(agent)).toContain('wake 1')
+  })
+
   it('does not restore input after admission, even when the step later fails', async () => {
     const adapter = new MockAdapter([textResponse('should not run')])
     const ctx = await harness(adapter)
