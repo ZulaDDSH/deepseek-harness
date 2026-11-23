@@ -1,5 +1,6 @@
 /** Native shell operations reuse authenticated Web RPC. */
 import { describe, expect, it, vi } from 'vitest'
+import { createServer } from 'node:http'
 import { connectDesktopWelcome } from '../src/welcome-backend.ts'
 
 function transport(preference?: string) {
@@ -7,8 +8,7 @@ function transport(preference?: string) {
     { ns: 'locale', value: preference === undefined ? {} : { preference } },
   ]
   const send = vi.fn<Parameters<typeof connectDesktopWelcome>[1]>(async (_input, init) => {
-    if (init?.method !== 'POST') return new Response('index')
-    const { rpcId, method } = JSON.parse(init.body as string) as { rpcId: string; method: string }
+    const { rpcId, method } = JSON.parse(init!.body as string) as { rpcId: string; method: string }
     let value: unknown
     if (method === 'settings/describe') value = { namespaces }
     else if (method === 'productAnalytics/enabled') value = true
@@ -18,23 +18,48 @@ function transport(preference?: string) {
   return { send }
 }
 
-const url = 'http://127.0.0.1:19387/?token=fixture'
+const url = 'http://127.0.0.1:19387/'
+const cookie = 'dsh-desktop-session=fixture-private'
 
 describe('desktop welcome Web operations', () => {
-  it('authenticates through Web before reading analytics policy', async () => {
+  it('uses the Host-issued cookie for native RPC without a launch-token exchange', async () => {
     const host = transport()
-    const backend = await connectDesktopWelcome(url, host.send)
-    expect(host.send).toHaveBeenCalledExactlyOnceWith(url, { credentials: 'include' })
+    const backend = await connectDesktopWelcome(url, host.send, () => Promise.resolve(cookie))
     expect(await backend.analyticsEnabled()).toBe(true)
-    for (const [input, init] of host.send.mock.calls.slice(1)) {
+    for (const [input, init] of host.send.mock.calls) {
       expect(input).toMatch(/^http:\/\/127\.0\.0\.1:19387\/api\//u)
-      expect(init).toMatchObject({ credentials: 'include', redirect: 'error' })
+      expect(init).toMatchObject({ redirect: 'error', headers: { cookie } })
+    }
+  })
+
+  it('sends the Host-issued cookie over real HTTP to the running Host contract', async () => {
+    const server = createServer(async (request, response) => {
+      let body = ''
+      for await (const chunk of request) body += chunk
+      if (request.headers.cookie !== cookie) {
+        response.writeHead(401).end()
+        return
+      }
+      const rpc = JSON.parse(body) as { rpcId: string; method: string }
+      response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+        type: 'server-response', rpcId: rpc.rpcId, result: { ok: true, value: rpc.method === 'productAnalytics/enabled' },
+      }))
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    try {
+      const address = server.address()
+      if (address === null || typeof address === 'string') throw new Error('test Host did not bind a TCP port')
+      const backend = await connectDesktopWelcome(`http://127.0.0.1:${address.port}/`, fetch,
+        () => Promise.resolve(cookie))
+      expect(await backend.analyticsEnabled()).toBe(true)
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
     }
   })
 
   it('reads language without querying account or model providers', async () => {
     const host = transport('zh')
-    const backend = await connectDesktopWelcome(url, host.send)
+    const backend = await connectDesktopWelcome(url, host.send, () => Promise.resolve(cookie))
     host.send.mockClear()
     expect(await backend.readLocalePreference()).toBe('zh')
     expect(host.send).toHaveBeenCalledOnce()
@@ -43,18 +68,19 @@ describe('desktop welcome Web operations', () => {
 
   it('submits native analytics through authenticated RPC with a bounded request', async () => {
     const host = transport()
-    const backend = await connectDesktopWelcome(url, host.send)
+    const backend = await connectDesktopWelcome(url, host.send, () => Promise.resolve(cookie))
     const event = { eventName: 'desktop_app_launch' as const, timestamp: 100, attributes: {} }
     await backend.report(event)
     const [input, init] = host.send.mock.calls.at(-1)!
     expect(input).toBe('http://127.0.0.1:19387/api/productAnalytics/report')
-    expect(init?.credentials).toBe('include')
+    expect(init?.headers).toMatchObject({ cookie })
     expect(init?.signal).toBeInstanceOf(AbortSignal)
     expect(JSON.parse(init!.body as string)).toMatchObject({ payload: { args: { event } } })
   })
 
   it('refuses an unauthenticated Web launch', async () => {
     const send = vi.fn<Parameters<typeof connectDesktopWelcome>[1]>(async () => new Response(null, { status: 401 }))
-    await expect(connectDesktopWelcome(url, send)).rejects.toThrow('Web authentication failed')
+    const backend = await connectDesktopWelcome(url, send, () => Promise.resolve(cookie))
+    await expect(backend.analyticsEnabled()).rejects.toThrow('Web request failed')
   })
 })

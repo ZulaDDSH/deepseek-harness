@@ -12,7 +12,9 @@ import type {} from '@deepseek-ai/dsh-ptc-runtime'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import type {} from '@deepseek-ai/dsh-working-directory'
 import z from '@deepseek-ai/schemastery'
-import WorkflowEngine, { WorkflowError, WorkflowRunId } from '@deepseek-ai/dsh-workflow'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import type { WorkflowRunId } from '@deepseek-ai/dsh-workflow/types'
+import WorkflowEngine, { WorkflowError } from '@deepseek-ai/dsh-workflow'
 import type { WorkflowRun, WorkflowRunInfo, WorkflowStartRequest } from '@deepseek-ai/dsh-workflow'
 import { CLAUDE_CLI_PROVIDER } from '@deepseek-ai/dsh-tool-subagent'
 import { PtcWorkflowRun } from './host.ts'
@@ -140,7 +142,7 @@ class PtcWorkflowEngine extends WorkflowEngine {
     assertBodyParses(request.script, meta.name)
     const subagentProvider = resolveSubagentProvider(this.ctx, this.config.provider, request.subagentProvider)
     const maxTotalAgents = resolveMaxTotalAgents(request.maxTotalAgents, this.config.maxTotalAgents)
-    const id = WorkflowRunId(randomUUID())
+    const id = brandString<WorkflowRunId>(randomUUID())
     const info: WorkflowRunInfo = { id, meta }
     // Captured service handles keep a holder-owned run usable after engine unload.
     const runCtx = this.ctx
@@ -187,6 +189,7 @@ class PtcWorkflowEngine extends WorkflowEngine {
       this.emitWorkflowEvent('workflow/end', info, {
         stopReason: settled.stopReason,
         ...settled.error !== undefined ? { error: settled.error } : {},
+        ...settled.errorCode !== undefined ? { errorCode: settled.errorCode } : {},
         agentsStarted: settled.agentsStarted,
       })
     })

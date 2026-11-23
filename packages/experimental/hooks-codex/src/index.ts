@@ -41,6 +41,9 @@ import {
   type HookInventoryReport,
   DEFAULT_HOOK_TIMEOUT_MS,
   DEFAULT_STDERR_SUMMARY_MAX_CHARS,
+  HOOK_BLOCKED,
+  HOOK_DENIED,
+  HOOK_ERROR_NAME,
   createStopLoopGuard,
   DEFAULT_MAX_FORCED_STOPS,
   hookToolName,
@@ -276,7 +279,7 @@ export function apply(ctx: Context, config: Config): void {
     const turn = lastTurn(ctx, exec.agent)
     const merged = await runPoint('PreToolUse', exec.name, preToolPayload(ctx, exec, model), { ...exec.agent ? { agent: exec.agent } : {}, turn, signal: exec.signal })
     /* jscpd:ignore-end */
-    if (merged.decision === 'deny' || merged.stop) return { kind: 'deny', reason: merged.reason ?? merged.stopReason ?? 'blocked by PreToolUse hook' }
+    if (merged.decision === 'deny' || merged.stop) return { kind: 'deny', reason: merged.reason ?? merged.stopReason ?? 'blocked by PreToolUse hook', info: { name: HOOK_ERROR_NAME, code: HOOK_DENIED } }
     return next()
   })
 
@@ -287,7 +290,12 @@ export function apply(ctx: Context, config: Config): void {
     const merged = await runPoint('PostToolUse', exec.name, postToolPayload(ctx, exec, result, model), { ...exec.agent ? { agent: exec.agent } : {}, turn, signal: exec.signal })
     const context = contextFrom(merged)
     if (merged.decision === 'deny') {
-      return { kind: 'block', feedback: [{ type: 'text', text: merged.reason ?? 'blocked by PostToolUse hook' }], ...context ? { additionalContexts: [context] } : {} }
+      return {
+        kind: 'block',
+        feedback: [{ type: 'text', text: merged.reason ?? 'blocked by PostToolUse hook' }],
+        info: { name: HOOK_ERROR_NAME, code: HOOK_BLOCKED },
+        ...context ? { additionalContexts: [context] } : {},
+      }
     }
     // Context alone is not a veto: DELEGATE, then fold our context onto the
     // downstream decision (a downstream block carries it too).

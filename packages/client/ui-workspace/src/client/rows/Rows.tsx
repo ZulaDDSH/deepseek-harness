@@ -3,13 +3,6 @@
  * all data and callbacks arrive via props. Hover swaps (folder->chevron,
  * time->ellipsis, action buttons) are CSS-only, and a session row's clipped
  * title marquees programmatically while the row is hovered. Workspace row
- * menus share captured Workspace actions with right-click. A Session row's "..." menu and
- * its hover buttons are the `sidebar.workspaces.session.menu.item` and
- * `sidebar.workspaces.session.row.action` lists, rendered through the
- * browser's `renderSlot` with the menu's open state as the occurrence's hook
- * context; this package's own actions are entries like any plugin's. The
- * session and workspace hover cards are suppressed while a menu is open.
- * Chat Section headers render here too, and their menu is the same registry.
  */
 import { useEffect, useMemo, useRef } from 'react'
 import type { PointerEvent, RefObject } from 'react'
@@ -18,7 +11,7 @@ import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   HoverCard, IconArchiveOutlineRegular,
   IconEllipsisOutlineRegular, IconFolderCloseRegular, IconFolderOpenRegular,
-  IconNewChatOutlineRegular, IconPinFillRegular, IconPlusOutlineRegular,
+  IconNewChatOutlineRegular, IconPinFillRegular,
   IconTriangleRightFillRegular, IconUnarchiveOutlineRegular, relativeTime, StateDot, Tooltip, useRowDragPreview,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ShortcutCatalogEntry } from '@deepseek-ai/dsh-client-shortcuts/client'
@@ -249,7 +242,7 @@ type ProjectRowItemProps = {
   /** Folded attention for a collapsed row; absent when nothing folded needs the user. */
   attention?: GroupAttention | undefined
   onToggle: () => void
-  onCreate: () => void
+  onCreate: (workspaceId: WorkspaceId) => void
   /** Present only for real Workspace rows in the grouped view. */
   drag?: WorkspaceRowDragProps | undefined
   /** The Workspace's chosen color and icon; absent for the default look. */
@@ -257,25 +250,26 @@ type ProjectRowItemProps = {
   /** Host account home; POSIX home-rooted hover paths display as `~`. */
   home?: string | undefined
   t: RowTranslate
-} & Pick<WorkspaceBrowserProps, 'useRemoteAccess' | 'useWorkspaceAccess' | 'openWorkspaceMenu' | 'useContextMenuTarget' | 'useContextMenu'>
+} & Pick<WorkspaceBrowserProps, 'useWorkspaceAccess' | 'renderFactorySlot' | 'useContextMenuTarget' | 'useContextMenu'>
 
-/** Which of one header row's actions the caller's access snapshot allows. */
-interface ProjectRowAccess {
-  readonly create: boolean
+/** The header actions one row offers; an absent create offers no New Session button. */
+interface ProjectRowActions {
+  readonly create?: (() => void) | undefined
   readonly reorder: boolean
 }
 
 /**
  * Project (workspace) header row: folder + title;
- * hover reveals the chevron and create button, and dwelling on a real
- * Workspace shows its hover card (the ungrouped bucket has none).
+ * hover reveals the chevron and, on a real Workspace, the create button;
+ * dwelling on a real Workspace shows its hover card. The ungrouped bucket
+ * has neither, because it has no backing Workspace to start a Session in.
  * `containsCurrent` arrives on the node (derivation fact, no renderer scan).
  * Create and drag follow the Workspace access snapshot. Menu providers own
  * their access checks; the ungrouped bucket has no Workspace menu.
  * @param props.group - derived group node.
  * @param props.containsCurrentDescendant - highlight an ancestor even when its subtree is collapsed.
  * @param props.onToggle - expand/collapse the group.
- * @param props.onCreate - start a frontend Session inside this Workspace.
+ * @param props.onCreate - start a frontend Session inside the given Workspace.
  * @param props.drag - optional workspace-row drag wiring.
  * @param props.home - host account home for POSIX hover-path abbreviation.
  * @param props.t - the browser root's locale seat.
@@ -288,28 +282,29 @@ export function ProjectRowItem(props: ProjectRowItemProps) {
     : <WorkspaceProjectRow {...props} workspaceId={workspaceId} />
 }
 
-/** The ungrouped bucket's header: no Workspace resource, so starting a Session there asks the global resource. */
+/** The ungrouped bucket's header: no backing Workspace to start a Session in or reorder. */
 function UngroupedProjectRow(props: ProjectRowItemProps) {
-  const create = props.useRemoteAccess('session/create')
-  return <ProjectRow {...props} access={{ create, reorder: false }} />
+  return <ProjectRow {...props} actions={{ reorder: false }} />
 }
 
 /** A real Workspace's header: every action asks that Workspace's resource. */
 function WorkspaceProjectRow({ workspaceId, ...props }: ProjectRowItemProps & { workspaceId: WorkspaceId }) {
   const { useWorkspaceAccess } = props
-  const access: ProjectRowAccess = {
-    create: useWorkspaceAccess(workspaceId, 'session/create'),
+  const create = useWorkspaceAccess(workspaceId, 'session/create')
+  const actions: ProjectRowActions = {
+    create: create ? () => { props.onCreate(workspaceId) } : undefined,
     reorder: useWorkspaceAccess(workspaceId, 'workspace/insertBefore'),
   }
-  return <ProjectRow {...props} access={access} />
+  return <ProjectRow {...props} actions={actions} />
 }
 
 function ProjectRow({
-  group, containsCurrentDescendant = false, onToggle, onCreate, drag: offeredDrag, home, newShortcut, t, access,
-  appearance, attention, openWorkspaceMenu, useContextMenuTarget, useContextMenu,
-}: ProjectRowItemProps & { access: ProjectRowAccess }) {
+  group, containsCurrentDescendant = false, onToggle, drag: offeredDrag, home, newShortcut, t, actions,
+  appearance, attention, renderFactorySlot, useContextMenuTarget, useContextMenu,
+}: Omit<ProjectRowItemProps, 'onCreate'> & { actions: ProjectRowActions }) {
   const { getTriggerProps } = useContextMenu()
-  const drag = access.reorder ? offeredDrag : undefined
+  const drag = actions.reorder ? offeredDrag : undefined
+  const create = actions.create
   const row = group
   // The ungrouped bucket has no workspace title: its label is dictionary copy.
   const label = row.workspaceId === undefined ? t('group.ungrouped') : row.label
@@ -352,22 +347,20 @@ function ProjectRow({
       {attention !== undefined && <GroupAttentionDot attention={attention} t={t} />}
       <span className={css.rowActions}>
         {workspaceMenuTarget !== undefined && (
-          <button type="button" className={css.iconButton} data-context-menu-trigger
-            aria-label={t('actions.workspace.aria', { name: label })} aria-haspopup="menu" aria-expanded={menuOpen}
-            onClick={(event) => {
-              event.stopPropagation()
-              const rect = event.currentTarget.getBoundingClientRect()
-              openWorkspaceMenu(workspaceMenuTarget.workspaceId, workspaceMenuTarget.path, label, { x: rect.left, y: rect.bottom }, 'toggle')
-            }}><IconEllipsisOutlineRegular /></button>
+          renderFactorySlot('contextMenu.button', {
+            target: { kind: 'workspace', value: { ...workspaceMenuTarget, displayTitle: label } },
+            label: t('actions.workspace.aria', { name: label }),
+            className: css.iconButton,
+          })
         )}
-        {access.create && (
+        {create !== undefined && (
           <Tooltip label={t('actions.newSession')} shortcutKeys={newShortcut?.keys} side="bottom" align="end" delayMs={500} portal>
             <button
               type="button"
               className={css.iconButton}
               aria-keyshortcuts={newShortcut?.aria}
               aria-label={t('actions.newSession.aria', { name: label })}
-              onClick={(e) => { e.stopPropagation(); onCreate() }}
+              onClick={(e) => { e.stopPropagation(); create() }}
             >
               <IconNewChatOutlineRegular size={14} />
             </button>
@@ -448,7 +441,7 @@ export function SectionHeaderItem({
       style={appearanceStyle(appearance)}
       role="treeitem"
       aria-expanded={section.expanded}
-      aria-label={t('section.actions.aria', { name: section.name })}
+      aria-label={section.name}
       onClick={onToggle}
       {...getTriggerProps({ kind: 'section', value: { sectionId: section.id, displayTitle: section.name } })}
       draggable={drag !== undefined}
@@ -514,14 +507,6 @@ export function SectionHeaderItem({
         >
           <IconEllipsisOutlineRegular />
         </button>
-        <button
-          type="button"
-          className={css.iconButton}
-          aria-label={t('section.add')}
-          onClick={(e) => { e.stopPropagation() }}
-        >
-          <IconPlusOutlineRegular />
-        </button>
       </span>
     </div>
   )
@@ -550,10 +535,9 @@ function SessionHoverContent({ node, cwd, now, renderSlot, t }: {
   renderSlot: RowRenderSlots
   t: RowTranslate
 }) {
-  // On archived rows the archived line already says the session is inactive,
-  // so resting statuses (idle/completed) drop; live activity still shows.
-  const statuses = sessionStatuses(node, t)
-    .filter(status => !(node.archived && (status.state === 'done' || status.state === 'idle')))
+  // Archived rows show live activity but suppress idle and unread reminders.
+  const statuses = sessionStatuses(node.archived ? { ...node, completed: false, failed: false, runtimeFailed: false } : node, t)
+    .filter(status => !(node.archived && status.state === 'idle'))
   return (
     <div className={css.hoverContent}>
       <div className={css.hoverTitle}>{displayTitle(node, t)}</div>
@@ -677,11 +661,11 @@ export function SearchResultItem({
  * @returns the session row.
  */
 export function SessionNodeItem({
-  node, currentId, now, onOpen, onRenameRequest, renderSlot, openSessionMenu, useContextMenuTarget,
+  node, currentId, now, onOpen, onRenameRequest, renderSlot, renderFactorySlot, useContextMenuTarget,
   useContextMenu, onReveal, drag, appearance, home, useSessionAccess, t,
 }: {
   useContextMenu: WorkspaceBrowserProps['useContextMenu']
-  openSessionMenu: WorkspaceBrowserProps['openSessionMenu']
+  renderFactorySlot: WorkspaceBrowserProps['renderFactorySlot']
   useContextMenuTarget: WorkspaceBrowserProps['useContextMenuTarget']
   node: SessionNode
   currentId: string | undefined
@@ -803,8 +787,8 @@ export function SessionNodeItem({
         }}
     >
       {/* Pending interaction and own or descendant activity outrank the
-          finished-but-unviewed reminder, which returns after activity stops
-          and is cleared by opening the session. Archived rows keep the slot
+          unread reminder, which returns after activity stops
+          and clears after the visible content is acknowledged. Archived rows keep the slot
           blank — the grayed row carries the archived look — and their live
           status stays on the hover card only. */}
       <span className={css.slot}>
@@ -857,15 +841,11 @@ export function SessionNodeItem({
           button needs no propagation handling of its own. */}
       {!row.blank && (
         <span className={css.rowActions} onClick={(e) => { e.stopPropagation() }}>
-          <button type="button" className={css.iconButton}
-            aria-label={t('actions.session.aria', { name: title })}
-            onPointerDown={(event) => { event.stopPropagation() }}
-            data-context-menu-trigger=""
-            onClick={(event) => {
-              event.currentTarget.focus({ preventScroll: true })
-              const rect = event.currentTarget.getBoundingClientRect()
-              openSessionMenu(node.id, row.title, { x: rect.left, y: rect.bottom }, 'toggle')
-            }}><IconEllipsisOutlineRegular /></button>
+          {renderFactorySlot('contextMenu.button', {
+            target: { kind: 'session', value: { sessionId: node.id, displayTitle: row.title } },
+            label: t('actions.session.aria', { name: title }),
+            className: css.iconButton,
+          })}
           <span className={css.rowQuickActions}>
             {renderSlot('sidebar.workspaces.session.row.action', { sessionId: node.id, displayTitle: row.title })}
           </span>

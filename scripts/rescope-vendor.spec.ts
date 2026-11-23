@@ -91,6 +91,7 @@ describe('product identifiers', () => {
     'docs/subsystems/extensions.md',
     'docs/upgrade-guide/v0.2.0-rc.2/schedule-bundle-retired/guide.md',
     'docs/upgrade-guide/v0.2.1-alpha.1/subagent-preset-composition/guide.md',
+    'docs/upgrade-guide/v0.2.2-alpha.2/fs-observation-policy-default-off/guide.md',
     'docs/user/guide/schedule.md',
     'packages/bundle/web-app/cordis.patch.yml',
     'packages/client/ui-agent-preset/src/client/CreatePluginMenuItem.tsx',
@@ -114,6 +115,11 @@ describe('product identifiers', () => {
     expect(rescopeText(text, file)).toEqual({ text, lines: 0 })
   })
 
+  it.each(['docs/tool-catalog.md', 'scripts/gen-tool-catalog.ts'])('leaves scoped catalog content intact in %s', (file) => {
+    const text = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8')
+    expect(isRescopeExcluded(file)).toBe(false)
+    expect(rescopeText(text, file)).toEqual({ text, lines: 0 })
+  })
   it('still renames other libraries in a preset consumer and reverses them', () => {
     const file = 'packages/client/ui-agent-preset/src/client/CreatePluginMenuItem.tsx'
     const text = "const preset = 'cordis'\nimport utils from 'cosmokit'\nimport Schema from 'schemastery'\n"
@@ -162,6 +168,7 @@ describe('product identifiers', () => {
     ['packages/client/ui-entry-customization/tests/menu.client.spec.tsx', 1],
     ['packages/client/ui-workspace/tests/workspaces-service.client.spec.ts', 1],
     ['packages/extensions/cordis-host-runner/tests/inspect-registry.spec.ts', 2],
+    ['scripts/gen-tool-catalog.ts', 1],
     ['snapshots/session/cordis-inspect-liveness/client-fixture.mjs', 1],
     ['snapshots/session/cordis-inspect-timeout/client-fixture.mjs', 2],
   ] as const)('reverses real package references in %s and restores them', (file, lines) => {

@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WorkspaceBrowserProps } from '../src/client/contract/slots.ts'
 import { zh } from '../src/client/locales.ts'
 import { ActivityList } from '../src/client/rows/ActivityList.tsx'
+import { renderMenuButton } from './menu-button.tsx'
 import { WorkspaceBrowser } from '../src/client/rows/WorkspaceBrowser.tsx'
 import type { RowRenderSlots } from '../src/client/rows/Rows.tsx'
 import { createWorkspaceViewStore, FLAT_SESSION_ORDER_KEY } from '../src/client/stores.ts'
@@ -111,6 +112,8 @@ function mountBrowser(
     searchSessions: vi.fn(async () => ({ items: [], hasMore: false })),
     searchResultLimit: 20,
     renderSlot: renderDirectoryFlowOnly,
+    renderFactorySlot: renderMenuButton,
+    useSectionScroller: () => ({ bindScrollerRef: () => {} }),
     t,
     ...overrides,
   }
@@ -137,18 +140,19 @@ it('keeps a revealed chat beyond the collapsed limit visible across Host list re
 
 describe('ActivityList row actions', () => {
   it('opens the registry Session menu for the captured activity row', () => {
-    const openSessionMenu = vi.fn()
+    const renderFactorySlot = vi.fn(renderMenuButton)
     const sessions = sessionList(summary('job', { running: true }))
     render(<ActivityList
       list={sessions} sessionIds={sessions.ids} rowState={{ pinnedSessionIds: [], archivedSessionIds: [], archivedFilter: 'default' }}
-      appearanceBySession={{}} openSessionMenu={openSessionMenu} useContextMenu={contextMenuHook()}
+      appearanceBySession={{}} renderFactorySlot={renderFactorySlot} useContextMenu={contextMenuHook()}
       useContextMenuTarget={select => select(null)} useSessionAccess={allowAllAccess.useSessionAccess}
       useSessionStatus={useSessionStatus as never} usePanelInfo={usePanelInfo} open={vi.fn()}
       onSessionRenameRequest={vi.fn()} renderSlot={renderSlot} t={t}
     />)
 
-    fireEvent.click(screen.getByRole('button', { name: '会话“job”的操作' }))
-    expect(openSessionMenu).toHaveBeenCalledWith(sid('job'), 'job', { x: 0, y: 0 }, 'toggle')
+    expect(renderFactorySlot).toHaveBeenCalledWith('contextMenu.button', expect.objectContaining({
+      target: { kind: 'session', value: { sessionId: sid('job'), displayTitle: 'job' } },
+    }))
   })
 })
 

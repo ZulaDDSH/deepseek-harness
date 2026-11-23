@@ -459,7 +459,7 @@
   height: 650px;
   border: 0;
   border-radius: var(--dsw-radius-lg);
-  background: #0f0f1a;
+  background: var(--dsw-alias-bg-layer-1);
 }
 
 @media (max-width: 900px) {

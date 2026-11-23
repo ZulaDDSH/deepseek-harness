@@ -52,45 +52,27 @@ describe('dsh-tool-subagent model selection', () => {
       .toThrow('requires non-empty provider and model ids')
   })
 
-  it('allows pure inheritance but rejects explicit values outside a Session allowlist', () => {
+  it('checks exact routes against the Session allowlist and limits an absent policy to the parent route', () => {
     const policy = {
       routes: [{ provider: 'alpha', model: 'allowed-model' }],
     }
     const parent = { provider: 'alpha', model: 'parent-model' }
 
-    expect(() => { assertAllowedModelSelection(policy, parent, undefined, {}) }).not.toThrow()
     expect(() => {
-      assertAllowedModelSelection(
-        policy,
-        parent,
-        { provider: 'alpha', model: 'allowed-model' },
-        { provider: 'alpha', model: 'allowed-model' },
-      )
+      assertAllowedModelSelection(policy, parent, { provider: 'alpha', model: 'allowed-model' })
     }).not.toThrow()
     expect(() => {
-      assertAllowedModelSelection(
-        policy,
-        parent,
-        { provider: 'alpha', model: 'other-model' },
-        { provider: 'alpha', model: 'other-model' },
-      )
+      assertAllowedModelSelection(policy, parent, { provider: 'alpha', model: 'other-model' })
     }).toThrow('is not allowed for this Session')
     expect(() => {
-      assertAllowedModelSelection(
-        policy,
-        parent,
-        { reasoningEffort: ReasoningEffortId('low') },
-        { reasoning_effort: 'low' },
-      )
+      assertAllowedModelSelection(policy, parent, { provider: 'alpha', model: 'parent-model' })
     }).toThrow('alpha/parent-model')
     expect(() => {
-      assertAllowedModelSelection(
-        policy,
-        {},
-        { reasoningEffort: ReasoningEffortId('low') },
-        { reasoning_effort: 'low' },
-      )
-    }).toThrow('without an effective provider and model')
+      assertAllowedModelSelection(undefined, parent, { provider: 'alpha', model: 'parent-model' })
+    }).not.toThrow()
+    expect(() => {
+      assertAllowedModelSelection(undefined, parent, { provider: 'alpha', model: 'other-model' })
+    }).toThrow('without a recorded model-selection policy')
   })
 
   it('leaves deployment or parent defaults outside the allowlist usable when the call selects nothing', async () => {
@@ -110,6 +92,22 @@ describe('dsh-tool-subagent model selection', () => {
     expect(result.isError).toBe(false)
     expect(starts).toBe(1)
   })
+
+  it('rejects a configured default route outside the Session allowlist before startup', async () => {
+    let starts = 0
+    const ctx = await setup({
+      provider: 'mock',
+      withModelSelection: true,
+      parentAgentOptions: parentWithRoute().options,
+      agentOptions: { provider: 'other-provider' },
+    }, { onStart: () => { starts += 1 } })
+
+    const result = await callSubagent(ctx, { description: 'default route', prompt: 'do it' })
+
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('other-provider/parent-model')
+    expect(starts).toBe(0)
+  })
   it('exposes Session-authorized route fields and discovery when selection is enabled', async () => {
     const ctx = await setup({ provider: 'mock', withModelSelection: true }, { capabilities: { toolFilter: true } })
     const agent = modelSelectionSetupAgent(ctx)
@@ -123,6 +121,7 @@ describe('dsh-tool-subagent model selection', () => {
       'prompt',
       'provider',
       'reasoning_effort',
+      'role',
       'run_in_background',
     ])
     expect(schema.description).not.toContain('list_subagent_models')
@@ -150,7 +149,7 @@ describe('dsh-tool-subagent model selection', () => {
     const ctx = await setup({ provider: 'mock', parentAgentOptions: { provider: 'alpha', model: 'parent-model' } })
     const schema = ctx.tools.schemas().find(entry => entry.name === 'subagent')!
     const props = (schema.parameters as { properties?: Record<string, unknown> }).properties ?? {}
-    expect(Object.keys(props).sort()).toEqual(['cwd', 'description', 'prompt', 'run_in_background'])
+    expect(Object.keys(props).sort()).toEqual(['cwd', 'description', 'prompt', 'role', 'run_in_background'])
     expect(schema.description).not.toContain('list_subagent_models')
     expect(ctx.tools.get('list_subagent_models')).toBeUndefined()
 
@@ -211,7 +210,7 @@ describe('dsh-tool-subagent model selection', () => {
     const agent = modelSelectionSetupAgent(ctx)
     const schema = ctx.tools.schemas(agent).find(entry => entry.name === 'subagent')!
     const props = (schema.parameters as { properties?: Record<string, unknown> }).properties ?? {}
-    expect(Object.keys(props).sort()).toEqual(['cwd', 'description', 'model', 'prompt', 'provider', 'reasoning_effort', 'run_in_background'])
+    expect(Object.keys(props).sort()).toEqual(['cwd', 'description', 'model', 'prompt', 'provider', 'reasoning_effort', 'role', 'run_in_background'])
     expect(schema.description).not.toContain('list_subagent_models')
     expect(schema.description).not.toContain('Changing the route can prevent provider-side reuse')
     expect(ctx.tools.get('list_subagent_models', agent)).toBeDefined()
@@ -586,7 +585,7 @@ describe('dsh-tool-subagent model selection', () => {
     })
     const schema = ctx.tools.schemas(agent).find(entry => entry.name === 'subagent')!
     const props = (schema.parameters as { properties?: Record<string, unknown> }).properties ?? {}
-    expect(Object.keys(props).sort()).toEqual(['cwd', 'description', 'prompt', 'run_in_background'])
+    expect(Object.keys(props).sort()).toEqual(['cwd', 'description', 'prompt', 'role', 'run_in_background'])
     expect(schema.description).toContain('inherits this conversation')
     expect(schema.description).not.toContain('list_subagent_models')
     expect(ctx.tools.get('list_subagent_models', agent)).toBeUndefined()

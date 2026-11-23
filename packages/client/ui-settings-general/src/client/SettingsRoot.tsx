@@ -92,7 +92,11 @@ function SettingsPanel({ rows, renderSlot, activeId, t, useSaveStatus, onSelect,
                 onFocus={(event) => { event.currentTarget.scrollIntoView({ block: 'nearest', inline: 'nearest' }) }}
                 onClick={() => { onSelect(row.id) }}
               >
-                {navIcon(row.id)}
+                <span className={css.navIcon} aria-hidden="true">
+                  {renderSlot('settings.section.icon', { size: 16, active: row.id === active }, {
+                    only: row.id, fallback: navIcon(row.id),
+                  })}
+                </span>
                 <span className={css.navLabel}>{row.label}</span>
               </button>
             ))}
@@ -191,7 +195,10 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
     <>
       <div className={clsx(css.triggerRow, !wide && css.railRow)}>
         {renderSlot('settings.launcher', {
-          wide, settingsOpen: open, openSettings: actions.open, openSection,
+          wide, settingsOpen: open, openSettings: (sectionId?: string) => {
+            if (sectionId === undefined) actions.open()
+            else actions.openSection(sectionId)
+          }, openSection,
           ...(shortcut?.keys.length ? { settingsShortcut: { keys: shortcut.keys, aria: shortcut.aria } } : {}),
         }, { fallback: <Tooltip disabled={open} label={t('trigger')} shortcutKeys={shortcut?.keys}>
           <button

@@ -467,7 +467,7 @@ describe('real Claude Agent SDK 0.3.296 and its distributed Claude Code 2.1.296 
     ])
     await safeInstance.fixture.requestStarted
     await safeFiber.dispose()
-    expect(ctx.subagents.list()).toEqual(['claude-bypass'])
+    expect(ctx.subagents.getProvider('claude-bypass')).toBeDefined()
     await expect(startExternalActivation(ctx, 'claude-safe', {
       prompt: [{ type: 'text', text: 'This start must fail.' }],
       parent: safeParent,
@@ -497,7 +497,7 @@ describe('real Claude Agent SDK 0.3.296 and its distributed Claude Code 2.1.296 
       ].sort())
     await expectQuiescent(handles)
     await bypassFiber.dispose()
-    expect(ctx.subagents.list()).toEqual([])
+    expect(ctx.subagents.getProvider('claude-bypass')).toBeUndefined()
   })
 
   it('maps a real CLI process failure to its exit outcome', async () => {

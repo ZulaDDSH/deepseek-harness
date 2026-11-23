@@ -4,7 +4,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { authenticateWebHost, forwardWebRequest, serveWebDocument } from '../src/web-document.ts'
+import { forwardWebRequest, serveWebDocument } from '../src/web-document.ts'
 
 const roots: string[] = []
 const servers: Server[] = []
@@ -39,14 +39,6 @@ it('serves the Web entry and assets without starting or contacting a Host', asyn
   expect(fetch).not.toHaveBeenCalled()
   expect((await serveWebDocument(new Request('dsh-app://app/%2e%2e%2fprivate'), root)).status).toBe(403)
   expect((await serveWebDocument(new Request('dsh-app://app/missing.js'), root)).status).toBe(404)
-})
-
-it('requires the Host authentication exchange and retains only its cookie value', async () => {
-  const fetch = vi.fn().mockResolvedValueOnce(new Response(null, { status: 303, headers: { 'set-cookie': 'session=owned; HttpOnly; SameSite=Strict' } }))
-    .mockResolvedValueOnce(new Response('unauthorized', { status: 401 }))
-  vi.stubGlobal('fetch', fetch)
-  expect(await authenticateWebHost('http://127.0.0.1:1234/?token=owned')).toBe('session=owned')
-  await expect(authenticateWebHost('http://127.0.0.1:1234/')).rejects.toThrow('authentication failed')
 })
 
 it('forwards upload bytes and Host credentials and relays the streamed response', async () => {

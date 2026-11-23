@@ -81,5 +81,7 @@ convert(request: OfficeToPdfRequest, signal?: AbortSignal): Promise<OfficeToPdfR
 @Remote('generation') getGeneration(signal: AbortSignal): OfficeToPdfGeneration
 ```
 
+Types: [RenderedDocumentBytes](office-kit.md)
+
 Source: [`packages/document/office-to-pdf/src/index.ts`](../../packages/document/office-to-pdf/src/index.ts)
 <!-- END GENERATED cordis-surface -->

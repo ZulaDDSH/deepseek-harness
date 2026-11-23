@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { MessageId, ToolCallId } from '@deepseek-ai/dsh-llm/brand'
+import { MessageId, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -37,13 +37,14 @@ class StubSubagents extends Service {
   startActivation(spec: {
     provider: string
     label: string
-    request: { prompt: { type: string; text: string }[]; maxDepth?: number }
+    prompt: { type: string; text: string }[]
+    maxDepth?: number
   }): Promise<{ childId: SessionId; messageId: MessageId }> {
     this.captured.push({
       provider: spec.provider,
       label: spec.label,
-      prompt: spec.request.prompt.map(block => block.text).join(''),
-      ...spec.request.maxDepth !== undefined ? { maxDepth: spec.request.maxDepth } : {},
+      prompt: spec.prompt.map(block => block.text).join(''),
+      ...spec.maxDepth !== undefined ? { maxDepth: spec.maxDepth } : {},
     })
     return Promise.resolve({ childId: SessionId('child-1'), messageId: MessageId('message-1') })
   }

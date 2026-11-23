@@ -70,7 +70,7 @@ export function ultracodeActive(ctx: Context, session: Session): boolean {
     && ultracodeSupported(sessionModelOf(ctx, session).model)
 }
 
-const runOptionsProjection = {
+export const runOptionsProjection = {
   key: 'runOptions',
   stateSchema,
   init: () => ({ current: null }),

@@ -17,7 +17,7 @@ import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client
 import { RemoteError, TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import type { ModelSelection } from '@deepseek-ai/dsh-agent/types'
 import type { ModelSelectionProjection } from '@deepseek-ai/dsh-agent/types'
-import { ReasoningEffortId } from '@deepseek-ai/dsh-llm/brand'
+import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { CommandContribution, PopupSelectSpec, SelectOption } from '@deepseek-ai/dsh-client-ui-commands/client'
 import type { ModelSelectInjected } from '../src/client/slots.ts'
 import { apply, inject } from '../src/client/index.ts'
@@ -157,8 +157,6 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
   })
   ctx.provide('uiWorkspace', { openSession: vi.fn() } as never)
   ctx.provide('webTerminals', { cliProfiles: vi.fn(async () => []) } as never)
-  ctx.provide('uiConversation', { binding: () => ({ activate: vi.fn() }) } as never)
-  ctx.provide('configForms', { get: () => ({ getSnapshot: () => ({ value: undefined }), subscribe: () => () => {} }) } as never)
   const track = vi.fn()
   ctx.provide('productAnalytics', { enabled: true, track } as never)
   const fiber = ctx.plugin({ inject: [...inject], apply })
@@ -194,7 +192,6 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
       return ui
     },
     seat: () => seats.get('conversation.input.model')!,
-    routedSeat: () => seats.get('conversation.input.right'),
     hostCurrent: () => selected,
     rejectSelection: () => {
       selectionFailure = new RemoteError('session/writer-held', 'writer held', { sessionId: sid('owned') })
@@ -231,7 +228,6 @@ describe('ui-model-selection dual entry', () => {
     expect(b.seat().inject).toBeTypeOf('function')
     // Copy rides the standard locale seat.
     expect(b.seat().locale).toBe('model')
-    expect(b.routedSeat()?.locale).toBe('model')
   })
 
   it.each([['zh', '新'], ['en', 'New']] as const)('resolves seat badge text for the active %s locale', async (locale, expected) => {
@@ -260,7 +256,6 @@ describe('ui-model-selection dual entry', () => {
       undefined,
       'Provider-authored description.',
     ])
-    expect(b.popup().searchMode).toBe('fuzzy-label')
     expect(options[0]?.active).toBe(true)
     expect(options[1]?.active).toBeUndefined()
     expect(b.popup().searchLabels?.()).toEqual(locale === 'zh'

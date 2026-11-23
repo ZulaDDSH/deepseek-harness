@@ -9,6 +9,7 @@ export interface OAuthMcpFixture extends HttpMcpFixture {
   rejectRefresh(code?: 'invalid_grant' | 'server_error'): void
   acceptRefresh(): void
   dropAuthorizationServer(): void
+  dropRefresh(): void
   refuseAccess(): void
   requireScope(scope: string): void
 }
@@ -29,6 +30,7 @@ export async function startOAuthMcpFixture(): Promise<OAuthMcpFixture> {
   let tokenCount = 0
   let refreshRejected: 'invalid_grant' | 'server_error' | undefined
   let dropTokens = false
+  let dropRefreshRequest = false
   let refusingAccess = false
   let requiredScope: string | undefined
   const state = { registrations: 0, refreshes: 0 }
@@ -91,6 +93,10 @@ export async function startOAuthMcpFixture(): Promise<OAuthMcpFixture> {
       }
       case '/token': {
         const form = new URLSearchParams(await body(request))
+        if (dropRefreshRequest && form.get('grant_type') === 'refresh_token') {
+          request.socket.destroy()
+          return true
+        }
         if (form.get('grant_type') === 'authorization_code' && form.get('code') === 'code-1' && form.has('code_verifier')) {
           issue(response)
         } else if (form.get('grant_type') === 'refresh_token' && refreshRejected === undefined && form.get('refresh_token')?.startsWith('refresh-') === true) {
@@ -116,6 +122,7 @@ export async function startOAuthMcpFixture(): Promise<OAuthMcpFixture> {
     rejectRefresh: (code = 'invalid_grant') => { refreshRejected = code },
     acceptRefresh: () => { refreshRejected = undefined },
     dropAuthorizationServer: () => { dropTokens = true },
+    dropRefresh: () => { dropRefreshRequest = true },
     refuseAccess: () => { refusingAccess = true; accepted.clear() },
     requireScope: (scope: string) => { requiredScope = scope },
   }

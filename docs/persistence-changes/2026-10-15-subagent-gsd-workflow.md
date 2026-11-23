@@ -38,7 +38,7 @@ Same version. The `gsd` property is optional, so existing run-options data reads
 <a id="verification"></a>
 ## Verification
 
-`packages/api/session-controller/tests/subagent-setup.host.spec.ts` covers the schema defaults and rejections, the GSD prompt section and its top-level-only gate, and the global default fallback. `packages/client/ui-subagent/tests/subagent-setup-contract.client.spec.ts` pins the browser copy to the Host text. Run: `vitest packages/api/session-controller packages/client/ui-subagent scripts/client-bundle-purity.spec.ts`, then `npx tsx scripts/persistence-changes.ts --check`.
+`packages/api/session-controller/tests/subagent-setup.host.spec.ts` covers the schema defaults and rejections, the GSD prompt section and its top-level-only gate, and the global default fallback. The browser-side copy check was removed with the Subagent Setup UI. Run: `vitest packages/api/session-controller`, then `npx tsx scripts/persistence-changes.ts --check`.
 
 <a id="dev-note"></a>
 ## Dev Note

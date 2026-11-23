@@ -29,10 +29,10 @@ function assertNever(value: never): never {
  * @returns the primary status followed by every other relevant status.
  */
 export function sessionStatuses(
-  node: Pick<SessionNode, 'pendingInteraction' | 'running' | 'runningSubagentCount' | 'completed' | 'failed'>,
+  node: Pick<SessionNode, 'pendingInteraction' | 'running' | 'runningSubagentCount' | 'completed' | 'failed' | 'runtimeFailed'>,
   t: RowTranslate,
 ): readonly [SessionStatus, ...SessionStatus[]] {
-  if (node.failed === true) {
+  if (node.runtimeFailed === true) {
     return [{ state: 'error', label: t('status.failed'), trailingLabel: t('status.failed') }]
   }
   const subagents: SessionStatus | undefined = node.runningSubagentCount === 0
@@ -73,13 +73,17 @@ export function sessionStatuses(
     /* v8 ignore next -- closed PendingInteractionStatus union */
     default: return assertNever(node.pendingInteraction)
   }
-  if (pending !== undefined) return subagents === undefined ? [pending] : [pending, subagents]
+  const completion: SessionStatus = node.failed
+    ? { state: 'error', label: t('status.failed') }
+    : { state: 'done', label: t('status.unread') }
+  const unread: SessionStatus[] = node.completed ? [completion] : []
+  if (pending !== undefined) return subagents === undefined ? [pending, ...unread] : [pending, subagents, ...unread]
   if (node.running) {
     const primary: SessionStatus = { state: 'ongoing', label: t('status.running') }
-    return subagents === undefined ? [primary] : [primary, subagents]
+    return subagents === undefined ? [primary, ...unread] : [primary, subagents, ...unread]
   }
-  if (subagents !== undefined) return [subagents]
-  if (node.completed) return [{ state: 'done', label: t('status.completed') }]
+  if (subagents !== undefined) return [subagents, ...unread]
+  if (node.completed) return [completion]
   return [{ state: 'idle', label: t('status.idle') }]
 }
 

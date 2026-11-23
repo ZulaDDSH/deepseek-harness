@@ -26,7 +26,6 @@ beforeAll(async () => {
   rootAgent = root.agent
   const worker = await context.agents.create({
     sessionId: SessionId('knowledge-authority-worker'),
-    parentAgent: rootAgent,
     meta: { parentSession: rootAgent.id, origin: 'subagent', delegationDepth: 1 },
     agentOptions: { provider: 'mock', model: 'mock' },
   })

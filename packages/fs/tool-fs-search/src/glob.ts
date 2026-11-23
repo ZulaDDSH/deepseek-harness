@@ -11,7 +11,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { sep } from 'node:path'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { ToolArgsError, defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, SearchResultView, ToolResult } from '@deepseek-ai/dsh-tools'
 import type { SpillRef } from '@deepseek-ai/dsh-spill'
 import { runRipgrep, toWorkdirRelative, trySaveFormattedResult } from './search-core.ts'
@@ -63,15 +63,15 @@ export interface GlobInput {
 
 /**
  * Validate value constraints the schema DSL can't express: a non-blank
- * `pattern`, and a non-blank `path` when given. Throws a plain `Error` (an
- * ordinary tool argument error) otherwise.
+ * `pattern`, and a non-blank `path` when given. Throws `ToolArgsError`
+ * (`INVALID_ARGS`) otherwise.
  *
  * @param args - the schema-validated `glob` arguments.
  * @returns the accepted input, unchanged.
  */
 export function parseGlobArgs(args: { pattern: string; path?: string; includeIgnored?: boolean }): GlobInput {
-  if (args.pattern.trim().length === 0) throw new Error('pattern must be a non-empty string')
-  if (args.path !== undefined && args.path.trim().length === 0) throw new Error('path must be a non-empty string when given')
+  if (args.pattern.trim().length === 0) throw new ToolArgsError(['pattern must be a non-empty string'])
+  if (args.path !== undefined && args.path.trim().length === 0) throw new ToolArgsError(['path must be a non-empty string when given'])
   return {
     pattern: args.pattern,
     ...args.path !== undefined ? { path: args.path } : {},
@@ -354,6 +354,8 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
       includeIgnored: { type: 'boolean', description: 'Also list files excluded by ignore files (.gitignore, .ignore) and node_modules. Defaults to false.' },
     },
     timeoutMs: caps.timeoutMs,
+    // Path listing records no file observation; over-cap spilling runs in model-ordered post-execute.
+    isConcurrencySafe: () => true,
     output: {
       schema: {
         type: 'object',

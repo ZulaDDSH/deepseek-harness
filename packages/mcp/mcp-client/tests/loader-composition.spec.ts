@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
-import { EntryTree } from '@deepseek-ai/cordis-plugin-loader/src/config/tree.ts'
+import { EntryTree } from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -27,7 +27,8 @@ const { mockConnect, mockClose, mockListTools, MockClient } = vi.hoisted(() => {
   return { mockConnect, mockClose, mockListTools, MockClient }
 })
 
-vi.mock('@modelcontextprotocol/client', () => ({
+vi.mock('@modelcontextprotocol/client', async importOriginal => ({
+  ...await importOriginal<typeof import('@modelcontextprotocol/client')>(),
   Client: MockClient,
   StreamableHTTPClientTransport: vi.fn(),
 }))

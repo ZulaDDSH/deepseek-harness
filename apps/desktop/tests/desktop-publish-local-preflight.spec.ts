@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
-import { preflightDesktopPublishLocal } from '../scripts/preflight-desktop-publish-local.mjs'
+import { preflightDesktopPublishLocal } from '@deepseek-ai/dsh-desktop-publisher/preflight-desktop-publish-local.mjs'
 
 it('checks the retained preset before approval and the approved preset before upload without opening credentials', async () => {
   const root = await mkdtemp(join(tmpdir(), 'publish-preflight-'))
@@ -33,4 +33,9 @@ it('checks the retained preset before approval and the approved preset before up
   } finally {
     await rm(root, { recursive: true, force: true })
   }
+})
+
+it('rejects missing website preparation outputs before reading local configuration', async () => {
+  await expect(preflightDesktopPublishLocal({ DSH_PACKAGING_CONFIG_DIR: tmpdir(), DESKTOP_PUBLISH_ROUTE: '' }))
+    .rejects.toThrow('selected package must identify a positive run ID and attempt')
 })

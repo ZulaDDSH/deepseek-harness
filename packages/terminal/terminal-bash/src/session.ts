@@ -338,8 +338,8 @@ export class LocalPtySession implements TerminalBackendSession {
     try {
       const operation = this.startSend({ text: '', submit: false, ...signal !== undefined ? { signal } : {} })
       const result = await operation.done
-      if (result.waitReason === 'session_exit') throw new Error('PTY shell exited during startup')
-      if (result.waitReason === 'timeout') throw new Error('PTY shell did not reach readiness before startup timeout')
+      if (result.waitReason === 'session_exit') throw new TerminalError('PTY shell exited during startup', 'STARTUP_EXITED')
+      if (result.waitReason === 'timeout') throw new TerminalError('PTY shell did not reach readiness before startup timeout', 'STARTUP_TIMEOUT')
       this.motd = result.viewport
     } catch (error: unknown) {
       signal?.throwIfAborted()
@@ -350,8 +350,8 @@ export class LocalPtySession implements TerminalBackendSession {
   }
 
   startSend(request: TerminalSendRequest): TerminalSendOperation {
-    if (this.closing) throw new Error('PTY session is closing')
-    if (this.statusValue.kind === 'exited') throw new Error('PTY session has exited')
+    if (this.closing) throw new TerminalError('PTY session is closing', 'SESSION_CLOSING')
+    if (this.statusValue.kind === 'exited') throw new TerminalError('PTY session has exited', 'SESSION_EXITED')
     if (this.active !== undefined) {
       const draining = this.activeWrite !== undefined
         ? ' or draining provider write'
@@ -360,7 +360,12 @@ export class LocalPtySession implements TerminalBackendSession {
           : ''
       throw new TerminalError(`PTY session already has an active send${draining}`, 'SEND_ACTIVE')
     }
-    if (request.signal?.aborted === true) throw new Error('PTY send aborted before write')
+    if (request.signal?.aborted === true) {
+      // Named as a cancellation so the tool registry classifies it as the caller's abort.
+      const aborted = new Error('PTY send aborted before write')
+      aborted.name = 'AbortError'
+      throw aborted
+    }
 
     const readinessWatch = request.readinessAfterLine === undefined
       ? undefined
@@ -479,16 +484,16 @@ export class LocalPtySession implements TerminalBackendSession {
     }
   }
 
-  async signal(signal: TerminalSignal): Promise<TerminalSignalResult> {
-    if (this.closing) throw new Error('PTY session is closing')
-    const targetPgid = await this.terminal.signalForeground(signal)
-    return { delivered: true, targetPgid }
-  }
-
   watchLine(line: string): { seen(): boolean; dispose(): void } {
     const watch = { line, tail: this.atLineBoundary ? '\n' : '', matched: false }
     this.lineWatches.add(watch)
     return { seen: () => watch.matched, dispose: () => { this.lineWatches.delete(watch) } }
+  }
+
+  async signal(signal: TerminalSignal): Promise<TerminalSignalResult> {
+    if (this.closing) throw new TerminalError('PTY session is closing', 'SESSION_CLOSING')
+    const targetPgid = await this.terminal.signalForeground(signal)
+    return { delivered: true, targetPgid }
   }
 
   status(): TerminalSessionStatus {
@@ -580,7 +585,9 @@ export class LocalPtySession implements TerminalBackendSession {
       watch.tail = received.slice(-(watch.line.length + 3))
     }
     const readinessBoundary = this.active?.observeReadinessLine() ?? false
-    if (readinessBoundary) this.resetReadinessEvidence()
+    if (readinessBoundary) {
+      this.resetReadinessEvidence()
+    }
     this.atLineBoundary = text.endsWith('\n')
     this.lastOutputAt = Date.now()
     this.scrollback.append(text)

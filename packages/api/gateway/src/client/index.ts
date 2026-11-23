@@ -36,7 +36,8 @@ import {
 import { cancelledFailure, carrierFailure, deadlineFailure, rebuiltFailure, withdrawn } from './failures.ts'
 
 export { cancelledFailure, carrierFailure, isRemoteFailure } from './failures.ts'
-export { RemoteStreamCarrierError } from './stream-client.ts'
+export { isRemoteStreamCarrierFailure, RemoteStreamCarrierError } from './stream-client.ts'
+export type { RemoteStreamCarrierFailure } from './stream-client.ts'
 export { RemoteJournalStream } from './journal-stream.ts'
 export type {
   RemoteJournalChange,

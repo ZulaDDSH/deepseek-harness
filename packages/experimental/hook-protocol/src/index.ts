@@ -13,6 +13,7 @@ export type {
   MatcherGroup,
   MatcherMode,
 } from './types.ts'
+export { HOOK_BLOCKED, HOOK_DENIED, HOOK_ERROR_NAME } from './errors.ts'
 export { hookToolName, matcherDiagnostic, matchesHookSubject, matchesMatcher, selectHookGroups } from './matcher.ts'
 export { createStopLoopGuard, DEFAULT_MAX_FORCED_STOPS } from './stop-guard.ts'
 export type { StopLoopGuard } from './stop-guard.ts'

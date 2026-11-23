@@ -3,6 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type OfficeKit from '@deepseek-ai/dsh-office-kit'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SqliteSessionQueryEngine from '@deepseek-ai/dsh-session-query-sqlite'
@@ -20,7 +21,7 @@ import PlanModeController from '@deepseek-ai/dsh-plan-mode'
 import ActionCards from '@deepseek-ai/dsh-action-cards'
 import RemoteAccess from '@deepseek-ai/dsh-api-remote-access'
 import WebRuntime from '@deepseek-ai/dsh-web'
-import * as WebSearchExa from '@deepseek-ai/dsh-web-search-exa'
+import * as WebDeepSeekApi from '@deepseek-ai/dsh-web-deepseek-api'
 import * as WebFetchLocal from '@deepseek-ai/dsh-web-fetch-http'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import type { SubagentProvider } from '@deepseek-ai/dsh-subagent'
@@ -38,11 +39,13 @@ import * as ToolPwshPersistent from '@deepseek-ai/dsh-tool-pwsh-persistent'
 import CordisHostRunner from '@deepseek-ai/dsh-cordis-host-runner'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolPresent from '@deepseek-ai/dsh-tool-present'
+import * as ToolOffice from '@deepseek-ai/dsh-tool-office'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
 import * as ToolStrReplaceEditor from '@deepseek-ai/dsh-tool-str-replace-editor'
 import TerminalSessionService from '@deepseek-ai/dsh-terminal'
 import * as ToolPty from '@deepseek-ai/dsh-tool-terminal'
+import * as TerminalPanel from '@deepseek-ai/dsh-terminal-panel'
 import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
 import ScheduleService from '@deepseek-ai/dsh-schedule'
 import * as ToolSchedule from '@deepseek-ai/dsh-tool-schedule'
@@ -53,7 +56,7 @@ import * as ToolSessionQuery from '@deepseek-ai/dsh-tool-session-query'
 import * as ToolJobs from '@deepseek-ai/dsh-tool-jobs'
 import BrowserUseRegistry from '@deepseek-ai/dsh-browser-use'
 import * as StagehandBrowserTools from '@deepseek-ai/dsh-experimental-browser-use-stagehand-native'
-import * as ToolTeam from '@deepseek-ai/dsh-experimental-tool-agent-team'
+import * as ToolTeam from '@deepseek-ai/dsh-tool-agent-team'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import type PluginManager from '@deepseek-ai/dsh-plugin-manager'
 import * as PluginManagerTools from '@deepseek-ai/dsh-plugin-manager/tools'
@@ -171,6 +174,35 @@ export interface ToolPackage {
  * guard proves it is exhaustive against the on-disk glob.
  */
 export const TOOL_PACKAGES: ToolPackage[] = [
+  {
+    pkg: '@deepseek-ai/dsh-tool-office',
+    dir: 'tool-office',
+    source: 'packages/document/tool-office/src/index.ts',
+    requires: ['ctx.workingDirectory', 'ctx.tools', 'ctx.fs', 'ctx.agents', 'ctx.officeKit', 'ctx.attachments and ctx.llm for office_render'],
+    writes: ['tool/call', 'tool/result with rendered image attachments', 'temporary converted files in the Office kit output store'],
+    async mount(ctx) {
+      ctx.provide('officeKit', {} as OfficeKit)
+      await ctx.plugin(AgentRegistry)
+      await ctx.plugin(ToolOffice)
+    },
+    note: 'Declared to an Agent from the step after it successfully loads an Office skill, and kept while the previous request header declares an Office tool. Admitted calls fail with the Office service\'s unavailable error when LibreOffice Kit is not installed.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-terminal-panel',
+    dir: 'terminal-panel',
+    source: 'packages/experimental/terminal-panel/src/tools.ts',
+    requires: ['ctx.tools', 'ctx.systemPrompt', 'ctx.terminals', 'ctx.terminalController', 'ctx.sandboxPolicy', 'a calling Agent'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      ctx.provide('terminalController', {} as Context['terminalController'])
+      await ctx.plugin(SandboxPolicy)
+      await ctx.plugin(TerminalSessionService)
+      await ctx.plugin(TerminalPanel, TerminalPanel.Config({}))
+    },
+    note:
+      'The package also serves the six `terminal_*` tools from Web sidebar terminals. `user_terminal_list` and `user_terminal_read` only read terminals the user controls; `readUserTerminals: false` removes both.',
+  },
+
   {
     pkg: '@deepseek-ai/dsh-knowledge-router',
     dir: 'knowledge-router',
@@ -553,8 +585,9 @@ export const TOOL_PACKAGES: ToolPackage[] = [
       interrupt_agent: 'packages/subagent/tool-subagent-control/src/index.ts',
       list_agents: 'packages/subagent/tool-subagent-control/src/list-agents.ts',
       send_message: 'packages/subagent/tool-subagent-control/src/index.ts',
+      wait_agent: 'packages/subagent/tool-subagent-control/src/wait-agent.ts',
     },
-    requires: ['ctx.tools', 'ctx.subagents', 'ctx.agents'],
+    requires: ['ctx.tools', 'ctx.subagents', 'ctx.agents', 'ctx.systemPrompt'],
     writes: ['tool/call', 'tool/result', 'child session events through ctx.subagents'],
     async mount(ctx) {
       await ctx.plugin(SubagentRuntime)
@@ -564,7 +597,7 @@ export const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolSubagentControl)
     },
     note:
-      'The globally named discovery, interruption, and local-message tools over managed subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while one instance of this package registers `send_message`, `interrupt_agent`, and `list_agents`.',
+      'The globally named discovery, interruption, and local-message tools over managed subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while one instance of this package registers `send_message`, `interrupt_agent`, `list_agents`, and `wait_agent`.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-master-control',
@@ -599,27 +632,18 @@ export const TOOL_PACKAGES: ToolPackage[] = [
       'The kind-agnostic background-job controller: background bash commands and PTY sends are read, listed, and killed through the same three tools. Loading the plugin attaches the controller that arms producers\' `ctx.jobs.start()`.',
   },
   {
-    pkg: '@deepseek-ai/dsh-experimental-tool-agent-team',
+    pkg: '@deepseek-ai/dsh-tool-agent-team',
     dir: 'tool-agent-team',
-    source: 'packages/experimental/tool-agent-team/src/index.ts',
-    requires: ['ctx.tools', 'ctx.systemPrompt', 'ctx.agentTeams', 'ctx.subagents', 'an exact live Team member Agent'],
-    writes: ['tool/call', 'team/member', 'team/message/queued', 'team/message/delivered', 'team/task', 'agent/inbox/spliced', 'user/message on inbox claim', 'tool/result'],
+    source: 'packages/team/tool-agent-team/src/index.ts',
+    requires: ['ctx.tools', 'ctx.systemPrompt', 'ctx.agentTeams', 'ctx.subagents', 'a calling Agent'],
+    writes: ['tool/call', 'team/task', 'tool/result'],
     async mount(ctx) {
       await ctx.plugin(AgentRegistry)
       await ctx.plugin(SessionStore)
       await ctx.plugin(SubagentRuntime)
       const session = ctx.sessions.create(SessionId('tool-catalog-team-lead'))
       let agent!: Agent
-      const membership = {
-        get root() { return agent },
-        id: session.id,
-        role: 'lead' as const,
-        name: 'lead',
-      }
-      ctx.provide('agentTeams', {
-        tryMembership: (candidate: Agent) => candidate === agent ? membership : undefined,
-        membership: () => membership,
-      } as never)
+      ctx.provide('agentTeams', { isEnabled: (candidate: Agent) => candidate === agent } as never)
       await ctx.plugin(Object.assign(async (inner: Context) => {
         agent = {
           id: session.id,
@@ -635,7 +659,7 @@ export const TOOL_PACKAGES: ToolPackage[] = [
     },
     scope: ctx => catalogChildScopes.get(ctx) as Agent,
     note:
-      'All nine tools are scoped to implicit Team Leads and durable teammates. send_message, interrupt_agent, and list_agents also reach the direct subagents the caller started. The shipped dsh-base bundle keeps the package disabled; the documented Agent Teams profile patch enables it while disabling the legacy continuable-child control names.',
+      'Shared task-board tools use the ordinary subagent runtime for delegation and messaging. Task updates stay in the Team Lead log and never start or message a child by themselves.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-todo',
@@ -721,7 +745,7 @@ export const TOOL_PACKAGES: ToolPackage[] = [
     writes: ['tool/call', 'tool/result'],
     async mount(ctx) {
       await ctx.plugin(WebRuntime)
-      await ctx.plugin(WebSearchExa)
+      await ctx.plugin(WebDeepSeekApi)
       await ctx.plugin(WebFetchLocal)
       await ctx.plugin(ToolWeb)
     },

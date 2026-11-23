@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
+import { renderMenuButton } from './menu-button.tsx'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { WorkspaceId, WorkspaceSnapshot, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
-import type {
-  SessionPendingInteraction, SessionStatus, SessionStatusSnapshot,
-} from '@deepseek-ai/dsh-client-ui-session/client'
+import type { SessionPendingInteraction } from '@deepseek-ai/dsh-client-ui-session/client'
+import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session-status/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
   allowAllAccess, bindSnapshotSelector, contextMenuHook, makeTranslate,
@@ -44,7 +44,7 @@ const view = (expandedGroups: readonly string[] = []) => ({ expandedGroups })
 const status = (
   pendingInteraction: SessionPendingInteraction | undefined,
   overrides: Partial<SessionStatus> = {},
-): SessionStatus => ({ running: undefined, pendingInteraction, completionUnread: false, ...overrides })
+): SessionStatus => ({ running: undefined, pendingInteraction, completionUnread: false, completionFailed: false, ...overrides })
 const approval = (id: string): SessionPendingInteraction =>
   ({ key: 'approval:1', kind: 'approval', sessionId: sid(id) }) as SessionPendingInteraction
 const rowState = (archived: readonly string[] = [], archivedFilter: 'default' | 'show' = 'default') => ({
@@ -65,6 +65,17 @@ describe('deriveGroups folded attention', () => {
     )
     expect(group?.sessions).toEqual([])
     expect(group?.attention).toEqual({ failed: 0, pending: 1, running: 0 })
+  })
+
+  it.each([
+    { failureUnread: true },
+    { completionUnread: true, completionFailed: true },
+  ])('folds an unread failure into collapsed group attention', (failure) => {
+    const statuses: SessionStatusSnapshot = new Map([[sid('failed'), status(undefined, failure)]])
+    const [group] = deriveGroups(
+      list(summary('failed', 1)), [workspace('project', ['failed'])], rowState(), statuses, view(),
+    )
+    expect(group?.attention).toEqual({ failed: 1, pending: 0, running: 0 })
   })
 
   it('leaves attention unset for idle groups and ignores archived running Sessions', () => {
@@ -107,8 +118,9 @@ describe('ProjectRowItem attention dot', () => {
     }
     return render(<ProjectRowItem
       group={group} attention={attention} onToggle={vi.fn()} onCreate={vi.fn()} t={t}
-      useRemoteAccess={allowAllAccess.useRemoteAccess} useWorkspaceAccess={allowAllAccess.useWorkspaceAccess}
-      useContextMenu={contextMenuHook()} useContextMenuTarget={select => select(null)} openWorkspaceMenu={vi.fn()}
+      useWorkspaceAccess={allowAllAccess.useWorkspaceAccess}
+      useContextMenu={contextMenuHook()} useContextMenuTarget={select => select(null)}
+      renderFactorySlot={() => null}
     />)
   }
 
@@ -153,6 +165,8 @@ describe('WorkspaceBrowser folded subtree attention', () => {
     const props: WorkspaceBrowserProps = {
       ...allowAllAccess,
       wide: true,
+      renderFactorySlot: renderMenuButton,
+      useSectionScroller: () => ({ bindScrollerRef: () => {} }),
       expandSidebar: vi.fn(),
       usePanelInfo: selector => selector({ activePanelId: null }),
       useSessions: bindSnapshotSelector({ getSnapshot: () => sessionSnapshot, subscribe: () => () => {} }),

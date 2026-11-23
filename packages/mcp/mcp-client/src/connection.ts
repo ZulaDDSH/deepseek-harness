@@ -10,41 +10,95 @@
  * the next disconnect starts a fresh budget while a crash-looping server —
  * even one whose connects briefly succeed — still exhausts the cap instead of
  * restarting forever. Exhaustion unregisters the server's tools and stops;
- * disposal (including HMR) is the only way back from that state.
- *
- * Signalling the child belongs to the transport that spawned it. A stdio
- * child can exit while a descendant keeps its pipes open, so the transport's
- * `close` event may never arrive even though the process is gone; a numeric
- * pid captured before close is therefore not a safe kill target, because the
- * OS may have reissued it. Unconfirmed closure is reported, never reaped.
+ * a changed credential binding or a fresh instance resets that budget.
  *
  * @module
  */
 
-import { Client, type Transport } from '@modelcontextprotocol/client'
-import type { SignInProvider } from './oauth.ts'
+import { Client } from '@modelcontextprotocol/client'
 import type { Context } from '@deepseek-ai/cordis'
 import type { CredentialKey } from '@deepseek-ai/dsh-credentials'
-import { assertNever, type JsonValue } from '@deepseek-ai/dsh-util-values'
-import type { ServerContext } from './server-context.ts'
-import type { ResolvedReconnectPolicy } from './reconnect-policy.ts'
-import { buildChildEnv, createTransport } from './transport.ts'
-import { publicToolName, syncTools } from './tools.ts'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
+import { assertNever, deepEqualJson, type JsonValue } from '@deepseek-ai/dsh-util-values'
+import type { ServerContext } from './server-context.ts'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+import { withDeadline } from './deadline.ts'
+import { McpLocalError, mcpRequestError, McpToolError } from './diagnostic.ts'
+import type { McpStatusCell } from './status.ts'
+import type { McpCloseResult, McpConnectionStatus } from './types.ts'
+import { McpGeneration } from './generation.ts'
+import { McpTemplateBinding } from './credentials.ts'
+import { MissingTemplateValue } from './templates.ts'
+import { McpToolRegistrationError, publicToolName, syncTools } from './tools.ts'
+import type { ToolDisposers } from './tools.ts'
 import { registerHumanOperations } from './human-operations.ts'
-import { isAuthRequired } from './oauth.ts'
-import type { McpConnectionState } from './status.ts'
-import type { ToolBridgeOptions, ToolDisposers } from './tools.ts'
-import { resolveToolFilter } from './tool-filter.ts'
+import { isAuthRequired, type SignInProvider } from './oauth.ts'
+import { resolveToolFilter, toolAllowed } from './tool-filter.ts'
+import { buildChildEnv } from './transport.ts'
 import type { Config } from './index.ts'
+
+/** Automatic reconnect policy for one MCP server connection. */
+export interface ReconnectConfig {
+  /** Reconnect automatically after a lost connection (default true). */
+  enabled?: boolean
+  /** First reconnect delay in milliseconds; doubles per consecutive failed attempt (default 500). */
+  initialDelayMs?: number
+  /** Backoff ceiling in milliseconds; also the uptime after which the attempt budget resets (default 30000). */
+  maxDelayMs?: number
+  /** Consecutive failed attempts per outage before giving up for good (default 10). */
+  maxAttempts?: number
+}
+
+/** Defaults shared by the Config schema and {@link resolveReconnectPolicy}. */
+export const RECONNECT_DEFAULTS: Required<ReconnectConfig> = Object.freeze({
+  enabled: true,
+  initialDelayMs: 500,
+  maxDelayMs: 30_000,
+  maxAttempts: 10,
+})
 
 /** Default UTF-8 byte limit for attributed server instructions. */
 export const DEFAULT_MAX_INSTRUCTION_BYTES = 32_768
 
-// The SDK's stdio transport owns two two-second termination grace periods.
-// Keep one additional second for the process-close event that proves the old
-// generation is gone; timing out fails closed instead of overlapping children.
-const GENERATION_CLOSE_TIMEOUT_MS = 5_000
+/** Fully resolved reconnect policy captured at plugin load. */
+export type ResolvedReconnectPolicy = Readonly<Required<ReconnectConfig>>
+
+/**
+ * The one explicit resolve step from raw reconnect config to the policy the
+ * supervisor runs. Programmatic construction may bypass Schemastery
+ * normalization, so every default and bound is re-judged here — misconfiguration
+ * fails the plugin instance at load.
+ *
+ * @param config - Raw `reconnect` config; omission uses the defaults.
+ * @param path - Diagnostic prefix naming the config location in thrown messages.
+ * @returns The frozen resolved policy.
+ */
+export function resolveReconnectPolicy(config: ReconnectConfig | undefined, path: string): ResolvedReconnectPolicy {
+  if (config !== undefined) {
+    for (const key of Object.keys(config)) {
+      if (!Object.hasOwn(RECONNECT_DEFAULTS, key)) throw new Error(`${path}.${key} is not a reconnect option`)
+    }
+  }
+  const enabled = config?.enabled ?? RECONNECT_DEFAULTS.enabled
+  const initialDelayMs = config?.initialDelayMs ?? RECONNECT_DEFAULTS.initialDelayMs
+  const maxDelayMs = config?.maxDelayMs ?? RECONNECT_DEFAULTS.maxDelayMs
+  const maxAttempts = config?.maxAttempts ?? RECONNECT_DEFAULTS.maxAttempts
+  /* jscpd:ignore-start — domain-specific delay validation parallels llm retry-policy; not extractable */
+  if (!Number.isFinite(initialDelayMs) || initialDelayMs <= 0 || initialDelayMs > MAX_TIMER_DELAY_MS) {
+    throw new Error(`${path}.initialDelayMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`)
+  }
+  if (!Number.isFinite(maxDelayMs) || maxDelayMs <= 0 || maxDelayMs > MAX_TIMER_DELAY_MS) {
+    throw new Error(`${path}.maxDelayMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`)
+  }
+  if (initialDelayMs > maxDelayMs) {
+    throw new Error(`${path}.initialDelayMs must be less than or equal to maxDelayMs`)
+  }
+  if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
+    throw new Error(`${path}.maxAttempts must be a positive integer`)
+  }
+  /* jscpd:ignore-end */
+  return Object.freeze({ enabled, initialDelayMs, maxDelayMs, maxAttempts })
+}
 
 /** Result from the initial connection attempt, for startup-await semantics. */
 export interface ConnectionOutcome {
@@ -52,471 +106,414 @@ export interface ConnectionOutcome {
   error?: unknown
 }
 
-/** Sign-in capability of a connection: the record its flow writes and the bearer source. */
-export interface ConnectionAuth {
-  key: CredentialKey
-  provider: SignInProvider
-}
-
-/** Current connection state, as reported to configuration surfaces. */
-export interface ConnectionStatus {
-  state: McpConnectionState
-  toolCount: number
-  error?: string
-}
-
-const MAX_ERROR_CHARS = 300
-
-function describeFailure(error: unknown): string {
-  return (error instanceof Error ? error.message : String(error)).slice(0, MAX_ERROR_CHARS)
-}
-
 /** Handle for one plugin instance's supervised connection. */
 export interface ConnectionHandle extends ServerContext {
-  /** Snapshot of the connection for configuration surfaces. */
-  status(): ConnectionStatus
+  status(): McpConnectionStatus
+  authRequired(): boolean
   /**
-   * Settles when the first connection attempt completes (success or failure).
-   * The supervisor enters its reconnect loop regardless; the caller decides
-   * whether a failed startup is fatal via `failOnStartupError`.
+   * Settles when the first connection attempt completes or the instance is disposed.
+   * The supervisor applies its retry or credential-wait policy; the caller
+   * decides whether a failed startup is fatal via `failOnStartupError`.
    */
   ready: Promise<ConnectionOutcome>
   /**
-   * Stop reconnection, close the negotiating transport or live client, wait
-   * for the in-flight attempt and queued tool syncs to quiesce, then
-   * unregister every tool this server still owns.
+   * Stop reconnection, cancel owned work, and unregister this server's tools.
+   * Cleanup is bounded by `closeTimeoutMs`; incomplete cleanup is recorded in
+   * the status cell and blocks replacement.
    */
   dispose(): Promise<void>
-  /**
-   * Start a fresh connection attempt with a new retry budget when the server is down
-   * (waiting out a backoff, or after giving up) and not waiting for sign-in.
-   * @returns whether an attempt was started; false while connected, connecting, signing in, or disposed.
-   */
   reconnect(): boolean
+}
+
+export interface ConnectionAuth {
+  key: CredentialKey
+  providerFor(url: string): SignInProvider
 }
 
 /**
  * Start the supervised connection for one MCP server and keep it alive per
- * the reconnect policy.
+ * the reconnect policy. The first attempt starts in a microtask; the caller
+ * must register disposal before yielding.
  *
  * @param ctx - Cordis context providing the `tools` registry and logger.
  * @param config - Resolved plugin config selecting the transport and server identity.
  * @param policy - Resolved reconnect policy from {@link resolveReconnectPolicy}.
- * @param auth - Sign-in capability of a Streamable HTTP server, when one is offered.
+ * @param status - Instance status cell this supervisor publishes transitions to.
  * @returns Handle with a `ready` promise for startup-await and a `dispose` for teardown.
  */
-export function startConnection(
-  ctx: Context,
-  config: Config,
-  policy: ResolvedReconnectPolicy,
-  auth?: ConnectionAuth,
-): ConnectionHandle {
-  const environment = config.transport === 'stdio' ? buildChildEnv(config.env) : {}
+export function startConnection(ctx: Context, config: Config, policy: ResolvedReconnectPolicy, status: McpStatusCell, auth?: ConnectionAuth): ConnectionHandle {
   const label = `mcp-client(${config.serverName})`
-  const incompleteDisposalMessage = `${label}: transport closure could not be confirmed during disposal — server shutdown may be incomplete`
-  const toolFilter = resolveToolFilter(
-    config.toolFilter,
-    `mcp-client(${config.serverName}): toolFilter`,
-  )
-  const opts: ToolBridgeOptions = {
-    registrationFailure: 'contain',
-    serverName: config.serverName,
-    toolCallTimeoutMs: config.toolCallTimeoutMs,
-    toolFilter,
-  }
-  // The initial sync uses 'throw' when failOnStartupError is configured, so
-  // a registration conflict propagates to the startup-await path. Re-syncs
-  // and reconnect syncs always contain conflicts.
-  const startupOpts: ToolBridgeOptions = config.failOnStartupError
-    ? { ...opts, registrationFailure: 'throw' }
-    : opts
-
+  const binding = new McpTemplateBinding(ctx, config)
+  const diagnostic = (error: unknown, operation: string): string => binding.diagnostic(error, operation)
+  const lifetime = new AbortController()
+  const readiness = Promise.withResolvers<ConnectionOutcome>()
+  type Generation = { wire: McpGeneration; connectedAt?: number }
+  let current: Generation | undefined
+  let bindingValue: { config?: Config } | undefined
   let disposed = false
-  const maxInstructionBytes = config.maxInstructionBytes ?? DEFAULT_MAX_INSTRUCTION_BYTES
   let serverInstructions = ''
-  /** Current generation: the connecting or connected client; undefined during backoff waits and after final failure. */
-  let client: Client | undefined
-  /** Transport-aware close operation paired with {@link client}. */
-  let closeClient: (() => Promise<boolean>) | undefined
-  /** Live tool registrations owned by this server; only {@link enqueueSync} and dispose swap it. */
   let disposers: ToolDisposers = new Map()
-  let reconnectTimer: NodeJS.Timeout | undefined
-  /** Consecutive failed connection attempts within the current outage. */
-  let failedAttempts = 0
-  /** When the current generation finished connect + initial sync; undefined while down. */
-  let connectedAt: number | undefined
-  /** The real error from the first connection attempt, for startup-await diagnostics. */
-  let firstAttemptError: unknown
-  /** Latest attempt failure text; cleared once a generation connects. */
-  let lastError: string | undefined
-  /** The server rejected the connection for lack of a usable grant; waits for sign-in instead of retrying. */
-  let authRequired = false
-  /** A generation may act only while it is the current one on a live plugin. */
-  const isCurrent = (generation: Client): boolean => !disposed && client === generation
-
-  /**
-   * Serializes every syncTools call — initial syncs and notification re-syncs
-   * across all generations — so two syncs can never interleave their
-   * dispose-previous/register-next swap (which would double-dispose one
-   * generation and leak another).
-   */
   let syncChain: Promise<void> = Promise.resolve()
-  function enqueueSync(generation: Client, syncOpts: ToolBridgeOptions = opts): Promise<void> {
+  let settling: Promise<void> = Promise.resolve()
+  let manualReconnectPending = false
+  let reconnectTimer: NodeJS.Timeout | undefined
+  let failedAttempts = 0
+  let closureFailure: McpCloseResult | undefined
+  let checkingCredentials: Promise<void> | undefined
+  let credentialsDirty = false
+  let authPending = false
+  let authClosing: Promise<void> = Promise.resolve()
+  let authError = ''
+  let serverEnvironment: Record<string, string> = {}
+  const toolFilter = resolveToolFilter(config.toolFilter, `${label}: toolFilter`)
+  const isCurrent = (record: Generation): boolean => !disposed && current === record && !record.wire.lifetime.signal.aborted
+
+  function stopTimers(): void {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = undefined
+  }
+
+  function clearTools(): void {
+    for (const dispose of disposers.values()) {
+      try { dispose() }
+      catch (error) {
+        closureFailure = { ...status.closure(), cleanupError: diagnostic(error, 'tool cleanup') }
+        status.recordClosure(closureFailure)
+        ctx.logger.error(`${label}: tool cleanup failed: ${diagnostic(error, 'tool cleanup')}`)
+      }
+    }
+    disposers = new Map()
+    serverInstructions = ''
+  }
+
+  function waitForSignIn(error: unknown, record?: Generation): void {
+    authPending = true
+    authError = diagnostic(error, 'OAuth')
+    status.update({ state: 'waiting-credentials', lastError: authError })
+    syncChain = syncChain.then(clearTools)
+    if (record !== undefined && current === record) {
+      current = undefined
+      authClosing = close(record).then(() => {
+        if (closureFailure === undefined) status.update({ state: 'waiting-credentials', lastError: authError })
+      })
+    }
+    ctx.logger.warn(`${label}: sign-in required; waiting for a stored grant`)
+  }
+
+  async function close(record: Generation): Promise<boolean> {
+    const result = await record.wire.close()
+    if (!result.closeConfirmed || result.cleanupError !== undefined) closureFailure ??= result
+    status.recordClosure(closureFailure ?? result)
+    if (closureFailure !== undefined && !disposed) {
+      const error = new Error(closureFailure.cleanupError)
+      status.update({ state: 'failed', reason: 'unclosed-generation', lastError: error.message })
+      readiness.resolve({ error })
+    }
+    return closureFailure === undefined
+  }
+
+  function enqueueSync(record: Generation): Promise<void> {
     const run = syncChain.then(async () => {
-      if (!isCurrent(generation)) return
-      disposers = await syncTools(generation, ctx, syncOpts, disposers)
+      if (!isCurrent(record)) return
+      await record.wire.run(async (signal) => {
+        // Closure waits for this task to take ownership, even if cancellation rejects its caller first.
+        disposers = await syncTools(record.wire.client, ctx, {
+          serverName: config.serverName,
+          toolCallTimeoutMs: config.toolCallTimeoutMs,
+          signal,
+          toolFilter,
+          onAuthRequired: (error: unknown) => authenticationRejected(error, record),
+          ...config.expandTemplates ? { redact: (text: string) => binding.redact(text) } : {},
+        }, disposers, () => isCurrent(record))
+      })
     })
-    // The chain tail must survive a failed sync; the enqueuing caller owns reporting.
-    syncChain = run.catch(() => {})
+    syncChain = run.then(() => undefined, () => undefined)
     return run
   }
 
-  /** One disconnect decision per generation: the isCurrent guard makes racing close/error signals idempotent. */
-  function generationDown(generation: Client): void {
-    if (!isCurrent(generation)) return
-    client = undefined
-    closeClient = undefined
-    scheduleReconnect()
-  }
-
-  /** Decide retry ownership after a failed connection's close barrier settles. */
-  function settleFailedGeneration(generation: Client, quiesced: boolean, needsSignIn: boolean): void {
-    if (!isCurrent(generation)) return
-    if (!quiesced) {
-      client = undefined
-      closeClient = undefined
-      ctx.logger.error(`${label}: failed generation could not confirm transport closure — reconnect stopped to avoid overlapping server processes; reload the plugin or restart the Host to retry`)
-      return
-    }
-    if (needsSignIn) {
-      client = undefined
-      closeClient = undefined
-      ctx.logger.warn(`${label}: sign-in required; waiting for a stored grant instead of retrying`)
-      return
-    }
-    generationDown(generation)
-  }
-
-  /** Wait for the transport-owned close signal without letting a broken transport wedge teardown forever. */
-  function waitForClose(closed: Promise<void>): Promise<boolean> {
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => { resolve(false) }, GENERATION_CLOSE_TIMEOUT_MS)
-      timeout.unref()
-      void closed.then(() => {
-        clearTimeout(timeout)
-        resolve(true)
-      })
-    })
-  }
-
-  function scheduleReconnect(): void {
-    const lostEstablishedConnection = connectedAt !== undefined
+  function scheduleReconnect(error: string, connectedAt?: number): void {
+    if (disposed || closureFailure !== undefined) return
     if (!policy.enabled) {
-      const message = lostEstablishedConnection
+      const message = connectedAt !== undefined
         ? 'connection lost and reconnect is disabled — registered tools will fail until an HMR reload or Host restart'
         : 'connection failed and reconnect is disabled — no tools were registered; reload the plugin or restart the Host to connect'
+      status.update({ state: 'failed', reason: 'reconnect-disabled', lastError: error })
       ctx.logger.error(`${label}: ${message}`)
       return
     }
-    // A connection that stayed up past the stability window (= maxDelayMs, the
-    // longest backoff spacing) ended the previous outage: start a fresh budget.
     if (connectedAt !== undefined && Date.now() - connectedAt >= policy.maxDelayMs) failedAttempts = 0
-    connectedAt = undefined
-    failedAttempts += 1
+    failedAttempts++
     if (failedAttempts > policy.maxAttempts) {
-      // Enqueue the give-up disposal so it cannot race an in-flight sync's
-      // phase-2 swap (which checks isCurrent inside the queue).
-      syncChain = syncChain.then(() => {
-        for (const dispose of disposers.values()) dispose()
-        disposers = new Map()
-        serverInstructions = ''
-      })
+      syncChain = syncChain.then(clearTools)
+      status.update({ state: 'failed', reason: 'gave-up', lastError: error })
       ctx.logger.error(`${label}: giving up after ${policy.maxAttempts} consecutive failed reconnect attempts — tools unregistered; reload the plugin or restart the Host to reconnect`)
       return
     }
     const delayMs = Math.min(policy.maxDelayMs, policy.initialDelayMs * 2 ** (failedAttempts - 1))
-    const action = lostEstablishedConnection ? 'connection lost; reconnecting' : 'connection failed; retrying'
+    const action = connectedAt !== undefined ? 'connection lost; reconnecting' : 'connection failed; retrying'
     ctx.logger.warn(`${label}: ${action} in ${delayMs}ms (attempt ${failedAttempts}/${policy.maxAttempts})`)
+    status.update({ state: 'reconnecting', attempt: failedAttempts, maxAttempts: policy.maxAttempts,
+      nextRetryAtMs: Date.now() + delayMs, lastError: error })
     reconnectTimer = setTimeout(() => {
       reconnectTimer = undefined
-      settling = connectGeneration(false)
+      settling = connectGeneration()
     }, delayMs)
-    // An armed reconnect timer must never hold the process open on its own.
     reconnectTimer.unref()
   }
 
-  /**
-   * One connection attempt: fresh transport + client (the MCP SDK binds a
-   * Protocol to one transport for life), connect, then queue the initial tool
-   * sync. The startup flag belongs to the attempt rather than the shared sync
-   * queue, so an early notification cannot consume strict startup semantics.
-   * Every failure funnels through {@link generationDown}; success arms the
-   * onclose-driven disconnect path. Never rejects.
-   *
-   * Starting an attempt clears the previous failure text so configuration
-   * surfaces report `connecting` while the attempt is in flight.
-   *
-   * @param startup - Whether this is the plugin's activation attempt.
-   */
-  async function connectGeneration(startup: boolean): Promise<void> {
-    lastError = undefined
-    const generation = new Client(
-      { name: 'dsh-mcp-client', version: '0.0.1' },
-      {
-        capabilities: {},
-        versionNegotiation: { mode: 'auto' },
-        listChanged: {
-          tools: {
-            autoRefresh: false,
-            debounceMs: 0,
-            onChanged: () => { void refreshTools() },
-          },
-        },
-      },
-    )
-    const closed: PromiseWithResolvers<void> = Promise.withResolvers()
-    let attemptSettled = false
-    let closeObserved = false
-    let transport: Transport | undefined
-    const hasClosed = (): boolean => closeObserved
-    client = generation
-    closeClient = closeGeneration
-    /**
-     * Every request failure reaches this seam: a refused retry after a token
-     * refresh, a `403 insufficient_scope` challenge, and the plain 401 a static
-     * `Authorization` header gets. Only a server that offers sign-in can wait
-     * for authorization; a failed attempt is reported by the catch path below.
-     */
-    generation.onerror = (error) => {
-      if (!isAuthRequired(error)) return
-      /* v8 ignore next -- a second in-flight request can lose the credential after the first clears connectedAt */
-      if (connectedAt === undefined) return
-      if (auth === undefined) credentialRejected(error)
-      else signInLost()
-    }
-    generation.onclose = () => {
-      closeObserved = true
-      closed.resolve()
-      // A failed connect owns its close barrier in the catch path below. An
-      // established generation can transition down directly from this signal.
-      if (attemptSettled) generationDown(generation)
-    }
-    /**
-     * Unattached probes close through their transport; attached clients must
-     * also report transport closure. Signalling the child is the transport's
-     * own responsibility: its `close` already escalates SIGTERM then SIGKILL,
-     * and a pid captured here can name an unrelated process by the time a
-     * delayed signal would fire, so unconfirmed closure is reported instead.
-     */
-    async function closeGeneration(): Promise<boolean> {
-      const attached = generation.transport !== undefined
-      try {
-        await (attached ? generation.close() : transport?.close())
-      } catch (_error) {
-        if (!attached) return hasClosed()
-      }
-      return !attached || hasClosed() || await waitForClose(closed.promise)
-    }
-    async function refreshTools(): Promise<void> {
-      if (!isCurrent(generation)) return
-      ctx.logger.info(`${label}: tool list changed, re-syncing`)
-      try {
-        await enqueueSync(generation)
-      } catch (error) {
-        if (!disposed) ctx.logger.error(`${label}: tool re-sync failed: ${String(error)}`)
-      }
-    }
-    let instructions: string
-    try {
-      transport = createTransport(config, environment, auth?.provider)
-      await generation.connect(transport)
-      if (hasClosed()) {
-        attemptSettled = true
-        generationDown(generation)
-        return
-      }
-      if (!isCurrent(generation)) {
-        if (!await closeGeneration()) ctx.logger.error(incompleteDisposalMessage)
-        return
-      }
-      const serverText = config.includeServerInstructions === false
-        ? ''
-        : generation.getInstructions()?.trimEnd() ?? ''
-      instructions = serverText ? `### MCP server: ${config.serverName}\n\n${serverText}` : ''
-      if (Buffer.byteLength(instructions) > maxInstructionBytes) {
-        throw new Error(`${label}: server instructions exceed maxInstructionBytes (${maxInstructionBytes})`)
-      }
-      await enqueueSync(generation, startup ? startupOpts : opts)
-    } catch (error) {
-      if (firstAttemptError === undefined) firstAttemptError = error
-      // Disposal clears current ownership before it closes the generation, so
-      // only a live supervisor reports an attempt failure.
-      const needsSignIn = auth !== undefined && isAuthRequired(error)
-      if (isCurrent(generation)) {
-        lastError = describeFailure(error)
-        authRequired = needsSignIn
-        ctx.logger.warn(`${label}: connection attempt failed: ${String(error)}`)
-      }
-      const quiesced = await closeGeneration()
-      attemptSettled = true
-      settleFailedGeneration(generation, quiesced, needsSignIn)
+  function lost(record: Generation, error: string): void {
+    if (!isCurrent(record)) return
+    current = undefined
+    const closing = close(record).then((confirmed) => {
+      readiness.resolve({ error: new Error(error) })
+      if (confirmed && !manualReconnectPending) scheduleReconnect(error, record.connectedAt)
+    })
+    settling = closing
+  }
+
+  function authenticationRejected(error: unknown, record: Generation): void {
+    if (!isCurrent(record)) return
+    if (auth !== undefined) {
+      waitForSignIn(error, record)
       return
     }
-    attemptSettled = true
-    if (hasClosed()) {
-      generationDown(generation)
-      return
-    }
-    if (!isCurrent(generation)) return
-    serverInstructions = instructions
-    connectedAt = Date.now()
-    lastError = undefined
-    authRequired = false
-    if (failedAttempts > 0) ctx.logger.info(`${label}: reconnected and re-synced tools (attempt ${failedAttempts}/${policy.maxAttempts})`)
+    const message = diagnostic(error, 'authentication')
+    status.update({ state: 'failed', reason: 'authentication-rejected', lastError: message })
+    lost(record, message)
   }
 
-  /** The in-flight (or last settled) connection attempt; dispose awaits it for quiescence. */
-  let settling = connectGeneration(true)
+  function isStopped(): boolean { return disposed || closureFailure !== undefined }
 
-  // The ready promise settles when the first attempt finishes (regardless of
-  // success). If the first attempt fails and reconnect is enabled, the
-  // supervisor is already scheduling a retry — ready just reports the outcome.
-  const ready: Promise<ConnectionOutcome> = settling.then(() => {
-    // After settling: if client is set the initial connect+sync succeeded.
-    // If not, the supervisor either scheduled a retry (error logged) or gave
-    // up (error logged). Either way the outcome is reported with the real error.
-    // Note: settling.then() is a microtask; stdio onclose is a macrotask — so
-    // a server that crashes AFTER a successful initial sync cannot flip client
-    // to undefined before this continuation runs.
-    if (client !== undefined) return {}
-    /* v8 ignore next -- defensive: firstAttemptError is always set when connect/sync fails */
-    return { error: firstAttemptError ?? new Error(`${label}: initial connection failed`) }
-  })
-
-  /** Stop serving through the current generation; the close is deferred so the failing request rejects first. */
-  function abandonGeneration(): void {
-    const close = closeClient
-    connectedAt = undefined
-    client = undefined
-    closeClient = undefined
-    setTimeout(() => {
-      /* v8 ignore next -- an established connection always holds its close function */
-      void close?.()
-    }, 0)
+  function requestCredentialRefresh(): void {
+    if (isStopped()) return
+    credentialsDirty = true
+    checkingCredentials ??= (async () => {
+      while (credentialsDirty && !isStopped()) {
+        credentialsDirty = false
+        let next: Config | undefined
+        try { next = await binding.resolve(lifetime.signal) }
+        catch (error) {
+          if (!(error instanceof MissingTemplateValue)) throw error
+        }
+        if (disposed || bindingValue !== undefined && deepEqualJson(next, bindingValue.config)) continue
+        stopTimers()
+        const record = current
+        const attempt = settling
+        current = undefined
+        if (record !== undefined) await close(record)
+        await attempt
+        await syncChain
+        stopTimers()
+        clearTools()
+        if (isStopped()) {
+          readiness.resolve({ error: new Error('MCP credential refresh cleanup is incomplete') })
+          return
+        }
+        failedAttempts = 0
+        bindingValue = next === undefined ? {} : { config: next }
+        settling = connectGeneration()
+      }
+    })().catch((error: unknown) => {
+      if (!disposed) ctx.logger.error(`${label}: credential refresh failed: ${diagnostic(error, 'credential refresh')}`)
+    }).finally(() => {
+      checkingCredentials = undefined
+      if (credentialsDirty) requestCredentialRefresh()
+    })
   }
 
-  /** An established connection whose grant stopped working waits for sign-in instead of retrying. */
-  function signInLost(): void {
-    authRequired = true
-    lastError = undefined
-    ctx.logger.warn(`${label}: sign-in required; waiting for a stored grant instead of retrying`)
-    abandonGeneration()
-  }
-
-  /**
-   * An established connection whose static `Authorization` credential was
-   * refused reports that failure; no stored grant can replace a credential the
-   * configuration owns, so the state is never `auth-required`.
-   */
-  function credentialRejected(error: unknown): void {
-    const message = describeFailure(error)
-    lastError = message
-    ctx.logger.warn(`${label}: the server refused the configured Authorization credential: ${message}`)
-    abandonGeneration()
+  if (binding.refs.size > 0) {
+    ctx.on('credentials/reference-updated', (ref) => {
+      if (binding.refs.has(String(ref))) requestCredentialRefresh()
+    })
   }
 
   if (auth !== undefined) {
-    ctx.on('credentials/record-updated', (key) => {
-      if (key !== auth.key || !authRequired || disposed) return
-      authRequired = false
-      lastError = undefined
+    ctx.on('credentials/record-updated', key => {
+      if (key !== auth.key || !authPending || disposed || closureFailure !== undefined) return
       failedAttempts = 0
-      settling = connectGeneration(false)
+      settling = Promise.all([authClosing, syncChain]).then(() => {
+        authPending = false
+        return connectGeneration()
+      })
     })
   }
+
+  async function connectGeneration(): Promise<void> {
+    if (isStopped()) return
+    const client = new Client({ name: 'dsh-mcp-client', version: '0.0.1' }, {
+      capabilities: {}, versionNegotiation: { mode: 'auto' },
+      listChanged: { tools: { autoRefresh: false, debounceMs: 0, onChanged: () => { void refreshTools() } } },
+    })
+    const record: Generation = { wire: new McpGeneration(client, config.closeTimeoutMs, error => diagnostic(error, 'cleanup')) }
+    current = record
+    status.opened()
+    status.update({ state: 'connecting', attempt: failedAttempts })
+    client.onclose = () => {
+      if (record.connectedAt !== undefined) lost(record, 'connection closed')
+    }
+    async function refreshTools(): Promise<void> {
+      if (!isCurrent(record)) return
+      ctx.logger.info(`${label}: tool list changed, re-syncing`)
+      try {
+        await enqueueSync(record)
+        if (isCurrent(record) && record.connectedAt !== undefined) {
+          status.update({ state: 'connected', toolCount: disposers.size, connectedAt: record.connectedAt })
+        }
+      } catch (error) {
+        if (error instanceof McpToolRegistrationError) lost(record, diagnostic(error, 'tool synchronization'))
+        else if (isCurrent(record)) ctx.logger.error(`${label}: tool re-sync failed: ${diagnostic(error, 'tool synchronization')}`)
+      }
+    }
+    try {
+      const startedAt = Date.now()
+      const remaining = (): number | undefined => config.startupTimeoutMs === undefined ? undefined
+        : config.startupTimeoutMs - (Date.now() - startedAt)
+      const resolved = await record.wire.run(signal => binding.resolve(signal), remaining())
+      bindingValue = { config: resolved }
+      serverEnvironment = resolved.transport === 'stdio' ? buildChildEnv(resolved.env) : {}
+      const authProvider = auth === undefined || resolved.transport !== 'streamable-http'
+        ? undefined
+        : auth.providerFor(resolved.url)
+      await record.wire.connect(resolved, remaining(), authProvider, serverEnvironment)
+      if (!isCurrent(record)) return
+      const text = client.getInstructions()?.trimEnd() ?? ''
+      const instructions = text && config.includeServerInstructions !== false ? `### MCP server: ${config.serverName}\n\n${text}` : ''
+      const maxInstructionBytes = config.maxInstructionBytes ?? DEFAULT_MAX_INSTRUCTION_BYTES
+      if (Buffer.byteLength(instructions) > maxInstructionBytes) throw new McpLocalError(`${label}: server instructions exceed maxInstructionBytes (${maxInstructionBytes})`, 'MCP_INSTRUCTIONS_TOO_LARGE')
+      const sync = enqueueSync(record)
+      const budget = remaining()
+      await (budget === undefined ? sync : withDeadline(sync, budget, `${label}: startup timed out`))
+      if (!isCurrent(record)) return
+      record.wire.assertOpen()
+      serverInstructions = instructions
+      record.connectedAt = Date.now()
+      status.update({ state: 'connected', toolCount: disposers.size, connectedAt: record.connectedAt })
+      readiness.resolve({})
+      if (failedAttempts > 0) ctx.logger.info(`${label}: reconnected and re-synced tools (attempt ${failedAttempts}/${policy.maxAttempts})`)
+    } catch (error) {
+      if (current !== record) return
+      current = undefined
+      const confirmed = await close(record)
+      readiness.resolve({ error: config.expandTemplates ? new Error(diagnostic(error, 'startup')) : error })
+      if (disposed || !confirmed) return
+      if (error instanceof MissingTemplateValue) {
+        authPending = false
+        bindingValue = {}
+        status.update({ state: 'waiting-credentials', lastError: diagnostic(error, 'credential resolution') })
+        return
+      }
+      if (auth !== undefined && isAuthRequired(error)) {
+        waitForSignIn(error)
+        return
+      }
+      ctx.logger.warn(`${label}: connection attempt failed: ${diagnostic(error, 'startup')}`)
+      if (!manualReconnectPending) scheduleReconnect(diagnostic(error, 'startup'))
+    }
+  }
+
+  settling = Promise.resolve().then(connectGeneration)
 
   registerHumanOperations(ctx, config.serverName, {
     local: config.transport === 'stdio',
     cwd: config.transport === 'stdio' ? config.cwd : '',
-    env: environment,
-    async call(rawName, args, signal): Promise<unknown> {
-      const generation = client
-      if (!generation || connectedAt === undefined) throw new Error(`${label}: server is disconnected`)
-      const publicName = publicToolName(config.serverName, rawName)
-      const definition = ctx.tools.get(publicName)
-      if (!disposers.has(publicName) || definition === undefined) throw new Error(`${label}: tool is unavailable`)
+    get env() { return serverEnvironment },
+    async call(name, args, signal) {
+      const record = current
+      if (record?.connectedAt === undefined) throw new McpToolError(`${label}: server is disconnected`, 'MCP_SERVER_UNAVAILABLE')
+      if (!toolAllowed(toolFilter, name) || !disposers.has(publicToolName(config.serverName, name))) {
+        throw new Error(`${label}: tool is unavailable`)
+      }
+      const definition = ctx.tools.get(publicToolName(config.serverName, name))
+      if (definition === undefined) throw new Error(`${label}: tool is unavailable`)
       const errors = validateJsonSchemaValue(definition.parameters, args)
       if (errors.length > 0) throw new Error(`${label}: invalid tool arguments: ${errors.join('; ')}`)
-      return generation.callTool({ name: rawName, arguments: args }, { signal, timeout: config.toolCallTimeoutMs })
+      try {
+        return await record.wire.run(wireSignal => record.wire.client.callTool(
+          { name, arguments: args },
+          { signal: AbortSignal.any([wireSignal, signal]), timeout: config.toolCallTimeoutMs },
+        ))
+      } catch (error) {
+        signal.throwIfAborted()
+        if (isAuthRequired(error)) authenticationRejected(error, record)
+        throw mcpRequestError(error, `human tool "${name}"`, config.expandTemplates ? text => binding.redact(text) : undefined)
+      }
     },
   })
 
   return {
-    ready,
-    reconnect(): boolean {
-      if (disposed || client !== undefined || authRequired) return false
-      if (reconnectTimer !== undefined) {
-        clearTimeout(reconnectTimer)
-        reconnectTimer = undefined
-      }
-      failedAttempts = 0
-      settling = connectGeneration(false)
-      return true
-    },
-    status: () => ({
-      state: connectedAt !== undefined ? 'connected' : authRequired ? 'auth-required' : lastError !== undefined ? 'failed' : 'connecting',
-      toolCount: disposers.size,
-      ...connectedAt === undefined && !authRequired && lastError !== undefined ? { error: lastError } : {},
-    }),
+    ready: readiness.promise,
     instructions: () => serverInstructions,
     resources: {
       async request(request, exec): Promise<JsonValue> {
-        const generation = client
-        if (!generation || connectedAt === undefined) throw new Error(`${label}: server is disconnected`)
-        const options = { signal: exec.signal, timeout: config.toolCallTimeoutMs }
-        // The SDK answers an unadvertised capability with the same empty page, but
-        // writes a console.debug line to stdout, which the ACP profile reserves for JSON-RPC.
-        const listable = generation.getServerCapabilities()?.resources !== undefined
-        switch (request.method) {
-          case 'resources/list':
-            return listable
-              ? await generation.listResources(
-                request.cursor === undefined ? undefined : { cursor: request.cursor }, options,
-              ) as JsonValue
-              : { resources: [] }
-          case 'resources/templates/list':
-            return listable
-              ? await generation.listResourceTemplates(
-                request.cursor === undefined ? undefined : { cursor: request.cursor }, options,
-              ) as JsonValue
-              : { resourceTemplates: [] }
-          case 'resources/read':
-            return await generation.readResource({ uri: request.uri }, options) as JsonValue
-          /* v8 ignore next 2 -- resource requests are the closed, typed tool operation union */
-          default:
-            return assertNever(request)
+        const record = current
+        if (record?.connectedAt === undefined) throw new McpToolError(`${label}: server is disconnected`, 'MCP_SERVER_UNAVAILABLE')
+        try {
+          return await record.wire.run(async (signal) => {
+            const options = { signal: AbortSignal.any([signal, exec.signal]), timeout: config.toolCallTimeoutMs }
+            const generation = record.wire.client
+            // The SDK answers an unadvertised capability with the same empty page, but
+            // writes a console.debug line to stdout, which the ACP profile reserves for JSON-RPC.
+            const listable = generation.getServerCapabilities()?.resources !== undefined
+            switch (request.method) {
+              case 'resources/list':
+                return listable
+                  ? await generation.listResources(
+                    request.cursor === undefined ? undefined : { cursor: request.cursor }, options,
+                  ) as JsonValue
+                  : { resources: [] }
+              case 'resources/templates/list':
+                return listable
+                  ? await generation.listResourceTemplates(
+                    request.cursor === undefined ? undefined : { cursor: request.cursor }, options,
+                  ) as JsonValue
+                  : { resourceTemplates: [] }
+              case 'resources/read': return await generation.readResource({ uri: request.uri }, options) as JsonValue
+              /* v8 ignore next -- exhaustive over the closed resource request union */
+              default: return assertNever(request)
+            }
+          })
+        } catch (error) {
+          exec.signal.throwIfAborted()
+          if (isAuthRequired(error)) authenticationRejected(error, record)
+          throw mcpRequestError(error, request.method, config.expandTemplates ? text => binding.redact(text) : undefined)
         }
       },
     },
     async dispose(): Promise<void> {
       disposed = true
-      serverInstructions = ''
-      if (reconnectTimer !== undefined) {
-        clearTimeout(reconnectTimer)
-        reconnectTimer = undefined
+      readiness.resolve({ error: new Error('MCP client disposed') })
+      lifetime.abort(new Error('MCP client disposed'))
+      stopTimers()
+      const record = current
+      current = undefined
+      if (record !== undefined) await close(record)
+      try {
+        await withDeadline(Promise.all([settling, syncChain, checkingCredentials, authClosing]), config.closeTimeoutMs, 'MCP cleanup did not settle')
+      } catch (error) {
+        closureFailure ??= { ...status.closure(), cleanupError: diagnostic(error, 'cleanup') }
       }
-      const close = closeClient
-      client = undefined
-      closeClient = undefined
-      if (close !== undefined && !await close()) {
-        ctx.logger.error(incompleteDisposalMessage)
-      }
-      // Quiesce, don't just request it: the in-flight attempt enqueues its
-      // sync before settling, so awaiting both leaves `disposers` final.
-      await settling
-      await syncChain
-      for (const dispose of disposers.values()) dispose()
-      disposers = new Map()
+      clearTools()
+      const result = closureFailure ?? status.closure()
+      status.recordClosure(result)
+      status.update({ state: 'closed', result })
+      if (!result.closeConfirmed) ctx.logger.error(`${label}: transport closure could not be confirmed`)
+      else if (result.cleanupError !== undefined) ctx.logger.error(`${label}: cleanup incomplete`)
+    },
+    status: () => status.current(),
+    authRequired: () => authPending,
+    reconnect(): boolean {
+      if (disposed || closureFailure !== undefined || current !== undefined || authPending || manualReconnectPending
+        || checkingCredentials !== undefined || bindingValue === undefined
+        || status.current().state === 'waiting-credentials') return false
+      stopTimers()
+      failedAttempts = 0
+      manualReconnectPending = true
+      const transition = settling
+      settling = transition.then(() => {
+        manualReconnectPending = false
+        if (!disposed && closureFailure === undefined && current === undefined && !authPending) return connectGeneration()
+      })
+      return true
     },
   }
 }

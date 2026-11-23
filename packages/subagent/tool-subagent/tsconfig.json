@@ -9,6 +9,12 @@
   ],
   "references": [
     {
+      "path": "../../team/agent-team"
+    },
+    {
+      "path": "../../util/brand"
+    },
+    {
       "path": "../../../vendor/cosmokit"
     },
     {

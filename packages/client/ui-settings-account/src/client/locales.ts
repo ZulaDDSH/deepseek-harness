@@ -31,7 +31,6 @@ export const en = {
   quotaTitle: 'No balance available',
   quotaDescription: 'DeepSeek Harness cannot start a new task with this account when no balance is available. Would you like to top up? You can also top up later in Settings → Account.',
   quotaTopUp: 'Top up',
-  bonusNoticeTitle: 'Bonus credited',
 } as const
 /** Account locale keys. */
 export type AccountKey = keyof typeof en
@@ -66,7 +65,6 @@ export const zh: Record<AccountKey, string> = {
   quotaTitle: '当前无可用余额',
   quotaDescription: '没有可用额度时，DeepSeek Harness 无法开始新的任务，是否前往充值？或者可以稍后前往 设置 → 账号与余额 进行充值。',
   quotaTopUp: '去充值',
-  bonusNoticeTitle: '赠金已到账',
 }
 
 /** Japanese copy, checked against the English keys. */
@@ -125,7 +123,6 @@ export const ja = {
   'quotaTitle': '残高がありません',
   'quotaDescription': '残高がない場合、DeepSeek Harness はこのアカウントで新しいタスクを開始できません。チャージしますか？後から設定 → アカウントでチャージすることもできます。',
   'quotaTopUp': 'チャージ',
-  'bonusNoticeTitle': 'ボーナスが付与されました',
 } satisfies Record<keyof typeof en, string>
 
 /** Spanish dictionary, checked against the English keys. */
@@ -159,7 +156,6 @@ export const es = {
   quotaTitle: 'No hay saldo disponible',
   quotaDescription: 'DeepSeek Harness no puede iniciar una nueva tarea con esta cuenta cuando no hay saldo disponible. ¿Quieres recargar? También puedes recargar más tarde en Configuración → Cuenta.',
   quotaTopUp: 'Recargar',
-  bonusNoticeTitle: 'Bono acreditado',
 } satisfies Record<keyof typeof en, string>
 
 /** French dictionary, checked against the English keys. */
@@ -193,7 +189,6 @@ export const fr = {
   quotaTitle: 'Aucun solde disponible',
   quotaDescription: "DeepSeek Harness ne peut pas démarrer une nouvelle tâche avec ce compte lorsqu'aucun solde n'est disponible. Souhaitez-vous recharger ? Vous pouvez également recharger plus tard dans Paramètres → Compte.",
   quotaTopUp: 'Recharger',
-  bonusNoticeTitle: 'Bonus crédité',
 } satisfies Record<keyof typeof en, string>
 
 /** German dictionary, checked against the English keys. */
@@ -227,7 +222,6 @@ export const de = {
   quotaTitle: 'Kein Guthaben verfügbar',
   quotaDescription: 'DeepSeek Harness kann mit diesem Konto keine neue Aufgabe starten, wenn kein Guthaben verfügbar ist. Möchten Sie aufladen? Sie können das Guthaben auch später unter Einstellungen → Konto aufladen.',
   quotaTopUp: 'Auffüllen',
-  bonusNoticeTitle: 'Bonus gutgeschrieben',
 } satisfies Record<keyof typeof en, string>
 
 /** Russian dictionary, checked against the English keys. */
@@ -261,7 +255,6 @@ export const ru = {
   quotaTitle: 'Нет доступного баланса',
   quotaDescription: 'DeepSeek Harness не может запустить новую задачу с этой учетной записью, если на ней нет баланса. Хотите пополнить счет? Вы также можете пополнить счет позже в «Настройки» → «Аккаунт».',
   quotaTopUp: 'Пополнить',
-  bonusNoticeTitle: 'Бонус начислен',
 } satisfies Record<keyof typeof en, string>
 
 /** Portuguese dictionary, checked against the English keys. */
@@ -295,5 +288,4 @@ export const pt = {
   quotaTitle: 'Nenhum saldo disponível',
   quotaDescription: 'DeepSeek Harness não pode iniciar uma nova tarefa com esta conta quando não houver saldo disponível. Você gostaria de recarregar? Você também pode recarregar mais tarde em Configurações → Conta.',
   quotaTopUp: 'Recarregar',
-  bonusNoticeTitle: 'Bônus creditado',
 } satisfies Record<keyof typeof en, string>

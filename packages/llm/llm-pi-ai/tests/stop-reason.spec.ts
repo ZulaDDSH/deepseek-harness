@@ -195,11 +195,12 @@ describe('mapStopReason / mapUsage', () => {
     const over = assistant({ stopReason: 'stop', usage: usage(300, 5), content: [{ type: 'text', text: 'ok' }] })
     const onAbove = vi.fn()
     const chunks: StreamChunk[] = []
-    for await (const chunk of toStreamChunks(feed({ type: 'done', reason: 'stop', message: over }), 100, undefined, undefined, onAbove)) {
+    for await (const chunk of toStreamChunks(feed({ type: 'done', reason: 'stop', message: over }), 100, undefined, undefined, onAbove, 'digest')) {
       chunks.push(chunk)
     }
     expect(chunks.at(-1)).toMatchObject({ type: 'finish', reason: { kind: 'stop' } })
     expect(onAbove).toHaveBeenCalledExactlyOnceWith(300)
+    expect(chunks.at(-1)).toMatchObject({ replayState: { response: { prefixDigest: 'digest' } } })
 
     const within = assistant({ stopReason: 'stop', usage: usage(50, 5), content: [{ type: 'text', text: 'ok' }] })
     const quiet = vi.fn()

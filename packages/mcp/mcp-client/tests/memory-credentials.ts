@@ -8,31 +8,27 @@ import type {
   CredentialRef,
   ResolvedCredential,
 } from '@deepseek-ai/dsh-credentials'
-
-/**
- * In-memory credentials provider for the authorization suite. Only the record
- * half is exercised — the seam's whole interest in this service is whether a
- * flow left a record behind — so the reference half answers "nothing stored".
- */
-// TODO: near-duplicate of the record half of
-// packages/credentials/credentials/tests/memory.ts; fold both into a shared
-// test-support double when a third suite needs one.
 export class MemoryCredentials extends CredentialProvider {
   private readonly records = new Map<CredentialKey, CredentialRecord>()
+  private readonly values = new Map<CredentialRef, string>()
 
-  override resolve(_ref: CredentialRef): Promise<ResolvedCredential | undefined> {
-    return Promise.resolve(undefined)
+  override resolve(ref: CredentialRef): Promise<ResolvedCredential | undefined> {
+    const value = this.values.get(ref)
+    return Promise.resolve(value === undefined ? undefined : { value, source: 'memory' })
   }
 
-  override describe(_ref: CredentialRef): Promise<CredentialInfo> {
-    return Promise.resolve({ configured: false, writable: true })
+  override describe(ref: CredentialRef): Promise<CredentialInfo> {
+    return Promise.resolve({ configured: this.values.has(ref), writable: true })
   }
 
-  override set(_ref: CredentialRef, _value: string): Promise<void> {
+  override set(ref: CredentialRef, value: string): Promise<void> {
+    this.values.set(ref, value)
+    this.ctx.emit('credentials/reference-updated', ref)
     return Promise.resolve()
   }
 
-  override unset(_ref: CredentialRef): Promise<void> {
+  override unset(ref: CredentialRef): Promise<void> {
+    if (this.values.delete(ref)) this.ctx.emit('credentials/reference-updated', ref)
     return Promise.resolve()
   }
 

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AuthorizationService from '@deepseek-ai/dsh-authorization'
 import McpResources from '@deepseek-ai/dsh-mcp-resources'
-import { credentialKey, parseCredentialKey } from '@deepseek-ai/dsh-credentials'
+import { credentialKey, credentialRef, parseCredentialKey } from '@deepseek-ai/dsh-credentials'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -101,6 +101,20 @@ const listResources = (ctx: Context) => executeModelToolFixture(ctx, {
 })
 
 describe('MCP OAuth sign-in', () => {
+  it('reports a missing template credential after waiting for OAuth sign-in', async () => {
+    const fixture = await startFixture()
+    const ctx = await mount(configFor(fixture.url, {
+      headers: { 'X-Project': '${credential:MCP_PROJECT}' }, expandTemplates: true,
+    }))
+    const ref = credentialRef('MCP_PROJECT')
+    await ctx.credentials.set(ref, 'project-value')
+    await vi.waitFor(() => { expect(report(ctx).state).toBe('auth-required') })
+    await ctx.credentials.unset(ref)
+    await vi.waitFor(() => {
+      expect(report(ctx)).toMatchObject({ state: 'failed', error: expect.stringContaining('MCP_PROJECT') })
+    })
+  })
+
   it('waits for sign-in without retrying, then connects once the grant is stored', async () => {
     const fixture = await startFixture()
     const ctx = await mount(configFor(fixture.url, { reconnect: { enabled: true, initialDelayMs: 1, maxDelayMs: 2, maxAttempts: 3 } }))
@@ -132,16 +146,30 @@ describe('MCP OAuth sign-in', () => {
     expect(stored).toMatchObject({ payload: { tokens: { access_token: 'access-2' } } })
   })
 
-  it.each(['invalid_grant', 'server_error'] as const)('tells the model to sign in again when a refresh fails with %s', async (code) => {
+  it('tells the model to sign in again when a refresh grant is revoked', async () => {
     const fixture = await startFixture()
     const ctx = await mount(configFor(fixture.url))
     await signIn(ctx, approve)
     await vi.waitFor(() => { expect(report(ctx).state).toBe('connected') })
-    fixture.rejectRefresh(code)
+    fixture.rejectRefresh('invalid_grant')
     fixture.expire()
     const refused = await ping(ctx)
     expect(refused.isError, JSON.stringify(refused)).toBe(true)
     expect(JSON.stringify(refused)).toContain('requires sign-in')
+  })
+
+  it('keeps the grant available when the authorization server has a transient refresh error', async () => {
+    const fixture = await startFixture()
+    const ctx = await mount(configFor(fixture.url))
+    await signIn(ctx, approve)
+    await vi.waitFor(() => { expect(report(ctx).state).toBe('connected') })
+    fixture.rejectRefresh('server_error')
+    fixture.expire()
+    const refused = await ping(ctx)
+    expect(refused.isError, JSON.stringify(refused)).toBe(true)
+    expect(JSON.stringify(refused)).not.toContain('requires sign-in')
+    expect(report(ctx).state).toBe('connected')
+    expect(report(ctx).authKey).toBeDefined()
   })
 
   it.each(['tool', 'resource'] as const)('asks for sign-in again when a %s request finds the grant revoked, then recovers', async (path) => {
@@ -172,7 +200,22 @@ describe('MCP OAuth sign-in', () => {
     await vi.waitFor(() => { expect(report(ctx).state).toBe('connected') })
     fixture.dropAuthorizationServer()
     fixture.expire()
-    expect((await ping(ctx)).isError).toBe(true)
+    const refused = await ping(ctx)
+    expect(refused.isError).toBe(true)
+    expect(JSON.stringify(refused)).not.toContain('requires sign-in')
+    expect(report(ctx).state).toBe('connected')
+  })
+
+  it('does not require sign-in when the refresh request loses its connection', async () => {
+    const fixture = await startFixture()
+    const ctx = await mount(configFor(fixture.url))
+    await signIn(ctx, approve)
+    await vi.waitFor(() => { expect(report(ctx).state).toBe('connected') })
+    fixture.dropRefresh()
+    fixture.expire()
+    const refused = await ping(ctx)
+    expect(refused.isError).toBe(true)
+    expect(JSON.stringify(refused)).not.toContain('requires sign-in')
     expect(report(ctx).state).toBe('connected')
   })
 
@@ -330,6 +373,22 @@ describe('MCP OAuth sign-in', () => {
     expect(after.state).toBe('failed')
     expect(after.authKey).toBeUndefined()
     expect(ctx.authorization.list()).toEqual([])
+  })
+
+  it('reconnects after a rejected static credential when reconnect is enabled', async () => {
+    const fixture = await startFixture()
+    fixture.accept('static-token')
+    const ctx = await mount(configFor(fixture.url, {
+      headers: { Authorization: 'Bearer static-token' },
+      reconnect: { enabled: true, initialDelayMs: 100, maxDelayMs: 100, maxAttempts: 5 },
+    }))
+    fixture.expire()
+    expect((await ping(ctx)).isError).toBe(true)
+    expect(['failed', 'connecting']).toContain(report(ctx).state)
+    expect(report(ctx).authKey).toBeUndefined()
+    fixture.accept('static-token')
+    await vi.waitFor(() => { expect(report(ctx).state).toBe('connected') })
+    expect((await ping(ctx)).isError).toBe(false)
   })
 
   it('reports a connection failure with its reason', async () => {

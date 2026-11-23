@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { Service, type Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { ScopeKey } from '@deepseek-ai/dsh-scope'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { assertSupervisor } from './authority.ts'
@@ -262,7 +262,9 @@ export class KnowledgeRouter extends Service {
           const started = await inner.subagents.startActivation({
             provider: this.config.delegationProvider,
             label,
-            request: { prompt: [{ type: 'text', text: prompt }], parent, ...maxDepth !== undefined ? { maxDepth } : {} },
+            prompt: [{ type: 'text', text: prompt }],
+            parent,
+            ...maxDepth !== undefined ? { maxDepth } : {},
             signal,
             delivery: 'parent',
           })

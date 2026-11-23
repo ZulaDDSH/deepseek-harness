@@ -43,7 +43,7 @@ interface SectionDragState {
 
 export interface SectionsListProps extends Pick<
   WorkspaceBrowserProps,
-  'useSessionStatus' | 'open' | 'usePanelInfo' | 't' | 'openSectionMenu' | 'openSessionMenu' | 'useContextMenu'
+  'useSessionStatus' | 'open' | 'usePanelInfo' | 't' | 'openSectionMenu' | 'renderFactorySlot' | 'useContextMenu'
   | 'useContextMenuTarget' | 'useSessionAccess'
 > {
   list: SessionListState
@@ -80,7 +80,7 @@ export interface SectionsListProps extends Pick<
 export function SectionsList({
   list, rowState, visibleSessionIds, sections, appearanceBySection, appearanceBySession, currentBlank, useSessionStatus, open,
   usePanelInfo, onSessionRenameRequest, renderSlot, assignSession, setSectionOrder,
-  toggleSection, moveSection, openSectionMenu, openSessionMenu, useContextMenu, useContextMenuTarget, useSessionAccess, t,
+  toggleSection, moveSection, openSectionMenu, renderFactorySlot, useContextMenu, useContextMenuTarget, useSessionAccess, t,
   externalChatSessionId, onChatDragEnd,
 }: SectionsListProps) {
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
@@ -183,7 +183,7 @@ export function SectionsList({
         onRenameRequest={onSessionRenameRequest}
         renderSlot={renderSlot}
         appearance={appearanceBySession[node.id]}
-        openSessionMenu={openSessionMenu}
+        renderFactorySlot={renderFactorySlot}
         useContextMenu={useContextMenu}
         useContextMenuTarget={useContextMenuTarget}
         useSessionAccess={useSessionAccess}
@@ -307,7 +307,7 @@ export function SectionsList({
   return (
     <div className={css.sectionsPane}>
       <div className={css.paneHeading}>{t('section.chats')}</div>
-      <div className={css.sectionsScroll} role="tree" aria-label={t('section.chats')}>
+      <div className={css.sectionsScroll} data-sidebar-list-area="" role="tree" aria-label={t('section.chats')}>
         {projection.sections.map(sectionBlock)}
         {projection.sections.length === 0 && (
           <div className={css.paneEmpty}>{t('section.empty')}</div>

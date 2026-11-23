@@ -1,6 +1,8 @@
 import { Context } from '@deepseek-ai/cordis'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { SESSION_FORMAT_VERSION, Session, type SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import type { SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
@@ -9,7 +11,7 @@ import { mountWorkingDirectoryFixture } from '../../subagent/tests/working-direc
 
 async function startAs(ctx: Context, provider: string, { signal, ...request }: SubagentStartRequest) {
   if (ctx.agents.get(request.parent.id) !== request.parent) await ctx.agents.register(request.parent)
-  return ctx.subagents.startActivation({ provider, label: 'provider task', request, signal, delivery: 'caller' })
+  return ctx.subagents.startActivation({ provider, label: 'provider task', ...request, signal, delivery: 'caller' })
 }
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -34,9 +36,16 @@ import {
 
 type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
 
+const fakeParentSessionId = brandString<SessionId>('parent')
 const fakeParent: Agent = {
-  id: 'parent',
-  session: { id: 'parent', header: { cwd: process.cwd() } },
+  id: fakeParentSessionId,
+  session: Session.create(fakeParentSessionId, undefined, {
+    version: SESSION_FORMAT_VERSION,
+    id: fakeParentSessionId,
+    createdAt: 0,
+    cwd: process.cwd(),
+    isSeeded: false,
+  }),
 } as never
 
 const MODES: readonly CodexPermissionMode[] = [

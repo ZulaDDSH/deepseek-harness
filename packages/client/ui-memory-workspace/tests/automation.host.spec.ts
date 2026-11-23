@@ -22,7 +22,7 @@ const roots: Context[] = [], directories: string[] = [], databases: DatabaseSync
 afterEach(async () => {
   vi.unstubAllEnvs()
   await Promise.all(roots.splice(0).map(ctx => ctx.fiber.dispose()))
-  for (const db of databases.splice(0)) { try { db.close() } catch { /* already closed by the test */ } }
+  for (const db of databases.splice(0)) { try { db.close() } catch (_alreadyClosed) { /* already closed by the test */ } }
   await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true })))
 })
 

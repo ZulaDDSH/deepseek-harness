@@ -17,16 +17,19 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import type { Config } from '@deepseek-ai/dsh-mcp-client'
+import { McpStatusCell } from '@deepseek-ai/dsh-mcp-client/src/status.ts'
 
-const { mockConnect, mockClose, mockListTools, mockCreateTransport, MockClient, instances } = vi.hoisted(() => {
-  const mockConnect = vi.fn<() => Promise<void>>()
+const { mockClose, mockListTools, mockCreateTransport, MockClient, instances } = vi.hoisted(() => {
   const mockClose = vi.fn<() => Promise<void>>()
   const mockListTools = vi.fn<() => Promise<unknown>>()
   const mockCreateTransport = vi.fn<() => unknown>()
   class MockClient {
     transport: object | undefined = {}
     onclose: (() => void) | undefined
-    connect = mockConnect
+    async connect(transport: { start: () => Promise<void>; onclose?: () => void }) {
+      this.transport = transport
+      await transport.start()
+    }
     close = mockClose
     getServerCapabilities = () => ({ tools: {} })
     getInstructions(): string | undefined { return undefined }
@@ -37,7 +40,7 @@ const { mockConnect, mockClose, mockListTools, mockCreateTransport, MockClient, 
     }
   }
   const instances: MockClient[] = []
-  return { mockConnect, mockClose, mockListTools, mockCreateTransport, MockClient, instances }
+  return { mockClose, mockListTools, mockCreateTransport, MockClient, instances }
 })
 
 vi.mock('@modelcontextprotocol/client', async importOriginal => ({
@@ -78,6 +81,8 @@ function stdioConfig(): Config {
     env: {},
     cwd: '',
     toolCallTimeoutMs: 60_000,
+    closeTimeoutMs: 5_000,
+    expandTemplates: false,
     failOnStartupError: false,
   }
 }
@@ -105,19 +110,21 @@ describe('connection disposal escalation', () => {
   beforeEach(async () => {
     vi.clearAllMocks()
     instances.length = 0
-    mockConnect.mockResolvedValue(undefined)
-    mockClose.mockImplementation(function (this: { onclose?: () => void }) {
-      this.onclose?.()
-      return Promise.resolve()
+    mockClose.mockImplementation(function (this: { transport?: { close: () => Promise<void> } }) {
+      return this.transport?.close() ?? Promise.resolve()
     })
     mockListTools.mockResolvedValue({ tools: [], nextCursor: undefined })
-    mockCreateTransport.mockReturnValue({ pid: null, close: async () => {} })
+    mockCreateTransport.mockReturnValue({
+      pid: null,
+      start: async () => {},
+      close: async function (this: { onclose?: () => void }) { this.onclose?.() },
+    })
   })
 
   it('releases the generation and rejects later resource requests after dispose', async () => {
     const ctx = await mountRegistry()
     await ctx.plugin(McpResources)
-    const handle = startConnection(ctx, stdioConfig(), resolveReconnectPolicy({ enabled: false }, 'disposal'))
+    const handle = startConnection(ctx, stdioConfig(), resolveReconnectPolicy({ enabled: false }, 'disposal'), new McpStatusCell(() => {}))
     try {
       await expect(handle.ready).resolves.toEqual({})
       ctx.mcpResources.register('srv', handle.resources)
@@ -148,8 +155,8 @@ describe('connection disposal escalation', () => {
     const killSpy = vi.spyOn(process, 'kill')
     try {
       mockClose.mockImplementation(() => Promise.resolve())
-      mockCreateTransport.mockReturnValue({ pid: child.pid, close: async () => {} })
-      const handle = startConnection(ctx, stdioConfig(), resolveReconnectPolicy({ enabled: false }, 'disposal'))
+      mockCreateTransport.mockReturnValue({ pid: child.pid, start: async () => {}, close: async () => {} })
+      const handle = startConnection(ctx, stdioConfig(), resolveReconnectPolicy({ enabled: false }, 'disposal'), new McpStatusCell(() => {}))
       try {
         await expect(handle.ready).resolves.toEqual({})
         await handle.dispose()
@@ -173,8 +180,8 @@ describe('connection disposal escalation', () => {
     const ctx = await mountRegistry()
     const errors = captureErrors(ctx)
     mockClose.mockImplementation(() => Promise.resolve())
-    mockCreateTransport.mockReturnValue({ close: async () => {} })
-    const handle = startConnection(ctx, stdioConfig(), resolveReconnectPolicy({ enabled: false }, 'disposal'))
+    mockCreateTransport.mockReturnValue({ start: async () => {}, close: async () => {} })
+    const handle = startConnection(ctx, stdioConfig(), resolveReconnectPolicy({ enabled: false }, 'disposal'), new McpStatusCell(() => {}))
     try {
       await expect(handle.ready).resolves.toEqual({})
       await handle.dispose()
@@ -194,8 +201,8 @@ describe('connection disposal escalation', () => {
     if (bystander.pid === undefined) throw new Error('expected the fixture child to report a pid')
     try {
       mockClose.mockImplementation(() => Promise.resolve())
-      mockCreateTransport.mockReturnValue({ pid: bystander.pid, close: async () => {} })
-      const handle = startConnection(ctx, stdioConfig(), resolveReconnectPolicy({ enabled: false }, 'disposal'))
+      mockCreateTransport.mockReturnValue({ pid: bystander.pid, start: async () => {}, close: async () => {} })
+      const handle = startConnection(ctx, stdioConfig(), resolveReconnectPolicy({ enabled: false }, 'disposal'), new McpStatusCell(() => {}))
       try {
         await expect(handle.ready).resolves.toEqual({})
         await handle.dispose()
@@ -226,8 +233,8 @@ describe('connection disposal escalation', () => {
       mockClose.mockImplementation(() => Promise.resolve())
       // A transport that exits "cleanly" yet never surfaces closure is the shape
       // that made the removed reaper fire: the pid it exposed was already free.
-      mockCreateTransport.mockReturnValue({ pid: 2147483647, close: async () => {} })
-      const handle = startConnection(ctx, stdioConfig(), resolveReconnectPolicy({ enabled: false }, 'disposal'))
+      mockCreateTransport.mockReturnValue({ pid: 2147483647, start: async () => {}, close: async () => {} })
+      const handle = startConnection(ctx, stdioConfig(), resolveReconnectPolicy({ enabled: false }, 'disposal'), new McpStatusCell(() => {}))
       try {
         await expect(handle.ready).resolves.toEqual({})
         await handle.dispose()

@@ -11,20 +11,17 @@ function directory(dictionary: typeof en | typeof zh) {
   return dir
 }
 
-describe('Models and Jev search entries', () => {
-  it('finds provider and routing settings by their labels, descriptions and aliases', () => {
+describe('Models search entries', () => {
+  it('finds provider settings by their labels, descriptions and aliases', () => {
     const dir = directory(en)
     expect(dir.search('api key').map(item => [item.section, item.label])).toContainEqual(['models', 'API key'])
     expect(dir.search('relay').map(item => item.id)).toEqual(['models.custom-api'])
-    expect(dir.search('timeout').map(item => item.id)).toContain('jev.timeout')
-    expect(dir.search('minimum confidence').map(item => item.id)).toEqual(['jev.min-confidence'])
   })
 
   it('files every entry under a page the package registers and speaks the active locale', () => {
     const dir = directory(zh)
     const sections = new Set(dir.list().map(entry => entry.section))
-    expect([...sections].sort()).toEqual(['jev', 'models'])
-    expect(dir.search('路由').length).toBeGreaterThan(3)
-    expect(dir.search('路由').every(item => item.description !== '')).toBe(true)
+    expect([...sections].sort()).toEqual(['models'])
+    expect(dir.search('API').every(item => item.description !== '')).toBe(true)
   })
 })

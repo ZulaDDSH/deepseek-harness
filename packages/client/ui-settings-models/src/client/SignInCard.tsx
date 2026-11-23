@@ -261,22 +261,25 @@ export function SignInCard(props: SignInCardProps): ReactNode {
 
       {question === null ? null : (
         <div className={styles['signInQuestion']}>
-          <label className={styles['signInQuestionLabel']} htmlFor={answerId}>{question.message}</label>
           {question.kind === 'select' ? (
-            <div className={styles['signInOptions']}>
-              {(question.options ?? []).map(option => (
-                <button
-                  key={option.id}
-                  type="button"
-                  className={styles['secondaryButton']}
-                  onClick={() => { void answer(option.id) }}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
+            <>
+              <span className={styles['signInQuestionLabel']}>{question.message}</span>
+              <div className={styles['signInOptions']} role="group" aria-label={question.message}>
+                {(question.options ?? []).map(option => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    className={styles['secondaryButton']}
+                    onClick={() => { void answer(option.id) }}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </>
           ) : (
             <div className={styles['signInAnswerRow']}>
+              <label className={styles['signInQuestionLabel']} htmlFor={answerId}>{question.message}</label>
               <input
                 id={answerId}
                 className={styles['input']}

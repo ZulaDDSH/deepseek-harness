@@ -48,7 +48,6 @@ import {
   contentHasImage,
   LlmAdapter,
   LlmError,
-  ReasoningEffortId,
 } from '@deepseek-ai/dsh-llm'
 import type {
   GenerateOptions,
@@ -63,12 +62,15 @@ import type {
   ToolSchema,
 } from '@deepseek-ai/dsh-llm'
 import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { requestImageTarget, toPiContext } from './context.ts'
 import { conversationUpdates, createModels, getSupportedThinkingLevels } from './models.ts'
 import { shapeReasoningPayload } from './reasoning-payload.ts'
 import { toStreamChunks } from './stream.ts'
+import { bindThinkingToPrefix } from './prefix-binding.ts'
+import type { PrefixDigests } from './prefix-binding.ts'
 import type { PiAiRequestHeaderContext } from './types.ts'
 
 /**
@@ -133,11 +135,9 @@ export interface PiAiAdapterOptions {
    * conversion because its stored replay state is unusable by this build.
    */
   onReplayDegrade?: (detail: { provider: string; model: string; reason: string }) => void
-  /** The response headers of each provider HTTP response, with the route that sent it. */
+  onThinkingOmitted?: (detail: { provider: string; model: string; count: number }) => void
   onResponseHeaders?: (detail: { provider: string; headers: Readonly<Record<string, string>> }) => void
-  /** The message of each failed provider request, with the route it was sent to. */
   onRequestFailure?: (detail: { provider: string; message: string }) => void
-  /** Observe a successful response whose provider-reported input exceeded the catalog `contextWindow`. */
   onUsageAboveWindow?: (detail: { provider: string; model: string; contextWindow: number; inputTokens: number }) => void
 }
 
@@ -231,10 +231,10 @@ function reasoningInfo(
   return {
     reasoning: {
       efforts: levels.map(level => ({
-        id: ReasoningEffortId(level),
+        id: brandString<ReasoningEffortIdType>(level),
         name: `${level.charAt(0).toUpperCase()}${level.slice(1)}`,
       })),
-      ...defaultLevel === undefined ? {} : { defaultEffort: ReasoningEffortId(defaultLevel) },
+      ...defaultLevel === undefined ? {} : { defaultEffort: brandString<ReasoningEffortIdType>(defaultLevel) },
     },
   }
 }
@@ -505,17 +505,25 @@ export class PiAiAdapter extends LlmAdapter {
       const onReplayDegrade = (reason: string): void => {
         this.config.onReplayDegrade?.({ provider: options.provider, model: options.model, reason })
       }
-      const context = attachments === undefined
-        ? toPiContext(request, undefined, onReplayDegrade, updates.systemPromptUpdate === 'in-history')
+      const prefixDigests: PrefixDigests = new Map()
+      const converted = attachments === undefined
+        ? toPiContext(request, undefined, onReplayDegrade, updates.systemPromptUpdate === 'in-history', prefixDigests)
         : await toPiContext({ ...request, signal: watchdog.signal }, {
           attachments,
           resolveImageAccess: ref => this.config.resolveImageAccess?.(attachments, ref),
           maxRequestImageBytes: profile.maxRequestImageBytes,
+          maxRequestImages: profile.maxRequestImages,
+          imageOffloadCountQuantum: profile.imageOffloadCountQuantum,
           requestImagePolicy: {
             maxPixels: profile.requestImagePixelBudget,
             maxBytes: profile.requestImageMaxBytes,
           },
-        }, onReplayDegrade, updates.systemPromptUpdate === 'in-history')
+        }, onReplayDegrade, updates.systemPromptUpdate === 'in-history', prefixDigests)
+      const manualThinking = model.reasoning && reasoning !== undefined && reasoning !== 'off'
+        && (model as Model<'anthropic-messages'>).compat?.forceAdaptiveThinking !== true
+      const { context, digest } = bindThinkingToPrefix(converted, model.api, prefixDigests, manualThinking, (count) => {
+        this.config.onThinkingOmitted?.({ provider: options.provider, model: options.model, count })
+      })
       const sessionId = options.sessionId === undefined ? undefined : String(options.sessionId)
       const mode = profile.modeRequests.get(model.id)
       const requestModel = mode === undefined ? model : { ...model, id: mode.model }
@@ -542,7 +550,7 @@ export class PiAiAdapter extends LlmAdapter {
           inputTokens,
         })
       }
-      const iterator = toStreamChunks(events, model.contextWindow, options.signal, model.id, onUsageAboveWindow)[Symbol.asyncIterator]()
+      const iterator = toStreamChunks(events, model.contextWindow, options.signal, model.id, onUsageAboveWindow, digest)[Symbol.asyncIterator]()
       let exhausted = false
       try {
         while (true) {

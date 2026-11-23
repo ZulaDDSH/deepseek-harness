@@ -43,25 +43,22 @@ const noProjection = projectionHook()
 const cliStubs = { cliProfiles: vi.fn(async () => []), openCliTerminal: vi.fn(async () => {}) }
 const toggleStub = vi.fn()
 
-type SeatProps = Omit<ViewProps, 'useModelDirectory' | 'useModelFavorites' | 'useGlobalSetup' | 'useProjection' | 'toggleFavorite' | 'cliProfiles' | 'openCliTerminal' | 'renderSlot'>
+type SeatProps = Omit<ViewProps, 'useModelDirectory' | 'useModelFavorites' | 'useProjection' | 'toggleFavorite' | 'cliProfiles' | 'openCliTerminal' | 'renderSlot'>
   & Partial<Pick<ViewProps, 'useProjection' | 'toggleFavorite' | 'cliProfiles' | 'openCliTerminal' | 'renderSlot'>>
-  & { directory: SnapshotStore<ModelDirectoryState>; favorites?: SnapshotStore<string[]>; globalSetup?: unknown }
+  & { directory: SnapshotStore<ModelDirectoryState>; favorites?: SnapshotStore<string[]> }
 
 /** Renderer stand-in for the inject hooks compartment: binds the stores the way the slot renderer does. */
 function ModelSelect({
-  directory, favorites, globalSetup, useProjection = noProjection, toggleFavorite = toggleStub, cliProfiles = cliStubs.cliProfiles,
+  directory, favorites, useProjection = noProjection, toggleFavorite = toggleStub, cliProfiles = cliStubs.cliProfiles,
   openCliTerminal = cliStubs.openCliTerminal, renderSlot = renderLabel, ...props
 }: SeatProps) {
   const useModelDirectory = useMemo(() => bindSnapshotSelector(directory), [directory])
   const favoriteStore = useMemo(() => favorites ?? createSnapshotStore<string[]>([]), [favorites])
   const useModelFavorites = useMemo(() => bindSnapshotSelector(favoriteStore), [favoriteStore])
-  const globalStore = useMemo(() => createSnapshotStore<unknown>(globalSetup), [globalSetup])
-  const useGlobalSetup = useMemo(() => bindSnapshotSelector(globalStore), [globalStore])
   return <ModelSelectView
     {...props}
     useModelDirectory={useModelDirectory}
     useModelFavorites={useModelFavorites}
-    useGlobalSetup={useGlobalSetup}
     useProjection={useProjection}
     toggleFavorite={toggleFavorite}
     cliProfiles={cliProfiles}
@@ -152,6 +149,8 @@ describe('ModelSelect label slot', () => {
     })
     await runtime.root.declare({
       'conversation.input.model.label': { kind: 'single', scope: 'session', inline: true },
+      'conversation.input.model.options': { kind: 'list', scope: 'session' },
+      'conversation.input.model.pane': { kind: 'keyed', scope: 'session' },
     }, ({ renderSlot, SessionProvider }) => <SessionProvider session={session}>
       <ModelSelect locked={false} available directory={directory} load={vi.fn()}
         resolveText={resolveText} select={select} t={t} renderSlot={renderSlot} />
@@ -554,6 +553,18 @@ describe('ModelSelect reasoning effort', () => {
 })
 
 describe('ModelSelect favorites and provider filter', () => {
+  it('shows every model of an unselected catalog without a provider filter', () => {
+    const groups = [...modelGroups(6), { id: 'other', name: 'Other provider', models: [{ id: 'other-model', name: 'Other model' }] }]
+    render(<ModelSelect renderSlot={renderLabel} locked={false} available
+      directory={createSnapshotStore(state({ groups, current: null }))} load={vi.fn()}
+      resolveText={resolveText} select={vi.fn()} t={t} />)
+    fireEvent.click(screen.getByRole('button', { name: '请选择模型' }))
+    expect(screen.getAllByRole('menuitemradio')).toHaveLength(7)
+    expect(screen.queryByRole('menuitem', { name: zh['models.showMore'] })).toBeNull()
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Model 6' } })
+    expect(screen.getByRole('menuitemradio', { name: 'Model 6' })).toBeTruthy()
+  })
+
   it('opens a provider directly and reveals its remaining models', () => {
     const directory = createSnapshotStore(state({ groups: [
       ...modelGroups(6),
@@ -1350,22 +1361,31 @@ it('pins an unlisted selection as a disabled checked row under the current sessi
   expect(screen.getByRole('menuitemradio', { name: 'DeepSeek-V4-Flash' }).getAttribute('aria-checked')).toBe('false')
 })
 
-it('locks the model rows and the effort choice while Orchestrator & Subagent Setup is on, and opens that view', () => {
-  const openSubagentSetup = vi.fn()
-  const lockedSetup = { enabled: true, roles: { orchestrator: { mode: 'fixed', route: { backend: 'llm', provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'high' } } } }
+it('keeps normal model and effort selection available when a setup record exists', async () => {
+  const groups = modelGroups(2).map(group => ({
+    ...group,
+    models: group.models.map(model => model.id === 'model-2' ? { ...model, reasoning } : model),
+  }))
   const runOptions = createSnapshotStore<SessionRunOptionsProjection | undefined>({
-    current: { subagentSetup: lockedSetup },
+    current: { subagentSetup: { enabled: true, roles: { orchestrator: {
+      mode: 'fixed', route: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+    } } } },
   } as SessionRunOptionsProjection)
-  render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={createSnapshotStore(state())}
-    load={vi.fn()} resolveText={resolveText} select={vi.fn()} t={t}
-    useProjection={projectionHook(runOptions)} setRunOptions={vi.fn()} openSubagentSetup={openSubagentSetup} />)
+  const select = vi.fn(async (_selection: ModelSelection) => ({ ok: true as const, value: undefined }))
+  render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={createSnapshotStore(state({ groups }))}
+    load={vi.fn()} resolveText={resolveText} select={select} t={t}
+    useProjection={projectionHook(runOptions)} setRunOptions={vi.fn()} />)
   fireEvent.click(screen.getByRole('button', { name: /选择模型，当前/ }))
   fireEvent.click(screen.getByRole('menuitem', { name: /^模型/ }))
-  expect(screen.getByRole('note').textContent).toContain(zh['subagentSetup.notice'])
-  expect(screen.getByRole('menuitemradio', { name: 'DeepSeek-V4-Flash' }).hasAttribute('disabled')).toBe(true)
-  fireEvent.click(screen.getByRole('button', { name: zh['subagentSetup.open'] }))
-  expect(openSubagentSetup).toHaveBeenCalledTimes(1)
-  expect(screen.queryByRole('menu')).toBeNull()
+  const model = screen.getByRole('menuitemradio', { name: 'Model 2' })
+  expect(model.hasAttribute('disabled')).toBe(false)
+  fireEvent.click(model)
+  expect(select).toHaveBeenCalledOnce()
+  const trigger = screen.getByRole('button', { name: /选择模型，当前/ })
+  await waitFor(() => { expect(trigger.getAttribute('aria-expanded')).toBe('false') })
+  fireEvent.click(trigger)
+  fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
+  expect(screen.getByRole('menuitemradio', { name: 'High' }).hasAttribute('disabled')).toBe(false)
 })
 
 describe('ModelSelect run options and Ultracode', () => {

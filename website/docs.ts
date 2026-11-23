@@ -84,6 +84,14 @@ const homeAndGuide = sitePages([
     order: 4,
   },
   {
+    source: 'docs/user/guide/desktop-uninstall-cleanup.md',
+    route: 'guide/desktop-uninstall-cleanup.md',
+    label: 'Uninstall DSH Desktop',
+    sidebar: 'guide',
+    section: 'Guide',
+    order: 5,
+  },
+  {
     source: 'docs/user/guide/python-sdk.md',
     route: 'guide/python-sdk.md',
     label: 'Python',

@@ -85,6 +85,8 @@ export function mapPerplexityResponse(response: PerplexityResponse): WebSearchRe
 /** The Perplexity-backed search provider; HTTP redirects fail as `WEB_PROVIDER_ERROR`. */
 export class PerplexitySearchProvider implements WebSearchProvider {
   readonly id = PERPLEXITY_PROVIDER_ID
+  readonly title = 'Perplexity'
+  readonly description = { en: 'Perplexity Sonar search returns a generated answer with citeable sources.' }
 
   constructor(private readonly options: PerplexitySearchProviderOptions) {}
 

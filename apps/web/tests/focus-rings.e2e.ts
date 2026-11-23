@@ -220,6 +220,9 @@ async function compileFixture(): Promise<{ script: string; css: string }> {
       const [checked, setChecked] = useState(false)
       const [open, setOpen] = useState(false)
       return <main style={{ padding: 40, display: 'grid', gap: 24, width: 420 }}>
+        <div data-account-option>
+          <label><input type="checkbox" aria-label="Account option" />Account option</label>
+        </div>
         <Switch label="Toggle" checked={checked} onChange={setChecked} />
         <button id="default-outline">Default browser outline</button>
         <button id="outline-none" aria-label="Outline disabled" style={{ outline: 'none' }}>No outline</button>
@@ -333,6 +336,19 @@ describe('source-compiled supplementary focus paint', () => {
     await page.getByRole('switch', { name: 'Toggle' }).waitFor()
     return page
   }
+
+  it.each(['light', 'dark'])('shows the account option focus ring after pointer input in %s mode', async (theme) => {
+    const page = await openFixture()
+    await page.evaluate(dark => document.body.toggleAttribute('data-ds-dark-theme', dark), theme === 'dark')
+    const checkbox = page.getByRole('checkbox', { name: 'Account option' })
+    await checkbox.click()
+    await page.keyboard.press('Shift')
+    expect((await paint(checkbox)).active).toBe(true)
+    await expectSilent(checkbox)
+    await page.keyboard.press('Tab')
+    await page.keyboard.press('Shift+Tab')
+    await expectFocusRing(checkbox, 'outline')
+  })
 
   it('keeps Shift/Escape silent while Tab, Home, End and paging reveal a blue outline', async () => {
     const page = await openFixture()

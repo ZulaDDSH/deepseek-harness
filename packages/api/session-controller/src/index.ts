@@ -6,10 +6,11 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-fs'
 import { Context, Service, type Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { errorChain, ReasoningEffortId, type MessageSource } from '@deepseek-ai/dsh-llm'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import { errorChain, type ReasoningEffortId, type MessageSource } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-client-file-upload'
 import { canOpenNativePath, nativeFileManager, nativeFileApplications, openNativeFileApplication, openNativeAssociatedPath, revealNativePath } from '@deepseek-ai/dsh-native-command'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
 import type { SessionObservation } from '@deepseek-ai/dsh-session-query'
 import { Remote, RemoteError, TypertRemoteService, principalOf, type TypertResourceResolveInput } from '@deepseek-ai/dsh-typert-protocol'
@@ -29,12 +30,13 @@ import { StateController } from './state/controller.ts'
 import { WebController } from './web/controller.ts'
 import { SessionFileReferences } from './file-references.ts'
 import { ApiSessionList } from './list.ts'
-import { buildModelCatalog, hasProviderApiKey, missingCredentialProviders } from './catalog.ts'
+import { buildModelCatalog, hasProviderApiKey, missingCredentialProvider, missingCredentialProviders } from './catalog.ts'
 import { installMcpSelectionProjection } from './mcp-selection-projection.ts'
 import { installHookOverridesProjection } from './hook-overrides-projection.ts'
 import { installAutoResponder } from './auto-responder.ts'
 import { installRunOptions } from './run-options.ts'
-import { subagentSetupSchema, type SubagentSetup } from './subagent-setup.ts'
+import { subagentSetupSchema, type SubagentSetup, type SubagentTeamRole, type SubagentTeamRoleRoute } from './subagent-setup.ts'
+import { teamRoleDefaultOf } from './team-role-defaults.ts'
 import type { HookInventoryReport } from '@deepseek-ai/dsh-hook-protocol'
 import { SessionSkillCatalog } from './skill-catalog.ts'
 import { SessionMediaReferences } from './media-references.ts'
@@ -85,6 +87,7 @@ import type {
 export type * from './types.ts'
 export { ApiSessionNotFound } from './agent.ts'
 export { SessionFileReferences } from './file-references.ts'
+export type { SubagentTeamRole, SubagentTeamRoleRoute } from './subagent-setup.ts'
 export { SessionSkillCatalog } from './skill-catalog.ts'
 export { effectiveSubagentSetupOf } from './run-options.ts'
 
@@ -239,7 +242,10 @@ export class SessionController extends TypertRemoteService {
     this.stateController = new StateController(ctx, this.historyController)
     this.webController = new WebController(ctx, this.historyController, (observation) => { this.promote(observation) })
     this.listState = new ApiSessionList(ctx, this.listWorkSliceMs)
+    await this.commands.initialize()
+    ctx.fiber.assertActive()
     await this.listState.initialize()
+    ctx.fiber.assertActive()
     ctx.plugin(SessionFileReferences)
     ctx.plugin(SessionMediaReferences)
     ctx.plugin(SessionSkillCatalog)
@@ -312,6 +318,14 @@ export class SessionController extends TypertRemoteService {
       this.ctx.logger.warn('session-controller: stored default Orchestrator & Subagent Setup is invalid and is ignored')
     }
     return undefined
+  }
+
+  teamRoleDefaultOf(session: Session, role: SubagentTeamRole): SubagentTeamRoleRoute | undefined {
+    return teamRoleDefaultOf(this.ctx, session, role, this.subagentSetupDefault?.get())
+  }
+
+  missingCredentialProvider(provider: string): Promise<boolean> {
+    return missingCredentialProvider(this.ctx, provider)
   }
 
   /**
@@ -466,7 +480,8 @@ export class SessionController extends TypertRemoteService {
     if (model === undefined) throw new RemoteError('session/provider-models-unavailable',
       `provider "${provider}" has no available models`, { provider })
     const selection = { provider, model: model.id,
-      ...model.reasoning?.defaultEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(model.reasoning.defaultEffort) },
+      ...model.reasoning?.defaultEffort === undefined ? {}
+        : { reasoningEffort: brandString<ReasoningEffortId>(model.reasoning.defaultEffort) },
     }
     await this.ctx.agentDefaultModel.saveSelection(selection)
   }
@@ -602,7 +617,7 @@ export class SessionController extends TypertRemoteService {
   @Remote('prompt')
   async prompt(request: SessionPromptRequest, signal: AbortSignal): Promise<SessionPromptValue> {
     signal.throwIfAborted()
-    if (!hasPromptContent(request.content)) {
+    if (request.content.length > 0 && !hasPromptContent(request.content)) {
       throw new RemoteError('gateway/bad-request', 'prompt content must include non-whitespace text or an attachment', {})
     }
     const clientTimeZone = request.clientTimeZone === undefined
@@ -618,7 +633,7 @@ export class SessionController extends TypertRemoteService {
     // The caller is recorded only when it is not the owner, so owner messages keep their exact source.
     const principal = principalOf(this.ctx.invocation)
     const source: MessageSource = {
-      kind: 'user',
+      kind: request.content.length === 0 ? 'retry' : 'user',
       rpcId: request.requestId,
       ...(clientTimeZone === undefined ? {} : { clientTimeZone }),
       ...(principal === undefined ? {} : { principal }),
@@ -691,10 +706,10 @@ export class SessionController extends TypertRemoteService {
   }
 
   /**
-   * Subscribe to sparse Session projection changes.
+   * Subscribe to Session projection changes.
    * @param request - target Session.
    * @param signal - subscription cancellation.
-   * @returns readiness and sparse projection changes.
+   * @returns readiness followed by one projection change frame per committed event.
    */
   @Remote({ mode: 'stream' })
   observeProjections(request: SessionProjectionsRequest, signal: AbortSignal): AsyncIterable<SessionProjectionFrame> {

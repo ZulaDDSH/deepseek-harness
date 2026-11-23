@@ -11,7 +11,7 @@ import css from './WorkspaceBrowser.module.css'
 /** Props of the activity-centered body. */
 export interface ActivityListProps extends Pick<
   WorkspaceBrowserProps,
-  'useSessionStatus' | 'open' | 'usePanelInfo' | 't' | 'openSessionMenu' | 'useContextMenu' | 'useContextMenuTarget' | 'useSessionAccess'
+  'useSessionStatus' | 'open' | 'usePanelInfo' | 't' | 'renderFactorySlot' | 'useContextMenu' | 'useContextMenuTarget' | 'useSessionAccess'
 > {
   list: SessionListState
   appearanceBySession: Readonly<Record<string, WorkspaceAppearance>>
@@ -30,7 +30,7 @@ export interface ActivityListProps extends Pick<
  * @returns the activity-centered body.
  */
 export function ActivityList({
-  list, sessionIds, rowState, appearanceBySession, useSessionStatus, open, openSessionMenu, useContextMenu,
+  list, sessionIds, rowState, appearanceBySession, useSessionStatus, open, renderFactorySlot, useContextMenu,
   useContextMenuTarget, useSessionAccess, onSessionRenameRequest, renderSlot, usePanelInfo, t,
 }: ActivityListProps) {
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
@@ -72,7 +72,7 @@ export function ActivityList({
                   onRenameRequest={onSessionRenameRequest}
                   renderSlot={renderSlot}
                   appearance={appearanceBySession[node.id]}
-                  openSessionMenu={openSessionMenu}
+                  renderFactorySlot={renderFactorySlot}
                   useContextMenu={useContextMenu}
                   useContextMenuTarget={useContextMenuTarget}
                   useSessionAccess={useSessionAccess}

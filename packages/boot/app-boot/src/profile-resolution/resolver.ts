@@ -730,21 +730,41 @@ class ResolutionRouter {
   }
 }
 
+export function isInternalModuleUnavailable(error: unknown, moduleId: string): boolean {
+  if (!(error instanceof Error)) return false
+  const code = (error as NodeJS.ErrnoException).code
+  if (code === 'ERR_UNKNOWN_BUILTIN_MODULE') return error.message === `No such built-in module: ${moduleId}`
+  if (code === 'MODULE_NOT_FOUND' || code === 'ERR_MODULE_NOT_FOUND') {
+    return /^(?:Cannot find module|Cannot find package) ['"]([^'"]+)['"]/u.exec(error.message)?.[1] === moduleId
+  }
+  if (code === 'ERR_REQUIRE_ESM') {
+    const target = /^require\(\) of ES Module (.+?) from /u.exec(error.message)?.[1]?.replaceAll('\\', '/')
+    return target?.endsWith(`/${moduleId}.js`) === true
+  }
+  return false
+}
+
 function internalModules(): InternalModules {
   const require = createRequire(import.meta.url)
   const requireInternal = (id: string): unknown => {
     if (process.execArgv.includes('--expose-internals')) {
       try {
         return require(id)
-      } catch {}
+      } catch (error) {
+        if (!isInternalModuleUnavailable(error, id)) throw error
+      }
     }
     try {
       const addon = require('node-addon-require-builtin') as { requireBuiltin(moduleId: string): unknown }
       return addon.requireBuiltin(id)
     } catch (error) {
+      if (!isInternalModuleUnavailable(error, id)
+        && !isInternalModuleUnavailable(error, 'node-addon-require-builtin')) throw error
       try {
         return require(id)
-      } catch {}
+      } catch (fallbackError) {
+        if (!isInternalModuleUnavailable(fallbackError, id)) throw fallbackError
+      }
       throw error
     }
   }

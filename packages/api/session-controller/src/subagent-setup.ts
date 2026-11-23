@@ -51,10 +51,7 @@ export type SubagentRoleRoute =
     readonly reasoningEffort?: string | undefined
   }
 
-/** A role either defers each run to Jev or is fixed to one route. */
-export type SubagentRoleSetting =
-  | { readonly mode: 'jev' }
-  | { readonly mode: 'fixed'; readonly route: SubagentRoleRoute }
+export type SubagentRoleSetting = { readonly mode: 'fixed'; readonly route: SubagentRoleRoute }
 
 /** Per-Session subagent setup: whether subagent mode is on, its review rounds, and each role's routing. */
 export interface SubagentSetup {
@@ -79,10 +76,7 @@ const routeSchema = z.discriminatedUnion('backend', [
     reasoningEffort: z.string().min(1).optional(),
   }).strict(),
 ])
-const settingSchema = z.discriminatedUnion('mode', [
-  z.object({ mode: z.literal('jev') }).strict(),
-  z.object({ mode: z.literal('fixed'), route: routeSchema }).strict(),
-])
+const settingSchema = z.object({ mode: z.literal('fixed'), route: routeSchema }).strict()
 
 const gsdSchema = z.object({
   enabled: z.boolean(),
@@ -101,6 +95,19 @@ export const subagentSetupSchema: z.ZodType<SubagentSetup> = z.object({
   gsd: gsdSchema.optional(),
   autoResponder: z.object({ enabled: z.boolean() }).strict().optional(),
 }).strict()
+
+export const SUBAGENT_TEAM_ROLES = ['coder', 'reviewer', 'researcher'] as const
+export type SubagentTeamRole = (typeof SUBAGENT_TEAM_ROLES)[number]
+export type SubagentTeamRoleRoute = SubagentRoleRoute
+
+export function subagentTeamRoleRouteOf(value: unknown, role: string): SubagentTeamRoleRoute | undefined {
+  const teamRole = SUBAGENT_TEAM_ROLES.find(candidate => candidate === role)
+  if (teamRole === undefined) return undefined
+  const setup = subagentSetupSchema.safeParse(value)
+  if (!setup.success || !setup.data.enabled) return undefined
+  const setting = setup.data.roles[teamRole]
+  return setting?.mode === 'fixed' ? setting.route : undefined
+}
 
 const DELEGATION_ROLE_PURPOSES = [
   ['coder', 'implementation'],

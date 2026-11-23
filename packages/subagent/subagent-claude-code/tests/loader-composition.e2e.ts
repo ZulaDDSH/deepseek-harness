@@ -48,7 +48,7 @@ describe('product-provider public Loader composition', () => {
         {
           name: 'claude-code',
           capabilities: {
-            agentOptions: false,
+            agentOptions: true,
             agentPreset: false,
             outputSchema: false,
             depthLimit: false,
@@ -58,7 +58,7 @@ describe('product-provider public Loader composition', () => {
         {
           name: 'claude-primary',
           capabilities: {
-            agentOptions: false,
+            agentOptions: true,
             agentPreset: false,
             outputSchema: false,
             depthLimit: false,
@@ -68,7 +68,7 @@ describe('product-provider public Loader composition', () => {
         {
           name: 'claude-secondary',
           capabilities: {
-            agentOptions: false,
+            agentOptions: true,
             agentPreset: false,
             outputSchema: false,
             depthLimit: false,
@@ -79,22 +79,22 @@ describe('product-provider public Loader composition', () => {
       tools: [
         {
           name: 'subagent_codex',
-          parameterNames: ['cwd', 'description', 'prompt'],
+          parameterNames: ['cwd', 'description', 'name', 'prompt'],
           required: ['description', 'prompt'],
         },
         {
           name: 'subagent_claude_code',
-          parameterNames: ['cwd', 'description', 'prompt'],
+          parameterNames: ['cwd', 'description', 'name', 'prompt'],
           required: ['description', 'prompt'],
         },
         {
           name: 'subagent_claude_primary',
-          parameterNames: ['cwd', 'description', 'prompt'],
+          parameterNames: ['cwd', 'description', 'name', 'prompt'],
           required: ['description', 'prompt'],
         },
         {
           name: 'subagent_claude_secondary',
-          parameterNames: ['cwd', 'description', 'prompt'],
+          parameterNames: ['cwd', 'description', 'name', 'prompt'],
           required: ['description', 'prompt'],
         },
       ],

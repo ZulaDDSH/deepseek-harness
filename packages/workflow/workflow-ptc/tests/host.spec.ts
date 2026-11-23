@@ -12,8 +12,9 @@ import type { SubagentActivation, SubagentResult } from '@deepseek-ai/dsh-subage
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import PtcWorkflowEngine from '../src/index.ts'
 import { fakeParent } from './setup.ts'
+import { brandString } from '@deepseek-ai/dsh-brand'
 
-const completed: PtcRunResult = { logs: [], value: { value: null, stopReason: 'completed', agentsStarted: 0 } }
+const completed: PtcRunResult = { output: [], value: { value: null, stopReason: 'completed', agentsStarted: 0 } }
 type HostBindings = Record<string, PtcBindingFunction>
 
 class ControlledRuntime extends PtcRuntime {
@@ -44,7 +45,7 @@ async function setup(execute?: (bindings: HostBindings, spec: PtcRunSpec) => Pro
     capabilities: { agentOptions: true, agentPreset: false, outputSchema: true, depthLimit: false },
     inheritsParentContext: false,
     start: async () => ({
-      id: SessionId('host-child'),
+      id: brandString<SessionId>('host-child'),
       result: Promise.resolve({ output: [], stopReason: 'completed' }),
       dispose: () => Promise.resolve(),
     }),
@@ -118,7 +119,7 @@ describe('workflow host callback validation', () => {
       expect(childStart).toHaveBeenCalledOnce()
       const selected = childStart.mock.calls[0]![0]
       expect(selected.provider).toBe('stub')
-      expect(selected.request.cwd).toBe(initial)
+      expect(selected.cwd).toBe(initial)
       expect(ensureDirectory).toHaveBeenCalledOnce()
     } finally {
       release.resolve(undefined)
@@ -198,7 +199,7 @@ describe('workflow runtime outcomes', () => {
       return completed
     })
     const activation = vi.spyOn(ctx.subagents, 'startActivation').mockResolvedValue({
-      childId: SessionId('ready-child'),
+      childId: brandString<SessionId>('ready-child'), name: 'ready-child',
       result: Promise.resolve({ output: [], structured: { answer: 42 }, stopReason: 'completed' }),
       dispose: () => { disposing.resolve(undefined); return released.promise },
     })
@@ -209,16 +210,13 @@ describe('workflow runtime outcomes', () => {
       await disposing.promise
       expect(settled).toBe(false)
       expect(activation).toHaveBeenCalledOnce()
-      const { signal, ...delegation } = activation.mock.calls[0]![0]
+      const { signal, parent: delegatedParent, ...delegation } = activation.mock.calls[0]![0]
       expect(signal).toBeInstanceOf(AbortSignal)
-      const { parent: delegatedParent, ...request } = delegation.request
       expect(delegatedParent).toBe(parent)
-      expect({ ...delegation, request }).toEqual({
+      expect(delegation).toEqual({
         provider: 'stub', label: 'host-test child 1', delivery: 'caller',
-        request: {
-          cwd: ctx.workingDirectory.get(parent.session),
-          prompt: [{ type: 'text', text: 'answer' }], outputSchema: schema, agentOptions: { model: 'selected' },
-        },
+        cwd: ctx.workingDirectory.get(parent.session),
+        prompt: [{ type: 'text', text: 'answer' }], outputSchema: schema, agentOptions: { model: 'selected' },
       })
       released.resolve(undefined)
       await expect(run.result).resolves.toMatchObject({ stopReason: 'completed' })
@@ -234,13 +232,23 @@ describe('workflow runtime outcomes', () => {
     [{ value: null, stopReason: 'cancelled', agentsStarted: -1 }, 'invalid workflow agent count'],
     [{ stopReason: 'completed', agentsStarted: 0 }, 'missing its value'],
     [{ value: null, stopReason: 'error', agentsStarted: 0, error: 5 }, 'error must be a string'],
+    [{ value: null, stopReason: 'error', agentsStarted: 0, error: 'cap', errorCode: 'NOT_A_CODE' }, 'invalid workflow error code'],
   ] as const)('maps an invalid terminal result %j to a workflow error', async (value, message) => {
-    const { start } = await setup(() => Promise.resolve({ logs: [], value }))
+    const { start } = await setup(() => Promise.resolve({ output: [], value }))
     const handle = start()
     try {
       const result = await handle.result
       expect(result.stopReason).toBe('error')
       expect(result.error).toContain(message)
+    } finally { await handle.dispose() }
+  })
+
+  it('carries a guest-reported fatal code onto the run result', async () => {
+    const value = { value: null, stopReason: 'error', agentsStarted: 1, error: 'total agent cap (1)', errorCode: 'AGENT_CAP' }
+    const { start } = await setup(() => Promise.resolve({ output: [], value }))
+    const handle = start()
+    try {
+      expect(await handle.result).toEqual(value)
     } finally { await handle.dispose() }
   })
 
@@ -279,7 +287,7 @@ describe('workflow runtime outcomes', () => {
       return publication.promise
     })
     const child: SubagentActivation = {
-      childId: SessionId('late-child'),
+      childId: brandString<SessionId>('late-child'), name: 'late-child',
       result: Promise.resolve({ output: [], stopReason: 'aborted' }),
       dispose: disposed,
     }
@@ -307,7 +315,7 @@ describe('workflow runtime outcomes', () => {
       return completed
     })
     vi.spyOn(ctx.subagents, 'startActivation').mockResolvedValue({
-      childId: SessionId('output-pending'), result: childResult.promise, dispose: disposed,
+      childId: brandString<SessionId>('output-pending'), name: 'output-pending', result: childResult.promise, dispose: disposed,
     })
     const handle = start()
     let settled = false
@@ -347,28 +355,11 @@ describe('workflow host delegation roles', () => {
     try {
       expect((await handle.result).stopReason).toBe('completed')
       expect(startSpy).toHaveBeenCalledWith(expect.objectContaining({ provider: 'stub' }))
-      expect(startSpy.mock.calls[0]?.[0].request).toEqual(expect.objectContaining({
+      expect(startSpy.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+        parent: expect.any(Object),
         agentOptions: { provider: 'alpha', model: 'coder-model' },
         routePinned: true,
       }))
-    } finally {
-      await handle.dispose()
-    }
-  })
-
-  it('leaves a Jev-decides role child unrouted', async () => {
-    const { ctx, start } = await setup(async (bindings) => {
-      await bindings.startChild!({ prompt: 'p', role: 'reviewer' })
-      return completed
-    })
-    mockSetup(ctx, { enabled: true, reviewRounds: 0, roles: { reviewer: { mode: 'jev' } } })
-    const startSpy = vi.spyOn(ctx.subagents, 'startActivation')
-    const handle = start()
-    try {
-      expect((await handle.result).stopReason).toBe('completed')
-      const request = startSpy.mock.calls[0]?.[0].request
-      expect(request).not.toHaveProperty('agentOptions')
-      expect(request).not.toHaveProperty('routePinned')
     } finally {
       await handle.dispose()
     }
@@ -395,7 +386,8 @@ describe('workflow host delegation roles', () => {
     try {
       expect((await handle.result).stopReason).toBe('completed')
       expect(startSpy).toHaveBeenCalledWith(expect.objectContaining({ provider: 'claude-code' }))
-      expect(startSpy.mock.calls[0]?.[0].request).toEqual(expect.objectContaining({
+      expect(startSpy.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+        parent: expect.any(Object),
         agentOptions: { model: 'cli-model' },
         routePinned: true,
       }))
@@ -425,7 +417,7 @@ describe('workflow host delegation roles', () => {
     try {
       expect((await handle.result).stopReason).toBe('completed')
       expect(startSpy).toHaveBeenCalledWith(expect.objectContaining({ provider: 'claude-team' }))
-      expect(startSpy.mock.calls[0]?.[0].request).toEqual(expect.objectContaining({ agentOptions: { model: 'cli-model' }, routePinned: true }))
+      expect(startSpy.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ parent: expect.any(Object), agentOptions: { model: 'cli-model' }, routePinned: true }))
     } finally {
       await handle.dispose()
     }
@@ -439,7 +431,7 @@ describe('workflow host delegation roles', () => {
         .rejects.toThrow('must pass role (coder)')
       return completed
     })
-    mockSetup(ctx, { enabled: true, reviewRounds: 0, roles: { coder: { mode: 'jev' } } })
+    mockSetup(ctx, { enabled: true, reviewRounds: 0, roles: { coder: { mode: 'fixed', route: { backend: 'llm', provider: 'alpha', model: 'model' } } } })
     const startSpy = vi.spyOn(ctx.subagents, 'startActivation')
     const handle = start()
     try {
@@ -455,7 +447,7 @@ describe('workflow host delegation roles', () => {
       await bindings.startChild!({ prompt: 'p' })
       return completed
     })
-    mockSetup(ctx, { enabled: true, reviewRounds: 0, roles: { orchestrator: { mode: 'jev' } } })
+    mockSetup(ctx, { enabled: true, reviewRounds: 0, roles: { orchestrator: { mode: 'fixed', route: { backend: 'llm', provider: 'alpha', model: 'model' } } } })
     const startSpy = vi.spyOn(ctx.subagents, 'startActivation')
     const handle = start()
     try {

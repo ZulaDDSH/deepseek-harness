@@ -21,6 +21,9 @@
       "path": "../../llm/llm"
     },
     {
+      "path": "../../util/error"
+    },
+    {
       "path": "../../core/tools"
     },
     {
@@ -43,6 +46,9 @@
     },
     {
       "path": "../../credentials/credentials"
+    },
+    {
+      "path": "../../util/values"
     },
     {
       "path": "../../credentials/authorization"

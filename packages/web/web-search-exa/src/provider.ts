@@ -83,6 +83,8 @@ export function mapExaResponse(response: ExaSearchResponse): WebSearchResult {
 /** The Exa-backed search provider; HTTP redirects fail as `WEB_PROVIDER_ERROR`. */
 export class ExaSearchProvider implements WebSearchProvider {
   readonly id = EXA_PROVIDER_ID
+  readonly title = 'Exa'
+  readonly description = { en: 'Exa keyword or neural search with source snippets and publication dates; no generated answer.' }
 
   constructor(private readonly options: ExaSearchProviderOptions) {}
 

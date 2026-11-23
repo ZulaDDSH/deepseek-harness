@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { registerKnowledgeLearnTool } from '../src/tool-learn.ts'
 import type { LearningResult, LearningWrite } from '../src/graphify-learn.ts'
 import { executeModelCall } from './fixtures/model-call.ts'

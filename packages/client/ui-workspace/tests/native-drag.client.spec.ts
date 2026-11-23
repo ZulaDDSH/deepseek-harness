@@ -21,7 +21,7 @@ describe('Workspace native drag acceptance', () => {
   it('rejects a visible target absent from the persisted account', () => {
     const row = (id: string): SessionNode => ({
       id: id as SessionId, title: id, blank: false, running: false, runningSubagentCount: 0,
-      completed: false, pinned: false, archived: false, updatedAt: 1,
+      completed: false, failed: false, pinned: false, archived: false, updatedAt: 1,
     })
     const first = row('first')
     const last = row('last')

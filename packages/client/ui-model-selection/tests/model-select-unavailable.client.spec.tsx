@@ -31,18 +31,15 @@ function projectionHook(runOptions?: SnapshotStore<SessionRunOptionsProjection |
 }
 const noProjection = projectionHook()
 
-type SeatProps = Omit<ComponentProps<typeof ModelSelect>, 'useModelDirectory' | 'useModelFavorites' | 'useGlobalSetup'> & {
+type SeatProps = Omit<ComponentProps<typeof ModelSelect>, 'useModelDirectory' | 'useModelFavorites'> & {
   directory: SnapshotStore<ModelDirectoryState>
   favorites: SnapshotStore<string[]>
-  globalSetup?: unknown
 }
-function Seat({ directory, favorites, globalSetup, ...props }: SeatProps) {
+function Seat({ directory, favorites, ...props }: SeatProps) {
   const useModelDirectory = useMemo(() => bindSnapshotSelector(directory), [directory])
   const useModelFavorites = useMemo(() => bindSnapshotSelector(favorites), [favorites])
-  const globalStore = useMemo(() => createSnapshotStore<unknown>(globalSetup), [globalSetup])
-  const useGlobalSetup = useMemo(() => bindSnapshotSelector(globalStore), [globalStore])
   return <ModelSelect
-    {...props} useModelDirectory={useModelDirectory} useModelFavorites={useModelFavorites} useGlobalSetup={useGlobalSetup}
+    {...props} useModelDirectory={useModelDirectory} useModelFavorites={useModelFavorites}
   />
 }
 

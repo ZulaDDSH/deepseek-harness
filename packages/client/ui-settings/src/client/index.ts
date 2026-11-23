@@ -15,7 +15,7 @@ import { SettingsDirectory } from './settings-directory.ts'
 
 export type {
   SettingsLauncherOwnerProps, SettingsGeneralItemOwnerProps, SettingsHeaderOwnerProps,
-  SettingsPluginsTabOwnerProps, SettingsSectionOwnerProps, SettingsTriggerOwnerProps,
+  SettingsPluginsTabOwnerProps, SettingsSectionIconOwnerProps, SettingsSectionOwnerProps, SettingsTriggerOwnerProps,
 } from './contract/slots.ts'
 export type { ConfigForms } from './config-form.ts'
 export type { ConfigForm, ConfigFormSnapshot } from './config-form-types.ts'

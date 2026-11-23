@@ -140,6 +140,10 @@
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
+.settingsMenu {
+  width: min(240px, calc(100vw - 24px));
+}
+
 .rootMenu {
   overflow-y: auto;
 }
@@ -531,25 +535,6 @@
   color: var(--dsw-alias-label-tertiary);
   font-size: 12px;
   line-height: 18px;
-}
-
-.subagentNotice {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-}
-
-.subagentLink {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--dsw-alias-label-primary);
-  font: inherit;
-  font-size: 12px;
-  text-decoration: underline;
-  cursor: pointer;
 }
 
 .effort {

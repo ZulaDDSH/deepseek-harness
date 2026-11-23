@@ -194,6 +194,27 @@ describe('the sign-in card', () => {
     operations.release()
   })
 
+  it('labels the group of choices for a select prompt', async () => {
+    const operations = surface({
+      hold: true,
+      notices: [{
+        type: 'notice',
+        attempt: 'cap-1',
+        prompt: '0',
+        kind: 'select',
+        message: 'Choose a sign-in method',
+        options: [{ id: 'oauth', label: 'Browser sign-in' }, { id: 'api-key', label: 'API key' }],
+      }],
+    })
+    await start(operations)
+
+    expect(screen.getByText('Choose a sign-in method')).toBeTruthy()
+    expect(await screen.findByRole('group', { name: 'Choose a sign-in method' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Browser sign-in' }))
+    await waitFor(() => { expect(operations.answered).toEqual([{ attempt: 'cap-1', prompt: '0', value: 'oauth' }]) })
+    operations.release()
+  })
+
   it('clears the question only after the Host accepts the answer', async () => {
     const operations = surface({
       hold: true,

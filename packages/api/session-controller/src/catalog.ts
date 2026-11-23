@@ -157,3 +157,14 @@ export async function missingCredentialProviders(ctx: Context): Promise<readonly
     }))
   return missing.filter((provider): provider is string => provider !== undefined)
 }
+
+export async function missingCredentialProvider(ctx: Context, provider: string): Promise<boolean> {
+  const credentials = ctx.get('credentials')
+  const references = apiKeyReferencesOf(ctx)
+  if (credentials === undefined || references === undefined) {
+    throw new RemoteError('session/provider-credentials-unavailable', 'provider credentials are unavailable', {})
+  }
+  const reference = references.find(candidate => candidate.provider === provider)
+  if (reference === undefined || !isCredentialRefName(reference.ref)) return false
+  return !(await credentials.describe(credentialRef(reference.ref))).configured
+}

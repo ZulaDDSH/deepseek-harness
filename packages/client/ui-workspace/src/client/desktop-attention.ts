@@ -1,7 +1,7 @@
 /** Desktop attention bridge over the unified Session status projection. */
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
+import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session-status/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
 /** Semantic native-notification category derived from Session UI status. */

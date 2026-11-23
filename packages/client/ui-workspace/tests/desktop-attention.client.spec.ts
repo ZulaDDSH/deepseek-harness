@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
+import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session-status/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { DesktopAttentionSource } from '../src/client/desktop-attention.ts'
 
@@ -28,6 +28,7 @@ function status(overrides: Record<string, unknown> = {}): SessionStatusSnapshot 
     running: false,
     pendingInteraction: undefined,
     completionUnread: false,
+    completionFailed: false,
     ...overrides,
   }
   return new Map([[id, entry]])

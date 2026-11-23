@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { renderMenuButton } from './menu-button.tsx'
 /**
  * Chat Sections as the lower sidebar pane. Sections are a saved visual filter
  * over the Workspace pane: filing a Chat into a section never removes it from
@@ -16,7 +17,7 @@ import {
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { WorkspaceId, WorkspaceSnapshot, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
-import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
+import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session-status/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
@@ -136,6 +137,8 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => true, subscribe: () => () => {} }),
     useHostInfo: selector => selector({ home: undefined, isLoopback: true }),
     renderSlot: renderDirectoryFlowOnly,
+    renderFactorySlot: renderMenuButton,
+    useSectionScroller: () => ({ bindScrollerRef: () => {} }),
     t,
     ...overrides,
   }
@@ -161,7 +164,7 @@ function createSection(name: string): void {
 const sectionsPane = (): HTMLElement => screen.getByRole('tree', { name: '分组' })
 /** A section's header row inside the pane. */
 const header = (name: string): HTMLElement =>
-  within(sectionsPane()).getByRole('treeitem', { name: `分组“${name}”的操作` })
+  within(sectionsPane()).getByRole('treeitem', { name })
 /** The Chat rows filed under one section. */
 const membersOf = (name: string): HTMLElement[] =>
   within(within(sectionsPane()).getByRole('group', { name })).getAllByRole('treeitem')
@@ -630,6 +633,7 @@ describe('Chat Sections pane', () => {
   })
 
   it('renders empty sections and waits for a visible member summary', () => {
+    const renderFactorySlot = vi.fn(renderMenuButton)
     const props: SectionsListProps = {
       list: sessionState([]), visibleSessionIds: [],
       rowState: { pinnedSessionIds: [], archivedSessionIds: [], archivedFilter: 'default' },
@@ -638,7 +642,7 @@ describe('Chat Sections pane', () => {
       useSessionStatus: hook(noStatuses), open: vi.fn(), usePanelInfo,
       onSessionRenameRequest: vi.fn(), renderSlot: () => null,
       assignSession: vi.fn(), setSectionOrder: vi.fn(), toggleSection: vi.fn(), moveSection: vi.fn(),
-      openSectionMenu: vi.fn(), openSessionMenu: vi.fn(), useContextMenu: contextMenuHook(),
+      openSectionMenu: vi.fn(), renderFactorySlot, useContextMenu: contextMenuHook(),
       useContextMenuTarget: select => select(null), useSessionAccess: allowAllAccess.useSessionAccess,
       externalChatSessionId: null, onChatDragEnd: vi.fn(), t,
     }
@@ -656,6 +660,9 @@ describe('Chat Sections pane', () => {
     expect(membersOf('Work')).toEqual([])
     view.rerender(<SectionsList {...pending} list={sessionState([summary('pending', 1)])} />)
     expect(titlesOf(membersOf('Work'))).toEqual(['pending'])
+    expect(renderFactorySlot).toHaveBeenCalledWith('contextMenu.button', expect.objectContaining({
+      target: { kind: 'session', value: { sessionId: sid('pending'), displayTitle: 'pending' } },
+    }))
   })
 
   it('keeps the selected blank member first when reordering another member', () => {

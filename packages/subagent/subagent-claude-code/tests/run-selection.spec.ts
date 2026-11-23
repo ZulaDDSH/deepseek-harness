@@ -13,7 +13,7 @@ describe('claudeRunSelectionOf', () => {
   })
 
   it('accepts Claude Code aliases and model ids, with a Claude Code effort level', () => {
-    expect(claudeRunSelectionOf({ model: 'opus[1m]', reasoningEffort: ReasoningEffortId('xhigh') }))
+    expect(claudeRunSelectionOf({ provider: 'anthropic', model: 'opus[1m]', reasoningEffort: ReasoningEffortId('xhigh') }))
       .toEqual({ model: 'opus[1m]', effort: 'xhigh' })
     expect(claudeRunSelectionOf({ model: 'claude-sonnet-5-5' })).toEqual({ model: 'claude-sonnet-5-5' })
   })
@@ -40,7 +40,7 @@ describe('claudeRunSelectionOf', () => {
 
   it('rejects a provider or token limit, which one Claude Code child cannot set', () => {
     expect(() => claudeRunSelectionOf({ provider: 'other', model: 'opus' }))
-      .toThrow('may set only model and reasoningEffort')
+      .toThrow('may use only provider "anthropic"')
     expect(() => claudeRunSelectionOf({ maxTokens: 512 })).toThrow('may set only model and reasoningEffort')
   })
 })
