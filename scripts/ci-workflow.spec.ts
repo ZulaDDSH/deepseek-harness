@@ -654,6 +654,16 @@ describe('Weighted approval workflow', () => {
   })
 })
 
+describe('Policy approve workflow', () => {
+  it('requests the check App token for the repository that triggered it', () => {
+    const steps = workflowJob(loadWorkflow('.github/workflows/pr-check-after-approve.yml'), 'approve').steps
+    if (!Array.isArray(steps)) throw new TypeError('the approve job must define steps')
+    expect(steps.find(step => isRecord(step) && step.id === 'token')).toMatchObject({
+      with: { owner: '${{ github.repository_owner }}', repositories: '${{ github.event.repository.name }}', 'permission-checks': 'write' },
+    })
+  })
+})
+
 describe('npm release workflows', () => {
   it('keeps publication dispatch-only and pack in the PR workflow', () => {
     // pack stays in the PR/master release workflows so a PR proves the set packs.
