@@ -114,7 +114,9 @@ export class OutputStore {
   }
 
   /** Saves run one at a time so the byte budget covers every retained file. */
-  private async saveNow(owner: string, name: string, data: Uint8Array, ticket: OutputReservation, signal: AbortSignal | undefined): Promise<string> {
+  private async saveNow(
+    owner: string, name: string, data: Uint8Array, ticket: OutputReservation, signal: AbortSignal | undefined,
+  ): Promise<string> {
     await this.sweep
     if (this.disposed) throw new OfficeKitError('unavailable', 'The document converter is unavailable.')
     this.throwIfStale(ticket, signal)
