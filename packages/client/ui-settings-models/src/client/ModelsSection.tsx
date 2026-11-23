@@ -42,6 +42,8 @@ import type { EditorTarget, ProviderIdentity } from './provider-rows.ts'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
 
+const SIGN_IN_ROW_NAMESPACES: ReadonlySet<string> = new Set(['llm-pi-ai', 'llm-freebuff'])
+
 /** Injected dependencies of {@link ModelsSection} (slot `inject`). */
 export interface ModelsSectionInjected {
   /** The page store (loaded on mount, refreshed on pushed invalidations). */
@@ -421,7 +423,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
             )
           }
           const open = !addOpen && editing?.provider === row.entry.provider
-          const rowSignIn = authorization !== undefined && target.settingsNs === 'llm-pi-ai'
+          const rowSignIn = authorization !== undefined && SIGN_IN_ROW_NAMESPACES.has(target.settingsNs)
           const credentialConfigured = row.credential?.configured === true
           const credentialMissing = !credentialConfigured
             && row.apiKeyEnv !== undefined
@@ -468,7 +470,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                 </span>
                 <span className={styles['rowActions']}>
                   {/* The account catalog comes from the account listing; its model overrides live in cordis.patch.yml. */}
-                  {row.entry.provider === 'deepseek-account'
+                  {row.entry.provider === 'deepseek-account' || row.entry.settingsNs === 'llm-freebuff'
                     ? null
                     : (
                       <button
