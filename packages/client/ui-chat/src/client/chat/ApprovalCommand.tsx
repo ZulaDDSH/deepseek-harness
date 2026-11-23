@@ -33,15 +33,6 @@ const MAX_JSON_CHARS = 4096
 
 const MAX_VALUE_CHARS = 200
 
-/**
- * Describe a correlated Tool call for approval: its command, write, edit, run_code source, or pretty JSON.
- * @param call - Tool call arguments, when a correlated call exists.
- * @returns detail text, or undefined for absent, malformed, or empty arguments.
- */
-export function approvalDetail(call: ApprovalToolCall | undefined): string | undefined {
-  return describeApproval(call)?.preview
-}
-
 export interface ApprovalDetailView {
   readonly preview: string | undefined
   readonly rest: readonly (readonly [string, string])[]

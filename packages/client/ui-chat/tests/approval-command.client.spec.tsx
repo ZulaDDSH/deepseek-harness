@@ -4,7 +4,7 @@ import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots
 import { PartialArguments } from '@deepseek-ai/dsh-util-values'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { ApprovalCommand, approvalDetail, commandOf, describeApproval } from '../src/client/chat/ApprovalCommand.tsx'
+import { ApprovalCommand, commandOf, describeApproval } from '../src/client/chat/ApprovalCommand.tsx'
 
 function props(
   nodes: readonly unknown[],
@@ -40,12 +40,12 @@ describe('commandOf', () => {
 })
 
 function detailOf(argsRaw: string): string | undefined {
-  return approvalDetail({ callId: 'c1', argsRaw })
+  return describeApproval({ callId: 'c1', argsRaw })?.preview
 }
 
-describe('approvalDetail', () => {
+describe('describeApproval preview', () => {
   it('returns nothing for absent, malformed, non-object, or empty arguments', () => {
-    expect(approvalDetail(undefined)).toBeUndefined()
+    expect(describeApproval(undefined)).toBeUndefined()
     expect(detailOf('{')).toBeUndefined()
     expect(detailOf('[]')).toBeUndefined()
     expect(detailOf('{}')).toBeUndefined()
@@ -82,7 +82,7 @@ describe('approvalDetail', () => {
   })
 
   it('shows terminal input as the approval detail', () => {
-    expect(approvalDetail({ callId: 'c1', name: 'terminal_send', argsRaw: '{"text":"pnpm run dev"}' })).toBe('pnpm run dev')
+    expect(describeApproval({ callId: 'c1', name: 'terminal_send', argsRaw: '{"text":"pnpm run dev"}' })?.preview).toBe('pnpm run dev')
   })
 })
 
