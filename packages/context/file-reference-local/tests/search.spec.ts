@@ -194,6 +194,21 @@ describe('WorkspaceFileSearch', () => {
     files.dispose()
   })
 
+  it('refreshes an index older than the revalidation window without any invalidation', async () => {
+    const root = await workspace()
+    const files = search(root)
+    const signal = new AbortController().signal
+    expect(await files.list('external-file', signal)).toEqual([])
+    await writeFile(join(root, 'external-file.ts'), 'x')
+    const now = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(now + 60_000)
+    expect(await files.list('external-file', signal)).toEqual([])
+    await vi.waitFor(async () => {
+      expect(await files.list('external-file', signal)).toEqual([{ path: 'external-file.ts', kind: 'file' }])
+    })
+    vi.restoreAllMocks()
+  })
+
   it('keeps the stale entries when the workspace root is unreadable, and retries once it returns', async () => {
     const root = await workspace()
     const files = search(root)

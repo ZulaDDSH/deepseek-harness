@@ -72,7 +72,10 @@ interface IndexGeneration {
 interface SettledIndex {
   entries: IndexedPath[]
   startedAt: number
+  settledAt: number
 }
+
+const REVALIDATE_AFTER_MS = 5000
 
 /**
  * Cancellable, reusable fuzzy index rooted at one agent working directory.
@@ -159,7 +162,7 @@ export class WorkspaceFileSearch {
   private async indexFor(signal: AbortSignal): Promise<readonly IndexedPath[]> {
     const settled = this.settled
     if (settled === undefined) return waitForPromise(this.ensureIndex(), signal)
-    if (settled.startedAt < this.invalidations) {
+    if (settled.startedAt < this.invalidations || Date.now() - settled.settledAt > REVALIDATE_AFTER_MS) {
       void this.ensureIndex().catch(() => {
         // A background refresh failure is not this caller's error: the stale
         // entries still answer and `settled.startedAt` stays behind, so the
@@ -185,7 +188,7 @@ export class WorkspaceFileSearch {
          * not hand a disposed index its entries back. */
         if (this.disposed) return entries
         this.generation = undefined
-        this.settled = { entries, startedAt }
+        this.settled = { entries, startedAt, settledAt: Date.now() }
         return entries
       },
       (error: unknown) => {

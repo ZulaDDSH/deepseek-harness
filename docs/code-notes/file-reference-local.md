@@ -1,0 +1,3 @@
+# file-reference-local code notes
+
+`packages/context/file-reference-local/src/search.ts:WorkspaceFileSearch.indexFor` (finding 157): the bare-query index was invalidated only by a `tool/result` in the owning agent's session, so files created, renamed or removed by an editor or another agent stayed invisible (or offered) until that agent next ran a tool. A settled index now also counts as stale once it is older than `REVALIDATE_AFTER_MS` (5 seconds); the existing stale-while-revalidate path then answers from the old entries immediately and rebuilds in the background, so a keystroke never waits on a traversal. There is no filesystem watcher: an external change appears on the first bare query after the window plus the background rebuild, i.e. one query later.
