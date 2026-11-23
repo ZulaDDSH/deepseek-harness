@@ -363,10 +363,11 @@ export class BasicCompactionEngine extends CompactionEngine {
         const measurement = this.ctx.tokenMeter.measure(agent.session)
         const policy = resolveTargetPolicy(this.config, header.config)
         const routedWindow = agent.session.requestContext()?.contextWindow
+        const summarizer = await this.summarizerWindow(policy, signal)
         const prefixLimit = routedWindow === undefined
           ? undefined
           : summaryPrefixLimit(
-            Math.min(routedWindow, policy.maxContextWindow ?? Number.POSITIVE_INFINITY),
+            Math.min(routedWindow, policy.maxContextWindow ?? Number.POSITIVE_INFINITY, summarizer ?? Number.POSITIVE_INFINITY),
             policy.maxTokens,
           )
         const range = selectCompactableRange(agent.session, measurement, 0, prefixLimit)
@@ -376,6 +377,20 @@ export class BasicCompactionEngine extends CompactionEngine {
       /* v8 ignore next -- closed-union exhaustiveness guard */
       default:
         assertNever(trigger, 'compaction trigger')
+    }
+  }
+
+  private async summarizerWindow(
+    policy: { summarizationProvider: string; summarizationModel: string },
+    signal: AbortSignal,
+  ): Promise<number | undefined> {
+    if (policy.summarizationProvider.length === 0) return undefined
+    try {
+      const info = await this.ctx.llm.resolveModelInfo(policy.summarizationProvider, policy.summarizationModel, signal)
+      return info.context?.contextWindow
+    } catch (error: unknown) {
+      signal.throwIfAborted()
+      return undefined
     }
   }
 
@@ -446,7 +461,10 @@ export class BasicCompactionEngine extends CompactionEngine {
 
     const prefixLimit = requireBelowThreshold && !boundToTargetWindow
       ? undefined
-      : summaryPrefixLimit(spec.contextWindow, spec.maxTokens)
+      : summaryPrefixLimit(
+        Math.min(spec.contextWindow, await this.summarizerWindow(policy, signal) ?? Number.POSITIVE_INFINITY),
+        spec.maxTokens,
+      )
     let result: CompactionResult | null = null
     for (let attempt = 0; attempt <= spec.compactionRetries; attempt += 1) {
       const range = selectCompactableRange(agent.session, measurement, spec.retainTokens, prefixLimit)

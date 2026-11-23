@@ -604,6 +604,30 @@ describe('pressure measurement and retention', () => {
     retainTokens: 180,
   }
 
+  it.each(['pressure', 'context-overflow'] as const)('bounds the %s range by a smaller configured summarizer window', async (trigger) => {
+    const sizes: number[] = []
+    for (const summarizerWindow of [1_000, 700]) {
+      const ctx = createContext(1_000)
+      vi.spyOn(ctx.llm, 'resolveModelInfo').mockImplementation((provider, model) => Promise.resolve({
+        provider,
+        id: model,
+        name: model,
+        context: { contextWindow: provider === 'summary-provider' ? summarizerWindow : 1_000 },
+        defaultMaxTokens: 0,
+      }))
+      const compact = service({
+        ...compactConfig, summarizationProvider: 'summary-provider', summarizationModel: 'summary-model', maxTokens: 20,
+      }, ctx)
+      const session = conversation(8)
+      session.append('request/context', { provider: MODEL, model: MODEL, contextWindow: 1_000 })
+      await compactIfNeeded(compact, session, trigger).catch(() => null)
+      const input = compact.calls[0]?.input
+      sizes.push(input === undefined ? 0 : summarizedText(input).length)
+    }
+    expect(sizes[1]).toBeGreaterThan(0)
+    expect(sizes[1]).toBeLessThan(sizes[0] ?? 0)
+  })
+
   it('skips when no durable routed model exists instead of using AgentOptions fallback', async () => {
     const compact = service(compactConfig)
     const session = Session.create(brandString<SessionId>('headerless'))
