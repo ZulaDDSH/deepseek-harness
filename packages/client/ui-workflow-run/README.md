@@ -31,7 +31,7 @@ Run and phase headers keep 6px gaps between their title, count, and status field
 
 ### State and completion
 
-Completion updates the visible status immediately but delays its automatic close while focus remains inside the content. A run or member without terminal events stays running after its Turn or Step ends normally, because a background run outlives its Tool Step. It is presented as interrupted, without changing the tool result, once its Turn is closed after a crash or at a fork boundary.
+Completion updates the visible status immediately but delays its automatic close while focus remains inside the content. A run or member without terminal events stays running after its Turn or Step ends normally, because a background run outlives its Tool Step. It is presented as interrupted, without changing the tool result, once its Turn is closed after a crash or at a fork boundary. A member that has no outcome under a run whose run-end has been recorded is presented as incomplete, since its run stopped before the member reported; it is not treated as running.
 
 -----
 

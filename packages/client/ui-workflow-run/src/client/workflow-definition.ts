@@ -9,7 +9,7 @@ import type {
 import type { WorkflowAgentOutcome, WorkflowStopReason } from '@deepseek-ai/dsh-workflow/types'
 
 /** Status shown for a workflow, phase, or member. */
-export type WorkflowRunStatus = 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted'
+export type WorkflowRunStatus = 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted' | 'incomplete'
 
 /** Final renderer data for one member. */
 export interface WorkflowRunMemberData {
@@ -113,7 +113,7 @@ function projectWorkflow(
       label: member.label,
       childId: member.childId,
       status: member.outcome === undefined
-        ? interrupted ? 'interrupted' : 'running'
+        ? state.stopReason !== undefined ? 'incomplete' : interrupted ? 'interrupted' : 'running'
         : statusFromOutcome(member.outcome),
     })
   }

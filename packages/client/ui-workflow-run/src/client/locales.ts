@@ -16,6 +16,7 @@ export const zh = {
   'statusCount.failed': '失败 {count}',
   'statusCount.cancelled': '已取消 {count}',
   'statusCount.interrupted': '已中断 {count}',
+  'statusCount.incomplete': '未完成 {count}',
   'member.empty': '空成员名',
   'member.open': '打开 {name}',
   'status.running': '运行中',
@@ -23,6 +24,7 @@ export const zh = {
   'status.failed': '失败',
   'status.cancelled': '已取消',
   'status.interrupted': '已中断',
+  'status.incomplete': '未完成',
 }
 
 /** English dictionary (same key set). */
@@ -38,6 +40,7 @@ export const en: Record<WorkflowRunKey, string> = {
   'statusCount.failed': 'Failed {count}',
   'statusCount.cancelled': 'Cancelled {count}',
   'statusCount.interrupted': 'Interrupted {count}',
+  'statusCount.incomplete': 'Incomplete {count}',
   'member.empty': 'Empty member name',
   'member.open': 'Open {name}',
   'status.running': 'Running',
@@ -45,6 +48,7 @@ export const en: Record<WorkflowRunKey, string> = {
   'status.failed': 'Failed',
   'status.cancelled': 'Cancelled',
   'status.interrupted': 'Interrupted',
+  'status.incomplete': 'Incomplete',
 }
 
 /** Union of this namespace's dictionary keys. */
@@ -63,6 +67,7 @@ export const ja = {
   'statusCount.failed': '失敗 {count}',
   'statusCount.cancelled': 'キャンセル {count}',
   'statusCount.interrupted': '中断 {count}',
+  'statusCount.incomplete': '未完了 {count}',
   'member.empty': 'メンバー名が空です',
   'member.open': '{name}を開く',
   'status.running': '実行中',
@@ -70,6 +75,7 @@ export const ja = {
   'status.failed': '失敗',
   'status.cancelled': 'キャンセル',
   'status.interrupted': '中断',
+  'status.incomplete': '未完了',
 } satisfies Record<keyof typeof en, string>
 
 /** Spanish dictionary, checked against the English keys. */
@@ -85,6 +91,7 @@ export const es = {
   'statusCount.failed': 'Error {count}',
   'statusCount.cancelled': 'Cancelado {count}',
   'statusCount.interrupted': 'Interrumpido {count}',
+  'statusCount.incomplete': 'Incompleto {count}',
   'member.empty': 'Nombre de miembro vacío',
   'member.open': 'Abrir {name}',
   'status.running': 'corriendo',
@@ -92,6 +99,7 @@ export const es = {
   'status.failed': 'Fallido',
   'status.cancelled': 'Cancelado',
   'status.interrupted': 'interrumpido',
+  'status.incomplete': 'incompleto',
 } satisfies Record<keyof typeof en, string>
 
 /** French dictionary, checked against the English keys. */
@@ -107,6 +115,7 @@ export const fr = {
   'statusCount.failed': 'Échec du {count}',
   'statusCount.cancelled': 'Annulé {count}',
   'statusCount.interrupted': '{count} interrompu',
+  'statusCount.incomplete': '{count} incomplet',
   'member.empty': 'Nom du membre vide',
   'member.open': 'Ouvrir {name}',
   'status.running': 'Courir',
@@ -114,6 +123,7 @@ export const fr = {
   'status.failed': 'Échec',
   'status.cancelled': 'Annulé',
   'status.interrupted': 'Interrompu',
+  'status.incomplete': 'Incomplet',
 } satisfies Record<keyof typeof en, string>
 
 /** German dictionary, checked against the English keys. */
@@ -129,6 +139,7 @@ export const de = {
   'statusCount.failed': 'Fehlgeschlagen {count}',
   'statusCount.cancelled': 'Storniert {count}',
   'statusCount.interrupted': 'Unterbrochen {count}',
+  'statusCount.incomplete': 'Unvollständig {count}',
   'member.empty': 'Leerer Mitgliedsname',
   'member.open': 'Öffnen Sie {name}',
   'status.running': 'Laufen',
@@ -136,6 +147,7 @@ export const de = {
   'status.failed': 'Fehlgeschlagen',
   'status.cancelled': 'Abgesagt',
   'status.interrupted': 'Unterbrochen',
+  'status.incomplete': 'Unvollständig',
 } satisfies Record<keyof typeof en, string>
 
 /** Russian dictionary, checked against the English keys. */
@@ -151,6 +163,7 @@ export const ru = {
   'statusCount.failed': 'Ошибка {count}',
   'statusCount.cancelled': 'Отменено {count}',
   'statusCount.interrupted': 'Прервано {count}',
+  'statusCount.incomplete': 'Не завершено {count}',
   'member.empty': 'Пустое имя участника',
   'member.open': 'Открыть {name}',
   'status.running': 'Бег',
@@ -158,6 +171,7 @@ export const ru = {
   'status.failed': 'Не удалось',
   'status.cancelled': 'Отменено',
   'status.interrupted': 'Прерванный',
+  'status.incomplete': 'Не завершено',
 } satisfies Record<keyof typeof en, string>
 
 /** Portuguese dictionary, checked against the English keys. */
@@ -173,6 +187,7 @@ export const pt = {
   'statusCount.failed': 'Falha {count}',
   'statusCount.cancelled': 'Cancelado {count}',
   'statusCount.interrupted': 'Interrompido {count}',
+  'statusCount.incomplete': 'Incompleto {count}',
   'member.empty': 'Nome de membro vazio',
   'member.open': 'Abra {name}',
   'status.running': 'Correndo',
@@ -180,4 +195,5 @@ export const pt = {
   'status.failed': 'Falha',
   'status.cancelled': 'Cancelado',
   'status.interrupted': 'Interrompido',
+  'status.incomplete': 'Incompleto',
 } satisfies Record<keyof typeof en, string>
