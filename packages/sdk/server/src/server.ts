@@ -106,6 +106,7 @@ export class HarnessSdkJsonRpcServer {
   private shutdownTask: Promise<Record<string, never>> | undefined
   private shuttingDown = false
   private initialized = false
+  private initializeClaim: { readonly key: string; readonly result: Promise<InitializeResult> } | undefined
   private approvalRequests = false
   private readonly lifetime = new AbortController()
   private readonly userQuestions: SdkUserQuestionBridge
@@ -216,7 +217,23 @@ export class HarnessSdkJsonRpcServer {
    * @param params - SDK handshake parameters.
    * @returns server identity for the handshake.
    */
-  async initialize(params: InitializeParams): Promise<InitializeResult> {
+  initialize(params: InitializeParams): Promise<InitializeResult> {
+    const key = JSON.stringify(params)
+    if (this.initializeClaim !== undefined) {
+      return this.initializeClaim.key === key
+        ? this.initializeClaim.result
+        : Promise.reject(new Error('initialize was already requested with different parameters'))
+    }
+    const result = this.runInitialize(params)
+    const claim = { key, result }
+    this.initializeClaim = claim
+    result.catch(() => {
+      if (this.initializeClaim === claim) this.initializeClaim = undefined
+    })
+    return result
+  }
+
+  private async runInitialize(params: InitializeParams): Promise<InitializeResult> {
     if (params.approvalRequests !== undefined && typeof params.approvalRequests !== 'boolean') {
       throw new TypeError('initialize approvalRequests must be a boolean')
     }
