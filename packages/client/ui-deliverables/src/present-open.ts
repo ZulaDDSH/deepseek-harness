@@ -167,8 +167,8 @@ async function handleChangesSummary(ctx: Context, request: Request): Promise<Res
   if (!id || seq === undefined) return new Response('Invalid change summary coordinates.', { status: 400 })
   const summary = await ctx.workspaceChanges.summary(id as SessionId, seq)
   if (summary === undefined) return new Response('Change summary unavailable.', { status: 404 })
-  const { turn, files, total, added, deleted } = summary
-  return Response.json({ turn, files, total, added, deleted } satisfies ChangesSummary, { headers: { 'cache-control': 'no-store' } })
+  const { turn, files, total, added, deleted, incomplete } = summary
+  return Response.json({ turn, files, total, added, deleted, ...incomplete === undefined ? {} : { incomplete } } satisfies ChangesSummary, { headers: { 'cache-control': 'no-store' } })
 }
 
 /** A changed file's coordinates from a route query, or the 400 to answer with. */

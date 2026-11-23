@@ -78,10 +78,26 @@ describe('snapshots and diffs', () => {
     const { git: runnerGit } = await runner()
     const workspace = await locateGitWorkspace(runnerGit, cwd, objectsIn(await scratchDir('dsh-git-store-', cleanups)), signal)
     expect(workspace?.root).toBe(await realpath(cwd))
-    const tree = await snapshotTree(runnerGit, workspace!, signal)
+    const { tree } = await snapshotTree(runnerGit, workspace!, signal)
     expect(tree).toMatch(/^[0-9a-f]{40,64}$/)
     expect(git(cwd, 'status', '--porcelain')).toContain('UU f.txt')
   }, 30_000)
+
+  it('reports the paths a snapshot could not index', async () => {
+    const cwd = await scratchDir('dsh-git-skipped-', cleanups)
+    git(cwd, 'init', '-q', '-b', 'main')
+    await writeFile(join(cwd, 'a.txt'), 'a\n')
+    const { git: runnerGit } = await runner()
+    const workspace = (await locateGitWorkspace(runnerGit, cwd, objectsIn(await scratchDir('dsh-git-store-', cleanups)), signal))!
+    expect(await snapshotTree(runnerGit, workspace, signal)).toMatchObject({ incomplete: false, skipped: [] })
+    const run = runnerGit.run.bind(runnerGit)
+    vi.spyOn(runnerGit, 'run').mockImplementation(async (args, options) => {
+      const result = await run(args, options)
+      if (args[0] !== 'add') return result
+      return { ...result, exitCode: 1, stderr: `error: open("locked.txt"): Permission denied\nerror: unable to index file 'locked.txt'\n` }
+    })
+    expect(await snapshotTree(runnerGit, workspace, signal)).toMatchObject({ incomplete: true, skipped: ['locked.txt'] })
+  })
 
   it('fails loudly when the addressed repository cannot be written or diffed', async () => {
     const cwd = await scratchDir('dsh-git-broken-', cleanups)
@@ -96,10 +112,10 @@ describe('snapshots and diffs', () => {
     const workspace = (await locateGitWorkspace(runnerGit, cwd, store, signal))!
     await expect(diffTrees(runnerGit, workspace, 'a'.repeat(40), 'b'.repeat(40), signal)).rejects.toThrow('git diff-tree failed')
     await writeFile(join(cwd, 'many.txt'), Array.from({ length: 50 }, (_, index) => `line ${index}`).join('\n'))
-    const before = await snapshotTree(runnerGit, workspace, signal)
+    const { tree: before } = await snapshotTree(runnerGit, workspace, signal)
     await writeFile(join(cwd, 'many.txt'), 'gone')
     for (let index = 0; index < 20; index += 1) await writeFile(join(cwd, `file-${index}.txt`), 'x\n')
-    const after = await snapshotTree(runnerGit, workspace, signal)
+    const { tree: after } = await snapshotTree(runnerGit, workspace, signal)
     const { git: tiny } = await runner({ timeoutMs: 30_000, outputMaxBytes: 16 })
     await expect(diffTrees(tiny, workspace, before, after, signal)).rejects.toThrow('exceeded')
     expect((await diffTrees(runnerGit, workspace, before, after, signal)).length).toBe(21)
@@ -118,7 +134,9 @@ describe('repository edge cases', () => {
     const { git: runnerGit } = await runner()
     const store = objectsIn(await scratchDir('dsh-git-store-', cleanups))
     const workspace = (await locateGitWorkspace(runnerGit, cwd, store, signal))!
-    expect(await snapshotTree(runnerGit, workspace, signal)).toMatch(/^[0-9a-f]{40,64}$/)
+    expect(await snapshotTree(runnerGit, workspace, signal)).toMatchObject({
+      tree: expect.stringMatching(/^[0-9a-f]{40,64}$/), incomplete: true, skipped: ['locked.txt'],
+    })
   })
 
   it('refuses an index that exists but cannot be copied instead of starting from an empty one', async () => {
@@ -158,7 +176,7 @@ describe('treeBlob and blobText', () => {
     const { git: runnerGit } = await runner()
     const workspace = await locateGitWorkspace(runnerGit, cwd, objectsIn(await scratchDir('dsh-git-store-', cleanups)), signal)
     if (workspace === null) throw new Error('repository not located')
-    const tree = await snapshotTree(runnerGit, workspace, signal)
+    const { tree } = await snapshotTree(runnerGit, workspace, signal)
     const bracket = await treeBlob(runnerGit, workspace, tree, 'a[1].txt', signal)
     expect(bracket).toEqual({ oid: git(cwd, 'hash-object', 'a[1].txt').trim(), size: 8 })
     expect(await blobText(runnerGit, workspace, bracket!.oid, 64, signal)).toBe('bracket\n')

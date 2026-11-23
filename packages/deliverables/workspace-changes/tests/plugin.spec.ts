@@ -13,6 +13,7 @@ import * as WorkspaceChanges from '../src/index.ts'
 import { changes, endTurn, git, mutate, scratchDir, settle, startTurn, toolCall } from './support.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { sessionDirectory } from '../src/store.ts'
+import { GitRunner } from '../src/git.ts'
 import * as Store from '../src/store.ts'
 
 // These tests spawn real git children and can exceed the default budget under load.
@@ -160,6 +161,25 @@ describe('workspace-changes in a repository', () => {
     expect(write.mock.calls[1]?.[1]).toBe(seq)
     expect(await readdir(join(root, 'moving', 'records'))).toEqual([`${String(seq)}.json`])
     expect(await ctx.workspaceChanges.summary(session.id, seq)).toMatchObject({ turn: 1 })
+  })
+
+  it('marks a card incomplete when a snapshot skipped a path', async () => {
+    const cwd = await repository()
+    const { ctx } = await boot()
+    const run = GitRunner.prototype.run
+    vi.spyOn(GitRunner.prototype, 'run').mockImplementation(async function (this: GitRunner, args, options) {
+      const result = await run.call(this, args, options)
+      if (args[0] !== 'add') return result
+      return { ...result, exitCode: 1, stderr: "error: unable to index file 'locked.txt'\n" }
+    })
+    const session = ctx.sessions.create(brandString<SessionId>('partial'), { meta: { cwd } })
+    startTurn(session, 1)
+    await settle(ctx, session)
+    toolCall(session, 1, 'bash', { command: 'x' })
+    endTurn(session, 1)
+    await settle(ctx, session)
+    expect(await ctx.workspaceChanges.summary(session.id, announcedSeq(session)))
+      .toMatchObject({ total: 0, files: [], incomplete: { paths: ['locked.txt'] } })
   })
 
   it('never prunes the directory of a Session whose recorder is live', async () => {

@@ -737,6 +737,12 @@ describe('ChangedFiles card', () => {
     expect(summaries.state.getSnapshot()[changesSummaryUrl(brandString<SessionId>('child-session'), 9)]).toBeUndefined()
   })
 
+  it('titles a partial snapshot as incomplete, even when it lists no file', () => {
+    const partial = servedStore({ turn: 1, files: [], total: 0, added: 0, deleted: 0, incomplete: { paths: ['locked.txt'] } })
+    const { view } = renderCard(new PresentedOpenController(), en, { changes, presented: [] as never[] }, partial)
+    expect(view.getByText('Edited at least 0 files; some files could not be read')).toBeTruthy()
+  })
+
   it('sums the header from the Host totals, not from the capped list', () => {
     const capped = servedStore({ turn: 1, files: files.slice(0, 1), total: 2, added: 50, deleted: 20 })
     const { view } = renderCard(new PresentedOpenController(), en, { changes, presented: [] as never[] }, capped)

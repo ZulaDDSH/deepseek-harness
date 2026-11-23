@@ -75,6 +75,7 @@ export interface WorkspaceChangesSummary {
   deleted: number
   /** Git tree ids of the turn-start and turn-end snapshots; absent when no snapshot was taken. */
   snapshot?: { before: string; after: string }
+  incomplete?: { paths: string[] }
 }
 
 /** One unified-diff hunk with three context lines; every line keeps its `+`, `-`, or space prefix. */

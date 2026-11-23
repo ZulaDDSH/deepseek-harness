@@ -40,7 +40,7 @@ export const WORKSPACE_DIFF_ROUTE = WORKSPACE_DIFF_PATH.slice(1)
 export const CHANGES_REVIEW_ADDRESS = 'dsh-resource://changes-review/session/'
 
 /** The summary fields the route serves; the Host keeps the working directory and snapshot ids to itself. */
-export type ChangesSummary = Pick<WorkspaceChangesSummary, 'turn' | 'files' | 'total' | 'added' | 'deleted'>
+export type ChangesSummary = Pick<WorkspaceChangesSummary, 'turn' | 'files' | 'total' | 'added' | 'deleted' | 'incomplete'>
 
 /** The comparison the route serves, as the Host computed it. */
 export type ChangesDiff = WorkspaceFileDiff
@@ -119,9 +119,10 @@ export function isWorkspaceStatus(value: unknown): value is WorkspaceStatusValue
  */
 export function isChangesSummary(value: unknown): value is ChangesSummary {
   if (!isRecord(value)) return false
-  const { turn, files, total, added, deleted } = value
+  const { turn, files, total, added, deleted, incomplete } = value
   return Number.isSafeInteger(turn) && (turn as number) >= 1 && Number.isSafeInteger(total)
     && Number.isSafeInteger(added) && Number.isSafeInteger(deleted)
+    && (incomplete === undefined || isRecord(incomplete) && Array.isArray(incomplete['paths']) && incomplete['paths'].every(path => typeof path === 'string'))
     && Array.isArray(files) && files.every(isChangedFile)
 }
 

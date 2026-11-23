@@ -43,7 +43,7 @@ export interface Repository {
 }
 
 /** The turn-start snapshot of a located repository. */
-interface Baseline extends Repository { tree: string }
+interface Baseline extends Repository { tree: string; incomplete: boolean; skipped: string[] }
 
 /** Where one readable side of a listed file's content lives. */
 type ContentSource =
@@ -83,6 +83,7 @@ interface TurnState {
 }
 
 const RECORD_ATTEMPTS = 3
+const INCOMPLETE_PATH_LIMIT = 20
 
 function freshState(turn: number): TurnState {
   return { turn, baseline: null, captures: new Map(), lastToolResultSeq: -1, attemptedAfterSeq: -1, recordedAfterSeq: -1 }
@@ -140,8 +141,7 @@ export class TurnRecorder {
         this.paths ??= { cwd: await realpath(this.cwd), home: await canonicalPath(homedir()), temporaryRoots: await temporaryRoots() }
         const repository = await this.locate(this.paths.cwd, signal)
         if (repository === null) return
-        const tree = await snapshotTree(repository.git, repository.workspace, signal)
-        state.baseline = { ...repository, tree }
+        state.baseline = { ...repository, ...await snapshotTree(repository.git, repository.workspace, signal) }
       } catch (error: unknown) {
         // A repository whose snapshot failed must not be summarized as if it had none.
         state.baseline = 'failed'
@@ -293,9 +293,14 @@ export class TurnRecorder {
     const root = baseline?.workspace.root ?? paths.cwd
     const listed = new Map<string, Listed>()
     let snapshot: WorkspaceChangesSummary['snapshot']
+    let incomplete: WorkspaceChangesSummary['incomplete']
     if (baseline !== null) {
-      const after = await snapshotTree(baseline.git, baseline.workspace, signal)
+      const taken = await snapshotTree(baseline.git, baseline.workspace, signal)
+      const after = taken.tree
       snapshot = { before: baseline.tree, after }
+      if (baseline.incomplete || taken.incomplete) {
+        incomplete = { paths: [...new Set([...baseline.skipped, ...taken.skipped])].slice(0, INCOMPLETE_PATH_LIMIT) }
+      }
       const repository: Repository = { git: baseline.git, workspace: baseline.workspace }
       for (const entry of await diffTrees(baseline.git, baseline.workspace, baseline.tree, after, signal)) {
         const absolute = resolve(root, entry.path)
@@ -334,7 +339,7 @@ export class TurnRecorder {
     }
     const sorted = [...listed.values()].sort((a, b) => compareDisplay(a.file, b.file))
     // An empty list after an earlier in-turn record supersedes that record.
-    if (sorted.length === 0 && state.recordedAfterSeq < 0) return
+    if (sorted.length === 0 && state.recordedAfterSeq < 0 && incomplete === undefined) return
     const kept = sorted.slice(0, this.env.maxFiles)
     const record: TurnRecord = {
       summary: {
@@ -345,6 +350,7 @@ export class TurnRecorder {
         added: sorted.reduce((sum, entry) => sum + entry.file.added, 0),
         deleted: sorted.reduce((sum, entry) => sum + entry.file.deleted, 0),
         ...snapshot === undefined ? {} : { snapshot },
+        ...incomplete === undefined ? {} : { incomplete },
       },
       sources: kept.map(entry => entry.sources),
     }
