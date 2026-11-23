@@ -188,6 +188,24 @@ describe('Tree-owned task boards', () => {
     expect(lead.session.ownEvents().filter(event => event.type === 'team/mode')).toHaveLength(appended)
   })
 
+  it('reports an applied mode when a real session/flush listener fails, and the same selection retries after it recovers', async () => {
+    const { ctx, lead } = await setup([], {}, false)
+    let failing = true
+    ctx.on('session/flush', () => {
+      if (failing) throw new Error('disk full')
+    })
+    await expect(ctx.agentTeams.setEnabled(lead, true)).rejects.toMatchObject({
+      name: 'RemoteError', code: 'TEAM_MODE_PERSISTENCE_UNCONFIRMED', message: expect.stringContaining('Team mode is now on') as string,
+    })
+    expect(ctx.agentTeams.isEnabled(lead)).toBe(true)
+    const appended = lead.session.ownEvents().filter(event => event.type === 'team/mode').length
+    failing = false
+    await expect(ctx.sessions.flush(lead.session)).resolves.toBe(true)
+    await ctx.agentTeams.setEnabled(lead, true)
+    expect(ctx.agentTeams.isEnabled(lead)).toBe(true)
+    expect(lead.session.ownEvents().filter(event => event.type === 'team/mode')).toHaveLength(appended)
+  })
+
   it('does not register a Team slash command', async () => {
     const { ctx, lead } = await setup([], {}, false)
     await ctx.plugin(Commands)
