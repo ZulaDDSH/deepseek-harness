@@ -52,8 +52,14 @@ export class ExportSourceError extends Error {
    * @param reason - failure category shown to the user.
    * @param message - English diagnostic.
    * @param options - underlying cause.
+   * @param sessionIds - Sessions the import had already written when it failed.
    */
-  constructor(readonly reason: DeepseekChatImportFailureReason, message: string, options?: ErrorOptions) {
+  constructor(
+    readonly reason: DeepseekChatImportFailureReason,
+    message: string,
+    options?: ErrorOptions,
+    readonly sessionIds: readonly string[] = [],
+  ) {
     super(message, options)
   }
 }

@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,10 +8,11 @@ import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { FileAttachmentRef, ImageAttachmentRef, SaveImageAttachment } from '@deepseek-ai/dsh-attachment'
 import { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
+import { ExportSourceError } from '../src/archive.ts'
 import { importDeepseekChatExport } from '../src/importer.ts'
 import type { DeepseekChatImportDependencies, DeepseekChatImportLimits, DeepseekChatImportWorkspace } from '../src/importer.ts'
 import type { ExportSessionFile } from '../src/format.ts'
-import { damagedZip } from './helpers/zip.ts'
+import { damagedZip, localNameZip } from './helpers/zip.ts'
 
 /** Entry names each `ExportArchive.read` call receives. */
 const archiveReads = vi.hoisted(() => [] as string[])
@@ -406,6 +407,25 @@ describe('importDeepseekChatExport', () => {
       .rejects.toMatchObject({ reason: 'unreadable-archive', message: 'manifest.json cannot be decompressed' })
     await expect(run(strToU8('not a zip'))).rejects.toMatchObject({ reason: 'unreadable-archive' })
     expect(stored).toEqual([])
+  })
+
+  it('names the Sessions already written when the archive breaks after some writes', async () => {
+    const { run, stored } = harness()
+    const big = chat('a', 2_000)
+    big.messages[0]!.fragments = [{ type: 'REQUEST', content: randomBytes(24_000).toString('hex') }]
+    const all = exportEntries([big, chat('b', 1_000)])
+    const entries = bytesOf({
+      'manifest.json': all['manifest.json']!,
+      'chat_session_index.json': all['chat_session_index.json']!,
+      'chat_sessions/a.json': all['chat_sessions/a.json']!,
+      'padding.bin': randomBytes(48_000),
+      'chat_sessions/b.json': all['chat_sessions/b.json']!,
+    })
+    const archive = localNameZip(entries, 'chat_sessions/b.json', 'chat_sessions/z.json')
+    const failure: unknown = await run(archive).catch((error: unknown) => error)
+    expect(failure).toMatchObject({ reason: 'unreadable-archive' })
+    expect(stored).toHaveLength(1)
+    expect((failure as ExportSourceError).sessionIds).toEqual([stored[0]?.header.id])
   })
 
   it('stops at cancellation and keeps the Sessions already written', async () => {

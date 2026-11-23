@@ -11,3 +11,9 @@ fflate's `UnzipInflate` has no `terminate`, so `UnzipFile::terminate` did nothin
 ## packages/experimental/deepseek-chat-import/src/importer.ts:importDeepseekChatExport (issue 112)
 
 `importConversation` ignores a conversation already in `handled`, so even a delivery that slipped past the archive check cannot write a second Session or exceed `maxSessions`.
+
+## packages/experimental/deepseek-chat-import/src/importer.ts:importDeepseekChatExport (issue 111)
+
+An archive-level failure after some conversations were written used to reach the caller as a bare `ExportSourceError`, so the Sessions already stored were unknown to the user and a retry wrote them again. The importer now wraps the writing phase: when an `ExportSourceError` is thrown after `imported` is non-empty, it is rethrown with the committed Session ids in `ExportSourceError::sessionIds`, and a Host warning lists them. `upload.ts:importStream` copies them into the failure outcome, `client/upload.ts:responseOf` and `client/mount.ts:importArchive` pass them to the dialog, and `client/ImportSessions.tsx:failureText` appends the `error.partial` sentence with their count.
+
+Not done: a persisted per-import journal with a stable source-conversation identity (so a retry recognizes earlier writes) and removal of partial Sessions. `SessionPersistence` offers no removal and the importer has no store of its own, so a retry still writes new Sessions; the dialog tells the user the already-written Sessions stay in the Workspace.

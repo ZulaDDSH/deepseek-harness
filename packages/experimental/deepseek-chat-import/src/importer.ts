@@ -156,6 +156,23 @@ export async function importDeepseekChatExport(
   request: DeepseekChatImportRequest,
   signal: AbortSignal,
 ): Promise<DeepseekChatImportResult> {
+  const imported: Array<{ id: SessionId; rank: number }> = []
+  try {
+    return await runImport(deps, request, signal, imported)
+  } catch (error) {
+    if (!(error instanceof ExportSourceError) || imported.length === 0) throw error
+    const ids = imported.map(item => item.id)
+    deps.warn(`deepseek-chat-import: the import failed after writing ${ids.length} Sessions: ${ids.join(', ')}`)
+    throw new ExportSourceError(error.reason, error.message, { cause: error }, ids)
+  }
+}
+
+async function runImport(
+  deps: DeepseekChatImportDependencies,
+  request: DeepseekChatImportRequest,
+  signal: AbortSignal,
+  imported: Array<{ id: SessionId; rank: number }>,
+): Promise<DeepseekChatImportResult> {
   const { limits, workspace } = request
   const archive = await openExportArchive(request.archive, limits.maxEntryBytes, signal)
   const skipped: DeepseekChatImportSkip[] = []
@@ -177,7 +194,6 @@ export async function importDeepseekChatExport(
   request.onProgress(0, total)
 
   const options = { createId: deps.createId, maxTitleBytes: limits.maxTitleBytes }
-  const imported: Array<{ id: SessionId; rank: number }> = []
   /** Chosen conversations whose archive entry was handled, successfully or not. */
   const handled = new Set<string>()
   /** Chosen conversations still owed a written Session because an attempt failed. */
