@@ -60,6 +60,7 @@ async function inspectMetadata(
   if (data.byteLength === 0) throw new AttachmentError('Image is empty.', 'INVALID_IMAGE')
   const detected = await detectImage(data, { maxPixels: limits.maxImagePixels, maxDimension: limits.maxImageDimension })
   if (detected.mediaType !== declaredMediaType) throw new AttachmentError('Declared image type does not match its bytes.', 'IMAGE_TYPE_MISMATCH')
+  if (detected.animated) throw new AttachmentError('Animated images are not supported; use a still image or attach it as a file.', 'INVALID_IMAGE')
   return detected
 }
 

@@ -3,7 +3,7 @@
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { AttachmentStore } from '@deepseek-ai/dsh-attachment'
+import { AttachmentError, AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type {
   FileAttachmentRef,
   ImageAttachmentLimits,
@@ -225,9 +225,15 @@ export class LocalAttachmentStore extends AttachmentStore {
 
   override async saveImages(inputs: readonly SaveImageAttachment[]): Promise<readonly ImageAttachmentRef[]> {
     this.validateImageBatch(inputs)
-    const prepared = await Promise.all(inputs.map(input => this.compression.run(
-      () => prepareImageFile(input, this.imageLimits, this.normalizationPolicy),
-    )))
+    const batch = new AbortController()
+    const prepared = await Promise.all(inputs.map(input => this.compression.run(async () => {
+      try {
+        return await prepareImageFile(input, this.imageLimits, this.normalizationPolicy)
+      } catch (error) {
+        batch.abort(error)
+        throw error
+      }
+    }, batch.signal)))
     const refs: ImageAttachmentRef[] = []
     for (const image of prepared) refs.push(await commitPreparedImageFile(this.root, image))
     return refs
@@ -295,14 +301,21 @@ export class LocalAttachmentStore extends AttachmentStore {
           sharedSignal,
         )
         return request
-      }))
+      }, sharedSignal))
       operation = shared
       this.requestInflight.set(key, shared)
       void shared.promise.finally(() => {
         if (this.requestInflight.get(key) === shared) this.requestInflight.delete(key)
       }).catch(() => {})
     }
-    return operation.wait(signal)
+    return operation.wait(signal).then((result) => {
+      const shared = result.attachment
+      if (shared.attachmentId !== ref.attachmentId || shared.mediaType !== ref.mediaType
+        || shared.bytes !== ref.bytes || shared.width !== ref.width || shared.height !== ref.height) {
+        throw new AttachmentError('Attachment reference does not match the stored image.', 'ATTACHMENT_CORRUPT')
+      }
+      return { ...result, attachment: ref }
+    })
   }
 
 }

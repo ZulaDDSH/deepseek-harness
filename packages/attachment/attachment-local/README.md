@@ -137,7 +137,7 @@ These limits describe what this storage can and cannot do; they are current pack
 - **Images and files are kept forever** — nothing is deleted automatically and nothing collects unreferenced objects, so staged uploads that are never sent still count towards `maxStoredFileBytes` until an operator removes them. Resumed and forked sessions share objects, so safe collection needs a reference model that does not exist yet.
 - **The file-store total is measured once per process** — usage is scanned from disk on the first file upload, then tracked in memory; files added or removed by another process afterwards are not seen until restart.
 - **Local to this machine** — images live on the machine that runs the harness; other hosts cannot read them.
-- **Animated GIF becomes static** — normalization retains only the first frame; animation is outside the version-one image contract.
+- **Animated images are refused** — an image with more than one frame is rejected with `INVALID_IMAGE` instead of being flattened to its first frame; attach it as a file. A single-frame GIF is still re-encoded as a still image.
 - **Encoder output is versioned** — the installed Sharp/libvips build pins normalization and request bytes; an encoder or transform-version upgrade re-addresses future variants while existing objects remain valid.
 
 <a id="dev-note"></a>

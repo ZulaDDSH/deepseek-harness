@@ -26,9 +26,19 @@ export class CompressionLimiter {
    * @param task - compression operation occupying one slot until settlement.
    * @returns the task result.
    */
-  run<T>(task: () => Promise<T>): Promise<T> {
+  run<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     return new Promise<T>((resolve, reject) => {
+      if (signal?.aborted === true) {
+        reject(compressionFailure(signal.reason))
+        return
+      }
+      const drop = (): void => {
+        const index = this.waiting.indexOf(start)
+        if (index >= 0) this.waiting.splice(index, 1)
+        reject(compressionFailure(signal?.reason))
+      }
       const start = (): void => {
+        signal?.removeEventListener('abort', drop)
         this.active += 1
         const release = (): void => {
           this.active -= 1
@@ -45,8 +55,12 @@ export class CompressionLimiter {
           },
         )
       }
-      if (this.active < this.concurrency) start()
-      else this.waiting.push(start)
+      if (this.active < this.concurrency) {
+        start()
+      } else {
+        this.waiting.push(start)
+        signal?.addEventListener('abort', drop, { once: true })
+      }
     })
   }
 }

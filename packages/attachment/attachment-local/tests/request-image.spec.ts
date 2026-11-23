@@ -97,6 +97,24 @@ describe('local request-image cache', () => {
     expect(batch.map(value => value.attachment.attachmentId)).toEqual([first.attachmentId, second.attachmentId])
   })
 
+  it('returns each concurrent caller its own reference for identical bytes and target', async () => {
+    const attachments = await store()
+    const data = await image(64, 32)
+    const first = await attachments.saveImage({ data, mediaType: 'image/png', name: 'first.png' })
+    const second = await attachments.saveImage({ data, mediaType: 'image/png', name: 'second.png' })
+    const third = { ...second, name: 'third.png', originalDimensions: { width: 640, height: 320 } }
+    const policy = { width: 16, height: 8, maxBytes: 1024 * 1024 }
+
+    const results = await Promise.all([first, second, third].map(ref => attachments.readImageRequest(ref, policy)))
+
+    expect(results.map(result => result.attachment)).toEqual([first, second, third])
+    expect(new Set(results.map(result => result.variantId)).size).toBe(1)
+    await expect(Promise.all([
+      attachments.readImageRequest(first, { ...policy, width: 8, height: 4 }),
+      attachments.readImageRequest({ ...first, width: 63 }, { ...policy, width: 8, height: 4 }),
+    ])).rejects.toMatchObject({ code: 'ATTACHMENT_CORRUPT' })
+  })
+
   it('rejects invalid request targets', async () => {
     const attachments = await store()
     const attachment = await attachments.saveImage({ data: await image(8, 4), mediaType: 'image/png' })

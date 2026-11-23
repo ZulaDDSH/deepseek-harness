@@ -80,6 +80,17 @@ afterEach(async () => {
 })
 
 describe('local attachment store', () => {
+  it('refuses an animated image instead of silently keeping its first frame', async () => {
+    const header = Buffer.from('47494638396101000100800000000000ffffff', 'hex')
+    const frame = Buffer.from('21f90401000000002c0000000001000100000202440100', 'hex')
+    const animated = Uint8Array.from(Buffer.concat([header, frame, frame, Buffer.from('3b', 'hex')]))
+    const single = Uint8Array.from(Buffer.concat([header, frame, Buffer.from('3b', 'hex')]))
+    await expect(prepareImageFile({ data: animated, mediaType: 'image/gif' }, LIMITS, POLICY))
+      .rejects.toMatchObject({ code: 'INVALID_IMAGE', message: expect.stringContaining('Animated') })
+    await expect(prepareImageFile({ data: single, mediaType: 'image/gif' }, LIMITS, POLICY))
+      .resolves.toMatchObject({ ref: { width: 1, height: 1 } })
+  })
+
   it.skipIf(process.platform === 'win32')('syncs every object ancestor up to the durable boundary before returning', async () => {
     const storageRoot = await root()
     const base = join(storageRoot, '..', '..')
