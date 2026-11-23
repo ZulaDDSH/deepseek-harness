@@ -47,7 +47,7 @@ Browser tools and resource requests targeting this server use the same queue and
 
 The [resource manager](src/index.ts) keys ownership by live Agent identity and joins operation cancellation with owner disposal. Each resource has one acquisition promise and one operation queue. Failed acquisition releases its reservation only after the provider callback rolls back acquired resources.
 
-Disposed-cause cancellation starts resource cleanup before AgentHandle waits for idle. Cleanup closes resources before waiting for running operations, allowing connection teardown to interrupt upstream APIs without abort support. A failed close rejects disposal and retains ownership. Agent-scoped cleanup prevents a resumed Session with the same durable id from inheriting a previous browser.
+Disposed-cause cancellation starts resource cleanup before AgentHandle waits for idle. Cleanup closes resources before waiting for running operations, allowing connection teardown to interrupt upstream APIs without abort support. A failed close rejects disposal and retains ownership; a repeated `dispose()` closes the retained resources again, and a rejected request for an exclusive attachment held by a disposed owner starts one shared close retry that releases the reservation only after the close succeeds. Agent-scoped cleanup prevents a resumed Session with the same durable id from inheriting a previous browser.
 
 The [MCP helper](src/mcp.ts) connects within serial `agent/created`; [AgentLoop](../../core/agent-loop/README.md#understand-the-implementation) holds queued input and owns creation rollback. Prompt assembly reads the initialized catalog. The helper retains the provider registration through resource cleanup and uses the [MCP client](../../mcp/mcp-client/README.md) for transport, schema discovery, result conversion, and durable image admission.
 
@@ -82,7 +82,7 @@ Providers remain responsible for the browser operations they supply.
 - **MCP activation** — providers do not adopt existing live Agents; a busy attachment is not retried within that activation.
 - **Attachment scope** — exclusive ownership applies to one resource manager, not separate providers, processes, or external browser clients.
 - **Cancellation** — abort signals and connection closure cannot undo browser actions already delivered. An upstream operation that ignores both can delay cleanup.
-- **Recovery** — a failed close retains ownership; this manager does not retry disposal or restore browser state from the Session log.
+- **Recovery** — a failed close retains ownership until a retry verifies the close; the retry runs on the next competing request or repeated `dispose()`, not on a timer, and this manager does not restore browser state from the Session log. A close that never succeeds keeps the attachment reserved for the manager's lifetime.
 - **Shared host runtimes** — a profile installs this package beside the dsh installation, so `@deepseek-ai/dsh-scope` and `@deepseek-ai/dsh-mcp-client` stay peer dependencies. A dependency edge ships a second `dsh-scope` copy whose scope tags host registries cannot read: each Agent's MCP tools would register in the global tool layer and the second Agent's creation would fail.
 
 <a id="dev-note"></a>
