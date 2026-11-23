@@ -118,3 +118,26 @@ it('requires a built ./client export when the package declares a client entry', 
   await writeFile(join(directory, 'package.json'), JSON.stringify({ ...manifest, dsh: { ...manifest.dsh, client: 'web' } }))
   await expect(validateGeneratedBundle(directory, name)).rejects.toThrow()
 })
+
+it('rejects oversized metadata, too many entries, deep nesting and large files before installation', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'dsh-created-limits-'))
+  onTestFinished(() => rm(directory, { recursive: true, force: true }))
+  const name = '@dsh-local/view-limits'
+  await writeBundle(directory, name)
+  const limits = { entries: 20, depth: 3, bytes: 1000, fileBytes: 600, metadataBytes: 4000 }
+  await expect(validateGeneratedBundle(directory, name, limits)).resolves.toBeUndefined()
+  await expect(validateGeneratedBundle(directory, name, { ...limits, metadataBytes: 50 })).rejects.toThrow('metadata is too large')
+  await mkdir(join(directory, 'many'))
+  for (let index = 0; index < 20; index++) await writeFile(join(directory, 'many', `${index}.txt`), '')
+  await expect(validateGeneratedBundle(directory, name, limits)).rejects.toThrow('too many files')
+  await rm(join(directory, 'many'), { recursive: true })
+  await mkdir(join(directory, 'a', 'b', 'c', 'd'), { recursive: true })
+  await expect(validateGeneratedBundle(directory, name, limits)).rejects.toThrow('nested too deeply')
+  await rm(join(directory, 'a'), { recursive: true })
+  await writeFile(join(directory, 'big.bin'), Buffer.alloc(700))
+  await expect(validateGeneratedBundle(directory, name, limits)).rejects.toThrow('too large')
+  await rm(join(directory, 'big.bin'))
+  await writeFile(join(directory, 'one.bin'), Buffer.alloc(500))
+  await writeFile(join(directory, 'two.bin'), Buffer.alloc(500))
+  await expect(validateGeneratedBundle(directory, name, limits)).rejects.toThrow('too large')
+})

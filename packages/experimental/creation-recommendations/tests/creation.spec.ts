@@ -3,7 +3,7 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import type { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { appendPluginRecord, type SessionId } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { readFile, rm } from 'node:fs/promises'
+import { readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { ChangeResult } from '@deepseek-ai/dsh-plugin-manager/types'
@@ -742,5 +742,50 @@ describe('interface creation', () => {
     f.result.resolve({ output: [], stopReason: 'completed', structured: { ready: true } })
     await disposed.promise
     expect(f.current()?.phase).toBe('installing')
+  })
+})
+
+describe('creation limits', () => {
+  it('interrupts a Creator that never finishes after its child is disposed, then permits a retry', async () => {
+    const f = await fixture()
+    await f.propose()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    onTestFinished(() => { vi.useRealTimers() })
+    await f.act('create')
+    const spec = await f.entered.promise
+    await vi.advanceTimersByTimeAsync(59 * 60_000)
+    expect(spec.signal.aborted).toBe(false)
+    expect(f.current()?.phase).toBe('creating')
+    await vi.advanceTimersByTimeAsync(2 * 60_000)
+    expect(spec.signal.aborted).toBe(true)
+    await vi.waitFor(() => { expect(f.current()?.phase).toBe('interrupted') })
+    expect(f.dispose).toHaveBeenCalledOnce()
+    expect(f.manager.installBundle).not.toHaveBeenCalled()
+  })
+
+  it('does not time out a finished Creator while its package is installed', async () => {
+    const f = await fixture()
+    await f.propose()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    onTestFinished(() => { vi.useRealTimers() })
+    await f.act('create')
+    await f.complete()
+    await vi.advanceTimersByTimeAsync(2 * 60 * 60_000)
+    expect(f.current()?.phase).toBe('installed')
+  })
+
+  it('refuses a generated package with oversized metadata, leaving its source and no profile copy', async () => {
+    const f = await fixture()
+    await f.propose()
+    await f.act('create')
+    const spec = await f.entered.promise
+    await writeBundle(spec.cwd!, f.current()!.bundleName!)
+    const staged = join(f.directory, 'created-plugins')
+    await writeFile(join(spec.cwd!, 'cordis.patch.yml'), JSON.stringify([{ insert: [{ id: f.current()!.bundleName! + ':counter', name: f.current()!.bundleName! }] }]) + '\n#' + 'x'.repeat(2 ** 20))
+    f.result.resolve({ output: [], stopReason: 'completed', structured: { ready: true } })
+    await vi.waitFor(() => { expect(f.current()?.phase).toBe('failed') })
+    expect(await stat(join(spec.cwd!, 'package.json'))).toBeDefined()
+    expect(await readdir(staged).catch(() => [])).toEqual([])
+    expect(f.manager.installBundle).not.toHaveBeenCalled()
   })
 })
