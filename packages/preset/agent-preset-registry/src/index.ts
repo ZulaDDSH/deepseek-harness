@@ -331,6 +331,51 @@ export class AgentPresetRegistry extends TypertRemoteService {
    */
   composedPreset(ctx: Context): string | undefined { return this.generationFor(ctx)?.mount.presetId }
 
+  private requireBlank(agent: Agent, agentPreset: string): void {
+    const boundary = this.owner.agents.turnBoundaryOf(agent.session)
+    if (boundary.openTurnStartSeq !== null || boundary.lastTurn > 0) {
+      throw new RemoteError('agent-preset/locked', 'This session has already started', { sessionId: agent.id, agentPreset })
+    }
+  }
+
+  private async switchBlank(agent: Agent, id: string): Promise<string> {
+    const generation = await this.retain(id)
+    const key = scopeOf(agent.ctx)
+    const binding = key === undefined ? undefined : this.bindings.get(key)
+    const previous = binding?.generation
+    let committed = false
+    try {
+      // Invariant: blank re-check, rebind and append share one synchronous section; no await may separate them.
+      this.requireBlank(agent, id)
+      if (binding === undefined || previous === undefined || previous === generation) {
+        await this.bind(agent.ctx, generation)
+        agent.session.append('agent-preset/selected', { agentPreset: generation.mount.presetId })
+      } else {
+        binding.parent.rebind(generation.key)
+        generation.users++
+        previous.users--
+        binding.generation = generation
+        try {
+          agent.session.append('agent-preset/selected', { agentPreset: generation.mount.presetId })
+        } catch (error) {
+          binding.parent.rebind(previous.key)
+          previous.users++
+          generation.users--
+          binding.generation = previous
+          throw error
+        }
+      }
+      committed = true
+      try { this.owner.emit('tools/change') }
+      catch (error) { this.owner.logger.warn(`Preset tools observer: ${String(error)}`) }
+      return generation.mount.presetId
+    } finally {
+      generation.users--
+      await this.collect(generation)
+      if (committed && previous !== undefined) await this.collect(previous)
+    }
+  }
+
   /** Read a service supplied inside an Agent's isolated preset group.
    * @param agent Agent whose composition is queried.
    * @param name Cordis service name.
@@ -363,16 +408,11 @@ export class AgentPresetRegistry extends TypertRemoteService {
   @Remote('select')
   async select(agent: Agent, agentPreset: string): Promise<string> {
     const turn = (this.switches.get(agent.id) ?? Promise.resolve()).then(async () => {
-      const boundary = this.owner.agents.turnBoundaryOf(agent.session)
-      if (boundary.openTurnStartSeq !== null || boundary.lastTurn > 0) {
-        throw new RemoteError('agent-preset/locked', 'This session has already started', { sessionId: agent.id, agentPreset })
-      }
+      this.requireBlank(agent, agentPreset)
       const current = this.definitions.get(agentPreset)?.generation
       if (current !== undefined && this.generationFor(agent.ctx) === current
         && this.agentPresetProjectionHandle.stateOf(agent.session) === agentPreset) return agentPreset
-      const preset = await this.recompose(agent.ctx, agentPreset)
-      agent.session.append('agent-preset/selected', { agentPreset: preset.id })
-      return preset.id
+      return this.switchBlank(agent, agentPreset)
     })
     const guard = turn.catch(() => undefined)
     this.switches.set(agent.id, guard)
