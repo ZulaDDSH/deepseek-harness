@@ -33,18 +33,39 @@ const MAX_STYLESHEET_CHARS = 20_000
 const MAX_HIDDEN_SELECTORS = 200
 const stylesheetHidden = new WeakMap<object, string[]>()
 
+type StylesheetFrame = { kind: 'skip' } | { kind: 'rule', selectorText: string, bodyStart: number, nested: boolean }
+
+function hidingSelectors(text: string): string[] {
+  const selectors: string[] = []
+  const stack: StylesheetFrame[] = []
+  let start = 0
+  for (const { 0: brace, index } of text.matchAll(/[{}]/gu)) {
+    if (brace === '{') {
+      const parent = stack.at(-1)
+      const prelude = text.slice(start, index).trim()
+      if (parent?.kind === 'rule') parent.nested = true
+      stack.push(parent !== undefined || prelude.startsWith('@')
+        ? { kind: 'skip' }
+        : { kind: 'rule', selectorText: prelude, bodyStart: index + 1, nested: false })
+    } else {
+      const frame = stack.pop()
+      if (frame?.kind === 'rule' && !frame.nested && HIDING_DECLARATION.test(text.slice(frame.bodyStart, index))) {
+        for (const selector of frame.selectorText.split(',')) {
+          if (/^[.#]?[\w-]+$/u.test(selector.trim())) selectors.push(selector.trim())
+        }
+      }
+    }
+    start = index + 1
+  }
+  return selectors
+}
+
 function stylesheetHiddenSelectors(document: Document): string[] {
   const cached = stylesheetHidden.get(document)
   if (cached !== undefined) return cached
   const selectors: string[] = []
   for (const style of Array.from(document.querySelectorAll('style')).slice(0, 20)) {
-    const text = (style.textContent ?? '').slice(0, MAX_STYLESHEET_CHARS)
-    for (const [, selectorText = '', body = ''] of text.matchAll(/([^{}@]+)\{([^{}]*)\}/gu)) {
-      if (!HIDING_DECLARATION.test(body)) continue
-      for (const selector of selectorText.split(',')) {
-        if (/^[.#]?[\w-]+$/u.test(selector.trim())) selectors.push(selector.trim())
-      }
-    }
+    selectors.push(...hidingSelectors((style.textContent ?? '').slice(0, MAX_STYLESHEET_CHARS)))
   }
   const bounded = selectors.slice(0, MAX_HIDDEN_SELECTORS)
   stylesheetHidden.set(document, bounded)

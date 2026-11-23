@@ -1376,6 +1376,22 @@ describe('web_fetch conversion safety and honesty', () => {
     expect(out).not.toMatch(/hidden (one|two|three)/u)
   })
 
+  it('keeps content that only an at-rule hides and still applies later top-level rules', () => {
+    const html = '<style>@media print { .print-only { display:none } } @font-face { font-family: x } .off { display:none }</style>'
+      + '<p class="print-only">print only</p><p class="off">hidden</p><p>shown</p>'
+    const out = render(html)
+    expect(out).toContain('print only')
+    expect(out).toContain('shown')
+    expect(out).not.toContain('hidden')
+  })
+
+  it('reads stylesheets with long brace-free runs in linear time', () => {
+    const style = `<style>${'a'.repeat(20_000)}</style>`
+    const started = performance.now()
+    expect(render(`${style.repeat(20)}<p>kept</p>`)).toContain('kept')
+    expect(performance.now() - started).toBeLessThan(1000)
+  })
+
   it('reports an unobserved status and final URL instead of HTTP 200', () => {
     const out = formatFetchOutput({ url: 'https://a.test', truncated: false, body: { kind: 'text', content: 'x' } }, NO_CAP)
     expect(out).toContain('Fetched https://a.test (HTTP status and final URL not reported by the fetch service)')
