@@ -30,9 +30,13 @@ Add this row to a composition with `dsh-tools` mounted. The nearest scoped execu
   config:
     maxSubCallsPerMinute: 1024
     maxParallelSubCalls: 10
+    maxBindingResultBytes: 16777216
+    maxProgramResultBytes: 67108864
 ```
 
 Root `run_code` calls are exclusive and execute serially. `maxParallelSubCalls` limits parallel-safe nested calls within each program and defaults to `10`; it must be a positive integer, with `1` selecting serial execution. Exclusive calls form barriers.
+
+`maxBindingResultBytes` (default 16 MiB) is the largest JSON value one tool binding may hand to a program, and `maxProgramResultBytes` (default 64 MiB) is the total one `run_code` may receive; both are estimated UTF-8 JSON sizes and must be positive integers. A binding that passes either limit rejects with a `ToolCallError` the program can catch; the sub-call still settles and is logged as the tool produced it.
 
 `maxSubCallsPerMinute` defaults to `1024` and must be a positive integer. Each `run_code` gets `floor(resolved timeoutMs / 60000 × maxSubCallsPerMinute)` tool-call attempts: the default Node timeout of two minutes allows 2048. Runtime defaults and timeout caps apply before this calculation; no deadline means no finite call allowance. This is a total allowance, not a rolling window, so calls may happen in a burst. All tool bindings share the count, including queued calls, invalid arguments, and failed tools. The next attempt terminates the entire program through the runtime abort path, cancels active subcalls, and abandons queued calls before returning `CODE_RUN_FAILED`. As with a timeout, catching a binding error cannot keep the program running; retained runtime state is discarded. Completed tool effects remain, and the next program starts a fresh count.
 
@@ -60,7 +64,7 @@ The executor receives the entire raw call batch and owns parsing, scheduling, ca
 
 ### PTC mode
 
-The PTC executor exposes the reserved `run_code` transport and a deterministic TypeScript SDK. Each SDK binding captures a frozen ToolSchema and passes it through the scheduler to its execution context. Before policy, a started call records only pairing ids, name, and normalized arguments; its settle event preserves the rendered result, optional presentation metadata, and structured error. Metadata is projected from that call’s canonical value and frozen; it changes neither the program value nor model content. Description and parameters remain transient and never enter Session events or SDK output. Calls are scheduled through a per-run pool that reuses the native concurrency contract. Under `ptc` alone, a model-direct call naming a program-only SDK tool resolves to `UNKNOWN_TOOL` before policy — the announced surface and the callable surface stay the same. Intermediate binding values are execution-local; only the outer `run_code` result has a hard size cap.
+The PTC executor exposes the reserved `run_code` transport and a deterministic TypeScript SDK. Each SDK binding captures a frozen ToolSchema and passes it through the scheduler to its execution context. Before policy, a started call records only pairing ids, name, and normalized arguments; its settle event preserves the rendered result, optional presentation metadata, and structured error. Metadata is projected from that call’s canonical value and frozen; it changes neither the program value nor model content. Description and parameters remain transient and never enter Session events or SDK output. Calls are scheduled through a per-run pool that reuses the native concurrency contract. Under `ptc` alone, a model-direct call naming a program-only SDK tool resolves to `UNKNOWN_TOOL` before policy — the announced surface and the callable surface stay the same. Intermediate binding values are execution-local; the outer `run_code` result has a hard size cap and each binding value is bounded by `maxBindingResultBytes` and `maxProgramResultBytes`.
 
 New sub-calls use `<parent>:ptc:<n>` ids. Consumers treat these ids as opaque and correlate events by exact equality; restored historical ids retain their original bytes. The [PTC mode decision](../../../.agents/notes/implemented/feature/2026-06-15-ptc.md) owns durable naming and restoration rules.
 
@@ -154,7 +158,7 @@ These constraints apply to the host integration and accepted calls.
 - **Program Images require attachment path mapping** — the filesystem must map stored host attachments to readable program paths. `fs-ssh` has no such mapping, so image adaptation rejects in that composition.
 - **No built-in reset control** — the shipped Loader plugin does not expose its executor instance through a service, GUI control or SDK endpoint. Hosts needing reset must mount and retain `PtcExecutor` in their own composition; that integration owns retries after a failed reset.
 - **PTC mode uses TypeScript, and presentation is per agent rather than per tool** — PTC execution requires `ctx.ptcRuntime.language === 'typescript'`; within one agent no tool can be native-only while another is ptc-only.
-- **PTC mode intermediate values are execution-local and unbounded by bytes** — they cannot be reconstructed from session replay and may exhaust process or worker memory; only the outer `run_code` output has the worker's configurable hard cap.
+- **PTC mode intermediate values are execution-local and bounded only after production** — they cannot be reconstructed from session replay. The executor rejects a binding value over `maxBindingResultBytes` and stops delivering past `maxProgramResultBytes`, but a tool has already allocated its result by then, and the total counts bytes delivered, not bytes the program still holds. Bounding production needs each tool's own output cap; there is no streaming binding. The outer `run_code` output has the worker's separate hard cap.
 - **State depends on the runtime**: the default backend starts fresh; Node `persistent-in-memory` execution and Script mode with `scriptPersistence: true` retain memory per live Agent. Agent disposal awaits release. Restart and execution failures can clear memory; model-visible guidance explains how to recreate missing variables. Programs and results remain in the Session log, without serializing live objects.
 
 <a id="dev-note"></a>

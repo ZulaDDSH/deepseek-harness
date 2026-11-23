@@ -265,7 +265,7 @@ describe('registered program tool factory', () => {
     const options = { name: 'duplicate_program', description: 'Duplicate bindings.', runtime, tools: [definition, definition] }
     expect(() => createRunCodeTool(ctx, options)).toThrow('duplicate binding cua')
     expect(() => createRunCodeTool(ctx, { ...options, tools: [definition], limits: { maxParallelSubCalls: 0 } })).toThrow()
-    expect(RunCodeConfig({})).toEqual({ maxSubCallsPerMinute: 1024, maxParallelSubCalls: 10 })
+    expect(RunCodeConfig({})).toEqual({ maxSubCallsPerMinute: 1024, maxParallelSubCalls: 10, maxBindingResultBytes: 16_777_216, maxProgramResultBytes: 67_108_864 })
     expect(ctx.tools.get('duplicate_program')).toBeUndefined()
   })
 })
