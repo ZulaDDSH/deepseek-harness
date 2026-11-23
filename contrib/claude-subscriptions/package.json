@@ -1,0 +1,64 @@
+{
+  "name": "dsh-claude-account-manager",
+  "version": "1.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Local Claude Code subscription profiles for DeepSeek Harness",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./bridge": "./bridge/index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=24.9.0",
+    "dsh": "0.2.2-rc.3"
+  },
+  "scripts": {
+    "build": "node prepare-bridge.mjs",
+    "prepack": "npm run build",
+    "pretest": "npm run build",
+    "test": "node --experimental-test-module-mocks --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.322",
+    "@deepseek-ai/dsh-atomic-write": "0.2.2-rc.3",
+    "@deepseek-ai/schemastery": "~3.19.0",
+    "zod": "4.6.7"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.1.0",
+    "@deepseek-ai/dsh-attachment": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-compaction": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-llm": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-session": "0.2.2-rc.3"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml",
+      "listedByDefault": false
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    }
+  },
+  "files": [
+    "bridge",
+    "index.js",
+    "ownership.js",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "devDependencies": {
+    "react": "18.3.1",
+    "react-test-renderer": "18.3.1"
+  }
+}
