@@ -499,6 +499,27 @@ class JsonlSessionPersistence extends SessionPersistence {
     }
   }
 
+  async deleteSession(id: SessionId, options?: { readonly signal?: AbortSignal }): Promise<void> {
+    options?.signal?.throwIfAborted()
+    await this.ensureRootEncoding()
+    this.tracker.claimWrite(id)
+    let lease: SessionWriteLease | undefined
+    try {
+      const resolved = await this.findLog(id, options?.signal)
+      if (resolved === undefined) throw new SessionPersistenceNotFoundError(id)
+      const dir = dirname(resolved.sourcePath)
+      lease = await this.acquireLease(id, undefined, dir)
+      options?.signal?.throwIfAborted()
+      await rm(dir, { recursive: true, force: true })
+    } finally {
+      try {
+        await lease?.release()
+      } finally {
+        this.tracker.releaseClaim(id)
+      }
+    }
+  }
+
   /**
    * Flush every active write handle in one durability barrier; see the seam
    * contract.
