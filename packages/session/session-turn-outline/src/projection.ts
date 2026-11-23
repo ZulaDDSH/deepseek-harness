@@ -29,6 +29,7 @@ import type { TurnOutlineEntry, TurnOutlineState } from './types.ts'
 const PROMPT_PREVIEW_LIMIT = 50
 /** Response budget: three rail-card lines (12px over ~276px). */
 const RESPONSE_PREVIEW_LIMIT = 120
+export const OUTLINE_ENTRY_LIMIT = 500
 
 type MessageContent = SessionEvent<'user/message'>['data']['content']
 
@@ -63,7 +64,7 @@ const turnOutlineEntriesSchema: ZodType<readonly TurnOutlineEntry[]> = z.array(z
   seq: z.number().int().nonnegative().transform(SessionSeq),
   prompt: z.string().max(PROMPT_PREVIEW_LIMIT),
   response: z.string().max(RESPONSE_PREVIEW_LIMIT),
-}).strict()).superRefine((turns, context) => {
+}).strict()).max(OUTLINE_ENTRY_LIMIT).superRefine((turns, context) => {
   let previous = -1
   for (const entry of turns) {
     if (entry.turn <= previous) {
@@ -84,7 +85,7 @@ const EMPTY_OUTLINE: TurnOutlineState = { turns: [], draft: '' }
 /** The `turnOutline` unit registered on `ctx.sessionProjections` (exported for the unit spec). */
 export const turnOutlineProjectionDefinition = {
   key: 'turnOutline',
-  stateVersion: 2,
+  stateVersion: 3,
   stateSchema: turnOutlineStateSchema,
   init: () => EMPTY_OUTLINE,
   apply: (state, event) => {
@@ -99,7 +100,7 @@ export const turnOutlineProjectionDefinition = {
         // standing entry.
         if (last !== undefined && event.data.turn <= last.turn) return state
         return {
-          turns: [...state.turns, { turn: event.data.turn, seq: event.seq, prompt: '', response: '' }],
+          turns: [...state.turns.slice(1 - OUTLINE_ENTRY_LIMIT), { turn: event.data.turn, seq: event.seq, prompt: '', response: '' }],
           draft: '',
         }
       }

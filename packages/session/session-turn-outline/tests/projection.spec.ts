@@ -17,7 +17,7 @@ import SessionStore, { type SessionId, SessionLogOffset, SessionSeq } from '@dee
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import * as SessionTurnOutlinePlugin from '@deepseek-ai/dsh-session-turn-outline'
-import { turnOutlineProjectionDefinition } from '@deepseek-ai/dsh-session-turn-outline/src/projection.ts'
+import { OUTLINE_ENTRY_LIMIT, turnOutlineProjectionDefinition } from '@deepseek-ai/dsh-session-turn-outline/src/projection.ts'
 import type { TurnOutlineEntry, TurnOutlineState } from '@deepseek-ai/dsh-session-turn-outline/types'
 import { brandString } from '@deepseek-ai/dsh-brand'
 
@@ -73,7 +73,7 @@ describe('turn outline projection unit', () => {
     const { ctx, session } = await harness(true)
     expect(outlineOf(ctx, session)).toEqual([])
     expect(ctx.sessionProjections.checkpoint(session).turnOutline)
-      .toEqual({ ver: 2, seq: -1, val: { turns: [], draft: '' } })
+      .toEqual({ ver: 3, seq: -1, val: { turns: [], draft: '' } })
   })
 
   it('folds each turn with its boundary seq, first prompt, and turn-end response', async () => {
@@ -223,6 +223,72 @@ describe('turn outline projection unit', () => {
       data: { turn: 2 },
     } as unknown as SessionEvent
     expect(turnOutlineProjectionDefinition.apply(state, regressive)).toBe(state)
+  })
+
+  it('keeps state, wire value, and checkpoint row at the newest window across thousands of turns', () => {
+    const definition = turnOutlineProjectionDefinition
+    const event = (type: string, seq: number, data: unknown): SessionEvent =>
+      ({ type, seq: SessionSeq(seq), time: 0, data }) as unknown as SessionEvent
+    const turns = 5000
+    const events: SessionEvent[] = []
+    for (let turn = 1; turn <= turns; turn++) {
+      const base = events.length
+      events.push(
+        event('turn/start', base, { turn }),
+        event('user/message', base + 1, { content: [{ type: 'text', text: `prompt ${String(turn)}` }], source: { kind: 'user' } }),
+        event('assistant/message', base + 2, { message: { content: [{ type: 'text', text: `answer ${String(turn)}` }] } }),
+        event('turn/end', base + 3, { turn }),
+      )
+    }
+    let state = definition.init()
+    let largest = 0
+    for (const next of events) {
+      state = definition.apply(state, next)
+      largest = Math.max(largest, state.turns.length)
+    }
+    expect(largest).toBe(OUTLINE_ENTRY_LIMIT)
+    expect(state.turns.map(entry => entry.turn)).toEqual(
+      Array.from({ length: OUTLINE_ENTRY_LIMIT }, (_, index) => turns - OUTLINE_ENTRY_LIMIT + 1 + index),
+    )
+    expect(state.turns.at(-1)).toEqual({ turn: turns, seq: (turns - 1) * 4, prompt: `prompt ${String(turns)}`, response: `answer ${String(turns)}` })
+    expect(definition.wire.view(state)).toHaveLength(OUTLINE_ENTRY_LIMIT)
+
+    const cut = 4 * 2750 + 2
+    let seeded = definition.init()
+    for (const next of events.slice(0, cut)) seeded = definition.apply(seeded, next)
+    seeded = definition.stateSchema.parse(JSON.parse(JSON.stringify(seeded)) as unknown)
+    for (const next of events.slice(cut)) seeded = definition.apply(seeded, next)
+    expect(seeded).toEqual(state)
+  })
+
+  it('serves at most the newest window to snapshots, pushes, and checkpoint rows', async () => {
+    const { ctx, session } = await harness(true)
+    const pushed: number[] = []
+    ctx.sessionProjections.onChanged((_session, key, value) => {
+      if (key === 'turnOutline') pushed.push((value as readonly TurnOutlineEntry[]).length)
+    })
+    const total = OUTLINE_ENTRY_LIMIT + 20
+    for (let turn = 1; turn <= total; turn++) {
+      session.append('turn/start', { turn })
+      endTurn(session, turn)
+    }
+    expect(Math.max(...pushed)).toBe(OUTLINE_ENTRY_LIMIT)
+    const outline = outlineOf(ctx, session)
+    expect(outline).toHaveLength(OUTLINE_ENTRY_LIMIT)
+    expect(outline[0]?.turn).toBe(21)
+    expect(outline.at(-1)?.turn).toBe(total)
+    const row = ctx.sessionProjections.checkpoint(session).turnOutline
+    expect((row?.val as TurnOutlineState).turns).toHaveLength(OUTLINE_ENTRY_LIMIT)
+  })
+
+  it('rejects a persisted checkpoint that holds more entries than the window', async () => {
+    const { ctx, session } = await harness(true)
+    const checkpoint = ctx.sessionProjections.checkpoint(session)
+    const turns = Array.from({ length: OUTLINE_ENTRY_LIMIT + 1 }, (_, index) => ({ turn: index + 1, seq: index, prompt: '', response: '' }))
+    expect(() => ctx.sessionProjections.restore({
+      ...checkpoint,
+      turnOutline: { ...checkpoint.turnOutline!, val: { turns, draft: '' } },
+    }, [], SessionLogOffset(0), session.header, session.inheritedEventCount)).toThrow()
   })
 
   it('folds turns already in the log when the plugin mounts late (lazy cell build)', async () => {
