@@ -6,7 +6,7 @@
 
 ## Tool-call result byte budget (finding 145)
 
-- `packages/mcp/mcp-client/src/tools.ts:syncTools` (the `call` closure) - the result of `client.callTool` is measured by `resultBytes` before output-schema validation, error redaction and conversion, and one over `MAX_TOOL_RESULT_BYTES` (8 MiB, the same figure as `connection.ts:MAX_RESOURCE_READ_BYTES`) is rejected as `MCP_INVALID_RESULT` with the measured size. The walk counts UTF-8 text bytes, image/blob string length and structured values, and stops as soon as the limit is crossed, so rejecting costs at most limit-sized work.
+- `packages/mcp/mcp-client/src/tools.ts:createMcpToolDefinition` (the `call` closure) - the result of `client.callTool` is measured by `resultBytes` before output-schema validation, error redaction and conversion, and one over `MAX_TOOL_RESULT_BYTES` (8 MiB, the same figure as `connection.ts:MAX_RESOURCE_READ_BYTES`) is rejected as `MCP_INVALID_RESULT` with the measured size. The walk counts UTF-8 text bytes, image/blob string length and structured values, and stops as soon as the limit is crossed, so rejecting costs at most limit-sized work.
 - Limit: the SDK client has already received and parsed the whole JSON-RPC message when this runs, so the check bounds validation, conversion, image projection and retention but not the transient receive/parse memory; bounding that needs a limit inside the SDK's stdio and HTTP transports, which this bridge does not own. Aggregate in-flight budgeting across concurrent calls is not added.
 
 ## Non-object tool arguments (finding 369)
@@ -15,5 +15,5 @@
 
 ## Host-operation error redaction (finding 370)
 
-- `packages/mcp/mcp-client/src/connection.ts:startConnection` (the registered `call`) - when `expandTemplates` is on, an `isError` result from the human-operations call is reduced to its redacted text parts, like the model-facing bridge in `packages/mcp/mcp-client/src/tools.ts:syncTools`; successful results are returned unchanged. The same closure supplies `McpHumanOperations.redact` (`human-operations.ts:McpHumanOperations`), which is the identity when templates are not expanded.
+- `packages/mcp/mcp-client/src/connection.ts:startConnection` (the registered `call`) - when `expandTemplates` is on, an `isError` result from the human-operations call is reduced to its redacted text parts, like the model-facing bridge in `packages/mcp/mcp-client/src/tools.ts:createMcpToolDefinition`; successful results are returned unchanged. The same closure supplies `McpHumanOperations.redact` (`human-operations.ts:McpHumanOperations`), which is the identity when templates are not expanded.
 - `packages/client/ui-memory-workspace/src/store.ts:excerpt` - the 300-character excerpt copied into Memorix rejection and missing-acknowledgement errors is redacted through `provider.redact` before it is truncated, so a secret cut by the limit is not partially exposed; a provider without `redact` keeps the raw excerpt.
