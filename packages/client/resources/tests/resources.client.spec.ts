@@ -400,6 +400,36 @@ describe('ResourceRegistry streams', () => {
   })
 })
 
+describe('ResourceRegistry idle records', () => {
+  const churn = (b: ReturnType<typeof bench>, count: number): void => {
+    for (let index = 0; index < count; index += 1) b.registry.source(`${RESOURCE_SCHEME}://feed/churn-${index}`)
+  }
+
+  it('forgets the oldest idle addresses beyond the bound but keeps recent and held ones stable', () => {
+    const b = bench()
+    const old = b.registry.source(A)
+    const held = b.registry.source(`${RESOURCE_SCHEME}://feed/held`)
+    held.subscribe(() => {})
+    churn(b, 300)
+    expect(b.registry.source(A)).not.toBe(old)
+    expect(b.registry.source(`${RESOURCE_SCHEME}://feed/held`)).toBe(held)
+    const recent = b.registry.source(`${RESOURCE_SCHEME}://feed/churn-299`)
+    expect(b.registry.source(`${RESOURCE_SCHEME}://feed/churn-299`)).toBe(recent)
+  })
+
+  it('still serves an evicted address that a rendered source subscribes late, and opens it for a new provider', async () => {
+    const b = bench()
+    const stale = b.registry.source(A)
+    churn(b, 300)
+    stale.subscribe(() => {})
+    expect(b.registry.source(A)).toBe(stale)
+    b.registry.register(b.provider)
+    expect(b.provider.open).toHaveBeenCalledTimes(1)
+    b.last().push('late')
+    await vi.waitFor(() => { expect(stale.getSnapshot()).toMatchObject({ status: 'live', value: 'late' }) })
+  })
+})
+
 describe('ResourceRegistry addresses', () => {
   it('opens different complete addresses independently and supplies only the lifetime signal', async () => {
     const b = bench()

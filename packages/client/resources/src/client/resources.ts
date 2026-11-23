@@ -19,6 +19,8 @@ import type {
   ResourceSnapshot,
 } from './contract.ts'
 
+const MAX_IDLE_RECORDS = 256
+
 /** A provider with its value type erased, so one map holds every protocol. */
 interface RuntimeProvider {
   readonly protocol: string
@@ -76,6 +78,7 @@ function idle(status: 'none' | 'loading'): ResourceSnapshot<unknown> {
 export class ResourceRegistry implements Resources {
   private readonly providers = new Map<string, RuntimeProvider>()
   private readonly records = new Map<string, ResourceRecord>()
+  private readonly idleRecords = new Set<ResourceRecord>()
 
   /** @param ctx - Context whose effects own the registered providers. */
   constructor(private readonly ctx: Context) {}
@@ -113,6 +116,8 @@ export class ResourceRegistry implements Resources {
     if (record === undefined) {
       record = this.create(address)
       this.records.set(address, record)
+      this.idleRecords.add(record)
+      this.evictIdle()
     }
     return record
   }
@@ -159,14 +164,26 @@ export class ResourceRegistry implements Resources {
 
   private hold(record: ResourceRecord): void {
     record.holders += 1
+    this.idleRecords.delete(record)
+    if (!this.records.has(record.address)) this.records.set(record.address, record)
     if (record.holders === 1 || (record.ended && record.store.getSnapshot().status === 'failed')) this.start(record)
   }
 
   private release(record: ResourceRecord): void {
     record.holders -= 1
     if (record.holders > 0) return
+    this.idleRecords.add(record)
+    this.evictIdle()
     this.stop(record)
     record.store.set(idle(this.providerOf(record.protocol) === undefined ? 'none' : 'loading'))
+  }
+
+  private evictIdle(): void {
+    for (const record of this.idleRecords) {
+      if (this.idleRecords.size <= MAX_IDLE_RECORDS) return
+      this.idleRecords.delete(record)
+      this.records.delete(record.address)
+    }
   }
 
   /** The provider arrived: a held record opens its stream, an idle one turns `loading`. */
