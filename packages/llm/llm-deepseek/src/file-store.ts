@@ -1,8 +1,11 @@
 /** DeepSeek Files API upload reuse, invalidation, and quota recovery. @module dsh-llm-deepseek/file-store */
 
+import { createHash } from 'node:crypto'
 import { timeoutOf, type TimeoutReason } from '@deepseek-ai/dsh-timeout'
 import type { RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
 import { LlmError } from '@deepseek-ai/dsh-llm'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import type { ImageVariantId as ImageVariantIdType } from '@deepseek-ai/dsh-attachment/types'
 import { DeepSeekFilesClient, isFilesQuotaError } from './files-api.ts'
 import type { DeepSeekFileId } from './file-id.ts'
 import { messagesApiRoot } from './messages-api.ts'
@@ -123,6 +126,18 @@ function extension(mediaType: RequestImageAttachment['mediaType']): 'png' | 'jpe
   }
 }
 
+const uploadIdentities = new WeakMap<RequestImageAttachment, ImageVariantIdType>()
+
+export function uploadIdentityOf(version: RequestImageAttachment): ImageVariantIdType {
+  let identity = uploadIdentities.get(version)
+  if (identity === undefined) {
+    const digest = createHash('sha256').update(String(version.variantId)).update('\0').update(version.data).digest('hex')
+    identity = brandString<ImageVariantIdType>(`sha256:${digest}`)
+    uploadIdentities.set(version, identity)
+  }
+  return identity
+}
+
 function filename(version: RequestImageAttachment): string {
   const attachment = String(version.attachment.attachmentId).slice('sha256:'.length, 'sha256:'.length + 16)
   const variant = String(version.variantId).slice('sha256:'.length, 'sha256:'.length + 8)
@@ -175,7 +190,8 @@ export class DeepSeekFileStore {
     }
     const scope = fileScope(connection)
     const marginMs = policy.refreshMarginSeconds * 1_000
-    const cached = await this.index.get(scope, version.variantId, this.now(), marginMs, signal)
+    const identity = uploadIdentityOf(version)
+    const cached = await this.index.get(scope, identity, this.now(), marginMs, signal)
       .catch((error: unknown) => { throw uploadFailure(error) })
     signal?.throwIfAborted()
     if (cached) return { record: cached, uploaded: false }
@@ -186,7 +202,7 @@ export class DeepSeekFileStore {
         message: 'DeepSeek Files API upload skipped after a timeout.', code: 'FILES_API_SKIPPED',
       }, { cause: backoff.reason })
     }
-    const key = `${scope}\0${version.variantId}`
+    const key = `${scope}\0${identity}`
     let active = this.inflight.get(key)
     if (active?.controller.signal.aborted) {
       this.inflight.delete(key)
@@ -255,7 +271,7 @@ export class DeepSeekFileStore {
       return {
         scope,
         attachmentId: version.attachment.attachmentId,
-        variantId: version.variantId,
+        variantId: uploadIdentityOf(version),
         fileId: remote.id,
         bytes: remote.bytes,
         createdAt: remote.createdAt * 1_000,
@@ -313,13 +329,13 @@ export class DeepSeekFileStore {
     const scope = fileScope(connection)
     const record = await this.index.get(
       scope,
-      version.variantId,
+      uploadIdentityOf(version),
       this.now(),
       policy.refreshMarginSeconds * 1_000,
     )
     if (record === undefined) return false
     await this.client(connection).delete(record.fileId, signal)
-    await this.index.remove(scope, [{ variantId: version.variantId, fileId: record.fileId }])
+    await this.index.remove(scope, [{ variantId: uploadIdentityOf(version), fileId: record.fileId }])
     await this.index.forgetOwned(scope, [record.fileId])
     return true
   }

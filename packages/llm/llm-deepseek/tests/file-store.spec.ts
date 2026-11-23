@@ -6,7 +6,7 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import type { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment/types'
 import type { ImageAttachmentRef, RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
 import { TimeoutReason } from '@deepseek-ai/dsh-timeout'
-import { DeepSeekFileStore, FILES_API_TIMEOUT, MAX_IMAGE_BYTES } from '../src/file-store.ts'
+import { DeepSeekFileStore, FILES_API_TIMEOUT, MAX_IMAGE_BYTES, uploadIdentityOf } from '../src/file-store.ts'
 import type { DeepSeekFileId } from '../src/file-id.ts'
 import { deepSeekFileScope, DeepSeekUploadIndex } from '../src/upload-index.ts'
 
@@ -227,6 +227,23 @@ describe('DeepSeekFileStore', () => {
     expect(remote.uploads()).toBe(4)
   })
 
+  it('uploads again when the same variant id now names different bytes', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-file-identity-'))
+    roots.push(dir)
+    const remote = uploadFetch()
+    const index = new DeepSeekUploadIndex(join(dir, 'index.json'))
+    const store = new DeepSeekFileStore({ index, fetch: remote.fetchImpl, now: () => NOW })
+    const first = await store.ensureUploaded(VERSION, CONNECTION, POLICY)
+    const replaced = { ...VERSION, data: Uint8Array.of(4, 5, 6) }
+    const second = await store.ensureUploaded(replaced, CONNECTION, POLICY)
+    expect(second.uploaded).toBe(true)
+    expect(second.record.fileId).not.toBe(first.record.fileId)
+    expect(remote.uploads()).toBe(2)
+    expect((await store.ensureUploaded(replaced, CONNECTION, POLICY)).record.fileId).toBe(second.record.fileId)
+    expect((await store.ensureUploaded(VERSION, CONNECTION, POLICY)).record.fileId).toBe(first.record.fileId)
+    expect(remote.uploads()).toBe(2)
+  })
+
   it('reuses equivalent API roots and isolates other endpoints across invalidation and expiry', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-file-scope-'))
     roots.push(dir)
@@ -242,10 +259,10 @@ describe('DeepSeekFileStore', () => {
     expect((await store.ensureUploaded(VERSION, { ...CONNECTION, baseURL: `${CONNECTION.baseURL}/v1/` }, POLICY)).record).toEqual(first.record)
     const reopened = new DeepSeekFileStore({ index, fetch: remote.fetchImpl, now: () => now })
     expect((await reopened.ensureUploaded(VERSION, CONNECTION, POLICY)).record).toEqual(first.record)
-    await reopened.invalidate([{ variantId: VERSION.variantId, fileId: other.record.fileId }], CONNECTION)
+    await reopened.invalidate([{ variantId: uploadIdentityOf(VERSION), fileId: other.record.fileId }], CONNECTION)
     expect((await reopened.ensureUploaded(VERSION, CONNECTION, POLICY)).record).toEqual(first.record)
     expect(remote.uploads()).toBe(2)
-    await reopened.invalidate([{ variantId: VERSION.variantId, fileId: first.record.fileId }], CONNECTION)
+    await reopened.invalidate([{ variantId: uploadIdentityOf(VERSION), fileId: first.record.fileId }], CONNECTION)
     const replacement = await reopened.ensureUploaded(VERSION, CONNECTION, POLICY)
     expect(replacement.record.fileId).not.toBe(first.record.fileId)
     expect((await reopened.ensureUploaded(VERSION, alternate, POLICY)).record).toEqual(other.record)
@@ -602,7 +619,7 @@ describe('DeepSeekFileStore', () => {
       record: {
         scope: deepSeekFileScope(`${CONNECTION.baseURL}/v1`, JSON.stringify(Object.entries(CONNECTION.headers))),
         attachmentId: VERSION.attachment.attachmentId,
-        variantId: VERSION.variantId,
+        variantId: uploadIdentityOf(VERSION),
         fileId: brandString<DeepSeekFileId>('file-api-winner'),
         bytes: 3,
         createdAt: NOW,

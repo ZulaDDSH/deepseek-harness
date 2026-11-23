@@ -245,6 +245,23 @@ describe('local request-image cache', () => {
     await expect(readFile(`${path}.sha256`, 'utf8')).resolves.toMatch(/^[0-9a-f]{64}$/)
   })
 
+  it('regenerates a cached variant whose bytes were corrupted in place', async () => {
+    const dshHome = await home()
+    const attachments = new LocalAttachmentStore(new Context(), { dshHome })
+    const attachment = await attachments.saveImage({ data: await image(64, 32), mediaType: 'image/png' })
+    const policy = { width: 22, height: 11, maxBytes: 4_096 }
+    const initial = await attachments.readImageRequest(attachment, policy)
+    const hash = String(initial.variantId).slice('sha256:'.length)
+    const path = join(dshHome, 'cache', 'attachments', 'request-images', hash.slice(0, 2), hash)
+    const corrupted = Buffer.from(await readFile(path))
+    corrupted[Math.floor(corrupted.length / 2)] ^= 0xff
+    await writeFile(path, corrupted)
+
+    const regenerated = await attachments.readImageRequest(attachment, policy)
+    expect(regenerated.data).toEqual(initial.data)
+    await expect(readFile(path)).resolves.toEqual(Buffer.from(initial.data))
+  })
+
   it('derives stable square and wide previews and separates route budgets in the cache key', async () => {
     const attachments = await store()
     const square = await attachments.saveImage({
