@@ -43,4 +43,14 @@ describe('recent time zones', () => {
       vi.unstubAllGlobals()
     }
   })
+
+  it('seeds and promotes when reading the localStorage property throws', () => {
+    vi.spyOn(window, 'localStorage', 'get').mockImplementation(() => { throw new DOMException('blocked', 'SecurityError') })
+    try {
+      expect(loadRecentTimeZones('Asia/Shanghai')).toEqual(['Asia/Shanghai', 'UTC'])
+      expect(rememberTimeZone(['UTC'], 'Asia/Tokyo')).toEqual(['Asia/Tokyo', 'UTC'])
+    } finally {
+      vi.restoreAllMocks()
+    }
+  })
 })
