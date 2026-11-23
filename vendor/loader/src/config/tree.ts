@@ -87,8 +87,7 @@ export abstract class EntryTree {
 
   /**
    * Assign a random tree-local id when `options.id` is absent. Explicit ids
-   * may contain `EntryTree.sep`; `resolve()` and `resolveGroup()` cannot
-   * address such entries by nested path.
+   * may contain `EntryTree.sep`; `resolve()` tries the literal id first.
    * @param options - Entry options; a generated id is written to `options.id`.
    * @returns The existing or generated id.
    */
@@ -103,16 +102,18 @@ export abstract class EntryTree {
 
   /** Resolve an entry by id, including nested ids separated by `EntryTree.sep`. */
   resolve(id: string) {
-    const parts = id.split(EntryTree.sep)
-    let tree: EntryTree | undefined = this
-    const final = parts.pop()!
-    for (const part of parts) {
-      tree = tree.store[part]?.subtree
-      if (!tree) throw new Error(`cannot resolve entry ${id}`)
-    }
-    const entry = tree.store[final]
+    const entry = EntryTree.find(this, id)
     if (!entry) throw new Error(`cannot resolve entry ${id}`)
     return entry
+  }
+
+  private static find(tree: EntryTree, id: string): Entry | undefined {
+    if (tree.store[id]) return tree.store[id]
+    for (let at = id.indexOf(EntryTree.sep); at >= 0; at = id.indexOf(EntryTree.sep, at + 1)) {
+      const subtree = tree.store[id.slice(0, at)]?.subtree
+      const found = subtree && EntryTree.find(subtree, id.slice(at + 1))
+      if (found) return found
+    }
   }
 
   resolveGroup(id: string | null) {
