@@ -64,7 +64,11 @@ window.__ModuleLoader__.load({
           serial.current++
         }
       }, [call])
-      const pending = rows?.some((a) => a.pending)
+      const pending = (rows || [])
+        .filter((a) => a.pending)
+        .map((a) => a.id)
+        .sort()
+        .join(',')
       React.useEffect(() => {
         if (!pending) return
         let stopped = false

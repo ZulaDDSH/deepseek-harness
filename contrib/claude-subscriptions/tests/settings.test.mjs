@@ -122,3 +122,37 @@ test('pending sign-ins are polled with a growing delay that stops once nothing i
   await advance(300000)
   assert.equal(lists, 8)
 })
+
+test('a sign-in started while another is pending restarts the poll delay', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let pending = ['work']
+  let lists = 0
+  const rpc = {
+    async call(_channel, method) {
+      if (method === 'list') lists++
+      const accounts = pending.map((id) => ({ id, picker: id, label: id, signedIn: false, pending: true }))
+      return { ok: true, value: { accounts, notice: '' } }
+    },
+  }
+  const { act, create } = TestRenderer
+  let page
+  await act(async () => {
+    page = create(React.createElement(register().get('settings.section'), { rpc }))
+  })
+  t.after(() => act(() => page.unmount()))
+  const advance = async (ms) => {
+    await act(async () => {
+      t.mock.timers.tick(ms)
+    })
+  }
+  await advance(3000)
+  await advance(6000)
+  assert.equal(lists, 3)
+  pending = ['work', 'home']
+  await advance(12000)
+  assert.equal(lists, 4)
+  await advance(2999)
+  assert.equal(lists, 4)
+  await advance(1)
+  assert.equal(lists, 5)
+})
