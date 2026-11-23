@@ -52,7 +52,7 @@ A returned run exposes `id`, `meta`, `result`, `cancel(reason?)`, and `dispose()
 
 ### Failures and recovery
 
-A script that does not parse, a malformed meta block, an unavailable provider route, or an unsupported per-run limit is rejected synchronously before a run exists; the `workflow` tool reports these as errors the model can correct from. During execution, hook misuse — bad arguments, unknown options, unsupported schemas, tripped caps — kills the script loudly rather than dissolving into a per-item `null`. An ordinary child failure is not an infrastructure error: `agent()` resolves `null` and the script decides how to handle it.
+A script that does not parse, a malformed meta block, an unavailable provider route, or an unsupported per-run limit is rejected synchronously before a run exists; the `workflow` tool reports these as errors the model can correct from. During execution, hook misuse — bad arguments, unknown options, unsupported schemas, tripped caps — kills the script loudly rather than dissolving into a per-item `null`. A failed helper call the script never awaited or caught fails the run when the script returns. An ordinary child failure is not an infrastructure error: `agent()` resolves `null` and the script decides how to handle it.
 
 -----
 

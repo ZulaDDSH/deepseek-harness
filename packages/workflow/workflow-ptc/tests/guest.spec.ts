@@ -320,7 +320,7 @@ describe('workflow child results', () => {
     expect(test.disposed).toEqual([1])
   })
 
-  it('contains the rejection of an agent() promise the script dropped', async () => {
+  it('fails the run when a dropped agent() promise rejected, without an unhandled rejection', async () => {
     const droppedDisposed = Promise.withResolvers<undefined>()
     onTestFinished(() => { droppedDisposed.resolve(undefined) })
     const test = fixture('agent("dropped"); return await agent("kept")', {
@@ -334,10 +334,34 @@ describe('workflow child results', () => {
         return null
       },
     })
-    await expect(runWorkflowGuest(test.host)).resolves.toMatchObject({ value: 'kept result', stopReason: 'completed' })
+    const result = await runWorkflowGuest(test.host)
+    expect(result).toMatchObject({ value: null, stopReason: 'error', errorCode: 'AGENT_RESULT' })
+    expect(result.error).toContain('neither awaited nor caught')
+    expect(result.error).toContain('dropped child failed')
     expect(test.events).toContainEqual({
       type: 'agent-end', info: { seq: 1, label: 'dropped', childId: 'child-1', outcome: 'failed' },
     })
+  })
+
+  it.each([
+    ['a dropped invalid call', 'agent(1); return "done"', {}, 'INVALID_ARGUMENT'],
+    ['a dropped call that trips the agent cap', 'await agent("a"); agent("b"); return "done"', { maxTotalAgents: 1 }, 'AGENT_CAP'],
+    ['a dropped combinator failure', 'parallel(1); return "done"', {}, 'INVALID_ARGUMENT'],
+    ['a stored promise that is never awaited', 'const pending = agent(1); await agent("a"); return "done"', {}, 'INVALID_ARGUMENT'],
+  ])('fails the run for %s', async (_name, body, limits, errorCode) => {
+    const result = await runWorkflowGuest(fixture(body, {}, limits).host)
+    expect(result).toMatchObject({ value: null, stopReason: 'error', errorCode })
+    expect(result.error).toContain('neither awaited nor caught')
+  })
+
+  it.each([
+    ['an awaited failure the script caught', 'try { await agent(1) } catch (error) { return error.code }', 'INVALID_ARGUMENT'],
+    ['a combinator failure the script caught', 'try { await parallel([() => agent(1)]) } catch (error) { return error.code }', 'INVALID_ARGUMENT'],
+    ['a stored promise awaited later in a try', 'const pending = agent(1); await agent("a"); try { await pending } catch (error) { return error.code }', 'INVALID_ARGUMENT'],
+    ['a failure handled with catch()', 'agent(1).catch(() => {}); await agent("a"); return "handled"', 'handled'],
+    ['a dropped call whose child is still running', 'agent("fire and forget"); return "ok"', 'ok'],
+  ])('keeps the run completed for %s', async (_name, body, value) => {
+    await expect(runWorkflowGuest(fixture(body).host)).resolves.toMatchObject({ value, stopReason: 'completed' })
   })
 
   it('admits queued child calls in FIFO order after each previous child finishes', async () => {
