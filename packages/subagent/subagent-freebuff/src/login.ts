@@ -10,7 +10,7 @@ const DOCTOR_STDOUT_MAX_BYTES = 1_048_576
 const DOCTOR_STDERR_MAX_BYTES = 4_096
 const SHIM_VARIABLE = 'DSH_FREEBUFF_DOCTOR_EXE'
 const SHIM_PATTERN = /\.(?:cmd|bat)$/i
-const SHELL_METACHARACTERS = /[&|<>^%"]/
+const SHELL_METACHARACTERS = /[&|<>^%"\r\n]/
 
 export interface LoginCheck {
   readonly spawn: (spec: SubprocessSpawnSpec) => SubprocessHandle

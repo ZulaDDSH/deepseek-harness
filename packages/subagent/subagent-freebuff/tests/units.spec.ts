@@ -437,6 +437,8 @@ describe('Freebuff launch through a Windows batch shim', () => {
       env: { DSH_FREEBUFF_DOCTOR_EXE: `"${SHIM}"` },
     })
     expect(() => launchCommand(SHIM, ['a&b'], 'win32', undefined)).toThrow('cannot be given an argument')
+    expect(() => launchCommand(SHIM, ['a\nb'], 'win32', undefined)).toThrow('cannot be given an argument')
+    expect(() => launchCommand(SHIM, ['a\rb'], 'win32', undefined)).toThrow('cannot be given an argument')
     expect(launchCommand('/usr/bin/freebuff', ['a&b'], 'linux', undefined).argv).toEqual(['/usr/bin/freebuff', 'a&b'])
     expect(launchCommand('C:\bin\freebuff.exe', ['a&b'], 'win32', undefined).argv).toEqual(['C:\bin\freebuff.exe', 'a&b'])
   })

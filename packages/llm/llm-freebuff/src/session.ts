@@ -196,6 +196,7 @@ export class FreebuffSession {
         screen = new FreebuffScreen(COLS, ROWS, (data) => { terminal.write(data).catch(() => {}) })
       } catch (error: unknown) {
         abort.abort()
+        terminal.done.catch(() => {})
         await terminal.terminate().catch(() => {})
         throw error
       }
