@@ -531,3 +531,117 @@ it('rejects a settled session commit before and during the next attempt', async 
   }
   expect(await ctx.credentials.readRecord(KEY)).toMatchObject({ payload: { token: 'grant-2' } })
 })
+
+const settleSoon = <T>(promise: Promise<T>): Promise<T> => Promise.race([
+  promise,
+  new Promise<never>((_, reject) => setTimeout(() => { reject(new Error('attempt did not settle')) }, 500)),
+])
+
+describe('same-key writes by another actor', () => {
+  it.each(['write', 'external edit'] as const)('does not confirm a no-op flow after a concurrent %s', async (source) => {
+    const ctx = await harness()
+    const started = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    ctx.authorization.registerFlow({
+      key: KEY, label: 'Forgetful', methods: [{ id: 'oauth', label: 'Sign in' }],
+      async run() {
+        started.resolve(undefined)
+        await release.promise
+      },
+    })
+    const running = ctx.authorization.begin({ key: KEY, interaction: surface() })
+    const refused = expect(running).rejects.toMatchObject({ code: 'NOT_COMMITTED' })
+    await started.promise
+    await ctx.credentials.modifyRecord(KEY, () => Promise.resolve({ kind: 'grant', payload: { token: 'elsewhere' } }))
+    if (source === 'external edit') ctx.emit('credentials/record-updated', KEY)
+    release.resolve(undefined)
+    await refused
+  })
+
+  it('still confirms the flow own commit when another actor writes the key too', async () => {
+    const ctx = await harness()
+    ctx.authorization.registerFlow(committingFlow(ctx, KEY, async () => {
+      await ctx.credentials.modifyRecord(KEY, () => Promise.resolve({ kind: 'grant', payload: { token: 'x' } }))
+    }))
+    await expect(ctx.authorization.begin({ key: KEY, interaction: surface() }))
+      .resolves.toEqual({ status: 'authorized' })
+  })
+})
+
+describe('cancellation after the credential write', () => {
+  const never = (): Promise<void> => new Promise<void>(() => undefined)
+
+  it.each(['local', 'caller'] as const)('settles a saved commit as authorized when %s cancellation arrives while the flow hangs', async (source) => {
+    const ctx = await harness()
+    const committed = Promise.withResolvers<undefined>()
+    ctx.authorization.registerFlow({
+      key: KEY, label: 'Account', methods: [{ id: 'browser', label: 'Browser' }],
+      async run(session) {
+        await session.commit({ kind: 'grant', payload: { token: 'saved' } })
+        committed.resolve(undefined)
+        await never()
+      },
+    })
+    const controller = new AbortController()
+    const running = ctx.authorization.begin({ key: KEY, interaction: surface(), signal: controller.signal })
+    await committed.promise
+    if (source === 'local') ctx.authorization.cancel(KEY)
+    else controller.abort()
+    await expect(settleSoon(running)).resolves.toEqual({ status: 'authorized' })
+    expect(ctx.authorization.describe(KEY)?.inFlight).toBe(false)
+    expect(await ctx.credentials.readRecord(KEY)).toMatchObject({ payload: { token: 'saved' } })
+  })
+
+  it('keeps a cancel that arrives during the write and applies it once the write settles', async () => {
+    const ctx = await harness()
+    const admitted = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    const modify = ctx.credentials.modifyRecord.bind(ctx.credentials)
+    const write = vi.spyOn(ctx.credentials, 'modifyRecord').mockImplementation(async (key, mutate) => {
+      admitted.resolve(undefined)
+      await release.promise
+      return modify(key, mutate)
+    })
+    ctx.authorization.registerFlow({
+      key: KEY, label: 'Account', methods: [{ id: 'browser', label: 'Browser' }],
+      async run(session) {
+        await session.commit({ kind: 'grant', payload: { token: 'saved' } })
+        await never()
+      },
+    })
+    const running = ctx.authorization.begin({ key: KEY, interaction: surface() })
+    try {
+      await admitted.promise
+      ctx.authorization.cancel(KEY)
+      expect(ctx.authorization.describe(KEY)?.inFlight).toBe(true)
+      release.resolve(undefined)
+      await expect(settleSoon(running)).resolves.toEqual({ status: 'authorized' })
+      expect(ctx.authorization.describe(KEY)?.inFlight).toBe(false)
+    } finally { release.resolve(undefined); write.mockRestore() }
+  })
+
+  it('settles as cancelled after a failed write when the flow stalls, and admits a new attempt', async () => {
+    const ctx = await harness()
+    const failed = Promise.withResolvers<undefined>()
+    const write = vi.spyOn(ctx.credentials, 'modifyRecord').mockRejectedValueOnce(new Error('disk full'))
+    ctx.authorization.registerFlow({
+      key: KEY, label: 'Account', methods: [{ id: 'browser', label: 'Browser' }],
+      async run(session) {
+        await session.commit({ kind: 'grant', payload: { token: 'lost' } }).catch(() => undefined)
+        failed.resolve(undefined)
+        await never()
+      },
+    })
+    try {
+      const running = ctx.authorization.begin({ key: KEY, interaction: surface() })
+      await failed.promise
+      ctx.authorization.cancel(KEY)
+      await expect(settleSoon(running)).resolves.toEqual({ status: 'cancelled' })
+      expect(ctx.authorization.describe(KEY)?.inFlight).toBe(false)
+
+      const next = ctx.authorization.begin({ key: KEY, interaction: surface() })
+      ctx.authorization.cancel(KEY)
+      await expect(settleSoon(next)).resolves.toEqual({ status: 'authorized' })
+    } finally { write.mockRestore() }
+  })
+})
