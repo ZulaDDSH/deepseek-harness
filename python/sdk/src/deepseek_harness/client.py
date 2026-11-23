@@ -14,12 +14,69 @@ from typing import Callable, TypeAlias, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from .errors import JsonRpcError, SdkProtocolError, TransportClosedError
+from .errors import JsonRpcError, NotificationOverflowError, SdkProtocolError, TransportClosedError
 from .models import CommandExecution, IncomingRequest, InitializeResponse, JsonObject, JsonValue, Notification, UserQuestionAnswer, UserQuestionRequest
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 NotificationFilter: TypeAlias = Callable[[Notification], bool]
 UserQuestionHandler: TypeAlias = Callable[[UserQuestionRequest, threading.Event], UserQuestionAnswer | JsonObject]
+
+NOTIFICATION_QUEUE_LIMIT = 10_000
+STDERR_LINE_LIMIT = 8_192
+STDERR_TAIL_BYTES = 64 * 1024
+STDERR_TAIL_LINES = 400
+STDERR_TRUNCATED_SUFFIX = "...[truncated]"
+
+
+class _BoundedQueue(queue.Queue):
+    """FIFO holding NOTIFICATION_QUEUE_LIMIT items plus one slot reserved for a terminal error; offer under the owner's lock."""
+
+    def __init__(self, what: str) -> None:
+        super().__init__(maxsize=NOTIFICATION_QUEUE_LIMIT + 1)
+        self._what = what
+        self.overflowed = False
+
+    def offer(self, item: object) -> bool:
+        if self.overflowed:
+            return False
+        if isinstance(item, BaseException):
+            if self.qsize() > NOTIFICATION_QUEUE_LIMIT:
+                return False
+            self.put_nowait(item)
+            return True
+        if self.qsize() >= NOTIFICATION_QUEUE_LIMIT:
+            self.overflowed = True
+            self.put_nowait(NotificationOverflowError(
+                f"{self._what} exceeded {NOTIFICATION_QUEUE_LIMIT} unread items; later items were dropped"
+            ))
+            return False
+        self.put_nowait(item)
+        return True
+
+
+class _StderrTail:
+    """Recent runtime stderr bounded by line count and UTF-8 size."""
+
+    def __init__(self) -> None:
+        self._lines: deque[tuple[str, int]] = deque()
+        self._bytes = 0
+        self._lock = threading.Lock()
+
+    def append(self, line: str) -> None:
+        size = len(line.encode("utf-8", "replace"))
+        with self._lock:
+            self._lines.append((line, size))
+            self._bytes += size
+            while len(self._lines) > STDERR_TAIL_LINES or (self._bytes > STDERR_TAIL_BYTES and len(self._lines) > 1):
+                self._bytes -= self._lines.popleft()[1]
+
+    def __bool__(self) -> bool:
+        with self._lock:
+            return bool(self._lines)
+
+    def text(self) -> str:
+        with self._lock:
+            return "\n".join(line for line, _size in self._lines)
 
 
 @dataclass(slots=True)
@@ -52,15 +109,16 @@ class HarnessClient:
         self._launch_args = _launch_args
         self._proc: subprocess.Popen[str] | None = None
         self._lock = threading.Lock()
+        self._lifecycle = threading.RLock()
         self._write_lock = threading.Lock()
         self._responses: dict[str, queue.Queue[JsonValue | BaseException]] = {}
-        self._notifications: queue.Queue[Notification | BaseException] = queue.Queue()
+        self._notifications = _BoundedQueue("SDK notification queue")
         self._notification_subscribers: dict[
             str, tuple[queue.Queue[Notification | BaseException], NotificationFilter | None]
         ] = {}
         self._session_parents: dict[str, str] = {}
-        self._requests: queue.Queue[IncomingRequest | BaseException] = queue.Queue()
-        self._stderr_lines: deque[str] = deque(maxlen=400)
+        self._requests = _BoundedQueue("SDK incoming request queue")
+        self._stderr_lines = _StderrTail()
         self._reader_thread: threading.Thread | None = None
         self._stderr_thread: threading.Thread | None = None
         self._question_tasks: dict[str, tuple[threading.Event, threading.Thread]] = {}
@@ -77,31 +135,43 @@ class HarnessClient:
     def start(self) -> None:
         if self._proc is not None:
             return
-        with self._lock:
-            self._session_parents.clear()
-            self._question_tasks.clear()
-            self._closing = False
-            self._user_question_handler = self.config.on_user_question
-        env = os.environ.copy()
-        if self.config.env:
-            env.update(self.config.env)
-        args = list(self._launch_args or self._default_launch_args(env))
-        self._proc = subprocess.Popen(
-            args,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            cwd=None if self.config.cwd is None else str(Path(self.config.cwd).resolve()),
-            env=env,
-            bufsize=1,
-        )
-        self._start_reader_thread()
-        self._start_stderr_thread()
+        with self._lifecycle:
+            if self._proc is not None:
+                return
+            with self._lock:
+                self._session_parents.clear()
+                self._question_tasks.clear()
+                self._closing = False
+                self._user_question_handler = self.config.on_user_question
+                self._notifications = _BoundedQueue("SDK notification queue")
+                self._requests = _BoundedQueue("SDK incoming request queue")
+                self._stderr_lines = _StderrTail()
+            env = os.environ.copy()
+            if self.config.env:
+                env.update(self.config.env)
+            args = list(self._launch_args or self._default_launch_args(env))
+            proc = subprocess.Popen(
+                args,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                cwd=None if self.config.cwd is None else str(Path(self.config.cwd).resolve()),
+                env=env,
+                bufsize=1,
+            )
+            with self._lock:
+                self._proc = proc
+            self._start_reader_thread(proc)
+            self._start_stderr_thread(proc, self._stderr_lines)
 
     def close(self) -> None:
         """Close the runtime after a bounded opportunity to flush durable state."""
+        with self._lifecycle:
+            self._close_locked()
+
+    def _close_locked(self) -> None:
         with self._lock:
             self._closing = True
             question_tasks = list(self._question_tasks.values())
@@ -137,7 +207,8 @@ class HarnessClient:
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait()
-        self._proc = None
+        with self._lock:
+            self._proc = None
         self._fail_waiters(self._runtime_closed_error("DeepSeek Harness runtime closed"))
         if self._reader_thread and self._reader_thread.is_alive():
             self._reader_thread.join(timeout=0.5)
@@ -298,7 +369,7 @@ class HarnessClient:
         notification_filter: NotificationFilter | None = None,
     ) -> "NotificationSubscription":
         subscription_id = str(uuid.uuid4())
-        notifications: queue.Queue[Notification | BaseException] = queue.Queue()
+        notifications = _BoundedQueue("SDK notification subscription")
         with self._lock:
             self._notification_subscribers[subscription_id] = (notifications, notification_filter)
         return NotificationSubscription(self, subscription_id, notifications)
@@ -411,20 +482,21 @@ class HarnessClient:
         except Exception as exc:
             raise self._runtime_closed_error("Failed to write to DeepSeek Harness runtime") from exc
 
-    def _start_reader_thread(self) -> None:
-        self._reader_thread = threading.Thread(target=self._reader_loop, name="dsh-runtime-reader", daemon=True)
+    def _start_reader_thread(self, proc: subprocess.Popen[str]) -> None:
+        self._reader_thread = threading.Thread(target=self._reader_loop, args=(proc,), name="dsh-runtime-reader", daemon=True)
         self._reader_thread.start()
 
-    def _start_stderr_thread(self) -> None:
-        self._stderr_thread = threading.Thread(target=self._stderr_loop, name="dsh-runtime-stderr", daemon=True)
+    def _start_stderr_thread(self, proc: subprocess.Popen[str], lines: _StderrTail) -> None:
+        self._stderr_thread = threading.Thread(target=self._stderr_loop, args=(proc, lines), name="dsh-runtime-stderr", daemon=True)
         self._stderr_thread.start()
 
-    def _reader_loop(self) -> None:
-        proc = self._proc
-        if proc is None or proc.stdout is None:
+    def _reader_loop(self, proc: subprocess.Popen[str]) -> None:
+        if proc.stdout is None:
             return
         try:
             for line in proc.stdout:
+                if self._proc is not proc:
+                    return
                 if not line.strip():
                     continue
                 try:
@@ -433,16 +505,26 @@ class HarnessClient:
                     continue
                 self._handle_message(message)
         except BaseException as exc:
-            self._fail_waiters(exc)
+            self._fail_waiters(exc, proc)
         finally:
-            self._fail_waiters(self._runtime_closed_error("DeepSeek Harness runtime stdout closed"))
+            self._fail_waiters(self._runtime_closed_error("DeepSeek Harness runtime stdout closed"), proc)
 
-    def _stderr_loop(self) -> None:
-        proc = self._proc
-        if proc is None or proc.stderr is None:
+    def _stderr_loop(self, proc: subprocess.Popen[str], lines: _StderrTail) -> None:
+        stream = proc.stderr
+        if stream is None:
             return
-        for line in proc.stderr:
-            self._stderr_lines.append(line.rstrip())
+        while True:
+            chunk = stream.readline(STDERR_LINE_LIMIT)
+            if chunk == "":
+                return
+            if chunk.endswith("\n") or len(chunk) < STDERR_LINE_LIMIT:
+                lines.append(chunk.rstrip())
+                continue
+            lines.append(chunk.rstrip() + STDERR_TRUNCATED_SUFFIX)
+            while True:
+                rest = stream.readline(STDERR_LINE_LIMIT)
+                if rest == "" or rest.endswith("\n"):
+                    break
 
     def _handle_message(self, message: object) -> None:
         if not isinstance(message, dict):
@@ -455,7 +537,7 @@ class HarnessClient:
             if method == "user-question/ask" and self._user_question_handler is not None:
                 self._start_user_question(request)
             else:
-                self._requests.put(request)
+                self._offer(self._requests, request)
             return
         if isinstance(msg_id, (str, int)):
             with self._lock:
@@ -487,28 +569,39 @@ class HarnessClient:
                         current = self._notification_subscribers.get(subscription_id)
                         if current is not None and current[0] is subscriber:
                             self._notification_subscribers.pop(subscription_id, None)
-                    subscriber.put(exc)
+                        subscriber.offer(exc)
                     continue
                 if matches:
-                    subscriber.put(notification)
+                    with self._lock:
+                        accepted = subscriber.offer(notification)
+                        if not accepted:
+                            current = self._notification_subscribers.get(subscription_id)
+                            if current is not None and current[0] is subscriber:
+                                self._notification_subscribers.pop(subscription_id, None)
                     delivered = True
             if not delivered:
-                self._notifications.put(notification)
+                self._offer(self._notifications, notification)
 
-    def _fail_waiters(self, exc: BaseException) -> None:
+    def _offer(self, target: _BoundedQueue, item: object) -> None:
         with self._lock:
+            target.offer(item)
+
+    def _fail_waiters(self, exc: BaseException, proc: subprocess.Popen[str] | None = None) -> None:
+        with self._lock:
+            if proc is not None and self._proc is not proc:
+                return
             for cancelled, _thread in self._question_tasks.values():
                 cancelled.set()
             waiters = list(self._responses.values())
             self._responses.clear()
             subscribers = list(self._notification_subscribers.values())
             self._notification_subscribers.clear()
-        for waiter in waiters:
-            waiter.put(exc)
-        for subscriber, _predicate in subscribers:
-            subscriber.put(exc)
-        self._notifications.put(exc)
-        self._requests.put(exc)
+            for waiter in waiters:
+                waiter.put(exc)
+            for subscriber, _predicate in subscribers:
+                subscriber.offer(exc)
+            self._notifications.offer(exc)
+            self._requests.offer(exc)
 
     def _start_user_question(self, incoming: IncomingRequest) -> None:
         """Keep the reader free to receive cancellation, other responses, and shutdown."""
@@ -582,7 +675,7 @@ class HarnessClient:
             if exit_code is not None:
                 parts.append(f"exit code: {exit_code}")
         if self._stderr_lines:
-            parts.append("stderr tail:\n" + "\n".join(self._stderr_lines))
+            parts.append("stderr tail:\n" + self._stderr_lines.text())
         return "\n".join(parts)
 
     def _default_launch_args(self, env: dict[str, str]) -> tuple[str, ...]:
@@ -671,7 +764,7 @@ class NotificationSubscription:
         self,
         client: HarnessClient,
         subscription_id: str,
-        notifications: queue.Queue[Notification | BaseException],
+        notifications: _BoundedQueue,
     ) -> None:
         self._client = client
         self._subscription_id = subscription_id
