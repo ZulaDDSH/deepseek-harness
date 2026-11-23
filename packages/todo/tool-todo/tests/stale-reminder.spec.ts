@@ -34,6 +34,17 @@ describe('stale todo reminder', () => {
     expect(reminders(agent)).toHaveLength(1)
   })
 
+  it('a rejected todo_write neither resets the count nor postpones the reminder', async () => {
+    const duplicate = { todos: [{ content: 'Build', status: 'pending' }, { content: 'Build', status: 'pending' }] }
+    const agent = await run([
+      toolCallResponse('w', 'todo_write', plan),
+      ...probes(3),
+      toolCallResponse('bad', 'todo_write', duplicate),
+      ...probes(3, 3),
+    ])
+    expect(reminders(agent)).toHaveLength(1)
+  })
+
   it('stays quiet when todo_write resets the count or the list is finished', async () => {
     const reset = await run([toolCallResponse('w', 'todo_write', plan), ...probes(5), toolCallResponse('w2', 'todo_write', plan), ...probes(5, 5)])
     expect(reminders(reset)).toHaveLength(0)
