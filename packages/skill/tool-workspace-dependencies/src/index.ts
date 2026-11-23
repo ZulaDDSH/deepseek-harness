@@ -1,5 +1,6 @@
 /** Model-facing query for a bundled Python, Node.js, and pnpm payload, in place or installed under the Harness home. */
 
+import { execFile } from 'node:child_process'
 import { cp, lstat, mkdir, mkdtemp, readFile, readlink, rename, rm, stat, symlink } from 'node:fs/promises'
 import { dirname, isAbsolute, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -249,8 +250,21 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
+async function requireEmulatedLaunch(python: string): Promise<void> {
+  if (!(await stat(python).then(entry => entry.isFile(), () => false))) return
+  await new Promise<void>((resolve, reject) => {
+    execFile(python, ['--version'], { timeout: 30_000, windowsHide: true }, (error) => { error === null ? resolve() : reject(error) })
+  }).catch((cause: unknown) => {
+    throw new WorkspaceDependencyError('primary runtime: the x64 payload cannot run on this ARM64 host (x64 emulation unavailable or blocked)', 'WORKSPACE_DEPENDENCY_UNSUPPORTED_PLATFORM', { cause })
+  })
+}
+
 async function compatibleManifest(source: string): Promise<PrimaryRuntimeManifest> {
   const manifest = await readPrimaryRuntime(source)
+  if (manifest.platform === 'win32' && manifest.arch === 'x64' && process.platform === 'win32' && process.arch === 'arm64') {
+    await requireEmulatedLaunch(workspaceDependencyPaths(source, manifest).python)
+    return manifest
+  }
   if (manifest.platform !== process.platform || manifest.arch !== process.arch) throw new WorkspaceDependencyError('primary runtime: incompatible platform or architecture', 'WORKSPACE_DEPENDENCY_UNSUPPORTED_PLATFORM')
   return manifest
 }

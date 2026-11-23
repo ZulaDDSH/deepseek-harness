@@ -115,6 +115,7 @@ Append-only tool result in the turn history; no prompt section is added.
 
 - Linux targets require glibc; musl payloads are not locked.
 - The install lock is a `<pid> <hostname>` file: a holder that exited on the same host is taken over, but a lock from another host (a home shared over a network) or a live process is waited for up to five minutes and then fails with `WORKSPACE_DEPENDENCY_PREPARATION_FAILED`; remove the file by hand when its holder is known gone. A process using the old tree during replacement is not protected: POSIX keeps open files, while a Windows process holding the directory makes the rename fail and the previous tree is restored.
+- A `win32` x64 payload is accepted on a `win32` arm64 host only after its Python launches with `--version` (30 second limit), which depends on Windows x64 emulation being present; a launch failure rejects as `WORKSPACE_DEPENDENCY_UNSUPPORTED_PLATFORM` and any other architecture mismatch stays rejected. This path has been exercised with a simulated host in tests, not on a physical Windows ARM64 machine, and an emulated Python runs slower than a native one.
 - Windows payloads used in place must already be executable from their carrier; the in-place mode performs no permission repair.
 
 <a id="dev-note"></a>
