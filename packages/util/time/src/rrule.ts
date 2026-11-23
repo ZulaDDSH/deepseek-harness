@@ -17,6 +17,8 @@ const { Weekday, rrulestr } = rrulePackage
 /** Largest accepted COUNT; a longer finite recurrence uses UNTIL. */
 const MAX_RRULE_COUNT = 1_000
 
+export const RRULE_MAX_LENGTH = 4_096
+
 /** Largest number of occurrences that one FREQ period may generate: every minute of one week. */
 const MAX_PERIOD_CANDIDATES = 10_080
 
@@ -150,6 +152,9 @@ function basicTime(field: string, text: string): number {
 
 /** Split the input into its trimmed DTSTART and RRULE lines. */
 function recurrenceLines(value: string): readonly [string, string] {
+  if (value.length > RRULE_MAX_LENGTH) {
+    throw new RecurrenceInputError('syntax', `rrule must not exceed ${RRULE_MAX_LENGTH} characters.`)
+  }
   const [startLine, ruleLine, ...rest] = value.replaceAll('\r\n', '\n').trim().split('\n')
     .map(line => line.trim()).filter(Boolean)
   if (startLine === undefined || ruleLine === undefined || rest.length > 0
@@ -439,8 +444,14 @@ function prepareRRule(value: string, rejectIneffectiveSetPositions: boolean): Pr
     if (list !== undefined) recurrenceParts.set(key, list.toSorted((left, right) => left - right).join(','))
   }
   const recurrence = [...recurrenceParts].map(([key, text]) => `${key}=${text}`).join(';')
+  const canonicalRule = [...parts].map(([key, text]) => {
+    if (key === 'INTERVAL') return `${key}=${values.interval}`
+    if (key === 'COUNT') return `${key}=${values.count}`
+    const list = values.lists.get(key)
+    return list === undefined ? `${key}=${text}` : `${key}=${list.join(',')}`
+  }).join(';')
   return {
-    normalized: `${startLine}\n${ruleLine}`,
+    normalized: `${startLine}\nRRULE:${canonicalRule}`,
     timeZone,
     start,
     frequency: values.frequency,
