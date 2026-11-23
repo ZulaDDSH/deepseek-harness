@@ -154,6 +154,10 @@ export async function writeRecord(directory: string, seq: number, record: Stored
   await rename(temporary, target)
 }
 
+export async function removeRecord(directory: string, seq: number): Promise<void> {
+  await rm(join(recordsDirectory(directory), `${String(seq)}.json`), { force: true })
+}
+
 /**
  * Read one stored record.
  * @param directory - the Session's durable directory.

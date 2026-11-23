@@ -9,7 +9,7 @@ import {
   blobText, diffTrees, gitlinkPaths, ignoredPaths, locateGitWorkspace, snapshotTree, treeBlob, type GitRunner, type GitWorkspace,
 } from './git.ts'
 import { canonicalPath, compareDisplay, displayPathOf, durablePathOf, isInside, isTemporaryPath, temporaryRoots, toPosix } from './paths.ts'
-import { STORE_VERSION, ensurePrivateDirectory, writeRecord, type StoredRecord, type StoredSide, type StoredSources } from './store.ts'
+import { STORE_VERSION, ensurePrivateDirectory, removeRecord, writeRecord, type StoredRecord, type StoredSide, type StoredSources } from './store.ts'
 import type { WorkspaceChangedFile, WorkspaceChangesSummary, WorkspaceFileDiff } from './types.ts'
 
 /** Facts shared by every recorder of one plugin instance. */
@@ -81,6 +81,8 @@ interface TurnState {
   /** Sequence of the latest appended event, or -1. */
   recordedAfterSeq: number
 }
+
+const RECORD_ATTEMPTS = 3
 
 function freshState(turn: number): TurnState {
   return { turn, baseline: null, captures: new Map(), lastToolResultSeq: -1, attemptedAfterSeq: -1, recordedAfterSeq: -1 }
@@ -333,7 +335,6 @@ export class TurnRecorder {
     const sorted = [...listed.values()].sort((a, b) => compareDisplay(a.file, b.file))
     // An empty list after an earlier in-turn record supersedes that record.
     if (sorted.length === 0 && state.recordedAfterSeq < 0) return
-    const event = this.session.append('workspace/changes', { turn: state.turn })
     const kept = sorted.slice(0, this.env.maxFiles)
     const record: TurnRecord = {
       summary: {
@@ -347,11 +348,20 @@ export class TurnRecorder {
       },
       sources: kept.map(entry => entry.sources),
     }
-    this.records.set(event.seq, record)
-    state.recordedAfterSeq = event.seq
-    // Durable before the summary is served, so a restart cannot lose a card the
-    // Client has already been told about.
-    await writeRecord(this.directory, event.seq, storedRecordOf(record))
+    const stored = storedRecordOf(record)
+    for (let attempt = 0; attempt < RECORD_ATTEMPTS; attempt++) {
+      const seq = this.session.seq
+      await writeRecord(this.directory, seq, stored)
+      if (this.lifetime.signal.aborted) return
+      if (this.session.seq === seq) {
+        const event = this.session.append('workspace/changes', { turn: state.turn })
+        this.records.set(event.seq, record)
+        state.recordedAfterSeq = event.seq
+        return
+      }
+      await removeRecord(this.directory, seq)
+    }
+    throw new Error(`the Session log kept moving while the record of turn ${String(state.turn)} was written`)
   }
 
   /**

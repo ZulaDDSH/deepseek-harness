@@ -95,6 +95,73 @@ describe('workspace-changes in a repository', () => {
     ctx.emit('session/disposed', session)
   })
 
+  it('announces no card when the record cannot be written', async () => {
+    const cwd = await repository()
+    const { ctx } = await boot()
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    const write = vi.spyOn(Store, 'writeRecord').mockRejectedValueOnce(new Error('no space left'))
+    const session = ctx.sessions.create(brandString<SessionId>('full-disk'), { meta: { cwd } })
+    startTurn(session, 1)
+    await settle(ctx, session)
+    await writeFile(join(cwd, 'one.txt'), 'x\n')
+    toolCall(session, 1, 'bash', { command: 'x' })
+    endTurn(session, 1)
+    await settle(ctx, session)
+    expect(write).toHaveBeenCalledTimes(1)
+    expect(await changes(ctx, session)).toEqual([])
+    expect(await ctx.workspaceChanges.summary(session.id, session.seq - 1)).toBeUndefined()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('no space left'))
+    startTurn(session, 2)
+    await settle(ctx, session)
+    await writeFile(join(cwd, 'two.txt'), 'y\n')
+    toolCall(session, 2, 'bash', { command: 'y' })
+    endTurn(session, 2)
+    await settle(ctx, session)
+    expect(await ctx.workspaceChanges.summary(session.id, announcedSeq(session))).toMatchObject({ turn: 2 })
+  })
+
+  it('stores the record under the sequence of the event that announces it', async () => {
+    const cwd = await repository()
+    const { ctx, root } = await boot()
+    const session = ctx.sessions.create(brandString<SessionId>('ordered'), { meta: { cwd } })
+    startTurn(session, 1)
+    await settle(ctx, session)
+    await writeFile(join(cwd, 'one.txt'), 'x\n')
+    toolCall(session, 1, 'bash', { command: 'x' })
+    const write = vi.spyOn(Store, 'writeRecord')
+    endTurn(session, 1)
+    await settle(ctx, session)
+    const seq = announcedSeq(session)
+    expect(write.mock.calls.map(call => call[1])).toEqual([seq])
+    expect(await readdir(join(root, 'ordered', 'records'))).toEqual([`${String(seq)}.json`])
+  })
+
+  it('rewrites the record under the new sequence when the log moves during the write', async () => {
+    const cwd = await repository()
+    const { ctx, root } = await boot()
+    const session = ctx.sessions.create(brandString<SessionId>('moving'), { meta: { cwd } })
+    startTurn(session, 1)
+    await settle(ctx, session)
+    await writeFile(join(cwd, 'one.txt'), 'x\n')
+    toolCall(session, 1, 'bash', { command: 'x' })
+    const original = Store.writeRecord
+    let moved = false
+    const write = vi.spyOn(Store, 'writeRecord').mockImplementation(async (directory, seq, record) => {
+      await original(directory, seq, record)
+      if (!moved) {
+        moved = true
+        startTurn(session, 2)
+      }
+    })
+    endTurn(session, 1)
+    await settle(ctx, session)
+    const seq = announcedSeq(session)
+    expect(write.mock.calls).toHaveLength(2)
+    expect(write.mock.calls[1]?.[1]).toBe(seq)
+    expect(await readdir(join(root, 'moving', 'records'))).toEqual([`${String(seq)}.json`])
+    expect(await ctx.workspaceChanges.summary(session.id, seq)).toMatchObject({ turn: 1 })
+  })
+
   it('never prunes the directory of a Session whose recorder is live', async () => {
     const cwd = await repository()
     const { ctx, root } = await boot({ retentionSessions: 1 })
