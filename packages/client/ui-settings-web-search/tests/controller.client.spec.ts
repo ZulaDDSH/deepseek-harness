@@ -52,7 +52,7 @@ function remoteApi(configured: boolean | Record<string, boolean>) {
     ok: true as const,
     value: Object.fromEntries(refs.map(ref => [ref, { configured: answer(ref), writable: true }])),
   }))
-  const set = vi.fn(() => Promise.resolve({ ok: true as const, value: undefined }))
+  const set = vi.fn((_ref: string, _value: string): Promise<{ ok: true; value: undefined } | { ok: false; error: RemoteError }> => Promise.resolve({ ok: true as const, value: undefined }))
   const listProviders = vi.fn((): Promise<ProviderResponse> => Promise.resolve({ ok: true, value: SHIPPED_PROVIDERS }))
   return { ctx: ctxWith({ credentials: { describe, set }, web: { listProviders } }), describe, set, listProviders }
 }
@@ -324,6 +324,76 @@ describe('WebSearchCardController legacy key', () => {
     b.face.save()
     await vi.waitFor(() => { expect(b.state()).toMatchObject({ failed: true, dirty: true, selectionBlocked: true }) })
     b.controller.dispose()
+  })
+
+  it('reports a refused replacement of a configured key as a failed save and keeps the draft', async () => {
+    const b = bench({ accept: true, configured: true })
+    serve(b, { value: LEGACY_SELECTION })
+    await vi.waitFor(() => { expect(b.state().legacyKey?.configured).toBe(true) })
+    b.credentials.set.mockImplementationOnce(() => Promise.resolve({
+      ok: false as const, error: new RemoteError('credential/rejected', 'refused', { ref: LEGACY_KEY }),
+    }))
+    b.face.edit('legacyApiKey', 'replacement')
+    b.face.save()
+    await vi.waitFor(() => { expect(b.state()).toMatchObject({ failed: true, dirty: true, saving: false }) })
+    expect(b.credentials.set).toHaveBeenCalledWith(LEGACY_KEY, 'replacement')
+    expect(b.state().legacyKey).toMatchObject({ text: 'replacement', configured: true })
+    b.controller.dispose()
+  })
+
+  it('leaves the provider selection unapplied when its key write is refused', async () => {
+    const b = bench({ accept: true })
+    serve(b)
+    await vi.waitFor(() => { expect(b.state().search.options).toHaveLength(2) })
+    b.credentials.set.mockImplementationOnce(() => Promise.resolve({
+      ok: false as const, error: new RemoteError('credential/rejected', 'refused', { ref: LEGACY_KEY }),
+    }))
+    b.face.selectProvider('searchProvider', 'deepseek-official')
+    b.face.edit('legacyApiKey', 'typed')
+    b.face.save()
+    await vi.waitFor(() => { expect(b.state()).toMatchObject({ failed: true, dirty: true, saving: false }) })
+    expect(b.web.mutate).not.toHaveBeenCalled()
+    expect(b.state().search.selected).toBe('deepseek-official')
+    b.controller.dispose()
+  })
+
+  it('reports a provider read that throws as a failure and recovers on retry', async () => {
+    const remote = remoteApi(true)
+    const listProviders = vi.fn((): Promise<ProviderResponse> => { throw new Error('no Connection') })
+    const b = bench({ ctx: ctxWith({ credentials: { describe: remote.describe, set: remote.set }, web: { listProviders } }) })
+    try {
+      await vi.waitFor(() => { expect(b.state().providersFailed).toBe(true) })
+      listProviders.mockResolvedValueOnce({ ok: true, value: SHIPPED_PROVIDERS })
+      b.face.retryProviders()
+      await vi.waitFor(() => { expect(b.state().providersFailed).toBe(false) })
+      expect(b.state().search.options.map(option => option.id)).toEqual(['deepseek-search-api', 'deepseek-official'])
+    } finally { b.controller.dispose() }
+  })
+
+  it('keeps the last provider list when a refresh throws', async () => {
+    const b = bench()
+    try {
+      b.credentials.listProviders.mockResolvedValue({ ok: true, value: WITH_PLUGINS })
+      serve(b, { value: { searchProvider: 'exa' } })
+      await vi.waitFor(() => { expect(b.state().search.options).toHaveLength(3) })
+      b.credentials.listProviders.mockImplementationOnce(() => { throw new Error('no Connection') })
+      b.controller.refreshProviders()
+      await vi.waitFor(() => { expect(b.state().providersFailed).toBe(true) })
+      expect(b.state().search.options.map(option => option.id)).toEqual(['deepseek-search-api', 'deepseek-official', 'exa'])
+    } finally { b.controller.dispose() }
+  })
+
+  it('keeps the stored credential state when the credential read throws', async () => {
+    const b = await keyBench()
+    try {
+      await vi.waitFor(() => { expect(b.state().legacyKey?.configured).toBe(true) })
+      const count = b.credentials.describe.mock.calls.length
+      b.credentials.describe.mockImplementationOnce(() => { throw new Error('no Connection') })
+      b.controller.refreshCredential(LEGACY_KEY)
+      await vi.waitFor(() => { expect(b.credentials.describe).toHaveBeenCalledTimes(count + 1) })
+      await Promise.resolve()
+      expect(b.state()).toMatchObject({ available: true, legacyKey: { configured: true } })
+    } finally { b.controller.dispose() }
   })
 
   it('keeps the card usable when the credential read and write are refused', async () => {

@@ -490,11 +490,16 @@ export class WebSearchCardController {
   private async readProviders(): Promise<void> {
     if (this.disposed) return
     const sequence = ++this.providerReadSequence
-    const response = await this.ctx.remote.web.listProviders()
+    let response: Awaited<ReturnType<typeof this.ctx.remote.web.listProviders>> | undefined
+    try {
+      response = await this.ctx.remote.web.listProviders()
+    } catch {
+      response = undefined
+    }
     // oxlint-disable-next-line typescript/no-unnecessary-condition -- dispose() can run during the await.
     if (this.disposed || sequence !== this.providerReadSequence) return
-    if (response.ok) this.providers = response.value
-    this.providersFailed = !response.ok
+    if (response?.ok) this.providers = response.value
+    this.providersFailed = response?.ok !== true
     this.publish()
   }
 
@@ -534,9 +539,14 @@ export class WebSearchCardController {
     }
     const sequence = ++this.credentialReadSequence
     const names = [...new Set([ref, ...written === undefined ? [] : [written]])]
-    const response = await this.ctx.remote.credentials.describe(names)
+    let response: Awaited<ReturnType<typeof this.ctx.remote.credentials.describe>> | undefined
+    try {
+      response = await this.ctx.remote.credentials.describe(names)
+    } catch {
+      return
+    }
     // oxlint-disable-next-line typescript/no-unnecessary-condition -- dispose() can run during the await.
-    if (this.disposed || !response.ok) return
+    if (this.disposed || response === undefined || !response.ok) return
     const views: CredentialViews = response.value
     if (sequence !== this.credentialReadSequence) return views
     if (ref !== this.ref()) {
@@ -648,16 +658,15 @@ export class WebSearchCardController {
 
   /**
    * Write the staged key under the reference its draft belonged to when the
-   * save started, then re-read whether the Host now holds it.
+   * save started, then re-read whether the Host holds it.
    * @param value - the staged credential literal.
-   * @returns whether the Host reports a configured credential afterwards.
+   * @returns whether the Host accepted the write and reports the reference configured afterwards.
    */
   private async writeKey(value: string): Promise<boolean> {
     const ref = this.savingRef
-    // Refusals surface through the re-read below: the Host is the only
-    // authority on whether the key now exists.
-    await this.ctx.remote.credentials.set(ref, value)
-    return (await this.readCredential(ref))?.[ref]?.configured ?? false
+    const written = await this.ctx.remote.credentials.set(ref, value)
+    const confirmed = (await this.readCredential(ref))?.[ref]?.configured ?? false
+    return written.ok && confirmed
   }
 
   /** Release subscriptions and prevent queued reads or late answers from publishing. */
