@@ -263,7 +263,7 @@ export function apply(ctx) {
   const loginErrors = new Map()
   const attempts = new Set()
   let notice = ''
-  let noticeSeq = 0
+  let noticeSeq = Date.now() * 1000 + Math.floor(Math.random() * 1000)
   const say = (text) => {
     if (text === notice) return
     notice = text
@@ -430,9 +430,12 @@ export function apply(ctx) {
         return refresh()
       })
       const text = [displacedNotice, notice].filter(Boolean).join(' ')
+      const legacy = args?.includeNotice && args.ackNotice === undefined
+      const id = noticeSeq
+      if (legacy) say('')
       return {
         ok: true,
-        value: args?.includeNotice ? { accounts: value, notice: text, noticeId: noticeSeq } : value,
+        value: args?.includeNotice ? { accounts: value, notice: text, noticeId: id } : value,
       }
     } catch (err) {
       return { ok: false, error: { code: 'claude-accounts/error', message: err.message, details: {} } }
