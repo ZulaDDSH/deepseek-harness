@@ -67,6 +67,7 @@ import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { requestImageTarget, toPiContext } from './context.ts'
 import { conversationUpdates, createModels, getSupportedThinkingLevels } from './models.ts'
+import { noRedirectFetch } from './no-redirect-fetch.ts'
 import { shapeReasoningPayload } from './reasoning-payload.ts'
 import { toStreamChunks } from './stream.ts'
 import { bindThinkingToPrefix } from './prefix-binding.ts'
@@ -537,6 +538,7 @@ export class PiAiAdapter extends LlmAdapter {
           ...mode === undefined ? {} : { service_tier: mode.serviceTier },
         }),
         signal: watchdog.signal,
+        ...model.api === 'google-generative-ai' || model.api === 'google-vertex' ? {} : { fetch: noRedirectFetch },
         onResponse: (response) => { this.config.onResponseHeaders?.({ provider: options.provider, headers: response.headers }) },
         // Profile headers are deployment-owned; attribution names are
         // Harness-owned and therefore win collisions.
