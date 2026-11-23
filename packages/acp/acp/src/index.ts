@@ -120,16 +120,8 @@ export function apply(ctx: Context, config: AcpConfig): void {
     return record
   }
 
-  /** Send one ordered protocol update while containing transport-only failure. */
-  const notify = async (notification: SessionNotification): Promise<void> => {
-    try {
-      await conn.notify(methods.client.session.update, notification)
-    /* v8 ignore start -- the ACP SDK contains notification-handler failures; only a transport write failure reaches this guard. */
-    } catch (error: unknown) {
-      logger.warn(`acp: session/update failed: ${String(error)}`)
-    }
-    /* v8 ignore stop */
-  }
+  const notify = (notification: SessionNotification): Promise<void> => conn.notify(methods.client.session.update, notification)
+  const onOutputFailure = (error: Error): void => { connection.close(error) }
 
   ctx.on('session/event', (session, event) => {
     const record = sessions.get(session.header.id)
@@ -213,6 +205,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           agentOptions: agentOptions(config),
           signal,
           notify,
+          onOutputFailure,
         })
       } catch (error: unknown) {
         if (error instanceof AcpMcpConfigError) throw invalidParams(error.message)
@@ -263,6 +256,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
             agentOptions: agentOptions(config),
             signal,
             notify,
+            onOutputFailure,
           })
         } catch (error: unknown) {
           if (error instanceof AcpMcpConfigError) throw invalidParams(error.message)

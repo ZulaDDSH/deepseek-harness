@@ -207,6 +207,7 @@ export interface BridgeHarness {
   persistenceRoot: string
   onPermission: (request: RequestPermissionRequest) => RequestPermissionResponse
   onSessionUpdateError: (() => void) | undefined
+  agentOutputError: Error | undefined
   registerCatalogProvider: (provider: string) => () => void
   replacePrimaryProviders: (providers: string[]) => void
   closeClientTransport: () => Promise<void>
@@ -245,7 +246,14 @@ export async function makeBridgeHarness(options: {
   const clientOutput = new WritableStream<Uint8Array>({
     write: chunk => clientToAgentWriter.write(chunk),
   })
-  const agentStream: Stream = ndJsonStream(agentToClient.writable, clientToAgent.readable)
+  const agentToClientWriter = agentToClient.writable.getWriter()
+  const agentOutput = new WritableStream<Uint8Array>({
+    write: (chunk) => {
+      if (harness.agentOutputError !== undefined) throw harness.agentOutputError
+      return agentToClientWriter.write(chunk)
+    },
+  })
+  const agentStream: Stream = ndJsonStream(agentOutput, clientToAgent.readable)
   const clientStream: Stream = ndJsonStream(clientOutput, agentToClient.readable)
 
   const updates: CapturedUpdate[] = []
@@ -261,6 +269,7 @@ export async function makeBridgeHarness(options: {
     persistenceRoot,
     onPermission: () => ({ outcome: { outcome: 'cancelled' } }),
     onSessionUpdateError: undefined,
+    agentOutputError: undefined,
     registerCatalogProvider: provider => ctx.llm.registerAdapter([provider], new MockAdapter([], false, provider)),
     replacePrimaryProviders: (providers) => { primaryAdapter.replace(providers) },
     client: undefined as unknown as BridgeClient,
