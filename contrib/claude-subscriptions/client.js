@@ -29,6 +29,7 @@ window.__ModuleLoader__.load({
       const serial = React.useRef(0)
       const locked = React.useRef(false)
       const mounted = React.useRef(true)
+      const acknowledged = React.useRef(0)
       const call = React.useCallback(
         async (method, args = {}) => {
           if (locked.current) return
@@ -38,11 +39,16 @@ window.__ModuleLoader__.load({
             setBusy(true)
           }
           try {
-            const result = await rpc.call(channel, method, { ...args, includeNotice: true })
+            const result = await rpc.call(channel, method, {
+              ...args,
+              includeNotice: true,
+              ackNotice: acknowledged.current,
+            })
             if (!result.ok) throw new Error(result.error?.message || 'Account request failed.')
             if (!mounted.current || seq !== serial.current) return
             setRows(result.value.accounts || result.value)
             setNotice(result.value.notice || '')
+            if (result.value.notice) acknowledged.current = result.value.noticeId
             setError('')
             if (method === 'add') setName('')
           } catch (err) {

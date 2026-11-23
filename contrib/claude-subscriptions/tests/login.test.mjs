@@ -145,6 +145,22 @@ test('login lifecycle, registry recovery and profile names', { skip: !hasBridge 
     assert.ok(h.providers().includes('claude-sub-displaced'))
   })
 
+  await t.test('a notice stays until the client acknowledges that it showed it', async () => {
+    await call('add', { label: 'Lost' })
+    h.accounts.set(h.dir('Lost'), { email: 'shared@example.test' })
+    children.get(h.dir('Lost')).emit('close', 0)
+    const dropped = await h.raw('list')
+    assert.match(dropped.value.notice, /already connected as Main/)
+    const again = await h.raw('list')
+    assert.match(again.value.notice, /already connected as Main/)
+    assert.equal(again.value.noticeId, dropped.value.noticeId)
+    const wrong = await h.raw('list', { ackNotice: dropped.value.noticeId + 1 })
+    assert.match(wrong.value.notice, /already connected as Main/)
+    const shown = await h.raw('list', { ackNotice: dropped.value.noticeId })
+    assert.equal(shown.value.notice, '')
+    assert.equal((await h.raw('list')).value.notice, '')
+  })
+
   await t.test('disposing the plugin kills every running login', async () => {
     await call('add', { label: 'Alpha' })
     await call('add', { label: 'Beta' })

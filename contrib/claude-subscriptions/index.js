@@ -263,6 +263,12 @@ export function apply(ctx) {
   const loginErrors = new Map()
   const attempts = new Set()
   let notice = ''
+  let noticeSeq = 0
+  const say = (text) => {
+    if (text === notice) return
+    notice = text
+    noticeSeq++
+  }
   let displacedNotice = ''
   let active = true
   let tail = Promise.resolve()
@@ -336,14 +342,15 @@ export function apply(ctx) {
       if (rejected && status.accountKey === rejected.key) {
         const owner = accounts.find((other) => other.id === rejected.owner)?.label || rejected.owner
         if (attempts.has(a.id))
-          notice =
+          say(
             'This Claude account is already connected as ' +
             owner +
-            '. Choose a different account in your browser and try again.'
+            '. Choose a different account in your browser and try again.',
+          )
         try {
           await signOutDuplicate(a, rejected.key, accounts)
         } catch {
-          notice = 'Duplicate sign-in blocked for ' + a.label + '. Refresh to retry clearing its local sign-in.'
+          say('Duplicate sign-in blocked for ' + a.label + '. Refresh to retry clearing its local sign-in.')
         }
         attempts.delete(a.id)
         continue
@@ -385,6 +392,7 @@ export function apply(ctx) {
         ok: false,
         error: { code: 'forbidden', message: 'Only the local Harness owner can manage accounts.', details: {} },
       }
+    if (args?.ackNotice && args.ackNotice === noticeSeq) say('')
     try {
       const value = await ordered(async () => {
         if (method === 'list') return refresh()
@@ -398,7 +406,7 @@ export function apply(ctx) {
         if (status.signedIn && readOwnership(root).rejected.has(a.id))
           throw new Error('This Claude account is already connected. Refresh sign-ins and try again.')
         if (!status.signedIn && !logins.has(a.id)) {
-          notice = ''
+          say('')
           loginErrors.delete(a.id)
           const child = startLogin(a)
           attempts.add(a.id)
@@ -422,8 +430,10 @@ export function apply(ctx) {
         return refresh()
       })
       const text = [displacedNotice, notice].filter(Boolean).join(' ')
-      if (args?.includeNotice) notice = ''
-      return { ok: true, value: args?.includeNotice ? { accounts: value, notice: text } : value }
+      return {
+        ok: true,
+        value: args?.includeNotice ? { accounts: value, notice: text, noticeId: noticeSeq } : value,
+      }
     } catch (err) {
       return { ok: false, error: { code: 'claude-accounts/error', message: err.message, details: {} } }
     }

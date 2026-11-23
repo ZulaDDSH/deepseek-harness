@@ -109,6 +109,7 @@ export async function setup(t, { signedIn = [], dirs = [] } = {}) {
     logouts,
     children,
     unreadable,
+    acknowledged: 0,
     taskkills,
     taskkill,
     ctx,
@@ -121,8 +122,9 @@ export async function setup(t, { signedIn = [], dirs = [] } = {}) {
     },
     guest: (method, args = {}) => state.handler(method, args, undefined, { principal: { kind: 'guest' } }),
     async call(method, args = {}) {
-      const response = await harness.raw(method, args)
+      const response = await harness.raw(method, { ackNotice: harness.acknowledged, ...args })
       assert.equal(response.ok, true, response.error?.message)
+      if (response.value?.notice) harness.acknowledged = response.value.noticeId
       return response.value
     },
     providers: () =>

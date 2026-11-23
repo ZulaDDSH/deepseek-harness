@@ -156,3 +156,42 @@ test('a sign-in started while another is pending restarts the poll delay', async
   await advance(1)
   assert.equal(lists, 5)
 })
+
+test('a notice is acknowledged only after the page showed it', async (t) => {
+  const calls = []
+  const waiting = []
+  let answer = { accounts: [], notice: '', noticeId: 0 }
+  const rpc = {
+    call(_channel, _method, args) {
+      calls.push(args.ackNotice)
+      if (calls.length === 1)
+        return new Promise((resolve) =>
+          waiting.push(() => resolve({ ok: true, value: { accounts: [], notice: 'Dropped', noticeId: 7 } })),
+        )
+      return Promise.resolve({ ok: true, value: answer })
+    },
+  }
+  const { act, create } = TestRenderer
+  let page
+  await act(async () => {
+    page = create(React.createElement(register().get('settings.section'), { rpc }))
+  })
+  t.after(() => act(() => page.unmount()))
+  const refresh = async () => {
+    const button = page.root.find((n) => n.type === 'button' && n.children.includes('Refresh sign-ins'))
+    await act(async () => {
+      button.props.onClick()
+    })
+  }
+  const shows = (text) => page.root.findAll((n) => n.props.role === 'status' && n.children.includes(text)).length > 0
+  await refresh()
+  await act(async () => waiting[0]())
+  assert.equal(shows('Dropped'), false)
+  await refresh()
+  assert.deepEqual(calls, [0, 0, 0])
+  answer = { accounts: [], notice: 'Shown', noticeId: 8 }
+  await refresh()
+  assert.equal(shows('Shown'), true)
+  await refresh()
+  assert.deepEqual(calls, [0, 0, 0, 0, 8])
+})
