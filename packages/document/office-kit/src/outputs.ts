@@ -74,6 +74,7 @@ export class OutputStore {
   private disposed = false
   private readonly sweep: Promise<void>
   private saving: Promise<unknown> = Promise.resolve()
+  private pendingBytes = 0
   private readonly reservations = new Set<OpenReservation>()
   /** Deletions and releases in progress, awaited by disposal. */
   private readonly pending = new Set<Promise<unknown>>()
@@ -102,12 +103,19 @@ export class OutputStore {
    * @param name - file name shown to the consumer; only its final path component is used.
    * @param data - complete output bytes.
    * @returns the absolute path of the saved file.
-   * @throws {OfficeKitError} `output-too-large` when the file alone exceeds the byte budget, and `unavailable` after
+   * @throws {OfficeKitError} `output-too-large` when the file alone exceeds the byte budget, `busy` when saves still waiting would exceed it, and `unavailable` after
    * disposal or when retained files whose deletion failed leave too little of the budget.
    */
   save(owner: string, name: string, data: Uint8Array, signal?: AbortSignal, reservation?: OutputReservation): Promise<string> {
+    if (data.byteLength <= this.options.maxBytes && this.pendingBytes + data.byteLength > this.options.maxBytes) {
+      return Promise.reject(new OfficeKitError('busy', 'Too many converted outputs are waiting to be saved.'))
+    }
     const fence = reservation ?? this.reserve(owner)
+    const bytes = data.byteLength
+    this.pendingBytes += bytes
     const saved = this.saving.then(() => this.saveNow(owner, name, data, fence, signal))
+    const settled = (): void => { this.pendingBytes -= bytes }
+    saved.then(settled, settled)
     this.saving = saved.catch((_failedSave: unknown) => undefined)
     if (reservation === undefined) void this.saving.then(() => { fence.finish() })
     return saved

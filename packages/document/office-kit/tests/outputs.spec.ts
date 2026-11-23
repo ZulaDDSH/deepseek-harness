@@ -381,3 +381,17 @@ it('stops evicting older outputs once the save is cancelled during an eviction',
   expect(await exists(older[1]!)).toBe(true)
   expect(await exists(older[2]!)).toBe(true)
 })
+
+it('refuses a save whose bytes would exceed the budget of saves still waiting to be written', async () => {
+  const { outputs } = store()
+  await outputs.save('x', 'x.pdf', new Uint8Array(4))
+  const gate = Promise.withResolvers<undefined>()
+  io.rmGate = gate.promise
+  const first = outputs.save('w', 'w.pdf', new Uint8Array(8))
+  await vi.waitFor(() => { expect(io.rmBlocked).toBe(1) })
+  await expect(outputs.save('c', 'c.pdf', Uint8Array.of(1))).rejects.toMatchObject({ code: 'busy' })
+  io.rmGate = undefined
+  gate.resolve(undefined)
+  await first
+  expect(await outputs.save('c', 'c.pdf', Uint8Array.of(1))).toMatch(/c\.pdf$/u)
+})
