@@ -112,7 +112,10 @@ export function blocksText(content: readonly BlockLike[]): string {
  * @returns entity name carrying the folder name and a short path hash.
  */
 export function workspaceEntity(cwd: string): string {
-  const path = canonicalWorkspace(cwd)
+  return entityOf(canonicalWorkspace(cwd))
+}
+
+function entityOf(path: string): string {
   return `dsh-workspace:${basename(path) || 'root'}-${createHash('sha256').update(path).digest('hex').slice(0, 16)}`
 }
 
@@ -125,10 +128,12 @@ function legacyEntity(path: string): string {
   return `dsh-workspace:${basename(path) || 'root'}-${workspaceHash(path)}`
 }
 
-function legacyWorkspaceEntities(cwd: string): Set<string> {
-  const names = new Set([legacyEntity(cwd), legacyEntity(canonicalWorkspace(cwd))])
-  names.delete(workspaceEntity(cwd))
-  return names
+function workspaceEntities(cwd: string): string[] {
+  const path = canonicalWorkspace(cwd)
+  const current = entityOf(path)
+  const legacy = new Set([legacyEntity(cwd), legacyEntity(path)])
+  legacy.delete(current)
+  return [current, ...legacy]
 }
 
 function workspaceHash(cwd: string): string {
@@ -491,20 +496,21 @@ export class MemoryAutomation {
   private recallFirst(session: SessionLike, prompt: string): Promise<string> {
     const query = scrub(prompt)
     if (query === '') return Promise.resolve('')
+    const entities = workspaceEntities(session.header.cwd ?? '')
     let timer: NodeJS.Timeout | undefined
     const budget = new AbortController()
     const expired = new Promise<undefined>((resolve) => { timer = setTimeout(() => { budget.abort(); resolve(undefined) }, RECALL_BUDGET_MS) })
-    return Promise.race([this.recallNotes(session, query, budget.signal), expired]).then((text) => {
+    return Promise.race([this.recallNotes(session, query, budget.signal, entities), expired]).then((text) => {
       if (text !== undefined) return text
       this.report(new Error(`memory search did not finish within ${RECALL_BUDGET_MS / 1000} s, so this chat starts with the latest notes`), 'recall')
-      return this.recentNotes(session)
+      return this.recentNotes(session, entities)
     }, (error: unknown) => {
       this.report(error, 'recall')
       return ''
     }).finally(() => { clearTimeout(timer) })
   }
 
-  private async recallNotes(session: SessionLike, query: string, budget: AbortSignal): Promise<string> {
+  private async recallNotes(session: SessionLike, query: string, budget: AbortSignal, entities: readonly string[]): Promise<string> {
     const cwd = session.header.cwd ?? ''
     const provider = await this.host.provider()
     this.requireEnabled()
@@ -513,14 +519,14 @@ export class MemoryAutomation {
     try {
       rows = await this.exclusive(() => {
         budget.throwIfAborted()
-        return this.search(provider, session, cwd, query, database, budget)
+        return this.search(provider, session, cwd, query, database, entities, budget)
       })
       this.succeeded('recall')
     } catch (error) {
       if (!budget.aborted) this.report(error, 'recall')
     }
     this.requireEnabled()
-    return recallText(rows.length > 0 ? rows : this.recent(session, database), this.config.memoryCharacters)
+    return recallText(rows.length > 0 ? rows : this.recent(session, database, entities), this.config.memoryCharacters)
   }
 
   private async lookup(session: SessionLike, query: string, signal: AbortSignal): Promise<string> {
@@ -529,7 +535,8 @@ export class MemoryAutomation {
     try {
       const provider = await this.host.provider()
       const database = this.host.database(provider)
-      const rows = await this.exclusive(() => this.search(provider, session, session.header.cwd ?? '', text, database, signal))
+      const cwd = session.header.cwd ?? ''
+      const rows = await this.exclusive(() => this.search(provider, session, cwd, text, database, workspaceEntities(cwd), signal))
       this.requireEnabled()
       this.succeeded('recall')
       return recallText(rows, this.config.memoryCharacters)
@@ -539,30 +546,29 @@ export class MemoryAutomation {
     }
   }
 
-  private async recentNotes(session: SessionLike): Promise<string> {
+  private async recentNotes(session: SessionLike, entities: readonly string[]): Promise<string> {
     try {
       const database = this.host.database(await this.host.provider())
       this.requireEnabled()
-      return recallText(this.recent(session, database), this.config.memoryCharacters)
+      return recallText(this.recent(session, database, entities), this.config.memoryCharacters)
     } catch (error) {
       this.report(error, 'recall')
       return ''
     }
   }
 
-  private recent(session: SessionLike, database: string): MemorixRecentObservation[] {
-    const cwd = session.header.cwd ?? ''
+  private recent(session: SessionLike, database: string, entities: readonly string[]): MemorixRecentObservation[] {
     const before = new Date().toISOString()
-    return [workspaceEntity(cwd), ...legacyWorkspaceEntities(cwd)]
+    return entities
       .flatMap(entityName => memorixRecent(database, { entityName, excludeTopicPrefix: `dsh-session:${session.id}:`, before, limit: RECALL_DIGESTS }))
       .sort((left, right) => (left.createdAt < right.createdAt ? 1 : left.createdAt > right.createdAt ? -1 : 0))
       .slice(0, RECALL_DIGESTS)
   }
 
   private async search(provider: McpHumanOperations, session: SessionLike, cwd: string, query: string,
-    database: string, caller?: AbortSignal): Promise<MemorixObservationRecord[]> {
+    database: string, names: readonly string[], caller?: AbortSignal): Promise<MemorixObservationRecord[]> {
     const signal = AbortSignal.any([this.host.signal, AbortSignal.timeout(RECALL_BUDGET_MS), ...caller === undefined ? [] : [caller]])
-    const entities = new Set([workspaceEntity(cwd), ...legacyWorkspaceEntities(cwd)])
+    const entities = new Set(names)
     return this.withProject(provider, cwd, signal, async (project) => {
       const text = await callMemorix(provider, 'memorix_search', {
         query: clip(query, QUERY_CHARACTERS), limit: RECALL_SEARCH_LIMIT, scope: 'project', quality: 'fast', status: 'active',

@@ -4,6 +4,7 @@ import { createVolatile, updateVolatile, type Volatile } from '@deepseek-ai/cosm
 import { DatabaseSync } from 'node:sqlite'
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
+import { realpathSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { getEventListeners } from 'node:events'
 import { tmpdir } from 'node:os'
@@ -579,6 +580,23 @@ describe('Memory policy and first-message recall', () => {
     done(ctx, target)
     await vi.waitFor(() => { expect(calls).toHaveLength(1) })
     expect(calls[0]?.entityName).toBe(workspaceEntity(CWD))
+  })
+
+  it('resolves the workspace path once per recall search and once per save', async () => {
+    const { ctx, calls } = await fixture()
+    await ctx.plugin(SystemPrompt)
+    const resolved = vi.spyOn(realpathSync, 'native')
+    inbox(ctx, session('s1'), 'fix the login bug')
+    await assembled(ctx, 's1')
+    expect(resolved).toHaveBeenCalledTimes(1)
+    resolved.mockClear()
+    const target = session('s2')
+    prompt(ctx, target, 'fix it')
+    reply(ctx, target, 'done')
+    done(ctx, target)
+    await vi.waitFor(() => { expect(calls).toHaveLength(1) })
+    expect(resolved).toHaveBeenCalledTimes(1)
+    resolved.mockRestore()
   })
 
   it('bounds the recalled notes within the character limit', async () => {
