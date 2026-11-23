@@ -6,15 +6,19 @@
 import { z } from 'zod'
 
 const CHUNK_CAPACITY = 64
+const MAX_HEIGHT = 8
+
+export type ChunkedBlock<T> =
+  | { readonly height: 0; readonly values: readonly T[] }
+  | { readonly height: number; readonly children: readonly ChunkedBlock<T>[] }
 
 /**
- * Newest chunk of an immutable list; `undefined` represents the empty list.
- * Values within each chunk follow insertion order. Callers treat nodes, arrays,
- * and stored values as immutable; operations share values and older chunks.
+ * Immutable list that must keep sealed blocks oldest first before a short tail; `undefined` represents the empty list.
+ * Callers must treat blocks, arrays, and stored values as immutable; operations share values and older blocks.
  */
 export interface ChunkedList<T> {
-  readonly values: readonly T[]
-  readonly previous?: ChunkedList<T> | undefined
+  readonly tail: readonly T[]
+  readonly blocks: readonly ChunkedBlock<T>[]
 }
 
 /**
@@ -24,35 +28,59 @@ export interface ChunkedList<T> {
  * @returns new list sharing the unchanged older chunks.
  */
 export function appendChunkedList<T>(head: ChunkedList<T> | undefined, value: T): ChunkedList<T> {
-  if (head === undefined || head.values.length === CHUNK_CAPACITY) {
-    return { values: [value], ...head === undefined ? {} : { previous: head } }
-  }
-  return {
-    values: [...head.values, value],
-    ...head.previous === undefined ? {} : { previous: head.previous },
+  const tail = [...head?.tail ?? [], value]
+  const blocks = head?.blocks ?? []
+  if (tail.length < CHUNK_CAPACITY) return { tail, blocks }
+  const next: ChunkedBlock<T>[] = [...blocks, { height: 0, values: tail }]
+  for (;;) {
+    const height = next[next.length - 1]!.height
+    let start = next.length
+    while (start > 0 && next[start - 1]!.height === height) start -= 1
+    if (next.length - start < CHUNK_CAPACITY) return { tail: [], blocks: next }
+    next.splice(start, CHUNK_CAPACITY, { height: height + 1, children: next.slice(start) })
   }
 }
 
+function* walk<T>(block: ChunkedBlock<T>): Generator<T> {
+  if ('values' in block) yield* block.values
+  else for (const child of block.children) yield* walk(child)
+}
+
 /**
- * Visit all values in insertion order, with O(N) time and O(N / 64) scratch space.
+ * Visit all values in insertion order in O(N) time; scratch space must stay bounded by the block height.
  * @param head - current list, or `undefined` for an empty list.
  * @returns iterator yielding the stored values by reference, without truncation.
  */
 export function* iterateChunkedList<T>(head: ChunkedList<T> | undefined): Generator<T> {
-  const chunks: ChunkedList<T>[] = []
-  for (let chunk = head; chunk !== undefined; chunk = chunk.previous) chunks.push(chunk)
-  for (const chunk of chunks.reverse()) yield* chunk.values
+  if (head === undefined) return
+  for (const block of head.blocks) yield* walk(block)
+  yield* head.tail
+}
+
+function orderedBlocks<T>(blocks: readonly ChunkedBlock<T>[]): boolean {
+  let run = 0
+  for (const [index, block] of blocks.entries()) {
+    const previous = blocks[index - 1]
+    if (previous !== undefined && block.height > previous.height) return false
+    run = previous?.height === block.height ? run + 1 : 1
+    if (run >= CHUNK_CAPACITY) return false
+  }
+  return true
 }
 
 /**
- * Validate nonempty list checkpoints, including every stored value and chunk size.
+ * Validate nonempty list checkpoints; every block must have its exact width and descending height.
  * @param valueSchema - caller-owned validation for each stored value.
- * @returns recursive Zod schema rejecting empty or oversized chunks and unknown fields.
+ * @returns Zod schema rejecting empty lists, mis-sized or mis-ordered blocks and unknown fields.
  */
 export function chunkedListSchema<T>(valueSchema: z.ZodType<T>): z.ZodType<ChunkedList<T>> {
-  const schema: z.ZodType<ChunkedList<T>> = z.lazy(() => z.object({
-    values: z.array(valueSchema).min(1).max(CHUNK_CAPACITY),
-    previous: schema.optional(),
-  }).strict())
-  return schema
+  const block: z.ZodType<ChunkedBlock<T>> = z.lazy(() => z.union([
+    z.object({ height: z.literal(0), values: z.array(valueSchema).length(CHUNK_CAPACITY) }).strict(),
+    z.object({ height: z.number().int().min(1).max(MAX_HEIGHT), children: z.array(block).length(CHUNK_CAPACITY) }).strict()
+      .refine(({ height, children }) => children.every(child => child.height === height - 1)),
+  ])) as unknown as z.ZodType<ChunkedBlock<T>>
+  return z.object({
+    tail: z.array(valueSchema).max(CHUNK_CAPACITY - 1),
+    blocks: z.array(block),
+  }).strict().refine(list => (list.tail.length > 0 || list.blocks.length > 0) && orderedBlocks(list.blocks)) as unknown as z.ZodType<ChunkedList<T>>
 }

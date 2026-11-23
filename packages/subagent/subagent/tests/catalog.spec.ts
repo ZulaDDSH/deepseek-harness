@@ -263,8 +263,8 @@ describe('named catalog membership', () => {
         { type: 'subagent/catalog', seq: SessionSeq(4), time: 0,
           data: { version: 3, childId: brandString<SessionId>('auditor'), childCreatedAt: 5, mode: 'external', name: 'auditor' } },
       ]
-      const checkpoint = { subagentCatalog: { ver: 6, seq: SessionSeq(2), val: {
-        inheritedEventCount: 0, head: { values: historical.map(event => event.data) },
+      const checkpoint = { subagentCatalog: { ver: 7, seq: SessionSeq(2), val: {
+        inheritedEventCount: 0, head: { tail: historical.map(event => event.data), blocks: [] },
       } } }
       expect(ctx.sessionProjections.restoreFloor(checkpoint)).toBe(2)
       expect(ctx.sessionProjections.viewCheckpoint(checkpoint).subagentCatalog).toEqual([
@@ -277,12 +277,23 @@ describe('named catalog membership', () => {
       expect(apply.mock.calls.map(([, event]) => event)).toEqual(suffix)
       const full = ctx.sessionProjections.restore({}, [...historical, ...suffix], SessionLogOffset(0), header, SessionLogOffset(0))
       expect(restored).toEqual(full)
-      expect(restored.checkpoint['subagentCatalog']!.ver).toBe(6)
+      expect(restored.checkpoint['subagentCatalog']!.ver).toBe(7)
       expect(restored.snapshot.values.subagentCatalog?.map(entry => 'name' in entry ? entry.name : undefined))
         .toEqual([undefined, undefined, undefined, 'reviewer', 'auditor'])
     } finally {
       await ctx.fiber.dispose()
     }
+  })
+
+  it('checkpoints and restores a catalog far beyond the recursive nesting limit', () => {
+    const total = 100_000
+    const state = fold(Array.from({ length: total }, (_, index) => fact(index, `child-${index}`, index, { mode: 'one-shot' })))
+    const restored = subagentCatalogProjectionDefinition.stateSchema.parse(structuredClone(state))
+    const view = subagentCatalogProjectionDefinition.wire.view(restored)
+    expect(view).toHaveLength(total)
+    expect(view[0]?.id).toBe('child-0')
+    expect(view[total - 1]?.id).toBe(`child-${total - 1}`)
+    expect(subagentCatalogProjectionDefinition.wire.view(JSON.parse(JSON.stringify(restored)) as typeof restored)).toHaveLength(total)
   })
 
   it('restores version-3 names beside unnamed historical children', () => {

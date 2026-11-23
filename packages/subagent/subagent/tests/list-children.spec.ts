@@ -243,11 +243,9 @@ describe('direct-child catalog reader', () => {
     const listSessions = vi.spyOn(ctx.sessionQuery, 'listSessions')
     const projection = await ctx.sessionProjections.register(subagentCatalogProjectionDefinition)
     const state = projection.stateOf(parent)
-    const chunkLengths: number[] = []
-    for (let chunk = state?.head; chunk !== undefined; chunk = chunk.previous) {
-      chunkLengths.push(chunk.values.length)
-    }
-    expect(chunkLengths).toEqual([1, ...Array.from({ length: 16 }, () => 64)])
+    expect(state?.head?.tail).toHaveLength(1)
+    expect(state?.head?.blocks).toHaveLength(16)
+    expect(state?.head?.blocks.every(block => block.height === 0)).toBe(true)
     const entries = await listChildren(ctx, parent.id)
     expect(listSessions).not.toHaveBeenCalled()
     expect(entries).toHaveLength(1_025)
