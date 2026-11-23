@@ -152,6 +152,28 @@ describe('Memory digest', () => {
     expect(performance.now() - started).toBeLessThan(1000)
   })
 
+  it('keeps the original request and every steering message of one turn within a deterministic bound', () => {
+    const log = new SessionTurns(session(), 1)
+    log.begin('Refactor the parser')
+    log.answer('working on it')
+    log.begin('Also keep the public API')
+    log.begin('And add tests')
+    log.answer('Done.')
+    const turn = log.finish()
+    expect(turn?.prompt).toBe('Refactor the parser | Then: Also keep the public API | Then: And add tests')
+    expect(turn?.outcome).toBe('Done.')
+    log.begin('x'.repeat(5000))
+    log.begin('y'.repeat(5000))
+    const long = log.finish()!.prompt
+    expect(Array.from(long).length).toBeLessThanOrEqual(800)
+    expect(long).toContain('…')
+    expect(long).toContain(' | Then: ')
+    log.begin('abandoned')
+    log.discard()
+    log.begin('fresh')
+    expect(log.finish()?.prompt).toBe('fresh')
+  })
+
   it('skips a turn that carried neither a request nor a reply', () => {
     const log = new SessionTurns(session(), 1)
     expect(log.finish()).toBeUndefined()
@@ -232,6 +254,20 @@ describe('Automatic chat saves', () => {
     emit(ctx, chat, 'user/message', { role: 'user', content: text('injected context'), source: { kind: 'hooks-claude-code' } })
     await new Promise(resolve => setTimeout(resolve, 120))
     expect(calls).toHaveLength(0)
+  })
+
+  it('saves a steered turn with its original request and does not carry an interrupted turn into the next one', async () => {
+    const { ctx, calls } = await fixture()
+    const chat = session()
+    prompt(ctx, chat, 'cancelled request')
+    done(ctx, chat, 'aborted')
+    prompt(ctx, chat, 'Build the importer')
+    prompt(ctx, chat, 'Use streaming')
+    reply(ctx, chat, 'Importer built.')
+    done(ctx, chat)
+    await vi.waitFor(() => { expect(calls).toHaveLength(1) })
+    expect(String(calls[0]!.narrative)).toContain('User: Build the importer | Then: Use streaming | Outcome: Importer built.')
+    expect(String(calls[0]!.narrative)).not.toContain('cancelled request')
   })
 
   it('never breaks the turn when Memorix fails, reports the failure, and recovers on the next turn', async () => {
@@ -362,6 +398,41 @@ describe('Memory policy and first-message recall', () => {
     expect(await assembled(ctx, 's2')).toBe('')
     expect(bindings).toEqual([expect.stringContaining(markerRoots), expect.stringContaining(markerRoots)])
     expect(new Set(bindings).size).toBe(2)
+  })
+
+  it('rebinds when the server project changed behind the cached binding and when a restarted server is unbound', async () => {
+    const server = { project: 'workspace-a', bound: true }
+    const stored: string[] = []
+    const bindings: unknown[] = []
+    const { ctx, db } = await fixture({ search: '', call: async (name, args) => {
+      if (name === 'memorix_session_start') {
+        bindings.push(args.projectRoot)
+        server.project = 'workspace-a'
+        server.bound = true
+        return { content: [{ type: 'text', text: '[OK] Session started: s\nProject: workspace (workspace-a)\n' }] }
+      }
+      if (!server.bound) return { isError: true, content: [{ type: 'text', text: 'Cannot store memory in the current project yet.\nTo bind this session, call memorix_session_start' }] }
+      stored.push(`${server.project}:${asText(args.topicKey)}`)
+      const text = storeText(db, args).replace('Project: fixture', `Project: ${server.project}`)
+      db.prepare('UPDATE observations SET projectId = ? WHERE topicKey = ?').run(server.project, asText(args.topicKey))
+      return { content: [{ type: 'text', text }] }
+    } })
+    const chat = session()
+    const save = async (request: string, count: number): Promise<void> => {
+      prompt(ctx, chat, request); reply(ctx, chat, request); done(ctx, chat)
+      await vi.waitFor(() => { expect(stored.length).toBeGreaterThanOrEqual(count) })
+      await vi.waitFor(async () => { expect((await ctx.memoryWorkspace.status()).saveFailure).toBeUndefined() })
+    }
+    await save('first', 1)
+    expect(bindings).toHaveLength(1)
+    server.project = 'other-project'
+    await save('second', 3)
+    expect(bindings).toHaveLength(2)
+    expect(stored.slice(1)).toEqual([expect.stringMatching(/^other-project:/), expect.stringMatching(/^workspace-a:/)])
+    server.bound = false
+    await save('third', 4)
+    expect(bindings).toHaveLength(3)
+    expect((await ctx.memoryWorkspace.status()).saveFailure).toBeUndefined()
   })
 
   it('binds a folder inside a Git repository by its own path and gives every other folder, including one that only contains a repository, its own project', async () => {
@@ -496,6 +567,28 @@ describe('Memory policy and first-message recall', () => {
     inbox(hung.ctx, session('s2'), 'slow search')
     expect(await assembled(hung.ctx, 's2')).toContain('slow fallback narrative')
     expect(hungWarn).toHaveBeenCalledWith(expect.stringContaining('did not finish within 3 s'))
+  }, 15_000)
+
+  it('skips a recall search that expired while queued behind another Memorix operation', async () => {
+    const release = Promise.withResolvers<void>()
+    const searched: unknown[] = []
+    const { ctx, db } = await fixture({ call: async (name, args) => {
+      if (name === 'memorix_session_start') return { content: [{ type: 'text', text: PROJECT_ROOT_TEXT }] }
+      if (name === 'memorix_search') { searched.push(args); return { content: [{ type: 'text', text: '' }] } }
+      await release.promise
+      return { content: [{ type: 'text', text: storeText(db, args) }] }
+    } })
+    await ctx.plugin(SystemPrompt)
+    db.prepare('INSERT INTO observations(entityName, title, narrative, topicKey, createdAt) VALUES (?, ?, ?, ?, ?)')
+      .run(workspaceEntity(CWD), 'Turn 1: older', 'older fallback narrative', 'dsh-session:old:1:turn:1', '2020-01-01T00:00:00.000Z')
+    const chat = session('s1')
+    prompt(ctx, chat, 'blocking save'); reply(ctx, chat, 'ok'); done(ctx, chat)
+    inbox(ctx, chat, 'first message')
+    expect(await assembled(ctx, 's1')).toContain('older fallback narrative')
+    release.resolve()
+    await vi.waitFor(() => { expect(db.prepare('SELECT COUNT(*) AS n FROM observations').get()?.n).toBe(2) })
+    await new Promise(resolve => setTimeout(resolve, 100))
+    expect(searched).toEqual([])
   }, 15_000)
 
   it('answers a memory lookup from the auto responder with this workspace notes and falls through otherwise', async () => {

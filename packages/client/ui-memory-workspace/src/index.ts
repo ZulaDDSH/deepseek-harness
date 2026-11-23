@@ -17,7 +17,6 @@ import type { MemoryGraph, MemoryImportResult, MemoryStatus } from './types.ts'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { documentText } from './document-text.ts'
 import { MemoryAutomation } from './automation.ts'
-import { storeObservation } from './store.ts'
 import { runNativeCommand } from '@deepseek-ai/dsh-native-command'
 
 declare module '@deepseek-ai/cordis' { interface Context { memoryWorkspace: MemoryWorkspace } }
@@ -295,10 +294,10 @@ export default class MemoryWorkspace extends TypertRemoteService {
       const narrative = characters.slice(index * this.config.chunkCharacters, (index + 1) * this.config.chunkCharacters).join('')
       try {
         signal.throwIfAborted()
-        const stored = await this.automation.inProject(provider, cwd, signal, () => storeObservation(provider, {
+        const stored = await this.automation.store(provider, cwd, signal, {
           entityName: `document:${hash}`, type: 'discovery', title: `${basename(filename)} (${index + 1}/${total})`,
           narrative, topicKey, filesModified: [originalPath],
-        }, signal, 'document chunk'))
+        }, 'document chunk')
         if (!memorixStoredChunk(this.database(provider), stored.id, stored.project, topicKey, narrative)) {
           throw new Error('Memorix did not persist the complete document chunk')
         }

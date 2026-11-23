@@ -13,7 +13,8 @@ import { cliTerminalProfileOf } from '@deepseek-ai/dsh-agent'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-compaction'
-import { callMemorix, storeObservation } from './store.ts'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
+import { callMemorix, storeObservation, type StoredObservation } from './store.ts'
 import type { MemoryActivity } from './types.ts'
 
 /** Observation type Memorix files chat records under. */
@@ -38,6 +39,10 @@ const SECRET = new RegExp([
   String.raw`\bBearer\s+[\w.~+/-]{16,}`,
 ].join('|'), 'gi')
 const URL_USERINFO = /\b([a-z][\w+.-]*:\/\/)[^\s:/@]+:[^\s@/]+@/gi
+const BOUND_PROJECT = /^Project: .*\(([^()\n]+)\)\s*$/m
+const REBIND = /Cannot [^.\n]+ yet\.|memorix_session_start|projectRoot/
+
+class ProjectMismatch extends Error {}
 
 /** Automatic-memory settings the host config supplies. */
 export interface AutomationConfig {
@@ -156,7 +161,7 @@ async function memoryProjectRoot(cwd: string | undefined): Promise<string> {
 /** Finished chat turns of one session within this Host run, numbered for their topic keys. */
 export class SessionTurns {
   private count = 0
-  private prompt = ''
+  private prompts: string[] = []
   private outcome = ''
 
   constructor(readonly session: SessionLike, readonly segment: number) {}
@@ -165,11 +170,16 @@ export class SessionTurns {
   get topicPrefix(): string { return `dsh-session:${this.session.id}:${this.segment}` }
 
   /**
-   * Record a human prompt, starting a new turn.
+   * Record a human prompt, starting a turn or steering the open one.
    * @param text - prompt text.
    */
   begin(text: string): void {
-    this.prompt = clip(scrub(text), PROMPT_CHARACTERS)
+    this.prompts.push(scrub(text))
+    this.outcome = ''
+  }
+
+  discard(): void {
+    this.prompts = []
     this.outcome = ''
   }
 
@@ -187,10 +197,10 @@ export class SessionTurns {
    * @returns the finished turn, or undefined when it carried neither a request nor a reply.
    */
   finish(): Turn | undefined {
-    const prompt = this.prompt
+    const share = Math.max(40, Math.floor(PROMPT_CHARACTERS * 2 / Math.max(1, this.prompts.length)))
+    const prompt = clip(this.prompts.filter(text => text !== '').map(text => clip(text, share)).join(' | Then: '), PROMPT_CHARACTERS * 2)
     const outcome = this.outcome
-    this.prompt = ''
-    this.outcome = ''
+    this.discard()
     if (prompt === '' && outcome === '') return undefined
     this.count++
     return { index: this.count, prompt, outcome }
@@ -249,7 +259,7 @@ export class MemoryAutomation {
   private readonly sessions = new Map<string, SessionTurns>()
   private readonly recalls = new Map<string, Promise<string>>()
   private readonly cli = new Set<string>()
-  private readonly bound = new WeakMap<McpHumanOperations, string>()
+  private readonly bound = new WeakMap<McpHumanOperations, { key: string; project: string | undefined }>()
   private readonly reported = new Set<string>()
   private line: Promise<unknown> = Promise.resolve()
   private activity: MemoryActivity = {}
@@ -304,8 +314,8 @@ export class MemoryAutomation {
             if (event.data.interrupted !== true) this.turns(session).answer(blocksText(event.data.message.content))
             return
           case 'turn/end': {
-            if (event.data.reason.kind !== 'completed') return
             const log = this.turns(session)
+            if (event.data.reason.kind !== 'completed') { log.discard(); return }
             const turn = log.finish()
             if (turn !== undefined) this.enqueue(session, turnRecord(session, log.segment, turn, config.memoryCharacters))
             return
@@ -390,38 +400,53 @@ export class MemoryAutomation {
     return next
   }
 
-  private async bind(provider: McpHumanOperations, cwd: string | undefined, signal: AbortSignal): Promise<void> {
+  private async bind(provider: McpHumanOperations, cwd: string | undefined, signal: AbortSignal): Promise<string | undefined> {
     const key = cwd ?? DOCUMENTS_ROOT
-    if (this.bound.get(provider) === key) return
+    const current = this.bound.get(provider)
+    if (current?.key === key) return current.project
     const projectRoot = await memoryProjectRoot(cwd)
-    await callMemorix(provider, 'memorix_session_start', { projectRoot, agent: 'dsh' }, signal, 'workspace binding')
-    this.bound.set(provider, key)
+    const reply = await callMemorix(provider, 'memorix_session_start', { projectRoot, agent: 'dsh' }, signal, 'workspace binding')
+    const project = BOUND_PROJECT.exec(reply)?.[1]?.trim()
+    this.bound.set(provider, { key, project })
+    return project
   }
 
-  /**
-   * Run one Memorix write inside the project of a workspace, with no other bind or save interleaved.
-   * @param provider - connected Memorix operations.
-   * @param cwd - workspace folder, or undefined for the shared documents project.
-   * @param signal - bind lifetime.
-   * @param work - the write, run once the project is bound.
-   * @returns whatever the write returns.
-   */
-  inProject<T>(provider: McpHumanOperations, cwd: string | undefined, signal: AbortSignal, work: () => Promise<T>): Promise<T> {
-    return this.exclusive(async () => {
-      await this.bind(provider, cwd, signal)
-      return work()
+  private async withProject<T>(provider: McpHumanOperations, cwd: string | undefined, signal: AbortSignal,
+    work: (project: string | undefined) => Promise<T>): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      const project = await this.bind(provider, cwd, signal)
+      try { return await work(project) } catch (error) {
+        this.bound.delete(provider)
+        const rebind = error instanceof ProjectMismatch || (error instanceof Error && REBIND.test(error.message))
+        if (attempt > 0 || signal.aborted || !rebind) throw error
+      }
+    }
+  }
+
+  private storeIn(provider: McpHumanOperations, cwd: string | undefined, signal: AbortSignal, args: Record<string, JsonValue>,
+    subject: string): Promise<StoredObservation> {
+    return this.withProject(provider, cwd, signal, async (project) => {
+      const stored = await storeObservation(provider, args, signal, subject)
+      if (project !== undefined && stored.project !== project) {
+        throw new ProjectMismatch(`Memorix stored this ${subject} in project ${stored.project} instead of ${project}; the server's project binding changed`)
+      }
+      return stored
     })
+  }
+
+  store(provider: McpHumanOperations, cwd: string | undefined, signal: AbortSignal, args: Record<string, JsonValue>,
+    subject: string): Promise<StoredObservation> {
+    return this.exclusive(() => this.storeIn(provider, cwd, signal, args, subject))
   }
 
   private async save(session: SessionLike, record: ChatRecord): Promise<void> {
     const cwd = session.header.cwd ?? ''
     const signal = AbortSignal.any([this.host.signal, AbortSignal.timeout(WRITE_TIMEOUT_MS)])
     const provider = await this.host.provider()
-    await this.bind(provider, cwd, signal)
-    const stored = await storeObservation(provider, {
+    const stored = await this.storeIn(provider, cwd, signal, {
       entityName: workspaceEntity(cwd), type: CHAT_TYPE, title: record.title, narrative: record.narrative, topicKey: record.topicKey,
       concepts: ['dsh-session', 'automatic-turn'],
-    }, signal, 'chat turn')
+    }, 'chat turn')
     const database = provider.local || this.config.databasePath !== '' ? this.host.database(provider) : undefined
     if (database !== undefined && !memorixStoredChunk(database, stored.id, stored.project, record.topicKey, record.narrative)) {
       throw new Error('Memorix did not persist the complete chat turn')
@@ -432,8 +457,9 @@ export class MemoryAutomation {
     const query = scrub(prompt)
     if (query === '') return Promise.resolve('')
     let timer: NodeJS.Timeout | undefined
-    const expired = new Promise<undefined>((resolve) => { timer = setTimeout(() => { resolve(undefined) }, RECALL_BUDGET_MS) })
-    return Promise.race([this.recallNotes(session, query), expired]).then((text) => {
+    const budget = new AbortController()
+    const expired = new Promise<undefined>((resolve) => { timer = setTimeout(() => { budget.abort(); resolve(undefined) }, RECALL_BUDGET_MS) })
+    return Promise.race([this.recallNotes(session, query, budget.signal), expired]).then((text) => {
       if (text !== undefined) return text
       this.report(new Error(`memory search did not finish within ${RECALL_BUDGET_MS / 1000} s, so this chat starts with the latest notes`), 'recall')
       return this.recentNotes(session)
@@ -443,16 +469,19 @@ export class MemoryAutomation {
     }).finally(() => { clearTimeout(timer) })
   }
 
-  private async recallNotes(session: SessionLike, query: string): Promise<string> {
+  private async recallNotes(session: SessionLike, query: string, budget: AbortSignal): Promise<string> {
     const cwd = session.header.cwd ?? ''
     const provider = await this.host.provider()
     const database = this.host.database(provider)
     let rows: readonly MemorixObservationRecord[] = []
     try {
-      rows = await this.exclusive(() => this.search(provider, session, cwd, query, database))
+      rows = await this.exclusive(() => {
+        budget.throwIfAborted()
+        return this.search(provider, session, cwd, query, database, budget)
+      })
       this.succeeded('recall')
     } catch (error) {
-      this.report(error, 'recall')
+      if (!budget.aborted) this.report(error, 'recall')
     }
     return recallText(rows.length > 0 ? rows : this.recent(session, database), this.config.memoryCharacters)
   }
@@ -492,15 +521,17 @@ export class MemoryAutomation {
   private async search(provider: McpHumanOperations, session: SessionLike, cwd: string, query: string,
     database: string, caller?: AbortSignal): Promise<MemorixObservationRecord[]> {
     const signal = AbortSignal.any([this.host.signal, AbortSignal.timeout(RECALL_BUDGET_MS), ...caller === undefined ? [] : [caller]])
-    await this.bind(provider, cwd, signal)
-    const text = await callMemorix(provider, 'memorix_search', {
-      query: clip(query, QUERY_CHARACTERS), limit: RECALL_SEARCH_LIMIT, scope: 'project', quality: 'fast', status: 'active',
-    }, signal, 'recall search')
-    const ids = [...new Set([...text.matchAll(/\bobs:(\d+)/g)].map(match => Number(match[1])))]
     const entity = workspaceEntity(cwd)
-    return memorixObservations(database, ids)
-      .filter(row => row.entityName === entity && !(row.topicKey ?? '').startsWith(`dsh-session:${session.id}:`))
-      .slice(0, RECALL_DIGESTS)
+    return this.withProject(provider, cwd, signal, async (project) => {
+      const text = await callMemorix(provider, 'memorix_search', {
+        query: clip(query, QUERY_CHARACTERS), limit: RECALL_SEARCH_LIMIT, scope: 'project', quality: 'fast', status: 'active',
+      }, signal, 'recall search')
+      const ids = [...new Set([...text.matchAll(/\bobs:(\d+)(?:@([^\s|]+))?/g)]
+        .filter(match => project === undefined || match[2] === undefined || match[2] === project).map(match => Number(match[1])))]
+      return memorixObservations(database, ids)
+        .filter(row => row.entityName === entity && !(row.topicKey ?? '').startsWith(`dsh-session:${session.id}:`))
+        .slice(0, RECALL_DIGESTS)
+    })
   }
 
   private succeeded(action: 'save' | 'recall'): void {
