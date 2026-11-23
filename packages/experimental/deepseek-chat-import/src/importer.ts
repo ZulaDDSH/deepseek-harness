@@ -218,6 +218,7 @@ export async function importDeepseekChatExport(
   }
 
   const importConversation = async (conversationId: string, data: Uint8Array): Promise<void> => {
+    if (handled.has(conversationId)) return
     await assertWorkspace()
     // oxlint-disable-next-line typescript/no-non-null-assertion -- select asks only for chosen conversations
     const rank = chosen.get(conversationId)!
