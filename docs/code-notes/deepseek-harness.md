@@ -1006,6 +1006,9 @@ Upgrade guides require the Change and Migration sections and are limited to 500 
 ### `packages/subagent/tool-subagent/src/index.ts:Config`
 - `claudeCliProvider`: Provider name used for Claude CLI role routes (default `claude-code`).
 
+### `packages/context/tmux-context/src/index.ts:Config`
+- `queryTimeoutMs`: Milliseconds the whole tmux location query may take before it is abandoned as unknown. Defaults to 5000.
+
 ## Catalog event and service contracts
 
 ### `packages/mcp/mcp-client/src/status.ts:mcp-client/inventory`
