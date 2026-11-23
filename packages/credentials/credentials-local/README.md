@@ -117,7 +117,7 @@ On POSIX only your OS user can read the file: the product creates it with mode 0
 - **A key the launching environment supplies is a fallback** — saving a value stores a higher-priority credential; removing it reveals the launch environment again. To make an exported key apply, delete its entry under `refs` in the file.
 - **An empty value cannot be saved** — storing an empty string is refused; remove the key instead.
 - **The store refuses to load a file it cannot trust** — a file any other user can read, malformed YAML, or an unreachable path fails at startup; on a live reload the last good content keeps serving with a warning.
-- **Changes made at the same time are both kept** — if you edit the file while the product writes, your change is folded in rather than overwritten.
+- **Changes made at the same time are both kept, with one narrow exception** — an edit saved while the product writes is re-read and folded in just before the product replaces the file, and a write that keeps losing that race fails without changing the file. An editor save landing in the instant between that last check and the replace is still lost, because the file system offers no compare-and-swap replace. A record update whose own record you edited meanwhile is refused with a conflict error rather than overwriting your edit.
 
 -----
 

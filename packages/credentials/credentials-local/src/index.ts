@@ -113,6 +113,8 @@ const GROUP_OTHER_BITS = 0o077
  */
 const DOCUMENT_LOCK_WAIT_MS = 30_000
 
+const COMMIT_ATTEMPTS = 3
+
 /**
  * Reject a credentials document other OS users can read, before its contents
  * are read at all. The provider creates and replaces the file at `0600`, but a
@@ -741,11 +743,12 @@ export class LocalCredentialProvider extends CredentialProvider {
         // next boot rejects, and a value refused here has not been stored.
         if (next.kind === 'grant') assertJsonValue(`record "${key}" payload`, next.payload, new Set())
         else assertStorableApiKey(key, next)
-        const nextText = renderRecord(this.text, key, next)
-        // 0600: a document holding secrets is never world-readable.
-        await writeFileAtomic(this.spec.filename, nextText, { mode: 0o600, dirMode: 0o700 })
-        await protectOnWindows(this.spec.filename)
-        this.text = nextText
+        await this.commitDocument(() => {
+          if (!sameJsonValue(this.records.get(key), current)) {
+            throw new Error(`credentials-local: "${key}" was edited in ${this.spec.filename} while it was being updated; nothing was written, retry`)
+          }
+          return renderRecord(this.text, key, next)
+        })
         this.records.set(key, next)
         // After the commit, on the same terms as a reference write.
         this.notifyRecordUpdated(key)
@@ -762,12 +765,8 @@ export class LocalCredentialProvider extends CredentialProvider {
       }
       await mkdir(dirname(this.spec.filename), { recursive: true, mode: 0o700 })
       await withFileLock(this.spec.filename, async () => {
-        await this.reconcileFromDisk()
-        if (!this.records.has(key)) return
-        const nextText = renderRecord(this.text, key, undefined)
-        await writeFileAtomic(this.spec.filename, nextText, { mode: 0o600, dirMode: 0o700 })
-        await protectOnWindows(this.spec.filename)
-        this.text = nextText
+        const committed = await this.commitDocument(() => this.records.has(key) ? renderRecord(this.text, key, undefined) : undefined)
+        if (committed === undefined) return
         this.records.delete(key)
         this.notifyRecordUpdated(key)
       }, { waitMs: DOCUMENT_LOCK_WAIT_MS })
@@ -779,6 +778,30 @@ export class LocalCredentialProvider extends CredentialProvider {
     const task = this.operations.then(operation)
     this.operations = task.then(() => undefined, () => undefined)
     return task
+  }
+
+  private async commitDocument(render: () => string | undefined): Promise<string | undefined> {
+    for (let attempt = 0; attempt < COMMIT_ATTEMPTS; attempt++) {
+      await this.reconcileFromDisk()
+      const nextText = render()
+      if (nextText === undefined) return undefined
+      if (await this.diskMatchesCache()) {
+        await writeFileAtomic(this.spec.filename, nextText, { mode: 0o600, dirMode: 0o700 })
+        await protectOnWindows(this.spec.filename)
+        this.text = nextText
+        return nextText
+      }
+    }
+    throw new Error(`credentials-local: ${this.spec.filename} kept changing while it was being saved; nothing was written, retry`)
+  }
+
+  private async diskMatchesCache(): Promise<boolean> {
+    try {
+      return (await readFile(this.spec.filename, 'utf8')) === this.text
+    } catch (error) {
+      if (!isENOENT(error)) throw error
+      return this.text === undefined
+    }
   }
 
   /** Queue a reload; `refresh()` contains its own failures, so the queued task never rejects. */
@@ -804,14 +827,11 @@ export class LocalCredentialProvider extends CredentialProvider {
         // observed yet — an external edit still inside the watcher debounce
         // window, a change the watcher missed, or another process's write —
         // so the line edit below can never resurrect a stale document.
-        await this.reconcileFromDisk()
-        const existing = this.values.get(ref)
-        if (value === undefined && existing === undefined) return
-        const nextText = renderRef(this.text, ref, value)
-        // 0600: a document holding secrets is never world-readable.
-        await writeFileAtomic(this.spec.filename, nextText, { mode: 0o600, dirMode: 0o700 })
-        await protectOnWindows(this.spec.filename)
-        this.text = nextText
+        const committed = await this.commitDocument(() => {
+          if (value === undefined && this.values.get(ref) === undefined) return undefined
+          return renderRef(this.text, ref, value)
+        })
+        if (committed === undefined) return
         if (value === undefined) this.values.delete(ref)
         else this.values.set(ref, value)
         // After the commit: a broken observer must never make the durable
