@@ -39,6 +39,7 @@ Model discovery and inference use the official Claude executable and Agent SDK t
 - **Windows-focused patches.** `bridge.patch` fixes behavior of the pinned adapter on Windows. Other platforms use the adapter as published and are less exercised.
 - **Version pinning.** The adapter (0.2.5), the Agent SDK (0.3.322), and the Harness packages (`0.2.2-rc.3`, including `engines.dsh`) are pinned to exact versions. Upgrading any of them means updating the digest in `prepare-bridge.mjs`, re-checking `bridge.patch`, and re-running the tests.
 - **First-use race.** If two Harness processes first create or replace `.ownership-secret` at the same moment, one of them can keep using a different secret until it restarts; its ownership entries are then treated as new accounts and reassigned.
+- **Notices.** The one-shot notice is global across open settings tabs, and a repeat of identical text while it is still set is not announced again.
 - **No CI lane.** The repository's gates and CI do not build or test this directory. Run `npm test` here by hand.
 - **Adapter license.** The adapter is MIT-licensed according to the npm metadata and the tarball's `LICENSE`; the upstream repository was not checked. The Agent SDK is proprietary (see NOTICE.md).
 - **English only.** The settings page and the messages from the host side are English. Whether an out-of-tree browser bundle can use the Harness locale service was not verified, so no translations are provided.
