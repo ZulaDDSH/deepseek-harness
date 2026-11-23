@@ -401,6 +401,17 @@ describe('GitHub provider actions', () => {
     await expect(provider(() => Promise.reject(new Error('aborted'))).merge(pull(7), { method: 'rebase', headSha: head }, signal)).rejects.toThrow('aborted')
   })
 
+  it('reports a changing command that timed out, exceeded its output limit, or met a server error as of unknown outcome', async () => {
+    await expect(provider(() => Promise.reject(new GhTimeoutError('gh api timed out after 30000ms'))).merge(pull(7), { method: 'merge', headSha: head }, signal))
+      .resolves.toEqual({ code: 'unknown', message: 'gh api timed out after 30000ms' })
+    await expect(provider(() => Promise.reject(new GhOutputLimitError('output exceeds 1000 bytes'))).markReady(pull(7), signal))
+      .resolves.toEqual({ code: 'unknown', message: 'output exceeds 1000 bytes' })
+    await expect(provider(fakeGh(() => output({ message: 'Server Error' }, 1, 'gh: Server Error (HTTP 502)')).run).merge(pull(7), { method: 'merge', headSha: head }, signal))
+      .resolves.toEqual({ code: 'unknown', message: 'Server Error' })
+    await expect(provider(fakeGh(() => output({ message: 'Unprocessable Entity' }, 1, 'gh: Unprocessable Entity (HTTP 422)')).run).merge(pull(7), { method: 'merge', headSha: head }, signal))
+      .resolves.toEqual({ code: 'failed', message: 'Unprocessable Entity' })
+  })
+
   it('refuses to address a pull request or head commit that cannot be inlined', async () => {
     const gh = fakeGh(() => output(''))
     const subject = provider(gh.run)
@@ -840,7 +851,19 @@ describe('GitHub provider overview and viewed marks', () => {
     const gh = fakeGh(args => args[1] === 'graphql' ? output({ data: { r0: { p0: pullRequestNode(1, {}, contexts) } } })
       : args[5]?.includes('/runs/1/') === true ? output({ message: 'Conflict' }, 1, 'gh: Conflict (HTTP 409)') : output(''))
     await expect(provider(gh.run).rerunChecks(pull(1), { headSha: HEAD }, signal))
-      .resolves.toEqual({ code: 'failed', message: 'GitHub refused to rerun 1 of 2 workflow runs: run 1: Conflict' })
+      .resolves.toEqual({ code: 'unknown', message: 'reran 1 of 2 workflow runs; refused: run 1: Conflict' })
+    expect(gh.calls.filter(args => args[4] === 'POST').map(args => args[5])).toEqual([
+      'repos/octo/demo/actions/runs/1/rerun-failed-jobs', 'repos/octo/demo/actions/runs/2/rerun-failed-jobs',
+    ])
+  })
+
+  it('keeps rerunning after a run whose outcome is unknown, and reports the outcome of each run', async () => {
+    const check = (name: string, run: number) => ({ ...checkRun(name, 'COMPLETED', 'FAILURE'),
+      checkSuite: { app: { id: 'github-actions' }, workflowRun: { databaseId: run, event: 'pull_request', workflow: { id: `w${run}`, name } } } })
+    const gh = fakeGh(args => args[1] === 'graphql' ? output({ data: { r0: { p0: pullRequestNode(1, {}, [check('lint', 1), check('test', 2)]) } } })
+      : args[5]?.includes('/runs/1/') === true ? Promise.reject(new GhTimeoutError('gh api timed out after 30000ms')) : output(''))
+    await expect(provider(gh.run).rerunChecks(pull(1), { headSha: HEAD }, signal))
+      .resolves.toEqual({ code: 'unknown', message: 'reran 1 of 2 workflow runs; outcome unknown: run 1: gh api timed out after 30000ms' })
     expect(gh.calls.filter(args => args[4] === 'POST').map(args => args[5])).toEqual([
       'repos/octo/demo/actions/runs/1/rerun-failed-jobs', 'repos/octo/demo/actions/runs/2/rerun-failed-jobs',
     ])
