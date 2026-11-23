@@ -222,6 +222,25 @@ describe('git knowledge source', () => {
     expect(await git(['rev-parse', 'HEAD'])).toBe(first)
   })
 
+  it('fails the sync when the configured remote cannot be fetched instead of using a stale tracking ref', async () => {
+    await commitFile('knowledge/note.md', 'first', 'first')
+    const clone = join(workdir, 'local-clone')
+    await run('git', ['clone', '-q', repo, clone])
+    await run('git', ['remote', 'set-url', 'origin', join(workdir, 'deleted-origin')], { cwd: clone })
+    await expect(resolveGitSource({ repo: clone, ref: 'master', paths: [] })).rejects.toThrow(/git fetch failed/)
+  })
+
+  it('returns an absolute root for a relative local source and a relative checkoutDir', async () => {
+    const first = await commitFile('knowledge/note.md', 'first', 'first')
+    vi.spyOn(process, 'cwd').mockReturnValue(workdir)
+    const local = await resolveGitSource({ repo: './garden-knowledge', ref: 'master', paths: [] })
+    expect(local.root).toBe(repo)
+    expect(local.commit).toBe(first)
+    const cloned = await resolveGitSource({ repo: pathToFileURL(repo).href, ref: 'master', paths: [], checkoutDir: './relative-checkout' })
+    expect(cloned.root).toBe(join(workdir, 'relative-checkout'))
+    expect(cloned.commit).toBe(first)
+  })
+
   it('rejects a source that is not a Git work tree', async () => {
     const plain = join(workdir, 'not-a-repo')
     await mkdir(plain, { recursive: true })

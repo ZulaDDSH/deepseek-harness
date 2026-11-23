@@ -13,7 +13,7 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, resolve as resolvePath } from 'node:path'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 
 /** A knowledge source backed by a Git repository. */
@@ -124,18 +124,19 @@ export function cloneSource(repo: string): string {
  */
 export async function resolveGitSource(source: GitKnowledgeSource): Promise<ResolvedGitSource> {
   const remote = cloneSource(source.repo)
+  const local = isLocalPath(source.repo)
   let root: string
-  if (isLocalPath(source.repo)) {
-    root = source.repo
+  if (local) {
+    root = resolvePath(source.repo)
     if (!await isWorkTree(root)) {
       throw new Error(`knowledge source "${source.repo}" is not a Git work tree`)
     }
     if (await gitOrThrow(['status', '--porcelain', '--untracked-files=no'], root) !== '') {
       throw new Error(`knowledge source "${source.repo}" has uncommitted changes to tracked files; commit or stash them first`)
     }
-    await git(['fetch', '--all', '--tags'], root)
+    if (await gitOrThrow(['remote'], root) !== '') await gitOrThrow(['fetch', '--all', '--tags'], root)
   } else {
-    root = source.checkoutDir ?? join(process.cwd(), '.dsh-knowledge', createHash('sha256').update(remote).digest('hex'))
+    root = resolvePath(source.checkoutDir ?? join(process.cwd(), '.dsh-knowledge', createHash('sha256').update(remote).digest('hex')))
     await mkdir(root, { recursive: true })
     if (await isWorkTree(root) && await gitOrThrow(['rev-parse', '--show-prefix'], root) === '') {
       const origin = await gitOrThrow(['config', '--get', 'remote.origin.url'], root)
@@ -154,8 +155,7 @@ export async function resolveGitSource(source: GitKnowledgeSource): Promise<Reso
     || source.ref.startsWith('origin/')
   const ref = pinned ? source.ref : tag.code === 0 ? tag.stdout.trim() : fetched.code === 0 ? fetched.stdout.trim() : source.ref
   const commitRef = await gitOrThrow(['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`], root)
-  const localBranch = isLocalPath(source.repo) && !pinned && tag.code !== 0 && fetched.code !== 0
-  const local = isLocalPath(source.repo)
+  const localBranch = local && !pinned && tag.code !== 0 && fetched.code !== 0
   if (!local || await gitOrThrow(['rev-parse', 'HEAD'], root) !== commitRef) {
     await gitOrThrow(['checkout', ...local ? [] : ['--force'], ...localBranch ? [] : ['--detach'], localBranch ? source.ref : `${commitRef}^{commit}`], root)
   }
