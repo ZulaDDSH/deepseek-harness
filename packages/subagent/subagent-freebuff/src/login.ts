@@ -8,6 +8,7 @@ const SIGNED_OUT_FINDINGS: ReadonlySet<string> = new Set([
 ])
 const DOCTOR_STDOUT_MAX_BYTES = 1_048_576
 const DOCTOR_STDERR_MAX_BYTES = 4_096
+const SHIM_VARIABLE = 'DSH_FREEBUFF_DOCTOR_EXE'
 
 export interface LoginCheck {
   readonly spawn: (spec: SubprocessSpawnSpec) => SubprocessHandle
@@ -21,11 +22,19 @@ export interface LoginCheck {
   readonly comSpec: string | undefined
 }
 
-export function doctorArgv(executable: string, platform: NodeJS.Platform, comSpec: string | undefined): string[] {
-  const doctor = [executable, 'doctor', '--json']
-  return platform === 'win32' && /\.(?:cmd|bat)$/i.test(executable)
-    ? [comSpec ?? 'cmd.exe', '/d', '/s', '/c', ...doctor]
-    : doctor
+export interface DoctorCommand {
+  readonly argv: string[]
+  readonly env: Record<string, string>
+}
+
+export function doctorCommand(executable: string, platform: NodeJS.Platform, comSpec: string | undefined): DoctorCommand {
+  if (platform === 'win32' && /\.(?:cmd|bat)$/i.test(executable)) {
+    return {
+      argv: [comSpec ?? 'cmd.exe', '/d', '/c', `%${SHIM_VARIABLE}%`, 'doctor', '--json'],
+      env: { [SHIM_VARIABLE]: `"${executable}"` },
+    }
+  }
+  return { argv: [executable, 'doctor', '--json'], env: {} }
 }
 
 export function freebuffLoginFailure(stdout: string): string | undefined {
@@ -46,9 +55,10 @@ export function freebuffLoginFailure(stdout: string): string | undefined {
 
 export async function checkFreebuffLogin(check: LoginCheck): Promise<string | undefined> {
   let child: SubprocessHandle
+  const doctor = doctorCommand(check.executable, check.platform, check.comSpec)
   try {
     child = check.spawn({
-      argv: doctorArgv(check.executable, check.platform, check.comSpec),
+      argv: doctor.argv,
       cwd: check.cwd,
       stdio: {
         stdin: 'ignore',
@@ -57,7 +67,7 @@ export async function checkFreebuffLogin(check: LoginCheck): Promise<string | un
       },
       graceMs: check.graceMs,
       signal: AbortSignal.any([check.signal, AbortSignal.timeout(check.timeoutMs)]),
-      env: check.env,
+      env: { ...check.env, ...doctor.env },
     })
   } catch (_spawnFailed) {
     return undefined

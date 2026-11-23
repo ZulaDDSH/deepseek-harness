@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -69,6 +69,7 @@ async function providerContext(
   }
   const configDir = mkdtempSync(join(tmpdir(), 'dsh-freebuff-'))
   roots.push(configDir)
+  const realSpawn = ctx.subprocess.spawnTerminal.bind(ctx.subprocess)
   const spawnTerminal = vi.spyOn(ctx.subprocess, 'spawnTerminal')
   await ctx.plugin(freebuff, {
     executable: process.execPath,
@@ -81,7 +82,18 @@ async function providerContext(
     ...config,
     env: { FAKE_FREEBUFF_MODE: mode, FREEBUFF_CONFIG_DIR: configDir, ...config.env },
   })
-  return { ctx, spawnTerminal }
+  return { ctx, spawnTerminal, realSpawn, configDir }
+}
+
+async function fakePid(configDir: string): Promise<number> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      return Number(readFileSync(join(configDir, 'fake.pid'), 'utf8'))
+    } catch (_notYet) {
+      await new Promise(resolve => setTimeout(resolve, 50))
+    }
+  }
+  throw new Error('the fake Freebuff never wrote its pid')
 }
 
 function isAlive(pid: number): boolean {
@@ -95,15 +107,15 @@ function isAlive(pid: number): boolean {
 
 describe('Freebuff provider driving the TUI', () => {
   it('returns the answer read from the screen and releases the process', async () => {
-    const { ctx, spawnTerminal } = await providerContext('ok')
+    const { ctx, configDir } = await providerContext('ok')
     const run = await startAs(ctx, request('first line\nsecond line'))
     await expect(run.result).resolves.toEqual({
-      output: [{ type: 'text', text: expect.stringContaining('FAKE-ANSWER lines=2 esc=false trust=none args=') }],
+      output: [{ type: 'text', text: (expect.stringContaining('FAKE-ANSWER lines=2 esc=false trust=none args=') as string) }],
       stopReason: 'completed',
     })
-    const handle = await spawnTerminal.mock.results[0]!.value as { pid: number }
+    const pid = await fakePid(configDir)
     await run.dispose()
-    expect(isAlive(handle.pid)).toBe(false)
+    expect(isAlive(pid)).toBe(false)
   }, TEST_TIMEOUT_MS)
 
   it('prefers the persisted transcript for the answer', async () => {
@@ -120,7 +132,7 @@ describe('Freebuff provider driving the TUI', () => {
     const { ctx } = await providerContext('ok')
     const run = await startAs(ctx, request('one\x1b[201~two\nthree'))
     const result = await run.result
-    expect(result.output).toEqual([{ type: 'text', text: expect.stringContaining('lines=2 esc=false') }])
+    expect(result.output).toEqual([{ type: 'text', text: (expect.stringContaining('lines=2 esc=false') as string) }])
     await run.dispose()
   }, TEST_TIMEOUT_MS)
 
@@ -128,7 +140,7 @@ describe('Freebuff provider driving the TUI', () => {
     const { ctx, spawnTerminal } = await providerContext('trust', { args: [FAKE, '--extra'], trustAgents: true })
     const run = await startAs(ctx, request())
     const result = await run.result
-    expect(result.output).toEqual([{ type: 'text', text: expect.stringContaining('trust=flag args=--extra,--trust-agents') }])
+    expect(result.output).toEqual([{ type: 'text', text: (expect.stringContaining('trust=flag args=--extra,--trust-agents') as string) }])
     expect(spawnTerminal.mock.calls[0]![0].argv).toEqual([process.execPath, FAKE, '--extra', '--trust-agents'])
     await run.dispose()
   }, TEST_TIMEOUT_MS)
@@ -137,7 +149,7 @@ describe('Freebuff provider driving the TUI', () => {
     const { ctx } = await providerContext('trust')
     const run = await startAs(ctx, request())
     const result = await run.result
-    expect(result.output).toEqual([{ type: 'text', text: expect.stringContaining('trust=n') }])
+    expect(result.output).toEqual([{ type: 'text', text: (expect.stringContaining('trust=n') as string) }])
     await run.dispose()
   }, TEST_TIMEOUT_MS)
 
@@ -145,7 +157,7 @@ describe('Freebuff provider driving the TUI', () => {
     const { ctx } = await providerContext('login')
     await expect(startAs(ctx, request())).rejects.toMatchObject({
       code: 'FREEBUFF_NOT_LOGGED_IN',
-      message: expect.stringContaining('freebuff login'),
+      message: (expect.stringContaining('freebuff login') as string),
     })
   }, TEST_TIMEOUT_MS)
 
@@ -165,14 +177,75 @@ describe('Freebuff provider driving the TUI', () => {
     })
   }, TEST_TIMEOUT_MS)
 
-  it('flattens a product error from the transcript into a safe diagnostic', async () => {
+  it('puts the product error text from the transcript into the diagnostic', async () => {
     const { ctx } = await providerContext('error', { env: { FAKE_FREEBUFF_TRANSCRIPT: '1' } })
     const run = await startAs(ctx, request())
     const result = await run.result
     expect(result.stopReason).toBe('error')
     expect(result.diagnostic).toContain('category: product-error')
-    expect(result.diagnostic).not.toContain('boom')
+    expect(result.diagnostic).toContain('Freebuff reported an error: boom: usage policy refusal')
     await run.dispose()
+  }, TEST_TIMEOUT_MS)
+
+  it('completes when a recoverable product error is followed by a complete answer', async () => {
+    const { ctx } = await providerContext('recover', { env: { FAKE_FREEBUFF_TRANSCRIPT: '1' } })
+    const run = await startAs(ctx, request())
+    await expect(run.result).resolves.toEqual({ output: [{ type: 'text', text: 'RECOVERED-ANSWER' }], stopReason: 'completed' })
+    await run.dispose()
+  }, TEST_TIMEOUT_MS)
+
+  it('ignores a chat transcript of another run that is newer but has a different task', async () => {
+    const { ctx } = await providerContext('foreign', { env: { FAKE_FREEBUFF_TRANSCRIPT: '1' } })
+    const run = await startAs(ctx, request())
+    await expect(run.result).resolves.toEqual({ output: [{ type: 'text', text: 'TRANSCRIPT-ANSWER' }], stopReason: 'completed' })
+    await run.dispose()
+  }, TEST_TIMEOUT_MS)
+
+  it('does not mistake a marker quoted in the task or the answer for a blocker or a busy indicator', async () => {
+    const { ctx } = await providerContext('quote')
+    const run = await startAs(ctx, request("Explain what 'Press ENTER to login...' and 'Enter: take over' mean"))
+    const result = await run.result
+    expect(result.stopReason).toBe('completed')
+    expect(result.output).toEqual([{ type: 'text', text: (expect.stringContaining('The footer says thinking... while a turn runs.') as string) }])
+    await run.dispose()
+  }, TEST_TIMEOUT_MS)
+
+  it('fails with the prompt named when a blocker appears after Freebuff started working', async () => {
+    const { ctx } = await providerContext('blocked-late', { timeoutMs: 20_000 })
+    const run = await startAs(ctx, request())
+    const result = await run.result
+    expect(result.stopReason).toBe('error')
+    expect(result.diagnostic).toContain('category: blocked')
+    expect(result.diagnostic).toContain('Enter: take over')
+    await run.dispose()
+  }, TEST_TIMEOUT_MS)
+
+  it('flags a screen answer whose task echo scrolled off the screen', async () => {
+    const { ctx } = await providerContext('long')
+    const run = await startAs(ctx, request())
+    const result = await run.result
+    expect(result.stopReason).toBe('completed')
+    expect(result.output).toEqual([{ type: 'text', text: (expect.stringContaining('may be incomplete') as string) }])
+    await run.dispose()
+  }, TEST_TIMEOUT_MS)
+
+  it.each(['/logout', '!dir'])('rejects a task that Freebuff would run as a terminal command (%s)', async (task) => {
+    const { ctx, spawnTerminal } = await providerContext('ok')
+    await expect(startAs(ctx, request(task))).rejects.toThrow('must not start with "/" or "!"')
+    expect(spawnTerminal).not.toHaveBeenCalled()
+  }, TEST_TIMEOUT_MS)
+
+  it('terminates the process when the request is aborted while the terminal starts', async () => {
+    const abort = new AbortController()
+    const { ctx, spawnTerminal, realSpawn } = await providerContext('ok')
+    spawnTerminal.mockImplementation(async (spec) => {
+      const handle = await realSpawn(spec)
+      abort.abort()
+      return handle
+    })
+    await expect(startAs(ctx, request('do the task', abort.signal))).rejects.toThrow()
+    const handle = await spawnTerminal.mock.results[0]!.value as { done: Promise<unknown> }
+    await expect(handle.done).resolves.toBeDefined()
   }, TEST_TIMEOUT_MS)
 
   it('settles as an error with category limit when timeoutMs elapses', async () => {
@@ -185,16 +258,15 @@ describe('Freebuff provider driving the TUI', () => {
     await run.dispose()
   }, TEST_TIMEOUT_MS)
 
-  it('kills the process when the request is cancelled', async () => {
-    const abort = new AbortController()
-    const { ctx, spawnTerminal } = await providerContext('hang')
-    const run = await startAs(ctx, request('do the task', abort.signal))
-    const handle = await spawnTerminal.mock.results[0]!.value as { pid: number }
-    expect(isAlive(handle.pid)).toBe(true)
-    abort.abort()
+  it('settles as aborted and kills the process when the published run is disposed', async () => {
+    const { ctx, configDir } = await providerContext('hang')
+    const run = await startAs(ctx, request())
+    const pid = await fakePid(configDir)
+    expect(isAlive(pid)).toBe(true)
+    const disposing = run.dispose()
     await expect(run.result).resolves.toMatchObject({ stopReason: 'aborted' })
-    await run.dispose()
-    expect(isAlive(handle.pid)).toBe(false)
+    await disposing
+    expect(isAlive(pid)).toBe(false)
   }, TEST_TIMEOUT_MS)
 
   it('fails with the typed not-installed error for a missing executable', async () => {

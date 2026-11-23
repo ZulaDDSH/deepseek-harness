@@ -11,11 +11,16 @@ const BLOCKER_MARKERS = [
   'Enter: choose another model',
   'Enter: retry',
 ] as const
-const BUSY_MARKERS = ['thinking...', 'working...', '■ Esc'] as const
 const READY_MARKERS = ['/model to change', 'for history'] as const
-const CHROME_PATTERN = /thinking\.\.\.|working\.\.\.|■ Esc|✕ End session|\/model to change|for history/
-const STATUS_ROWS = 8
+const FOOTER_MARKER = '/model to change'
+const BUSY_LINE = /^\s*(?:\S\s+)?(?:thinking|working)\.\.\.(?:\s+[\dsmh ]+)?\s*$|■ Esc\s*$/
+const STATUS_LINE = /✕ End session\s*$|■ Esc\s*$/
+const CHROME_PATTERN = /^\s*(?:\S\s+)?(?:thinking|working)\.\.\.|■ Esc|✕ End session|\/model to change|for history|^\s*⎘ •/
+const FOOTER_ROWS = 8
+const STATUS_ROWS = 16
 const ANSWER_ANCHOR_CHARS = 30
+
+export const CLIPPED_NOTICE = "[Freebuff's chat transcript was not found and its task echo is not visible on the screen, so this answer may be incomplete.]"
 
 export interface ScreenState {
   readonly loginRequired: boolean
@@ -25,30 +30,60 @@ export interface ScreenState {
   readonly ready: boolean
 }
 
-function includesAny(text: string, markers: readonly string[]): boolean {
-  return markers.some(marker => text.includes(marker))
+export interface ScreenAnswer {
+  readonly text: string
+  readonly clipped: boolean
 }
 
-export function classifyScreen(text: string): ScreenState {
-  const bottom = text.split('\n').filter(line => line.trim().length > 0).slice(-STATUS_ROWS).join('\n')
+function squash(text: string): string {
+  return text.replace(/\s+/g, ' ').trim()
+}
+
+export function classifyScreen(text: string, task?: string): ScreenState {
+  const rows = text.split('\n').filter(line => line.trim().length > 0)
+  const bottom = rows.slice(-FOOTER_ROWS).join('\n')
+  const status = rows.slice(-STATUS_ROWS)
+  const scope = task === undefined ? text : status.join('\n')
+  const quoted = task === undefined ? '' : squash(task)
+  const found = (marker: string): boolean => scope.includes(marker) && !quoted.includes(marker)
   return {
-    loginRequired: includesAny(text, LOGIN_MARKERS),
+    loginRequired: LOGIN_MARKERS.some(found),
     trustPrompt: text.includes(TRUST_MARKER),
-    blocker: BLOCKER_MARKERS.find(marker => text.includes(marker)),
-    busy: includesAny(bottom, BUSY_MARKERS),
-    ready: includesAny(bottom, READY_MARKERS),
+    blocker: BLOCKER_MARKERS.find(found),
+    busy: status.some(line => BUSY_LINE.test(line)),
+    ready: READY_MARKERS.some(marker => bottom.includes(marker)),
   }
 }
 
-export function screenAnswer(text: string, task: string): string {
-  const lines = text.split('\n')
+function dropTrailingBoxes(lines: string[]): string[] {
+  let end = lines.length
+  for (;;) {
+    while (end > 0 && (lines[end - 1] ?? '').trim().length === 0) end -= 1
+    if (end === 0 || !(lines[end - 1] ?? '').trimStart().startsWith('╰')) return lines.slice(0, end)
+    const top = lines.slice(0, end).findLastIndex(line => line.trimStart().startsWith('╭'))
+    if (top < 0) return lines.slice(0, end)
+    end = top
+  }
+}
+
+export function screenAnswer(text: string, task: string): ScreenAnswer {
+  let lines = text.split('\n')
+  const ends = [
+    lines.findLastIndex(line => line.includes(FOOTER_MARKER)),
+    lines.findLastIndex(line => STATUS_LINE.test(line)),
+  ].filter(index => index >= 0)
+  if (ends.length > 0) lines = lines.slice(0, Math.min(...ends))
+  lines = dropTrailingBoxes(lines)
   const anchor = (task.split('\n').find(line => line.trim().length > 0) ?? '').trim().slice(0, ANSWER_ANCHOR_CHARS)
   const anchored = anchor.length === 0 ? -1 : lines.findLastIndex(line => line.includes(anchor))
-  return lines
-    .slice(anchored + 1)
-    .filter(line => !CHROME_PATTERN.test(line))
-    .join('\n')
-    .trim()
+  return {
+    text: lines
+      .slice(anchored + 1)
+      .filter(line => !CHROME_PATTERN.test(line))
+      .join('\n')
+      .trim(),
+    clipped: anchor.length > 0 && anchored < 0,
+  }
 }
 
 export class FreebuffScreen {
@@ -57,7 +92,7 @@ export class FreebuffScreen {
 
   constructor(cols: number, rows: number, reply: (data: string) => void) {
     const { Terminal } = requireHeadless()
-    this.emulator = new Terminal({ cols, rows, scrollback: 0 })
+    this.emulator = new Terminal({ cols, rows, scrollback: 0, allowProposedApi: true })
     this.replies = this.emulator.onData(reply)
   }
 

@@ -23,25 +23,6 @@ function mtimeOf(path: string): number | undefined {
   }
 }
 
-export function findChatFile(configDir: string, cwd: string, since: number): string | undefined {
-  const chatsDir = join(configDir, 'projects', basename(cwd), 'chats')
-  let names: string[]
-  try {
-    names = readdirSync(chatsDir)
-  } catch (_missing) {
-    return undefined
-  }
-  let newest: { file: string, mtime: number } | undefined
-  for (const name of names) {
-    const file = join(chatsDir, name, CHAT_MESSAGES_FILENAME)
-    const mtime = mtimeOf(file)
-    if (mtime !== undefined && mtime >= since && (newest === undefined || mtime > newest.mtime)) {
-      newest = { file, mtime }
-    }
-  }
-  return newest?.file
-}
-
 interface ChatBlock {
   readonly type?: unknown
   readonly content?: unknown
@@ -68,21 +49,55 @@ function messageText(message: ChatMessage): string {
   return typeof message.content === 'string' ? message.content.trim() : ''
 }
 
-export function readTranscript(file: string): FreebuffTranscript | undefined {
-  let messages: unknown
+function readMessages(file: string): ChatMessage[] | undefined {
   try {
-    messages = JSON.parse(readFileSync(file, 'utf8'))
+    const messages: unknown = JSON.parse(readFileSync(file, 'utf8'))
+    return Array.isArray(messages) ? messages as ChatMessage[] : undefined
   } catch (_unreadable) {
     return undefined
   }
-  if (!Array.isArray(messages)) return undefined
-  const all = messages as ChatMessage[]
+}
+
+function squash(text: string): string {
+  return text.replace(/\s+/g, ' ').trim()
+}
+
+export function findChatFile(configDir: string, cwd: string, since: number, task: string): string | undefined {
+  const chatsDir = join(configDir, 'projects', basename(cwd), 'chats')
+  let names: string[]
+  try {
+    names = readdirSync(chatsDir)
+  } catch (_missing) {
+    return undefined
+  }
+  const wanted = squash(task)
+  const candidates: { file: string; mtime: number }[] = []
+  for (const name of names) {
+    const file = join(chatsDir, name, CHAT_MESSAGES_FILENAME)
+    const mtime = mtimeOf(file)
+    if (mtime !== undefined && mtime >= since) candidates.push({ file, mtime })
+  }
+  candidates.sort((left, right) => right.mtime - left.mtime)
+  return candidates.find(({ file }) => {
+    const user = readMessages(file)?.findLast(message => message.variant === 'user')
+    return user !== undefined && squash(messageText(user)) === wanted
+  })?.file
+}
+
+export function readTranscript(file: string): FreebuffTranscript | undefined {
+  const all = readMessages(file)
+  if (all === undefined) return undefined
   const lastUser = all.findLastIndex(message => message.variant === 'user')
   if (lastUser < 0) return undefined
   const reply = all.slice(lastUser + 1)
-  const ai = reply.filter(message => message.variant === 'ai' && messageText(message).length > 0).at(-1)
-  const failed = reply.find(message => typeof message.userError === 'string' || message.variant === 'error')
-  const error = failed === undefined ? undefined : typeof failed.userError === 'string' ? failed.userError : messageText(failed)
+  const aiIndex = reply.findLastIndex(message => message.variant === 'ai' && messageText(message).length > 0)
+  const ai = reply[aiIndex]
+  const failedIndex = reply.findLastIndex(message => typeof message.userError === 'string' || message.variant === 'error')
+  const failed = reply[failedIndex]
+  const recovered = failed !== undefined && aiIndex > failedIndex && ai?.isComplete === true
+  const error = failed === undefined || recovered
+    ? undefined
+    : typeof failed.userError === 'string' ? failed.userError : messageText(failed)
   return {
     complete: ai?.isComplete === true,
     answer: ai === undefined ? '' : messageText(ai),

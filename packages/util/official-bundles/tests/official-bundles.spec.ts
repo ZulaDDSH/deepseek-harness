@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { OFFICIAL_ON_DEMAND_CATALOG, ON_DEMAND_BUNDLES, PROFILE_TEMPLATES } from '../src/index.ts'
 
 describe('Official on-demand catalog', () => {
-  it('offers exactly the two native subagent integrations with offline localized metadata', () => {
+  it('offers exactly the native subagent integrations with offline localized metadata', () => {
     expect(ON_DEMAND_BUNDLES).toEqual(['@deepseek-ai/dsh-subagent-claude-code', '@deepseek-ai/dsh-subagent-codex', '@deepseek-ai/dsh-subagent-freebuff'])
     expect(OFFICIAL_ON_DEMAND_CATALOG.map(entry => entry.packageName)).toEqual(ON_DEMAND_BUNDLES)
     for (const entry of OFFICIAL_ON_DEMAND_CATALOG) {

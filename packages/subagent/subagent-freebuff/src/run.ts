@@ -17,7 +17,7 @@ import type {
   SubprocessTerminalSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
 import { FreebuffNotLoggedInError, FreebuffRunFailure } from './errors.ts'
-import { classifyScreen, FreebuffScreen, screenAnswer, type ScreenState } from './screen.ts'
+import { classifyScreen, CLIPPED_NOTICE, FreebuffScreen, screenAnswer, type ScreenState } from './screen.ts'
 import { findChatFile, readTranscript } from './transcript.ts'
 
 export const DEFAULT_DISPOSE_GRACE_MS = 3_000
@@ -32,6 +32,7 @@ const PASTE_SETTLE_MS = 150
 const PASTE_START = '\x1b[200~'
 const PASTE_END = '\x1b[201~'
 const SCREEN_TAIL_ROWS = 12
+const PRODUCT_ERROR_MAX_CHARS = 400
 
 export interface FreebuffRunSpec {
   readonly cwd: string
@@ -58,11 +59,18 @@ export function taskText(prompt: readonly ContentBlock[]): string {
   }
   const task = texts.join('\n\n').replaceAll('\r\n', '\n').replace(/[^\P{Cc}\n\t]/gu, '').trim()
   if (task.length === 0) throw new Error('subagent-freebuff: the one-shot task must not be empty')
+  if (/^[/!]/.test(task)) {
+    throw new Error('subagent-freebuff: the one-shot task must not start with "/" or "!" because Freebuff would run it as a terminal command; rephrase the task')
+  }
   return task
 }
 
 function thrown(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value))
+}
+
+function isAborted(signal: AbortSignal): boolean {
+  return signal.aborted
 }
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
@@ -75,6 +83,12 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
     const timer = setTimeout(done, ms)
     signal.addEventListener('abort', done, { once: true })
   })
+}
+
+function productErrorDetail(text: string): string {
+  const flat = text.replace(/[\p{Cc}\s]+/gu, ' ').trim()
+  const shown = flat.length > PRODUCT_ERROR_MAX_CHARS ? `${flat.slice(0, PRODUCT_ERROR_MAX_CHARS)}...` : flat
+  return `Freebuff reported an error: ${shown}`
 }
 
 function exitDetail(outcome: SubprocessOutcome): string {
@@ -108,9 +122,15 @@ export async function startFreebuffRun(
     throw new FreebuffRunFailure('startup', 'process', 'the Freebuff terminal could not be started', undefined, error)
   }
 
-  const screen = new FreebuffScreen(COLS, ROWS, (data) => {
-    terminal.write(data).catch(() => {})
-  })
+  let screen: FreebuffScreen
+  try {
+    screen = new FreebuffScreen(COLS, ROWS, (data) => {
+      terminal.write(data).catch(() => {})
+    })
+  } catch (error: unknown) {
+    await terminal.terminate().catch(() => {})
+    throw new FreebuffRunFailure('startup', 'unknown', 'the terminal screen could not be created', undefined, error)
+  }
   terminal.output.setEncoding('utf8')
   const onOutput = (chunk: string): void => { screen.write(chunk) }
   const onOutputError = (): void => {}
@@ -128,8 +148,9 @@ export async function startFreebuffRun(
   let termination: Promise<void> | undefined
   const terminate = (): Promise<void> => {
     stopping = true
-    termination ??= terminal.terminate()
-    return termination
+    const pending = termination ?? terminal.terminate()
+    termination = pending
+    return pending
   }
   const release = async (): Promise<void> => {
     try {
@@ -144,41 +165,48 @@ export async function startFreebuffRun(
     }
   }
 
-  const processFailure: Promise<never> = terminal.done.then<never>(
+  const runAbort = new AbortController()
+  const interrupt = new AbortController()
+  const interrupted = new Promise<never>((_resolve, reject) => {
+    interrupt.signal.addEventListener('abort', () => { reject(thrown(interrupt.signal.reason)) }, { once: true })
+  })
+  interrupted.catch(() => {})
+  terminal.done.then(
     (outcome) => {
-      if (stopping) return new Promise<never>(() => {})
-      throw failure('process', 'process', `Freebuff exited before the run finished (${exitDetail(outcome)})`)
+      if (!stopping) interrupt.abort(failure('process', 'process', `Freebuff exited before the run finished (${exitDetail(outcome)})`))
     },
     (error: unknown) => {
-      throw new FreebuffRunFailure('process', 'process', 'the Freebuff terminal failed', screenTail(), error)
+      interrupt.abort(new FreebuffRunFailure('process', 'process', 'the Freebuff terminal failed', screenTail(), error))
     },
   )
-  processFailure.catch(() => {})
-
-  const runAbort = new AbortController()
   const requestCancel = (): void => {
     if (runAbort.signal.aborted) return
-    runAbort.abort(new Error('subagent-freebuff: run cancelled locally'))
+    const reason = new Error('subagent-freebuff: run cancelled locally')
+    runAbort.abort(reason)
+    interrupt.abort(reason)
     terminate().catch(() => {})
   }
   const onAbort = (): void => { requestCancel() }
   request.signal.addEventListener('abort', onAbort, { once: true })
+  if (isAborted(request.signal)) requestCancel()
 
   const pause = async (ms: number): Promise<void> => {
-    await Promise.race([sleep(ms, runAbort.signal), processFailure])
-    runAbort.signal.throwIfAborted()
+    await sleep(ms, interrupt.signal)
+    interrupt.signal.throwIfAborted()
   }
+  const send = (data: string): Promise<void> => Promise.race([terminal.write(data), interrupted])
 
   const waitReady = async (): Promise<void> => {
     const deadline = Date.now() + spec.startupTimeoutMs
     let answeredTrust = false
     for (;;) {
+      interrupt.signal.throwIfAborted()
       const state = classifyScreen(screen.text())
       if (state.loginRequired) throw new FreebuffNotLoggedInError('login screen shown by Freebuff')
       if (state.trustPrompt) {
         if (!answeredTrust) {
           answeredTrust = true
-          await terminal.write('n\r')
+          await send('n\r')
         }
       } else if (state.blocker !== undefined) {
         throw failure('startup', 'blocked', `Freebuff is waiting on the prompt "${state.blocker}"`)
@@ -193,7 +221,9 @@ export async function startFreebuffRun(
   }
 
   try {
-    await Promise.race([waitReady(), processFailure])
+    const ready = waitReady()
+    ready.catch(() => {})
+    await Promise.race([ready, interrupted])
   } catch (error: unknown) {
     request.signal.removeEventListener('abort', onAbort)
     const cancelled = runAbort.signal.aborted || request.signal.aborted
@@ -215,39 +245,39 @@ export async function startFreebuffRun(
   let diagnostic: string | undefined
 
   const turn = async (): Promise<SubagentResult> => {
-    await terminal.write(`${PASTE_START}${task}${PASTE_END}`)
+    await send(`${PASTE_START}${task}${PASTE_END}`)
     await pause(PASTE_SETTLE_MS)
-    await terminal.write('\r')
+    await send('\r')
     const submittedAt = Date.now()
     let sawBusy = false
     let lastBusyAt = submittedAt
     let chatFile: string | undefined
     for (;;) {
       const screenText = screen.text()
-      const state: ScreenState = classifyScreen(screenText)
-      if (!sawBusy) {
-        if (state.loginRequired) throw new FreebuffNotLoggedInError('login screen shown by Freebuff')
-        if (state.blocker !== undefined) {
-          throw failure('turn', 'blocked', `Freebuff is waiting on the prompt "${state.blocker}"`)
-        }
-      }
+      const state: ScreenState = classifyScreen(screenText, task)
       const now = Date.now()
       if (state.busy) {
         sawBusy = true
         lastBusyAt = now
       }
-      chatFile ??= findChatFile(spec.configDir, spec.cwd, startedAt)
+      chatFile ??= findChatFile(spec.configDir, spec.cwd, startedAt, task)
       const transcript = chatFile === undefined ? undefined : readTranscript(chatFile)
-      if (transcript?.error !== undefined) {
-        spec.onError?.(failure('turn', 'product-error', transcript.error), 'error')
-        throw failure('turn', 'product-error', 'Freebuff reported an error while working')
-      }
       const quiet = !state.busy && now - lastBusyAt >= spec.idleMs
+      if (transcript?.error !== undefined && quiet) {
+        throw failure('turn', 'product-error', productErrorDetail(transcript.error))
+      }
       if (quiet && ((sawBusy && state.ready) || transcript?.complete === true)) {
-        const answer = transcript?.complete === true ? transcript.answer : screenAnswer(screenText, task)
+        const fromScreen = transcript?.complete === true ? undefined : screenAnswer(screenText, task)
+        const answer = fromScreen === undefined ? transcript?.answer ?? '' : fromScreen.text
         if (answer.length === 0) throw failure('turn', 'invalid-result', 'Freebuff finished without an answer')
-        output = [{ type: 'text', text: answer }]
+        output = [{ type: 'text', text: fromScreen?.clipped === true ? `${CLIPPED_NOTICE}\n${answer}` : answer }]
         return { output, stopReason: 'completed' }
+      }
+      if (!state.busy) {
+        if (state.loginRequired) throw new FreebuffNotLoggedInError('login screen shown by Freebuff')
+        if (state.blocker !== undefined) {
+          throw failure('turn', 'blocked', `Freebuff is waiting on the prompt "${state.blocker}"`)
+        }
       }
       if (!sawBusy && transcript === undefined && now - submittedAt >= spec.startupTimeoutMs) {
         throw failure('turn', 'invalid-result', 'Freebuff did not start working on the task')
@@ -266,7 +296,7 @@ export async function startFreebuffRun(
       const attempt = turn()
       attempt.catch(() => {})
       try {
-        const settled = await Promise.race([attempt, processFailure, limit.expired])
+        const settled = await Promise.race([attempt, interrupted, limit.expired])
         terminate().catch(() => {})
         return settled
       } catch (error: unknown) {

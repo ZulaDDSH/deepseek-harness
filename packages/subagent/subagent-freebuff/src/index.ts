@@ -25,7 +25,6 @@ import {
 import { freebuffConfigDir } from './transcript.ts'
 
 export {
-  FREEBUFF_LOGIN_COMMAND,
   FreebuffNotInstalledError,
   FreebuffNotLoggedInError,
   FreebuffRunFailure,
@@ -110,7 +109,7 @@ class FreebuffProvider implements SubagentProvider {
         comSpec: process.env.ComSpec,
       })
       if (reason !== undefined) throw new FreebuffNotLoggedInError(`doctor: ${reason}`)
-      if (request.signal.aborted) throw new Error(`${PREFIX}: request was aborted before startup`)
+      if (isAborted(request.signal)) throw new Error(`${PREFIX}: request was aborted before startup`)
     }
     const spec: FreebuffRunSpec = {
       cwd,
@@ -161,4 +160,8 @@ export function apply(ctx: Context, config: Config): void {
   assertTimer('timeoutMs', resolved.timeoutMs)
   assertTimer('disposeGraceMs', resolved.disposeGraceMs)
   ctx.subagents.registerProvider(new FreebuffProvider(resolved.providerName, ctx, resolved))
+}
+
+function isAborted(signal: AbortSignal): boolean {
+  return signal.aborted
 }
