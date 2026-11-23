@@ -39,12 +39,15 @@ export interface Config {
    * {@link JournalMode}.
    */
   journalMode?: JournalMode
+  /** Hold the file lock while open; a second opener fails with `locked`. */
+  exclusive?: boolean
 }
 
 /** Schemastery validator for {@link Config}. */
 export const Config: z<Config> = z.object({
   path: z.string().required(),
   journalMode: z.union(['wal', 'delete', 'truncate', 'persist'] as const).default('wal'),
+  exclusive: z.boolean().default(true),
 })
 
 /**
@@ -68,7 +71,7 @@ export class SqliteStorageBackend implements StorageBackend {
    * @param config - Validated plugin configuration.
    */
   constructor(config: Config) {
-    this.ready = openDatabase(config.path, (config as Required<Config>).journalMode)
+    this.ready = openDatabase(config.path, (config as Required<Config>).journalMode, (config as Required<Config>).exclusive)
     // Mark the rejection handled: every primitive re-awaits `ready`, so an
     // open failure still surfaces to each caller; this guard only prevents an
     // unhandled-rejection crash when the failure precedes the first use.

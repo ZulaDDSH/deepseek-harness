@@ -57,7 +57,7 @@ async function createDatabaseFile(path: string): Promise<void> {
  * @param journalMode - validated journal pragma.
  * @returns the open handle with pragmas applied and the unit metadata tables ensured.
  */
-export async function openDatabase(path: string, journalMode: JournalMode): Promise<DatabaseSync> {
+export async function openDatabase(path: string, journalMode: JournalMode, exclusive = true): Promise<DatabaseSync> {
   const actual = path === ':memory:' ? path : resolve(path)
   if (actual !== ':memory:') {
     await mkdir(dirname(actual), { recursive: true, mode: 0o700 })
@@ -65,7 +65,7 @@ export async function openDatabase(path: string, journalMode: JournalMode): Prom
   }
   const db = new DatabaseSync(actual)
   try {
-    configureDatabase(db, actual, journalMode)
+    configureDatabase(db, actual, journalMode, exclusive)
     return db
   } catch (error: unknown) {
     db.close()
@@ -73,7 +73,20 @@ export async function openDatabase(path: string, journalMode: JournalMode): Prom
   }
 }
 
-function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalMode): void {
+function acquireOwnership(db: DatabaseSync, path: string): void {
+  try {
+    db.exec('PRAGMA locking_mode = EXCLUSIVE')
+    db.exec('BEGIN IMMEDIATE; COMMIT')
+  } catch (error: unknown) {
+    if ((error as { errcode?: number }).errcode === 5 || /database is locked/i.test(String(error))) {
+      throw new StorageError('locked', `storage database at "${path}" is owned by another connection; one process may open it`, { cause: error })
+    }
+    throw error
+  }
+}
+
+function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalMode, exclusive: boolean): void {
+  if (exclusive && path !== ':memory:') acquireOwnership(db, path)
   db.exec('PRAGMA foreign_keys = ON')
   // The validated union is safe to interpolate into a non-bindable PRAGMA.
   db.exec(`PRAGMA journal_mode = ${journalMode.toUpperCase()}`)

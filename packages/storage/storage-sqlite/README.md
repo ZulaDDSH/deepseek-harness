@@ -47,6 +47,7 @@ Two fields: the database path and the journal mode. `:memory:` opens an in-proce
 |---|---|---|
 | `path` | required | SQLite database file path, or `:memory:` |
 | `journalMode` | `wal` | Journal mode: `wal`, `delete`, `truncate`, or `persist` |
+| `exclusive` | `true` | Hold the file lock while open so a second opener fails with `locked`; external tools cannot read the file meanwhile |
 
 `wal` suits local disks; a rollback-journal mode (`delete`/`truncate`/`persist`) fits filesystems where WAL's shared-memory files do not work, such as network mounts. The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-storage-sqlite) is the exhaustive source for every accepted field and its JSDoc.
 
@@ -81,7 +82,7 @@ Opening the database creates the parent as `0o700`, exclusively creates a missin
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Plugin entry: backend registration, `path`/`journalMode` config, unit table |
+| [`src/index.ts`](src/index.ts) | Plugin entry: backend registration, `path`/`journalMode`/`exclusive` config, unit table |
 | [`src/schema.ts`](src/schema.ts) | Open sequence, physical layout version, metadata tables, record table naming |
 | [`src/unit.ts`](src/unit.ts) | One opened unit: prepared statements, JSON value parse, close |
 
@@ -127,6 +128,7 @@ These limits define when this backend is a poor fit or needs special operational
 
 - **Synchronous driver blocks the event loop** — writes use synchronous `DatabaseSync` calls; batch deletes and an accepted older unit's first mutation hold their transaction on the JavaScript thread.
 - **No busy-wait or retry policy** — a competing connection holding a write lock rejects the operation immediately instead of waiting; the domain layer's write chain serializes writes within one process, and cross-process coordination is out of scope.
+- **One owner per file** — with the default `exclusive: true` the connection holds the database lock until close, so a second Host or process gets `locked` and external readers (`sqlite3` CLI, file-level backup) are refused while the Host runs; `exclusive: false` removes the guard and the one-Host-per-file rule is then the operator's.
 - **Only the current physical layout version opens** — any other stamped `user_version` is rejected rather than migrated (pre-release stance).
 - **Version checks remain unit-wide** — a `per-record` layout request does not add per-record stamps or JSON's absent-document recovery policy to this backend.
 - **Open sequence duplicated with the query provider** — `openDatabase` and `session-query-sqlite` both enforce SQLite file ownership, but each package owns a distinct application identity and schema; no shared medium helper couples them.
