@@ -137,6 +137,11 @@ export class SettingsDescribeMirror implements SettingsDescribeFace {
    */
   acceptView(view: SettingsNamespaceView): void {
     const before = this.store.getSnapshot()
+    const held = before.view?.namespaces.find(row => row.ns === view.ns)
+    if (held !== undefined && held.revision > view.revision) {
+      void this.load()
+      return
+    }
     this.generation += 1
     if (this.inFlight !== undefined) this.rerun = true
     if (before.view === undefined) return

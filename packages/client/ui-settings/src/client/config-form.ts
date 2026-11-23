@@ -134,8 +134,13 @@ export class ConfigFormController<T> implements ConfigForm<T> {
     const generation = ++this.writeGeneration
     return this.enqueue(async () => {
       const revision = expectedRevision ?? this.pendingRevision ?? this.getSnapshot().revision
-      const response = await this.ctx.remote.settings.mutate(this.spec.namespace, ownedOps, revision)
-      if (!response.ok) {
+      let response: Awaited<ReturnType<typeof this.ctx.remote.settings.mutate>> | undefined
+      try {
+        response = await this.ctx.remote.settings.mutate(this.spec.namespace, ownedOps, revision)
+      } catch {
+        response = undefined
+      }
+      if (response === undefined || !response.ok) {
         await this.recover(generation)
         return false
       }
