@@ -15,6 +15,8 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { JobKillRequest, JobKillValue, JobFollowFrame, JobFollowRequest, JobListFrame, JobListRequest } from '../types.ts'
 import type { ClientJobsModel, JobsSource } from './model.ts'
 
+const ROSTER_RETRY_MS: readonly number[] = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000]
+
 /** The generated `job` namespace face the stream runners drive. */
 export interface JobRemote {
   /**
@@ -186,36 +188,41 @@ export class ClientJobs extends Service implements IJobs {
 
   private startRows(sessionId: SessionId): StreamEntry {
     const name = `job rows ${String(sessionId)}`
-    const stream = this.remote.$stream<JobListFrame>({
+    const openStream = () => this.remote.$stream<JobListFrame>({
       name,
       open: signal => this.remote.job.list({ sessionId }, signal),
-      // The roster has no natural end while it is watched: an end after the
-      // first frame is a carrier interruption (a Host reload closes the
-      // generation) and the next generation's whole set loses nothing. An end
-      // before the first frame is terminal.
       ended: accepted => accepted
         ? new RemoteStreamCarrierError(`${name} ended before release`)
         : new Error(`${name} ended before its first frame`),
     })
+    let stream = openStream()
     const entry: StreamEntry = {
       refs: 1,
       stopped: false,
       dispose: () => stream.dispose(),
     }
     void (async () => {
-      try {
-        for await (const item of stream) {
-          this.model.rowsReplaced(sessionId, item.value.jobs)
-          item.accept()
+      let failures = 0
+      while (!entry.stopped) {
+        let failed = false
+        try {
+          for await (const item of stream) {
+            this.model.rowsReplaced(sessionId, item.value.jobs)
+            item.accept()
+            failures = 0
+          }
+        } catch {
+          failed = true
+          if (!entry.stopped) this.model.rowsDropped(sessionId)
         }
-      } catch {
-        // A terminal stream failure leaves nothing current to show; the model
-        // drops the roster rather than keeping a stale set on screen.
-        if (!entry.stopped) this.model.rowsDropped(sessionId)
-      } finally {
-        entry.stopped = true
-        void entry.dispose()
+        void stream.dispose()
+        if (!failed || entry.stopped || failures >= ROSTER_RETRY_MS.length) break
+        await new Promise<void>((resolve) => { setTimeout(resolve, ROSTER_RETRY_MS[failures++]) })
+        if (entry.stopped) break
+        stream = openStream()
       }
+      entry.stopped = true
+      void entry.dispose()
     })()
     return entry
   }
