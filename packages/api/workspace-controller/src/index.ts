@@ -194,9 +194,10 @@ export class WorkspaceController extends TypertRemoteService {
   /**
    * Stream a complete Workspace baseline followed by ordered increments. A
    * non-owner receives only the Workspaces and Sessions `allows()` admits.
-   * When a delivered Workspace is no longer admitted at its next change or
-   * the next order change, the stream sends a `replace` frame with the
-   * complete filtered state instead of a `remove`, because a Client never
+   * When a delivered Workspace is no longer admitted at its next change, the
+   * next order change, or an access invalidation for the caller, the stream
+   * sends a `replace` frame with the complete filtered state (an
+   * invalidation always sends one) instead of a `remove`, because a Client never
    * resurrects a removed Workspace; a `remove` frame reports a deletion and
    * reaches only a Client that received that Workspace.
    * @param signal - generation cancellation.
