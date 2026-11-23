@@ -131,6 +131,7 @@ async function readCached(
 ): Promise<VerifiedRequestImage | undefined> {
   try {
     const data = new Uint8Array(await readFile(path, { signal }))
+    if (digest(data) !== (await readFile(`${path}.sha256`, { encoding: 'utf8', signal })).trim()) return undefined
     const detected = await probeImage(data)
     if (detected.depth !== 'uchar' || detected.space !== 'srgb'
       || detected.width > target.width || detected.height > target.height
@@ -165,6 +166,8 @@ async function writeCached(path: string, data: Uint8Array): Promise<void> {
   try {
     await writeFile(temporary, data, { mode: 0o600, flag: 'wx' })
     await rename(temporary, path)
+    await writeFile(temporary, digest(data), { mode: 0o600, flag: 'wx' })
+    await rename(temporary, `${path}.sha256`)
   } finally {
     await rm(temporary, { force: true })
   }

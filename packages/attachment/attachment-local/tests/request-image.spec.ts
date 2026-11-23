@@ -220,6 +220,31 @@ describe('local request-image cache', () => {
     }
   })
 
+  it('regenerates a cached variant replaced by another valid image or lacking its digest sidecar', async () => {
+    const dshHome = await home()
+    const attachments = new LocalAttachmentStore(new Context(), { dshHome })
+    const attachment = await attachments.saveImage({ data: await image(64, 32), mediaType: 'image/png' })
+    const policy = { width: 22, height: 11, maxBytes: 4_096 }
+    const initial = await attachments.readImageRequest(attachment, policy)
+    const hash = String(initial.variantId).slice('sha256:'.length)
+    const path = join(dshHome, 'cache', 'attachments', 'request-images', hash.slice(0, 2), hash)
+    const jpeg = async (width: number, height: number, r: number): Promise<Uint8Array> => new Uint8Array(await sharp({
+      create: { width, height, channels: 3, background: { r, g: 200, b: 10 } },
+    }).jpeg().toBuffer())
+
+    for (const replacement of [await jpeg(22, 11, 250), await jpeg(11, 6, 12)]) {
+      await writeFile(path, replacement)
+      const regenerated = await attachments.readImageRequest(attachment, policy)
+      expect(regenerated.data).toEqual(initial.data)
+      await expect(readFile(path)).resolves.toEqual(Buffer.from(initial.data))
+    }
+
+    await rm(`${path}.sha256`)
+    await writeFile(path, await jpeg(22, 11, 250))
+    await expect(attachments.readImageRequest(attachment, policy)).resolves.toMatchObject({ data: initial.data })
+    await expect(readFile(`${path}.sha256`, 'utf8')).resolves.toMatch(/^[0-9a-f]{64}$/)
+  })
+
   it('derives stable square and wide previews and separates route budgets in the cache key', async () => {
     const attachments = await store()
     const square = await attachments.saveImage({
