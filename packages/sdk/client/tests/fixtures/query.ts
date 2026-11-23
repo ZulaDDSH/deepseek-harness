@@ -135,6 +135,16 @@ createInterface({ input: process.stdin }).on('line', (line) => {
       finish()
       respond({ kind: 'prompt', messageId })
     }
+  } else if (frame.method === 'session/cancel') {
+    const mode = process.env.QUERY_CANCEL
+    if (mode === 'ack' || mode === 'malformed') {
+      for (const finish of [...promptFinishes.values(), ...commandFinishes.values()]) finish()
+      respond(mode === 'ack' ? { cancelled: true } : { cancelled: 'yes' })
+    } else if (mode !== 'hang') {
+      write({ jsonrpc: '2.0', id: frame.id, error: { code: -32601, message: 'unknown fixture method' } })
+    }
+  } else if (frame.method === 'session/wait') {
+    if (process.env.QUERY_HANG_WAIT === undefined) respond({})
   } else if (frame.method === 'test/state') {
     respond({ queries, methods, waitingPrompts: promptFinishes.size, waitingCommands: commandFinishes.size })
   } else if (frame.method === 'test/release') {

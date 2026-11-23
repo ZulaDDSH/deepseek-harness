@@ -42,6 +42,7 @@ Both wire ends share one method set: client-to-server requests, opt-in server-to
 | client→server | `session/query` | `SessionQueryParams` → `SessionQueryResult` |
 | client→server | `session/resume` | `SessionResumeParams` → `{}` |
 | client→server | `session/wait` | `SessionWaitParams` → `{}` |
+| client→server | `session/cancel` | `SessionCancelParams` → `SessionCancelResult` |
 | client→server | `session/working-directory/get` | `SessionWorkingDirectoryParams` → `SessionWorkingDirectoryResult` |
 | client→server | `session/working-directory/set` | `SessionWorkingDirectorySetParams` → `SessionWorkingDirectoryResult` |
 | client→server | `shutdown` | no params → `{}` |
@@ -57,6 +58,8 @@ Both wire ends share one method set: client-to-server requests, opt-in server-to
 `HarnessSdkRequestMap`, `HarnessSdkClientRequestMap`, `HarnessSdkHostRequestMap`, and `HarnessSdkNotificationMap` index these shapes by method name; the package root exports them together with the transport.
 
 `session/wait` accepts `{ sessionId }` for an existing SDK-owned session and returns `{}` after the root stays idle and progressing managed descendant work finishes. Idle descendants with parked input remain resident without blocking this wait. Unknown ids and live Agent failures without a newer committed terminal are rejected. Notifications committed during the wait precede its response on the same transport; raw `session.status` transitions retain their whole-agent meaning.
+
+`session/cancel` accepts a non-empty `{ sessionId }` and answers `{ cancelled }` at once; it never creates a Session. It aborts the root Agent's running turn or maintenance task (a model stream or tool execution), discards queued input, interrupts the Session's live subagent descendants, and rejects any `session/prompt` or `session/query` for that Session that is still being admitted (Session creation, attachment admission, command dispatch), so a timed-out request cannot enqueue its prompt afterwards. `cancelled` is `true` when a live Agent received the cancellation and `false` when the Session does not exist. The response acknowledges the request, not quiescence: observe settlement and the outcome with `session/wait`, `session.status`, and the `turn/end` event (an aborted turn records `{ kind: "aborted", reason: { kind: "user" } }`). That same observation path resolves an ambiguous timeout, since a timeout does not establish whether the operation committed. The cancel is Session-wide, so other overlapping inputs on the same Session are cancelled too. A runtime without the method answers `-32603` and a client treats that as best effort.
 
 `session/query` accepts `{ sessionId, contentBlocks }`, where `contentBlocks` uses `SdkPromptContentBlock[]`. Both SDKs normalize string input into a text block and send content-block arrays through this same entry. The runtime replies with `{ kind: "prompt", messageId }` for queued ordinary input, preserving its block order, or `{ kind: "command", execution }` after a supported command settles. A recognized command requires one complete text block with only encoded images beside it; other combinations reject before execution or enqueue. The images go through native attachment admission and handler validation. Empty arrays and arrays containing only blank text are rejected; image-only input is allowed. A prompt receipt is not a model result; command completion does not require an inbox receipt or idle notification. Recognition and the supported command set belong to the [SDK server](../server/README.md).
 
@@ -136,7 +139,8 @@ None; this package neither assembles nor sends a provider request.
 These limits define what the protocol does not cover or promise. They are current package constraints, not a comparison with other wire formats or a task backlog.
 
 - **No protocol-version negotiation** — the handshake carries only `serverInfo.version` (`0.0.1`, unvalidated by clients); pre-release stance, no compatibility promise.
-- **No cancel or session-close methods** — a client abandons a turn by closing the runtime process; see the [JSON-RPC serving plugin](../server/README.md).
+- **No session-close method** — `session/cancel` stops a Session's work but its Agent stays live until the runtime process closes; see the [JSON-RPC serving plugin](../server/README.md).
+- **Cancellation is Session-wide and acknowledged, not settled** — there is no per-operation cancel, and `session/cancel` returns before the Agent is idle; settlement is observed with `session/wait`.
 - **Frames and output are bounded** — an input line above `MAX_FRAME_CHARS` (64 Mi UTF-16 code units) or queued output above `MAX_OUTPUT_QUEUE_BYTES` (64 MiB, counted until each write callback) fails the transport: pending and later requests reject with the limit error, both streams are destroyed, and `onFailure` runs once. `notify()` and handler responses become no-ops after the failure; `flush()` rejects. A peer that needs larger frames, or a reader that falls more than the queue behind, is disconnected rather than buffered.
 - **Question waits are process-local** — question request ids are not durable handles for replying after runtime restart. Session history retains completed tool results through its ordinary persistence path.
 

@@ -11,3 +11,11 @@
 ## packages/sdk/protocol/src/types.ts:ApprovalRequestParams (finding 140)
 
 `operation` is an optional display-only summary of the operation's arguments (at most 1024 characters, key-name redacted). Clients that ignore unknown fields keep working; the Python model ignores it and exposes it through the raw payload.
+
+## packages/sdk/protocol/src/types.ts:HarnessSdkRequestMap (finding 126)
+
+`session/cancel` takes `{ sessionId }` and answers `{ cancelled }`. It is an acknowledgement that cancellation was requested, not that the Session is quiescent: the outcome and settlement path stays `session/wait` plus the `session.status` and `turn/end` events, which also answer an ambiguous timeout. `cancelled` is true when a live Agent received the cancellation; work still in admission (Session creation, attachment admission, a native command) is rejected in either case. An unknown id never creates a Session. Older runtimes answer `-32603 unknown method`, so a client treats a failed cancel as best effort.
+
+`packages/sdk/protocol/src/types.ts:SessionCancelParams`: the `session/cancel` request carries only the SDK-side Session id; there is no per-operation id because the runtime has no per-operation identity for a prompt before it is queued.
+
+`packages/sdk/protocol/src/types.ts:SessionCancelResult`: `cancelled` reports whether a live Agent received the cancellation, so a client can tell "nothing to cancel" from "cancel delivered" without inferring it from errors.

@@ -41,6 +41,9 @@ const STDERR_TRUNCATED_MARK = '...[truncated]'
 /** Grace for the runtime's stdio streams to settle after its exit edge. */
 const STREAM_SETTLE_MS = 100
 
+const CANCEL_TIMEOUT_MS = 1_000
+const CANCEL_ON_TIMEOUT = new Set(['session/prompt', 'session/query'])
+
 /**
  * The runtime subprocess is gone or unusable: it exited, its stdio closed, or
  * it was never launchable. The message carries the exit code and a stderr
@@ -205,9 +208,7 @@ class NotificationSubscriptionImpl implements NotificationSubscription {
  *
  * The subprocess starts lazily on {@link start} and is owned by this instance
  * until {@link close}, which requests protocol `shutdown` and then walks the
- * shared EOF → SIGTERM → SIGKILL dispose ladder to quiescence. There is no
- * wire-level cancel: a timed-out request stays running server-side until the
- * runtime is closed.
+ * shared EOF → SIGTERM → SIGKILL dispose ladder to quiescence.
  */
 export class HarnessClient {
   /** Original public dsh launch and timeout options for this client. */
@@ -381,6 +382,14 @@ export class HarnessClient {
     return result.messageId
   }
 
+  async cancelSession(sessionId: string): Promise<boolean> {
+    const result = await this.request('session/cancel', { sessionId }, CANCEL_TIMEOUT_MS)
+    if (!isRecord(result) || typeof result.cancelled !== 'boolean') {
+      throw new SdkProtocolError(`session/cancel returned no acknowledgement: ${JSON.stringify(result)}`)
+    }
+    return result.cancelled
+  }
+
   /**
    * Restore persisted history without sending a prompt; failures propagate without creating a session.
    * @param sessionId - persisted identity in this runtime's configured persistence store.
@@ -407,6 +416,12 @@ export class HarnessClient {
    */
   setWorkingDirectory(sessionId: string, path: string): Promise<string> {
     return this.workingDirectoryRequest('session/working-directory/set', { sessionId, path })
+  }
+
+  private async cancelTimedOut(method: string, params: object | undefined): Promise<void> {
+    const sessionId = (params as { sessionId?: unknown } | undefined)?.sessionId
+    if (!CANCEL_ON_TIMEOUT.has(method) || typeof sessionId !== 'string') return
+    await this.cancelSession(sessionId).catch(() => undefined)
   }
 
   private async workingDirectoryRequest(method: string, params: object): Promise<string> {
@@ -440,9 +455,6 @@ export class HarnessClient {
     const timeout = timeoutMs ?? this.runtime.requestTimeoutMs
     try {
       if (timeout === undefined) return await transport.request(method, params ?? {})
-      // The abort signal makes the timeout an abandonment: the transport drops
-      // its pending entry, so repeated bounded requests against a hung method
-      // retain no per-call state (the server-side work still runs to close).
       const abandon = new AbortController()
       const timer = setTimeout(() => {
         const stderr = this.stderrTail.length === 0 ? '' : `; stderr tail:\n${this.stderrTail.join('\n')}`
@@ -454,6 +466,7 @@ export class HarnessClient {
         clearTimeout(timer)
       }
     } catch (error) {
+      if (error instanceof RequestTimeoutError) await this.cancelTimedOut(method, params)
       if (error instanceof JsonRpcResponseError || error instanceof RequestTimeoutError) throw error
       // Transport-level failures gain process context: exit code + stderr tail.
       await this.settleStreams()

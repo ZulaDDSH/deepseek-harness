@@ -29,6 +29,8 @@ import type {
   InitializeParams,
   InitializeResult,
   JsonRpcTransportPeer,
+  SessionCancelParams,
+  SessionCancelResult,
   SessionEventNotification,
   SessionQueryParams,
   SessionQueryResult,
@@ -98,6 +100,7 @@ export class HarnessSdkJsonRpcServer {
   private readonly commandTasks = new Set<Promise<CommandExecution | undefined>>()
   private readonly queryInvocation = new AsyncLocalStorage<QueryActivity>()
   private readonly queryActivities = new Set<QueryActivity>()
+  private readonly admissions = new Map<string, AbortController>()
   private readonly goalLifetime: { dispose(): Promise<void> }
   private readonly disposers: (() => void)[] = []
   private shutdownTask: Promise<Record<string, never>> | undefined
@@ -260,16 +263,22 @@ export class HarnessSdkJsonRpcServer {
    * @param params - target session and user content.
    * @returns the durable message identity.
    */
-  async prompt(params: SessionPromptParams): Promise<SessionPromptResult> {
+  prompt(params: SessionPromptParams): Promise<SessionPromptResult> {
+    return this.enqueue(params, this.admissionSignal(params.sessionId))
+  }
+
+  private async enqueue(params: SessionPromptParams, cancelled: AbortSignal): Promise<SessionPromptResult> {
     if (!this.initialized) throw new Error('SDK server is not initialized')
     const rec = await this.getOrCreateSession(params.sessionId)
     this.lifetime.signal.throwIfAborted()
+    cancelled.throwIfAborted()
     // An agent-loop-only reload disposes the loop's agents while this record
     // survives; a retained agent accepts followup() silently, so validate the
     // record against the live registry before delivery.
     this.assertLiveAgent(rec, params.sessionId)
     const content = await durablePromptContent(this.ctx, params.contentBlocks)
     this.lifetime.signal.throwIfAborted()
+    cancelled.throwIfAborted()
     // Attachment admission crosses an async boundary where shutdown or an
     // agent-loop reload may detach the retained handle.
     this.assertLiveAgent(rec, params.sessionId)
@@ -290,12 +299,14 @@ export class HarnessSdkJsonRpcServer {
   async query(params: SessionQueryParams): Promise<SessionQueryResult> {
     if (!this.initialized) throw new Error('SDK server is not initialized')
     if (this.shuttingDown) throw new Error('SDK server is shutting down')
+    const cancelled = this.admissionSignal(params.sessionId)
     const text = params.contentBlocks.find(block => block.type === 'text')
     if (text?.text.trim().startsWith('/')) {
       const commands = this.ctx.get('commands')
       if (commands !== undefined) {
         const rec = await this.getOrCreateSession(params.sessionId)
         this.lifetime.signal.throwIfAborted()
+        cancelled.throwIfAborted()
         this.assertLiveAgent(rec, params.sessionId)
         const line = queryCommand(text.text, commands.list(rec.handle.agent))
         if (line !== undefined) {
@@ -308,7 +319,7 @@ export class HarnessSdkJsonRpcServer {
             const task = this.queryInvocation.run(activity, () => commands.execute(rec.handle.agent, line, images.map(image => ({
               type: 'image', data: image.data, mediaType: image.mimeType,
               ...image.name === undefined ? {} : { name: image.name },
-            })), this.lifetime.signal))
+            })), AbortSignal.any([this.lifetime.signal, cancelled])))
             this.commandTasks.add(task)
             try {
               const execution = await task
@@ -325,10 +336,10 @@ export class HarnessSdkJsonRpcServer {
         }
       }
     }
-    const receipt = await this.prompt({
+    const receipt = await this.enqueue({
       sessionId: params.sessionId,
       contentBlocks: params.contentBlocks,
-    })
+    }, cancelled)
     return { kind: 'prompt', ...receipt }
   }
 
@@ -383,6 +394,28 @@ export class HarnessSdkJsonRpcServer {
     }
   }
 
+  cancel(params: SessionCancelParams): SessionCancelResult {
+    if (!this.initialized) throw new Error('SDK server is not initialized')
+    if (this.shuttingDown) throw new Error('SDK server is shutting down')
+    this.admissions.get(params.sessionId)?.abort(new Error(`SDK session work was cancelled: ${params.sessionId}`))
+    this.admissions.delete(params.sessionId)
+    const root = this.sessions.get(params.sessionId)?.handle.agent
+    if (root === undefined || this.ctx.agents.get(root.id) !== root) return { cancelled: false }
+    root.cancel({ kind: 'user' })
+    const lineage = new Set<string>([root.id])
+    for (let grew = true; grew;) {
+      grew = false
+      for (const agent of this.ctx.agents.list()) {
+        const parent = agent.session.header.parentSession
+        if (parent === undefined || !lineage.has(parent) || lineage.has(agent.id)) continue
+        lineage.add(agent.id)
+        grew = true
+        this.ctx.get('subagents')?.interrupt(agent.id, { kind: 'user' })
+      }
+    }
+    return { cancelled: true }
+  }
+
   /**
    * Resolves live SDK ownership; root lookup failures other than SubagentError/UNAUTHORIZED propagate.
    * @param agent - Agent whose requests need routing.
@@ -404,6 +437,15 @@ export class HarnessSdkJsonRpcServer {
       throw error
     }
     return this.sessions.get(root.session.id)?.handle.agent === root
+  }
+
+  private admissionSignal(sessionId: string): AbortSignal {
+    let controller = this.admissions.get(sessionId)
+    if (controller === undefined) {
+      controller = new AbortController()
+      this.admissions.set(sessionId, controller)
+    }
+    return controller.signal
   }
 
   private assertLiveAgent(rec: SessionRecord, sessionId: string): void {
@@ -460,6 +502,7 @@ export class HarnessSdkJsonRpcServer {
     await Promise.allSettled([...this.commandTasks])
     this.queryInvocation.disable()
     this.sessionCreations.clear()
+    this.admissions.clear()
     this.scheduledSessions.clear()
     const records = [...this.sessions.values()]
     this.sessions.clear()
@@ -523,6 +566,13 @@ export class HarnessSdkJsonRpcServer {
         const sessionId = params?.sessionId
         if (typeof sessionId !== 'string') throw new TypeError('session/wait requires a sessionId string')
         return this.wait({ sessionId })
+      }
+      case 'session/cancel': {
+        const sessionId = params?.sessionId
+        if (typeof sessionId !== 'string' || sessionId.length === 0) {
+          throw new TypeError('session/cancel requires a non-empty sessionId string')
+        }
+        return this.cancel({ sessionId })
       }
       case 'session/working-directory/get':
       case 'session/working-directory/set': {

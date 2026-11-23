@@ -213,6 +213,7 @@ export interface HarnessSdkRequestMap {
   'session/query': { params: SessionQueryParams; result: SessionQueryResult }
   'session/resume': { params: SessionResumeParams; result: Record<string, never> }
   'session/wait': { params: SessionWaitParams; result: Record<string, never> }
+  'session/cancel': { params: SessionCancelParams; result: SessionCancelResult }
   'session/working-directory/get': { params: SessionWorkingDirectoryParams; result: SessionWorkingDirectoryResult }
   'session/working-directory/set': { params: SessionWorkingDirectorySetParams; result: SessionWorkingDirectoryResult }
   'shutdown': { params: undefined; result: Record<string, never> }
@@ -240,4 +241,12 @@ export interface ApprovalRequestResult {
 /** Requests sent by the server after the client explicitly enables them. */
 export interface HarnessSdkClientRequestMap {
   'approval/request': { params: ApprovalRequestParams; result: ApprovalRequestResult }
+}
+
+export interface SessionCancelParams {
+  sessionId: string
+}
+
+export interface SessionCancelResult {
+  cancelled: boolean
 }
