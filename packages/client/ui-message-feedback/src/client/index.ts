@@ -87,13 +87,22 @@ export function apply(ctx: ClientContext): void {
   }
   ctx.provide('feedbackUi', feedbackUi)
 
-  // A reconnect can only invalidate what was already read; a cold Session
-  // stays cold until something asks for it.
   ctx.on('connection/reset', () => {
     for (const { feedback } of surfaces.values()) {
-      if (feedback.getSnapshot().status !== 'cold') void feedback.resync()
+      if (!feedback.watched) feedback.evict()
+      else if (feedback.getSnapshot().status !== 'cold') void feedback.resync()
     }
   })
+
+  ctx.effect(() => {
+    const revalidate = () => {
+      for (const { feedback } of surfaces.values()) {
+        if (feedback.watched && feedback.getSnapshot().status === 'ready') void feedback.resync()
+      }
+    }
+    window.addEventListener('focus', revalidate)
+    return () => { window.removeEventListener('focus', revalidate) }
+  }, 'ui-message-feedback: focus revalidation')
 
   ctx.slots.inject('conversation.chat.assistant-actions', () => ctx.slots.register({
     name: 'conversation.chat.assistant-actions',

@@ -310,21 +310,45 @@ describe('ui-message-feedback browser plugin', () => {
     })
   })
 
-  it('refreshes only Sessions already read when the connection resets', async () => {
+  it('resyncs only watched Sessions on reconnect and evicts idle ones', async () => {
     const b = await bench()
     await b.fiber.await()
 
-    const warm = b.entry()!.inject!(sid('warm'))
-    await warm.ensure()
-    b.entry()!.inject!(sid('cold'))
-    const before = b.calls.filter(call => call.method === 'list').length
+    const watched = b.entry()!.inject!(sid('watched'))
+    await watched.ensure()
+    watched.hooks.feedback.subscribe(() => {})
+    const idle = b.entry()!.inject!(sid('idle'))
+    await idle.ensure()
+    const listsBefore = b.calls.filter(call => call.method === 'list').length
 
     b.ctx.emit('connection/reset')
-    await Promise.resolve()
 
-    const reads = b.calls.filter(call => call.method === 'list')
-    expect(reads).toHaveLength(before + 1)
-    expect(reads.at(-1)?.request).toEqual({ sessionId: 'warm' })
+    await vi.waitFor(() => {
+      const reads = b.calls.filter(call => call.method === 'list')
+      expect(reads).toHaveLength(listsBefore + 1)
+      expect(reads.at(-1)?.request).toEqual({ sessionId: 'watched' })
+    })
+    expect(idle.hooks.feedback.getSnapshot().status).toBe('cold')
+  })
+
+  it('revalidates watched ready Sessions when the window regains focus', async () => {
+    const b = await bench()
+    await b.fiber.await()
+
+    const watched = b.entry()!.inject!(sid('watched'))
+    await watched.ensure()
+    watched.hooks.feedback.subscribe(() => {})
+    const idle = b.entry()!.inject!(sid('idle'))
+    await idle.ensure()
+    const listsBefore = b.calls.filter(call => call.method === 'list').length
+
+    window.dispatchEvent(new Event('focus'))
+
+    await vi.waitFor(() => {
+      const reads = b.calls.filter(call => call.method === 'list')
+      expect(reads).toHaveLength(listsBefore + 1)
+      expect(reads.at(-1)?.request).toEqual({ sessionId: 'watched' })
+    })
   })
 
   it('withdraws the registrations and disposes surfaces with the plugin fiber', async () => {
