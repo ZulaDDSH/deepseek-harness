@@ -83,6 +83,20 @@ function successStatus(reason: string, options: HarnessSdkJsonRpcServerOptions):
   return reason === 'max-tokens' && options.maxTokensAsSuccess === true ? 'ok' : 'error'
 }
 
+function validateInitializeParams(params: InitializeParams): void {
+  if (params.approvalRequests !== undefined && typeof params.approvalRequests !== 'boolean') {
+    throw new TypeError('initialize approvalRequests must be a boolean')
+  }
+  if (params.reasoningEffort !== undefined
+    && (typeof params.reasoningEffort !== 'string' || params.reasoningEffort.length === 0)) {
+    throw new TypeError('initialize reasoningEffort must be a non-empty string')
+  }
+  if (params.maxTokens !== undefined
+    && (!Number.isSafeInteger(params.maxTokens) || params.maxTokens <= 0)) {
+    throw new TypeError('initialize maxTokens must be a positive safe integer')
+  }
+}
+
 /**
  * SDK server over one booted harness context and transport peer. Construction
  * subscribes to session, agent, and subagent lifecycle events until shutdown;
@@ -218,6 +232,11 @@ export class HarnessSdkJsonRpcServer {
    * @returns server identity for the handshake.
    */
   initialize(params: InitializeParams): Promise<InitializeResult> {
+    try {
+      validateInitializeParams(params)
+    } catch (error) {
+      return Promise.reject(error)
+    }
     const key = JSON.stringify(params)
     if (this.initializeClaim !== undefined) {
       return this.initializeClaim.key === key
@@ -234,17 +253,6 @@ export class HarnessSdkJsonRpcServer {
   }
 
   private async runInitialize(params: InitializeParams): Promise<InitializeResult> {
-    if (params.approvalRequests !== undefined && typeof params.approvalRequests !== 'boolean') {
-      throw new TypeError('initialize approvalRequests must be a boolean')
-    }
-    if (params.reasoningEffort !== undefined
-      && (typeof params.reasoningEffort !== 'string' || params.reasoningEffort.length === 0)) {
-      throw new TypeError('initialize reasoningEffort must be a non-empty string')
-    }
-    if (params.maxTokens !== undefined
-      && (!Number.isSafeInteger(params.maxTokens) || params.maxTokens <= 0)) {
-      throw new TypeError('initialize maxTokens must be a positive safe integer')
-    }
     const cwd = resolve(params.cwd)
     const provider = params.provider
     const model = params.model
