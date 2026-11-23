@@ -929,14 +929,17 @@ describe('matchEnter envelope policy (images)', () => {
     await expect(outcome.claim.submit('x', new Context(), [png])).resolves.toEqual({ kind: 'success' })
   })
 
-  it('an imageless submission keeps the always-success admission mapping over a handler error', async () => {
-    const { source, warm } = await bench({
+  it('an imageless submission keeps the draft over a handler error, like an attachment-bearing one', async () => {
+    const { source, warm, executeCalls, executions } = await bench({
       execute: () => Promise.resolve({ matched: true, result: { kind: 'error', text: 'late failure' } }),
     })
     await warm(proj('s1'))
     const outcome = source.matchSpace!(proj('s1'), '/goal')
     if (outcome === undefined || outcome === 'handled' || !('claim' in outcome)) throw new Error('expected claim')
-    await expect(outcome.claim.submit('x', new Context(), [])).resolves.toEqual({ kind: 'success' })
+    await expect(outcome.claim.submit('x', new Context(), [])).resolves.toEqual({ kind: 'error', text: 'late failure' })
+    await expect(outcome.claim.submit('x', new Context(), [png])).resolves.toEqual({ kind: 'error', text: 'late failure' })
+    expect(executeCalls).toHaveLength(2)
+    expect(executions).toHaveLength(2)
   })
 })
 

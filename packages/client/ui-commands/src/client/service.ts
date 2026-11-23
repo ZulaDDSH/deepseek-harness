@@ -486,7 +486,7 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
    * The command.execute transaction, addressed to the session's agent — pure
    * admission semantics. An unmatched line reports an error outcome (the
    * composer's immediate admission feedback); an admitted command reports
-   * plain success regardless of its handler outcome, because the host
+   * plain success for a handled outcome, because the host
    * executor durably logged the lifecycle (`command/run`/`command/done`) and
    * the outcome renders as a persistent flow node — the composer never
    * echoes it. A handler error result reports an error outcome so the
@@ -502,9 +502,7 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
     if (!result.ok) throw new Error(`command.execute failed: ${result.error.code}: ${result.error.message}`)
     if (result.value === undefined) return { kind: 'error', text: `unknown or malformed command: ${line}` }
     this.notifyExecuted(session.sessionId, submittedCommandName(line), result.value.result)
-    // A submission consumes its attachments only after handler success; an
-    // error outcome keeps the draft and attachments in the composer.
-    if (attachments.length > 0 && result.value.result.kind === 'error') {
+    if (result.value.result.kind === 'error') {
       return { kind: 'error', text: result.value.result.text }
     }
     return { kind: 'success' }
