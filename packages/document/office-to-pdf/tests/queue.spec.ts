@@ -560,3 +560,29 @@ it('classifies provider disposal independently from caller cancellation', async 
     await expect(h.queue.read(source('later').request)).rejects.toMatchObject({ code: 'unavailable' })
   } finally { complete.resolve(output); await closing }
 })
+
+it('rejects a shared reader whose result copy throws instead of leaving it pending', async () => {
+  const h = harness()
+  const complete = Promise.withResolvers<typeof output>()
+  const entered = Promise.withResolvers<undefined>()
+  h.convert.mockImplementationOnce(() => { entered.resolve(undefined); return complete.promise })
+  const a = source('a')
+  const first = h.queue.read(a.request)
+  await entered.promise
+  const second = h.queue.read(a.request)
+  const realFrom = Uint8Array.from
+  let copies = 0
+  const spy = vi.spyOn(Uint8Array, 'from').mockImplementation(function (this: unknown, ...args: Parameters<typeof Uint8Array.from>) {
+    if (args[0] === output.pdf && ++copies === 2) throw new RangeError('allocation failed')
+    return realFrom.apply(this as typeof Uint8Array, args)
+  })
+  try {
+    complete.resolve(output)
+    await expect(first).resolves.toMatchObject({ missingFonts: ['Font'] })
+    const outcome = await Promise.race([
+      second.then(() => 'resolved', (error: unknown) => error),
+      new Promise<string>(resolve => setTimeout(() => resolve('pending'), 200)),
+    ])
+    expect(outcome).toBeInstanceOf(RangeError)
+  } finally { spy.mockRestore() }
+})
