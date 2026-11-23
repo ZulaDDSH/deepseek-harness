@@ -62,8 +62,7 @@ function bound(value: string, max: number): string {
   return `${value.slice(0, end)}${ELLIPSIS}`
 }
 
-function boundField(source: WebSearchSource, key: keyof typeof WEB_SEARCH_FIELD_MAX_CHARS): Partial<WebSearchSource> {
-  if (key === 'content') return {}
+function boundField(source: WebSearchSource, key: Exclude<keyof typeof WEB_SEARCH_FIELD_MAX_CHARS, 'content'>): Partial<WebSearchSource> {
   const value = source[key]
   return value === undefined ? {} : { [key]: bound(value, WEB_SEARCH_FIELD_MAX_CHARS[key]) }
 }
