@@ -98,3 +98,16 @@ export async function inflateImage(bytes: Uint8Array, source: string): Promise<U
   if (body === null) throw new Error(`webworker image: ${source} produced no readable body`)
   return await inflateImageStream(body, source)
 }
+
+const LAZY_DIGEST = /(?:^|\/)([0-9a-f]{64})\.tar\.gz$/u
+
+// Constraint: the digest covers the compressed bytes, so it is checked before inflation.
+ */
+export async function inflateDigestedArchive(bytes: Uint8Array, name: string): Promise<Uint8Array> {
+  const expected = LAZY_DIGEST.exec(name)?.[1]
+  if (expected === undefined) throw new Error(`webworker image: lazy archive ${name} does not name a SHA-256 content digest`)
+  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes as Uint8Array<ArrayBuffer>))
+  const actual = [...hash].map(byte => byte.toString(16).padStart(2, '0')).join('')
+  if (actual !== expected) throw new Error(`webworker image: lazy archive ${name} holds bytes with SHA-256 ${actual}`)
+  return await inflateImage(bytes, name)
+}
