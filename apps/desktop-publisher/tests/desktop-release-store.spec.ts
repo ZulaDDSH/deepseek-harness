@@ -1,4 +1,6 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { spawnSync } from 'node:child_process'
+import { mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from 'node:fs/promises'
+import { hostname } from 'node:os'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
@@ -26,7 +28,10 @@ it('retains independent attempts after source removal and rejects replacing an e
   const first = await retainDesktopRelease(root, source, [file])
   const second = await retainDesktopRelease(root, { ...source, attempt: '2' }, [file])
   expect(first).not.toBe(second)
+  await writeFile(file, 'different installer bytes')
   await expect(retainDesktopRelease(root, source, [file])).rejects.toThrow(/already exists/u)
+  await writeFile(file, 'signed installer fixture')
+  await expect(retainDesktopRelease(root, source, [file])).resolves.toBe(first)
   await rm(file)
   const manifest = await verifyRetainedDesktopRelease(root, '100', '1')
   expect(manifest.source).toEqual(source)
@@ -81,4 +86,49 @@ it('retains test branch identity while rejecting production branch manifests', a
   manifest.source.preset = 'production'
   await writeFile(path, JSON.stringify(manifest))
   await expect(verifyRetainedDesktopRelease(root, source.runId, source.attempt)).rejects.toThrow(/Production source/u)
+})
+
+async function plantClaim(root: string, owner: unknown) {
+  const parent = join(root, '100')
+  await mkdir(parent, { recursive: true })
+  const claim = join(parent, '1.lock')
+  await mkdir(claim)
+  if (owner !== undefined) await writeFile(join(claim, 'owner.json'), JSON.stringify(owner))
+  await mkdir(join(parent, '.retaining-1-leftover'))
+  await mkdir(join(parent, '.retaining-2-other'))
+  return { parent, claim }
+}
+
+function deadPid(): number {
+  const child = spawnSync(process.execPath, ['-e', ''])
+  return child.pid
+}
+
+it('recovers a claim whose owner process died and sweeps its staging directory', async () => {
+  const { root, file, source } = await fixture()
+  const { parent } = await plantClaim(root, { pid: deadPid(), host: hostname() })
+  const retained = await retainDesktopRelease(root, source, [file])
+  await expect(verifyRetainedDesktopRelease(root, '100', '1')).resolves.toMatchObject({ source })
+  expect(retained).toBe(retainedDesktopPath(root, '100', '1'))
+  const entries = await readdir(parent)
+  expect(entries).not.toContain('.retaining-1-leftover')
+  expect(entries).toContain('.retaining-2-other')
+  expect(entries.filter(entry => entry.includes('lock'))).toEqual([])
+})
+
+it('keeps rejecting a claim held by a live process or another host', async () => {
+  const { root, file, source } = await fixture()
+  const { claim } = await plantClaim(root, { pid: process.pid, host: hostname() })
+  await expect(retainDesktopRelease(root, source, [file])).rejects.toThrow(/EEXIST/u)
+  await writeFile(join(claim, 'owner.json'), JSON.stringify({ pid: deadPid(), host: 'another-machine' }))
+  await expect(retainDesktopRelease(root, source, [file])).rejects.toThrow(/EEXIST/u)
+})
+
+it('recovers an ownerless claim only after its grace period', async () => {
+  const { root, file, source } = await fixture()
+  const { claim } = await plantClaim(root, undefined)
+  await expect(retainDesktopRelease(root, source, [file])).rejects.toThrow(/EEXIST/u)
+  const old = new Date(Date.now() - 10 * 60_000)
+  await utimes(claim, old, old)
+  await expect(retainDesktopRelease(root, source, [file])).resolves.toBe(retainedDesktopPath(root, '100', '1'))
 })

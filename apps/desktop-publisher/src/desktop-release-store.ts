@@ -1,8 +1,10 @@
 /** Retain immutable Desktop build files outside disposable runner checkouts. */
 import { createHash } from 'node:crypto'
 import { createReadStream, constants } from 'node:fs'
-import { copyFile, lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
+import { copyFile, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
+import { hostname } from 'node:os'
 import { basename, isAbsolute, join } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import { z } from 'zod'
 
 const positiveId = z.string().regex(/^[1-9]\d*$/u)
@@ -69,6 +71,66 @@ export function retainedDesktopPath(root: string, runId: string, attempt: string
   return join(root, runId, attempt)
 }
 
+const OWNERLESS_CLAIM_GRACE_MS = 60_000
+
+function isErrno(error: unknown, code: string): boolean {
+  return error instanceof Error && 'code' in error && error.code === code
+}
+
+async function abandoned(claim: string): Promise<boolean> {
+  let owner: { pid?: unknown; host?: unknown } | undefined
+  try { owner = JSON.parse(await readFile(join(claim, 'owner.json'), 'utf8')) } catch (error) {
+    if (!isErrno(error, 'ENOENT') && !(error instanceof SyntaxError)) throw error
+  }
+  if (owner === undefined) return Date.now() - (await lstat(claim)).mtimeMs > OWNERLESS_CLAIM_GRACE_MS
+  if (owner.host !== hostname() || typeof owner.pid !== 'number') return false
+  try { process.kill(owner.pid, 0) } catch (error) { return isErrno(error, 'ESRCH') }
+  return false
+}
+
+async function claimAttempt(parent: string, attempt: string): Promise<string> {
+  const claim = join(parent, `${attempt}.lock`)
+  try { await mkdir(claim, { mode: 0o700 }) } catch (error) {
+    if (!isErrno(error, 'EEXIST') || !(await abandoned(claim))) throw error
+    const aside = `${claim}.abandoned-${process.pid}-${Date.now()}`
+    try { await rename(claim, aside) } catch (renameError) {
+      if (!isErrno(renameError, 'ENOENT')) throw renameError
+    }
+    await rm(aside, { recursive: true, force: true })
+    await mkdir(claim, { mode: 0o700 })
+  }
+  try {
+    await writeFile(join(claim, 'owner.json'), JSON.stringify({ pid: process.pid, host: hostname(), startedAt: new Date().toISOString() }),
+      { flag: 'wx', mode: 0o600, flush: true })
+    const stagingPrefix = `.retaining-${attempt}-`
+    for (const entry of await readdir(parent)) {
+      if (entry.startsWith(stagingPrefix)) await rm(join(parent, entry), { recursive: true, force: true })
+    }
+  } catch (error) {
+    await rm(claim, { recursive: true, force: true })
+    throw error
+  }
+  return claim
+}
+
+async function reconcilePublished(
+  root: string,
+  source: DesktopRetainedSource,
+  destination: string,
+  paths: readonly string[],
+): Promise<string> {
+  const manifest = await verifyRetainedDesktopRelease(root, source.runId, source.attempt)
+  let identical = isDeepStrictEqual(manifest.source, source) && manifest.files.length === paths.length
+  for (const path of paths) {
+    const recorded = manifest.files.find(file => file.name === basename(path))
+    if (recorded === undefined) { identical = false; break }
+    const current = await fingerprint(path)
+    if (current.size !== recorded.size || current.sha512 !== recorded.sha512) identical = false
+  }
+  if (!identical) throw new Error('desktop release store: attempt already exists')
+  return destination
+}
+
 /**
  * Copy an explicit file inventory, verify the copies, then expose one complete attempt atomically.
  * @param root Persistent releases root owned by this runner.
@@ -86,17 +148,15 @@ export async function retainDesktopRelease(root: string, source: DesktopRetained
   const parent = join(root, source.runId)
   await mkdir(parent, { recursive: true, mode: 0o700 })
   await directory(parent)
-  const claim = join(parent, `${source.attempt}.lock`)
-  await mkdir(claim, { mode: 0o700 })
+  const claim = await claimAttempt(parent, source.attempt)
   let staging: string | undefined
   try {
-    try {
-      await lstat(destination)
-      throw new Error('desktop release store: attempt already exists')
-    } catch (error) {
-      if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error
-    }
-    staging = await mkdtemp(join(parent, '.retaining-'))
+    const published = await lstat(destination).then(() => true, (error: unknown) => {
+      if (isErrno(error, 'ENOENT')) return false
+      throw error
+    })
+    if (published) return await reconcilePublished(root, source, destination, paths)
+    staging = await mkdtemp(join(parent, `.retaining-${source.attempt}-`))
     const files = []
     for (const path of paths) {
       const name = basename(path)
