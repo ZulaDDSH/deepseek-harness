@@ -12,7 +12,9 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto'
+import { readlinkSync } from 'node:fs'
 import { link, lstat, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { hostname } from 'node:os'
 import { dirname } from 'node:path'
 import { setTimeout as wait } from 'node:timers/promises'
 import { HarnessError } from '@deepseek-ai/dsh-error'
@@ -143,11 +145,33 @@ async function isLockContention(error: unknown, lockPath: string): Promise<boole
   }
 }
 
-/** Whether the holder a `<pid>\n` record names is proven gone: a signal probe finds no such process. */
+const LOCK_RECORD = /^(\d+)(?: (\S+))?\n$/
+
+let cachedHostId: string | undefined
+
+function localHostId(): string {
+  if (cachedHostId !== undefined) return cachedHostId
+  let namespace = ''
+  try {
+    namespace = readlinkSync('/proc/self/ns/pid')
+  } catch {
+    namespace = ''
+  }
+  cachedHostId = `${hostname()}${namespace}`.replace(/\s/g, '_')
+  return cachedHostId
+}
+
+function lockRecord(): string {
+  return `${String(process.pid)} ${localHostId()}\n`
+}
+
+/** Whether the holder a lock record names is proven gone: a signal probe on this host finds no such process. */
 function holderExited(record: string): boolean {
   // Any other content is being written or was cut short, which proves nothing about its holder.
-  if (!/^\d+\n$/.test(record)) return false
-  const pid = Number(record.trim())
+  const match = LOCK_RECORD.exec(record)
+  if (match === null) return false
+  if (match[2] !== undefined && match[2] !== localHostId()) return false
+  const pid = Number(match[1])
   // PID 0 addresses the caller's process group, and the probe accepts only positive int32 PIDs.
   if (pid === 0 || pid > 0x7fffffff) return false
   // This process is running; a runtime whose probe cannot see itself must not take over its own lock.
@@ -167,7 +191,7 @@ const INCOMPLETE_RECORD_GRACE_MS = 30_000
 /** Whether a lock or claim record proves its writer is gone: the PID exited or the record stayed incomplete past the grace. */
 async function isAbandoned(path: string, record: string): Promise<boolean> {
   if (holderExited(record)) return true
-  if (/^\d+\n$/.test(record)) return false
+  if (LOCK_RECORD.test(record)) return false
   try {
     return Date.now() - (await stat(path)).mtimeMs > INCOMPLETE_RECORD_GRACE_MS
   } catch {
@@ -221,7 +245,7 @@ async function takeOverExitedLock(lockPath: string): Promise<boolean> {
   if (record === undefined || !await isAbandoned(lockPath, record)) return false
   const claim = `${lockPath}.takeover-${createHash('sha256').update(record).digest('hex').slice(0, 16)}`
   try {
-    await writeFile(claim, `${process.pid}\n`, { mode: 0o600, flag: 'wx' })
+    await writeFile(claim, lockRecord(), { mode: 0o600, flag: 'wx' })
   } catch (error) {
     // Another contender owns the claim for this record, or Windows still deletes the claim it released.
     const code = (error as NodeJS.ErrnoException).code
@@ -317,9 +341,8 @@ export class FileLockError extends HarnessError {
  * live process reused keeps its lock until an operator removes it. Takeover
  * proves only that the recorded process exited: an operation that starts other
  * writers must stop them with it or leave its successor a way to find them.
- * PIDs are compared on the contender's host, so writers on other hosts or in
- * other PID namespaces sharing the file are unsupported and could both hold
- * the lock. The parent directory must exist.
+ * A record from another host or PID namespace is never taken over, so such a
+ * lock is waited for until the deadline. The parent directory must exist.
  * @param filename - the file whose writers this lock serializes.
  * @param operation - the read-render-commit cycle to run while holding the lock.
  * @param options - acquisition options; omitted waits {@link DEFAULT_LOCK_WAIT_MS}.
@@ -338,7 +361,7 @@ export async function withFileLock<T>(
   for (;;) {
     options?.signal?.throwIfAborted()
     try {
-      await writeFile(lockPath, `${process.pid}\n`, { mode: 0o600, flag: 'wx' })
+      await writeFile(lockPath, lockRecord(), { mode: 0o600, flag: 'wx' })
       break
     } catch (error) {
       if (!await isLockContention(error, lockPath)) {

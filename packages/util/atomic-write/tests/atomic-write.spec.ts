@@ -92,6 +92,8 @@ async function scratch(): Promise<string> {
  */
 const EXITED_PID = 2_000_000_000
 
+const ownRecord = new RegExp(`^${String(process.pid)} \\S+\\n$`)
+
 /** Make the signal probe report `pids` as absent, `responses` times each when given. */
 function probeExited(pids: readonly number[] = [EXITED_PID], responses = Infinity): void {
   const kill = process.kill.bind(process)
@@ -234,7 +236,7 @@ describe('withFileLock', () => {
       controller.abort()
       await rejected
       expect(operation).not.toHaveBeenCalled()
-      expect(await readFile(`${target}.lock`, 'utf8')).toBe(record(process.pid))
+      expect(await readFile(`${target}.lock`, 'utf8')).toMatch(ownRecord)
       await expect(withFileLock(target, operation, { signal: controller.signal })).rejects.toThrow()
     } finally { release.resolve(); await holder }
     await expect(stat(`${target}.lock`)).rejects.toMatchObject({ code: 'ENOENT' })
@@ -293,6 +295,30 @@ describe('withFileLock', () => {
     expect(called).toBe(false)
   })
 
+  it('keeps the lock of a holder on another host or PID namespace whose PID is absent here', async () => {
+    probeExited()
+    const dir = await scratch()
+    const target = join(dir, 'document')
+    const held = `${String(EXITED_PID)} other-host\n`
+    await writeFile(`${target}.lock`, held)
+    const operation = vi.fn(async () => {})
+
+    await expect(withFileLock(target, operation, { waitMs: 50 })).rejects.toBeInstanceOf(FileLockError)
+    expect(operation).not.toHaveBeenCalled()
+    expect(await readFile(`${target}.lock`, 'utf8')).toBe(held)
+  })
+
+  it('takes over an exited holder whose record names this host', async () => {
+    probeExited()
+    const dir = await scratch()
+    const target = join(dir, 'document')
+    let own = ''
+    await withFileLock(target, async () => { own = await readFile(`${target}.lock`, 'utf8') })
+    await writeFile(`${target}.lock`, own.replace(String(process.pid), String(EXITED_PID)))
+
+    await expect(withFileLock(target, async () => 'acquired', { waitMs: 0 })).resolves.toBe('acquired')
+  })
+
   it('takes over a lock whose holder exited', async () => {
     probeExited()
     const dir = await scratch()
@@ -300,7 +326,7 @@ describe('withFileLock', () => {
     await writeFile(`${target}.lock`, record(EXITED_PID))
 
     await expect(withFileLock(target, async () => await readFile(`${target}.lock`, 'utf8'), { waitMs: 0 }))
-      .resolves.toBe(record(process.pid))
+      .resolves.toMatch(ownRecord)
     expect(await readdir(dir)).toEqual([])
   })
 
