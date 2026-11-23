@@ -173,6 +173,7 @@ export interface WorkspaceFileSearchResult {
    * or exited with code 2 to report partial discovery.
    */
   readonly incomplete: boolean
+  readonly undecodable?: number
 }
 
 /**
