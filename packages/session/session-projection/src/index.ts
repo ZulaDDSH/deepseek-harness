@@ -161,7 +161,18 @@ export type ProjectionChangeEntry =
   | { readonly key: Extract<keyof SessionProjectionMap, string>; readonly val: unknown; readonly append?: undefined }
   | { readonly key: Extract<keyof SessionProjectionMap, string>; readonly val?: undefined; readonly append: ProjectionAppend }
 
+export interface ProjectionValueChange {
+  readonly key: Extract<keyof SessionProjectionMap, string>
+  readonly val: unknown
+}
+
 export type ProjectionEventChangeListener = (
+  session: Session,
+  changes: readonly ProjectionValueChange[],
+  seq: SessionSeq,
+) => void
+
+export type ProjectionAppendEventChangeListener = (
   session: Session,
   changes: readonly ProjectionChangeEntry[],
   seq: SessionSeq,
@@ -296,6 +307,7 @@ export class SessionProjectionRegistry extends Service {
   private summaryKeySet: ReadonlySet<Extract<keyof SessionProjectionMap, string>> | undefined
   private readonly listeners = new Set<ProjectionChangeListener>()
   private readonly eventListeners = new Set<ProjectionEventChangeListener>()
+  private readonly appendEventListeners = new Set<ProjectionAppendEventChangeListener>()
   /** Keys whose deprecated registry-level read has already been reported. */
   private readonly deprecatedStateOfKeys = new Set<string>()
 
@@ -514,6 +526,16 @@ export class SessionProjectionRegistry extends Service {
         this.eventListeners.delete(listener)
       }
     }, 'sessionProjections.onEventChanged()')
+    return () => void dispose()
+  }
+
+  onAppendEventChanged(listener: ProjectionAppendEventChangeListener): () => void {
+    const dispose = this.ctx.effect(() => {
+      this.appendEventListeners.add(listener)
+      return () => {
+        this.appendEventListeners.delete(listener)
+      }
+    }, 'sessionProjections.onAppendEventChanged()')
     return () => void dispose()
   }
 
@@ -902,8 +924,11 @@ export class SessionProjectionRegistry extends Service {
    * the changes collected before the throw, and the error then propagates.
    */
   private drive(session: Session, event: SessionEvent): void {
-    const observed = this.listeners.size > 0 || this.eventListeners.size > 0
-    const changes: ProjectionChangeEntry[] = []
+    const wholeObserved = this.listeners.size > 0 || this.eventListeners.size > 0
+    const appendObserved = this.appendEventListeners.size > 0
+    const observed = wholeObserved || appendObserved
+    const changes: ProjectionValueChange[] = []
+    const appendChanges: ProjectionChangeEntry[] = []
     const failures: unknown[] = []
     for (const registration of this.registrations.values()) {
       try {
@@ -936,16 +961,13 @@ export class SessionProjectionRegistry extends Service {
         if (changed && wire !== undefined) {
           const views = cell.views
           views[0] = views[1]
-          const appended = observed && this.listeners.size === 0 ? wire.appended?.(previousState, next) : undefined
-          if (appended !== undefined) {
-            views[1] = undefined
-            const key = registration.def.key as Extract<keyof SessionProjectionMap, string>
-            changes.push({ key, append: { from: appended.from, items: wire.viewSchema.parse(appended.items) } })
-          } else if (observed) {
-            views[1] = wire.view(next)
-            if (!Object.is(views[0], views[1])) {
-              const key = registration.def.key as Extract<keyof SessionProjectionMap, string>
-              const value = wire.viewSchema.parse(views[1])
+          const key = registration.def.key as Extract<keyof SessionProjectionMap, string>
+          const appended = appendObserved ? wire.appended?.(previousState, next) : undefined
+          const needView = wholeObserved || (observed && appended === undefined)
+          views[1] = needView ? wire.view(next) : undefined
+          if (needView && !Object.is(views[0], views[1])) {
+            const value = wire.viewSchema.parse(views[1])
+            if (wholeObserved) {
               changes.push({ key, val: value })
               for (const listener of this.listeners) {
                 try {
@@ -955,8 +977,10 @@ export class SessionProjectionRegistry extends Service {
                 }
               }
             }
-          } else {
-            views[1] = undefined
+            if (appendObserved && appended === undefined) appendChanges.push({ key, val: value })
+          }
+          if (appended !== undefined && appendObserved) {
+            appendChanges.push({ key, append: { from: appended.from, items: wire.viewSchema.parse(appended.items) } })
           }
         }
       } catch (error) {
@@ -967,6 +991,15 @@ export class SessionProjectionRegistry extends Service {
       for (const listener of this.eventListeners) {
         try {
           listener(session, changes, event.seq)
+        } catch (error) {
+          failures.push(error)
+        }
+      }
+    }
+    if (appendChanges.length > 0) {
+      for (const listener of this.appendEventListeners) {
+        try {
+          listener(session, appendChanges, event.seq)
         } catch (error) {
           failures.push(error)
         }

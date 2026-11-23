@@ -105,7 +105,7 @@ interface ProjectionDefinition<K extends string, S> {
 
 Every served projection value is a complete read model. A source event may carry a whole value or a domain-owned operation; the unit's deterministic `apply` owns replay, and checkpoint plus forward tail replay reconstructs the same state.
 
-A unit whose view is an array may declare `wire.appended(prev, next)`. When an event only extends that array, the drive publishes `{ key, append: { from, items } }` in place of the whole value and skips the whole-view materialization for that change. Per-key `onChanged` subscribers still receive whole values, so a drive with one subscribed publishes whole values for every key.
+A unit whose view is an array may declare `wire.appended(prev, next)`. When an event only extends that array, the drive publishes `{ key, append: { from, items } }` on the append feed (`onAppendEventChanged`) in place of the whole value, and skips the whole-view materialization for that change when no whole-value subscriber is attached. `onChanged` and `onEventChanged` subscribers always receive whole values, so attaching one materializes the view for every change of that unit.
 
 ## The snapshot and the change feed
 
@@ -374,6 +374,9 @@ onChanged(listener: ProjectionChangeListener): () => void
  * @returns the exact disposer that unsubscribes.
  */
 onEventChanged(listener: ProjectionEventChangeListener): () => void
+
+/** Append-aware event feed: `{ key, append }` for appended array units, `{ key, val }` otherwise. */
+onAppendEventChanged(listener: ProjectionAppendEventChangeListener): () => void
 
 /**
  * One consistent cut over every registered client-visible unit for one session, read from

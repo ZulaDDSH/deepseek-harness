@@ -849,7 +849,11 @@ export type SessionEventFrame =
   | SessionEventEntry
 
 /** Projection changes caused by one committed event of the observed Session. */
-export type SessionProjectionChange = { readonly type: 'projection' } & Omit<SessionProjectionUpdate, 'sessionId'>
+export type SessionProjectionChange = {
+  readonly type: 'projection'
+  readonly seq: number
+  readonly changes: readonly { readonly key: string; readonly val: SessionProjectionValue }[]
+}
 
 /** Subscription readiness without a baseline, followed by one change frame per committed event. */
 export type SessionProjectionFrame =

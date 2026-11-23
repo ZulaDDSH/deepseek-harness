@@ -101,6 +101,66 @@ describe('SessionController subagent catalog', () => {
     }
   })
 
+  it('keeps each live control frame flat as the catalog grows, while observeProjections and onChanged carry whole values', async () => {
+    const { ctx, controller } = await bench()
+    const signal = new AbortController()
+    const control = controller.control(signal.signal)[Symbol.asyncIterator]()
+    const observed = controller.observeProjections({ sessionId: PARENT }, signal.signal)[Symbol.asyncIterator]()
+    const wholeCounts: number[] = []
+    ctx.sessionProjections.onChanged((session, key, value) => {
+      if (session.id === PARENT && key === 'subagentCatalog') wholeCounts.push((value as unknown[]).length)
+    })
+    const total = 200
+    const childIdFor = (index: number) => brandString<SessionId>(`catalog-child-${String(index).padStart(4, '0')}`)
+    try {
+      await control.next()
+      await observed.next()
+      const parent = ctx.sessions.create(PARENT, { meta: { createdAt: 7, cwd: '/workspace' } })
+      for (let index = 0; index < total; index += 1) {
+        parent.append('subagent/catalog', {
+          version: 0, childId: childIdFor(index), childCreatedAt: 1_000 + index, mode: 'continuable', label: 'worker',
+        })
+      }
+      const controlFrames: { frame: unknown; change: { val?: unknown; append?: { from: number; items: unknown[] } } }[] = []
+      while (controlFrames.length < total) {
+        const next = await control.next()
+        if (next.done) break
+        if (next.value.type !== 'projection') continue
+        const change = next.value.changes.find(entry => entry.key === 'subagentCatalog')
+        if (change !== undefined) controlFrames.push({ frame: next.value, change })
+      }
+      const observedValues: unknown[][] = []
+      while (observedValues.length < total) {
+        const next = await observed.next()
+        if (next.done) break
+        if (next.value.type !== 'projection') continue
+        const change = next.value.changes.find(entry => entry.key === 'subagentCatalog')
+        if (change !== undefined) observedValues.push(change.val as unknown[])
+      }
+
+      expect(controlFrames.map(entry => entry.change.append?.items.length)).toEqual(Array.from({ length: total }, () => 1))
+      expect(controlFrames.every(entry => entry.change.val === undefined)).toBe(true)
+      for (const at of [1, 65, 200]) {
+        expect(controlFrames[at - 1]?.change.append).toEqual({
+          from: at - 1,
+          items: [expect.objectContaining({ id: childIdFor(at - 1) })],
+        })
+      }
+      const bytes = (index: number) => JSON.stringify(controlFrames[index]?.frame).length
+      const first = bytes(0)
+      expect(bytes(64)).toBeLessThanOrEqual(first + 8)
+      expect(bytes(total - 1)).toBeLessThanOrEqual(first + 8)
+      expect(bytes(total - 1)).toBeLessThan(1_024)
+
+      expect(observedValues.map(value => value.length)).toEqual(Array.from({ length: total }, (_, index) => index + 1))
+      expect(wholeCounts).toEqual(Array.from({ length: total }, (_, index) => index + 1))
+    } finally {
+      signal.abort()
+      await control.return?.()
+      await observed.return?.()
+    }
+  })
+
   it.each([false, true])('reads an uncached parent catalog without loading an Agent (explicit current format: %s)', async (withFormat) => {
     const { ctx, controller } = await bench()
     const stored = await ctx.sessionPersistence.stat(PARENT)

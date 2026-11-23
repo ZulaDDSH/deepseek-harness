@@ -269,7 +269,7 @@ describe('SessionProjectionRegistry drive', () => {
     expect(order).toEqual(['key:test/marks', 'key:test/stable-view', 'event'])
   })
 
-  it('publishes only appended values for an append-declaring unit, and the whole value while onChanged is subscribed', async () => {
+  it('publishes appends only on the append feed; the whole-value feeds always carry the whole value', async () => {
     const { ctx, session } = await harness()
     await ctx.sessionProjections.register({
       key: 'test/list',
@@ -283,19 +283,48 @@ describe('SessionProjectionRegistry drive', () => {
       },
       stateVersion: 1,
     })
-    const events: unknown[] = []
-    ctx.sessionProjections.onEventChanged((_session, changes) => { events.push(changes) })
+    const appends: unknown[] = []
+    ctx.sessionProjections.onAppendEventChanged((_session, changes) => { appends.push(changes) })
+    const wholes: unknown[] = []
+    ctx.sessionProjections.onEventChanged((_session, changes) => { wholes.push(changes) })
     mark(session, ['a'])
     mark(session, ['b', 'c'])
-    expect(events).toEqual([
+    expect(appends).toEqual([
       [{ key: 'test/list', append: { from: 0, items: ['a'] } }],
       [{ key: 'test/list', append: { from: 1, items: ['b', 'c'] } }],
+    ])
+    expect(wholes).toEqual([
+      [{ key: 'test/list', val: ['a'] }],
+      [{ key: 'test/list', val: ['a', 'b', 'c'] }],
     ])
     const wholeValues: unknown[] = []
     ctx.sessionProjections.onChanged((_session, key, value) => { if (key === 'test/list') wholeValues.push(value) })
     mark(session, ['d'])
     expect(wholeValues).toEqual([['a', 'b', 'c', 'd']])
-    expect(events.at(-1)).toEqual([{ key: 'test/list', val: ['a', 'b', 'c', 'd'] }])
+    expect(appends.at(-1)).toEqual([{ key: 'test/list', append: { from: 3, items: ['d'] } }])
+    expect(wholes.at(-1)).toEqual([{ key: 'test/list', val: ['a', 'b', 'c', 'd'] }])
+  })
+
+  it('skips the whole view for an append-only audience when the unit declares an append', async () => {
+    const { ctx, session } = await harness()
+    await ctx.sessionProjections.register({
+      key: 'test/list',
+      stateSchema: z.array(z.string()),
+      init: () => [],
+      apply: (state, event) => (event.type === 'test/mark' ? [...state, ...event.data.marks] : state),
+      wire: {
+        viewSchema: z.array(z.string()),
+        view: state => { views += 1; return state },
+        appended: (prev, next) => (next.length > prev.length ? { from: prev.length, items: next.slice(prev.length) } : undefined),
+      },
+      stateVersion: 1,
+    })
+    let views = 0
+    const appends: unknown[] = []
+    ctx.sessionProjections.onAppendEventChanged((_session, changes) => { appends.push(changes) })
+    mark(session, ['a'])
+    expect(views).toBe(0)
+    expect(appends).toEqual([[{ key: 'test/list', append: { from: 0, items: ['a'] } }]])
   })
 
   it('still delivers the changes made before a later unit throws', async () => {
