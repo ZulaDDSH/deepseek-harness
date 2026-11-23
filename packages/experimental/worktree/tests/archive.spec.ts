@@ -1,5 +1,5 @@
 import { access, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
@@ -411,6 +411,62 @@ describe('archive-triggered worktree cleanup', () => {
     expect(await settled(f)).toMatchObject({ status: 'removed' })
     // Entry ran after removal, against a directory that no longer exists.
     expect(f.ctx.workingDirectory.get(other)).toBe(f.root)
+  })
+
+  it('holds a relative directory entry into a checkout being removed', async () => {
+    const f = await fixture()
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    removeCheckout.mockImplementation(async (...args) => {
+      entered.resolve(undefined)
+      await release.promise
+      return await actualRemoveCheckout(...args)
+    })
+    cleanups.push(async () => { release.resolve(undefined) })
+    await f.ctx.workingDirectory.set(f.agent, f.root)
+    await f.ctx.workspaceRegistry.archiveSession(f.session.id)
+    await entered.promise
+    const other = f.ctx.sessions.create(brandString<SessionId>('relative-entry'), { meta: { cwd: f.root } })
+    const otherAgent = agentFor(f.ctx, other)
+    await f.ctx.agents.register(otherAgent)
+    expect(await f.ctx.workingDirectory.ensure(otherAgent)).toBe(f.root)
+    let settledEntry = false
+    const entering = f.ctx.workingDirectory.set(otherAgent, relative(f.root, f.worktree.path))
+      .then(() => { settledEntry = true }, () => { settledEntry = true })
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(settledEntry).toBe(false)
+    release.resolve(undefined)
+    await entering
+    expect(await settled(f)).toMatchObject({ status: 'removed' })
+    expect(f.ctx.workingDirectory.get(other)).toBe(f.root)
+  })
+
+  it('retains a checkout that an access admitted before removal began has already entered', async () => {
+    const f = await fixture()
+    const other = f.ctx.sessions.create(brandString<SessionId>('admitted-entry'), { meta: { cwd: f.root } })
+    const otherAgent = agentFor(f.ctx, other)
+    await f.ctx.agents.register(otherAgent)
+    expect(await f.ctx.workingDirectory.ensure(otherAgent)).toBe(f.root)
+    const statEntered = Promise.withResolvers<undefined>()
+    const statRelease = Promise.withResolvers<undefined>()
+    const actualStat = f.ctx.fs.stat.bind(f.ctx.fs)
+    vi.spyOn(f.ctx.fs, 'stat').mockImplementationOnce(async (...args) => {
+      statEntered.resolve(undefined)
+      await statRelease.promise
+      return await actualStat(...args)
+    })
+    cleanups.push(async () => { statRelease.resolve(undefined) })
+    const entering = f.ctx.workingDirectory.set(otherAgent, f.worktree.path)
+    await statEntered.promise
+    await f.ctx.workspaceRegistry.archiveSession(f.session.id)
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(removeCheckout.mock.calls.length).toBe(0)
+    statRelease.resolve(undefined)
+    await entering
+    expect(f.ctx.workingDirectory.get(other)).toBe(f.worktree.path)
+    expect(await settled(f)).toMatchObject({ status: 'retained' })
+    expect(removeCheckout.mock.calls.length).toBe(0)
+    await access(f.worktree.path)
   })
 
   it('registers nothing for a cold Session without creations and ignores an unarchive without an attempt', async () => {

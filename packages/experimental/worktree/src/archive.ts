@@ -57,6 +57,7 @@ function within(root: string, path: string): boolean {
 export class WorktreeReclamation {
   private readonly attempts = new Map<SessionId, Attempt>()
   private readonly removing = new Map<string, Promise<void>>()
+  private readonly admitted = new Set<Promise<void>>()
   private readonly pending = new Set<Promise<unknown>>()
   private readonly lifetime = new AbortController()
   private revision = 0
@@ -77,7 +78,7 @@ export class WorktreeReclamation {
     ctx.on('working-directory/access', ({ agent, path, signal }, next) => {
       const target = path ?? ctx.workingDirectory.get(agent.session)
       const blocked = [...this.removing.keys()].find(root => within(root, target))
-      if (blocked === undefined) return next()
+      if (blocked === undefined) return this.admit(next())
       return this.host.exclusiveCheckout(blocked, async () => {
         signal.throwIfAborted()
         return await next()
@@ -170,6 +171,7 @@ export class WorktreeReclamation {
    */
   private async remove(session: Session, worktree: CreatedWorktree, attempt: Attempt): Promise<boolean> {
     const operation = this.host.exclusiveCheckout(worktree.path, async () => {
+      await Promise.allSettled([...this.admitted])
       if (attempt.cancelled || !await this.unused(worktree, undefined)) return false
       return await this.host.removeCheckout(session, worktree, this.lifetime.signal, () => !attempt.cancelled)
     })
@@ -179,6 +181,13 @@ export class WorktreeReclamation {
     } finally {
       this.removing.delete(worktree.path)
     }
+  }
+
+  private admit(access: Promise<string>): Promise<string> {
+    const settled = access.then(() => {}, () => {})
+    this.admitted.add(settled)
+    void settled.then(() => { this.admitted.delete(settled) })
+    return access
   }
 
   /**
