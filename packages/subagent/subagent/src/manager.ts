@@ -155,6 +155,7 @@ export class SubagentManager {
   private readonly closingRoots = new Set<Agent>()
   /** Sibling names held by creations that have not committed their catalog entry. */
   private readonly names = new SiblingNameReservations()
+  private readonly committedNames = new WeakMap<Session, Set<string>>()
   private draining = false
 
   /**
@@ -417,6 +418,7 @@ export class SubagentManager {
           () => {
             this.assertAdmitting(parent)
             establishCatalogChild(parent.session, childHeader, descriptor, reservation.name)
+            this.committedNames.get(parent.session)?.add(reservation.name)
           },
         )
       })
@@ -480,6 +482,7 @@ export class SubagentManager {
         signal.throwIfAborted()
         if (reservation !== undefined) {
           establishExternalCatalogChild(parent.session, activation.childId, spec.label, reservation.name)
+          this.committedNames.get(parent.session)?.add(reservation.name)
         }
         this.accept(activation)
         return this.receipt(activation)
@@ -535,7 +538,12 @@ export class SubagentManager {
 
   /** Claim a sibling name against the creator's committed catalog and in-flight siblings. */
   private reserveName(parent: Agent, requested: string | undefined): SiblingNameReservation {
-    return this.names.reserve(parent, catalogNames(this.host.catalogOf(parent.session)), requested)
+    let committed = this.committedNames.get(parent.session)
+    if (committed === undefined) {
+      committed = catalogNames(this.host.catalogOf(parent.session))
+      this.committedNames.set(parent.session, committed)
+    }
+    return this.names.reserve(parent, committed, requested)
   }
 
   /** Path of an exact live tree member: `''` for the root, undefined for unnamed history. */

@@ -1,4 +1,5 @@
 import { listChildren } from '../src/list-children.ts'
+import { subagentCatalogProjectionDefinition } from '../src/catalog.ts'
 import { mountWorkingDirectoryFixture } from './working-directory-fixture.ts'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -396,6 +397,29 @@ describe('agent names', () => {
     for (const started of [reviewer, unnamed]) {
       ctx.subagents.interrupt(started.childId, { kind: 'ancestor', agent: parent })
       await settled(ctx, started.childId)
+    }
+  })
+
+  it('reads the parent catalog for committed names once, however many children it creates', async () => {
+    const { ctx, parent } = await setup({ a: ['hang'], b: ['hang'], c: ['hang'], d: ['hang'] })
+    const view = subagentCatalogProjectionDefinition.wire.view.bind(subagentCatalogProjectionDefinition.wire)
+    let reads = 0
+    vi.spyOn(subagentCatalogProjectionDefinition.wire, 'view').mockImplementation((state) => {
+      if (new Error('stack').stack?.includes('reserveName')) reads += 1
+      return view(state)
+    })
+    const started = [
+      await startNamed(ctx, parent, 'a'),
+      await startNamed(ctx, parent, 'b', 'worker'),
+      await startNamed(ctx, parent, 'c'),
+      await startNamed(ctx, parent, 'd'),
+    ]
+    expect(started.map(entry => entry.name)).toEqual(['agent-1', 'worker', 'agent-2', 'agent-3'])
+    await expect(startNamed(ctx, parent, 'c', 'worker')).rejects.toMatchObject({ code: 'DUPLICATE_AGENT_NAME' })
+    expect(reads).toBe(1)
+    for (const child of started) {
+      ctx.subagents.interrupt(child.childId, { kind: 'ancestor', agent: parent })
+      await settled(ctx, child.childId)
     }
   })
 
