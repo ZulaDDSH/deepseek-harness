@@ -1,0 +1,15 @@
+# goal-round-driver code notes
+
+## packages/goal/goal-round-driver/src/index.ts:settleUnloaded
+
+Finding 134. A round counts once its `user/message` is durable. When the turn carrying it ends `aborted`
+(host pause, host cancel, or the unload teardown's `parent` cancel) the attempt is marked cancelled in phase
+`admitted`; the `agent/status` idle edge then refunds that round before it pauses the goal, so the budget is
+spent only on rounds that were not interrupted. Teardown no longer receives session events once it starts (the idle handler never ran there), so
+`settleUnloaded` reads the last `turn/end` after the agent is idle and refunds when it was aborted for a
+reason other than disposal. The host-pause and cancel paths refund from the `agent/status` idle handler
+(`apply`), which also pauses the goal against the post-refund revision. Fences: same goal id, phase not `complete`, `roundsStarted` equal to the
+attempt's round. A round cancelled before its `user/message` was appended (queued or claimed) consumed
+nothing and needs no refund. Failed rounds (provider error, max tokens, persistence failure, agent disposal)
+are not refunded: they disarm without an abort decision and keep their count. A disposed agent is no longer
+live, so no refund can be written for it.

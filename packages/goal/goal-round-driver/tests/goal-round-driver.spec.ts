@@ -353,7 +353,8 @@ describe('same-session goal driving', () => {
     await test.agent.whenIdle()
     const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'paused')
 
-    expect(goal).toMatchObject({ roundsStarted: 1, activation: 'disarmed' })
+    expect(goal).toMatchObject({ roundsStarted: 0, activation: 'disarmed' })
+    expect(goalOperations(test.agent)).toEqual(['create', 'refund', 'pause'])
     expect(test.adapter.requests).toHaveLength(1)
   })
 
@@ -372,12 +373,13 @@ describe('same-session goal driving', () => {
     await test.agent.whenIdle()
     const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'paused')
 
-    expect(goal).toMatchObject({ roundsStarted: 1, activation: 'disarmed' })
+    expect(goal).toMatchObject({ roundsStarted: 0, activation: 'disarmed' })
+    expect(goalOperations(test.agent)).toEqual(['create', 'pause', 'refund'])
     expect(test.adapter.requests).toHaveLength(1)
   })
 
   it('keeps a resumed goal running when the pause-turn has not yet converged', async () => {
-    const test = await harness(['hang', textResponse('resumed round')])
+    const test = await harness(['hang', textResponse('resumed round'), textResponse('second round')])
     test.ctx.goals.create(test.agent, { objective: 'pause then resume', maxGoalRounds: 2 })
     await waitForRequests(test.adapter, 1)
 
@@ -392,7 +394,8 @@ describe('same-session goal driving', () => {
 
     expect(goal).toMatchObject({ phase: 'blocked', roundsStarted: 2 })
     expect(goal?.blockedReason?.code).toBe('round-limit')
-    expect(test.adapter.requests).toHaveLength(2)
+    expect(goalOperations(test.agent)).toEqual(['create', 'pause', 'resume', 'refund', 'block'])
+    expect(test.adapter.requests).toHaveLength(3)
   })
 
   it('lets a model-initiated pause finish its own turn', async () => {
@@ -1026,7 +1029,7 @@ describe('same-session goal driving', () => {
     expect(test.ctx.goals.get(test.agent)).toMatchObject({
       phase: 'active',
       activation: 'disarmed',
-      roundsStarted: 1,
+      roundsStarted: 0,
     })
     expect(test.agent.status).toBe('idle')
     expect(test.adapter.requests).toHaveLength(1)
@@ -1114,6 +1117,44 @@ describe('same-session goal driving', () => {
       roundsStarted: 0,
     })
     expect(test.adapter.requests).toHaveLength(0)
+  })
+
+  it('spends no round when unload lands while the claimed round awaits admission', async () => {
+    const test = await harness([])
+    let unloading: Promise<void> | undefined
+    onClaimedMessage(test.ctx, test.agent, (message) => {
+      if (message.source.kind === 'goal' && unloading === undefined) unloading = Promise.resolve(test.driver.dispose())
+    })
+    test.ctx.goals.create(test.agent, { objective: 'unload while claimed' })
+    await vi.waitFor(() => { expect(unloading).toBeDefined() })
+    await unloading
+
+    expect(test.ctx.goals.get(test.agent)).toMatchObject({ phase: 'active', activation: 'disarmed', roundsStarted: 0 })
+    expect(goalOperations(test.agent)).toEqual(['create'])
+    expect(test.adapter.requests).toHaveLength(0)
+  })
+
+  it('refunds the round that unload cancels after its model request began', async () => {
+    const test = await harness(['hang'])
+    test.ctx.goals.create(test.agent, { objective: 'unload mid request', maxGoalRounds: 1 })
+    await waitForRequests(test.adapter, 1)
+    expect(test.ctx.goals.get(test.agent)).toMatchObject({ roundsStarted: 1 })
+
+    await test.driver.dispose()
+
+    expect(test.ctx.goals.get(test.agent)).toMatchObject({ phase: 'active', activation: 'disarmed', roundsStarted: 0 })
+    expect(goalOperations(test.agent)).toEqual(['create', 'refund'])
+    expect(test.adapter.requests).toHaveLength(1)
+  })
+
+  it('keeps the count of a round that completed before unload', async () => {
+    const test = await harness([textResponse('round done')])
+    test.ctx.goals.create(test.agent, { objective: 'finish then unload', maxGoalRounds: 1 })
+    await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
+    await test.driver.dispose()
+
+    expect(goalOperations(test.agent)).not.toContain('refund')
+    expect(test.ctx.goals.get(test.agent)).toMatchObject({ roundsStarted: 1 })
   })
 
   it('resets process-local scheduling state at a session-start edge', async () => {
@@ -1228,7 +1269,7 @@ describe('same-session goal driving', () => {
 
     expect(test.ctx.goals.get(test.agent)).toMatchObject({
       phase: 'paused',
-      roundsStarted: 1,
+      roundsStarted: 0,
       activation: 'disarmed',
     })
     expect(requestText(test.adapter.requests[1]!)).toContain('inspect the pause')
