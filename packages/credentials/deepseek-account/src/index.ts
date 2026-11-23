@@ -15,7 +15,7 @@ import { credentialKey } from '@deepseek-ai/dsh-credentials'
 import type { AuthorizationSession } from '@deepseek-ai/dsh-authorization'
 import { profile, readAccountDetail } from './details.ts'
 import { readNotificationContent, readNotifications, sendNotificationEvent } from './notifications.ts'
-import { revokeAccount, type LogoutRetryPolicy } from './logout.ts'
+import { revokeAccount, type LogoutRetryPolicy, type RevocationOutcome } from './logout.ts'
 import { AccountUnauthorizedError, PlatformAuthError, platformHeaders, platformOrigin, browserUrl, requestPlatform, initialization, exchange, loginOrigin } from './protocol.ts'
 
 export type * from './types.ts'
@@ -27,6 +27,8 @@ declare module '@deepseek-ai/cordis' {
      * @mode emit
      */
     'deepseek-account/signed-out'(): void
+    /** @mode emit; constraint: listeners are not awaited */
+    'deepseek-account/revocation'(outcome: RevocationOutcome): void
   }
 }
 
@@ -119,7 +121,8 @@ export class DeepSeekAccount extends TypertRemoteService {
   private readonly attemptTimeout: number
   private readonly logoutPolicy: LogoutRetryPolicy
   private readonly logoutLifetime = new AbortController()
-  private readonly revocations = new Set<Promise<void>>()
+  private readonly revocations = new Set<Promise<unknown>>()
+  private revocationStatus: 'none' | 'pending' | RevocationOutcome = 'none'
   private attempt: Attempt | undefined
   private readonly listeners = new Set<(kind: 'snapshot' | 'credentials-changed' | 'identity') => void>()
   /**
@@ -659,9 +662,18 @@ export class DeepSeekAccount extends TypertRemoteService {
 
   private revoke(token: string, headers: Record<string, string>): void {
     if (this.closed) return
+    this.revocationStatus = 'pending'
     const revocation = revokeAccount(this.origin, token, this.logoutPolicy,
-      this.logoutLifetime.signal, { ...this.requestHeaders, ...headers }).finally(() => { this.revocations.delete(revocation) })
+      this.logoutLifetime.signal, { ...this.requestHeaders, ...headers }).then((outcome) => {
+      this.revocationStatus = outcome
+      if (outcome !== 'revoked') this.ctx.logger.warn('deepseek-account: remote revocation of the signed-out token %s; revoke it at the issuer', outcome)
+      this.ctx.emit('deepseek-account/revocation', outcome)
+    }).finally(() => { this.revocations.delete(revocation) })
     this.revocations.add(revocation)
+  }
+
+  getRevocationStatus(): 'none' | 'pending' | RevocationOutcome {
+    return this.revocationStatus
   }
 
   private invalidateDetails(): void {

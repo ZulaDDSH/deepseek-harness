@@ -14,7 +14,8 @@ afterEach(() => { vi.restoreAllMocks() })
 const policy = { maxRetries: 5, delayMs: 1_000, requestTimeoutMs: 30_000 }
 
 it('stops after one successful request without waiting', async () => {
-  await revokeAccount('https://platform.deepseek.com', 'old-token', policy, new AbortController().signal, {})
+  await expect(revokeAccount('https://platform.deepseek.com', 'old-token', policy, new AbortController().signal, {}))
+    .resolves.toBe('revoked')
   expect(logoutAccount).toHaveBeenCalledTimes(1)
   expect(setTimeout).not.toHaveBeenCalled()
 })
@@ -24,7 +25,7 @@ it('makes at most six requests with five exponentially increasing delays and the
   const controller = new AbortController()
   const headers = { cookie: 'test-gate' }
   await expect(revokeAccount('https://platform.deepseek.com', 'old-token', policy, controller.signal, headers))
-    .resolves.toBeUndefined()
+    .resolves.toBe('failed')
   expect(logoutAccount).toHaveBeenCalledTimes(6)
   expect(vi.mocked(setTimeout).mock.calls.map(args => args[0])).toEqual([1_000, 2_000, 4_000, 8_000, 16_000])
   for (const args of vi.mocked(logoutAccount).mock.calls) {
@@ -52,7 +53,8 @@ it('cancels an in-flight request when the provider closes', async () => {
     signal.addEventListener('abort', () => { reject(new Error('cancelled')) }, { once: true })
     controller.abort()
   }))
-  await revokeAccount('https://platform.deepseek.com', 'old-token', policy, controller.signal, {})
+  await expect(revokeAccount('https://platform.deepseek.com', 'old-token', policy, controller.signal, {}))
+    .resolves.toBe('unconfirmed')
   expect(logoutAccount).toHaveBeenCalledTimes(1)
   expect(setTimeout).not.toHaveBeenCalled()
 })
@@ -65,11 +67,13 @@ it('cancels a pending delay and never starts another request', async () => {
     controller.abort()
     throw controller.signal.reason
   })
-  await revokeAccount('https://platform.deepseek.com', 'old-token', policy, controller.signal, {})
+  await expect(revokeAccount('https://platform.deepseek.com', 'old-token', policy, controller.signal, {}))
+    .resolves.toBe('unconfirmed')
   expect(logoutAccount).toHaveBeenCalledTimes(1)
 })
 
 it('does not start work for an already closed provider', async () => {
-  await revokeAccount('https://platform.deepseek.com', 'old-token', policy, AbortSignal.abort(), {})
+  await expect(revokeAccount('https://platform.deepseek.com', 'old-token', policy, AbortSignal.abort(), {}))
+    .resolves.toBe('unconfirmed')
   expect(logoutAccount).not.toHaveBeenCalled()
 })

@@ -584,6 +584,21 @@ it('removes the local grant while a shared concurrent logout request is still pe
   expect(f.logoutCount()).toBe(1)
 })
 
+it('reports the background revocation outcome after sign-out', async () => {
+  const f = await fixture()
+  expect(f.account.getRevocationStatus()).toBe('none')
+  const outcomes: string[] = []
+  f.ctx.on('deepseek-account/revocation', (outcome) => { outcomes.push(outcome) })
+  await storeAccount(f)
+  await f.account.signOut(clientMetadata())
+  await expect.poll(() => f.account.getRevocationStatus()).toBe('revoked')
+  await storeAccount(f)
+  f.failLogout(true)
+  await f.account.signOut(clientMetadata())
+  await expect.poll(() => f.account.getRevocationStatus(), { timeout: 5_000 }).toBe('failed')
+  expect(outcomes).toEqual(['revoked', 'failed'])
+})
+
 it('bounds failed logout retries without restoring the grant or deleting a new login', async () => {
   const f = await fixture()
   await storeAccount(f)
