@@ -112,6 +112,16 @@ const INSPECT_FIELDS = ['name', 'version', 'description', 'dsh'] as const
 const ANSI_SEQUENCE = /\x1b\[[0-9;]*m/g
 
 /** Preserve the exact observed diagnostic, including non-Error failures. */
+function registriesPath(dir: string): string { return join(dir, '.plugin-manager', 'registries.json') }
+
+function loadRegistries(dir: string): Map<string, Registry> {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(registriesPath(dir), 'utf8'))
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return new Map()
+    return new Map(Object.entries(parsed).filter((entry): entry is [string, Registry] => typeof entry[1] === 'string' || entry[1] === null))
+  } catch { return new Map() }
+}
+
 function messageOf(error: unknown): string { return error instanceof Error ? error.message : String(error) }
 
 /** An expected refusal keeps its code; anything else becomes an operation error carrying its exact diagnostic. */
@@ -363,7 +373,7 @@ export class PluginManager extends TypertRemoteService {
    * The registry each package was last installed from by this manager in this process. pnpm verifies lockfile tarball
    * URLs against its default registry unless they belong to a named registry, so a later removal names it again.
    */
-  private readonly installedFrom = new Map<string, Registry>()
+  private readonly installedFrom: Map<string, Registry>
   private readonly ownerEntryId: string | undefined
   private readonly packageOperations = new Set<Promise<unknown>>()
   private readonly profile: ProfileContext
@@ -401,6 +411,7 @@ export class PluginManager extends TypertRemoteService {
     this.pnpmCommand = (config as Required<Config>).pnpmCommand
     this.versionListLimit = (config as Required<Config>).versionListLimit
     this.versionLookupConcurrency = (config as Required<Config>).versionLookupConcurrency
+    this.installedFrom = loadRegistries(this.profile.dir)
     this.configuredRegistries = {
       registry: config.registry === undefined ? null : normalizeRegistry(config.registry),
       fallbackRegistries: (config as Required<Config>).fallbackRegistries.map(normalizeRegistry),
@@ -1189,6 +1200,7 @@ export class PluginManager extends TypertRemoteService {
         for (const file of bundlePatchPaths(dir, manifest.dsh.bundle)) loadOverlayPatches('dsh', file)
         version = manifest.version
         this.installedFrom.set(name, used)
+        await this.saveRegistries()
       } catch (error) {
         // pnpm has exited by now, so the files it rewrote go back as they were.
         await this.restoreFiles(files)
@@ -1294,6 +1306,7 @@ export class PluginManager extends TypertRemoteService {
         throw new Error(result.packageResult.output)
       }
       this.installedFrom.delete(name)
+      await this.saveRegistries()
       Object.assign(result, await this.configure(() => this.publishAndReload()))
     }, { stage: 'remove', target: name }, 'remove')
   }
@@ -1384,6 +1397,12 @@ export class PluginManager extends TypertRemoteService {
       if (content === undefined) await rm(path, { force: true })
       else await writeFileAtomic(path, content, { mode: 0o600 })
     }
+  }
+
+  private async saveRegistries(): Promise<void> {
+    try {
+      await writeFileAtomic(registriesPath(this.profile.dir), JSON.stringify(Object.fromEntries(this.installedFrom)), { mode: 0o600, dirMode: 0o700 })
+    } catch { /* the record only helps a later restart */ }
   }
 
   private exclusive<T>(work: () => Promise<T>): Promise<T> {

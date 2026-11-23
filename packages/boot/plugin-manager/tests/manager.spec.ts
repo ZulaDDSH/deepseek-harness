@@ -1219,6 +1219,24 @@ it('removes a package with the registry it was installed from, so pnpm verifies 
   expect(pnpm.mock.calls.at(-1)?.[1]).toEqual(['remove', 'mirrored'])
 })
 
+it('records the registry a package came from so a restarted manager still removes it with that registry', async () => {
+  const corp = 'https://corp.example/npm/'
+  const { manager, dir } = await fixture('live', false, undefined, {}, undefined, (profile) => {
+    mkdirSync(join(profile, '.plugin-manager'), { recursive: true })
+    writeFileSync(join(profile, '.plugin-manager', 'registries.json'), JSON.stringify({ extra: corp }))
+  })
+  const pnpm = vi.spyOn(operations, 'runProfilePnpm').mockImplementation(() => {
+    const manifest = readProfileManifest('test', dir)
+    delete manifest.dependencies?.extra
+    writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest))
+    return Promise.resolve({ exitCode: 0, output: '', truncated: false, logPath: join(dir, 'pnpm.log') })
+  })
+  onTestFinished(() => { pnpm.mockRestore() })
+  expect(await manager.removeBundle('extra')).toMatchObject({ application: 'applied' })
+  expect(pnpm.mock.calls.at(-1)?.[1]).toEqual(['remove', 'extra', `--config.registry=${corp}`])
+  expect(JSON.parse(readFileSync(join(dir, '.plugin-manager', 'registries.json'), 'utf8'))).toEqual({})
+})
+
 it('streams pnpm output, reports the installation phases, and names the installed bundle', async () => {
   const { ctx, manager, dir, bundle } = await fixture()
   const chunks: PluginInstallLogChunk[] = []
