@@ -125,10 +125,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'a detached provider, model, and optional reasoning selection.',
       },
       {
-        signature: 'async saveSelection(next: ModelSelection): Promise<void>',
+        signature: 'async saveSelection(next: ModelSelection): Promise<boolean>',
         description: 'Save the complete default model selection. A deployment without a configuration editor keeps its composition entry. Saves commit in submission order; a failed save rejects its caller without blocking later saves.',
         parameters: [{ name: 'next', description: 'resolved selection accepted by an entry point.' }],
-        returns: 'fulfillment after the optional profile write settles.',
+        returns: 'whether the profile was written; false when no configuration editor or entry exists.',
+      },
+      {
+        signature: 'async saveInitialSelection(resolve: () => Promise<ModelSelection | undefined>): Promise<void>',
+        description: 'Save a computed first-run default only while no selection was ever saved to the profile and none is submitted while the selection is being computed.',
+        parameters: [{ name: 'resolve', description: 'Computes the selection to save, or undefined to leave the default alone.' }],
+        returns: 'Fulfillment after the optional profile write settles; resolves without writing when a selection was saved before or during the computation.',
       },
     ],
   },
@@ -371,7 +377,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Save a root Session\'s Team selection without stopping children or deleting tasks. The selection takes effect before awaiting persistence. Tools resolve availability at step preparation; prompt providers read the selection when evaluated. Task mutations check the current mode when their queued operation starts; admitted operations finish.',
         parameters: [{ name: 'agent', description: 'exact live root whose tree receives the selection.' }, { name: 'enabled', description: 'selected Team mode.' }, { name: 'signal', description: 'cancellation checked before changing the selection.' }],
         returns: 'fulfillment after the selection flushes.',
-        throws: ['when called by a descendant or persistence fails. An appended selection remains active; retrying the same selection flushes without a duplicate event.'],
+        throws: ['when called by a descendant, or TEAM_MODE_PERSISTENCE_UNCONFIRMED when the flush fails or no listener participates. An appended selection remains active; retrying the same selection flushes without a duplicate event.'],
       },
       {
         signature: 'async createTask(caller: Agent, request: CreateTeamTaskRequest, signal?: AbortSignal): Promise<TeamTaskView>',
@@ -8773,7 +8779,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PatchHunk',
-    declaration: 'export interface PatchHunk {\n    lineNumber: number;\n    context?: string;\n    oldLines: string[];\n    newLines: string[];\n    isEndOfFile: boolean;\n}',
+    declaration: 'export interface PatchHunk {\n    lineNumber: number;\n    context?: string;\n    oldLines: string[];\n    newLines: string[];\n    isEndOfFile: boolean;\n    marks?: string;\n}',
   },
   {
     name: 'PeerAdmission',
@@ -10157,7 +10163,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionSelectModelValue',
-    declaration: 'export interface SessionSelectModelValue {\n    readonly selected: ModelSelection;\n}',
+    declaration: 'export interface SessionSelectModelValue {\n    readonly selected: ModelSelection;\n    readonly defaultSave?: \'saved\' | \'unavailable\' | \'failed\' | \'pending\';\n}',
   },
   {
     name: 'SessionSeq',
@@ -11645,11 +11651,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'WorkflowResult',
-    declaration: 'export interface WorkflowResult {\n    value: unknown;\n    stopReason: WorkflowStopReason;\n    error?: string;\n    errorCode?: WorkflowErrorCode;\n    agentsStarted: number;\n}',
+    declaration: 'export interface WorkflowResult {\n    value: unknown;\n    stopReason: WorkflowStopReason;\n    error?: string;\n    errorCode?: WorkflowErrorCode;\n    cleanupFailures?: string[];\n    agentsStarted: number;\n}',
   },
   {
     name: 'WorkflowResultInfo',
-    declaration: 'export interface WorkflowResultInfo {\n    stopReason: WorkflowStopReason;\n    error?: string;\n    errorCode?: WorkflowErrorCode;\n    agentsStarted: number;\n}',
+    declaration: 'export interface WorkflowResultInfo {\n    stopReason: WorkflowStopReason;\n    error?: string;\n    errorCode?: WorkflowErrorCode;\n    cleanupFailures?: string[];\n    agentsStarted: number;\n}',
   },
   {
     name: 'WorkflowRun',

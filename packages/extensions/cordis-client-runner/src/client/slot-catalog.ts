@@ -186,7 +186,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     doc: 'Optional detail for the Tool call correlated with an approval request.',
     registerOptions: [],
     ownerProps: [
-      '/** Stable identity handed to an optional approval-detail renderer. */\nexport interface ApprovalDetailOwnerProps {\n  /** Tool call correlated with the request. */\n  callId: ToolCallId\n}',
+      '/** Stable identity handed to an optional approval-detail renderer. */\nexport interface ApprovalDetailOwnerProps {\n  /** Tool call correlated with the request. */\n  callId: ToolCallId\n  onAvailability?: (available: boolean) => void\n}',
     ],
     ownerPropsReferences: [],
     standardProps: [

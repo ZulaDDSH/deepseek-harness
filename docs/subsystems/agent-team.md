@@ -148,7 +148,7 @@ isEnabled(caller: Agent): boolean
  * @param enabled - selected Team mode.
  * @param signal - cancellation checked before changing the selection.
  * @returns fulfillment after the selection flushes.
- * @throws when called by a descendant or persistence fails. An appended selection remains active;
+ * @throws when called by a descendant, or TEAM_MODE_PERSISTENCE_UNCONFIRMED when the flush fails or no listener participates. An appended selection remains active;
  * retrying the same selection flushes without a duplicate event.
  */
 @Remote async setEnabled(agent: Agent, enabled: boolean, signal?: AbortSignal): Promise<void>

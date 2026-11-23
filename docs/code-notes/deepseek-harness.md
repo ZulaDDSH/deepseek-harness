@@ -1242,3 +1242,9 @@ The event JSDoc carries description, `@mode emit` and `@param outcome` because t
 - `description`: Save a computed first-run default only while no selection was ever saved to the profile and none is submitted while the selection is being computed.
 - `params.resolve`: Computes the selection to save, or undefined to leave the default alone.
 - `returns`: Fulfillment after the optional profile write settles; resolves without writing when a selection was saved before or during the computation.
+
+### `packages/workflow/workflow-ptc/src/index.ts:Config`
+- `maxDurationMs`: Overall elapsed deadline for one workflow run in milliseconds; default 3,600,000 (one hour), 0 disables it. On expiry the run is aborted and settles as an error.
+
+### `packages/api/quota-controller/src/index.ts:QuotaControllerInternals`
+- `timeoutMs`: Deadline in milliseconds for one whole quota read, credential lookup plus HTTP request; default 30000.

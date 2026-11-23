@@ -275,6 +275,8 @@ export interface QuotaControllerInternals {
   readonly providers?: readonly QuotaProvider[]
   /** Whole-percent share of a subscription window at which the composer warns; the loader supplies it from the namespace. */
   readonly nearLimitPercent?: Volatile<number>
+  /** Deadline in milliseconds for one whole quota read, credential lookup plus HTTP request; default 30000. */
+  readonly timeoutMs?: number
 }
 
 /** Host adapter capable of resolving and reading one provider's quota state. */
@@ -4588,7 +4590,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-time-context`
 
 - `inject`: `agents` · `sessionProjections`
-- `source`: [`packages/context/time-context/src/index.ts:52`](../packages/context/time-context/src/index.ts)
+- `source`: [`packages/context/time-context/src/index.ts:60`](../packages/context/time-context/src/index.ts)
 
 ```ts config-catalog
 /** Request-preparation clock formatting and append scheduling. Invalid values fail plugin load. */
@@ -4700,13 +4702,15 @@ export type ProgressPrecision = (typeof progressPrecisions)[number]
 ## `@deepseek-ai/dsh-tmux-context`
 
 - `inject`: `agents` · `sessionProjections`
-- `source`: [`packages/context/tmux-context/src/index.ts:47`](../packages/context/tmux-context/src/index.ts)
+- `source`: [`packages/context/tmux-context/src/index.ts:48`](../packages/context/tmux-context/src/index.ts)
 
 ```ts config-catalog
 /** Per-turn tmux-location scheduling. Invalid values fail plugin load. */
 export interface Config {
   /** Minimum milliseconds between durable injections in one session. Omit or set to 0 to inject on every eligible change. */
   refreshIntervalMs?: number
+  /** Milliseconds the whole tmux location query may take before it is abandoned as unknown. Defaults to 5000. */
+  queryTimeoutMs?: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tmux-context -->
@@ -5180,7 +5184,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-str-replace-editor`
 
 - `inject`: `tools` · `fs`
-- `source`: [`packages/fs/tool-str-replace-editor/src/index.ts:524`](../packages/fs/tool-str-replace-editor/src/index.ts)
+- `source`: [`packages/fs/tool-str-replace-editor/src/index.ts:538`](../packages/fs/tool-str-replace-editor/src/index.ts)
 
 ```ts config-catalog
 /** Configuration for the string-replacement editor tool. */
@@ -5790,6 +5794,8 @@ export interface Config {
   maxItemsPerCall?: number
   /** VM timeout for the script's initial synchronous slice (default 5000 ms). */
   syncTimeoutMs?: number
+  /** Overall elapsed deadline for one workflow run in milliseconds; default 3,600,000 (one hour), 0 disables it. On expiry the run is aborted and settles as an error. */
+  maxDurationMs?: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-workflow-ptc -->
