@@ -474,8 +474,9 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
       if (definition === undefined) throw new Error(`${label}: tool is unavailable`)
       const errors = validateJsonSchemaValue(definition.parameters, args)
       if (errors.length > 0) throw new Error(`${label}: invalid tool arguments: ${errors.join('; ')}`)
+      let result: Awaited<ReturnType<Client['callTool']>>
       try {
-        return await record.wire.run(wireSignal => record.wire.client.callTool(
+        result = await record.wire.run(wireSignal => record.wire.client.callTool(
           { name, arguments: args },
           { signal: AbortSignal.any([wireSignal, signal]), timeout: config.toolCallTimeoutMs },
         ))
@@ -484,7 +485,11 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
         if (isAuthRequired(error)) authenticationRejected(error, record)
         throw mcpRequestError(error, `human tool "${name}"`, config.expandTemplates ? text => binding.redact(text) : undefined)
       }
+      if (!config.expandTemplates || result.isError !== true) return result
+      const content = Array.isArray(result.content) ? result.content : []
+      return { isError: true, content: content.flatMap(block => block.type === 'text' ? [{ type: 'text', text: binding.redact(block.text) }] : []) }
     },
+    redact: text => config.expandTemplates ? binding.redact(text) : text,
   })
 
   return {

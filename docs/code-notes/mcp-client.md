@@ -12,3 +12,8 @@
 ## Non-object tool arguments (finding 369)
 
 - `packages/mcp/mcp-client/src/tools.ts:createExecutor` - arguments that are not a JSON object (null, a primitive, malformed JSON preserved as its raw string by the batch scheduler, or an array) are rejected with `ToolArgsError` before `options.call`, so no `tools/call` reaches a server whose parameters are all optional; a valid `{}` still calls the server. `packages/experimental/browser-use-stagehand-native/src/index.ts` validates `exec.arguments` against the zod input unchanged, so it no longer reads non-objects as `{}` before acquiring a browser.
+
+## Host-operation error redaction (finding 370)
+
+- `packages/mcp/mcp-client/src/connection.ts:startConnection` (the registered `call`) - when `expandTemplates` is on, an `isError` result from the human-operations call is reduced to its redacted text parts, like the model-facing bridge in `tools.ts:registerTools`; successful results are returned unchanged. The same closure supplies `McpHumanOperations.redact` (`human-operations.ts:McpHumanOperations`), which is the identity when templates are not expanded.
+- `packages/client/ui-memory-workspace/src/store.ts:excerpt` - the 300-character excerpt copied into Memorix rejection and missing-acknowledgement errors is redacted through `provider.redact` before it is truncated, so a secret cut by the limit is not partially exposed; a provider without `redact` keeps the raw excerpt.
