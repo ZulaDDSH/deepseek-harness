@@ -88,7 +88,7 @@ Each write probes the target, enforces the optional guard (`createIfAbsent` or `
 
 ### Edit path
 
-Each edit probes, verifies the version guard before literal matching (so stale edits report `FS_STALE_VERSION`, never a misleading no-match), reads the file, applies the literal replacement with LF normalization, restores the file's dominant line-ending style, and republishes — all inside the per-target lock.
+Each edit probes, verifies the version guard before literal matching (so stale edits report `FS_STALE_VERSION`, never a misleading no-match), reads the file, applies the literal replacement (or the append, when `append` is set) with LF normalization, restores the file's dominant line-ending style, and republishes — all inside the per-target lock.
 
 ### Ownership and invariants
 

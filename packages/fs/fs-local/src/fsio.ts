@@ -856,6 +856,7 @@ export async function readTextForDiff(
  * @param newString - literal replacement text, normalized the same way.
  * @param replaceAll - replace every match instead of requiring exactly one.
  * @param displayPath - the caller-facing path used in error messages.
+ * @param append - append `newString` to the end instead of replacing; requires an empty `oldString`.
  * @returns the edited LF-normalized content plus how many occurrences were replaced.
  */
 export function applyLiteralEdit(
@@ -864,8 +865,13 @@ export function applyLiteralEdit(
   newString: string,
   replaceAll: boolean,
   displayPath: string,
+  append = false,
 ): { content: string; replacements: number } {
   const oldNorm = normalizeLineEndings(oldString)
+  if (append) {
+    if (oldNorm.length !== 0) throw new FsError('old_string must be empty when appending', 'FS_EDIT_NOT_FOUND')
+    return { content: content + normalizeLineEndings(newString), replacements: 1 }
+  }
   if (oldNorm.length === 0) {
     throw new FsError('old_string must be a non-empty string', 'FS_EDIT_NOT_FOUND')
   }

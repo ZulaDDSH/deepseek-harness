@@ -1,0 +1,3 @@
+# fs-local code notes
+
+`packages/fs/fs-local/src/fsio.ts:applyLiteralEdit` (finding 23, issue #126): a sixth `append` argument appends the normalized `newString` to the LF-normalized content and returns one replacement, skipping the empty-search rejection that still applies to ordinary edits. `LocalFileSystem::editText` passes `edit.append` through, so appending runs under the same per-target lock, stale-version check, `readForEdit` size and binary checks, line-ending restoration and `writeFileAtomic` expected-version recheck that guard every edit; the guarded-mutation protection added for finding 4 is untouched because the write call is the same. An empty existing file takes the append (the content before is the empty string).

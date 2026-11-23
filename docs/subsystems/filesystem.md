@@ -263,6 +263,8 @@ interface FsEditRequest {
   newString: string
   /** Replace every match instead of requiring exactly one. */
   replaceAll: boolean
+  /** Constraint: when true, `oldString` must be empty and `newString` is appended to the end of the content. */
+  append?: boolean | undefined
 }
 ```
 

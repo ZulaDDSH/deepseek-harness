@@ -7591,7 +7591,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'FsEditRequest',
-    declaration: 'export interface FsEditRequest {\n    oldString: string;\n    newString: string;\n    replaceAll: boolean;\n}',
+    declaration: 'export interface FsEditRequest {\n    oldString: string;\n    newString: string;\n    replaceAll: boolean;\n    append?: boolean | undefined;\n}',
   },
   {
     name: 'FsErrorCode',

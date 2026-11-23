@@ -58,6 +58,19 @@ describe('external edit between the version check and publication', () => {
     expect(await bytes('a')).toBe('external edit that is longer')
   })
 
+  it.each([
+    ['guarded', true],
+    ['unconditional', false],
+  ])('keeps the external file when a %s append was staged from a stale read', async (_name, guarded) => {
+    const { fs, file, version, external, bytes } = await setup()
+    const target = await file('a', 'old\n')
+    fs.internals.inspectTemp = external('a')
+    const expected = guarded ? { version: await version(target) } : undefined
+    await expect(fs.editText(target, { oldString: '', newString: 'tail\n', replaceAll: false, append: true }, expected))
+      .rejects.toMatchObject({ code: 'FS_STALE_VERSION' })
+    expect(await bytes('a')).toBe('external edit that is longer')
+  })
+
   it('keeps the external file when a patch was staged from a stale read', async () => {
     const { fs, file, version, external, bytes } = await setup()
     const target = await file('a', 'old\n')
