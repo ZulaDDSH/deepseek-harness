@@ -1,22 +1,49 @@
 import { createHash, createHmac, randomBytes } from 'node:crypto'
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, linkSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 
 const secrets = new Map()
+
+function readSecret(file) {
+  try {
+    const text = readFileSync(file, 'utf8').trim()
+    return /^[0-9a-f]{64}$/.test(text) ? text : ''
+  } catch (err) {
+    if (err.code === 'ENOENT') return ''
+    throw err
+  }
+}
 
 function secretFor(root) {
   let secret = secrets.get(root)
   if (secret) return secret
   mkdirSync(root, { recursive: true, mode: 0o700 })
   const file = join(root, '.ownership-secret')
-  try {
-    writeFileSync(file, randomBytes(32).toString('hex'), { flag: 'wx', mode: 0o600 })
-  } catch (err) {
-    if (err.code !== 'EEXIST') throw err
+  secret = readSecret(file)
+  if (!secret) {
+    const temp = `${file}.${process.pid}.${randomBytes(6).toString('hex')}`
+    writeFileSync(temp, randomBytes(32).toString('hex'), { flag: 'wx', mode: 0o600 })
+    try {
+      let exists = true
+      try {
+        readFileSync(file)
+      } catch (err) {
+        if (err.code !== 'ENOENT') throw err
+        exists = false
+      }
+      if (exists) renameSync(temp, file)
+      else linkSync(temp, file)
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err
+    } finally {
+      try {
+        unlinkSync(temp)
+      } catch {}
+    }
+    secret = readSecret(file)
+    if (!secret) throw new Error('The Claude account secret is unreadable.')
   }
-  secret = readFileSync(file, 'utf8').trim()
-  if (secret.length !== 64) throw new Error('The Claude account secret is unreadable.')
   secrets.set(root, secret)
   return secret
 }
@@ -55,7 +82,9 @@ export function readOwnership(root) {
       !data.rejected.every(validRejected)
     )
       return emptyState(true)
-    return { ...emptyState(), owners: new Map(data.owners), rejected: new Map(data.rejected) }
+    const displaced = data.displaced ?? []
+    if (!Array.isArray(displaced) || !displaced.every((id) => typeof id === 'string')) return emptyState(true)
+    return { ...emptyState(), owners: new Map(data.owners), rejected: new Map(data.rejected), displaced }
   } catch {
     return emptyState(true)
   }
@@ -63,14 +92,21 @@ export function readOwnership(root) {
 
 export function reconcileOwnership(entries, state) {
   const byId = new Map(entries.map((e) => [e.id, e]))
+  const migrated = new Set()
   for (const row of entries) {
     const { accountKey: key, legacyKey } = row.status
     if (!key || !legacyKey) continue
     if (state.owners.get(legacyKey) === row.id && !state.owners.has(key)) {
       state.owners.delete(legacyKey)
       state.owners.set(key, row.id)
+      migrated.add(legacyKey)
     }
-    if (state.rejected.get(row.id)?.key === legacyKey) state.rejected.delete(row.id)
+  }
+  for (const row of entries) {
+    const { accountKey: key, legacyKey } = row.status
+    const prior = state.rejected.get(row.id)
+    if (key && legacyKey && prior?.key === legacyKey && (migrated.has(legacyKey) || !byId.get(prior.owner)?.status.error))
+      state.rejected.delete(row.id)
   }
   for (const [key, id] of state.owners) {
     const row = byId.get(id)
@@ -87,7 +123,7 @@ export function reconcileOwnership(entries, state) {
     const key = row.status.accountKey
     if (!key) continue
     const prior = state.rejected.get(row.id)
-    if (prior && prior.key !== key) state.rejected.delete(row.id)
+    if (prior && prior.key !== key && prior.key !== row.status.legacyKey) state.rejected.delete(row.id)
     if (row.id === 'main' || (!state.owners.has(key) && !state.rejected.has(row.id))) {
       const previous = state.owners.get(key)
       if (previous && previous !== row.id) state.displaced.push(previous)
@@ -97,6 +133,9 @@ export function reconcileOwnership(entries, state) {
     if (owner === row.id) state.rejected.delete(row.id)
     else if (owner) state.rejected.set(row.id, { key, owner })
   }
+  state.displaced = [...new Set(state.displaced)].filter(
+    (id) => byId.has(id) && state.rejected.get(id)?.owner === 'main',
+  )
   return state
 }
 
@@ -109,7 +148,12 @@ export async function updateOwnership(root, observe) {
     async () => {
       const state = readOwnership(root)
       const encode = () =>
-        JSON.stringify({ version: 2, owners: [...state.owners], rejected: [...state.rejected] })
+        JSON.stringify({
+          version: 2,
+          owners: [...state.owners],
+          rejected: [...state.rejected],
+          displaced: state.displaced,
+        })
       const before = encode()
       if (state.corrupt) copyFileSync(file, `${file}.corrupt-${Date.now()}`)
       reconcileOwnership(rows, state)

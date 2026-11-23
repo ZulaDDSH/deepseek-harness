@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -140,4 +140,61 @@ test('an entry of a profile that could not be read survives, a vanished profile 
   reconcileOwnership([row('broken', undefined, { status: { signedIn: false, error: 'x' } })], state)
   assert.equal(state.owners.get('k1'), 'broken')
   assert.ok(!state.owners.has('k2'))
+})
+
+test('a rejected duplicate keeps its place while the legacy owner cannot be read', () => {
+  const state = empty()
+  state.owners.set('legacy-k1', 'work')
+  state.rejected.set('dup', { key: 'legacy-k1', owner: 'work' })
+  const broken = row('work', undefined, { status: { signedIn: false, error: 'x' } })
+  reconcileOwnership([broken, row('dup', 'k1')], state)
+  assert.equal(state.owners.get('legacy-k1'), 'work')
+  assert.ok(!state.owners.has('k1'))
+  assert.deepEqual(state.rejected.get('dup'), { key: 'legacy-k1', owner: 'work' })
+  reconcileOwnership([broken, row('dup', 'k1')], state)
+  assert.ok(!state.owners.has('k1'))
+  reconcileOwnership([row('work', 'k1'), row('dup', 'k1')], state)
+  assert.equal(state.owners.get('k1'), 'work')
+  assert.ok(!state.owners.has('legacy-k1'))
+  assert.deepEqual(state.rejected.get('dup'), { key: 'k1', owner: 'work' })
+})
+
+test('a legacy rejected entry is dropped when its owner signed out or vanished', () => {
+  const state = empty()
+  state.owners.set('legacy-k1', 'gone')
+  state.rejected.set('dup', { key: 'legacy-k1', owner: 'gone' })
+  state.rejected.set('dup2', { key: 'legacy-k2', owner: 'out' })
+  reconcileOwnership([row('dup', 'k1'), row('dup2', 'k2'), row('out', undefined)], state)
+  assert.equal(state.rejected.size, 0)
+  assert.equal(state.owners.get('k1'), 'dup')
+  assert.equal(state.owners.get('k2'), 'dup2')
+})
+
+test('displaced profiles are stored, survive a reload and clear when the cause is gone', async (t) => {
+  const root = await scratch(t)
+  const displaced = [row('main', 'k1'), row('work', 'k1')]
+  await updateOwnership(root, async () => [row('work', 'k1')])
+  const first = await updateOwnership(root, async () => displaced)
+  assert.deepEqual(first.state.displaced, ['work'])
+  assert.deepEqual(readOwnership(root).displaced, ['work'])
+  const again = await updateOwnership(root, async () => displaced)
+  assert.deepEqual(again.state.displaced, ['work'])
+  const cleared = await updateOwnership(root, async () => [row('main', 'k1'), row('work', 'k2')])
+  assert.deepEqual(cleared.state.displaced, [])
+  assert.deepEqual(readOwnership(root).displaced, [])
+  await updateOwnership(root, async () => displaced)
+  const removed = await updateOwnership(root, async () => [row('main', 'k1')])
+  assert.deepEqual(removed.state.displaced, [])
+})
+
+test('an empty or short secret file is replaced and no temporary file is left', async (t) => {
+  for (const stale of ['', 'abc\n']) {
+    const root = await scratch(t)
+    await mkdir(root, { recursive: true })
+    await writeFile(join(root, '.ownership-secret'), stale)
+    const key = accountKey(root, 'one@example.test', 'org')
+    assert.match(key, /^[0-9a-f]{64}$/)
+    assert.match(await readFile(join(root, '.ownership-secret'), 'utf8'), /^[0-9a-f]{64}$/)
+    assert.deepEqual((await readdir(root)).filter((f) => f !== '.ownership-secret'), [])
+  }
 })
