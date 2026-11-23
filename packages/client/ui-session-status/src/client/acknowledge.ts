@@ -48,7 +48,8 @@ export function installReadingAcknowledgements(ctx: Context, sessions: Pick<ISes
     attemptedTurn = record.completedTurn
     entered = undefined
     pending = reading.acknowledge(record.sessionId, record.completedTurn, clearing).catch((error: unknown) => {
-      console.error('[session-status] Reading acknowledgement could not be confirmed. Reopen the Session to refresh its state:', error)
+      if (clearing && entered === undefined && selected === record.sessionId && reading.state.getSnapshot().items[record.sessionId] === record) entered = record.sessionId
+      console.error('[session-status] Reading acknowledgement could not be confirmed. It is retried when the window regains focus:', error)
     }).finally(() => { pending = undefined; schedule() })
   }
   const settleEntry = (): void => {
