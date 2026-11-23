@@ -1,7 +1,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { credentialKey, type CredentialRef } from '@deepseek-ai/dsh-credentials'
 import { describe, expect, it, vi } from 'vitest'
-import { QuotaController } from '../src/index.ts'
+import { QuotaController, type QuotaResult, type QuotaSource } from '../src/index.ts'
 
 const BUILT_IN = [{ id: 'deepseek-official', name: 'DeepSeek' }, { id: 'opencode-go', name: 'OpenCode Go' }]
 
@@ -146,5 +146,101 @@ describe('QuotaController credential resolution', () => {
     remove()
     await expect(controller.listProviders()).resolves.toEqual(BUILT_IN)
     await expect(controller.fetch('oauth-test')).resolves.toMatchObject({ ok: false, error: 'Unsupported provider' })
+  })
+})
+
+const never = <T>(): Promise<T> => new Promise<T>(() => undefined)
+const okResult = (id: string, name = id, tag?: string): QuotaResult => ({ providerId: id, providerName: name, configured: true, ok: true, ...tag === undefined ? {} : { windows: { credits: { usedPercent: null, resetAt: null, valueLabel: tag } } } })
+
+function hostCtx(resolve: (ref: CredentialRef) => Promise<unknown> = async () => undefined): Context {
+  const ctx = new Context()
+  ctx.provide('credentials', { resolve, readRecord: async () => undefined } as never)
+  return ctx
+}
+
+describe('QuotaController bounded reads', () => {
+  it('bounds a stuck custom source and serves a retry after the deadline', async () => {
+    const controller = new QuotaController(hostCtx(), { timeoutMs: 20 })
+    const fetchSource = vi.fn<() => Promise<QuotaResult>>().mockImplementationOnce(() => never()).mockResolvedValue(okResult('slow', 'Slow'))
+    controller.registerSource({ id: 'slow', name: 'Slow', configured: async () => true, fetch: fetchSource })
+
+    await expect(controller.fetch('slow')).resolves.toMatchObject({ providerId: 'slow', ok: false, error: 'Quota request timed out' })
+    await expect(controller.fetch('slow')).resolves.toMatchObject({ ok: true })
+    expect(fetchSource).toHaveBeenCalledTimes(2)
+  })
+
+  it('bounds a stuck credential lookup and serves a retry after the deadline', async () => {
+    const resolve = vi.fn<(ref: CredentialRef) => Promise<unknown>>().mockImplementationOnce(() => never()).mockImplementation(async ref => ref === 'DEEPSEEK_API_KEY' ? { value: 'key', source: 'test' } : undefined)
+    const fetcher = vi.fn<typeof fetch>(async () => Response.json({ balance_infos: [{ currency: 'USD', total_balance: '1' }] }))
+    const controller = new QuotaController(hostCtx(resolve), { fetch: fetcher, timeoutMs: 20 })
+
+    await expect(controller.fetch('deepseek-official')).resolves.toMatchObject({ ok: false, error: 'Quota request timed out' })
+    await expect(controller.fetch('deepseek-official')).resolves.toMatchObject({ ok: true })
+  })
+
+  it('aborts the request signal handed to a source when the deadline passes', async () => {
+    let seen: AbortSignal | null | undefined
+    const fetcher = vi.fn<typeof fetch>((_input, init) => { seen = init?.signal; return never() })
+    const controller = new QuotaController(hostCtx(async () => ({ value: 'key', source: 'test' })), { fetch: fetcher, timeoutMs: 20 })
+
+    await expect(controller.fetch('deepseek-official')).resolves.toMatchObject({ error: 'Quota request timed out' })
+    expect(seen?.aborted).toBe(true)
+  })
+})
+
+describe('QuotaController source replacement', () => {
+  const stubSource = (fetchSource: () => Promise<QuotaResult>): QuotaSource => ({ id: 'claude', name: 'Claude', configured: async () => true, fetch: fetchSource })
+
+  it('does not hand a replaced source\'s pending read to the new source', async () => {
+    const controller = new QuotaController(hostCtx())
+    const old = Promise.withResolvers<QuotaResult>()
+    const removeOld = controller.registerSource(stubSource(() => old.promise))
+    const first = controller.fetch('claude')
+    removeOld()
+    controller.registerSource(stubSource(async () => okResult('claude', 'Claude', 'new')))
+
+    await expect(controller.fetch('claude')).resolves.toMatchObject({ windows: { credits: { valueLabel: 'new' } } })
+    await expect(first).resolves.toMatchObject({ ok: false, error: 'Quota source changed' })
+    old.resolve(okResult('claude', 'Claude', 'old'))
+  })
+
+  it('answers a removed source as unsupported while its first read is still pending', async () => {
+    const controller = new QuotaController(hostCtx())
+    const removeOld = controller.registerSource(stubSource(() => never()))
+    void controller.fetch('claude')
+    removeOld()
+
+    await expect(controller.fetch('claude')).resolves.toMatchObject({ ok: false, error: 'Unsupported provider' })
+  })
+
+  it('keeps the replacement\'s pending read when the old read settles late', async () => {
+    const controller = new QuotaController(hostCtx())
+    const old = Promise.withResolvers<QuotaResult>()
+    const next = Promise.withResolvers<QuotaResult>()
+    const fetchNew = vi.fn(() => next.promise)
+    const removeOld = controller.registerSource(stubSource(() => old.promise))
+    void controller.fetch('claude')
+    removeOld()
+    controller.registerSource(stubSource(fetchNew))
+    const second = controller.fetch('claude')
+    old.resolve(okResult('claude', 'Claude', 'old'))
+    await Promise.resolve()
+
+    expect(controller.fetch('claude')).toBe(second)
+    expect(fetchNew).toHaveBeenCalledOnce()
+    next.resolve(okResult('claude', 'Claude', 'new'))
+    await expect(second).resolves.toMatchObject({ windows: { credits: { valueLabel: 'new' } } })
+  })
+
+  it.each([
+    ['reference', 'credentials/reference-updated', 'OPENCODE_GO_API_KEY'],
+    ['record', 'credentials/record-updated', 'llm-pi-ai/opencode-go'],
+  ] as const)('cancels a pending built-in read when its credential %s changes', async (_name, event, subject) => {
+    const ctx = hostCtx(() => never())
+    const controller = new QuotaController(ctx)
+    const pending = controller.fetch('opencode-go')
+    ctx.emit(event as 'credentials/record-updated', subject as never)
+
+    await expect(pending).resolves.toMatchObject({ ok: false, error: 'Quota credential changed' })
   })
 })
