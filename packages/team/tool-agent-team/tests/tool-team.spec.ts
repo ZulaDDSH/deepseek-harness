@@ -899,7 +899,7 @@ describe('dsh-tool-team', () => {
     const { ctx, lead } = await setup([], false)
     const failure = new Error('storage unavailable')
     vi.spyOn(ctx.sessions, 'flush').mockRejectedValueOnce(failure)
-    await expect(ctx.agentTeams.setEnabled(lead, true)).rejects.toBe(failure)
+    await expect(ctx.agentTeams.setEnabled(lead, true)).rejects.toMatchObject({ code: 'TEAM_MODE_PERSISTENCE_UNCONFIRMED', cause: failure })
     expect(teamTools(await assembly(ctx, lead))).toEqual(TEAM_TOOLS)
     await ctx.agentTeams.setEnabled(lead, true)
     expect(lead.session.ownEvents().filter(event => event.type === 'team/mode')).toHaveLength(1)
