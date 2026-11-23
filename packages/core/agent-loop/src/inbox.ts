@@ -80,6 +80,7 @@ export class ReactLoopInbox implements InboxContract {
     private readonly readState: () => InboxState,
     private readonly session: Session,
     private readonly dispatch: AgentEventDispatch,
+    private readonly onDiscard?: (message: UserMessage) => void,
   ) {}
 
   /** Prompts awaiting individual turns. */
@@ -241,7 +242,10 @@ export class ReactLoopInbox implements InboxContract {
     const removed = inbox.slice(actualStart, actualStart + actualDeleteCount)
     const event = this.session.append('agent/inbox/spliced', splice)
     if (discardRemoved) {
-      for (const message of removed) this.dispatch.emit('agent/inbox/discarded', { message })
+      for (const message of removed) {
+        this.onDiscard?.(message)
+        this.dispatch.emit('agent/inbox/discarded', { message })
+      }
     }
     for (const message of event.data.inserted) {
       this.dispatch.emit('agent/inbox/inserted', { message })

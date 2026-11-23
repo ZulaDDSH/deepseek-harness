@@ -222,6 +222,35 @@ describe('claimed input recovery', () => {
     expect(admittedTexts(agent)).toContain('wake 1')
   })
 
+  it('forgets the restore count of a restored prompt that is removed from the inbox', async () => {
+    const adapter = new MockAdapter([textResponse('unused')])
+    const ctx = await harness(adapter)
+    const agent = await ctx.agentLoop.create(brandString<SessionId>('restore-count-removed'), { provider: 'mock', model: 'mock' })
+    collectErrors(ctx)
+    const discarded: string[] = []
+    ctx.on('agent/inbox/discarded', ({ message }) => { discarded.push(...message.content.map(block => block.type === 'text' ? block.text : '')) })
+    ctx.on('agent/pre-step', async ({ messages }, next) => {
+      if (messages.some(message => message.content.some(block => block.type === 'text' && block.text === 'poison'))) throw new Error('hook failed')
+      return next()
+    })
+    const poison = prompt('poison')
+
+    agent.followup(poison)
+    await agent.whenIdle()
+    agent.followup(prompt('wake 1'))
+    await agent.whenIdle()
+    agent.inbox.clear()
+    discarded.length = 0
+
+    agent.followup(poison)
+    await agent.whenIdle()
+    agent.followup(prompt('wake 2'))
+    await agent.whenIdle()
+
+    expect(discarded).toEqual([])
+    expect(pendingTexts(agent)).toEqual(['poison', 'wake 2'])
+  })
+
   it('does not restore input after admission, even when the step later fails', async () => {
     const adapter = new MockAdapter([textResponse('should not run')])
     const ctx = await harness(adapter)
