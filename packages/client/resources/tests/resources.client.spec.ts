@@ -327,6 +327,24 @@ describe('ResourceRegistry streams', () => {
     expect(source.getSnapshot()).toMatchObject({ value: undefined, failure: { code: 'gateway/bad-request' } })
   })
 
+  it('reports a provider that throws as a failed snapshot without an unhandled rejection', async () => {
+    const b = bench()
+    const unhandled = vi.fn()
+    process.on('unhandledRejection', unhandled)
+    try {
+      b.registry.register({
+        protocol: 'feed',
+        async *open() { throw new Error('invalid address') },
+      })
+      const source = b.registry.source(A)
+      source.subscribe(() => {})
+      await vi.waitFor(() => { expect(source.getSnapshot().status).toBe('failed') })
+      expect(source.getSnapshot()).toMatchObject({ value: undefined, failure: { code: 'gateway/internal', message: 'invalid address' } })
+      await settle()
+      expect(unhandled).not.toHaveBeenCalled()
+    } finally { process.off('unhandledRejection', unhandled) }
+  })
+
   it('drops a failure frame that follows the release that aborted the stream', async () => {
     const b = bench()
     b.registry.register(b.provider)

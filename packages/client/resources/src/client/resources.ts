@@ -9,7 +9,7 @@
  * recreated record would make every render resubscribe and restart the stream.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
+import { RemoteError, type RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import { createSnapshotStore, type ObservableSnapshot, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type {
   ResourceOpenContext,
@@ -188,7 +188,7 @@ export class ResourceRegistry implements Resources {
     const controller = new AbortController()
     record.controller = controller
     if (record.store.getSnapshot().status !== 'loading') record.store.set(idle('loading'))
-    void this.consume(record, provider, controller.signal)
+    void this.consume(record, provider, controller.signal).catch((error: unknown) => { this.fail(record, controller.signal, error) })
   }
 
   private stop(record: ResourceRecord): void {
@@ -196,7 +196,15 @@ export class ResourceRegistry implements Resources {
     record.controller = undefined
   }
 
-  /** Failures arrive as frames; a throw inside the stream is left to surface. */
+  private fail(record: ResourceRecord, signal: AbortSignal, error: unknown): void {
+    if (signal.aborted) return
+    record.store.set({
+      status: 'failed',
+      value: record.store.getSnapshot().value,
+      failure: new RemoteError('gateway/internal', error instanceof Error ? error.message : String(error), {}),
+    })
+  }
+
   private async consume(record: ResourceRecord, provider: RuntimeProvider, signal: AbortSignal): Promise<void> {
     const stream = provider.open(record.address, { signal })
     for await (const frame of stream) {
