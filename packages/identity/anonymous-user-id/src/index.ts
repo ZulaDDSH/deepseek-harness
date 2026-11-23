@@ -78,10 +78,12 @@ function acquireLock(lockFile: string, timeoutMs: number): LockState {
       if (!LOCK_CONTENTION_CODES.has((error as NodeJS.ErrnoException).code ?? '')) return 'unavailable'
     }
     try {
-      if (Date.now() - statSync(lockFile).mtimeMs > LOCK_STALE_MS) rmSync(lockFile, { force: true })
-    } catch {
-      // Lock vanished: retry.
-    }
+      const seen = statSync(lockFile)
+      if (Date.now() - seen.mtimeMs > LOCK_STALE_MS) {
+        const again = statSync(lockFile)
+        if (again.ino === seen.ino && again.mtimeMs === seen.mtimeMs) rmSync(lockFile, { force: true })
+      }
+    } catch { /* vanished: retry */ }
     if (Date.now() >= deadline) return 'timeout'
     sleepSync(LOCK_POLL_MS)
   }
