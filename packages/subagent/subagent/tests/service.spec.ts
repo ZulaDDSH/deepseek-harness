@@ -441,7 +441,7 @@ describe('SubagentRuntime', () => {
     await expect(start(subagents, 'catalog-failure', baseRequest({ parent }), 'parent'))
       .rejects.toBe(catalogFailure)
     expect(append).toHaveBeenCalledOnce()
-    expect(dispose).toHaveBeenCalledOnce()
+    expect(dispose).toHaveBeenCalledTimes(failsDisposal ? 3 : 1)
     expect(warnings).toHaveBeenCalledOnce()
     expect(warnings.mock.calls[0]![0]).toContain('run infrastructure failed')
     if (failsDisposal) expect(warnings.mock.calls[0]![0]).toContain('dispose also failed')

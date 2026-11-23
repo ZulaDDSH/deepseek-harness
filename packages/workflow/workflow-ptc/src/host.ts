@@ -29,6 +29,7 @@ interface ChildRecord {
 
 const GUEST_URL = `data:text/javascript,${encodeURIComponent(WORKFLOW_GUEST_SOURCE)}`
 const PROGRAM = `const { runWorkflowGuest } = await import(${JSON.stringify(GUEST_URL)}); return await runWorkflowGuest(workflowHost);`
+const CHILD_DISPOSE_ATTEMPTS = 2
 const DELEGATION_ROLES = ['coder', 'reviewer', 'researcher'] as const
 
 interface RoleRoute {
@@ -319,7 +320,7 @@ export class PtcWorkflowRun implements WorkflowRun {
   }
 
   private disposeChild(record: ChildRecord): Promise<void> {
-    record.disposal ??= Promise.resolve().then(() => record.run.dispose()).catch((error: unknown) => {
+    record.disposal ??= this.disposeChildAttempts(record).catch((error: unknown) => {
       const failure = renderThrown(error)
       this.cleanupFailures.push(`child ${record.run.childId} (call ${record.callId}): ${failure}`)
       this.ctx.logger.warn(`workflow-ptc: child dispose failed: ${failure}`)
@@ -327,6 +328,19 @@ export class PtcWorkflowRun implements WorkflowRun {
       this.children.delete(record.callId)
     })
     return record.disposal
+  }
+
+  private async disposeChildAttempts(record: ChildRecord): Promise<void> {
+    let lastError: unknown
+    for (let attempt = 0; attempt < CHILD_DISPOSE_ATTEMPTS; attempt += 1) {
+      try {
+        await record.run.dispose()
+        return
+      } catch (error: unknown) {
+        lastError = error
+      }
+    }
+    throw lastError
   }
 
   private onProgress(event: WorkflowProgress): void {

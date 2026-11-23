@@ -139,7 +139,7 @@ describe('external activation ownership', () => {
     const warning = vi.spyOn(fixture.ctx.logger, 'warn')
     try {
       await expect(fixture.start()).rejects.toBe(failure)
-      expect(dispose).toHaveBeenCalledOnce()
+      expect(dispose).toHaveBeenCalledTimes(3)
       expect(warning).toHaveBeenCalledWith(expect.stringContaining('admission rollback failed:'))
       expect(warning).toHaveBeenCalledWith(expect.stringContaining('unknown teardown failure'))
       await expect(fixture.ctx.subagents.waitForTreeWork(fixture.parent)).resolves.toBe(false)

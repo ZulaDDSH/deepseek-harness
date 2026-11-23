@@ -58,6 +58,7 @@ interface ActivationBase {
   readonly result: PromiseWithResolvers<SubagentResult>
   /** Published synchronously before teardown; subsequent callers share this transaction. */
   closing: Promise<void> | undefined
+  handleUndisposed: boolean
   /**
    * Whether local input was accepted or external startup completed, including
    * any required catalog publication. Until then, teardown owes the parent no

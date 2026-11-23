@@ -584,6 +584,36 @@ describe('dsh-workflow-ptc', { timeout: 120_000 }, () => {
       expect(ends).toEqual([expect.objectContaining({ cleanupFailures: result.cleanupFailures })])
     })
 
+    it('retries a child dispose() that fails once and reports no cleanup failure when the retry settles', async () => {
+      const ctx = new Context()
+      await ctx.plugin(SessionProjectionRegistry)
+      await mountPtcRuntime(ctx)
+      provideWorkingDirectoryFixture(ctx)
+      await ctx.plugin(SubagentRuntime)
+      let disposeCalls = 0
+      const provider: SubagentProvider = {
+        name: 'flaky-dispose',
+        capabilities: { agentOptions: true, agentPreset: false, outputSchema: true, depthLimit: true },
+        inheritsParentContext: false,
+        start: async () => ({
+          id: brandString<SessionId>('flaky-dispose-child'),
+          result: Promise.resolve({ output: [{ type: 'text', text: 'fine' }], stopReason: 'completed' }),
+          cancel: () => undefined,
+          dispose: async () => {
+            disposeCalls += 1
+            if (disposeCalls === 1) throw new Error('transient dispose failure')
+          },
+        }),
+      }
+      ctx.subagents.registerProvider(provider)
+      await ctx.plugin(PtcWorkflowEngine, { provider: 'flaky-dispose', maxConcurrentAgents: 2 })
+      const result = await run(ctx, await fakeParent(ctx), scripted("return await agent('p')"))
+      expect(result.stopReason).toBe('completed')
+      expect(result.value).toBe('fine')
+      expect(result.cleanupFailures).toBeUndefined()
+      expect(disposeCalls).toBe(2)
+    })
+
     it('a child dispose() rejecting an UNRENDERABLE value still acks — the containment warn is total', async () => {
       const ctx = new Context()
       await ctx.plugin(SessionProjectionRegistry)
@@ -644,7 +674,7 @@ describe('dsh-workflow-ptc', { timeout: 120_000 }, () => {
       expect(result.value).toBe('fine')
       expect(result.cleanupFailures).toEqual([expect.stringContaining('async-dispose-child (call 1): ')])
       expect(result.cleanupFailures![0]).toContain('async teardown refused')
-      expect(disposals).toBe(1)
+      expect(disposals).toBe(9)
     })
   })
 

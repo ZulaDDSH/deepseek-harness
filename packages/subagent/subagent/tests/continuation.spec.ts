@@ -478,6 +478,59 @@ describe('continuable activation capacity', () => {
     }
   })
 
+  it('retries a transient local handle disposal failure inside one teardown', async () => {
+    const releaseRun = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('busy'), gate: releaseRun.promise }])
+    const { ctx, parent } = await setupWith(adapter, { maxActiveSubagents: 1 })
+    parkParent(ctx, parent)
+    const ended = vi.fn()
+    ctx.on('subagent/end', ended)
+    const started = await ctx.subagents.startActivation({ ...startSpec(parent), delivery: 'parent' })
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+    const handle = requireLocalActivation(managerState(ctx).resident.get(started.childId)!).handle
+    const dispose = handle.dispose.bind(handle)
+    let failures = 1
+    handle.dispose = async () => {
+      if (failures > 0) {
+        failures -= 1
+        throw new Error('handle busy')
+      }
+      await dispose()
+    }
+    releaseRun.resolve(undefined)
+    await expect(started.dispose()).resolves.toBeUndefined()
+    expect(failures).toBe(0)
+    expect(ended).toHaveBeenCalledTimes(1)
+  })
+
+  it('re-drives a fully failed local handle disposal on a later dispose without a second end event', async () => {
+    const releaseRun = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('busy'), gate: releaseRun.promise }])
+    const { ctx, parent } = await setupWith(adapter, { maxActiveSubagents: 1 })
+    parkParent(ctx, parent)
+    const ended = vi.fn()
+    ctx.on('subagent/end', ended)
+    const started = await ctx.subagents.startActivation({ ...startSpec(parent), delivery: 'parent' })
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+    const handle = requireLocalActivation(managerState(ctx).resident.get(started.childId)!).handle
+    const dispose = handle.dispose.bind(handle)
+    let failures = 3
+    handle.dispose = async () => {
+      if (failures > 0) {
+        failures -= 1
+        throw new Error('handle busy')
+      }
+      await dispose()
+    }
+    releaseRun.resolve(undefined)
+    await expect(started.dispose()).rejects.toMatchObject({ code: 'ACTIVATION_TEARDOWN_FAILED' })
+    expect(ended).toHaveBeenCalledTimes(1)
+    expect(failures).toBe(0)
+    await expect(started.dispose()).resolves.toBeUndefined()
+    await expect(started.dispose()).resolves.toBeUndefined()
+    expect(ended).toHaveBeenCalledTimes(1)
+  })
+
   it.each([false, true])('retains the slot through disposal, including cleanup failure: %s', async (failDisposal) => {
     const releaseRun = Promise.withResolvers<undefined>()
     const adapter = new GatedAdapter([

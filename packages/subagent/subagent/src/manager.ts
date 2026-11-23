@@ -51,6 +51,7 @@ import type { Activation, ActivationResource, LocalActivation } from './activati
 
 // Constraint: bounds a silent provider handshake so it cannot hold a tree slot.
 const EXTERNAL_STARTUP_TIMEOUT_MS = 300_000
+const HANDLE_DISPOSE_ATTEMPTS = 3
 
 /** Inputs shared by model steering and human prompt delivery. */
 type ChildDeliveryOptions = {
@@ -758,7 +759,38 @@ export class SubagentManager {
    * @returns the shared close transaction.
    */
   private dispose(activation: Activation): Promise<void> {
+    if (activation.closing !== undefined && activation.handleUndisposed) return this.redriveHandle(activation)
     return this.close(activation, () => this.finishDisposal(activation, true))
+  }
+
+  private redriveHandle(activation: Activation): Promise<void> {
+    const completion = Promise.withResolvers<void>()
+    activation.handleUndisposed = false
+    activation.closing = completion.promise
+    void this.disposeHandle(activation, undefined).then(completion.resolve, (error: unknown) => {
+      activation.handleUndisposed = true
+      completion.reject(new SubagentError(
+        `subagent "${activation.childId}" activation handle disposal failed: ${activationAgent(activation) === undefined ? failureMessage(error) : errorChain(error)}`,
+        'ACTIVATION_TEARDOWN_FAILED',
+        { cause: error },
+      ))
+    })
+    return completion.promise
+  }
+
+  private async disposeHandle(activation: Activation, started: Promise<void> | undefined): Promise<void> {
+    let lastError: unknown
+    for (let attempt = 0; attempt < HANDLE_DISPOSE_ATTEMPTS; attempt += 1) {
+      try {
+        await (attempt === 0 && started !== undefined
+          ? started
+          : activation.kind === 'local' ? activation.handle.dispose() : activation.run.dispose())
+        return
+      } catch (error: unknown) {
+        lastError = error
+      }
+    }
+    throw lastError
   }
 
   /** Close admission synchronously and share one release, including startup rollback. */
@@ -913,6 +945,7 @@ export class SubagentManager {
       delivery: inputs.delivery ?? 'parent',
       result: Promise.withResolvers<SubagentResult>(),
       closing: undefined,
+      handleUndisposed: false,
       accepted: false,
     }
     void activation.result.promise.catch(() => undefined)
@@ -1100,9 +1133,9 @@ export class SubagentManager {
       ))
     }
     try {
-      if (activation.kind === 'local') await activation.handle.dispose()
-      else await (externalDisposal ?? activation.run.dispose())
+      await this.disposeHandle(activation, externalDisposal)
     } catch (error: unknown) {
+      activation.handleUndisposed = true
       failures.push(new SubagentError(
         `subagent "${childId}" activation handle disposal failed: ${detail(error)}`,
         'ACTIVATION_TEARDOWN_FAILED',

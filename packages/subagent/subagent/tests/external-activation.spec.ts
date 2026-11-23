@@ -251,7 +251,7 @@ describe('external subagent activations', () => {
         await disposal
       }
       await expect(activation.result).resolves.toEqual(aborted)
-      expect(dispose).toHaveBeenCalledTimes(1)
+      expect(dispose).toHaveBeenCalledTimes(kind === 'ancestor' ? 3 : 1)
       expect(fixture.parent.inbox.nextTurn).toEqual([])
     } finally {
       backend.cleanup.resolve(undefined)
@@ -323,7 +323,7 @@ describe('external subagent activations', () => {
     expect((error as Error).message).not.toContain('SECRET_TOKEN')
     expect((error as Error).message).not.toContain('/private/path')
     await expect(activation.result).resolves.toEqual(completed)
-    expect(activation.dispose()).toBe(disposal)
+    await expect(activation.dispose()).rejects.toMatchObject({ code: 'ACTIVATION_TEARDOWN_FAILED' })
     expect(fixture.records()).toMatchObject(delivery === 'parent' ? [{
       id: activation.childId, mode: 'external',
     }] : [])
