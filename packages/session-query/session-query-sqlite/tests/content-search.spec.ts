@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { DatabaseSync } from 'node:sqlite'
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
@@ -8,6 +8,7 @@ import SessionStore from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SqliteSessionQueryEngine, { SESSION_QUERY_SQLITE_APPLICATION_ID } from '@deepseek-ai/dsh-session-query-sqlite'
 import { removeIndexFiles } from '../src/schema.ts'
+import { createVolatile, updateVolatile } from '../../../../vendor/cosmokit/src/volatile.ts'
 
 const temporaryDirectories: string[] = []
 
@@ -76,4 +77,26 @@ it('leaves a file that is not this application index in place', async () => {
   await expect(readFile(`${text}-wal`, 'utf8')).resolves.toBe('keep')
   await expect(stat(foreign)).resolves.toBeDefined()
   await expect(stat(directory)).resolves.toBeDefined()
+})
+
+it('removes the plaintext index from a running Host when content search is switched off', async () => {
+  const path = await temporaryPath('live-off.db')
+  const contentSearch = createVolatile(true)
+  const ctx = new Context()
+  await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionProjectionRegistry)
+  const search = new SqliteSessionQueryEngine(ctx, { path, openAt: 'first-search', contentSearch })
+  await ctx.sessionQuery.searchSessions({ query: 'needle' })
+  await expect(stat(path)).resolves.toBeDefined()
+
+  updateVolatile(contentSearch, createVolatile(false))
+  ;(ctx as unknown as { emit(name: string): void }).emit('loader/volatile-update')
+  await vi.waitFor(async () => { await expect(stat(path)).rejects.toMatchObject({ code: 'ENOENT' }) })
+  await expect(ctx.sessionQuery.searchSessions({ query: 'needle' }))
+    .rejects.toMatchObject({ code: 'SESSION_QUERY_SEARCH_DISABLED' })
+
+  updateVolatile(contentSearch, createVolatile(true))
+  await ctx.sessionQuery.searchSessions({ query: 'needle' })
+  await expect(stat(path)).resolves.toBeDefined()
+  await search.close()
 })

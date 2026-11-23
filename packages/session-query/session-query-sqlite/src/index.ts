@@ -221,6 +221,9 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       return () => this._optionalPersistenceFiber.dispose()
     }, 'sessionQuerySqlite.optionalPersistence')
     ctx.effect(() => async () => this.close(), 'sessionQuerySqlite.close')
+    ctx.on('loader/volatile-update', () => {
+      if (!this.config.contentSearch()) void this._discardIndex()
+    })
   }
 
   /** Open eagerly only when activation owns the configured readiness boundary. */
@@ -292,6 +295,19 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
         }), offset),
       }
     })
+  }
+
+  private async _discardIndex(): Promise<void> {
+    await this._serialized(undefined, async () => {
+      await this._ready?.catch(() => undefined)
+      this._db?.close()
+      this._db = undefined
+      this._ready = undefined
+      this._lastPersistenceIdentity = undefined
+      if (!await removeIndexFiles(this.config.path).catch(() => false)) {
+        this.ctx.logger.warn(`session-query-sqlite: content search is off; "${this.config.path}" was not removed`)
+      }
+    }).catch(() => undefined)
   }
 
   /** Close the database after every accepted operation reaches quiescence. */
