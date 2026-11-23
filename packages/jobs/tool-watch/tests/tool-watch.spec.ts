@@ -486,6 +486,28 @@ describe('watch command policy', () => {
     await expect(setup({ config: { denyCommands: ['('] } })).rejects.toThrow('tool-watch: denyCommands has an invalid pattern')
   })
 
+  it('shows every repeat to a registered pre-tool hook and stops the watch when it denies one', async () => {
+    const { ctx, shell } = await setup({ steps: [{ exit: 1 }] })
+    const owner = await fakeOwner(ctx, 'alice', 'idle')
+    const seen: { name: string; command: unknown }[] = []
+    let deny = false
+    ctx.on('tools/pre-execute', async (exec, next) => {
+      seen.push({ name: exec.name, command: (exec.arguments as { command?: unknown }).command })
+      return deny ? { kind: 'deny', reason: 'shell hook denied ci-check' } : next()
+    })
+    expect((await call(ctx, 'watch', base, owner.agent)).isError).toBe(false)
+    await advance(0)
+    expect(shell.calls()).toBe(1)
+    expect(seen.filter(entry => entry.name === 'bash')).toEqual([{ name: 'bash', command: 'ci-check' }])
+    deny = true
+    await advance(30_000)
+    expect(shell.calls()).toBe(1)
+    expect(seen.filter(entry => entry.name === 'bash')).toHaveLength(2)
+    await advance(0)
+    const output = await call(ctx, 'job_output', { job_id: jobIdOf(ctx, owner) }, owner.agent)
+    expect(text(output)).toContain('shell hook denied ci-check')
+  })
+
   it('stops a running watch at the next repeat once the policy refuses its command', async () => {
     const { ctx, shell } = await setup({ steps: [{ exit: 1 }] })
     let refuse = false
@@ -495,6 +517,7 @@ describe('watch command policy', () => {
       agent: owner.agent, command: 'ci-check', until: { kind: 'exit-code', code: 0 }, intervalMs: 30_000,
       timeoutMs: 600_000, maxConsecutiveErrors: 3, dshEnv: ctx.shellEnv.collect({} as never),
       refusal: () => (refuse ? 'command policy refuses commands matching /ci-check/' : undefined),
+      preflight: () => Promise.resolve(undefined),
     }, job as never)
     await advance(0)
     expect(shell.calls()).toBe(1)

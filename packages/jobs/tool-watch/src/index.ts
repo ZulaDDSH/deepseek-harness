@@ -185,6 +185,7 @@ export function apply(ctx: Context, config: Config): void {
       if (intervalMs > timeoutMs) {
         throw new Error(`invalid interval_s: ${intervalMs / 1000} s is longer than the ${timeoutMs / 60_000} min timeout, so only one check could run; lower interval_s or raise timeout_min`)
       }
+      let checks = 0
       const plan: WatchPlan = {
         agent,
         command: args.command,
@@ -193,6 +194,21 @@ export function apply(ctx: Context, config: Config): void {
         timeoutMs,
         maxConsecutiveErrors,
         refusal,
+        preflight: async (signal) => {
+          const visible = ['bash', 'pwsh'].filter(shell => ctx.tools.get(shell, agent) !== undefined)
+          for (const shell of visible.length > 0 ? visible : ['bash']) {
+            const decision = await ctx.tools.preflight({
+              callId: `${exec.callId}:check-${++checks}` as typeof exec.callId,
+              rootCallId: exec.callId,
+              name: shell,
+              arguments: { command: args.command, description: args.label },
+              agent,
+              signal,
+            })
+            if (!decision.allowed) return decision.reason
+          }
+          return undefined
+        },
         dshEnv: ctx.shellEnv.collect(exec),
       }
       const jobId = ctx.jobs.start({

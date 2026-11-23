@@ -21,6 +21,7 @@ export interface WatchPlan {
   readonly timeoutMs: number
   readonly maxConsecutiveErrors: number
   readonly refusal: (command: string) => string | undefined
+  readonly preflight: (signal: AbortSignal) => Promise<string | undefined>
   readonly dshEnv: DshEnvironment
 }
 
@@ -66,6 +67,8 @@ async function runCheck(ctx: Context, plan: WatchPlan, signal: AbortSignal): Pro
   const refused = plan.refusal(plan.command)
   if (refused !== undefined) return { kind: 'refused', message: refused }
   try {
+    const denied = await plan.preflight(signal)
+    if (denied !== undefined) return { kind: 'refused', message: denied }
     const policy = ctx.get('sandboxPolicy')?.resolve({ session: plan.agent.session })
     const workdir = policy?.workspaceRoot ?? plan.agent.session.header.cwd
     const execution = await ctx.shell.execute(ctx.shell.resolve({
