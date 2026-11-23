@@ -8,8 +8,8 @@
  * @module @deepseek-ai/dsh-sdk-protocol
  */
 
-export { JsonRpcLineTransport, JsonRpcResponseError } from './transport.ts'
-export type { JsonRpcTransportPeer } from './transport.ts'
+export { JsonRpcLineTransport, JsonRpcResponseError, MAX_FRAME_CHARS, MAX_OUTPUT_QUEUE_BYTES } from './transport.ts'
+export type { JsonRpcLineTransportOptions, JsonRpcTransportPeer } from './transport.ts'
 export type {
   ApprovalRequestParams,
   ApprovalRequestResult,

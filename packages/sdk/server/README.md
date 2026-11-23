@@ -213,6 +213,7 @@ These limits define when the plugin needs special operational care. They are cur
 
 - **The wire has no per-session close or prompt-cancel method** — SDK-created agents remain live until process shutdown.
 - **There is no per-prompt result** — `MessageId` identifies inbox admission only; clients that own an automation interval must define and observe that interval themselves.
+- **A frame or output limit ends the process** — an input frame above the protocol limit, or output a stalled client lets queue past its limit, makes the plugin log the reason to stderr, dispose the runtime, and exit 1 (see the [protocol limitations](../protocol/README.md#known-limitations-and-deferred-work)).
 - **stdout purity is deployment-enforced** — a surrounding config can still load a stdout logger and corrupt the JSON-RPC channel; this plugin does not inspect or veto sibling loggers.
 - **Automatic adapter mounting is DeepSeek-specific** — `initialize` can reuse any pre-registered model adapter, but its only fallback mounts the DeepSeek adapter.
 

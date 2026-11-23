@@ -137,6 +137,7 @@ These limits define what the protocol does not cover or promise. They are curren
 
 - **No protocol-version negotiation** — the handshake carries only `serverInfo.version` (`0.0.1`, unvalidated by clients); pre-release stance, no compatibility promise.
 - **No cancel or session-close methods** — a client abandons a turn by closing the runtime process; see the [JSON-RPC serving plugin](../server/README.md).
+- **Frames and output are bounded** — an input line above `MAX_FRAME_CHARS` (64 Mi UTF-16 code units) or queued output above `MAX_OUTPUT_QUEUE_BYTES` (64 MiB, counted until each write callback) fails the transport: pending and later requests reject with the limit error, both streams are destroyed, and `onFailure` runs once. `notify()` and handler responses become no-ops after the failure; `flush()` rejects. A peer that needs larger frames, or a reader that falls more than the queue behind, is disconnected rather than buffered.
 - **Question waits are process-local** — question request ids are not durable handles for replying after runtime restart. Session history retains completed tool results through its ordinary persistence path.
 
 <a id="dev-note"></a>
