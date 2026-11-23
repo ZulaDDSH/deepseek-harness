@@ -119,7 +119,7 @@ Nothing here enters a request prefix, so provider cache reuse is unaffected.
 
 These limits define where the package is not the right tool. They are current package constraints, not a task backlog.
 
-- **Atomic, not durable** — no `fsync` of the file or its directory, so after a crash the rename may be observed unwound. The file-backed stores here re-read and republish on boot, keeping durability the caller's policy.
+- **Durable replacement is best effort** — the temp file is fsynced before the rename and the parent directory after it, but not on Windows (Node cannot open a directory there), not for parent directories this call created, and not on a filesystem that reports directory sync as unsupported. A directory sync failure after the rename throws `AtomicWriteSyncError` (`ATOMIC_WRITE_UNSYNCED`) although the new content is already published; a retry is harmless.
 - **Callers supply complete content** — strings and `Uint8Array` (including `Buffer`) are accepted; streaming writes are unsupported.
 - **Some orphaned locks require operator recovery** — a lock that names a PID a live process reused stays in place; later writers time out without deleting it, and the operator removes it after verifying that no writer runs. A contender that ends between creating a claim and removing the lock, or a writer that ends between creating a lock or claim and writing its PID, is recovered automatically (a dead claimant at once, an incomplete record after 30 seconds). Two residual windows remain: restoring a live contender's claim that a breaker renamed away is not atomic, and a live writer suspended for more than 30 seconds between creating and writing its record would lose its lock. Either can let two writers hold the lock at once; both need a process stalled or racing at the exact moment, and neither occurs in the crash cases the protocol targets.
 - **One host and one PID namespace** — the probe runs on the contender's host. Writers on several hosts sharing a network filesystem, or containers sharing a volume, can see a live holder as exited, take over its lock, and write at the same time as it.
@@ -130,6 +130,6 @@ These limits define where the package is not the right tool. They are current pa
 <details>
 <summary>Working context for maintainers — click to expand</summary>
 
-A durability-replacement that `fsync`s the file and parent directory and preserves owner-only permissions on Windows remains open (tracked as `settings-atomic-durability` in source).
+Owner-only permissions on Windows remain the caller's responsibility (see the credentials-local DACL handling); the file and directory `fsync` are implemented in `writeFileAtomic`.
 
 </details>
