@@ -15,3 +15,20 @@ it.each([
 ])('removes private installer input: %s', (spec, expected) => {
   expect(sanitizeInstallInput(spec)).toBe(expected)
 })
+
+it.each([
+  'sk-proj-abc123DEF456ghi789',
+  'ghp_fixture',
+  'github_pat_fixture',
+  'xoxb-fixture',
+  'AKIAFIXTURES',
+  'plugin@sk-proj-abc123DEF456',
+  'abcdef0123456789abcdef0123456789',
+])('classifies a credential-shaped identifier without echoing it: %s', (spec) => {
+  expect(sanitizeInstallInput(spec)).toBe('[credential-like]')
+})
+
+it('bounds registry-shaped input at 256 characters', () => {
+  expect(sanitizeInstallInput('a'.repeat(256))).toBe('a'.repeat(256))
+  expect(sanitizeInstallInput('a'.repeat(257))).toBe('[path-or-other]')
+})
