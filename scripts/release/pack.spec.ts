@@ -310,6 +310,8 @@ describe('release pack CLI', () => {
     packageFixture(root, 'apps/cli', '@deepseek-ai/dsh', { files: ['lib/index.js', 'src/bin.ts'] })
     packageFixture(root, 'packages/subagent/subagent-claude-code', '@deepseek-ai/dsh-subagent-claude-code')
     packageFixture(root, 'packages/subagent/subagent-codex', '@deepseek-ai/dsh-subagent-codex')
+    packageFixture(root, 'packages/subagent/subagent-freebuff', '@deepseek-ai/dsh-subagent-freebuff')
+    packageFixture(root, 'packages/llm/llm-freebuff', '@deepseek-ai/dsh-llm-freebuff')
     write(join(root, 'apps/cli/src/bin.ts'), 'export const bin = 1\n')
     write(join(root, 'apps/web/dist/index.html'), '<main></main>')
     writeClientBuildRecord(root, officialClientBuildEnvironment(root, { DSH_CLIENT_COMMIT_HASH: commit }))
@@ -318,7 +320,7 @@ describe('release pack CLI', () => {
 
     expect(result.status).not.toBe(0)
     expect(result.stderr).toContain('@deepseek-ai/dsh packed no documentation')
-    expect(readdirSync(join(root, 'packed')).filter(name => name.endsWith('.tgz'))).toHaveLength(4)
+    expect(readdirSync(join(root, 'packed')).filter(name => name.endsWith('.tgz'))).toHaveLength(6)
     expect(existsSync(join(root, 'packed', PUBLISH_ORDER_FILE))).toBe(false)
   })
 
