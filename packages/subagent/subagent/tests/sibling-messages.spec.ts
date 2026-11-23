@@ -298,6 +298,9 @@ describe('tree-wide messages', () => {
     const branch = await running(ctx, branchId)
     const leafId = await start(ctx, branch, 'leaf')
     await settled(ctx, leafId)
+    ctx.subagents.interrupt(branchId, { kind: 'ancestor', agent: parent })
+    await settled(ctx, branchId)
+    expect(ctx.agents.get(branchId)).toBeUndefined()
     const observe = ctx.sessionQuery.observeSession.bind(ctx.sessionQuery)
     const query = vi.spyOn(ctx.sessionQuery, 'observeSession').mockImplementation(async (...args) => {
       const result = await observe(...args)

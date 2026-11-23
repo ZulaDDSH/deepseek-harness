@@ -15,7 +15,7 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import { type ReasoningEffortId, contentHasImage, createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
 import { SessionLogOffset } from '@deepseek-ai/dsh-session'
-import type { Session, SessionId, SessionEvent, UserMessage } from '@deepseek-ai/dsh-session'
+import type { Session, SessionHeader, SessionId, SessionEvent, UserMessage } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionObservation, SessionQueryEngine } from '@deepseek-ai/dsh-session-query'
 import type { ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
@@ -52,6 +52,11 @@ import type { Activation, ActivationResource, LocalActivation } from './activati
 // Constraint: bounds a silent provider handshake so it cannot hold a tree slot.
 const EXTERNAL_STARTUP_TIMEOUT_MS = 300_000
 const HANDLE_DISPOSE_ATTEMPTS = 3
+type CreationLink = {
+  readonly header: SessionHeader
+  readonly identity: { readonly seq: number } | null | undefined
+  readonly inheritedEventCount: number
+}
 
 /** Inputs shared by model steering and human prompt delivery. */
 type ChildDeliveryOptions = {
@@ -157,6 +162,7 @@ export class SubagentManager {
   /** Sibling names held by creations that have not committed their catalog entry. */
   private readonly names = new SiblingNameReservations()
   private readonly committedNames = new WeakMap<Session, Set<string>>()
+  private readonly committedChildren = new WeakMap<Session, Map<SessionId, string | undefined>>()
   private draining = false
 
   /**
@@ -419,7 +425,7 @@ export class SubagentManager {
           () => {
             this.assertAdmitting(parent)
             establishCatalogChild(parent.session, childHeader, descriptor, reservation.name)
-            this.committedNames.get(parent.session)?.add(reservation.name)
+            this.recordCommitted(parent.session, childHeader.id, reservation.name)
           },
         )
       })
@@ -483,7 +489,7 @@ export class SubagentManager {
         signal.throwIfAborted()
         if (reservation !== undefined) {
           establishExternalCatalogChild(parent.session, activation.childId, spec.label, reservation.name)
-          this.committedNames.get(parent.session)?.add(reservation.name)
+          this.recordCommitted(parent.session, activation.childId, reservation.name)
         }
         this.accept(activation)
         return this.receipt(activation)
@@ -539,12 +545,46 @@ export class SubagentManager {
 
   /** Claim a sibling name against the creator's committed catalog and in-flight siblings. */
   private reserveName(parent: Agent, requested: string | undefined): SiblingNameReservation {
-    let committed = this.committedNames.get(parent.session)
-    if (committed === undefined) {
-      committed = catalogNames(this.host.catalogOf(parent.session))
-      this.committedNames.set(parent.session, committed)
+    return this.names.reserve(parent, this.committedCatalog(parent.session).names, requested)
+  }
+
+  private committedCatalog(session: Session): {
+    readonly names: Set<string>
+    readonly children: Map<SessionId, string | undefined>
+  } {
+    let names = this.committedNames.get(session)
+    let children = this.committedChildren.get(session)
+    if (names === undefined || children === undefined) {
+      const catalog = this.host.catalogOf(session)
+      names = catalogNames(catalog)
+      children = new Map(catalog.map(entry => [entry.id, 'name' in entry ? entry.name : undefined] as const))
+      this.committedNames.set(session, names)
+      this.committedChildren.set(session, children)
     }
-    return this.names.reserve(parent, committed, requested)
+    return { names, children }
+  }
+
+  private recordCommitted(session: Session, childId: SessionId, name: string): void {
+    this.committedNames.get(session)?.add(name)
+    this.committedChildren.get(session)?.set(childId, name)
+  }
+
+  private liveCreationParent(parentId: SessionId, childId: SessionId): {
+    readonly name: string | undefined
+    readonly link: CreationLink
+  } | undefined {
+    const parent = this.ctx.agents.get(parentId)
+    if (parent === undefined) return undefined
+    const children = this.committedCatalog(parent.session).children
+    if (!children.has(childId)) return undefined
+    return {
+      name: children.get(childId),
+      link: {
+        header: parent.session.header,
+        identity: this.host.identityOf(parent.session),
+        inheritedEventCount: parent.session.inheritedEventCount,
+      },
+    }
   }
 
   /** Path of an exact live tree member: `''` for the root, undefined for unnamed history. */
@@ -603,27 +643,44 @@ export class SubagentManager {
     const ancestors: SessionId[] = []
     const names: (string | undefined)[] = []
     const seen = new Set<SessionId>([source.header.id])
-    let { header, projections, inheritedEventCount } = source
+    let link: CreationLink = {
+      header: source.header,
+      identity: source.projections?.values.subagent,
+      inheritedEventCount: source.inheritedEventCount,
+    }
     const pathFromRoot = (): string | undefined => names.reduce<string | undefined>(joinAgentPath, '')
     while (true) {
       signal.throwIfAborted()
-      const parentId = header.parentSession
-      const identity = projections?.values.subagent
-      if (parentId === undefined || identity == null || identity.seq < inheritedEventCount) break
+      const parentId = link.header.parentSession
+      if (parentId === undefined || link.identity == null || link.identity.seq < link.inheritedEventCount) break
       if (seen.has(parentId)) throw new SubagentError('cyclic subagent creation ancestry', 'UNAUTHORIZED')
       seen.add(parentId)
-      using parent = await this.observeContinuation(parentId, signal)
-      const entry = parent.projections?.values.subagentCatalog?.find(entry => entry.id === header.id)
-      if (entry === undefined) {
-        throw new SubagentError('subagent is absent from its creator catalog', 'UNAUTHORIZED')
+      const live = this.liveCreationParent(parentId, link.header.id)
+      let name: string | undefined
+      let parentLink: CreationLink
+      if (live !== undefined) {
+        name = live.name
+        parentLink = live.link
+      } else {
+        using parent = await this.observeContinuation(parentId, signal)
+        const entry = parent.projections?.values.subagentCatalog?.find(entry => entry.id === link.header.id)
+        if (entry === undefined) {
+          throw new SubagentError('subagent is absent from its creator catalog', 'UNAUTHORIZED')
+        }
+        name = 'name' in entry ? entry.name : undefined
+        parentLink = {
+          header: parent.header,
+          identity: parent.projections?.values.subagent,
+          inheritedEventCount: parent.inheritedEventCount,
+        }
       }
       ancestors.unshift(parentId)
-      names.unshift('name' in entry ? entry.name : undefined)
+      names.unshift(name)
       if (parentId === root?.id) return { root, ancestors, path: pathFromRoot() }
-      ;({ header, projections, inheritedEventCount } = parent)
+      link = parentLink
     }
-    if (root === undefined && ancestors.length > 0 && header.origin !== 'subagent') {
-      const owner = this.ctx.agents.get(header.id)
+    if (root === undefined && ancestors.length > 0 && link.header.origin !== 'subagent') {
+      const owner = this.ctx.agents.get(link.header.id)
       if (owner === undefined || this.rootOf(owner) !== owner) {
         throw new SubagentError('subagent tree root is not live', 'CONTINUATION_UNAVAILABLE')
       }
