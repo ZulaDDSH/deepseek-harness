@@ -26,6 +26,7 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionMap {
     'test/marks': { marks: string[] }
     'test/stable-view': { marks: string[] }
+    'test/list': string[]
   }
 }
 
@@ -266,6 +267,35 @@ describe('SessionProjectionRegistry drive', () => {
       sessionId: String(session.id),
     }])
     expect(order).toEqual(['key:test/marks', 'key:test/stable-view', 'event'])
+  })
+
+  it('publishes only appended values for an append-declaring unit, and the whole value while onChanged is subscribed', async () => {
+    const { ctx, session } = await harness()
+    await ctx.sessionProjections.register({
+      key: 'test/list',
+      stateSchema: z.array(z.string()),
+      init: () => [],
+      apply: (state, event) => (event.type === 'test/mark' ? [...state, ...event.data.marks] : state),
+      wire: {
+        viewSchema: z.array(z.string()),
+        view: state => state,
+        appended: (prev, next) => (next.length > prev.length ? { from: prev.length, items: next.slice(prev.length) } : undefined),
+      },
+      stateVersion: 1,
+    })
+    const events: unknown[] = []
+    ctx.sessionProjections.onEventChanged((_session, changes) => { events.push(changes) })
+    mark(session, ['a'])
+    mark(session, ['b', 'c'])
+    expect(events).toEqual([
+      [{ key: 'test/list', append: { from: 0, items: ['a'] } }],
+      [{ key: 'test/list', append: { from: 1, items: ['b', 'c'] } }],
+    ])
+    const wholeValues: unknown[] = []
+    ctx.sessionProjections.onChanged((_session, key, value) => { if (key === 'test/list') wholeValues.push(value) })
+    mark(session, ['d'])
+    expect(wholeValues).toEqual([['a', 'b', 'c', 'd']])
+    expect(events.at(-1)).toEqual([{ key: 'test/list', val: ['a', 'b', 'c', 'd'] }])
   })
 
   it('still delivers the changes made before a later unit throws', async () => {

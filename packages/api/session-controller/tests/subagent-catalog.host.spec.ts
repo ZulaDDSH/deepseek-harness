@@ -77,13 +77,21 @@ describe('SessionController subagent catalog', () => {
       parent.append('subagent/catalog', {
         version: 0, childId: CHILD, childCreatedAt: 8, mode: 'continuable', label: 'worker',
       })
+      const catalogAfter = (
+        next: Awaited<ReturnType<typeof stream.next>>,
+        current: unknown[],
+      ): unknown[] => {
+        if (next.done || next.value.type !== 'projection') return current
+        const change = next.value.changes.find(entry => entry.key === 'subagentCatalog')
+        if (change === undefined) return current
+        if (change.append !== undefined) return [...current, ...change.append.items]
+        return Array.isArray(change.val) ? change.val : current
+      }
       let frame = await stream.next()
-      let catalog = frame.done || frame.value.type !== 'projection'
-        ? undefined : frame.value.changes.find(change => change.key === 'subagentCatalog')?.val
-      while (!frame.done && !(Array.isArray(catalog) && catalog.length === 1)) {
+      let catalog = catalogAfter(frame, [])
+      while (!frame.done && catalog.length !== 1) {
         frame = await stream.next()
-        catalog = frame.done || frame.value.type !== 'projection'
-          ? undefined : frame.value.changes.find(change => change.key === 'subagentCatalog')?.val
+        catalog = catalogAfter(frame, catalog)
       }
       expect(frame.value).toMatchObject({ type: 'projection', sessionId: PARENT })
       expect(catalog).toMatchObject([{ id: CHILD, createdAt: 8, mode: 'continuable', label: 'worker' }])

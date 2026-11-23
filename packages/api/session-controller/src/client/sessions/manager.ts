@@ -646,7 +646,15 @@ export class SessionManager {
     }
     const store = this.projectionStore(frame.sessionId)
     const seq = SessionSeq(frame.seq)
-    for (const change of frame.changes) store.apply(change.key, change.val, seq)
+    let gapped = false
+    for (const change of frame.changes) {
+      if (change.append === undefined) store.apply(change.key, change.val, seq)
+      else if (!store.append(change.key, change.append.from, change.append.items, seq)) gapped = true
+    }
+    if (gapped) {
+      this.projectionLoads.delete(frame.sessionId)
+      void this.refreshProjections(frame.sessionId)
+    }
     this.notifier.markDirty()
   }
 

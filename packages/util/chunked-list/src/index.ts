@@ -46,6 +46,34 @@ function* walk<T>(block: ChunkedBlock<T>): Generator<T> {
   else for (const child of block.children) yield* walk(child)
 }
 
+function* walkBackward<T>(block: ChunkedBlock<T>): Generator<T> {
+  if ('values' in block) {
+    for (let index = block.values.length - 1; index >= 0; index -= 1) yield block.values[index]!
+  } else {
+    for (let index = block.children.length - 1; index >= 0; index -= 1) yield* walkBackward(block.children[index]!)
+  }
+}
+
+export function chunkedListLength<T>(head: ChunkedList<T> | undefined): number {
+  if (head === undefined) return 0
+  let length = head.tail.length
+  for (const block of head.blocks) length += CHUNK_CAPACITY ** (block.height + 1)
+  return length
+}
+
+export function chunkedListSuffix<T>(head: ChunkedList<T> | undefined, count: number): T[] {
+  const suffix: T[] = []
+  if (head === undefined) return suffix
+  for (let index = head.tail.length - 1; index >= 0 && suffix.length < count; index -= 1) suffix.push(head.tail[index]!)
+  for (let index = head.blocks.length - 1; index >= 0 && suffix.length < count; index -= 1) {
+    for (const value of walkBackward(head.blocks[index]!)) {
+      if (suffix.length >= count) break
+      suffix.push(value)
+    }
+  }
+  return suffix.reverse()
+}
+
 /**
  * Visit all values in insertion order in O(N) time; scratch space must stay bounded by the block height.
  * @param head - current list, or `undefined` for an empty list.

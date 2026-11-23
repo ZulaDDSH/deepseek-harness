@@ -763,7 +763,14 @@ export interface SessionProjectionUpdate {
    * `val`. A key absent from `changes` is unchanged; unlike a baseline, absence
    * does not mean an absent capability.
    */
-  readonly changes: readonly { readonly key: string; readonly val: SessionProjectionValue }[]
+  readonly changes: readonly (
+    | { readonly key: string; readonly val: SessionProjectionValue; readonly append?: undefined }
+    | {
+      readonly key: string
+      readonly val?: undefined
+      readonly append: { readonly from: number; readonly items: readonly SessionProjectionValue[] }
+    }
+  )[]
 }
 
 /** Host-wide live state stream. Each generation starts with exactly one baseline. */

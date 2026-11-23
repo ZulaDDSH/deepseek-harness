@@ -105,6 +105,8 @@ interface ProjectionDefinition<K extends string, S> {
 
 Every served projection value is a complete read model. A source event may carry a whole value or a domain-owned operation; the unit's deterministic `apply` owns replay, and checkpoint plus forward tail replay reconstructs the same state.
 
+A unit whose view is an array may declare `wire.appended(prev, next)`. When an event only extends that array, the drive publishes `{ key, append: { from, items } }` in place of the whole value and skips the whole-view materialization for that change. Per-key `onChanged` subscribers still receive whole values, so a drive with one subscribed publishes whole values for every key.
+
 ## The snapshot and the change feed
 
 ```ts type-equiv

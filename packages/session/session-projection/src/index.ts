@@ -114,6 +114,7 @@ export interface ProjectionDefinition<K extends string, S> {
      * @returns the whole current value for this unit's key.
      */
     view(state: NoInfer<S>): SessionProjectionViewValue<SessionProjectionMap[K]>
+    appended?(prev: NoInfer<S>, next: NoInfer<S>): ProjectionAppend | undefined
     /**
      * Whether a Session summary carries this unit; omitted means `true`.
      * Declare `false` on a key whose map entry carries the
@@ -151,9 +152,18 @@ export type ProjectionChangeListener = (
  * unit's `key` and its schema-validated view as `val`; `seq` is the seq of the
  * causing event.
  */
+export interface ProjectionAppend {
+  readonly from: number
+  readonly items: readonly unknown[]
+}
+
+export type ProjectionChangeEntry =
+  | { readonly key: Extract<keyof SessionProjectionMap, string>; readonly val: unknown; readonly append?: undefined }
+  | { readonly key: Extract<keyof SessionProjectionMap, string>; readonly val?: undefined; readonly append: ProjectionAppend }
+
 export type ProjectionEventChangeListener = (
   session: Session,
-  changes: readonly { readonly key: Extract<keyof SessionProjectionMap, string>; readonly val: unknown }[],
+  changes: readonly ProjectionChangeEntry[],
   seq: SessionSeq,
 ) => void
 
@@ -219,6 +229,7 @@ interface ErasedDefinition {
   wire: {
     viewSchema: { parse(value: unknown): unknown }
     view(state: unknown): unknown
+    appended?(prev: unknown, next: unknown): ProjectionAppend | undefined
     /** Whether a Session summary carries this unit (false when the unit declared `summary: false`). */
     summary: boolean
   } | undefined
@@ -383,6 +394,7 @@ export class SessionProjectionRegistry extends Service {
     const wire = definition.wire as {
       viewSchema: ZodType
       view(state: S): unknown
+      appended?(prev: S, next: S): ProjectionAppend | undefined
       summary?: boolean
     } | undefined
     const erased: ErasedDefinition = {
@@ -396,7 +408,12 @@ export class SessionProjectionRegistry extends Service {
       // into the erased unit, where the key set reads it.
       wire: wire === undefined
         ? undefined
-        : { viewSchema: wire.viewSchema, view: state => wire.view(state as S), summary: wire.summary !== false },
+        : {
+          viewSchema: wire.viewSchema,
+          view: state => wire.view(state as S),
+          appended: wire.appended === undefined ? undefined : (prev, next) => wire.appended?.(prev as S, next as S),
+          summary: wire.summary !== false,
+        },
       stateVersion: definition.stateVersion,
     }
     if (!Number.isSafeInteger(definition.stateVersion) || definition.stateVersion < 0) {
@@ -886,7 +903,7 @@ export class SessionProjectionRegistry extends Service {
    */
   private drive(session: Session, event: SessionEvent): void {
     const observed = this.listeners.size > 0 || this.eventListeners.size > 0
-    const changes: { key: Extract<keyof SessionProjectionMap, string>; val: unknown }[] = []
+    const changes: ProjectionChangeEntry[] = []
     const failures: unknown[] = []
     for (const registration of this.registrations.values()) {
       try {
@@ -919,7 +936,12 @@ export class SessionProjectionRegistry extends Service {
         if (changed && wire !== undefined) {
           const views = cell.views
           views[0] = views[1]
-          if (observed) {
+          const appended = observed && this.listeners.size === 0 ? wire.appended?.(previousState, next) : undefined
+          if (appended !== undefined) {
+            views[1] = undefined
+            const key = registration.def.key as Extract<keyof SessionProjectionMap, string>
+            changes.push({ key, append: { from: appended.from, items: wire.viewSchema.parse(appended.items) } })
+          } else if (observed) {
             views[1] = wire.view(next)
             if (!Object.is(views[0], views[1])) {
               const key = registration.def.key as Extract<keyof SessionProjectionMap, string>

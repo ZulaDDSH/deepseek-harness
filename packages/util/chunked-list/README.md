@@ -23,7 +23,7 @@ kind: "package-library"
 <a id="use-this-package"></a>
 ## Use this package
 
-Use this list when an append-only collection needs immutable versions and JSON-compatible storage. An empty list is `undefined`; appending returns a new head without modifying existing nodes. The list shares stored values by reference, so callers must treat them as immutable.
+Use this list when an append-only collection needs immutable versions and JSON-compatible storage. An empty list is `undefined`; appending returns a new head without modifying existing nodes. The list shares stored values by reference, so callers must treat them as immutable. `chunkedListLength` counts values from the block shape without visiting them, and `chunkedListSuffix` returns the last values in order by visiting only the path to them, so a consumer can publish one appended value without iterating the list.
 
 ```ts
 import { appendChunkedList, iterateChunkedList } from '@deepseek-ai/dsh-chunked-list'

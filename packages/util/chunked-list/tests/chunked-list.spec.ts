@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { appendChunkedList, chunkedListSchema, iterateChunkedList } from '../src/index.ts'
+import { appendChunkedList, chunkedListLength, chunkedListSchema, chunkedListSuffix, iterateChunkedList } from '../src/index.ts'
 import type { ChunkedBlock, ChunkedList } from '../src/index.ts'
 
 function depth<T>(block: ChunkedBlock<T>): number {
@@ -92,5 +92,26 @@ describe('persistent chunked list', () => {
   it('accepts sealed blocks of descending height followed by a tail', () => {
     const checkpoint = { tail: [1], blocks: [full(0, 1), full(0), full(0)] }
     expect([...iterateChunkedList(chunkedListSchema(z.number()).parse(checkpoint))]).toHaveLength(64 * 64 + 128 + 1)
+  })
+})
+
+describe('chunked list length and suffix', () => {
+  it.each([0, 1, 63, 64, 65, 4_095, 4_096, 4_097, 262_145])('counts %i values without visiting them', (count) => {
+    const head = build(count)
+    expect(chunkedListLength(head)).toBe(count)
+    expect(chunkedListLength(head)).toBe([...iterateChunkedList(head)].length)
+  })
+
+  it.each([0, 1, 63, 64, 65, 4_097])('returns the trailing values in order after %i appends', (count) => {
+    const head = build(count)
+    for (const take of [1, 2, 64, 65, 5_000]) {
+      const all = [...iterateChunkedList(head)]
+      expect(chunkedListSuffix(head, take)).toEqual(all.slice(Math.max(0, all.length - take)))
+    }
+  })
+
+  it('returns an empty suffix for the empty list and a non-positive count', () => {
+    expect(chunkedListSuffix(undefined, 3)).toEqual([])
+    expect(chunkedListSuffix(build(10), 0)).toEqual([])
   })
 })
