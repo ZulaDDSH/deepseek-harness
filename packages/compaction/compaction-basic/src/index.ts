@@ -554,6 +554,7 @@ export class BasicCompactionEngine extends CompactionEngine {
             operationSignal,
           )
         } catch (error: unknown) {
+          if (error instanceof ManualCompactionError && (error.code === 'commit' || error.code === 'persistence')) throw error
           if (agentSignal.aborted && operationSignal.reason === agentSignal.reason) {
             throw new ManualCompactionError(
               'cancelled',
