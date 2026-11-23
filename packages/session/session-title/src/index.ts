@@ -125,12 +125,14 @@ export interface SessionTitleProvider {
   readonly id: SessionTitleProviderId
   /** When new human prompts start automatic generation. */
   readonly automatic: SessionTitleAutomaticMode
+  readonly messageBudgetBytes?: number
   /**
    * Produce one title revision.
    * @param request - message snapshot, current title, current route, session, and cancellation.
    * @returns proposed title plus exact input seqs and the optional provider/model route used to generate it.
    */
   generate(request: SessionTitleProviderRequest): Promise<SessionTitleProviderResult>
+  readonly messageBudgetBytes?: number
 }
 
 /** Extract one eligible human text message from a session event. */
@@ -253,14 +255,44 @@ const titleInputStateSchema: ZodType<TitleInputState> = zod.object({
 function collectSessionTitleMessages(
   events: readonly SessionEvent[],
   throughSeq?: SessionSeq,
-): SessionTitleUserMessage[] {
-  const messages: SessionTitleUserMessage[] = []
-  for (const event of events) {
-    if (throughSeq !== undefined && event.seq > throughSeq) break
-    const message = sessionTitleUserMessageOf(event)
-    if (message !== undefined) messages.push(message)
+  budgetBytes?: number,
+): { readonly messages: SessionTitleUserMessage[], readonly omitted: number } {
+  if (budgetBytes === undefined) {
+    const messages: SessionTitleUserMessage[] = []
+    for (const event of events) {
+      if (throughSeq !== undefined && event.seq > throughSeq) break
+      const message = sessionTitleUserMessageOf(event)
+      if (message !== undefined) messages.push(message)
+    }
+    return { messages, omitted: 0 }
   }
-  return messages
+  const kept: SessionTitleUserMessage[] = []
+  let bytes = 0
+  let omitted = 0
+  for (let index = events.length - 1; index >= 0; index--) {
+    const event = events[index]!
+    if (throughSeq !== undefined && event.seq > throughSeq) continue
+    if (kept.length > 0 && bytes >= budgetBytes) {
+      if (hasSessionTitleText(event)) omitted++
+      continue
+    }
+    const message = sessionTitleUserMessageOf(event)
+    if (message === undefined) continue
+    const size = Buffer.byteLength(message.text, 'utf8')
+    if (kept.length > 0 && bytes + size > budgetBytes) {
+      omitted++
+      bytes = budgetBytes
+      continue
+    }
+    kept.push(message)
+    bytes += size
+  }
+  return { messages: kept.reverse(), omitted }
+}
+
+function hasSessionTitleText(event: SessionEvent): boolean {
+  if (event.type !== 'user/message' || event.data.source.kind !== 'user') return false
+  return event.data.content.some(block => block.type === 'text' && /[^\s\u0000-\u001f\u007f]/u.test(block.text))
 }
 
 const titleViewSchema: ZodType<string | null> = zod.string().min(1).nullable()
@@ -613,11 +645,13 @@ export class SessionTitleService extends Service {
       // watermark, while the current title is not bounded by that watermark.
       // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
       const events = session.snapshotEvents()
-      const messages = collectSessionTitleMessages(events, work.throughSeq)
+      const collected = collectSessionTitleMessages(events, work.throughSeq, work.registration.provider.messageBudgetBytes)
+      const messages = collected.messages
       const currentTitle = foldSessionTitle(events)
       const result = await work.registration.provider.generate({
         session,
         messages,
+        ...collected.omitted === 0 ? {} : { omittedMessages: collected.omitted },
         ...route === undefined ? {} : { route },
         ...currentTitle === undefined ? {} : { currentTitle },
         signal: work.signal,
@@ -794,6 +828,10 @@ export class SessionTitleService extends Service {
     }
     if (typeof candidate.generate !== 'function') {
       throw new Error(`session-title provider "${candidate.id}" requires generate()`)
+    }
+    if (candidate.messageBudgetBytes !== undefined
+      && (typeof candidate.messageBudgetBytes !== 'number' || !Number.isSafeInteger(candidate.messageBudgetBytes) || candidate.messageBudgetBytes < 1)) {
+      throw new Error(`session-title provider "${candidate.id}" messageBudgetBytes must be a positive integer`)
     }
   }
 

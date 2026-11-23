@@ -104,7 +104,7 @@ No main-request invalidation. Auxiliary input grows or changes after each prompt
 These limits define how the provider treats long and heterogeneous sessions. They are current package constraints.
 
 - **No summarization of omitted history** — once the history exceeds `maxInputBytes` the oldest messages are dropped from the request and only `currentTitle` carries their context; there is no summary of omitted messages.
-- **Linear scan in the service** — the title service still scans the session log and collects every eligible message through the revision before this provider trims them, so that step grows with history length; only serialization and dispatch are bounded by `maxInputBytes`.
+- **Bounded collection** — the title service collects the newest eligible messages within `maxInputBytes` and only counts older ones, so message text work is bounded by the budget; the service still walks the session log once per revision (a pointer walk over events), which grows with history length.
 - **Messages are treated equally** — it includes every eligible human message without configurable weighting or filtering.
 - **Model-dependent stability** — title preservation is a model instruction, not a deterministic semantic check; the model may still change an adequate title.
 

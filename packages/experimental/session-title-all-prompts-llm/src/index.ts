@@ -126,15 +126,16 @@ function frameWithinBudget(
   messages: readonly SessionTitleUserMessage[],
   currentTitle: string | undefined,
   maxInputBytes: number,
+  carriedOmitted = 0,
 ): { readonly input: string; readonly included: readonly SessionTitleUserMessage[] } {
   const bytesOf = (text: string): number => Buffer.byteLength(text, 'utf8')
-  let count = newestWithin(messages, maxInputBytes - bytesOf(frameMessages([], currentTitle)))
+  let count = newestWithin(messages, maxInputBytes - bytesOf(frameMessages([], currentTitle, carriedOmitted)))
   if (count < messages.length) {
-    const omittedFrame = frameMessages([], currentTitle, messages.length)
+    const omittedFrame = frameMessages([], currentTitle, carriedOmitted + messages.length)
     count = Math.max(1, newestWithin(messages, maxInputBytes - bytesOf(omittedFrame)))
   }
   const included = messages.slice(messages.length - count)
-  return { input: frameMessages(included, currentTitle, messages.length - count), included }
+  return { input: frameMessages(included, currentTitle, carriedOmitted + messages.length - count), included }
 }
 
 /** Asterisk emphasis wrapping a whole line, such as `**Title**`. */
@@ -192,9 +193,10 @@ export function apply(ctx: Context, config: Config): void {
   ctx.sessionTitle.register({
     id: titleProvider,
     automatic: 'all-prompts',
+    messageBudgetBytes: resolved.maxInputBytes,
     async generate(request) {
       const anchor = request.currentTitle?.source.kind === 'provider' ? request.currentTitle.title : undefined
-      const { input, included } = frameWithinBudget(request.messages, anchor, resolved.maxInputBytes)
+      const { input, included } = frameWithinBudget(request.messages, anchor, resolved.maxInputBytes, request.omittedMessages ?? 0)
       const messageSeqs = included.map(message => message.seq)
       const response = await executeSessionTitleLlm(ctx, resolved, request, titleProvider, {
         system: systemPrompt(resolved, anchor !== undefined),
