@@ -35,6 +35,7 @@ export interface ModelDirectoryState {
   pending: ModelSelection | null
   /** Whole-request or selection failure text; null when none. */
   error: string | null
+  defaultNotSaved?: boolean
 }
 
 /** One session's shared directory controller; disposed with the session scope. */
@@ -98,7 +99,7 @@ export class ModelDirectory {
     const previousEffort = previous?.reasoningEffort ?? (previous === null ? undefined : this.catalog.reasoningFor(previous)?.defaultEffort)
     const nextEffort = selection.reasoningEffort ?? this.catalog.reasoningFor(selection)?.defaultEffort
     const generation = ++this.generation
-    this.store.update((s) => { s.status = 'selecting'; s.pending = selection; s.error = null })
+    this.store.update((s) => { s.status = 'selecting'; s.pending = selection; s.error = null; delete s.defaultNotSaved })
     const send = () => generation !== this.generation
       ? Promise.resolve(undefined)
       : this.sessions.selectModel({
@@ -134,7 +135,10 @@ export class ModelDirectory {
         ...this.isBlank() ? {} : { session_id: this.sessionId }, model_name: to, switch_from: previousEffort ?? 'default', switch_to: nextEffort ?? 'default',
       })
     }
-    this.store.update((s) => { s.status = 'ready'; s.pending = null; s.error = null })
+    this.store.update((s) => {
+      s.status = 'ready'; s.pending = null; s.error = null
+      if (result.value.defaultSave === 'failed') s.defaultNotSaved = true
+    })
     this.syncInputs()
     return { ok: true, value: undefined }
   }
@@ -150,6 +154,7 @@ export class ModelDirectory {
       if (state.status === 'selecting') state.status = 'idle'
       state.pending = null
       state.error = null
+      delete state.defaultNotSaved
     })
     this.syncInputs()
   }
@@ -189,6 +194,7 @@ export class ModelDirectory {
         status: catalog.status === 'error' ? 'error' : 'loading',
         pending: this.store.getSnapshot().pending,
         error: catalog.error,
+        ...this.store.getSnapshot().defaultNotSaved === true ? { defaultNotSaved: true } : {},
       })
       return
     }
@@ -207,6 +213,7 @@ export class ModelDirectory {
         : 'ready',
       pending: this.store.getSnapshot().pending,
       error: null,
+      ...this.store.getSnapshot().defaultNotSaved === true ? { defaultNotSaved: true } : {},
     })
   }
 }

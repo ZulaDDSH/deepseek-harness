@@ -66,3 +66,29 @@ describe('ModelDirectory selection ordering', () => {
     expect(calls.map(call => call.model)).toEqual(['a', 'b'])
   })
 })
+
+describe('ModelDirectory default persistence outcome', () => {
+  it.each([
+    ['failed', true], ['saved', false], ['unavailable', false], ['pending', false], [undefined, false],
+  ] as const)('defaultSave %s sets the store warning to %s and the next selection clears it', async (outcome, warned) => {
+    const sessions = {
+      selectModel: vi.fn(async (request: { model: string }) => ({
+        ok: true, value: { selected: request, ...request.model === 'a' && outcome !== undefined ? { defaultSave: outcome } : {} },
+      })),
+    }
+    const catalog = {
+      store: createSnapshotStore({ status: 'loading', value: null, error: null }),
+      reasoningFor: () => undefined, nameFor: () => undefined,
+    }
+    const directory = new ModelDirectory(
+      sessions as never, 'session' as SessionId, () => true, catalog as never,
+      { subscribe: () => () => {}, getSnapshot: () => undefined } as never, () => false,
+    )
+    await directory.select({ provider: 'p', model: 'a' })
+    expect(directory.store.getSnapshot().defaultNotSaved === true).toBe(warned)
+    catalog.store.update(() => {})
+    expect(directory.store.getSnapshot().defaultNotSaved === true).toBe(warned)
+    await directory.select({ provider: 'p', model: 'b' })
+    expect(directory.store.getSnapshot().defaultNotSaved).toBeUndefined()
+  })
+})
