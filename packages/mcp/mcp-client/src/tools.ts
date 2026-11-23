@@ -195,6 +195,8 @@ export async function syncTools(
           if (isAuthRequired(error)) opts.onAuthRequired?.(error)
           throw mcpRequestError(error, `tool "${tool.name}"`, opts.redact)
         }
+        const size = resultBytes(result, MAX_TOOL_RESULT_BYTES)
+        if (size > MAX_TOOL_RESULT_BYTES) throw invalidResult(`the result is over the ${MAX_TOOL_RESULT_BYTES} byte limit for one tool call`)
         if (result.isError !== true) {
           const failure = outputCheck === undefined ? undefined : outputCheck.check(result.structuredContent)
           if (failure !== undefined) throw invalidResult(failure)
@@ -414,6 +416,26 @@ function createExecutor(
     }
     return value
   }
+}
+
+const MAX_TOOL_RESULT_BYTES = 8 * 1024 * 1024
+
+// Constraint: stops walking once the total passes the limit, so an oversized result costs bounded work.
+function resultBytes(value: unknown, limit: number): number {
+  let total = 0
+  const pending: unknown[] = [value]
+  while (pending.length > 0 && total <= limit) {
+    const item = pending.pop()
+    if (typeof item === 'string') total += Buffer.byteLength(item)
+    else if (Array.isArray(item)) pending.push(...item as unknown[])
+    else if (typeof item === 'object' && item !== null) {
+      for (const [key, child] of Object.entries(item)) {
+        total += key.length
+        pending.push(child)
+      }
+    } else total += 8
+  }
+  return total
 }
 
 /** Whether an untrusted MCP content array contains a declared image block. */

@@ -883,6 +883,20 @@ describe('tool execution', () => {
   })
 
   it.each([
+    ['text', { content: [{ type: 'text', text: 'x'.repeat(9 * 1024 * 1024) }] }],
+    ['structured data', { content: [{ type: 'text', text: 'ok' }], structuredContent: { rows: Array.from({ length: 3 }, () => 'y'.repeat(3 * 1024 * 1024)) } }],
+    ['an error result', { isError: true, content: [{ type: 'text', text: 'z'.repeat(9 * 1024 * 1024) }] }],
+  ])('rejects an oversized %s before conversion', async (_label, callResult) => {
+    const client = createMockClient([{ name: 'big', inputSchema: { type: 'object' } }], callResult as MockCallResult)
+    await syncTools(client as never, ctx, defaultOpts, new Map())
+    const result = await executeToolFixture(ctx, { signal: testToolSignal, callId: brandString<ToolCallId>('big'), name: 'mcp__srv__big', arguments: {} })
+    expect(result.error).toEqual({
+      message: 'Tool "big" returned an invalid MCP result: the result is over the 8388608 byte limit for one tool call',
+      info: { name: 'McpToolError', code: 'MCP_INVALID_RESULT' },
+    })
+  })
+
+  it.each([
     ['omits structuredContent', { name: 'structured', inputSchema: { type: 'object' }, outputSchema: { type: 'object' } },
       'the tool has an output schema but returned no structured content', 1],
     ['advertises an output schema that cannot be compiled', { name: 'structured', inputSchema: { type: 'object' }, outputSchema: { type: 'string', pattern: '(' } },
