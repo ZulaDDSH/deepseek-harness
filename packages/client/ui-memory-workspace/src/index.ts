@@ -17,7 +17,6 @@ import type { MemoryGraph, MemoryImportResult, MemoryStatus } from './types.ts'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { documentText } from './document-text.ts'
 import { MemoryAutomation } from './automation.ts'
-import { offlineViewer } from './viewer.ts'
 import { runNativeCommand } from '@deepseek-ai/dsh-native-command'
 
 const SKIPPED_PREFIX = 'graphify-native skipped: '
@@ -250,7 +249,7 @@ export default class MemoryWorkspace extends TypertRemoteService {
       throw this.graphifyFailure(error)
     }
     await this.readExport(path, false, caller)
-    return { path, html: await offlineViewer(new TextDecoder('utf-8', { fatal: true }).decode(await this.readExport(join(dirname(path), 'graph.html'), true, caller))), documents, ...skipped.length > 0 && { skipped } }
+    return { path, html: new TextDecoder('utf-8', { fatal: true }).decode(await this.readExport(join(dirname(path), 'graph.html'), true, caller)), documents, ...skipped.length > 0 && { skipped } }
   }
 
   private graphifyFailure(error: unknown): unknown {
