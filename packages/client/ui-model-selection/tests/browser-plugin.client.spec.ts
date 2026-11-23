@@ -78,6 +78,8 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
   let catalogFailure = false
   let groups = GROUPS
   let selectionFailure: RemoteError<'session/writer-held'> | undefined
+  let defaultSave: 'saved' | 'failed' = 'saved'
+  const notices: Array<{ level: string; text: string }> = []
   const sessionRemote = {
     modelCatalog: () => {
       calls.models += 1
@@ -103,13 +105,14 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
           : { reasoningEffort: ReasoningEffortId(payload.reasoningEffort) },
       }
       projections.get(payload.sessionId)?.set({ lastUsed: null, lastUsedSeq: null, next: selected })
-      return Promise.resolve({ ok: true as const, value: { selected } })
+      return Promise.resolve({ ok: true as const, value: { selected, defaultSave } })
     },
   }
   const remote = Object.assign(new TestRemote(ctx), { session: sessionRemote })
   ctx.reflect.provide('remote.session', sessionRemote)
   const blocks = new Map<SessionId, { reason: string } | undefined>()
   ctx.provide('conversation', {
+    input: { for: () => ({ notify: (level: string, text: string) => { notices.push({ level, text }) } }) },
     blocks: {
       set: (id: SessionId, block: { reason: string } | undefined) => { blocks.set(id, block) },
     },
@@ -203,6 +206,8 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
     setCatalogFailure: (next: boolean) => { catalogFailure = next },
     setRoutable: (next: boolean) => { routable = next },
     blockOf: (key: string) => blocks.get(sid(key)),
+    setDefaultSave: (next: 'saved' | 'failed') => { defaultSave = next },
+    notices,
   }
 }
 
@@ -317,6 +322,15 @@ describe('ui-model-selection dual entry', () => {
       model: 'deepseek-v4-pro',
       reasoningEffort: 'high',
     })
+  })
+
+  it.each([['failed', true], ['saved', false]] as const)('a popup selection with default save %s gives the composer notice: %s', async (save, notified) => {
+    const b = await bench()
+    b.mint('s1')
+    b.setDefaultSave(save)
+    const options = await b.popup().options(projection('s1'), new AbortController().signal)
+    await b.popup().onSelect(options.find((o: SelectOption) => o.label === 'DeepSeek-V4-Pro')!, projection('s1'))
+    expect(b.notices).toEqual(notified ? [{ level: 'info', text: zh['warning.defaultNotSaved'] }] : [])
   })
 
   it.each(['en', 'zh'] as const)('localizes account provider headings in the %s model popup', async (locale) => {

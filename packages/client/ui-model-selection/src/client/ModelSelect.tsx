@@ -147,6 +147,7 @@ export function ModelSelect(
   const lastActionRef = useRef<'load' | 'select'>('load')
   const [toast, setToast] = useState<{ seq: number; text: string } | null>(null)
   const toastSeq = useRef(0)
+  const ownSelection = useRef(false)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const searchRef = useRef<HTMLInputElement | null>(null)
@@ -256,6 +257,13 @@ export function ModelSelect(
       document.removeEventListener('mousedown', closeOutside)
     }
   }, [open])
+
+  const defaultNotSaved = state.pending === null && state.defaultNotSaved === true
+  useEffect(() => {
+    if (state.pending !== null) return
+    if (ownSelection.current && defaultNotSaved) setToast({ seq: ++toastSeq.current, text: t('warning.defaultNotSaved') })
+    ownSelection.current = false
+  }, [state.pending, defaultNotSaved, t])
 
   useLayoutEffect(() => {
     if (!showSearch) {
@@ -572,6 +580,7 @@ export function ModelSelect(
 
   const submit = (selection: ModelSelection): void => {
     lastActionRef.current = 'select'
+    ownSelection.current = true
     // Disabled option rows cannot retain focus while a selection is pending.
     setSelectionFocus(true)
     triggerRef.current?.focus()
