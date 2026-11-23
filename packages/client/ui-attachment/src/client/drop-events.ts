@@ -37,8 +37,8 @@ function resolveDropOwner(event: globalThis.DragEvent, internalToken: boolean): 
     ? undefined
     : accepting.find(view => view.anchor.current?.closest('[data-composer-card]') === targetCard)
   if (owner === undefined && !internalToken) {
-    owner = accepting.sort((a, b) => (a.anchor.current!.compareDocumentPosition(b.anchor.current!)
-      & Node.DOCUMENT_POSITION_FOLLOWING) !== 0 ? -1 : 1)[0]
+    owner = accepting.sort((a, b) => (a.anchor.current?.compareDocumentPosition(b.anchor.current as Node) ?? 0)
+      & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1)[0]
   }
   dropOwners.set(event, owner ?? null)
   return owner ?? null
@@ -69,7 +69,7 @@ export function installDocumentDropEvents(
       && (!(event.target instanceof Element) || event.target.closest('[data-composer-card]') === null)) return null
     return dataTransfer
   }
-  const view: DropView = { anchor, accepts: canAcceptDrop === true }
+  const view: DropView = { anchor, accepts: canAcceptDrop }
   mountedViews.add(view)
   const reset = (): void => {
     dragDepth.current = 0
