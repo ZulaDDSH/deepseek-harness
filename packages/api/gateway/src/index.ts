@@ -1178,7 +1178,7 @@ class RemoteEventQueue {
   push(frame: RemoteEventWireFrame): void {
     if (this.closed) return
     const size = remoteEventFrameBytes(frame)
-    if (this.frames.size >= MAX_REMOTE_EVENT_QUEUE_FRAMES || this.bytes + size > MAX_REMOTE_EVENT_QUEUE_BYTES) {
+    if (this.frames.size > 0 && (this.frames.size >= MAX_REMOTE_EVENT_QUEUE_FRAMES || this.bytes + size > MAX_REMOTE_EVENT_QUEUE_BYTES)) {
       this.frames.clear()
       this.bytes = 0
       this.failure = new TypertGatewayError(

@@ -429,6 +429,21 @@ describe('Typert Remote streams', () => {
       }
     })
 
+    it('admits one frame larger than the byte budget while the queue is empty, then fails a second undrained frame', async () => {
+      const { source, events, unregister } = await openStalled()
+      try {
+        source.push({ event: 'fixture/notice', args: ['x'.repeat(9_000_000)] })
+        await flush()
+        await expect(events.next()).resolves.toMatchObject({ done: false, value: { type: 'emit' } })
+        source.push({ event: 'fixture/notice', args: ['y'.repeat(9_000_000)] })
+        source.push({ event: 'fixture/notice', args: ['z'] })
+        await flush()
+        await expect(events.next()).rejects.toMatchObject({ code: 'gateway/event-backlog' })
+      } finally {
+        await unregister()
+      }
+    })
+
     it('delivers a backlog within both budgets in order and releases it as it drains', async () => {
       const { source, events, unregister } = await openStalled()
       try {
