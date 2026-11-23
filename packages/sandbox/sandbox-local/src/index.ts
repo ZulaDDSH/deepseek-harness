@@ -82,6 +82,7 @@ export interface Config {
   runnerFailureSignatures?: string[]
   /** Positive timeout for each functional probe; zero would mean unbounded to Node. */
   probeTimeoutMs?: number
+  requireFullEnforcement?: boolean
 }
 
 /** Probe whether `bwrap` can create the profile; the provider caches the bounded result. */
@@ -275,6 +276,7 @@ export class LocalSandboxProvider extends SandboxProvider {
     runnerCommand: z.array(z.string()).default([]),
     runnerFailureSignatures: z.array(z.string()).default([]),
     probeTimeoutMs: z.natural().default(5_000),
+    requireFullEnforcement: z.boolean().default(false),
   })
 
   /** Test hook (mirrors the bash executors' `internals`). */
@@ -283,6 +285,7 @@ export class LocalSandboxProvider extends SandboxProvider {
   private readonly runnerCommand: string[] | undefined
   private readonly configuredRunnerFailureSignatures: string[]
   private readonly probeTimeoutMs: number
+  private readonly requireFullEnforcement: boolean
   /** Cached chain verdict; undefined until the first confined wrap needs it. */
   private selectedRunner: SelectedRunner | 'unavailable' | undefined
   /**
@@ -314,6 +317,7 @@ export class LocalSandboxProvider extends SandboxProvider {
     this.runnerCommand = runner.length > 0 ? runner : undefined
     this.configuredRunnerFailureSignatures = runnerFailureSignatures
     this.probeTimeoutMs = config.probeTimeoutMs as number
+    this.requireFullEnforcement = config.requireFullEnforcement === true
     assertPositiveFinite('probeTimeoutMs', this.probeTimeoutMs)
     // An operator-supplied runner does not use the ACL backend. The registry
     // remains optional and may be mounted after this provider.
@@ -563,9 +567,19 @@ export class LocalSandboxProvider extends SandboxProvider {
    * chain or no candidate passes — the command never runs.
    */
   private selectRunner(mode: ConfinedSandboxMode): SelectedRunner {
-    this.selectedRunner ??= this.chainVerdict()
+    this.selectedRunner ??= this.screenEnforcement(this.chainVerdict())
     if (this.selectedRunner === 'unavailable') throw new SandboxUnavailableError(mode)
     return this.selectedRunner
+  }
+
+  private screenEnforcement(verdict: SelectedRunner | 'unavailable'): SelectedRunner | 'unavailable' {
+    if (verdict === 'unavailable' || verdict.enforcement === 'full') return verdict
+    if (this.requireFullEnforcement) {
+      this.ctx.logger.warn(`sandbox-local: ${verdict.runner} enforces only part of the policy and requireFullEnforcement is set; confinement is refused`)
+      return 'unavailable'
+    }
+    this.ctx.logger.warn(`sandbox-local: ${verdict.runner} enforcement is partial; reads outside the workspace and network access are not restricted, so do not rely on it for confidentiality`)
+    return verdict
   }
 
   /** Walk this platform's chain: sole candidate unprobed, several probed in order, none usable → unavailable. */

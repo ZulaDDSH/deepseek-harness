@@ -430,6 +430,25 @@ describe('the default seatbelt probe (sandbox-exec contract)', () => {
 })
 
 describe('the windows-acl probe (runner invocation contract)', () => {
+  it('requireFullEnforcement refuses the partial rung and leaves a full rung alone', async () => {
+    const partial = await setup({ requireFullEnforcement: true }, { chain: ['windows-acl'], windowsAclRunnerArgs: ['node', 'windows-acl-runner.js'] })
+    await expect(partial.sandbox.confine(['true'], RO)).rejects.toMatchObject({ code: 'SANDBOX_UNAVAILABLE' })
+    const full = await setup({ requireFullEnforcement: true }, { chain: ['bwrap'], probeBwrap: () => true })
+    await expect(full.sandbox.confine(['true'], RO)).resolves.toMatchObject({ enforcement: 'full' })
+  })
+
+  it('warns once that a partial rung leaves reads and network unrestricted', async () => {
+    const { ctx, sandbox } = await setup({}, { chain: ['windows-acl'], windowsAclRunnerArgs: ['node', 'windows-acl-runner.js'] })
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    try {
+      await sandbox.confine(['true'], RO)
+      await sandbox.confine(['true'], RO)
+      expect(warn.mock.calls.filter(([message]) => String(message).includes('enforcement is partial'))).toHaveLength(1)
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
   it.each([RO, WW])('ignores extra directory grants in $mode runner arguments', async (policy) => {
     const { ctx, sandbox } = await setup({}, {
       chain: ['windows-acl'],

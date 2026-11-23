@@ -43,6 +43,7 @@ Load the sandbox service and mount the provider; the defaults below are the sele
 | `runnerCommand` | `[]` | Custom runner argv; bwrap-compatible profile arguments are appended, full enforcement is asserted, and built-in selection and probes are skipped |
 | `runnerFailureSignatures` | `[]` | Case-insensitive stderr substrings identifying the custom runner's own failure dialect; required with `runnerCommand` |
 | `probeTimeoutMs` | `5,000` | Timeout for each functional probe of a competing runner candidate |
+| `requireFullEnforcement` | `false` | Refuse a built-in runner that reports `partial` enforcement (Windows ACL, older Landlock ABIs) instead of running on it |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-sandbox-local) is the exhaustive source for every accepted field and its JSDoc.
 
@@ -129,7 +130,7 @@ No direct invalidation; the named consumers own any request-prefix changes.
 These limits define when the provider is a poor fit or needs special operational care. They are current package constraints, not a general platform comparison or a task backlog.
 
 - **Windows extra roots** — Additional directory grants apply to the harness `write` and `edit` tools only. PowerShell, terminals, PTC, and other sandboxed processes retain workspace and private-temp access under `workspace-write`. Extra grants do not change their ACLs or block their execution; see the [decision](../../../.agents/notes/implemented/architecture/2026-10-29-windows-file-tool-directory-grants.md).
-- **Windows ACL enforcement is partial** — NTFS hard links alias one file object across workspace and external paths, reads stay unconfined, and a tree another AppContainer tool has ACL'd with a package SID is unreadable to the Low-integrity child. The provider reports `enforcement: 'partial'` rather than overstating that boundary as full.
+- **Windows ACL enforcement is partial** — NTFS hard links alias one file object across workspace and external paths, reads stay unconfined, and a tree another AppContainer tool has ACL'd with a package SID is unreadable to the Low-integrity child. The provider reports `enforcement: 'partial'` rather than overstating that boundary as full. Selecting a partial rung logs one warning that reads outside the workspace and network access are unrestricted. A deployment that relies on the sandbox for workspace confidentiality sets `requireFullEnforcement: true`, which refuses every built-in partial rung with `SANDBOX_UNAVAILABLE` instead of running; on Windows that leaves no usable runner, so such a deployment needs another isolation mechanism there. A read and network boundary on Windows is not provided.
 - **Landlock may be partial** — older supported kernel ABIs confine only the access classes they expose, reported as `enforcement: 'partial'` rather than overstated as full.
 - **Seatbelt depends on deprecated `sandbox-exec`** — macOS still ships it, but this provider cannot replace or probe that private policy engine if Apple removes it.
 - **Runner selection is cached for the provider lifetime** — installing, removing, or repairing a runner requires reloading the plugin before selection changes.
