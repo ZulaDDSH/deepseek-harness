@@ -5,7 +5,7 @@ import type { TokenSpan } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { TranscriptionRequest } from '@deepseek-ai/dsh-experimental-api-speech-to-text/types'
 import type { SpeechPreparationOptions, SpeechProviderId, SpeechSelection, SpeechSelectionPatch, Transcript } from '@deepseek-ai/dsh-experimental-speech-to-text/types'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
-import { audioBase64, type Recording } from './audio.ts'
+import { audioBase64, recordingLimitSeconds, type Recording } from './audio.ts'
 import { failureText } from './failure-text.ts'
 import type { MicrophoneDevice } from './microphone-device.ts'
 import type { SpeechReadiness } from './readiness.ts'
@@ -131,7 +131,7 @@ export function VoiceInput({ sessionId, inputActions, locked, onActiveChange,
     const run = ++generation.current
     const active: ActiveRecording = { capture: createRecording(), abort: new AbortController(),
       span: inputActions.captureInsertion(), selection: catalog.selection,
-      maxDurationSeconds: catalog.maxDurationSeconds, maxAudioBytes: catalog.maxAudioBytes, phase: 'requesting' }
+      maxDurationSeconds: recordingLimitSeconds(catalog.maxDurationSeconds, catalog.maxAudioBytes), maxAudioBytes: catalog.maxAudioBytes, phase: 'requesting' }
     current.current = active
     setMessage(''); setPending(''); setPhase('requesting')
     try {

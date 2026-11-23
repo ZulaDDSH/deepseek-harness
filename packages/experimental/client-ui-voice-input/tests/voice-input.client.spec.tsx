@@ -18,7 +18,7 @@ beforeEach(() => { vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1)); vi.st
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals() })
 const id = 'sensevoice-local' as SpeechProviderId
 const transcript: Transcript = { text: '检查 TypeScript 类型', audioSeconds: 2, inferenceSeconds: 0.4 }
-function fixture(recording?: Recording, navigable = true) {
+function fixture(recording?: Recording, navigable = true, limits: { maxAudioBytes?: number; maxDurationSeconds?: number } = {}) {
   const capture = Object.assign(new Recording(() => {}), { start: vi.fn<Recording['start']>(async () => {}), stop: vi.fn(async () => new Uint8Array(48)),
     amplitude: () => 0, dispose: vi.fn(async () => {}) })
   const inputActions = { notify: vi.fn(), insertQuote: () => false,
@@ -27,7 +27,7 @@ function fixture(recording?: Recording, navigable = true) {
     pruneAttachments: vi.fn(), submit: vi.fn() }
   const readiness = createSnapshotStore<SpeechReadiness>({ connected: true, error: null, catalog: {
     providers: [{ id, name: 'SenseVoiceSmall', location: 'host-local', languages: ['auto', 'zh', 'en', 'ja'], preparation: { phase: 'ready' } }],
-    selection: { providerId: id, language: 'auto' }, maxAudioBytes: 100, maxDurationSeconds: 120,
+    selection: { providerId: id, language: 'auto' }, maxAudioBytes: limits.maxAudioBytes ?? 4 * 1024 * 1024, maxDurationSeconds: limits.maxDurationSeconds ?? 120,
   } })
   const transcribe = vi.fn<(request: unknown, signal: AbortSignal) => Promise<RemoteResult<Transcript>>>(
     async () => ({ ok: true, value: transcript }))
@@ -156,6 +156,18 @@ it.each([new RecordingError('empty'), new Error('decode failed'), 'decode failed
   expect(b.inputActions.insertText).not.toHaveBeenCalled()
 })
 
+it('stops at the WAV byte budget when it is tighter than the duration limit', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  const b = fixture(undefined, true, { maxAudioBytes: 1048576, maxDurationSeconds: 120 })
+  fireEvent.click(screen.getByRole('button', { name: zh.start })); await act(async () => {})
+  await act(async () => { await vi.advanceTimersByTimeAsync(33000) })
+  expect(b.capture.stop).toHaveBeenCalledOnce()
+  expect(b.capture.stop.mock.calls[0]?.[0]).toBeCloseTo((1048576 - 44) / 32000, 6)
+  await act(async () => {}); await act(async () => {})
+  expect(b.transcribe).toHaveBeenCalledOnce()
+  expect(b.inputActions.insertText).toHaveBeenCalledWith(transcript.text, { start: 3, end: 3, draftRev: 1 })
+})
+
 it('bounds recordings, indicates idle wake-up, and cancels an in-flight transcription', async () => {
   const b = fixture(), result = Promise.withResolvers<RemoteResult<Transcript>>()
   b.transcribe.mockReturnValueOnce(result.promise)
@@ -177,8 +189,11 @@ it('bounds recordings, indicates idle wake-up, and cancels an in-flight transcri
 })
 
 it('rejects excessive audio and keeps locked recognition disabled', async () => {
-  const b = fixture(); b.capture.stop.mockResolvedValueOnce(new Uint8Array(101))
-  await start(); stop(); await screen.findByText(zh.tooLarge)
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  const b = fixture(undefined, true, { maxAudioBytes: 100 }); b.capture.stop.mockResolvedValueOnce(new Uint8Array(101))
+  fireEvent.click(screen.getByRole('button', { name: zh.start })); await act(async () => {})
+  stop(); await act(async () => {}); await act(async () => {})
+  expect(screen.getByRole('status').textContent).toBe(zh.tooLarge)
   expect(b.transcribe).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: zh.cancel }))
   act(() => { b.readiness.set({ catalog: null, connected: false, error: null }) })

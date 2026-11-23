@@ -1,9 +1,17 @@
 /** Browser recording bytes conform to the Host's fixed PCM format. */
 import { afterEach, expect, it, vi } from 'vitest'
-import { audioBase64, encodeWave, Recording, RecordingError } from '../src/client/audio.ts'
+import { audioBase64, encodeWave, Recording, RecordingError, recordingLimitSeconds } from '../src/client/audio.ts'
 import { captureFixture } from './audio-fixture.client.ts'
 
 afterEach(() => { vi.unstubAllGlobals() })
+
+it('cuts a recording to the byte budget so the encoded WAV fits the Host limit', () => {
+  for (const cap of [46, 100, 1048576, 4194304]) {
+    expect(encodeWave(new Float32Array(Math.floor(recordingLimitSeconds(120, cap) * 16000))).length).toBeLessThanOrEqual(cap)
+  }
+  expect(recordingLimitSeconds(120, 4194304)).toBe(120)
+  expect(recordingLimitSeconds(120, 1048576)).toBeCloseTo((1048576 - 44) / 32000, 9)
+})
 
 it('encodes bounded PCM samples and base64 across chunk boundaries', () => {
   const bytes = encodeWave(new Float32Array([-2, -0.5, 0, 0.5, 2]))
