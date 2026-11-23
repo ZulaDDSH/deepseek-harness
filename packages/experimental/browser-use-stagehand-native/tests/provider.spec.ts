@@ -18,7 +18,7 @@ import { fixture, nativeModel, resetFixture } from './fixtures/stagehand.ts'
 
 const acquisition = vi.hoisted(() => ({
   signal: undefined as AbortSignal | undefined, warning: undefined as string | undefined,
-  closeError: undefined as Error | undefined, chromiumCloseError: undefined as Error | undefined,
+  closeError: undefined as Error | undefined, chromiumCloseError: undefined as Error | undefined, timeout: false,
 }))
 
 vi.mock('@browserbasehq/stagehand', async importActual => ({
@@ -43,7 +43,7 @@ vi.mock('../src/launch.ts', async (importActual) => {
 })
 vi.mock('../src/worker-client.ts', async () => {
   const { openNativeBrowser } = await import('../src/native.ts')
-  const { StagehandError } = await import('../src/error.ts')
+  const { StagehandError, StagehandTimeoutError } = await import('../src/error.ts')
   return {
     async openBrowserWorker(config: NativeBrowserConfig, signal: AbortSignal, warn: (message: string) => void) {
       acquisition.signal = signal
@@ -57,6 +57,11 @@ vi.mock('../src/worker-client.ts', async () => {
       return {
         async execute(method: import('../src/native.ts').BrowserMethod, args: unknown, signal?: AbortSignal) {
           if (closing !== undefined) throw new StagehandError('Fixture connection is closed', 'STAGEHAND_WORKER_FAILED')
+          if (acquisition.timeout) {
+            acquisition.timeout = false
+            await close()
+            throw new StagehandTimeoutError('Fixture request timed out')
+          }
           const cancel = () => { void close().catch(() => {}) }
           signal?.addEventListener('abort', cancel, { once: true })
           try { return await native.execute(method, args) } finally { signal?.removeEventListener('abort', cancel) }
@@ -81,6 +86,7 @@ beforeEach(async () => {
   acquisition.warning = undefined
   acquisition.closeError = undefined
   acquisition.chromiumCloseError = undefined
+  acquisition.timeout = false
   ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(BrowserUseRegistry)
@@ -378,6 +384,18 @@ it('reconnects after cancellation while preserving the owned browser and its tab
   } finally {
     stopped.resolve()
   }
+})
+
+it('reconnects on the next call after a browser call passes its deadline', async () => {
+  await ctx.plugin(Provider, { model: nativeModel, mode: 'launch' })
+  await execute(first, 'navigate', { url: 'https://kept.example/' })
+  acquisition.timeout = true
+  const stalled = await execute(first, 'tabs', { action: 'list' })
+  expect(stalled.isError).toBe(true)
+  expect(JSON.stringify(stalled.content)).toContain('timed out')
+  const tabs = await execute(first, 'tabs', { action: 'list' })
+  expect(tabs.isError).toBe(false)
+  expect(JSON.stringify(tabs.content)).toContain('https://kept.example/')
 })
 
 it.each([
