@@ -95,8 +95,7 @@ export function PermissionSelect({
 
   if (selection === undefined || catalog === null) return null
 
-  const currentValue = pick !== null && catalog.options.some(option => option.value === pick)
-    ? pick : selection.currentValue
+  const currentValue = selection.currentValue
   const current = catalog.options.find(option => option.value === currentValue)
   const currentLabel = current === undefined
     ? permissionLabel(currentValue, currentValue, t)
@@ -196,6 +195,7 @@ export function PermissionSelect({
           </button>
         }
       />
+      {pick !== null && <span role="status" className={css.pending}>{t('switching')}</span>}
       {failed !== null && (
         <span role="alert" className={css.failure}>
           {t('switchFailed', { name: permissionLabel(selection.currentValue, current?.name ?? selection.currentValue, t) })}

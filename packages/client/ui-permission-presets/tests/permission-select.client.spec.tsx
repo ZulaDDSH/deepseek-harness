@@ -69,7 +69,7 @@ describe('PermissionSelect', () => {
     expect(missingCatalog.view.container.innerHTML).toBe('')
   })
 
-  it('renders process options and submits an ordinary choice optimistically', async () => {
+  it('renders process options and keeps the confirmed mode displayed while an ordinary choice is pending', async () => {
     const submitted = Promise.withResolvers<boolean>()
     const { select } = setup({
       selection: { currentValue: 'read-only' },
@@ -85,11 +85,13 @@ describe('PermissionSelect', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: '工作区内修改' }))
 
     expect(select).toHaveBeenCalledExactlyOnceWith('workspace-write')
-    expect(trigger().textContent).toBe('工作区内修改')
+    expect(trigger().textContent).toBe('仅可查看')
+    expect(screen.getByRole('status').textContent).toBe(accessZh['switching'])
     expect(trigger().disabled).toBe(true)
     submitted.resolve(true)
     await act(async () => { await submitted.promise })
     expect(trigger().disabled).toBe(false)
+    expect(screen.queryByRole('status')).toBeNull()
   })
 
   it('preserves host labels and ignores the already-current row', () => {
@@ -209,7 +211,7 @@ describe('PermissionSelect', () => {
       fireEvent.click(screen.getByRole('checkbox'))
       fireEvent.click(screen.getByRole('button', { name: '启用自动审查' }))
       expect(select).toHaveBeenCalledExactlyOnceWith('auto')
-      expect(trigger().textContent).toBe('自动审查')
+      expect(screen.getByRole('status').textContent).toBe(accessZh['switching'])
 
       act(() => {
         selection.set({ value: { currentValue: 'danger-full-access' } })
@@ -254,7 +256,8 @@ describe('PermissionSelect', () => {
 
     fireEvent.click(trigger())
     fireEvent.click(screen.getByRole('menuitem', { name: '工作区内修改' }))
-    expect(trigger().textContent).toBe('工作区内修改')
+    expect(trigger().textContent).toBe('Custom')
+    expect(screen.getByRole('status').textContent).toBe(accessZh['switching'])
     await act(async () => {})
     expect(trigger().textContent).toBe('Custom')
     act(() => { selection.set({ value: { currentValue: 'workspace-write' } }) })

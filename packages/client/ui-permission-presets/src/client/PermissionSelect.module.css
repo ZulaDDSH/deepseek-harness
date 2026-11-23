@@ -101,6 +101,11 @@
   transform: rotate(180deg);
 }
 
+.pending {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
 .failure {
   display: inline-flex;
   align-items: center;
