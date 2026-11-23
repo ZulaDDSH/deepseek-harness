@@ -31,6 +31,9 @@ export function encodeMessage(message: unknown): Buffer {
  */
 export class MessageDecoder {
   private buffer: Buffer = Buffer.alloc(0)
+  private queued: Buffer[] = []
+  private queuedBytes = 0
+  private needed = 0
   private readonly maxMessageBytes: number
 
   /**
@@ -48,7 +51,12 @@ export class MessageDecoder {
    *   `LSP_MESSAGE_TOO_LARGE` when a body exceeds `maxMessageBytes`.
    */
   push(chunk: Buffer): unknown[] {
-    this.buffer = this.buffer.length === 0 ? chunk : Buffer.concat([this.buffer, chunk])
+    this.queued.push(chunk)
+    this.queuedBytes += chunk.length
+    if (this.buffer.length + this.queuedBytes < this.needed) return []
+    this.buffer = this.buffer.length === 0 && this.queued.length === 1 ? chunk : Buffer.concat([this.buffer, ...this.queued])
+    this.queued = []
+    this.queuedBytes = 0
     const messages: unknown[] = []
     for (;;) {
       const step = this.next()
@@ -80,7 +88,11 @@ export class MessageDecoder {
     }
     const bodyStart = separator + HEADER_SEPARATOR.length
     const bodyEnd = bodyStart + contentLength
-    if (this.buffer.length < bodyEnd) return { ready: false }
+    if (this.buffer.length < bodyEnd) {
+      this.needed = bodyEnd
+      return { ready: false }
+    }
+    this.needed = 0
     const body = this.buffer.toString('utf8', bodyStart, bodyEnd)
     this.buffer = this.buffer.subarray(bodyEnd)
     try {
