@@ -96,6 +96,17 @@ describe('SubprocessRuntime seam', () => {
     }
   })
 
+  it('scrubbedParentEnv keeps proxy userinfo only when the caller opts in', () => {
+    process.env.HTTPS_PROXY = 'http://user:hunter2@proxy.example:8080'
+    try {
+      expect(scrubbedParentEnv({ proxyCredentials: true }).HTTPS_PROXY).toBe('http://user:hunter2@proxy.example:8080')
+      expect(scrubbedParentEnv({}).HTTPS_PROXY).toBe('http://proxy.example:8080')
+      expect(scrubbedParentEnv().HTTPS_PROXY).toBe('http://proxy.example:8080')
+    } finally {
+      delete process.env.HTTPS_PROXY
+    }
+  })
+
   it('scrubbedParentEnv drops credential-shaped and DSH_ names (case-insensitively) but keeps PATH', () => {
     process.env.DSH_SCRUB_PROBE = 'stale'
     process.env.dsh_scrub_probe_lower = 'stale'

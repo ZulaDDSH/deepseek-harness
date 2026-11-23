@@ -74,7 +74,7 @@ export async function checkGitConnection(
     const result = await execa(command, args, {
       cwd: dir,
       env: {
-        ...scrubbedParentEnv(), ...options.env, LC_ALL: 'C', GIT_TERMINAL_PROMPT: '0',
+        ...scrubbedParentEnv({ proxyCredentials: true }), ...options.env, LC_ALL: 'C', GIT_TERMINAL_PROMPT: '0',
         GIT_ASKPASS: '', SSH_ASKPASS: '', SSH_ASKPASS_REQUIRE: 'never',
       },
       extendEnv: false,

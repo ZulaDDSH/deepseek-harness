@@ -52,7 +52,7 @@ export class GhOutputLimitError extends Error {
 export function ghRunner(config: GhConfig): GhRunner {
   return async (args, signal, input) => {
     const result = await execa(config.ghCommand, args, {
-      env: { ...scrubbedParentEnv(), GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1', GH_PAGER: '', NO_COLOR: '1', CLICOLOR: '0' },
+      env: { ...scrubbedParentEnv({ proxyCredentials: true }), GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1', GH_PAGER: '', NO_COLOR: '1', CLICOLOR: '0' },
       extendEnv: false,
       ...input === undefined ? { stdin: 'ignore' as const } : { input },
       reject: false,

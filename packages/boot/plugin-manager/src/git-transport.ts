@@ -45,7 +45,7 @@ async function readable(repository: string, dir: string, options: GitTransportOp
   const result = await execa('git', ['-c', 'core.askPass=', 'ls-remote', '--exit-code', '--', repository, 'HEAD'], {
     cwd: dir,
     env: {
-      ...scrubbedParentEnv(), ...options.env, LC_ALL: 'C', GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never',
+      ...scrubbedParentEnv({ proxyCredentials: true }), ...options.env, LC_ALL: 'C', GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never',
       GIT_ASKPASS: '', SSH_ASKPASS: '', SSH_ASKPASS_REQUIRE: 'never',
     },
     extendEnv: false, stdin: 'ignore', stdout: 'ignore', stderr: 'ignore', reject: false,

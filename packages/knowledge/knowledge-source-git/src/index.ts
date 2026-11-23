@@ -98,7 +98,7 @@ function git(args: readonly string[], cwd: string | undefined, run: GitRun): Pro
     }
     const child = spawn('git', [...args], {
       cwd,
-      env: scrubbedParentEnv(),
+      env: scrubbedParentEnv({ proxyCredentials: true }),
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: process.platform !== 'win32',
     })

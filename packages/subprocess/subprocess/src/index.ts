@@ -68,12 +68,14 @@ export const SENSITIVE_ENV_PATTERN = /KEY|PASSWORD|PASSWD|PASSPHRASE|SECRET|TOKE
  *
  * When a proxy is active the result also carries the resolved proxy names and the flag a child Node
  * needs to honor them, so a child inherits the same routing as its parent.
+ * @param options - `proxyCredentials` keeps `user:password@` in proxy URLs for a fixed trusted binary that must authenticate to the proxy.
  * @returns a fresh environment object safe to hand to a child spawn.
  */
-export function scrubbedParentEnv(): Record<string, string> {
+export function scrubbedParentEnv(options: { proxyCredentials?: boolean } = {}): Record<string, string> {
+  const proxyValue = options.proxyCredentials === true ? (value: string) => value : stripUrlUserinfo
   const env: Record<string, string> = {}
   for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined && !SENSITIVE_ENV_PATTERN.test(key) && !key.toUpperCase().startsWith(DSH_ENV_PREFIX)) env[key] = /PROXY$/i.test(key) ? stripUrlUserinfo(value) : value
+    if (value !== undefined && !SENSITIVE_ENV_PATTERN.test(key) && !key.toUpperCase().startsWith(DSH_ENV_PREFIX)) env[key] = /PROXY$/i.test(key) ? proxyValue(value) : value
   }
   // A child Node ignores the inherited proxy variables unless the flag this adds is set, so an MCP
   // stdio server or subagent CLI would connect directly while its parent proxies. The same overlay
@@ -81,7 +83,7 @@ export function scrubbedParentEnv(): Record<string, string> {
   // `undefined` removes a name the user never set.
   for (const [name, value] of Object.entries(proxyEnvironmentForChild())) {
     if (value === undefined) Reflect.deleteProperty(env, name)
-    else env[name] = stripUrlUserinfo(value)
+    else env[name] = proxyValue(value)
   }
   return env
 }
