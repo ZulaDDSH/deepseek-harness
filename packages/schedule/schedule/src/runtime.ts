@@ -158,7 +158,7 @@ export class ScheduleRuntime {
       if (this.stopping) throw new Error('Schedule runtime is stopping')
       // Sample the occurrence after Session restoration, which can take longer than one recurrence interval.
       const occurrenceAt = new Date(Date.now()).toISOString()
-      const held = task.target.kind !== 'new' ? [id] : []
+      const held = [id]
       const sent = await this.send(target.agent, renderReminderFraming({ ...task.record, scheduledAt: occurrenceAt }), held)
       const committed = new Set<ScheduleId>()
       try {
@@ -177,7 +177,7 @@ export class ScheduleRuntime {
   /**
    * Whether a queued or running execution holds this task's slot.
    * @param id - Task identity.
-   * @returns Whether a delivery to the task's reused target Session has not yet reached whole-agent idle; a `new` target holds no slot.
+   * @returns Whether the task's latest delivery has not yet reached whole-agent idle in its target Session.
    */
   isExecutionActive(id: ScheduleId): boolean {
     return this.executing.has(id)
@@ -267,7 +267,7 @@ export class ScheduleRuntime {
           record: task.record, occurrenceAt: occurrence.occurrenceAt,
         })))
         : renderReminderFraming({ ...single.task.record, scheduledAt: single.occurrence.occurrenceAt })
-      const held = deliveries.filter(({ task }) => task.target.kind !== 'new').map(({ task }) => task.record.id)
+      const held = deliveries.map(({ task }) => task.record.id)
       const sent = await this.send(target.agent, text, held)
       try {
         for (const { task, occurrence } of deliveries) {
@@ -311,7 +311,7 @@ export class ScheduleRuntime {
   /**
    * Reconstruct a still-queued last delivery after a Host restart without storing model completion state.
    * @param task - Task whose last delivered message may still wait in its target inbox.
-   * @returns Whether the task holds its slot for that delivery; a woken reminder of a `new` target holds none.
+   * @returns Whether the task holds its slot for that delivery.
    */
   private async recoverOutstandingExecution(task: ScheduleTask): Promise<boolean> {
     if (this.executing.has(task.record.id)) return true
@@ -327,8 +327,7 @@ export class ScheduleRuntime {
     }
     const message = [...agent.inbox.nextTurn, ...agent.inbox.nextStep].find(candidate => candidate.id === receipt.messageId)
     if (message === undefined) return false
-    const held = this.tasks().filter(candidate => candidate.target.kind !== 'new'
-      && candidate.lastDelivery?.messageId === receipt.messageId
+    const held = this.tasks().filter(candidate => candidate.lastDelivery?.messageId === receipt.messageId
       && candidate.lastDelivery.targetSessionId === receipt.targetSessionId).map(candidate => candidate.record.id)
     for (const id of held) this.executing.add(id)
     try {
