@@ -19,3 +19,5 @@
 `packages/sdk/protocol/src/types.ts:SessionCancelParams`: the `session/cancel` request carries only the SDK-side Session id; there is no per-operation id because the runtime has no per-operation identity for a prompt before it is queued.
 
 `packages/sdk/protocol/src/types.ts:SessionCancelResult`: `cancelled` reports whether a live Agent received the cancellation, so a client can tell "nothing to cancel" from "cancel delivered" without inferring it from errors.
+
+`packages/sdk/protocol/src/transport.ts:JsonRpcLineTransport.write` passes an error-aware write callback and `start` attaches an output error listener, both routed to one idempotent output failure. That failure rejects every pending request, makes later requests reject with the first failure, and invokes the `onFailure` handler like a limit failure, so an asynchronous output write error no longer leaves a request pending when the peer process stays alive. `close` removes the output listener; the caller keeps ownership of the stream itself.

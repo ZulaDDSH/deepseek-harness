@@ -239,6 +239,27 @@ describe('JsonRpcLineTransport', () => {
     b.close()
   })
 
+  it('rejects pending and later requests when an output write fails asynchronously', async () => {
+    const input = new PassThrough()
+    const output = new Writable({
+      write(_chunk, _encoding, callback) {
+        setImmediate(() => { callback(new Error('EPIPE: output pipe closed')) })
+      },
+    })
+    const transport = new JsonRpcLineTransport(input, output)
+    const failures: Error[] = []
+    transport.onFailure((error) => { failures.push(error) })
+    transport.start()
+
+    const first = transport.request('first', {})
+    const second = transport.request('second', {})
+    await expect(first).rejects.toThrow('EPIPE')
+    await expect(second).rejects.toThrow('EPIPE')
+    await expect(transport.request('later', {})).rejects.toThrow('EPIPE')
+    expect(failures).toHaveLength(1)
+    transport.close()
+  })
+
   it('rejects pending requests when the input errors', async () => {
     const { aToB, b } = transportPair()
     b.start()

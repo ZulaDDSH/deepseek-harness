@@ -83,6 +83,7 @@ export class JsonRpcLineTransport implements JsonRpcTransportPeer {
   private readonly maxOutputBytes: number
   private outputBytes = 0
   private limitFailure: Error | undefined
+  private outputFailed = false
   private failureHandler: ((error: Error) => void) | undefined
   private readonly limited = Promise.withResolvers<never>()
 
@@ -103,6 +104,7 @@ export class JsonRpcLineTransport implements JsonRpcTransportPeer {
     this.input.on('data', this.onData)
     this.input.on('error', this.onInputError)
     this.input.on('end', this.onInputEnd)
+    this.output.on('error', this.onOutputError)
   }
 
   /**
@@ -113,6 +115,7 @@ export class JsonRpcLineTransport implements JsonRpcTransportPeer {
     this.input.off('data', this.onData)
     this.input.off('error', this.onInputError)
     this.input.off('end', this.onInputEnd)
+    this.output.off('error', this.onOutputError)
     this.failPending(new Error('JSON-RPC transport closed'))
   }
 
@@ -304,7 +307,21 @@ export class JsonRpcLineTransport implements JsonRpcTransportPeer {
       return
     }
     this.outputBytes += bytes
-    this.output.write(text, () => { this.outputBytes -= bytes })
+    this.output.write(text, (error) => {
+      this.outputBytes -= bytes
+      if (error) this.failOutput(error)
+    })
+  }
+
+  private readonly onOutputError = (error: Error): void => {
+    this.failOutput(error)
+  }
+
+  private failOutput(error: Error): void {
+    if (this.outputFailed) return
+    this.outputFailed = true
+    this.failPending(error)
+    this.failureHandler?.(error)
   }
 
   private failLimit(error: Error): void {

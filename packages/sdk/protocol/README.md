@@ -29,7 +29,7 @@ Use this package when you build or debug an SDK wire end — the serving plugin,
 
 ### Framing and transport
 
-Wire one JSON-RPC 2.0 message per `\n`-terminated line over byte streams you own. A frame with both `id` and `method` is a request, `id` alone is a response, and `method` alone is a notification; malformed lines are ignored. Requests with no registered handler answer `-32601`, handler failures answer `-32603`, and error responses reject the pending request with `JsonRpcResponseError`, which preserves the wire `code` and optional `data`. `start()` attaches stream listeners and `close()` detaches them and rejects pending requests without destroying the streams.
+Wire one JSON-RPC 2.0 message per `\n`-terminated line over byte streams you own. A frame with both `id` and `method` is a request, `id` alone is a response, and `method` alone is a notification; malformed lines are ignored. Requests with no registered handler answer `-32601`, handler failures answer `-32603`, and error responses reject the pending request with `JsonRpcResponseError`, which preserves the wire `code` and optional `data`. `start()` attaches stream listeners, including an error listener on the output stream, and `close()` detaches them and rejects pending requests without destroying the streams. An output write error, reported asynchronously or through the stream's error event, rejects every pending and later request with that first error and calls the `onFailure` handler once.
 
 ### The SDK methods
 
