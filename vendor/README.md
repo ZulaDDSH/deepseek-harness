@@ -56,6 +56,7 @@ Relative to the resolver source in Cordis `v4.0.0-rc.11`:
 
 - **Web build imports:** `loader/src/resolve.ts` uses default imports for Node builtin modules to support the Web shell's browser externalization. The shell supplies its own module loader.
 - **Package-scope cache keys:** `loader/src/resolve.ts` normalizes directory paths with `path.resolve()` before finding the package scope. A root config and a nested config in the same package therefore share the same cached resolver promise and helper-file write. Covered by `scripts/cordis-loader-resolve.spec.ts`.
+- **Retry after a failed helper:** `loader/src/resolve.ts` keeps a failed package-scope initialization (an `undefined` after a helper write failure, or a rejected helper import) for five seconds, then initializes again on the next call; a resolved helper stays cached, and concurrent calls share the pending initialization. A retry after a rejected import loads `resolve.mjs?retry=<n>` so that a cached failed module for the plain URL cannot be replayed. Covered by `scripts/cordis-loader-resolve.spec.ts`.
 
 ## Sync procedure
 

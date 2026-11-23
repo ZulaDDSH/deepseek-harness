@@ -54,7 +54,7 @@ Without Node module internals, Loader resolves bare specifiers, package imports 
 
 If no scope exists or writing the helper files fails, Loader uses its native import fallback. This fallback emits no diagnostic of its own; project-only dependencies can remain unavailable, and the resulting import error can name the Loader module rather than the configuration project. Failure to import a written helper propagates to the caller without this fallback.
 
-Initialization results are cached for the lifetime of the resolver module, including failed writes and rejected helper imports. Fixing the filesystem does not retry initialization for an already cached scope. Concurrent initialization through filesystem aliases of the same package can contend for the temporary helper files and cause a write failure.
+A resolved helper is cached for the lifetime of the resolver module. A failed write or rejected helper import is cached for five seconds, shared by concurrent callers, and then initialized again on the next call; a retry after a rejected import loads the helper under a new query string so a cached failed module cannot be replayed. Concurrent initialization through filesystem aliases of the same package can contend for the temporary helper files and cause a write failure.
 
 Node module internals are classified by their available APIs, including the v1 API used by Node 24.0–24.11.
 
