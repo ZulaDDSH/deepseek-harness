@@ -269,3 +269,15 @@ describe('session-checkpoint-policy lifecycle', () => {
     expect(typeof unwrapped.apply).toBe('function')
   })
 })
+
+describe('session-checkpoint-policy turn end', () => {
+  it('flushes the final response and step ending before the turn is closed', async () => {
+    const ctx = await setup()
+    const session = ctx.sessions.create(brandString<SessionId>('turn-stopping'))
+    const agent = { session } as Agent
+    const flushed: string[] = []
+    ctx.on('session/flush', (current) => { flushed.push(current.id) })
+    await agentEvents(ctx, agent).serial('agent/turn-stopping', { turn: 1, signal: new AbortController().signal })
+    expect(flushed).toEqual([session.id])
+  })
+})
