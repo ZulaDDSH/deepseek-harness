@@ -9,7 +9,7 @@ import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { LocalCredentialProvider, resolveSpec } from '../src/index.ts'
-import { windowsAclViolations } from '../src/windows-acl.ts'
+import { system32, windowsAclViolations } from '../src/windows-acl.ts'
 
 function writeCredentials(file: string, text: string): Promise<void> {
   return writeFile(file, text, { mode: 0o600 })
@@ -237,6 +237,16 @@ describe('layer ladder', () => {
     await ctx.credentials.set(KEY, 'sk-fresh')
     expect(await windowsAclViolations(created)).toEqual([])
     expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'sk-fresh', source: 'file' })
+  })
+
+  it.runIf(process.platform === 'win32')('resolves system tools to an absolute C:\\Windows path when SystemRoot is unset', () => {
+    const saved = process.env.SystemRoot
+    delete process.env.SystemRoot
+    try {
+      expect(system32('icacls.exe').toLowerCase()).toBe('c:\\windows\\system32\\icacls.exe')
+    } finally {
+      if (saved !== undefined) process.env.SystemRoot = saved
+    }
   })
 
   it('propagates a permission check that fails for a reason other than absence', async () => {

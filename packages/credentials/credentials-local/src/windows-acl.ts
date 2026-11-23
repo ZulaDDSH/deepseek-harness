@@ -8,8 +8,8 @@ const run = promisify(execFile)
 const ALLOWED_TRUSTEES = new Set(['SY', 'BA', 'OW', 'CO', 'S-1-5-18', 'S-1-5-32-544', 'S-1-3-4', 'S-1-3-0'])
 let userSid: Promise<string> | undefined
 
-function system32(tool: string): string {
-  return join(process.env.SystemRoot ?? 'C:\Windows', 'System32', tool)
+export function system32(tool: string): string {
+  return join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', tool)
 }
 
 function currentUserSid(): Promise<string> {
