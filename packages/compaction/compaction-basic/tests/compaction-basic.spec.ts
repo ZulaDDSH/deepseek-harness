@@ -5,7 +5,7 @@ import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
 import type { BasicCompactionConfig } from '@deepseek-ai/dsh-compaction-basic'
 import { selectCompactableRange } from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
 import { answeredRouteProjectionDefinition } from '@deepseek-ai/dsh-compaction-basic/src/answered-route.ts'
-import { frameSummary } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
+import { frameSummary, summarizeWithLlm } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
 import type { SummarizationInput, SummaryResult } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { CompactionId } from '@deepseek-ai/dsh-compaction/types'
@@ -2743,5 +2743,88 @@ describe('route-priced image pressure', () => {
       .filter(node => result?.shadowedSeqs.includes(node.seq))
       .reduce((total, node) => total + node.heuristicTokens, 0)
     expect(summaryEvent?.data.shadowedTokenCount).toBe(shadowedHeuristic)
+  })
+})
+
+describe('summarizer retry of transient provider failures', () => {
+  class FlakyAdapter extends LlmAdapter {
+    calls = 0
+    constructor(private readonly failures: number, private readonly retryAfterMs?: number) { super() }
+    override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+      return Promise.resolve({ provider, id: model, name: model })
+    }
+    override async * stream(): AsyncIterable<StreamChunk> {
+      this.calls += 1
+      if (this.calls <= this.failures) {
+        yield { type: 'block-start', index: 0, blockType: 'text' }
+        yield { type: 'block-end', index: 0, block: { type: 'text', text: 'PARTIAL FAILED SUMMARY' } }
+        yield {
+          type: 'finish',
+          reason: { kind: 'error', failure: { code: 'RATE_LIMIT', message: 'slow down', ...this.retryAfterMs === undefined ? {} : { providerRetryAfterMs: this.retryAfterMs } } },
+        }
+        return
+      }
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text: 'GOOD SUMMARY' } }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    }
+  }
+  const config = { summarizationProvider: 'flaky', summarizationModel: 'flaky', maxTokens: 64 }
+  const input: SummarizationInput = { messages: [createUserMessage({ content: [{ type: 'text', text: 'history' }], source: { kind: 'user' } })] }
+  function setup(adapter: FlakyAdapter) {
+    const ctx = createContext()
+    ctx.llm.registerAdapter(['flaky'], adapter)
+    return { ctx, agent: agent(conversation(1)) }
+  }
+
+  it('retries rate limits with backoff and discards the failed partial summary', async () => {
+    vi.useFakeTimers()
+    try {
+      const adapter = new FlakyAdapter(2)
+      const { ctx, agent: owner } = setup(adapter)
+      const result = summarizeWithLlm(ctx, config, input, owner, undefined)
+      await vi.advanceTimersByTimeAsync(250 + 500)
+      const summary = await result
+      expect(adapter.calls).toBe(3)
+      expect(JSON.stringify(summary.summary)).toContain('GOOD SUMMARY')
+      expect(JSON.stringify(summary.summary)).not.toContain('PARTIAL')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stops after three attempts and does not wait for an over-long provider delay', async () => {
+    vi.useFakeTimers()
+    try {
+      const exhausted = new FlakyAdapter(10)
+      const first = setup(exhausted)
+      const failure = expect(summarizeWithLlm(first.ctx, config, input, first.agent, undefined)).rejects.toMatchObject({ code: 'RATE_LIMIT' })
+      await vi.advanceTimersByTimeAsync(10_000)
+      await failure
+      expect(exhausted.calls).toBe(3)
+      const long = new FlakyAdapter(1, 60_000)
+      const second = setup(long)
+      await expect(summarizeWithLlm(second.ctx, config, input, second.agent, undefined)).rejects.toMatchObject({ code: 'RATE_LIMIT' })
+      expect(long.calls).toBe(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('cancels during backoff without another attempt', async () => {
+    vi.useFakeTimers()
+    try {
+      const adapter = new FlakyAdapter(5)
+      const { ctx, agent: owner } = setup(adapter)
+      const controller = new AbortController()
+      const result = expect(summarizeWithLlm(ctx, config, input, owner, undefined, controller.signal)).rejects.toThrow('stop now')
+      await vi.advanceTimersByTimeAsync(100)
+      controller.abort(new Error('stop now'))
+      await result
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(adapter.calls).toBe(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
