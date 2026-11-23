@@ -1,9 +1,8 @@
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { createHash } from 'node:crypto'
-import { readOwnership, updateOwnership } from './ownership.js'
+import { accountKey, legacyAccountKey, readOwnership, updateOwnership } from './ownership.js'
 
 const base = new URL('./bridge/index.js', import.meta.url)
 const fromBridge = (file) => import(new URL(file + '.js', base))
@@ -26,6 +25,10 @@ const runner = createProcessAuthRunner()
 const home = homedir()
 const root = join(process.env.DSH_HOME || join(home, '.dsh'), 'claude-accounts')
 const labelPattern = /^[a-z0-9][a-z0-9 -]{0,30}[a-z0-9]$|^[a-z0-9]$/i
+const caseInsensitiveFiles = process.platform === 'win32' || process.platform === 'darwin'
+const sameDirectory = (a, b) =>
+  caseInsensitiveFiles ? resolve(a).toLowerCase() === resolve(b).toLowerCase() : resolve(a) === resolve(b)
+const loginTimeoutMs = () => Number(process.env.DSH_CLAUDE_LOGIN_TIMEOUT_MS) || 300000
 
 function environment(account) {
   const env = buildChildEnvironment(process.env, home)
@@ -48,7 +51,12 @@ async function checkAccount(account, workspace) {
     env: environment(account),
     cwd: workspace,
   })
-  const status = JSON.parse(result.stdout)
+  let status
+  try {
+    status = JSON.parse(result.stdout)
+  } catch {
+    throw new Error('Claude Code returned an unreadable sign-in status. Update the Claude Code executable and refresh.')
+  }
   if (status.loggedIn === false) return { signedIn: false }
   if (
     result.exitCode !== 0 ||
@@ -60,20 +68,18 @@ async function checkAccount(account, workspace) {
     throw new Error('Claude Code must be signed in with a Claude subscription for this account.')
   if (
     account.dir &&
-    (!status.configDirectory ||
-      resolve(status.configDirectory).toLowerCase() !== resolve(account.dir).toLowerCase())
+    (!status.configDirectory || !sameDirectory(status.configDirectory, account.dir))
   )
     throw new Error('Claude Code did not use the selected account directory.')
   const info = status.email ? status : await readFromCli(account, (session) => session.accountInfo())
   const email = info.email?.trim()
   if (!email) throw new Error('Claude Code could not verify the account email. Complete sign-in again.')
-  const accountKey = createHash('sha256').update(email.toLowerCase()).digest('hex')
-  const identity = createHash('sha256')
-    .update(JSON.stringify([accountKey, status.orgId || '']))
-    .digest('hex')
+  const key = accountKey(root, email, status.orgId)
+  const identity = key
   return {
     signedIn: true,
-    accountKey,
+    accountKey: key,
+    legacyKey: legacyAccountKey(email),
     email,
     plan: status.subscriptionType || info.subscriptionType || '',
     identity,
@@ -174,7 +180,7 @@ class AccountAdapter extends ClaudeCodeAdapter {
 }
 
 function slot(label, dir) {
-  const id = label.toLowerCase().replace(/ /g, '-')
+  const id = label.toLowerCase().replace(/ /g, '_')
   return { id, label, dir, route: 'claude-sub-' + id, picker: 'Claude subscription · ' + label }
 }
 
@@ -184,8 +190,9 @@ function profiles() {
     for (const entry of readdirSync(root, { withFileTypes: true }).sort((a, b) =>
       a.name.localeCompare(b.name),
     )) {
-      if (entry.isDirectory() && labelPattern.test(entry.name))
-        rows.push(slot(entry.name, join(root, entry.name)))
+      if (!entry.isDirectory() || !labelPattern.test(entry.name)) continue
+      const row = slot(entry.name, join(root, entry.name))
+      if (!rows.some((other) => other.id === row.id)) rows.push(row)
     }
   }
   return rows
@@ -199,8 +206,8 @@ function addProfile(input, state) {
   const existing = profiles().find((p) => p.id === account.id)
   if (existing && state.rejected.has(existing.id)) return existing
   if (existing) throw new Error('That account name already exists.')
-  mkdirSync(root, { recursive: true })
-  mkdirSync(account.dir)
+  mkdirSync(root, { recursive: true, mode: 0o700 })
+  mkdirSync(account.dir, { mode: 0o700 })
   return account
 }
 
@@ -212,7 +219,8 @@ function startLogin(account) {
     return spawn(executable, ['auth', 'login', '--claudeai'], { cwd, env, stdio: 'ignore' })
   }
   env.DSH_LOGIN_CLI = executable
-  const shell = join(env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+  const systemRoot = env.SystemRoot || env.SYSTEMROOT || env.windir || 'C:\Windows'
+  const shell = join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
   const command =
     '$ErrorActionPreference="Stop"; $p=Start-Process -FilePath $env:DSH_LOGIN_CLI -ArgumentList @("auth","login","--claudeai") -WorkingDirectory $env:DSH_LOGIN_CWD -PassThru -Wait; exit $p.ExitCode'
   env.DSH_LOGIN_CWD = cwd
@@ -224,12 +232,19 @@ function startLogin(account) {
   })
 }
 
+function killTree(child) {
+  if (process.platform === 'win32' && child.pid)
+    execFile('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true }, () => {})
+  child.kill()
+}
+
 export function apply(ctx) {
   const routes = new Map()
   const logins = new Map()
   const loginErrors = new Map()
   const attempts = new Set()
   let notice = ''
+  let displacedNotice = ''
   let active = true
   let tail = Promise.resolve()
   function ordered(job) {
@@ -252,12 +267,11 @@ export function apply(ctx) {
   }
   async function signOutDuplicate(a, key, accounts) {
     if (!a.dir) throw new Error('Expected a named profile.')
-    const actual = (dir) => realpathSync.native(dir).toLowerCase()
-    const target = actual(a.dir)
+    const target = realpathSync.native(a.dir)
     if (
       accounts.some((other) => {
         const dir = other.dir || join(home, '.claude')
-        return other.id !== a.id && existsSync(dir) && actual(dir) === target
+        return other.id !== a.id && existsSync(dir) && sameDirectory(realpathSync.native(dir), target)
       })
     )
       throw new Error('This profile shares its Claude Code directory.')
@@ -275,6 +289,14 @@ export function apply(ctx) {
   async function refresh() {
     const { rows: accounts, state } = await updateOwnership(root, observe)
     if (!active) return []
+    const displaced = [...new Set(state.displaced)].map(
+      (id) => accounts.find((a) => a.id === id)?.label || id,
+    )
+    if (displaced.length)
+      displacedNotice =
+        'The default Claude Code sign-in uses the same account as ' +
+        displaced.join(', ') +
+        ', so that profile was disconnected. Sign it in with a different account to use it again.'
     const authorized = accounts.filter(
       (a) => a.status.signedIn && state.owners.get(a.status.accountKey) === a.id,
     )
@@ -331,6 +353,11 @@ export function apply(ctx) {
   ctx.effect(
     () => () => {
       active = false
+      for (const { child, timer } of logins.values()) {
+        clearTimeout(timer)
+        killTree(child)
+      }
+      logins.clear()
       return Promise.all([...routes.values()].map((r) => r.adapter.closeOwnedSessions()))
     },
     'close account sessions',
@@ -355,20 +382,31 @@ export function apply(ctx) {
           throw new Error('This Claude account is already connected. Refresh sign-ins and try again.')
         if (!status.signedIn && !logins.has(a.id)) {
           notice = ''
+          displacedNotice = ''
           loginErrors.delete(a.id)
           const child = startLogin(a)
           attempts.add(a.id)
-          logins.set(a.id, child)
-          child.once('error', () => loginErrors.set(a.id, 'Could not start Claude Code. Try signing in again.'))
-          child.once('close', (code) => {
+          const login = { child, timer: undefined }
+          logins.set(a.id, login)
+          const finish = (message) => {
+            clearTimeout(login.timer)
+            if (logins.get(a.id) !== login) return
             logins.delete(a.id)
-            if (code !== 0) loginErrors.set(a.id, 'Sign-in did not finish. You can try again.')
+            if (message) loginErrors.set(a.id, message)
             if (active) void ordered(refresh).catch(() => {})
-          })
+          }
+          login.timer = setTimeout(() => {
+            killTree(child)
+            finish('Sign-in timed out. You can try again.')
+          }, loginTimeoutMs())
+          login.timer.unref?.()
+          child.once('error', () => finish('Could not start Claude Code. Try signing in again.'))
+          child.once('close', (code) => finish(code === 0 ? '' : 'Sign-in did not finish. You can try again.'))
         }
         return refresh()
       })
-      return { ok: true, value: args?.includeNotice ? { accounts: value, notice } : value }
+      const text = [displacedNotice, notice].filter(Boolean).join(' ')
+      return { ok: true, value: args?.includeNotice ? { accounts: value, notice: text } : value }
     } catch (err) {
       return { ok: false, error: { code: 'claude-accounts/error', message: err.message, details: {} } }
     }
