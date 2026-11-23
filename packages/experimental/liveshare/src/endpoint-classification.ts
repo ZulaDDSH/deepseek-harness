@@ -57,6 +57,7 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'session/observeEvent': 'reader-session-read', // the page follows one visible Session's events
   'session/observeProjections': 'reader-session-read', // the page follows visible Session projections
   'session/observeState': 'reader-session-read', // the page follows a visible Session's passive state
+  'session/outline': 'reader-session-read', // the page reads older turn-outline entries of a visible Session
   'session/state': 'reader-session-read', // the page reads a visible Session's passive state
   'session/wait': 'reader-session-read', // the page waits on a visible Session's passive state
 

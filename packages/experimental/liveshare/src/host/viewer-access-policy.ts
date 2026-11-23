@@ -125,6 +125,7 @@ const VIEWER_SESSION_READ_ROLE: RemoteAccessRole<'session'> = {
     'session/observeEvent',
     'session/observeProjections',
     'session/observeState',
+    'session/outline',
     'session/page',
     'session/projections',
     'session/state',

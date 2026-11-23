@@ -49,7 +49,7 @@ const GLOBAL_ACTIONS = [
 const SESSION_READS = [
   'commands/list', 'goals/get', 'session/attachment', 'session/control',
   'session/events', 'session/follow', 'session/list', 'session/observeEvent', 'session/observeProjections',
-  'session/observeState', 'session/page', 'session/projections', 'session/state', 'session/wait',
+  'session/observeState', 'session/outline', 'session/page', 'session/projections', 'session/state', 'session/wait',
   'skills/list', 'workspace/follow',
 ] as const
 const SESSION_EVENTS = [
