@@ -96,11 +96,45 @@ function systemPrompt(config: ResolvedConfig, hasCurrentTitle: boolean): string 
 }
 
 /** Frame messages as JSON so user text cannot break structural delimiters. */
-function frameMessages(messages: readonly SessionTitleUserMessage[], currentTitle?: string): string {
+function frameMessages(messages: readonly SessionTitleUserMessage[], currentTitle?: string, omitted = 0): string {
+  if (omitted > 0) {
+    const verb = currentTitle === undefined ? 'Generate' : 'Update'
+    const body = { ...currentTitle === undefined ? {} : { currentTitle }, omittedEarlierMessages: omitted, messages }
+    return `${verb} the session title from this JSON object; omittedEarlierMessages counts older human messages left out of messages because of the input limit:\n${JSON.stringify(body)}`
+  }
   if (currentTitle !== undefined) {
     return `Update the session title from this JSON object:\n${JSON.stringify({ currentTitle, messages })}`
   }
   return `Generate the session title from this JSON array of human messages:\n${JSON.stringify(messages)}`
+}
+
+function newestWithin(messages: readonly SessionTitleUserMessage[], budget: number): number {
+  let remaining = budget + 1
+  let count = 0
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]!
+    if (message.text.length > remaining) break
+    const bytes = Buffer.byteLength(JSON.stringify(message), 'utf8') + 1
+    if (bytes > remaining) break
+    remaining -= bytes
+    count++
+  }
+  return count
+}
+
+function frameWithinBudget(
+  messages: readonly SessionTitleUserMessage[],
+  currentTitle: string | undefined,
+  maxInputBytes: number,
+): { readonly input: string; readonly included: readonly SessionTitleUserMessage[] } {
+  const bytesOf = (text: string): number => Buffer.byteLength(text, 'utf8')
+  let count = newestWithin(messages, maxInputBytes - bytesOf(frameMessages([], currentTitle)))
+  if (count < messages.length) {
+    const omittedFrame = frameMessages([], currentTitle, messages.length)
+    count = Math.max(1, newestWithin(messages, maxInputBytes - bytesOf(omittedFrame)))
+  }
+  const included = messages.slice(messages.length - count)
+  return { input: frameMessages(included, currentTitle, messages.length - count), included }
 }
 
 /** Asterisk emphasis wrapping a whole line, such as `**Title**`. */
@@ -159,11 +193,12 @@ export function apply(ctx: Context, config: Config): void {
     id: titleProvider,
     automatic: 'all-prompts',
     async generate(request) {
-      const messageSeqs = request.messages.map(message => message.seq)
       const anchor = request.currentTitle?.source.kind === 'provider' ? request.currentTitle.title : undefined
+      const { input, included } = frameWithinBudget(request.messages, anchor, resolved.maxInputBytes)
+      const messageSeqs = included.map(message => message.seq)
       const response = await executeSessionTitleLlm(ctx, resolved, request, titleProvider, {
         system: systemPrompt(resolved, anchor !== undefined),
-        input: frameMessages(request.messages, anchor),
+        input,
         messageSeqs,
         selectReasoningEffort,
       })

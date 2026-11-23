@@ -1,6 +1,6 @@
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import { Context } from '@deepseek-ai/cordis'
-import { describe, expect, it, onTestFinished } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import LlmRuntime, { createUserMessage, LlmAdapter, type ReasoningEffortId, type ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, type SessionId } from '@deepseek-ai/dsh-session'
@@ -84,7 +84,7 @@ interface Harness {
 }
 
 async function harness(
-  config: typeof LLM_CONFIG | typeof INHERITED_LLM_CONFIG = LLM_CONFIG,
+  config: providerPlugin.Config = LLM_CONFIG,
   script: readonly StreamChunk[] = ALL_TITLE_SCRIPT,
   reasoningEfforts?: readonly string[],
 ): Promise<Harness> {
@@ -333,5 +333,87 @@ describe('all-messages LLM title provider', () => {
     })
     expect(adapter.requests.at(-1)?.system).toBe(SYSTEM_WITH_TITLE)
     expect(textOf(adapter.requests.at(-1))).toContain('"currentTitle":"阳台种番茄与罗勒"')
+  })
+
+  it('keeps updating the title from the newest messages once the history exceeds maxInputBytes', async () => {
+    const { ctx, adapter } = await harness({ ...LLM_CONFIG, maxInputBytes: 400 })
+    const session = ctx.sessions.create(brandString<SessionId>('all-overflow'))
+    const appended = Array.from({ length: 40 }, (_, index) => appendHumanPrompt(session, `prompt ${index} ${'x'.repeat(30)}`))
+
+    const accepted = await ctx.sessionTitle.refresh(session)
+    const input = textOf(adapter.requests.at(-1))
+    const included = accepted?.messageSeqs ?? []
+    expect(Buffer.byteLength(input, 'utf8')).toBeLessThanOrEqual(400)
+    expect(included.length).toBeGreaterThan(0)
+    expect(included.length).toBeLessThan(40)
+    expect(included).toEqual(appended.slice(-included.length).map(message => message.seq))
+    expect(input).toContain(`"omittedEarlierMessages":${40 - included.length}`)
+    expect(input).toContain('prompt 39 ')
+    expect(input).not.toContain('prompt 0 ')
+
+    const topic = appendHumanPrompt(session, 'switch to a new topic: sourdough starter')
+    const revised = await ctx.sessionTitle.refresh(session)
+    const revisionInput = textOf(adapter.requests.at(-1))
+    expect(Buffer.byteLength(revisionInput, 'utf8')).toBeLessThanOrEqual(400)
+    expect(revised?.messageSeqs.at(-1)).toBe(topic.seq)
+    expect(revisionInput).toContain('"currentTitle":"All messages model title"')
+    expect(revisionInput).toContain('sourdough starter')
+    expect(revisionInput).toContain('"omittedEarlierMessages":')
+  })
+
+  it('omits nothing when the full frame fits exactly and omits the oldest message one byte below', async () => {
+    const texts = ['alpha prompt', 'beta prompt', 'gamma prompt'].map(text => `${text} ${'z'.repeat(60)}`)
+    const probe = await harness()
+    const probeSession = probe.ctx.sessions.create(brandString<SessionId>('all-probe'))
+    const exactSeqs = texts.map(text => appendHumanPrompt(probeSession, text).seq)
+    await probe.ctx.sessionTitle.refresh(probeSession)
+    const full = textOf(probe.adapter.requests.at(-1))
+    expect(full).toBe(initialInput(texts.map((text, index) => ({ seq: exactSeqs[index]!, text }))))
+
+    const exact = await harness({ ...LLM_CONFIG, maxInputBytes: Buffer.byteLength(full, 'utf8') })
+    const exactSession = exact.ctx.sessions.create(brandString<SessionId>('all-exact'))
+    texts.forEach(text => appendHumanPrompt(exactSession, text))
+    expect((await exact.ctx.sessionTitle.refresh(exactSession))?.messageSeqs).toEqual(exactSeqs)
+    expect(textOf(exact.adapter.requests.at(-1))).toBe(full)
+
+    const tight = await harness({ ...LLM_CONFIG, maxInputBytes: Buffer.byteLength(full, 'utf8') - 1 })
+    const tightSession = tight.ctx.sessions.create(brandString<SessionId>('all-tight'))
+    texts.forEach(text => appendHumanPrompt(tightSession, text))
+    const accepted = await tight.ctx.sessionTitle.refresh(tightSession)
+    expect(accepted?.messageSeqs).not.toContain(exactSeqs[0])
+    expect(accepted?.messageSeqs.at(-1)).toBe(exactSeqs[2])
+    expect(textOf(tight.adapter.requests.at(-1))).toContain('"omittedEarlierMessages":')
+  })
+
+  it('still rejects an oversized newest prompt and keeps the prior title', async () => {
+    const { ctx, adapter } = await harness({ ...LLM_CONFIG, maxInputBytes: 300 })
+    const session = ctx.sessions.create(brandString<SessionId>('all-oversized'))
+    appendHumanPrompt(session, 'small first prompt')
+    await ctx.sessionTitle.refresh(session)
+    const title = ctx.sessionTitle.get(session)?.title
+    const requests = adapter.requests.length
+    appendHumanPrompt(session, 'y'.repeat(500))
+
+    await expect(ctx.sessionTitle.refresh(session)).rejects.toThrow(/maxInputBytes/)
+    expect(adapter.requests).toHaveLength(requests)
+    expect(ctx.sessionTitle.get(session)?.title).toBe(title)
+  })
+
+  it('serializes only a budget-bounded number of messages for a very long history', async () => {
+    const { ctx } = await harness({ ...LLM_CONFIG, maxInputBytes: 400 })
+    const session = ctx.sessions.create(brandString<SessionId>('all-long'))
+    for (let index = 0; index < 2_000; index++) appendHumanPrompt(session, `prompt ${index}`)
+    const stringify = vi.spyOn(JSON, 'stringify')
+    try {
+      await ctx.sessionTitle.refresh(session)
+      const serialized = stringify.mock.calls.reduce((total, [value]) => {
+        if (Array.isArray(value)) return total + value.length
+        const messages = (value as { messages?: unknown } | null)?.messages
+        return total + (Array.isArray(messages) ? messages.length : 1)
+      }, 0)
+      expect(serialized).toBeLessThan(200)
+    } finally {
+      stringify.mockRestore()
+    }
   })
 })
