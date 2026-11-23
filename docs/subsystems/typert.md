@@ -416,6 +416,7 @@ type TypertGatewayErrorCode =
   | 'gateway/context-not-found'
   | 'gateway/context-unavailable'
   | 'gateway/definition-unavailable'
+  | 'gateway/event-backlog'
   | 'gateway/input-invalid'
   | 'gateway/interactions-forbidden'
   | 'gateway/invocation-unavailable'
