@@ -49,6 +49,7 @@ export function apply(ctx: ClientContext): void {
         'browser.loading': '加载中…',
         'browser.truncated': '文件夹过多，仅显示开头部分。',
         'browser.showHidden': '显示隐藏文件',
+        'browser.createdRelistFailed': '已创建文件夹"{name}"，但无法刷新列表：{reason}',
       }],
       ['en', {
         'browser.title': 'Select Workspace Directory',
@@ -64,6 +65,7 @@ export function apply(ctx: ClientContext): void {
         'browser.loading': 'Loading…',
         'browser.truncated': 'Too many folders to list; only the beginning is shown.',
         'browser.showHidden': 'Show hidden files',
+        'browser.createdRelistFailed': 'Folder "{name}" was created, but the list could not be refreshed: {reason}',
       }],
       ['ja', {
         'browser.title': 'ワークスペースディレクトリを選択',
@@ -79,6 +81,7 @@ export function apply(ctx: ClientContext): void {
         'browser.loading': '読み込み中…',
         'browser.truncated': 'フォルダが多すぎて一覧表示できません。先頭のみ表示しています。',
         'browser.showHidden': '隠しファイルを表示',
+        'browser.createdRelistFailed': 'フォルダ「{name}」は作成されましたが、一覧を更新できませんでした：{reason}',
       }],
       ['es', {
         'browser.title': 'Seleccionar carpeta de trabajo',
@@ -94,6 +97,7 @@ export function apply(ctx: ClientContext): void {
         'browser.loading': 'Cargando…',
         'browser.truncated': 'Hay demasiadas carpetas; solo se muestra el principio.',
         'browser.showHidden': 'Mostrar archivos ocultos',
+        'browser.createdRelistFailed': 'Se creó la carpeta "{name}", pero no se pudo actualizar la lista: {reason}',
       }],
       ['fr', {
         'browser.title': 'Choisir le dossier de travail',
@@ -109,6 +113,7 @@ export function apply(ctx: ClientContext): void {
         'browser.loading': 'Chargement…',
         'browser.truncated': 'Trop de dossiers à afficher ; seul le début est affiché.',
         'browser.showHidden': 'Afficher les fichiers cachés',
+        'browser.createdRelistFailed': 'Le dossier « {name} » a été créé, mais la liste n’a pas pu être actualisée : {reason}',
       }],
       ['de', {
         'browser.title': 'Arbeitsverzeichnis auswählen',
@@ -124,6 +129,7 @@ export function apply(ctx: ClientContext): void {
         'browser.loading': 'Laden…',
         'browser.truncated': 'Zu viele Ordner; nur der Anfang wird angezeigt.',
         'browser.showHidden': 'Versteckte Dateien anzeigen',
+        'browser.createdRelistFailed': 'Der Ordner „{name}“ wurde erstellt, aber die Liste konnte nicht aktualisiert werden: {reason}',
       }],
       ['ru', {
         'browser.title': 'Выбрать рабочую папку',
@@ -139,6 +145,7 @@ export function apply(ctx: ClientContext): void {
         'browser.loading': 'Загрузка…',
         'browser.truncated': 'Папок слишком много; показана только начальная часть списка.',
         'browser.showHidden': 'Показать скрытые файлы',
+        'browser.createdRelistFailed': 'Папка «{name}» создана, но обновить список не удалось: {reason}',
       }],
       ['pt', {
         'browser.title': 'Selecionar pasta de trabalho',
@@ -154,6 +161,7 @@ export function apply(ctx: ClientContext): void {
         'browser.loading': 'Carregando…',
         'browser.truncated': 'Há pastas demais; apenas o início é exibido.',
         'browser.showHidden': 'Mostrar arquivos ocultos',
+        'browser.createdRelistFailed': 'A pasta "{name}" foi criada, mas não foi possível atualizar a lista: {reason}',
       }],
     ]
     try {
