@@ -22,7 +22,7 @@ import { GitRunner, locateGitWorkspace, resolveRepositoryRoot } from './git.ts'
 import { diffOfRecord, servedRecordOf, TurnRecorder, type Repository } from './recorder.ts'
 import { readWorkspaceDiff, readWorkspaceStatus } from './status.ts'
 import { canonicalPath } from './paths.ts'
-import { pruneRoot, readRecord, sessionDirectory, type RetentionPolicy } from './store.ts'
+import { migrateLegacyDirectory, pruneRoot, readRecord, sessionDirectory, type RetentionPolicy } from './store.ts'
 import type { WorkspaceChanges } from './types.ts'
 
 export type {
@@ -137,6 +137,19 @@ export function apply(ctx: Context, config: Config): void {
   const byId = new Map<SessionId, TurnRecorder>()
   /** Repositories rediscovered for Sessions this process did not record, by Session id. */
   const repositories = new Map<SessionId, Promise<Repository | null>>()
+  const migrations = new Map<SessionId, Promise<void>>()
+  const durableDirectory = async (sessionId: SessionId): Promise<string> => {
+    let moved = migrations.get(sessionId)
+    if (moved === undefined) {
+      moved = migrateLegacyDirectory(config.root, sessionId).catch((error: unknown) => {
+        migrations.delete(sessionId)
+        throw error
+      })
+      migrations.set(sessionId, moved)
+    }
+    await moved
+    return sessionDirectory(config.root, sessionId)
+  }
   const forget = (session: Session): Promise<void> => {
     const recorder = recorders.get(session)
     recorders.delete(session)
@@ -177,12 +190,12 @@ export function apply(ctx: Context, config: Config): void {
     summary: async (sessionId, seq) => {
       const live = byId.get(sessionId)?.summary(seq)
       if (live !== undefined) return live
-      return (await readRecord(sessionDirectory(config.root, sessionId), seq))?.summary
+      return (await readRecord(await durableDirectory(sessionId), seq))?.summary
     },
     diff: async (sessionId, seq, index, signal) => {
       const live = byId.get(sessionId)
       if (live !== undefined) return live.diff(seq, index, signal)
-      const directory = sessionDirectory(config.root, sessionId)
+      const directory = await durableDirectory(sessionId)
       const stored = await readRecord(directory, seq)
       if (stored === undefined) return undefined
       const repository = await repositoryFor(sessionId, stored.summary.cwd, directory, signal)
@@ -233,7 +246,7 @@ export function apply(ctx: Context, config: Config): void {
         git: gitRunner(), maxFiles: config.maxFiles,
         maxFileBytes: config.maxFileBytes, diffTimeoutMs: config.diffTimeoutMs,
         warn: (message) => { ctx.logger.warn(message) },
-      }, sessionDirectory(config.root, session.id))
+      }, sessionDirectory(config.root, session.id), async () => { await durableDirectory(session.id) })
       recorders.set(session, recorder)
       byId.set(session.id, recorder)
     }

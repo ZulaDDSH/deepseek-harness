@@ -123,6 +123,7 @@ export class TurnRecorder {
     private readonly env: RecorderEnvironment,
     /** This Session's durable directory, holding its records, captures, and snapshot objects. */
     private readonly directory: string,
+    private readonly prepare: () => Promise<void> = () => Promise.resolve(),
   ) {}
 
   /**
@@ -266,7 +267,7 @@ export class TurnRecorder {
    * Host process serves its earlier turns from the same content.
    */
   private scratchDir(): Promise<string> {
-    this.scratch ??= mkdir(this.directory, { recursive: true }).then(() => this.directory)
+    this.scratch ??= this.prepare().then(() => mkdir(this.directory, { recursive: true })).then(() => this.directory)
     return this.scratch
   }
 

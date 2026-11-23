@@ -1,10 +1,10 @@
 /** Durable record storage: the session directory rule, the on-disk record, and retention pruning. */
 import { mkdir, mkdtemp, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  isStoredRecord, pruneRoot, readRecord, sessionDirectory,
+  isStoredRecord, migrateLegacyDirectory, pruneRoot, readRecord, sessionDirectory,
   STORE_VERSION, writeRecord, type RetentionPolicy, type StoredRecord,
 } from '../src/store.ts'
 
@@ -44,14 +44,52 @@ function record(over: Partial<StoredRecord> = {}): StoredRecord {
 }
 
 describe('session directory', () => {
-  it('keeps a plain id and disambiguates one that needs sanitizing', () => {
+  it('keeps a plain lowercase id as its own directory', () => {
     expect(sessionDirectory('/root', 'session-abc_1.2')).toBe(join('/root', 'session-abc_1.2'))
-    // A separator never reaches the path, and the digest keeps distinct ids apart.
-    const unsafe = sessionDirectory('/root', 'a/b')
-    expect(unsafe.startsWith(join('/root', 'a_b-'))).toBe(true)
-    expect(sessionDirectory('/root', 'a?b')).not.toBe(unsafe)
   })
 
+  it.each(['.', '..', '', 'a/b', 'a\b', '../x', 'ABC', 'x'.repeat(200), 'con', 'nul.txt', 'trailing.', '~abc'])(
+    'maps %j to one direct child of the root with no special segment', (id) => {
+      const directory = sessionDirectory('/root', id)
+      expect(dirname(directory)).toBe(join('/root'))
+      expect(['.', '..', '']).not.toContain(basename(directory))
+    },
+  )
+
+  it('keeps distinct ids apart, including an id equal to the directory name of another', () => {
+    const escaped = sessionDirectory('/root', 'a/b')
+    expect(sessionDirectory('/root', basename(escaped))).not.toBe(escaped)
+    expect(sessionDirectory('/root', 'a?b')).not.toBe(escaped)
+    expect(sessionDirectory('/root', 'ABC')).not.toBe(sessionDirectory('/root', 'abc'))
+    expect(sessionDirectory('/root', '..')).not.toBe(join('/'))
+    expect(sessionDirectory('/root', '.')).not.toBe(join('/root'))
+  })
+
+  it('moves a directory written under the previous rule once, and never touches . or ..', async () => {
+    const root = await scratch('dsh-store-')
+    const legacy = join(root, 'ABC')
+    await mkdir(join(legacy, 'records'), { recursive: true })
+    await writeFile(join(legacy, 'records', '1.json'), 'kept')
+    await migrateLegacyDirectory(root, 'ABC')
+    expect(await readdir(root)).toEqual([basename(sessionDirectory(root, 'ABC'))])
+    expect(await readdir(join(sessionDirectory(root, 'ABC'), 'records'))).toEqual(['1.json'])
+    await migrateLegacyDirectory(root, 'ABC')
+    await migrateLegacyDirectory(root, '..')
+    await migrateLegacyDirectory(root, '.')
+    expect(await readdir(root)).toEqual([basename(sessionDirectory(root, 'ABC'))])
+  })
+
+  it('leaves both directories alone when the current one already exists', async () => {
+    const root = await scratch('dsh-store-')
+    await mkdir(join(root, 'ABC', 'records'), { recursive: true })
+    await writeFile(join(root, 'ABC', 'records', 'old.json'), 'old')
+    const current = sessionDirectory(root, 'ABC')
+    await mkdir(join(current, 'records'), { recursive: true })
+    await writeFile(join(current, 'records', 'new.json'), 'new')
+    await migrateLegacyDirectory(root, 'ABC')
+    expect(await readdir(join(root, 'ABC', 'records'))).toEqual(['old.json'])
+    expect(await readdir(join(current, 'records'))).toEqual(['new.json'])
+  })
 })
 
 describe('stored records', () => {
@@ -96,7 +134,7 @@ describe('stored records', () => {
     expect(isStoredRecord(withSource('x'))).toBe(false)
     expect(isStoredRecord(withSource({ before: 'x' }))).toBe(false)
     expect(isStoredRecord(withSource({ before: { kind: 'other' } }))).toBe(false)
-    expect(isStoredRecord(withSource({ before: { kind: 'file', name: 'a' } }))).toBe(false)
+    expect(isStoredRecord(withSource({ before: { kind: 'file', name: 'a\b' } }))).toBe(false)
     expect(isStoredRecord(withSource({ before: { kind: 'snapshot', tree: 't' } }))).toBe(false)
   })
 })
