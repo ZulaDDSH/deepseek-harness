@@ -126,6 +126,14 @@
 ### `packages/subagent/subagent-freebuff/src/login.ts:DoctorCommand`
 - `description`: Argument vector and extra environment used to run `freebuff doctor --json`.
 
+### `packages/subagent/subagent-freebuff/src/login.ts:launchCommand`
+- `description`: Builds the command line for a Freebuff process, wrapping a Windows `.cmd` or `.bat` shim in the command interpreter and passing its quoted path through an environment variable so a path with spaces survives; refuses shim arguments that hold a cmd metacharacter.
+- `params.executable`: Freebuff executable path or name.
+- `params.args`: Arguments that follow the executable.
+- `params.platform`: Platform the command will run on.
+- `params.comSpec`: Command interpreter path on Windows; cmd.exe when undefined.
+- `returns`: The argument vector and the environment entries it needs.
+
 ### `packages/subagent/subagent-freebuff/src/login.ts:doctorCommand`
 - `description`: Builds the doctor command line, wrapping a Windows `.cmd` or `.bat` shim in the command interpreter and passing its quoted path through an environment variable so a path with spaces survives.
 - `params.executable`: Freebuff executable path or name.
