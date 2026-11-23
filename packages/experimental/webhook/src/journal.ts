@@ -42,7 +42,7 @@ function isRecord(value: unknown): value is JournalRecord {
 
 function writeDurably(path: string, flags: 'a' | 'w', text: string): void {
   mkdirSync(dirname(path), { recursive: true })
-  const fd = openSync(path, flags)
+  const fd = openSync(path, flags, 0o600)
   try {
     writeSync(fd, text)
     fsyncSync(fd)

@@ -1,5 +1,5 @@
 import { Context } from '@deepseek-ai/cordis'
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -74,6 +74,12 @@ describe('WebhookRuntime journal', () => {
     third.runtime.register(rule(() => { seen.push(delivery()); return null }))
     await settled()
     expect(seen).toHaveLength(1)
+  })
+
+  it.skipIf(process.platform === 'win32')('creates the journal readable only by its owner', () => {
+    const { runtime } = start()
+    runtime.dispatch(delivery())
+    expect(statSync(file).mode & 0o777).toBe(0o600)
   })
 
   it('records a rule failure without retrying it after a restart', async () => {
