@@ -452,6 +452,36 @@ describe('approval policy (the approval/policy fold)', () => {
     await expect(ctx.approval.request({ agent, toolName: 'bash' })).resolves.toBe('rejected')
   })
 
+  it('revokes a pending grant when the policy switches to never before it is recorded', async () => {
+    const ctx = await mounted()
+    const { agent, appended } = fakeAgent(ctx)
+    let settle: ((outcome: ApprovalOutcome) => void) | undefined
+    ctx.on('approval/request', () => new Promise<ApprovalOutcome>((resolve) => { settle = resolve }))
+
+    const pending = ctx.approval.request(requestOf(agent))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    setApprovalPolicy(agent.session, 'never')
+    settle?.('allowed-once')
+
+    await expect(pending).resolves.toBe('rejected')
+    expect(appended.map(e => e.type)).toEqual(['approval/asked', 'approval/decided'])
+    expect(appended[1]?.data).toMatchObject({ outcome: 'rejected' })
+  })
+
+  it('keeps a pending grant when the policy is still ask at settlement', async () => {
+    const ctx = await mounted()
+    const { agent, appended } = fakeAgent(ctx)
+    let settle: ((outcome: ApprovalOutcome) => void) | undefined
+    ctx.on('approval/request', () => new Promise<ApprovalOutcome>((resolve) => { settle = resolve }))
+
+    const pending = ctx.approval.request(requestOf(agent))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    settle?.('allowed-once')
+
+    await expect(pending).resolves.toBe('allowed-once')
+    expect(appended[1]?.data).toMatchObject({ outcome: 'allowed-once' })
+  })
+
   it('queues a live policy switch for the next model step', async () => {
     const ctx = await context()
     await ctx.plugin(ApprovalService)
