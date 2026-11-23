@@ -1,4 +1,5 @@
-import { lstatSync, readdirSync, rmdirSync, unlinkSync } from 'node:fs'
+import { lstat, readdir, rmdir, unlink } from 'node:fs/promises'
+import type { Stats } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -41,46 +42,54 @@ export function spillRetentionFromEnv(): SpillRetention {
 
 interface Candidate { path: string; size: number; mtimeMs: number }
 
-function ownedDirectory(path: string): boolean {
-  const info = lstatSync(path, { throwIfNoEntry: false })
+async function lstatIfPresent(path: string): Promise<Stats | undefined> {
+  try {
+    return await lstat(path)
+  } catch {
+    return undefined
+  }
+}
+
+async function ownedDirectory(path: string): Promise<boolean> {
+  const info = await lstatIfPresent(path)
   if (info === undefined || !info.isDirectory()) return false
   return process.getuid === undefined || info.uid === process.getuid()
 }
 
-function removeFile(path: string): boolean {
+async function removeFile(path: string): Promise<boolean> {
   try {
-    unlinkSync(path)
+    await unlink(path)
     return true
   } catch {
     return false
   }
 }
 
-export function sweepSpillFiles(options: SweepOptions = {}): { removed: number; freedBytes: number } {
+export async function sweepSpillFiles(options: SweepOptions = {}): Promise<{ removed: number; freedBytes: number }> {
   const policy = { ...spillRetentionFromEnv(), ...options }
   const root = options.root ?? tmpdir()
   const now = options.now ?? Date.now()
   const directories: string[] = []
   const files: Candidate[] = []
-  for (const name of readdirSync(root)) {
+  for (const name of await readdir(root)) {
     if (!DIRECTORY_PATTERN.test(name)) continue
     const directory = join(root, name)
-    if (!ownedDirectory(directory)) continue
+    if (!await ownedDirectory(directory)) continue
     directories.push(directory)
     let entries: string[]
-    try { entries = readdirSync(directory) } catch { continue }
+    try { entries = await readdir(directory) } catch { continue }
     for (const entry of entries) {
       if (!FILE_PATTERN.test(entry)) continue
       const path = join(directory, entry)
-      const info = lstatSync(path, { throwIfNoEntry: false })
+      const info = await lstatIfPresent(path)
       if (info === undefined || !info.isFile() || activeSpills.has(path)) continue
       files.push({ path, size: info.size, mtimeMs: info.mtimeMs })
     }
   }
   let removed = 0
   let freedBytes = 0
-  const remove = (file: Candidate): boolean => {
-    if (!removeFile(file.path)) return false
+  const remove = async (file: Candidate): Promise<boolean> => {
+    if (!await removeFile(file.path)) return false
     removed += 1
     freedBytes += file.size
     return true
@@ -88,32 +97,34 @@ export function sweepSpillFiles(options: SweepOptions = {}): { removed: number; 
   const old = (file: Candidate): boolean => now - file.mtimeMs >= policy.minAgeMs
   const kept: Candidate[] = []
   for (const file of files) {
-    if (policy.maxAgeMs > 0 && old(file) && now - file.mtimeMs > policy.maxAgeMs && remove(file)) continue
+    if (policy.maxAgeMs > 0 && old(file) && now - file.mtimeMs > policy.maxAgeMs && await remove(file)) continue
     kept.push(file)
   }
   if (policy.maxTotalBytes > 0) {
     let total = kept.reduce((sum, file) => sum + file.size, 0)
     for (const file of kept.sort((a, b) => a.mtimeMs - b.mtimeMs)) {
       if (total <= policy.maxTotalBytes) break
-      if (old(file) && remove(file)) total -= file.size
+      if (old(file) && await remove(file)) total -= file.size
     }
   }
   for (const directory of directories) {
     if (directory === options.keepDirectory) continue
-    const info = lstatSync(directory, { throwIfNoEntry: false })
+    const info = await lstatIfPresent(directory)
     if (info === undefined || now - info.mtimeMs < policy.minAgeMs) continue
-    try { rmdirSync(directory) } catch { }
+    try { await rmdir(directory) } catch { }
   }
   return { removed, freedBytes }
 }
 
 let lastSweep = 0
+let sweeping = false
 
 export function sweepSpillFilesThrottled(keepDirectory: string | undefined): void {
   const now = Date.now()
-  if (now - lastSweep < SWEEP_INTERVAL_MS) return
+  if (sweeping || now - lastSweep < SWEEP_INTERVAL_MS) return
   lastSweep = now
-  try {
-    sweepSpillFiles({ ...keepDirectory === undefined ? {} : { keepDirectory }, now })
-  } catch { }
+  sweeping = true
+  sweepSpillFiles({ ...keepDirectory === undefined ? {} : { keepDirectory }, now })
+    .catch(() => undefined)
+    .finally(() => { sweeping = false })
 }
