@@ -7,7 +7,7 @@ kind: persistence-change
 
 ## Summary
 
-Adds the claude-code-mod message source kind, optional localOnly on feedback events, a version 2 goal refund payload, and the image/restore event. The claude-code-mod source member (`{ kind: 'claude-code-mod', mod?: string }`) is the only change to the message source of agent/inbox/spliced, developer/message, session/title-llm-request and user/message.
+Adds the claude-code-mod message source kind, optional localOnly on feedback events, a version 2 goal refund payload, the image/restore event, and optional intent on permission/preset. The claude-code-mod source member (`{ kind: 'claude-code-mod', mod?: string }`) is the only change to the message source of agent/inbox/spliced, developer/message, session/title-llm-request and user/message. A permission preset switch now appends a permission/preset record with `intent: true`, writes the knob events, then appends the completion record without `intent`.
 
 ## Table of Contents
 
@@ -52,6 +52,10 @@ changes:
     previous: null
     after: "2efc0cf5cc83ced3672311d0342d2e24d0796b9cb5f5698e016306ff78b668bf"
     decision: same-version
+  - root: "event:permission/preset"
+    previous: "2026-09-11-initial"
+    after: "4b59bff1435bfc889bff58514a65e45ac536e0b8778f21a87f92564ee201249d"
+    decision: same-version
   - root: "event:session/title-llm-request"
     previous: "2026-11-05-timeline-priority-notice"
     after: "cad5973940875472d089337e11353b825cd4803557129e91e106ff1a63ce13a5"
@@ -65,12 +69,12 @@ changes:
 <a id="compatibility"></a>
 ## Compatibility
 
-Existing logs fold unchanged. Old readers meeting a claude-code-mod source, a goal refund v2, or image/restore treat them as unknown or refuse the goal projection (GOAL_STATE_CORRUPT) without repairing or truncating the Session. localOnly is optional and absent on old records. New readers accept every old record.
+Existing logs fold unchanged. Old readers meeting a claude-code-mod source, a goal refund v2, or image/restore treat them as unknown or refuse the goal projection (GOAL_STATE_CORRUPT) without repairing or truncating the Session. localOnly is optional and absent on old records. The previous permission projection applier reads only `preset` from permission/preset, so an intent record sets the same preset the completion record sets; the permissions projection stateVersion moves from 2 to 3 and its state gains `switching`. New readers accept every old permission/preset record, where `intent` is absent and `switching` is false. New readers accept every old record.
 
 <a id="verification"></a>
 ## Verification
 
-pnpm exec vitest run packages/goal: 161 tests passed; goal-round-driver, claude-code-mods, feedback and compaction-image-offload specs passed in their owners' runs.
+pnpm exec vitest run packages/goal: 161 tests passed; goal-round-driver, claude-code-mods, feedback and compaction-image-offload specs passed in their owners' runs. pnpm exec vitest run packages/interaction/permission-presets: 48 tests passed.
 
 <a id="dev-note"></a>
 ## Dev Note
