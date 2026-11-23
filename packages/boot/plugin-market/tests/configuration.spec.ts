@@ -126,3 +126,45 @@ it('reads a market entry detail document and serves its images through the compo
     try { await ctx?.fiber.dispose() } finally { rmSync(home, { recursive: true, force: true }) }
   }
 })
+
+it('rejects a stale index list and serializes concurrent replacements', async () => {
+  const home = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-plugin-market-conflict-')))
+  let ctx: Awaited<ReturnType<typeof boot>> | undefined
+  try {
+    const dir = join(home, 'profiles', 'test')
+    initProfile(dir, ['test-bundle'])
+    const bundle = join(dir, 'node_modules', 'test-bundle')
+    mkdirSync(bundle, { recursive: true })
+    writeFileSync(join(home, 'package.json'), '{"name":"test-installation"}\n')
+    writeFileSync(join(bundle, 'package.json'), JSON.stringify({ name: 'test-bundle', version: '1.0.0', dsh: { bundle: { patch: 'cordis.patch.yml' } } }))
+    writeFileSync(join(bundle, 'cordis.patch.yml'), readFileSync(new URL('./fixtures/market.patch.yml', import.meta.url)))
+    writeFileSync(join(dir, 'cordis.yml'), '[]\n')
+    const profile: ProfileContext = {
+      name: 'test', startedBundles: ['test-bundle'], dir, patchPath: join(dir, 'cordis.patch.yml'),
+      installAnchor: join(home, 'package.json'), cwd: home, home, overlays: [], telemetryDisabledEnv: undefined,
+    }
+    ctx = await boot('test', join(dir, 'cordis.yml'), readProfilePatches('test', profile), (root) => {
+      root.provide('profileContext', profile)
+      Object.assign(root.loader.builtins, { editor: ConfigEditor, settings: Settings, manager: StubPluginManager, market: PluginMarket })
+    })
+    const market = ctx.get('pluginMarket')!
+    const first = 'https://first.example/index.json'
+    const second = 'https://second.example/index.json'
+    const third = 'https://third.example/index.json'
+    const seen = market.listIndexes().map(index => index.url)
+    expect(seen).toEqual([first])
+    await market.setIndexes([first, second], seen)
+    await expect(market.setIndexes([first, third], seen)).rejects.toMatchObject({
+      code: 'plugin-market/index-conflict', details: { indexes: [first, second] },
+    })
+    expect(market.listIndexes().map(index => index.url)).toEqual([first, second])
+    const current = market.listIndexes().map(index => index.url)
+    const results = await Promise.allSettled([market.setIndexes([first, second, third], current), market.setIndexes([second], current)])
+    expect(results.map(result => result.status)).toEqual(['fulfilled', 'rejected'])
+    expect(market.listIndexes().map(index => index.url)).toEqual([first, second, third])
+    await market.setIndexes([second])
+    expect(market.listIndexes().map(index => index.url)).toEqual([second])
+  } finally {
+    try { await ctx?.fiber.dispose() } finally { rmSync(home, { recursive: true, force: true }) }
+  }
+})

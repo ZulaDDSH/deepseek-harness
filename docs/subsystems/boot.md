@@ -385,10 +385,12 @@ Fetches, validates, and caches configured market indexes; annotates entries with
  * `plugin-market/changed` announces the committed list. A URL already configured is kept as written, so a client can
  * add or remove sources beside one that `listIndexes` reports as unusable.
  * @param urls - index URLs in display order.
+ * @param expected - the URLs `listIndexes` returned when the caller read the list; when they are no longer the current list nothing is written.
  * @throws {RemoteError} `plugin-market/invalid-index-url` for an invalid new URL or a repeated URL;
+ * `plugin-market/index-conflict` when `expected` is stale, with the current URLs as `indexes`;
  * `plugin-market/settings-unavailable` without Settings or a profile entry.
  */
-@Remote async setIndexes(urls: string[]): Promise<void>
+@Remote async setIndexes(urls: string[], expected?: string[]): Promise<void>
 
 /**
  * Return one page of the plugins of a configured index that match a query. Concurrent reads of a URL share one

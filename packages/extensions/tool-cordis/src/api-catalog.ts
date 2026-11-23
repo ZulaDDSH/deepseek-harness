@@ -2774,10 +2774,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'every source in order, with the title of its last successful read and, when the last read failed, its error.',
       },
       {
-        signature: '@Remote async setIndexes(urls: string[]): Promise<void>',
+        signature: '@Remote async setIndexes(urls: string[], expected?: string[]): Promise<void>',
         description: 'Replace the configured index sources through Settings, without remounting this service. `plugin-market/changed` announces the committed list. A URL already configured is kept as written, so a client can add or remove sources beside one that `listIndexes` reports as unusable.',
-        parameters: [{ name: 'urls', description: 'index URLs in display order.' }],
-        throws: ['{RemoteError} `plugin-market/invalid-index-url` for an invalid new URL or a repeated URL; `plugin-market/settings-unavailable` without Settings or a profile entry.'],
+        parameters: [{ name: 'urls', description: 'index URLs in display order.' }, { name: 'expected', description: 'the URLs `listIndexes` returned when the caller read the list; when they are no longer the current list nothing is written.' }],
+        throws: ['{RemoteError} `plugin-market/invalid-index-url` for an invalid new URL or a repeated URL; `plugin-market/index-conflict` when `expected` is stale, with the current URLs as `indexes`; `plugin-market/settings-unavailable` without Settings or a profile entry.'],
       },
       {
         signature: '@Remote async search(url: string, query: MarketQuery): Promise<MarketSearchResult>',
