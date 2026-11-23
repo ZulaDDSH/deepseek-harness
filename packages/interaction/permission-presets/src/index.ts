@@ -51,7 +51,7 @@ declare module '@deepseek-ai/dsh-session/types' {
      * out of the model transcript and lets the permission projection unit
      * preserve a selection when bundles match.
      */
-    'permission/preset': { preset: string }
+    'permission/preset': { preset: string; intent?: true }
   }
 }
 
@@ -103,6 +103,7 @@ export interface KnobState {
 interface PermissionProjectionState extends KnobState {
   /** Whether the log contains a constructor-seed boundary. */
   seeded: boolean
+  switching: boolean
 }
 
 const permissionStateSchema: zod.ZodType<PermissionProjectionState> = zod.object({
@@ -114,6 +115,7 @@ const permissionStateSchema: zod.ZodType<PermissionProjectionState> = zod.object
   ]).nullable(),
   approval: zod.union([zod.literal('ask'), zod.literal('never')]).nullable(),
   seeded: zod.boolean(),
+  switching: zod.boolean(),
 }).strict()
 
 /** State for the empty log: every knob at its composition default. */
@@ -132,7 +134,7 @@ function applyPermissionEvent(
 ): PermissionProjectionState {
   switch (event.type) {
     case 'permission/preset':
-      return { ...state, preset: event.data.preset }
+      return { ...state, preset: event.data.preset, switching: event.data.intent === true }
     case 'sandbox/mode':
       return { ...state, sandbox: event.data.mode }
     case 'approval/policy':
@@ -239,9 +241,9 @@ export class PermissionPresetService extends TypertRemoteService {
     }) as zod.ZodType<PermissionSelection>
     this.permissionProjectionHandle = await ctx.sessionProjections.register({
       key: 'permissions',
-      stateVersion: 2,
+      stateVersion: 3,
       stateSchema: permissionStateSchema,
-      init: () => ({ ...EMPTY_KNOBS, seeded: false }),
+      init: () => ({ ...EMPTY_KNOBS, seeded: false, switching: false }),
       apply: applyPermissionEvent,
       wire: { viewSchema: selectionSchema, view: state => ({ currentValue: this.derive(state) }) },
     })
@@ -414,8 +416,14 @@ export class PermissionPresetService extends TypertRemoteService {
         setApproval(spec.approval)
       }
     }
-    if (current !== name) session.append('permission/preset', { preset: name })
-    updateKnobs()
+    if (current === name) updateKnobs()
+    else this.recordSwitch(session, name, updateKnobs)
+  }
+
+  private recordSwitch(session: Session, name: string, writeKnobs: () => void): void {
+    session.append('permission/preset', { preset: name, intent: true })
+    writeKnobs()
+    session.append('permission/preset', { preset: name })
   }
 
   /**
@@ -429,19 +437,27 @@ export class PermissionPresetService extends TypertRemoteService {
    */
   private pinInitialPermission(session: Session): void {
     const state = this.permissionState(session)
-    const { preset, sandbox, approval, seeded } = state
+    const { preset, sandbox, approval, seeded, switching } = state
     if (preset === AUTO_PRESET) {
       if (this.autoAdmit === undefined) {
         throw new Error('permission: cannot restore preset "auto" without its active integration')
       }
       this.autoAdmit()
     }
+    if (switching && preset !== null) {
+      const spec = this.resolve(preset)
+      setSandboxMode(session, spec.sandbox)
+      setApprovalPolicy(session, spec.approval)
+      session.append('permission/preset', { preset })
+      return
+    }
     if (preset === null && sandbox === null && approval === null && !seeded) {
       const name = this.defaultPreset
       const spec = this.resolve(name)
-      session.append('permission/preset', { preset: name })
-      setSandboxMode(session, spec.sandbox)
-      setApprovalPolicy(session, spec.approval)
+      this.recordSwitch(session, name, () => {
+        setSandboxMode(session, spec.sandbox)
+        setApprovalPolicy(session, spec.approval)
+      })
       return
     }
 
