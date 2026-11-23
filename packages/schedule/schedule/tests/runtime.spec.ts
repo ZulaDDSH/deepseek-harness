@@ -372,11 +372,11 @@ describe('Schedule dispatch failures and concurrent changes', () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(test.followup).toHaveBeenCalledTimes(2)
     expect(test.commit).toHaveBeenCalledTimes(3)
-    expect(test.resolve.mock.calls.map(([id]) => id)).toEqual(['original', 'other'])
-    const firstMessage = test.followup.mock.calls[0]?.[0]
-    expect(JSON.stringify(firstMessage?.content)).toContain('First')
+    expect(test.resolve.mock.calls.map(([id]) => id).sort()).toEqual(['original', 'other'])
+    const messages = test.followup.mock.calls.map(([message]) => message)
+    const firstMessage = messages.find(message => JSON.stringify(message.content).includes('First'))
     expect(JSON.stringify(firstMessage?.content)).toContain('Second')
-    const otherMessage = test.followup.mock.calls[1]![0]
+    const otherMessage = messages.find(message => JSON.stringify(message.content).includes('Third'))!
     expect(records.slice(0, 3).map(item => item.lastDelivery)).toEqual([
       {
         scheduledAt: '2026-09-16T00:00:00.000Z', deliveredAt: '2026-09-16T00:00:00.000Z',
@@ -659,7 +659,7 @@ describe('Schedule dispatch failures and concurrent changes', () => {
     })
   })
 
-  it.each([1, 2])('stops between committed tasks without arming a new timer (%i due tasks)', async (count) => {
+  it.each([1, 2])('drains the deliveries in flight at disposal and arms no timer (%i due tasks)', async (count) => {
     const records = Array.from({ length: count }, (_, index) =>
       task(createAfterScheduleRecord(brandString<ScheduleId>(`stop-${index}`), 'Stop', 1, Date.now() - 2000, 'Stop')))
     const test = await setup(records)
@@ -671,11 +671,11 @@ describe('Schedule dispatch failures and concurrent changes', () => {
     test.runtime.requestDrive()
     await vi.advanceTimersByTimeAsync(0)
     await stopped
-    expect(test.resolve).toHaveBeenCalledTimes(1)
-    expect(test.commit).toHaveBeenCalledTimes(1)
+    expect(test.resolve).toHaveBeenCalledTimes(count)
+    expect(test.commit).toHaveBeenCalledTimes(count)
     expect(records).toHaveLength(count)
-    expect(records.filter(record => record.status === 'active')).toHaveLength(count - 1)
-    expect(records[0]?.status).toBe('ended')
+    expect(records.map(record => record.status)).toEqual(Array(count).fill('ended'))
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it('logs a rejected serialization operation and honors a wake requested before retirement', async () => {

@@ -371,6 +371,7 @@ it('wakes the idle earlier Session of a new-Session task and still launches the 
   test.agents.set(previous, waiting)
   test.runtime.requestDrive()
   await vi.advanceTimersByTimeAsync(1000)
+  await vi.advanceTimersByTimeAsync(10)
   expect(remove).toHaveBeenCalledExactlyOnceWith(earlier.id)
   expect(waiting.followup).toHaveBeenCalledExactlyOnceWith(earlier)
   expect(test.createSession).toHaveBeenCalledOnce()

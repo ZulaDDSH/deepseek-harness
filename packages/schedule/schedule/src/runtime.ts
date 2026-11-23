@@ -34,6 +34,8 @@ const RETRY_MAX_MS = 300_000
 
 export const DELIVERY_STEP_TIMEOUT_MS = 120_000
 
+export const MAX_CONCURRENT_DELIVERIES = 16
+
 const STOP_FLUSH_GRACE_MS = 5_000
 
 /** Fixed per-task delivery floor interval, timed or manual, of a target other than `new`; it matches the shortest recurrence spacing. */
@@ -89,11 +91,13 @@ export class ScheduleRuntime {
   private timer: ReturnType<typeof setTimeout> | undefined
   private running: Promise<void> | undefined
   private readonly executing = new Set<ScheduleId>()
+  private readonly dispatching = new Set<ScheduleId>()
+  private readonly deliveries = new Set<Promise<void>>()
+  private readonly retries = new Map<ScheduleId, { readonly attempts: number; readonly retryAt: number }>()
   private readonly stop = new AbortController()
   private readonly manual = new Set<Promise<unknown>>()
   private stopping = false
   private requested = false
-  private failureStreak = 0
 
   /**
    * @param ctx - Host services used to resume and enqueue.
@@ -120,6 +124,16 @@ export class ScheduleRuntime {
    */
   requestDrive(): void {
     if (this.stopping) return
+    this.relaxRetries()
+    this.kick()
+  }
+
+  private relaxRetries(): void {
+    for (const [id, entry] of this.retries) this.retries.set(id, { ...entry, retryAt: Number.NEGATIVE_INFINITY })
+  }
+
+  private kick(): void {
+    if (this.stopping) return
     this.requested = true
     this.clearTimer()
     if (this.running !== undefined) return
@@ -143,7 +157,7 @@ export class ScheduleRuntime {
     }).finally(() => {
       this.running = undefined
       /* v8 ignore next -- a request can arrive in the microtask gap between the drive loop and this finalizer. */
-      if (this.requested && !this.stopping) this.requestDrive()
+      if (this.requested && !this.stopping) this.kick()
     })
   }
 
@@ -154,7 +168,7 @@ export class ScheduleRuntime {
     this.clearTimer()
     // requestDrive reports execution failures; teardown only waits for quiescence.
     await this.running?.catch(() => undefined)
-    await Promise.allSettled([...this.manual])
+    await Promise.allSettled([...this.deliveries, ...this.manual])
   }
 
   /**
@@ -247,46 +261,47 @@ export class ScheduleRuntime {
 
   private async drive(): Promise<void> {
     this.clearTimer()
-    const failed = new Set<ScheduleId>()
-    const handled = new Set<ScheduleId>()
     const due = await this.exclusive(() => {
       const scanNow = Date.now()
-      return this.tasks().filter(task => task.status === 'active'
-        && !this.executing.has(task.record.id)
-        && Date.parse(task.record.scheduledAt) <= scanNow)
+      return this.tasks().filter(task => this.dispatchable(task) && this.eligibleAt(task) <= scanNow)
     })
+    const handled = new Set<ScheduleId>()
     for (const task of due) {
-      if (this.stopping) return
+      if (this.stopping || this.saturated()) return
       if (handled.has(task.record.id)) continue
       const session = batchSessionOf(task)
       const group = session === undefined ? [task] : due.filter(candidate => batchSessionOf(candidate) === session)
       for (const member of group) handled.add(member.record.id)
-      for (const id of await this.deliverDue(group, session !== undefined)) failed.add(id)
+      this.dispatch(group, session !== undefined)
     }
+    if (this.saturated()) return
+    this.arm()
+  }
+
+  private arm(): void {
+    this.clearTimer()
     if (this.stopping) return
-    const retryAt = failed.size === 0 ? undefined : Date.now() + Math.min(RETRY_BASE_MS * 2 ** this.failureStreak, RETRY_MAX_MS)
-    this.failureStreak = failed.size === 0 ? 0 : this.failureStreak + 1
-    const next = this.tasks().filter(task => task.status === 'active'
-      && !failed.has(task.record.id)
-      && !this.executing.has(task.record.id))
+    const next = this.tasks().filter(task => this.dispatchable(task))
       .reduce<number | undefined>((at, task) => {
-        const target = Math.max(Date.parse(task.record.scheduledAt), this.nextAdmissionAt(task))
+        const target = this.eligibleAt(task)
         return at === undefined ? target : Math.min(at, target)
-      }, retryAt)
-    if (next !== undefined) {
-      this.timer = setTimeout(() => { this.timer = undefined; this.requestDrive() },
-        Math.max(0, Math.min(next - Date.now(), MAX_TIMER_DELAY_MS)))
-      this.timer.unref()
-    }
+      }, undefined)
+    if (next === undefined) return
+    this.timer = setTimeout(() => { this.timer = undefined; this.kick() },
+      Math.max(0, Math.min(next - Date.now(), MAX_TIMER_DELAY_MS)))
+    this.timer.unref()
+  }
+
+  private saturated(): boolean {
+    return this.deliveries.size >= MAX_CONCURRENT_DELIVERIES
   }
 
   /**
    * Deliver one due group in one message and advance each committed member.
    * @param group - One task, or the due recurring tasks of one target Session.
    * @param batch - Whether the message uses the batch framing.
-   * @returns Members that remain due after a failure; `drive` retries them with bounded backoff.
    */
-  private async deliverDue(group: readonly ScheduleTask[], batch: boolean): Promise<readonly ScheduleId[]> {
+  private async deliverDue(group: readonly ScheduleTask[], batch: boolean): Promise<void> {
     let admitted = group
     const committed = new Set<ScheduleId>()
     const superseded = new Set<ScheduleId>()
@@ -301,9 +316,9 @@ export class ScheduleRuntime {
       const checkedAt = Date.now()
       admitted = candidates.filter(member => Date.parse(member.record.scheduledAt) <= checkedAt)
       const first = admitted[0]
-      if (first === undefined) return []
+      if (first === undefined) return
       const resolved = await this.resolveTarget(first)
-      if (this.stopping || resolved === undefined) return []
+      if (this.stopping || resolved === undefined) return
       admitted = [resolved.task, ...admitted.slice(1)]
       const staged = await this.exclusive(() => {
         const now = Date.now()
@@ -324,7 +339,7 @@ export class ScheduleRuntime {
       })
       const { sent, deliveries } = staged
       admitted = staged.live
-      if (sent === undefined) return []
+      if (sent === undefined) return
       try {
         const deliveredAt = await this.flushed(sent)
         await this.transact(async () => {
@@ -335,15 +350,54 @@ export class ScheduleRuntime {
         })
       } finally {
         this.settle(sent.held, committed, sent.execution)
+        for (const id of committed) this.retries.delete(id)
       }
-      return []
     } catch (error: unknown) {
       const pending = admitted.filter(member => !committed.has(member.record.id) && !superseded.has(member.record.id))
       const failedAt = Date.now()
       const ids = pending.map(member => member.record.id)
       this.ctx.logger.warn(`schedule: reminders ${JSON.stringify(ids)} were not acknowledged: ${String(error)}`)
-      return pending.filter(member => Date.parse(member.record.scheduledAt) <= failedAt).map(member => member.record.id)
+      for (const member of pending) {
+        if (Date.parse(member.record.scheduledAt) <= failedAt) this.backOff(member.record.id, failedAt)
+      }
     }
+  }
+
+  private dispatch(group: readonly ScheduleTask[], batch: boolean): void {
+    const ids = group.map(member => member.record.id)
+    let work: Promise<void>
+    try {
+      work = this.ctx.agents.withoutInitiator(() => this.deliverDue(group, batch))
+    } catch (error: unknown) {
+      this.ctx.logger.warn(`schedule: dispatch stopped: ${String(error)}`)
+      return
+    }
+    for (const id of ids) this.dispatching.add(id)
+    const run: Promise<void> = work.catch((error: unknown) => {
+      this.ctx.logger.warn(`schedule: delivery of ${JSON.stringify(ids)} stopped: ${String(error)}`)
+    }).finally(() => {
+      this.deliveries.delete(run)
+      for (const id of ids) this.dispatching.delete(id)
+      if (!this.stopping) this.arm()
+    })
+    this.deliveries.add(run)
+  }
+
+  private dispatchable(task: ScheduleTask): boolean {
+    return task.status === 'active' && !this.executing.has(task.record.id) && !this.dispatching.has(task.record.id)
+  }
+
+  private dueAt(task: ScheduleTask): number {
+    return Math.max(Date.parse(task.record.scheduledAt), this.nextAdmissionAt(task))
+  }
+
+  private eligibleAt(task: ScheduleTask): number {
+    return Math.max(this.dueAt(task), this.retries.get(task.record.id)?.retryAt ?? Number.NEGATIVE_INFINITY)
+  }
+
+  private backOff(id: ScheduleId, failedAt: number): void {
+    const attempts = this.retries.get(id)?.attempts ?? 0
+    this.retries.set(id, { attempts: attempts + 1, retryAt: failedAt + Math.min(RETRY_BASE_MS * 2 ** attempts, RETRY_MAX_MS) })
   }
 
   /** Earliest wall-clock instant at which this task may admit another delivery. */
