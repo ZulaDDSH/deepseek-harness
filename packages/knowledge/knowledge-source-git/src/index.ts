@@ -194,12 +194,27 @@ export async function resolveGitSource(
   source: GitKnowledgeSource,
   options?: GitOperationOptions,
 ): Promise<ResolvedGitSource> {
-  const run = gitRun(options)
   const remote = cloneSource(source.repo)
+  const root = resolvePath(isLocalPath(source.repo)
+    ? source.repo
+    : source.checkoutDir ?? join(process.cwd(), '.dsh-knowledge', createHash('sha256').update(remote).digest('hex')))
+  return serialized(root, () => resolveLocked(source, remote, root, gitRun(options)))
+}
+
+const chains = new Map<string, Promise<unknown>>()
+
+function serialized<T>(root: string, task: () => Promise<T>): Promise<T> {
+  const key = process.platform === 'win32' ? root.toLowerCase() : root
+  const next = (chains.get(key) ?? Promise.resolve()).then(task, task)
+  const tail = next.catch(() => undefined)
+  chains.set(key, tail)
+  void tail.then(() => { if (chains.get(key) === tail) chains.delete(key) })
+  return next
+}
+
+async function resolveLocked(source: GitKnowledgeSource, remote: string, root: string, run: GitRun): Promise<ResolvedGitSource> {
   const local = isLocalPath(source.repo)
-  let root: string
   if (local) {
-    root = resolvePath(source.repo)
     if (!await isWorkTree(root, run)) {
       throw new Error(`knowledge source "${source.repo}" is not a Git work tree`)
     }
@@ -208,7 +223,6 @@ export async function resolveGitSource(
     }
     if (await gitOrThrow(['remote'], root, run) !== '') await gitOrThrow(['fetch', '--all', '--tags'], root, run)
   } else {
-    root = resolvePath(source.checkoutDir ?? join(process.cwd(), '.dsh-knowledge', createHash('sha256').update(remote).digest('hex')))
     await mkdir(root, { recursive: true })
     if (await isWorkTree(root, run) && await gitOrThrow(['rev-parse', '--show-prefix'], root, run) === '') {
       const origin = await gitOrThrow(['config', '--get', 'remote.origin.url'], root, run)
@@ -250,7 +264,14 @@ export async function listSourceFiles(
   paths: readonly string[],
   options?: GitOperationOptions,
 ): Promise<string[]> {
-  const result = await git(['ls-files', '-z', '--cached', '--', ...paths], resolved.root, gitRun(options))
-  if (result.code !== 0) throw new Error(`git ls-files failed: ${result.stderr.trim() || `exit code ${result.code}`}`)
-  return result.stdout.split('\0').filter(path => path.length > 0)
+  return serialized(resolvePath(resolved.root), async () => {
+    const run = gitRun(options)
+    const result = await git(['ls-files', '-z', '--cached', '--', ...paths], resolved.root, run)
+    if (result.code !== 0) throw new Error(`git ls-files failed: ${result.stderr.trim() || `exit code ${result.code}`}`)
+    const head = await gitOrThrow(['rev-parse', 'HEAD'], resolved.root, run)
+    if (head !== resolved.commit) {
+      throw new Error(`knowledge checkout "${resolved.root}" moved to ${head} after it was resolved at ${resolved.commit}; resolve it again`)
+    }
+    return result.stdout.split('\0').filter(path => path.length > 0)
+  })
 }

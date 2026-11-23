@@ -241,6 +241,24 @@ describe('git knowledge source', () => {
     expect(cloned.commit).toBe(first)
   })
 
+  it('refuses to list a resolution whose checkout has since moved to another commit', async () => {
+    await commitFile('knowledge/note.md', 'first', 'first')
+    const stale = await resolveGitSource({ repo, ref: 'master', paths: [] })
+    await commitFile('knowledge/note.md', 'second', 'second')
+    await expect(listSourceFiles(stale, [])).rejects.toThrow(/moved to .* after it was resolved at/)
+  })
+
+  it('keeps concurrent resolutions of one checkout consistent with their own refs', async () => {
+    const first = await commitFile('knowledge/note.md', 'first', 'first')
+    await git(['tag', 'v1', first])
+    const second = await commitFile('knowledge/note.md', 'second', 'second')
+    await git(['tag', 'v2', second])
+    const checkoutDir = join(workdir, 'shared')
+    const refs = ['v1', 'v2', 'v1', 'v2', 'v1', 'v2']
+    const results = await Promise.all(refs.map(ref => resolveGitSource({ repo: pathToFileURL(repo).href, ref, paths: [], checkoutDir })))
+    expect(results.map(result => result.commit)).toEqual(refs.map(ref => ref === 'v1' ? first : second))
+  })
+
   it('rejects a source that is not a Git work tree', async () => {
     const plain = join(workdir, 'not-a-repo')
     await mkdir(plain, { recursive: true })

@@ -34,6 +34,7 @@ describe('Git knowledge process bounds', () => {
     vi.mocked(spawn).mockImplementationOnce(() => child)
     const controller = new AbortController()
     const pending = resolveGitSource(source, { signal: controller.signal })
+    await vi.waitFor(() => { expect(spawn).toHaveBeenCalled() })
     controller.abort(new Error('cancelled by caller'))
     await expect(pending).rejects.toThrow('cancelled by caller')
     expect(child.kill).toHaveBeenCalled()
