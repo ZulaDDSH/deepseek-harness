@@ -1850,7 +1850,7 @@ describe('LocalPtySession bounds, signals, and teardown', () => {
       message: 'PTY cleanup failed (survivor)',
       cause: terminal.terminateError,
     })
-    expect((session as unknown as { emulatorClosed: boolean }).emulatorClosed).toBe(true)
+    expect(session['emulatorClosed']).toBe(true)
     expect(terminal.kills).toEqual([])
 
     terminal.terminateError = undefined

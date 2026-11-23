@@ -52,7 +52,7 @@ import type {
 
 export type * from './types.ts'
 export type * from './domain.ts'
-export { GOAL_CHANGE_VERSION, GOAL_REFUND_CHANGE_VERSION, GoalError, GoalId } from './runtime.ts'
+export { GOAL_CHANGE_VERSION, GoalError, GoalId } from './runtime.ts'
 export { decodeGoalChange, foldGoal, goalChangeRef } from './fold.ts'
 
 declare module '@deepseek-ai/cordis' {

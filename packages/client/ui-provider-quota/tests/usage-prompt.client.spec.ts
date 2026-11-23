@@ -175,12 +175,12 @@ describe('dismissed prompt memory', () => {
 
   it('keeps working in memory when storage methods or the storage getter throw', () => {
     const blocked = new Error('blocked')
-    const throwing = {
+    const throwing: Partial<Storage> = {
       getItem: () => { throw blocked },
       setItem: () => { throw blocked },
       removeItem: () => { throw blocked },
-    } as unknown as Storage
-    const store = localUsagePromptStore(throwing)
+    }
+    const store = localUsagePromptStore(throwing as Storage)
     expect(store.dismissed()).toEqual([])
     expect(store.switched()).toBeUndefined()
     expect(() => { store.saveDismissed(['a']); store.saveSwitched({ providerId: 'p' }); store.saveSwitched(undefined) }).not.toThrow()

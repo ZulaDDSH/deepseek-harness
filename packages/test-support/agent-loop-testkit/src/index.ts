@@ -101,6 +101,9 @@ export async function mountAgentLoopTestHarness(ctx: Context): Promise<AgentLoop
   await ctx.plugin(AgentLoop, { agents: [] })
   return {
     create: async (id, options = {}, meta = {}) => ctx.agentLoop.create(id, options, meta),
-    claim: (agent, target, turn) => (agent.inbox as DriverInbox).claim(target, turn),
+    claim: (agent, target, turn) => {
+      const claimed = (agent.inbox as DriverInbox).claim(target, turn)
+      return [...claimed['next-step'], ...claimed['next-turn']]
+    },
   }
 }

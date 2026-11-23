@@ -171,7 +171,7 @@ describe('Sidebar chat components', () => {
       useResource: () => ({ status: 'failed', value: undefined, failure: new Error('provider exploded') }),
       SessionProvider: vi.fn(),
       renderSlot: vi.fn(),
-    } as unknown as SidebarChatTabProps
+    } as SidebarChatTabProps
     const view = render(<SidebarChatTab {...props} />)
     expect(view.getByRole('alert').textContent).toBe('provider exploded')
   })

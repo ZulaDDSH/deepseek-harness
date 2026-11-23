@@ -102,13 +102,13 @@ function orderedBlocks<T>(blocks: readonly ChunkedBlock<T>[]): boolean {
  * @returns Zod schema rejecting empty lists, mis-sized or mis-ordered blocks and unknown fields.
  */
 export function chunkedListSchema<T>(valueSchema: z.ZodType<T>): z.ZodType<ChunkedList<T>> {
-  const block: z.ZodType<ChunkedBlock<T>> = z.lazy(() => z.union([
+  const block: z.ZodType<ChunkedBlock<T>> = z.lazy((): z.ZodType<ChunkedBlock<T>> => z.union([
     z.object({ height: z.literal(0), values: z.array(valueSchema).length(CHUNK_CAPACITY) }).strict(),
     z.object({ height: z.number().int().min(1).max(MAX_HEIGHT), children: z.array(block).length(CHUNK_CAPACITY) }).strict()
       .refine(({ height, children }) => children.every(child => child.height === height - 1)),
-  ])) as unknown as z.ZodType<ChunkedBlock<T>>
+  ]))
   return z.object({
     tail: z.array(valueSchema).max(CHUNK_CAPACITY - 1),
     blocks: z.array(block),
-  }).strict().refine(list => (list.tail.length > 0 || list.blocks.length > 0) && orderedBlocks(list.blocks)) as unknown as z.ZodType<ChunkedList<T>>
+  }).strict().refine(list => (list.tail.length > 0 || list.blocks.length > 0) && orderedBlocks(list.blocks))
 }

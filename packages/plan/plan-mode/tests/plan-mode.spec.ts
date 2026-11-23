@@ -462,10 +462,10 @@ describe('the boundary flush', () => {
     openTurn(agent.session)
     ctx.planMode.set(agent, true)
     const original = agent.session.append.bind(agent.session)
-    agent.session.append = (((type: string, ...rest: unknown[]) => {
-      if (type === 'plan/mode') throw new Error('backend gone')
-      return (original as (...args: unknown[]) => unknown)(type, ...rest)
-    }) as unknown) as typeof agent.session.append
+    agent.session.append = ((...args: Parameters<typeof original>): ReturnType<typeof original> => {
+      if (args[0] === 'plan/mode') throw new Error('backend gone')
+      return Reflect.apply(original, undefined, args)
+    }) as typeof agent.session.append
     await boundary(ctx, agent, 'pre-step')
     expect(warn).toHaveBeenCalledOnce()
     expect(ctx.planMode.get(agent)).toEqual({ active: false, pending: true })

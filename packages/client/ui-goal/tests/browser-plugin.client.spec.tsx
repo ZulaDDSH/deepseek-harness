@@ -376,7 +376,7 @@ describe('GoalDock adapter', () => {
       onClear: () => Promise.resolve({ ok: true, value: undefined }),
     }
     const renderFactorySlot = vi.fn((name: string, input: { text: string }) => <span>{`factory:${name}:${input.text}`}</span>)
-    const props = { useProjection: () => projection, useGoalActivation, renderFactorySlot, ...actions, t: makeTranslate(zh, commonZh) } as unknown as Parameters<typeof GoalDock>[0]
+    const props = { useProjection: () => projection, useGoalActivation, renderFactorySlot, ...actions, t: makeTranslate(zh, commonZh) } as Parameters<typeof GoalDock>[0]
     const rendered = render(<GoalDock {...props} />)
     expect(rendered.getByText('factory:conversation.user.text:Ship it')).toBeTruthy()
     expect(renderFactorySlot).toHaveBeenCalledWith('conversation.user.text', expect.objectContaining({ text: 'Ship it', interactive: false }))

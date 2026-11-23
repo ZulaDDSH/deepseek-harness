@@ -5,7 +5,8 @@
  * @module @deepseek-ai/dsh-web-deepseek-api/transport
  */
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
-import { readBoundedJson, redactEndpoint, WebError } from '@deepseek-ai/dsh-web'
+import { WebError } from '@deepseek-ai/dsh-web'
+import { readBoundedJson, redactEndpoint } from '@deepseek-ai/dsh-web/safety'
 
 const USER_AGENT = 'deepseek-harness/0.0.1'
 

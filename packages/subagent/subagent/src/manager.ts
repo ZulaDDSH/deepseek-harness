@@ -36,7 +36,7 @@ import type { LifecycleEmitter } from './lifecycle.ts'
 import { ROOT_AGENT_NAME, SiblingNameReservations, agentAddress, joinAgentPath, parentAgentPath } from './names.ts'
 import type { SiblingNameReservation } from './names.ts'
 import type { SubagentIdentityProjection } from './projection-types.ts'
-import { assertExternalCwdWithinParentWorkspace } from './out-of-process.ts'
+import { assertExternalCwdWithinParentWorkspace } from './external-cwd.ts'
 import type { SubagentRunId } from './types.ts'
 import type {
   ContinuableCreateRequest, ContinuableCreateSpec, SubagentInterruptAuthority,

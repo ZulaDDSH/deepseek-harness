@@ -30,6 +30,11 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 
 const testToolSignal = new AbortController().signal
 
+function asFakeSpill(value: unknown): FakeSpill {
+  if (value instanceof FakeSpill) return value
+  throw new Error('spillStore is not the test FakeSpill')
+}
+
 class FakeSpill extends Service {
   saves: { owner: { sessionId: string }; source: Record<string, unknown>; suggestedName: string; content: string }[] = []
   failWith?: Error
@@ -438,7 +443,7 @@ describe('dsh-tool-workflow', () => {
     it('saves the complete JSON and points the clipped render at it (foreground)', async () => {
       const { ctx, engine, parent, session } = await setup({ maxResultChars: 40 })
       await ctx.plugin(FakeSpill)
-      const spill = ctx.get('spillStore') as unknown as FakeSpill
+      const spill = asFakeSpill(ctx.get('spillStore'))
       const pending = execute(ctx, { script: SCRIPT, meta: META }, { agent: parent })
       await vi.waitFor(() => { expect(engine.requests.length).toBe(1) })
       engine.settle({ value: big, stopReason: 'completed', agentsStarted: 1 })
@@ -460,7 +465,7 @@ describe('dsh-tool-workflow', () => {
     it('does not save a result that fits, and degrades to the plain notice without a backend or on a save failure', async () => {
       const fits = await setup({ maxResultChars: 40 })
       await fits.ctx.plugin(FakeSpill)
-      const fitsSpill = fits.ctx.get('spillStore') as unknown as FakeSpill
+      const fitsSpill = asFakeSpill(fits.ctx.get('spillStore'))
       const small = execute(fits.ctx, { script: SCRIPT, meta: META }, { agent: fits.parent })
       await vi.waitFor(() => { expect(fits.engine.requests.length).toBe(1) })
       fits.engine.settle({ value: 1, stopReason: 'completed', agentsStarted: 1 })
@@ -483,7 +488,7 @@ describe('dsh-tool-workflow', () => {
 
       const failing = await setup({ maxResultChars: 40 })
       await failing.ctx.plugin(FakeSpill)
-      ;(failing.ctx.get('spillStore') as unknown as FakeSpill).failWith = new Error('disk full')
+      ;asFakeSpill(failing.ctx.get('spillStore')).failWith = new Error('disk full')
       failing.ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof failing.ctx.logger.warn
       const failed = execute(failing.ctx, { script: SCRIPT, meta: META }, { agent: failing.parent })
       await vi.waitFor(() => { expect(failing.engine.requests.length).toBe(1) })
@@ -644,7 +649,7 @@ describe('dsh-tool-workflow', () => {
     it('a completed run with an oversized value saves it and the job result carries the spill reference', async () => {
       const { ctx, engine, parent, session } = await setupBackground()
       await ctx.plugin(FakeSpill)
-      const spill = ctx.get('spillStore') as unknown as FakeSpill
+      const spill = asFakeSpill(ctx.get('spillStore'))
       const result = await execute(ctx, { script: SCRIPT, meta: META, run_in_background: true }, { agent: parent })
       if (result.isError) throw new Error('expected background acceptance')
       const jobId = (result.value as { jobId: string }).jobId as JobId

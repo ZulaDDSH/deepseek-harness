@@ -67,7 +67,7 @@ function mount(options: {
   const useDialog = (<T,>(select: (v: typeof dialogState) => T): T =>
     useSyncExternalStore(() => () => {}, () => select(dialogState))) as never
   const useAccess = vi.fn((_action: string) => options.allowed ?? true)
-  const props = { messageId: MSG, ensure, current, retract, loadSharing, openDialog, useFeedback, useDialog, t } as unknown as
+  const props = { messageId: MSG, ensure, current, retract, loadSharing, openDialog, useFeedback, useDialog, t } as
     Parameters<typeof MessageFeedbackActions>[0]
   return { ...render(<MessageFeedbackActions {...props} useAccess={useAccess} />), ensure, retract, loadSharing, openDialog, useAccess }
 }
@@ -247,7 +247,7 @@ describe('MessageFeedbackActions', () => {
       useDialog: (<T,>(select: (v: { sharing: null }) => T): T => select({ sharing: null })) as never,
       useFeedback,
       t,
-    } as unknown as Parameters<typeof MessageFeedbackActions>[0]
+    } as Parameters<typeof MessageFeedbackActions>[0]
     const ui = render(<MessageFeedbackActions {...props} useAccess={() => true} />)
     const errors: unknown[] = []
     const onError = (event: ErrorEvent): void => { errors.push(event.error) }
@@ -280,7 +280,7 @@ describe('MessageFeedbackActions', () => {
       useDialog: (<T,>(select: (v: { sharing: null }) => T): T => select({ sharing: null })) as never,
       useFeedback,
       t,
-    } as unknown as Parameters<typeof MessageFeedbackActions>[0]
+    } as Parameters<typeof MessageFeedbackActions>[0]
     const ui = render(<MessageFeedbackActions {...props} useAccess={() => true} />)
     const errors: unknown[] = []
     const onError = (event: ErrorEvent): void => { errors.push(event.error) }
@@ -316,7 +316,7 @@ describe('MessageFeedbackActions', () => {
       useDialog: (<T,>(select: (v: { sharing: null }) => T): T => select({ sharing: null })) as never,
       useFeedback,
       t,
-    } as unknown as Parameters<typeof MessageFeedbackActions>[0]
+    } as Parameters<typeof MessageFeedbackActions>[0]
     const ui = render(<MessageFeedbackActions {...props} useAccess={() => true} />)
     const errors: unknown[] = []
     const onError = (event: ErrorEvent): void => { errors.push(event.error) }

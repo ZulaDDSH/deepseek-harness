@@ -98,8 +98,6 @@ export class OpenInAppPathController {
       const signal = AbortSignal.any([this.lifetime.signal, AbortSignal.timeout(this.openTimeoutMs)])
       ok = (await this.remote.session.openWorkspacePath(request, signal)).ok
     } catch {
-      // Swallows carrier rejections: a Host that cannot be reached failed the
-      // gesture like a Host that refused it, and the control announces that.
     }
     if (ok) return { kind: action === 'reveal' ? 'revealed' : 'opened' }
     const failure: OpenInAppPathFailure = action === 'open' ? 'openError' : 'revealError'
@@ -174,14 +172,10 @@ export class OpenInAppPathController {
   }
 
   private async run(): Promise<void> {
-    let available = false
-    try {
-      const result = await this.remote.session.canOpenWorkspacePath()
-      available = result.ok && result.value
-    } catch {
-      // Swallows carrier rejections: an unreachable Host reads as no desktop,
-      // so the preview shows no path control rather than a broken one.
-    }
+    const available = await this.remote.session.canOpenWorkspacePath().then(
+      result => result.ok && result.value,
+      () => false,
+    )
     this.desktop.set(available)
   }
 }

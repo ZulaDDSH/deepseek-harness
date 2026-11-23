@@ -228,7 +228,7 @@ describe('turn outline projection unit', () => {
   it('keeps state, wire value, and checkpoint row at the newest window across thousands of turns', () => {
     const definition = turnOutlineProjectionDefinition
     const event = (type: string, seq: number, data: unknown): SessionEvent =>
-      ({ type, seq: SessionSeq(seq), time: 0, data }) as unknown as SessionEvent
+      ({ type, seq: SessionSeq(seq), time: 0, data }) as SessionEvent
     const turns = 5000
     const events: SessionEvent[] = []
     for (let turn = 1; turn <= turns; turn++) {
@@ -256,7 +256,7 @@ describe('turn outline projection unit', () => {
     const cut = 4 * 2750 + 2
     let seeded = definition.init()
     for (const next of events.slice(0, cut)) seeded = definition.apply(seeded, next)
-    seeded = definition.stateSchema.parse(JSON.parse(JSON.stringify(seeded)) as unknown)
+    seeded = definition.stateSchema.parse(JSON.parse(JSON.stringify(seeded)))
     for (const next of events.slice(cut)) seeded = definition.apply(seeded, next)
     expect(seeded).toEqual(state)
   })

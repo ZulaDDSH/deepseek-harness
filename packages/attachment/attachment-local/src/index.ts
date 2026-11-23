@@ -57,8 +57,8 @@ export const DEFAULT_NORMALIZED_IMAGE_MAX_PIXELS = 2048 * 2048
 export const DEFAULT_NORMALIZED_IMAGE_MAX_DIMENSION = 8192
 /** Default encoded-byte target for one stored normalized image. */
 export const DEFAULT_NORMALIZED_IMAGE_MAX_BYTES = 4 * 1024 * 1024
-export const DEFAULT_MAX_FILE_BYTES = 1024 * 1024 * 1024
-export const DEFAULT_MAX_STORED_FILE_BYTES = 20 * 1024 * 1024 * 1024
+const DEFAULT_MAX_FILE_BYTES = 1024 * 1024 * 1024
+const DEFAULT_MAX_STORED_FILE_BYTES = 20 * 1024 * 1024 * 1024
 /** Conservative default number of simultaneous native image transformations per store. */
 export const DEFAULT_IMAGE_COMPRESSION_CONCURRENCY = 2
 /** Maximum configurable native image transformations per store. */

@@ -72,7 +72,8 @@ export async function readJsonBounded(response: Response, label: string, maxByte
     if (total > maxBytes) throw tooLarge()
     chunks.push(chunk)
   }
-  return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown
+  const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+  return parsed
 }
 
 /** Whether `bytes` match one supported hash of a subresource-integrity string. */

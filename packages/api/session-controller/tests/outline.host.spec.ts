@@ -15,7 +15,7 @@ type Content = readonly { readonly type: string; readonly text?: string }[]
 
 let seq = 0
 function raw(type: string, data: unknown): SessionEvent {
-  return { type, seq, time: seq++, data } as unknown as SessionEvent
+  return { type, seq, time: seq++, data } as SessionEvent
 }
 const start = (turn: number) => raw('turn/start', { turn })
 const end = (turn: number) => raw('turn/end', { turn, reason: { kind: 'completed' } })

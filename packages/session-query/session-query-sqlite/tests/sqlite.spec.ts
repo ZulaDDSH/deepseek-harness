@@ -1930,7 +1930,7 @@ describe('SQLite session search shared by two engines', () => {
       } finally {
         db.close()
       }
-      const open = (a.sessionQuery as unknown as { _db: DatabaseSync })._db
+      const open = (a.sessionQuery as SqliteSessionQueryEngine)['_db']!
       expect(open.prepare('PRAGMA busy_timeout').get()).toEqual({ timeout: 5000 })
     } finally {
       await a.fiber.dispose()

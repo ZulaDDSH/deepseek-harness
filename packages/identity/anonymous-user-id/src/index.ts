@@ -17,7 +17,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, type Stats } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
@@ -67,6 +67,24 @@ function sleepSync(ms: number): void {
 
 type LockState = 'held' | 'timeout' | 'unavailable'
 
+function statIfPresent(path: string): Stats | undefined {
+  try {
+    return statSync(path)
+  } catch (_vanished) {
+    return undefined
+  }
+}
+
+function removeStaleLock(lockFile: string, seen: Stats): void {
+  const again = statIfPresent(lockFile)
+  if (again?.ino !== seen.ino || again.mtimeMs !== seen.mtimeMs) return
+  try {
+    rmSync(lockFile, { force: true })
+  } catch (_removeFailed) {
+    return
+  }
+}
+
 /** Take the exclusive-create lock file, retrying until `timeoutMs`; a lock older than the stale age is removed. */
 function acquireLock(lockFile: string, timeoutMs: number): LockState {
   const deadline = Date.now() + timeoutMs
@@ -77,13 +95,8 @@ function acquireLock(lockFile: string, timeoutMs: number): LockState {
     } catch (error) {
       if (!LOCK_CONTENTION_CODES.has((error as NodeJS.ErrnoException).code ?? '')) return 'unavailable'
     }
-    try {
-      const seen = statSync(lockFile)
-      if (Date.now() - seen.mtimeMs > LOCK_STALE_MS) {
-        const again = statSync(lockFile)
-        if (again.ino === seen.ino && again.mtimeMs === seen.mtimeMs) rmSync(lockFile, { force: true })
-      }
-    } catch { /* vanished: retry */ }
+    const seen = statIfPresent(lockFile)
+    if (seen !== undefined && Date.now() - seen.mtimeMs > LOCK_STALE_MS) removeStaleLock(lockFile, seen)
     if (Date.now() >= deadline) return 'timeout'
     sleepSync(LOCK_POLL_MS)
   }

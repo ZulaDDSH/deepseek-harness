@@ -132,7 +132,6 @@ export interface SessionTitleProvider {
    * @returns proposed title plus exact input seqs and the optional provider/model route used to generate it.
    */
   generate(request: SessionTitleProviderRequest): Promise<SessionTitleProviderResult>
-  readonly messageBudgetBytes?: number
 }
 
 /** Extract one eligible human text message from a session event. */

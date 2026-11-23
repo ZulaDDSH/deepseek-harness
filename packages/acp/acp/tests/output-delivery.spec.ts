@@ -61,7 +61,7 @@ describe('ACP update delivery failure', () => {
       seq: SessionSeq(0),
       time: 0,
       data: { callId, name: 'probe', arguments: '{}', turn: 1, step: 1 },
-    } as unknown as SessionEvent
+    } as SessionEvent
   }
 
   const promptParams = (created: AcpSession) => ({ sessionId: created.agent.session.id, prompt: [{ type: 'text' as const, text: 'go' }] })

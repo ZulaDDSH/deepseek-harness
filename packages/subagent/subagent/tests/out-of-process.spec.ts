@@ -11,7 +11,6 @@ import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import {
-  assertExternalCwdWithinParentWorkspace,
   assertPositiveFinite,
   assertUsableCwd,
   boundedProgress,
@@ -22,6 +21,7 @@ import {
   subprocessRunHandle,
 } from '../src/index.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
+import { assertExternalCwdWithinParentWorkspace } from '../src/external-cwd.ts'
 
 describe('NO_START_CAPABILITIES', () => {
   it('advertises nothing and is frozen (shared by every out-of-process backend)', () => {

@@ -290,12 +290,8 @@ export class DeepSeekFileStore {
     }
     const committed = await this.index.commit(candidate, this.now(), marginMs)
     if (!committed.accepted) {
-      try {
-        await client.delete(candidate.fileId, signal)
-        await this.index.forgetOwned(scope, [candidate.fileId])
-      } catch {
-        // The winning mapping is durable. A failed duplicate cleanup affects quota only and is retried by recovery.
-      }
+      const deleted = await client.delete(candidate.fileId, signal).then(() => true, () => false)
+      if (deleted) await this.index.forgetOwned(scope, [candidate.fileId]).catch(() => undefined)
     }
     return { record: committed.record, uploaded: committed.accepted }
   }

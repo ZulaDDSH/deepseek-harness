@@ -20,6 +20,7 @@ import type { ContentBlock, GenerateOptions, StreamChunk } from '@deepseek-ai/ds
 import { isReplacementSurfaceEvent, type SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import * as offload from '../src/index.ts'
+import { restoreOffloadedImages } from '../src/image-offload.ts'
 
 type ScriptEntry = StreamChunk[] | (() => never)
 
@@ -426,12 +427,12 @@ describe('compaction-image-offload', () => {
     }
     agent.followup(createUserMessage({ content: [image('a'), image('b'), image('c')], source: { kind: 'user' } }))
     await agent.whenIdle()
-    expect(offload.restoreOffloadedImages(agent.session, [99 as never])).toBe(false)
+    expect(restoreOffloadedImages(agent.session, [99 as never])).toBe(false)
     await say('still small')
     expect(offloadedNames(adapter.requests[2]!)).toEqual(['a', 'b'])
 
-    expect(offload.restoreOffloadedImages(agent.session)).toBe(true)
-    expect(offload.restoreOffloadedImages(agent.session)).toBe(false)
+    expect(restoreOffloadedImages(agent.session)).toBe(true)
+    expect(restoreOffloadedImages(agent.session)).toBe(false)
     await say('large route')
     expect(offloadedNames(adapter.requests[3]!)).toEqual([])
     const original = agent.session.snapshotEvents().find(event => event.type === 'user/message')!.seq

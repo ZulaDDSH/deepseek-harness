@@ -18,7 +18,6 @@ import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands
 import { offloadOldestImages, restoreOffloadedImages } from './image-offload.ts'
 import { imageOffloadProjection, imageRestoreProjection } from './projection.ts'
 
-export { restoreOffloadedImages } from './image-offload.ts'
 
 export const name = 'compaction-image-offload'
 export const inject = ['agents', 'sessions']

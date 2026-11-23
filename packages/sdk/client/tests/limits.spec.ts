@@ -58,13 +58,13 @@ describe('SDK notification queue bound', () => {
     const client = fakeClient({})
     const slow = client.subscribe()
     const other = client.subscribe()
-    const dispatch = (client as unknown as { dispatchNotification(n: { method: string; params: object }): void })
+    const dispatch = client
     for (let index = 0; index < SUBSCRIPTION_QUEUE_LIMIT; index += 1) {
-      dispatch.dispatchNotification({ method: 'tick', params: { index } })
+      dispatch['dispatchNotification']({ method: 'tick', params: { index } })
       other.tryNext()
     }
-    dispatch.dispatchNotification({ method: 'tick', params: { index: SUBSCRIPTION_QUEUE_LIMIT } })
-    dispatch.dispatchNotification({ method: 'tick', params: { index: SUBSCRIPTION_QUEUE_LIMIT + 1 } })
+    dispatch['dispatchNotification']({ method: 'tick', params: { index: SUBSCRIPTION_QUEUE_LIMIT } })
+    dispatch['dispatchNotification']({ method: 'tick', params: { index: SUBSCRIPTION_QUEUE_LIMIT + 1 } })
 
     expect(other.tryNext()).toEqual({ method: 'tick', params: { index: SUBSCRIPTION_QUEUE_LIMIT } })
     expect(other.tryNext()).toEqual({ method: 'tick', params: { index: SUBSCRIPTION_QUEUE_LIMIT + 1 } })

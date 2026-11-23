@@ -15,7 +15,7 @@ function props(
     nodes: { values: () => nodes },
   } as unknown as ChatSnapshot
   const useChat = ((selector: (value: ChatSnapshot) => unknown) => selector(snapshot)) as UseChat
-  return { callId, useChat, onAvailability, t: (key: string) => key } as unknown as PropsRuntime<'conversation.approval.detail'> & PropsLocale<'chat'>
+  return { callId, useChat, onAvailability, t: (key: string) => key } as PropsRuntime<'conversation.approval.detail'> & PropsLocale<'chat'>
 }
 
 function startNode(callId: string, argsRaw: string, name?: string): unknown {

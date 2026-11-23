@@ -285,7 +285,7 @@ it('still reports the timeout when the runtime rejects the cancel as an unknown 
   const state = await harness.client.request('test/state', undefined, 5000)
   expect(cancelFrames(state)).toBe(1)
   expect(state).toMatchObject({ waitingCommands: 1 })
-  expect((harness.client as unknown as { transport: { pending: Map<string, unknown> } }).transport.pending.size).toBe(0)
+  expect(harness.client['transport']!['pending'].size).toBe(0)
   await harness.client.request('test/release', undefined, 5000)
 })
 

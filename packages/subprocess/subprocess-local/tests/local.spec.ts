@@ -1014,11 +1014,9 @@ describe('LocalSubprocessRuntime', () => {
       const ctx = new Context()
       const warning = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
       const fiber = await ctx.plugin(LocalSubprocessRuntime)
-      const runtime = ctx.subprocess as unknown as {
-        warnFallback(platform: NodeJS.Platform, kind: 'ordinary' | 'terminal', selectedReason?: string): void
-      }
+      const runtime = ctx.subprocess as LocalSubprocessRuntime
       try {
-        runtime.warnFallback(platform, kind, selectedReason)
+        runtime['warnFallback'](platform, kind, selectedReason)
         expect(warning).toHaveBeenLastCalledWith(
           expect.stringContaining(reason),
         )

@@ -90,7 +90,7 @@ it('removes the plaintext index from a running Host when content search is switc
   await expect(stat(path)).resolves.toBeDefined()
 
   updateVolatile(contentSearch, createVolatile(false))
-  ;(ctx as unknown as { emit(name: string): void }).emit('loader/volatile-update')
+  ;(ctx as { emit(name: string): void }).emit('loader/volatile-update')
   await vi.waitFor(async () => { await expect(stat(path)).rejects.toMatchObject({ code: 'ENOENT' }) })
   await expect(ctx.sessionQuery.searchSessions({ query: 'needle' }))
     .rejects.toMatchObject({ code: 'SESSION_QUERY_SEARCH_DISABLED' })

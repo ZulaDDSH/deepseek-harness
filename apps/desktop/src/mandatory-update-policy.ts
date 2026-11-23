@@ -43,7 +43,10 @@ export interface DesktopPolicyStore {
 export function fileDesktopPolicyStore(path: string): DesktopPolicyStore {
   return {
     read() {
-      try { return JSON.parse(readFileSync(path, 'utf8')) as unknown } catch { return undefined }
+      try {
+        const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
+        return parsed
+      } catch { return undefined }
     },
     write(value) {
       try {

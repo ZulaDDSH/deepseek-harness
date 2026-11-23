@@ -40,14 +40,14 @@ describe('bounded webhook body intake', () => {
   it('destroys a request whose body outlasts the deadline and answers 408', async () => {
     let fail!: (error: Error) => void
     const stalled = new Promise<never>((_resolve, reject) => { fail = reject })
-    const destroy = vi.fn(() => { fail(new Error('closed')) })
-    const slow = {
+    const destroy = vi.fn((): IncomingMessage => { fail(new Error('closed')); return slow as IncomingMessage })
+    const slow: Partial<IncomingMessage> = {
       headers: {},
       complete: false,
       destroy,
       async * [Symbol.asyncIterator]() { await stalled },
-    } as unknown as IncomingMessage
-    await expect(readBoundedUtf8Body(slow, 10, 20)).rejects.toMatchObject({ status: 408 })
+    }
+    await expect(readBoundedUtf8Body(slow as IncomingMessage, 10, 20)).rejects.toMatchObject({ status: 408 })
     expect(destroy).toHaveBeenCalledOnce()
   })
 

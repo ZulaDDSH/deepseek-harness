@@ -665,7 +665,7 @@ describe('canonical message feedback history', () => {
     const fixture = appendMessageFixture(session)
     const failure = new Error('disk unavailable')
     ctx.on('session/flush', () => { throw failure })
-    const unconfirmed = (ctx.messageFeedback as unknown as { unconfirmedLive: Set<SessionId> }).unconfirmedLive
+    const unconfirmed = ctx.messageFeedback['unconfirmedLive']
     await expect(ctx.messageFeedback.put({
       sessionId: session.id, messageId: fixture.assistantMessageIds[0], rating: 'positive', ifVersion: null,
     })).rejects.toBe(failure)

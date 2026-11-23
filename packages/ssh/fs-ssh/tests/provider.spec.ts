@@ -6,7 +6,8 @@ import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import { RemoteOperationError } from '@deepseek-ai/dsh-ssh/protocol'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { z } from 'zod'
-import { SshFileSystem, isOutcomeUnknown } from '../src/index.ts'
+import { SshFileSystem } from '../src/index.ts'
+import { isOutcomeUnknown } from '../src/outcome.ts'
 
 type Dispatch = (method: string, params: unknown, signal?: AbortSignal) => Promise<unknown>
 const target: FsTarget = { targetKey: brandString<FsTargetKey>('/remote/work/file.txt'), displayPath: 'file.txt' }

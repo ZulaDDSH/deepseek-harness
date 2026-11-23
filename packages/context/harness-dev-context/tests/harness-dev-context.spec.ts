@@ -14,7 +14,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import * as HarnessDevContext from '../src/index.ts'
-import { isSourceCheckout, sourceRootContext } from '../src/index.ts'
+import { isSourceCheckout, sourceRootContext } from '../src/source-root.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
 
 const SOURCE_PROMPT = 'The runtime context names the DeepSeek Harness implementation checkout. The checkout location and current working directory are separate values and may differ; never infer the working directory from the checkout path. Use pwd to determine the current working directory. Use this checkout only to inspect or extend DSH itself.'

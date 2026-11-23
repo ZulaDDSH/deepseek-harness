@@ -33,7 +33,7 @@ function invocationOf(ctx: Context, principal: Principal): RemoteInvocation {
   }
 }
 
-export const viewer = { kind: 'share-viewer' } as unknown as Principal
+export const viewer = { kind: 'share-viewer' as string } as Principal
 
 export const signal = (): AbortSignal => new AbortController().signal
 

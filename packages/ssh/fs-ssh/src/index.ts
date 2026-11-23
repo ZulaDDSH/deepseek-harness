@@ -9,16 +9,11 @@ import type {} from '@deepseek-ai/dsh-ssh'
 import { RemoteOperationError } from '@deepseek-ai/dsh-ssh/protocol'
 import { deleteResultSchema, moveResultSchema, editResultSchema, entriesSchema, infoSchema, pathInfoSchema, targetSchema, textStreamIdSchema, writeResultSchema } from '@deepseek-ai/dsh-ssh/schemas'
 import { z } from 'zod'
+import { FsOutcomeUnknownError } from './outcome.ts'
+
+export { FsOutcomeUnknownError } from './outcome.ts'
 
 const errorCodes = new Set<string>(FS_ERROR_CODES)
-
-export class FsOutcomeUnknownError extends FsError {
-  readonly outcomeUnknown = true as const
-}
-
-export function isOutcomeUnknown(error: unknown): error is FsOutcomeUnknownError {
-  return error instanceof FsOutcomeUnknownError
-}
 
 /** Remote filesystem paired with the SSH subprocess and sandbox providers. */
 export class SshFileSystem extends FileSystem {

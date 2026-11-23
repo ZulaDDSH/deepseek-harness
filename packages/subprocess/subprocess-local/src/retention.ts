@@ -111,7 +111,7 @@ export async function sweepSpillFiles(options: SweepOptions = {}): Promise<{ rem
     if (directory === options.keepDirectory) continue
     const info = await lstatIfPresent(directory)
     if (info === undefined || now - info.mtimeMs < policy.minAgeMs) continue
-    try { await rmdir(directory) } catch { }
+    try { await rmdir(directory) } catch (_notEmpty) { continue }
   }
   return { removed, freedBytes }
 }

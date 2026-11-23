@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { SessionSeq } from '@deepseek-ai/dsh-session/types'
-import { absorbOutline, oldestKnownSeq, type KnownOutline, type OutlineEntry, type OutlinePage } from './turn-rail-items.ts'
+import { absorbOutline, oldestKnownSeq, type KnownOutline, type OutlineEntry } from './turn-rail-items.ts'
+import type { OutlinePage } from '../contract/outline.ts'
 
 interface Paging {
   readonly sessionId: string

@@ -295,7 +295,7 @@ describe('typert loader', () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({
       name, type: 'module', exports: { '.': './index.js', './package.json': './package.json', './typert': './typert.next.js' },
     }))
-    ;(ctx.pluginPackages as unknown as { packages: Map<string, unknown> }).packages.clear()
+    ;ctx.pluginPackages['packages'].clear()
     await ctx.loader.create({ name })
     await ctx.loader.await()
 
@@ -324,7 +324,7 @@ describe('typert loader', () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({
       name, type: 'module', exports: { '.': './index.js', './package.json': './package.json', './typert': './typert.fixed.js' },
     }))
-    ;(ctx.pluginPackages as unknown as { packages: Map<string, unknown> }).packages.clear()
+    ;ctx.pluginPackages['packages'].clear()
     await ctx.loader.create({ name })
     await ctx.loader.await()
 

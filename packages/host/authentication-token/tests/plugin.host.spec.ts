@@ -4,10 +4,9 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { ConnectionAuthentication, type AuthenticationProvider, type HostConnectionHandle, type PeerScope } from '@deepseek-ai/dsh-client-connection'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { once } from 'node:events'
-import { PassThrough, Readable, type Duplex } from 'node:stream'
+import { PassThrough, Readable } from 'node:stream'
 import type { WebEntryUrl, WebRoute, WebServer } from '@deepseek-ai/dsh-host-webserver'
 import * as Token from '../src/index.ts'
-import { FakeSocket } from './fake-socket.ts'
 import { RecordCredentials } from './browser-credentials.ts'
 import { BrowserAuth, MAX_PENDING_API_PEERS, PENDING_API_PEER_DEADLINE_MS } from '../src/browser-auth.ts'
 
@@ -248,7 +247,7 @@ function sessionRequest(method: string, cookie?: string, body?: string): Incomin
   if (cookie !== undefined) headers.cookie = cookie
   return Object.assign(Readable.from(body === undefined ? [] : [Buffer.from(body)]), {
     method, url: '/browser-sessions', headers, socket: { destroyed: false },
-  }) as unknown as IncomingMessage
+  }) as IncomingMessage
 }
 
 it('lists and revokes browser sessions through the owner route and refuses other credentials', async () => {
@@ -307,18 +306,19 @@ it('closes a browser mux socket when its session is revoked through the owner ro
   const owned = await browserCookie(ctx, auth)
   const shared = providers[0]!.authenticate({ headers: { host: 'localhost:3080', cookie: owned } })
   if (shared === undefined) throw new Error('fixture browser Cookie was refused')
-  const socket = new FakeSocket()
+  const socket = new PassThrough()
+  const destroy = vi.spyOn(socket, 'destroy')
   const upgrade = Object.assign(request('/api/remote.mux'), { headers: { host: 'localhost:3080', cookie: owned } })
   const next = vi.fn(async () => {})
-  await ctx.waterfall('webserver/upgrade', upgrade, socket as unknown as Duplex, Buffer.alloc(0), shared, next)
+  await ctx.waterfall('webserver/upgrade', upgrade, socket, Buffer.alloc(0), shared, next)
   expect(next).toHaveBeenCalledOnce()
-  expect(socket.destroy).not.toHaveBeenCalled()
+  expect(destroy).not.toHaveBeenCalled()
 
   const other = await browserCookie(ctx, auth)
   const revoke = response()
   await routes[1]!.handler(sessionRequest('POST', other, JSON.stringify({ id: sessionIdOf(owned) })), revoke.res)
   expect(revoke.state.status).toBe(204)
-  expect(socket.destroy).toHaveBeenCalledOnce()
+  expect(destroy).toHaveBeenCalledOnce()
 })
 
 async function exchange(routes: WebRoute[], auth: BrowserAuth) {

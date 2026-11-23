@@ -1,10 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import WebRuntime, {
-  readBoundedJson,
-  redactEndpoint,
-  WEB_SEARCH_FIELD_MAX_CHARS,
-  WEB_SEARCH_URL_MAX_CHARS,
   WebError,
   type WebFetchProvider,
   type WebFetchResult,
@@ -12,6 +8,7 @@ import WebRuntime, {
   type WebSearchRequest,
   type WebSearchResult,
 } from '@deepseek-ai/dsh-web'
+import { readBoundedJson, redactEndpoint, WEB_SEARCH_FIELD_MAX_CHARS, WEB_SEARCH_URL_MAX_CHARS } from '../src/safety.ts'
 
 /** A scripted search provider for contract tests. */
 function makeSearchProvider(

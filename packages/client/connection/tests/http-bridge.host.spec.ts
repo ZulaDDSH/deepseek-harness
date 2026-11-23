@@ -8,7 +8,7 @@ import { Peer } from '../src/peer.ts'
 
 const PEER = new Peer(new Context(), { principal: { kind: 'owner' } })
 const roomy = () => new BufferedBodyBudget(DEFAULT_MAX_REQUEST_BODY_BYTES * BUFFERED_BODY_BUDGET_FACTOR)
-const available = (budget: BufferedBodyBudget): number => budget.limit - (budget as unknown as { used: number }).used
+const available = (budget: BufferedBodyBudget): number => budget.limit - budget['used']
 
 describe('HTTP bridge abort', () => {
   it('destroys a declared-oversize request instead of draining it', async () => {
@@ -231,11 +231,12 @@ describe('HTTP bridge buffered-body budget', () => {
     })
     const result: { status?: number, headers?: unknown } = {}
     const response = Object.assign(new EventEmitter(), {
+      destroyed: false,
       writableEnded: false,
       writeHead(code: number, values?: unknown) { result.status = code; result.headers = values; return this },
       write() { return true },
-      end(this: { writableEnded: boolean }) { this.writableEnded = true; return this },
-    }) as unknown as ServerResponse
+      end() { this.writableEnded = true; return this },
+    })
     return { request, response, result, destroyed }
   }
 

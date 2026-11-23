@@ -14,7 +14,7 @@ const SID = 'fk-append' as SessionId
 const entry = (id: string) => ({ id, createdAt: 1, name: id, mode: 'external', label: id })
 
 function makeManager(remote: ClientTestFixtures['remote']): SessionManager {
-  const manager = new SessionManager(remote as unknown as SessionRemotes)
+  const manager = new SessionManager(remote as ClientTestFixtures['remote'] & SessionRemotes)
   onTestFinished(() => manager.dispose())
   return manager
 }

@@ -229,7 +229,7 @@ describe('GitHub webhook HTTP handler', () => {
       headers: { 'content-type': 'application/json' },
       headersDistinct: {},
       [Symbol.asyncIterator]() { read(); return { next: async () => ({ done: true, value: undefined }) } },
-    } as unknown as IncomingMessage
+    } as IncomingMessage
     const writeHead = vi.fn()
     const response = { setHeader: vi.fn(), writeHead, end: vi.fn() } as unknown as ServerResponse
     await handler(request, response)
@@ -266,8 +266,8 @@ describe('GitHub webhook HTTP handler', () => {
       async * [Symbol.asyncIterator]() { yield Buffer.from('{}') },
     } as unknown as IncomingMessage
     const writeHead = vi.fn()
-    const response = { setHeader: vi.fn(), writeHead, end: vi.fn() } as unknown as ServerResponse
-    await handler(request, response)
+    const response: Partial<ServerResponse> = { setHeader: vi.fn(), writeHead, end: vi.fn() }
+    await handler(request, response as ServerResponse)
     expect(writeHead).toHaveBeenCalledWith(400, expect.any(Object))
     expect(fake.dispatch).not.toHaveBeenCalled()
   })

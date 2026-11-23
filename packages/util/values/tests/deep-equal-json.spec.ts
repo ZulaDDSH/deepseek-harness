@@ -8,8 +8,8 @@ describe('deepEqualJson', () => {
   })
 
   it('does not treat inherited names as present keys, in either argument order', () => {
-    const protoKey = JSON.parse('{"__proto__":{}}') as unknown
-    const other = JSON.parse('{"x":1}') as unknown
+    const protoKey: unknown = JSON.parse('{"__proto__":{}}')
+    const other: unknown = JSON.parse('{"x":1}')
     expect(deepEqualJson(protoKey, other)).toBe(false)
     expect(deepEqualJson(other, protoKey)).toBe(false)
     expect(deepEqualJson(JSON.parse('{"toString":{}}'), JSON.parse('{"x":1}'))).toBe(false)

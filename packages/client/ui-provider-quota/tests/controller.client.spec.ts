@@ -116,7 +116,7 @@ describe('provider quota client requests', () => {
         getItem: (key: string) => data.get(key) ?? null,
         setItem: (key: string, text: string) => { data.set(key, text) },
         removeItem: (key: string) => { data.delete(key) },
-      } as unknown as Storage
+      } as Storage
       const remote = {
         quota: { listProviders: async () => ({ ok: true as const, value: [provider] }), fetch: async () => ({ ok: true as const, value }) },
         settings: { mutate: vi.fn(async () => ({ ok: true as const, value: {} })) },
@@ -136,7 +136,8 @@ describe('provider quota client requests', () => {
 
   it('completes a switch and a dismissal after the remote write when browser storage throws', async () => {
     const failing = () => { throw new Error('quota exceeded') }
-    const memory = localUsagePromptStore({ getItem: failing, setItem: failing, removeItem: failing } as unknown as Storage)
+    const partial: Partial<Storage> = { getItem: failing, setItem: failing, removeItem: failing }
+    const memory = localUsagePromptStore(partial as Storage)
     const mutate = vi.fn(async () => ({ ok: true as const, value: {} }))
     const remote = { quota: { listProviders: async () => ({ ok: true as const, value: [provider] }), fetch: async () => ({ ok: true as const, value }) }, settings: { mutate } }
     const controller = new ProviderQuotaController(remote, memory)

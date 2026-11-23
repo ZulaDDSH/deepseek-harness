@@ -25,12 +25,6 @@ export interface TurnRailItem {
 
 export type OutlineEntry = { turn: number; seq: SessionSeq; prompt: string; response: string }
 
-export interface OutlinePage {
-  readonly entries: readonly unknown[]
-  readonly hasMore: boolean
-  readonly before: number
-}
-
 export type KnownOutline = Map<number, OutlineEntry>
 
 const EMPTY_ITEMS: readonly TurnRailItem[] = []

@@ -306,7 +306,8 @@ export async function executeSessionTitleLlm(
     if (!exhausted) {
       try {
         void iterator.return?.()?.then(undefined, () => {})
-      } catch {}
+      } catch (_returnFailed) {
+      }
     }
   }
   callDeadline.signal.throwIfAborted()

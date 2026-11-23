@@ -5,7 +5,7 @@ import type { SubagentCatalogState } from '../src/catalog.ts'
 
 const definition = subagentCatalogProjectionDefinition
 const wire = definition.wire
-const noHeader = undefined as unknown as SessionHeader
+const noHeader: SessionHeader = undefined as never
 
 function childEvent(index: number): SessionEvent {
   return {
@@ -19,7 +19,7 @@ function childEvent(index: number): SessionEvent {
       label: `label ${index}`,
       name: `agent-${index + 1}`,
     },
-  } as unknown as SessionEvent
+  } as SessionEvent
 }
 
 function fold(count: number, visit: (prev: SubagentCatalogState, next: SubagentCatalogState, index: number) => void): SubagentCatalogState {

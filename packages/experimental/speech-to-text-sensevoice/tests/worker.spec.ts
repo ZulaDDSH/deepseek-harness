@@ -483,7 +483,7 @@ it('reuses a loaded worker only after explicitly classified input rejection', as
 it('settles cancelled waiting recordings at once, frees their slots, and keeps the order of the rest', async () => {
   const { worker } = await fixture({ maxPending: 3 })
   const enqueue = (run: (signal: AbortSignal) => Promise<string>, signal = new AbortController().signal): Promise<string> =>
-    (worker as unknown as { enqueue(run: (signal: AbortSignal) => Promise<string>, signal: AbortSignal): Promise<string> }).enqueue(run, signal)
+    worker['enqueue'](run, signal)
   const gate = Promise.withResolvers<undefined>()
   const order: string[] = []
   const active = enqueue(async () => { order.push('active'); await gate.promise; return 'active' })

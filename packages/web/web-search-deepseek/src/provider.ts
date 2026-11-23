@@ -6,7 +6,8 @@
  * @module @deepseek-ai/dsh-web-search-deepseek/provider
  */
 
-import { readBoundedJson, redactEndpoint, WebError } from '@deepseek-ai/dsh-web'
+import { WebError } from '@deepseek-ai/dsh-web'
+import { readBoundedJson, redactEndpoint } from '@deepseek-ai/dsh-web/safety'
 import type {
   WebSearchProvider,
   WebSearchRequest,

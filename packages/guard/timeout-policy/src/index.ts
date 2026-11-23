@@ -24,7 +24,7 @@ import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
  */
 export const TOOL_TIMEOUT = 'TOOL_TIMEOUT'
 
-export const TOOL_TIMEOUT_UNSETTLED = 'TOOL_TIMEOUT_UNSETTLED'
+const TOOL_TIMEOUT_UNSETTLED = 'TOOL_TIMEOUT_UNSETTLED'
 
 const SETTLE_GRACE_MS = 30_000
 

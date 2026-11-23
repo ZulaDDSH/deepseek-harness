@@ -1402,7 +1402,7 @@ export class PluginManager extends TypertRemoteService {
   private async saveRegistries(): Promise<void> {
     try {
       await writeFileAtomic(registriesPath(this.profile.dir), JSON.stringify(Object.fromEntries(this.installedFrom)), { mode: 0o600, dirMode: 0o700 })
-    } catch { /* the record only helps a later restart */ }
+    } catch (_saveFailed) { /* the record only helps a later restart */ }
   }
 
   private exclusive<T>(work: () => Promise<T>): Promise<T> {

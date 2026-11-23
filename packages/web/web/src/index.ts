@@ -25,14 +25,6 @@ import { boundSearchResult } from './safety.ts'
 export {
   WebError,
 } from './types.ts'
-export {
-  boundSearchResult,
-  readBoundedJson,
-  redactEndpoint,
-  WEB_RESPONSE_MAX_BYTES,
-  WEB_SEARCH_FIELD_MAX_CHARS,
-  WEB_SEARCH_URL_MAX_CHARS,
-} from './safety.ts'
 export type {
   WebFetchBody,
   WebFetchProvider,

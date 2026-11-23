@@ -8,7 +8,7 @@ async function harness(fileBytes: number) {
   const ctx = new Context()
   onTestFinished(() => ctx.fiber.dispose())
   const session = { header: { origin: 'user' } }
-  const agent = { id: 's1', session } as unknown as Agent
+  const agent = { id: 's1', session } as Agent
   ctx.provide('agents', { get: () => agent } as never)
   ctx.provide('commands', { registerFileReceiptResolver: () => () => {} } as never)
   ctx.provide('connection', { fetch: { register: () => () => {} } } as never)
