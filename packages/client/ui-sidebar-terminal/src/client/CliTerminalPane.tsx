@@ -29,6 +29,9 @@ export function CliTerminalPane({ profile, cli, close, useTheme, t }: CliTermina
   useEffect(() => model.mount(), [model])
   const info = state.info
   const error = state.issue === undefined ? state.error ?? info?.error : t(state.issue)
+  const ended = info?.state === 'exited' || state.phase === 'closed'
+  const retry = !ended && (state.phase === 'failed' || state.phase === 'disconnected')
+  const readOnly = state.phase === 'connected' && info?.state === 'running' && !state.writable
   return (
     <section className={css.root} data-cli-terminal={profile}>
       <header className={css.cliBar}>
@@ -42,6 +45,13 @@ export function CliTerminalPane({ profile, cli, close, useTheme, t }: CliTermina
       )}
       {info?.state === 'exited' && <p className={css.status} role="status">{t('exited', { code: String(info.exitCode ?? '—') })}</p>}
       {info === undefined && error === undefined && <p className={css.status} role="status">{t('loading')}</p>}
+      {(retry || readOnly) && <div className={css.status} role="status">
+        {state.phase === 'disconnected' && `${t('disconnected')} `}
+        {readOnly && <>{t('readonly')} <Button variant="outline" size="sm" onClick={() => { model.connect() }}>{t('control')}</Button></>}
+        {retry && (info === undefined
+          ? <Button variant="outline" size="sm" onClick={() => { void model.refresh() }}>{t(state.phase === 'disconnected' ? 'reconnect' : 'retry')}</Button>
+          : <Button variant="outline" size="sm" onClick={() => { model.connect() }}>{t('reconnect')}</Button>)}
+      </div>}
       {info !== undefined && <TerminalScreen state={state} model={model} visible label={t('cli.label')} theme={theme} />}
       {error !== undefined && <p className={css.error} role="alert">{t('failed', { message: error })}</p>}
     </section>
