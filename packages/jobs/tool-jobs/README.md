@@ -173,7 +173,6 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 These limits define when the tools are a poor fit. They are current package constraints, not a task backlog.
 
-- **A settlement inside the driver's retirement window still strands its notice** — between the turn loop's last inbox check and the driver committing its idle phase the owner still reads as busy, so the notice is injected and nothing wakes. Steering has the same hole; closing it belongs to `agent-loop`.
 - **A plugin reload drops output read at settlement** — a notice that took the job's read holds it in plugin memory until it is logged or collected by `job_output`, and the registry has already handed that read out, so a reload in between leaves `job_output` with `(no new output)`.
 - **A spent wake budget is not restored by time** — with `maxConsecutiveWakes` set, only user-authored input refills it, so an unattended agent whose budget ran out collects its remaining notices on the next turn something else opens, and nothing in the client shows that a notice is waiting.
 - **A notice pending on an idle owner does not survive that owner's disposal** — the disposal cancel clears the unclaimed inbox, and the log keeps the insert/cancel pair as the record.

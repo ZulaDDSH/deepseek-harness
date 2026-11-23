@@ -133,6 +133,7 @@ export class ReactLoopAgent implements Agent {
   private readonly systemPrompt: SystemPromptProjection
   /** Identities fully frozen by this loop; weak references do not retain replaced history. */
   private readonly frozenMessages = new WeakSet<Message>()
+  private drained = false
 
   constructor(
     private loopCtx: Context,
@@ -276,7 +277,13 @@ export class ReactLoopAgent implements Agent {
 
   private async kick(): Promise<void> {
     try {
-      while (await this.turn()) {}
+      while (true) {
+        this.drained = false
+        if (await this.turn()) continue
+        // Invariant: no await between this check and the idle commit.
+        if (!this.drained || !this.inbox.hasPending || this.lifetimeSignal.aborted) break
+        this.rearm()
+      }
     } catch (_error) {
       // Reported failures and cancellation are contained at the driver boundary.
     } finally {
@@ -440,12 +447,19 @@ export class ReactLoopAgent implements Agent {
         this.throwError(error)
       }
     }
-    if (!this.inbox.hasPending) return false
-    phase.abort = new AbortController()
-    // A fresh controller makes a latch set on the old one stale: the live driver claims the queue itself.
-    phase.wakeRequested = false
-    phase.step = 0
+    if (!this.inbox.hasPending) {
+      this.drained = true
+      return false
+    }
+    this.rearm()
     return true
+  }
+
+  private rearm(): void {
+    if (this.phase.kind !== 'running') return
+    this.phase.abort = new AbortController()
+    this.phase.wakeRequested = false
+    this.phase.step = 0
   }
 
   private async step(decision: Extract<PreparedStep, { kind: 'enter' }>): Promise<StepEndReason | null> {
