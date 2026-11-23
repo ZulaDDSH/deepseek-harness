@@ -101,7 +101,8 @@ export function installFetchObserver(
 
     let response: Response
     try {
-      response = await Reflect.apply(original, globalThis, [request])
+      const dispatcher = (init as { dispatcher?: unknown } | undefined)?.dispatcher
+      response = await Reflect.apply(original, globalThis, dispatcher === undefined ? [request] : [request, { dispatcher }])
     } catch (error) {
       publisher.publish('fetch/error', {
         requestId,

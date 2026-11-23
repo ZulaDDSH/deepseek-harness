@@ -88,7 +88,12 @@ describe('experimental Inspector Host plugin', () => {
     expect(open).not.toHaveBeenCalled()
     const endpoint = value as { endpoint: string; protocol: string }
     const authority = new URL(endpoint.endpoint)
-    const targets: unknown = await fetch(`http://${authority.host}/json`).then(response => response.json())
+    const targetId = /\/devtools\/page\/([^&]+)/u.exec(String(log.mock.calls[0]?.[0]))?.[1]
+    expect(targetId).toBeDefined()
+    for (const path of ['/json', '/json/list', '/json/version', `/json?token=wrong`]) {
+      expect((await fetch(`http://${authority.host}${path}`)).status).toBe(404)
+    }
+    const targets: unknown = await fetch(`http://${authority.host}/json?token=${targetId}`).then(response => response.json())
     if (!Array.isArray(targets) || !isPlainObject(targets[0]) || typeof targets[0].webSocketDebuggerUrl !== 'string') {
       throw new Error('Inspector discovery did not return a target')
     }

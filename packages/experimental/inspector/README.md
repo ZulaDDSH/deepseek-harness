@@ -94,7 +94,7 @@ The Host plugin injects `webServer` and `connection` and accepts these fields:
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-experimental-inspector) is the exhaustive source for accepted fields and their declarations.
 
-The Host logs a `devtools://` URL after the Worker listens. The same Worker serves `/json`, `/json/list`, `/json/version`, the target WebSocket under `/devtools/page/<id>`, and the Client source at `/ingest`.
+The Host logs a `devtools://` URL after the Worker listens. The same Worker serves `/json`, `/json/list`, `/json/version` (each requires `?token=<target id>`, the id in the logged URL, and answers 404 without it), the target WebSocket under `/devtools/page/<id>`, and the Client source at `/ingest`.
 
 <a id="observation-api"></a>
 ## Observation API
@@ -131,7 +131,7 @@ When a Client disconnects, its Console execution context and live object ids are
 <a id="host-fetch-capture"></a>
 ## Host fetch capture
 
-Fetch capture is on by default and records the complete URL, all request and response headers, request body, response body, status, timing, errors, and cancellation. It does not redact credentials, cookies, query values, or payloads. Body capture reads clones; the caller receives the original Response as soon as the original fetch resolves.
+Fetch capture is on by default and records the complete URL, all request and response headers, request body, response body, status, timing, errors, and cancellation. It does not redact credentials, cookies, query values, or payloads. Body capture reads clones; the caller receives the original Response as soon as the original fetch resolves. A response body clone reads ahead of a slow or paused caller, so each in-flight response can hold up to `maxResponseBodyBytes` of its body in Host memory beyond the caller's demand; the limit is per response, not an aggregate budget, so lower it when capturing many large concurrent streams. A per-call Undici `dispatcher` passed to `fetch` is forwarded to the underlying fetch.
 
 The configured body limits bound retention rather than select fields: capture keeps the prefix and marks the result truncated. `Network.getRequestPostData` and `Network.getResponseBody` read the Worker's retained bytes. `Network.streamResourceContent` returns the buffered prefix and adds later response bytes to `Network.dataReceived` for that DevTools connection, which drives live Response and EventStream views. Direct Undici Client/Dispatcher calls and fetch references retained before plugin activation are outside this observer.
 
@@ -142,7 +142,7 @@ After response headers arrive, a caller-side abort can stop the observer's clone
 
 Client selection limits one DevTools connection's realm sessions, DOM projection and diagnostic queries; it does not stop collection or change the shared observation API. It is a display filter, not authorization: a trusted debugging user can open an unfiltered connection, and Host evaluation retains its existing authority.
 
-The CDP target grants arbitrary code execution in both Host and connected Client realms through `Runtime.evaluate`; Host Debugger operations provide additional control. Full fetch capture includes secrets. The Worker therefore accepts only a `127.0.0.1` bind address. Client ingest additionally requires a random WebSocket subprotocol token injected by the Host and rejects non-loopback origins unless explicitly configured. The CDP socket itself has no token; loopback binding is its only access control.
+The CDP target grants arbitrary code execution in both Host and connected Client realms through `Runtime.evaluate`; Host Debugger operations provide additional control. Full fetch capture includes secrets. The Worker therefore accepts only a `127.0.0.1` bind address. Client ingest additionally requires a random WebSocket subprotocol token injected by the Host and rejects non-loopback origins unless explicitly configured. The CDP socket path embeds a random per-launch target id that acts as its capability, and discovery does not reveal it without that id, so another local user cannot obtain it from the loopback listener. Anyone who can read the logged URL or the Host's process output can still connect; do not enable the inspector on a machine shared with less-trusted local users who can read those. The socket does not validate the browser `Origin`.
 
 <a id="model-experience"></a>
 ## Model Experience
