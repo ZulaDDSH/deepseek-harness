@@ -295,6 +295,27 @@ describe('Memory workspace provider access', () => {
     expect(await ctx.memoryWorkspace.graph()).toEqual({ path: resolve(directory, 'imports', 'graphify-out', 'graph.json'), html: '', documents: 0 })
     expect(runNativeCommand).not.toHaveBeenCalled()
   })
+
+  it('stops a stalled Graphify run at its deadline and skips rebuilds whose caller is gone', async () => {
+    const directory = await temporary()
+    createDatabase(directory).close()
+    addDocument(directory)
+    const ctx = await connect({ graphifyCommand: 'graphify-stalled', graphTimeoutMs: 80, importDirectory: join(directory, 'imports') }, localProvider(directory))
+    vi.mocked(runNativeCommand).mockClear()
+    const stalled = (_command: string, _args: readonly string[], signal: AbortSignal): Promise<{ stdout: string; stderr: string }> =>
+      new Promise((_resolve, reject) => { signal.addEventListener('abort', () => { reject(new Error('killed')) }, { once: true }) })
+    vi.mocked(runNativeCommand).mockImplementation(stalled)
+    const gone = new AbortController()
+    const first = ctx.memoryWorkspace.graph()
+    const second = ctx.memoryWorkspace.graph(gone.signal)
+    const third = ctx.memoryWorkspace.graph(gone.signal)
+    gone.abort()
+    await expect(first).rejects.toThrow('did not finish within 0.08 s')
+    await expect(second).rejects.toThrow()
+    await expect(third).rejects.toThrow()
+    expect(runNativeCommand).toHaveBeenCalledTimes(1)
+    vi.mocked(runNativeCommand).mockImplementation(async () => ({ stdout: '', stderr: '' }))
+  })
 })
 
 describe('Memory workspace import safeguards', () => {

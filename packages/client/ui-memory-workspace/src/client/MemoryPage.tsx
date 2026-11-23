@@ -184,18 +184,19 @@ export function MemoryPage({ memory, t }: PageProps): ReactNode {
   useEffect(() => {
     if (tab !== 'graph') return undefined
     let active = true
+    const request = new AbortController()
     setBusy(true)
     setError('')
     const load = async (): Promise<void> => {
       try {
-        const data = answer(await memory.graph())
+        const data = answer(await memory.graph(request.signal))
         if (active) setGraph(data)
       } catch (failure) {
         if (active) { setGraph(null); setError(reason(failure)) }
       } finally { if (active) setBusy(false) }
     }
     void load()
-    return () => { active = false }
+    return () => { active = false; request.abort() }
   }, [memory, tab, revision])
 
   const upload = async (files: FileList): Promise<void> => {

@@ -45,6 +45,7 @@ export interface Config {
   chunkCharacters: number
   /** Maximum complete Graphify export size. */
   maxGraphBytes: number
+  graphTimeoutMs: number
   /** Master switch for chat saves and recall; the Settings toggle changes it without a restart. */
   chatMemory?: Volatile<boolean>
   /** Save each finished chat turn and compaction summaries to Memorix without a model call. */
@@ -70,6 +71,7 @@ export default class MemoryWorkspace extends TypertRemoteService {
     maxDocumentCharacters: z.natural().min(1).default(2_000_000),
     chunkCharacters: z.natural().min(1).default(4800),
     maxGraphBytes: z.natural().min(1).default(16 * 1024 * 1024),
+    graphTimeoutMs: z.natural().min(1).default(120_000),
     chatMemory: z.boolean().default(true).volatile(),
     autoSave: z.boolean().default(true),
     recall: z.boolean().default(true),
@@ -204,29 +206,41 @@ export default class MemoryWorkspace extends TypertRemoteService {
 
   /**
    * Rebuild complete active Memorix documents with the Graphify adapter and load its bounded viewer.
+   * @param signal - caller lifetime; a queued rebuild is skipped and a running one stopped when it aborts.
    * @returns the official Graphify viewer, its graph source path and the imported document count; no Graphify run when the count is 0.
    */
   @Remote
-  graph(): Promise<MemoryGraph> {
-    const pending = this.graphQueue.then(() => this.loadGraph(), () => this.loadGraph())
+  graph(signal?: AbortSignal): Promise<MemoryGraph> {
+    const caller = signal === undefined ? this.lifetime.signal : AbortSignal.any([this.lifetime.signal, signal])
+    const run = (): Promise<MemoryGraph> => {
+      caller.throwIfAborted()
+      return this.loadGraph(caller)
+    }
+    const pending = this.graphQueue.then(run, run)
     this.graphQueue = pending
     this.pending.add(pending)
     void pending.then(() => this.pending.delete(pending), () => this.pending.delete(pending))
     return pending
   }
 
-  private async loadGraph(): Promise<MemoryGraph> {
+  private async loadGraph(caller: AbortSignal): Promise<MemoryGraph> {
     const provider = await this.provider()
     const path = resolve(this.config.graphPath || join(this.config.importDirectory, 'graphify-out', 'graph.json'))
     const database = this.database(provider)
     const documents = memorixPage(database, { table: 'observations', offset: 0, limit: 1, query: '', view: 'documents' }).total
     if (documents === 0) return { path, html: '', documents }
+    const deadline = AbortSignal.timeout(this.config.graphTimeoutMs)
     try {
       await runNativeCommand(this.config.graphifyCommand, [...this.config.graphifyArgs,
-        'memorix', '--database', database, '--graph', path], this.lifetime.signal, 'hidden')
-    } catch (error) { throw this.graphifyFailure(error) }
-    await this.readExport(path, false)
-    return { path, html: new TextDecoder('utf-8', { fatal: true }).decode(await this.readExport(join(dirname(path), 'graph.html'), true)), documents }
+        'memorix', '--database', database, '--graph', path], AbortSignal.any([caller, deadline]), 'hidden')
+    } catch (error) {
+      if (deadline.aborted && !caller.aborted) {
+        throw new Error(`Graphify did not finish within ${this.config.graphTimeoutMs / 1000} s and was stopped; raise graphTimeoutMs on ui-memory-workspace or import fewer documents`, { cause: error })
+      }
+      throw this.graphifyFailure(error)
+    }
+    await this.readExport(path, false, caller)
+    return { path, html: new TextDecoder('utf-8', { fatal: true }).decode(await this.readExport(join(dirname(path), 'graph.html'), true, caller)), documents }
   }
 
   private graphifyFailure(error: unknown): unknown {
@@ -239,14 +253,14 @@ export default class MemoryWorkspace extends TypertRemoteService {
     return new Error(`Graphify failed: ${(stderr || error.message).slice(-600)}\n${setup}`, { cause: error })
   }
 
-  private async readExport(path: string, content: boolean): Promise<Buffer> {
+  private async readExport(path: string, content: boolean, caller: AbortSignal): Promise<Buffer> {
     const file = await open(path, 'r').catch((error: unknown) => {
       throw new Error(`Graphify finished but wrote no file at ${path}; check graphPath and that graphifyArgs runs the memorix adapter.`, { cause: error })
     })
     try {
       if ((await file.stat()).size > this.config.maxGraphBytes) throw new Error('Graphify export exceeds the configured byte limit; raise maxGraphBytes on ui-memory-workspace')
       if (!content) return Buffer.alloc(0)
-      const bytes = await file.readFile({ signal: this.lifetime.signal })
+      const bytes = await file.readFile({ signal: caller })
       if (bytes.byteLength > this.config.maxGraphBytes) throw new Error('Graphify export exceeds the configured byte limit; raise maxGraphBytes on ui-memory-workspace')
       return bytes
     } finally { await file.close() }

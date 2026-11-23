@@ -383,3 +383,15 @@ it('refuses a file over the Host upload limit without reading it, and still uplo
   expect(read).not.toHaveBeenCalled()
   expect(importDocument.mock.calls.map(call => call[0])).toEqual(['ok.md'])
 })
+
+it('cancels the in-flight graph request when the Context graph tab is left', async () => {
+  const signals: (AbortSignal | undefined)[] = []
+  const graph = vi.fn((signal?: AbortSignal) => { signals.push(signal); return new Promise<never>(() => undefined) })
+  mount(memoryWith({ graph }))
+  await idle()
+  fireEvent.click(screen.getByRole('tab', { name: en.graph }))
+  await waitFor(() => { expect(signals).toHaveLength(1) })
+  expect(signals[0]?.aborted).toBe(false)
+  fireEvent.click(screen.getByRole('tab', { name: en.browse }))
+  expect(signals[0]?.aborted).toBe(true)
+})
