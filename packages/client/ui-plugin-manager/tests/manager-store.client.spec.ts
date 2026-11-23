@@ -1040,6 +1040,42 @@ describe('PluginManagerController', () => {
     await vi.waitFor(() => { expect(plugins.installBundle).toHaveBeenCalledTimes(2) })
   })
 
+  it('treats a thrown install start as a lost reply and recovers it by request id after a thrown recovery call', async () => {
+    const { face, state, plugins } = bench({
+      installBundle: vi.fn().mockRejectedValue(new Error('no Connection')),
+      waitForInstall: vi.fn().mockRejectedValueOnce(new Error('no Connection')).mockResolvedValue(ok({ ...APPLIED, bundle: 'recovered' })),
+    })
+    face.openInstall()
+    face.editInstallSpec('slow')
+    face.runInstall()
+    await vi.waitFor(() => { expect(state().install).toMatchObject({ phase: 'unconfirmed', failure: { reason: 'no Connection' } }) })
+    const requestId = state().install.requestId as PluginInstallRequestId
+    expect(plugins.waitForInstall).toHaveBeenCalledOnce()
+    face.openInstall()
+    await vi.waitFor(() => { expect(plugins.waitForInstall).toHaveBeenCalledTimes(2) })
+    expect(plugins.waitForInstall).toHaveBeenLastCalledWith(requestId)
+    await vi.waitFor(() => { expect(state().install.phase).toBe('done') })
+    expect(plugins.installBundle).toHaveBeenCalledOnce()
+  })
+
+  it('retries a thrown cancellation once the Host accepts the installation', async () => {
+    const pending = deferred<ReturnType<typeof ok<ChangeResult>>>()
+    const { face, state, controller, plugins, started } = bench({
+      installBundle: vi.fn().mockReturnValue(pending.promise),
+      cancelInstall: vi.fn().mockRejectedValueOnce(new Error('no Connection')).mockResolvedValueOnce(ok({ status: 'cancelled' })),
+    })
+    face.openInstall()
+    face.editInstallSpec('slow')
+    face.runInstall()
+    const requestId = await started()
+    face.closeInstall()
+    await vi.waitFor(() => { expect(state().install).toMatchObject({ open: false, phase: 'unconfirmed' }) })
+    controller.installProgress({ requestId, phase: 'installing' })
+    await vi.waitFor(() => { expect(state().install.phase).toBe('idle') })
+    expect(plugins.cancelInstall).toHaveBeenCalledTimes(2)
+    pending.resolve(ok({ ...failed(), application: 'cancelled' }))
+  })
+
   it('keeps Host acceptance across cancellation retries', async () => {
     const original = deferred<ReturnType<typeof ok<ChangeResult>>>()
     const { face, state, controller, plugins, started } = bench({
@@ -2337,6 +2373,34 @@ describe('version checks and updates', () => {
     face.closeUpdate()
     expect(state().update).toBeNull()
     face.toggleUpdateOutput()
+    expect(state().update).toBeNull()
+  })
+
+  it('settles a thrown version lookup as a retryable refusal', async () => {
+    const listVersions = vi.fn().mockRejectedValueOnce(new Error('no Connection')).mockResolvedValueOnce(ok(LISTED))
+    const { face, state } = bench({ listVersions })
+    face.checkVersions('dsh-better-sidebar')
+    await vi.waitFor(() => {
+      expect(state().versions['dsh-better-sidebar']).toMatchObject({ phase: 'done', list: { status: 'refused', problem: 'unknown', reason: 'no Connection' } })
+    })
+    face.checkVersions('dsh-better-sidebar')
+    await vi.waitFor(() => { expect(state().versions['dsh-better-sidebar']).toMatchObject({ phase: 'done', list: LISTED }) })
+  })
+
+  it('settles a thrown update invocation as a lost answer and lets the dialog close', async () => {
+    const updateBundle = vi.fn().mockRejectedValueOnce(new Error('no Connection'))
+    const { controller, face, state } = bench({
+      updateBundle,
+      listVersions: vi.fn(() => Promise.resolve(ok(LISTED))),
+      listBundles: vi.fn(() => Promise.resolve(ok([UPDATABLE]))),
+    })
+    await controller.load()
+    face.checkVersions('dsh-better-sidebar')
+    await vi.waitFor(() => { expect(state().versions['dsh-better-sidebar']?.phase).toBe('done') })
+    face.openUpdate('dsh-better-sidebar', '0.17.0')
+    face.runUpdate()
+    await vi.waitFor(() => { expect(state().update).toMatchObject({ phase: 'done', lost: 'no Connection' }) })
+    face.closeUpdate()
     expect(state().update).toBeNull()
   })
 
