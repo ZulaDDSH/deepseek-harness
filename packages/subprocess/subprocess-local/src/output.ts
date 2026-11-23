@@ -1,6 +1,6 @@
 /** Bounded output tails and private spill files shared by process providers. */
 import { randomBytes } from 'node:crypto'
-import { closeSync, mkdtempSync, openSync, rmdirSync, unlinkSync, writeSync } from 'node:fs'
+import { closeSync, mkdtempSync, openSync, rmdirSync, statSync, unlinkSync, writeSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { CollectedOutput } from '@deepseek-ai/dsh-subprocess'
@@ -32,15 +32,15 @@ let defaultSpillDir: string | undefined
  * The default spill location: a private (0700) per-process directory under
  * the OS tmpdir, created lazily. Predictable world-readable paths would let
  * other local users read command output or pre-create symlinks. The directory
- * is created once per process and never recreated: when an external
- * temporary-file cleaner removes it while empty, the next spill open fails and
- * the collector degrades to its in-memory tail. At a JavaScript-observable
+ * is recreated when an external temporary-file cleaner removed it. At a JavaScript-observable
  * process exit the directory is removed only when it holds no completed spill
  * file (spill files are retained as full-output recovery artifacts until an
  * external cleanup).
  */
 function privateSpillDir(): string {
-  defaultSpillDir ??= mkdtempSync(join(tmpdir(), 'dsh-subprocess-'))
+  if (defaultSpillDir === undefined || statSync(defaultSpillDir, { throwIfNoEntry: false })?.isDirectory() !== true) {
+    defaultSpillDir = mkdtempSync(join(tmpdir(), 'dsh-subprocess-'))
+  }
   return defaultSpillDir
 }
 
