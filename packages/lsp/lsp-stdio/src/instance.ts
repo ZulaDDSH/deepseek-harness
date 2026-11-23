@@ -37,6 +37,8 @@ export interface InstanceSpec extends ConnectionSpec {
   readonly initializationOptions: unknown
   /** Graceful `shutdown`/`exit` budget before escalation (ms). */
   readonly shutdownTimeoutMs: number
+  /** Host PID sent as `initialize.processId`; requires a provider in the host PID namespace, omitted sends null. */
+  readonly clientProcessId?: number
 }
 
 /**
@@ -110,9 +112,8 @@ export class LspInstance {
 
   private async initialize(): Promise<WireServerCapabilities> {
     const initializeResult = await this.connection.request('initialize', {
-      // A subprocess provider may run in another PID namespace or machine;
-      // the host PID would let the server monitor an unrelated process.
-      processId: null,
+      // Constraint: null unless opted in; a remote or other-namespace provider cannot see the host PID.
+      processId: this.spec.clientProcessId ?? null,
       rootUri: this.spec.workspaceUri,
       workspaceFolders: [{ uri: this.spec.workspaceUri, name: 'workspace' }],
       capabilities: CLIENT_CAPABILITIES,

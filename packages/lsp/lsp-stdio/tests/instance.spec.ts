@@ -112,6 +112,23 @@ const RESPONDING_SERVER =
 
 const locJson = () => JSON.stringify({ uri: pathToFileURL(join(ws, 'a.ts')).href, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 3 } } })
 
+describe('LspInstance initialize processId', () => {
+  const captureScript = (file: string): string => RESPONDING_SERVER.replace(
+    'if(m.method==="initialize")',
+    `if(m.method==="initialize")require("node:fs").writeFileSync(${JSON.stringify(file)},JSON.stringify(m.params.processId));if(m.method==="initialize")`,
+  )
+
+  it('sends null by default and the host PID when clientProcessId is set', async () => {
+    const nullFile = join(root, 'pid-null.json')
+    await run(scriptInstance(captureScript(nullFile), { killGraceMs: 2_000 }))
+    expect(readFileSync(nullFile, 'utf8')).toBe('null')
+
+    const pidFile = join(root, 'pid-host.json')
+    await run(scriptInstance(captureScript(pidFile), { killGraceMs: 2_000, clientProcessId: process.pid }))
+    expect(readFileSync(pidFile, 'utf8')).toBe(String(process.pid))
+  })
+})
+
 describe('LspInstance server-request handling', () => {
   it('answers workspace/configuration with the static config per item', async () => {
     const instance = makeInstance({ LSP_FAKE_ON_OPEN: 'configuration', LSP_FAKE_DEF: locJson() })
