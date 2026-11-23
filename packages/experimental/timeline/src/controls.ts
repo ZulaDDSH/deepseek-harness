@@ -13,6 +13,10 @@ function sameControlTarget(left: Annotation['target'], right: Annotation['target
   )
 }
 
+export function oldestResolvedAnnotation(annotations: readonly Annotation[]): number {
+  return annotations.findIndex(item => item.reply !== null || (item.control !== undefined && item.control.outcome !== null))
+}
+
 /**
  * Find the latest request for the exact tree or task.
  * @param annotations - saved notes and work requests.

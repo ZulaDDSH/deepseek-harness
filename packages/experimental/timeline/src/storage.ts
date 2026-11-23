@@ -25,7 +25,7 @@ import {
 } from './protocol.ts'
 import type { UserEdit, UserEditResult } from './protocol.ts'
 import { measureAll, prioritiesOf } from './tasks.ts'
-import { pendingControl } from './controls.ts'
+import { oldestResolvedAnnotation, pendingControl } from './controls.ts'
 import { MAX_ANNOTATIONS } from './policy.ts'
 import type { OutputLanguage } from './policy.ts'
 import { TimelineError } from './error.ts'
@@ -443,7 +443,8 @@ export class TimelineStorage extends Service implements TimelineReader {
       const data = typeof change === 'function' ? change(previous) : change
       if (data !== undefined) {
         if (data.sessionId !== session.id) throw new TimelineError('Timeline update belongs to another session')
-        if ((type === 'plugin:timeline/annotation' && previous.view.annotations.length >= MAX_ANNOTATIONS)
+        if ((type === 'plugin:timeline/annotation' && previous.view.annotations.length >= MAX_ANNOTATIONS
+          && oldestResolvedAnnotation(previous.view.annotations) < 0)
           || (type === 'plugin:timeline/import' && 'annotations' in data && previous.view.annotations.length + data.annotations.length > MAX_ANNOTATIONS))
           throw new TimelineError(`Timeline can hold up to ${MAX_ANNOTATIONS} discussions per Session`)
         // Log data has the same JSON boundary as the model transport.

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import * as Timeline from '../src/index.ts'
+import { MAX_ANNOTATIONS } from '../src/policy.ts'
 import { CONTROL_WAIT_MS, controlTargetsOverlap, reconcileControl } from '../src/controls.ts'
 import { reportId, taskId, treeId } from '../src/records.ts'
 import type { ControlTarget } from '../src/records.ts'
@@ -265,6 +266,33 @@ describe('durable asynchronous work requests', () => {
       await f.close()
     }
   })
+  it('evicts the oldest resolved note at the discussion cap but never an open one', async () => {
+    const f = await fixture()
+    try {
+      const retire = f.request('pause', { kind: 'task', tree: f.tree, task: taskId.parse('other') })
+      await f.edit(retire)
+      await f.update([{ id: 'other', status: 'retired', note: 'Guide is out of scope.' }])
+      expect(f.view().annotations[0]?.control?.outcome?.status).toBe('unavailable')
+      const note = (index: number) => ({
+        action: 'annotate' as const,
+        sessionId: f.agent.session.id,
+        id: `note-${index.toString(16).padStart(16, '0')}`,
+        target: { kind: 'tree' as const, tree: f.tree },
+        text: `Open question ${index}`,
+      })
+      for (let index = 1; index < MAX_ANNOTATIONS; index++) await f.edit(note(index))
+      expect(f.view().annotations).toHaveLength(MAX_ANNOTATIONS)
+      await f.edit(note(MAX_ANNOTATIONS))
+      const notes = f.view().annotations
+      expect(notes).toHaveLength(MAX_ANNOTATIONS)
+      expect(notes.some(item => item.id === retire.id)).toBe(false)
+      expect(notes.at(-1)?.text).toBe(`Open question ${MAX_ANNOTATIONS}`)
+      await expect(f.edit(note(MAX_ANNOTATIONS + 1))).rejects.toThrow('discussions per Session')
+      await expect(f.edit(f.request())).rejects.toThrow('discussions per Session')
+    } finally {
+      await f.close()
+    }
+  }, 60000)
   it('rejects failed saves and model-written requests, and exposes whole-plan requests to the model', async () => {
     const f = await fixture()
     try {
