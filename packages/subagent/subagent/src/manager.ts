@@ -30,12 +30,12 @@ import {
 import { installSubagentArchiveAdmission } from './archive-admission.ts'
 import { foldSubagentDescriptor, snapshotSubagentDescriptor } from './descriptor.ts'
 import type { SubagentDescriptorData } from './descriptor.ts'
-import { catalogNames, establishCatalogChild, establishExternalCatalogChild } from './catalog.ts'
+import { establishCatalogChild, establishExternalCatalogChild } from './catalog.ts'
 import { SubagentError } from './error.ts'
 import type { LifecycleEmitter } from './lifecycle.ts'
 import { ROOT_AGENT_NAME, SiblingNameReservations, agentAddress, joinAgentPath, parentAgentPath } from './names.ts'
 import type { SiblingNameReservation } from './names.ts'
-import type { SubagentCatalogEntry, SubagentIdentityProjection } from './projection-types.ts'
+import type { SubagentIdentityProjection } from './projection-types.ts'
 import { assertExternalCwdWithinParentWorkspace } from './out-of-process.ts'
 import type { SubagentRunId } from './types.ts'
 import type {
@@ -74,7 +74,7 @@ interface SubagentHost {
   /** Read the current descriptor identity through the service-owned projection. */
   identityOf(session: Session): SubagentIdentityProjection | undefined
   /** Read a live Session's direct-child catalog through the service-owned projection. */
-  catalogOf(session: Session): readonly SubagentCatalogEntry[]
+  catalogChildrenOf(session: Session): ReadonlyMap<SessionId, string | undefined>
   /** Publish lifecycle events through the owning service's scoped dispatcher. */
   readonly emitLifecycle: LifecycleEmitter
 }
@@ -555,9 +555,8 @@ export class SubagentManager {
     let names = this.committedNames.get(session)
     let children = this.committedChildren.get(session)
     if (names === undefined || children === undefined) {
-      const catalog = this.host.catalogOf(session)
-      names = catalogNames(catalog)
-      children = new Map(catalog.map(entry => [entry.id, 'name' in entry ? entry.name : undefined] as const))
+      children = this.host.catalogChildrenOf(session)
+      names = new Set([...children.values()].filter((name): name is string => name !== undefined))
       this.committedNames.set(session, names)
       this.committedChildren.set(session, children)
     }
@@ -662,17 +661,12 @@ export class SubagentManager {
         name = live.name
         parentLink = live.link
       } else {
-        using parent = await this.observeContinuation(parentId, signal)
-        const entry = parent.projections?.values.subagentCatalog?.find(entry => entry.id === link.header.id)
-        if (entry === undefined) {
+        const parent = await this.inspectCreationParent(parentId, link.header.id, signal)
+        if (!parent.present) {
           throw new SubagentError('subagent is absent from its creator catalog', 'UNAUTHORIZED')
         }
-        name = 'name' in entry ? entry.name : undefined
-        parentLink = {
-          header: parent.header,
-          identity: parent.projections?.values.subagent,
-          inheritedEventCount: parent.inheritedEventCount,
-        }
+        name = parent.name
+        parentLink = parent.link
       }
       ancestors.unshift(parentId)
       names.unshift(name)
@@ -1337,6 +1331,31 @@ export class SubagentManager {
     } catch (error: unknown) {
       signal.throwIfAborted()
       throw new SubagentError(`subagent "${childId}" is unavailable`, 'NOT_RESUMABLE', { cause: error })
+    }
+  }
+
+  private async inspectCreationParent(parentId: SessionId, childId: SessionId, signal: AbortSignal): Promise<{
+    readonly present: boolean
+    readonly name: string | undefined
+    readonly link: CreationLink
+  }> {
+    const query = this.requireSessionQuery()
+    try {
+      return await query.inspectSession(parentId, session => {
+        const children = this.committedCatalog(session).children
+        return {
+          present: children.has(childId),
+          name: children.get(childId),
+          link: {
+            header: session.header,
+            identity: this.host.identityOf(session),
+            inheritedEventCount: session.inheritedEventCount,
+          },
+        }
+      }, signal)
+    } catch (error: unknown) {
+      signal.throwIfAborted()
+      throw new SubagentError(`subagent "${parentId}" is unavailable`, 'NOT_RESUMABLE', { cause: error })
     }
   }
 

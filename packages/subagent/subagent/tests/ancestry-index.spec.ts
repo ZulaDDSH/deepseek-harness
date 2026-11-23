@@ -68,7 +68,7 @@ describe('subagent creator walk under a live root', () => {
 
     const manager = subagentManager(ctx)
     const observe = vi.spyOn(ctx.sessionQuery, 'observeSession')
-    const catalogOf = vi.spyOn(manager['host'], 'catalogOf')
+    const catalogOf = vi.spyOn(manager['host'], 'catalogChildrenOf')
     await manager.deliverPrompt(started.childId, [{ type: 'text', text: 'continue please' }], {
       delivery: 'queue', source: { kind: 'user' }, signal: new AbortController().signal,
     })
@@ -78,5 +78,48 @@ describe('subagent creator walk under a live root', () => {
     expect(observed).toContain(started.childId)
     expect(observed).not.toContain(parent.session.id)
     expect(catalogOf).not.toHaveBeenCalled()
+  })
+
+  it('resolves a dormant intermediate creator through its keyed cut, not an observation', { timeout: 30_000 }, async () => {
+    const { ctx, parent } = await setup([
+      textResponse('leaf done'),
+      textResponse('mid done'),
+      textResponse('leaf again'),
+    ])
+    let releaseMid = false
+    ctx.on('agent/pre-step', async ({ agent: subject }, next) => {
+      if (releaseMid || subject.session.header.parentSession !== parent.id) return next()
+      return { kind: 'reject' as const }
+    })
+    const signal = new AbortController().signal
+    const mid = await ctx.subagents.startActivation({
+      provider: 'spawn', label: 'mid task', prompt: [{ type: 'text', text: 'mid task' }], parent, signal, delivery: 'parent',
+    })
+    const leaf = await ctx.subagents.startActivation({
+      provider: 'spawn',
+      label: 'leaf task',
+      prompt: [{ type: 'text', text: 'leaf task' }],
+      parent: ctx.agents.get(mid.childId)!,
+      signal,
+      delivery: 'parent',
+    })
+    await waitNoActivation(ctx, leaf.childId)
+
+    releaseMid = true
+    const manager = subagentManager(ctx)
+    await manager.deliverPrompt(mid.childId, [{ type: 'text', text: 'wake' }], {
+      delivery: 'queue', source: { kind: 'user' }, signal,
+    })
+    await waitNoActivation(ctx, mid.childId)
+
+    const observe = vi.spyOn(ctx.sessionQuery, 'observeSession')
+    const inspect = vi.spyOn(ctx.sessionQuery, 'inspectSession')
+    await manager.deliverPrompt(leaf.childId, [{ type: 'text', text: 'continue please' }], {
+      delivery: 'queue', source: { kind: 'user' }, signal,
+    })
+    await waitNoActivation(ctx, leaf.childId)
+
+    expect(observe.mock.calls.map(call => call[0])).not.toContain(mid.childId)
+    expect(inspect.mock.calls.map(call => call[0])).toContain(mid.childId)
   })
 })
