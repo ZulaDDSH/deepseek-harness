@@ -126,6 +126,52 @@ describe('workflow guest callbacks', () => {
     await expect(active).resolves.toMatchObject({ value: 'done', stopReason: 'completed' })
   })
 
+  it('splits a burst larger than one frame into bounded batches while an acknowledgement is slow', async () => {
+    const acknowledgement = Promise.withResolvers<null>()
+    const batches: WorkflowProgress[][] = []
+    const test = fixture('for (let index = 0; index < 1000; index++) log(String(index)); for (let index = 0; index < 100; index++) log("x".repeat(8000)); return "done"', {
+      async progress(events) {
+        batches.push(events)
+        if (batches.length === 1) await acknowledgement.promise
+        return null
+      },
+    })
+    const active = runWorkflowGuest(test.host)
+    onTestFinished(async () => { acknowledgement.resolve(null); await active })
+    await setImmediate()
+    acknowledgement.resolve(null)
+    await expect(active).resolves.toMatchObject({ value: 'done', stopReason: 'completed' })
+    expect(batches.flat()).toHaveLength(1100)
+    for (const batch of batches) {
+      expect(batch.length).toBeLessThanOrEqual(256)
+      expect(JSON.stringify(batch).length).toBeLessThanOrEqual(65_536 + 8300)
+    }
+    expect(batches.length).toBeGreaterThan(5)
+  })
+
+  it('drops narration past the queue bound with one marker, keeps agent lifecycle events and truncates a huge log', async () => {
+    const acknowledgement = Promise.withResolvers<null>()
+    const events: WorkflowProgress[] = []
+    let calls = 0
+    const test = fixture('log("y".repeat(100000)); for (let index = 0; index < 10000; index++) log("n" + index); await agent("late"); return "done"', {
+      async progress(batch) {
+        events.push(...batch)
+        if (++calls === 1) await acknowledgement.promise
+        return null
+      },
+    })
+    const active = runWorkflowGuest(test.host)
+    onTestFinished(async () => { acknowledgement.resolve(null); await active })
+    await setImmediate()
+    acknowledgement.resolve(null)
+    await expect(active).resolves.toMatchObject({ value: 'done', stopReason: 'completed' })
+    const logs = events.filter(event => event.type === 'log')
+    expect(logs.length).toBeLessThan(4200)
+    expect(logs.filter(event => event.message.includes('progress events dropped'))).toHaveLength(1)
+    expect(events.filter(event => event.type === 'agent-start' || event.type === 'agent-end')).toHaveLength(2)
+    expect(Math.max(...logs.map(event => event.message.length))).toBeLessThan(8300)
+  })
+
   it('reports a rejected batch and stops dispatching its queued progress', async () => {
     const entered = Promise.withResolvers<undefined>()
     const acknowledgement = Promise.withResolvers<null>()
