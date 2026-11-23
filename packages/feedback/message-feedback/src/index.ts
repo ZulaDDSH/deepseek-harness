@@ -141,6 +141,7 @@ export class MessageFeedbackService extends TypertRemoteService {
   }
 
   protected [Service.init](): void {
+    this.ctx.on('session/disposed', (session) => { this.unconfirmedLive.delete(session.id) })
     this.ctx.effect(() => async () => {
       this.mutationAdmissionOpen = false
       await Promise.all(this.operationTails.values())
@@ -232,6 +233,7 @@ export class MessageFeedbackService extends TypertRemoteService {
     const live = this.ctx.sessions.get(sessionId)
     if (live !== undefined) {
       const confirm = async (): Promise<void> => {
+        // oxlint-disable-next-line typescript/no-deprecated -- Constraint: existing Session history read; migration deferred.
         const last = live.snapshotEvents().at(-1)
         if (!(await this.ctx.sessions.flush(live))) {
           throw new Error(
@@ -254,6 +256,7 @@ export class MessageFeedbackService extends TypertRemoteService {
         this.unconfirmedLive.delete(sessionId)
       }
       if (write && this.unconfirmedLive.has(sessionId)) await confirm()
+      // oxlint-disable-next-line typescript/no-deprecated -- Constraint: existing Session history read; migration deferred.
       return operation(live.snapshotEvents(), async (event) => {
         if (event !== undefined) {
           live.append(event.type, event.data)

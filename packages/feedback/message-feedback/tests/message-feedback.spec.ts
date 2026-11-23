@@ -659,6 +659,23 @@ describe('canonical message feedback history', () => {
     expect(persistence.durable.get(session.id)?.events).toEqual(session.snapshotEvents())
   })
 
+  it('forgets an unconfirmed live item when its session is disposed', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create(brandString<SessionId>('unconfirmed-disposed'))
+    const fixture = appendMessageFixture(session)
+    const failure = new Error('disk unavailable')
+    ctx.on('session/flush', () => { throw failure })
+    const unconfirmed = (ctx.messageFeedback as unknown as { unconfirmedLive: Set<SessionId> }).unconfirmedLive
+    await expect(ctx.messageFeedback.put({
+      sessionId: session.id, messageId: fixture.assistantMessageIds[0], rating: 'positive', ifVersion: null,
+    })).rejects.toBe(failure)
+    expect(unconfirmed.has(session.id)).toBe(true)
+
+    ctx.emit('session/disposed', session)
+
+    expect(unconfirmed.has(session.id)).toBe(false)
+  })
+
   it.each(['missing-tail', 'different-tail', 'different-lifecycle'] as const)(
     'rejects a live checkpoint with %s and closes its verification handle', async (kind) => {
       const { ctx, persistence } = await harness()
