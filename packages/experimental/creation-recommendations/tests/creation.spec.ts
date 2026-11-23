@@ -195,7 +195,7 @@ describe('interface creation', () => {
     const cancelling = f.act('cancel')
     await vi.waitFor(() => { expect(spec.signal.aborted).toBe(true) })
     access.mockRestore()
-    expect(f.act('create')).toBe(cancelling)
+    expect(await f.act('create')).toEqual({ status: 'refused', reason: 'busy' })
     expect(f.current()?.phase).toBe('creating')
     expect(f.manager.installBundle).not.toHaveBeenCalled()
     cleanup.resolve(undefined)
@@ -237,12 +237,12 @@ describe('interface creation', () => {
     expect(f.manager.removeBundle).not.toHaveBeenCalled()
   })
 
-  it('coalesces rapid clicks without creating twice, and dismisses durably', async () => {
+  it('refuses a click that conflicts with a running one without creating twice, and dismisses durably', async () => {
     const f = await fixture()
     await f.propose()
     const one = f.act('dismiss')
     const two = f.act('create')
-    expect(two).toBe(one)
+    expect(await two).toEqual({ status: 'refused', reason: 'busy' })
     expect(await one).toEqual(settled('dismissed', { slot: 'page' }))
     await f.act('create')
     expect(f.startActivation).not.toHaveBeenCalled()
