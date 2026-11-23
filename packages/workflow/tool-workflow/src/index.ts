@@ -17,9 +17,10 @@ import z from '@deepseek-ai/schemastery'
 import { defineTool, ToolArgsError, ToolContextUnavailableError } from '@deepseek-ai/dsh-tools'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { JobId, JobOutcome, JobToolCall } from '@deepseek-ai/dsh-jobs'
 import type { Session, SessionEventMap } from '@deepseek-ai/dsh-session'
+import type { SpillRef } from '@deepseek-ai/dsh-spill'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { WorkflowError } from '@deepseek-ai/dsh-workflow'
 import type {
@@ -222,15 +223,15 @@ async function jobOutcomeOf(
   result: WorkflowResult,
   name: string,
   maxChars: number,
-  save: (value: JsonValue) => Promise<SpillNote | undefined>,
+  save: (content: string) => Promise<SpillRef | undefined>,
 ): Promise<JobOutcome> {
   switch (result.stopReason) {
     case 'completed': {
-      const value = result.value as JsonValue
+      const rendered = JSON.stringify(result.value as JsonValue, null, 2)
       return {
         status: 'completed',
         detail: `${result.agentsStarted} agent${result.agentsStarted === 1 ? '' : 's'}${cleanupNote(result.cleanupFailures)}`,
-        result: renderResult(name, result.agentsStarted, value, maxChars, await save(value), result.cleanupFailures),
+        result: renderResult(name, result.agentsStarted, rendered, maxChars, rendered.length > maxChars ? await save(rendered) : undefined, result.cleanupFailures),
       }
     }
     case 'cancelled':
@@ -245,9 +246,7 @@ async function jobOutcomeOf(
 }
 
 /** Render the run's outcome text: the meta name, agent count, and the JSON value (capped). */
-function renderResult(name: string, agentsStarted: number, value: JsonValue, maxChars: number, spill?: SpillNote, cleanupFailures?: readonly string[]): string {
-  // The engine returns JSON data (null for a valueless script), so stringify never yields undefined.
-  const rendered = JSON.stringify(value, null, 2)
+function renderResult(name: string, agentsStarted: number, rendered: string, maxChars: number, spill?: { locator: string; retrievalHint: string }, cleanupFailures?: readonly string[]): string {
   const saved = spill === undefined ? '' : `\nFull result stored at: ${spill.locator}. ${spill.retrievalHint}`
   const clipped = rendered.length > maxChars
     ? `${rendered.slice(0, maxChars)}\n… [truncated: ${rendered.length - maxChars} more characters]${saved}`
@@ -259,34 +258,14 @@ function cleanupNote(failures: readonly string[] | undefined): string {
   return failures === undefined || failures.length === 0 ? '' : `; child cleanup unconfirmed: ${failures.join('; ')}`
 }
 
-interface SpillNote {
-  locator: string
-  bytes: number
-  retrievalHint: string
-}
-
-interface SpillSaver {
-  saveText(input: {
-    owner: { sessionId: string }
-    source: { kind: 'tool'; toolName: string; callId: string; label: string }
-    suggestedName: string
-    content: string
-  }): Promise<SpillNote>
-}
-
-function exceedsCap(value: JsonValue, maxChars: number): boolean {
-  return JSON.stringify(value, null, 2).length > maxChars
-}
-
 async function saveOversizedResult(
   ctx: Context,
   toolName: string,
-  callId: string,
+  callId: ToolCallId,
   parent: Agent,
-  value: JsonValue,
-): Promise<SpillNote | undefined> {
-  const content = JSON.stringify(value, null, 2)
-  const spillStore = (ctx as unknown as { get(name: 'spillStore'): SpillSaver | undefined }).get('spillStore')
+  content: string,
+): Promise<SpillRef | undefined> {
+  const spillStore = ctx.get('spillStore')
   if (spillStore === undefined) {
     ctx.logger.warn(`tool-workflow: no ctx.spillStore backend loaded; complete ${toolName} result not saved`)
     return undefined
@@ -368,9 +347,7 @@ function startBackgroundRun(
           result,
           args.meta.name,
           deps.maxResultChars,
-          async value => exceedsCap(value, deps.maxResultChars)
-            ? saveOversizedResult(ctx, deps.toolName, toolCall.callId, parent, value)
-            : undefined,
+          content => saveOversizedResult(ctx, deps.toolName, toolCall.callId, parent, content),
         )
       })
       return {
@@ -480,7 +457,7 @@ export function apply(ctx: Context, config: Config): void {
         type: 'text',
         text: value.kind === 'background'
           ? `workflow "${args.meta.name}" started in the background as job ${value.jobId}. Its return value arrives with the completion notice; check on it with job_output, stop it with job_kill.`
-          : renderResult(args.meta.name, value.agentsStarted, value.result, maxResultChars, value.spill, value.cleanupFailures),
+          : renderResult(args.meta.name, value.agentsStarted, JSON.stringify(value.result, null, 2), maxResultChars, value.spill, value.cleanupFailures),
       }],
     },
     async execute(args, exec) {
@@ -541,8 +518,9 @@ export function apply(ctx: Context, config: Config): void {
           throw error
         }
         const value = result.value as JsonValue
-        const spill = exceedsCap(value, maxResultChars)
-          ? await saveOversizedResult(ctx, toolName, exec.callId, parent, value)
+        const rendered = JSON.stringify(value, null, 2)
+        const spill = rendered.length > maxResultChars
+          ? await saveOversizedResult(ctx, toolName, exec.callId, parent, rendered)
           : undefined
         return {
           kind: 'foreground' as const,
