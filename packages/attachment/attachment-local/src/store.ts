@@ -21,6 +21,7 @@ import type { DetectedImage } from './image.ts'
 const ID_PATTERN = /^sha256:([a-f0-9]{64})$/
 const durableHomes = new Set<string>()
 const sweptStaging = new Set<string>()
+const activeStaging = new Set<string>()
 const STALE_STAGING_MS = 24 * 60 * 60 * 1000
 const STAGING_NAME = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
@@ -309,16 +310,27 @@ interface StagedImmutableObject extends StreamedImmutableObject {
   readonly boundary: string
 }
 
-async function sweepStagingDirectory(staging: string): Promise<void> {
-  if (sweptStaging.has(staging)) return
-  sweptStaging.add(staging)
+export async function reclaimAbandonedStaging(staging: string): Promise<{ files: number, bytes: number }> {
   const cutoff = Date.now() - STALE_STAGING_MS
   const names = await readdir(staging).catch(() => [])
+  let files = 0
+  let bytes = 0
   await Promise.all(names.filter(name => STAGING_NAME.test(name)).map(async (name) => {
     const path = join(staging, name)
     const info = await stat(path).catch(() => undefined)
-    if (info?.isFile() === true && info.mtimeMs < cutoff) await unlink(path).catch(() => {})
+    if (info?.isFile() !== true || info.mtimeMs >= cutoff || activeStaging.has(path)) return
+    await unlink(path).then(() => {
+      files++
+      bytes += info.size
+    }, () => {})
   }))
+  return { files, bytes }
+}
+
+async function sweepStagingDirectory(staging: string): Promise<void> {
+  if (sweptStaging.has(staging)) return
+  sweptStaging.add(staging)
+  await reclaimAbandonedStaging(staging)
 }
 
 async function stageImmutableObject(
@@ -336,6 +348,7 @@ async function stageImmutableObject(
   const temporary = join(staging, randomUUID())
   let handle
   try {
+    activeStaging.add(temporary)
     handle = await open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600)
     const hash = createHash('sha256')
     let bytes = 0
@@ -383,6 +396,7 @@ async function publishStagedObject(
     // Windows shares the read-only attribute across hard links and refuses to
     // unlink either name once it is set, so discard the staging name first.
     await unlink(staged.path)
+    activeStaging.delete(staged.path)
     // The target remains the sole link for a new object; this also restores
     // read-only mode when the deduplication path observes an existing object.
     await chmod(target, 0o400)
@@ -410,6 +424,7 @@ async function digestFile(path: string): Promise<string> {
 }
 
 async function removeTemporary(path: string): Promise<void> {
+  activeStaging.delete(path)
   await unlink(path).catch(
     /* v8 ignore next -- Cleanup can observe a staging name already removed after successful linking. */
     (cleanupError: unknown) => {

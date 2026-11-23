@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
-import { chmod, mkdir, readFile, readdir, stat, utimes, writeFile } from 'node:fs/promises'
+import { chmod, link, mkdir, readFile, readdir, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, parse, resolve } from 'node:path'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -12,6 +12,8 @@ import {
   commitPreparedImageFile,
   prepareImageFile,
   publishImmutableObject,
+  publishImmutableObjectStream,
+  reclaimAbandonedStaging,
   readImageFile,
   saveImageFile,
 } from '../src/store.ts'
@@ -116,6 +118,64 @@ describe('local attachment store', () => {
     await utimes(stale, old, old)
     await saveImageFile(storageRoot, { data: PNG, mediaType: 'image/png' }, LIMITS, POLICY)
     await expect(readFile(stale, 'utf8')).resolves.toBe('again')
+  })
+
+  it('reclaims abandoned staging while leaving a live same-process writer and a linked publication intact', async () => {
+    const storageRoot = await root()
+    const staging = join(storageRoot, 'tmp')
+    await mkdir(staging, { recursive: true })
+    const old = new Date(Date.now() - 48 * 60 * 60 * 1000)
+    const stale = join(staging, '11111111-1111-4111-8111-111111111111')
+
+    let release!: () => void
+    const gate = new Promise<void>((resolveGate) => { release = resolveGate })
+    async function* chunks(): AsyncGenerator<Uint8Array> {
+      yield Uint8Array.of(1, 2, 3)
+      await gate
+      yield Uint8Array.of(4)
+    }
+    const writer = publishImmutableObjectStream(
+      storageRoot,
+      chunks(),
+      sha256 => join(storageRoot, 'objects', sha256.slice(0, 2), sha256),
+    )
+    let live: string | undefined
+    while (live === undefined) {
+      const found = (await readdir(staging)).find(name => name !== '11111111-1111-4111-8111-111111111111')
+      live = found === undefined ? undefined : join(staging, found)
+      if (live === undefined) await new Promise(resolveTick => setTimeout(resolveTick, 2))
+    }
+    await utimes(live, old, old)
+    await writeFile(stale, 'partial')
+    await utimes(stale, old, old)
+
+    await expect(reclaimAbandonedStaging(staging)).resolves.toEqual({ files: 1, bytes: 7 })
+    await expect(stat(live)).resolves.toBeDefined()
+    await expect(stat(stale)).rejects.toThrow()
+
+    release()
+    const published = await writer
+    expect(published.bytes).toBe(4)
+    expect(await readdir(staging)).toEqual([])
+
+    const objectPath = join(storageRoot, 'objects', published.sha256.slice(0, 2), published.sha256)
+    await link(objectPath, join(staging, '22222222-2222-4222-8222-222222222222'))
+    await utimes(join(staging, '22222222-2222-4222-8222-222222222222'), old, old)
+    await expect(reclaimAbandonedStaging(staging)).resolves.toEqual({ files: 1, bytes: 4 })
+    await expect(readFile(objectPath)).resolves.toEqual(Buffer.from([1, 2, 3, 4]))
+  })
+
+  it('keeps the mode of a pre-existing harness home that is not owner-only', async () => {
+    if (process.platform === 'win32') return
+    const storageRoot = await root()
+    const home = resolve(storageRoot, '..', '..')
+    await mkdir(home, { recursive: true })
+    await chmod(home, 0o750)
+
+    await saveImageFile(storageRoot, { data: PNG, mediaType: 'image/png' }, LIMITS, POLICY)
+
+    expect((await stat(home)).mode & 0o777).toBe(0o750)
+    expect((await stat(join(storageRoot, 'tmp'))).mode & 0o777).toBe(0o700)
   })
 
   it('refuses an animated image instead of silently keeping its first frame', async () => {
