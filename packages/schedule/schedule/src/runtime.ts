@@ -28,6 +28,9 @@ import type { DeliveryRetentionBounds, ScheduleDeliveryReceipt, ScheduleId, Sche
 /** Largest delay Node timers represent without clamping. */
 export const MAX_TIMER_DELAY_MS = 2_147_483_647
 
+const RETRY_BASE_MS = 5_000
+const RETRY_MAX_MS = 300_000
+
 /** Fixed per-task delivery floor interval, timed or manual, of a target other than `new`; it matches the shortest recurrence spacing. */
 export const MIN_DELIVERY_INTERVAL_MS = MIN_EVERY_INTERVAL_SECONDS * 1_000
 
@@ -71,6 +74,7 @@ export class ScheduleRuntime {
   private readonly executing = new Set<ScheduleId>()
   private stopping = false
   private requested = false
+  private failureStreak = 0
 
   /**
    * @param ctx - Host services used to resume and enqueue.
@@ -211,13 +215,15 @@ export class ScheduleRuntime {
       for (const id of await this.deliverDue(group, session !== undefined)) failed.add(id)
     }
     if (this.stopping) return
+    const retryAt = failed.size === 0 ? undefined : Date.now() + Math.min(RETRY_BASE_MS * 2 ** this.failureStreak, RETRY_MAX_MS)
+    this.failureStreak = failed.size === 0 ? 0 : this.failureStreak + 1
     const next = this.tasks().filter(task => task.status === 'active'
       && !failed.has(task.record.id)
       && !this.executing.has(task.record.id))
       .reduce<number | undefined>((at, task) => {
         const target = Math.max(Date.parse(task.record.scheduledAt), this.nextAdmissionAt(task))
         return at === undefined ? target : Math.min(at, target)
-      }, undefined)
+      }, retryAt)
     if (next !== undefined) {
       this.timer = setTimeout(() => { this.timer = undefined; this.requestDrive() },
         Math.max(0, Math.min(next - Date.now(), MAX_TIMER_DELAY_MS)))
@@ -229,7 +235,7 @@ export class ScheduleRuntime {
    * Deliver one due group in one message and advance each committed member.
    * @param group - One task, or the due recurring tasks of one target Session.
    * @param batch - Whether the message uses the batch framing.
-   * @returns Members that remain due after a failure; the timer skips them until the next drive request.
+   * @returns Members that remain due after a failure; `drive` retries them with bounded backoff.
    */
   private async deliverDue(group: readonly ScheduleTask[], batch: boolean): Promise<readonly ScheduleId[]> {
     let admitted = group

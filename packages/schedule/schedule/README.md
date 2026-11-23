@@ -274,8 +274,8 @@ Notices append at the next step boundary and preserve the existing request prefi
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- The Host must be running. Failed restore, creation, enqueue, or writes retain the task and warn; there is no retry loop. A later management change, wake, or restart can retry it.
-- Session flush and task acknowledgment are separate commits, so delivery is at least once. Graceful Agent disposal can discard queued input after a receipt was saved; receipts establish inbox persistence, not execution.
+- The Host must be running. Failed restore, creation, enqueue, or writes retain the task and warn, and the runtime retries each still-due task with exponential backoff from 5 seconds up to a 5-minute cap until delivery succeeds; a persistent fault shows as one repeated `reminders [...] were not acknowledged` warning per attempt. A retry after a flush or write failure that followed the enqueue queues the occurrence again, so that window delivers at least once.
+- Session flush and task acknowledgment are separate commits, so delivery is at least once: a crash or a failed receipt write after the flush delivers the occurrence again, and the saved `messageId` is the only identity linking the receipt to its message. Graceful Agent disposal can discard queued input after a receipt was saved, and the task is not redelivered: a receipt establishes durable inbox admission, not execution, and Schedule does not track cancellation or execution of an admitted message.
 - Deletion removes saved task history and stops future delivery, retaining Sessions and messages. Session-log reminders require explicit recreation; missing historical prompts and timestamps cannot be recovered.
 - Management is Host-wide, without task-level authorization. The model tool layer refuses delegated callers; Schedule refuses delegated Session targets. Reads and deletion remain available for unavailable targets.
 - Cron uses five-field Vixie syntax; RRULE has a bounded RFC 5545 profile. Both use current IANA data. Restart preserves committed occurrences; exhaustion ends a task after its final delivery.
