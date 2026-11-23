@@ -575,6 +575,7 @@
     { "path": "./packages/subagent/subagent-acp" },
     { "path": "./packages/subagent/subagent-claude-code" },
     { "path": "./packages/subagent/subagent-codex" },
+    { "path": "./packages/subagent/subagent-freebuff" },
     { "path": "./packages/experimental/subagent-oar" },
     { "path": "./packages/experimental/tool-subagent-oar" },
     { "path": "./packages/subagent/subagent-dsh-sdk" },
