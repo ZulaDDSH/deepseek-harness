@@ -10,9 +10,10 @@
  * (`workspaceWriteSid`), while every live session receives a RANDOM private
  * temp directory and its own derived capability (`tempWriteSid`). The
  * workspace-root ACE materializes once per workspace per server lifetime
- * and STANDS (the cross-session reuse cache — the exact-ACE skip makes
- * every later provision O(1) instead of re-propagating the tree per
- * session); the private-temp ACEs are revoked on dispose. The runner
+ * and STANDS while the provider lives (the cross-session reuse cache — the
+ * exact-ACE skip makes every later provision O(1) instead of re-propagating
+ * the tree per session); provider dispose revokes the private-temp ACEs and
+ * restores the workspace root. The runner
  * receives both SIDs (their presence marks the seam-managed contract) and
  * stops managing DACLs itself. The rung reports partial enforcement because
  * NTFS hard links alias one file object across paths, reads stay unconfined,
@@ -161,6 +162,7 @@ type SelectedRunner = { runner: 'bwrap' | 'landlock' | 'seatbelt' | 'windows-acl
 
 /** One live session/workspace pair's private temp directory and capability. */
 interface AclTempCapability {
+  workspaceRoot: string
   dir: string
   writeSid: string
   grant: AclWriteGrant
@@ -264,7 +266,7 @@ const RUNNER_FAILURE_RULES = {
  * chain verdict and, on the windows-acl rung, the write grants
  * ({@link AclWriteGrant}: the standing workspace-root grant per workspace
  * and the revocable private-temp grant per live session/workspace pair, the
- * latter revoked on provider dispose); the one-time probes spawn nothing
+ * latter revoked and the former restored on provider dispose); the one-time probes spawn nothing
  * else.
  */
 export class LocalSandboxProvider extends SandboxProvider {
@@ -286,7 +288,7 @@ export class LocalSandboxProvider extends SandboxProvider {
   /**
    * Server-lifetime write grants (windows-acl rung): the STANDING
    * workspace-root grant per workspace (its ACE is the cross-session reuse
-   * cache and outlives the provider — never revoked) and the REVOCABLE
+   * cache, restored away on provider dispose) and the REVOCABLE
    * private-temp grant per live session/workspace pair (revoked on provider
    * dispose).
    */
@@ -319,10 +321,7 @@ export class LocalSandboxProvider extends SandboxProvider {
     if (process.platform === 'win32' && this.runnerCommand === undefined) {
       ctx.inject(['skills'], (skillsCtx) => { registerAclDiagnosisSkill(skillsCtx) })
     }
-    // The temp grants are revoked with the provider: a clean server
-    // shutdown leaves no temp ACEs behind (workspace ACEs stand by design —
-    // the reuse cache; an unclean shutdown leaves them for the next
-    // provision's exact-ACE skip).
+    // Constraint: a clean shutdown revokes the temp ACEs and restores each workspace; an unclean one leaves them for the next provision's exact-ACE skip.
     ctx.effect(() => () => {
       this.revokeAclGrants()
     })
@@ -491,7 +490,7 @@ export class LocalSandboxProvider extends SandboxProvider {
       }
       throw aclPreparationFailure('temp grant materialization', error, cleanupFailures)
     }
-    const capability = { dir: tempDir, writeSid: tempSid, grant }
+    const capability = { workspaceRoot, dir: tempDir, writeSid: tempSid, grant }
     this.tempCapabilities.set(key, capability)
     return capability
   }
@@ -499,8 +498,9 @@ export class LocalSandboxProvider extends SandboxProvider {
   /**
    * Dispose every write grant (provider dispose): the revocable temp ACEs
    * are revoked, the private temp directories this provider created are
-   * removed, and every SID allocation is freed; the standing workspace ACEs
-   * stay (the reuse cache). Cleanup failures are reported, not thrown:
+   * removed, every SID allocation is freed, and each workspace whose
+   * capabilities all disposed cleanly gets its standing grant and Low label
+   * removed ({@link AclWriteGrant.restore}). Cleanup failures are reported, not thrown:
    * cordis teardown must not be aborted by grant cleanup. A crash skips all
    * of it, but a new provider never reuses the residue's random path or SID;
    * OS temp hygiene (or manual removal) eventually reclaims it.
@@ -508,9 +508,28 @@ export class LocalSandboxProvider extends SandboxProvider {
   private revokeAclGrants(): void {
     if (this.workspaceGrants.size === 0 && this.tempCapabilities.size === 0) return
     const failures: unknown[] = []
-    for (const grant of [...this.workspaceGrants.values(), ...[...this.tempCapabilities.values()].map(capability => capability.grant)]) {
+    const unsettled = new Set<string>()
+    for (const capability of this.tempCapabilities.values()) {
+      try {
+        capability.grant.dispose()
+      } catch (error) {
+        failures.push(error)
+        unsettled.add(capability.workspaceRoot)
+      }
+    }
+    for (const [root, grant] of this.workspaceGrants) {
       try {
         grant.dispose()
+      } catch (error) {
+        failures.push(error)
+        unsettled.add(root)
+      }
+    }
+    // Constraint: restore only after every capability of the workspace is disposed; the Host stops confined children first.
+    for (const root of this.workspaceGrants.keys()) {
+      if (unsettled.has(root)) continue
+      try {
+        AclWriteGrant.restore(workspaceWriteSid(root), root)
       } catch (error) {
         failures.push(error)
       }

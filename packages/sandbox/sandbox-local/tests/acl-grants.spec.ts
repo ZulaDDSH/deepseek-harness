@@ -24,6 +24,8 @@ const mockState = vi.hoisted(() => ({
   createTempFailure: undefined as Error | undefined,
   createWorkspaceFailure: undefined as Error | undefined,
   disposeFailure: undefined as Error | undefined,
+  tempDisposeFailure: undefined as Error | undefined,
+  restores: [] as Array<{ writeSid: string; path: string; liveTempGrants: number }>,
 }))
 
 vi.mock('@deepseek-ai/dsh-sandbox-windows-acl', () => {
@@ -49,7 +51,13 @@ vi.mock('@deepseek-ai/dsh-sandbox-windows-acl', () => {
     }
     dispose(): void {
       if (mockState.disposeFailure !== undefined) throw mockState.disposeFailure
+      if (this.writeSid.startsWith('TEMP:') && mockState.tempDisposeFailure !== undefined) throw mockState.tempDisposeFailure
       this.disposed = true
+    }
+    static restore(writeSid: string, path: string): boolean {
+      const liveTempGrants = mockState.grants.filter(grant => grant.writeSid.startsWith('TEMP:') && !grant.disposed).length
+      mockState.restores.push({ writeSid, path, liveTempGrants })
+      return true
     }
   }
   return {
@@ -94,6 +102,8 @@ describe('windows-acl write grants (LocalSandboxProvider)', () => {
     mockState.createTempFailure = undefined
     mockState.createWorkspaceFailure = undefined
     mockState.disposeFailure = undefined
+    mockState.tempDisposeFailure = undefined
+    mockState.restores = []
   })
 
   const cleanup = () => {
@@ -392,6 +402,52 @@ describe('windows-acl write grants (LocalSandboxProvider)', () => {
       ])
       expect(mockState.grants).toHaveLength(0)
       await fiber.dispose()
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('restores each workspace once on provider teardown, after its capabilities are disposed', async () => {
+    try {
+      const { sandbox, fiber } = await setup()
+      const ws = workspaceRoot()
+      scratch.push(ws)
+      for (const id of ['one', 'two']) {
+        await sandbox.confine(['true'], { mode: 'workspace-write', workspaceRoot: ws, sessionId: brandString<SessionId>(id) })
+      }
+      expect(mockState.restores).toEqual([])
+      await fiber.dispose()
+      const standing = mockState.grants.find(grant => grant.writeSid === WORKSPACE_SID)?.added[0]?.path
+      expect(mockState.restores).toEqual([{ writeSid: WORKSPACE_SID, path: standing, liveTempGrants: 0 }])
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('keeps the standing grant of a workspace whose temp capability failed to dispose', async () => {
+    try {
+      const { ctx, sandbox, fiber } = await setup()
+      const ws = workspaceRoot()
+      scratch.push(ws)
+      await sandbox.confine(['true'], { mode: 'workspace-write', workspaceRoot: ws, sessionId: brandString<SessionId>('stuck') })
+      mockState.tempDisposeFailure = new Error('temp revoke exploded')
+      const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+      await fiber.dispose()
+      expect(mockState.restores).toEqual([])
+      expect(warn).toHaveBeenCalledWith(expect.objectContaining({ message: 'temp revoke exploded' }))
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('never restores for read-only or agentless calls that created no grant', async () => {
+    const { sandbox, fiber } = await setup()
+    try {
+      const ws = workspaceRoot()
+      scratch.push(ws)
+      await sandbox.confine(['true'], { mode: 'read-only', workspaceRoot: ws, sessionId: brandString<SessionId>('ro') })
+      await fiber.dispose()
+      expect(mockState.restores).toEqual([])
     } finally {
       cleanup()
     }
