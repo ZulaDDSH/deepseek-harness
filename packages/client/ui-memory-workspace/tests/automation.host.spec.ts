@@ -2,11 +2,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import { createVolatile, updateVolatile, type Volatile } from '@deepseek-ai/cosmokit'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { getEventListeners } from 'node:events'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join, resolve, sep } from 'node:path'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { runNativeCommand } from '@deepseek-ai/dsh-native-command'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
@@ -187,7 +188,29 @@ describe('Memory digest', () => {
     expect(workspaceEntity(join(CWD, 'a'))).not.toBe(workspaceEntity(join(CWD, 'b')))
     expect(workspaceEntity(`${CWD}/`)).toBe(workspaceEntity(CWD))
     expect(workspaceEntity(join(CWD, '..', 'dsh-memory-project'))).toBe(workspaceEntity(CWD))
-    expect(workspaceEntity(CWD)).toMatch(/^dsh-workspace:dsh-memory-project-[0-9a-f]{8}$/)
+    expect(workspaceEntity(CWD)).toMatch(/^dsh-workspace:dsh-memory-project-[0-9a-f]{16}$/)
+  })
+
+  it('names one entity for equivalent spellings and aliases of an existing workspace folder', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-Memory-Entity-'))
+    directories.push(root)
+    const folder = join(root, 'Project')
+    await mkdir(join(folder, 'sub'), { recursive: true })
+    expect(workspaceEntity(`${folder}${sep}sub${sep}..`)).toBe(workspaceEntity(folder))
+    expect(workspaceEntity(`${folder}${sep}.`)).toBe(workspaceEntity(folder))
+    expect(workspaceEntity(join(folder, 'sub'))).not.toBe(workspaceEntity(folder))
+    if (process.platform === 'win32') expect(workspaceEntity(join(root, 'pROJECT'))).toBe(workspaceEntity(folder))
+    const alias = join(root, 'alias')
+    await symlink(folder, alias, 'junction')
+    expect(workspaceEntity(alias)).toBe(workspaceEntity(folder))
+    expect(workspaceEntity(folder)).toContain(`:${basename(await realpath(folder))}-`)
+  })
+
+  it('does not fold case or shorten the hash for distinct folders', () => {
+    const upper = join(tmpdir(), 'dsh-missing-Alpha', 'project')
+    const lower = join(tmpdir(), 'dsh-missing-alpha', 'project')
+    expect(workspaceEntity(upper)).not.toBe(workspaceEntity(lower))
+    expect(workspaceEntity(upper)).toMatch(/^dsh-workspace:project-[0-9a-f]{16}$/)
   })
 
   it('renders the policy and the recalled context within their bounds', () => {
@@ -527,6 +550,29 @@ describe('Memory policy and first-message recall', () => {
     expect(recalled).not.toContain('own narrative')
     expect(recalled).not.toContain('other workspace narrative')
     expect(searches).toEqual([{ query: 'fix the login bug', limit: 8, scope: 'project', quality: 'fast', status: 'active' }])
+  })
+
+  it('still recalls notes saved under the earlier entity name of this workspace and saves under the new one', async () => {
+    const { ctx, db, calls } = await fixture()
+    await ctx.plugin(SystemPrompt)
+    const legacy = `dsh-workspace:${basename(CWD)}-${createHash('sha256').update(process.platform === 'win32' ? resolve(CWD).toLowerCase() : resolve(CWD)).digest('hex').slice(0, 8)}`
+    expect(legacy).not.toBe(workspaceEntity(CWD))
+    const insert = db.prepare('INSERT INTO observations(entityName, title, narrative, topicKey, createdAt) VALUES (?, ?, ?, ?, ?)')
+    insert.run(legacy, 'Turn 1: before', 'legacy narrative', 'dsh-session:old:1:turn:1', '2020-01-01T00:00:00.000Z')
+    insert.run(workspaceEntity(CWD), 'Turn 1: after', 'current narrative', 'dsh-session:old:2:turn:1', '2021-01-01T00:00:00.000Z')
+    insert.run('dsh-workspace:elsewhere-00000000', 'Turn 1: other', 'other narrative', 'dsh-session:x:1:turn:1', '2022-01-01T00:00:00.000Z')
+    inbox(ctx, session('s1'), 'fix the login bug')
+    const recalled = await assembled(ctx, 's1')
+    expect(recalled).toContain('legacy narrative')
+    expect(recalled).toContain('current narrative')
+    expect(recalled.indexOf('current narrative')).toBeLessThan(recalled.indexOf('legacy narrative'))
+    expect(recalled).not.toContain('other narrative')
+    const target = session('s2')
+    prompt(ctx, target, 'fix it')
+    reply(ctx, target, 'done')
+    done(ctx, target)
+    await vi.waitFor(() => { expect(calls).toHaveLength(1) })
+    expect(calls[0]?.entityName).toBe(workspaceEntity(CWD))
   })
 
   it('bounds the recalled notes within the character limit', async () => {

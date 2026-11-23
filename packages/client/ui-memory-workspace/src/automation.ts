@@ -1,5 +1,6 @@
 /** @module Memory policy, per-turn chat saves, first-message recall and status for the connected Memorix server. */
 import { createHash } from 'node:crypto'
+import { realpathSync } from 'node:fs'
 import { mkdir, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join, parse, resolve } from 'node:path'
@@ -111,7 +112,23 @@ export function blocksText(content: readonly BlockLike[]): string {
  * @returns entity name carrying the folder name and a short path hash.
  */
 export function workspaceEntity(cwd: string): string {
-  return `dsh-workspace:${basename(cwd) || 'root'}-${workspaceHash(cwd)}`
+  const path = canonicalWorkspace(cwd)
+  return `dsh-workspace:${basename(path) || 'root'}-${createHash('sha256').update(path).digest('hex').slice(0, 16)}`
+}
+
+function canonicalWorkspace(cwd: string): string {
+  const path = resolve(cwd)
+  try { return realpathSync.native(path) } catch { return path }
+}
+
+function legacyEntity(path: string): string {
+  return `dsh-workspace:${basename(path) || 'root'}-${workspaceHash(path)}`
+}
+
+function legacyWorkspaceEntities(cwd: string): Set<string> {
+  const names = new Set([legacyEntity(cwd), legacyEntity(canonicalWorkspace(cwd))])
+  names.delete(workspaceEntity(cwd))
+  return names
 }
 
 function workspaceHash(cwd: string): string {
@@ -533,16 +550,18 @@ export class MemoryAutomation {
   }
 
   private recent(session: SessionLike, database: string): MemorixRecentObservation[] {
-    return memorixRecent(database, {
-      entityName: workspaceEntity(session.header.cwd ?? ''), excludeTopicPrefix: `dsh-session:${session.id}:`,
-      before: new Date().toISOString(), limit: RECALL_DIGESTS,
-    })
+    const cwd = session.header.cwd ?? ''
+    const before = new Date().toISOString()
+    return [workspaceEntity(cwd), ...legacyWorkspaceEntities(cwd)]
+      .flatMap(entityName => memorixRecent(database, { entityName, excludeTopicPrefix: `dsh-session:${session.id}:`, before, limit: RECALL_DIGESTS }))
+      .sort((left, right) => (left.createdAt < right.createdAt ? 1 : left.createdAt > right.createdAt ? -1 : 0))
+      .slice(0, RECALL_DIGESTS)
   }
 
   private async search(provider: McpHumanOperations, session: SessionLike, cwd: string, query: string,
     database: string, caller?: AbortSignal): Promise<MemorixObservationRecord[]> {
     const signal = AbortSignal.any([this.host.signal, AbortSignal.timeout(RECALL_BUDGET_MS), ...caller === undefined ? [] : [caller]])
-    const entity = workspaceEntity(cwd)
+    const entities = new Set([workspaceEntity(cwd), ...legacyWorkspaceEntities(cwd)])
     return this.withProject(provider, cwd, signal, async (project) => {
       const text = await callMemorix(provider, 'memorix_search', {
         query: clip(query, QUERY_CHARACTERS), limit: RECALL_SEARCH_LIMIT, scope: 'project', quality: 'fast', status: 'active',
@@ -550,7 +569,7 @@ export class MemoryAutomation {
       const ids = [...new Set([...text.matchAll(/\bobs:(\d+)(?:@([^\s|]+))?/g)]
         .filter(match => project === undefined || match[2] === undefined || match[2] === project).map(match => Number(match[1])))]
       return memorixObservations(database, ids)
-        .filter(row => row.entityName === entity && !(row.topicKey ?? '').startsWith(`dsh-session:${session.id}:`))
+        .filter(row => entities.has(row.entityName) && !(row.topicKey ?? '').startsWith(`dsh-session:${session.id}:`))
         .slice(0, RECALL_DIGESTS)
     }, true)
   }
