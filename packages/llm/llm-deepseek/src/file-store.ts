@@ -11,7 +11,7 @@ import type { DeepSeekUploadRecord } from './upload-index.ts'
 
 /** Shared Files-store limit for each request image, including file-id references. */
 export const MAX_IMAGE_BYTES = 32 * 1024 * 1024
-const OWNED_FILE_PREFIX = 'dsh-'
+const FILE_PREFIX = 'dsh-'
 /** Per-image deadline whose expiry during upload starts Files backoff. */
 export const FILES_API_TIMEOUT = 'DEEPSEEK_FILES_API_TIMEOUT'
 
@@ -126,7 +126,7 @@ function extension(mediaType: RequestImageAttachment['mediaType']): 'png' | 'jpe
 function filename(version: RequestImageAttachment): string {
   const attachment = String(version.attachment.attachmentId).slice('sha256:'.length, 'sha256:'.length + 16)
   const variant = String(version.variantId).slice('sha256:'.length, 'sha256:'.length + 8)
-  return `${OWNED_FILE_PREFIX}${attachment}-${variant}.${extension(version.mediaType)}`
+  return `${FILE_PREFIX}${attachment}-${variant}.${extension(version.mediaType)}`
 }
 
 /** User-scoped durable file-id reuse for the DeepSeek route. */
@@ -242,6 +242,7 @@ export class DeepSeekFileStore {
         expiresAfterSeconds: policy.expiresAfterSeconds,
         signal,
       }).finally(() => { delete shared.onUploadTimeout })
+      await this.index.markOwned(scope, remote.id, remote.expiresAt * 1_000, this.now())
       if (remote.bytes !== version.data.byteLength) {
         throw new LlmError('DeepSeek Files API upload response does not match the submitted image.', 'INVALID_RESPONSE')
       }
@@ -270,6 +271,7 @@ export class DeepSeekFileStore {
     if (!committed.accepted) {
       try {
         await client.delete(candidate.fileId, signal)
+        await this.index.forgetOwned(scope, [candidate.fileId])
       } catch {
         // The winning mapping is durable. A failed duplicate cleanup affects quota only and is retried by recovery.
       }
@@ -313,11 +315,12 @@ export class DeepSeekFileStore {
     if (record === undefined) return false
     await this.client(connection).delete(record.fileId, signal)
     await this.index.remove(scope, [{ variantId: version.variantId, fileId: record.fileId }])
+    await this.index.forgetOwned(scope, [record.fileId])
     return true
   }
 
   /**
-   * Delete the oldest provider files whose names identify harness ownership.
+   * Delete the oldest provider files recorded in the harness ownership ledger; a filename is never ownership evidence.
    * @param connection - endpoint and API-key snapshot.
    * @param count - positive maximum number of files to delete.
    * @param signal - request cancellation.
@@ -329,6 +332,8 @@ export class DeepSeekFileStore {
     signal?: AbortSignal,
   ): Promise<number> {
     const client = this.client(connection)
+    const scope = fileScope(connection)
+    const ledger = await this.index.ownedIds(scope)
     let after: DeepSeekFileId | undefined
     const owned: { id: DeepSeekFileId; createdAt: number }[] = []
     while (true) {
@@ -338,7 +343,7 @@ export class DeepSeekFileStore {
         ...signal === undefined ? {} : { signal },
       })
       for (const file of page.data) {
-        if (!file.filename.startsWith(OWNED_FILE_PREFIX)) continue
+        if (!ledger.has(file.id)) continue
         owned.push({ id: file.id, createdAt: file.createdAt })
       }
       // The API offers no ascending-order query; retain the oldest candidates across every page.
@@ -347,7 +352,10 @@ export class DeepSeekFileStore {
       if (!page.hasMore || page.lastId === undefined || page.lastId === after) break
       after = page.lastId
     }
-    for (const file of owned) await client.delete(file.id, signal)
+    for (const file of owned) {
+      await client.delete(file.id, signal)
+      await this.index.forgetOwned(scope, [file.id])
+    }
     return owned.length
   }
 

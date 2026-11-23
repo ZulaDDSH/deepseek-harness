@@ -32,6 +32,7 @@ const VERSION: RequestImageAttachment = {
 const CONNECTION = { baseURL: 'https://api.deepseek.com', headers: { 'x-api-key': 'key' } }
 const POLICY = { expiresAfterSeconds: 604_800, refreshMarginSeconds: 3_600, quotaCleanupBatch: 100 }
 const NOW = 1_700_000_000_000
+const SCOPE = deepSeekFileScope(`${CONNECTION.baseURL}/v1`, JSON.stringify(Object.entries(CONNECTION.headers)))
 
 /** Every temp store root created by this file, removed after each test. */
 const roots: string[] = []
@@ -268,13 +269,46 @@ describe('DeepSeekFileStore', () => {
       cursors.push(cursor)
       return new Response(JSON.stringify(cursor === null
         ? { data: [file('newest', 1_000), file('middle', 2_000)], last_id: 'middle', has_more: true }
-        : { data: [file('oldest-owned', 3_000), file('foreign', 4_000, 'user-file.png')], has_more: false }))
+        : { data: [file('oldest-owned', 3_000), file('foreign', 4_000, 'user-file.png'), file('prefix-collision', 5_000)], has_more: false }))
     }
-    const store = new DeepSeekFileStore({ index: new DeepSeekUploadIndex(join(dir, 'index.json')), fetch: fetchImpl, now: () => NOW })
+    const index = new DeepSeekUploadIndex(join(dir, 'index.json'))
+    await index.markOwned(SCOPE, brandString<DeepSeekFileId>('oldest-owned'), NOW + 60_000, NOW)
+    const store = new DeepSeekFileStore({ index, fetch: fetchImpl, now: () => NOW })
     await expect(store.ensureUploaded(VERSION, CONNECTION, { ...POLICY, quotaCleanupBatch: 1 })).resolves.toMatchObject({ record: { fileId: 'file-uploaded' } })
     expect(cursors).toEqual([null, 'middle'])
     expect(deleted).toEqual(['oldest-owned'])
     expect(uploads).toBe(2)
+  })
+
+  it('never deletes a prefix-colliding file this harness did not create, including release-all', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-native-file-foreign-'))
+    roots.push(dir)
+    const deleted: string[] = []
+    const remote = ['file-api-1', 'colliding-other-client']
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url = new URL(requestUrl(input))
+      if (init?.method === 'POST') {
+        return new Response(JSON.stringify({
+          id: 'file-api-1', type: 'file', size_bytes: 3, created_at: new Date(NOW).toISOString(),
+          filename: 'dsh-mine.png', mime_type: 'image/png',
+        }))
+      }
+      if (init?.method === 'DELETE') {
+        const id = url.pathname.split('/').at(-1) as string
+        deleted.push(id)
+        return new Response(JSON.stringify({ id, type: 'file_deleted' }))
+      }
+      return new Response(JSON.stringify({
+        data: remote.map(id => ({ id, type: 'file', size_bytes: 3, created_at: new Date(NOW).toISOString(), filename: 'dsh-same-prefix.png', mime_type: 'image/png' })),
+        has_more: false,
+      }))
+    }
+    const store = new DeepSeekFileStore({ index: new DeepSeekUploadIndex(join(dir, 'index.json')), fetch: fetchImpl, now: () => NOW })
+    await store.ensureUploaded(VERSION, CONNECTION, POLICY)
+    await expect(store.releaseAll(CONNECTION)).resolves.toBe(1)
+    expect(deleted).toEqual(['file-api-1'])
+    await expect(store.reclaimOldestOwned(CONNECTION, 10)).resolves.toBe(0)
+    expect(deleted).toEqual(['file-api-1'])
   })
 
   it('singleflights the first upload and reuses the durable mapping across store instances', async () => {
@@ -604,11 +638,9 @@ describe('DeepSeekFileStore', () => {
         first_id: 'file-api-old', last_id: 'file-api-old', has_more: false,
       }), { status: 200 }))
     }) as typeof fetch
-    const store = new DeepSeekFileStore({
-      index: new DeepSeekUploadIndex(join(dir, 'index.json')),
-      now: () => NOW,
-      fetch: fetchImpl,
-    })
+    const index = new DeepSeekUploadIndex(join(dir, 'index.json'))
+    await index.markOwned(SCOPE, brandString<DeepSeekFileId>('file-api-old'), NOW + 60_000, NOW)
+    const store = new DeepSeekFileStore({ index, now: () => NOW, fetch: fetchImpl })
 
     await expect(store.ensureUploaded(VERSION, CONNECTION, POLICY)).resolves.toMatchObject({
       record: { fileId: 'file-api-recovered' }, uploaded: true,
@@ -668,11 +700,9 @@ describe('DeepSeekFileStore', () => {
         has_more: after === null,
       }), { status: 200 })
     }) as typeof fetch
-    const store = new DeepSeekFileStore({
-      index: new DeepSeekUploadIndex(join(dir, 'index.json')),
-      now: () => NOW,
-      fetch: fetchImpl,
-    })
+    const index = new DeepSeekUploadIndex(join(dir, 'index.json'))
+    for (const id of ['file-api-oldest', 'file-api-next']) await index.markOwned(SCOPE, brandString<DeepSeekFileId>(id), NOW + 60_000, NOW)
+    const store = new DeepSeekFileStore({ index, now: () => NOW, fetch: fetchImpl })
 
     await expect(store.reclaimOldestOwned(CONNECTION, 2)).resolves.toBe(2)
     expect([...deleted]).toEqual(['file-api-oldest', 'file-api-next'])
