@@ -888,15 +888,12 @@ export class SessionProjectionRegistry extends Service {
     const observed = this.listeners.size > 0 || this.eventListeners.size > 0
     const changes: { key: Extract<keyof SessionProjectionMap, string>; val: unknown }[] = []
     const failures: unknown[] = []
-    try {
-      for (const registration of this.registrations.values()) {
-        try {
+    for (const registration of this.registrations.values()) {
+      try {
         if (registration.refs === 0) continue
         let cell = registration.cells.get(session)
         if (cell !== undefined && cell.observedSeq >= event.seq) continue
         if (cell === undefined) {
-          // Late build mid-stream: fold history before this event (seq = log
-          // index, so the prefix slice is exact), then take the normal gate.
           cell = this.buildCell(
             registration.def,
             session.header,
@@ -940,24 +937,23 @@ export class SessionProjectionRegistry extends Service {
             views[1] = undefined
           }
         }
+      } catch (error) {
+        failures.push(error)
+      }
+    }
+    if (changes.length > 0) {
+      for (const listener of this.eventListeners) {
+        try {
+          listener(session, changes, event.seq)
         } catch (error) {
           failures.push(error)
         }
-        // An unchanged state keeps its current view as the valid comparison
-        // value for the next state change.
-      }
-    } finally {
-      if (changes.length > 0) {
-        for (const listener of this.eventListeners) {
-          try {
-            listener(session, changes, event.seq)
-          } catch (error) {
-            failures.push(error)
-          }
-        }
       }
     }
-    if (failures.length > 0) throw failures[0]
+    if (failures.length === 1) throw failures[0]
+    if (failures.length > 1) {
+      throw new AggregateError(failures, `${failures.length} projection drive failures: ${failures.map(String).join('; ')}`)
+    }
   }
 
   /** Return one schema-validated wire value. */

@@ -283,10 +283,24 @@ describe('SessionProjectionRegistry drive', () => {
     expect(events).toEqual([{ changes: [{ key: 'test/marks', val: { marks: ['a'] } }], seq: event.seq }])
   })
 
+  it('rethrows a single drive failure unwrapped', async () => {
+    const { ctx, session } = await harness()
+    await ctx.sessionProjections.register(marksUnit())
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    ctx.sessionProjections.onEventChanged(() => { throw new Error('only failure') })
+
+    mark(session, ['a'])
+
+    expect(warn).toHaveBeenCalledOnce()
+    expect(String(warn.mock.calls[0]?.[0])).toContain('Error: only failure')
+    expect(String(warn.mock.calls[0]?.[0])).not.toContain('AggregateError')
+  })
+
   it('keeps driving later units and listeners after an earlier unit or listener throws', async () => {
     const { ctx, session } = await harness()
     await ctx.sessionProjections.register(stableViewUnit(() => ({ marks: 1 }) as never))
     await ctx.sessionProjections.register(marksUnit())
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     const keyed: string[] = []
     const events: { changes: readonly { key: string; val: unknown }[]; seq: SessionSeq }[] = []
     ctx.sessionProjections.onChanged((_session, key) => {
@@ -300,6 +314,8 @@ describe('SessionProjectionRegistry drive', () => {
 
     expect(keyed).toEqual(['test/marks'])
     expect(events).toEqual([{ changes: [{ key: 'test/marks', val: { marks: ['a'] } }], seq: event.seq }])
+    expect(warn).toHaveBeenCalledOnce()
+    expect(String(warn.mock.calls[0]?.[0])).toMatch(/AggregateError: 3 projection drive failures[\s\S]*Error: listener failed; Error: event listener failed/u)
   })
 
   it('computes views for an event listener alone and stops after its disposer runs', async () => {
