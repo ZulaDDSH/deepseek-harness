@@ -227,7 +227,7 @@ Recovery results append after the existing history and preserve its reusable pre
 These limits define when the loop needs special care. They are current package constraints, not a task backlog.
 
 - **Classification is unary** — calls whose safety depends on comparing siblings or resources must remain exclusive ([rationale](../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md)).
-- **Root shutdown persistence** — shutting down the root context with an active Agent can leave its final `turn/end` in memory but absent from the persisted log. Agent teardown completing does not guarantee that this event was saved.
+- **Root shutdown persistence** — the loop holds a dependent fiber on `sessionPersistence`, so a persistence provider unloads only after the loop's agents finished teardown and drained their final events, including the closing `turn/end` of an active turn. This ordering holds in either mount order. A consumer other than this loop that writes through its own persistence handle must order its own teardown the same way; the guarantee covers only agents this loop created.
 - **Previously closed inconsistent history** — failed-step recovery does not rewrite unanswered calls in already-closed historical turns.
 - **Config labels are fresh by default** — omitting `sessionId` creates a fresh `${id}-session-<uuid>` on every startup; exact resume-or-create behavior requires an explicit stable `sessionId`, while `resumeSessionId` requires existing persisted history.
 - **Config agents have no per-agent persona field or setup hook** — they use the deployment persona; scoped persona and tool composition are available only through the programmatic `ctx.agents.create()` / `resume()` factory options.

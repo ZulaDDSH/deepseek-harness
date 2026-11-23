@@ -331,6 +331,10 @@ export class AgentLoop extends Service implements AgentFactory {
     const ownership = this.ownership
     // Agent projections remain readable until teardown finishes.
     ctx.effect(() => () => ownership.dispose(), 'agentLoop.transactions()')
+    // Dependent fiber: constraint, a persistence provider unloads only after this factory's agents drained.
+    ctx.effect(() => ctx.inject(['sessionPersistence'], (childCtx: Context) => {
+      childCtx.effect(() => async () => { if (!ownership.isActive()) await ownership.dispose() }, 'agentLoop.persistenceDrain()')
+    }).dispose, 'agentLoop.persistenceDependency()')
     this.modelProjectionHandle = await ctx.sessionProjections.register(modelSelectionProjectionDefinition)
     this.inboxProjectionHandle = await ctx.sessionProjections.register(inboxProjectionDefinition)
     await ctx.sessionProjections.register(cliTerminalProjectionDefinition)
