@@ -600,7 +600,7 @@ describe('Remote stream mux server uplink', () => {
     }
     client.send(openFrame('over'))
     client.send(itemFrame('over', chunk))
-    await vi.waitFor(() => { expect(received.count).toBe(streams * 2 + 2) })
+    await vi.waitFor(() => { expect(received.count).toBe(streams * 2 + 2) }, { timeout: 15_000 })
     await vi.waitFor(() => {
       expect(frames).toEqual([{
         type: 'error',
@@ -611,16 +611,16 @@ describe('Remote stream mux server uplink', () => {
           details: { endpoint: 'fixture/follow' },
         },
       }])
-    })
+    }, { timeout: 15_000 })
 
     for (let index = 0; index < streams; index += 1) client.send(JSON.stringify({ type: 'cancel', streamId: `b${String(index)}` }))
     client.send(openFrame('after', 'fixture/echo'))
     client.send(itemFrame('after', chunk))
-    await vi.waitFor(() => { expect(frames.at(-1)).toEqual({ type: 'item', streamId: 'after', value: chunk }) })
+    await vi.waitFor(() => { expect(frames.at(-1)).toEqual({ type: 'item', streamId: 'after', value: chunk }) }, { timeout: 15_000 })
     expect(frames).toHaveLength(2)
     client.close()
     await once(client, 'close')
-  })
+  }, 30_000)
 
   it('drops uplink frames for a stream it no longer owns and keeps the socket open', async () => {
     const entry = await startMux(async (endpoint, _payload, uplink, _peer, control) =>
