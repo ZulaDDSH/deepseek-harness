@@ -292,9 +292,11 @@ export class MemoryAutomation {
         const pending = context.agent === undefined || !config.chatMemory() ? undefined : this.recalls.get(context.agent.session.id)
         if (pending === undefined) return result
         const text = await new Promise<string>((resolve) => {
-          if (context.signal?.aborted === true) { resolve(''); return }
-          context.signal?.addEventListener('abort', () => { resolve('') }, { once: true })
-          void pending.then(resolve)
+          const signal = context.signal
+          if (signal?.aborted === true) { resolve(''); return }
+          const abort = (): void => { resolve('') }
+          signal?.addEventListener('abort', abort, { once: true })
+          void pending.then(resolve).finally(() => { signal?.removeEventListener('abort', abort) })
         })
         const admitted = config.chatMemory() ? text : ''
         return { ...result, contexts: result.contexts.map(entry => entry.name === 'memory:recall' ? { ...entry, text: admitted } : entry) }

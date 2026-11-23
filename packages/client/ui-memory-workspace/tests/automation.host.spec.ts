@@ -4,6 +4,7 @@ import { createVolatile, updateVolatile, type Volatile } from '@deepseek-ai/cosm
 import { DatabaseSync } from 'node:sqlite'
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
+import { getEventListeners } from 'node:events'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -697,6 +698,35 @@ describe('Memory policy and first-message recall', () => {
     const assembly = await ctx.systemPrompt.assemble({ agent: { session: { id: 'abort' } }, signal: turn.signal } as never)
     expect(Date.now() - started).toBeLessThan(1500)
     expect(assembly.contexts.find(context => context.name === 'memory:recall')?.text).toBe('')
+  })
+
+  it('leaves no abort listener on the turn signal after the recall has settled', async () => {
+    const search = 'Found 1 observation(s):\n| obs:1@fixture | x |'
+    const { ctx, db } = await fixture({ search })
+    await ctx.plugin(SystemPrompt)
+    db.prepare('INSERT INTO observations(entityName, title, narrative, topicKey, createdAt) VALUES (?, ?, ?, ?, ?)')
+      .run(workspaceEntity(CWD), 'Turn 1: earlier', 'earlier narrative', 'dsh-session:old:1:turn:1', '2020-01-01T00:00:00.000Z')
+    inbox(ctx, session('listeners'), 'earlier')
+    const turn = new AbortController()
+    const baseline = getEventListeners(turn.signal, 'abort').length
+    for (let step = 0; step < 5; step += 1) {
+      const assembly = await ctx.systemPrompt.assemble({ agent: { session: { id: 'listeners' } }, signal: turn.signal } as never)
+      expect(assembly.contexts.find(context => context.name === 'memory:recall')?.text).toContain('earlier narrative')
+    }
+    expect(getEventListeners(turn.signal, 'abort')).toHaveLength(baseline)
+  })
+
+  it('registers no abort listener for an already aborted turn signal', async () => {
+    const { ctx } = await fixture()
+    await ctx.plugin(SystemPrompt)
+    inbox(ctx, session('gone'), 'anything')
+    const turn = new AbortController()
+    turn.abort()
+    const add = vi.spyOn(turn.signal, 'addEventListener')
+    const assembly = await ctx.systemPrompt.assemble({ agent: { session: { id: 'gone' } }, signal: turn.signal } as never)
+    expect(assembly.contexts.find(context => context.name === 'memory:recall')?.text).toBe('')
+    expect(getEventListeners(turn.signal, 'abort')).toHaveLength(0)
+    expect(add).not.toHaveBeenCalledWith('abort', expect.anything(), expect.anything())
   })
 
   it('drops the recalled notes the moment the chat-memory switch is turned off', async () => {
