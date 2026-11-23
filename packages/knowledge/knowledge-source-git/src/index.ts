@@ -177,7 +177,7 @@ export async function listSourceFiles(
   resolved: ResolvedGitSource,
   paths: readonly string[],
 ): Promise<string[]> {
-  const args: [string, ...string[]] = ['ls-files', '--cached', '--', ...paths]
-  const stdout = await gitOrThrow(args, resolved.root)
-  return stdout.split('\n').map(line => line.trim()).filter(line => line.length > 0)
+  const result = await git(['ls-files', '-z', '--cached', '--', ...paths], resolved.root)
+  if (result.code !== 0) throw new Error(`git ls-files failed: ${result.stderr.trim() || `exit code ${result.code}`}`)
+  return result.stdout.split('\0').filter(path => path.length > 0)
 }

@@ -131,6 +131,26 @@ describe('git knowledge source', () => {
     expect(files).not.toContain('src/ignored.ts')
   })
 
+  it('lists tracked names exactly, including non-ASCII and leading spaces', async () => {
+    const names = ['knowledge/café.md', 'knowledge/日本語.md', 'knowledge/ spaced.md']
+    for (const name of names) await commitFile(name, name, `add ${name}`)
+    const resolved = await resolveGitSource({ repo, ref: 'master', paths: [] })
+    expect((await listSourceFiles(resolved, ['knowledge/**'])).sort()).toEqual([...names].sort())
+    await rm(join(repo, 'knowledge'), { recursive: true })
+    await git(['add', '-A'])
+    await git(['commit', '-m', 'flatten'])
+    await commitFile(' lead.md', 'x', 'leading')
+    const flat = await resolveGitSource({ repo, ref: 'master', paths: [] })
+    expect(await listSourceFiles(flat, [])).toEqual([' lead.md'])
+  })
+
+  it.skipIf(process.platform === 'win32')('lists names with tabs, newlines, and trailing spaces exactly', async () => {
+    const names = ['a\tb.md', 'line\nbreak.md', 'trail .md', 'end ']
+    for (const name of names) await commitFile(name, name, `add ${JSON.stringify(name)}`)
+    const resolved = await resolveGitSource({ repo, ref: 'master', paths: [] })
+    expect((await listSourceFiles(resolved, [])).sort()).toEqual([...names].sort())
+  })
+
   it('reports the new commit after the source changes', async () => {
     const first = await commitFile('knowledge/runbook.md', '# Runbook v1', 'runbook v1')
     const before = await resolveGitSource({ repo, ref: 'master', paths: ['knowledge/**'] })
