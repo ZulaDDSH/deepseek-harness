@@ -132,7 +132,7 @@ describe('apply', () => {
     onTestFinished(async () => { await ctx.fiber.dispose() })
     ctx.provide('sidebarRight', { openResource: vi.fn() })
     ctx.provide('inputTriggers', { registerSource: () => () => {} })
-    ctx.provide('sessions', { subagentAddress: () => undefined })
+    ctx.provide('sessions', { subagentAddress: () => undefined, list: { getSnapshot: () => ({ projectionsBySession: {} }), subscribe: () => () => {} } })
     new TestRemote(ctx, { skills: { list: listOk(CATALOG) } })
     const presentation = providePresentation(ctx)
     await ctx.plugin({ inject: [...inject], apply }).await()
@@ -182,7 +182,7 @@ describe('apply', () => {
     onTestFinished(async () => { await ctx.fiber.dispose() })
     ctx.provide('sidebarRight', { openResource: vi.fn() })
     // InputTriggerService itself injects 'sessions'; the stub unblocks its fiber.
-    ctx.provide('sessions', {})
+    ctx.provide('sessions', { list: { getSnapshot: () => ({ projectionsBySession: {} }), subscribe: () => () => {} } })
     await ctx.plugin(InputTriggerService).await()
     new TestRemote(ctx, { skills: { list: listOk(CATALOG) } })
     const presentation = providePresentation(ctx)
@@ -604,5 +604,119 @@ describe('reference preview', () => {
     expect(source.openReference!(proj('child'), { ref: '/review' })).toBe(false)
     expect(list).not.toHaveBeenCalled()
     expect(openResource).not.toHaveBeenCalled()
+  })
+})
+
+function setDirectory(sessions: TestSessions, id: string, directory: string | null) {
+  sessions.list.update((draft) => {
+    draft.projectionsBySession[sid(id)] = { values: { workingDirectory: directory }, state: 'ready', error: null } as never
+  })
+}
+
+describe('working directory and retention', () => {
+  it('re-reads the catalog once the Session directory moves, and not while it holds still', async () => {
+    const { list, payloads } = countingList()
+    const { sessions, source } = await bench(list)
+    setDirectory(sessions, 's1', '/a')
+    await source.candidates(proj('s1'), req(''))
+    setDirectory(sessions, 's1', '/a')
+    expect(source.lexicon!(proj('s1'))).toEqual(['commit-helper', 'code-review', 'deploy'])
+    expect(payloads).toHaveLength(1)
+    setDirectory(sessions, 's1', '/b')
+    expect(source.lexicon!(proj('s1'))).toBeUndefined()
+    await source.candidates(proj('s1'), req(''))
+    expect(payloads).toHaveLength(2)
+  })
+
+  it('discards a read that was in flight when the directory moved', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const payloads: object[] = []
+    const { sessions, source } = await bench(async (payload) => {
+      payloads.push(payload)
+      await gate
+      return listOk(CATALOG)(payload)
+    })
+    setDirectory(sessions, 's1', '/a')
+    const stale = source.candidates(proj('s1'), req('')).then(() => 'settled', () => 'aborted')
+    setDirectory(sessions, 's1', '/b')
+    release()
+    await expect(stale).resolves.toBe('aborted')
+    expect(source.lexicon!(proj('s1'))).toBeUndefined()
+    await expect(source.candidates(proj('s1'), req(''))).resolves.toHaveLength(3)
+    expect(payloads).toEqual([{ sessionId: 's1' }])
+  })
+
+  it('serves an incomplete catalog to its caller once and refetches on the next read', async () => {
+    let complete = false
+    const payloads: object[] = []
+    const { source } = await bench((payload) => {
+      payloads.push(payload)
+      return Promise.resolve({ ok: true as const, value: { skills: CATALOG.slice(0, 1), ...complete ? {} : { incomplete: true } } })
+    })
+    await expect(source.candidates(proj('s1'), req(''))).resolves.toEqual([
+      { name: 'commit-helper', description: 'commit flow' },
+    ])
+    expect(source.lexicon!(proj('s1'))).toBeUndefined()
+    complete = true
+    await expect(source.candidates(proj('s1'), req(''))).resolves.toHaveLength(1)
+    expect(source.lexicon!(proj('s1'))).toEqual(['commit-helper'])
+    expect(payloads).toHaveLength(2)
+  })
+
+  it('drops a settled catalog once its last lexicon observer unsubscribes', async () => {
+    const { list, payloads } = countingList()
+    const { source } = await bench(list)
+    const off = source.subscribeLexicon!(proj('s1'), vi.fn())
+    await source.candidates(proj('s1'), req(''))
+    off()
+    expect(source.lexicon!(proj('s1'))).toBeUndefined()
+    await source.candidates(proj('s1'), req(''))
+    expect(payloads).toHaveLength(2)
+  })
+
+  it('drops a catalog that settles after its last observer left, and keeps one while an observer remains', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const payloads: object[] = []
+    const { source } = await bench(async (payload) => {
+      payloads.push(payload)
+      await gate
+      return listOk(CATALOG)(payload)
+    })
+    const first = vi.fn()
+    const second = vi.fn()
+    const offFirst = source.subscribeLexicon!(proj('s1'), first)
+    const offSecond = source.subscribeLexicon!(proj('s1'), second)
+    const pending = source.candidates(proj('s1'), req(''))
+    offFirst()
+    release()
+    await pending
+    expect(source.lexicon!(proj('s1'))).toEqual(['commit-helper', 'code-review', 'deploy'])
+    offSecond()
+    expect(source.lexicon!(proj('s1'))).toBeUndefined()
+    await source.candidates(proj('s1'), req(''))
+    expect(payloads).toHaveLength(2)
+  })
+
+  it('evicts a catalog whose every observer left before it settled', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const payloads: object[] = []
+    const { source } = await bench(async (payload) => {
+      payloads.push(payload)
+      await gate
+      return listOk(CATALOG)(payload)
+    })
+    const offFirst = source.subscribeLexicon!(proj('s1'), vi.fn())
+    const offSecond = source.subscribeLexicon!(proj('s1'), vi.fn())
+    const pending = source.candidates(proj('s1'), req(''))
+    offFirst()
+    offSecond()
+    release()
+    await pending
+    expect(source.lexicon!(proj('s1'))).toBeUndefined()
+    await source.candidates(proj('s1'), req(''))
+    expect(payloads).toHaveLength(2)
   })
 })

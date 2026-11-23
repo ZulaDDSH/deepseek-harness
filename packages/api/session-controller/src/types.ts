@@ -279,6 +279,7 @@ export interface SkillEntry {
 /** Human-invocable skills visible through one Session's composition. */
 export interface SkillListValue {
   readonly skills: readonly SkillEntry[]
+  readonly incomplete?: true
 }
 
 /** Session list request. */
