@@ -68,6 +68,7 @@ interface BenchOptions {
   onWhenIdle?: (agent: Agent) => void
   /** Release child cleanup after the observed parent activity ends. */
   afterIdle?: () => void
+  onDispose?: (order: string[]) => Promise<void>
 }
 
 const frameStates = new WeakMap<Agent, { attemptId: LlmAttemptId; revision: number; index: number }>()
@@ -208,13 +209,13 @@ async function bench(script: Script, options: BenchOptions = {}): Promise<{
       })
       script.before?.(session)
       const agent = await mount(ownerCtx, session, createOptions)
-      return { agent, dispose: () => Promise.resolve() }
+      return { agent, dispose: () => { order.push('dispose'); return options.onDispose?.(order) ?? Promise.resolve() } }
     },
     async resume(ownerCtx: Context, resumeOptions: ResumeAgentOptions): Promise<AgentHandle> {
       const session = ctx.sessions.get(resumeOptions.resumeSessionId)
       if (session === undefined) throw new Error(`no attached Session ${resumeOptions.resumeSessionId}`)
       const agent = await mount(ownerCtx, session, resumeOptions)
-      return { agent, dispose: () => Promise.resolve() }
+      return { agent, dispose: () => { order.push('dispose'); return options.onDispose?.(order) ?? Promise.resolve() } }
     },
   })
   if (options.omitSessionQuery !== true && (options.sessionId !== undefined || options.observe !== undefined)) {
@@ -254,6 +255,53 @@ async function bench(script: Script, options: BenchOptions = {}): Promise<{
 }
 
 describe('headless runner', () => {
+  it('retires the Agent so owned jobs settle before the output and the exit request', async () => {
+    const hold = Promise.withResolvers<undefined>()
+    const test = await bench({ afterPrompt(session, message) { appendTurn(session, 1, message, 'final answer', true) } }, {
+      onDispose: async () => { await hold.promise },
+    })
+    try {
+      const run = test.run()
+      await new Promise(resolve => setTimeout(resolve, 20))
+      expect(test.output().order).toEqual(['flush', 'dispose'])
+      expect(test.output().out).toBe('')
+      hold.resolve(undefined)
+      await expect(run).resolves.toMatchObject({ code: 0, out: 'final answer\n', order: ['flush', 'dispose', 'exit'] })
+    } finally { await test.ctx.fiber.dispose() }
+  })
+
+  it('retires the Agent before reporting a live failure', async () => {
+    const test = await bench({ afterPrompt(_session, _message, agent) { agent.ctx.emit('agent/error', { agent, turn: 1, step: 1, error: new Error('model unavailable') }) } })
+    try {
+      const result = await test.run()
+      expect(result.code).toBe(1)
+      expect(result.order.indexOf('dispose')).toBeGreaterThan(-1)
+      expect(result.order.indexOf('dispose')).toBeLessThan(result.order.indexOf('exit'))
+    } finally { await test.ctx.fiber.dispose() }
+  })
+
+  it('reports a failed Agent disposal without changing the exit code', async () => {
+    const test = await bench({ afterPrompt(session, message) { appendTurn(session, 1, message, 'final answer', true) } }, {
+      onDispose: () => Promise.reject(new Error('writer closed')),
+    })
+    try {
+      await expect(test.run()).resolves.toMatchObject({ code: 0, out: 'final answer\n' })
+      expect(test.output().err).toContain('Agent teardown failed: writer closed')
+    } finally { await test.ctx.fiber.dispose() }
+  })
+
+  it('retires the Agent when the tree is disposed while the run is still waiting', async () => {
+    const blocked = Promise.withResolvers<undefined>()
+    const test = await bench({ afterPrompt: () => blocked.promise })
+    const run = test.run()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(test.output().order).toEqual([])
+    await test.ctx.fiber.dispose()
+    expect(test.output().order).toEqual(['dispose'])
+    blocked.resolve(undefined)
+    void run.catch(() => undefined)
+  })
+
   it('does not reuse an earlier completed reason when the final turn has no terminal event', async () => {
     const test = await bench({ afterPrompt(session, message) {
       appendTurn(session, 1, message, 'earlier answer', true)
@@ -537,7 +585,7 @@ describe('headless runner', () => {
       code: 0,
       out: 'final answer\n',
       err: '',
-      order: ['flush', 'exit'],
+      order: ['flush', 'dispose', 'exit'],
     })
     await test.ctx.fiber.dispose()
   })
@@ -631,7 +679,7 @@ describe('headless runner', () => {
       code: 0,
       out: 'done\n',
       err: 'dsh: reasoning:\nchecking the workspace safely\nsecond pass\n',
-      order: ['flush', 'exit'],
+      order: ['flush', 'dispose', 'exit'],
     })
     await test.ctx.fiber.dispose()
   })
