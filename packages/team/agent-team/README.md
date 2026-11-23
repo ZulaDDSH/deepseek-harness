@@ -125,7 +125,7 @@ Reassignment resolves the root or a continuable descendant through the same disc
 
 ### Messages and historical mailbox
 
-Peer messaging, Steer delivery, cold resume, and sender framing belong to the subagent runtime. Historical `team/message/queued` and `team/message/delivered` records and `team-message` sources remain decodable but are never delivered or acknowledged.
+Peer messaging, Steer delivery, cold resume, and sender framing belong to the subagent runtime. Historical `team/message/queued` and `team/message/delivered` records and `team-message` sources remain decodable. The runtime never delivers or acknowledges them on its own; an upgraded Lead decides each unacknowledged message explicitly. `agentTeams.pendingHistoricalMessages(caller)` lists them (also visible as `historicalMessages[].delivered === false` in the `agentTeam` projection). `agentTeams.recoverHistoricalMessage(lead, messageId, 'replay' | 'discard')` runs in the Lead's journal transaction: `discard` only appends the `team/message/delivered` acknowledgement; `replay` sends the content to the target through the subagent inbox (prefixed with the original sender) and then acknowledges it. A message already acknowledged returns `already-resolved`. If the target Session already holds a `team-message` delivery for that id (a lost acknowledgement), `replay` acknowledges without resending. Replay is at-least-once: a crash after the send and before the acknowledgement flushes resends on the next replay, so a Lead that cannot tell should discard. An unreachable target makes `replay` throw and leaves the message pending.
 
 ### Shared task board
 
@@ -198,7 +198,7 @@ These limits describe what a team cannot do yet or what needs special operationa
 - **Communication stays within one tree** — members cannot message unrelated Teams; only ancestors can interrupt descendants.
 - **Membership needs a live Team root** — members keep their Team role when an intermediate creator finishes or is released; a missing root leaves them without an active Team.
 - **No automatic ownership release** — inactivity, interruption, process exit, and failed work do not release a task owner.
-- **Historical queued messages stay undelivered** — `team/message/queued` records without a matching delivery remain readable in the Lead log, but no member receives them.
+- **Historical queued messages need an explicit decision** — `team/message/queued` records without a matching delivery stay pending and undelivered until the Lead calls `recoverHistoricalMessage` with `replay` or `discard`; nothing replays them automatically. Replay is at-least-once.
 
 <a id="dev-note"></a>
 ### Dev Note

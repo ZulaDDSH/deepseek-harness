@@ -18,7 +18,7 @@ import { mountWorkingDirectoryFixture } from '../../../subagent/subagent/tests/w
 import { bindSubagentActivation } from '../../../subagent/subagent/tests/manager-internals.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import TeamService from '../src/index.ts'
-import type { TeamId, TeamTaskId } from '../src/types.ts'
+import type { TeamId, TeamMessageId, TeamTaskId } from '../src/types.ts'
 import { teamProjectionDefinition } from '../src/projection.ts'
 import type { TeamProjectionState } from '../src/projection.ts'
 import { TestSessionQuery } from './test-session-query.ts'
@@ -902,4 +902,66 @@ describe('Task-board persistence', () => {
     expect(ctx.agentTeams.getTask(lead, taskId)).toMatchObject({ revision: 2, ownerId: lead.id })
   })
 
+})
+
+describe('Historical mailbox recovery', () => {
+  function legacy(lead: Agent, targetId: SessionId, id: string, delivered: boolean) {
+    const teamId = brandString<TeamId>(lead.id)
+    const messageId = brandString<TeamMessageId>(id)
+    lead.session.append('team/message/queued', { version: 2, teamId, message: {
+      id: messageId, senderId: lead.id, senderName: 'lead', targetId, content: content(`legacy ${id}`),
+    } })
+    if (delivered) lead.session.append('team/message/delivered', { version: 2, teamId, messageId, targetId })
+    return messageId
+  }
+
+  it('lists only unacknowledged messages and replays or discards each exactly once', async () => {
+    const { ctx, lead } = await setup(['hang'])
+    const { childId } = await spawn(ctx, lead, 'worker')
+    await waitRunning(ctx, childId)
+    const send = vi.spyOn(ctx.subagents, 'sendMessage')
+    const acked = legacy(lead, childId, 'acked', true)
+    const replay = legacy(lead, childId, 'replay-me', false)
+    const discard = legacy(lead, childId, 'discard-me', false)
+    expect(ctx.agentTeams.pendingHistoricalMessages(lead).map(message => message.id)).toEqual([replay, discard])
+
+    await expect(ctx.agentTeams.recoverHistoricalMessage(lead, replay, 'replay')).resolves.toBe('replayed')
+    await expect(ctx.agentTeams.recoverHistoricalMessage(lead, replay, 'replay')).resolves.toBe('already-resolved')
+    await expect(ctx.agentTeams.recoverHistoricalMessage(lead, discard, 'discard')).resolves.toBe('discarded')
+    await expect(ctx.agentTeams.recoverHistoricalMessage(lead, acked, 'replay')).resolves.toBe('already-resolved')
+    expect(ctx.agentTeams.pendingHistoricalMessages(lead)).toEqual([])
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(send.mock.calls[0]?.[1]).toBe(childId)
+    expect(send.mock.calls[0]?.[2]).toEqual([expect.objectContaining({ text: expect.stringContaining('replay-me') }), ...content('legacy replay-me')])
+    expect(durable(lead).historicalDelivered.map(delivery => delivery.messageId)).toEqual([acked, replay, discard])
+  })
+
+  it('acknowledges without resending when the target already recorded the legacy delivery', async () => {
+    const { ctx, lead } = await setup(['hang'])
+    const { childId } = await spawn(ctx, lead, 'worker')
+    const child = await waitRunning(ctx, childId)
+    const send = vi.spyOn(ctx.subagents, 'sendMessage')
+    const id = legacy(lead, childId, 'lost-ack', false)
+    child.session.append('user/message', createUserMessage({
+      content: content('legacy lost-ack'),
+      source: { kind: 'team-message', teamId: brandString<TeamId>(lead.id), messageId: id, senderId: lead.id, senderName: 'lead' },
+    }), { surfaceOp: 'append' })
+    await expect(ctx.agentTeams.recoverHistoricalMessage(lead, id, 'replay')).resolves.toBe('already-delivered')
+    expect(send).not.toHaveBeenCalled()
+    expect(ctx.agentTeams.pendingHistoricalMessages(lead)).toEqual([])
+  })
+
+  it('keeps a message pending when the target cannot be reached, and refuses unknown ids and non-leads', async () => {
+    const { ctx, lead } = await setup(['hang'])
+    const { childId } = await spawn(ctx, lead, 'worker')
+    const child = await waitRunning(ctx, childId)
+    const missing = legacy(lead, brandString<SessionId>('gone-worker'), 'orphan', false)
+    await expect(ctx.agentTeams.recoverHistoricalMessage(lead, missing, 'replay')).rejects.toThrow()
+    expect(ctx.agentTeams.pendingHistoricalMessages(lead).map(message => message.id)).toEqual([missing])
+    await expect(ctx.agentTeams.recoverHistoricalMessage(lead, missing, 'discard')).resolves.toBe('discarded')
+    await expect(ctx.agentTeams.recoverHistoricalMessage(lead, brandString<TeamMessageId>('nope'), 'discard'))
+      .rejects.toMatchObject({ code: 'TEAM_MESSAGE_UNKNOWN' })
+    await expect(ctx.agentTeams.recoverHistoricalMessage(child, missing, 'discard'))
+      .rejects.toMatchObject({ code: 'TEAM_LEAD_REQUIRED' })
+  })
 })

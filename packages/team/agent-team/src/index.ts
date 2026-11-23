@@ -11,7 +11,8 @@ import { TeamError } from './error.ts'
 import { TeamJournal } from './journal.ts'
 import { teamProjectionDefinition, type TeamProjectionState } from './projection.ts'
 import { TeamTaskBoard } from './task-board.ts'
-import type { TeamTaskId } from './types.ts'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import type { TeamId, TeamMessageId, TeamMessageSnapshot, TeamTaskId } from './types.ts'
 import type {
   Config,
   CreateTeamTaskRequest,
@@ -160,6 +161,56 @@ export class TeamService extends TypertRemoteService {
     return await this.tasks.update(caller, this.ctx.subagents.rootOf(caller), request, signal)
   }
 
+  pendingHistoricalMessages(caller: Agent): TeamMessageSnapshot[] {
+    const state = this.projection.stateOf(this.ctx.subagents.rootOf(caller).session)
+    return state.historicalMessages.filter(message => !isAcknowledged(state, message))
+  }
+
+  // Invariant: the acknowledgement is appended only after the replayed send was accepted.
+  async recoverHistoricalMessage(
+    caller: Agent,
+    messageId: TeamMessageId,
+    decision: 'replay' | 'discard',
+    signal: AbortSignal = new AbortController().signal,
+  ): Promise<'replayed' | 'discarded' | 'already-delivered' | 'already-resolved'> {
+    const root = this.ctx.subagents.rootOf(caller)
+    if (root !== caller) throw new TeamError('recover historical messages from the root Session', 'TEAM_LEAD_REQUIRED')
+    return await this.journal.transact(root.id, async () => {
+      const state = this.journal.state(root)
+      const message = state.historicalMessages.find(candidate => candidate.id === messageId)
+      if (message === undefined) throw new TeamError(`historical message "${messageId}" is not in this Lead log`, 'TEAM_MESSAGE_UNKNOWN')
+      if (isAcknowledged(state, message)) return 'already-resolved'
+      let result: 'replayed' | 'discarded' | 'already-delivered' = 'discarded'
+      if (decision === 'replay') {
+        signal.throwIfAborted()
+        if (this.targetHolds(message)) {
+          result = 'already-delivered'
+        } else {
+          const sender = `Historical Team message ${message.id} from ${message.senderName}:`
+          await this.ctx.subagents.sendMessage(
+            root, message.targetId, [{ type: 'text', text: sender }, ...message.content], { signal },
+          )
+          result = 'replayed'
+        }
+      }
+      root.session.append('team/message/delivered', {
+        version: 2, teamId: brandString<TeamId>(root.id), messageId: message.id, targetId: message.targetId,
+      })
+      await this.ctx.sessions.flush(root.session)
+      return result
+    })
+  }
+
+  private targetHolds(message: TeamMessageSnapshot): boolean {
+    const target = this.ctx.sessions.get(message.targetId)
+    return target?.snapshotEvents().some(event => event.type === 'user/message'
+      && event.data.source?.kind === 'team-message' && event.data.source.messageId === message.id) === true
+  }
+}
+
+function isAcknowledged(state: TeamProjectionState, message: TeamMessageSnapshot): boolean {
+  return state.historicalDelivered.some(delivery =>
+    delivery.messageId === message.id && delivery.targetId === message.targetId)
 }
 
 export default TeamService
