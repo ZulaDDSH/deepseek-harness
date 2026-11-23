@@ -719,6 +719,10 @@ function errorInfo(error: unknown): ToolErrorInfo | undefined {
 }
 
 /** Materialize a non-granting approval outcome as a denial with routable `ApprovalError` identity. */
+function approvalDenial(reason: string, code: ApprovalErrorCode): Extract<PreToolDecision, { kind: 'deny' }> {
+  return { kind: 'deny', reason, info: { name: APPROVAL_ERROR_NAME, code } }
+}
+
 const OPERATION_LIMIT = 1024
 const OPERATION_SECRET_KEY = /pass(word|wd)?|secret|token|api[-_]?key|authorization|credential|cookie/i
 
@@ -739,10 +743,6 @@ function operationSummary(args: unknown): string | undefined {
   const text = JSON.stringify(boundedOperation(args, 0))
   if (text === undefined) return undefined
   return text.length > OPERATION_LIMIT ? `${text.slice(0, OPERATION_LIMIT)}...` : text
-}
-
-function approvalDenial(reason: string, code: ApprovalErrorCode): Extract<PreToolDecision, { kind: 'deny' }> {
-  return { kind: 'deny', reason, info: { name: APPROVAL_ERROR_NAME, code } }
 }
 
 /** Whether a value thrown after cancellation is that cancellation and carries no identity of its own. */

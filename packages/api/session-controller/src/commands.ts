@@ -65,6 +65,10 @@ type PromptContentCandidate =
   | SessionPromptRequest['content'][number]
   | Extract<SessionUpdateQueueRequest['action'], { readonly kind: 'edit' }>['content'][number]
 
+type DefaultSave = NonNullable<SessionSelectModelValue['defaultSave']>
+
+const DEFAULT_SAVE_WAIT_MS = 3000
+
 /**
  * Whether prompt content carries non-whitespace text or an attachment.
  * @param content - submitted or edited prompt parts.
@@ -78,10 +82,6 @@ export function hasPromptContent(content: readonly PromptContentCandidate[]): bo
  * Resolve the omitted-`atSeq` default to the latest completed-turn prefix,
  * including standalone events before the next turn begins.
  */
-type DefaultSave = NonNullable<SessionSelectModelValue['defaultSave']>
-
-const DEFAULT_SAVE_WAIT_MS = 3000
-
 function latestCompletedPrefixBoundary(events: readonly SessionEvent[]): SessionSeq | undefined {
   const lastTurnEnd = events.findLast(event => event.type === 'turn/end')
   if (lastTurnEnd === undefined) return undefined
