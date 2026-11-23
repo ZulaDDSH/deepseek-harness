@@ -69,11 +69,14 @@ window.__ModuleLoader__.load({
         if (!pending) return
         let stopped = false
         let timer
+        let delay = 3000
         const poll = async () => {
           await call('list')
-          if (!stopped) timer = setTimeout(poll, 3000)
+          if (stopped) return
+          delay = Math.min(delay * 2, 30000)
+          timer = setTimeout(poll, delay)
         }
-        timer = setTimeout(poll, 3000)
+        timer = setTimeout(poll, delay)
         return () => {
           stopped = true
           clearTimeout(timer)
