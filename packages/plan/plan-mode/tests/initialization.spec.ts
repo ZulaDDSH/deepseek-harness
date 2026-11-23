@@ -20,7 +20,7 @@ describe('plan-mode activation', () => {
     })
     await mountAgentLoopTestDependencies(ctx)
     await ctx.plugin(AgentLoop, { agents: [] })
-    const adapter = new MockAdapter([textResponse('ready')])
+    const adapter = new MockAdapter([textResponse('ready'), textResponse('done')])
     ctx.llm.registerAdapter(['mock'], adapter)
     const seed = Session.create(brandString<SessionId>('plan-seed'))
     seed.append('plan/mode', { active })
@@ -53,9 +53,9 @@ describe('plan-mode activation', () => {
 
     release.resolve(undefined)
     await fiber
-    agent.followup(prompt)
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'resume the task' }], source: { kind: 'user' } }))
     await agent.whenIdle()
-    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests).toHaveLength(2)
     expect((adapter.requests[0]?.tools ?? []).some(tool => tool.name === 'exit_plan_mode')).toBe(active)
     const text = adapter.requests[0]?.messages.flatMap(message => message.content)
       .filter(block => block.type === 'text').map(block => block.text).join('\n')
