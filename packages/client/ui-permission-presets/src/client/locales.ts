@@ -41,6 +41,8 @@ export const en = {
 /** Simplified Chinese dictionary for the current-session popup gate. */
 export const accessZh = {
   'mode': '访问模式，当前：{name}',
+  'switchFailed': '未能切换，仍为：{name}',
+  'switchRetry': '重试',
   'close': '关闭',
   'preset.readOnly': '仅可查看',
   'preset.workspaceWrite': '工作区内修改',
@@ -65,6 +67,8 @@ export type PermissionAccessKey = keyof typeof accessZh
 /** English dictionary for the current-session popup gate. */
 export const accessEn = {
   'mode': 'Access mode, current: {name}',
+  'switchFailed': 'Not switched; still {name}',
+  'switchRetry': 'Retry',
   'close': 'Close',
   'preset.readOnly': 'Read Only',
   'preset.workspaceWrite': 'Workspace Write',
@@ -182,6 +186,8 @@ export const pt = {
 /** Japanese copy, checked against the English keys. */
 export const accessJa = {
   'mode': 'アクセスモード、現在: {name}',
+  'switchFailed': '切り替えできませんでした。現在: {name}',
+  'switchRetry': '再試行',
   'close': '閉じる',
   'preset.readOnly': '読み取り専用',
   'preset.workspaceWrite': 'ワークスペース書き込み',
@@ -203,6 +209,8 @@ export const accessJa = {
 /** Spanish dictionary, checked against the English keys. */
 export const accessEs = {
   'mode': 'Modo de acceso, actual: {name}',
+  'switchFailed': 'No se cambió; sigue: {name}',
+  'switchRetry': 'Reintentar',
   'close': 'Cerrar',
   'preset.readOnly': 'Sólo lectura',
   'preset.workspaceWrite': 'Escritura en el espacio de trabajo',
@@ -225,6 +233,8 @@ export const accessEs = {
 export const accessFr = {
   'mode': "Mode d'accès, actuel : {name}",
   'close': 'Fermer',
+  'switchFailed': 'Changement impossible ; reste : {name}',
+  'switchRetry': 'Réessayer',
   'preset.readOnly': 'Lecture seule',
   'preset.workspaceWrite': "Écriture dans l'espace de travail",
   'preset.fullAccess': 'Accès complet',
@@ -245,6 +255,8 @@ export const accessFr = {
 /** German dictionary, checked against the English keys. */
 export const accessDe = {
   'mode': 'Zugriffsmodus, aktuell: {name}',
+  'switchFailed': 'Nicht gewechselt; weiterhin: {name}',
+  'switchRetry': 'Erneut versuchen',
   'close': 'Schließen',
   'preset.readOnly': 'Nur lesen',
   'preset.workspaceWrite': 'Arbeitsbereich schreiben',
@@ -266,6 +278,8 @@ export const accessDe = {
 /** Russian dictionary, checked against the English keys. */
 export const accessRu = {
   'mode': 'Режим доступа, текущий: {name}',
+  'switchFailed': 'Не переключено; по-прежнему: {name}',
+  'switchRetry': 'Повторить',
   'close': 'Закрыть',
   'preset.readOnly': 'Только чтение',
   'preset.workspaceWrite': 'Запись в рабочей области',
@@ -287,6 +301,8 @@ export const accessRu = {
 /** Portuguese dictionary, checked against the English keys. */
 export const accessPt = {
   'mode': 'Modo de acesso, atual: {name}',
+  'switchFailed': 'Não alterado; continua: {name}',
+  'switchRetry': 'Tentar novamente',
   'close': 'Fechar',
   'preset.readOnly': 'Somente leitura',
   'preset.workspaceWrite': 'Gravação no espaço de trabalho',

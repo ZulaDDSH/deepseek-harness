@@ -100,3 +100,21 @@
 .chevronOpen {
   transform: rotate(180deg);
 }
+
+.failure {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.retry {
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}

@@ -81,6 +81,7 @@ export function PermissionSelect({
   const catalog = usePermissionCatalog(state => state.value)
   const [pick, setPick] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
+  const [failure, setFailure] = useState<string | null>(null)
   const [confirmation, setConfirmation] = useState<string | null>(null)
   const [acknowledged, setAcknowledged] = useState(false)
 
@@ -121,11 +122,16 @@ export function PermissionSelect({
   })
 
   const submit = (id: string): void => {
+    setFailure(null)
     setPick(id)
     void select(id)
-      .catch(() => false)
-      .then(() => { setPick(null) })
+      .then(ok => ok, () => false)
+      .then((ok) => {
+        if (!ok) setFailure(id)
+        setPick(null)
+      })
   }
+  const failed = failure !== null && failure !== selection.currentValue ? failure : null
 
   const choose = (id: string): void => {
     setOpen(false)
@@ -190,6 +196,14 @@ export function PermissionSelect({
           </button>
         }
       />
+      {failed !== null && (
+        <span role="alert" className={css.failure}>
+          {t('switchFailed', { name: permissionLabel(selection.currentValue, current?.name ?? selection.currentValue, t) })}
+          <button type="button" className={css.retry} disabled={locked || busy} onClick={() => { submit(failed) }}>
+            {t('switchRetry')}
+          </button>
+        </span>
+      )}
       {confirmation !== null && (
         <RiskConfirmation
           open

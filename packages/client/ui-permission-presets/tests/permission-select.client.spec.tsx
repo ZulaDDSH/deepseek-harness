@@ -224,6 +224,28 @@ describe('PermissionSelect', () => {
     expect(trigger().disabled).toBe(false)
   })
 
+  it('announces a rejected or unmatched switch with the still-active mode and retries it', async () => {
+    const select = vi.fn()
+      .mockRejectedValueOnce(new Error('the host offers no /permission command'))
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true)
+    setup({ select })
+    fireEvent.click(trigger())
+    fireEvent.click(screen.getByRole('menuitem', { name: '仅可查看' }))
+    await act(async () => {})
+    expect(screen.getByRole('alert').textContent).toContain(accessZh['switchFailed'].replace('{name}', '工作区内修改'))
+    expect(trigger().textContent).toBe('工作区内修改')
+
+    fireEvent.click(screen.getByRole('button', { name: accessZh['switchRetry'] }))
+    await act(async () => {})
+    expect(screen.getByRole('alert')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: accessZh['switchRetry'] }))
+    await act(async () => {})
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(select).toHaveBeenCalledTimes(3)
+    expect(select).toHaveBeenNthCalledWith(3, 'read-only')
+  })
+
   it('falls back to an unknown current value and clears a rejected optimistic choice', async () => {
     const select = vi.fn(() => Promise.reject(new Error('rejected')))
     const { selection } = setup({ selection: { currentValue: 'custom' }, select })
