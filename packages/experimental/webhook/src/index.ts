@@ -75,10 +75,11 @@ export class WebhookRuntime extends Service {
   constructor(ctx: Context, config: WebhookRuntimeConfig = {}) {
     super(ctx, 'webhookRuntime')
     this.selfCtx = ctx
-    if (config.journalFile !== undefined && !isAbsolute(config.journalFile)) {
+    const journalFile = config.journalFile ?? defaultJournalFile(ctx)
+    if (journalFile !== undefined && journalFile !== false && !isAbsolute(journalFile)) {
       throw new TypeError('webhook runtime journalFile must be an absolute path')
     }
-    this.journal = config.journalFile === undefined ? undefined : new WebhookJournal(config.journalFile)
+    this.journal = journalFile === undefined || journalFile === false ? undefined : new WebhookJournal(journalFile)
     ctx.effect(() => async () => {
       this.closing = true
       /* v8 ignore next -- caller-owned registration effects normally dispose first; this covers provider-first unload. */
@@ -207,6 +208,11 @@ export class WebhookRuntime extends Service {
     })()
     return registration.disposal
   }
+}
+
+function defaultJournalFile(ctx: Context): string | undefined {
+  const dshPath = ctx.reflect.get('dshPath') as ((category: 'data', ...segments: string[]) => string) | undefined
+  return dshPath?.('data', 'webhook', 'journal.jsonl')
 }
 
 export default WebhookRuntime

@@ -136,6 +136,31 @@ describe('WebhookRuntime journal', () => {
     expect(() => start()).toThrow(/corrupt at line 1/)
   })
 
+  it('defaults to the Host data directory, honours false and prefers an explicit file', async () => {
+    const hostFile = join(dir, 'data', 'webhook', 'journal.jsonl')
+    const hostCtx = (): Context => {
+      const ctx = new Context()
+      contexts.push(ctx)
+      ctx.provide('dshPath' as never, ((category: string, ...segments: string[]) => join(dir, category, ...segments)) as never)
+      return ctx
+    }
+    const dispatchOne = (runtime: WebhookRuntime): void => {
+      runtime.register(rule(() => null))
+      runtime.dispatch(delivery())
+    }
+
+    dispatchOne(new WebhookRuntime(hostCtx()))
+    expect(readFileSync(hostFile, 'utf8')).toContain('"deliveryId":"delivery-1"')
+    rmSync(hostFile)
+
+    dispatchOne(new WebhookRuntime(hostCtx(), { journalFile: false }))
+    expect(() => readFileSync(hostFile, 'utf8')).toThrow(/ENOENT/)
+
+    dispatchOne(new WebhookRuntime(hostCtx(), { journalFile: file }))
+    expect(readFileSync(file, 'utf8')).toContain('"deliveryId":"delivery-1"')
+    expect(() => readFileSync(hostFile, 'utf8')).toThrow(/ENOENT/)
+  })
+
   it('is unchanged when no journal is configured', async () => {
     const { runtime } = start(undefined)
     const ran = Promise.withResolvers<boolean>()
