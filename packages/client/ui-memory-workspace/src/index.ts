@@ -313,6 +313,7 @@ export default class MemoryWorkspace extends TypertRemoteService {
     const characters = Array.from(text)
     const total = Math.ceil(characters.length / this.config.chunkCharacters)
     const result: MemoryImportResult = { filename, originalPath, completed: 0, total, error: null }
+    let project: string | undefined
     for (let index = 0; index < total; index++) {
       const topicKey = `document:${hash}:part:${index + 1}`
       const narrative = characters.slice(index * this.config.chunkCharacters, (index + 1) * this.config.chunkCharacters).join('')
@@ -325,12 +326,37 @@ export default class MemoryWorkspace extends TypertRemoteService {
         if (!memorixStoredChunk(this.database(provider), stored.id, stored.project, topicKey, narrative)) {
           throw new Error('Memorix did not persist the complete document chunk')
         }
+        project = stored.project
         result.completed++
       } catch (error) {
         result.error = error instanceof Error ? error.message : 'Document import failed'
         break
       }
     }
+    if (result.error === null && project !== undefined) {
+      try { await this.retireStaleParts(provider, cwd, signal, hash, total, project) }
+      catch (error) { result.error = error instanceof Error ? error.message : 'Stale document parts could not be retired' }
+    }
     return result
+  }
+
+  private async retireStaleParts(provider: McpHumanOperations, cwd: string | undefined, signal: AbortSignal, hash: string, total: number, project: string): Promise<void> {
+    const database = this.database(provider)
+    const stale = (): number[] => {
+      const ids: number[] = []
+      for (let offset = 0, seen = Infinity; offset < seen; offset += this.config.pageSize) {
+        const page = memorixPage(database, { table: 'observations', offset, limit: this.config.pageSize, query: `document:${hash}:part:`, view: 'documents' })
+        seen = page.total
+        for (const row of page.rows) {
+          const part = /^document:[a-f0-9]{64}:part:([1-9][0-9]*)$/.exec(String(row.topicKey))
+          if (part !== null && row.topicKey === `document:${hash}:part:${part[1]}` && row.projectId === project && row.status === 'active' && Number(part[1]) > total) ids.push(Number(row.id))
+        }
+      }
+      return ids
+    }
+    const ids = stale()
+    if (ids.length === 0) return
+    await this.automation.archive(provider, cwd, signal, ids, 'stale document parts')
+    if (stale().length > 0) throw new Error('Stale document parts remain active after the re-import; the new import is complete but older parts may hide it from the graph')
   }
 }

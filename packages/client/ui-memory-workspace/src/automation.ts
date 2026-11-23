@@ -439,6 +439,12 @@ export class MemoryAutomation {
     return this.exclusive(() => this.storeIn(provider, cwd, signal, args, subject))
   }
 
+  archive(provider: McpHumanOperations, cwd: string | undefined, signal: AbortSignal, ids: number[], subject: string): Promise<void> {
+    return this.exclusive(() => this.withProject(provider, cwd, signal, async () => {
+      await callMemorix(provider, 'memorix_resolve', { ids, status: 'archived' }, signal, subject)
+    }))
+  }
+
   private async save(session: SessionLike, record: ChatRecord): Promise<void> {
     const cwd = session.header.cwd ?? ''
     const signal = AbortSignal.any([this.host.signal, AbortSignal.timeout(WRITE_TIMEOUT_MS)])
