@@ -728,6 +728,13 @@ function failed(exec: ToolExecution, error: unknown): PreToolDecision {
   }
 }
 
+function withdrawalPreset(names: readonly string[]): string {
+  const configured = names.filter(name => name !== AUTO_PRESET)
+  return configured.find(name => name === 'workspace-write')
+    ?? configured.find(name => name !== 'danger-full-access')
+    ?? 'danger-full-access'
+}
+
 /** Install the Auto preset and its review gate; preserve Session selection on application shutdown. */
 export function apply(ctx: Context): void {
   // Retain the injected service while this context drains on disposal.
@@ -791,7 +798,8 @@ export function apply(ctx: Context): void {
         if (ctx[Context.root].fiber.state === FiberState.ACTIVE) {
           for (const session of ctx.sessions.list()) {
             if (permissionPresets.current(session) !== AUTO_PRESET) continue
-            permissionPresets.set(session, 'danger-full-access')
+            ctx.logger.warn('auto-review: unloading; moving a live Auto Session to a preset that asks for approval')
+            permissionPresets.set(session, withdrawalPreset(permissionPresets.names))
           }
         }
       } finally {
