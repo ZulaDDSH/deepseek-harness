@@ -44,7 +44,7 @@ Use the router for bounded code queries or earlier findings.
 |---|---|---|
 | `mode` | `off` | Enables manual retrieval or assisted delegation. |
 | `gitnexus.enabled` / `graphify.enabled` | `false` | Admits the provider to retrieval. |
-| `maxPacketBytes` | `4096` | Bounds the packet in UTF-8 bytes. |
+| `maxPacketBytes` | `4096` | Bounds the rendered packet text in UTF-8 bytes (the `bytes` value). Provider items are shortened or dropped to fit; a task whose header and text alone exceed it is rejected with an error rather than truncated. |
 | `learning.enabled` | `false` | Registers supervisor learning writes. |
 
 The [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-knowledge-router) lists every field. The [optional overlay](../../../apps/cli/config/examples/knowledge/graphify-gitnexus.cordis.yml) requires separately installed provider commands.

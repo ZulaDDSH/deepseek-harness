@@ -165,6 +165,9 @@ const ITEM_OVERHEAD_BYTES = 160
 function boundItems(input: PacketInput): { readonly items: KnowledgeItem[]; readonly truncated: boolean } {
   if (byteLength(renderText(input)) <= input.maxBytes) return { items: input.items, truncated: false }
   const emptyBytes = byteLength(renderText({ ...input, items: [] }))
+  if (emptyBytes > input.maxBytes) {
+    throw new Error(`knowledge packet needs ${String(emptyBytes)} bytes for the task and header but maxPacketBytes is ${String(input.maxBytes)}; shorten the task or raise maxPacketBytes`)
+  }
   const available = input.maxBytes - emptyBytes
   let items = input.items
   if (items.length > 0 && available > 0) {
