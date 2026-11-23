@@ -207,6 +207,41 @@ describe('LocalSubprocessRuntime', () => {
     if (listener !== undefined) process.off('exit', listener)
   })
 
+  it('stops waiting on a child that never reports exit and keeps ownership', async () => {
+    vi.useFakeTimers()
+    try {
+      const before = new Set(process.listeners('exit'))
+      const ctx = new Context()
+      const errors: unknown[] = []
+      ctx.logger.error = ((error: unknown) => { errors.push(error) }) as typeof ctx.logger.error
+      const fiber = await ctx.plugin(LocalSubprocessRuntime)
+      const listener = process.listeners('exit').find(candidate => !before.has(candidate))
+      const terminateForHostExit = vi.fn()
+      const live = (ctx.subprocess as unknown as { live: Set<unknown> }).live
+      live.add({
+        done: new Promise<never>(() => {}),
+        terminate: vi.fn(),
+        terminateForHostExit,
+        waitForExit: () => new Promise<boolean>(() => {}),
+      })
+
+      let disposed = false
+      const disposing = fiber.dispose().then(() => { disposed = true })
+      await vi.advanceTimersByTimeAsync(29_000)
+      expect(disposed).toBe(false)
+      await vi.advanceTimersByTimeAsync(2_000)
+      await disposing
+      expect(disposed).toBe(true)
+      expect(live.size).toBe(1)
+      expect(terminateForHostExit).toHaveBeenCalledOnce()
+      expect(errors).toHaveLength(1)
+      expect(errors[0]).toMatchObject({ code: 'SUBPROCESS_CLEANUP_UNCONFIRMED' })
+      if (listener !== undefined) process.off('exit', listener)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('contains each host-exit termination failure and continues with the other targets', async () => {
     const before = new Set(process.listeners('exit'))
     const ctx = new Context()

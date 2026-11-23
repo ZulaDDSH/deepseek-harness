@@ -11,6 +11,7 @@ import { HarnessError } from '@deepseek-ai/dsh-error'
  * - `SUBPROCESS_RUNNER_FAILED` — the provider's private runner exited or reported a result before proving the process range empty.
  * - `SUBPROCESS_RUNNER_IPC_FAILED` — the provider's private runner channel was missing or carried a malformed message.
  * - `SUBPROCESS_PTY_UNAVAILABLE` — the host cannot load its terminal implementation.
+ * - `SUBPROCESS_CLEANUP_UNCONFIRMED` — provider teardown stopped waiting before a process range was confirmed empty; the provider keeps ownership.
  */
 export const SUBPROCESS_ERROR_CODES = [
   'SUBPROCESS_INVALID_ARGV',
@@ -20,6 +21,7 @@ export const SUBPROCESS_ERROR_CODES = [
   'SUBPROCESS_RUNNER_FAILED',
   'SUBPROCESS_RUNNER_IPC_FAILED',
   'SUBPROCESS_PTY_UNAVAILABLE',
+  'SUBPROCESS_CLEANUP_UNCONFIRMED',
 ] as const
 
 /** One code from {@link SUBPROCESS_ERROR_CODES}. */
