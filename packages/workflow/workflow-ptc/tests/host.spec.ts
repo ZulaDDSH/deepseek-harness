@@ -461,7 +461,7 @@ describe('workflow host delegation roles', () => {
   it('rejects a role combined with a route, and a role while Orchestrator & Subagent Setup is off', async () => {
     const { ctx, start } = await setup(async (bindings) => {
       await expect(Promise.resolve().then(() => bindings.startChild!({ prompt: 'p', role: 'coder', model: 'other-model' })))
-        .rejects.toThrow('omit provider, model, and reasoning_effort')
+        .rejects.toThrow('omit provider and model')
       await expect(Promise.resolve().then(() => bindings.startChild!({ prompt: 'p', role: 'coder' })))
         .rejects.toThrow('needs Orchestrator & Subagent Setup, which is off')
       return completed

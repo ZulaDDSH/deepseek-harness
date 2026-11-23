@@ -1112,3 +1112,16 @@ packages/client/ui-workspace/package.json:dsh.client.inject includes the command
 ## packages/client/ui-theme/src/styles/design-platform.css:--dsw-specific-menu
 
 `packages/client/ui-theme/src/styles/design-platform.css:--dsw-specific-menu` on `html[data-platform='darwin'] body[data-ds-dark-theme]` is `rgba(48, 49, 54, 0.94)`, matching the dark `--dsw-menu-surface-fill` hue after the charcoal-to-bluish palette change; `packages/client/ui-theme/tests/elevation-styles.client.spec.ts` asserts that value.
+## Merged upstream test alignment (area C)
+
+`packages/subagent/subagent/tests/continuation.spec.ts` "reports a turn that failed before reaching its first step" expects the settlement notice to carry the child's recorded failure (`continuation-messages.ts:createSettlementMessage` emits `Its failure: <diagnostic>` from `failure-diagnostic.ts:failureDiagnosticOf`); that notice line is a master feature the upstream test lacked.
+
+`packages/subagent/tool-subagent/src/model-selection.ts:requestedAgentOptions` clears the configured and inherited reasoning effort for an explicit provider and model pair without an effort, even when the route is unchanged (documented in the tool-subagent README); `tests/model-selection.spec.ts` "compares explicit routes with the latest logged parent selection" and `tests/tool-subagent.spec.ts` "merges model overrides over provider-owned route defaults before preflight" therefore expect no `reasoningEffort`.
+
+`packages/subagent/tool-subagent/src/list-models.ts:registerListSubagentModels` carries the upstream discovery description ("Query when choosing an explicit child route or reasoning effort."); the mount-order guidance test matches that sentence.
+
+`packages/subagent/subagent/src/manager.ts:SubagentManager.trackStartup` hands `prepareContinuable` a derived `AbortSignal.any` signal, never the caller's own, so `tests/tool-subagent.spec.ts` "isolates a cancelled continuable preparation from a concurrent sibling" tells the cancelled preparation apart by `signal.aborted` after the abort instead of by signal identity.
+
+`packages/workflow/workflow-ptc/src/host.ts:roleRouteOf` rejects a role combined with a route with "omit provider and model", because a workflow child request carries no `reasoning_effort`; the host test asserts that text.
+
+`packages/subagent/tool-subagent-control/src/index.ts` `send_message` takes `agent` (a name, `lead`, or a Session id), not `agent_id`; `packages/knowledge/knowledge-router/tests/delegation-loop.spec.ts` passes `agent`.

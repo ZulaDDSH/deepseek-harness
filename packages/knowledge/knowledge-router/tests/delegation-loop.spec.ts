@@ -131,7 +131,7 @@ describe('the delegated worker is reachable through the control tools', () => {
     ctx.on('agent/inbox/inserted', ({ agent, message }) => {
       if (agent === parent && message.source.kind === 'agent-message') toParent.push(message)
     })
-    const relayed = await callTool(ctx, 'send_message', { agent_id: parent.id, message: 'CHILD_FINDING' }, child)
+    const relayed = await callTool(ctx, 'send_message', { agent: parent.id, message: 'CHILD_FINDING' }, child)
     expect(relayed.isError).toBe(false)
     await vi.waitFor(() => { expect(toParent).toHaveLength(1) })
 
@@ -139,7 +139,7 @@ describe('the delegated worker is reachable through the control tools', () => {
     ctx.on('agent/inbox/inserted', ({ agent, message }) => {
       if (agent.id === childId && message.source.kind === 'agent-message') toChild.push({ source: message.source })
     })
-    const corrected = await callTool(ctx, 'send_message', { agent_id: childId, message: 'CORRECTION' }, parent)
+    const corrected = await callTool(ctx, 'send_message', { agent: childId, message: 'CORRECTION' }, parent)
     expect(corrected.isError).toBe(false)
     await vi.waitFor(() => { expect(toChild).toHaveLength(1) })
     expect(toChild[0]?.source).toMatchObject({ kind: 'agent-message', senderSessionId: parent.id })

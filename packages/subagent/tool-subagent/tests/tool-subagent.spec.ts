@@ -298,7 +298,7 @@ describe('dsh-tool-subagent', () => {
     expect(seen?.agentOptions).toEqual({
       provider: 'alpha',
       model: 'child-model',
-      reasoningEffort: 'high',
+      reasoningEffort: undefined,
       maxTokens: 321,
     })
   })
@@ -1083,6 +1083,7 @@ describe('dsh-tool-subagent local activation', () => {
     let preparationCount = 0
     let cancelledChildId: ReturnType<typeof SessionId> | undefined
     let survivingChildId: ReturnType<typeof SessionId> | undefined
+    const preparations: { sessionId: ReturnType<typeof SessionId>; signal: AbortSignal }[] = []
     ctx.subagents.registerProvider({
       name: 'gated',
       capabilities: { agentOptions: false, agentPreset: false, outputSchema: true, depthLimit: true },
@@ -1090,8 +1091,7 @@ describe('dsh-tool-subagent local activation', () => {
       start: async () => { throw new Error('continuable policy must not start a one-shot child') },
       prepareContinuable: async (request) => {
         preparationCount += 1
-        if (request.signal === cancelled.signal) cancelledChildId = request.sessionId
-        else survivingChildId = request.sessionId
+        preparations.push({ sessionId: request.sessionId, signal: request.signal })
         if (preparationCount === 2) bothPreparing.resolve(undefined)
         await releasePreparations.promise
         return {}
@@ -1115,6 +1115,8 @@ describe('dsh-tool-subagent local activation', () => {
     const survivingResult = execute('continuable-surviving', 'surviving sibling', testToolSignal)
     await bothPreparing.promise
     cancelled.abort()
+    cancelledChildId = preparations.find(entry => entry.signal.aborted)?.sessionId
+    survivingChildId = preparations.find(entry => !entry.signal.aborted)?.sessionId
     releasePreparations.resolve(undefined)
 
     const [failed, succeeded] = await Promise.all([cancelledResult, survivingResult])
