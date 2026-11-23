@@ -58,6 +58,19 @@ function abortedQuestion(cause?: unknown): UserQuestionError {
   )
 }
 
+function settleUnlessAbandoned<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => { reject(signal.reason) }
+    if (signal.aborted) {
+      onAbort()
+      void work.then(() => undefined, () => undefined)
+      return
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    void work.then(resolve, reject).finally(() => { signal.removeEventListener('abort', onAbort) })
+  })
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -253,7 +266,7 @@ export class UserQuestionService extends TypertRemoteService {
     this.waits.set(request.agent, calls)
     try {
       try {
-        return await this.ask({ ...request, signal: wait.signal, wait: { callId, timed: true } })
+        return await settleUnlessAbandoned(this.ask({ ...request, signal: wait.signal, wait: { callId, timed: true } }), wait.signal)
       } catch (error) {
         if (wait.signal.aborted) throw wait.signal.reason
         if (error instanceof UserQuestionError && error.code === 'NO_PROVIDER') {
