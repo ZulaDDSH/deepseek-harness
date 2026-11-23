@@ -22,6 +22,7 @@ import { commitPreparedImageFile, normalizedImagePath, prepareImageFile, readIma
 import {
   readFileStreamVerbatim, saveFileStreamVerbatim, saveFileVerbatim, storedFilePath,
 } from './file-store.ts'
+import { FileStoreQuota } from './file-quota.ts'
 import { readRequestImageFile, requestImageVariantId } from './request-image.ts'
 
 export { canPassThroughNormalization, normalizeImage } from './normalization.ts'
@@ -56,6 +57,8 @@ export const DEFAULT_NORMALIZED_IMAGE_MAX_PIXELS = 2048 * 2048
 export const DEFAULT_NORMALIZED_IMAGE_MAX_DIMENSION = 8192
 /** Default encoded-byte target for one stored normalized image. */
 export const DEFAULT_NORMALIZED_IMAGE_MAX_BYTES = 4 * 1024 * 1024
+export const DEFAULT_MAX_FILE_BYTES = 1024 * 1024 * 1024
+export const DEFAULT_MAX_STORED_FILE_BYTES = 20 * 1024 * 1024 * 1024
 /** Conservative default number of simultaneous native image transformations per store. */
 export const DEFAULT_IMAGE_COMPRESSION_CONCURRENCY = 2
 /** Maximum configurable native image transformations per store. */
@@ -86,6 +89,10 @@ export interface Config {
   normalizedImageMaxBytes?: number
   /** Maximum simultaneous normalization or request-image transformations in this service instance. */
   imageCompressionConcurrency?: number
+  /** One verbatim file must not exceed this many bytes. Default: 1 GiB. */
+  maxFileBytes?: number
+  /** Stored verbatim file objects must not total more than this many bytes. Default: 20 GiB. */
+  maxStoredFileBytes?: number
 }
 
 function abortReason(signal: AbortSignal): Error {
@@ -161,6 +168,8 @@ export class LocalAttachmentStore extends AttachmentStore {
     normalizedImageMaxBytes: z.number().step(1).min(1).default(DEFAULT_NORMALIZED_IMAGE_MAX_BYTES),
     imageCompressionConcurrency: z.number().step(1).min(1).max(MAX_IMAGE_COMPRESSION_CONCURRENCY)
       .default(DEFAULT_IMAGE_COMPRESSION_CONCURRENCY),
+    maxFileBytes: z.number().step(1).min(1).default(DEFAULT_MAX_FILE_BYTES),
+    maxStoredFileBytes: z.number().step(1).min(1).default(DEFAULT_MAX_STORED_FILE_BYTES),
   })
 
   /** Absolute versioned storage root. */
@@ -171,6 +180,7 @@ export class LocalAttachmentStore extends AttachmentStore {
   /** Resolved instance-level compression limit. */
   readonly imageCompressionConcurrency: number
   private readonly cacheRoot: string
+  private readonly fileQuota: FileStoreQuota
   private readonly compression: CompressionLimiter
   private readonly requestInflight = new Map<string, SharedRequest<RequestImageAttachment>>()
 
@@ -179,6 +189,11 @@ export class LocalAttachmentStore extends AttachmentStore {
     const dshHome = resolveDshHome(config.dshHome)
     this.root = join(dshHome, 'attachments', 'v1')
     this.cacheRoot = dshCachePath({ dshHome }, 'attachments')
+    this.fileQuota = new FileStoreQuota(
+      this.root,
+      config.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES,
+      config.maxStoredFileBytes ?? DEFAULT_MAX_STORED_FILE_BYTES,
+    )
     this.imageLimits = Object.freeze({
       maxImageBytes: config.maxImageBytes ?? DEFAULT_MAX_IMAGE_BYTES,
       maxImagesPerMessage: config.maxImagesPerMessage ?? DEFAULT_MAX_IMAGES_PER_MESSAGE,
@@ -234,11 +249,11 @@ export class LocalAttachmentStore extends AttachmentStore {
   }
 
   override async saveFile(input: SaveFileAttachment): Promise<FileAttachmentRef> {
-    return saveFileVerbatim(this.root, input)
+    return saveFileVerbatim(this.root, input, this.fileQuota)
   }
 
   override async saveFileStream(input: SaveFileStreamAttachment): Promise<FileAttachmentRef> {
-    return saveFileStreamVerbatim(this.root, input)
+    return saveFileStreamVerbatim(this.root, input, this.fileQuota)
   }
 
   override readFileStream(ref: FileAttachmentRef, signal?: AbortSignal): AsyncIterable<Uint8Array> {

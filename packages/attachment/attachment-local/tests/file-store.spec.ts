@@ -10,6 +10,7 @@ import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import {
   fileLeafName, readFileStreamVerbatim, saveFileStreamVerbatim, saveFileVerbatim, storedFilePath,
 } from '../src/file-store.ts'
+import { FileStoreQuota } from '../src/file-quota.ts'
 import { publishImmutableAlias } from '../src/store.ts'
 
 const roots: string[] = []
@@ -275,5 +276,40 @@ describe('storedFilePath', () => {
     expect(() => storedFilePath('/root', { ...good, name: 'nested/name.txt' }))
       .toThrow(expect.objectContaining({ code: 'INVALID_ATTACHMENT_REF' }) as Error)
     expect(storedFilePath('/root', good).endsWith(join('a'.repeat(64), 'ok.txt'))).toBe(true)
+  })
+})
+
+describe('file store quota', () => {
+  async function* body(...sizes: number[]): AsyncIterable<Uint8Array> {
+    for (const size of sizes) yield new Uint8Array(size).fill(size)
+  }
+
+  it('refuses one file above the per-file limit while it streams and leaves nothing behind', async () => {
+    const root = await makeRoot()
+    const quota = new FileStoreQuota(root, 10, 1000)
+    await expect(saveFileStreamVerbatim(root, { data: body(6, 6), name: 'big.bin' }, quota))
+      .rejects.toMatchObject({ code: 'FILE_TOO_LARGE' })
+    await expect(saveFileVerbatim(root, { data: new Uint8Array(11) }, quota))
+      .rejects.toMatchObject({ code: 'FILE_TOO_LARGE' })
+    await expect(readdir(join(root, 'tmp'))).resolves.toEqual([])
+    await expect(readdir(join(root, 'file-objects'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('refuses growth past the store limit, counts a deduplicated upload once, and counts pre-existing files', async () => {
+    const root = await makeRoot()
+    const quota = new FileStoreQuota(root, 100, 10)
+    await saveFileVerbatim(root, { data: new Uint8Array(6).fill(1), name: 'a.bin' }, quota)
+    await saveFileVerbatim(root, { data: new Uint8Array(6).fill(1), name: 'again.bin' }, quota)
+    await expect(saveFileStreamVerbatim(root, { data: body(3, 3), name: 'b.bin' }, quota))
+      .rejects.toMatchObject({ code: 'FILE_STORE_FULL' })
+    await expect(saveFileVerbatim(root, { data: new Uint8Array(5).fill(9) }, quota))
+      .rejects.toMatchObject({ code: 'FILE_STORE_FULL' })
+    await expect(saveFileVerbatim(root, { data: new Uint8Array(4).fill(9) }, quota))
+      .resolves.toMatchObject({ bytes: 4 })
+    const restarted = new FileStoreQuota(root, 100, 10)
+    await expect(saveFileVerbatim(root, { data: new Uint8Array(1).fill(7) }, restarted))
+      .rejects.toMatchObject({ code: 'FILE_STORE_FULL' })
+    await expect(saveFileVerbatim(root, { data: new Uint8Array(6).fill(1), name: 'third-name.bin' }, restarted))
+      .resolves.toMatchObject({ bytes: 6 })
   })
 })

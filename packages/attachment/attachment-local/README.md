@@ -7,7 +7,7 @@ kind: "package-reference"
 
 ## Summary
 
-Store images and generic file attachments durably below `DSH_HOME` on the machine running DSH. Images are validated, normalized for model requests, and cached per route; generic files are preserved byte-for-byte without admission limits. Identical bytes are stored once even when uploads use different display names, reads verify file length and content, and admitted images remain readable if limits later tighten. The shipped `dsh` composition uses this package without configuration. Objects remain local to one machine and are never deleted automatically.
+Store images and generic file attachments durably below `DSH_HOME` on the machine running DSH. Images are validated, normalized for model requests, and cached per route; generic files are preserved byte-for-byte under a per-file and a total store size limit. Identical bytes are stored once even when uploads use different display names, reads verify file length and content, and admitted images remain readable if limits later tighten. The shipped `dsh` composition uses this package without configuration. Objects remain local to one machine and are never deleted automatically.
 
 ## Table of Contents
 
@@ -45,6 +45,8 @@ Mount the plugin with no required configuration. The defaults below define what 
 | `normalizedImageMaxDimension` | `8192` | Maximum long edge after applying the total-pixel budget |
 | `normalizedImageMaxBytes` | `4 MiB` | Encoded-byte target; the smallest quality-ladder output is kept when none fits |
 | `imageCompressionConcurrency` | `2` | FIFO limit for concurrent normalization and request transforms |
+| `maxFileBytes` | `1 GiB` | Maximum bytes accepted for one verbatim file; an upload past it is refused while streaming (`FILE_TOO_LARGE`) |
+| `maxStoredFileBytes` | `20 GiB` | Maximum total bytes of stored verbatim file objects; an upload that would pass it is refused (`FILE_STORE_FULL`). Re-uploading an existing file costs nothing |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-attachment-local) is the exhaustive source for every accepted field and its JSDoc.
 
@@ -132,7 +134,8 @@ Normalization and request projection are deterministic. An unchanged attachment 
 
 These limits describe what this storage can and cannot do; they are current package constraints.
 
-- **Images are kept forever** — stored images are never deleted automatically, and nothing collects unreferenced objects.
+- **Images and files are kept forever** — nothing is deleted automatically and nothing collects unreferenced objects, so staged uploads that are never sent still count towards `maxStoredFileBytes` until an operator removes them. Resumed and forked sessions share objects, so safe collection needs a reference model that does not exist yet.
+- **The file-store total is measured once per process** — usage is scanned from disk on the first file upload, then tracked in memory; files added or removed by another process afterwards are not seen until restart.
 - **Local to this machine** — images live on the machine that runs the harness; other hosts cannot read them.
 - **Animated GIF becomes static** — normalization retains only the first frame; animation is outside the version-one image contract.
 - **Encoder output is versioned** — the installed Sharp/libvips build pins normalization and request bytes; an encoder or transform-version upgrade re-addresses future variants while existing objects remain valid.

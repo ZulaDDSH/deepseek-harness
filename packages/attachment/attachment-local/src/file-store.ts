@@ -1,7 +1,7 @@
 /** Verbatim content-addressed local file storage. @module @deepseek-ai/dsh-attachment-local/file-store */
 
 import { createHash } from 'node:crypto'
-import { createReadStream } from 'node:fs'
+import { createReadStream, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { AttachmentError } from '@deepseek-ai/dsh-attachment'
 import type { AttachmentId } from '@deepseek-ai/dsh-attachment/types'
@@ -9,9 +9,11 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import type {
   FileAttachmentRef, SaveFileAttachment, SaveFileStreamAttachment,
 } from '@deepseek-ai/dsh-attachment'
+import type { FileStoreQuota } from './file-quota.ts'
 import {
   publishImmutableAlias, publishImmutableObject, publishImmutableObjectStream,
 } from './store.ts'
+import type { StreamedImmutableObject } from './store.ts'
 
 const FILE_ID_PATTERN = /^sha256:([a-f0-9]{64})$/
 const WINDOWS_DEVICE_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/iu
@@ -93,6 +95,7 @@ function storedFileObjectPath(root: string, sha256: string): string {
 export async function saveFileVerbatim(
   root: string,
   input: SaveFileAttachment,
+  quota?: FileStoreQuota,
 ): Promise<FileAttachmentRef> {
   const sha256 = createHash('sha256').update(input.data).digest('hex')
   const ref: FileAttachmentRef = {
@@ -101,8 +104,16 @@ export async function saveFileVerbatim(
     bytes: input.data.byteLength,
   }
   const objectPath = storedFileObjectPath(root, sha256)
-  await publishImmutableObject(root, objectPath, input.data, sha256)
-  await publishImmutableAlias(root, objectPath, storedFilePath(root, ref), sha256)
+  const isNew = !existsSync(objectPath)
+  if (isNew) await quota?.reserve(0, ref.bytes)
+  let stored = 0
+  try {
+    await publishImmutableObject(root, objectPath, input.data, sha256)
+    if (isNew) stored = ref.bytes
+    await publishImmutableAlias(root, objectPath, storedFilePath(root, ref), sha256)
+  } finally {
+    if (isNew) quota?.settle(ref.bytes, stored)
+  }
   return ref
 }
 
@@ -115,14 +126,25 @@ export async function saveFileVerbatim(
 export async function saveFileStreamVerbatim(
   root: string,
   input: SaveFileStreamAttachment,
+  quota?: FileStoreQuota,
 ): Promise<FileAttachmentRef> {
   const name = fileLeafName(input.name)
-  const stored = await publishImmutableObjectStream(
-    root,
-    input.data,
-    sha256 => storedFileObjectPath(root, sha256),
-    input.signal,
-  )
+  const progress = { reserved: 0, isNew: false }
+  let stored: StreamedImmutableObject | undefined
+  try {
+    stored = await publishImmutableObjectStream(
+      root,
+      quota === undefined ? input.data : quota.meter(input.data, progress),
+      (sha256) => {
+        const path = storedFileObjectPath(root, sha256)
+        progress.isNew = !existsSync(path)
+        return path
+      },
+      input.signal,
+    )
+  } finally {
+    quota?.settle(progress.reserved, stored !== undefined && progress.isNew ? stored.bytes : 0)
+  }
   const ref: FileAttachmentRef = {
     attachmentId: brandString<AttachmentId>(`sha256:${stored.sha256}`),
     name,

@@ -19,6 +19,21 @@ import LocalAttachmentStore, {
   DEFAULT_MAX_MESSAGE_IMAGE_BYTES,
 } from '../src/index.ts'
 
+describe('local attachment file limits', () => {
+  it('refuses a verbatim file or stream above the configured per-file limit', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'dsh-local-file-limit-'))
+    try {
+      const service = new LocalAttachmentStore(new Context(), { dshHome: home, maxFileBytes: 4 })
+      await expect(service.saveFile({ data: new Uint8Array(5) })).rejects.toMatchObject({ code: 'FILE_TOO_LARGE' })
+      await expect(service.saveFileStream({ data: (async function* () { yield new Uint8Array(5) })() }))
+        .rejects.toMatchObject({ code: 'FILE_TOO_LARGE' })
+      await expect(service.saveFile({ data: new Uint8Array(4) })).resolves.toMatchObject({ bytes: 4 })
+    } finally {
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('local attachment service', () => {
   it('resolves every omitted admission limit explicitly', () => {
     const service = new LocalAttachmentStore(new Context(), {})
