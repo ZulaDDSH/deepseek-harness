@@ -321,11 +321,16 @@ describe('session.export download endpoint', () => {
   })
 
   it('preflights root preparation through HEAD without streaming a body', async () => {
-    const open = vi.fn(async () => readHandle(log('session-root')))
+    const handle = readHandle(log('session-root'))
+    const read = vi.fn(handle.read)
+    const close = vi.fn(handle.close)
+    const open = vi.fn(async () => ({ ...handle, read, close }) as SessionHandle)
     const api = await buildApi({}, [], { open })
     const response = await toFetchHandler(api).fetch(
       new Request('http://host/api/session.export?sessionId=session-root', { method: 'HEAD' }),
     )
+    expect(read).not.toHaveBeenCalled()
+    expect(close).toHaveBeenCalledOnce()
 
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toBe('application/zip')

@@ -169,6 +169,21 @@ export async function readSessionLogText(
   }
 }
 
+export async function sessionLogExists(
+  persistence: SessionPersistence,
+  id: SessionId,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  try {
+    const handle = await persistence.open(id, 'read', signal === undefined ? {} : { signal })
+    await handle.close()
+    return true
+  } catch (error) {
+    if (error instanceof SessionPersistenceNotFoundError) return false
+    throw error
+  }
+}
+
 /** Zip extension for each accepted raster media type. */
 const MEDIA_TYPE_EXTENSIONS: Record<ImageAttachmentRef['mediaType'], string> = {
   'image/png': 'png',
