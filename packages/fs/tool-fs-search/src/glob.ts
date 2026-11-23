@@ -126,6 +126,7 @@ export function buildGlobCommand(input: GlobInput): string[] {
     ...pruning,
     ...patternFilter(input.pattern),
     '--sort=modified',
+    '--null',
     '--hidden',
     ...input.includeIgnored === true ? ['--no-ignore'] : ['--glob=!**/node_modules'],
     // Two negated globs per VCS name: the bare form prunes the directory
@@ -255,11 +256,15 @@ export function formatGlobOutput(sample: GlobSample, seen: number, spillRef: Spi
 
 /** Format one bounded page and the recovery path for its complete sorted result. */
 function formatGlobPage(items: readonly string[], seen: number, spillRef: SpillRef | undefined, basis: string): string {
-  const body = items.join('\n')
+  const body = linePaths(items)
   const recovery = spillRef !== undefined
     ? `Full sorted result stored at: ${spillRef.locator}. ${spillRef.retrievalHint}`
     : 'The complete result could not be saved; narrow pattern or path to see more.'
   return `${body}\n\n(Showing ${items.length} of ${seen} paths${basis} ${recovery})`
+}
+
+function linePaths(paths: readonly string[]): string {
+  return paths.map(path => /[\n\r]/.test(path) ? JSON.stringify(path) : path).join('\n')
 }
 
 function withUndecodable(text: string, undecodable: number | undefined): string {
@@ -271,7 +276,7 @@ function renderGlobPaths(paths: string[], caps: GlobToolCaps, root: string, spil
   if (paths.length === 0) return 'No files found'
   // A result that fits is shown whole, untouched: modification-time order is the
   // tool's contract, and over a complete result it is what answers age questions.
-  if (paths.length <= caps.maxResults) return paths.join('\n')
+  if (paths.length <= caps.maxResults) return linePaths(paths)
   if (!caps.sampleOverCapGlobResults) {
     return formatGlobPage(paths.slice(0, caps.maxResults), paths.length, spillRef, '.')
   }
@@ -384,10 +389,10 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
 
       const all: string[] = []
       let undecodable = 0
-      for (const line of run.stdout.split('\n')) {
-        if (line.length === 0) continue
-        if (line.includes(REPLACEMENT)) undecodable += 1
-        const displayPath = toWorkdirRelative(line, run.workdir)
+      for (const entry of run.stdout.split('\0')) {
+        if (entry.length === 0) continue
+        if (entry.includes(REPLACEMENT)) undecodable += 1
+        const displayPath = toWorkdirRelative(entry, run.workdir)
         all.push(displayPath)
       }
       return { root, paths: all, ...undecodable > 0 ? { undecodable } : {} }
@@ -403,7 +408,7 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
     if (value === undefined) return decision
     const paths = value.paths
     if (paths.length <= caps.maxResults) return decision
-    const spillRef = await trySaveFormattedResult(ctx, exec, 'glob-results.txt', paths.join('\n'))
+    const spillRef = await trySaveFormattedResult(ctx, exec, 'glob-results.txt', linePaths(paths))
     return {
       kind: 'accept',
       content: [{ type: 'text', text: withUndecodable(renderGlobPaths(paths, caps, value.root, spillRef), value.undecodable) }],
