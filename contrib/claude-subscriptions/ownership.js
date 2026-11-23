@@ -33,7 +33,14 @@ function secretFor(root) {
         exists = false
       }
       if (exists) renameSync(temp, file)
-      else linkSync(temp, file)
+      else {
+        try {
+          linkSync(temp, file)
+        } catch (err) {
+          if (err.code === 'EEXIST') throw err
+          writeFileSync(file, readFileSync(temp, 'utf8'), { flag: 'wx', mode: 0o600 })
+        }
+      }
     } catch (err) {
       if (err.code !== 'EEXIST') throw err
     } finally {
@@ -133,9 +140,11 @@ export function reconcileOwnership(entries, state) {
     if (owner === row.id) state.rejected.delete(row.id)
     else if (owner) state.rejected.set(row.id, { key, owner })
   }
-  state.displaced = [...new Set(state.displaced)].filter(
-    (id) => byId.has(id) && state.rejected.get(id)?.owner === 'main',
-  )
+  for (const [id, entry] of state.rejected) if (!state.owners.has(entry.key)) state.rejected.delete(id)
+  state.displaced = [...new Set(state.displaced)].filter((id) => {
+    const entry = state.rejected.get(id)
+    return byId.has(id) && entry?.owner === 'main' && state.owners.get(entry.key) === 'main'
+  })
   return state
 }
 

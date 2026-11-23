@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { test } from 'node:test'
+import { mock, test } from 'node:test'
 import {
   accountKey,
   legacyAccountKey,
@@ -198,3 +198,49 @@ test('an empty or short secret file is replaced and no temporary file is left', 
     assert.deepEqual((await readdir(root)).filter((f) => f !== '.ownership-secret'), [])
   }
 })
+
+test('the displaced notice clears when the default profile moves to another account or signs out', async (t) => {
+  for (const next of [row('main', 'k2'), row('main', undefined)]) {
+    const root = await scratch(t)
+    await updateOwnership(root, async () => [row('work', 'k1')])
+    const shown = await updateOwnership(root, async () => [row('main', 'k1'), row('work', 'k1')])
+    assert.deepEqual(shown.state.displaced, ['work'])
+    const gone = await updateOwnership(root, async () => [next, row('work', 'k1')])
+    assert.deepEqual(gone.state.displaced, [])
+    assert.deepEqual(readOwnership(root).displaced, [])
+    assert.equal(readOwnership(root).rejected.size, 0)
+  }
+})
+
+test('a rejected entry whose account has no owner is dropped', () => {
+  const state = empty()
+  state.rejected.set('dup', { key: 'k9', owner: 'gone' })
+  reconcileOwnership([row('dup', undefined)], state)
+  assert.equal(state.rejected.size, 0)
+})
+
+for (const code of ['EPERM', 'ENOSYS', 'EXDEV']) {
+  test(`the secret is still created when hard links fail with ${code}`, { skip: !mock.module }, async (t) => {
+    const { copyFileSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } = await import('node:fs')
+    t.mock.module('node:fs', {
+      namedExports: {
+        copyFileSync,
+        mkdirSync,
+        readFileSync,
+        renameSync,
+        unlinkSync,
+        writeFileSync,
+        linkSync() {
+          throw Object.assign(new Error('no links'), { code })
+        },
+      },
+    })
+    const fallback = await import(`../ownership.js?link-${code}`)
+    const root = await scratch(t)
+    const key = fallback.accountKey(root, 'one@example.test', 'org')
+    assert.match(key, /^[0-9a-f]{64}$/)
+    assert.match(await readFile(join(root, '.ownership-secret'), 'utf8'), /^[0-9a-f]{64}$/)
+    assert.deepEqual((await readdir(root)).filter((f) => f !== '.ownership-secret'), [])
+    assert.equal(key, fallback.accountKey(root, 'one@example.test', 'org'))
+  })
+}
