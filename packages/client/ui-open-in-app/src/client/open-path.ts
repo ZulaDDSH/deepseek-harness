@@ -73,7 +73,7 @@ export class OpenInAppPathController {
   /**
    * @param remote - the Session Remote namespace answering availability and running gestures.
    */
-  constructor(private readonly remote: OpenInAppPathRemote) {}
+  constructor(private readonly remote: OpenInAppPathRemote, private readonly openTimeoutMs = 30_000) {}
 
   /**
    * Read desktop availability once per controller life; concurrent calls share the read.
@@ -95,7 +95,8 @@ export class OpenInAppPathController {
     const request: SessionOpenWorkspacePathRequest = action === 'reveal' ? { path, action } : { path, ...(application === undefined ? {} : { application }) }
     let ok = false
     try {
-      ok = (await this.remote.session.openWorkspacePath(request)).ok
+      const signal = AbortSignal.any([this.lifetime.signal, AbortSignal.timeout(this.openTimeoutMs)])
+      ok = (await this.remote.session.openWorkspacePath(request, signal)).ok
     } catch {
       // Swallows carrier rejections: a Host that cannot be reached failed the
       // gesture like a Host that refused it, and the control announces that.
