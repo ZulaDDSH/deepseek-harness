@@ -7,7 +7,7 @@ kind: "package-library"
 
 ## Summary
 
-Browser providers use this library to reuse a browser across one Session's turns and close its resources when that Session's runtime is disposed. Operations for one Session run in order, while isolated Sessions can proceed independently. Attachment mode reserves one external browser for a single Session. The library also connects provider-owned MCP servers and discovers their tools before the Session's first model request.
+Browser providers use this library to reuse a browser across one Session's turns and close its resources when that Session's runtime is disposed. Operations for one Session run in order, while isolated Sessions can proceed independently. Attachment mode reserves one external browser for a single Session within one resource manager only; it is not a cross-provider, cross-process or external-client lock, so treat an attached browser as shared access to its pages, cookies and logged-in state. The library also connects provider-owned MCP servers and discovers their tools before the Session's first model request.
 
 ## Table of Contents
 
