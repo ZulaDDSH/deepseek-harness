@@ -173,6 +173,47 @@ describe('forgeSession discovery', () => {
     await vi.waitFor(() => { expect(records(session)).toEqual([{ action: 'discover', url: pullUrl(8) }]) })
   })
 
+  it('coalesces pushes of a branch that arrive during a lookup into one more lookup after it', async () => {
+    const { provider, session } = await open()
+    const result = Promise.withResolvers<readonly ReturnType<typeof pull>[]>()
+    provider.findImpl = () => result.promise
+    try {
+      push(session, 'first', 'feat')
+      push(session, 'second', 'feat')
+      push(session, 'third', 'feat')
+      await settle()
+      expect(provider.lookups).toHaveLength(1)
+
+      provider.findImpl = () => Promise.resolve([pull(8)])
+      result.resolve([pull(7)])
+      await vi.waitFor(() => { expect(provider.lookups).toHaveLength(2) })
+      await vi.waitFor(() => {
+        expect(records(session)).toEqual([{ action: 'discover', url: pullUrl(7) }, { action: 'discover', url: pullUrl(8) }])
+      })
+    } finally {
+      result.resolve([])
+    }
+  })
+
+  it('runs a bounded number of branch lookups at once and starts the next one as a slot frees', async () => {
+    const { provider, session } = await open()
+    const releases: (() => void)[] = []
+    provider.findImpl = () => new Promise(resolve => { releases.push(() => { resolve([]) }) })
+    try {
+      for (let index = 0; index < 10; index++) push(session, `push-${index}`, `branch-${index}`)
+      await settle()
+      expect(provider.lookups).toHaveLength(4)
+
+      for (let released = 0; released < 10; released++) {
+        await vi.waitFor(() => { expect(releases.length).toBeGreaterThan(released) })
+        releases[released]?.()
+      }
+      await vi.waitFor(() => { expect(provider.lookups).toHaveLength(10) })
+    } finally {
+      for (const release of releases) release()
+    }
+  })
+
   it('never restores a dismissed binding', async () => {
     const { ctx, provider, session } = await open()
     create(session, 'create', pullUrl(7))

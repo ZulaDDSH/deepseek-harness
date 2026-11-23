@@ -8,6 +8,7 @@ import type {} from '@deepseek-ai/dsh-shell-env'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import { z } from 'zod'
 import { ownChangeRequestUrls } from './commands.ts'
+import type { Limiter } from './limiter.ts'
 import { ghReferences } from './references.ts'
 
 const completedShell = z.object({
@@ -43,7 +44,7 @@ interface Lookup {
  * @param timeoutMs - shell deadline for one read-only lookup.
  * @param record - persists a confirmed URL without restoring dismissed bindings.
  */
-export function observeReferences(ctx: Context, timeoutMs: number, record: (session: Session, url: string) => void): void {
+export function observeReferences(ctx: Context, timeoutMs: number, limiter: Limiter, record: (session: Session, url: string) => void): void {
   ctx.inject(['tools', 'shell', 'shellEnv'], (scope) => {
     const lifetime = new AbortController()
     const tasks = new Set<Promise<void>>()
@@ -92,7 +93,7 @@ export function observeReferences(ctx: Context, timeoutMs: number, record: (sess
     async function run(lookups: readonly Lookup[], signal: AbortSignal): Promise<void> {
       for (const lookup of lookups) {
         try {
-          await resolve(lookup, signal)
+          await limiter.run(() => resolve(lookup, signal), signal)
         } catch (error: unknown) {
           if (signal.aborted) return
           scope.logger.warn(`forge-session: PR reference lookup failed; use a full PR URL to bind it: ${error instanceof Error ? error.message : String(error)}`)
