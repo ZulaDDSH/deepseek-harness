@@ -85,6 +85,7 @@ export class ClientAccessState {
     if (initial !== undefined) this.replace(initial)
   }
   private readonly pinned = new Map<string, SourceEntry>()
+  private readonly live = new Set<SourceEntry>()
   private readonly idle = new Map<string, SourceEntry>()
 
   /**
@@ -196,11 +197,13 @@ export class ClientAccessState {
 
   private pin(key: string, entry: SourceEntry): void {
     entry.last = answer(this.snapshot, entry.kind, entry.id, entry.action)
+    this.live.add(entry)
     if (this.idle.get(key) === entry) this.idle.delete(key)
     if (!this.pinned.has(key)) this.pinned.set(key, entry)
   }
 
   private release(key: string, entry: SourceEntry): void {
+    this.live.delete(entry)
     if (this.pinned.get(key) !== entry) return
     this.pinned.delete(key)
     if (!this.idle.has(key)) this.idle.set(key, entry)
@@ -216,7 +219,7 @@ export class ClientAccessState {
 
   private publish(next: AccessSnapshot): void {
     this.snapshot = next
-    for (const entry of [...this.pinned.values()]) {
+    for (const entry of [...this.live]) {
       const current = answer(next, entry.kind, entry.id, entry.action)
       if (current === entry.last) continue
       entry.last = current
