@@ -42,6 +42,12 @@ describe('commandEvidence', () => {
     ['(gh pr create --fill)', created],
     ['FOO=1 env BAR=2 gh pr create --fill', created],
     ['git status; gh pr new', created],
+    ["bash -c 'gh pr create --fill'", created],
+    ['sh -lc "cd repo && gh pr create"', created],
+    ['if git diff --quiet; then gh pr create --fill; fi', created],
+    ['{ gh pr create --fill; }', created],
+    ['time gh pr create --fill', created],
+    ["cat <<'EOF' > body.md\nnotes\nEOF\ngh pr create --body-file body.md", created],
   ])('classifies %j', (command, evidence) => {
     expect(commandEvidence(command)).toEqual(evidence)
   })
@@ -55,6 +61,12 @@ describe('commandEvidence', () => {
     'grep -rn "gh pr create" docs',
     'echo gh pr create --fill',
     'printf "%s" "gh pr new"',
+    "cat > notes.md <<'EOF'\ngh pr create\nEOF",
+    'cat <<EOF\ngh pr new --fill\nEOF',
+    'git commit -F - <<EOF\nmessage\ngh pr create\nEOF',
+    'cat <<EOF\ngit push\nEOF',
+    "bash -c 'echo gh pr create'",
+    'bash script.sh gh pr create',
   ])('ignores %j', (command) => {
     expect(commandEvidence(command)).toBeUndefined()
   })

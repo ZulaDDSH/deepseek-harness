@@ -18,7 +18,11 @@ const LINE_URL = /^(https?:\/\/[^\s"'<>]+?\/pull\/\d+)\/?$/
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z\d_]*=/
 const PUSH_COMMAND = /\bgit(?:\s+(?:-[Cc]\s+\S+|--[\w-]+(?:=\S+)?))*\s+push\b/
 const CHANGE_REQUEST_URL = /\bhttps?:\/\/[^\s"'<>]+?\/pull\/\d+(?![\w-])/g
-const PUSH_TARGET_LINE = /^To (\S+)$/
+const HEREDOC = /(?<!<)<<-?[ \t]*(['"]?)([A-Za-z_]\w*)\1([^\n]*)\r?\n[\s\S]*?\r?\n[ \t]*\2[ \t]*\r?(?=\n|$)/g
+const SHELL_KEYWORDS = new Set(['if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', '{', 'time', 'command', 'exec', 'nohup'])
+const SHELL_INTERPRETERS = new Set(['bash', 'sh', 'zsh', 'dash'])
+const SCRIPT_FLAG = /^-[a-z]*c[a-z]*$/
+const PUSH_TARGET_LINE =/^To (\S+)$/
 const PUSH_REF_LINE = /^ [ +*=] (\[[^\]]+\]|\S+) +\S+ -> (\S+)(?: \(.*\))?$/
 
 /**
@@ -61,7 +65,8 @@ export function commandIn(args: unknown): string | undefined {
  * @param command - shell command text.
  * @returns the evidence, or undefined when the command has none of these forms.
  */
-export function commandEvidence(command: string): CommandEvidence | undefined {
+export function commandEvidence(source: string): CommandEvidence | undefined {
+  const command = source.replace(HEREDOC, '<<$2$3')
   const create = createsChangeRequest(command)
   const references = ghReferences(command)
   const reference = REFERENCE_COMMAND.test(command) || references.length > 0
@@ -133,11 +138,14 @@ function createsChangeRequest(command: string): boolean {
     if (typeof token === 'string') segments.at(-1)?.push(token)
     else segments.push([])
   }
-  return segments.some(words => {
+  return segments.some((words) => {
     let start = skipAssignments(words, 0)
+    while (SHELL_KEYWORDS.has(words[start] ?? '')) start = skipAssignments(words, start + 1)
     if (words[start] === 'env') start = skipAssignments(words, start + 1)
     const [resource, operation, verb] = words.slice(start, start + 3)
-    return resource === 'gh' && operation === 'pr' && (verb === 'create' || verb === 'new')
+    if (resource === 'gh') return operation === 'pr' && (verb === 'create' || verb === 'new')
+    const flag = words.findIndex((word, index) => index > start && SCRIPT_FLAG.test(word))
+    return SHELL_INTERPRETERS.has(resource ?? '') && flag > 0 && createsChangeRequest(words[flag + 1] ?? '')
   })
 }
 
