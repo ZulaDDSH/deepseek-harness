@@ -29,6 +29,10 @@ Add the row below to a preset's plugin list when that preset's agents should man
 
 Choose it for any preset whose agents need to schedule future work, and load `@deepseek-ai/dsh-schedule` in the same process: this package is only the model-facing consumer of that service. A preset that should stay capability-poor — `minimal` is the shipped example — omits the row, and its agents see no Schedule tool at all.
 
+### Mount rule: session ownership or administrator
+
+Mount the row without configuration for agent sessions. The shipped Web `standard`, `cordis`, and `ptc` presets and the SDK `cordis` composition do this: each agent lists, views, edits, and deletes only tasks its Session created, edited, or is the target of. Add `config: { administrator: true }` to the row only for a scope that must manage every Host task, such as an operator-run headless automation preset, and never for a preset that serves untrusted or unrelated Sessions. The Host Automation page and Remote callers use `ctx.schedule` directly and do not depend on this setting.
+
 ### User authorization
 
 One shared `tool:schedule` system-prompt section requires explicit user authorization to create or modify tasks. Prior explicit authorization for the running scheduled task remains valid, such as pausing that task after a monitored PR merges.
