@@ -58,8 +58,21 @@
 
 `packages/llm/llm-freebuff/src/quota.ts:parseUsage`: a response without numeric `daily.remaining` and `daily.limit` is an error, never zero hours. A failed read (HTTP error, network error, bad body, unreadable credential) returns `ok: false` and is not cached. `null` or malformed open hours are skipped, as the script does with its null filter.
 
-`packages/llm/llm-freebuff/src/quota.ts:createFreebuffQuotaSource`: the token is read from the credential reader on every uncached fetch and is held only in a local variable for the request. It is not cached, logged, put in a result or put in an error: errors are fixed strings (`Freebuff usage API returned HTTP N`, `Freebuff usage request failed`), never the thrown message. The usage payload (not the token) is cached for five minutes (`QUOTA_TTL_MS`) and dropped when the credential disappears, so signing out is seen at once. The popover reloads on every open, so the cache is what keeps `/session` from being hit each time.
+`packages/llm/llm-freebuff/src/quota.ts:createFreebuffQuotaSource`: the credential read starts PowerShell and compiles a helper with `Add-Type`, so the token (or its absence) is kept in memory only: for the usage TTL when present, 30 s when missing, and dropped on HTTP 401 or 403 so a fresh sign-in is picked up. It is never logged, put in a result or put in an error: errors are fixed strings (`Freebuff usage API returned HTTP N`, `Freebuff usage request failed`), never the thrown message. The usage payload (not the token) is cached for five minutes (`QUOTA_TTL_MS`) and dropped when the credential disappears, so signing out is seen at once. The popover reloads on every open, so the cache is what keeps `/session` from being hit each time.
 
 `packages/llm/llm-freebuff/src/quota.ts:windowsTokenReader`: Freebuff stores its token with `Bun.secrets` under service `freebuff-cli` and name = the credentials file path (checked in the shipped `freebuff.exe` source), which Bun maps on Windows to the Credential Manager generic credential `freebuff-cli/<home>\.config\manicode\credentials.json`. No Credential Manager helper exists in the repo, so a short PowerShell with `CredReadW` (type 1) runs; the target goes in through the environment and the blob returns on stdout as base64, so the token is never in argv. The script is passed with `-EncodedCommand`. The blob is UTF-8, or UTF-16 when it contains NUL, and is trimmed (`decodeToken`). An empty result is signed out; a PowerShell failure is a read error, not signed out.
 
 `packages/llm/llm-freebuff/src/quota.ts:defaultQuotaOptions`: macOS and Linux read nothing and report not configured with a message. The binary shows `Bun.secrets` with that service and name, but how Bun maps them to a macOS Keychain item or a Linux libsecret attribute set was not verified, so no `security` or `secret-tool` call is made.
+
+## Review fixes
+
+`packages/llm/llm-freebuff/src/session.ts:refusal`: only the last failure row of a turn counts, and a later complete reply with visible text means Freebuff recovered, so the turn goes on. When no reply follows, the failure text is raised verbatim. This is the same rule as `subagent-freebuff` `readTranscript`, so a retry inside Freebuff does not kill the chat.
+
+`packages/llm/llm-freebuff/src/session.ts:FreebuffSession.spawn`: when the headless screen cannot be created after the terminal started, the terminal is terminated and its abort controller fired before the error is rethrown, so no terminal is left running with nobody to read it.
+
+`packages/llm/llm-freebuff/src/adapter.ts:resumeOf`: a chat id from replay state is used as a directory name and as the `--continue` argument, so it must match `^[\w.-]+$` and may not start with `-` or `.`. A state with any other chat id is ignored and the next older Freebuff reply is tried.
+
+`packages/llm/llm-freebuff/src/quota.ts:credentialTarget`: the Credential Manager target is built from the Freebuff config directory (`FREEBUFF_CONFIG_DIR` when absolute, else `~/.config/manicode`), because the CLI names its secret after the credentials file path it actually uses.
+
+`packages/llm/llm-freebuff/src/quota.ts:decodeToken`: the live Credential Manager blob on Windows was checked by shape only and is the bare token (no JSON, no NUL bytes). A blob that starts with `{` is also accepted: the token is `authToken` at the top level or inside one nested object. The token is never printed.
+
