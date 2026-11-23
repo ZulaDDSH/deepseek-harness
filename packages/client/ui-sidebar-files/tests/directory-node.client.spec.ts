@@ -157,6 +157,24 @@ describe('DirectoryNode', () => {
     expect(rootStream.signal.aborted).toBe(false)
   })
 
+  it('keeps an open child that a truncated listing no longer shows, and closes it once the listing proves it gone', async () => {
+    const { node, script } = mount()
+    const rootStream = await listReady(node, script, ROOT_LEVEL)
+    const child = node.expand(SRC)!
+    const childStream = await listReady(child, script, SRC_LEVEL)
+    const truncated = await watchedRead(node, script, 'change')
+    await script.settle({ ok: true, value: { entries: [{ name: 'a', type: 'directory' }], truncated: true } })
+    await truncated.finished
+    expect(node.children.get(SRC)).toBe(child)
+    expect(childStream.signal.aborted).toBe(false)
+    expect(rootStream.signal.aborted).toBe(false)
+    const complete = await watchedRead(node, script, 'change')
+    await script.settle({ ok: true, value: { entries: [{ name: 'a', type: 'directory' }], truncated: false } })
+    await complete.finished
+    expect(node.children.size).toBe(0)
+    expect(childStream.signal.aborted).toBe(true)
+  })
+
   it('coalesces notifications during a list into one subsequent read', async () => {
     const { node, script } = mount()
     const read = await watchedRead(node, script)
@@ -277,6 +295,37 @@ describe('DirectoryNode', () => {
     await node.close()
     expect(failed).not.toHaveBeenCalled()
     expect(script.list).toHaveBeenCalledTimes(2)
+    expect(script.watches.opened).toHaveLength(1)
+  })
+
+  it('restarts a watch that ended in failure on the next tree refresh and still sees later changes', async () => {
+    const { node, script, reported } = mount()
+    const stream = await listReady(node, script, ROOT_LEVEL)
+    stream.fail(new Error('directory stream disconnected'))
+    await reported.promise
+    await stream.released.promise
+    expect(script.watches.opened).toHaveLength(1)
+    const reload = node.refreshTree()
+    expect((await script.waitForList(1)).path).toBe(ROOT)
+    await script.settle({ ok: true, value: ROOT_LEVEL })
+    await reload
+    const restarted = await script.watches.forPath(ROOT, 1)
+    expect(script.watches.opened).toHaveLength(2)
+    await restarted.deliver('change')
+    expect((await script.waitForList(2)).path).toBe(ROOT)
+    await script.settle({ ok: true, value: EMPTY })
+  })
+
+  it('does not restart an unsupported watch on tree refresh', async () => {
+    const { node, script } = mount()
+    const stream = await script.watches.forPath(ROOT)
+    stream.fail(new RemoteError('workspace-file/watch-unsupported', 'watching is unavailable', { path: ROOT }))
+    await script.waitForList(0)
+    await script.settle({ ok: true, value: ROOT_LEVEL })
+    const reload = node.refreshTree()
+    await script.waitForList(1)
+    await script.settle({ ok: true, value: EMPTY })
+    await reload
     expect(script.watches.opened).toHaveLength(1)
   })
 

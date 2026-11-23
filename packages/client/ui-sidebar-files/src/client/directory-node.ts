@@ -12,6 +12,7 @@ export class DirectoryNode {
   private dirty = false
   private initialized = false
   private automatic = true
+  private watchFailed = false
 
   constructor(
     readonly path: string,
@@ -104,6 +105,10 @@ export class DirectoryNode {
 
   /** Refresh this node and its open descendants. @returns once their listings settle. */
   async refreshTree(): Promise<void> {
+    if (this.watchFailed && !this.signal.aborted) {
+      this.watchFailed = false
+      this.task = this.follow()
+    }
     await this.refresh()
     await Promise.all([...this.children.values()].map(child => child.refreshTree()))
   }
@@ -125,6 +130,7 @@ export class DirectoryNode {
       if (!this.signal.aborted) {
         if (!this.initialized) await this.refresh()
         if (!(typeof error === 'object' && error !== null && 'code' in error && error.code === 'workspace-file/watch-unsupported')) {
+          this.watchFailed = true
           this.failed(this.path, error)
         }
       }
@@ -141,8 +147,10 @@ export class DirectoryNode {
         this.initialized = true
         const directories = new Set(level.entries.filter(entry => entry.type === 'directory')
           .map(entry => `${this.path.replace(/[/\\]+$/, '')}/${entry.name}`))
-        for (const path of this.children.keys()) {
-          if (!directories.has(path)) await this.collapse(path)
+        const listed = new Set(level.entries.map(entry => `${this.path.replace(/[/\\]+$/, '')}/${entry.name}`))
+        for (const path of [...this.children.keys()]) {
+          if (directories.has(path) || (level.truncated && !listed.has(path))) continue
+          await this.collapse(path)
         }
         for (const path of directories) {
           if (this.restore.includes(path)) this.expand(path, this.restore)
