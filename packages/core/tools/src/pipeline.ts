@@ -475,12 +475,14 @@ export class ToolExecutionPipeline {
         approvalCancelled: false,
       }
     }
+    const operation = operationSummary(exec.arguments)
     const outcome = await approval.request({
       agent: exec.agent,
       toolName: exec.name,
       callId: exec.callId,
       ...ask.reason !== undefined ? { reason: ask.reason } : {},
       ...ask.displayReason !== undefined ? { displayReason: ask.displayReason } : {},
+      ...operation !== undefined ? { operation } : {},
       signal: exec.signal,
     })
     switch (outcome) {
@@ -717,6 +719,28 @@ function errorInfo(error: unknown): ToolErrorInfo | undefined {
 }
 
 /** Materialize a non-granting approval outcome as a denial with routable `ApprovalError` identity. */
+const OPERATION_LIMIT = 1024
+const OPERATION_SECRET_KEY = /pass(word|wd)?|secret|token|api[-_]?key|authorization|credential|cookie/i
+
+function boundedOperation(value: unknown, depth: number): unknown {
+  if (typeof value === 'string') return value.length > 256 ? `${value.slice(0, 256)}...` : value
+  if (value === null || typeof value !== 'object') return value
+  if (depth >= 4) return '[nested]'
+  if (Array.isArray(value)) return value.slice(0, 16).map(item => boundedOperation(item, depth + 1))
+  const out: Record<string, unknown> = {}
+  for (const [key, item] of Object.entries(value).slice(0, 32)) {
+    out[key] = OPERATION_SECRET_KEY.test(key) ? '[redacted]' : boundedOperation(item, depth + 1)
+  }
+  return out
+}
+
+function operationSummary(args: unknown): string | undefined {
+  if (args === undefined) return undefined
+  const text = JSON.stringify(boundedOperation(args, 0))
+  if (text === undefined) return undefined
+  return text.length > OPERATION_LIMIT ? `${text.slice(0, OPERATION_LIMIT)}...` : text
+}
+
 function approvalDenial(reason: string, code: ApprovalErrorCode): Extract<PreToolDecision, { kind: 'deny' }> {
   return { kind: 'deny', reason, info: { name: APPROVAL_ERROR_NAME, code } }
 }

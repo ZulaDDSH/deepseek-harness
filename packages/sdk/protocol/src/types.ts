@@ -228,6 +228,7 @@ export interface ApprovalRequestParams {
   callId?: string
   /** Asker-supplied explanation, when available. */
   reason?: string
+  operation?: string
 }
 
 /** One-shot client decision; grants never persist beyond this operation. */

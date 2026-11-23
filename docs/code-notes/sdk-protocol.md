@@ -7,3 +7,7 @@
 `packages/sdk/protocol/src/transport.ts:JsonRpcLineTransport::failLimit`: a limit failure is terminal and loud. It rejects pending and future requests with the limit error, detaches the input listeners, destroys both streams without an error argument (a destroy error would surface as an unhandled stream `error` event after our listener is gone), settles `flush()` with the limit error even when the output never calls back, and calls the `onFailure` handler once so the owner can tear the process down. After the failure `notify()` and handler responses are no-ops: they run inside event emitters and must not throw into them, and the peer is already being terminated.
 
 `packages/sdk/protocol/src/transport.ts:JsonRpcLineTransport::close`: unchanged: it still does not destroy the streams. Only a limit failure destroys them.
+
+## packages/sdk/protocol/src/types.ts:ApprovalRequestParams (finding 140)
+
+`operation` is an optional display-only summary of the operation's arguments (at most 1024 characters, key-name redacted). Clients that ignore unknown fields keep working; the Python model ignores it and exposes it through the raw payload.

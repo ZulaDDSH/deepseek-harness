@@ -959,8 +959,33 @@ describe('ToolRuntime', () => {
       expect(seen).toHaveLength(1)
       expect(seen[0]).toMatchObject({
         agent, toolName: 'echo', callId: 'c1', reason: 'hook wants a human', displayReason: { en: 'Allow it?', zh: '允许吗？' },
+        operation: '{"text":"hi"}',
       })
       expect(seen[0]?.signal).toBe(controller.signal)
+    })
+
+    it('forwards a bounded operation summary with secret-named values redacted', async () => {
+      const ctx = await approvalSetup()
+      const seen: ApprovalRequest[] = []
+      ctx.on('approval/request', (req) => {
+        seen.push(req)
+        return Promise.resolve<ApprovalOutcome>('allowed-once')
+      })
+      ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => ({ kind: 'ask', reason: 'r' }))
+
+      await executeToolFixture(ctx, {
+        signal: testToolSignal,
+        callId: brandString<ToolCallId>('c2'),
+        name: 'echo',
+        arguments: { text: 'x'.repeat(5000), apiKey: 'sk-live', nested: { Authorization: 'Bearer t' }, list: Array.from({ length: 100 }, (_, i) => i) },
+        agent: fakeAgent(),
+      })
+
+      const operation = seen[0]?.operation ?? ''
+      expect(operation.length).toBeLessThanOrEqual(1024 + 3)
+      expect(operation).not.toContain('sk-live')
+      expect(operation).toContain('"apiKey":"[redacted]"')
+      expect(seen[0]?.reason).toBe('r')
     })
 
     it('denies with the user-rejection reason on rejected', async () => {

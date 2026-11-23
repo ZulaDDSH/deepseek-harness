@@ -127,6 +127,7 @@ export class HarnessSdkJsonRpcServer {
         toolName: request.toolName,
         ...(request.callId === undefined ? {} : { callId: request.callId }),
         ...(request.reason === undefined ? {} : { reason: request.reason }),
+        ...(request.operation === undefined ? {} : { operation: request.operation }),
       }
       const signal = request.signal === undefined
         ? this.lifetime.signal
