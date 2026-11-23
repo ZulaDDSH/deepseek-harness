@@ -58,7 +58,7 @@ function matchOffsets(content: string, search: string): number[] {
     const match = content.indexOf(search, offset)
     if (match < 0) return offsets
     offsets.push(match)
-    offset = match + search.length
+    offset = match + 1
   }
 }
 
@@ -200,6 +200,8 @@ async function listDirectory(
   maxOutputChars: number,
   exec: ToolRunContext,
 ): Promise<string> {
+  let remainingRows = Math.ceil(maxOutputChars / 4)
+  let stopped = false
   async function visit(dir: FsTarget, depth: number): Promise<string[]> {
     const entries = await ctx.fs.listDir(dir, exec.signal)
     const rows: string[] = []
@@ -207,6 +209,11 @@ async function listDirectory(
       !candidate.name.startsWith('.')
       && candidate.name !== 'node_modules'
       && candidate.name !== '__pycache__')) {
+      if (remainingRows <= 0) {
+        stopped = true
+        break
+      }
+      remainingRows -= 1
       const type = entry.type === 'directory' ? 'd' : entry.type === 'file' ? 'f' : '?'
       rows.push(`${type}\t${entry.target.displayPath}`)
       if (entry.type === 'directory' && depth < 2) {
@@ -222,6 +229,7 @@ async function listDirectory(
     return codepointCompare(leftPath, rightPath)
   })
   const listing = maybeTruncate(rows.join('\n') + '\n', maxOutputChars)
+    + (stopped ? '(Listing stopped early to bound the work; view a subdirectory to see the rest.)\n' : '')
   return `Here're the files and directories up to 2 levels deep in ${target.displayPath}, excluding hidden items, node_modules, and Python cache directories:\n${listing}\n`
 }
 
@@ -369,11 +377,17 @@ async function insertInFile(
       `Invalid \`insert_line\` parameter: ${insertLine}. It should be within the range of lines of the file: [0, ${lines.length}]`,
     ])
   }
-  const after = [
-    ...lines.slice(0, insertLine),
-    ...value.split(/\r?\n/).map(line => eol === '\r\n' ? `${line}\r` : line),
-    ...lines.slice(insertLine),
-  ].join('\n')
+  const head = lines.slice(0, insertLine)
+  const tail = lines.slice(insertLine)
+  const added = value.split(/\r?\n/)
+  if (eol === '\r\n') {
+    const previous = head.at(-1)
+    if (tail.length === 0 && previous !== undefined && !previous.endsWith('\r')) head[head.length - 1] = `${previous}\r`
+    added.forEach((line, index) => {
+      if (index < added.length - 1 || tail.length > 0) added[index] = `${line}\r`
+    })
+  }
+  const after = [...head, ...added, ...tail].join('\n')
   const expected: FsWriteIntent = intent === undefined
     ? { kind: 'replaceIfVersion', version: info.version }
     : { kind: 'replaceIfVersion', version: intent.version }
