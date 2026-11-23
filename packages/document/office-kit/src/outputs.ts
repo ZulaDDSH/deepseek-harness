@@ -125,11 +125,13 @@ export class OutputStore {
     }
     for (const entry of [...this.entries.values()]) {
       if (this.bytes + data.byteLength <= this.options.maxBytes) break
+      this.throwIfStale(ticket, signal)
       await this.remove(entry)
     }
     if (this.bytes + data.byteLength > this.options.maxBytes) {
       throw new OfficeKitError('unavailable', 'Earlier outputs could not be deleted to make room for this output.')
     }
+    this.throwIfStale(ticket, signal)
     const directory = join(this.options.root, ownerDirectory(owner), randomUUID())
     const path = join(directory, basename(name))
     await writeOutput(directory, path, data).catch((error: unknown) => {

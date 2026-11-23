@@ -359,3 +359,25 @@ it('deletes a save whose caller aborted while the file was being written', async
   const owners = await readdir(join(root, 'outputs'))
   for (const owner of owners) expect(await readdir(join(root, 'outputs', owner))).toEqual([])
 })
+
+it('stops evicting older outputs once the save is cancelled during an eviction', async () => {
+  const { outputs } = store()
+  const older = [
+    await outputs.save('x', 'x.pdf', new Uint8Array(2)),
+    await outputs.save('y', 'y.pdf', new Uint8Array(3)),
+    await outputs.save('z', 'z.pdf', new Uint8Array(3)),
+  ]
+  const controller = new AbortController()
+  const gate = Promise.withResolvers<undefined>()
+  io.rmGate = gate.promise
+  const saving = outputs.save('w', 'w.pdf', new Uint8Array(8), controller.signal)
+  const rejected = expect(saving).rejects.toThrow('stop')
+  await vi.waitFor(() => { expect(io.rmBlocked).toBe(1) })
+  controller.abort(new Error('stop'))
+  io.rmGate = undefined
+  gate.resolve(undefined)
+  await rejected
+  expect(await exists(older[0]!)).toBe(false)
+  expect(await exists(older[1]!)).toBe(true)
+  expect(await exists(older[2]!)).toBe(true)
+})
