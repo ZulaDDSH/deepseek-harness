@@ -111,6 +111,17 @@ export function prepareManagedProcessBinding(
 }
 
 
+// Constraint: counts only bytes that end on a character boundary; a truncated trailing sequence is at most 3 bytes.
+function completeUtf8Length(bytes: Buffer): number {
+  for (let back = 1; back <= Math.min(3, bytes.length); back += 1) {
+    const byte = bytes[bytes.length - back] as number
+    if ((byte & 0xc0) === 0x80) continue
+    const needed = byte >= 0xf0 ? 4 : byte >= 0xe0 ? 3 : byte >= 0xc0 ? 2 : 1
+    return needed > back ? bytes.length - back : bytes.length
+  }
+  return bytes.length
+}
+
 /**
  * Collects one stream with a bounded in-memory tail. With spill options, on
  * first overflow a spill file is created and every chunk (including those
@@ -133,6 +144,7 @@ export class OutputCollector {
   private spillFd: number | undefined
   private spillFile: string | undefined
   private spillDisabled: boolean
+  private sealed = false
   /** Total bytes ever pushed (not just retained). */
   private total = 0
 
@@ -263,9 +275,10 @@ export class OutputCollector {
     const buffer = Buffer.concat(this.chunks)
     const lossy = fromByte < windowStart
     const slice = lossy ? buffer : buffer.subarray(fromByte - windowStart)
+    const length = this.sealed ? slice.length : completeUtf8Length(slice)
     return {
-      text: slice.toString('utf8'),
-      nextOffset: this.total,
+      text: slice.subarray(0, length).toString('utf8'),
+      nextOffset: this.total - (slice.length - length),
       lossy,
       ...this.spillFile !== undefined ? { spillPath: this.spillFile } : {},
     }
@@ -287,6 +300,7 @@ export class OutputCollector {
    * never point at a still-open file.
    */
   seal(): void {
+    this.sealed = true
     if (this.spillFd === undefined) return
     try {
       closeSync(this.spillFd)
