@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHmac } from 'node:crypto'
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -242,5 +243,33 @@ for (const code of ['EPERM', 'ENOSYS', 'EXDEV']) {
     assert.match(await readFile(join(root, '.ownership-secret'), 'utf8'), /^[0-9a-f]{64}$/)
     assert.deepEqual((await readdir(root)).filter((f) => f !== '.ownership-secret'), [])
     assert.equal(key, fallback.accountKey(root, 'one@example.test', 'org'))
+  })
+}
+
+for (const failure of ['EEXIST', 'EPERM']) {
+  test(`the secret written by a competing process wins after a ${failure} link failure`, { skip: !mock.module }, async (t) => {
+    const { copyFileSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } = await import('node:fs')
+    const winner = 'ab'.repeat(32)
+    t.mock.module('node:fs', {
+      namedExports: {
+        copyFileSync,
+        mkdirSync,
+        readFileSync,
+        renameSync,
+        unlinkSync,
+        writeFileSync,
+        linkSync(_temp, file) {
+          writeFileSync(file, winner)
+          throw Object.assign(new Error('lost the race'), { code: failure })
+        },
+      },
+    })
+    const competing = await import(`../ownership.js?race-${failure}`)
+    const root = await scratch(t)
+    const key = competing.accountKey(root, 'one@example.test', 'org')
+    const expected = createHmac('sha256', winner).update(JSON.stringify(['one@example.test', 'org'])).digest('hex')
+    assert.equal(key, expected)
+    assert.equal(await readFile(join(root, '.ownership-secret'), 'utf8'), winner)
+    assert.deepEqual((await readdir(root)).filter((f) => f !== '.ownership-secret'), [])
   })
 }
