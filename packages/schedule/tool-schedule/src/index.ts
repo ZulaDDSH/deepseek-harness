@@ -3,7 +3,7 @@
  * `schedule_edit` tools over the Host `ctx.schedule` service. Mounting the
  * plugin registers them in the mounting scope, so a preset decides which
  * agents receive them. Tasks belong to the Host, not to a Session: the tools
- * read and change any task by id, and only the delivery target names a Session.
+ * read and change tasks by id under an involvement constraint, and only the delivery target names a Session.
  * @module @deepseek-ai/dsh-tool-schedule
  */
 
@@ -354,15 +354,30 @@ function targetFor(agent: Agent, target: typeof TARGET_CHOICES[number]): Schedul
  * is refused as an internal failure.
  * @param ctx - Context owning the tool and system-prompt registries and the Host Schedule service.
  */
-export function apply(ctx: Context): void {
-  ctx.inject(['schedule'], registerScheduleTools)
+export function apply(ctx: Context, config: Config = {}): void {
+  ctx.inject(['schedule'], scoped => { registerScheduleTools(scoped, config.administrator === true) })
+}
+
+export interface Config {
+  administrator?: boolean
 }
 
 /**
  * Register the tools and shared guidance in the scope that resolved Schedule.
  * @param ctx - Scope whose `schedule` service the tools act through.
  */
-function registerScheduleTools(ctx: Context): void {
+function registerScheduleTools(ctx: Context, administrator: boolean): void {
+  const reaches = (agent: Agent, task: ScheduleCatalogEntry): boolean =>
+    administrator || task.involvedSessionIds.includes(agent.session.id)
+  const missing = (id: ScheduleId) => ({ id, code: 'schedule_not_found' }) as const
+  const visible = async (agent: Agent, query: { active?: boolean }): Promise<ScheduleCatalogEntry[]> => {
+    const items: ScheduleCatalogEntry[] = []
+    for (let offset = 0; ; offset += MAX_LIST_LIMIT) {
+      const page = await ctx.schedule.list({ ...query, limit: MAX_LIST_LIMIT, offset })
+      items.push(...page.items.filter(task => reaches(agent, task)))
+      if (offset + MAX_LIST_LIMIT >= page.total) return items
+    }
+  }
   ctx.systemPrompt.section({
     name: 'tool:schedule',
     order: ctx.systemPrompt.getSectionOrder('TOOL_SCHEDULE'),
@@ -413,11 +428,18 @@ function registerScheduleTools(ctx: Context): void {
     isConcurrencySafe: () => true,
     execute({ active, limit, offset }, exec) {
       // The open parameter root admits unknown keys; only the declared page fields select the Host-wide list.
-      return runForCaller(exec, LIST_ERRORS, () => ctx.schedule.list({
-        ...(active === undefined ? {} : { active }),
-        ...(limit === undefined ? {} : { limit }),
-        ...(offset === undefined ? {} : { offset }),
-      }).then(page => ({ ...page, items: page.items.map(modelTask) })))
+      return runForCaller(exec, LIST_ERRORS, async (agent) => {
+        const request = {
+          ...(active === undefined ? {} : { active }),
+          ...(limit === undefined ? {} : { limit }),
+          ...(offset === undefined ? {} : { offset }),
+        }
+        if (administrator) return await ctx.schedule.list(request).then(page => ({ ...page, items: page.items.map(modelTask) }))
+        const bounds = await ctx.schedule.list(request)
+        const items = await visible(agent, active === undefined ? {} : { active })
+        const page = items.slice(bounds.offset, bounds.offset + bounds.limit)
+        return { items: page.map(modelTask), shown: page.length, total: items.length, limit: bounds.limit, offset: bounds.offset }
+      })
     },
     presentCall: () => present('List scheduled tasks', 'read'),
   }))
@@ -432,8 +454,8 @@ function registerScheduleTools(ctx: Context): void {
     // Host task reads activate no target Session.
     isConcurrencySafe: () => true,
     execute(args, exec) {
-      return runForCaller(exec, CALLER_ERRORS, () => ctx.schedule.view({ id: brandString<ScheduleId>(args.id) })
-        .then(result => 'kind' in result ? modelTask(result) : result))
+      return runForCaller(exec, CALLER_ERRORS, agent => ctx.schedule.view({ id: brandString<ScheduleId>(args.id) })
+        .then(result => 'kind' in result ? (reaches(agent, result) ? modelTask(result) : missing(result.id)) : result))
     },
     presentCall: args => present('View scheduled task', 'read', args.id),
   }))
@@ -487,8 +509,10 @@ function registerScheduleTools(ctx: Context): void {
           }
           request = { id, action: 'update', patch, ...expected }
         }
-        return ctx.schedule.edit(request, agent.session.id, exec.signal)
-          .then(result => 'kind' in result ? modelTask(result) : result)
+        return ctx.schedule.view({ id }).then(async (current) => {
+          if ('kind' in current && !reaches(agent, current)) return missing(id)
+          return await ctx.schedule.edit(request, agent.session.id, exec.signal)
+        }).then(result => 'kind' in result ? modelTask(result) : result)
       })
     },
     presentCall: args => present(args.action === 'delete' ? 'Delete scheduled task' : 'Edit scheduled task', 'other', args.id),
