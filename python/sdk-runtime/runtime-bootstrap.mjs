@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** Private entry owned by the Python single-file runtime packaging. */
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { registerHooks } from 'node:module'
 import { delimiter, dirname, isAbsolute, join } from 'node:path'
@@ -20,10 +20,51 @@ if (existsSync(join(resourceDirectory, 'downloads.json'))) {
   cache = join(root, downloads.identity)
 }
 
+async function resourceProblem(kind, directory) {
+  let marker
+  try { marker = await readFile(join(directory, 'complete'), 'utf8') } catch { return 'its completion marker is missing' }
+  if (marker !== downloads.identity) return 'its completion marker does not match the runtime manifest identity'
+  const win = process.platform === 'win32'
+  const missing = async (path, directoryRequired = false) => {
+    try { return !(await stat(path))[directoryRequired ? 'isDirectory' : 'isFile']() } catch { return true }
+  }
+  if (kind === 'office') {
+    for (const path of [join(directory, 'node', 'bin', win ? 'node.exe' : 'node'),
+      join(directory, 'node_modules', '@deepseek-ai', 'libreoffice-kit', 'lib', 'cli.js')]) {
+      if (await missing(path)) return `required file is missing: ${path}`
+    }
+    return undefined
+  }
+  const root = join(directory, 'primary-runtime')
+  let manifest
+  try { manifest = JSON.parse(await readFile(join(root, 'runtime.json'), 'utf8')) } catch { return `runtime manifest is missing or invalid: ${join(root, 'runtime.json')}` }
+  if (typeof manifest?.python !== 'string') return undefined
+  const python = join(root, 'dependencies', 'python')
+  const version = manifest.python.split('.').slice(0, 2).join('.')
+  for (const path of [join(python, win ? 'python.exe' : join('bin', 'python3')),
+    join(root, 'dependencies', 'node', 'bin', win ? 'node.exe' : 'node')]) {
+    if (await missing(path)) return `required file is missing: ${path}`
+  }
+  const packages = join(python, ...(win ? ['Lib', 'site-packages'] : ['lib', `python${version}`, 'site-packages']))
+  return await missing(packages, true) ? `required directory is missing: ${packages}` : undefined
+}
+
+async function quarantineResource(kind, destination) {
+  const damaged = join(cache, `.${kind}-damaged-${process.pid}-${Date.now()}`)
+  try { await rename(destination, damaged) } catch (error) {
+    if (error.code === 'ENOENT') return
+    throw error
+  }
+  await rm(damaged, { recursive: true, force: true })
+}
+
 /** Publish a complete immutable resource directory; overlapping downloads may share the winner. */
 async function downloadResource(kind) {
   if (downloads === undefined) throw new Error('runtime download manifest is missing; rebuild or reinstall the runtime wheel')
   const destination = join(cache, kind)
+  if (existsSync(join(destination, 'complete')) && await resourceProblem(kind, destination) !== undefined) {
+    if (await resourceProblem(kind, destination) !== undefined) await quarantineResource(kind, destination)
+  }
   if (!existsSync(join(destination, 'complete'))) {
     await mkdir(cache, { recursive: true })
     const staging = await mkdtemp(join(cache, `.${kind}-`))
@@ -47,17 +88,23 @@ async function downloadResource(kind) {
       await writeFile(join(staging, 'complete'), downloads.identity)
       try { await rename(staging, destination) } catch (error) {
         if (!['EEXIST', 'ENOTEMPTY', 'EPERM'].includes(error.code)
-          || await readFile(join(destination, 'complete'), 'utf8') !== downloads.identity) throw error
+          || await resourceProblem(kind, destination) !== undefined) throw error
       }
     } finally {
       try { await disposeProxy?.() } finally { await rm(staging, { recursive: true, force: true }) }
     }
   }
-  if (await readFile(join(destination, 'complete'), 'utf8') !== downloads.identity) throw new Error(`runtime cache identity mismatch: ${destination}`)
+  const problem = await resourceProblem(kind, destination)
+  if (problem !== undefined) throw new Error(`runtime cache is unusable: ${destination}: ${problem}`)
   return kind === 'primary' ? join(destination, 'primary-runtime') : destination
 }
 
-const office = process.env.DSH_OFFICE_SIDECAR ?? (cache !== undefined && existsSync(join(cache, 'office', 'complete')) ? join(cache, 'office') : undefined)
+let office = process.env.DSH_OFFICE_SIDECAR
+if (office === undefined && cache !== undefined && existsSync(join(cache, 'office', 'complete'))) {
+  const problem = await resourceProblem('office', join(cache, 'office'))
+  if (problem === undefined) office = join(cache, 'office')
+  else console.error(`dsh: ignoring the cached Office sidecar at ${join(cache, 'office')}: ${problem}. Run the explicit Office download again to repair it.`)
+}
 if (office !== undefined) {
   if (!isAbsolute(office)) throw new Error('DSH_OFFICE_SIDECAR must be an absolute directory')
   const parentURL = pathToFileURL(join(office, 'package.json')).href
