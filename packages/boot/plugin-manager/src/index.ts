@@ -1250,6 +1250,19 @@ export class PluginManager extends TypertRemoteService {
   @Remote
   removeBundle(name: string): Promise<ChangeResult> {
     return this.change(async (result) => {
+      let deselected = false
+      const restoreSelection = async (): Promise<void> => {
+        if (!deselected) return
+        try {
+          const current = (await this.listBundles()).find(item => item.name === name)
+          if (current?.installed !== true || current.error !== undefined) throw new Error('the package is no longer intact')
+          await this.selectBundle(name, true)
+          Object.assign(result, await this.reload())
+          deselected = false
+        } catch (error) {
+          result.warnings = [...result.warnings ?? [], `${name} was left disabled after the failed removal: ${messageOf(error)}`]
+        }
+      }
       const installed = await this.configure(async () => {
         const bundle = (await this.listBundles()).find(item => item.name === name)
         if (bundle === undefined || !bundle.removable) throw new ManagementFailure('not-removable')
@@ -1261,10 +1274,12 @@ export class PluginManager extends TypertRemoteService {
         const contributions = bundle.error === undefined ? this.bundleRows(name) : []
         if (bundle.enabled) {
           await this.selectBundle(name, false)
+          deselected = true
           Object.assign(result, await this.reload())
         }
         if ([...this.ctx.loader.entries()].some(entry => entry.fiber?.uid != null
           && contributions.some(row => row.id === entry.options.id && row.name === entry.options.name))) {
+          await restoreSelection()
           throw new ManagementFailure('bundle-in-use')
         }
         return bundle.installed
@@ -1275,6 +1290,7 @@ export class PluginManager extends TypertRemoteService {
       const registry = this.installedFrom.has(name) ? this.installedFrom.get(name) : this.configuredRegistries.registry
       result.packageResult = await this.runPnpm(['remove', name, ...typeof registry === 'string' ? [`--config.registry=${registry}`] : []])
       if (result.packageResult.exitCode !== 0 || result.packageResult.timedOut === true) {
+        await this.configure(restoreSelection)
         throw new Error(result.packageResult.output)
       }
       this.installedFrom.delete(name)

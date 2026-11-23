@@ -175,7 +175,7 @@ Tool results append to the transcript. Enabling or disabling other tools can cha
 - Package replacements require restarting the process without HMR. A package relinked outside Plugin Manager while it is still installed waits for a restart.
 - Startup-only profiles cannot remove packages used to start the current process; stop it and use `dsh plugin`.
 - The manager cannot disable its own management components, change another profile, or edit an agent preset's composition.
-- A failed removal may leave dependencies partially changed, and a failed or cancelled installation can leave downloaded files under `node_modules` or the pnpm store. Inactive dependencies with missing files remain removable. Diagnostic logs remain under the profile's `.plugin-manager/logs` directory.
+- A failed removal restores the bundle's previous selection when the package is still intact (otherwise it stays disabled with a warning); it may leave dependencies partially changed, and a failed or cancelled installation can leave downloaded files under `node_modules` or the pnpm store. Inactive dependencies with missing files remain removable. Diagnostic logs remain under the profile's `.plugin-manager/logs` directory.
 - Management results describe Host activation. Browser synchronization failures appear separately in the Settings plugin list.
 - Desktop package operations remain owned by the Desktop shell.
 

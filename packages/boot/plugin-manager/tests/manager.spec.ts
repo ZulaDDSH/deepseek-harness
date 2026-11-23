@@ -903,7 +903,8 @@ it('unloads before removing packages and retries inactive dependencies whose fil
   onTestFinished(() => { remove.mockRestore() })
   expect(await manager.removeBundle('extra')).toMatchObject({ changed: true, application: 'failed', packageResult: { exitCode: 1 } })
   expect(readProfileManifest('test', dir).dependencies).toEqual({ extra: '1.0.0' })
-  expect((await manager.listBundles()).find(row => row.name === 'extra')?.enabled).toBe(false)
+  expect((await manager.listBundles()).find(row => row.name === 'extra')?.enabled).toBe(true)
+  await manager.setBundleEnabled('extra', false)
   rmSync(join(dir, 'node_modules', 'extra'), { recursive: true })
   remove.mockImplementationOnce(async () => {
     const manifest = readProfileManifest('test', dir)
@@ -913,6 +914,19 @@ it('unloads before removing packages and retries inactive dependencies whose fil
   })
   expect(await manager.removeBundle('extra')).toMatchObject({ changed: true, application: 'applied' })
   expect((await manager.listBundles()).some(row => row.name === 'extra')).toBe(false)
+})
+
+it('leaves a bundle disabled and says so when a failed removal already deleted its files', async () => {
+  const { manager, dir } = await fixture()
+  const remove = vi.spyOn(operations, 'runProfilePnpm').mockImplementation(() => {
+    rmSync(join(dir, 'node_modules', 'extra'), { recursive: true })
+    return Promise.resolve({ exitCode: 1, output: 'removal failed', truncated: false, logPath: join(dir, 'pnpm.log') })
+  })
+  onTestFinished(() => { remove.mockRestore() })
+  const result = await manager.removeBundle('extra')
+  expect(result).toMatchObject({ changed: true, application: 'failed', packageResult: { exitCode: 1 } })
+  expect(result.warnings?.join(' ')).toContain('extra was left disabled after the failed removal')
+  expect((await manager.listBundles()).find(row => row.name === 'extra')?.enabled).toBe(false)
 })
 
 it('treats a terminated run that trapped the signal and exited zero as a failure', async () => {
