@@ -101,7 +101,7 @@ describe('@deepseek-ai/dsh-command-feedback registration', () => {
     expect(test.ctx.commands.list(test.agent)).toContainEqual({
       definitionId: '@deepseek-ai/dsh-command-feedback',
       name: 'feedback',
-      description: 'Record feedback about this session',
+      description: 'Record feedback about this session; with session telemetry enabled this also sends the conversation so far to its collector',
       input: { hint: '<text>' },
     })
     expect(test.ctx.commands.find(test.agent, 'feedback')).toMatchObject({ recordInput: false })
@@ -154,6 +154,19 @@ describe('sessionFeedback Host Remote', () => {
 })
 
 describe('/feedback human command', () => {
+  it('discloses the telemetry release in the acknowledgement only while a telemetry backend is mounted', async () => {
+    const test = await harness()
+    const plain = await run(test, ' first')
+    expect(plain.text).not.toContain('telemetry')
+    const dispose = test.ctx.effect(() => test.ctx.provide('sessionTelemetry', {} as never))
+    try {
+      const mounted = await run(test, ' second')
+      expect(mounted.text).toBe(`Feedback recorded for session ${test.session.id}\nAnonymous user: ${USER_ID}.\nSession telemetry is enabled: this feedback releases the conversation so far to its configured collector.`)
+    } finally {
+      await dispose()
+    }
+  })
+
   it('acknowledges feedback and records its payload exactly once in the domain event', async () => {
     const test = await harness()
     await expect(run(test, ' the diff view is unreadable')).resolves.toEqual({

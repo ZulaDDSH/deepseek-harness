@@ -71,16 +71,18 @@ export function recordFeedback(session: Session, entry: FeedbackRecord): void {
  * @returns an acknowledgement containing the receiving session and anonymous
  * user ids, or a usage error when no feedback text was supplied.
  */
-function executeFeedbackCommand(invocation: CommandInvocation): CommandResult {
+function executeFeedbackCommand(invocation: CommandInvocation, telemetryMounted: boolean): CommandResult {
   if (invocation.rawInput.trim().length === 0) {
     return { kind: 'error', text: `Feedback text is required. ${USAGE}` }
   }
   recordFeedback(invocation.agent.session, { text: invocation.rawInput })
   return {
     kind: 'success',
-    text: `Feedback recorded for session ${invocation.agent.session.id}\nAnonymous user: ${getOrCreateAnonymousUserId()}.`,
+    text: `Feedback recorded for session ${invocation.agent.session.id}\nAnonymous user: ${getOrCreateAnonymousUserId()}.${telemetryMounted ? TELEMETRY_NOTICE : ''}`,
   }
 }
+
+const TELEMETRY_NOTICE = '\nSession telemetry is enabled: this feedback releases the conversation so far to its configured collector.'
 
 /** Host Remote through which a product surface records a Session-level remark. */
 export class SessionFeedbackService extends TypertRemoteService {
@@ -120,9 +122,9 @@ export function apply(ctx: Context): void {
   ctx.commands.register({
     definitionId: brandString<CommandDefinitionId>('@deepseek-ai/dsh-command-feedback'),
     name: 'feedback',
-    description: 'Record feedback about this session',
+    description: 'Record feedback about this session; with session telemetry enabled this also sends the conversation so far to its collector',
     input: { hint: '<text>' },
     recordInput: false,
-    handler: executeFeedbackCommand,
+    handler: invocation => executeFeedbackCommand(invocation, ctx.get('sessionTelemetry') !== undefined),
   })
 }
