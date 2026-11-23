@@ -137,6 +137,7 @@ These limits define the editor's field coverage and the page's reach; they are c
 - **Only pi-ai routes can be hand-declared** — the custom-API form writes into `llm-pi-ai`, the one namespace whose profiles describe a whole provider. A `llm-deepseek` route is a composition fact, not something this page can create.
 - **The catalog select lists route identifiers** — `moonshotai`, `zai`, and the other pi-ai catalog ids appear as they are, with no product names, aliases, or search. A searchable picker with the custom form as one pinned entry would let the mode switch go; it needs the directory to carry display names first.
 - **Interrogation covers OpenAI-compatible, Anthropic Messages, and Gemini API endpoints** — OpenAI protocols accept a standard `data` array or an enriched `models` map, while Anthropic and Gemini use their native model-listing routes; every other protocol reports that it cannot be asked and its models are entered by hand.
+- **A model-list fetch is bound to the form's endpoint and has a 60-second deadline** — editing the endpoint, protocol, provider, or typed key aborts a fetch in flight, discards a late answer, and closes an open picker. There is no cancel button: a stalled fetch ends at the deadline, on an input edit, or when the page closes.
 - **Undeclared live routes render nowhere** — a route registered without a configurable-provider declaration has no settings address; it stays visible in pickers but not on this page's rows.
 
 <a id="dev-note"></a>

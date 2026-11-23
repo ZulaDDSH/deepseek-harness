@@ -18,7 +18,7 @@
  * rows the user can still fill in by hand.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { LlmDiscoveredModel } from '@deepseek-ai/dsh-api-remotes/client'
 import { AnimatedRows, Button, IconPlusOutlineRegular, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -28,6 +28,8 @@ import type { ModelsOperations } from './operations.ts'
 import type { DeepSeekModelDraft } from './DeepSeekModelsEditor.tsx'
 import type { en } from './locales.ts'
 import { ModelRow } from './ModelRow.tsx'
+
+const DISCOVERY_TIMEOUT_MS = 60_000
 import { useModelRows } from './useModelRows.ts'
 import type { CapacityField } from './useModelRows.ts'
 import styles from './ModelsSection.module.css'
@@ -209,7 +211,22 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
     }))
   }
 
+  const probeKey = JSON.stringify([probe.settingsNs, probe.provider, probe.baseURL, probe.api, probe.apiKey])
+  const probeKeyRef = useRef(probeKey)
+  probeKeyRef.current = probeKey
+  const inFlight = useRef<AbortController | undefined>(undefined)
+  useEffect(() => {
+    inFlight.current?.abort()
+    setCandidates(undefined)
+    setFlipped(new Set())
+    setCandidateQuery('')
+  }, [probeKey])
+  useEffect(() => () => { inFlight.current?.abort() }, [])
+
   const fetchModels = async (): Promise<void> => {
+    const requestKey = probeKey
+    const controller = new AbortController()
+    inFlight.current = controller
     setBusy(true)
     setFailure(undefined)
     try {
@@ -218,7 +235,8 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
         ...probe.baseURL === undefined || probe.baseURL.length === 0 ? {} : { baseURL: probe.baseURL },
         ...probe.api === undefined ? {} : { api: probe.api },
         ...probe.apiKey === undefined ? {} : { apiKey: probe.apiKey },
-      })
+      }, AbortSignal.any([controller.signal, AbortSignal.timeout(DISCOVERY_TIMEOUT_MS)]))
+      if (probeKeyRef.current !== requestKey) return
       if (answer.kind === 'refused') {
         setFailure(answer.message)
         return
@@ -233,8 +251,13 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
       setFlipped(new Set())
       // A listing may repeat an id; the picker and the list hold each model once.
       setCandidates([...new Map(found.map(model => [model.id, model])).values()])
+    } catch (error: unknown) {
+      if (probeKeyRef.current === requestKey) setFailure(error instanceof Error ? error.message : String(error))
     } finally {
-      setBusy(false)
+      if (inFlight.current === controller) {
+        inFlight.current = undefined
+        setBusy(false)
+      }
     }
   }
 

@@ -65,7 +65,7 @@ export interface ModelsOperations {
    * @param request - endpoint facts as the form currently shows them.
    * @returns the candidates, or the refusal.
    */
-  discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest): Promise<ModelDiscoveryOutcome>
+  discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest, signal?: AbortSignal): Promise<ModelDiscoveryOutcome>
 }
 
 /**
@@ -94,8 +94,10 @@ export function createModelsOperations(ctx: ClientContext, describeFace: Setting
       const { code, message } = response.error
       return code === 'settings/conflict' ? { kind: 'conflict', message } : { kind: 'refused', message }
     },
-    discoverModels: async (settingsNs, request) => {
-      const response = await ctx.remote.llm.discoverModels(settingsNs, request)
+    discoverModels: async (settingsNs, request, signal) => {
+      const response = await (signal === undefined
+        ? ctx.remote.llm.discoverModels(settingsNs, request)
+        : ctx.remote.llm.discoverModels(settingsNs, request, signal))
       return response.ok
         ? { kind: 'found', models: response.value }
         : { kind: 'refused', message: response.error.message }
