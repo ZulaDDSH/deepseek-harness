@@ -283,6 +283,25 @@ describe('SessionProjectionRegistry drive', () => {
     expect(events).toEqual([{ changes: [{ key: 'test/marks', val: { marks: ['a'] } }], seq: event.seq }])
   })
 
+  it('keeps driving later units and listeners after an earlier unit or listener throws', async () => {
+    const { ctx, session } = await harness()
+    await ctx.sessionProjections.register(stableViewUnit(() => ({ marks: 1 }) as never))
+    await ctx.sessionProjections.register(marksUnit())
+    const keyed: string[] = []
+    const events: { changes: readonly { key: string; val: unknown }[]; seq: SessionSeq }[] = []
+    ctx.sessionProjections.onChanged((_session, key) => {
+      keyed.push(key)
+      throw new Error('listener failed')
+    })
+    ctx.sessionProjections.onEventChanged(() => { throw new Error('event listener failed') })
+    ctx.sessionProjections.onEventChanged((_session, changes, seq) => { events.push({ changes, seq }) })
+
+    const event = mark(session, ['a'])
+
+    expect(keyed).toEqual(['test/marks'])
+    expect(events).toEqual([{ changes: [{ key: 'test/marks', val: { marks: ['a'] } }], seq: event.seq }])
+  })
+
   it('computes views for an event listener alone and stops after its disposer runs', async () => {
     const { ctx, session } = await harness()
     const view = vi.fn((state: StableViewState) => state.value)

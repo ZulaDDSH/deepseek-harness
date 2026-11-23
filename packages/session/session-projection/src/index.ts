@@ -887,8 +887,10 @@ export class SessionProjectionRegistry extends Service {
   private drive(session: Session, event: SessionEvent): void {
     const observed = this.listeners.size > 0 || this.eventListeners.size > 0
     const changes: { key: Extract<keyof SessionProjectionMap, string>; val: unknown }[] = []
+    const failures: unknown[] = []
     try {
       for (const registration of this.registrations.values()) {
+        try {
         if (registration.refs === 0) continue
         let cell = registration.cells.get(session)
         if (cell !== undefined && cell.observedSeq >= event.seq) continue
@@ -927,12 +929,19 @@ export class SessionProjectionRegistry extends Service {
               const value = wire.viewSchema.parse(views[1])
               changes.push({ key, val: value })
               for (const listener of this.listeners) {
-                listener(session, key, value, event.seq)
+                try {
+                  listener(session, key, value, event.seq)
+                } catch (error) {
+                  failures.push(error)
+                }
               }
             }
           } else {
             views[1] = undefined
           }
+        }
+        } catch (error) {
+          failures.push(error)
         }
         // An unchanged state keeps its current view as the valid comparison
         // value for the next state change.
@@ -940,10 +949,15 @@ export class SessionProjectionRegistry extends Service {
     } finally {
       if (changes.length > 0) {
         for (const listener of this.eventListeners) {
-          listener(session, changes, event.seq)
+          try {
+            listener(session, changes, event.seq)
+          } catch (error) {
+            failures.push(error)
+          }
         }
       }
     }
+    if (failures.length > 0) throw failures[0]
   }
 
   /** Return one schema-validated wire value. */
