@@ -99,11 +99,11 @@ Adding the first caller-visible server or removing the last changes the next too
 
 #### What the model sees
 
-A successful result starts with `MCP server: <server>`, followed by a newline and the returned JSON. Each string-valued `blob` becomes `[binary resource: <length> base64 characters; available to programmatic callers]`. Server-provided text, metadata, and continuation cursors remain visible.
+A successful result starts with `MCP server: <server>`, followed by a newline and the returned JSON. Each string-valued `blob` becomes `[binary resource: <length> base64 characters; available to programmatic callers]`. Server-provided text, metadata, and continuation cursors remain visible. A read the MCP client rejects as over its 8 MiB limit fails with `MCP_RESOURCE_TOO_LARGE`; `read_mcp_resource` reports an error naming the URI and byte counts and saying the content cannot be read in full, and no partial content is returned.
 
 #### Token effect
 
-Rendered results add text to tool history. Binary descriptions replace the payload's base64 token cost; this package imposes no separate text-size limit.
+Rendered results add text to tool history. Binary descriptions replace the payload's base64 token cost; this package imposes no separate text-size limit; the only cap is the MCP client's fixed 8 MiB limit on one `resources/read`.
 
 #### KV Cache effect
 
@@ -117,6 +117,7 @@ Resource access is explicit and on demand.
 
 - A configured server without the MCP `resources` capability still appears in the server-name prompt and keeps shared resource tools available. The MCP client returns empty resource and template lists without contacting the server; unsupported reads fail.
 - `tools.restrict()` checks names supplied by global or ancestor scopes when the filter is registered. Naming a resource tool absent from those scopes fails as an unknown tool. Resource tools registered in the caller's own scope are outside allow/deny masks.
+- A resource over 8 MiB (text bytes plus base64 `blob` length) cannot be read through `read_mcp_resource`; there is no range or chunked read. Peak memory while the MCP SDK parses one oversized response is not bounded.
 - Resource subscriptions and update notifications are unsupported; call the list or read tools again to obtain current content.
 - Binary resources are not projected as native images or audio. Programmatic callers retain their canonical base64 values.
 - The caller must supply a server name. The shared tools do not aggregate different servers; pagination follows the MCP SDK.
