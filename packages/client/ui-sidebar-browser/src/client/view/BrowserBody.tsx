@@ -94,6 +94,7 @@ export function BrowserBody(props: BrowserBodyProps): ReactNode {
             onChange={(event) => { setDraft(event.currentTarget.value) }}
           />
           {unknown && <span className={css.addressChanged}>{t('address.changed')}</span>}
+          {frame.address === 'requested' && !frame.loading && <span className={[css.addressChanged, css.addressRequested].join(' ')}>{t('address.requested')}</span>}
           <button type="submit" className={[css.tool, css.addressGo].join(' ')} aria-label={t('go')} title={t('go')}><IconLinkOutlineRegular /></button>
         </div>
         <button type="button" className={css.tool} aria-label={t('external')} title={t('external')} disabled={externalUrl === undefined}
