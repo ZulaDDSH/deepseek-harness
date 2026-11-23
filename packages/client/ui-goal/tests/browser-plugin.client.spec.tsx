@@ -364,6 +364,24 @@ describe('GoalDock adapter', () => {
     expect(absent.container.firstChild).toBeNull()
   })
 
+  it('draws the objective through the user-text factory so credential masking applies', () => {
+    const projection = makeProjection()
+    const useGoalActivation = (
+      selector: (snapshot: GoalActivationSnapshot) => unknown,
+    ) => selector({ id: GOAL_ID, revision: 3, activation: 'armed' })
+    const actions: GoalBarActions = {
+      onEdit: () => Promise.resolve({ ok: true, value: undefined }),
+      onPause: () => Promise.resolve({ ok: true, value: undefined }),
+      onResume: () => Promise.resolve({ ok: true, value: undefined }),
+      onClear: () => Promise.resolve({ ok: true, value: undefined }),
+    }
+    const renderFactorySlot = vi.fn((name: string, input: { text: string }) => <span>{`factory:${name}:${input.text}`}</span>)
+    const props = { useProjection: () => projection, useGoalActivation, renderFactorySlot, ...actions, t: makeTranslate(zh, commonZh) } as unknown as Parameters<typeof GoalDock>[0]
+    const rendered = render(<GoalDock {...props} />)
+    expect(rendered.getByText('factory:conversation.user.text:Ship it')).toBeTruthy()
+    expect(renderFactorySlot).toHaveBeenCalledWith('conversation.user.text', expect.objectContaining({ text: 'Ship it', interactive: false }))
+  })
+
   it('matches activation by goal id and revision from the injected hook', () => {
     const projection = makeProjection()
     const useProjection = vi.fn(() => projection)

@@ -15,7 +15,7 @@ import {
   IconCheckOutlineRegular, IconCloseOutlineRegular, IconEditOutlineRegular, IconGoalOutlineRegular,
   IconPauseOutlineRegular, IconPlayOutlineRegular, IconTrashOutlineRegular, InlineEditor, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { InjectFace, PropsLocale, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import type { InjectFace, PropsLocale, PropsRenderFactories, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { GoalActionResult, GoalBarActions, GoalBarInjected } from './slots.ts'
 import type { GoalKey } from './locales.ts'
 import css from './GoalBar.module.css'
@@ -25,6 +25,7 @@ export interface GoalBarProps extends GoalBarActions {
   goal: GoalSnapshot | null | undefined
   /** Process-local continuation activation; absent while the live read is pending. */
   activation?: GoalActivation
+  renderFactorySlot?: PropsRenderFactories['renderFactorySlot']
 }
 
 /** Strip label keys per visible phase; complete goals render nothing. */
@@ -40,7 +41,7 @@ function activeLabel(activation: GoalActivation | undefined, t: TranslateNS<'goa
   return t(PHASE_LABELS.active)
 }
 
-export function GoalBar({ goal, activation, onEdit, onPause, onResume, onClear, t }: GoalBarProps & PropsLocale<'goal'>) {
+export function GoalBar({ goal, activation, renderFactorySlot, onEdit, onPause, onResume, onClear, t }: GoalBarProps & PropsLocale<'goal'>) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [pending, setPending] = useState(false)
@@ -136,7 +137,9 @@ export function GoalBar({ goal, activation, onEdit, onPause, onResume, onClear, 
       <div className={css.bar} title={title}>
         <span className={css.goalGlyph}><IconGoalOutlineRegular size={14} /></span>
         <span className={css.label}>{label}</span>
-        <span className={css.objective}>{goal.objective}</span>
+        <span className={css.objective}>{renderFactorySlot === undefined
+          ? goal.objective
+          : renderFactorySlot('conversation.user.text', { text: goal.objective, facts: {}, interactive: false, ellipsis: true })}</span>
         {actionError !== null && <span className={css.error} role="alert">{actionError}</span>}
         <div className={css.actions}>
           <Tooltip portal label={t('action.edit')} side="bottom" delayMs={500}>
@@ -178,10 +181,11 @@ export type GoalDockProps =
   import('@deepseek-ai/dsh-client-ui-slots').PropsRuntime<'conversation.input.dock'>
   & InjectFace<GoalBarInjected>
   & PropsLocale<'goal'>
+  & PropsRenderFactories
 
 /** Dock adapter: overlays process-local activation on the durable goal projection. */
 export function GoalDock({
-  useProjection, useGoalActivation, onEdit, onPause, onResume, onClear, t,
+  useProjection, useGoalActivation, renderFactorySlot, onEdit, onPause, onResume, onClear, t,
 }: GoalDockProps) {
   const projection = useProjection('goal')
   const goal = projection === undefined || projection === null ? projection : projection.goal
@@ -195,6 +199,7 @@ export function GoalDock({
     <GoalBar
       goal={goal}
       {...activation === undefined ? {} : { activation }}
+      renderFactorySlot={renderFactorySlot}
       onEdit={onEdit}
       onPause={onPause}
       onResume={onResume}
