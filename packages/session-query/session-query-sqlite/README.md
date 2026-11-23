@@ -142,7 +142,7 @@ These limits define when this package is a poor fit or needs special operational
 - **No caller authorization** — this is a trusted context-wide service; a model tool or UI must enforce its own access policy.
 - **Synchronous query execution** — `DatabaseSync` blocks the JavaScript thread during MATCH execution and cannot interrupt a statement already running.
 - **Token recall, not arbitrary substrings** — the `unicode61` tokenizer does not match substrings inside a larger token; use `filterEvents()` for literal scans.
-- **Single-owner derived index** — one service in one process must own each index path; external writers and multi-process sharing are unsupported.
+- **Single-owner derived index** — one service in one process should own each index path; external writers and multi-process sharing are unsupported. When two services do share a path, a sessions cursor carries the shared persisted generation and a reconciliation reads it inside its write transaction, so a cursor taken before another service changed the index is rejected as stale, and a lock held by the other service is waited for up to five seconds. Each service still reconciles every session itself, and nothing enforces ownership.
 - **Privacy: plaintext copy of session text** — the index stores message text unencrypted in `path`, separate from the session logs. Turning `contentSearch` off refuses searches at once and deletes the index files (the database, `-wal`, `-shm`, `-journal`) at the next start; a live off does not delete them until then. Deleting a session drops its rows on the next search, but SQLite does not shrink the file.
 
 <a id="dev-note"></a>

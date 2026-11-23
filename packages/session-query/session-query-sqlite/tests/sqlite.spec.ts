@@ -1879,3 +1879,62 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     await persistenceB.dispose()
   })
 })
+
+describe('SQLite session search shared by two engines', () => {
+  async function engine(path: string) {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(TestPersistence)
+    await ctx.plugin(SqliteSessionQueryEngine, { path, defaultLimit: 1, maxLimit: 5 })
+    return ctx
+  }
+
+  it('rejects a sessions cursor after another engine changed the shared index', async () => {
+    const path = await temporaryPath()
+    const first = header('first')
+    TestPersistence.reset([
+      { meta: first, events: messageEvents('needle first') },
+      { meta: header('second'), events: messageEvents('needle second') },
+    ])
+    const a = await engine(path)
+    const b = await engine(path)
+    try {
+      const page = await a.sessionQuery.searchSessions({ query: 'needle', limit: 1 })
+      if (page.nextCursor === undefined) throw new Error('expected cursor')
+      TestPersistence.set({ meta: first, events: messageEvents('needle first, edited') })
+      await b.sessionQuery.searchSessions({ query: 'needle', limit: 1 })
+      await expect(a.sessionQuery.searchSessions({ query: 'needle', limit: 1, cursor: page.nextCursor }))
+        .rejects.toThrow(expectCode('SESSION_QUERY_STALE_CURSOR'))
+    } finally {
+      await a.fiber.dispose()
+      await b.fiber.dispose()
+    }
+  })
+
+  it('keeps the shared main generation at the newest row and waits on a locked database', async () => {
+    const path = await temporaryPath()
+    TestPersistence.reset([{ meta: header('first'), events: messageEvents('needle first') }])
+    const a = await engine(path)
+    const b = await engine(path)
+    try {
+      await a.sessionQuery.searchSessions({ query: 'needle' })
+      TestPersistence.set({ meta: header('second'), events: messageEvents('needle second') })
+      await Promise.all([a.sessionQuery.searchSessions({ query: 'needle' }), b.sessionQuery.searchSessions({ query: 'needle' })])
+      const db = new DatabaseSync(path)
+      try {
+        const rows = db.prepare('SELECT generation FROM persisted_sessions ORDER BY id').all() as Array<{ generation: number }>
+        const state = db.prepare('SELECT global_generation FROM search_state').get() as { global_generation: number }
+        expect(rows).toHaveLength(2)
+        expect(state.global_generation).toBe(Math.max(...rows.map(row => row.generation)))
+      } finally {
+        db.close()
+      }
+      const open = (a.sessionQuery as unknown as { _db: DatabaseSync })._db
+      expect(open.prepare('PRAGMA busy_timeout').get()).toEqual({ timeout: 5000 })
+    } finally {
+      await a.fiber.dispose()
+      await b.fiber.dispose()
+    }
+  })
+})
