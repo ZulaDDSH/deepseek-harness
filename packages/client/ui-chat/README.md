@@ -212,7 +212,7 @@ Markdown files, links, images, reference chips, and tool-file controls forward e
 <a id="approval-detail"></a>
 ## Approval detail
 
-The approval detail shows the correlated running Tool call's command. A write shows its path and first 40 content lines, an edit shows its path with `-` removed and `+` added lines, run_code shows its source, and other calls show their pretty-printed arguments capped at 4 KB. Content past 40 lines and arguments past the cap end with `…`. A call with no correlated start, or with no arguments, shows no detail.
+The approval detail shows the correlated running Tool call's command. A write shows its path and first 40 content lines, an edit shows its path with `-` removed and `+` added lines, run_code shows its source, and other calls show their pretty-printed arguments capped at 4 KB. Content past 40 lines and arguments past the cap end with `…`. Every other argument, such as a command's `workdir`, an edit's `replace_all`, or a terminal's `sessionId`, is listed as a `key: value` row of its JSON encoding, clipped at 200 characters. Whenever any part is clipped, a "Show full arguments" control expands the complete pretty-printed arguments. A call with no correlated start shows no detail and tells the approval card the detail is unavailable; a call with no arguments is available and shows nothing.
 
 <a id="model-experience"></a>
 ## Model Experience
