@@ -610,6 +610,42 @@ describe('dsh-workflow-ptc', { timeout: 120_000 }, () => {
       expect(result.cleanupFailures).toEqual([expect.stringContaining('trap-child (call 1): ')])
       expect(result.cleanupFailures![0]).toContain('unknown teardown failure')
     })
+
+    async function disposalProvider(name: string, dispose: () => Promise<void> | void) {
+      const ctx = new Context()
+      await ctx.plugin(SessionProjectionRegistry)
+      await mountPtcRuntime(ctx)
+      provideWorkingDirectoryFixture(ctx)
+      await ctx.plugin(SubagentRuntime)
+      const provider: SubagentProvider = {
+        name,
+        capabilities: { agentOptions: true, agentPreset: false, outputSchema: true, depthLimit: true },
+        inheritsParentContext: false,
+        start: async () => ({
+          id: brandString<SessionId>(`${name}-child`),
+          result: Promise.resolve({ output: [{ type: 'text', text: 'fine' }], stopReason: 'completed' }),
+          cancel: () => { /* settled already */ },
+          dispose,
+        }),
+      }
+      ctx.subagents.registerProvider(provider)
+      await ctx.plugin(PtcWorkflowEngine, { provider: name, maxConcurrentAgents: 2 })
+      return { ctx, parent: await fakeParent(ctx) }
+    }
+
+    it('a child dispose() rejecting asynchronously keeps the completed outcome and reports the failure', async () => {
+      let disposals = 0
+      const { ctx, parent } = await disposalProvider('async-dispose', () => {
+        disposals += 1
+        return Promise.reject(new Error('async teardown refused'))
+      })
+      const result = await run(ctx, parent, scripted("return await agent('p')"))
+      expect(result.stopReason).toBe('completed')
+      expect(result.value).toBe('fine')
+      expect(result.cleanupFailures).toEqual([expect.stringContaining('async-dispose-child (call 1): ')])
+      expect(result.cleanupFailures![0]).toContain('async teardown refused')
+      expect(disposals).toBe(1)
+    })
   })
 
   describe('lifecycle: parse errors, cancellation, termination, disposal', () => {
