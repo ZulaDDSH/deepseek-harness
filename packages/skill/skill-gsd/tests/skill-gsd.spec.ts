@@ -1,4 +1,6 @@
-import { existsSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { readFile, readdir } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -151,6 +153,30 @@ describe('dsh-skill-gsd', () => {
     expect(executor).toContain("Use the user's git identity. Add no trailers and no `--author`")
     expect(executor).toContain('Do not push, open a pull request or merge.')
     expect(await skillText('gsd-ship')).toContain('no "Generated with" line')
+  })
+
+  it('commits a task with explicit paths so a staged change from another coder stays out of the commit', async () => {
+    const executor = await readFile(join(assets, 'briefs', 'executor.md'), 'utf8')
+    expect(executor).toContain('-- <paths>')
+    expect(executor).toContain('git show --name-only --format= HEAD')
+    expect(await readFile(join(assets, 'shared', 'conventions.md'), 'utf8')).toContain('git commit -m "<message>" -- <path>...')
+    const repo = mkdtempSync(join(tmpdir(), 'dsh-gsd-commit-'))
+    try {
+      const git = (...args: string[]): string => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.test', '-c', 'commit.gpgsign=false', ...args], { cwd: repo, encoding: 'utf8' })
+      git('init', '-q')
+      writeFileSync(join(repo, 'seed.txt'), 's')
+      git('add', 'seed.txt')
+      git('commit', '-q', '--no-verify', '-m', 'seed')
+      writeFileSync(join(repo, 'a.txt'), 'a')
+      writeFileSync(join(repo, 'b.txt'), 'b')
+      git('add', 'a.txt')
+      git('add', 'b.txt')
+      git('commit', '-q', '--no-verify', '-m', 'feat: a', '--', 'a.txt')
+      expect(git('show', '--name-only', '--format=', 'HEAD').trim()).toBe('a.txt')
+      expect(git('diff', '--cached', '--name-only').trim()).toBe('b.txt')
+    } finally {
+      rmSync(repo, { recursive: true, force: true })
+    }
   })
 
   it('treats checkRounds 0 as one check with no fix round in the settings file and the plan step', async () => {
