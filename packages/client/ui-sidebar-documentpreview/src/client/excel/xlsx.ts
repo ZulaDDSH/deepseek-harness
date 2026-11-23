@@ -30,7 +30,7 @@ export async function convertXlsx(bytes: Uint8Array<ArrayBuffer>, limits: ExcelL
     await workbook.xlsx.load(input, { ignoreNodes: ['drawing'] })
     unsupportedFeatures = archive.unsupportedFeatures
   } catch (error) {
-    throw new ExcelPreviewError('invalid', { cause: error })
+    throw error instanceof ExcelPreviewError ? error : new ExcelPreviewError('invalid', { cause: error })
   }
   if (!workbook.worksheets.some(sheet => sheet.state === 'visible')) throw new ExcelPreviewError('invalid')
   let area = 0

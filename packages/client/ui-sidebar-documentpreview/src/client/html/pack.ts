@@ -15,6 +15,22 @@ const MAX_ASSET_BYTES = 4 * 1024 * 1024
 const MAX_TOTAL_BYTES = 32 * 1024 * 1024
 const MAX_ASSETS = 64
 
+function escapesDirectory(path: string): boolean {
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(path)
+  } catch {
+    return true
+  }
+  let depth = 0
+  for (const segment of decoded.split(/[/\\]/u)) {
+    if (segment === '..') depth -= 1
+    else if (segment !== '' && segment !== '.') depth += 1
+    if (depth < 0) return true
+  }
+  return false
+}
+
 /** Whether this reference can be read relative to the original document, never the parent application URL. */
 function relative(reference: string): boolean {
   return reference.length > 0 && !/^(?:[a-z][a-z\d+.-]*:|[/\\#?])/iu.test(reference) && !reference.includes('\0')
@@ -52,7 +68,7 @@ export async function packHtml(
     const reference = element.getAttribute(script ? 'src' : 'href') as string
     const suffix = reference.search(/[?#]/u)
     const path = suffix === -1 ? reference : reference.slice(0, suffix)
-    if (!relative(reference) || !(script ? /\.js$/iu : /\.css$/iu).test(path)) continue
+    if (!relative(reference) || escapesDirectory(path) || !(script ? /\.js$/iu : /\.css$/iu).test(path)) continue
     const kind = script ? 'script' : 'stylesheet'
     const key = `${kind}:${reference}`
     if (seen.has(key)) continue
