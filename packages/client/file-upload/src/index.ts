@@ -120,7 +120,7 @@ export class FileUploads extends TypertRemoteService {
     const file = await this.store(agent, async () => this.ctx.attachments.admitEncodedFile({
       data: request.data,
       ...(request.name === undefined ? {} : { name: request.name }),
-    }))
+    }), Math.floor(request.data.length * 3 / 4))
     return { receiptId: this.stage(agent, { type: 'file', attachment: file }), file }
   }
 
@@ -238,9 +238,9 @@ export class FileUploads extends TypertRemoteService {
   }
 
   /** Store one upload for an ordinary Agent; storage failures become Remote failures. */
-  private async store<T>(agent: Agent, save: () => Promise<T>): Promise<T> {
+  private async store<T>(agent: Agent, save: () => Promise<T>, incomingBytes = 0): Promise<T> {
     this.assertOrdinaryAgent(agent)
-    this.assertSessionQuota(agent, 0)
+    this.assertSessionQuota(agent, incomingBytes)
     try {
       return await save()
     } catch (error) {

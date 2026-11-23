@@ -20,8 +20,8 @@ async function harness(fileBytes: number) {
   return { uploads, agent, saveFile }
 }
 
-const upload = (uploads: FileUploads, agent: Agent) =>
-  uploads.upload(agent, { data: '' }, new AbortController().signal)
+const upload = (uploads: FileUploads, agent: Agent, data = '') =>
+  uploads.upload(agent, { data }, new AbortController().signal)
 
 describe('FileUploads per-Session staging quota', () => {
   it('refuses another upload once a Session holds the maximum number of unsent receipts', async () => {
@@ -50,5 +50,12 @@ describe('FileUploads per-Session staging quota', () => {
     await upload(uploads, agent)
     await expect(upload(uploads, agent)).rejects.toMatchObject({ details: { reason: 'STAGED_FILES_TOO_LARGE' } })
     expect(saveFile).toHaveBeenCalledTimes(2)
+  })
+
+  it('refuses an encoded upload that cannot fit before storing it', async () => {
+    const { uploads, agent, saveFile } = await harness(4 * 1024 ** 3 - 100)
+    await upload(uploads, agent)
+    await expect(upload(uploads, agent, 'A'.repeat(400))).rejects.toMatchObject({ details: { reason: 'STAGED_FILES_TOO_LARGE' } })
+    expect(saveFile).toHaveBeenCalledTimes(1)
   })
 })
