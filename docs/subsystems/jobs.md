@@ -312,7 +312,7 @@ interface JobView {
 }
 ```
 
-`JobRegistry.list`, `get`, `read`, `readAt`, `kill`, and `wait` each accept the caller’s `SessionId`; omitting it permits only unowned jobs, while a session may also access its own jobs.
+`JobRegistry.list`, `get`, `read`, `peek`, `readAt`, `kill`, and `wait` each accept the caller’s `SessionId`; omitting it permits only unowned jobs, while a session may also access its own jobs.
 
 ```ts type-equiv
 /** Output and post-read state returned by the consuming {@link JobRegistry.read}. */
@@ -383,7 +383,7 @@ type JobEventFilter =
 
 ## Service behavior
 
-The abstract [`JobRegistry`](../../packages/jobs/jobs/src/index.ts) Service Definition specifies atomic `start`, caller-scoped `list`, `get`, consuming `read`, non-consuming `readAt`, `kill`, and bounded `wait`, the filtered `events` stream, and `attachController`; [`LocalJobRegistry`](../../packages/jobs/jobs-local/src/index.ts) is the process-local Service Provider. Authorization compares owner sessions; owner cleanup and admission use the live `Agent` registered under the owner session when the job starts. The local provider's positive-safe-integer `maxConcurrentJobsPerOwner` config defaults to `10` and counts `running` plus `stopping` records per exact owner, with one shared bucket for unowned jobs; terminal producer settlement releases capacity; `retainBytes` (default 262144) and `settledRetainBytes` (default 16384) bound each ring's live and settled retention, and `pumpPollMs` (default 150) is the pull cadence. See [`dsh-jobs`](../../packages/jobs/jobs/README.md) for the Service Definition contract, [`dsh-jobs-local`](../../packages/jobs/jobs-local/README.md) for the registry lifecycle and admission policy, and [`dsh-tool-jobs`](../../packages/jobs/tool-jobs/README.md) for the model-facing Consumer.
+The abstract [`JobRegistry`](../../packages/jobs/jobs/src/index.ts) Service Definition specifies atomic `start`, caller-scoped `list`, `get`, consuming `read`, non-consuming `peek` and `readAt`, `kill`, and bounded `wait`, the filtered `events` stream, and `attachController`; [`LocalJobRegistry`](../../packages/jobs/jobs-local/src/index.ts) is the process-local Service Provider. Authorization compares owner sessions; owner cleanup and admission use the live `Agent` registered under the owner session when the job starts. The local provider's positive-safe-integer `maxConcurrentJobsPerOwner` config defaults to `10` and counts `running` plus `stopping` records per exact owner, with one shared bucket for unowned jobs; terminal producer settlement releases capacity; `retainBytes` (default 262144) and `settledRetainBytes` (default 16384) bound each ring's live and settled retention, and `pumpPollMs` (default 150) is the pull cadence. See [`dsh-jobs`](../../packages/jobs/jobs/README.md) for the Service Definition contract, [`dsh-jobs-local`](../../packages/jobs/jobs-local/README.md) for the registry lifecycle and admission policy, and [`dsh-tool-jobs`](../../packages/jobs/tool-jobs/README.md) for the model-facing Consumer.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 

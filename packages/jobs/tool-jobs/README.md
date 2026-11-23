@@ -83,7 +83,7 @@ This section explains the design decisions behind the tools and points at the co
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Plugin entry: tool registrations, the settlement subscription, model-kill set, and held settlement reads, prompt section, output capping |
+| [`src/index.ts`](src/index.ts) | Plugin entry: tool registrations, the settlement subscription, model-kill set, and the settlement peek and read, prompt section, output capping |
 | [`src/render.ts`](src/render.ts) | Model-facing rendering: the public projection, status lines, and the consuming delta (stdout, `[stderr]` section, dropped-output notice) |
 
 ### Output capping
@@ -94,7 +94,7 @@ This section explains the design decisions behind the tools and points at the co
 
 The settlement subscription (`{ owners: 'scope' }`) skips settlements the registry reports as `awaited`, jobs the model killed through `job_kill`, unowned jobs, and teardown settlements, then resolves the agent registered for the owner session. A `wakeup` delivery opens a turn on an idle owner; with `maxConsecutiveWakes` set, only while the budget lasts, tracked per exact `Agent` in a `WeakMap`, and claiming a user-authored message (`agent/inbox/claimed`) resets that owner's budget. A busy owner — or any notice past a configured budget, or `quiet` delivery — is injected into the next-step inbox instead. The registry counts only a wait still owed the projection at settlement, so a wait that timed out or was aborted leaves a later settlement to notify as usual; a removal drops the job from the model-kill set, which only ever holds live jobs the model killed. A wait this plugin ended on next-step input holds a claim from that interruption until its own read commits: a settlement landing inside that window reaches the model through the read's terminal state and result, so the notice is withheld, while a settlement after a read that reported a running job notifies as usual. The tool releases the wait by aborting its own controller — the registry keeps its abort-as-cancellation contract — so a cancelled call discards that read and the withheld notice is delivered when the claim releases.
 
-A job whose whole output stream (`JobView.output.total`) exceeds `inlineOutputBytes` cannot fit, so its read stays in the registry. Otherwise the notice takes the consuming read at settlement. An inline notice holds that read until it is logged as a `user/message` (`session/event`); a notice claimed by a step that is then rejected or cancelled is never logged, so `job_output` returns its held read. A notice the read did not fit holds it for `job_output`. `job_output` also removes a pending notice from the inbox of the agent registered for the owner session. A job removal drops the entry. A plugin reload drops every held read, so the model then reads `(no new output)` for that job.
+A job whose whole output stream (`JobView.output.total`) exceeds `inlineOutputBytes` cannot fit, so its read stays in the registry. Otherwise the plugin looks at the read with the non-consuming `JobRegistry.peek` and takes the consuming read only when the complete notice fits. An inline notice holds that read until it is logged as a `user/message` (`session/event`); a notice claimed by a step that is then rejected or cancelled is never logged, so `job_output` returns its held read. A notice the read did not fit takes nothing: the output and the final result stay in the registry for `job_output`, which a plugin reload does not disturb. `job_output` also removes a pending notice from the inbox of the agent registered for the owner session. A job removal drops the entry.
 
 </details>
 
@@ -173,7 +173,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 These limits define when the tools are a poor fit. They are current package constraints, not a task backlog.
 
-- **A plugin reload turns held output into a fresh notice** — a notice that took the job's read but did not fit holds it in plugin memory for `job_output`, and the registry cannot hand a consumed read back. Teardown therefore replaces that pointer notice with one carrying the held text, injected without waking the owner; `job_output` then reports `(no new output)` for it, and an owner that is already disposed receives nothing.
+- **Only a notice that carries its read consumes it** — the settlement path peeks first, so output a pointer notice leaves for `job_output` is still unread in the registry after a plugin reload; an inline notice already carries its text in the inbox message.
 - **A spent wake budget is not restored by time** — with `maxConsecutiveWakes` set, only user-authored input refills it, so an unattended agent whose budget ran out collects its remaining notices on the next turn something else opens, and nothing in the client shows that a notice is waiting.
 - **A notice pending on an idle owner does not survive that owner's disposal** — the disposal cancel clears the unclaimed inbox, and the log keeps the insert/cancel pair as the record.
 - **Model reads are single-consumer** — independent observers use the registry's non-consuming `readAt` (the Web client's `job.follow`), not these tools.
