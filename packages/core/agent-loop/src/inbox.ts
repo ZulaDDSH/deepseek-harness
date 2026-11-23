@@ -16,6 +16,11 @@ import type {
 } from '@deepseek-ai/dsh-agent'
 import { z } from 'zod'
 
+export interface ClaimedInput {
+  readonly 'next-step': readonly UserMessage[]
+  readonly 'next-turn': readonly UserMessage[]
+}
+
 /** Wire validation for pending agent input reconstructed from durable inbox splices. */
 export const inboxProjectionSchema = z.object({
   'next-turn': z.array(z.custom<UserMessage>()).readonly(),
@@ -103,13 +108,27 @@ export class ReactLoopInbox implements InboxContract {
    * Remove and return the complete batch proposed for one step.
    * @param target - whether this boundary also consumes one queued turn.
    * @param turn - turn that will own the claimed batch.
-   * @returns next-step input followed by the queued turn, when requested.
+   * @returns the claimed next-step and next-turn messages.
    */
-  claim(target: InboxTarget, turn: number): UserMessage[] {
-    const claimed = this.mutate('next-step', 0, this.nextStep.length, [], false)
-    if (target === 'next-turn') claimed.push(...this.mutate('next-turn', 0, 1, [], false))
-    for (const message of claimed) this.dispatch.emit('agent/inbox/claimed', { message, turn })
+  claim(target: InboxTarget, turn: number): ClaimedInput {
+    const stepMessages = this.mutate('next-step', 0, this.nextStep.length, [], false)
+    let turnMessages: UserMessage[] = []
+    if (target === 'next-turn') {
+      try {
+        turnMessages = this.mutate('next-turn', 0, 1, [], false)
+      } catch (error: unknown) {
+        this.restore({ 'next-step': stepMessages, 'next-turn': [] })
+        throw error
+      }
+    }
+    const claimed = { 'next-step': stepMessages, 'next-turn': turnMessages }
+    for (const message of [...stepMessages, ...turnMessages]) this.dispatch.emit('agent/inbox/claimed', { message, turn })
     return claimed
+  }
+
+  restore(claimed: ClaimedInput): void {
+    if (claimed['next-turn'].length > 0) this.splice('next-turn', 0, 0, [...claimed['next-turn']])
+    if (claimed['next-step'].length > 0) this.splice('next-step', 0, 0, [...claimed['next-step']])
   }
 
   /**
