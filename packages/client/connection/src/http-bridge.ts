@@ -21,8 +21,6 @@ export class BufferedBodyBudget {
 
   constructor(readonly limit: number) {}
 
-  get available(): number { return this.limit - this.used }
-
   reserve(bytes: number): boolean {
     if (this.used + bytes > this.limit) return false
     this.used += bytes
@@ -33,8 +31,6 @@ export class BufferedBodyBudget {
     this.used -= bytes
   }
 }
-
-const defaultBudget = new BufferedBodyBudget(DEFAULT_MAX_REQUEST_BODY_BYTES * BUFFERED_BODY_BUDGET_FACTOR)
 
 interface BridgeServerResponse {
   readonly destroyed: boolean
@@ -62,8 +58,8 @@ export async function bridge(
   res: BridgeServerResponse,
   apiHandler: ConnectionFetchHandler,
   peer: PeerScope,
-  maxRequestBodyBytes = DEFAULT_MAX_REQUEST_BODY_BYTES,
-  budget: BufferedBodyBudget = defaultBudget,
+  maxRequestBodyBytes: number,
+  budget: BufferedBodyBudget,
 ): Promise<void> {
   let reserved = 0
   try {

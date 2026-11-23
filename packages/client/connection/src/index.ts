@@ -128,7 +128,7 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
   assertImageBodyCapacity(ctx, maxRequestBodyBytes)
   new ConnectionAuthentication(ctx)
   ctx.inject(['connection.authentication'], (connectionCtx) => {
-    const connection = new HostConnectionService(connectionCtx, trustedHosts)
+    const connection = new HostConnectionService(connectionCtx, trustedHosts, bodyBudget)
     connectionCtx.inject(['webServer'], (webCtx) => {
       assertImageBodyCapacity(webCtx, maxRequestBodyBytes)
       webCtx.on('webserver/index-inject', (table) => {

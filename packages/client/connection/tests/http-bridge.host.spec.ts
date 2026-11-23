@@ -3,10 +3,12 @@ import { Readable } from 'node:stream'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
-import { BufferedBodyBudget, bridge } from '../src/http-bridge.ts'
+import { BUFFERED_BODY_BUDGET_FACTOR, BufferedBodyBudget, DEFAULT_MAX_REQUEST_BODY_BYTES, bridge } from '../src/http-bridge.ts'
 import { Peer } from '../src/peer.ts'
 
 const PEER = new Peer(new Context(), { principal: { kind: 'owner' } })
+const roomy = () => new BufferedBodyBudget(DEFAULT_MAX_REQUEST_BODY_BYTES * BUFFERED_BODY_BUDGET_FACTOR)
+const available = (budget: BufferedBodyBudget): number => budget.limit - (budget as unknown as { used: number }).used
 
 describe('HTTP bridge abort', () => {
   it('destroys a declared-oversize request instead of draining it', async () => {
@@ -30,7 +32,7 @@ describe('HTTP bridge abort', () => {
     await bridge(request, response, {
       requestBodyMode: () => 'buffered',
       fetch: () => { throw new Error('a rejected request must never reach the handler') },
-    }, PEER, 1000)
+    }, PEER, 1000, roomy())
     // The socket must not stay parked draining a body the client can trickle
     // at will after the rejection — same discipline as the chunked overrun.
     expect(status).toBe(413)
@@ -72,7 +74,7 @@ describe('HTTP bridge abort', () => {
         }
         return Response.json({ aborted: fetchRequest.signal.aborted })
       },
-    }, PEER, Number.MAX_SAFE_INTEGER)
+    }, PEER, Number.MAX_SAFE_INTEGER, roomy())
     await started
     response.emit('close')
     await pending
@@ -107,7 +109,7 @@ describe('HTTP bridge abort', () => {
     const pending = bridge(request, response, {
       requestBodyMode: () => 'buffered',
       fetch: async () => new Response(body),
-    }, PEER).then(() => { settled = true })
+    }, PEER, DEFAULT_MAX_REQUEST_BODY_BYTES, roomy()).then(() => { settled = true })
     try {
       await expect.poll(() => settled).toBe(true)
       expect(writes).toBe(1)
@@ -139,7 +141,7 @@ describe('HTTP bridge abort', () => {
     const pending = bridge(request, response, {
       requestBodyMode: () => 'buffered',
       fetch: async () => new Response(body),
-    }, PEER)
+    }, PEER, DEFAULT_MAX_REQUEST_BODY_BYTES, roomy())
     await started.promise
     response.emit('close')
     controller.enqueue(Uint8Array.of(1))
@@ -177,7 +179,7 @@ describe('HTTP bridge abort', () => {
         for await (const chunk of input.body) received.push(chunk)
         return new Response('stored')
       },
-    }, PEER, 1)
+    }, PEER, 1, roomy())
 
     await started
     expect(received).toEqual([])
@@ -211,7 +213,7 @@ describe('HTTP bridge abort', () => {
     await bridge(request, response, {
       requestBodyMode: () => 'streaming',
       fetch: () => Promise.resolve(new Response(null, { status: 415 })),
-    }, PEER, 1)
+    }, PEER, 1, roomy())
     expect(status).toBe(415)
     expect(headers).toMatchObject({ connection: 'close' })
     expect(destroyed).toEqual([true])
@@ -250,7 +252,7 @@ describe('HTTP bridge buffered-body budget', () => {
     const held = Array.from({ length: 4 }, upload)
     const running = held.map(item => bridge(item.request, item.response, handler(reached), PEER, 100, budget))
     for (const item of held) item.request.push(Buffer.alloc(50))
-    await vi.waitFor(() => { expect(budget.available).toBe(0) })
+    await vi.waitFor(() => { expect(available(budget)).toBe(0) })
     const refused = upload()
     const refusal = bridge(refused.request, refused.response, handler(reached), PEER, 100, budget)
     refused.request.push(Buffer.alloc(50))
@@ -269,7 +271,7 @@ describe('HTTP bridge buffered-body budget', () => {
     later.request.push(null)
     await done
     expect(later.result.status).toBe(200)
-    expect(budget.available).toBe(400)
+    expect(available(budget)).toBe(400)
   })
 
   it('releases its reservation when the client request fails mid-body', async () => {
@@ -277,9 +279,9 @@ describe('HTTP bridge buffered-body budget', () => {
     const item = upload()
     const pending = bridge(item.request, item.response, handler([]), PEER, 100, budget)
     item.request.push(Buffer.alloc(50))
-    await vi.waitFor(() => { expect(budget.available).toBe(300) })
+    await vi.waitFor(() => { expect(available(budget)).toBe(300) })
     item.request.destroy(new Error('socket reset'))
     await expect(pending).rejects.toThrow('socket reset')
-    expect(budget.available).toBe(400)
+    expect(available(budget)).toBe(400)
   })
 })

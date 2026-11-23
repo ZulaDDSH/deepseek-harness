@@ -4,7 +4,7 @@ import { Context } from '@deepseek-ai/cordis'
 import WebServer from '@deepseek-ai/dsh-host-webserver'
 import { describe, expect, it } from 'vitest'
 import { createWebConnectionRpc } from '../src/client/rpc.ts'
-import { bridge } from '../src/http-bridge.ts'
+import { DEFAULT_MAX_REQUEST_BODY_BYTES, bridge } from '../src/http-bridge.ts'
 import type { ConnectionRpcHandlerResult, ConnectionRpcResult } from '../src/rpc.ts'
 import { HostConnectionService } from '../src/rpc-host.ts'
 import { ConnectionAuthentication } from '../src/authentication.ts'
@@ -35,7 +35,7 @@ describe('Connection binary RPC', () => {
         attachments: [{ path: ['data'], bytes: data }],
       }))
       const handler = connection.createSharedFetchHandler('/api')
-      ctx.webServer.register({ kind: 'prefix', path: '/api', auth: 'anonymous', handler: (req, res) => bridge(req, res, handler, connection.browserPeer) })
+      ctx.webServer.register({ kind: 'prefix', path: '/api', auth: 'anonymous', handler: (req, res) => bridge(req, res, handler, connection.browserPeer, DEFAULT_MAX_REQUEST_BODY_BYTES, connection.bodyBudget) })
       let transferred = 0
       let encoding: string | undefined
       const rpc = createWebConnectionRpc((path, init) => new Promise((resolve, reject) => {
