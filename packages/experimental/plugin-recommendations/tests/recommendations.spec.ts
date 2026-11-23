@@ -224,7 +224,9 @@ describe('official recommendations', () => {
     f.manager.setBundleEnabled.mockImplementation(() => { entered.resolve(undefined); return gate.promise })
     const first = f.ctx.actionCards.act(f.agent, callId, 'enable')
     await entered.promise
-    const second = f.ctx.actionCards.act(f.agent, callId, 'dismiss')
+    const second = f.ctx.actionCards.act(f.agent, callId, 'enable')
+    expect(second).toBe(first)
+    expect(await f.ctx.actionCards.act(f.agent, callId, 'dismiss')).toEqual({ status: 'refused', reason: 'busy' })
     await f.fiber.dispose()
     expect(await first).toEqual({ status: 'unconfirmed', reason: 'closing' })
     expect(await second).toEqual(await first)
