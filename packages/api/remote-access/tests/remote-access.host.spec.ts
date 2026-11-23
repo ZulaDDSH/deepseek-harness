@@ -451,6 +451,37 @@ describe('first snapshots', () => {
     expect(warn).toHaveBeenCalledWith(expect.objectContaining({ message: 'condition failed' }))
   })
 
+  it('computes a snapshot and its follow diff in linear time over many distinct bound resources', async () => {
+    const { ctx, access } = await setup()
+    const policy = new GuestPolicy()
+    access.registerPolicy('test-guest', policy)
+    const reads = { count: 0 }
+    const counted = (id: string): RemoteAccessResourceOf<'test-shelf'> => {
+      const resource = { id }
+      Object.defineProperty(resource, 'kind', { enumerable: true, get: () => { reads.count += 1; return 'test-shelf' } })
+      return resource as RemoteAccessResourceOf<'test-shelf'>
+    }
+    const total = 400
+    const bind = (count: number): RemoteAccessBinding[] =>
+      Array.from({ length: count }, (_, index) => ({ role: SHELF_READER, resource: counted(`room-${index}`) }))
+    policy.hold(GUEST, ...bind(total))
+    const guest = await follow(ctx, GUEST)
+    const baseline = await guest.next()
+    expect(baseline.type === 'baseline' && baseline.owner === false && baseline.grants.map(grant => 'id' in grant.resource && grant.resource.id))
+      .toEqual(Array.from({ length: total }, (_, index) => `room-${index}`))
+    policy.hold(GUEST, ...bind(total).slice(1), { role: SHELF_WRITER, resource: counted('room-1') })
+    reads.count = 0
+    access.invalidate(GUEST)
+    const upsert = await guest.next()
+    expect(upsert).toMatchObject({ type: 'upsert', grant: { resource: { id: 'room-1' }, actions: ['notes/read', 'notes/rooms', 'notes/write'] } })
+    await expect(guest.next()).resolves.toMatchObject({ type: 'remove', resource: { id: 'room-0' } })
+    expect(reads.count).toBeLessThan(total * 20)
+    policy.hold(GUEST)
+    access.invalidate(GUEST)
+    await expect(guest.next()).resolves.toMatchObject({ type: 'remove', resource: { id: 'room-1' } })
+    await guest.stop()
+  })
+
   it('gives a principal whose bindings() throws no grant', async () => {
     const { ctx, access } = await setup()
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
