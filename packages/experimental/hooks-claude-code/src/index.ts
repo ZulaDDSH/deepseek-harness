@@ -95,6 +95,7 @@ export interface Config {
   enabledHooks?: Volatile<string[]>
   /** User-written descriptions keyed by {@link hookKey}; edited live from Settings. */
   hookDescriptions?: Volatile<Record<string, string>>
+  mandatory?: boolean
 }
 
 export const Config = z.object({
@@ -106,6 +107,7 @@ export const Config = z.object({
   maxForcedStops: z.number().default(DEFAULT_MAX_FORCED_STOPS),
   enabledHooks: z.array(z.string()).default([]).volatile(),
   hookDescriptions: z.dict(z.string()).default({}).volatile(),
+  mandatory: z.boolean().default(false),
 })
 
 /** A stable per-handler id so an invoked/result pair correlates in the log. */
@@ -155,11 +157,15 @@ export function apply(ctx: Context, config: Config): void {
       ...inventory, status: 'loaded',
       skipped: result.skipped.map(s => `${s.event}: ${s.type}`),
     }
+    if (config.mandatory === true && result.skipped.length > 0) {
+      throw new Error(`unsupported handlers: ${result.skipped.map(s => `${s.event}: ${s.type}`).join(', ')}`)
+    }
     for (const s of result.skipped) {
       ctx.logger.warn(`hooks-claude-code: skipping unsupported "${s.type}" hook on ${s.event}`)
     }
   } catch (error: unknown) {
     inventory = { ...inventory, error: String(error) }
+    if (config.mandatory === true) throw new Error(`hooks-claude-code: mandatory hook config "${config.configPath}" is unusable: ${String(error)}`)
     ctx.logger.warn(`hooks-claude-code: could not load hook config "${config.configPath}": ${String(error)} — no hooks registered`)
     return
   }
@@ -231,6 +237,10 @@ export function apply(ctx: Context, config: Config): void {
             // different event than the one firing (the schemas key it by event).
             expectedEventName: point,
           }, () => performance.now())
+        if (config.mandatory === true && output.updatedInput !== undefined) {
+          output.decision = 'deny'
+          output.reason = `${point} hook requested updatedInput, which is not supported in mandatory mode`
+        }
         outputs.push(output)
         if (output.updatedInput !== undefined) {
           ctx.logger.warn(`hooks-claude-code: ${point} hook requested updatedInput, which is not yet honored (ignored)`)
@@ -289,7 +299,12 @@ export function apply(ctx: Context, config: Config): void {
         ? `${point} prompt hook timed out after ${timeoutMs} ms`
         : String(error)
       ctx.logger.warn(`hooks-claude-code: ${point} prompt hook did not decide, so the action proceeds: ${message}`)
-      return { output: parseHookOutput(undefined, '', message), durationMs: performance.now() - started }
+      const output = parseHookOutput(undefined, '', message)
+      if (config.mandatory === true) {
+        output.decision = 'deny'
+        output.reason = `${point} prompt hook did not decide in mandatory mode: ${message}`
+      }
+      return { output, durationMs: performance.now() - started }
     }
   }
 
