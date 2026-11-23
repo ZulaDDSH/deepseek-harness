@@ -9,6 +9,8 @@
  * @module @deepseek-ai/dsh-harness-dev-context
  */
 
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import { z as zod } from 'zod'
@@ -38,6 +40,21 @@ const HARNESS_SOURCE_GUIDANCE = 'The checkout location and current working direc
   + 'Use this checkout only to inspect or extend DSH itself.'
 
 const HARNESS_SOURCE_PROMPT = `The runtime context names the DeepSeek Harness implementation checkout. ${HARNESS_SOURCE_GUIDANCE}`
+
+const HARNESS_DISTRIBUTION_PROMPT = 'The runtime context names the installed DeepSeek Harness distribution that is running, which is not an editable source checkout. '
+  + 'No source checkout is known: ask the user for the location of one before suggesting source edits or rebuilds, and do not treat the installation path as a checkout. '
+  + 'Use pwd to determine the current working directory.'
+
+export function isSourceCheckout(root: string): boolean {
+  return existsSync(join(root, 'pnpm-workspace.yaml'))
+    && existsSync(join(root, 'packages', 'context', 'harness-dev-context', 'package.json'))
+}
+
+export function sourceRootContext(root: string): string {
+  return isSourceCheckout(root)
+    ? `Current DeepSeek Harness implementation checkout: ${JSON.stringify(root)}.`
+    : `Current DeepSeek Harness installed distribution (not an editable source checkout): ${JSON.stringify(root)}.`
+}
 
 const WEB_SURFACE_GUIDANCE = 'When the user refers to "this page", "this GUI", or "this app" without naming another target, they mean this GUI. '
   + 'The browser provides no implicit DOM, route, or screenshot context. '
@@ -127,6 +144,7 @@ export async function apply(ctx: Context): Promise<void> {
     init: () => ADMITS_NOTHING,
     apply: foldLegacyPrompt,
   })
+  const sourcePrompt = isSourceCheckout(SOURCE_ROOT) ? HARNESS_SOURCE_PROMPT : HARNESS_DISTRIBUTION_PROMPT
   const admitted = (context: AssembleContext): LegacyPrompt => {
     const session = context.agent?.session
     return session === undefined ? ADMITS_NOTHING : legacyPromptProjectionHandle.stateOf(session)
@@ -135,13 +153,13 @@ export async function apply(ctx: Context): Promise<void> {
     name: HARNESS_SOURCE,
     order: ctx.systemPrompt.getSectionOrder('HARNESS_SOURCE'),
     interpolate: false,
-    text: context => admitted(context).source ?? HARNESS_SOURCE_PROMPT,
+    text: context => admitted(context).source ?? sourcePrompt,
   })
   ctx.systemPrompt.context({
     name: HARNESS_SOURCE,
     order: ctx.systemPrompt.getContextOrder('HARNESS_SOURCE'),
     interpolate: false,
-    text: `Current DeepSeek Harness implementation checkout: ${JSON.stringify(SOURCE_ROOT)}.`,
+    text: sourceRootContext(SOURCE_ROOT),
   })
   ctx.systemPrompt.section({
     name: WEB_SURFACE,

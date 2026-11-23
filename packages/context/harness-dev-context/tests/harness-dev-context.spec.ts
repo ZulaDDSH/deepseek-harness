@@ -10,7 +10,11 @@ import {
 } from '@deepseek-ai/dsh-llm'
 import type { SessionId, Session } from '@deepseek-ai/dsh-session'
 import { renderContextSnapshot, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import * as HarnessDevContext from '../src/index.ts'
+import { isSourceCheckout, sourceRootContext } from '../src/index.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
 
 const SOURCE_PROMPT = 'The runtime context names the DeepSeek Harness implementation checkout. The checkout location and current working directory are separate values and may differ; never infer the working directory from the checkout path. Use pwd to determine the current working directory. Use this checkout only to inspect or extend DSH itself.'
@@ -227,5 +231,33 @@ describe('harness-dev-context', () => {
     await send(resumed, 'second')
     expect(systemPrompts(resumed.session)).toEqual(logged)
     expect(latestRuntimeContext(resumed.session)).toContain('Current DeepSeek Harness Web GUI URL: "http://127.0.0.1:4568".')
+  })
+})
+
+describe('source checkout detection', () => {
+  async function layout(files: string[]): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-dev-context-'))
+    onTestFinished(() => rm(root, { recursive: true, force: true }))
+    for (const file of files) {
+      await mkdir(dirname(join(root, file)), { recursive: true })
+      await writeFile(join(root, file), '')
+    }
+    return root
+  }
+
+  it('names a source tree layout a checkout', async () => {
+    const root = await layout(['pnpm-workspace.yaml', 'packages/context/harness-dev-context/package.json'])
+    expect(isSourceCheckout(root)).toBe(true)
+    expect(sourceRootContext(root)).toBe(`Current DeepSeek Harness implementation checkout: ${JSON.stringify(root)}.`)
+  })
+
+  it.each([
+    ['an npm installation directory', ['node_modules/@deepseek-ai/dsh/package.json']],
+    ['a workspace file without this package', ['pnpm-workspace.yaml']],
+    ['an empty directory', []],
+  ])('does not call %s a checkout', async (_label, files) => {
+    const root = await layout(files)
+    expect(isSourceCheckout(root)).toBe(false)
+    expect(sourceRootContext(root)).toBe(`Current DeepSeek Harness installed distribution (not an editable source checkout): ${JSON.stringify(root)}.`)
   })
 })
