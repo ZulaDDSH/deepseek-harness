@@ -423,7 +423,7 @@ export class SessionProjectionRegistry extends Service {
         : {
           viewSchema: wire.viewSchema,
           view: state => wire.view(state as S),
-          appended: wire.appended === undefined ? undefined : (prev, next) => wire.appended?.(prev as S, next as S),
+          ...wire.appended === undefined ? {} : { appended: (prev: unknown, next: unknown) => wire.appended?.(prev as S, next as S) },
           summary: wire.summary !== false,
         },
       stateVersion: definition.stateVersion,
@@ -980,7 +980,7 @@ export class SessionProjectionRegistry extends Service {
             if (appendObserved && appended === undefined) appendChanges.push({ key, val: value })
           }
           if (appended !== undefined && appendObserved) {
-            appendChanges.push({ key, append: { from: appended.from, items: wire.viewSchema.parse(appended.items) } })
+            appendChanges.push({ key, append: { from: appended.from, items: wire.viewSchema.parse(appended.items) as readonly unknown[] } })
           }
         }
       } catch (error) {
