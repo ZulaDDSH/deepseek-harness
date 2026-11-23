@@ -43,6 +43,7 @@ const BOUND_PROJECT = /^Project: .*\(([^()\n]+)\)\s*$/m
 const REBIND = /Cannot [^.\n]+ yet\.|memorix_session_start|projectRoot/
 
 class ProjectMismatch extends Error {}
+class MemoryDisabled extends Error {}
 
 /** Automatic-memory settings the host config supplies. */
 export interface AutomationConfig {
@@ -295,7 +296,8 @@ export class MemoryAutomation {
           context.signal?.addEventListener('abort', () => { resolve('') }, { once: true })
           void pending.then(resolve)
         })
-        return { ...result, contexts: result.contexts.map(entry => entry.name === 'memory:recall' ? { ...entry, text } : entry) }
+        const admitted = config.chatMemory() ? text : ''
+        return { ...result, contexts: result.contexts.map(entry => entry.name === 'memory:recall' ? { ...entry, text: admitted } : entry) }
       })
       ctx.on('agent/inbox/inserted', ({ agent, message }) => {
         const session = agent.session
@@ -411,10 +413,16 @@ export class MemoryAutomation {
     return project
   }
 
+  private requireEnabled(): void {
+    if (!this.config.chatMemory()) throw new MemoryDisabled('chat memory was turned off')
+  }
+
   private async withProject<T>(provider: McpHumanOperations, cwd: string | undefined, signal: AbortSignal,
-    work: (project: string | undefined) => Promise<T>): Promise<T> {
+    work: (project: string | undefined) => Promise<T>, automatic = false): Promise<T> {
     for (let attempt = 0; ; attempt++) {
+      if (automatic) this.requireEnabled()
       const project = await this.bind(provider, cwd, signal)
+      if (automatic) this.requireEnabled()
       try { return await work(project) } catch (error) {
         this.bound.delete(provider)
         const rebind = error instanceof ProjectMismatch || (error instanceof Error && REBIND.test(error.message))
@@ -424,14 +432,14 @@ export class MemoryAutomation {
   }
 
   private storeIn(provider: McpHumanOperations, cwd: string | undefined, signal: AbortSignal, args: Record<string, JsonValue>,
-    subject: string): Promise<StoredObservation> {
+    subject: string, automatic = false): Promise<StoredObservation> {
     return this.withProject(provider, cwd, signal, async (project) => {
       const stored = await storeObservation(provider, args, signal, subject)
       if (project !== undefined && stored.project !== project) {
         throw new ProjectMismatch(`Memorix stored this ${subject} in project ${stored.project} instead of ${project}; the server's project binding changed`)
       }
       return stored
-    })
+    }, automatic)
   }
 
   store(provider: McpHumanOperations, cwd: string | undefined, signal: AbortSignal, args: Record<string, JsonValue>,
@@ -449,10 +457,11 @@ export class MemoryAutomation {
     const cwd = session.header.cwd ?? ''
     const signal = AbortSignal.any([this.host.signal, AbortSignal.timeout(WRITE_TIMEOUT_MS)])
     const provider = await this.host.provider()
+    this.requireEnabled()
     const stored = await this.storeIn(provider, cwd, signal, {
       entityName: workspaceEntity(cwd), type: CHAT_TYPE, title: record.title, narrative: record.narrative, topicKey: record.topicKey,
       concepts: ['dsh-session', 'automatic-turn'],
-    }, 'chat turn')
+    }, 'chat turn', true)
     const database = provider.local || this.config.databasePath !== '' ? this.host.database(provider) : undefined
     if (database !== undefined && !memorixStoredChunk(database, stored.id, stored.project, record.topicKey, record.narrative)) {
       throw new Error('Memorix did not persist the complete chat turn')
@@ -478,6 +487,7 @@ export class MemoryAutomation {
   private async recallNotes(session: SessionLike, query: string, budget: AbortSignal): Promise<string> {
     const cwd = session.header.cwd ?? ''
     const provider = await this.host.provider()
+    this.requireEnabled()
     const database = this.host.database(provider)
     let rows: readonly MemorixObservationRecord[] = []
     try {
@@ -489,6 +499,7 @@ export class MemoryAutomation {
     } catch (error) {
       if (!budget.aborted) this.report(error, 'recall')
     }
+    this.requireEnabled()
     return recallText(rows.length > 0 ? rows : this.recent(session, database), this.config.memoryCharacters)
   }
 
@@ -499,6 +510,7 @@ export class MemoryAutomation {
       const provider = await this.host.provider()
       const database = this.host.database(provider)
       const rows = await this.exclusive(() => this.search(provider, session, session.header.cwd ?? '', text, database, signal))
+      this.requireEnabled()
       this.succeeded('recall')
       return recallText(rows, this.config.memoryCharacters)
     } catch (error) {
@@ -510,6 +522,7 @@ export class MemoryAutomation {
   private async recentNotes(session: SessionLike): Promise<string> {
     try {
       const database = this.host.database(await this.host.provider())
+      this.requireEnabled()
       return recallText(this.recent(session, database), this.config.memoryCharacters)
     } catch (error) {
       this.report(error, 'recall')
@@ -537,7 +550,7 @@ export class MemoryAutomation {
       return memorixObservations(database, ids)
         .filter(row => row.entityName === entity && !(row.topicKey ?? '').startsWith(`dsh-session:${session.id}:`))
         .slice(0, RECALL_DIGESTS)
-    })
+    }, true)
   }
 
   private succeeded(action: 'save' | 'recall'): void {
@@ -548,7 +561,7 @@ export class MemoryAutomation {
   }
 
   private report(error: unknown, action: 'save' | 'recall'): void {
-    if (this.host.signal.aborted) return
+    if (this.host.signal.aborted || error instanceof MemoryDisabled) return
     const message = error instanceof Error ? error.message : String(error)
     const failure = { message, at: new Date().toISOString() }
     this.activity = action === 'save' ? { ...this.activity, saveFailure: failure } : { ...this.activity, recallFailure: failure }

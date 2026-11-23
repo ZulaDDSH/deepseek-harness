@@ -711,6 +711,61 @@ describe('Memory policy and first-message recall', () => {
     expect(await ctx.memoryWorkspace.status()).toMatchObject({ chatMemory: false })
   })
 
+  it('writes nothing when the switch is turned off while a save waits on workspace binding', async () => {
+    let turnOff = (): void => undefined
+    const stores: unknown[] = []
+    const { ctx, fiber } = await fixture({ call: async (name, args) => {
+      if (name === 'memorix_session_start') {
+        turnOff()
+        return { content: [{ type: 'text', text: PROJECT_ROOT_TEXT }] }
+      }
+      stores.push(args)
+      return { content: [{ type: 'text', text: 'stored' }] }
+    } })
+    turnOff = () => { updateVolatile((fiber.effectiveConfig as { chatMemory: Volatile<boolean> }).chatMemory, createVolatile(false)) }
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    const chat = session()
+    prompt(ctx, chat, 'private'); reply(ctx, chat, 'answer'); done(ctx, chat)
+    await new Promise(resolve => setTimeout(resolve, 100))
+    expect(stores).toEqual([])
+    expect(warn).not.toHaveBeenCalled()
+    expect(await ctx.memoryWorkspace.status()).not.toHaveProperty('saveFailure')
+  })
+
+  it('returns no notes when the switch is turned off during a lookup search', async () => {
+    let turnOff = (): void => undefined
+    const { ctx, db, fiber } = await fixture({ call: async (name) => {
+      if (name === 'memorix_session_start') return { content: [{ type: 'text', text: PROJECT_ROOT_TEXT }] }
+      turnOff()
+      return { content: [{ type: 'text', text: 'Found 1 observation(s):\n| obs:1@fixture | x |' }] }
+    } })
+    turnOff = () => { updateVolatile((fiber.effectiveConfig as { chatMemory: Volatile<boolean> }).chatMemory, createVolatile(false)) }
+    db.prepare('INSERT INTO observations(entityName, title, narrative, topicKey, createdAt) VALUES (?, ?, ?, ?, ?)')
+      .run(workspaceEntity(CWD), 'Turn 1: earlier', 'earlier narrative', 'dsh-session:old:1:turn:1', '2020-01-01T00:00:00.000Z')
+    const warn = vi.spyOn(ctx.logger, 'warn')
+    expect(await ctx.waterfall('memory/lookup', 'q', session('s1') as never, new AbortController().signal, () => Promise.resolve(undefined))).toBeUndefined()
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('inserts no recalled notes when the switch is turned off while prompt assembly awaits the recall', async () => {
+    let release = (): void => undefined
+    const held = new Promise<void>((resolve) => { release = resolve })
+    const { ctx, db, fiber } = await fixture({ call: async (name) => {
+      if (name === 'memorix_session_start') return { content: [{ type: 'text', text: PROJECT_ROOT_TEXT }] }
+      await held
+      return { content: [{ type: 'text', text: 'Found 1 observation(s):\n| obs:1@fixture | x |' }] }
+    } })
+    await ctx.plugin(SystemPrompt)
+    db.prepare('INSERT INTO observations(entityName, title, narrative, topicKey, createdAt) VALUES (?, ?, ?, ?, ?)')
+      .run(workspaceEntity(CWD), 'Turn 1: earlier', 'earlier narrative', 'dsh-session:old:1:turn:1', '2020-01-01T00:00:00.000Z')
+    inbox(ctx, session('live'), 'anything')
+    const assembly = assembled(ctx, 'live')
+    await new Promise(resolve => setTimeout(resolve, 50))
+    updateVolatile((fiber.effectiveConfig as { chatMemory: Volatile<boolean> }).chatMemory, createVolatile(false))
+    release()
+    expect(await assembly).toBe('')
+  })
+
   it('reports the chat-memory switch and a connected Memorix with no recorded failures', async () => {
     const { ctx } = await fixture()
     expect(await ctx.memoryWorkspace.status()).toEqual({ chatMemory: true, server: 'ready', maxDocumentBytes: 16 * 1024 * 1024 })
