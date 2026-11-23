@@ -1,7 +1,7 @@
 /** Cron parsing and bounded calendar arithmetic without Schedule task records or policy. */
 import { describe, expect, it, vi } from 'vitest'
 import { Temporal } from '@js-temporal/polyfill'
-import { Cron, CRON_SEARCH_HORIZON_YEARS } from '../src/index.ts'
+import { Cron, CRON_MAX_EXPRESSION_LENGTH, CRON_SEARCH_HORIZON_YEARS } from '../src/index.ts'
 
 function parsed(expression: string, timeZone = 'UTC'): Cron {
   const result = Cron.parse(expression, timeZone)
@@ -24,6 +24,24 @@ function reference(now: string, expression: string, timeZone = 'UTC') {
 function decision(record: ReturnType<typeof reference>, now: string) {
   return record.rule.resolve(record.scheduledAt, Date.parse(now))
 }
+
+describe('cron expression length bound', () => {
+  it('rejects oversized text before expanding any field', () => {
+    const repeated = Array.from({ length: 200_000 }, () => '*').join(',')
+    const result = Cron.parse(`${repeated} * * * *`, 'UTC')
+    expect(result).toMatchObject({ kind: 'rejected', reason: 'syntax' })
+    expect(result).toHaveProperty('detail', expect.stringContaining(`${CRON_MAX_EXPRESSION_LENGTH} characters`))
+    expect(Cron.parse(`${'0'.repeat(CRON_MAX_EXPRESSION_LENGTH)} * * * *`, 'UTC')).toMatchObject({ kind: 'rejected', reason: 'syntax' })
+  })
+
+  it('accepts a padded full-list expression and keeps repeated elements canonical', () => {
+    const list = (min: number, max: number) => Array.from({ length: max - min + 1 }, (_, index) => String(min + index).padStart(2, '0')).join(',')
+    const longest = [list(0, 59), list(0, 23), list(1, 31), list(1, 12), list(0, 7)].join(' ')
+    expect(longest.length).toBeLessThanOrEqual(CRON_MAX_EXPRESSION_LENGTH)
+    expect(canonicalExpression(longest)).toBe('0-59 0-23 1-31 1-12 0-6')
+    expect(canonicalExpression(`${Array.from({ length: 100 }, () => '*').join(',')} * * * *`)).toBe('* * * * *')
+  })
+})
 
 describe('cron occurrence resolution across a DST fall-back', () => {
   it('keeps the repeated hour as the latest due occurrence', () => {

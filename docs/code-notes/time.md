@@ -1,0 +1,3 @@
+# time code notes
+
+`packages/util/time/src/cron.ts:parseCronExpression`: finding 359 showed that the parser split and expanded every comma element of the supplied text with no bound, so repeated `*` elements cost Host event-loop time proportional to the input; text longer than `CRON_MAX_EXPRESSION_LENGTH` (1024, above the 358-character longest full-list expression even with two-digit padding) is refused with a syntax rejection before any split. Schedule admission (`parseCronInput`, `canonicalizeCronExpression`) and durable-record decoding both reach `Cron.parse`, so the one check covers every path; a stored record longer than the bound now fails decoding like any other invalid rule.
