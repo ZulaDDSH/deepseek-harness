@@ -1039,6 +1039,18 @@ describe('detached admission notices', () => {
     }])
   })
 
+  it('a handler error result stays with the durable lifecycle and raises no composer notice', async () => {
+    const { source, mint, warm, notices, executeCalls } = await bench({
+      execute: () => Promise.resolve({ matched: true, result: { kind: 'error', text: 'late failure' } }),
+    })
+    mint('s1')
+    await warm(proj('s1'))
+    menuPick(source, 'plan', proj('s1'))
+    await flush()
+    expect(executeCalls).toHaveLength(1)
+    expect(notices).toEqual([])
+  })
+
   it('a torn-down scope drops the failure notice', async () => {
     const { source, warm, notices, mint } = await bench({
       execute: () => Promise.reject(new Error('orphan failure')),

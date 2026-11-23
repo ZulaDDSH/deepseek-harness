@@ -15,3 +15,7 @@ Refreshes are coalesced per Session: one fetch flies per entry and any refresh r
 ## packages/client/ui-commands/src/client/directory.ts:CommandDirectory.entry
 
 The entry map is bounded by MAX_ENTRIES; creating an entry beyond the bound evicts the oldest entry that has no fetch in flight and no waiter, which only costs a refetch when that Session is used again. invalidateAll refreshes only ready or pending entries, because cold and failed entries are refetched on demand by warm and ensureReady, so closed Sessions that failed their catalog stop being revisited on every change event.
+
+## packages/client/ui-commands/src/client/service.ts:CommandUiRuntime.runDetached
+
+Finding 287 made `execute` map a handler error result to an error outcome, which `runDetached` (menu pick, bare enter, internal handled paths) treated like an admission miss, so the host's durable `command/done` flow node and a composer notice both showed the failure. `runDetached` now calls `submit` directly and only notices an unmatched line (`undefined`) or a rejected call; a handler error stays with the flow node. The claimed submit path still returns the error outcome so the composer keeps the draft, and it shows the notice text next to the flow node by design.

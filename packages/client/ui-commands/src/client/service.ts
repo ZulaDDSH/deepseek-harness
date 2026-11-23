@@ -223,7 +223,7 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
       this.invoke(name, decoration.ui, session, { via: 'quick' })
       return true
     }
-    this.runDetached(desc, session, `/${name}`)
+    this.runDetached(session, `/${name}`)
     return true
   }
 
@@ -349,7 +349,7 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
     // Menu-pick execute consumes the trigger span before the detached run
     // (scoped event; the input owns the CAS guard).
     this.consumeVia(pick.session.sessionId, { via: 'menu', span: pick.span })
-    this.runDetached(desc, pick.session, `/${name}`)
+    this.runDetached(pick.session, `/${name}`)
     return 'handled'
   }
 
@@ -439,7 +439,7 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
     if (!bare) return undefined
     if (envelope.attachments > 0) refuseAttachments()
     this.consumeVia(session.sessionId, { via: 'enter', token })
-    this.runDetached(desc, session, canonical)
+    this.runDetached(session, canonical)
     return 'handled'
   }
 
@@ -483,14 +483,15 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
   }
 
   /**
-   * The command.execute transaction, addressed to the session's agent — pure
-   * admission semantics. An unmatched line reports an error outcome (the
-   * composer's immediate admission feedback); an admitted command reports
-   * plain success for a handled outcome, because the host
+   * The command.execute transaction, addressed to the session's agent. An
+   * unmatched line reports an error outcome (the composer's immediate
+   * admission feedback). A handled result reports plain success: the host
    * executor durably logged the lifecycle (`command/run`/`command/done`) and
-   * the outcome renders as a persistent flow node — the composer never
-   * echoes it. A handler error result reports an error outcome so the
-   * composer keeps the draft and attachments for correction.
+   * the outcome renders as a persistent flow node, so the composer does not
+   * echo it. A handler error result reports an error outcome for the claimed
+   * submit path only, so the composer keeps the draft and attachments for
+   * correction; the detached paths ignore it because the flow node already
+   * shows it.
    * A refused call throws.
    */
   private async execute(
@@ -498,14 +499,24 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
     line: string,
     attachments: readonly SubmitAttachment[] = [],
   ): Promise<SubmitOutcome> {
-    const result = await this.ctx.remote.commands.execute(session.sessionId, line, attachments)
-    if (!result.ok) throw new Error(`command.execute failed: ${result.error.code}: ${result.error.message}`)
-    if (result.value === undefined) return { kind: 'error', text: `unknown or malformed command: ${line}` }
-    this.notifyExecuted(session.sessionId, submittedCommandName(line), result.value.result)
-    if (result.value.result.kind === 'error') {
-      return { kind: 'error', text: result.value.result.text }
+    const result = await this.submit(session, line, attachments)
+    if (result === undefined) return { kind: 'error', text: `unknown or malformed command: ${line}` }
+    if (result.kind === 'error') {
+      return { kind: 'error', text: result.text }
     }
     return { kind: 'success' }
+  }
+
+  private async submit(
+    session: ClientSessionContext,
+    line: string,
+    attachments: readonly SubmitAttachment[] = [],
+  ): Promise<CommandResult | undefined> {
+    const result = await this.ctx.remote.commands.execute(session.sessionId, line, attachments)
+    if (!result.ok) throw new Error(`command.execute failed: ${result.error.code}: ${result.error.message}`)
+    if (result.value === undefined) return undefined
+    this.notifyExecuted(session.sessionId, submittedCommandName(line), result.value.result)
+    return result.value.result
   }
 
   /** Publish the local acknowledgment without letting an observer change command admission. */
@@ -539,11 +550,10 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
    * entered a handler and therefore never logged — falls back to the composer
    * notice as immediate feedback.
    */
-  private runDetached(desc: CommandDescriptor, session: ClientSessionContext, line: string): void {
-    void this.execute(session, line).then(
-      (outcome) => {
-        // matched:false maps to an error outcome with no logged lifecycle.
-        if (outcome.kind === 'error') this.noticeFor(session.sessionId, 'error', outcome.text ?? `/${desc.name} failed`)
+  private runDetached(session: ClientSessionContext, line: string): void {
+    void this.submit(session, line).then(
+      (result) => {
+        if (result === undefined) this.noticeFor(session.sessionId, 'error', `unknown or malformed command: ${line}`)
       },
       (error: unknown) => {
         this.noticeFor(session.sessionId, 'error', error instanceof Error ? error.message : String(error))
