@@ -11,7 +11,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-model-selection/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { TeamDisableConfirmation, type TeamDisableConfirmationInjected, type TeamDisableRequest } from './TeamDisableConfirmation.tsx'
-import { TeamModePane, TeamModeToggle, type TeamModePaneInjected } from './TeamModeToggle.tsx'
+import { TeamModePane, TeamModeToggle, type TeamModePaneInjected, type TeamSelectionFailure } from './TeamModeToggle.tsx'
 import { TeamBoard } from './TeamBoard.tsx'
 import { TeamCommandRow } from './TeamCommandRow.tsx'
 import { en, ja, es, fr, de, ru, pt, NS, zh, type TeamKey } from './locales.ts'
@@ -39,9 +39,10 @@ export function registerAgentTeamUi(ctx: ClientContext): void {
   ctx.inject(['remote', 'remote.agentTeams'], (scope) => {
     scope.slots.inject('shell.overlay', function* () {
       const disableRequest = createSnapshotStore<TeamDisableRequest | null>(null)
-      const selectTeamMode = async (sessionId: SessionId, enabled: boolean): Promise<string | null> => {
+      const selectTeamMode = async (sessionId: SessionId, enabled: boolean): Promise<TeamSelectionFailure | null> => {
         const response = await scope.remote.agentTeams.setEnabled(sessionId, enabled)
-        return response.ok ? null : response.error.message
+        if (response.ok) return null
+        return { message: response.error.message, unconfirmed: response.error.code === 'TEAM_MODE_PERSISTENCE_UNCONFIRMED' }
       }
       yield () => { disableRequest.set(null) }
       yield scope.slots.register({

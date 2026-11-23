@@ -1,7 +1,7 @@
 /** Session-owned Agent Teams summary and settings inside the model menu. */
 
 import { useId, useState } from 'react'
-import { IconChevronRightOutlineRegular, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconChevronRightOutlineRegular, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-model-selection/client'
 import type {} from '@deepseek-ai/dsh-agent-team/client'
@@ -9,11 +9,13 @@ import type {} from '@deepseek-ai/dsh-agent'
 import type { NS } from './locales.ts'
 import css from './TeamModeToggle.module.css'
 
-/** Session selection callbacks supplied to the Team settings pane. */
+export interface TeamSelectionFailure {
+  readonly message: string
+  readonly unconfirmed: boolean
+}
+
 export interface TeamModePaneInjected {
-  /** Save the selection; null means success, otherwise the string describes the failure. */
-  selectTeamMode: (enabled: boolean) => Promise<string | null>
-  /** Open a Session-targeted confirmation outside this menu. */
+  selectTeamMode: (enabled: boolean) => Promise<TeamSelectionFailure | null>
   requestDisableConfirmation: () => void
 }
 
@@ -74,6 +76,7 @@ function RootTeamModePane({
   const mode = useProjection('agentTeam')
   const modelSelection = useProjection('modelSelection')
   const [pending, setPending] = useState(false)
+  const [unconfirmed, setUnconfirmed] = useState<boolean | null>(null)
   const descriptionId = useId()
   if (mode === undefined) return null
   const select = (enabled: boolean): void => {
@@ -84,8 +87,10 @@ function RootTeamModePane({
     }
     setPending(true)
     void selectTeamMode(enabled).then((failure) => {
-      if (failure !== null) reportFailure(t('mode.failed', { message: failure }))
+      setUnconfirmed(failure?.unconfirmed === true ? enabled : null)
+      if (failure !== null) reportFailure(t('mode.failed', { message: failure.message }))
     }, (error: unknown) => {
+      setUnconfirmed(null)
       reportFailure(t('mode.failed', { message: error instanceof Error ? error.message : String(error) }))
     }).finally(() => { setPending(false) })
   }
@@ -93,8 +98,14 @@ function RootTeamModePane({
     <div className={css.pane}>
       <div className={css.row}>
         <span className={css.label}>{t('mode.label')}</span>
-        <Switch className={css.toggle} checked={mode.enabled} disabled={locked || pending || modelSelection === undefined} label={t('mode.label')} onChange={select} autoFocus describedBy={descriptionId} />
+        <Switch className={css.toggle} checked={mode.enabled} disabled={locked || pending || modelSelection === undefined} label={t('mode.label')} onChange={value => { select(unconfirmed ?? value) }} autoFocus describedBy={descriptionId} />
       </div>
+      {unconfirmed !== null && (
+        <div className={css.row}>
+          <p role="status" className={css.description}>{t('mode.unconfirmed')}</p>
+          <Button variant="outline" disabled={locked || pending} onClick={() => { select(unconfirmed) }}>{t('mode.retry')}</Button>
+        </div>
+      )}
       <p id={descriptionId} className={css.description}>{t('mode.description')}</p>
     </div>
   )
