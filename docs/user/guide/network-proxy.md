@@ -37,13 +37,13 @@ export NO_PROXY=internal.example.com,.corp.example.com,registry.local
 
 An entry names a host and matches it together with every subdomain under it: `NO_PROXY=example.com` also sends `api.example.com` direct. A leading `.` or `*.` is accepted and means the same thing. An entry may carry a `:port`, and `*` bypasses everything.
 
-**CIDR ranges do not work.** An operating system bypass list often contains entries like `10.0.0.0/8` or `192.168.0.0/16`; copying those into `NO_PROXY` has no effect. Use host names or domain suffixes instead.
+**CIDR ranges match IP addresses only.** Entries like `10.0.0.0/8`, `192.168.0.0/16`, or `fd00::/8` in `NO_PROXY` bypass the proxy for a destination written as an IP address in that block; they never match a host name, so list host names or domain suffixes for those. Child programs started by DSH apply their own matcher, which may ignore CIDR entries.
 
 You do not need to list `localhost` or `127.0.0.1`. DSH always bypasses loopback, because its own Web UI and local servers would otherwise route through the proxy and loop.
 
 ## Limits worth knowing
 
-**SOCKS proxies are not supported.** A `socks5://` value is reported at startup and skipped, and DSH connects directly for the scheme that named it — setting `HTTPS_PROXY=socks5://…` alongside a usable `HTTP_PROXY` leaves `https:` direct rather than borrowing the HTTP proxy. Point the variables at your proxy application's HTTP port instead — most expose both, and the HTTP one is usually a neighbouring port number.
+**SOCKS proxies are not supported.** A `socks5://` value is reported at startup and skipped, and DSH connects directly for the scheme that named it — setting `HTTPS_PROXY=socks5://…` alongside a usable `HTTP_PROXY` leaves `https:` direct rather than borrowing the HTTP proxy. To make DSH refuse to start instead of connecting directly, set `DSH_PROXY_FAIL_CLOSED=1`. Point the variables at your proxy application's HTTP port instead — most expose both, and the HTTP one is usually a neighbouring port number.
 
 **`ALL_PROXY` alone is enough.** DSH falls back to it for both schemes, even though Node and curl differ on this. Setting `HTTPS_PROXY` explicitly is still clearer.
 

@@ -320,8 +320,7 @@ function cidrContains(entry: string, host: string): boolean {
  * Decide whether a bypass list exempts one URL. An entry names a host and matches it together with
  * every subdomain under it — `example.com` also bypasses `api.example.com` — and a leading `.` or
  * `*.` is accepted as the same thing; an entry may carry a `:port`, and `*` bypasses everything.
- * CIDR notation is not matched —
- * an operating system's bypass list often carries `10.0.0.0/8`, which must be rewritten as suffixes.
+ * An IPv4 or IPv6 CIDR entry matches an IP-literal destination in its block.
  *
  * @param noProxy - the effective bypass list.
  * @param url - the request URL.
