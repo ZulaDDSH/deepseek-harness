@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-tool-master-control",
   "description": "mc_list_sessions, mc_send, and mc_interrupt mesh tools for enrolled peer sessions (status, messaging with optional wait, interrupt)",
-  "version": "0.2.2-alpha.2",
+  "version": "0.2.2-alpha.3",
   "publishConfig": {
     "access": "public"
   },
