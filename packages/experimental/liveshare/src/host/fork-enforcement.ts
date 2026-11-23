@@ -316,7 +316,7 @@ export function installSourceSessionAccess(target: SourceSessionAccess): SourceS
       if (!gate.mayWrite()) throw new LiveshareForkDeniedError('this share does not allow writing this Session', 'FORK_TOOL_NOT_PERMITTED')
       const outcome = await fs.editText(
         candidate,
-        { oldString: edit.oldString, newString: edit.newString, replaceAll: edit.replaceAll },
+        { oldString: edit.oldString, newString: edit.newString, replaceAll: edit.replaceAll, ...edit.append ? { append: true } : {} },
         intent,
         exec.signal,
         policy,
@@ -863,7 +863,7 @@ export function installForkEnforcement(
       requireAuthorized(FORK_EDIT_TOOL)
       const outcome = await fs.editText(
         candidate,
-        { oldString: edit.oldString, newString: edit.newString, replaceAll: edit.replaceAll },
+        { oldString: edit.oldString, newString: edit.newString, replaceAll: edit.replaceAll, ...edit.append ? { append: true } : {} },
         intent,
         exec.signal,
         policy,

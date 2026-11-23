@@ -187,6 +187,35 @@ describe('confined fork tools', () => {
       .rejects.toMatchObject({ name: 'LiveshareForkDeniedError', code: 'FORK_TOOL_NOT_PERMITTED', message: expect.stringContaining('no longer holds permission') as string })
   })
 
+  it('passes an append through the confined edit and keeps the confinement', async () => {
+    const read = deploymentTool('read')
+    const write = deploymentTool('write')
+    const h = harness({ read, write })
+    h.registered.set('edit', deploymentTool('edit'))
+    expect(installForkEnforcement({ ...h.target, write: true } as never, h.failure)).toBeDefined()
+    const edit = h.registered.get('edit')!
+
+    for (const args of [
+      { file_path: 'inside.ts', old_string: '', new_string: '', append: true },
+      { file_path: 'inside.ts', old_string: 'a', new_string: 'b', append: true },
+      { file_path: 'inside.ts', old_string: '', new_string: 'b', append: true, replace_all: true },
+    ]) {
+      await expect(edit.execute(args, { signal: undefined })).rejects.toMatchObject({ name: 'ToolArgsError', code: 'INVALID_ARGS' })
+    }
+    await expect(edit.execute({ file_path: '../outside.ts', old_string: '', new_string: 'b', append: true }, { signal: undefined }))
+      .rejects.toMatchObject({ name: 'FsError', code: 'FS_SANDBOX_DENIED' })
+    expect(h.fs.editText).not.toHaveBeenCalled()
+
+    await edit.execute({ file_path: 'inside.ts', new_string: 'tail', append: true }, { signal: undefined })
+    expect(h.fs.editText).toHaveBeenCalledWith(
+      '/granted/inside.ts',
+      { oldString: '', newString: 'tail', replaceAll: false, append: true },
+      undefined,
+      undefined,
+      expect.objectContaining({ workspaceRoot: '/granted' }),
+    )
+  })
+
   it('refuses a write-capable child when the deployment ships no write to replace', () => {
     const read = deploymentTool('read')
     const h = harness({ read })
@@ -699,6 +728,28 @@ describe('source-session sandbox', () => {
     const result = await confined.execute({ file_path: 'inside.ts', content: 'hello' }, { signal: undefined })
     expect(result).toEqual({ path: 'inside.ts', operation: 'update', before: 'v0', after: 'v1' })
     expect(h.fs.writeText).toHaveBeenCalled()
+  })
+
+  it('passes an append through a confined source edit', async () => {
+    const h = sourceHarness({
+      tools: ['read', 'write', 'edit'],
+      writeGate: { mayWrite: vi.fn().mockReturnValue(true) },
+    })
+    expect(installSourceSessionAccess(h.target as never)).toMatchObject({ writeConfined: true })
+    const edit = h.installed.get('edit')!
+    await expect(edit.execute({ file_path: 'inside.ts', old_string: '', new_string: 'b' }, { signal: undefined }))
+      .rejects.toMatchObject({ name: 'ToolArgsError', code: 'INVALID_ARGS' })
+    await expect(edit.execute({ file_path: 'outside.ts', old_string: '', new_string: 'b', append: true }, { signal: undefined }))
+      .rejects.toMatchObject({ name: 'FsError', code: 'FS_SANDBOX_DENIED' })
+    expect(h.fs.editText).not.toHaveBeenCalled()
+    await edit.execute({ file_path: 'inside.ts', old_string: '', new_string: 'tail', append: true }, { signal: undefined })
+    expect(h.fs.editText).toHaveBeenCalledWith(
+      '/granted/inside.ts',
+      { oldString: '', newString: 'tail', replaceAll: false, append: true },
+      undefined,
+      undefined,
+      expect.objectContaining({ workspaceRoot: '/granted' }),
+    )
   })
 
   it('confines a source edit through the same root check and policy', async () => {
