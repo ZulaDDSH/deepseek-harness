@@ -248,6 +248,7 @@ it('fills every search default when the search group is omitted', () => {
     maxFileBytes: 32 * 1024 * 1024,
     maxLines: 5000,
     maxEntries: 7,
+    confineReads: false,
     search: { maxResults: 512, maxEntries: 100000, graceMs: 3000, timeoutMs: 30000, stderrMaxBytes: 65536 },
   })
 })

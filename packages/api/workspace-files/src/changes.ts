@@ -5,13 +5,11 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { Deque } from '@deepseek-ai/dsh-deque'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
-import type { FsObservation, FsTarget } from '@deepseek-ai/dsh-fs'
+import type { FsTarget } from '@deepseek-ai/dsh-fs'
 import type { WorkspaceFileWatchFrame } from './types.ts'
 
-/** One target invalidation, optionally carrying its instrumented observation. */
-type Observed = readonly [target: FsTarget, observation?: FsObservation]
+const PRE_TARGET_LIMIT = 1024
 
 /** Owns target watches, instrumented observations, and every open `changes` generation. */
 export class WorkspaceChangeFeed {
@@ -19,8 +17,8 @@ export class WorkspaceChangeFeed {
 
   /** @param ctx - Host context carrying the filesystem the observations come from. */
   constructor(private readonly ctx: Context) {
-    ctx.on('fs/observed', (target, observation) => {
-      for (const follower of this.followers) follower.push([target, observation])
+    ctx.on('fs/observed', (target) => {
+      for (const follower of this.followers) follower.push(target)
     })
     ctx.effect(() => async () => {
       const followers = [...this.followers]
@@ -36,7 +34,9 @@ export class WorkspaceChangeFeed {
    * @param signal - generation cancellation.
    * @returns `ready` after watching starts, then current metadata for target invalidations.
    */
-  async *follow(workspaceRoot: string, path: string, signal: AbortSignal): AsyncIterable<WorkspaceFileWatchFrame> {
+  async *follow(
+    workspaceRoot: string, path: string, signal: AbortSignal, confineFiles = false,
+  ): AsyncIterable<WorkspaceFileWatchFrame> {
     signal.throwIfAborted()
     // Instrumented observations remain queued while the target resolves.
     const follower = new ChangeFollower(() => {
@@ -63,12 +63,13 @@ export class WorkspaceChangeFeed {
         throw error
       })
       if (target === undefined || aborted()) return
+      follower.track(target.targetKey)
       const stat = async () => {
         const info = await this.ctx.fs.stat(target, signal).catch((error: unknown) => {
           if (aborted()) return undefined
           throw error
         })
-        if (info?.type === 'directory' && !this.ctx.fs.contains(root, target)) {
+        if ((confineFiles || info?.type === 'directory') && !this.ctx.fs.contains(root, target)) {
           throw new RemoteError('workspace-file/outside-workspace', 'Directory is outside the workspace', { path })
         }
         return info
@@ -78,7 +79,7 @@ export class WorkspaceChangeFeed {
       try {
         unwatch = await this.ctx.fs.watch(target, (error) => {
           if (error !== undefined) follower.fail(error)
-          else if (!follower.isClosed) follower.push([target])
+          else if (!follower.isClosed) follower.push(target)
         }, signal)
         if (follower.error !== undefined) throw follower.error
       } catch (error) {
@@ -90,8 +91,7 @@ export class WorkspaceChangeFeed {
       follower.initialized.resolve(unwatch)
       if (aborted()) return
       yield { kind: 'ready' }
-      for await (const [observed] of follower.read()) {
-        if (observed.targetKey !== target.targetKey) continue
+      for await (const _invalidated of follower.read()) {
         const info = await stat()
         if (aborted()) return
         const absolutePath = this.ctx.fs.processPath(target)
@@ -109,12 +109,14 @@ export class WorkspaceChangeFeed {
   }
 }
 
-/** One generation's queue: observations wait here until its consumer pulls them. */
 class ChangeFollower {
   readonly controller = new AbortController()
   readonly initialized = Promise.withResolvers<(() => Promise<void>) | undefined>()
   error: Error | undefined
-  private readonly queue = new Deque<Observed>()
+  private readonly early = new Set<string>()
+  private earlyOverflow = false
+  private targetKey: string | undefined
+  private dirty = false
   private wake: (() => void) | undefined
   private closed = false
   private closing: Promise<void> | undefined
@@ -126,10 +128,23 @@ class ChangeFollower {
     return this.closed
   }
 
-  push(observed: Observed): void {
+  push(observed: FsTarget): void {
     if (this.closed) return
-    this.queue.pushBack(observed)
+    if (this.targetKey === undefined) {
+      if (this.early.size < PRE_TARGET_LIMIT) this.early.add(observed.targetKey)
+      else this.earlyOverflow = true
+      return
+    }
+    if (observed.targetKey !== this.targetKey) return
+    this.dirty = true
     this.wake?.()
+  }
+
+  track(targetKey: string): void {
+    this.targetKey = targetKey
+    this.dirty = this.earlyOverflow || this.early.has(targetKey)
+    this.early.clear()
+    this.earlyOverflow = false
   }
 
   close(): Promise<void> {
@@ -146,12 +161,11 @@ class ChangeFollower {
     this.controller.abort()
   }
 
-  /** Drain until closed or aborted; anything still queued then is dropped with the generation. */
-  async *read(): AsyncIterable<Observed> {
+  async *read(): AsyncIterable<void> {
     while (!this.closed) {
-      const observed = this.queue.popFront()
-      if (observed !== undefined) {
-        yield observed
+      if (this.dirty) {
+        this.dirty = false
+        yield
         continue
       }
       await new Promise<void>((resolve) => { this.wake = resolve })
