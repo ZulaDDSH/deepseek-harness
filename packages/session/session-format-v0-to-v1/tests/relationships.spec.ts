@@ -456,6 +456,16 @@ describe('released v1 whole-artifact relationships', () => {
     })
     expect(() => decode([turn, start, settle(2, { name: 'b' })])).toThrow(/does not match/)
     expect(() => decode([turn, start, settle(2, { arguments: { x: 2 } })])).toThrow(/does not match/)
+    expect(() => decode([
+      turn,
+      { ...start, data: { ...start.data, arguments: JSON.parse('{"__proto__":{}}') as unknown } },
+      settle(2),
+    ])).toThrow(/does not match/)
+    expect(() => decode([
+      turn,
+      start,
+      settle(2, { arguments: JSON.parse('{"__proto__":{}}') as unknown }),
+    ])).toThrow(/does not match/)
     expect(() => decode([turn, start, settle(2), settle(3)])).toThrow(/unique start/)
     expect(decode([turn, start]).events).toHaveLength(2)
     const arrayStart = {

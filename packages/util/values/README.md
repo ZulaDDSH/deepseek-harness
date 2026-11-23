@@ -43,7 +43,7 @@ const snapshot = snapshotJsonValue(input) as JsonValue
 
 ### Publish, compare, or retain keyed values
 
-`deepFreeze(value)` freezes an object graph in place and returns the same value. It walks enumerable string-keyed children and deliberately leaves live `AbortSignal` objects mutable. `deepEqualJson(a, b)` compares JSON-compatible arrays and records structurally; callers must validate hostile or unconstrained values before comparison.
+`deepFreeze(value)` freezes an object graph in place and returns the same value. It walks enumerable string-keyed children and deliberately leaves live `AbortSignal` objects mutable. `deepEqualJson(a, b)` compares JSON-compatible arrays and records structurally, matching keys only as own properties of both sides; callers must validate hostile or unconstrained values before comparison.
 
 `WeakMapWithValues<Key, Value>` combines weak object-key lookup with a strongly retained, insertion-ordered `values` set. Each value belongs to one key. The owner must call `delete(key)` or `clear()` at the corresponding lifecycle boundary; the collection does not perform automatic cleanup.
 
@@ -53,7 +53,7 @@ Use `assertNever(value, context?)` in the default branch of a closed discriminat
 
 ### Describe a streamed tool call
 
-`liveToolDetail(name, argsRaw)` parses streamed JSON tool arguments and returns the first task-describing value (title, description, command, path, query, and similar keys) as one line of at most 160 graphemes, ending in an ellipsis when cut. It falls back to the tool name when the arguments do not parse or name nothing usable. `normalizeLiveToolDetail(value)` applies the same flattening to one text value.
+`liveToolDetail(name, argsRaw)` parses streamed JSON tool arguments and returns the first task-describing value (title, description, command, path, query, and similar keys) as one line of at most 160 graphemes, ending in an ellipsis when cut. It falls back to the tool name when the arguments do not parse or name nothing usable. `normalizeLiveToolDetail(value)` applies the same flattening to one text value, reading only the first 1024 characters of the flattened text, so long input is always cut with an ellipsis and costs no more than a short label. `liveToolDetail` remembers its last name and argument pair, so an unchanged streamed argument is not parsed again; a changed argument is still parsed in full.
 
 -----
 
