@@ -148,6 +148,17 @@ function execute(ctx: Context, args: unknown, extra?: {
 }
 
 describe('dsh-tool-workflow', () => {
+  it('reports unconfirmed child cleanup beside a completed foreground result', async () => {
+    const { ctx, engine, parent } = await setup()
+    const pending = execute(ctx, { script: SCRIPT, meta: META }, { agent: parent })
+    await vi.waitFor(() => { expect(engine.requests.length).toBe(1) })
+    engine.settle({ value: 1, stopReason: 'completed', agentsStarted: 1, cleanupFailures: ['child c1 (call 1): disposal failed'] })
+    const result = await pending
+    if (result.isError) throw new Error('expected workflow success')
+    expect(result.value).toEqual({ kind: 'foreground', runId: 'run-1', agentsStarted: 1, result: 1, cleanupFailures: ['child c1 (call 1): disposal failed'] })
+    expect((result.content[0] as { text: string }).text).toContain('child cleanup unconfirmed: child c1 (call 1): disposal failed')
+  })
+
   it('starts a run with the script/args/parent/signal and renders the completed value', async () => {
     const { ctx, engine, parent } = await setup()
     const controller = new AbortController()

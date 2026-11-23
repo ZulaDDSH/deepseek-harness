@@ -190,6 +190,7 @@ class PtcWorkflowEngine extends WorkflowEngine {
         stopReason: settled.stopReason,
         ...settled.error !== undefined ? { error: settled.error } : {},
         ...settled.errorCode !== undefined ? { errorCode: settled.errorCode } : {},
+        ...settled.cleanupFailures !== undefined ? { cleanupFailures: settled.cleanupFailures } : {},
         agentsStarted: settled.agentsStarted,
       })
     })

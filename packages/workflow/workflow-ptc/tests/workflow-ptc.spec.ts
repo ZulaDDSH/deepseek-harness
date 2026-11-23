@@ -574,9 +574,14 @@ describe('dsh-workflow-ptc', { timeout: 120_000 }, () => {
       }
       ctx.subagents.registerProvider(provider)
       await ctx.plugin(PtcWorkflowEngine, { provider: 'bad-dispose', maxConcurrentAgents: 2 })
+      const ends: WorkflowResultInfo[] = []
+      ctx.on('workflow/end', (_info, ended) => { ends.push(ended) })
       const result = await run(ctx, await fakeParent(ctx), scripted("return await agent('p')"))
       expect(result.stopReason).toBe('completed')
       expect(result.value).toBe('fine')
+      expect(result.cleanupFailures).toEqual([expect.stringContaining('child bad-dispose-child (call 1): ')])
+      expect(result.cleanupFailures![0]).toContain('dispose exploded')
+      expect(ends).toEqual([expect.objectContaining({ cleanupFailures: result.cleanupFailures })])
     })
 
     it('a child dispose() rejecting an UNRENDERABLE value still acks — the containment warn is total', async () => {
@@ -602,6 +607,8 @@ describe('dsh-workflow-ptc', { timeout: 120_000 }, () => {
       const result = await run(ctx, await fakeParent(ctx), scripted("return await agent('p')"))
       expect(result.stopReason).toBe('completed')
       expect(result.value).toBe('fine')
+      expect(result.cleanupFailures).toEqual([expect.stringContaining('trap-child (call 1): ')])
+      expect(result.cleanupFailures![0]).toContain('unknown teardown failure')
     })
   })
 

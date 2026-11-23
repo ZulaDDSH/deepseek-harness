@@ -93,7 +93,7 @@ The host tracks pending starts separately from accepted Activations. Cancellatio
 
 ### Cancellation and outcomes
 
-The first accepted terminal outcome owns the run result. Cancellation stops the process immediately rather than waiting for a guest acknowledgement. Process settlement and child cleanup remain separate obligations; public disposal waits for both. Existing workflow start/end pairing and child lifecycle projection remain intact.
+The first accepted terminal outcome owns the run result. Cancellation stops the process immediately rather than waiting for a guest acknowledgement. Process settlement and child cleanup remain separate obligations; public disposal waits for both. A child whose disposal fails still settles the run: the failure is reported in `cleanupFailures` beside the primary outcome, without failing a completed run. Existing workflow start/end pairing and child lifecycle projection remain intact.
 
 </details>
 

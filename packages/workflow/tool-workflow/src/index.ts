@@ -229,8 +229,8 @@ async function jobOutcomeOf(
       const value = result.value as JsonValue
       return {
         status: 'completed',
-        detail: `${result.agentsStarted} agent${result.agentsStarted === 1 ? '' : 's'}`,
-        result: renderResult(name, result.agentsStarted, value, maxChars, await save(value)),
+        detail: `${result.agentsStarted} agent${result.agentsStarted === 1 ? '' : 's'}${cleanupNote(result.cleanupFailures)}`,
+        result: renderResult(name, result.agentsStarted, value, maxChars, await save(value), result.cleanupFailures),
       }
     }
     case 'cancelled':
@@ -245,14 +245,18 @@ async function jobOutcomeOf(
 }
 
 /** Render the run's outcome text: the meta name, agent count, and the JSON value (capped). */
-function renderResult(name: string, agentsStarted: number, value: JsonValue, maxChars: number, spill?: SpillNote): string {
+function renderResult(name: string, agentsStarted: number, value: JsonValue, maxChars: number, spill?: SpillNote, cleanupFailures?: readonly string[]): string {
   // The engine returns JSON data (null for a valueless script), so stringify never yields undefined.
   const rendered = JSON.stringify(value, null, 2)
   const saved = spill === undefined ? '' : `\nFull result stored at: ${spill.locator}. ${spill.retrievalHint}`
   const clipped = rendered.length > maxChars
     ? `${rendered.slice(0, maxChars)}\n… [truncated: ${rendered.length - maxChars} more characters]${saved}`
     : rendered
-  return `workflow "${name}" completed (${agentsStarted} agent${agentsStarted === 1 ? '' : 's'}).\nReturn value:\n${clipped}`
+  return `workflow "${name}" completed (${agentsStarted} agent${agentsStarted === 1 ? '' : 's'}${cleanupNote(cleanupFailures)}).\nReturn value:\n${clipped}`
+}
+
+function cleanupNote(failures: readonly string[] | undefined): string {
+  return failures === undefined || failures.length === 0 ? '' : `; child cleanup unconfirmed: ${failures.join('; ')}`
 }
 
 interface SpillNote {
@@ -458,6 +462,7 @@ export function apply(ctx: Context, config: Config): void {
               runId: { type: 'string', required: true },
               agentsStarted: { type: 'integer', required: true },
               result: { type: 'json', required: true },
+              cleanupFailures: { type: 'array', items: { type: 'string' } },
               spill: {
                 type: 'object',
                 additionalProperties: false,
@@ -475,7 +480,7 @@ export function apply(ctx: Context, config: Config): void {
         type: 'text',
         text: value.kind === 'background'
           ? `workflow "${args.meta.name}" started in the background as job ${value.jobId}. Its return value arrives with the completion notice; check on it with job_output, stop it with job_kill.`
-          : renderResult(args.meta.name, value.agentsStarted, value.result, maxResultChars, value.spill),
+          : renderResult(args.meta.name, value.agentsStarted, value.result, maxResultChars, value.spill, value.cleanupFailures),
       }],
     },
     async execute(args, exec) {
@@ -544,6 +549,7 @@ export function apply(ctx: Context, config: Config): void {
           runId: run.id,
           agentsStarted: result.agentsStarted,
           result: value,
+          ...result.cleanupFailures === undefined ? {} : { cleanupFailures: result.cleanupFailures },
           ...spill === undefined ? {} : { spill },
         }
       } finally {

@@ -179,6 +179,7 @@ export class PtcWorkflowRun implements WorkflowRun {
   private started = 0
   private terminal = false
   private cancelReason: string | undefined
+  private readonly cleanupFailures: string[] = []
   private disposed: Promise<void> | undefined
   private readonly externalAbort: () => void
   private readonly cwd: Promise<string>
@@ -308,7 +309,9 @@ export class PtcWorkflowRun implements WorkflowRun {
 
   private disposeChild(record: ChildRecord): Promise<void> {
     record.disposal ??= Promise.resolve().then(() => record.run.dispose()).catch((error: unknown) => {
-      this.ctx.logger.warn(`workflow-ptc: child dispose failed: ${renderThrown(error)}`)
+      const failure = renderThrown(error)
+      this.cleanupFailures.push(`child ${record.run.childId} (call ${record.callId}): ${failure}`)
+      this.ctx.logger.warn(`workflow-ptc: child dispose failed: ${failure}`)
     }).finally(() => {
       this.children.delete(record.callId)
     })
@@ -380,6 +383,6 @@ export class PtcWorkflowRun implements WorkflowRun {
       this.children.clear()
       for (const info of this.liveAgents.values()) this.endAgent({ ...info, outcome: 'cancelled' })
     }
-    return result
+    return this.cleanupFailures.length > 0 ? { ...result, cleanupFailures: [...this.cleanupFailures] } : result
   }
 }
