@@ -345,6 +345,47 @@ describe('ResourceRegistry streams', () => {
     } finally { process.off('unhandledRejection', unhandled) }
   })
 
+  it('reopens a stream that ended failed when a holder arrives while a pin keeps the record open', async () => {
+    const b = bench()
+    b.registry.register(b.provider)
+    const pin = new AbortController()
+    b.registry.pin(A, pin.signal)
+    const first = b.last()
+    first.fail(new RemoteError('gateway/internal', 'offline', {}))
+    first.end()
+    await vi.waitFor(() => { expect(b.snapshot().status).toBe('failed') })
+    await first.closed
+    await settle()
+    const unsubscribe = b.registry.source(A).subscribe(() => {})
+    expect(b.provider.open).toHaveBeenCalledTimes(2)
+    expect(b.snapshot().status).toBe('loading')
+    b.last().push('back')
+    await vi.waitFor(() => { expect(b.snapshot()).toMatchObject({ status: 'live', value: 'back' }) })
+    unsubscribe()
+    const again = b.registry.source(A).subscribe(() => {})
+    expect(b.provider.open).toHaveBeenCalledTimes(2)
+    again()
+    pin.abort()
+  })
+
+  it('does not reopen a running stream or one that ended live when another holder arrives', async () => {
+    const b = bench()
+    b.registry.register(b.provider)
+    const source = b.registry.source(A)
+    source.subscribe(() => {})
+    b.last().fail(new RemoteError('gateway/internal', 'offline', {}))
+    await vi.waitFor(() => { expect(b.snapshot().status).toBe('failed') })
+    source.subscribe(() => {})
+    expect(b.provider.open).toHaveBeenCalledTimes(1)
+    b.last().push('ok')
+    await vi.waitFor(() => { expect(b.snapshot().status).toBe('live') })
+    b.last().end()
+    await b.last().closed
+    await settle()
+    source.subscribe(() => {})
+    expect(b.provider.open).toHaveBeenCalledTimes(1)
+  })
+
   it('drops a failure frame that follows the release that aborted the stream', async () => {
     const b = bench()
     b.registry.register(b.provider)

@@ -74,7 +74,7 @@ One record per address holds a snapshot store, a holder count (hook subscribers 
 <a id="failures"></a>
 ### Failures
 
-A failure is a frame, not a throw: a provider yields `{ ok: false, error }` and the resource turns `failed` with that error beside the last value; the next `ok` frame clears it. A stream that ends on its own keeps its last state. Frames that arrive after the release that aborted the stream are dropped, and the iterator is returned. A throw inside a provider's stream is a programming error and is not caught.
+A failure is a frame, not a throw: a provider yields `{ ok: false, error }` and the resource turns `failed` with that error beside the last value; the next `ok` frame clears it. A stream that ends on its own keeps its last state. Frames that arrive after the release that aborted the stream are dropped, and the iterator is returned. A throw inside a provider's stream is caught and reported as a `failed` snapshot with a `gateway/internal` failure carrying the message, so the resource never stays `loading` and nothing is left unhandled. A stream that ended while `failed` is reopened when another holder arrives, for example a remounted tab body while the Sidebar pin keeps the record open; a running stream or one that ended `live` is not restarted, and no reopening happens on reconnect by itself.
 
 <a id="model-experience"></a>
 ## Model Experience

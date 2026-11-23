@@ -36,6 +36,7 @@ interface ResourceRecord {
   holders: number
   /** Present while the provider's stream runs; aborting it ends the stream. */
   controller: AbortController | undefined
+  ended: boolean
 }
 
 /**
@@ -127,6 +128,7 @@ export class ResourceRegistry implements Resources {
       store,
       holders: 0,
       controller: undefined,
+      ended: false,
       source: {
         getSnapshot: () => store.getSnapshot(),
         subscribe: (listener) => {
@@ -157,7 +159,7 @@ export class ResourceRegistry implements Resources {
 
   private hold(record: ResourceRecord): void {
     record.holders += 1
-    if (record.holders === 1) this.start(record)
+    if (record.holders === 1 || (record.ended && record.store.getSnapshot().status === 'failed')) this.start(record)
   }
 
   private release(record: ResourceRecord): void {
@@ -187,8 +189,10 @@ export class ResourceRegistry implements Resources {
     if (provider === undefined) return
     const controller = new AbortController()
     record.controller = controller
+    record.ended = false
     if (record.store.getSnapshot().status !== 'loading') record.store.set(idle('loading'))
     void this.consume(record, provider, controller.signal).catch((error: unknown) => { this.fail(record, controller.signal, error) })
+      .finally(() => { if (record.controller === controller) record.ended = true })
   }
 
   private stop(record: ResourceRecord): void {
