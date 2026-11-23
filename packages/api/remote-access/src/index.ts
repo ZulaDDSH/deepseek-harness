@@ -298,6 +298,21 @@ export class RemoteAccessService extends TypertRemoteService {
     }
   }
 
+  async *changes(principal: Principal, signal: AbortSignal): AsyncIterable<void> {
+    const generation = AbortSignal.any([signal, this.lifetime.signal])
+    if (String(principal.kind) === 'owner') {
+      await abortion(generation)
+      return
+    }
+    const follower = new AccessFollower(principal)
+    this.followers.add(follower)
+    try {
+      while (await follower.changed(generation)) yield
+    } finally {
+      this.followers.delete(follower)
+    }
+  }
+
   /** One `bindings()` call; `undefined` after a logged failure. */
   private bindingsOf(entry: PolicyEntry, principal: Principal, purpose: string): readonly ErasedBinding[] | undefined {
     try {

@@ -2,7 +2,7 @@
 
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { Remote, TypertRemoteService, principalOf } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-api-remote-access'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { WorkspaceCommands } from './commands.ts'
@@ -221,8 +221,13 @@ export class WorkspaceController extends TypertRemoteService {
         pinnedSessionIds: sessions(value.pinnedSessionIds),
       }
     }
-    for await (const frame of this.feed.follow(signal)) {
+    const principal = principalOf(this.ctx.invocation)
+    const refreshes = principal === undefined ? undefined : (generation: AbortSignal): AsyncIterable<void> => access.changes(principal, generation)
+    for await (const frame of this.feed.follow(signal, refreshes)) {
       switch (frame.type) {
+        case 'refresh':
+          yield { type: 'replace', value: filtered(this.feed.baseline()) }
+          break
         case 'baseline':
           yield { type: 'baseline', value: filtered(frame.value) }
           break

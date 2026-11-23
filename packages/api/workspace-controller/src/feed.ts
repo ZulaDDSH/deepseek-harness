@@ -16,8 +16,7 @@ import type {
   WorkspaceView,
 } from './types.ts'
 
-/** The frames the feed produces: every follow frame except `replace`, which only access filtering sends. */
-type WorkspaceFeedFrame = Exclude<WorkspaceFollowFrame, { readonly type: 'replace' }>
+type WorkspaceFeedFrame = Exclude<WorkspaceFollowFrame, { readonly type: 'replace' }> | { readonly type: 'refresh' }
 
 /**
  * Project one authoritative Workspace entity into its Remote value.
@@ -86,14 +85,23 @@ export class WorkspaceFeed {
    * @param signal - generation cancellation.
    * @returns baseline followed by ordered Workspace increments.
    */
-  async *follow(signal: AbortSignal): AsyncIterable<WorkspaceFeedFrame> {
+  async *follow(
+    signal: AbortSignal,
+    refreshes?: (signal: AbortSignal) => AsyncIterable<void>,
+  ): AsyncIterable<WorkspaceFeedFrame> {
     signal.throwIfAborted()
     const follower = new WorkspaceFollower()
+    const ended = new AbortController()
     this.followers.add(follower)
     try {
+      if (refreshes !== undefined) {
+        const source = refreshes(AbortSignal.any([signal, ended.signal]))
+        void (async () => { for await (const _ of source) follower.push({ type: 'refresh' }) })()
+      }
       yield { type: 'baseline', value: this.baseline() }
       yield* follower.read(signal)
     } finally {
+      ended.abort()
       this.followers.delete(follower)
       follower.close()
     }

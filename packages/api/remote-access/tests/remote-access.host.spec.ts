@@ -617,3 +617,38 @@ describe('remoteAccess/follow', () => {
     access.invalidate()
   })
 })
+
+describe('RemoteAccessService changes', () => {
+  it('yields once per coalesced invalidation of its principal and ignores others', async () => {
+    const { access } = await setup()
+    const abort = new AbortController()
+    const stream = access.changes(GUEST, abort.signal)[Symbol.asyncIterator]()
+    const first = stream.next()
+    access.invalidate(OTHER)
+    access.invalidate(GUEST)
+    access.invalidate(GUEST)
+    await expect(first).resolves.toEqual({ done: false, value: undefined })
+    const second = stream.next()
+    access.invalidate()
+    await expect(second).resolves.toEqual({ done: false, value: undefined })
+    abort.abort()
+    await expect(stream.next()).resolves.toEqual({ done: true, value: undefined })
+  })
+
+  it('ends with the service, and an owner only waits for cancellation', async () => {
+    const ctx = new Context()
+    roots.push(ctx)
+    const service = ctx.plugin(RemoteAccessService)
+    await service
+    const guest = ctx.remoteAccess.changes(GUEST, NEVER)[Symbol.asyncIterator]()
+    const owner = ctx.remoteAccess.changes(OWNER, NEVER)[Symbol.asyncIterator]()
+    const guestFirst = guest.next()
+    const ownerEnd = owner.next()
+    ctx.remoteAccess.invalidate()
+    await expect(guestFirst).resolves.toEqual({ done: false, value: undefined })
+    const pending = guest.next()
+    await service.dispose()
+    await expect(pending).resolves.toEqual({ done: true, value: undefined })
+    await expect(ownerEnd).resolves.toEqual({ done: true, value: undefined })
+  })
+})

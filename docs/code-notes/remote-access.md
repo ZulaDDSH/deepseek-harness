@@ -1,0 +1,13 @@
+# remote-access code notes
+
+## packages/api/remote-access/src/index.ts:RemoteAccessService::changes
+
+Finding 135. The follower set behind `invalidate()` was private, so a business stream that filters its own
+frames through `allows()` (Workspace follow) could not learn that a grant changed and kept a revoked or
+not-yet-granted entry on screen until an unrelated registry event arrived. `changes(principal, signal)` is a
+plain (non-Remote) async iterable that registers an `AccessFollower` on its first pull and yields once per
+coalesced invalidation of that principal; it ends when `signal` aborts or the service unloads. Like
+`follow()`, the follower is registered synchronously by the first `next()`, so a caller that starts pulling
+before it reads its own baseline cannot miss a change. The owner never changes, so for the owner the stream
+only waits for cancellation. `follow()` keeps its own follower use because it must read its baseline after
+registering.
