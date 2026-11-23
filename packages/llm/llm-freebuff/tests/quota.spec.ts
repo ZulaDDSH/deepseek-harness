@@ -39,6 +39,8 @@ describe('Freebuff hours math', () => {
     expect(hours(80)).toBe(16)
     expect(hours(79.9999999999)).toBe(16)
     expect(hours(-3)).toBe(0)
+    expect(hours(79)).toBe(15)
+    expect(hours(4)).toBe(0)
     expect(hoursMinutes(40)).toBe('8:00')
     expect(hoursMinutes(7.5)).toBe('1:30')
     expect(hoursMinutes(0.4)).toBe('0:04')
