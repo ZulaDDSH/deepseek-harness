@@ -77,27 +77,48 @@ function isErrno(error: unknown, code: string): boolean {
   return error instanceof Error && 'code' in error && error.code === code
 }
 
-async function abandoned(claim: string): Promise<boolean> {
-  let owner: { pid?: unknown; host?: unknown } | undefined
-  try { owner = JSON.parse(await readFile(join(claim, 'owner.json'), 'utf8')) } catch (error) {
-    if (!isErrno(error, 'ENOENT') && !(error instanceof SyntaxError)) throw error
+async function inspectClaim(claim: string): Promise<{ abandoned: boolean, owner: string }> {
+  let raw: string | undefined
+  try { raw = await readFile(join(claim, 'owner.json'), 'utf8') } catch (error) {
+    if (!isErrno(error, 'ENOENT')) throw error
   }
-  if (owner === undefined) return Date.now() - (await lstat(claim)).mtimeMs > OWNERLESS_CLAIM_GRACE_MS
-  if (owner.host !== hostname() || typeof owner.pid !== 'number') return false
-  try { process.kill(owner.pid, 0) } catch (error) { return isErrno(error, 'ESRCH') }
+  let owner: { pid?: unknown; host?: unknown } | undefined
+  if (raw !== undefined) {
+    try { owner = JSON.parse(raw) } catch (error) { if (!(error instanceof SyntaxError)) throw error }
+  }
+  if (owner === undefined) return { abandoned: Date.now() - (await lstat(claim)).mtimeMs > OWNERLESS_CLAIM_GRACE_MS, owner: raw ?? '' }
+  if (owner.host !== hostname() || typeof owner.pid !== 'number') return { abandoned: false, owner: raw ?? '' }
+  try { process.kill(owner.pid, 0) } catch (error) { return { abandoned: isErrno(error, 'ESRCH'), owner: raw ?? '' } }
+  return { abandoned: false, owner: raw ?? '' }
+}
+
+async function takeOverAbandoned(claim: string): Promise<boolean> {
+  let stale: Awaited<ReturnType<typeof inspectClaim>>
+  try { stale = await inspectClaim(claim) } catch (error) {
+    if (isErrno(error, 'ENOENT')) return true
+    throw error
+  }
+  if (!stale.abandoned) return false
+  const aside = `${claim}.abandoned-${process.pid}-${Date.now()}`
+  try { await rename(claim, aside) } catch (error) {
+    if (isErrno(error, 'ENOENT')) return true
+    throw error
+  }
+  const moved = await inspectClaim(aside).catch(() => undefined)
+  if (moved?.abandoned === true && moved.owner === stale.owner) {
+    await rm(aside, { recursive: true, force: true })
+    return true
+  }
+  await rename(aside, claim).catch(() => rm(aside, { recursive: true, force: true }))
   return false
 }
 
 async function claimAttempt(parent: string, attempt: string): Promise<string> {
   const claim = join(parent, `${attempt}.lock`)
-  try { await mkdir(claim, { mode: 0o700 }) } catch (error) {
-    if (!isErrno(error, 'EEXIST') || !(await abandoned(claim))) throw error
-    const aside = `${claim}.abandoned-${process.pid}-${Date.now()}`
-    try { await rename(claim, aside) } catch (renameError) {
-      if (!isErrno(renameError, 'ENOENT')) throw renameError
+  for (let retries = 0; ; retries++) {
+    try { await mkdir(claim, { mode: 0o700 }); break } catch (error) {
+      if (!isErrno(error, 'EEXIST') || retries >= 3 || !(await takeOverAbandoned(claim))) throw error
     }
-    await rm(aside, { recursive: true, force: true })
-    await mkdir(claim, { mode: 0o700 })
   }
   try {
     await writeFile(join(claim, 'owner.json'), JSON.stringify({ pid: process.pid, host: hostname(), startedAt: new Date().toISOString() }),

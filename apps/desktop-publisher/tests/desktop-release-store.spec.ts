@@ -3,8 +3,21 @@ import { mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from 'node:f
 import { hostname } from 'node:os'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { retainDesktopRelease, retainedDesktopPath, verifyRetainedDesktopRelease, type DesktopRetainedSource } from '@deepseek-ai/dsh-desktop-publisher/desktop-release-store.ts'
+
+let swapBeforeRename: (() => Promise<void>) | undefined
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    rename: async (from: string, to: string) => {
+      const swap = swapBeforeRename
+      if (swap !== undefined && from.endsWith('.lock')) { swapBeforeRename = undefined; await swap() }
+      return actual.rename(from, to)
+    },
+  }
+})
 
 const roots: string[] = []
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
@@ -131,4 +144,18 @@ it('recovers an ownerless claim only after its grace period', async () => {
   const old = new Date(Date.now() - 10 * 60_000)
   await utimes(claim, old, old)
   await expect(retainDesktopRelease(root, source, [file])).resolves.toBe(retainedDesktopPath(root, '100', '1'))
+})
+
+it('restores a live claim that replaced the abandoned one before it was moved aside', async () => {
+  const { root, file, source } = await fixture()
+  const { claim } = await plantClaim(root, { pid: deadPid(), host: hostname() })
+  const live = JSON.stringify({ pid: process.pid, host: hostname() })
+  swapBeforeRename = async () => {
+    await rm(claim, { recursive: true, force: true })
+    await mkdir(claim)
+    await writeFile(join(claim, 'owner.json'), live)
+  }
+  await expect(retainDesktopRelease(root, source, [file])).rejects.toThrow(/EEXIST/u)
+  expect(await readFile(join(claim, 'owner.json'), 'utf8')).toBe(live)
+  expect((await readdir(join(root, '100'))).filter(entry => entry.includes('abandoned'))).toEqual([])
 })
