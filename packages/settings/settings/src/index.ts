@@ -1,6 +1,6 @@
 /** Config-schema projection and form edits over Cordis profile patches. */
-import { existsSync } from 'node:fs'
-import { readFile, rename } from 'node:fs/promises'
+import { constants, existsSync } from 'node:fs'
+import { copyFile, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { parse } from 'yaml'
 import { Context, FiberState, Service, resolveConfig, type Fiber } from '@deepseek-ai/cordis'
@@ -219,6 +219,20 @@ function inheritedConfig(runtime: Fiber['runtime'] & object, inherited: unknown)
   }
 }
 
+async function keepRecoveryCopy(path: string): Promise<string> {
+  for (let n = 0; ; n++) {
+    const copy = n === 0 ? `${path}.imported` : `${path}.imported.${n}`
+    try {
+      await copyFile(path, copy, constants.COPYFILE_EXCL)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue
+      throw error
+    }
+    await rm(path)
+    return copy
+  }
+}
+
 /** Project Config schemas into forms and own optional instance-level UI policy. */
 export class SettingsForms extends Service {
   static inject = ['configEditor', 'profileContext']
@@ -235,25 +249,24 @@ export class SettingsForms extends Service {
     void ctx[Context.root].loader.await().then(() => this.importLegacyDocument()).catch((error: unknown) => { ctx.logger.error(error) })
   }
 
-  /** Move the sections of the removed `settings.yaml` into the active profile once the Loader has settled every entry.
-   * The document is renamed before the first write, so a partial import never repeats; a section the running
-   * composition rejects is logged and remains only in the renamed file. */
   private async importLegacyDocument(): Promise<void> {
     const profile = this.ownerContext.profileContext
     const path = join(profile.home, 'settings.yaml')
     if (!existsSync(path)) return
-    const imported = `${path}.imported`
-    await rename(path, imported)
-    const sections = parse(await readFile(imported, 'utf8')) as Record<string, object> | null
+    const sections = parse(await readFile(path, 'utf8')) as Record<string, object> | null
+    const rejected: string[] = []
     for (const [section, values] of Object.entries(sections ?? {})) {
       const ns = LEGACY_SECTION_ENTRIES[section] ?? section
       try {
         await this.update(ns, values)
       } catch (error) {
-        this.ownerContext.logger.warn('settings: section %s of %s was not imported into entry %s', section, imported, ns)
+        rejected.push(section)
+        this.ownerContext.logger.warn('settings: section %s of %s was not imported into entry %s', section, path, ns)
         this.ownerContext.logger.warn(error)
       }
     }
+    const imported = await keepRecoveryCopy(path)
+    if (rejected.length > 0) this.ownerContext.logger.warn('settings: sections %s remain only in %s', rejected.join(', '), imported)
     this.ownerContext.logger.info('settings: imported %s into profile %s', imported, profile.name)
   }
 
