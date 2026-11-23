@@ -177,11 +177,11 @@ export class MessageFeedbackController implements HostObservable<MessageFeedback
    * @param rating - judgment the human asked to retract.
    * @returns the settled mutation result.
    */
-  retract(messageId: MessageId, rating: MessageFeedbackRating): Promise<MessageFeedbackActionResult> {
+  retract(messageId: MessageId, rating: MessageFeedbackRating, localOnly = false): Promise<MessageFeedbackActionResult> {
     return this.mutate(async () => {
       const observed = this.view.items.get(messageId)
       return observed?.rating === rating
-        ? await this.deleteCommitted(messageId, observed)
+        ? await this.deleteCommitted(messageId, observed, localOnly)
         : OK
     })
   }
@@ -200,6 +200,7 @@ export class MessageFeedbackController implements HostObservable<MessageFeedback
       ...(entry.text === undefined ? {} : { note: entry.text }),
       ...(entry.category === undefined ? {} : { category: entry.category }),
       ifVersion: observed?.version ?? null,
+      ...(entry.localOnly === true ? { localOnly: true } : {}),
     })
     if (!carried.ok) return carrierFailure(carried.error)
     const result = carried.value
@@ -215,11 +216,13 @@ export class MessageFeedbackController implements HostObservable<MessageFeedback
   private async deleteCommitted(
     messageId: MessageId,
     observed: MessageFeedbackItem,
+    localOnly: boolean,
   ): Promise<MessageFeedbackActionResult> {
     const carried = await this.remote.delete({
       sessionId: this.sessionId,
       messageId,
       ifVersion: observed.version,
+      ...(localOnly ? { localOnly: true } : {}),
     })
     if (!carried.ok) return carrierFailure(carried.error)
     const result = carried.value

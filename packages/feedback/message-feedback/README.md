@@ -47,7 +47,7 @@ Targets must be non-empty assistant messages produced by append-origin events. U
 
 ### Canonical log and durability
 
-`feedback/message-put` stores the owning Session id and complete item, including its version and timestamps. `feedback/message-delete` stores the owner and message id. Current state is derived from these events, ignoring other Session owners. Durable payloads are validated before use. No second feedback store or cache exists.
+`feedback/message-put` stores the owning Session id and complete item, including its version and timestamps. `feedback/message-delete` stores the owner and message id. Either event also carries `localOnly: true` when the request set `localOnly`: the human kept that rating or withdrawal on the device, and a telemetry backend must neither release the conversation for it nor export its note. The flag is event-level, not part of the item, and a put that repeats the stored rating, note and category stays a no-op whatever `localOnly` says. Current state is derived from these events, ignoring other Session owners. Durable payloads are validated before use. No second feedback store or cache exists.
 
 Live operations append through `Session.append` and await `sessions.flush`, then verify the captured log endpoint and Session header through a persistence read handle before reporting success. Cold mutations hold a persistence write handle across read, validation, comparison, append, flush, and close. Cold reads use a read handle. Neither path constructs a Session or appends lifecycle events.
 

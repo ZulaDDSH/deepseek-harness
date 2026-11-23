@@ -30,7 +30,7 @@ export function redactSecrets<T>(body: T): T {
 }
 
 export function localOnlyFeedbackBody(eventType: string | undefined, body: unknown): unknown {
-  if (eventType !== 'feedback/record') return body
+  if (eventType !== 'feedback/record' && eventType !== 'feedback/message-put' && eventType !== 'feedback/message-delete') return body
   if (typeof body !== 'object' || body === null || (body as { localOnly?: unknown }).localOnly !== true) return body
   return { localOnly: true }
 }

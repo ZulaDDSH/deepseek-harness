@@ -46,7 +46,7 @@ function isFeedback(session: Session, event: SessionEvent): boolean {
   switch (event.type) {
     case 'feedback/record': return event.data.localOnly !== true
     case 'feedback/message-put':
-    case 'feedback/message-delete': return event.data.sessionId === session.id
+    case 'feedback/message-delete': return event.data.sessionId === session.id && event.data.localOnly !== true
     default: return false
   }
 }
@@ -151,6 +151,7 @@ export class OpenTelemetrySessionBackend extends SessionTelemetryBackend {
   private readonly provider: SessionLogReporter | undefined
   private readonly shutdownTimeoutMillis: number
   override readonly sharing: SessionTelemetrySharingStatus
+  override readonly destination?: string
 
   constructor(ctx: Context, config: Config) {
     const mode = resolveMode(config.mode)
@@ -179,6 +180,7 @@ export class OpenTelemetrySessionBackend extends SessionTelemetryBackend {
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       throw new Error(`session-telemetry-otel: exporter.url must be http(s), got ${parsed.protocol}`)
     }
+    this.destination = parsed.origin
     // Reject empty batches before allocating the reporter.
     const batchSize = config.processor?.maxExportBatchSize
     if (batchSize !== undefined && (!Number.isInteger(batchSize) || batchSize < 1)) {

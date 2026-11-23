@@ -69,8 +69,8 @@ const itemSchema = z.object({
   createdAt: timestamp,
   updatedAt: timestamp,
 }).refine(item => item.updatedAt >= item.createdAt)
-const putSchema = z.object({ sessionId: z.string().min(1), item: itemSchema })
-const deleteSchema = z.object({ sessionId: z.string().min(1), messageId: z.string().min(1) })
+const putSchema = z.object({ sessionId: z.string().min(1), item: itemSchema, localOnly: z.boolean().optional() })
+const deleteSchema = z.object({ sessionId: z.string().min(1), messageId: z.string().min(1), localOnly: z.boolean().optional() })
 
 type FeedbackEvent = SessionEvent<'feedback/message-put' | 'feedback/message-delete'>
 type Mutation = Pick<SessionEvent<'feedback/message-put'>, 'type' | 'data'>
@@ -193,7 +193,7 @@ export class MessageFeedbackService extends TypertRemoteService {
         createdAt: existing?.createdAt ?? now,
         updatedAt: existing === undefined ? now : Math.max(now, existing.updatedAt),
       }
-      await append({ type: 'feedback/message-put', data: { sessionId: request.sessionId, item } })
+      await append({ type: 'feedback/message-put', data: { sessionId: request.sessionId, item, ...(request.localOnly === true ? { localOnly: true as const } : {}) } })
       return success(snapshotItem(item))
     }))
   }
@@ -209,7 +209,7 @@ export class MessageFeedbackService extends TypertRemoteService {
       const existing = currentItems(request.sessionId, events).find(item => item.messageId === request.messageId)
       if (existing !== undefined) {
         if (request.ifVersion !== existing.version) return rejected(this.versionConflict(existing))
-        await append({ type: 'feedback/message-delete', data: { sessionId: request.sessionId, messageId: request.messageId } })
+        await append({ type: 'feedback/message-delete', data: { sessionId: request.sessionId, messageId: request.messageId, ...(request.localOnly === true ? { localOnly: true as const } : {}) } })
       } else {
         await append()
       }

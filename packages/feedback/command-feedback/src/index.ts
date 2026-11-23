@@ -20,6 +20,8 @@ import type {
   FeedbackRecord,
   SessionFeedbackRecordRequest,
   SessionFeedbackRecordResult,
+  SessionFeedbackSharing,
+  SessionFeedbackSharingPolicy,
 } from './types.ts'
 
 export type * from './types.ts'
@@ -120,6 +122,13 @@ export class SessionFeedbackService extends TypertRemoteService {
     }
     recordFeedback(session, request)
     return Promise.resolve({ ok: true, value: { recorded: true } })
+  }
+
+  @Remote('sharing')
+  sharing(): Promise<SessionFeedbackSharing> {
+    const backend = this.ctx.get('sessionTelemetry') as { sharing: SessionFeedbackSharingPolicy; destination?: string } | undefined
+    if (backend === undefined) return Promise.resolve({ sharing: 'none' })
+    return Promise.resolve({ sharing: backend.sharing, ...(backend.destination === undefined ? {} : { destination: backend.destination }) })
   }
 }
 

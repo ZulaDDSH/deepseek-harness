@@ -93,6 +93,21 @@ describe('MessageFeedbackController', () => {
     expect(puts[1]).not.toHaveProperty('category')
   })
 
+  it('sends localOnly on a put and on a retraction only when requested', async () => {
+    const controller = new MessageFeedbackController(mock.remote.messageFeedback, SESSION)
+    await controller.rate(MSG, 'positive', { text: 'stay', localOnly: true })
+    await controller.rate(OTHER, 'positive', { text: 'share' })
+    const puts = mock.remote.messageFeedback.put.mock.calls.map(([request]) => request)
+    expect(puts[0]).toMatchObject({ note: 'stay', localOnly: true })
+    expect(puts[1]).not.toHaveProperty('localOnly')
+
+    expect(await controller.retract(MSG, 'positive', true)).toEqual({ ok: true })
+    expect(await controller.retract(OTHER, 'positive')).toEqual({ ok: true })
+    const deletes = mock.remote.messageFeedback.delete.mock.calls.map(([request]) => request)
+    expect(deletes[0]).toMatchObject({ messageId: MSG, localOnly: true })
+    expect(deletes[1]).not.toHaveProperty('localOnly')
+  })
+
   it('retract deletes a matching rating and ignores an opposite judgment', async () => {
     mock.remote.messageFeedback.list.mockResolvedValueOnce(ok({
       ok: true, value: { items: [item({ note: 'stored', category: 'other' })] },

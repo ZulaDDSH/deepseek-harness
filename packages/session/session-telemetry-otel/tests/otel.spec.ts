@@ -7,6 +7,7 @@ import OTel from '@deepseek-ai/dsh-otel'
  */
 
 import { afterAll, afterEach, beforeAll, describe, expect, expectTypeOf, it, vi } from 'vitest'
+import { randomUUID } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
 import { once } from 'node:events'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -890,6 +891,39 @@ describe('OpenTelemetrySessionBackend feedback privacy', () => {
     expect(wire).not.toContain('private remark')
     expect(wire).toContain('shared remark')
     expect(eventTypes(captures)).toEqual(['turn/start', 'feedback/record', 'feedback/record'])
+  })
+
+  it('exports nothing for local-only message ratings and withdrawals and withholds their notes from a later release', async () => {
+    const { url, captures } = await mockCollector()
+    const { ctx, fiber } = await bootWith(url)
+    const session = ctx.sessions.create(brandString<SessionId>('local-rating'), { meta: {} })
+    session.append('turn/start', { turn: 1 })
+    const item = (note: string) => ({ messageId: 'm1', rating: 'negative', note, version: randomUUID(), createdAt: 1, updatedAt: 1 })
+    session.append('feedback/message-put', { sessionId: session.id, item: item('private rating note'), localOnly: true } as never)
+    session.append('feedback/message-delete', { sessionId: session.id, messageId: 'm1', localOnly: true } as never)
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(captures).toEqual([])
+    session.append('feedback/message-put', { sessionId: session.id, item: item('shared rating note') } as never)
+    await fiber.dispose()
+
+    const wire = JSON.stringify(captures)
+    expect(wire).not.toContain('private rating note')
+    expect(wire).toContain('shared rating note')
+    expect(eventTypes(captures)).toEqual(['turn/start', 'feedback/message-put', 'feedback/message-delete', 'feedback/message-put'])
+  })
+
+  it('publishes only the collector origin as the destination, and none when disabled', async () => {
+    const { ctx, fiber } = await bootWith(`http://user:${'pass' + 'word'}@collector.example.test:4318/v1/logs?key=abc`)
+    expect(ctx.sessionTelemetry.sharing).toBe('feedback-only')
+    expect(ctx.sessionTelemetry.destination).toBe('http://collector.example.test:4318')
+    await fiber.dispose()
+    const off = new Context()
+    off.plugin(OTel)
+    await off.plugin(SessionStore)
+    const disabled = await off.plugin(OpenTelemetrySessionBackend, { mode: SessionTelemetryMode.DISABLED, exporter: { url: 'https://collector.example.test/v1/logs' } })
+    expect(off.sessionTelemetry.sharing).toBe('disabled')
+    expect(off.sessionTelemetry.destination).toBeUndefined()
+    await disabled.dispose()
   })
 
   it('scrubs recognisable secrets from exported bodies unless redactSecrets is off', async () => {

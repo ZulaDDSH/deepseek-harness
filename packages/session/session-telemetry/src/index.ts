@@ -155,6 +155,8 @@ export abstract class SessionTelemetryBackend extends Service implements Session
    */
   abstract readonly sharing: SessionTelemetrySharingStatus
 
+  readonly destination?: string
+
   /**
    * See {@link SessionTelemetrySink.emit} — that declaration is the contract's one home.
    * @param record - the logical record to report; owned by the backend after the call.

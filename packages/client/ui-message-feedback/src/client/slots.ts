@@ -24,6 +24,7 @@ export interface MessageFeedbackInjected {
   hooks: {
     /** The owning Session's feedback view, shared by every message control. */
     feedback: HostObservable<MessageFeedbackView>
+    dialog: HostObservable<FeedbackDialogState>
   }
   /** Load the Session's feedback once, on first interaction. */
   ensure: () => Promise<MessageFeedbackActionResult>
@@ -38,7 +39,8 @@ export interface MessageFeedbackInjected {
    * @param messageId - target assistant message.
    * @param rating - judgment the human asked to retract.
    */
-  retract: (messageId: MessageId, rating: MessageFeedbackRating) => Promise<MessageFeedbackActionResult>
+  retract: (messageId: MessageId, rating: MessageFeedbackRating, localOnly?: boolean) => Promise<MessageFeedbackActionResult>
+  loadSharing: () => Promise<void>
   /**
    * Open the Session's feedback dialog for one message and judgment; its
    * submission records that rating with the dialog's category and text.
@@ -64,7 +66,7 @@ export interface FeedbackDialogInjected {
    * Replace part of the draft: the category (null clears it) or the text.
    * @param draft - the members to replace.
    */
-  edit: (draft: Partial<Pick<FeedbackDialogState, 'category' | 'text'>>) => void
+  edit: (draft: Partial<Pick<FeedbackDialogState, 'category' | 'text' | 'localOnly'>>) => void
   /** Submit the draft to the open target. */
   submit: () => Promise<void>
   /** Close the dialog and discard the draft. */

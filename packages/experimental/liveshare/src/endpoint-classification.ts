@@ -200,6 +200,7 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'dynamicCordisRunner/syncInspectManifest': 'owner-only', // owner dynamic plugin runner
   'dynamicCordisRunner/undefineFromPanel': 'owner-only', // owner dynamic plugin runner
   'sessionFeedback/record': 'owner-only', // owner command feedback
+  'sessionFeedback/sharing': 'owner-only', // Host telemetry policy and collector origin
   'messageFeedback/delete': 'owner-only', // owner message feedback
   'messageFeedback/list': 'owner-only', // owner message feedback
   'messageFeedback/put': 'owner-only', // owner message feedback

@@ -573,6 +573,30 @@ describe('canonical message feedback history', () => {
     expect(persistence.closeCalls).toBe(5)
   })
 
+  it('records localOnly on the put and delete events only when requested and replays such a log', async () => {
+    const { ctx, persistence } = await harness()
+    const fixture = messageFixture('local-only')
+    const sessionId = fixture.session.id
+    const messageId = fixture.assistantMessageIds[0]
+    persistence.persist(fixture.session)
+    const prefix = fixture.session.snapshotEvents().length
+    const kept = expectItem(await ctx.messageFeedback.put({ sessionId, messageId, rating: 'positive', note: 'stay here', ifVersion: null, localOnly: true }))
+    const shared = expectItem(await ctx.messageFeedback.put({ sessionId, messageId, rating: 'negative', ifVersion: kept.version, localOnly: false }))
+    await ctx.messageFeedback.delete({ sessionId, messageId, ifVersion: shared.version, localOnly: true })
+    const again = expectItem(await ctx.messageFeedback.put({ sessionId, messageId, rating: 'positive', ifVersion: null }))
+    await ctx.messageFeedback.delete({ sessionId, messageId, ifVersion: again.version })
+    const events = persistence.durable.get(sessionId)!.events.slice(prefix)
+    expect(events.map(({ type, data }) => ({ type, data }))).toEqual([
+      { type: 'feedback/message-put', data: { sessionId, item: kept, localOnly: true } },
+      { type: 'feedback/message-put', data: { sessionId, item: shared } },
+      { type: 'feedback/message-delete', data: { sessionId, messageId, localOnly: true } },
+      { type: 'feedback/message-put', data: { sessionId, item: again } },
+      { type: 'feedback/message-delete', data: { sessionId, messageId } },
+    ])
+    const last = expectItem(await ctx.messageFeedback.put({ sessionId, messageId, rating: 'negative', ifVersion: null, localOnly: true }))
+    await expect(ctx.messageFeedback.list({ sessionId })).resolves.toEqual({ ok: true, value: { items: [last] } })
+  })
+
   it('starts a fork without inherited feedback and keeps parent mutations independent', async () => {
     const { ctx, persistence } = await harness()
     const parent = messageFixture('feedback-parent')

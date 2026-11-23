@@ -10,7 +10,7 @@
  * The node half stays inert.
  */
 import { Context, Service } from '@deepseek-ai/cordis'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup } from '@testing-library/react'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -36,7 +36,7 @@ const seeded: MessageFeedbackItem = {
 }
 
 /** Boot the plugin over fake faces; the Remote namespaces record every call. */
-async function bench(options: { recordResult?: unknown; recordCarrier?: unknown } = {}) {
+async function bench(options: { recordResult?: unknown; recordCarrier?: unknown; sharing?: unknown } = {}) {
   const ctx = new Context()
   const calls: { method: string; request: unknown }[] = []
   // The generated face wraps every business result in the carrier envelope.
@@ -65,6 +65,10 @@ async function bench(options: { recordResult?: unknown; recordCarrier?: unknown 
       calls.push({ method: 'record', request })
       if (options.recordCarrier !== undefined) return Promise.resolve(options.recordCarrier)
       return carried(options.recordResult ?? { ok: true as const, value: { recorded: true as const } })
+    },
+    sharing: () => {
+      calls.push({ method: 'sharing', request: undefined })
+      return carried(options.sharing ?? { sharing: 'none' as const })
     },
   }
   new RemoteService(ctx)
@@ -171,11 +175,36 @@ describe('ui-message-feedback browser plugin', () => {
     b.ctx.feedbackUi.openSession(sid('s1'))
     expect(dialog.hooks.dialog.getSnapshot().target).toEqual({ kind: 'session' })
     expect(b.dialogEntry()!.inject!(sid('s2')).hooks.dialog.getSnapshot().target).toBeNull()
-    expect(b.calls).toEqual([])
+    expect(b.calls.filter(call => call.method !== 'sharing')).toEqual([])
     dialog.dismiss()
-    expect(b.calls).toEqual([])
+    expect(b.calls.filter(call => call.method !== 'sharing')).toEqual([])
     await b.fiber.dispose()
     expect(b.ctx.get('feedbackUi')).toBeUndefined()
+  })
+
+  it('routes the local-only choice to record, put and delete and reads the live sharing policy on open', async () => {
+    const sharing = { sharing: 'feedback-only', destination: 'https://collector.example.test' }
+    const b = await bench({ sharing })
+    await b.fiber.await()
+    const message = b.entry()!.inject!(sid('s1'))
+    const dialog = b.dialogEntry()!.inject!(sid('s1'))
+
+    message.openDialog(MSG, 'positive')
+    await vi.waitFor(() => { expect(dialog.hooks.dialog.getSnapshot().sharing).toEqual(sharing) })
+    dialog.edit({ localOnly: true })
+    await dialog.submit()
+    expect(b.calls.filter(call => call.method === 'put')[0]?.request).toMatchObject({ messageId: MSG, localOnly: true })
+
+    await message.ensure()
+    await message.retract(MSG, 'positive', true)
+    expect(b.calls.filter(call => call.method === 'delete')[0]?.request).toMatchObject({ messageId: MSG, localOnly: true })
+
+    const decoration = b.decorations.get('feedback')
+    if (decoration?.ui.kind !== 'action') throw new Error('the /feedback decoration is not an action')
+    decoration.ui.run({ sessionId: sid('s1') })
+    dialog.edit({ localOnly: true, text: 'stay' })
+    await dialog.submit()
+    expect(b.calls.filter(call => call.method === 'record')[0]?.request).toEqual({ sessionId: 's1', text: 'stay', localOnly: true })
   })
 
   it('records a Session remark through the sessionFeedback Remote and a message judgment through put', async () => {

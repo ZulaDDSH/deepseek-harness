@@ -119,7 +119,20 @@ describe('sessionFeedback Host Remote', () => {
     expect(binding.namespace).toBe('sessionFeedback')
     expect(remoteMethods(test.ctx.sessionFeedback)).toEqual([
       { method: 'record', invocation: { kind: 'direct' } },
+      { method: 'sharing', invocation: { kind: 'direct' } },
     ])
+  })
+
+  it('reports the live telemetry sharing policy and destination, or none without a backend', async () => {
+    const test = await harness()
+    await expect(test.ctx.sessionFeedback.sharing()).resolves.toEqual({ sharing: 'none' })
+    const on = test.ctx.effect(() => test.ctx.provide('sessionTelemetry', { sharing: 'feedback-only', destination: 'https://collector.example.test' } as never))
+    await expect(test.ctx.sessionFeedback.sharing()).resolves.toEqual({ sharing: 'feedback-only', destination: 'https://collector.example.test' })
+    await on()
+    const off = test.ctx.effect(() => test.ctx.provide('sessionTelemetry', { sharing: 'disabled' } as never))
+    await expect(test.ctx.sessionFeedback.sharing()).resolves.toEqual({ sharing: 'disabled' })
+    await off()
+    await expect(test.ctx.sessionFeedback.sharing()).resolves.toEqual({ sharing: 'none' })
   })
 
   it('records a remark on the live Session without command bookkeeping', async () => {

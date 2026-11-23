@@ -255,6 +255,16 @@ describe('share reader access policy', () => {
     expect(decide('toolResults/watch', GLOBAL).kind).toBe('deny')
   })
 
+  it('classifies sessionFeedback/sharing as owner-only and refuses it to every reader', async () => {
+    const { decide } = await fixture()
+    expect(VIEWER_ENDPOINT_CLASSES['sessionFeedback/sharing']).toBe('owner-only')
+    expect(POLICY_DECIDED_ACTIONS.has('sessionFeedback/sharing')).toBe(false)
+    for (const id of ['source', 'own-child', 'revoked-child', 'other-child', 'private']) {
+      expect(decide('sessionFeedback/sharing', session(id), CALL).kind).toBe('deny')
+    }
+    expect(decide('sessionFeedback/sharing', GLOBAL).kind).toBe('deny')
+  })
+
   it('follows a Workspace only while it holds a Session the reader can see', async () => {
     const { decide } = await fixture()
     expect(decide('workspace/follow', workspace('shared-ws'))).toEqual(ALLOW)

@@ -103,10 +103,11 @@ export function apply(ctx: ClientContext): void {
     inject: (sessionId): MessageFeedbackInjected => {
       const { feedback, dialog } = surfaceFor(sessionId)
       return {
-        hooks: { feedback },
+        hooks: { feedback, dialog: dialog.state },
         ensure: () => feedback.ensure(),
         current: messageId => feedback.getSnapshot().items.get(messageId),
-        retract: (messageId, rating) => feedback.retract(messageId, rating),
+        retract: (messageId, rating, localOnly) => feedback.retract(messageId, rating, localOnly),
+        loadSharing: () => dialog.refreshSharing(),
         openDialog: (messageId, rating) => { dialog.open({ kind: 'message', messageId, rating }) },
       }
     },
