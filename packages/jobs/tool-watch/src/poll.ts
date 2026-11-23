@@ -20,6 +20,7 @@ export interface WatchPlan {
   readonly intervalMs: number
   readonly timeoutMs: number
   readonly maxConsecutiveErrors: number
+  readonly refusal: (command: string) => string | undefined
   readonly dshEnv: DshEnvironment
 }
 
@@ -32,6 +33,7 @@ const REGEX_BUDGET_MS = 250
 type Check =
   | { readonly kind: 'ran'; readonly result: ShellRunResult }
   | { readonly kind: 'failed'; readonly message: string }
+  | { readonly kind: 'refused'; readonly message: string }
 
 function clock(): string {
   return new Date().toTimeString().slice(0, 8)
@@ -61,6 +63,8 @@ function sleep(ms: number, signal: AbortSignal): Promise<boolean> {
 }
 
 async function runCheck(ctx: Context, plan: WatchPlan, signal: AbortSignal): Promise<Check> {
+  const refused = plan.refusal(plan.command)
+  if (refused !== undefined) return { kind: 'refused', message: refused }
   try {
     const policy = ctx.get('sandboxPolicy')?.resolve({ session: plan.agent.session })
     const workdir = policy?.workspaceRoot ?? plan.agent.session.header.cwd
@@ -113,6 +117,7 @@ async function watchUntilSettled(ctx: Context, plan: WatchPlan, job: JobHandle, 
     let check = await runCheck(ctx, plan, signal)
     if (signal.aborted) break
     attempts += 1
+    if (check.kind === 'refused') return { status: 'failed', detail: `stopped before check ${attempts}: ${oneLine(check.message)}` }
     let detail: string | undefined
     if (check.kind === 'ran') {
       try {

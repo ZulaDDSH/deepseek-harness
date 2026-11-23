@@ -87,7 +87,7 @@ These limits define when watches are a poor fit. They are current package constr
 
 - **Watches last only while the host process runs.** Nothing is persisted, so a restart drops every pending watch without a notice.
 - **A kill from the client still wakes an idle owner.** Only a kill the model itself requests suppresses the notice; a client kill settles as a normal notice.
-- **Hook matchers do not see watch checks.** A PreToolUse hook matched by a shell tool name does not run for each check, because checks do not pass through the tool-call path.
+- **Hook matchers do not see watch checks.** A PreToolUse hook matched by a shell tool name does not run for each check, because checks do not pass through the tool-call path. The plugin's own command policy stands in for it: `denyCommands` (regular expressions; a matching command is refused) and `allowCommands` (when set, a command must match one). A refusal at the `watch` call is a tool error and starts no job; a refusal before a repeat ends the watch as `failed` immediately instead of counting as a failed check. The policy matches command text, not shell syntax, so a deny pattern can be evaded by an obfuscated command; use `allowCommands` where a strict guard is needed. The policy does not replace the sandbox, and hook rules are not read: mirror them into this configuration.
 - **Progress lines and the wake-up notice are English.** The job-list progress text is not localised.
 - **Watches share the owner's background-job limit** with bash and subagent jobs.
 - **A watch that settles into an idle owner with a spent wake budget waits for the next user input.** The goal driver is not re-driven by a watch settlement, so a goal paused on that watch resumes at the next turn boundary.
