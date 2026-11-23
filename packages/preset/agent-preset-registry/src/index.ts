@@ -345,7 +345,6 @@ export class AgentPresetRegistry extends TypertRemoteService {
     const previous = binding?.generation
     let committed = false
     try {
-      // Invariant: blank re-check, rebind and append share one synchronous section; no await may separate them.
       this.requireBlank(agent, id)
       if (binding === undefined || previous === undefined || previous === generation) {
         await this.bind(agent.ctx, generation)

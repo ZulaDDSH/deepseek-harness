@@ -100,12 +100,7 @@ jobs:
           node-version: '24'
           package-manager-cache: false
 
-      # SECURITY: the pull request controls the merged tree, so its own copy of the check could exit 0 without checking
-      # anything. The check and the scripts it runs directly are restored from the base commit before they execute; this
-      # list is read from the base-controlled workflow, so a step script added to the check is added here in the same
-      # change. What the check installs and builds (dependencies, lifecycle scripts, the files those scripts import, the
-      # tsconfig and package.json the pull request edits) is still the pull request's own, so this status proves the
-      # base-controlled driver ran, not that the pull request's build instructions are trustworthy.
+      # SECURITY: the driver and its direct scripts are restored from the base commit before they run (see CodeNotes ci-workflows).
       - name: Run the base branch's pre-merge check
         if: steps.merge.outputs.merged == 'true'
         env:
