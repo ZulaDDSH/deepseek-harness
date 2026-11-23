@@ -61,6 +61,7 @@ import type {
   SessionOpenWorkspacePathRequest,
   SessionOpenWorkspacePathValue,
   SessionEventsPage, SessionPageRequest, SessionEventFrame, SessionObserveEventRequest,
+  SessionOutlineRequest, SessionOutlinePage,
   SessionProjectionFrame, SessionStateRequest, SessionState, SessionWaitRequest, SessionWaitValue,
   SessionPromptRequest,
   SessionPromptValue,
@@ -692,6 +693,11 @@ export class SessionController extends TypertRemoteService {
   @Remote
   events(request: SessionPageRequest, signal: AbortSignal): Promise<SessionEventsPage> {
     return this.historyController.events(request, signal)
+  }
+
+  @Remote
+  outline(request: SessionOutlineRequest, signal: AbortSignal): Promise<SessionOutlinePage> {
+    return this.historyController.outline(request, signal)
   }
 
   /**

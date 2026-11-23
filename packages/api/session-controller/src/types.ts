@@ -642,6 +642,25 @@ export interface SessionPageRequest {
   }
 }
 
+export interface SessionOutlineRequest {
+  readonly address: SessionAddress
+  readonly beforeSeq?: number
+  readonly maxEntries?: number
+}
+
+export interface SessionOutlineEntry {
+  readonly turn: number
+  readonly seq: number
+  readonly prompt: string
+  readonly response: string
+}
+
+export interface SessionOutlinePage {
+  readonly entries: readonly SessionOutlineEntry[]
+  readonly hasMore: boolean
+  readonly before: number
+}
+
 /** One live event request for a durable Session address. */
 export interface SessionFollowRequest extends Pick<SessionPageRequest, 'maxMessages' | 'turnWindow'> {
   readonly address: SessionAddress
