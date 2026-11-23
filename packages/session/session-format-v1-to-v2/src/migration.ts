@@ -128,7 +128,10 @@ function transformReleasedEvent(
 ): void {
   if (event.type === 'assistant/chunk') assertChunkEnvelope(event)
   if (RELEASED_V0_EVENT_DISPOSITIONS[event.type] === undefined) {
-    throw refusal(`format v1 contains unknown event type ${JSON.stringify(event.type)} at seq ${event.seq}`)
+    const marker = event.ignorable === true ? ' marked ignorable' : ''
+    throw refusal(
+      `format v1 contains unknown event type ${JSON.stringify(event.type)} at seq ${event.seq}${marker}; migration refuses unknown historical events even when ignorable and leaves the v1 generation unchanged`,
+    )
   }
   const interrupted = legacyInterruptedTurn(state.legacyTurns, event)
   if (event.type === 'turn/start' && state.legacyTurns.openTurn !== null && interrupted === undefined) {

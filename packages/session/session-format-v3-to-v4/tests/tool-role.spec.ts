@@ -215,6 +215,8 @@ describe('V4 tool-role view and lift', () => {
     const before = structuredClone(row)
     expect(() => liftToolResult(row)).toThrow(SessionFormatUnsupportedMigrationError)
     expect(() => liftToolResult(row)).toThrow('unsupported by this converter')
+    expect(() => liftToolResult(row)).toThrow('nested tool-result (call "nested-call")')
+    expect(() => liftToolResult(row)).toThrow('the V3 generation is left unchanged')
     expect(row).toEqual(before)
   })
 
