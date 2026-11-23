@@ -24,7 +24,7 @@ export type ProviderQuotaActionProps = PropsRuntime<'conversation.session.header
 
 type Translate = (key: ProviderQuotaKey, params?: Record<string, string>) => string
 
-const WINDOWS: readonly QuotaWindowId[] = ['5h', 'weekly', 'weekly-opus', 'weekly-sonnet', 'monthly', 'overage', 'credits']
+const WINDOWS: readonly QuotaWindowId[] = ['5h', 'daily', 'weekly', 'weekly-opus', 'weekly-sonnet', 'monthly', 'overage', 'credits']
 
 /** Rounded used percentage, or null when the provider reported none. */
 function usedPercent(window: QuotaWindow): number | null {

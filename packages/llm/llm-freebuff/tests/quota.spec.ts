@@ -47,10 +47,10 @@ describe('Freebuff hours math', () => {
 
   it('counts the unused part of each open hour as still left and floors the limit', () => {
     const usage = parseUsage(session({ limit: 82 }))!
-    const { credits, monthly } = quotaWindows(usage, NOW)
-    expect(credits!.valueLabel).toBe('Today 8:30 left of 16 h, running hour ends in 30 min')
-    expect(credits!.resetAt).toBe(Date.parse('2026-11-24T00:00:00Z'))
-    expect(credits!.usedPercent).toBeCloseTo((1 - 42.5 / 82) * 100)
+    const { daily, monthly } = quotaWindows(usage, NOW)
+    expect(daily!.valueLabel).toBe('Today 8:30 left of 16 h, running hour ends in 30 min')
+    expect(daily!.resetAt).toBe(Date.parse('2026-11-24T00:00:00Z'))
+    expect(daily!.usedPercent).toBeCloseTo((1 - 42.5 / 82) * 100)
     expect(monthly!.valueLabel).toBe('52 of 100 h left')
     expect(monthly!.usedPercent).toBeCloseTo((1 - 262 / 500) * 100)
   })
@@ -58,16 +58,16 @@ describe('Freebuff hours math', () => {
   it('refunds nothing once an open hour has ended and ignores null or malformed open hours', () => {
     const usage = parseUsage(session({ openHours: [null, { amount: 5, endsAt: '2026-11-23T09:00:00Z' }, { amount: 'x', endsAt: 'bad' }] }))!
     expect(usage.openHours).toHaveLength(1)
-    expect(quotaWindows(usage, NOW).credits!.valueLabel).toBe('Today 8:00 left of 16 h')
+    expect(quotaWindows(usage, NOW).daily!.valueLabel).toBe('Today 8:00 left of 16 h')
     expect(parseUsage(session({ openHours: null }))!.openHours).toEqual([])
   })
 
   it('clamps usedPercent and omits the monthly window when the wallet is missing', () => {
     const usage = parseUsage({ freebucks: { daily: { remaining: 400, limit: 80 } } })!
     expect(usage.resetAt).toBeNull()
-    expect(quotaWindows(usage, NOW)).toEqual({ credits: { usedPercent: 0, resetAt: null, valueLabel: 'Today 80:00 left of 16 h' } })
+    expect(quotaWindows(usage, NOW)).toEqual({ daily: { usedPercent: 0, resetAt: null, valueLabel: 'Today 80:00 left of 16 h' } })
     const empty = quotaWindows(parseUsage({ freebucks: { daily: { remaining: 0, limit: 0 } } })!, NOW)
-    expect(empty.credits!.usedPercent).toBeNull()
+    expect(empty.daily!.usedPercent).toBeNull()
   })
 
   it.each([null, {}, { freebucks: {} }, { freebucks: { daily: { remaining: '40', limit: 80 } } }, { freebucks: { daily: { remaining: 1 } } }])('rejects %j instead of reading zero hours', (body) => {
@@ -80,7 +80,7 @@ describe('Freebuff quota source', () => {
     const { source: quota, fetchImpl } = source()
     const result = await quota.fetch(fetchImpl)
     expect(result).toMatchObject({ providerId: 'freebuff', providerName: 'Freebuff', configured: true, ok: true, asOf: NOW })
-    expect(result.windows!.credits!.valueLabel).toBe('Today 8:30 left of 16 h, running hour ends in 30 min')
+    expect(result.windows!.daily!.valueLabel).toBe('Today 8:30 left of 16 h, running hour ends in 30 min')
     const [url, init] = fetchImpl.mock.calls[0]!
     expect(url).toBe(SESSION_URL)
     expect(init!.headers).toEqual({ Authorization: `Bearer ${TOKEN}`, 'x-fb-timezone': 'Europe/London' })
@@ -122,7 +122,7 @@ describe('Freebuff quota source', () => {
     now += QUOTA_TTL_MS - 1
     const later = await quota.fetch(fetchImpl)
     expect(fetchImpl).toHaveBeenCalledTimes(1)
-    expect(later.windows!.credits!.valueLabel).toBe('Today 8:25 left of 16 h, running hour ends in 25 min')
+    expect(later.windows!.daily!.valueLabel).toBe('Today 8:25 left of 16 h, running hour ends in 25 min')
     now = NOW + QUOTA_TTL_MS
     await quota.fetch(fetchImpl)
     expect(fetchImpl).toHaveBeenCalledTimes(2)

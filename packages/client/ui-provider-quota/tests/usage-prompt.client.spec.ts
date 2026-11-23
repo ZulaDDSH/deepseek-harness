@@ -71,6 +71,12 @@ describe('usage prompt decisions', () => {
     expect(decide([{ ...claude({ monthly: { usedPercent: 99, resetAt: RESET } }), configured: false }])).toBeUndefined()
   })
 
+  it('warns about a near-limit daily allowance without offering a switch and ranks it below a weekly window', () => {
+    const freebuff: QuotaResult = { providerId: 'freebuff', providerName: 'Freebuff', configured: true, ok: true, windows: { daily: { usedPercent: 95, resetAt: RESET } } }
+    expect(decide([freebuff])).toMatchObject({ kind: 'near-limit', windowId: 'daily', key: `limit|freebuff|daily|${RESET}` })
+    expect(decide([freebuff, claude({ weekly: { usedPercent: 95, resetAt: RESET } })])).toMatchObject({ windowId: 'weekly' })
+  })
+
   it('ranks near-limit windows by length across providers, longest first', () => {
     const prompt = decide([
       claude({ weekly: { usedPercent: 95, resetAt: RESET } }),

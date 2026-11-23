@@ -156,7 +156,7 @@ function usedPercent(left: number, limit: number): number | null {
   return limit > 0 ? Math.min(100, Math.max(0, (1 - left / limit) * 100)) : null
 }
 
-export function quotaWindows(usage: Usage, now: number): Partial<Record<'credits' | 'monthly', QuotaWindow>> {
+export function quotaWindows(usage: Usage, now: number): Partial<Record<'daily' | 'monthly', QuotaWindow>> {
   let unused = 0
   let running: number | undefined
   for (const hour of usage.openHours) {
@@ -167,7 +167,7 @@ export function quotaWindows(usage: Usage, now: number): Partial<Record<'credits
   const left = usage.dailyRemaining + unused
   const runningLabel = running === undefined ? '' : `, running hour ends in ${Math.floor((running - now) / 60_000)} min`
   const windows: Partial<Record<'credits' | 'monthly', QuotaWindow>> = {
-    credits: {
+    daily: {
       usedPercent: usedPercent(left, usage.dailyLimit),
       resetAt: usage.resetAt,
       valueLabel: `Today ${hoursMinutes(left)} left of ${hours(usage.dailyLimit)} h${runningLabel}`,

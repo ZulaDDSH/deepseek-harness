@@ -6,7 +6,7 @@ import type { QuotaResult, QuotaWindow, QuotaWindowId } from '@deepseek-ai/dsh-a
 export const NEAR_LIMIT_PERCENT = 90
 
 /** Window length in hours by window id; the longest window is the most prominent prompt. */
-const WINDOW_HOURS: Readonly<Record<QuotaWindowId, number>> = { '5h': 5, weekly: 168, 'weekly-opus': 168, 'weekly-sonnet': 168, monthly: 720, overage: 720, credits: 0 }
+const WINDOW_HOURS: Readonly<Record<QuotaWindowId, number>> = { '5h': 5, daily: 24, weekly: 168, 'weekly-opus': 168, 'weekly-sonnet': 168, monthly: 720, overage: 720, credits: 0 }
 
 /** How long a dismissal, or a switch to API credits, lasts for a window that reports no reset time. */
 export const OPEN_WINDOW_HOLD_MS = 24 * 60 * 60 * 1000

@@ -1,6 +1,6 @@
 /** Client-safe provider quota views and usage windows. */
 
-export type QuotaWindowId = '5h' | 'weekly' | 'weekly-opus' | 'weekly-sonnet' | 'monthly' | 'overage' | 'credits'
+export type QuotaWindowId = '5h' | 'daily' | 'weekly' | 'weekly-opus' | 'weekly-sonnet' | 'monthly' | 'overage' | 'credits'
 
 /** One provider-defined quota window normalized for client presentation. */
 export interface QuotaWindow {
