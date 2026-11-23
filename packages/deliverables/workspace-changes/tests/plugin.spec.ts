@@ -95,6 +95,33 @@ describe('workspace-changes in a repository', () => {
     ctx.emit('session/disposed', session)
   })
 
+  it('never prunes the directory of a Session whose recorder is live', async () => {
+    const cwd = await repository()
+    const { ctx, root } = await boot({ retentionSessions: 1 })
+    const prune = vi.spyOn(Store, 'pruneRoot')
+    const record = async (id: string, file: string, turn: number): Promise<Session> => {
+      const session = ctx.sessions.create(brandString<SessionId>(id), { meta: { cwd } })
+      startTurn(session, turn)
+      await settle(ctx, session)
+      await writeFile(join(cwd, file), 'x\n')
+      toolCall(session, turn, 'bash', { command: 'x' })
+      endTurn(session, turn)
+      await settle(ctx, session)
+      return session
+    }
+    const first = await record('first', 'one.txt', 1)
+    await new Promise<void>(resolve => setTimeout(resolve, 50))
+    await record('second', 'two.txt', 1)
+    await Promise.all(prune.mock.results.map(result => result.value))
+    expect(await readdir(root)).toEqual(['first', 'second'])
+    const seq = announcedSeq(first)
+    expect(await ctx.workspaceChanges.diff(first.id, seq, 0, signal)).toMatchObject({ kind: 'text' })
+    ctx.emit('session/disposed', first)
+    await record('third', 'three.txt', 1)
+    await Promise.all(prune.mock.results.map(result => result.value))
+    expect(await readdir(root)).not.toContain('first')
+  })
+
   it.each([
     { timeoutMs: 0 }, { outputMaxBytes: 0 }, { maxFiles: 0 }, { maxFileBytes: 0 }, { diffTimeoutMs: 0 },
     { retentionSessions: 0 }, { retentionBytes: 0 }, { retentionDays: -1 }, { retentionDays: Number.NaN }, { root: ' ' },

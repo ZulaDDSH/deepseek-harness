@@ -122,7 +122,7 @@ export class TurnRecorder {
     private readonly cwd: string,
     private readonly env: RecorderEnvironment,
     /** This Session's durable directory, holding its records, captures, and snapshot objects. */
-    private readonly directory: string,
+    readonly directory: string,
     private readonly prepare: () => Promise<void> = () => Promise.resolve(),
   ) {}
 

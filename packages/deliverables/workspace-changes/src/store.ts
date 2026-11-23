@@ -226,7 +226,9 @@ async function footprintOf(path: string): Promise<SessionFootprint> {
  * @param now - current time in milliseconds.
  * @returns the removed session directory count.
  */
-export async function pruneRoot(root: string, policy: RetentionPolicy, now: number): Promise<number> {
+export async function pruneRoot(
+  root: string, policy: RetentionPolicy, now: number, isLive: (path: string) => boolean = () => false,
+): Promise<number> {
   let names
   try {
     names = await readdir(root, { withFileTypes: true })
@@ -243,6 +245,12 @@ export async function pruneRoot(root: string, policy: RetentionPolicy, now: numb
   let bytes = 0
   let kept = 0
   for (const session of sessions) {
+    if (!isLive(session.path)) continue
+    kept += 1
+    bytes += session.bytes
+  }
+  for (const session of sessions) {
+    if (isLive(session.path)) continue
     const expired = now - session.modifiedMs > policy.maxAgeMs
     const overCount = kept >= policy.maxSessions
     const overBytes = kept > 0 && bytes + session.bytes > policy.maxBytes
@@ -253,6 +261,11 @@ export async function pruneRoot(root: string, policy: RetentionPolicy, now: numb
     kept += 1
     bytes += session.bytes
   }
-  for (const path of doomed) await rm(path, { recursive: true, force: true })
-  return doomed.size
+  let removed = 0
+  for (const path of doomed) {
+    if (isLive(path)) continue
+    await rm(path, { recursive: true, force: true })
+    removed += 1
+  }
+  return removed
 }

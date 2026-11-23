@@ -160,9 +160,10 @@ export function apply(ctx: Context, config: Config): void {
     lifetime.abort()
     await Promise.all([...recorders.keys()].map(forget))
   })
+  const isLive = (path: string): boolean => [...recorders.values()].some(recorder => recorder.directory === path)
   /** Apply retention without letting a pruning failure disturb the turn that triggered it. */
   const prune = (): void => {
-    void pruneRoot(config.root, retention, Date.now()).catch((error: unknown) => {
+    void pruneRoot(config.root, retention, Date.now(), isLive).catch((error: unknown) => {
       ctx.logger.warn(`workspace-changes: retention pruning failed: ${String(error)}`)
     })
   }

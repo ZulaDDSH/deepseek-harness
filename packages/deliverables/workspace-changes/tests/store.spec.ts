@@ -200,6 +200,35 @@ describe('retention', () => {
     expect(await readdir(root)).toEqual(['newest'])
   })
 
+  it('never removes a live session and counts it toward the bounds', async () => {
+    const root = await scratch('dsh-prune-')
+    const live = await session(root, 'live', 10, 5_000)
+    await session(root, 'old', 10, 3_000)
+    await session(root, 'new', 10, 0)
+    const bounded: RetentionPolicy = { maxSessions: 2, maxBytes: 1_000_000, maxAgeMs: 1_000 }
+    expect(await pruneRoot(root, bounded, Date.now(), path => path === live)).toBe(1)
+    expect((await readdir(root)).sort()).toEqual(['live', 'new'])
+  })
+
+  it('exceeds a bound rather than remove live sessions that alone break it', async () => {
+    const root = await scratch('dsh-prune-')
+    const one = await session(root, 'one', 800, 2_000)
+    const two = await session(root, 'two', 800, 1_000)
+    await session(root, 'idle', 10, 0)
+    const bounded: RetentionPolicy = { maxSessions: 1, maxBytes: 1_000, maxAgeMs: 1_000_000 }
+    expect(await pruneRoot(root, bounded, Date.now(), path => path === one || path === two)).toBe(1)
+    expect((await readdir(root)).sort()).toEqual(['one', 'two'])
+  })
+
+  it('spares a directory that turns live between the scan and its removal', async () => {
+    const root = await scratch('dsh-prune-')
+    const racing = await session(root, 'racing', 10, 5_000)
+    let asks = 0
+    const isLive = (path: string): boolean => path === racing && ++asks > 2
+    expect(await pruneRoot(root, policy, Date.now(), isLive)).toBe(0)
+    expect(await readdir(root)).toEqual(['racing'])
+  })
+
   it('ignores entries that are not session directories', async () => {
     const root = await scratch('dsh-prune-')
     await writeFile(join(root, 'stray.txt'), 'x')
