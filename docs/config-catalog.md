@@ -4391,7 +4391,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-subagent-freebuff`
 
 - `inject`: `subagents` · `subprocess`
-- `source`: [`packages/subagent/subagent-freebuff/src/index.ts:41`](../packages/subagent/subagent-freebuff/src/index.ts)
+- `source`: [`packages/subagent/subagent-freebuff/src/index.ts:40`](../packages/subagent/subagent-freebuff/src/index.ts)
 
 ```ts config-catalog
 export interface Config {
