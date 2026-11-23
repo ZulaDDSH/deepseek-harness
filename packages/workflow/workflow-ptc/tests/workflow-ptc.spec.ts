@@ -625,13 +625,13 @@ describe('dsh-workflow-ptc', { timeout: 120_000 }, () => {
     })
 
     it('ends a run with a pending child as an error at the overall deadline and disposes the child', async () => {
-      const { ctx, parent, provider } = await setup({ manual: true, config: { maxDurationMs: 300 } })
+      const { ctx, parent, provider } = await setup({ manual: true, config: { maxDurationMs: 2000 } })
       const runEnds: WorkflowResultInfo[] = []
       ctx.on('workflow/end', (_info, result) => { runEnds.push(result) })
       const handle = ctx.workflowEngine.start({ ...scripted("return await agent('long job')"), parent })
       const result = await handle.result
       expect(result).toMatchObject({ stopReason: 'error', errorCode: 'RUN_FAILED', value: null })
-      expect(result.error).toContain('overall deadline of 300 ms')
+      expect(result.error).toContain('overall deadline of 2000 ms')
       await handle.dispose()
       expect(provider.runs[0]!.disposed).toBe(true)
       expect(runEnds).toEqual([expect.objectContaining({ stopReason: 'error', error: result.error })])
