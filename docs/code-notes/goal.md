@@ -2,22 +2,8 @@
 
 ## packages/goal/goal/src/fold.ts:applyGoalChange
 
-Finding 134. The fold counts a round when the goal-sourced `user/message` is admitted
-(`applyGoalEvent`), so a round the host or an unload aborted stayed spent and every snapshot change had to
-carry the same `roundsStarted`. A refund is a new `goal/change` operation `refund` written at
-`GOAL_REFUND_CHANGE_VERSION` (2); every other operation keeps version 1 and is written exactly as before.
-This is the only payload that lowers the counter. A reader that predates it rejects version 2 in
-`decodeGoalChange`; `applyGoalProjection` records that as the projection `failure` and goal access answers
-`GOAL_STATE_CORRUPT`, so an older build refuses the goal instead of miscounting rounds. The Session layer
-treats `goal/change` as an opaque known event and never repairs or truncates on a payload it cannot decode.
-Refund rules enforced by `validateRefund`: the next revision of the current goal, same definition, phase and
-blocked reason, the same `createdAt`, `refundedRound` equal to the current `roundsStarted` (at least 1), and
-`roundsStarted` one lower. The round number is the idempotence fence, so one admitted round is refunded at
-most once; the next admitted round reuses that number under the newer revision. A completed goal cannot be
-refunded.
+`packages/goal/goal/src/fold.ts:applyGoalChange`: Finding 134. The fold counts a round when the goal-sourced `user/message` is admitted (`applyGoalEvent`), so a round the host or an unload aborted stayed spent and every snapshot change had to carry the same `roundsStarted`. A refund is a new `goal/change` operation `refund` written at `GOAL_REFUND_CHANGE_VERSION` (2); every other operation keeps version 1 and is written exactly as before. This is the only payload that lowers the counter. A reader that predates it rejects version 2 in `decodeGoalChange`; `applyGoalProjection` records that as the projection `failure` and goal access answers `GOAL_STATE_CORRUPT`, so an older build refuses the goal instead of miscounting rounds. The Session layer treats `goal/change` as an opaque known event and never repairs or truncates on a payload it cannot decode. Refund rules enforced by `validateRefund`: the next revision of the current goal, same definition, phase and blocked reason, the same `createdAt`, `refundedRound` equal to the current `roundsStarted` (at least 1), and `roundsStarted` one lower. The round number is the idempotence fence, so one admitted round is refunded at most once; the next admitted round reuses that number under the newer revision. A completed goal cannot be refunded.
 
 ## packages/goal/goal/src/index.ts:GoalService::refundRound
 
-Finding 134. Writes the `refund` change for the latest admitted round through the same `commit` path as
-every other mutation, keeping the process-local activation as it is, so a refund never arms or disarms
-continuation. The caller names the exact current ref; the service reads the round from its own projection.
+`packages/goal/goal/src/index.ts:GoalService::refundRound`: Finding 134. Writes the `refund` change for the latest admitted round through the same `commit` path as every other mutation, keeping the process-local activation as it is, so a refund never arms or disarms continuation. The caller names the exact current ref; the service reads the round from its own projection.
