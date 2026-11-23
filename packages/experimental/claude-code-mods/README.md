@@ -161,7 +161,7 @@ The bridge cancels detached calls when its fiber begins unloading, before depend
 
 #### What the model sees
 
-Strings a `prompt.submit` hook adds to `e.context` become text blocks after the prompt as typed, inside the human's own message; a rewritten `text` replaces the prompt's text blocks. `$.prompt.submit({ text })` queues a `user`-sourced message: the text alone with `asUser: true`, otherwise framed as below with the plugin name and the text filled in. With [Auto review](../auto-review/README.md#headless-supervision), these user-sourced submissions have user instruction authority, including hook context and framed submissions without `asUser: true`.
+Strings a `prompt.submit` hook adds to `e.context` become text blocks after the prompt as typed, inside the human's own message; a rewritten `text` replaces the prompt's text blocks. `$.prompt.submit({ text })` queues a `user`-sourced message with the text alone when `asUser: true`; otherwise it queues the text framed as below, with source `claude-code-mod` naming the plugin. With [Auto review](../auto-review/README.md#headless-supervision), only `asUser: true` submissions and hook context, which stays inside the human's own message, have user instruction authority; a framed submission is a fact.
 
 ##### Framing of a prompt a mod submits
 

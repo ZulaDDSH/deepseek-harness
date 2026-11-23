@@ -664,9 +664,8 @@ describe('commands and prompts raised by a mod', () => {
     expect(nudged?.result).toEqual({ kind: 'success', text: 'driver-mod: sent 47' })
     await agent.whenIdle()
     expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('Message from the \\"driver-mod\\" mod:\\nfrom the mod')
-    // Claude Code submits a mod's prompt as the user's own; the framing in the text names the mod.
     const submitted = events(agent).find(e => e.type === 'user/message')
-    expect(submitted?.type === 'user/message' && submitted.data.source).toEqual({ kind: 'user' })
+    expect(submitted?.type === 'user/message' && submitted.data.source).toEqual({ kind: 'claude-code-mod', mod: 'driver-mod' })
 
     const relayed = await h.ctx.commands.execute(agent, '/relay', [], signal)
     expect(relayed?.result).toEqual({ kind: 'success', text: 'driver-mod: {"text":"driver-mod: sent 11"}' })

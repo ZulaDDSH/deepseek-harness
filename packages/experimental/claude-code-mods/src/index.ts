@@ -84,7 +84,7 @@ function textOf(blocks: readonly ContentBlock[]): string {
 
 /** The human's own messages among a claim: the prompt a `prompt.submit` hook sees and may rewrite. */
 function promptMessages(claimed: readonly UserMessage[]): UserMessage[] {
-  return claimed.filter(message => message.source.kind === 'user')
+  return claimed.filter(message => message.source.kind === 'user' || message.source.kind === 'claude-code-mod')
 }
 
 /**

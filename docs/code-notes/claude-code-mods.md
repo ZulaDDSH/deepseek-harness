@@ -1,0 +1,8 @@
+# claude-code-mods code notes
+
+## A framed mod prompt is not a user-sourced message (finding 55)
+
+- `packages/experimental/claude-code-mods/src/host-ops.ts:'prompt.submit'` - text a mod submits without `asUser: true` is queued with source `{ kind: 'claude-code-mod', mod: <name> }` instead of `{ kind: 'user' }`. Auto review (`packages/experimental/auto-review/src/index.ts:textRole`) grants `user-instruction` authority only to `kind: 'user'` sources and labels every other unknown kind `fact`, so a framed submission no longer reads as the human's instruction. `asUser: true` is the mod's explicit opt-in and keeps `{ kind: 'user' }`.
+- `packages/experimental/claude-code-mods/src/index.ts:promptMessages` - still treats `claude-code-mod` messages as prompts, so `prompt.submit` hooks keep seeing a mod's own submission with the plugin origin.
+- `packages/experimental/claude-code-mods/src/host-ops.ts:MessageSourceMap` augmentation - the kind is declared on the merge-extensible `MessageSourceMap` by this package, as `llm/message.ts:MessageSourceMap` requires; consumers fall through unknown kinds, so UI and logs show it as an ordinary request.
+- Not fixed (other packages): hook context added by an `on('prompt.submit')` hook is still appended as blocks inside the human's own `user` message (`packages/experimental/claude-code-mods/src/bridge.ts`), and Auto review labels per message source, not per block, so that context still carries user authority. Splitting it needs per-block provenance in the message type and `auto-review/src/index.ts:filteredUserEntries`. `packages/experimental/auto-review/README.md` still says all mod submissions have user authority; that file is outside this change.
