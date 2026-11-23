@@ -947,12 +947,15 @@ describe('operator-scoped connect', () => {
     } finally { finish.resolve(undefined); await host.dispose() }
   })
 
-  it('retains unused operators for arbitrary elapsed time but rejects expired cookies', async () => {
+  it('retains attached operators for arbitrary elapsed time but rejects expired cookies', async () => {
     const host = await mounted({ cookieMaxAgeDays: 36_500 })
     vi.useFakeTimers()
+    const socket = new PassThrough()
     try {
       const { cookie } = await connect(host)
       const peer = admitted(host.connection, cookie)
+      await host.ctx.waterfall('webserver/upgrade', fakeRequest({ host: 'localhost', cookie }, '/api/remote.mux'),
+        socket, Buffer.alloc(0), peer, vi.fn(async () => {}))
       await vi.advanceTimersByTimeAsync(10 * 365 * 86_400_000)
       expect(admitted(host.connection, cookie)).toBe(peer)
       const disposed = vi.fn()
@@ -962,7 +965,7 @@ describe('operator-scoped connect', () => {
       expect(disposed).not.toHaveBeenCalled()
       await host.dispose()
       expect(disposed).toHaveBeenCalledOnce()
-    } finally { vi.useRealTimers(); await host.dispose() }
+    } finally { vi.useRealTimers(); socket.destroy(); await host.dispose() }
   })
 
   it('preserves browser tabs and restart recovery without resurrecting API operators', async () => {
