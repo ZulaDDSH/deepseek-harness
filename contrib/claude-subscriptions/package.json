@@ -55,7 +55,8 @@
     "ownership.js",
     "client.js",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "NOTICE.md"
   ],
   "devDependencies": {
     "react": "18.3.1",
