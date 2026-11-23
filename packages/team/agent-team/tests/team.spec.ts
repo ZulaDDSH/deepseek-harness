@@ -169,9 +169,23 @@ describe('Tree-owned task boards', () => {
     const failure = new Error('mode save failed')
     const id = brandString<SessionId>('failed-mode-save')
     vi.spyOn(ctx.sessions, 'flush').mockRejectedValueOnce(failure)
-    await expect(ctx.agents.create({ sessionId: id })).rejects.toBe(failure)
+    await expect(ctx.agents.create({ sessionId: id })).rejects.toMatchObject({ code: 'TEAM_MODE_PERSISTENCE_UNCONFIRMED', cause: failure })
     expect(ctx.agents.get(id)).toBeUndefined()
     expect(ctx.sessions.get(id)).toBeUndefined()
+  })
+
+  it.each(['rejects', 'resolves false'] as const)('reports an applied but unconfirmed mode when the flush %s, and the same selection retries', async (kind) => {
+    const { ctx, lead } = await setup([], {}, false)
+    const flush = vi.spyOn(ctx.sessions, 'flush')
+    if (kind === 'rejects') flush.mockRejectedValueOnce(new Error('disk full'))
+    else flush.mockResolvedValueOnce(false)
+    await expect(ctx.agentTeams.setEnabled(lead, true)).rejects.toMatchObject({
+      name: 'TeamError', code: 'TEAM_MODE_PERSISTENCE_UNCONFIRMED', message: expect.stringContaining('Team mode is now on') as string,
+    })
+    expect(ctx.agentTeams.isEnabled(lead)).toBe(true)
+    const appended = lead.session.ownEvents().filter(event => event.type === 'team/mode').length
+    await ctx.agentTeams.setEnabled(lead, true)
+    expect(lead.session.ownEvents().filter(event => event.type === 'team/mode')).toHaveLength(appended)
   })
 
   it('does not register a Team slash command', async () => {

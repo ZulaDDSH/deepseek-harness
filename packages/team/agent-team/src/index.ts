@@ -106,7 +106,7 @@ export class TeamService extends TypertRemoteService {
    * @param enabled - selected Team mode.
    * @param signal - cancellation checked before changing the selection.
    * @returns fulfillment after the selection flushes.
-   * @throws when called by a descendant or persistence fails. An appended selection remains active;
+   * @throws when called by a descendant, or TEAM_MODE_PERSISTENCE_UNCONFIRMED when the flush fails or no listener participates. An appended selection remains active;
    * retrying the same selection flushes without a duplicate event.
    */
   @Remote
@@ -115,7 +115,18 @@ export class TeamService extends TypertRemoteService {
     if (root !== agent) throw new TeamError('change Team mode from the root Session', 'TEAM_LEAD_REQUIRED')
     signal?.throwIfAborted()
     if (this.isEnabled(root) !== enabled) root.session.append('team/mode', { enabled })
-    await this.ctx.sessions.flush(root.session)
+    let cause: unknown
+    try {
+      if (await this.ctx.sessions.flush(root.session)) return
+      cause = new Error('No session durability listener participated')
+    } catch (error: unknown) {
+      cause = error
+    }
+    throw new TeamError(
+      `Team mode is now ${enabled ? 'on' : 'off'} for this Session, but persistence was not confirmed; select ${enabled ? 'on' : 'off'} again to retry saving it`,
+      'TEAM_MODE_PERSISTENCE_UNCONFIRMED',
+      { cause },
+    )
   }
 
   /**
