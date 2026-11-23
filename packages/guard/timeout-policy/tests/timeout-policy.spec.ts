@@ -250,3 +250,43 @@ describe('dsh-tool-call-timeout-policy real-load-path guard', () => {
     await fiber.dispose()
   })
 })
+
+describe('timeout-policy uncooperative tool', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
+
+  const stubborn = defineContentToolFixture({
+    name: 'stubborn', description: 'ignores its signal', parameters: {}, timeoutMs: 100,
+    execute(): Promise<never> { return new Promise(() => {}) },
+  })
+
+  it('reports TOOL_TIMEOUT_UNSETTLED once the grace passes without the tool settling', async () => {
+    const ctx = await setup()
+    ctx.tools.register(stubborn)
+    const pending = executeToolFixture(ctx, { signal: testToolSignal, callId: brandString<ToolCallId>('c1'), name: 'stubborn', arguments: {} })
+    await vi.advanceTimersByTimeAsync(150)
+    let settled = false
+    void pending.then(() => { settled = true })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(settled).toBe(false)
+    await vi.advanceTimersByTimeAsync(30_000)
+    const result = await pending
+    expect(result.isError).toBe(true)
+    expect(result.error?.info).toEqual({ name: 'ToolTimeoutError', code: 'TOOL_TIMEOUT_UNSETTLED' })
+    expect(result.error?.message).toMatch(/did not stop.*effects are unknown/)
+  })
+
+  it('keeps TOOL_TIMEOUT when a slow cleanup settles inside the grace', async () => {
+    const ctx = await setup()
+    ctx.tools.register(defineContentToolFixture({
+      name: 'slowcleanup', description: 'cleans up slowly', parameters: {}, timeoutMs: 100,
+      execute(_args, exec): Promise<{ type: 'text'; text: string }[]> {
+        return new Promise((resolve) => { exec.signal.addEventListener('abort', () => { setTimeout(() => { resolve([{ type: 'text', text: 'done' }]) }, 5_000) }) })
+      },
+    }))
+    const pending = executeToolFixture(ctx, { signal: testToolSignal, callId: brandString<ToolCallId>('c1'), name: 'slowcleanup', arguments: {} })
+    await vi.advanceTimersByTimeAsync(6_000)
+    const result = await pending
+    expect(result.error?.info).toEqual({ name: 'ToolTimeoutError', code: 'TOOL_TIMEOUT' })
+  })
+})
