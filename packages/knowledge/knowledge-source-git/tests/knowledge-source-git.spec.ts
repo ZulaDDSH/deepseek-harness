@@ -7,7 +7,7 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -172,6 +172,34 @@ describe('git knowledge source', () => {
     await git(['branch', 'v1.0.0', second])
     await git(['branch', first, second])
     expect((await resolveGitSource({ repo, ref: kind === 'tag' ? 'v1.0.0' : first, paths: [] })).commit).toBe(first)
+  })
+
+  it.each(['unstaged', 'staged'])('refuses a local checkout with %s tracked edits and leaves it untouched', async (kind) => {
+    await commitFile('knowledge/note.md', 'first', 'first')
+    const second = await commitFile('knowledge/note.md', 'second', 'second')
+    await git(['branch', 'other', 'HEAD~1'])
+    await writeFile(join(repo, 'knowledge/note.md'), 'my edit', 'utf8')
+    if (kind === 'staged') await git(['add', 'knowledge/note.md'])
+    await expect(resolveGitSource({ repo, ref: 'other', paths: [] })).rejects.toThrow(/uncommitted changes/)
+    expect(await readFile(join(repo, 'knowledge/note.md'), 'utf8')).toBe('my edit')
+    expect(await git(['symbolic-ref', 'HEAD'])).toBe('refs/heads/master')
+    expect(await git(['rev-parse', 'HEAD'])).toBe(second)
+  })
+
+  it('keeps the caller branch attached when the local checkout already is at the commit', async () => {
+    const first = await commitFile('knowledge/note.md', 'first', 'first')
+    await writeFile(join(repo, 'untracked.txt'), 'scratch', 'utf8')
+    expect((await resolveGitSource({ repo, ref: 'master', paths: [] })).commit).toBe(first)
+    expect(await git(['symbolic-ref', 'HEAD'])).toBe('refs/heads/master')
+    expect(await readFile(join(repo, 'untracked.txt'), 'utf8')).toBe('scratch')
+  })
+
+  it('moves a clean local checkout to another ref without forcing', async () => {
+    const first = await commitFile('knowledge/note.md', 'first', 'first')
+    await commitFile('knowledge/note.md', 'second', 'second')
+    await git(['tag', 'v1', first])
+    expect((await resolveGitSource({ repo, ref: 'v1', paths: [] })).commit).toBe(first)
+    expect(await git(['rev-parse', 'HEAD'])).toBe(first)
   })
 
   it('rejects a source that is not a Git work tree', async () => {

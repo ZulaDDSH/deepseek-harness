@@ -130,7 +130,9 @@ export async function resolveGitSource(source: GitKnowledgeSource): Promise<Reso
     if (!await isWorkTree(root)) {
       throw new Error(`knowledge source "${source.repo}" is not a Git work tree`)
     }
-    // A local checkout may have no remote; fetching is best effort.
+    if (await gitOrThrow(['status', '--porcelain', '--untracked-files=no'], root) !== '') {
+      throw new Error(`knowledge source "${source.repo}" has uncommitted changes to tracked files; commit or stash them first`)
+    }
     await git(['fetch', '--all', '--tags'], root)
   } else {
     root = source.checkoutDir ?? join(process.cwd(), '.dsh-knowledge', createHash('sha256').update(remote).digest('hex'))
@@ -153,7 +155,10 @@ export async function resolveGitSource(source: GitKnowledgeSource): Promise<Reso
   const ref = pinned ? source.ref : tag.code === 0 ? tag.stdout.trim() : fetched.code === 0 ? fetched.stdout.trim() : source.ref
   const commitRef = await gitOrThrow(['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`], root)
   const localBranch = isLocalPath(source.repo) && !pinned && tag.code !== 0 && fetched.code !== 0
-  await gitOrThrow(['checkout', '--force', ...localBranch ? [] : ['--detach'], localBranch ? source.ref : `${commitRef}^{commit}`], root)
+  const local = isLocalPath(source.repo)
+  if (!local || await gitOrThrow(['rev-parse', 'HEAD'], root) !== commitRef) {
+    await gitOrThrow(['checkout', ...local ? [] : ['--force'], ...localBranch ? [] : ['--detach'], localBranch ? source.ref : `${commitRef}^{commit}`], root)
+  }
   const commit = await gitOrThrow(['rev-parse', 'HEAD'], root)
   return { root, commit, repo: source.repo, ref: source.ref }
 }
